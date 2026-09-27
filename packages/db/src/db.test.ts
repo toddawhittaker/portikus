@@ -650,6 +650,8 @@ describe("database migrations and schema", () => {
 				expect(down24.error).toBeUndefined();
 				const down26 = await migrator.migrateDown();
 				expect(down26.error).toBeUndefined();
+				const down27 = await migrator.migrateDown();
+				expect(down27.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -677,6 +679,7 @@ describe("database migrations and schema", () => {
 					"0022_api_request_samples",
 					"0023_guard_idle_lift",
 					"0024_process_snapshots",
+					"0025_egress",
 					"0026_backups",
 				]);
 				throw rollback;
@@ -701,6 +704,9 @@ describe("database migrations and schema", () => {
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0026_backups",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0025_egress",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0024_process_snapshots",
@@ -798,7 +804,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0026, 0024, 0023 (Epic 21), 0022 (Epic 19), 0021 and 0020 first.
+					// Past 0026, 0025, 0024, 0023 (Epic 21), 0022 (Epic 19), 0021 and 0020 first.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -865,6 +872,9 @@ describe("database migrations and schema", () => {
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0026_backups",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0025_egress",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0024_process_snapshots",
@@ -1229,6 +1239,9 @@ describe("database migrations and schema", () => {
 						"0026_backups",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0025_egress",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0024_process_snapshots",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1297,6 +1310,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
@@ -1732,7 +1746,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Down past 0026, 0024 and 0023 (Epic 21), 0022 (Epic 19),
+					// Down past 0026, 0025, 0024 and 0023 (Epic 21), 0022 (Epic 19),
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					// 0021 and 0020 (Epic 14.3), 0019 (Epic 14.2), 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
@@ -1873,6 +1888,7 @@ describe("resource guard migration", () => {
 					});
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0023_guard_idle_lift");
@@ -1901,6 +1917,9 @@ describe("resource guard migration", () => {
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0026_backups",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0025_egress",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0024_process_snapshots",
@@ -2140,7 +2159,8 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 						allowUnorderedMigrations: true,
 					});
-					// Build a database that took 0020 to 0026 before 0019 existed.
+					// Build a database that took 0020 to 0026 (with 0025) before 0019 existed.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2154,11 +2174,13 @@ describe("resource guard migration", () => {
 						"0022_api_request_samples",
 						"0023_guard_idle_lift",
 						"0024_process_snapshots",
+						"0025_egress",
 						"0026_backups",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
 					// Undo 0019, 0026 down to 0020, and 0018 (applied 0018, 0020 to 0026, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2178,6 +2200,7 @@ describe("resource guard migration", () => {
 						"0022_api_request_samples",
 						"0023_guard_idle_lift",
 						"0024_process_snapshots",
+						"0025_egress",
 						"0026_backups",
 					]);
 					throw rollback;
@@ -2221,6 +2244,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0024_process_snapshots");
@@ -2321,6 +2345,91 @@ describe("backups migration", () => {
 			).rejects.toBe(rollback);
 		},
 	);
+	test.skipIf(!hasTestDb())(
+		"0025 adds the egress policy with open defaults, checks its values, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const tables = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.tables
+				where table_name in ('egress_entries', 'egress_blocked_names')`;
+			const columns = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.columns
+				where table_name = 'settings' and column_name like 'egress_%'`;
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					await trx.deleteFrom("settings").execute();
+					await trx
+						.insertInto("settings")
+						.values({ id: 1, shutdown_grace_seconds: 600 })
+						.execute();
+					const row = await trx
+						.selectFrom("settings")
+						.select(["egress_mode", "egress_presets", "egress_ports", "egress_version"])
+						.executeTakeFirstOrThrow();
+					expect(row).toEqual({
+						egress_mode: "open",
+						egress_presets: [],
+						egress_ports: [22, 80, 443],
+						egress_version: 0,
+					});
+					await trx
+						.insertInto("egress_entries")
+						.values({ kind: "host", value: "example.edu", label: "" })
+						.execute();
+					// A value is listed once; a kind or mode outside the set is refused.
+					await sql`savepoint s`.execute(trx);
+					await expect(
+						trx
+							.insertInto("egress_entries")
+							.values({ kind: "host", value: "example.edu", label: "" })
+							.execute(),
+					).rejects.toThrow();
+					await sql`rollback to savepoint s`.execute(trx);
+					await expect(
+						sql`insert into egress_entries (kind, value) values ('url', 'x')`.execute(
+							trx,
+						),
+					).rejects.toThrow();
+					await sql`rollback to savepoint s`.execute(trx);
+					await expect(
+						sql`update settings set egress_mode = 'closed'`.execute(trx),
+					).rejects.toThrow();
+					await sql`rollback to savepoint s`.execute(trx);
+					// The blocked-name table has no workspace, user or address column.
+					const blockedColumns = await sql<{ column_name: string }>`
+						select column_name from information_schema.columns
+						where table_name = 'egress_blocked_names' order by column_name`.execute(
+						trx,
+					);
+					expect(blockedColumns.rows.map((r) => r.column_name)).toEqual([
+						"count",
+						"day",
+						"name",
+						"source",
+					]);
+
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0026_backups",
+					);
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0025_egress");
+					expect((await tables.execute(trx)).rows[0]?.n).toBe(0);
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(0);
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					expect((await tables.execute(trx)).rows[0]?.n).toBe(2);
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(7);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
 });
 
 describe("api request samples migration", () => {
@@ -2360,7 +2469,8 @@ describe("api request samples migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0026, 0024 and 0023 (Epic 21) first.
+					// Past 0026, 0025, 0024 and 0023 (Epic 21) first.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
