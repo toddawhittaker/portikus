@@ -175,11 +175,12 @@ we_check_open() {
 WE_BLOCKED=(example.com cloudflare-dns.com dns.google)
 
 we_check_open_blocked() {
-  local r
+  local r before
   check "open mode with blocked sites: the egress DNS runs" sec_ssh "systemctl is-active --quiet portikus-egress-dns"
   check "open mode with blocked sites: the workspace proxy runs" sec_ssh "systemctl is-active --quiet portikus-workspace-proxy"
   check "open mode with blocked sites: Squid's open switch is on" sec_ssh "grep -qx '[.]' /var/lib/portikus/egress-state/open.txt"
   sec_exec a root "resolvectl flush-caches" >/dev/null 2>&1
+  before=$(we_unblocked_count)
   r=$(we_run_bash)
   printf '%s\n' "$r" | sed 's/^/    /'
   we_expect "blocked, a" "$r" unlisted_resolves no "a blocked name gets no address"
@@ -220,8 +221,12 @@ we_check_open_blocked() {
   check_output "blocked, a: UDP 443 (QUIC) never leaves the VM, so it cannot pass Squid" "0" we_quic_leaks
   check "the blocked name is counted from DNS and from Squid" we_counted example.com
   # Only refusals are counted: an unblocked site that was reached is not.
-  check_output "an unblocked site that was reached is not counted" "0" \
-    sec_psql "SELECT count(*) FROM egress_blocked_names WHERE day = (now() AT TIME ZONE 'UTC')::date AND name IN ('example.org', 'api.github.com', 'github.com')"
+  check_output "an unblocked site that was reached is not counted" "$before" we_unblocked_count
+}
+
+# Today's counts for the unblocked names the probes reach; an earlier run may have refused them.
+we_unblocked_count() {
+  sec_psql "SELECT coalesce(sum(count), 0) FROM egress_blocked_names WHERE day = (now() AT TIME ZONE 'UTC')::date AND name IN ('example.org', 'api.github.com', 'github.com')"
 }
 
 # ── Allow-list mode ──────────────────────────────────────────────
