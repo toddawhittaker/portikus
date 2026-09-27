@@ -18,6 +18,4 @@ workspace_egress_tls_counter_port: 5398
 # start without one.
 workspace_egress_proxy_forward_port: 3199
 
-workspace_egress_request_dir: /var/lib/portikus/egress-request
-workspace_egress_state_dir: /var/lib/portikus/egress-state
 workspace_egress_proxy_dir: /etc/portikus-workspace-proxy

@@ -649,10 +649,13 @@ change it.
   firewall lets workspace traffic out only to those addresses and to the
   listed ranges. HTTPS and plain HTTP to a listed name's address pass
   through the workspace proxy (`portikus-workspace-proxy`, a Squid built
-  with OpenSSL, on the gateway's ports 3129 and 3130). It reads the name
-  the client asked for and passes the connection through untouched only
-  when that name is listed; it never decrypts anything. Incus's own
-  dnsmasq still hands out addresses and answers `.incus` names.
+  with OpenSSL, on the gateway's ports 3129 and 3130, running as its own
+  user `portikus-wsproxy`). It reads the name the client asked for, and
+  when that name is listed the connection is passed on; the proxy never
+  decrypts anything. The proxy's own lookups of those names also go to our
+  resolver, so a name a workspace sends in a request cannot leak out
+  through DNS. Incus's own dnsmasq still hands out addresses and answers
+  `.incus` names.
 - **Who changes what.** The worker sees a new policy, and the controller
   writes a request file. `portikus-egress-apply.path` then starts the root
   helper `portikus-egress-apply.service`, which loads the firewall table
@@ -666,7 +669,10 @@ change it.
 - **At boot** the helper runs before Incus starts any workspace and loads
   the last applied policy from `applied.json`. If that was an allow-list
   and it cannot be loaded, it drops all workspace traffic to the outside
-  instead of opening it. A site that has never saved a policy stays open.
+  instead of opening it. If the helper cannot run at all (it crashes, or
+  Node fails), a small shell guard that runs after it does the same, from
+  `/etc/portikus/egress-drop-all.nft`, which Ansible writes. A site that
+  has never saved a policy stays open.
   The resolver and the workspace proxy start once Incus has given the
   bridge its gateway address.
 - **When something fails, it fails closed.** If the resolver stops, lookups
@@ -680,19 +686,22 @@ change it.
 - **What students see.** A refused name fails as "Could not resolve host";
   a refused HTTPS connection is closed; a refused plain-HTTP request gets a
   403. A name looked up just before a switch may still resolve inside the
-  workspace for up to five minutes, but its connections are dropped.
+  workspace until the answer's DNS lifetime runs out, which after a switch
+  from open mode can exceed five minutes; its connections are dropped all
+  the same.
 - **Logs hold names, never addresses.** The proxy writes no access log;
   each refused name goes to the worker's site-wide counts, which the
   Network tab lists. Its `cache.log` in `/var/log/portikus-workspace-proxy/`
-  holds only fatal errors. The resolver's query log is off.
+  holds only start-up messages and serious warnings, never a workspace's
+  address. The resolver's query log is off.
 - **Checking it:**
 
   ```
   ssh deploy@10.100.0.120 'systemctl status portikus-workspace-proxy portikus-egress-dns portikus-egress-apply.service --no-pager; sudo nft list table inet portikus_egress; cat /var/lib/portikus/egress-state/status.json'
   ```
 
-  The smoke test checks that the workspace proxy runs as `proxy` on the
-  gateway and loopback only, that the API's proxy stays on GnuTLS, and that
+  The smoke test checks that the workspace proxy runs as
+  `portikus-wsproxy` on the gateway and loopback only, that the API's proxy stays on GnuTLS, and that
   the helper is armed. The security test's `workspace-egress` module
   checks both modes from a workspace and from Docker inside it; it switches
   to allow-list only when its own workspaces are the only ones, and with
@@ -701,7 +710,14 @@ change it.
   sit on this path.
 - **Restarting the firewall is safe.** Stopping or restarting `nftables`
   removes only the firewall's own tables (a drop-in replaces Debian's
-  "flush everything"), so the egress table and Incus's table stay.
+  "flush everything"), so the egress table and Incus's table stay. While
+  `nftables` is stopped, though, the host's input chain is gone, and with
+  it the host-side check on traffic to the gateway: Incus's network ACL
+  still blocks TCP, UDP and ICMP to the gateway except the redirect
+  targets, but not other protocols. Keep such a stop short.
+- **When the play changes the helper's settings** (`egress.env`), it
+  writes a request for the last applied policy, so the helper loads the
+  table again with the new settings. Nothing needs doing by hand.
 
 ## The sign-in throttle
 
