@@ -1299,15 +1299,6 @@ Half a day.
 
 **Source.** Confirmation reviews of Epic 20 (issue #608).
 
-## A confirmation before "Reset preview data"
-
-**What.** "Reset preview data" in the Preview tab's More menu acts at once.
-
-**What it would take.** Reuse the neutral confirmation dialog and add an
-ellipsis to the item. Half a day with tests.
-
-**Source.** Left out of Epic 20 (issue #609).
-
 ## A radio-item menu component
 
 **What.** The Preview frame width uses checkable menu items; a radio-item
