@@ -217,7 +217,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/egress/entries": { access: "admin" },
 	"PUT /admin/egress/entries/:id": { access: "admin" },
 	"DELETE /admin/egress/entries/:id": { access: "admin" },
-	"POST /admin/egress/test": { access: "admin" },
 	"GET /admin/audit": { access: "admin" },
 	"HEAD /admin/audit": { access: "admin" },
 	"GET /admin/logs": { access: "admin" },

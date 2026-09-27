@@ -13,6 +13,7 @@ import {
 import { useState } from "react";
 import type { EntryDraft } from "./EntryDialog.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
+import { focusAfterClose } from "./text.js";
 
 /** The administrator's own host names and address ranges, with labels. */
 export function EntriesCard({
@@ -36,6 +37,8 @@ export function EntriesCard({
 				onSuccess: () => {
 					toast.show({ tone: "success", title: `${removing.value} removed` });
 					setRemoving(null);
+					// The row and its Remove button are gone, so focus the card heading.
+					focusAfterClose("egress-entries-title");
 				},
 			},
 		);
@@ -45,7 +48,7 @@ export function EntriesCard({
 		<section className="pk-card p-6" aria-labelledby="egress-entries-title">
 			<div className="flex items-start gap-4">
 				<div className="min-w-0 flex-1">
-					<h3 className="pk-text-heading m-0" id="egress-entries-title">
+					<h3 className="pk-text-heading m-0" id="egress-entries-title" tabIndex={-1}>
 						Your hosts and ranges
 					</h3>
 					<p className="pk-text-body pk-muted mt-1 mb-0">

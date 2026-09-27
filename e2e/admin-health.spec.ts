@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, query, settledAxe } from "./helpers";
+import { loginAs, query, settledAxe, WCAG_TAGS } from "./helpers";
 
 /**
  * The Health tab (SPEC.md §25.6). No worker runs in e2e, so each test writes
@@ -260,9 +260,7 @@ test.describe("admin health", () => {
 			await page.emulateMedia({ colorScheme });
 			await seedSample(85, 0);
 			await openHealth(page);
-			const results = await (await settledAxe(page))
-				.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
-				.analyze();
+			const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 			expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 		});
 	}

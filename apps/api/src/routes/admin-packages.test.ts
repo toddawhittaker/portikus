@@ -126,3 +126,39 @@ test.skipIf(skip)("returns at most the limit, most-added first", async () => {
 	expect(body.packages).toHaveLength(ADMIN_PACKAGES_LIMIT);
 	expect(body.packages[0].package).toBe("zz");
 });
+
+test.skipIf(skip)(
+	"a day with fewer than 3 surveyed workspaces is never shown, so no one student shows",
+	async () => {
+		await seedDay("2026-09-25", 4, { "python3-venv": 2 });
+		await seedDay("2026-09-27", 1, { cowsay: 1, "python3-venv": 1 });
+
+		const body = (await get(carol)).json();
+
+		expect(body.day).toBe("2026-09-25");
+		expect(body.surveyed).toBe(4);
+		expect(body.packages).toEqual([
+			{
+				package: "python3-venv",
+				workspaces: 2,
+				firstSeen: "2026-09-25",
+				lastSeen: "2026-09-25",
+				candidate: true,
+			},
+		]);
+	},
+);
+
+test.skipIf(skip)(
+	"with no day of 3 surveyed, no rows and the latest day's count say why",
+	async () => {
+		await seedDay("2026-09-26", 2, { htop: 2 });
+		await seedDay("2026-09-27", 1, { cowsay: 1 });
+
+		expect((await get(carol)).json()).toEqual({
+			day: "2026-09-27",
+			surveyed: 1,
+			packages: [],
+		});
+	},
+);

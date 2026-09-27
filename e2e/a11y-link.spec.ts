@@ -4,11 +4,11 @@
  * LMS) and gail (mock OIDC) exist for this spec alone.
  */
 import { expect, type Page, test } from "@playwright/test";
-import { apiLoginAs, MOCK_ISSUER, settledAxe, WEB_ORIGIN } from "./helpers";
+import { apiLoginAs, MOCK_ISSUER, settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
 import { launchAs } from "./lti-helpers";
 
 async function expectNoViolations(page: Page, include?: string) {
-	let builder = (await settledAxe(page)).withTags(["wcag2a", "wcag2aa", "wcag21aa"]);
+	let builder = (await settledAxe(page)).withTags(WCAG_TAGS);
 	if (include) builder = builder.include(include);
 	const results = await builder.analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

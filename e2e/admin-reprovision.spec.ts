@@ -6,6 +6,7 @@ import {
 	settledAxe,
 	type TestStudent,
 	toast,
+	WCAG_TAGS,
 } from "./helpers";
 
 /**
@@ -107,9 +108,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await openAdmin(page);
 		const panel = await openDetail(page, student.name);
 		await expect(panel.getByTestId("detail-reprovision")).toBeVisible();
-		const results = await (await settledAxe(page))
-			.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
-			.analyze();
+		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});
 }

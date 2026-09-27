@@ -31,9 +31,10 @@
     signed_by: /etc/apt/keyrings/caddy-stable.asc
     state: present
 
+# Pinned to the version CI tests against (.github/workflows/ci.yml); change both together.
 - name: Install Caddy
   ansible.builtin.apt:
-    name: caddy
+    name: caddy=2.11.4
     state: present
     update_cache: true
 

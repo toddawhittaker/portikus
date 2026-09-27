@@ -247,9 +247,6 @@ export const EgressDeleteQuery = z.object({
 	version: z.coerce.number().int().nonnegative(),
 });
 
-export const EgressTestRequest = z.object({ input: z.string().max(300) }).strict();
-export type EgressTestRequest = z.infer<typeof EgressTestRequest>;
-
 /** The policy as `explainHost` and the apply loop read it. */
 export interface EgressPolicy {
 	mode: EgressMode;

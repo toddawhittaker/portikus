@@ -18,7 +18,6 @@ import {
 	INSTANCE_CREATE_WAIT_SECONDS,
 	IncusWorkspaceProvider,
 	InstanceNotStoppedError,
-	parseAddedPackages,
 	VOLUME_CREATE_TIMEOUT_MS,
 	VolumeInUseError,
 } from "./provider.js";
@@ -2209,22 +2208,4 @@ describe("admin operations", () => {
 			]);
 		});
 	}
-});
-
-describe("parseAddedPackages reads the apt hook's list as the image writes it", () => {
-	test("the image version comes from the first-line header", () => {
-		expect(
-			parseAddedPackages("# portikus-image: 2026.09.99\npython3-venv\ntree\n"),
-		).toEqual({ image: "2026.09.99", packages: ["python3-venv", "tree"] });
-	});
-
-	test("an unknown version, a missing header or another header reads as null", () => {
-		expect(parseAddedPackages("# portikus-image: unknown\ntree\n")).toEqual({
-			image: null,
-			packages: ["tree"],
-		});
-		expect(parseAddedPackages("tree\n").image).toBeNull();
-		expect(parseAddedPackages("# image 2026.09.99\ntree\n").image).toBeNull();
-		expect(parseAddedPackages("tree\n# portikus-image: 2026.09.99\n").image).toBeNull();
-	});
 });

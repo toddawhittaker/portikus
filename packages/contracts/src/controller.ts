@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { InstanceProcess } from "./admin.js";
+import { InstanceProcess, LimitCpu, LimitMemoryMiB, LimitProcesses } from "./admin.js";
 import { Timezone } from "./settings.js";
 
 /**
@@ -212,9 +212,9 @@ export type SetCpuAllowanceRequest = z.infer<typeof SetCpuAllowanceRequest>;
  */
 export const SetInstanceLimitsRequest = z
 	.object({
-		cpu: z.number().int().min(1).max(64).nullable(),
-		memoryMiB: z.number().int().min(512).max(262144).nullable(),
-		processes: z.number().int().min(500).max(32768).nullable(),
+		cpu: LimitCpu.nullable(),
+		memoryMiB: LimitMemoryMiB.nullable(),
+		processes: LimitProcesses.nullable(),
 	})
 	.strict();
 export type SetInstanceLimitsRequest = z.infer<typeof SetInstanceLimitsRequest>;

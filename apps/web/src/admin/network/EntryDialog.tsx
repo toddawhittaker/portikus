@@ -38,10 +38,12 @@ export function EntryDialog({
 	draft,
 	version,
 	onClose,
+	onSaved,
 }: {
 	draft: EntryDraft;
 	version: number;
 	onClose: () => void;
+	onSaved: () => void;
 }) {
 	const write = useEgressWrite();
 	const toast = useToast();
@@ -68,7 +70,7 @@ export function EntryDialog({
 						tone: "success",
 						title: editing ? "Entry saved" : `${value.trim().toLowerCase()} added`,
 					});
-					onClose();
+					onSaved();
 				},
 			},
 		);

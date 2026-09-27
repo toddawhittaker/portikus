@@ -8,12 +8,9 @@ import {
 	EgressEntryRequest,
 	type EgressMode,
 	EgressModeRequest,
-	type EgressPolicy,
 	EgressPortsRequest,
 	EgressPresetId,
 	EgressPresetsRequest,
-	EgressTestRequest,
-	explainHost,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -340,20 +337,5 @@ export function registerAdminEgressRoutes(
 			if (!gone) throw new Refusal(404, "NOT_FOUND", "Entry not found");
 			await audit(trx, admin.id, params.data.id, "egress.entry_removed", gone);
 		});
-	});
-
-	app.post("/admin/egress/test", adminOnly, async (request, reply) => {
-		const body = EgressTestRequest.safeParse(request.body);
-		if (!body.success) return invalid(reply, body.error);
-		const view = await readView(db);
-		if (!view)
-			return sendError(reply, 404, "NOT_FOUND", "Platform settings are not set yet");
-		const policy: EgressPolicy = {
-			mode: view.mode,
-			presets: view.presets,
-			ports: view.ports,
-			entries: view.entries,
-		};
-		return explainHost(policy, body.data.input);
 	});
 }

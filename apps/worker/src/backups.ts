@@ -21,8 +21,11 @@ import { type ControllerClient, ControllerClientError } from "./controller-clien
 /** A claimed host request older than this, with the host running nothing, failed. */
 export const BACKUP_CLAIM_TIMEOUT_MS = 15 * 60_000;
 
-/** How often the worker lists kept volumes and runs the VM-side deletes. */
+/** How often the worker runs the VM-side deletes. */
 export const BACKUP_VM_LOOP_SECONDS = 30;
+
+/** How often the worker lists kept volumes, which costs Incus calls per workspace; also right after a delete. */
+export const BACKUP_VM_LIST_SECONDS = 300;
 
 const HOST_KINDS: readonly string[] = BackupHostKind.options;
 const VM_KINDS = ["delete_snapshot", "delete_kept_home"] as const;
@@ -428,13 +431,23 @@ export async function backupVmTick(options: {
 	db: Kysely<Database>;
 	controller: ControllerClient;
 	logger: Logger;
+	now?: () => Date;
 }): Promise<void> {
 	const { db, controller, logger } = options;
+	const now = options.now ?? (() => new Date());
 	try {
-		await refreshRestorePresence(db, new Date());
-		const ran = await runVmDeletes(db, controller, () => new Date());
+		await refreshRestorePresence(db, now());
+		const ran = await runVmDeletes(db, controller, now);
 		if (ran > 0) logger.info({ deletes: ran }, "backup deletes run");
-		await listVmVolumes(db, controller, new Date());
+		const status = await db
+			.selectFrom("backup_status")
+			.select("vm_listed_at")
+			.where("id", "=", 1)
+			.executeTakeFirst();
+		const listedAt = status?.vm_listed_at?.getTime() ?? null;
+		const due =
+			listedAt === null || now().getTime() - listedAt >= BACKUP_VM_LIST_SECONDS * 1000;
+		if (ran > 0 || due) await listVmVolumes(db, controller, now());
 	} catch (e) {
 		logger.error(
 			{ error: e instanceof Error ? e.message : String(e) },

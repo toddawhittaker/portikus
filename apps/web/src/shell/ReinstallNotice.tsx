@@ -4,12 +4,36 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { z } from "zod";
 import { request } from "../api/request.js";
+import { useFocusFallback } from "./useFocusFallback.js";
 
 export const REINSTALL_TITLE =
 	"Packages you had installed with sudo apt were removed when your workspace was rebuilt";
 
 function noteKey(workspaceId: string) {
 	return ["workspaces", workspaceId, "reinstall-note"];
+}
+
+/**
+ * The packages a rebuild removed, shared by the notice and the page's
+ * always-mounted status region through one cached query.
+ */
+export function useReinstallPackages(workspaceId: string, running: boolean): string[] {
+	const note = useQuery({
+		queryKey: noteKey(workspaceId),
+		queryFn: () => request(ReinstallNote, `/workspaces/${workspaceId}/reinstall-note`),
+		enabled: running,
+		// Asked again each time the workspace starts, which is when a rebuild shows.
+		refetchOnWindowFocus: false,
+		// The agent may still be starting when the workspace first reads running.
+		retry: 4,
+	});
+	return note.data?.packages ?? [];
+}
+
+/** The words for the page's always-mounted status region. */
+export function reinstallAnnouncement(packages: string[]): string {
+	if (packages.length === 0) return "";
+	return `${REINSTALL_TITLE}: ${packages.join(", ")}.`;
 }
 
 /**
@@ -30,14 +54,8 @@ export function ReinstallNotice({
 }) {
 	const queryClient = useQueryClient();
 	const toast = useToast();
-	const note = useQuery({
-		queryKey: noteKey(workspaceId),
-		queryFn: () => request(ReinstallNote, `/workspaces/${workspaceId}/reinstall-note`),
-		enabled: running,
-		// Asked again each time the workspace starts, which is when a rebuild shows.
-		refetchOnWindowFocus: false,
-		retry: false,
-	});
+	const ref = useFocusFallback<HTMLDivElement>(fallbackFocus);
+	const packages = useReinstallPackages(workspaceId, running);
 	const dismiss = useMutation({
 		mutationFn: () =>
 			request(z.unknown(), `/workspaces/${workspaceId}/reinstall-note/dismiss`, {
@@ -52,7 +70,6 @@ export function ReinstallNotice({
 		},
 	});
 
-	const packages = note.data?.packages ?? [];
 	if (!running || packages.length === 0) return null;
 	const command = reinstallCommand(packages);
 
@@ -69,7 +86,7 @@ export function ReinstallNotice({
 	}
 
 	return (
-		<div className="pk-notice" data-testid="reinstall-notice">
+		<div ref={ref} className="pk-notice" data-testid="reinstall-notice">
 			<span className="pk-notice-icon">
 				<Icon name="info" size="md" />
 			</span>

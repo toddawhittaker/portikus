@@ -160,6 +160,8 @@ describe("a request (ADR 0038)", () => {
 		expect(JSON.parse(read("applied.json") ?? "")).toEqual({
 			policy: policy(),
 			appliedAt: "2026-09-27T12:00:00.000Z",
+			bridge: "portikus-ws",
+			gateway: "10.200.0.1",
 		});
 		expect(status()).toEqual({
 			requestId: "req-1",
@@ -321,6 +323,25 @@ describe("the helper refuses a bad request and changes nothing", () => {
 	});
 });
 
+describe("a leftover request.processing", () => {
+	test("a leftover directory is removed so the helper cannot wedge", async () => {
+		mkdirSync(state("request.processing"), { recursive: true });
+		writeFileSync(join(state("request.processing"), "junk"), "x");
+		writeRequest(policy());
+		expect(await runHelper(deps)).toBe(0);
+		expect(status()).toMatchObject({ requestId: "req-1", ok: true });
+		expect(existsSync(state("request.processing"))).toBe(false);
+	});
+
+	test("a leftover file is replaced by the new request", async () => {
+		mkdirSync(deps.stateDir, { recursive: true });
+		writeFileSync(state("request.processing"), "stale");
+		writeRequest(policy());
+		expect(await runHelper(deps)).toBe(0);
+		expect(status()).toMatchObject({ requestId: "req-1", ok: true });
+	});
+});
+
 describe("the configuration file", () => {
 	test("a bad egress.env refuses the request and touches nothing", async () => {
 		writeFileSync(deps.envPath, `${ENV_TEXT}EGRESS_EXTRA=1\n`);
@@ -411,6 +432,53 @@ describe("at boot, when the table is missing", () => {
 	test("a site that never applied stays open and loads nothing", async () => {
 		tableLoadedNow = false;
 		expect(await runHelper(deps)).toBe(0);
+		expect(loads()).toEqual([]);
+	});
+
+	test("an unusable egress.env after an allow-list drops forwarding on the recorded bridge", async () => {
+		await applyOnce(policy());
+		writeFileSync(deps.envPath, "garbage\n");
+		expect(await runHelper(deps)).toBe(1);
+		expect(loads()).toHaveLength(1);
+		expect(
+			loads()[0]
+				?.split("\n")
+				.filter((l) => l.startsWith("add rule")),
+		).toEqual(['add rule inet portikus_egress forward iifname "portikus-ws" drop']);
+		expect(status().error).toMatch(/workspace forwarding is dropped/);
+	});
+
+	test("an unusable egress.env after open mode loads nothing", async () => {
+		await applyOnce(policy({ mode: "open" }));
+		writeFileSync(deps.envPath, "garbage\n");
+		expect(await runHelper(deps)).toBe(1);
+		expect(loads()).toEqual([]);
+	});
+
+	test("an unusable egress.env on a site that never applied loads nothing", async () => {
+		tableLoadedNow = false;
+		writeFileSync(deps.envPath, "garbage\n");
+		expect(await runHelper(deps)).toBe(1);
+		expect(loads()).toEqual([]);
+	});
+
+	test("an unusable egress.env with the table still loaded changes nothing", async () => {
+		await applyOnce(policy());
+		tableLoadedNow = true;
+		writeFileSync(deps.envPath, "garbage\n");
+		expect(await runHelper(deps)).toBe(1);
+		expect(loads()).toEqual([]);
+	});
+
+	test("a recorded bridge that fails the bridge pattern is not used", async () => {
+		await applyOnce(policy());
+		const applied = JSON.parse(read("applied.json") ?? "");
+		writeFileSync(
+			state("applied.json"),
+			JSON.stringify({ ...applied, bridge: 'ws" accept' }),
+		);
+		writeFileSync(deps.envPath, "garbage\n");
+		expect(await runHelper(deps)).toBe(1);
 		expect(loads()).toEqual([]);
 	});
 

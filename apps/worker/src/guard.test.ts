@@ -9,7 +9,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { FakeControllerClient } from "./fake-controller.js";
-import { allowanceFor, createGuard, SAMPLE_RETENTION_MINUTES } from "./guard.js";
+import { createGuard, SAMPLE_RETENTION_MINUTES } from "./guard.js";
 
 const skip = !hasTestDb();
 let tdb: TestDb;
@@ -178,13 +178,6 @@ function harness(opts: {
 		},
 	};
 }
-
-test("the allowance is a time slice of the share of the CPU limit", () => {
-	expect(allowanceFor(25, 4)).toBe("100ms/100ms");
-	expect(allowanceFor(25, 2)).toBe("50ms/100ms");
-	expect(allowanceFor(100, 4)).toBe("400ms/100ms");
-	expect(allowanceFor(5, 1)).toBe("5ms/100ms");
-});
 
 test.skipIf(skip)(
 	"a steady 100% workspace is throttled at the first full window, not before",

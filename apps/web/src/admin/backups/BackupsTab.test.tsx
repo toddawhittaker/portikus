@@ -321,8 +321,33 @@ test("a set with a delete waiting shows Deleting", async () => {
 	});
 	renderApp("/admin?tab=backups");
 	const row = await screen.findByTestId(`backup-set-${OLD}`);
-	expect(row.textContent).toContain("Deleting…");
-	expect(within(row).queryByTestId("backup-set-delete")).toBeNull();
+	// The button stays mounted, so focus on it is not lost (SPEC.md §25.8).
+	const button = within(row).getByTestId("backup-set-delete");
+	expect(button.textContent).toBe("Deleting…");
+	expect(button.getAttribute("aria-disabled")).toBe("true");
+	fireEvent.click(button);
+	expect(screen.queryByTestId("backup-delete-dialog")).toBeNull();
+});
+
+test("a set that lists no workspaces says why Restore is unavailable", async () => {
+	const data = backups();
+	stubBackups({
+		...data,
+		host: data.host && {
+			...data.host,
+			sets: data.host.sets.map((each) =>
+				each.stamp === OLD ? { ...each, instances: [] } : each,
+			),
+		},
+	});
+	renderApp("/admin?tab=backups");
+	const row = await screen.findByTestId(`backup-set-${OLD}`);
+	const restore = within(row).getByTestId("backup-set-restore");
+	expect(restore.getAttribute("aria-disabled")).toBe("true");
+	const reason = document.getElementById(
+		restore.getAttribute("aria-describedby") ?? "",
+	);
+	expect(reason?.textContent).toBe("No workspaces to restore from this set.");
 });
 
 test("restore picks a running workspace and names the folder", async () => {
@@ -336,6 +361,10 @@ test("restore picks a running workspace and names the folder", async () => {
 	);
 	const confirm = within(dialog).getByTestId("backup-restore-confirm");
 	expect(confirm.getAttribute("aria-disabled")).toBe("true");
+	expect(confirm.getAttribute("aria-describedby")).toBe("backup-restore-choose");
+	expect(within(dialog).getByText("Choose a workspace to restore.")).toBeTruthy();
+	// Mounted empty before any choice, so a later warning is announced.
+	expect(within(dialog).getByRole("status").textContent).toBe("");
 
 	fireEvent.click(within(dialog).getByLabelText("Workspace"));
 	fireEvent.click(

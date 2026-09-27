@@ -1,4 +1,5 @@
 import {
+	allowanceFor,
 	type EffectiveGuard,
 	effectiveGuard,
 	type InstanceUsage,
@@ -29,12 +30,6 @@ export interface GuardOptions {
 }
 
 type Throttle = NonNullable<Database["workspaces"]["cpu_throttle"]["__select__"]>;
-
-/** The time slice for `share` percent of `cpuLimit` CPUs, never a percentage (ADR 0032). */
-export function allowanceFor(sharePercent: number, cpuLimit: number): string {
-	const ms = Math.max(1, Math.round((sharePercent / 100) * cpuLimit * 100));
-	return `${ms}ms/100ms`;
-}
 
 interface RunSample {
 	observed_at: Date;

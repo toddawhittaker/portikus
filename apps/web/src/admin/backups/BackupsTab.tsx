@@ -5,7 +5,7 @@ import type {
 	HostBackupSet,
 } from "@portikus/contracts";
 import { Button, EmptyState, useToast } from "@portikus/ui";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { formatBytes } from "../../monitor/format.js";
 import { AdminSection } from "../AdminSection.js";
 import { sampleAge } from "../health/HealthTab.js";
@@ -251,9 +251,27 @@ function Card({
 	children: ReactNode;
 	testId?: string;
 }) {
+	// The last element focused in this card, such as a row's Deleting button.
+	const focused = useRef<HTMLElement | null>(null);
+	const heading = useRef<HTMLHeadingElement>(null);
+	// A finished delete removes its row; if focus went with it, catch it here.
+	useEffect(() => {
+		const last = focused.current;
+		if (!last || last.isConnected) return;
+		focused.current = null;
+		const active = document.activeElement;
+		if (active === null || active === document.body) heading.current?.focus();
+	});
 	return (
-		<section className="pk-card p-6" aria-labelledby={id} data-testid={testId}>
-			<h3 className="pk-text-heading m-0" id={id}>
+		<section
+			className="pk-card p-6"
+			aria-labelledby={id}
+			data-testid={testId}
+			onFocus={(event) => {
+				focused.current = event.target;
+			}}
+		>
+			<h3 className="pk-text-heading m-0" id={id} ref={heading} tabIndex={-1}>
 				{title}
 			</h3>
 			<div className="mt-4">{children}</div>
@@ -375,6 +393,7 @@ function SetsSection({
 					const isNewest = set.stamp === newest;
 					const deleting = waitingRequest(requests, "delete_set", { stamp: set.stamp });
 					const noteId = `backup-set-note-${set.stamp}`;
+					const emptyId = `backup-set-empty-${set.stamp}`;
 					return (
 						<tr key={set.stamp} data-testid={`backup-set-${set.stamp}`}>
 							<th scope="row">{when}</th>
@@ -390,6 +409,14 @@ function SetsSection({
 										{set.failedVolumes.length} volume
 										{set.failedVolumes.length === 1 ? "" : "s"} failed
 									</span>
+								) : null}
+								{set.instances.length === 0 ? (
+									<>
+										.{" "}
+										<span id={emptyId} className="pk-muted">
+											No workspaces to restore from this set.
+										</span>
+									</>
 								) : null}
 								{isNewest ? (
 									<>
@@ -414,7 +441,11 @@ function SetsSection({
 												: undefined
 										}
 										aria-describedby={
-											!host.keyInstalled ? "backups-key-note" : undefined
+											!host.keyInstalled
+												? "backups-key-note"
+												: set.instances.length === 0
+													? emptyId
+													: undefined
 										}
 										onClick={() => {
 											if (host.keyInstalled && set.instances.length > 0) onRestore(set);
@@ -422,22 +453,24 @@ function SetsSection({
 									>
 										Restore…
 									</Button>
-									{deleting ? (
-										<span className="pk-muted self-center text-[13px]">Deleting…</span>
-									) : (
-										<Button
-											size="sm"
-											data-testid="backup-set-delete"
-											aria-label={`Delete the set from ${when}`}
-											aria-disabled={isNewest ? true : undefined}
-											aria-describedby={isNewest ? noteId : undefined}
-											onClick={() => {
-												if (!isNewest) onDelete({ kind: "set", stamp: set.stamp });
-											}}
-										>
-											Delete…
-										</Button>
-									)}
+									{/* Stays mounted while deleting so focus is not lost. */}
+									<Button
+										size="sm"
+										data-testid="backup-set-delete"
+										aria-label={
+											deleting
+												? `Deleting the set from ${when}`
+												: `Delete the set from ${when}`
+										}
+										aria-disabled={isNewest || deleting ? true : undefined}
+										aria-describedby={isNewest ? noteId : undefined}
+										onClick={() => {
+											if (!isNewest && !deleting)
+												onDelete({ kind: "set", stamp: set.stamp });
+										}}
+									>
+										{deleting ? "Deleting…" : "Delete…"}
+									</Button>
 								</div>
 							</td>
 						</tr>
@@ -546,24 +579,26 @@ function VmSection({
 								</th>
 								<td>{longTime(snap.createdAt)}</td>
 								<td className="pk-cell-actions">
-									{deleting ? (
-										<span className="pk-muted text-[13px]">Deleting…</span>
-									) : (
-										<Button
-											size="sm"
-											data-testid="backup-snapshot-delete"
-											aria-label={`Delete snapshot ${snap.name} of ${snap.volume}`}
-											onClick={() =>
+									<Button
+										size="sm"
+										data-testid="backup-snapshot-delete"
+										aria-label={
+											deleting
+												? `Deleting snapshot ${snap.name} of ${snap.volume}`
+												: `Delete snapshot ${snap.name} of ${snap.volume}`
+										}
+										aria-disabled={deleting ? true : undefined}
+										onClick={() => {
+											if (!deleting)
 												onDelete({
 													kind: "snapshot",
 													volume: snap.volume,
 													snapshot: snap.name,
-												})
-											}
-										>
-											Delete…
-										</Button>
-									)}
+												});
+										}}
+									>
+										{deleting ? "Deleting…" : "Delete…"}
+									</Button>
 								</td>
 							</tr>
 						);
@@ -594,20 +629,22 @@ function VmSection({
 								</th>
 								<td>{longTime(kept.createdAt)}</td>
 								<td className="pk-cell-actions">
-									{deleting ? (
-										<span className="pk-muted text-[13px]">Deleting…</span>
-									) : (
-										<Button
-											size="sm"
-											data-testid="backup-kept-home-delete"
-											aria-label={`Delete the kept home of ${name}`}
-											onClick={() =>
-												onDelete({ kind: "kept", volume: kept.volume, name })
-											}
-										>
-											Delete…
-										</Button>
-									)}
+									<Button
+										size="sm"
+										data-testid="backup-kept-home-delete"
+										aria-label={
+											deleting
+												? `Deleting the kept home of ${name}`
+												: `Delete the kept home of ${name}`
+										}
+										aria-disabled={deleting ? true : undefined}
+										onClick={() => {
+											if (!deleting)
+												onDelete({ kind: "kept", volume: kept.volume, name });
+										}}
+									>
+										{deleting ? "Deleting…" : "Delete…"}
+									</Button>
 								</td>
 							</tr>
 						);
@@ -645,18 +682,19 @@ function DumpsSection({
 							<td className="tabular-nums">{formatBytes(dump.sizeBytes)}</td>
 							<td>{longTime(dump.modifiedAt)}</td>
 							<td className="pk-cell-actions">
-								{deleting ? (
-									<span className="pk-muted text-[13px]">Deleting…</span>
-								) : (
-									<Button
-										size="sm"
-										data-testid="backup-dump-delete"
-										aria-label={`Delete ${dump.file}`}
-										onClick={() => onDelete({ kind: "dump", file: dump.file })}
-									>
-										Delete…
-									</Button>
-								)}
+								<Button
+									size="sm"
+									data-testid="backup-dump-delete"
+									aria-label={
+										deleting ? `Deleting ${dump.file}` : `Delete ${dump.file}`
+									}
+									aria-disabled={deleting ? true : undefined}
+									onClick={() => {
+										if (!deleting) onDelete({ kind: "dump", file: dump.file });
+									}}
+								>
+									{deleting ? "Deleting…" : "Delete…"}
+								</Button>
 							</td>
 						</tr>
 					);

@@ -6,12 +6,13 @@ import {
 	open,
 	readFile,
 	rename,
+	rm,
 	unlink,
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
 import { EgressApplyPolicy } from "@portikus/contracts";
-import { type EgressEnv, overlapsDenied, parseEgressEnv } from "./env.js";
+import { BRIDGE_RE, type EgressEnv, overlapsDenied, parseEgressEnv } from "./env.js";
 import {
 	EGRESS_DNS_UNIT,
 	EGRESS_PATHS,
@@ -68,6 +69,9 @@ export interface HelperStatus {
 export interface AppliedFile {
 	policy: EgressApplyPolicy;
 	appliedAt: string;
+	/** Recorded so a boot with an unusable egress.env can still drop on this bridge. */
+	bridge?: string;
+	gateway?: string;
 }
 
 const NFT = "/usr/sbin/nft";
@@ -129,10 +133,18 @@ async function readApplied(deps: HelperDeps): Promise<AppliedFile | null> {
 		if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
 		throw e;
 	}
-	const parsed = JSON.parse(text) as { policy?: unknown; appliedAt?: unknown };
+	const parsed = JSON.parse(text) as {
+		policy?: unknown;
+		appliedAt?: unknown;
+		bridge?: unknown;
+		gateway?: unknown;
+	};
 	const policy = EgressApplyPolicy.parse(parsed.policy);
 	if (typeof parsed.appliedAt !== "string") throw new Error("applied.json has no time");
-	return { policy, appliedAt: parsed.appliedAt };
+	const applied: AppliedFile = { policy, appliedAt: parsed.appliedAt };
+	if (typeof parsed.bridge === "string") applied.bridge = parsed.bridge;
+	if (typeof parsed.gateway === "string") applied.gateway = parsed.gateway;
+	return applied;
 }
 
 async function readLastStatusOk(deps: HelperDeps): Promise<boolean> {
@@ -154,6 +166,8 @@ async function readLastStatusOk(deps: HelperDeps): Promise<boolean> {
  */
 async function takeRequest(deps: HelperDeps): Promise<string | null> {
 	const aside = join(deps.stateDir, STATE_FILES.processing);
+	// A leftover from a crash, even a directory, would make every rename fail.
+	await rm(aside, { recursive: true, force: true });
 	try {
 		await rename(deps.requestPath, aside);
 	} catch (e) {
@@ -271,7 +285,12 @@ async function applyPolicy(
 	await writeState(deps, STATE_FILES.names, renderSquidNames(policy));
 	await systemctl(deps, "reload", WORKSPACE_PROXY_UNIT);
 
-	const applied: AppliedFile = { policy, appliedAt: deps.now().toISOString() };
+	const applied: AppliedFile = {
+		policy,
+		appliedAt: deps.now().toISOString(),
+		bridge: env.bridge,
+		gateway: env.gateway,
+	};
 	await writeState(deps, STATE_FILES.applied, `${JSON.stringify(applied)}\n`);
 }
 
@@ -310,6 +329,21 @@ async function restoreAtBoot(deps: HelperDeps, env: EgressEnv): Promise<void> {
 	}
 }
 
+/**
+ * With egress.env unusable, a missing table after an allow-list would leave
+ * workspaces open. Drop forwarding on the bridge applied.json recorded.
+ * Returns a message when it dropped, null when it did nothing.
+ */
+async function dropWithoutEnv(deps: HelperDeps): Promise<string | null> {
+	const applied = await readApplied(deps).catch(() => null);
+	if (applied?.policy.mode !== "allow-list") return null;
+	const bridge = applied.bridge;
+	if (bridge === undefined || !BRIDGE_RE.test(bridge)) return null;
+	if (await tableLoaded(deps)) return null;
+	await loadTable(deps, renderDropAll({ bridge }));
+	return "workspace forwarding is dropped until egress.env is fixed";
+}
+
 async function tableLoaded(deps: HelperDeps): Promise<boolean> {
 	const r = await deps.run(NFT, ["list", "table", "inet", "portikus_egress"]);
 	return r.code === 0;
@@ -327,13 +361,13 @@ export async function runHelper(deps: HelperDeps): Promise<number> {
 	try {
 		env = await readEnv(deps);
 	} catch (e) {
-		// Without the bridge name nothing can be rendered, not even drop-all.
 		await takeRequest(deps).catch(() => null);
+		const dropped = await dropWithoutEnv(deps).catch(() => null);
 		await status({
 			requestId: null,
 			version: null,
 			ok: false,
-			error: (e as Error).message,
+			error: dropped ? `${(e as Error).message}; ${dropped}` : (e as Error).message,
 		});
 		return 1;
 	}

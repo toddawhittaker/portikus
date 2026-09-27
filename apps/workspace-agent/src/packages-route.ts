@@ -9,7 +9,7 @@
 import { randomBytes } from "node:crypto";
 import { lstat, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { DebianPackageName, type ReinstallNote } from "@portikus/contracts";
+import { parseAptList, type ReinstallNote } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { sendError } from "./errors.js";
 
@@ -19,7 +19,6 @@ const LIST_PATH = ".portikus/apt-packages.txt";
 /** The most of the list the agent reads, as the controller does. */
 export const LIST_MAX_BYTES = 64 * 1024;
 
-const IMAGE_HEADER = /^# portikus-image: ([0-9A-Za-z.+~-]{1,64})$/;
 const IMAGE_VERSION = /^[0-9A-Za-z.+~-]{1,64}$/;
 
 export interface PackagesRouteOptions {
@@ -28,31 +27,6 @@ export interface PackagesRouteOptions {
 	imageVersionPath?: string;
 	/** Overridden by tests; dpkg's record of what is installed. */
 	dpkgStatusPath?: string;
-}
-
-interface AptList {
-	/** The image named in the header, or null when there is none or it is `unknown`. */
-	image: string | null;
-	packages: string[];
-	/** The lines after the header, kept as written for a dismiss. */
-	body: string[];
-}
-
-/** Parse the hook's list; anything that is not a package name is dropped. */
-export function parseAptList(text: string): AptList {
-	const lines = text.split("\n");
-	const version = IMAGE_HEADER.exec((lines[0] ?? "").trim())?.[1];
-	const body = version === undefined ? lines : lines.slice(1);
-	const packages = new Set<string>();
-	for (const line of body) {
-		const name = line.trim();
-		if (DebianPackageName.safeParse(name).success) packages.add(name);
-	}
-	return {
-		image: version === undefined || version === "unknown" ? null : version,
-		packages: [...packages],
-		body,
-	};
 }
 
 /** The names dpkg records as installed, from its status file. */

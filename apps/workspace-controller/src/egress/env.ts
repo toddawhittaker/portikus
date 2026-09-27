@@ -23,7 +23,7 @@ const KEYS = [
 ] as const;
 
 // Linux interface names are at most 15 bytes.
-const BRIDGE_RE = /^[a-z0-9][a-z0-9-]{0,14}$/;
+export const BRIDGE_RE = /^[a-z0-9][a-z0-9-]{0,14}$/;
 
 /**
  * Parse `KEY=value` lines, refusing anything unexpected: an unknown or
