@@ -43,3 +43,11 @@ Build the package from the epic head and deploy it to the rehearsal VM, followin
 ## Fold (T6)
 
 Fold the rulings that last into SPEC.md (section 24.11 for the Running command line, section 20.1 for the admin Processes columns, the Monitor section for the row layout), add an Epic 22 section to STATUS.md, record anything deferred in BACKLOG.md, and delete this plan.
+
+## Rehearsal results
+
+Run on a throwaway rehearsal VM (8 vCPUs, 16 GiB), never the pilot, with package 0.1.579+gb3b3f1e from the epic head, then 0.1.580 with the fix below. `make configure-vm` finished with no failures, and `make build-workspace-image` made image 2026.09.11.
+
+- **#704 was not fully fixed, and now is.** For about a second of some shutdowns (2 of 8 in-container poweroffs), Incus answers the state read itself with HTTP 500 "Invalid PID -1". The instance goes from Running straight to that error, then to Stopped; it never read as Stopping. The controller's stop read the state first, outside the #713 handling, so a stop in that window still answered 500 `OPERATION_FAILED` "Invalid PID -1" (3 of 3 hits, 10 to 33 ms). The read now tolerates any error except "not found", and the stop settles on the real state. On 0.1.580, 5 of 16 tries hit the window and every one answered 200 with `forced: false` in 0.6 to 1.3 seconds. Through the API, two stops in a row, a poweroff inside then a stop, and an `incus stop` then a stop all ended Stopped with no error, in 0.3 to 1.8 seconds. A normal stop, a start and a restart still work.
+- **#701 holds.** The Running data for a student's `python3 -m http.server` carries its full command line. systemd-resolved (ports 53 and 5355), the agent (7400) and a Docker-published port (8088) carry none.
+- `make smoke-test`: 299 passed, 0 failed, on both packages. `make security-test PORTIKUS_SECURITY_HEAVY=1`: 295 passed, 0 failed, with the expected warning about the host's mock LMS.
