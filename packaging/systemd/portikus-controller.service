@@ -26,6 +26,8 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+# The egress helper's request directory (ADR 0038), made by Ansible.
+ReadWritePaths=-/var/lib/portikus/egress-request
 IPAddressAllow=127.0.0.0/8
 # The workspace bridge: the agent inside each container (SPEC.md 23.5).
 IPAddressAllow=10.200.0.0/24

@@ -1,4 +1,8 @@
 ---
+- name: Reload systemd for nftables
+  ansible.builtin.systemd:
+    daemon_reload: true
+
 # Use "reloaded" (ExecReload), not "restarted".  A restart runs ExecStop
 # first, which does "nft flush ruleset" and wipes the "inet incus" table
 # that Incus creates for bridge NAT and ACLs.  A reload re-applies our

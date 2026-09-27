@@ -1,0 +1,143 @@
+---
+# Renders the workspace egress pieces with no VM (ADR 0038) and checks them:
+# the network ACL spares the bridge gateway only for the redirect targets,
+# the workspace proxy peeks and splices and logs only names, and the
+# helper's settings match site.yml.  Also checks that the denied ranges in
+# packages/contracts/src/egress.ts are the IPv4 half of site.yml's.
+# `make infra-check` runs it; infra/tests/security/workspace-egress.sh checks
+# the same rules on a VM.
+- name: Render and check the workspace egress configuration
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    site_vars: "{{ (lookup('ansible.builtin.file', '../ansible/site.yml') | from_yaml)[0].vars }}"
+    workspace_egress_denied_ranges: "{{ site_vars.workspace_egress_denied_ranges }}"
+    workspace_egress_http_port: "{{ site_vars.workspace_egress_http_port }}"
+    workspace_egress_https_port: "{{ site_vars.workspace_egress_https_port }}"
+    workspace_egress_dns_port: "{{ site_vars.workspace_egress_dns_port }}"
+    incus_network_name: "{{ site_vars.incus_network_name }}"
+    incus_network_cidr: "{{ site_vars.incus_network_cidr }}"
+    management_cidr: 10.100.0.0/24
+    portikus_agent_port: 7400
+    portikus_preview_port_min: 1024
+    portikus_preview_port_max: 65535
+
+  tasks:
+    - name: Load the role's defaults
+      ansible.builtin.include_vars:
+        file: ../ansible/roles/workspace_egress/defaults/main.yml
+
+    # ── The denied ranges agree (E10) ─────────────────────────────
+
+    - name: Read the contracts' denied ranges
+      ansible.builtin.set_fact:
+        contracts_denied: >-
+          {{ (lookup('ansible.builtin.file', '../../packages/contracts/src/egress.ts')
+              | regex_search('EGRESS_DENIED_RANGES_V4 = \[([^\]]*)\]', '\1') | first)
+             | regex_findall('"([0-9./]+)"') }}
+
+    - name: Check the contracts list the IPv4 half of site.yml's denied ranges
+      ansible.builtin.assert:
+        that:
+          - contracts_denied | length > 0
+          - contracts_denied == (workspace_egress_denied_ranges | ansible.utils.ipv4)
+        fail_msg: >-
+          EGRESS_DENIED_RANGES_V4 in packages/contracts/src/egress.ts
+          ({{ contracts_denied | join(', ') }}) must equal the IPv4 entries of
+          workspace_egress_denied_ranges in infra/ansible/site.yml
+          ({{ workspace_egress_denied_ranges | ansible.utils.ipv4 | join(', ') }}).
+
+    # ── The network ACL ───────────────────────────────────────────
+
+    - name: Render the network ACL for the site's bridge
+      ansible.builtin.set_fact:
+        acl: "{{ lookup('ansible.builtin.template', '../ansible/roles/incus_network/templates/workspace-acl.yaml.j2') | from_yaml }}"
+
+    - name: Check the gateway is carved out and closed but for the redirect targets
+      vars:
+        drops: "{{ acl.egress | selectattr('action', 'eq', 'drop') | list }}"
+      ansible.builtin.assert:
+        that:
+          - drops[0].destination == '10.200.0.0,10.200.0.2-10.200.0.255'
+          - drops[0].protocol is not defined
+          - drops[1].destination == '10.200.0.1/32' and drops[1].protocol == 'tcp'
+          - drops[1].destination_port == '1-3128,3131-5299,5301-65535'
+          - drops[2].protocol == 'udp' and drops[2].destination_port == '1-5299,5301-65535'
+          - drops[2].destination == '10.200.0.1/32'
+          - drops[3].protocol == 'icmp4' and drops[3].destination == '10.200.0.1/32'
+          - drops[4].destination == '10.100.0.0/24'
+          - drops[5].destination.split(',') ==
+            ['0.0.0.0/8', '10.0.0.0-10.200.0.0', '10.200.0.2-10.255.255.255', '100.64.0.0/10',
+             '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16', '224.0.0.0/3']
+          # No drop but the gateway's own names the gateway.
+          - drops | map(attribute='destination') | select('search', '(^|,)10\.200\.0\.1(/|,|$)')
+            | list | length == 3
+          - (acl.egress | last).action == 'allow'
+
+    - name: Render the ACL for a gateway outside every denied range
+      ansible.builtin.set_fact:
+        acl_public: "{{ lookup('ansible.builtin.template', '../ansible/roles/incus_network/templates/workspace-acl.yaml.j2') | from_yaml }}"
+      vars:
+        incus_network_cidr: 198.51.100.1/24
+
+    - name: Check only the bridge drop is split then
+      ansible.builtin.assert:
+        that:
+          - acl_public.egress[0].destination == '198.51.100.0,198.51.100.2-198.51.100.255'
+          - acl_public.egress[5].destination.split(',') | select('match', '^10\.') | list == ['10.0.0.0/8']
+
+    # ── The workspace proxy ───────────────────────────────────────
+
+    - name: Render the workspace proxy configuration
+      ansible.builtin.set_fact:
+        squid_rules: >-
+          {{ lookup('ansible.builtin.template', '../ansible/roles/workspace_egress/templates/squid.conf.j2').splitlines()
+             | reject('match', '^(#|$)') | list }}
+
+    - name: Check the proxy's rules and their order
+      vars:
+        bump: "{{ squid_rules | select('match', '^ssl_bump') | list }}"
+        access: "{{ squid_rules | select('match', '^http_access') | list }}"
+        logs: "{{ squid_rules | select('match', '^access_log') | list }}"
+      ansible.builtin.assert:
+        that:
+          - "'http_port 127.0.0.1:3199' in squid_rules"
+          - "'http_port 10.200.0.1:3129 intercept' in squid_rules"
+          - squid_rules | select('match', '^https_port 10\.200\.0\.1:3130 intercept ssl-bump .*generate-host-certificates=off$') | list | length == 1
+          - "'dns_nameservers 10.200.0.1' in squid_rules"
+          - "'negative_dns_ttl 1 second' in squid_rules"
+          - "'cache deny all' in squid_rules"
+          - "'debug_options ALL,0' in squid_rules"
+          - squid_rules | select('match', '^acl denied_dst dst 0\.0\.0\.0/8 10\.0\.0\.0/8 ') | list | length == 1
+          - "'acl listed_sni ssl::server_name \"/var/lib/portikus/egress-state/names.txt\"' in squid_rules"
+          - "'acl listed_host dstdomain -n \"/var/lib/portikus/egress-state/names.txt\"' in squid_rules"
+          # A private destination is closed before anything is peeked, never bumped.
+          - bump == ['ssl_bump terminate denied_dst', 'ssl_bump peek step1',
+                     'ssl_bump splice listed_sni', 'ssl_bump terminate all']
+          - access[0] == 'http_access deny forward_port'
+          - access | last == 'http_access deny all'
+          # Only names go to the counter; no file access log is written.
+          - logs | length == 2
+          - logs | reject('match', '^access_log udp://127\.0\.0\.1:5398 logformat=portikus_name_') | list | length == 0
+          - "'logformat portikus_name_tls %ssl::>sni' in squid_rules"
+          - "'logformat portikus_name_http %>rd' in squid_rules"
+
+    # ── The helper's settings ─────────────────────────────────────
+
+    - name: Render the helper's settings
+      ansible.builtin.set_fact:
+        egress_env: >-
+          {{ dict(lookup('ansible.builtin.template', '../ansible/roles/workspace_egress/templates/egress.env.j2').splitlines()
+             | reject('match', '^(#|$)') | map('split', '=', 1) | list) }}
+
+    - name: Check the helper's settings
+      ansible.builtin.assert:
+        that:
+          - >-
+            egress_env == {
+              'EGRESS_BRIDGE': 'portikus-ws', 'EGRESS_GATEWAY': '10.200.0.1', 'EGRESS_UPSTREAM': '127.0.0.53',
+              'EGRESS_COUNTER_DNS_PORT': '5399',
+              'EGRESS_DENIED_RANGES': contracts_denied | join(',') }

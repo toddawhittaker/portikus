@@ -1,0 +1,20 @@
+---
+- name: Reload systemd for workspace egress
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart the workspace proxy
+  ansible.builtin.systemd:
+    name: portikus-workspace-proxy
+    state: restarted
+
+# Only while it runs: the egress helper decides whether it should.
+- name: Restart the egress DNS if it runs
+  ansible.builtin.command:
+    cmd: systemctl try-restart portikus-egress-dns.service
+  changed_when: true
+
+- name: Restart the controller for the request directory
+  ansible.builtin.systemd:
+    name: portikus-controller
+    state: restarted

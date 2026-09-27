@@ -20,6 +20,30 @@
     validate: nft -c -f %s
   notify: Reload nftables
 
+# Debian's unit runs "nft flush ruleset" on stop, so a restart would drop
+# Incus's table and the egress helper's, which would open allow-list mode
+# (ADR 0038).  Stopping removes only the tables this role owns.
+- name: Create the nftables drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/nftables.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Remove only our own tables when nftables stops
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/nftables.service.d/10-portikus.conf
+    content: |
+      # Managed by Ansible (firewall role).
+      [Service]
+      ExecStop=
+      ExecStop=/usr/sbin/nft 'destroy table inet filter; destroy table inet nat'
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd for nftables
+
 - name: Enable and start nftables
   ansible.builtin.systemd:
     name: nftables

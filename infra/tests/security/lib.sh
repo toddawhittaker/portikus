@@ -327,7 +327,9 @@ sec_snapshot_others() {
   theirs=$(sec_psql "SELECT w.incus_instance_name FROM workspaces w JOIN users u ON u.id = w.owner_user_id WHERE u.oidc_issuer <> '${SEC_ISSUER}' AND w.incus_instance_name IS NOT NULL")
   sec_psql "SELECT 'workspace ' || w.id || ' ' || COALESCE(w.incus_instance_name, '-') || ' state=' || w.state || ' desired=' || w.desired_state || ' deadline=' || COALESCE(w.shutdown_deadline::text, '-') FROM workspaces w JOIN users u ON u.id = w.owner_user_id WHERE u.oidc_issuer <> '${SEC_ISSUER}' ORDER BY w.id"
   sec_psql "SELECT 'user ' || id || ' role=' || role || ' disabled=' || COALESCE(disabled_at::text, '-') || ' grace=' || COALESCE(shutdown_grace_seconds::text, '-') FROM users WHERE oidc_issuer <> '${SEC_ISSUER}' ORDER BY id"
-  sec_psql "SELECT 'settings ' || row_to_json(s)::text FROM settings s ORDER BY id"
+  # The workspace-egress module switches the policy and puts it back, which
+  # raises its version; the policy itself must come back unchanged.
+  sec_psql "SELECT 'settings ' || (to_jsonb(s) - 'egress_version' - 'egress_applied_version' - 'egress_applied_at' - 'egress_apply_error')::text FROM settings s ORDER BY id"
   sec_psql "SELECT 'audit rows up to id ${SEC_AUDIT_MAX:-0}: ' || count(*) FROM audit_events WHERE id <= ${SEC_AUDIT_MAX:-0}"
   sec_psql "SELECT 'connection ' || c.id || ' workspace ' || c.workspace_id FROM workspace_connections c JOIN workspaces w ON w.id = c.workspace_id JOIN users u ON u.id = w.owner_user_id WHERE u.oidc_issuer <> '${SEC_ISSUER}' AND c.connected_at < ${start} ORDER BY c.id"
   sec_psql "SELECT 'sessions user ' || s.user_id || ': ' || count(*) FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.oidc_issuer <> '${SEC_ISSUER}' AND s.created_at < ${start} AND s.expires_at > ${start} + interval '2 hours' GROUP BY s.user_id ORDER BY s.user_id"

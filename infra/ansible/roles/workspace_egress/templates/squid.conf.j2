@@ -1,0 +1,66 @@
+# Managed by Ansible (workspace_egress role).  The workspace egress proxy
+# for allow-list mode (ADR 0038): the helper's table redirects workspace
+# port 80 and 443 to a listed name's address here.  HTTPS is peeked at and
+# spliced, never decrypted; plain HTTP is checked by its Host header.  The
+# listed names come from the helper's names.txt.  Nothing is cached, and no
+# log line holds a workspace's address.  First match wins.
+{% set denied_v4 = workspace_egress_denied_ranges | ansible.utils.ipv4 | ansible.utils.cidr_merge %}
+{% set denied_v6 = workspace_egress_denied_ranges | ansible.utils.ipv6 | ansible.utils.cidr_merge %}
+visible_hostname portikus-workspace-proxy
+httpd_suppress_version_string on
+pid_filename /run/portikus-workspace-proxy/squid.pid
+via off
+forwarded_for transparent
+cache deny all
+cache_mem 0 MB
+pinger_enable off
+shutdown_lifetime 1 seconds
+max_filedescriptors 16384
+
+# Squid must share the workspaces' view of DNS, or its own check that an
+# intercepted connection's address belongs to its name fails for rotating
+# answers.  Incus's resolver on the gateway, with no long negative cache.
+dns_nameservers {{ workspace_egress_gateway }}
+negative_dns_ttl 1 second
+
+# Squid will not start without a forward-proxy port; this one refuses all.
+http_port 127.0.0.1:{{ workspace_egress_proxy_forward_port }}
+acl forward_port myportname 127.0.0.1:{{ workspace_egress_proxy_forward_port }}
+http_port {{ workspace_egress_gateway }}:{{ workspace_egress_http_port }} intercept
+# A certificate is required even though nothing is ever bumped.
+https_port {{ workspace_egress_gateway }}:{{ workspace_egress_https_port }} intercept ssl-bump tls-cert={{ workspace_egress_proxy_dir }}/bump.crt tls-key={{ workspace_egress_proxy_dir }}/bump.key generate-host-certificates=off
+acl intercepted_http myportname {{ workspace_egress_gateway }}:{{ workspace_egress_http_port }}
+acl intercepted_tls myportname {{ workspace_egress_gateway }}:{{ workspace_egress_https_port }}
+
+acl denied_dst dst {{ (denied_v4 + denied_v6) | join(' ') }}
+acl listed_host dstdomain -n "{{ workspace_egress_state_dir }}/names.txt"
+acl listed_sni ssl::server_name "{{ workspace_egress_state_dir }}/names.txt"
+acl step1 at_step SslBump1
+
+http_access deny forward_port
+http_access allow intercepted_tls
+http_access deny denied_dst
+http_access allow intercepted_http listed_host
+http_access deny all
+
+# A private destination is closed, never bumped to show an error page.
+ssl_bump terminate denied_dst
+ssl_bump peek step1
+ssl_bump splice listed_sni
+ssl_bump terminate all
+
+# Only refused names leave Squid, as one name per UDP line to the worker's
+# counter (ruling 13), each as it happens.  No other access log is written.
+acl http_refused http_status 400-599
+logformat portikus_name_tls %ssl::>sni
+logformat portikus_name_http %>rd
+# A buffered UDP log would hold names back until a restart.
+access_log udp://127.0.0.1:{{ workspace_egress_tls_counter_port }} logformat=portikus_name_tls buffer-size=0KB intercepted_tls !listed_sni
+access_log udp://127.0.0.1:{{ workspace_egress_tls_counter_port }} logformat=portikus_name_http buffer-size=0KB intercepted_http http_refused
+
+# Only fatal messages: a higher level writes workspace addresses.
+debug_options ALL,0
+cache_log /var/log/portikus-workspace-proxy/cache.log
+logfile_rotate 0
+cache_store_log none
+coredump_dir none
