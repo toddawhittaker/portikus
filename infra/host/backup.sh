@@ -19,7 +19,8 @@
 #   PORTIKUS_BACKUP_DIR         holds one directory of sets per VM (default /var/backups/portikus)
 #   PORTIKUS_BACKUP_RECIPIENTS  age recipients file (default ~/.config/portikus/backup-recipients.txt)
 #   PORTIKUS_BACKUP_KEEP        complete sets, and incomplete ones, kept per VM (default 14)
-#   PORTIKUS_BACKUP_MIN_AGE_DAYS   retention never removes a set younger than this (default 7)
+#   PORTIKUS_BACKUP_MIN_AGE_DAYS   retention never removes a set younger than this (default 14)
+#   PORTIKUS_BACKUP_MIN_FREE_MB    a run needs this much free space at least (default 1024)
 #   PORTIKUS_BACKUP_KEEP_COMPLETE  retention always keeps this many newest complete sets (default 3)
 set -euo pipefail
 umask 077
@@ -29,10 +30,12 @@ RECIPIENTS="${PORTIKUS_BACKUP_RECIPIENTS:-${HOME}/.config/portikus/backup-recipi
 KEEP="${PORTIKUS_BACKUP_KEEP:-14}"
 # The same retention floor as backup-channel.sh's delete (ADR 0039), so
 # repeated requested backups cannot prune recent sets either.
-MIN_AGE_DAYS="${PORTIKUS_BACKUP_MIN_AGE_DAYS:-7}"
+MIN_AGE_DAYS="${PORTIKUS_BACKUP_MIN_AGE_DAYS:-14}"
 KEEP_COMPLETE="${PORTIKUS_BACKUP_KEEP_COMPLETE:-3}"
-[[ "$MIN_AGE_DAYS" =~ ^[0-9]{1,4}$ ]] || MIN_AGE_DAYS=7
+MIN_FREE_MB="${PORTIKUS_BACKUP_MIN_FREE_MB:-1024}"
+[[ "$MIN_AGE_DAYS" =~ ^[0-9]{1,4}$ ]] || MIN_AGE_DAYS=14
 [[ "$KEEP_COMPLETE" =~ ^[0-9]{1,3}$ ]] || KEEP_COMPLETE=3
+[[ "$MIN_FREE_MB" =~ ^[0-9]{1,9}$ ]] || MIN_FREE_MB=1024
 # The VM half, sent with every command rather than installed on the VM.
 EXPORT_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-export"
 SET_PATTERN='^[0-9]{8}T[0-9]{6}Z$'
@@ -103,6 +106,23 @@ with open(sum_path, "w") as f:
 
 info() { printf '[backup] %s\n' "$*"; }
 die() { printf '[backup] FAIL: %s\n' "$*" >&2; exit 1; }
+
+# enough_free_space -- is there room in BACKUP_DIR for one more set: the
+# newest complete set's size plus a fifth, and at least MIN_FREE_MB? The
+# same check as in backup-channel.sh (ADR 0039).
+enough_free_space() {
+  local s newest="" size need avail
+  for s in $(find "$HOST_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | grep -E "$SET_PATTERN" | sort -r); do
+    [ -e "${HOST_DIR}/${s}/FAILED" ] || { newest=$s; break; }
+  done
+  need=$((MIN_FREE_MB * 1048576))
+  if [ -n "$newest" ]; then
+    size=$(du -sb "${HOST_DIR}/${newest}" | cut -f1)
+    [ $((size * 6 / 5)) -le "$need" ] || need=$((size * 6 / 5))
+  fi
+  avail=$(df -B1 --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ')
+  [ "$avail" -ge "$need" ]
+}
 # must NAME PATTERN VALUE -- stop unless the VM's answer has the expected form.
 must() { [[ "$3" =~ $2 ]] || die "the VM sent a ${1} that is not in the expected form; nothing was kept"; }
 # lines TEXT -- TEXT one line at a time, and nothing at all when it is empty.
@@ -143,6 +163,7 @@ install -d -m 0700 "$HOST_DIR"
 # One run per VM at a time; the lock goes with the process.
 exec {lock}>"${HOST_DIR}/.lock"
 flock -n "$lock" || die "another backup of ${vm_name} is running"
+enough_free_space || die "refused by the host: not enough free space"
 
 started=$(date +%s)
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
