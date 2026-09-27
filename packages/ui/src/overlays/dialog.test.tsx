@@ -74,6 +74,36 @@ describe("Dialog", () => {
 		await waitFor(() => expect(document.activeElement).toBe(opener));
 	});
 
+	it("leaves focus where the caller moved it while the dialog closed", async () => {
+		function MovedFixture() {
+			const [open, setOpen] = React.useState(false);
+			return (
+				<>
+					<button type="button" onClick={() => setOpen(true)}>
+						Disable
+					</button>
+					<p tabIndex={-1} data-testid="summary">
+						Done
+					</p>
+					<DialogRoot open={open} onOpenChange={setOpen}>
+						<Dialog title="Disable" />
+					</DialogRoot>
+				</>
+			);
+		}
+		render(<MovedFixture />);
+		const opener = screen.getByText("Disable", { selector: "button" });
+		opener.focus();
+		fireEvent.click(opener);
+
+		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+		const summary = screen.getByTestId("summary");
+		summary.focus();
+
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(document.activeElement).toBe(summary);
+	});
+
 	it("falls back to the menu trigger when the opening menu item is gone (#358)", async () => {
 		function MenuFixture() {
 			const [menuOpen, setMenuOpen] = React.useState(true);

@@ -867,3 +867,51 @@ button.pk-statusbar-item:hover {
 :is(h1, h2, h3)[tabindex="-1"]:focus {
 	outline: none;
 }
+
+/*
+ * Every Stop icon button is danger red in both themes, hover and focus
+ * included (issues #324, #700). The button's own hover colour and transition
+ * would otherwise replace or blend the red.
+ */
+.pk-iconbtn.pk-iconbtn-danger,
+.pk-iconbtn.pk-iconbtn-danger:hover,
+.pk-iconbtn.pk-iconbtn-danger:focus-visible,
+.pk-iconbtn.pk-iconbtn-danger svg {
+	color: var(--status-danger);
+	transition: none;
+}
+
+/*
+ * Fixed-width action cells for process tables (issue #702): each button has
+ * its own column, a missing one leaves its cell empty, and every row is as
+ * tall as a button whether it has buttons or not.
+ */
+.pk-action-slots {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--space-1);
+}
+.pk-action-slot {
+	display: inline-grid;
+	place-items: center;
+	flex: none;
+	width: var(--size-control-sm);
+	height: var(--size-control-sm);
+}
+/* A text note in an action cell, as tall as a button so rows stay even. */
+.pk-action-note {
+	display: inline-flex;
+	align-items: center;
+	height: var(--size-control-sm);
+}
+
+/* The student's full command line (FullCommand.tsx), wrapped for a narrow pane. */
+.pk-full-command {
+	font-family: var(--font-mono);
+	font-variant-ligatures: none;
+	font-size: 12px;
+	line-height: 16px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	color: var(--ink-muted);
+}

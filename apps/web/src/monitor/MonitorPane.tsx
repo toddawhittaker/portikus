@@ -7,6 +7,7 @@
 import type { UsageProcess, WorkspaceUsage } from "@portikus/contracts";
 import { ConfirmDialog, ConfirmDialogRoot, IconButton } from "@portikus/ui";
 import { type FocusEvent, useEffect, useRef, useState } from "react";
+import { FullCommandButton, FullCommandText } from "./FullCommand.js";
 import "./monitor.css";
 import { useRightPaneState } from "../shell/rightPane.js";
 import { formatBytes, formatCpu, formatRate } from "./format.js";
@@ -302,33 +303,38 @@ function ProcessRow({
 					{process.command}
 				</td>
 				<td className="pk-monitor-actions">
-					{process.commandLine !== null ? (
-						<IconButton
-							icon={expanded ? "chevron-down" : "chevron-right"}
-							size="sm"
-							label={`Show the full command for PID ${process.pid}`}
-							aria-expanded={expanded}
-							aria-controls={expanded ? detailId : undefined}
-							data-testid={`monitor-show-command-${process.pid}`}
-							onClick={onToggle}
-						/>
-					) : null}
-					{process.stoppable ? (
-						<IconButton
-							icon="stop"
-							size="sm"
-							label={`Stop ${process.command} (PID ${process.pid})`}
-							aria-haspopup="dialog"
-							data-testid={`monitor-stop-${process.pid}`}
-							onClick={onStop}
-						/>
-					) : null}
+					<div className="pk-action-slots">
+						<span className="pk-action-slot">
+							{process.commandLine !== null ? (
+								<FullCommandButton
+									subject={`PID ${process.pid}`}
+									expanded={expanded}
+									detailId={detailId}
+									testId={`monitor-show-command-${process.pid}`}
+									onToggle={onToggle}
+								/>
+							) : null}
+						</span>
+						<span className="pk-action-slot">
+							{process.stoppable ? (
+								<IconButton
+									icon="stop"
+									size="sm"
+									className="pk-iconbtn-danger"
+									label={`Stop ${process.command} (PID ${process.pid})`}
+									aria-haspopup="dialog"
+									data-testid={`monitor-stop-${process.pid}`}
+									onClick={onStop}
+								/>
+							) : null}
+						</span>
+					</div>
 				</td>
 			</tr>
 			{expanded && process.commandLine !== null ? (
 				<tr className="pk-monitor-cmdline-row">
-					<td colSpan={5} id={detailId} data-testid={detailId}>
-						{process.commandLine}
+					<td colSpan={5}>
+						<FullCommandText id={detailId} commandLine={process.commandLine} />
 					</td>
 				</tr>
 			) : null}

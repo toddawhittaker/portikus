@@ -1245,11 +1245,11 @@ function UserGrace({ user }: { user: AdminUser }) {
 	}
 
 	return (
-		<div className="pk-actions items-start">
+		<div className="pk-actions flex-nowrap items-start">
 			<TextField
 				id={`user-grace-${user.id}`}
 				label="Grace period override (seconds)"
-				className="w-48"
+				className="w-64"
 				inputMode="numeric"
 				placeholder={globalSeconds === null ? undefined : defaultLabel(globalSeconds)}
 				data-testid={`user-grace-input-${user.id}`}

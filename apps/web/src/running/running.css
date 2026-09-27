@@ -65,6 +65,8 @@
 	flex-direction: column;
 }
 .pk-portrow-name {
+	/* A floor, so a short name such as "node" is never cut to "no…". */
+	min-width: 6ch;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -80,10 +82,6 @@
 	border-radius: var(--radius-sm);
 }
 
-/* Stop is the destructive action, so it keeps the danger colour on hover. */
-.pk-running-stop {
-	color: var(--status-danger);
-}
 .pk-portrow:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);
@@ -110,6 +108,16 @@
 }
 .pk-portrow button {
 	white-space: nowrap;
+}
+/*
+ * The full command, when shown, takes a line of its own under the row. It
+ * comes before the actions in the markup so it is read next, and grid-row
+ * keeps it below them on screen.
+ */
+.pk-portrow > .pk-portrow-command {
+	grid-row: 2;
+	grid-column: 1 / -1;
+	white-space: normal;
 }
 
 .pk-portrow-port {

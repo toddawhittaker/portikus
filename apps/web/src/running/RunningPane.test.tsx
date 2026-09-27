@@ -171,7 +171,7 @@ test("a previewable port offers a visible Preview button, then a new tab and sto
 	expect(tab.querySelector("[data-icon=external]")).toBeTruthy();
 	const stop = screen.getByTestId("running-stop-3000");
 	expect(stop.getAttribute("aria-label")).toBe("Stop port 3000");
-	expect(stop.className).toContain("pk-running-stop");
+	expect(stop.className).toContain("pk-iconbtn-danger");
 	expect(stop.querySelector("[data-icon=stop]")).toBeTruthy();
 	expect(screen.queryByText("Open preview")).toBeNull();
 	expect(screen.queryByText("Stop")).toBeNull();
@@ -418,4 +418,84 @@ test("Docker and reserved-port tags sit on a second line under the name", () => 
 	const tags = row.querySelector(".pk-portrow-main .pk-portrow-tags");
 	expect(tags?.textContent).toContain("Docker");
 	expect(row.querySelector(".pk-portrow-name")?.textContent).toBe("postgres");
+});
+
+test("a student's own listener can reveal its full command below the row (issue #701)", () => {
+	show([
+		service({
+			port: 3000,
+			process: { pid: 7, command: "node", commandLine: "node server.js --port 3000" },
+		}),
+	]);
+	const toggle = screen.getByRole("button", {
+		name: "Show the full command for port 3000",
+	});
+	expect(toggle.getAttribute("aria-expanded")).toBe("false");
+	expect(screen.queryByTestId("running-command-3000")).toBeNull();
+	fireEvent.click(toggle);
+	expect(toggle.getAttribute("aria-expanded")).toBe("true");
+	expect(toggle.getAttribute("aria-controls")).toBe("running-command-3000");
+	const text = screen.getByTestId("running-command-3000");
+	expect(text.textContent).toBe("node server.js --port 3000");
+	expect(text.className).toBe("pk-full-command");
+	// The command sits inside the row, not in the row's select button.
+	expect(screen.getByTestId("running-row-3000").contains(text)).toBe(true);
+	fireEvent.click(toggle);
+	expect(screen.queryByTestId("running-command-3000")).toBeNull();
+});
+
+test("a listener without a command line, as from an older agent, has no disclosure", () => {
+	show([
+		service({ port: 3000 }),
+		// A system or Docker row never offers it, even if a command line arrives.
+		service({
+			port: 5355,
+			system: true,
+			process: { pid: 2, command: "resolved", commandLine: "resolved" },
+		}),
+		service({
+			port: 8080,
+			container: { id: "abc", name: "pg" },
+			process: { pid: 3, command: "docker-proxy", commandLine: "docker-proxy" },
+		}),
+	]);
+	expect(screen.queryByRole("button", { name: /Show the full command/ })).toBeNull();
+});
+
+test("the revealed command is read right after the row, before its actions", () => {
+	show([
+		service({
+			port: 3000,
+			process: { pid: 7, command: "node", commandLine: "node server.js" },
+		}),
+	]);
+	fireEvent.click(screen.getByTestId("running-show-command-3000"));
+	const row = screen.getByTestId("running-row-3000");
+	const children = [...row.children];
+	const command = row.querySelector(".pk-portrow-command");
+	const actions = row.querySelector(".pk-portrow-actions");
+	if (!command || !actions) throw new Error("row is missing its command or actions");
+	expect(children.indexOf(command)).toBeLessThan(children.indexOf(actions));
+});
+
+test("a new process on the same port starts with its command collapsed", () => {
+	const first = service({
+		port: 3000,
+		process: { pid: 7, command: "node", commandLine: "node server.js" },
+	});
+	const view = show([first]);
+	fireEvent.click(screen.getByTestId("running-show-command-3000"));
+	expect(screen.getByTestId("running-command-3000")).toBeTruthy();
+	view.rerender(
+		tree([
+			service({
+				port: 3000,
+				process: { pid: 8, command: "node", commandLine: "node other.js" },
+			}),
+		]),
+	);
+	expect(screen.queryByTestId("running-command-3000")).toBeNull();
+	expect(
+		screen.getByTestId("running-show-command-3000").getAttribute("aria-expanded"),
+	).toBe("false");
 });

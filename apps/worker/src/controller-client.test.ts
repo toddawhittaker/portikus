@@ -126,8 +126,8 @@ test("a stop over its budget is aborted with TIMEOUT", async () => {
 
 	const stop = client.stop("ws-a", 30);
 	const caught = stop.catch((e: unknown) => e);
-	// Budget is 2 x 30 + 15 = 75 seconds.
-	await vi.advanceTimersByTimeAsync(74_000);
+	// Budget is 2 x 30 + 25 = 85 seconds.
+	await vi.advanceTimersByTimeAsync(84_000);
 	expect(await Promise.race([caught, Promise.resolve("pending")])).toBe("pending");
 	await vi.advanceTimersByTimeAsync(1_000);
 	const err = await caught;

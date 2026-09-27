@@ -653,9 +653,42 @@ test("a forced stop that fails because the graceful stop just finished still rep
 	expect(puts.map((p) => p.force)).toEqual([false, true]);
 });
 
+// Issue #704: a stop that meets an instance already shutting down fails in
+// Incus with "Invalid PID -1"; the instance reads Stopping, then Stopped.
+test("a stop that races an instance already shutting down reports stopped", async () => {
+	const puts: Array<{ force?: boolean }> = [];
+	let readsAfter = 0;
+	handler = async (req, res) => {
+		const body = await readBody(req);
+		if (req.method === "PUT" && req.url?.includes("/state")) {
+			puts.push(JSON.parse(body));
+			respond(res, 202, {
+				type: "async",
+				status: "Operation created",
+				status_code: 100,
+				operation: `/1.0/operations/stop-${puts.length}`,
+			});
+		} else if (req.url?.includes("/wait")) {
+			respond(
+				res,
+				200,
+				sync({ status_code: 400, status: "Failure", err: "Invalid PID -1" }),
+			);
+		} else if (puts.length === 0) {
+			respond(res, 200, sync({ status: "Running" }));
+		} else {
+			readsAfter++;
+			respond(res, 200, sync({ status: readsAfter < 3 ? "Stopping" : "Stopped" }));
+		}
+	};
+	const result = await provider.stop("ws-test", { timeoutSeconds: 5 });
+	expect(result.forced).toBe(true);
+	expect(puts.map((p) => p.force)).toEqual([false, true]);
+});
+
 test("a forced stop that fails while the instance still runs is an error", async () => {
 	handler = stopsFail("Running", []);
-	await expect(provider.stop("ws-test", { timeoutSeconds: 5 })).rejects.toMatchObject({
+	await expect(provider.stop("ws-test", { timeoutSeconds: 1 })).rejects.toMatchObject({
 		code: "OPERATION_FAILED",
 	});
 });
@@ -674,6 +707,103 @@ test("stop on an already-stopped instance is a no-op", async () => {
 
 	const result = await provider.stop("ws-test", { timeoutSeconds: 5 });
 	expect(result.forced).toBe(false);
+	expect(puts).toBe(0);
+});
+
+// Issue #704, as seen on the rehearsal VM: for about a second of a shutdown
+// Incus answers the state read itself with 500 "Invalid PID -1".
+test("a stop whose first state read fails with Invalid PID -1 reports stopped", async () => {
+	const puts: Array<{ force?: boolean }> = [];
+	let reads = 0;
+	handler = async (req, res) => {
+		const body = await readBody(req);
+		if (req.method === "PUT" && req.url?.includes("/state")) {
+			puts.push(JSON.parse(body));
+			respond(res, 202, {
+				type: "async",
+				status: "Operation created",
+				status_code: 100,
+				operation: `/1.0/operations/stop-${puts.length}`,
+			});
+		} else if (req.url?.includes("/wait")) {
+			respond(
+				res,
+				200,
+				sync({ status_code: 400, status: "Failure", err: "Invalid PID -1" }),
+			);
+		} else if (++reads < 3) {
+			respond(res, 500, {
+				type: "error",
+				status: "",
+				status_code: 0,
+				error_code: 500,
+				error: "Invalid PID -1",
+			});
+		} else {
+			respond(res, 200, sync({ status: "Stopped" }));
+		}
+	};
+	const result = await provider.stop("ws-test", { timeoutSeconds: 5 });
+	expect(result.forced).toBe(true);
+});
+
+test("a normal stop after one failed state read is not forced", async () => {
+	const puts: Array<{ force?: boolean }> = [];
+	let reads = 0;
+	handler = async (req, res) => {
+		const body = await readBody(req);
+		if (req.method === "PUT" && req.url?.includes("/state")) {
+			puts.push(JSON.parse(body));
+			respond(res, 202, {
+				type: "async",
+				status: "Operation created",
+				status_code: 100,
+				operation: "/1.0/operations/stop-1",
+			});
+		} else if (req.url?.includes("/wait")) {
+			respond(res, 200, sync({ status_code: 200, status: "Success" }));
+		} else if (++reads === 1) {
+			respond(res, 500, { type: "error", error_code: 500, error: "Invalid PID -1" });
+		} else {
+			respond(res, 200, sync({ status: "Stopped" }));
+		}
+	};
+	const result = await provider.stop("ws-test", { timeoutSeconds: 5 });
+	expect(result.forced).toBe(false);
+	expect(puts).toEqual([expect.objectContaining({ force: false })]);
+});
+
+for (const code of [403, 500]) {
+	test(`a stop still rejects when every state read answers ${code}`, async () => {
+		handler = async (req, res) => {
+			await readBody(req);
+			if (req.method === "PUT" && req.url?.includes("/state")) {
+				respond(res, 202, {
+					type: "async",
+					status: "Operation created",
+					status_code: 100,
+					operation: "/1.0/operations/stop-1",
+				});
+			} else if (req.url?.includes("/wait")) {
+				respond(res, 200, sync({ status_code: 400, status: "Failure", err: "boom" }));
+			} else {
+				respond(res, code, { type: "error", error_code: code, error: "nope" });
+			}
+		};
+		await expect(provider.stop("ws-test", { timeoutSeconds: 1 })).rejects.toBeDefined();
+	});
+}
+
+test("stop on a missing instance still reports NOT_FOUND", async () => {
+	let puts = 0;
+	handler = async (req, res) => {
+		await readBody(req);
+		if (req.method === "PUT") puts++;
+		respond(res, 404, { type: "error", status_code: 404, error: "Instance not found" });
+	};
+	await expect(provider.stop("ws-test", { timeoutSeconds: 5 })).rejects.toMatchObject({
+		code: "NOT_FOUND",
+	});
 	expect(puts).toBe(0);
 });
 

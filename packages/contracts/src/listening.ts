@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PROCESS_COMMAND_LINE_LIMIT } from "./usage.js";
 
 /** A TCP port number. */
 export const PortNumber = z.number().int().min(1).max(65535);
@@ -26,9 +27,13 @@ export const ListeningService = z.object({
 			/**
 			 * `/proc/<pid>/cmdline` with the NUL separators turned into spaces.
 			 * Absent when it could not be read. Arguments can carry secrets,
-			 * so this is never logged.
+			 * so this is never logged. Cut to the limit rather than rejected,
+			 * so an older agent's long value does not fail the whole listener.
 			 */
-			commandLine: z.string().optional(),
+			commandLine: z
+				.string()
+				.transform((line) => line.slice(0, PROCESS_COMMAND_LINE_LIMIT))
+				.optional(),
 		})
 		.optional(),
 	container: z
