@@ -64,7 +64,7 @@ refusal.
 **Deletes keep a host-side retention floor.** A compromised VM could ask
 for backups until a set holding its poisoned data is the newest, then
 delete every older set. So the host never deletes a set younger than
-`PORTIKUS_BACKUP_MIN_AGE_DAYS` (default 7) and always keeps the newest
+`PORTIKUS_BACKUP_MIN_AGE_DAYS` (default 14) and always keeps the newest
 `PORTIKUS_BACKUP_KEEP_COMPLETE` (default 3) complete sets. Both come from
 the channel unit's environment, never from a request; a refused delete
 reads "refused by the host: retention floor (...)". The same floor holds
@@ -74,6 +74,29 @@ prune those sets either. The host also refuses a requested backup within
 `PORTIKUS_BACKUP_MIN_GAP_MINUTES` (default 60) of the end of the last one,
 read from the channel's `last-run` file, with "refused by the host: a
 backup ran N minutes ago". The nightly timer is not limited.
+
+Because the floor keeps every young set, requested sets are capped so a
+compromised VM cannot fill the host's disk. The channel writes a
+`REQUESTED` file into each set it made on request (never anything from the
+VM), and refuses a request while `PORTIKUS_BACKUP_MAX_REQUESTED` (default
+3) such sets are younger than the minimum age. The minimum age defaults to
+14 days, matching `PORTIKUS_BACKUP_KEEP`, so the floor never keeps fewer
+nights than rotation used to. Every run, nightly or requested, also needs
+free space in the backup directory of at least the newest complete set's
+size plus a fifth, and at least `PORTIKUS_BACKUP_MIN_FREE_MB` (default
+1024); otherwise it fails with "refused by the host: not enough free space"
+before contacting the VM for data. Free space is measured after leftover
+partial sets from a killed run are removed. The run then has a byte
+budget: the free space less `PORTIKUS_BACKUP_MIN_FREE_MB`. Every stream
+from the VM counts against it (before encryption, which adds well under
+one percent), and a stream that passes it stops the whole run, not just
+that volume, and keeps nothing. The run also skips any volume that is not
+the home or recovery volume of an instance the VM listed: nothing is
+fetched or written for it, so made-up volume names cannot pad a run, and
+an orphaned volume left by a deleted workspace does not fail every
+nightly backup. The run logs a warning with the count and at most three
+names, and the set records the count in a plain `SKIPPED` file (and a
+`skipped` MANIFEST line), which the Backups tab shows.
 
 **The private key is installed on the host, root-only,** as
 `/etc/portikus-backup/age-key.txt` (file 0600, directory 0700, owner

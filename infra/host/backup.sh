@@ -19,7 +19,8 @@
 #   PORTIKUS_BACKUP_DIR         holds one directory of sets per VM (default /var/backups/portikus)
 #   PORTIKUS_BACKUP_RECIPIENTS  age recipients file (default ~/.config/portikus/backup-recipients.txt)
 #   PORTIKUS_BACKUP_KEEP        complete sets, and incomplete ones, kept per VM (default 14)
-#   PORTIKUS_BACKUP_MIN_AGE_DAYS   retention never removes a set younger than this (default 7)
+#   PORTIKUS_BACKUP_MIN_AGE_DAYS   retention never removes a set younger than this (default 14)
+#   PORTIKUS_BACKUP_MIN_FREE_MB    a run needs this much free space at least (default 1024)
 #   PORTIKUS_BACKUP_KEEP_COMPLETE  retention always keeps this many newest complete sets (default 3)
 set -euo pipefail
 umask 077
@@ -29,10 +30,12 @@ RECIPIENTS="${PORTIKUS_BACKUP_RECIPIENTS:-${HOME}/.config/portikus/backup-recipi
 KEEP="${PORTIKUS_BACKUP_KEEP:-14}"
 # The same retention floor as backup-channel.sh's delete (ADR 0039), so
 # repeated requested backups cannot prune recent sets either.
-MIN_AGE_DAYS="${PORTIKUS_BACKUP_MIN_AGE_DAYS:-7}"
+MIN_AGE_DAYS="${PORTIKUS_BACKUP_MIN_AGE_DAYS:-14}"
 KEEP_COMPLETE="${PORTIKUS_BACKUP_KEEP_COMPLETE:-3}"
-[[ "$MIN_AGE_DAYS" =~ ^[0-9]{1,4}$ ]] || MIN_AGE_DAYS=7
+MIN_FREE_MB="${PORTIKUS_BACKUP_MIN_FREE_MB:-1024}"
+[[ "$MIN_AGE_DAYS" =~ ^[0-9]{1,4}$ ]] || MIN_AGE_DAYS=14
 [[ "$KEEP_COMPLETE" =~ ^[0-9]{1,3}$ ]] || KEEP_COMPLETE=3
+[[ "$MIN_FREE_MB" =~ ^[0-9]{1,9}$ ]] || MIN_FREE_MB=1024
 # The VM half, sent with every command rather than installed on the VM.
 EXPORT_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-export"
 SET_PATTERN='^[0-9]{8}T[0-9]{6}Z$'
@@ -47,18 +50,24 @@ INSTANCE_PATTERN='^ws-[0-9a-f]{24}$'
 IDMAP_PATTERN='^\[[][{}":,A-Za-z0-9]*\]$'
 
 # Reads a stream on stdin and copies it to stdout unchanged, writing its size
-# and SHA-256 to argv[2].  With argv[1] = tar it also writes a JSON line per
+# and SHA-256 to argv[2].  Past argv[4] bytes it stops, exits 3 and writes
+# argv[5], so one run cannot fill the disk.  With argv[1] = tar it also writes a JSON line per
 # regular file (path, size, SHA-256) and per Git repository (HEAD commit)
 # to argv[3], so a restore can be checked file by file.
 INDEXER='
 import hashlib, json, sys, tarfile
 mode, sum_path = sys.argv[1], sys.argv[2]
+budget, over_path = int(sys.argv[4]), sys.argv[5]
 class Tee:
     def __init__(self):
         self.h, self.n = hashlib.sha256(), 0
     def read(self, size=-1):
         b = sys.stdin.buffer.read(size if size and size > 0 else 1 << 20)
-        self.h.update(b); self.n += len(b); sys.stdout.buffer.write(b)
+        self.h.update(b); self.n += len(b)
+        if self.n > budget:
+            open(over_path, "w").close()
+            sys.exit(3)
+        sys.stdout.buffer.write(b)
         return b
 tee = Tee()
 if mode == "tar":
@@ -103,6 +112,23 @@ with open(sum_path, "w") as f:
 
 info() { printf '[backup] %s\n' "$*"; }
 die() { printf '[backup] FAIL: %s\n' "$*" >&2; exit 1; }
+
+# enough_free_space -- is there room in BACKUP_DIR for one more set: the
+# newest complete set's size plus a fifth, and at least MIN_FREE_MB? The
+# same check as in backup-channel.sh (ADR 0039).
+enough_free_space() {
+  local s newest="" size need avail
+  for s in $(find "$HOST_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | grep -E "$SET_PATTERN" | sort -r); do
+    [ -e "${HOST_DIR}/${s}/FAILED" ] || { newest=$s; break; }
+  done
+  need=$((MIN_FREE_MB * 1048576))
+  if [ -n "$newest" ]; then
+    size=$(du -sb "${HOST_DIR}/${newest}" | cut -f1)
+    [ $((size * 6 / 5)) -le "$need" ] || need=$((size * 6 / 5))
+  fi
+  avail=$(df -B1 --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ')
+  [ "$avail" -ge "$need" ]
+}
 # must NAME PATTERN VALUE -- stop unless the VM's answer has the expected form.
 must() { [[ "$3" =~ $2 ]] || die "the VM sent a ${1} that is not in the expected form; nothing was kept"; }
 # lines TEXT -- TEXT one line at a time, and nothing at all when it is empty.
@@ -152,6 +178,10 @@ scratch=$(mktemp -d)
 trap 'rm -rf "$scratch" "$work"' EXIT
 # Leftovers of a run that was killed; the lock proves none is live.
 find "$HOST_DIR" -maxdepth 1 -name '.partial-*' -exec rm -rf {} +
+enough_free_space || die "refused by the host: not enough free space"
+# The run's byte budget: what is free now, less the floor it must leave.
+budget=$(( $(df -B1 --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ') - MIN_FREE_MB * 1048576 ))
+used=0
 install -d -m 0700 "$work"
 manifest="${scratch}/MANIFEST"
 
@@ -182,9 +212,23 @@ mapfile -t instances < <(lines "$instance_list")
 for ws in "${workspaces[@]}"; do
   must "workspace line" "$WORKSPACE_PATTERN" "$ws"
 done
+# Only the volumes of a listed instance are exported, so made-up names
+# cannot pad the run; an orphaned volume is skipped, not fatal.
+kept_volumes=()
+skipped=()
 for vol in "${volumes[@]}"; do
   must "volume name" "$VOLUME_PATTERN" "$vol"
+  if printf '%s\n' "${instances[@]}" | grep -qx "${vol%-*}"; then
+    kept_volumes+=("$vol")
+  else
+    skipped+=("$vol")
+  fi
 done
+volumes=("${kept_volumes[@]}")
+if [ "${#skipped[@]}" -gt 0 ]; then
+  printf '[backup] WARNING: skipped %s volumes of no listed instance, such as %s\n' \
+    "${#skipped[@]}" "$(printf '%s ' "${skipped[@]:0:3}")" >&2
+fi
 if [ "${#workspaces[@]}" != "$(awk '{ print $4 }' <<<"$counts")" ]; then
   die "the VM listed ${#workspaces[@]} workspaces but counted $(awk '{ print $4 }' <<<"$counts"); nothing was kept"
 fi
@@ -205,7 +249,10 @@ done
   for ws in "${workspaces[@]}"; do
     echo "workspace ${ws}"
   done
+  [ "${#skipped[@]}" -eq 0 ] || echo "skipped ${#skipped[@]}"
 } >"$manifest"
+# In plain text too, so the admin page can show it without the key.
+[ "${#skipped[@]}" -eq 0 ] || echo "${#skipped[@]}" >"${work}/SKIPPED"
 
 # pull NAME MODE COMMAND... -- stream COMMAND's output from the VM into NAME.age.
 pull() {
@@ -213,10 +260,14 @@ pull() {
   shift 2
   if ! remote_export "$@" \
     | python3 -c "$INDEXER" "$mode" "${scratch}/${name}.sum" "${scratch}/${name}.index" \
+      "$((budget - used))" "${scratch}/over-budget" \
     | age -R "$RECIPIENTS" -o "${work}/${name}.age"; then
     rm -f "${work}/${name}.age"
+    # Over budget stops the whole run; the trap removes the partial set.
+    [ ! -e "${scratch}/over-budget" ] || die "${name}: the run passed its byte budget of ${budget} bytes; nothing was kept"
     return 1
   fi
+  used=$((used + $(cut -d' ' -f1 "${scratch}/${name}.sum")))
 }
 
 info "database"

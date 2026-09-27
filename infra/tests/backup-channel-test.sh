@@ -210,7 +210,8 @@ assert s["nextRunAt"] is None or ts.fullmatch(s["nextRunAt"])
 assert isinstance(s["keyInstalled"], bool)
 assert len(s["sets"]) <= 60 and len(s["dumps"]) <= 200
 for x in s["sets"]:
-    assert set(x) == {"stamp", "complete", "sizeBytes", "instances", "failedVolumes"}
+    assert set(x) == {"stamp", "complete", "sizeBytes", "instances", "failedVolumes", "skippedVolumes"}
+    assert isinstance(x["skippedVolumes"], int) and x["skippedVolumes"] >= 0
     assert re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", x["stamp"]) and isinstance(x["complete"], bool)
     assert isinstance(x["sizeBytes"], int) and x["sizeBytes"] >= 0
     assert all(re.fullmatch(r"ws-[0-9a-f]{24}", i) for i in x["instances"])
@@ -240,6 +241,10 @@ expect "it reports once, with no request" "[ \"\$(field \"r['request']\")\" = No
 expect "the report has the contract's shape" shape_ok
 expect "it lists the four sets, newest first" "[ \"\$(field \"[s['stamp'] for s in r['status']['sets']]\")\" = \"['${BROKEN}', '${NEWEST}', '${GOOD}', '${OLD}']\" ]"
 expect "a set with a FAILED file is incomplete and names the volume" "[ \"\$(field \"(r['status']['sets'][0]['complete'], r['status']['sets'][0]['failedVolumes'])\")\" = \"(False, ['${OTHER}-home'])\" ]"
+echo 2 >"${sets}/${NEWEST}/SKIPPED"
+run_channel
+expect "a set's SKIPPED count is reported, and 0 without one" "[ \"\$(field \"[s['skippedVolumes'] for s in r['status']['sets']]\")\" = '[0, 2, 0, 0]' ]"
+rm -f "${sets}/${NEWEST}/SKIPPED"
 expect "instances come from the volume file names" "[ \"\$(field \"r['status']['sets'][1]['instances']\")\" = \"['${INST}']\" ]"
 expect "dumps are listed newest first" "[ \"\$(field \"[d['file'] for d in r['status']['dumps']]\")\" = \"['portikus-pre-epic24.dump', 'portikus-pre-older.dump']\" ]"
 expect "the next nightly run is reported" "[ \"\$(field \"r['status']['nextRunAt']\")\" = 2026-09-28T02:30:00+00:00 ]"
@@ -385,6 +390,32 @@ echo "$(( $(date +%s) - 7200 )) $(( $(date +%s) - 3660 )) success" >"${state}/la
 pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
 run_channel
 expect "a requested backup after the gap runs" "[ \"\$(field \"r['request']['state']\")\" = done ] && grep -q '^backup ' '$log'"
+expect "the channel marks the set it made as requested" "[ -f '${sets}/20260928T120000Z/REQUESTED' ]"
+
+# The retention floor keeps young sets, so a VM may ask for only a few (ADR 0039).
+ago_stamp() { date -u -d "-$1 days" +%Y%m%dT%H%M%SZ; }
+reset
+for d in 1 2; do st=$(ago_stamp "$d"); make_set "$st"; touch "${sets}/${st}/REQUESTED"; done
+old_req=$(ago_stamp 20)
+make_set "$old_req"
+touch "${sets}/${old_req}/REQUESTED"
+: >"$log"
+pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
+MIN_AGE=14 run_channel
+expect "two young requested sets, and an old one, still allow a request" "[ \"\$(field \"r['request']['state']\")\" = done ] && grep -q '^backup ' '$log'"
+rm -f "${state}/last-run"
+: >"$log"
+pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
+MIN_AGE=14 run_channel
+expect "a fourth request with three young requested sets is refused" \
+  "[ \"\$(field \"r['request']['error']\")\" = 'refused by the host: 3 requested backups in the last 14 days' ] && ! grep -q '^backup ' '$log'"
+
+reset
+: >"$log"
+pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
+PORTIKUS_BACKUP_MIN_FREE_MB=999999999 run_channel
+expect "a requested backup without enough free space is refused" \
+  "[ \"\$(field \"r['request']['error']\")\" = 'refused by the host: not enough free space' ] && ! grep -q '^backup ' '$log'"
 
 reset
 pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"

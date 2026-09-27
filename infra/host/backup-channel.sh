@@ -22,7 +22,9 @@
 #   PORTIKUS_BACKUP_CHANNEL_STATE  state directory (default /var/lib/portikus-backup-channel)
 #   PORTIKUS_BACKUP_CMD            backup.sh (default: portikus-backup beside this script)
 #   PORTIKUS_RESTORE_COPY_CMD      restore-copy.sh (default: portikus-restore-copy beside this script)
-#   PORTIKUS_BACKUP_MIN_AGE_DAYS   a delete never removes a set younger than this (default 7)
+#   PORTIKUS_BACKUP_MIN_AGE_DAYS   a delete never removes a set younger than this (default 14)
+#   PORTIKUS_BACKUP_MIN_FREE_MB    a requested backup needs this much free space at least (default 1024)
+#   PORTIKUS_BACKUP_MAX_REQUESTED  requested sets younger than the minimum age allowed at once (default 3)
 #   PORTIKUS_BACKUP_KEEP_COMPLETE  a delete always keeps this many newest complete sets (default 3)
 #   PORTIKUS_BACKUP_MIN_GAP_MINUTES  a requested backup waits this long after the last one (default 60)
 set -euo pipefail
@@ -37,9 +39,13 @@ STATE="${PORTIKUS_BACKUP_CHANNEL_STATE:-/var/lib/portikus-backup-channel}"
 BACKUP_CMD="${PORTIKUS_BACKUP_CMD:-${here}/portikus-backup}"
 RESTORE_COPY_CMD="${PORTIKUS_RESTORE_COPY_CMD:-${here}/portikus-restore-copy}"
 # The retention floor comes from the unit, never from a request (ADR 0039).
-MIN_AGE_DAYS="${PORTIKUS_BACKUP_MIN_AGE_DAYS:-7}"
+MIN_AGE_DAYS="${PORTIKUS_BACKUP_MIN_AGE_DAYS:-14}"
+MIN_FREE_MB="${PORTIKUS_BACKUP_MIN_FREE_MB:-1024}"
+MAX_REQUESTED="${PORTIKUS_BACKUP_MAX_REQUESTED:-3}"
+[[ "$MIN_FREE_MB" =~ ^[0-9]{1,9}$ ]] || MIN_FREE_MB=1024
+[[ "$MAX_REQUESTED" =~ ^[0-9]{1,3}$ ]] || MAX_REQUESTED=3
 KEEP_COMPLETE="${PORTIKUS_BACKUP_KEEP_COMPLETE:-3}"
-[[ "$MIN_AGE_DAYS" =~ ^[0-9]{1,4}$ ]] || MIN_AGE_DAYS=7
+[[ "$MIN_AGE_DAYS" =~ ^[0-9]{1,4}$ ]] || MIN_AGE_DAYS=14
 [[ "$KEEP_COMPLETE" =~ ^[0-9]{1,3}$ ]] || KEEP_COMPLETE=3
 MIN_GAP_MINUTES="${PORTIKUS_BACKUP_MIN_GAP_MINUTES:-60}"
 [[ "$MIN_GAP_MINUTES" =~ ^[0-9]{1,4}$ ]] || MIN_GAP_MINUTES=60
@@ -200,7 +206,12 @@ if st and stat.S_ISDIR(st.st_mode):
         failed = []
         if fst and stat.S_ISREG(fst.st_mode) and fst.st_size <= 1 << 20:
             failed = [l for l in read(fpath).splitlines() if FAILED.fullmatch(l)][:4000]
-        sets.append({"stamp": name, "complete": fst is None, "sizeBytes": size_of(top), "instances": instances, "failedVolumes": failed})
+        skipped = 0
+        sst = lstat(os.path.join(top, "SKIPPED"))
+        if sst and stat.S_ISREG(sst.st_mode) and sst.st_size <= 16:
+            text = read(os.path.join(top, "SKIPPED")).strip()
+            skipped = int(text) if text.isdigit() and len(text) <= 7 else 0
+        sets.append({"stamp": name, "complete": fst is None, "sizeBytes": size_of(top), "instances": instances, "failedVolumes": failed, "skippedVolumes": skipped})
 dumps = []
 ddir = os.path.join(host_dir, "dumps")
 st = lstat(ddir)
@@ -363,6 +374,35 @@ newest_complete_sets() {
   done
 }
 
+# enough_free_space -- is there room in BACKUP_DIR for one more set: the
+# newest complete set's size plus a fifth, and at least MIN_FREE_MB? The
+# same check as in backup.sh (ADR 0039).
+enough_free_space() {
+  local s newest="" size need avail
+  for s in $(find "$HOST_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | grep -E "$SET_PATTERN" | sort -r); do
+    [ -e "${HOST_DIR}/${s}/FAILED" ] || { newest=$s; break; }
+  done
+  need=$((MIN_FREE_MB * 1048576))
+  if [ -n "$newest" ]; then
+    size=$(du -sb "${HOST_DIR}/${newest}" | cut -f1)
+    [ $((size * 6 / 5)) -le "$need" ] || need=$((size * 6 / 5))
+  fi
+  avail=$(df -B1 --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ')
+  [ "$avail" -ge "$need" ]
+}
+
+# young_requested_sets -- how many sets this channel made on request are
+# younger than the minimum age.  REQUESTED is written here, never by the VM.
+young_requested_sets() {
+  local s n=0 now
+  now=$(date +%s)
+  for s in $(list_sets); do
+    [ -e "${HOST_DIR}/${s}/REQUESTED" ] || continue
+    [ $((now - $(stamp_epoch "$s"))) -ge $((MIN_AGE_DAYS * 86400)) ] || n=$((n + 1))
+  done
+  echo "$n"
+}
+
 # stamp_epoch STAMP -- seconds since the epoch for a set name.
 stamp_epoch() {
   local s=$1
@@ -378,7 +418,7 @@ job_fail() { job_state=failed job_error=$1; }
 
 run_backup() {
   local id=$1 before after start end err="${scratch}/backup.err"
-  local env=(PORTIKUS_BACKUP_DIR="$BACKUP_DIR" PORTIKUS_BACKUP_MIN_AGE_DAYS="$MIN_AGE_DAYS" PORTIKUS_BACKUP_KEEP_COMPLETE="$KEEP_COMPLETE")
+  local env=(PORTIKUS_BACKUP_DIR="$BACKUP_DIR" PORTIKUS_BACKUP_MIN_AGE_DAYS="$MIN_AGE_DAYS" PORTIKUS_BACKUP_KEEP_COMPLETE="$KEEP_COMPLETE" PORTIKUS_BACKUP_MIN_FREE_MB="$MIN_FREE_MB")
   local last_end ago
   [ -z "$RECIPIENTS" ] || env+=(PORTIKUS_BACKUP_RECIPIENTS="$RECIPIENTS")
   if nightly_active; then job_fail "A backup is already running."; return; fi
@@ -390,6 +430,15 @@ run_backup() {
       job_fail "refused by the host: a backup ran ${ago} minutes ago"
       return
     fi
+  fi
+  # The floor keeps young sets, so cap how many of them a VM can ask for.
+  if [ "$(young_requested_sets)" -ge "$MAX_REQUESTED" ]; then
+    job_fail "refused by the host: ${MAX_REQUESTED} requested backups in the last ${MIN_AGE_DAYS} days"
+    return
+  fi
+  if ! enough_free_space; then
+    job_fail "refused by the host: not enough free space"
+    return
   fi
   before=$(list_sets)
   start=$(date +%s)
@@ -405,6 +454,7 @@ run_backup() {
   after=$(list_sets)
   job_stamp=$(comm -13 <(sort <<<"$before") <(sort <<<"$after") | sort -r | head -1)
   [[ "$job_stamp" =~ $SET_PATTERN ]] || job_stamp=""
+  [ -z "$job_stamp" ] || : >"${HOST_DIR}/${job_stamp}/REQUESTED"
   if [ "$job_state" = "done" ]; then
     echo "${start} ${end} success" >"${STATE}/last-run"
   else
