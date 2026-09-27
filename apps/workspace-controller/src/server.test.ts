@@ -1044,7 +1044,7 @@ test("GET /instances/:name/added-packages returns the checked list", async () =>
 	inst.addedPackagesFile = {
 		type: "file",
 		content:
-			"# image 2026.09.9\nhtop\n\nrm -rf /\nlibfoo2:amd64\npython3.13-venv\nhtop\n",
+			"# portikus-image: 2026.09.9\nhtop\n\nrm -rf /\nlibfoo2:amd64\npython3.13-venv\nhtop\n",
 	};
 	const res = await app.inject({
 		method: "GET",

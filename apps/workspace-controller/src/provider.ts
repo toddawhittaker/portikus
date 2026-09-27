@@ -115,15 +115,16 @@ const ADDED_PACKAGES_PATH = "/home/student/.portikus/apt-packages.txt";
 /** The most the controller reads of that file. */
 export const ADDED_PACKAGES_MAX_BYTES = 64 * 1024;
 
-const IMAGE_HEADER = /^# image ([0-9A-Za-z.+~-]{1,64})$/;
+const IMAGE_HEADER = /^# portikus-image: ([0-9A-Za-z.+~-]{1,64})$/;
 
 /**
- * Parse the apt hook's list: an optional `# image <version>` first line, then
+ * Parse the apt hook's list: an optional `# portikus-image: <version>` first line (`unknown` reads as null), then
  * one package name per line. Anything that is not a package name is dropped.
  */
 export function parseAddedPackages(text: string): AddedPackagesResponse {
 	const lines = text.split("\n").map((line) => line.trim());
-	const image = IMAGE_HEADER.exec(lines[0] ?? "")?.[1] ?? null;
+	const version = IMAGE_HEADER.exec(lines[0] ?? "")?.[1];
+	const image = version === undefined || version === "unknown" ? null : version;
 	const packages = new Set<string>();
 	for (const line of lines) {
 		if (DebianPackageName.safeParse(line).success) packages.add(line);
