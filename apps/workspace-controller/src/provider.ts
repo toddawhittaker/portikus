@@ -695,11 +695,13 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		validateName(name);
 
 		// Stopping an already-stopped instance is a no-op, not a failure.
-		const current = (await this.client.request(
-			"GET",
-			`/1.0/instances/${enc(name)}/state`,
-		)) as { status: string };
-		if (current.status === "Stopped") {
+		// Mid-shutdown this read can fail with "Invalid PID -1" (issue #704);
+		// the stop below then settles on the real state.
+		const current = await this.instanceStatus(name).catch((err: unknown) => {
+			if (err instanceof IncusError && err.code === "NOT_FOUND") throw err;
+			return undefined;
+		});
+		if (current === "Stopped") {
 			return { forced: false };
 		}
 
