@@ -1,9 +1,12 @@
 # Managed by Ansible (workspace_egress role).  The workspace egress proxy
-# for allow-list mode (ADR 0038): the helper's table redirects workspace
-# port 80 and 443 to a listed name's address here.  HTTPS is peeked at and
-# spliced, never decrypted; plain HTTP is checked by its Host header.  The
-# listed names come from the helper's names.txt.  Nothing is cached, and no
-# log line holds a workspace's address.  First match wins.
+# (ADR 0038, ADR 0043).  In allow-list mode the helper's table redirects
+# workspace port 80 and 443 to a listed name's address here; in open mode
+# with blocked sites it redirects every public address here.  HTTPS is
+# peeked at and spliced, never decrypted; plain HTTP is checked by its Host
+# header.  The helper writes the lists: names.txt (allowed names),
+# blocked.txt (blocked sites, open mode only) and open.txt (a "." while
+# open mode has blocked sites, else empty).  Nothing is cached, and no log
+# line holds a workspace's address.  First match wins.
 {% set denied_v4 = workspace_egress_denied_ranges | ansible.utils.ipv4 | ansible.utils.cidr_merge %}
 {% set denied_v6 = workspace_egress_denied_ranges | ansible.utils.ipv6 | ansible.utils.cidr_merge %}
 visible_hostname portikus-workspace-proxy
@@ -35,18 +38,26 @@ acl intercepted_tls myportname {{ workspace_egress_gateway }}:{{ workspace_egres
 acl denied_dst dst {{ (denied_v4 + denied_v6) | join(' ') }}
 acl listed_host dstdomain -n "{{ workspace_egress_state_dir }}/names.txt"
 acl listed_sni ssl::server_name "{{ workspace_egress_state_dir }}/names.txt"
+acl blocked_host dstdomain -n "{{ workspace_egress_state_dir }}/blocked.txt"
+acl blocked_sni ssl::server_name "{{ workspace_egress_state_dir }}/blocked.txt"
+acl open_host dstdom_regex -n "{{ workspace_egress_state_dir }}/open.txt"
+acl open_sni ssl::server_name_regex "{{ workspace_egress_state_dir }}/open.txt"
 acl step1 at_step SslBump1
 
 http_access deny forward_port
 http_access allow intercepted_tls
 http_access deny denied_dst
+http_access deny intercepted_http blocked_host
 http_access allow intercepted_http listed_host
+http_access allow intercepted_http open_host
 http_access deny all
 
 # A private destination is closed, never bumped to show an error page.
 ssl_bump terminate denied_dst
 ssl_bump peek step1
+ssl_bump terminate blocked_sni
 ssl_bump splice listed_sni
+ssl_bump splice open_sni
 ssl_bump terminate all
 
 # Only refused names leave Squid, as one name per UDP line to the worker's
@@ -55,7 +66,8 @@ acl http_refused http_status 400-599
 logformat portikus_name_tls %ssl::>sni
 logformat portikus_name_http %>rd
 # A buffered UDP log would hold names back until a restart.
-access_log udp://127.0.0.1:{{ workspace_egress_tls_counter_port }} logformat=portikus_name_tls buffer-size=0KB intercepted_tls !listed_sni
+access_log udp://127.0.0.1:{{ workspace_egress_tls_counter_port }} logformat=portikus_name_tls buffer-size=0KB intercepted_tls !listed_sni !open_sni
+access_log udp://127.0.0.1:{{ workspace_egress_tls_counter_port }} logformat=portikus_name_tls buffer-size=0KB intercepted_tls blocked_sni
 access_log udp://127.0.0.1:{{ workspace_egress_tls_counter_port }} logformat=portikus_name_http buffer-size=0KB intercepted_http http_refused
 
 # Only fatal messages: a higher level writes workspace addresses.

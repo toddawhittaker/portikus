@@ -27,8 +27,8 @@ export function BlockedCard({
 			</p>
 			{view.blocked.length === 0 ? (
 				<EmptyState icon="check" title="Nothing refused">
-					{view.mode === "open"
-						? "Open mode is on, so no site is refused."
+					{view.mode === "open" && view.blockedSites.length === 0
+						? "Open mode is on and nothing is blocked, so no site is refused."
 						: "No workspace was refused a site in the last 7 days."}
 				</EmptyState>
 			) : (
@@ -53,6 +53,10 @@ export function BlockedCard({
 									{ ...view, mode: "allow-list" },
 									row.name,
 								).allowed;
+								// In open mode a blocked site is refused on purpose; allowing it would change nothing.
+								const blockedSite =
+									view.mode === "open" &&
+									explainHost(view, row.name).reason === "blocked";
 								return (
 									<tr key={row.name} data-testid="egress-blocked-row">
 										<td className="font-mono [overflow-wrap:anywhere]">{row.name}</td>
@@ -60,7 +64,9 @@ export function BlockedCard({
 											{row.count.toLocaleString("en")}
 										</td>
 										<td className="text-right whitespace-nowrap">
-											{!isEgressHostName(row.name) ? null : listed ? (
+											{!isEgressHostName(row.name) ? null : blockedSite ? (
+												<span className="text-[12px] text-ink-muted">Blocked site</span>
+											) : listed ? (
 												<span className="text-[12px] text-ink-muted">Listed now</span>
 											) : (
 												<Button

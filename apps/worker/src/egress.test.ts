@@ -90,6 +90,7 @@ describe.skipIf(skip)("the egress apply loop (ADR 0038)", () => {
 			names: ["api.example.edu", "ghcr.io", "github.com", "githubusercontent.com"],
 			ranges: ["203.0.113.0/24"],
 			ports: [22, 443],
+			blocked: [],
 		});
 		const s = await settings();
 		expect(s.egress_applied_version).toBe(3);
@@ -110,7 +111,32 @@ describe.skipIf(skip)("the egress apply loop (ADR 0038)", () => {
 			names: 4,
 			ranges: 1,
 			ports: [22, 443],
+			blocked: 0,
 		});
+	});
+
+	test("open mode sends the blocked sites, and the audit row holds only their count (ADR 0043)", async () => {
+		await setPolicy({ mode: "open", version: 2, applied: 1 });
+		await tdb.db
+			.insertInto("egress_blocked_entries")
+			.values([
+				{ value: "games.com", label: "Games" },
+				{ value: "dns.google", label: "" },
+			])
+			.execute();
+		const controller = new FakeControllerClient();
+		await createEgressSync({
+			db: tdb.db,
+			controller,
+			logger: collectingLogger().logger,
+		})();
+		const sent = controller.calls.find((c) => c.method === "applyEgressPolicy")
+			?.args[0] as EgressApplyPolicy;
+		expect(sent.mode).toBe("open");
+		expect(sent.blocked).toEqual(["dns.google", "games.com"]);
+		const rows = await audits();
+		expect(rows[0]?.metadata).toMatchObject({ mode: "open", blocked: 2 });
+		expect(JSON.stringify(rows[0]?.metadata)).not.toContain("games.com");
 	});
 
 	test("does nothing when applied is current, or before any administrator write", async () => {

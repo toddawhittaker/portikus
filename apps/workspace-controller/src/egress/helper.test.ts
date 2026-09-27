@@ -88,6 +88,7 @@ function policy(over: Partial<EgressApplyPolicy> = {}): EgressApplyPolicy {
 		names: ["github.com", "npmjs.org"],
 		ranges: ["203.0.113.0/24"],
 		ports: [22, 80, 443],
+		blocked: [],
 		...over,
 	};
 }
@@ -188,6 +189,39 @@ describe("a request (ADR 0038)", () => {
 		expect(loads()[0]).toMatch(/flush set inet portikus_egress names_v4/);
 		expect(loads()[0]).not.toMatch(/add rule/);
 		expect(read("names.txt")).toBe("");
+	});
+
+	test("open mode with blocked sites runs our dnsmasq and writes Squid's blocked list and switch (ADR 0043)", async () => {
+		writeRequest(
+			policy({ mode: "open", names: [], blocked: ["dns.google", "games.com"] }),
+		);
+		expect(await runHelper(deps)).toBe(0);
+		expect(systemctls()).toEqual([
+			"restart portikus-egress-dns.service",
+			"reload portikus-workspace-proxy.service",
+		]);
+		expect(seenAtCall[0]?.dnsmasq).toContain("server=/#/127.0.0.53");
+		expect(seenAtCall[0]?.dnsmasq).toContain("server=/games.com/127.0.0.1#5399");
+		expect(loads()[0]).toMatch(/tcp dport 443 redirect to :3130/);
+		expect(read("names.txt")).toBe("");
+		expect(read("blocked.txt")).toBe(".dns.google\n.games.com\n");
+		expect(read("open.txt")).toBe(".\n");
+
+		// Emptying the list is plain open mode again: our dnsmasq stops, Squid's files empty.
+		calls = [];
+		writeRequest(policy({ version: 4, mode: "open", names: [], blocked: [] }), "r2");
+		expect(await runHelper(deps)).toBe(0);
+		expect(systemctls()[0]).toBe("stop portikus-egress-dns.service");
+		expect(loads()[0]).not.toMatch(/add rule/);
+		expect(read("blocked.txt")).toBe("");
+		expect(read("open.txt")).toBe("");
+	});
+
+	test("blocked sites in allow-list mode are refused", async () => {
+		writeRequest(policy({ blocked: ["games.com"] }));
+		expect(await runHelper(deps)).toBe(1);
+		expect(status().error).toBe("request refused: invalid blocked");
+		expect(loads()).toEqual([]);
 	});
 
 	test("adding a name keeps learned addresses; removing one flushes them", async () => {
@@ -428,6 +462,28 @@ describe("at boot, when the table is missing", () => {
 		expect(await runHelper(deps)).toBe(0);
 		expect(loads()[0]).not.toMatch(/add rule/);
 		expect(systemctls()).toEqual([]);
+	});
+
+	test("a failed load after open mode with blocked sites also drops, failing closed", async () => {
+		await applyOnce(policy({ mode: "open", names: [], blocked: ["games.com"] }));
+		deps.run = async (file, args, input) => {
+			calls.push({ file, args, input });
+			if (args[0] === "list") return { code: 1, stderr: "" };
+			const first = loads().length === 1;
+			return first ? { code: 1, stderr: "Error" } : { code: 0, stderr: "" };
+		};
+		expect(await runHelper(deps)).toBe(1);
+		expect(loads()[1]).toMatch(/forward iifname "portikus-ws" drop/);
+	});
+
+	test("an applied.json from before blocked sites still loads as open mode", async () => {
+		await applyOnce(policy({ mode: "open", names: [] }));
+		const old = JSON.parse(read("applied.json") ?? "");
+		delete old.policy.blocked;
+		writeFileSync(state("applied.json"), JSON.stringify(old));
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()[0]).not.toMatch(/add rule/);
+		expect(read("blocked.txt")).toBe("");
 	});
 
 	test("a site that never applied stays open and loads nothing", async () => {

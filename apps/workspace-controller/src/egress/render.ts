@@ -12,6 +12,17 @@ export const SQUID_TLS_PORT = 3130;
 
 const TABLE = "inet portikus_egress";
 
+/**
+ * Whether workspace DNS goes through our dnsmasq and web traffic through
+ * Squid: always in allow-list mode, and in open mode while any site is
+ * blocked (ADR 0043). Open mode with no blocked site is left untouched.
+ */
+export function usesOurResolver(
+	policy: Pick<EgressApplyPolicy, "mode" | "blocked">,
+): boolean {
+	return policy.mode === "allow-list" || policy.blocked.length > 0;
+}
+
 // Belt and braces: the request was already checked, but nothing unchecked
 // may reach a file that nft, dnsmasq or Squid parses.
 function checkedNames(names: readonly string[]): readonly string[] {
@@ -69,7 +80,7 @@ function resetTable(flushNames: boolean): string[] {
  * name is removed or the mode changes (ADR 0038).
  */
 export function renderTable(
-	policy: Pick<EgressApplyPolicy, "mode" | "ranges" | "ports">,
+	policy: Pick<EgressApplyPolicy, "mode" | "ranges" | "ports" | "blocked">,
 	env: EgressEnv,
 	flushNames: boolean,
 ): string {
@@ -105,6 +116,17 @@ export function renderTable(
 			`${fwd} ip daddr @names_v4 tcp dport @ports accept`,
 			`${fwd} drop`,
 		);
+	} else if (usesOurResolver(policy)) {
+		// Open mode with blocked sites: our resolver, and every public web connection through Squid.
+		const ws = `iifname "${env.bridge}"`;
+		const pre = `add rule ${TABLE} prerouting ${ws}`;
+		const publicDst = `ip daddr != { ${checkedRanges(env.deniedRanges).join(", ")} }`;
+		lines.push(
+			`${pre} ip daddr ${env.gateway} meta l4proto { tcp, udp } th dport 53 redirect to :${EGRESS_DNS_PORT}`,
+			`${pre} ${publicDst} tcp dport 443 redirect to :${SQUID_TLS_PORT}`,
+			`${pre} ${publicDst} tcp dport 80 redirect to :${SQUID_HTTP_PORT}`,
+			`add rule ${TABLE} forward ${ws} meta l4proto { tcp, udp } th dport { 53, 853 } drop`,
+		);
 	}
 	return `${lines.join("\n")}\n`;
 }
@@ -119,16 +141,20 @@ export function renderDropAll(env: Pick<EgressEnv, "bridge">): string {
 }
 
 /**
- * Our own dnsmasq's configuration (ADR 0038): listed names go to the
- * upstream and into the names set; every other name goes to the worker's
- * counter, which answers NXDOMAIN. Open mode renders no names; the helper
- * stops the service then.
+ * Our own dnsmasq's configuration (ADR 0038): in allow-list mode listed
+ * names go to the upstream and into the names set, and every other name to
+ * the worker's counter, which answers NXDOMAIN. In open mode it is the
+ * reverse (ADR 0043): every name goes to the upstream except blocked ones.
+ * The helper stops the service in open mode with no blocked site.
  */
 export function renderDnsmasq(
-	policy: Pick<EgressApplyPolicy, "mode" | "names">,
+	policy: Pick<EgressApplyPolicy, "mode" | "names" | "blocked">,
 	env: EgressEnv,
 ): string {
-	const names = policy.mode === "allow-list" ? checkedNames(policy.names) : [];
+	const open = policy.mode === "open";
+	const names = open ? [] : checkedNames(policy.names);
+	const blocked = open ? checkedNames(policy.blocked) : [];
+	const counter = `127.0.0.1#${env.counterDnsPort}`;
 	const lines = [
 		`port=${EGRESS_DNS_PORT}`,
 		`listen-address=${env.gateway}`,
@@ -142,7 +168,7 @@ export function renderDnsmasq(
 		"max-ttl=300",
 		"user=nobody",
 		"group=nogroup",
-		`server=/#/127.0.0.1#${env.counterDnsPort}`,
+		`server=/#/${open ? env.upstream : counter}`,
 		`server=/incus/${env.gateway}`,
 		"rebind-domain-ok=/incus/",
 	];
@@ -152,6 +178,7 @@ export function renderDnsmasq(
 			`nftset=/${n}/4#inet#portikus_egress#names_v4`,
 		);
 	}
+	for (const n of blocked) lines.push(`server=/${n}/${counter}`);
 	return `${lines.join("\n")}\n`;
 }
 
@@ -163,4 +190,25 @@ export function renderSquidNames(
 	return checkedNames(policy.names)
 		.map((n) => `.${n}\n`)
 		.join("");
+}
+
+/** Squid's blocked list, in the same form. Empty in allow-list mode, which refuses unlisted names anyway. */
+export function renderSquidBlocked(
+	policy: Pick<EgressApplyPolicy, "mode" | "blocked">,
+): string {
+	if (policy.mode !== "open") return "";
+	return checkedNames(policy.blocked)
+		.map((n) => `.${n}\n`)
+		.join("");
+}
+
+/**
+ * Squid's open-mode switch: a regex list holding "." (matches every name)
+ * while open mode has blocked sites, so Squid splices whatever is not
+ * blocked. Empty otherwise.
+ */
+export function renderSquidOpen(
+	policy: Pick<EgressApplyPolicy, "mode" | "blocked">,
+): string {
+	return policy.mode === "open" && usesOurResolver(policy) ? ".\n" : "";
 }

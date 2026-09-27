@@ -1,6 +1,6 @@
 import type { AdminEgressView } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { NetworkTab } from "./NetworkTab.js";
 import { egressView } from "./testView.js";
@@ -328,8 +328,167 @@ test("refused names offer Allow… unless already allowed or not a name", async 
 });
 
 test("no refused names shows an empty state for each mode", async () => {
+	stubEgress(egressView({ mode: "open", blockedSites: [] }));
+	renderWithQuery(<NetworkTab />);
+	await shown();
+	expect(
+		screen.getByText("Open mode is on and nothing is blocked, so no site is refused."),
+	).toBeDefined();
+});
+
+test("open mode with blocked sites still expects refusals", async () => {
 	stubEgress(egressView({ mode: "open" }));
 	renderWithQuery(<NetworkTab />);
 	await shown();
-	expect(screen.getByText("Open mode is on, so no site is refused.")).toBeDefined();
+	expect(
+		screen.getByText("No workspace was refused a site in the last 7 days."),
+	).toBeDefined();
+});
+
+describe("blocked sites (ADR 0043)", () => {
+	test("lists each site with its label, marks the default seed, and counts toward 500", async () => {
+		stubEgress(egressView({ mode: "open" }));
+		renderWithQuery(<NetworkTab />);
+		await shown();
+		const rows = screen.getAllByTestId("egress-block-row");
+		expect(rows.map((r) => r.textContent)).toEqual([
+			expect.stringContaining("dns.googledefault"),
+			expect.stringContaining("games.example.comGames"),
+		]);
+		expect(rows[1]?.textContent).not.toContain("default");
+		expect(screen.getByText(/2 of 500 used/)).toBeDefined();
+		expect(screen.getByTestId("egress-block-note").textContent).toContain(
+			"passes through the platform's proxy",
+		);
+	});
+
+	test("allow-list mode says the list is not used", async () => {
+		stubEgress(egressView());
+		renderWithQuery(<NetworkTab />);
+		await shown();
+		expect(screen.getByTestId("egress-block-note").textContent).toContain(
+			"Allow-list mode is on, so this list is not used",
+		);
+	});
+
+	test("an empty list shows an empty state", async () => {
+		stubEgress(egressView({ mode: "open", blockedSites: [] }));
+		renderWithQuery(<NetworkTab />);
+		await shown();
+		expect(screen.getByText("No blocked sites")).toBeDefined();
+		expect(screen.getByTestId("egress-block-note").textContent).toContain(
+			"Nothing is blocked",
+		);
+	});
+
+	test("blocking a site checks it first, then posts it with its label", async () => {
+		const calls = stubEgress(egressView({ mode: "open" }));
+		renderWithQuery(<NetworkTab />);
+		await shown();
+		fireEvent.click(screen.getByTestId("egress-block-add"));
+		const dialog = await screen.findByTestId("egress-block-dialog");
+		fireEvent.change(within(dialog).getByTestId("egress-block-value"), {
+			target: { value: "https://x.com/a" },
+		});
+		fireEvent.click(within(dialog).getByTestId("egress-block-save"));
+		expect(dialog.textContent).toContain("no URL");
+		expect(calls).toEqual([]);
+
+		fireEvent.change(within(dialog).getByTestId("egress-block-value"), {
+			target: { value: "Chess.Example.COM" },
+		});
+		fireEvent.change(within(dialog).getByTestId("egress-block-label"), {
+			target: { value: "Games" },
+		});
+		fireEvent.keyDown(within(dialog).getByTestId("egress-block-label"), {
+			key: "Enter",
+		});
+		await waitFor(() => expect(screen.queryByTestId("egress-block-dialog")).toBeNull());
+		expect(calls).toEqual([
+			{
+				method: "POST",
+				url: "/admin/egress/blocked-sites",
+				body: { version: 3, value: "Chess.Example.COM", label: "Games" },
+			},
+		]);
+	});
+
+	test("the API's refusal stays in the dialog", async () => {
+		stubEgress(egressView({ mode: "open" }), () =>
+			json(409, {
+				code: "EGRESS_ENTRY_EXISTS",
+				message: "That entry is already listed",
+			}),
+		);
+		renderWithQuery(<NetworkTab />);
+		await shown();
+		fireEvent.click(screen.getByTestId("egress-block-add"));
+		const dialog = await screen.findByTestId("egress-block-dialog");
+		fireEvent.change(within(dialog).getByTestId("egress-block-value"), {
+			target: { value: "dns.google" },
+		});
+		fireEvent.click(within(dialog).getByTestId("egress-block-save"));
+		expect((await within(dialog).findByTestId("egress-block-error")).textContent).toBe(
+			"That entry is already listed",
+		);
+	});
+
+	test("a site can be edited, and removed after confirming, focusing the card heading", async () => {
+		const calls = stubEgress(egressView({ mode: "open" }));
+		renderWithQuery(<NetworkTab />);
+		await shown();
+		fireEvent.click(screen.getByRole("button", { name: "Edit games.example.com" }));
+		const dialog = await screen.findByTestId("egress-block-dialog");
+		expect(within(dialog).getByTestId("egress-block-value")).toHaveProperty(
+			"value",
+			"games.example.com",
+		);
+		fireEvent.change(within(dialog).getByTestId("egress-block-label"), {
+			target: { value: "" },
+		});
+		fireEvent.click(within(dialog).getByTestId("egress-block-save"));
+		await waitFor(() => expect(screen.queryByTestId("egress-block-dialog")).toBeNull());
+		expect(calls[0]).toEqual({
+			method: "PUT",
+			url: "/admin/egress/blocked-sites/55555555-5555-4555-8555-555555555555",
+			body: { version: 3, value: "games.example.com", label: "" },
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Remove dns.google" }));
+		const confirm = await screen.findByTestId("egress-block-remove-dialog");
+		expect(confirm.textContent).toContain("Workspaces can reach it again");
+		fireEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
+		await waitFor(() =>
+			expect(screen.queryByTestId("egress-block-remove-dialog")).toBeNull(),
+		);
+		expect(calls[1]).toEqual({
+			method: "DELETE",
+			url: "/admin/egress/blocked-sites/44444444-4444-4444-8444-444444444444?version=4",
+			body: undefined,
+		});
+		await waitFor(() =>
+			expect(document.activeElement?.id).toBe("egress-blocked-sites-title"),
+		);
+	});
+
+	test("Test a host explains a block in open mode, and refused rows mark blocked sites", async () => {
+		stubEgress(
+			egressView({ mode: "open", blocked: [{ name: "games.example.com", count: 4 }] }),
+		);
+		renderWithQuery(<NetworkTab />);
+		await shown();
+		fireEvent.change(screen.getByTestId("egress-test-input"), {
+			target: { value: "https://play.games.example.com/x" },
+		});
+		fireEvent.click(screen.getByTestId("egress-test-run"));
+		const result = screen.getByTestId("egress-test-result");
+		expect(result.dataset.reason).toBe("blocked");
+		expect(result.textContent).toContain(
+			"Blocked by your list: games.example.com (Games).",
+		);
+		expect(screen.queryByTestId("egress-test-allow")).toBeNull();
+		const row = screen.getByTestId("egress-blocked-row");
+		expect(row.textContent).toContain("Blocked site");
+		expect(within(row).queryByRole("button")).toBeNull();
+	});
 });

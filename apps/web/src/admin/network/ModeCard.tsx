@@ -8,7 +8,7 @@ const MODE_TEXT: Record<EgressMode, { name: string; summary: string }> = {
 	open: {
 		name: "Open",
 		summary:
-			"Workspaces can reach any public site. Private networks stay blocked, as always.",
+			"Workspaces can reach any public site except your blocked sites. Private networks stay blocked, as always.",
 	},
 	"allow-list": {
 		name: "Allow-list",
@@ -24,7 +24,7 @@ function plural(count: number, one: string, many: string): string {
 /** The dialog's plain statement of what switching changes for students. */
 export function switchText(view: AdminEgressView, to: EgressMode): string {
 	if (to === "open") {
-		return "Workspaces will reach any public site again. Private networks stay blocked. Your presets and list are kept for next time.";
+		return "Workspaces will reach any public site again, except your blocked sites. Private networks stay blocked. Your presets and list are kept for next time.";
 	}
 	const hosts = listedHostCount(view);
 	const ranges = view.entries.filter((entry) => entry.kind === "range").length;

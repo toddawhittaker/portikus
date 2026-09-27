@@ -66,6 +66,8 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	// The matrix world lists no egress entries.
 	"PUT /admin/egress/entries/:id": 404,
 	"DELETE /admin/egress/entries/:id": 404,
+	"PUT /admin/egress/blocked-sites/:id": 404,
+	"DELETE /admin/egress/blocked-sites/:id": 404,
 	"POST /me/password": 404,
 	// Tests have no journal (test-support.ts points JOURNALCTL_PATH nowhere).
 	"GET /admin/logs": 503,
@@ -217,6 +219,7 @@ const QUERIES: Record<string, string> = {
 	"/admin/health/series": "?range=1h",
 	"/admin/logs/counts": "?range=1h",
 	"/admin/egress/entries/:id": "?version=0",
+	"/admin/egress/blocked-sites/:id": "?version=0",
 };
 
 const PAYLOADS: Record<string, object> = {
@@ -263,6 +266,12 @@ const PAYLOADS: Record<string, object> = {
 	"PUT /admin/egress/entries/:id": {
 		version: 0,
 		kind: "host",
+		value: "example.edu",
+		label: "",
+	},
+	"POST /admin/egress/blocked-sites": { version: 0, value: "example.edu", label: "" },
+	"PUT /admin/egress/blocked-sites/:id": {
+		version: 0,
 		value: "example.edu",
 		label: "",
 	},

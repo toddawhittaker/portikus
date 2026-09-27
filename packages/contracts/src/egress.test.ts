@@ -5,7 +5,10 @@
  */
 import { describe, expect, test } from "vitest";
 import {
+	EGRESS_DEFAULT_BLOCKED_SITES,
 	EGRESS_PRESETS,
+	EgressApplyPolicy,
+	EgressBlockedSiteRequest,
 	EgressEntryRequest,
 	EgressHost,
 	type EgressPolicy,
@@ -23,6 +26,7 @@ const allowList = (over: Partial<EgressPolicy> = {}): EgressPolicy => ({
 	presets: [],
 	ports: [22, 80, 443],
 	entries: [],
+	blockedSites: [],
 	...over,
 });
 
@@ -262,5 +266,81 @@ test("expandEgressPolicy expands presets and sorts", () => {
 		],
 		ranges: ["203.0.113.0/24"],
 		ports: [22, 443],
+		blocked: [],
+	});
+});
+
+describe("blocked sites (ADR 0043)", () => {
+	const open = allowList({
+		mode: "open",
+		blockedSites: [
+			{ value: "games.com", label: "Games" },
+			{ value: "dns.google", label: "" },
+		],
+	});
+
+	test("explainHost refuses a blocked site and its subdomains in open mode, with the label", () => {
+		expect(explainHost(open, "play.games.com")).toEqual({
+			allowed: false,
+			reason: "blocked",
+			entry: "games.com",
+			label: "Games",
+		});
+		expect(explainHost(open, "DNS.Google").reason).toBe("blocked");
+		expect(explainHost(open, "notgames.com")).toEqual({
+			allowed: true,
+			reason: "open",
+		});
+		expect(explainHost(open, "games.com.evil.net").allowed).toBe(true);
+	});
+
+	test("allow-list mode ignores the blocked sites", () => {
+		const list = { ...open, mode: "allow-list" as const };
+		expect(explainHost(list, "games.com").reason).toBe("not-listed");
+		expect(expandEgressPolicy(list).blocked).toEqual([]);
+	});
+
+	test("expandEgressPolicy sends the blocked names sorted in open mode", () => {
+		expect(expandEgressPolicy(open).blocked).toEqual(["dns.google", "games.com"]);
+	});
+
+	test("the apply schema refuses blocked names in allow-list mode, or bad or repeated ones", () => {
+		const base = { version: 1, names: [], ranges: [], ports: [443] };
+		expect(
+			EgressApplyPolicy.safeParse({ ...base, mode: "open", blocked: ["a.com"] })
+				.success,
+		).toBe(true);
+		expect(
+			EgressApplyPolicy.safeParse({ ...base, mode: "allow-list", blocked: ["a.com"] })
+				.success,
+		).toBe(false);
+		for (const blocked of [
+			["a.com\nserver=/#/8.8.8.8"],
+			["*.a.com"],
+			["a.com", "a.com"],
+		]) {
+			expect(
+				EgressApplyPolicy.safeParse({ ...base, mode: "open", blocked }).success,
+			).toBe(false);
+		}
+		// Absent (an older applied.json) reads as none.
+		expect(EgressApplyPolicy.parse({ ...base, mode: "open" }).blocked).toEqual([]);
+	});
+
+	test("the request takes a host name only, lower-cased", () => {
+		expect(
+			EgressBlockedSiteRequest.parse({ version: 0, value: " Games.COM ", label: "" })
+				.value,
+		).toBe("games.com");
+		expect(
+			EgressBlockedSiteRequest.safeParse({ version: 0, value: "1.2.3.4", label: "" })
+				.success,
+		).toBe(false);
+	});
+
+	test("the DNS over HTTPS seed is sorted, unique and made of valid host names", () => {
+		const seed = [...EGRESS_DEFAULT_BLOCKED_SITES];
+		expect(seed).toEqual([...new Set(seed)].sort());
+		for (const h of seed) expect(EgressHost.safeParse(h).success).toBe(true);
 	});
 });

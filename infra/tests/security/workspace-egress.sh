@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Workspace egress in open and allow-list mode (issue #284, ADR 0038).
+# Workspace egress in open mode, open mode with blocked sites, and
+# allow-list mode (issue #284, ADR 0038, ADR 0043).
 #
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
-# Both modes keep the redirect targets on the bridge gateway closed to direct
-# use.  Allow-list mode is switched on through the admin API, as an
-# administrator would, and switched back at the end; because that cuts every
-# workspace off for a minute, it runs only when the run's own workspaces are
-# the only ones on the VM.  Its checks follow "Security invariants to test"
+# Every mode keeps the redirect targets on the bridge gateway closed to
+# direct use.  The blocked sites and allow-list mode are set through the
+# admin API, as an administrator would, and put back at the end; because that
+# changes every workspace's network, it runs only when the run's own
+# workspaces are the only ones on the VM.  Its checks follow "Security invariants to test"
 # for egress, from the workspace and from a Docker container inside it.
 # shellcheck disable=SC2154  # pass, fail and the SEC_ globals come from lib.sh
 # shellcheck disable=SC2016  # the probe scripts expand inside the workspace
@@ -56,6 +57,9 @@ p listed_https "$(code https://api.github.com/)"
 p listed_http "$(code http://github.com/)"
 p listed_ssh "$(tcp github.com 22)"
 p unlisted_resolves "$(resolves example.com)"
+p blocked_subdomain_resolves "$(resolves www.example.com)"
+p other_resolves "$(resolves example.org)"
+p other_https "$(code https://example.org/)"
 p lookalike_resolves "$(resolves githubstatus.com)"
 p incus_names "$(getent ahostsv4 _gateway.incus | awk '{ print $1; exit }')"
 p unlisted_address "$(code -k https://1.1.1.1/)"
@@ -139,6 +143,60 @@ we_check_open() {
   we_expect "open, a's Docker" "$r" direct_proxy_ports "closed/closed/closed" "the redirect targets cannot be used directly"
 }
 
+# ── Open mode with blocked sites ─────────────────────────────────
+
+# The list the run sets: example.com, and two DNS over HTTPS services.
+WE_BLOCKED=(example.com cloudflare-dns.com dns.google)
+
+we_check_open_blocked() {
+  local r
+  check "open mode with blocked sites: the egress DNS runs" sec_ssh "systemctl is-active --quiet portikus-egress-dns"
+  check "open mode with blocked sites: the workspace proxy runs" sec_ssh "systemctl is-active --quiet portikus-workspace-proxy"
+  check "open mode with blocked sites: Squid's open switch is on" sec_ssh "grep -qx '[.]' /var/lib/portikus/egress-state/open.txt"
+  sec_exec a root "resolvectl flush-caches" >/dev/null 2>&1
+  r=$(we_run_bash)
+  printf '%s\n' "$r" | sed 's/^/    /'
+  we_expect "blocked, a" "$r" unlisted_resolves no "a blocked name gets no address"
+  we_expect "blocked, a" "$r" blocked_subdomain_resolves no "a blocked name's subdomain gets no address"
+  we_expect "blocked, a" "$r" other_resolves yes "an unblocked name resolves"
+  we_expect "blocked, a" "$r" other_https '!000' "an unblocked site is reached over HTTPS (spliced)"
+  we_expect "blocked, a" "$r" listed_https '!000' "another unblocked site is reached over HTTPS"
+  we_expect "blocked, a" "$r" listed_http 301 "an unblocked site is reached over plain HTTP"
+  we_expect "blocked, a" "$r" listed_ssh open "port 22 is not intercepted"
+  we_expect "blocked, a" "$r" lookalike_resolves yes "a name merely like a blocked one resolves"
+  we_expect "blocked, a" "$r" incus_names "$we_gateway" "Incus's .incus names still resolve"
+  we_expect "blocked, a" "$r" unlisted_sni_on_listed_address 000 "a blocked TLS name on a hard-coded address is refused"
+  we_expect "blocked, a" "$r" no_sni_on_listed_address '!000' "TLS with no name is spliced"
+  we_expect "blocked, a" "$r" unlisted_address '!000' "a public address is reached"
+  we_expect "blocked, a" "$r" unlisted_host_on_listed_address "403/squid" "a blocked Host on another address is refused"
+  we_expect "blocked, a" "$r" outside_dns_udp silent "an outside resolver on UDP 53 is unreachable"
+  we_expect "blocked, a" "$r" outside_dns_tcp closed "an outside resolver on TCP 53 is unreachable"
+  we_expect "blocked, a" "$r" outside_dot closed "DNS over TLS (853) is unreachable"
+  we_expect "blocked, a" "$r" doh_by_name 000 "a blocked DNS over HTTPS service fails by name"
+  we_expect "blocked, a" "$r" doh_by_address 000 "a blocked DNS over HTTPS service fails on its own address"
+  we_expect "blocked, a" "$r" private_vm closed "the VM stays unreachable"
+  we_expect "blocked, a" "$r" private_metadata closed "the metadata address stays unreachable"
+  we_expect "blocked, a" "$r" direct_proxy_ports "closed/closed/closed/silent" "the redirect targets cannot be used directly"
+  we_expect "blocked, a" "$r" direct_forward_proxy 000 "the proxy cannot be used as a forward proxy"
+  we_expect "blocked, a" "$r" gateway_other_ports closed "the gateway is closed on every other port probed"
+
+  r=$(we_run_docker)
+  printf '%s\n' "$r" | sed 's/^/    /'
+  we_expect "blocked, a's Docker" "$r" unlisted_resolves no "a blocked name gets no address"
+  we_expect "blocked, a's Docker" "$r" listed_https ok "an unblocked site is reached over HTTPS"
+  we_expect "blocked, a's Docker" "$r" unlisted_host_on_listed_address 403 "a blocked Host is refused"
+  we_expect "blocked, a's Docker" "$r" outside_dns silent "an outside resolver is unreachable"
+  we_expect "blocked, a's Docker" "$r" outside_dot closed "DNS over TLS is unreachable"
+  we_expect "blocked, a's Docker" "$r" direct_proxy_ports "closed/closed/closed" "the redirect targets cannot be used directly"
+  check "blocked, a's Docker: an unblocked registry serves a pull" \
+    sec_exec a student "docker pull -q alpine:3.22"
+
+  check "the blocked name is counted from DNS and from Squid" we_counted example.com
+  # Only refusals are counted: an unblocked site that was reached is not.
+  check_output "an unblocked site that was reached is not counted" "0" \
+    sec_psql "SELECT count(*) FROM egress_blocked_names WHERE day = (now() AT TIME ZONE 'UTC')::date AND name IN ('example.org', 'api.github.com', 'github.com')"
+}
+
 # ── Allow-list mode ──────────────────────────────────────────────
 
 we_check_allow_list() {
@@ -190,6 +248,18 @@ we_check_allow_list() {
   check "the refused name is counted from DNS and from Squid" we_counted example.com
   check_output "the blocked-name counts have no workspace, user or address column" "" \
     sec_psql "SELECT string_agg(column_name, ',') FROM information_schema.columns WHERE table_name = 'egress_blocked_names' AND column_name NOT IN ('day', 'name', 'source', 'count')"
+}
+
+# After the restore, the site's own blocked sites apply; check what holds for any list.
+we_check_open_blocked_restored() {
+  local r
+  check "open mode with the site's blocked sites: the egress DNS runs" sec_ssh "systemctl is-active --quiet portikus-egress-dns"
+  sec_exec a root "resolvectl flush-caches" >/dev/null 2>&1
+  r=$(we_run_bash)
+  we_expect "restored, a" "$r" listed_https '!000' "an unblocked site is reached"
+  we_expect "restored, a" "$r" outside_dns_udp silent "an outside resolver is unreachable"
+  we_expect "restored, a" "$r" private_vm closed "the VM stays unreachable"
+  we_expect "restored, a" "$r" direct_proxy_ports "closed/closed/closed/silent" "the redirect targets cannot be used directly"
 }
 
 # we_counted NAME -- today's counts hold NAME from both sources, within a minute.
@@ -305,7 +375,7 @@ we_put() {
 we_wait_applied() {
   local i
   for ((i = 0; i < 90; i += 2)); do
-    [ "$(sec_psql "SELECT (egress_applied_version = egress_version)::text FROM settings WHERE id = 1")" = "true" ] && return 0
+    [ "$(sec_psql "SELECT (coalesce(egress_applied_version, 0) = egress_version)::text FROM settings WHERE id = 1")" = "true" ] && return 0
     sleep 2
   done
   return 1
@@ -317,21 +387,80 @@ we_presets_json() { # comma-separated ids to a JSON array
   printf '[%s]' "$out"
 }
 
+# we_send METHOD PATH [JSON] -- one policy write at the current version.
+we_send() {
+  local status
+  if [ -n "${3:-}" ]; then
+    status=$(sec_http admin "$1" "$2" -H 'Content-Type: application/json' \
+      --data "$(printf '%s' "$3" | sed "s/@VERSION@/$(we_version)/")")
+  else
+    status=$(sec_http admin "$1" "${2//@VERSION@/$(we_version)}")
+  fi
+  [ "$status" = "200" ]
+}
+
+# The blocked sites as they were, one JSON request body per line.
+we_start_blocked=$(sec_psql "SELECT '{\"version\":@VERSION@,\"value\":' || to_json(value) || ',\"label\":' || to_json(label) || '}' FROM egress_blocked_entries ORDER BY value")
+
+we_clear_blocked() {
+  local id
+  for id in $(sec_psql "SELECT id FROM egress_blocked_entries"); do
+    we_send DELETE "/admin/egress/blocked-sites/${id}?version=@VERSION@" || return 1
+  done
+}
+
+# we_set_blocked NAME... -- replaces the blocked sites with NAMEs.
+we_set_blocked() {
+  local name
+  we_clear_blocked || return 1
+  for name in "$@"; do
+    we_send POST /admin/egress/blocked-sites "{\"version\":@VERSION@,\"value\":\"${name}\",\"label\":\"security test\"}" || return 1
+  done
+}
+
 we_restore() {
-  echo "Restoring the egress policy: ${we_start_mode}, presets ${we_start_presets:-none}"
+  local body
+  echo "Restoring the egress policy: ${we_start_mode}, presets ${we_start_presets:-none}, and the blocked sites"
   we_put /admin/egress/mode "{\"version\":@VERSION@,\"mode\":\"${we_start_mode}\"}" || true
   we_put /admin/egress/presets "{\"version\":@VERSION@,\"presets\":$(we_presets_json "$we_start_presets")}" || true
+  we_clear_blocked || true
+  while IFS= read -r body; do
+    [ -n "$body" ] && { we_send POST /admin/egress/blocked-sites "$body" || true; }
+  done <<<"$we_start_blocked"
   if we_wait_applied; then sec_pass "the egress policy is back as it was"; else sec_fail "the egress policy is back as it was (not applied)"; fi
 }
+
+# The applied policy blocks sites in open mode when Squid's switch is on.
+we_blocks_applied() { sec_ssh "test -s /var/lib/portikus/egress-state/open.txt"; }
 
 we_others=$(sec_psql "SELECT count(*) FROM workspaces w JOIN users u ON u.id = w.owner_user_id WHERE u.oidc_issuer <> '${SEC_ISSUER}'")
 sec_docker_exec a "true" >/dev/null 2>&1
 
-if [ "$we_start_mode" = "open" ]; then
-  we_check_open
-  if [ "$we_others" != "0" ]; then
-    sec_na "workspace egress in allow-list mode" \
-      "switching would cut off ${we_others} other workspace(s); run on a VM with none"
+if [ "$we_start_mode" = "open" ] && [ "$we_others" != "0" ]; then
+  # Another site's policy is left alone: checked as it is.
+  if we_blocks_applied; then
+    sec_na "workspace egress in open mode with no blocked site" "the site blocks sites; its list is left alone"
+  else
+    we_check_open
+  fi
+  sec_na "workspace egress with the run's blocked sites and in allow-list mode" \
+    "changing the policy would change ${we_others} other workspace(s)' network; run on a VM with none"
+elif [ "$we_start_mode" = "open" ]; then
+  # Open mode with no blocked site is exactly the open mode before blocked sites existed.
+  if ! we_clear_blocked || ! we_wait_applied; then
+    sec_fail "the administrator empties the blocked sites through the API, and it is applied"
+  else
+    we_check_open
+  fi
+  if ! we_set_blocked "${WE_BLOCKED[@]}" || ! we_wait_applied; then
+    sec_fail "the administrator blocks sites through the API, and it is applied ($(sec_psql "SELECT coalesce(egress_apply_error, 'no error') FROM settings WHERE id = 1"))"
+  else
+    sec_pass "the administrator blocks sites through the API, and it is applied"
+    we_check_open_blocked
+  fi
+  if ! we_clear_blocked; then
+    sec_fail "the administrator empties the blocked sites before allow-list mode"
+    we_restore
   elif ! we_put /admin/egress/presets '{"version":@VERSION@,"presets":["github","docker-hub"]}' \
     || ! we_put /admin/egress/mode '{"version":@VERSION@,"mode":"allow-list"}'; then
     sec_fail "the administrator switches to allow-list mode through the API"
@@ -349,7 +478,7 @@ if [ "$we_start_mode" = "open" ]; then
       sec_na "allow-list mode after a reboot" "set PORTIKUS_SECURITY_HEAVY=1 to reboot the VM"
     fi
     we_restore
-    we_check_open
+    if we_blocks_applied; then we_check_open_blocked_restored; else we_check_open; fi
   fi
 else
   # A site already in allow-list mode is checked as it is, when its own list

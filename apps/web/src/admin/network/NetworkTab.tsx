@@ -2,6 +2,7 @@ import { Button, Skeleton } from "@portikus/ui";
 import { useRef, useState } from "react";
 import { AdminSection } from "../AdminSection.js";
 import { BlockedCard } from "./BlockedCard.js";
+import { BlockedSitesCard } from "./BlockedSitesCard.js";
 import { EntriesCard } from "./EntriesCard.js";
 import { EntryDialog, type EntryDraft } from "./EntryDialog.js";
 import { ModeCard } from "./ModeCard.js";
@@ -60,12 +61,13 @@ export function NetworkTab() {
 				<ModeCard view={view} />
 				{view.mode === "open" ? (
 					<p className="m-0 text-[13px] text-ink-muted" data-testid="egress-open-note">
-						Open mode is on, so the presets and list below are not used yet. You can
-						prepare them before you switch.
+						Open mode is on, so only the blocked sites are used. The presets, hosts and
+						ports are for allow-list mode; you can prepare them before you switch.
 					</p>
 				) : null}
 				<div className="grid items-start gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
 					<div className="grid gap-6">
+						<BlockedSitesCard view={view} />
 						<PresetsCard view={view} />
 						<EntriesCard view={view} onEdit={edit} />
 						<PortsCard view={view} />

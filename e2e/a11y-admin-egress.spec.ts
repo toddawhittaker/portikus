@@ -19,11 +19,16 @@ test.beforeAll(async () => {
 		 values (current_date, $1, 'dns', 12) on conflict do nothing`,
 		[`registry.${SUFFIX}`],
 	);
+	await query(
+		"insert into egress_blocked_entries (value, label) values ($1, 'Games') on conflict (value) do nothing",
+		[`games.${SUFFIX}`],
+	);
 });
 
 test.afterAll(async () => {
 	await query("delete from egress_entries where value like $1", [`%${SUFFIX}`]);
 	await query("delete from egress_blocked_names where name like $1", [`%${SUFFIX}`]);
+	await query("delete from egress_blocked_entries where value like $1", [`%${SUFFIX}`]);
 });
 
 async function expectNoViolations(page: Page): Promise<void> {
@@ -71,6 +76,20 @@ for (const colorScheme of ["light", "dark"] as const) {
 		);
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
+
+		// The blocked site dialog, with a validation message showing, and its removal.
+		await page.getByTestId("egress-block-add").click();
+		const block = page.getByTestId("egress-block-dialog");
+		await block.getByTestId("egress-block-save").click();
+		await expect(block.getByRole("alert")).toBeVisible();
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(block).toBeHidden();
+		await page.getByRole("button", { name: `Remove games.${SUFFIX}` }).click();
+		await expect(page.getByTestId("egress-block-remove-dialog")).toBeVisible();
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(page.getByTestId("egress-block-remove-dialog")).toBeHidden();
 
 		await page.getByRole("button", { name: `Remove api.${SUFFIX}` }).click();
 		await expect(page.getByTestId("egress-remove-dialog")).toBeVisible();

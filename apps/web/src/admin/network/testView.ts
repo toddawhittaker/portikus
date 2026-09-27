@@ -31,6 +31,22 @@ export function egressView(overrides: Partial<AdminEgressView> = {}): AdminEgres
 			hosts: [...p.hosts],
 		})),
 		apply: { appliedVersion: 3, appliedAt: "2026-09-27T10:00:00.000Z", error: null },
+		blockedSites: [
+			{
+				id: "44444444-4444-4444-8444-444444444444",
+				value: "dns.google",
+				label: "DNS over HTTPS service (default)",
+				createdAt: "2026-09-27T10:00:00.000Z",
+				updatedAt: "2026-09-27T10:00:00.000Z",
+			},
+			{
+				id: "55555555-5555-4555-8555-555555555555",
+				value: "games.example.com",
+				label: "Games",
+				createdAt: "2026-09-27T10:00:00.000Z",
+				updatedAt: "2026-09-27T10:00:00.000Z",
+			},
+		],
 		blocked: [],
 		...overrides,
 	};

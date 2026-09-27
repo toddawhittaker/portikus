@@ -39,6 +39,10 @@ export function verdictText(host: string, answer: EgressExplanation): string {
 			return `Blocked. ${host} is in the private range ${answer.range}, which workspaces can never reach.`;
 		case "address":
 			return `Not allowed. ${host} is an address. In allow-list mode an address is reached only through one of your ranges, or when it belongs to a listed name a workspace looked up.`;
+		case "blocked":
+			return answer.label
+				? `Blocked by your list: ${answer.entry} (${answer.label}). Workspaces get "Could not resolve host" for ${host}.`
+				: `Blocked by your list: ${answer.entry}. Workspaces get "Could not resolve host" for ${host}.`;
 		case "not-listed":
 			return `Not allowed. ${host} is not covered by a preset or your list, so workspaces get "Could not resolve host".`;
 		case "invalid":
@@ -127,7 +131,10 @@ export function applyState(view: AdminEgressView, now: number): ApplyState {
 	}
 	return {
 		tone: "none",
-		text: "Nothing has been changed yet. Workspaces use open mode.",
+		text:
+			view.blockedSites.length > 0
+				? "Nothing has been changed yet. Workspaces use open mode, and the blocked sites apply after your first change."
+				: "Nothing has been changed yet. Workspaces use open mode.",
 	};
 }
 

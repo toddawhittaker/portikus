@@ -14,7 +14,7 @@ import {
 import type { AdminEgressView } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
 const skip = !hasTestDb();
@@ -101,6 +101,7 @@ test.skipIf(skip)("the default policy is open with ports 22, 80 and 443", async 
 		presets: [],
 		ports: [22, 80, 443],
 		entries: [],
+		blockedSites: [],
 		apply: { appliedVersion: null, appliedAt: null, error: null },
 		blocked: [],
 	});
@@ -399,5 +400,125 @@ test.skipIf(skip)("the apply status comes from the worker's columns", async () =
 		appliedVersion: 4,
 		appliedAt: "2026-09-27T10:00:00.000Z",
 		error: "HELPER_TIMEOUT",
+	});
+});
+
+describe("blocked sites (ADR 0043)", () => {
+	function addBlock(value: string, version: number, label = "") {
+		return send(carol, "POST", "/admin/egress/blocked-sites", {
+			version,
+			value,
+			label,
+		});
+	}
+
+	test.skipIf(skip)(
+		"add, edit and remove each raise the version and leave one audit row",
+		async () => {
+			let r = await addBlock("  Games.Example.COM ", 0, "Games");
+			expect(r.statusCode).toBe(200);
+			let v: AdminEgressView = r.json();
+			expect(v.version).toBe(1);
+			expect(v.blockedSites).toMatchObject([
+				{ value: "games.example.com", label: "Games" },
+			]);
+			const id = v.blockedSites[0]?.id as string;
+			expect(await audits("egress.block_added")).toHaveLength(1);
+
+			r = await send(carol, "PUT", `/admin/egress/blocked-sites/${id}`, {
+				version: 1,
+				value: "play.example.com",
+				label: "",
+			});
+			expect(r.statusCode).toBe(200);
+			v = r.json();
+			expect(v.blockedSites).toMatchObject([
+				{ id, value: "play.example.com", label: "" },
+			]);
+			const updated = await audits("egress.block_updated");
+			expect(updated).toHaveLength(1);
+			expect(updated[0]?.metadata).toEqual({
+				from: { value: "games.example.com", label: "Games" },
+				to: { value: "play.example.com", label: "" },
+			});
+
+			r = await send(carol, "DELETE", `/admin/egress/blocked-sites/${id}?version=2`);
+			expect(r.statusCode).toBe(200);
+			v = r.json();
+			expect(v.version).toBe(3);
+			expect(v.blockedSites).toEqual([]);
+			expect(await audits("egress.block_removed")).toHaveLength(1);
+		},
+	);
+
+	test.skipIf(skip)(
+		"a URL, wildcard or address is refused like an allow entry",
+		async () => {
+			for (const value of ["https://a.com/x", "*.a.com", "8.8.8.8", "localhost"]) {
+				const r = await addBlock(value, 0);
+				expect(r.statusCode).toBe(400);
+				expect(r.json().code).toBe("VALIDATION_FAILED");
+			}
+			expect((await view()).version).toBe(0);
+		},
+	);
+
+	test.skipIf(skip)("a student gets 403; a stale version gets 409", async () => {
+		const r = await send(alice, "POST", "/admin/egress/blocked-sites", {
+			version: 0,
+			value: "a.com",
+			label: "",
+		});
+		expect(r.statusCode).toBe(403);
+		await addBlock("a.com", 0);
+		const stale = await addBlock("b.com", 0);
+		expect(stale.statusCode).toBe(409);
+		expect(stale.json().code).toBe("EGRESS_VERSION_STALE");
+		expect((await view()).blockedSites.map((b) => b.value)).toEqual(["a.com"]);
+	});
+
+	test.skipIf(skip)(
+		"a duplicate is 409, a missing one 404, and neither raises the version",
+		async () => {
+			await addBlock("a.com", 0);
+			const dup = await addBlock("a.com", 1);
+			expect(dup.statusCode).toBe(409);
+			expect(dup.json().code).toBe("EGRESS_ENTRY_EXISTS");
+			const missing = "33333333-3333-4333-8333-333333333333";
+			const put = await send(carol, "PUT", `/admin/egress/blocked-sites/${missing}`, {
+				version: 1,
+				value: "b.com",
+				label: "",
+			});
+			expect(put.statusCode).toBe(404);
+			const del = await send(
+				carol,
+				"DELETE",
+				`/admin/egress/blocked-sites/${missing}?version=1`,
+			);
+			expect(del.statusCode).toBe(404);
+			expect((await view()).version).toBe(1);
+		},
+	);
+
+	test.skipIf(skip)("the same name may be allowed and blocked at once", async () => {
+		expect((await addHost("example.edu", 0)).statusCode).toBe(200);
+		expect((await addBlock("example.edu", 1)).statusCode).toBe(200);
+	});
+
+	test.skipIf(skip)("at most 500 blocked sites", async () => {
+		await testDb.db
+			.insertInto("egress_blocked_entries")
+			.values(
+				Array.from({ length: 500 }, (_, i) => ({
+					value: `b${i}.example.com`,
+					label: "",
+				})),
+			)
+			.execute();
+		const r = await addBlock("one-more.com", 0);
+		expect(r.statusCode).toBe(409);
+		expect(r.json().code).toBe("EGRESS_LIMIT_REACHED");
+		expect((await view()).version).toBe(0);
 	});
 });

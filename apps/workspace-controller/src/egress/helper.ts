@@ -22,8 +22,11 @@ import {
 import {
 	renderDnsmasq,
 	renderDropAll,
+	renderSquidBlocked,
 	renderSquidNames,
+	renderSquidOpen,
 	renderTable,
+	usesOurResolver,
 } from "./render.js";
 
 /**
@@ -267,6 +270,15 @@ function namesRemoved(
 	return before.names.some((n) => !kept.has(n));
 }
 
+async function writeSquidLists(
+	deps: HelperDeps,
+	policy: EgressApplyPolicy,
+): Promise<void> {
+	await writeState(deps, STATE_FILES.names, renderSquidNames(policy));
+	await writeState(deps, STATE_FILES.blocked, renderSquidBlocked(policy));
+	await writeState(deps, STATE_FILES.open, renderSquidOpen(policy));
+}
+
 /**
  * Apply a checked policy in the order that fails closed (ADR 0038): the
  * table, then dnsmasq, then Squid's list. A step that fails stops the rest
@@ -284,10 +296,10 @@ async function applyPolicy(
 	await loadTable(deps, renderTable(policy, env, flush));
 
 	await writeState(deps, STATE_FILES.dnsmasq, renderDnsmasq(policy, env));
-	if (policy.mode === "allow-list") await systemctl(deps, "restart", EGRESS_DNS_UNIT);
+	if (usesOurResolver(policy)) await systemctl(deps, "restart", EGRESS_DNS_UNIT);
 	else await systemctl(deps, "stop", EGRESS_DNS_UNIT);
 
-	await writeState(deps, STATE_FILES.names, renderSquidNames(policy));
+	await writeSquidLists(deps, policy);
 	await systemctl(deps, "reload", WORKSPACE_PROXY_UNIT);
 
 	const applied: AppliedFile = {
@@ -319,7 +331,7 @@ async function restoreAtBoot(deps: HelperDeps, env: EgressEnv): Promise<void> {
 	try {
 		await loadTable(deps, renderTable(policy, env, true));
 	} catch (e) {
-		if (policy.mode === "allow-list") {
+		if (usesOurResolver(policy)) {
 			await loadTable(deps, renderDropAll(env));
 			throw new Error(
 				`${(e as Error).message}; workspace forwarding is dropped until a policy applies`,
@@ -328,8 +340,8 @@ async function restoreAtBoot(deps: HelperDeps, env: EgressEnv): Promise<void> {
 		throw e;
 	}
 	await writeState(deps, STATE_FILES.dnsmasq, renderDnsmasq(policy, env));
-	await writeState(deps, STATE_FILES.names, renderSquidNames(policy));
-	if (policy.mode === "allow-list") {
+	await writeSquidLists(deps, policy);
+	if (usesOurResolver(policy)) {
 		await systemctl(deps, "restart", EGRESS_DNS_UNIT, true);
 	}
 }
@@ -349,7 +361,7 @@ async function dropWithoutEnv(deps: HelperDeps): Promise<string | null> {
 	} catch {
 		unreadable = true;
 	}
-	if (!unreadable && applied?.policy.mode !== "allow-list") return null;
+	if (!unreadable && !(applied && usesOurResolver(applied.policy))) return null;
 	const recorded = applied?.bridge;
 	const bridge =
 		recorded !== undefined && BRIDGE_RE.test(recorded) ? recorded : DEFAULT_BRIDGE;

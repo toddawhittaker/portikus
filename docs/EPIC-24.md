@@ -3,8 +3,8 @@
 This is the working brief for Epic 24. It is the requirement an agent implements against. Where it is silent, `docs/SPEC.md` wins on behaviour, `docs/STACK.md` on technology, and `docs/DESIGN.md` with `packages/ui` on look. Following docs/WORKFLOW.md, "Epic plans", this file lives only on the epic branch; the last task (T19) folds its lasting rules into SPEC.md, STATUS.md and the ADRs below, and deletes it. Code comments and tests cite SPEC.md sections or ADRs, never this file.
 
 - **Base commit:** `c71130a` (main). **Epic branch:** `epic/24-admin-operations`. Builders reset to `origin/epic/24-admin-operations` and branch `task/24-<name>` from it.
-- **Migration numbers, preassigned:** `0025_egress` (T3), `0026_backups` (T7), `0027_workspace_limits` (T11), `0028_throttle_hold` (T12), `0029_package_survey` (T14). No other task adds a migration.
-- **ADR numbers, preassigned:** 0038 workspace egress allow-list (T4 drafts, T5 adds the infrastructure facts), 0039 the backup channel and the host-held key (T9), 0040 restoring one workspace and replacing a home (T8), 0041 HTTPS upstreams in the preview gateway (T16), 0042 the package survey (T14). Each is drafted as Proposed by its task; T19 marks them Accepted.
+- **Migration numbers, preassigned:** `0025_egress` (T3), `0026_backups` (T7), `0027_workspace_limits` (T11), `0028_throttle_hold` (T12), `0029_package_survey` (T14), and `0030_egress_blocked_sites` (T20, added later). No other task adds a migration.
+- **ADR numbers, preassigned:** 0038 workspace egress allow-list (T4 drafts, T5 adds the infrastructure facts), 0039 the backup channel and the host-held key (T9), 0040 restoring one workspace and replacing a home (T8), 0041 HTTPS upstreams in the preview gateway (T16), 0042 the package survey (T14), and 0043 blocked sites in open mode (T20, added later). Each is drafted as Proposed by its task; T19 marks them Accepted.
 
 It closes issues #730, #626, #283 and #284, and three BACKLOG entries: "Re-provision after a failed create", "Per-workspace CPU, memory, and process limits", and "A limit on throttle-then-restart cycles". Task pull requests say `Fixes #N` where they finish an issue.
 

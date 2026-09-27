@@ -13,6 +13,10 @@ export const STATE_FILES = {
 	applied: "applied.json",
 	status: "status.json",
 	names: "names.txt",
+	/** Blocked sites for Squid, open mode only (ADR 0043). */
+	blocked: "blocked.txt",
+	/** Squid's open-mode switch: "." while open mode has blocked sites. */
+	open: "open.txt",
 	dnsmasq: "dnsmasq.conf",
 	/** Where the helper moves a request before reading it. */
 	processing: "request.processing",

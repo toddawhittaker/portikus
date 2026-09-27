@@ -135,13 +135,27 @@
           - squid_rules | select('match', '^acl denied_dst dst 0\.0\.0\.0/8 10\.0\.0\.0/8 ') | list | length == 1
           - "'acl listed_sni ssl::server_name \"/var/lib/portikus/egress-state/names.txt\"' in squid_rules"
           - "'acl listed_host dstdomain -n \"/var/lib/portikus/egress-state/names.txt\"' in squid_rules"
-          # A private destination is closed before anything is peeked, never bumped.
+          # Blocked sites and the open-mode switch (ADR 0043).
+          - "'acl blocked_sni ssl::server_name \"/var/lib/portikus/egress-state/blocked.txt\"' in squid_rules"
+          - "'acl blocked_host dstdomain -n \"/var/lib/portikus/egress-state/blocked.txt\"' in squid_rules"
+          - "'acl open_sni ssl::server_name_regex \"/var/lib/portikus/egress-state/open.txt\"' in squid_rules"
+          - "'acl open_host dstdom_regex -n \"/var/lib/portikus/egress-state/open.txt\"' in squid_rules"
+          # A private destination is closed before anything is peeked, never
+          # bumped; a blocked site is closed before open mode splices the rest.
           - bump == ['ssl_bump terminate denied_dst', 'ssl_bump peek step1',
-                     'ssl_bump splice listed_sni', 'ssl_bump terminate all']
+                     'ssl_bump terminate blocked_sni', 'ssl_bump splice listed_sni',
+                     'ssl_bump splice open_sni', 'ssl_bump terminate all']
           - access[0] == 'http_access deny forward_port'
           - access | last == 'http_access deny all'
-          # Only names go to the counter; no file access log is written.
-          - logs | length == 2
+          # A blocked Host is refused before open mode allows the rest.
+          - access.index('http_access deny intercepted_http blocked_host') <
+            access.index('http_access allow intercepted_http open_host')
+          - access.index('http_access deny denied_dst') <
+            access.index('http_access allow intercepted_http open_host')
+          # Only names go to the counter, and a spliced open-mode site never; no file access log is written.
+          - logs | length == 3
+          - logs | select('search', 'intercepted_tls !listed_sni !open_sni$') | list | length == 1
+          - logs | select('search', 'intercepted_tls blocked_sni$') | list | length == 1
           - logs | reject('match', '^access_log udp://127\.0\.0\.1:5398 logformat=portikus_name_') | list | length == 0
           - "'logformat portikus_name_tls %ssl::>sni' in squid_rules"
           - "'logformat portikus_name_http %>rd' in squid_rules"

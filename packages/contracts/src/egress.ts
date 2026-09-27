@@ -73,6 +73,7 @@ export const EGRESS_DENIED_RANGES_V4 = [
 
 export const EGRESS_LIMITS = {
 	hosts: 500,
+	blockedSites: 500,
 	ranges: 100,
 	ports: 20,
 	label: 80,
@@ -242,6 +243,38 @@ export const EgressEntryRequest = z.discriminatedUnion("kind", [
 ]);
 export type EgressEntryRequest = z.input<typeof EgressEntryRequest>;
 
+/** A blocked site: a host name that covers its subdomains, used in open mode only. */
+export const EgressBlockedSite = z
+	.object({
+		id: z.string().uuid(),
+		value: z.string(),
+		label: z.string(),
+		createdAt: z.string(),
+		updatedAt: z.string(),
+	})
+	.strict();
+export type EgressBlockedSite = z.infer<typeof EgressBlockedSite>;
+
+export const EgressBlockedSiteRequest = z
+	.object({ version: Version, value: EgressHost, label: EgressLabel })
+	.strict();
+export type EgressBlockedSiteRequest = z.input<typeof EgressBlockedSiteRequest>;
+
+/**
+ * The public DNS-over-HTTPS services seeded into the blocked sites once, so a
+ * tool cannot look a blocked name up past our resolver. Removable.
+ */
+export const EGRESS_DEFAULT_BLOCKED_SITES = [
+	"cloudflare-dns.com",
+	"dns.adguard-dns.com",
+	"dns.google",
+	"dns.nextdns.io",
+	"dns.quad9.net",
+	"doh.cleanbrowsing.org",
+	"doh.opendns.com",
+	"one.one.one.one",
+] as const;
+
 /** The version of a DELETE rides in the query string: `?version=N`. */
 export const EgressDeleteQuery = z.object({
 	version: z.coerce.number().int().nonnegative(),
@@ -253,6 +286,8 @@ export interface EgressPolicy {
 	presets: readonly EgressPresetId[];
 	ports: readonly number[];
 	entries: readonly { kind: EgressEntryKind; value: string; label: string }[];
+	/** Refused in open mode only; allow-list mode already refuses what it does not list. */
+	blockedSites: readonly { value: string; label: string }[];
 }
 
 /** Why a host would, or would not, be allowed. It does no live lookup. */
@@ -286,6 +321,13 @@ export const EgressExplanation = z.discriminatedUnion("reason", [
 	/** An address only a range, or a lookup of a listed name, can allow. */
 	z.object({ allowed: z.literal(false), reason: z.literal("address") }),
 	z.object({ allowed: z.literal(false), reason: z.literal("not-listed") }),
+	/** Open mode, and a blocked site covers the name. */
+	z.object({
+		allowed: z.literal(false),
+		reason: z.literal("blocked"),
+		entry: z.string(),
+		label: z.string(),
+	}),
 	z.object({ allowed: z.literal(false), reason: z.literal("invalid") }),
 ]);
 export type EgressExplanation = z.infer<typeof EgressExplanation>;
@@ -316,7 +358,18 @@ export function explainHost(policy: EgressPolicy, input: string): EgressExplanat
 		return { allowed: false, reason: "address" };
 	}
 	if (!isEgressHostName(value)) return { allowed: false, reason: "invalid" };
-	if (policy.mode === "open") return { allowed: true, reason: "open" };
+	if (policy.mode === "open") {
+		const block = policy.blockedSites.find((b) => covers(b.value, value));
+		if (block) {
+			return {
+				allowed: false,
+				reason: "blocked",
+				entry: block.value,
+				label: block.label,
+			};
+		}
+		return { allowed: true, reason: "open" };
+	}
 	for (const preset of EGRESS_PRESETS) {
 		if (!policy.presets.includes(preset.id)) continue;
 		const hit = preset.hosts.find((h) => covers(h, value));
@@ -347,6 +400,7 @@ export function expandEgressPolicy(policy: EgressPolicy): {
 	names: string[];
 	ranges: string[];
 	ports: number[];
+	blocked: string[];
 } {
 	const names = new Set<string>();
 	for (const preset of EGRESS_PRESETS) {
@@ -362,6 +416,9 @@ export function expandEgressPolicy(policy: EgressPolicy): {
 		names: [...names].sort(),
 		ranges: ranges.sort(),
 		ports: [...policy.ports].sort((a, b) => a - b),
+		// Only open mode uses them, so allow-list mode sends none.
+		blocked:
+			policy.mode === "open" ? policy.blockedSites.map((b) => b.value).sort() : [],
 	};
 }
 
@@ -373,6 +430,7 @@ export const AdminEgressView = z
 		presets: z.array(EgressPresetId),
 		ports: z.array(z.number().int()),
 		entries: z.array(EgressEntry),
+		blockedSites: z.array(EgressBlockedSite),
 		presetCatalog: z.array(
 			z.object({ id: EgressPresetId, label: z.string(), hosts: z.array(z.string()) }),
 		),
@@ -414,8 +472,21 @@ export const EgressApplyPolicy = z
 			.max(EGRESS_LIMITS.ranges)
 			.refine((r) => new Set(r).size === r.length),
 		ports: EgressPorts,
+		/**
+		 * Refused names in open mode; must be empty in allow-list mode. Absent
+		 * from an applied.json written before blocked sites existed.
+		 */
+		blocked: z
+			.array(z.string().refine(isEgressHostName))
+			.max(EGRESS_LIMITS.blockedSites)
+			.refine((n) => new Set(n).size === n.length)
+			.default([]),
 	})
-	.strict();
+	.strict()
+	.refine((p) => p.mode === "open" || p.blocked.length === 0, {
+		message: "Blocked sites apply only in open mode",
+		path: ["blocked"],
+	});
 export type EgressApplyPolicy = z.infer<typeof EgressApplyPolicy>;
 
 /** `GET /egress-policy` on the controller, and the answer to a successful PUT. */
