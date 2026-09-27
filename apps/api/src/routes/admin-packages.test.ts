@@ -71,12 +71,7 @@ test.skipIf(skip)("students are refused", async () => {
 test.skipIf(skip)("before any survey the table is empty", async () => {
 	const response = await get(carol);
 	expect(response.statusCode).toBe(200);
-	expect(response.json()).toEqual({
-		day: null,
-		surveyed: 0,
-		minimumSurveyed: 3,
-		packages: [],
-	});
+	expect(response.json()).toEqual({ day: null, surveyed: 0, packages: [] });
 });
 
 test.skipIf(skip)(
@@ -89,7 +84,6 @@ test.skipIf(skip)(
 
 		expect(body.day).toBe("2026-09-27");
 		expect(body.surveyed).toBe(9);
-		expect(body.minimumSurveyed).toBe(3);
 		expect(body.packages).toEqual([
 			{
 				package: "python3-venv",
@@ -164,7 +158,6 @@ test.skipIf(skip)(
 		expect((await get(carol)).json()).toEqual({
 			day: "2026-09-27",
 			surveyed: 1,
-			minimumSurveyed: 3,
 			packages: [],
 		});
 	},

@@ -25,7 +25,6 @@ export function registerAdminPackageRoutes(
 	const { db } = deps;
 
 	app.get("/admin/packages", adminOnly, async (): Promise<AdminPackagesResponse> => {
-		const minimumSurveyed = PACKAGE_SURVEY_MIN_SURVEYED;
 		const latestOf = (minimum: number) =>
 			db
 				.selectFrom("package_survey_days")
@@ -34,13 +33,12 @@ export function registerAdminPackageRoutes(
 				.orderBy("day", "desc")
 				.limit(1)
 				.executeTakeFirst();
-		const latest = await latestOf(minimumSurveyed);
+		const latest = await latestOf(PACKAGE_SURVEY_MIN_SURVEYED);
 		if (!latest) {
 			const any = await latestOf(0);
 			return {
 				day: any?.day ?? null,
 				surveyed: any?.surveyed ?? 0,
-				minimumSurveyed,
 				packages: [],
 			};
 		}
@@ -52,7 +50,7 @@ export function registerAdminPackageRoutes(
 					selectFrom("package_survey_days as d")
 						.select(sql`1`.as("one"))
 						.whereRef("d.day", "=", "package_survey_counts.day")
-						.where("d.surveyed", ">=", minimumSurveyed),
+						.where("d.surveyed", ">=", PACKAGE_SURVEY_MIN_SURVEYED),
 				),
 			)
 			.select([
@@ -73,7 +71,6 @@ export function registerAdminPackageRoutes(
 		return {
 			day: latest.day,
 			surveyed: latest.surveyed,
-			minimumSurveyed,
 			packages: rows.map((row) => ({
 				package: row.package,
 				workspaces: row.workspaces,

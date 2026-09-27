@@ -35,15 +35,14 @@ export type PackageSurveyRow = z.infer<typeof PackageSurveyRow>;
 
 /**
  * `GET /admin/packages`: the site-wide counts of the latest day that
- * surveyed at least `minimumSurveyed` workspaces (SPEC.md §20.1). When no
- * day has that many, `packages` is empty and `day` and `surveyed` describe
- * the latest day, so the page can say why. `day` is null before the first
- * survey.
+ * surveyed at least PACKAGE_SURVEY_MIN_SURVEYED workspaces (SPEC.md §20.1).
+ * When no day has that many, `packages` is empty and `day` and `surveyed`
+ * describe the latest day, so the page can say why. `day` is null before
+ * the first survey.
  */
 export const AdminPackagesResponse = z.object({
 	day: Day.nullable(),
 	surveyed: z.number().int().nonnegative(),
-	minimumSurveyed: z.number().int().positive(),
 	packages: z.array(PackageSurveyRow),
 });
 export type AdminPackagesResponse = z.infer<typeof AdminPackagesResponse>;

@@ -44,7 +44,6 @@ describe("the package contracts", () => {
 		const parsed = AdminPackagesResponse.parse({
 			day: "2026-09-27",
 			surveyed: 9,
-			minimumSurveyed: 3,
 			packages: [
 				{
 					package: "python3-venv",
