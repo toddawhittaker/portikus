@@ -473,8 +473,21 @@ refused_run() {
 }
 avail_mib() { echo $(( $(df -B1 --output=avail "$sets" | tail -1 | tr -d ' ') / 1048576 )); }
 sleep 1
-refused_run "a volume of no listed instance is refused" "belongs to no listed instance" \
-  FAKE_EXTRA_VOLUME="ws-aaaaaaaaaaaaaaaaaaaaaaaa-home"
+: >"$log"
+fake="ws-aaaaaaaaaaaaaaaaaaaaaaaa"
+if FAKE_EXTRA_VOLUME="${fake}-home ${fake}-recovery" run_backup >"${work}/backup.out" 2>&1; then
+  ok "volumes of no listed instance do not stop the run"
+else
+  bad "volumes of no listed instance do not stop the run ($(tail -1 "${work}/backup.out"))"
+fi
+skipset=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -1)
+expect "the set completes with the real volumes" \
+  "[ ! -e '${skipset}/FAILED' ] && [ -f '${skipset}/${HOME_VOL}.age' ] && [ -f '${skipset}/${REC_VOL}.age' ]"
+expect "nothing is asked for or written for the made-up volumes" \
+  "! grep -q '${fake}' '$log' && ! ls '$skipset' | grep -q '${fake}'"
+expect "the skip is counted in the set and warned about" \
+  "[ \"\$(cat '${skipset}/SKIPPED')\" = 2 ] && grep -q 'WARNING: skipped 2 volumes' '${work}/backup.out'"
+sleep 1
 # Leave the run a budget of 1 to 2 MiB, and stream a 64 MiB volume that
 # does not compress.
 mkdir -p "${work}/big/backup/volume"

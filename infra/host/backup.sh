@@ -212,12 +212,23 @@ mapfile -t instances < <(lines "$instance_list")
 for ws in "${workspaces[@]}"; do
   must "workspace line" "$WORKSPACE_PATTERN" "$ws"
 done
+# Only the volumes of a listed instance are exported, so made-up names
+# cannot pad the run; an orphaned volume is skipped, not fatal.
+kept_volumes=()
+skipped=()
 for vol in "${volumes[@]}"; do
   must "volume name" "$VOLUME_PATTERN" "$vol"
-  # Only the volumes of a listed instance, so made-up names cannot pad the run.
-  printf '%s\n' "${instances[@]}" | grep -qx "${vol%-*}" \
-    || die "the VM listed volume ${vol}, which belongs to no listed instance; nothing was kept"
+  if printf '%s\n' "${instances[@]}" | grep -qx "${vol%-*}"; then
+    kept_volumes+=("$vol")
+  else
+    skipped+=("$vol")
+  fi
 done
+volumes=("${kept_volumes[@]}")
+if [ "${#skipped[@]}" -gt 0 ]; then
+  printf '[backup] WARNING: skipped %s volumes of no listed instance, such as %s\n' \
+    "${#skipped[@]}" "$(printf '%s ' "${skipped[@]:0:3}")" >&2
+fi
 if [ "${#workspaces[@]}" != "$(awk '{ print $4 }' <<<"$counts")" ]; then
   die "the VM listed ${#workspaces[@]} workspaces but counted $(awk '{ print $4 }' <<<"$counts"); nothing was kept"
 fi
@@ -238,7 +249,10 @@ done
   for ws in "${workspaces[@]}"; do
     echo "workspace ${ws}"
   done
+  [ "${#skipped[@]}" -eq 0 ] || echo "skipped ${#skipped[@]}"
 } >"$manifest"
+# In plain text too, so the admin page can show it without the key.
+[ "${#skipped[@]}" -eq 0 ] || echo "${#skipped[@]}" >"${work}/SKIPPED"
 
 # pull NAME MODE COMMAND... -- stream COMMAND's output from the VM into NAME.age.
 pull() {

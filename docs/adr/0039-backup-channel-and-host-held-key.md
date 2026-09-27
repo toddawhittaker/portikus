@@ -90,9 +90,13 @@ partial sets from a killed run are removed. The run then has a byte
 budget: the free space less `PORTIKUS_BACKUP_MIN_FREE_MB`. Every stream
 from the VM counts against it (before encryption, which adds well under
 one percent), and a stream that passes it stops the whole run, not just
-that volume, and keeps nothing. The run also refuses any volume that is
-not the home or recovery volume of an instance the VM listed, so made-up
-volume names cannot pad a run.
+that volume, and keeps nothing. The run also skips any volume that is not
+the home or recovery volume of an instance the VM listed: nothing is
+fetched or written for it, so made-up volume names cannot pad a run, and
+an orphaned volume left by a deleted workspace does not fail every
+nightly backup. The run logs a warning with the count and at most three
+names, and the set records the count in a plain `SKIPPED` file (and a
+`skipped` MANIFEST line), which the Backups tab shows.
 
 **The private key is installed on the host, root-only,** as
 `/etc/portikus-backup/age-key.txt` (file 0600, directory 0700, owner

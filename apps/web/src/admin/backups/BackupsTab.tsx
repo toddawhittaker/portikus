@@ -410,6 +410,16 @@ function SetsSection({
 										{set.failedVolumes.length === 1 ? "" : "s"} failed
 									</span>
 								) : null}
+								{set.skippedVolumes ? (
+									<span
+										className="pk-muted"
+										data-testid={`backup-set-skipped-${set.stamp}`}
+									>
+										{" "}
+										{set.skippedVolumes} volume
+										{set.skippedVolumes === 1 ? "" : "s"} of no workspace skipped
+									</span>
+								) : null}
 								{set.instances.length === 0 ? (
 									<>
 										.{" "}

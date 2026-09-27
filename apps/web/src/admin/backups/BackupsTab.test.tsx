@@ -84,6 +84,7 @@ function backups(overrides: Partial<AdminBackups> = {}): AdminBackups {
 					sizeBytes: 5 * 1024 ** 3,
 					instances: [ALICE_INSTANCE, BOB_INSTANCE],
 					failedVolumes: [],
+					skippedVolumes: 2,
 				},
 				{
 					stamp: OLD,
@@ -297,6 +298,10 @@ test("the newest complete set cannot be deleted; an older one can", async () => 
 	const refused = within(newest).getByTestId("backup-set-delete");
 	expect(refused.getAttribute("aria-disabled")).toBe("true");
 	expect(newest.textContent).toContain("The newest complete set is always kept.");
+	expect(within(newest).getByTestId(`backup-set-skipped-${NEW}`).textContent).toBe(
+		" 2 volumes of no workspace skipped",
+	);
+	expect(screen.queryByTestId(`backup-set-skipped-${OLD}`)).toBeNull();
 	fireEvent.click(refused);
 	expect(screen.queryByTestId("backup-delete-dialog")).toBeNull();
 

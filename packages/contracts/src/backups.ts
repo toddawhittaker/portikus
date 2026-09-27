@@ -141,6 +141,8 @@ export const HostBackupSet = z
 		instances: z.array(BackupInstance).max(2000),
 		/** The names in the set's plain FAILED file. */
 		failedVolumes: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,80}$/)).max(4000),
+		/** Volumes of no listed instance that the run skipped; absent from older hosts. */
+		skippedVolumes: z.number().int().nonnegative().max(9_999_999).optional(),
 	})
 	.strict();
 export type HostBackupSet = z.infer<typeof HostBackupSet>;
