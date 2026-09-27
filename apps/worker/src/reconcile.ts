@@ -609,8 +609,17 @@ export async function reconcile(
 			for (const ws of tracked) {
 				if (!ws.incus_instance_name) continue;
 				const inst = instanceMap.get(ws.incus_instance_name);
-				// An error row with no instance keeps its own error; the API never calls it.
-				if (!inst && ws.state === "error") continue;
+				// An error row with no instance keeps its error, but its old address may be leased elsewhere.
+				if (!inst && ws.state === "error") {
+					if (ws.agent_address !== null) {
+						await db
+							.updateTable("workspaces")
+							.set({ agent_address: null })
+							.where("id", "=", ws.id)
+							.execute();
+					}
+					continue;
+				}
 
 				// The instance the row tracks is gone: say so instead of
 				// reporting a state that cannot be true (SPEC §25.4).

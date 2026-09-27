@@ -739,11 +739,51 @@ test.skipIf(skip)(
 	},
 );
 
-test.skipIf(skip)("an error row whose instance is missing is left alone", async () => {
-	const ws = await errorRowWith(null);
-	expect(ws.agent_address).toBe("10.200.0.44");
-	expect(ws.error_code).toBe("START_FAILED");
-});
+test.skipIf(skip)(
+	"an error row whose instance is missing loses its address but keeps its error",
+	async () => {
+		const ws = await errorRowWith(null);
+		expect(ws.agent_address).toBeNull();
+		expect(ws.error_code).toBe("START_FAILED");
+	},
+);
+
+test.skipIf(skip)(
+	"a stopped row whose instance is stopped loses its agent address",
+	async () => {
+		const id = await insertWorkspace({
+			state: "stopped",
+			agent_address: "10.200.0.44",
+		});
+		const ws = await getWorkspace(id);
+		fake.listResult = [
+			{ name: ws.incus_instance_name as string, status: "Stopped", ipv4: null },
+		];
+		const now = new Date();
+		await sweep(tdb.db, fake, cfg, now, null);
+		expect((await getWorkspace(id)).agent_address).toBeNull();
+	},
+);
+
+test.skipIf(skip)(
+	"a running row whose instance briefly has no address keeps its last one",
+	async () => {
+		const id = await insertWorkspace({
+			state: "running",
+			desired_state: "running",
+			agent_address: "10.200.0.44",
+		});
+		const ws = await getWorkspace(id);
+		fake.listResult = [
+			{ name: ws.incus_instance_name as string, status: "Running", ipv4: null },
+		];
+		const now = new Date();
+		await sweep(tdb.db, fake, cfg, now, null);
+		const after = await getWorkspace(id);
+		expect(after.agent_address).toBe("10.200.0.44");
+		expect(after.state).toBe("running");
+	},
+);
 
 test.skipIf(skip)("the drift refresh updates a changed agent address", async () => {
 	const id = await insertWorkspace({

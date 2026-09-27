@@ -306,7 +306,7 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
-	"usage answers 409 for an error workspace whose instance has no address (SPEC.md §24)",
+	"usage answers 409 for an error workspace whose instance has no address (SPEC.md §24, §28)",
 	async () => {
 		await testDb.db
 			.updateTable("workspaces")
