@@ -41,6 +41,7 @@ async function tmuxAvailable(): Promise<boolean> {
 
 const haveTmux = await tmuxAvailable();
 const SOCKET_NAME = `portikus-agent-${process.pid}`;
+const SERVER = { socketName: SOCKET_NAME, external: false };
 
 let homeDir: string;
 let project: string;
@@ -149,7 +150,7 @@ test.skipIf(!haveTmux)(
 			homeDir,
 			"dark",
 			"Europe/Berlin",
-			SOCKET_NAME,
+			SERVER,
 			{
 				command: commandForAgent("claude"),
 				institutionalEnv: { ANTHROPIC_API_KEY: SECRET },
@@ -192,15 +193,10 @@ test.skipIf(!haveTmux)(
 		expect(logText).not.toContain(SECRET);
 
 		const codexId = "00000000-0000-4000-8000-000000009102";
-		await createSession(
-			codexId,
-			project,
-			homeDir,
-			"dark",
-			"Europe/Berlin",
-			SOCKET_NAME,
-			{ command: commandForAgent("codex"), recordBaseline },
-		);
+		await createSession(codexId, project, homeDir, "dark", "Europe/Berlin", SERVER, {
+			command: commandForAgent("codex"),
+			recordBaseline,
+		});
 		const { stdout: codex } = await run("tmux", [
 			"-L",
 			SOCKET_NAME,
@@ -211,8 +207,8 @@ test.skipIf(!haveTmux)(
 			"#{pane_start_command}",
 		]);
 		expect(codex.trim()).toBe("codex");
-		await killSession(claudeId, SOCKET_NAME);
-		await killSession(codexId, SOCKET_NAME);
+		await killSession(claudeId, SERVER);
+		await killSession(codexId, SERVER);
 	},
 );
 

@@ -2899,6 +2899,101 @@ Gaps:
 - "Reset preview data" still acts without a confirmation, and issue
   #607's resource notices are left to their own epic (BACKLOG).
 
+## Epic 16 — Workspace resilience
+
+The rules are in SPEC.md sections 9.7, 11.4, 13.5, 18.1, 18.2, 19.3 and
+21.7, and the unit split is ADR 0035. Task PRs #635, #636, #642, #646,
+#654, #659, #661, #675 and the closing task on
+`epic/16-workspace-resilience`; issues #610 and #618 to #625. Workspace
+image 2026.09.11. Not yet deployed to the pilot, and existing workspaces
+get the image changes only when rebuilt.
+
+Delivered:
+
+- `/tmp` is a 512 MB tmpfs and `/dev/shm` a 256 MB one, so a big
+  temporary file fails with "No space left on device".
+- The tmux server runs in its own unit, `portikus-terminals.service`, on
+  a private socket, so an agent restart leaves terminals open. The agent
+  unit's process limit is lifted; the terminals unit is capped at 1700.
+- Every tmux call times out after 5 seconds. A student's `~/.tmux.conf` is
+  never read, `tmux kill-server` typed in a pane reaches only the
+  student's own server, and a `~/.bashrc` that exits falls back to a
+  plain shell with a message.
+- Closing a terminal and stopping a Check stop the whole process tree,
+  and Check output pauses for a slow watcher.
+- The port scanner never overlaps itself, idles when nobody watches, and
+  remembers socket owners. Stopping a listener always scans afresh and
+  fails if that scan fails.
+- The file watcher skips more generated folders and stops at 20,000
+  folders with a "too large to update live" notice. A full disk gives
+  `STORAGE_FULL` and "Your home folder is full" on every file action.
+- When the terminals unit stops, open panes and later attaches get a
+  toast saying why: out of memory, or a restart.
+- Review fixes: at most one exit-record lookup per terminal connection,
+  start-time checks before killing a process tree, a hardened exit-record
+  read, and tmux failures no longer mistaken for a missing session.
+- The closing task fixed a race that made a unit test flaky: a tmux
+  server that is shutting down can still answer with no sessions or drop
+  the client. The agent now takes whether the server died from the attach
+  client's final line, and asks tmux only when that line is missing.
+
+Gaps:
+
+- The agent's planned OOM score of -500 was dropped because the kernel
+  refuses it in an unprivileged container (ADR 0035).
+- The exit record can wrongly say `oom-kill` after an earlier pane OOM
+  kill (ADR 0035, BACKLOG).
+- Checks still run in the agent's cgroup, and the items the plan left out
+  are in BACKLOG.
+
+## Epic 17 — Platform resilience
+
+Built on `epic/17-platform-resilience` from the platform resilience audit
+of 2026-09-26. Task PRs #637, #644, #645, #653, #657, #685 and this fold;
+issues #611 to #617. The rules are in SPEC.md sections 4.3, 5.3, 6.5,
+20.1, 24.7 and 25.3, and the reasons in ADR 0034. No migrations.
+
+Delivered:
+
+- Caddy and PostgreSQL restart on failure after 5 seconds. On the
+  rehearsal VM each answered again 5 s after a kill, and the API and
+  worker survived a PostgreSQL kill without restarting.
+- The platform's services outrank workspaces: CPU weight 1000 and
+  `MemoryLow=512M` on `system.slice`, and `MemoryLow=256M` on PostgreSQL
+  and the API.
+- Every worker call to the controller and every controller call to Incus
+  has a time budget. Stops run in the background, so a stop that hangs
+  for ten minutes did not delay another workspace's start.
+- Incus operation waits now read the operation's own status, so a
+  graceful stop that times out is followed by a forced stop; start, stop
+  and create were made tolerant of real failures.
+- The preview gateway caches its three database lookups for 2 seconds and
+  caps each preview session at 2,000 requests per 10 seconds. Removing or
+  regaining access can take up to 2 seconds to reach the gateway.
+- The database pool times out connections at 5 s, statements at 30 s and
+  idle transactions at 60 s; a busy or unreachable database answers 503
+  `SERVICE_BUSY`, and a pool error no longer crashes a process.
+- Per-user limits: 20 workspace start, stop and restart requests and 600
+  file writes a minute, answering 429 `RATE_LIMITED`.
+- The thin pool errors when full instead of freezing writes. A root timer
+  reports metadata use, which the Health tab shows. Administrators are
+  notified at 70% and 90%, and at 90% new workspaces wait in
+  `provisioning` with a message until there is room.
+- Each workspace's network is capped at 200 Mbit/s each way.
+- The first deploy restarts Caddy and PostgreSQL once (OPERATIONS.md,
+  "First deploy of Epic 17").
+
+Gaps:
+
+- A create has no single shared deadline; on paper its steps can pass the
+  worker's 300 s budget, though a retry adopts what exists (BACKLOG).
+- Clone and template on a full disk still report `GIT_FAILED` (BACKLOG).
+- No watchdogs, no disk I/O priority, no per-address limit on made-up
+  preview cookies, no connection-tracking limits, and no limits on reads
+  (BACKLOG).
+- At the rehearsal's load the CPU weight made no measurable difference to
+  `/health` or terminal latency, because the platform's work is short.
+
 ## Epic 19 — Admin observability
 
 The rules are in SPEC.md sections 20.1, 24.11 and 25.6, ADR 0036 and

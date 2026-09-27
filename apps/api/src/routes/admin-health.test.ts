@@ -64,7 +64,12 @@ function sample(
 			loadAverage: [load1, 0.5, 0.25],
 			cpuCount: 8,
 			memory: { usedBytes: memoryUsedGiB * GiB, totalBytes: 32 * GiB },
-			pool: { name: "portikus", usedBytes: poolUsedGiB * GiB, totalBytes: 500 * GiB },
+			pool: {
+				name: "portikus",
+				usedBytes: poolUsedGiB * GiB,
+				totalBytes: 500 * GiB,
+				metadataPercent: 31.5,
+			},
 			profileLimits: { cpu: "2", memory: "4GiB", processes: "2000" },
 			image: { fingerprint: "abc123def4567890", serial: "2026.09.9" },
 			instances: [
@@ -147,7 +152,11 @@ test.skipIf(skip)("reports the newest sample and no series", async () => {
 	const report = HealthReport.parse(res.json());
 	expect(report.workerStale).toBe(false);
 	expect(report.controller).toEqual({ reachable: true, errorCode: null });
-	expect(report.host?.pool).toEqual({ usedBytes: 410 * GiB, totalBytes: 500 * GiB });
+	expect(report.host?.pool).toEqual({
+		usedBytes: 410 * GiB,
+		totalBytes: 500 * GiB,
+		metadataPercent: 31.5,
+	});
 	expect(report.host?.image.serial).toBe("2026.09.9");
 	expect(report.host?.profileLimits.memory).toBe("4GiB");
 	// Instance names stay out of the report.
@@ -155,6 +164,15 @@ test.skipIf(skip)("reports the newest sample and no series", async () => {
 
 	// The trends moved to /admin/health/series (Epic 19).
 	expect(res.json()).not.toHaveProperty("series");
+});
+
+test.skipIf(skip)("a sample from before metadata was reported gives null", async () => {
+	const old = sample(10, 1, 0.1);
+	if (old.host)
+		delete (old.host.pool as { metadataPercent?: number | null }).metadataPercent;
+	await seedSample(old, 0);
+	const report = HealthReport.parse((await getHealth()).json());
+	expect(report.host?.pool.metadataPercent).toBeNull();
 });
 
 test.skipIf(skip)("a sample older than two minutes flags the worker", async () => {

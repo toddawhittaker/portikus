@@ -1360,6 +1360,199 @@ interface against SPEC.md section 25.8, with fixes filed as issues.
 
 **Source.** Left out of Epic 20.
 
+## One deadline for a workspace create
+
+**What.** A workspace create has no single shared deadline. Each step has
+its own bound (60 s per volume create, 240 s for the instance create's
+wait), so on paper the steps can add up to about 420 s, past the worker's
+300 s create budget. The rehearsal measured 17 to 30 s under load, and a
+retry adopts whatever the first try already made, so nothing is lost.
+
+**What it would take.** Pass one deadline from the worker's call down
+through the controller's create steps, with a unit test. About half a day.
+
+**Source.** Left out of Epic 17 (ADR 0034).
+
+## Clone and template on a full disk
+
+**What.** Cloning a repository or creating a project from a template on a
+full disk still reports `GIT_FAILED`, not `STORAGE_FULL`, so the student
+is not told that storage is the cause.
+
+**What it would take.** Have the workspace agent recognise "No space left
+on device" in the git or copy output and answer `STORAGE_FULL`, with unit
+tests. Under a day.
+
+**Source.** Left out of Epic 17.
+
+## Systemd watchdogs for the Node services
+
+**What.** systemd could restart a Portikus service that hangs without
+crashing.
+
+**What it would take.** `sd_notify` support in each Node service and
+`WatchdogSec=` on its unit. No process has been seen wedged so far.
+
+**Source.** Left out of Epic 17 (ADR 0034).
+
+## Disk I/O priority between the platform and workspaces
+
+**What.** `IOWeight` on the platform's services or `limits.disk.priority`
+on workspaces. Neither works without the BFQ disk scheduler, and the VM's
+disks use `none`. Contention between the VM's two disks on the host was
+not measured.
+
+**What it would take.** Measure host-level contention first; if it
+matters, switch the VM's disks to BFQ and set weights.
+
+**Source.** Left out of Epic 17 (ADR 0034).
+
+## A per-address limit on made-up preview cookies
+
+**What.** A made-up preview cookie is neither cached nor capped; each costs
+two indexed lookups, bounded only by the database pool timeouts.
+
+**What it would take.** Reuse the sign-in edge throttle for
+`/preview/authorize` misses, per address.
+
+**Source.** Left out of Epic 17.
+
+## Connection-tracking and dnsmasq limits per workspace
+
+**What.** Workspaces share the host's connection-tracking table (262,144
+entries) and dnsmasq. No pressure has been measured.
+
+**What it would take.** Measure under load, then add per-workspace limits
+if one workspace can fill either.
+
+**Source.** Left out of Epic 17.
+
+## Rate limits on reads and recovery points
+
+**What.** File reads and project reads are not rate-limited, and recovery
+points and check runs are outside the new file-write limit. Reads are
+cheap and bounded by size caps; recovery points already have their own
+limit.
+
+**What it would take.** Add counters with the shared
+`apps/api/src/rate-limit.ts` if a need appears.
+
+**Source.** Left out of Epic 17.
+
+## Remove the pilot's pre-epic snapshots
+
+**What.** The pilot's `pre-epic*` snapshots are Todd's rollback kits.
+
+**What it would take.** Delete them on Todd's schedule, 2026-10-01 to
+2026-10-03.
+
+**Source.** Epic 17 plan.
+
+## Keep the old save error while the disk stays full
+
+**What.** While the home folder is full, the editor's save error is
+announced to screen readers again after every autosave attempt.
+
+**What it would take.** Keep the existing error in `FileLeaf.tsx` until a
+save succeeds instead of replacing it with an identical one. Under a day.
+
+**Source.** Accessibility review of Epic 16.
+
+## A per-user cap on terminal WebSocket connections
+
+**What.** Each terminal allows 4 attachments and each workspace 20
+terminals, but nothing caps how many terminal WebSockets one user holds
+open across the control plane. This predates Epic 16.
+
+**What it would take.** A per-user connection count in the terminal
+WebSocket route with a clear refusal code. About a day with tests.
+
+**Source.** Security review of Epic 16.
+
+## An exact out-of-memory reason in the terminals exit record
+
+**What.** The exit record says `oom-kill` when tmux died of `SIGKILL` and
+the terminals unit's cgroup counts any `oom_kill`. An earlier pane OOM
+kill followed by a plain `SIGKILL` of tmux in the same run is reported as
+out of memory (ADR 0035).
+
+**What it would take.** Record the `oom_kill` count when the unit starts
+and compare it at stop, or read the kernel's per-process OOM report.
+About a day, with a rehearsal.
+
+**Source.** Epic 16 rehearsal.
+
+## CPU weights and a memory floor for the agent
+
+**What.** Audit recommendation 3: give the agent a CPU weight and
+`MemoryMin`. Checks still run in the agent's cgroup, so a CPU weight would
+favour student Check code too.
+
+**What it would take.** Moving Checks out first (below), then the unit
+settings and a rehearsal.
+
+**Source.** Left out of Epic 16.
+
+## Move Checks out of the agent's cgroup
+
+**What.** Checks run in the agent's cgroup, so a Check that uses too much
+memory can take the agent with it.
+
+**What it would take.** Start Checks in the terminals unit or their own,
+and change how they are started and replayed. Several days.
+
+**Source.** Left out of Epic 16.
+
+## A watchdog for a stopped agent
+
+**What.** An agent stopped with `SIGSTOP` stays stopped. Only a deliberate
+act causes it.
+
+**What it would take.** A systemd watchdog with a heartbeat from the
+agent. About a day.
+
+**Source.** Left out of Epic 16.
+
+## The preview registry connecting only on demand
+
+**What.** The control plane keeps one port-events socket per running
+workspace, so each agent's scanner stays awake.
+
+**What it would take.** Connect only while a browser watches Running or a
+preview is open, without losing current ports for preview routing.
+
+**Source.** Left out of Epic 16.
+
+## A Docker process share per student
+
+**What.** Docker containers share the container's 2000 processes with the
+agent; the terminals unit's cap does not cover them.
+
+**What it would take.** A pids limit for the Docker daemon's containers,
+set in the image. About a day with a rehearsal.
+
+**Source.** Left out of Epic 16.
+
+## `INTERNAL` instead of `TMUX_FAILED` for other project route errors
+
+**What.** Project routes report errors other than a full disk as
+`TMUX_FAILED`, which is the wrong code for them.
+
+**What it would take.** Change the fallback in the agent's project routes
+and their tests. Under a day.
+
+**Source.** Left out of Epic 16.
+
+## Explain an agent restart on images before 2026.09.11
+
+**What.** On older images an agent restart still closes every terminal
+with no explanation.
+
+**What it would take.** Nothing beyond rebuilding those workspaces on the
+new image, which fixes it.
+
+**Source.** Left out of Epic 16.
+
 ## A per-route breakdown of API requests
 
 **What.** Slowest and busiest routes on the Health tab. The charts show totals only.

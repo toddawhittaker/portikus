@@ -59,7 +59,9 @@ async function main(): Promise<void> {
 		level: config.LOG_LEVEL,
 		pretty: config.NODE_ENV === "development",
 	});
-	const db = createDb(config.DATABASE_URL);
+	const db = createDb(config.DATABASE_URL, undefined, (error) =>
+		logger.warn({ err: error }, "database connection lost"),
+	);
 	if (await seedSettings(db, config.SHUTDOWN_GRACE_SECONDS)) {
 		logger.info(
 			{ shutdownGraceSeconds: config.SHUTDOWN_GRACE_SECONDS },
