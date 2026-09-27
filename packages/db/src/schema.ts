@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots and 0026_backups
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots, 0025_egress and 0026_backups
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -30,6 +30,8 @@ export interface Database {
 	notifications: NotificationsTable;
 	workspace_process_snapshots: WorkspaceProcessSnapshotsTable;
 	api_request_samples: ApiRequestSamplesTable;
+	egress_entries: EgressEntriesTable;
+	egress_blocked_names: EgressBlockedNamesTable;
 	backup_requests: BackupRequestsTable;
 	backup_status: BackupStatusTable;
 }
@@ -232,6 +234,14 @@ export interface SettingsTable {
 	/** Null means the built-in default statement. */
 	acceptable_use_text: string | null;
 	acceptable_use_version: Generated<number>;
+	/** Workspace egress policy (issue #284); the version rises with every write. */
+	egress_mode: Generated<string>;
+	egress_presets: Generated<string[]>;
+	egress_ports: Generated<number[]>;
+	egress_version: Generated<number>;
+	egress_applied_version: number | null;
+	egress_applied_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	egress_apply_error: string | null;
 	updated_at: ColumnType<Date, string | undefined, string>;
 	updated_by: string | null;
 }
@@ -400,6 +410,25 @@ export interface ApiRequestSamplesTable {
 	websocket_upgrades: number;
 	/** Counts per bound of API_LATENCY_BOUNDS_MS, plus one overflow bucket. */
 	latency_buckets: number[];
+}
+
+/** One administrator egress entry: a host name or an IPv4 range (issue #284). */
+export interface EgressEntriesTable {
+	id: Generated<string>;
+	kind: string;
+	value: string;
+	label: string;
+	created_by: string | null;
+	created_at: ColumnType<Date, string | undefined, never>;
+	updated_at: ColumnType<Date, string | undefined, string>;
+}
+
+/** Site-wide refused-name counts per day; never tied to a workspace or user. */
+export interface EgressBlockedNamesTable {
+	day: ColumnType<Date, string, string>;
+	name: string;
+	source: string;
+	count: number;
 }
 
 /** Backup work the admin page asked for (SPEC.md section 24.9, ADR 0024). */
