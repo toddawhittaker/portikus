@@ -7,3 +7,7 @@ test("the status bar asks every 2 s until its first sample, then every 30 s", ()
 	// A faster poll is never slowed down.
 	expect(usagePollInterval(false, USAGE_POLL_MS)).toBe(1000);
 });
+
+test("after a failure in the error state, the storage poll slows to 30 seconds", () => {
+	expect(usagePollInterval(false, STORAGE_POLL_MS, true)).toBe(30_000);
+});

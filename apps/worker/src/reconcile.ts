@@ -603,12 +603,23 @@ export async function reconcile(
 				.selectFrom("workspaces")
 				.select(["id", "incus_instance_name", "state", "agent_address"])
 				.where("incus_instance_name", "is not", null)
-				.where("state", "in", ["running", "stopped", "starting", "stopping"])
+				.where("state", "in", ["running", "stopped", "starting", "stopping", "error"])
 				.execute();
 
 			for (const ws of tracked) {
 				if (!ws.incus_instance_name) continue;
 				const inst = instanceMap.get(ws.incus_instance_name);
+				// An error row with no instance keeps its error, but its old address may be leased elsewhere.
+				if (!inst && ws.state === "error") {
+					if (ws.agent_address !== null) {
+						await db
+							.updateTable("workspaces")
+							.set({ agent_address: null })
+							.where("id", "=", ws.id)
+							.execute();
+					}
+					continue;
+				}
 
 				// The instance the row tracks is gone: say so instead of
 				// reporting a state that cannot be true (SPEC §25.4).
@@ -638,11 +649,16 @@ export async function reconcile(
 					continue;
 				}
 
-				// Keep the recorded agent address in step with the instance.
-				if (inst.ipv4 && inst.ipv4 !== ws.agent_address) {
+				// Keep the recorded agent address in step with the instance. A stopped
+				// instance's old address may be leased to another student's instance.
+				// A running instance briefly without an address keeps its last one.
+				const address =
+					inst.ipv4 ??
+					(inst.status === "Running" && ws.state !== "error" ? ws.agent_address : null);
+				if (address !== ws.agent_address) {
 					await db
 						.updateTable("workspaces")
-						.set({ agent_address: inst.ipv4 })
+						.set({ agent_address: address })
 						.where("id", "=", ws.id)
 						.execute();
 				}

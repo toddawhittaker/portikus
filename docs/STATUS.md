@@ -3111,3 +3111,33 @@ Gaps:
   covers the right pane's tabs; this predates the epic (BACKLOG).
 - The items the plan left out, such as stopping a process tree and an
   administrator's stop without the agent, are in BACKLOG.
+
+## Epic 23 — Student interface leftovers
+
+Built on `epic/23-ux-leftovers`. Task PRs #710, #712, #714, #719, #720,
+#722, #723 and this closing task; issues #706, #707 and #708, the three
+gaps Epic 20's reviews left. The rules are in SPEC.md sections 6.5,
+14.6, 25.8 and 28. No migrations and no infrastructure changes.
+
+Delivered:
+
+- The error screen shows the storage meters, and "Clean up Docker…" for
+  `STORAGE_FULL` with Docker at the critical level, whenever the
+  workspace agent still answers. With no answer it offers only "Try
+  again" and "Workspace details", and it asks for usage again every 30
+  seconds. The worker keeps an error workspace's agent address current,
+  and the API never calls the agent of an `INSTANCE_MISSING` workspace.
+- A stop or restart confirmation opened while the workspace is changing
+  state keeps Confirm disabled and says why, instead of closing
+  silently. The button stays focusable and the reason is announced.
+- "Reset preview data…" asks for confirmation in the neutral dialog.
+
+Verified by unit and Playwright tests in each task, and by code,
+security and accessibility reviews over the epic head, each followed by
+a confirmation review.
+
+Gaps:
+
+- The radio-item menu component is still in BACKLOG.
+- The id of the region that states why Confirm is disabled is a fixed
+  default. That is safe while only one confirmation is open at a time.
