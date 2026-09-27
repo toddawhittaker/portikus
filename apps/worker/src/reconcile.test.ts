@@ -1055,7 +1055,13 @@ test.skipIf(skip)(
 		await insertConnection(id);
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, now);
+		// The stop runs in the background, so the reset waits for the next sweep.
+		const release = holdStops();
+		await reconcile(tdb.db, fake, cfg, now, now);
+		expect(methods()).toEqual(["stop"]);
+		release();
+		await settleStops();
+		await sweep(tdb.db, fake, cfg, new Date(), now);
 
 		expect(methods()).toEqual(["stop", "resetDocker"]);
 		expect(fake.calls[1]?.args[1]).toEqual({
@@ -1227,6 +1233,12 @@ test.skipIf(skip)(
 			.where("id", "=", project.id)
 			.execute();
 
+		// The stop runs in the background, so the rebuild waits for the next sweep.
+		const release = holdStops();
+		await reconcile(tdb.db, fake, cfg, new Date(), now);
+		expect(methods()).toEqual(["stop"]);
+		release();
+		await settleStops();
 		await sweep(tdb.db, fake, cfg, new Date(), now);
 		expect(methods()).toEqual(["stop", "rebuild"]);
 		const ws = await getWorkspace(id);
