@@ -4,6 +4,8 @@ import { Role } from "./auth.js";
 import {
 	CpuIdleLiftMinutes,
 	CpuIdleLiftPercent,
+	CpuThrottleHoldAfter,
+	CpuThrottleHoldHours,
 	GuardThresholdPercent,
 	GuardWindowMinutes,
 	IdleStopMinutes,
@@ -38,6 +40,8 @@ export const PlatformSettings = z.object({
 	cpuThrottleSharePercent: ThrottleSharePercent,
 	cpuIdleLiftMinutes: CpuIdleLiftMinutes,
 	cpuIdleLiftPercent: CpuIdleLiftPercent,
+	cpuThrottleHoldAfter: CpuThrottleHoldAfter,
+	cpuThrottleHoldHours: CpuThrottleHoldHours,
 	idleStopMinutes: IdleStopMinutes,
 	/** Null means the built-in DEFAULT_ACCEPTABLE_USE_TEXT. */
 	acceptableUseText: z.string().nullable(),
@@ -77,6 +81,8 @@ export const UpdatePlatformSettingsRequest = z
 		cpuThrottleSharePercent: ThrottleSharePercent.optional(),
 		cpuIdleLiftMinutes: CpuIdleLiftMinutes.optional(),
 		cpuIdleLiftPercent: CpuIdleLiftPercent.optional(),
+		cpuThrottleHoldAfter: CpuThrottleHoldAfter.optional(),
+		cpuThrottleHoldHours: CpuThrottleHoldHours.optional(),
 		idleStopMinutes: IdleStopMinutes.optional(),
 		acceptableUseText: z
 			.string()

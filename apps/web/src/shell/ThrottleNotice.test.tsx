@@ -86,6 +86,23 @@ test("the notice is not itself a live region; the page's status region carries t
 	);
 });
 
+test("a held throttle says a restart keeps it slowed, and why (SPEC.md §19.4)", () => {
+	const text = throttleAnnouncement({
+		at: "2026-09-25T12:00:00.000Z",
+		thresholdPercent: 80,
+		windowMinutes: 30,
+		sharePercent: 25,
+		idleLiftMinutes: 5,
+		idleLiftPercent: 10,
+		held: { count: 3, hours: 24 },
+	});
+	expect(text).toContain(
+		"It stays slowed after a restart because it was slowed 3 times in the last 24 hours.",
+	);
+	expect(text).toContain("after 5 minutes under 10% use");
+	expect(text).not.toContain("Stopping and starting the workspace restores full speed");
+});
+
 test("focus goes to the work area when the throttle lifts while the notice has focus", () => {
 	function Page({ shown }: { shown: boolean }) {
 		const work = useRef<HTMLElement>(null);

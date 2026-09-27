@@ -254,6 +254,7 @@ export function guardRows(guard: HealthReport["guard"]) {
 						key: `${entry.workspaceId}-cpu`,
 						owner: entry.owner,
 						which: "Throttled",
+						held: entry.cpuThrottle.held !== undefined,
 						at: entry.cpuThrottle.at,
 						average: `CPU ${Math.round(entry.cpuThrottle.averagePercent)}% over ${entry.cpuThrottle.windowMinutes} minutes`,
 					},
@@ -265,6 +266,7 @@ export function guardRows(guard: HealthReport["guard"]) {
 						key: `${entry.workspaceId}-memory`,
 						owner: entry.owner,
 						which: "High memory",
+						held: false,
 						at: entry.memoryFlag.at,
 						average: `Memory ${Math.round(entry.memoryFlag.averagePercent)}% over ${entry.memoryFlag.windowMinutes} minutes`,
 					},
@@ -311,6 +313,9 @@ function GuardList({ guard }: { guard: HealthReport["guard"] }) {
 									</td>
 									<td>
 										<span className="pk-tag pk-tag--warning">{row.which}</span>
+										{row.held ? (
+											<span className="pk-tag pk-tag--warning ml-1">Held</span>
+										) : null}
 									</td>
 									<td>
 										<time dateTime={row.at}>{shortTime(row.at)}</time>

@@ -1,6 +1,8 @@
 import {
 	CpuIdleLiftMinutes,
 	CpuIdleLiftPercent,
+	CpuThrottleHoldAfter,
+	CpuThrottleHoldHours,
 	DEFAULT_ACCEPTABLE_USE_TEXT,
 	LogLevel,
 	MAX_ACCEPTABLE_USE_LENGTH,
@@ -78,7 +80,9 @@ type GuardSettingKey =
 	| "guardWindowMinutes"
 	| "cpuThrottleSharePercent"
 	| "cpuIdleLiftMinutes"
-	| "cpuIdleLiftPercent";
+	| "cpuIdleLiftPercent"
+	| "cpuThrottleHoldAfter"
+	| "cpuThrottleHoldHours";
 
 interface GuardSettingField {
 	key: GuardSettingKey;
@@ -91,7 +95,8 @@ interface GuardSettingField {
 
 /**
  * The Resource guard section's fields: the per-workspace ones, then the
- * automatic lift, which has no per-workspace override (#596).
+ * automatic lift (#596) and the throttle hold (SPEC.md §19.4), which have no
+ * per-workspace override.
  */
 const GUARD_SETTING_FIELDS: GuardSettingField[] = [
 	...GUARD_FIELDS.filter((field) => field.key !== "idleStopMinutes").map((field) => ({
@@ -112,6 +117,20 @@ const GUARD_SETTING_FIELDS: GuardSettingField[] = [
 		label: "Quiet below (%)",
 		schema: CpuIdleLiftPercent,
 		rangeText: "Enter 0 to turn it off, or a whole number up to 100.",
+	},
+	{
+		key: "cpuThrottleHoldAfter",
+		name: "cpuThrottleHoldAfter",
+		label: "Hold after throttles",
+		schema: CpuThrottleHoldAfter,
+		rangeText: "Enter 0 to turn it off, or a whole number up to 10.",
+	},
+	{
+		key: "cpuThrottleHoldHours",
+		name: "cpuThrottleHoldHours",
+		label: "Hold window (hours)",
+		schema: CpuThrottleHoldHours,
+		rangeText: "Enter a whole number from 1 to 168.",
 	},
 ];
 
@@ -236,8 +255,10 @@ function ResourceGuardSection() {
 				average stays below the quiet percent for the quiet time, when it is stopped and
 				started, or when an administrator lifts it. One above the memory threshold is
 				flagged; nothing is slowed. A threshold of 100 turns that check off, and a quiet
-				percent of 0 turns the automatic lift off. Each workspace can override all but
-				the two quiet settings.
+				percent of 0 turns the automatic lift off. A workspace throttled as many times
+				as the hold setting within the hold window stays slowed through a stop and start
+				until it goes quiet or an administrator lifts it; 0 turns the hold off. Each
+				workspace can override all but the quiet and hold settings.
 			</p>
 			<div className="mt-4 grid grid-cols-[repeat(2,max-content)] gap-x-4 gap-y-3">
 				{fields.map((field) => {
