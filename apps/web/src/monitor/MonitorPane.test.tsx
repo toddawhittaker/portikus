@@ -221,6 +221,30 @@ test("Stop is offered only on processes the student may stop", async () => {
 	).toBe("systemd");
 });
 
+test("every row has two fixed action cells: the command disclosure, then the danger-red Stop", async () => {
+	const chevronOnly = { ...OWN, pid: 8, stoppable: false };
+	const stopOnly = { ...OWN, pid: 9, commandLine: null };
+	stubStops([OWN, SYSTEM, chevronOnly, stopOnly], []);
+	renderPane();
+	await screen.findByRole("button", { name: "Stop node (PID 7)" });
+	const slots = (pid: number) =>
+		Array.from(
+			screen.getByTestId(`monitor-process-${pid}`).querySelectorAll(".pk-action-slot"),
+		);
+	for (const pid of [7, 1, 8, 9]) expect(slots(pid)).toHaveLength(2);
+	expect(slots(7)[0]?.querySelector("[aria-expanded]")).not.toBeNull();
+	expect(slots(7)[1]?.getAttribute("data-testid")).toBeNull();
+	expect(slots(7)[1]?.querySelector("[data-testid='monitor-stop-7']")).not.toBeNull();
+	// A missing button leaves its own cell empty rather than moving the other.
+	expect(slots(8)[1]?.childElementCount).toBe(0);
+	expect(slots(9)[0]?.childElementCount).toBe(0);
+	expect(slots(9)[1]?.querySelector("[data-testid='monitor-stop-9']")).not.toBeNull();
+	expect(slots(1).every((slot) => slot.childElementCount === 0)).toBe(true);
+	expect(
+		screen.getByTestId("monitor-stop-7").classList.contains("pk-iconbtn-danger"),
+	).toBe(true);
+});
+
 test("stopping sends the start ticks, hides the row, announces it and moves focus to the heading", async () => {
 	const calls = stubStops([OWN, SYSTEM], [json({ pid: 7, exited: true })]);
 	renderPane();

@@ -80,10 +80,6 @@
 	border-radius: var(--radius-sm);
 }
 
-/* Stop is the destructive action, so it keeps the danger colour on hover. */
-.pk-running-stop {
-	color: var(--status-danger);
-}
 .pk-portrow:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);

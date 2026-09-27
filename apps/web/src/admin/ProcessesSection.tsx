@@ -312,34 +312,39 @@ export function ProcessesSection({
 										<td>{formatCpu(row.cpuPercent)}</td>
 										<td>{formatBytes(row.residentBytes)}</td>
 										<td>
-											{row.protected ? (
-												<span
-													className="pk-muted"
-													data-testid={`processes-protected-${row.pid}`}
-												>
-													Protected
-													<span className="sr-only">
-														: the system or Portikus needs this process, so it cannot be
-														stopped here.
+											<div className="pk-action-slots">
+												{row.protected ? (
+													<span
+														className="pk-muted pk-action-note"
+														data-testid={`processes-protected-${row.pid}`}
+													>
+														Protected
+														<span className="sr-only">
+															: the system or Portikus needs this process, so it cannot
+															be stopped here.
+														</span>
 													</span>
-												</span>
-											) : (
-												<IconButton
-													icon="stop"
-													size="sm"
-													label={`Stop ${row.name} (PID ${row.pid})`}
-													aria-haspopup="dialog"
-													data-testid={`processes-stop-${row.pid}`}
-													onClick={() =>
-														setStopping({
-															process: row,
-															stillRunning: false,
-															error: null,
-															pending: false,
-														})
-													}
-												/>
-											)}
+												) : (
+													<span className="pk-action-slot">
+														<IconButton
+															icon="stop"
+															size="sm"
+															className="pk-iconbtn-danger"
+															label={`Stop ${row.name} (PID ${row.pid})`}
+															aria-haspopup="dialog"
+															data-testid={`processes-stop-${row.pid}`}
+															onClick={() =>
+																setStopping({
+																	process: row,
+																	stillRunning: false,
+																	error: null,
+																	pending: false,
+																})
+															}
+														/>
+													</span>
+												)}
+											</div>
 										</td>
 									</tr>
 								))

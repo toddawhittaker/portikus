@@ -234,7 +234,7 @@ test("Run and Stop are icon buttons that name their check (issue #274)", async (
 	// An icon, not a word: the button holds no text.
 	expect(run.textContent).toBe("");
 	// Colour is a class on top of the name, not a different control (issue #324).
-	expect(stop.classList.contains("pk-check-stop")).toBe(true);
+	expect(stop.classList.contains("pk-iconbtn-danger")).toBe(true);
 	expect(run.classList.contains("pk-check-run")).toBe(true);
 });
 
