@@ -18,6 +18,7 @@ import { DisconnectNotice } from "./shell/DisconnectNotice.js";
 import { FilesPane } from "./shell/FilesPane.js";
 import { IdleNotice, idleMinutes, useIdleStopReason } from "./shell/IdleNotice.js";
 import { MemoryNotice, memoryAnnouncement } from "./shell/MemoryNotice.js";
+import { ReinstallNotice } from "./shell/ReinstallNotice.js";
 import { RightPaneContext, showMonitor, useRightPaneStore } from "./shell/rightPane.js";
 import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
 import { StatusBar } from "./shell/StatusBar.js";
@@ -186,6 +187,11 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 											}}
 										/>
 									)}
+									<ReinstallNotice
+										workspaceId={workspaceId}
+										running={running}
+										fallbackFocus={workRef}
+									/>
 									{workspace?.idleStopAt && (
 										<IdleNotice
 											deadline={workspace.idleStopAt}

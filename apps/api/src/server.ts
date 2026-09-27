@@ -22,6 +22,7 @@ import { registerAdminDexUserRoutes } from "./routes/admin-dex-users.js";
 import { registerAdminEgressRoutes } from "./routes/admin-egress.js";
 import { registerAdminHealthRoutes } from "./routes/admin-health.js";
 import { registerAdminLogRoutes } from "./routes/admin-logs.js";
+import { registerAdminPackageRoutes } from "./routes/admin-packages.js";
 import { registerAdminProcessRoutes } from "./routes/admin-processes.js";
 import { registerAdminWorkspaceRoutes } from "./routes/admin-workspaces.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -40,6 +41,7 @@ import { registerProcessRoutes } from "./routes/processes.js";
 import { registerProjectEventsSocket } from "./routes/project-events.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerRecoveryRoutes } from "./routes/recovery.js";
+import { registerReinstallNoteRoutes } from "./routes/reinstall-note.js";
 import { registerTerminalRoutes } from "./routes/terminals.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
@@ -242,6 +244,8 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerAdminLogRoutes(instance, deps);
 		registerAdminHealthRoutes(instance, routeDeps);
 		registerAdminBackupRoutes(instance, deps);
+		registerAdminPackageRoutes(instance, deps);
+		registerReinstallNoteRoutes(instance, deps);
 	});
 
 	return app;
