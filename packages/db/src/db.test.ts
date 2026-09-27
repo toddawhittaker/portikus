@@ -600,6 +600,10 @@ describe("database migrations and schema", () => {
 					db: trx,
 					provider: { getMigrations: async () => migrations },
 				});
+				// Past 0029 (Epic 24) first.
+				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+					"0029_package_survey",
+				);
 				const down = await migrator.migrateDown();
 				expect(down.error).toBeUndefined();
 				const down2 = await migrator.migrateDown();
@@ -684,6 +688,7 @@ describe("database migrations and schema", () => {
 					"0025_egress",
 					"0026_backups",
 					"0028_throttle_hold",
+					"0029_package_survey",
 				]);
 				throw rollback;
 			}),
@@ -705,6 +710,10 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0028_throttle_hold",
 					);
@@ -810,6 +819,10 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					// Past 0028, 0026, 0025, 0024, 0023 (Epic 21), 0022 (Epic 19), 0021 and 0020 first.
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -877,6 +890,10 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0028_throttle_hold",
 					);
@@ -1245,6 +1262,10 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0028_throttle_hold",
 					);
@@ -1323,6 +1344,10 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
@@ -1760,6 +1785,10 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					// Down past 0028, 0026, 0025, 0024 and 0023 (Epic 21), 0022 (Epic 19),
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -1901,6 +1930,10 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -1931,6 +1964,10 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0028_throttle_hold",
 					);
@@ -2178,6 +2215,10 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 						allowUnorderedMigrations: true,
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					// Build a database that took 0020 to 0028 (with 0025) before 0019 existed.
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2197,10 +2238,12 @@ describe("resource guard migration", () => {
 						"0025_egress",
 						"0026_backups",
 						"0028_throttle_hold",
+						"0029_package_survey",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0028 down to 0020, and 0018 (applied 0018, 0020 to 0028, 0019).
+					// Undo 0019, 0029, 0028 down to 0020, and 0018 (applied 0018, 0020 to 0028, 0029, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2225,6 +2268,7 @@ describe("resource guard migration", () => {
 						"0025_egress",
 						"0026_backups",
 						"0028_throttle_hold",
+						"0029_package_survey",
 					]);
 					throw rollback;
 				}),
@@ -2267,6 +2311,10 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2275,6 +2323,36 @@ describe("resource guard migration", () => {
 					expect((await table.execute(trx)).rows[0]?.n).toBe(0);
 					expect((await migrator.migrateToLatest()).error).toBeUndefined();
 					expect((await table.execute(trx)).rows[0]?.n).toBe(1);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+	test.skipIf(!hasTestDb())(
+		"0029 adds the package survey tables and the surveyed date, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const objects = sql<{ n: number }>`
+				select (select count(*) from information_schema.tables
+					where table_name in ('package_survey_days', 'package_survey_counts'))
+				+ (select count(*) from information_schema.columns
+					where table_name = 'workspaces' and column_name = 'package_surveyed_on')
+				as n`;
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					expect(Number((await objects.execute(trx)).rows[0]?.n)).toBe(3);
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0029_package_survey");
+					expect(Number((await objects.execute(trx)).rows[0]?.n)).toBe(0);
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					expect(Number((await objects.execute(trx)).rows[0]?.n)).toBe(3);
 					throw rollback;
 				}),
 			).rejects.toBe(rollback);
@@ -2356,6 +2434,10 @@ describe("backups migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0026_backups");
@@ -2440,6 +2522,10 @@ describe("backups migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0028_throttle_hold",
 					);
@@ -2497,6 +2583,10 @@ describe("api request samples migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					// Past 0028, 0026, 0025, 0024 and 0023 (Epic 21) first.
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2670,6 +2760,10 @@ describe("throttle hold migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0028_throttle_hold");
 					expect((await columns.execute(trx)).rows[0]?.n).toBe(0);

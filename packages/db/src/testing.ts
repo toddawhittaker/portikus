@@ -154,6 +154,8 @@ export async function createTestDb(): Promise<TestDb> {
 
 	const truncate = async () => {
 		await db.deleteFrom("notifications").execute();
+		await db.deleteFrom("package_survey_counts").execute();
+		await db.deleteFrom("package_survey_days").execute();
 		await db.deleteFrom("api_request_samples").execute();
 		await db.deleteFrom("backup_requests").execute();
 		await db.deleteFrom("egress_entries").execute();

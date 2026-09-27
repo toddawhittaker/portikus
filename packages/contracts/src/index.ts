@@ -31,6 +31,7 @@ export * from "./links.js";
 export * from "./listening.js";
 export * from "./logs.js";
 export * from "./notifications.js";
+export * from "./packages.js";
 export * from "./preview.js";
 export * from "./processes.js";
 export * from "./project.js";

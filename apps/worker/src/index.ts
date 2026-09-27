@@ -11,6 +11,7 @@ import { startGuard } from "./guard.js";
 import { startHealthSampling } from "./health.js";
 import { createLogLevelSync } from "./log-level.js";
 import { startNotificationPrune } from "./notifications.js";
+import { startPackageSurvey } from "./package-survey.js";
 import { startProcessSnapshots } from "./process-snapshots.js";
 import { startQuotaSync } from "./quota.js";
 import { reconcile, type SweepResult } from "./reconcile.js";
@@ -111,6 +112,7 @@ async function main(): Promise<void> {
 	startBlockedCounter({ db, logger }).catch((e: Error) =>
 		logger.error({ error: e.message }, "blocked-name counter failed to listen"),
 	);
+	startPackageSurvey({ db, controller, logger });
 
 	let lastRefreshAt: Date | null = null;
 	let controllerUnreachable = false;

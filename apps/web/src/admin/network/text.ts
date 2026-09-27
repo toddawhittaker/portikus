@@ -1,0 +1,132 @@
+import {
+	type AdminEgressView,
+	EGRESS_LIMITS,
+	type EgressExplanation,
+} from "@portikus/contracts";
+
+/**
+ * The host name inside what an administrator typed into "Test a host". A URL
+ * such as https://github.com/org/repo becomes github.com; anything else is
+ * passed through for explainHost to judge.
+ */
+export function hostFromInput(input: string): string {
+	const text = input.trim();
+	if (!/[/:]/.test(text)) return text;
+	try {
+		const url = new URL(text.includes("://") ? text : `http://${text}`);
+		return url.hostname || text;
+	} catch {
+		return text;
+	}
+}
+
+/** One plain-English sentence for a Test a host answer (SPEC.md section 20.1). */
+export function verdictText(host: string, answer: EgressExplanation): string {
+	switch (answer.reason) {
+		case "open":
+			return `Allowed. Open mode is on, so workspaces can reach ${host} and any other public site.`;
+		case "preset":
+			return `Allowed by the ${answer.presetLabel} preset, which lists ${answer.entry}.`;
+		case "entry":
+			return answer.label
+				? `Allowed by your entry ${answer.entry} (${answer.label}).`
+				: `Allowed by your entry ${answer.entry}.`;
+		case "range":
+			return answer.label
+				? `Allowed by your range ${answer.range} (${answer.label}).`
+				: `Allowed by your range ${answer.range}.`;
+		case "denied":
+			return `Blocked. ${host} is in the private range ${answer.range}, which workspaces can never reach.`;
+		case "address":
+			return `Not allowed. ${host} is an address. In allow-list mode an address is reached only through one of your ranges, or when it belongs to a listed name a workspace looked up.`;
+		case "not-listed":
+			return `Not allowed. ${host} is not covered by a preset or your list, so workspaces get "Could not resolve host".`;
+		case "invalid":
+			return "That is not a host name or address. Enter a name such as github.com, or a web address.";
+	}
+}
+
+/** Host names the policy lists: each enabled preset's, then the host entries, counted once. */
+export function listedHostCount(view: AdminEgressView): number {
+	const names = new Set<string>();
+	for (const preset of view.presetCatalog) {
+		if (view.presets.includes(preset.id))
+			for (const host of preset.hosts) names.add(host);
+	}
+	for (const entry of view.entries) if (entry.kind === "host") names.add(entry.value);
+	return names.size;
+}
+
+/** "22, 80 and 443". */
+export function joinPorts(ports: readonly number[]): string {
+	const text = ports.map(String);
+	if (text.length <= 1) return text.join("");
+	return `${text.slice(0, -1).join(", ")} and ${text[text.length - 1]}`;
+}
+
+/** Reads the ports field: numbers separated by commas or spaces, or a message saying what is wrong. */
+export function parsePorts(text: string): { ports: number[] } | { error: string } {
+	const parts = text.split(/[\s,]+/).filter((part) => part !== "");
+	if (parts.length === 0) return { error: "Enter at least one port, such as 443." };
+	const ports: number[] = [];
+	for (const part of parts) {
+		const port = /^\d+$/.test(part) ? Number(part) : Number.NaN;
+		if (!(port >= 1 && port <= 65535)) {
+			return {
+				error: `${part} is not a port. Ports are whole numbers from 1 to 65535.`,
+			};
+		}
+		if (ports.includes(port)) return { error: `Port ${port} is listed twice.` };
+		ports.push(port);
+	}
+	if (ports.length > EGRESS_LIMITS.ports) {
+		return { error: `List at most ${EGRESS_LIMITS.ports} ports.` };
+	}
+	return { ports: ports.sort((a, b) => a - b) };
+}
+
+export type ApplyState =
+	| { tone: "error"; text: string }
+	| { tone: "pending"; text: string }
+	| { tone: "applied"; text: string }
+	| { tone: "none"; text: string };
+
+/** "just now", "4 minutes ago", or a short date. */
+export function ago(iso: string, now: number): string {
+	const seconds = Math.max(0, Math.floor((now - Date.parse(iso)) / 1000));
+	if (seconds < 60) return "just now";
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+	return new Date(iso).toLocaleString(undefined, {
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	});
+}
+
+/** Whether the workspaces follow the saved policy yet, in one line. */
+export function applyState(view: AdminEgressView, now: number): ApplyState {
+	const { appliedVersion, appliedAt, error } = view.apply;
+	if (error) {
+		return {
+			tone: "error",
+			text: `The last change could not be applied: ${error.replace(/\.$/, "")}. Workspaces still follow the policy applied before it.`,
+		};
+	}
+	if (view.version !== (appliedVersion ?? 0)) {
+		return { tone: "pending", text: "Applying the latest change to every workspace…" };
+	}
+	if (appliedAt) {
+		return {
+			tone: "applied",
+			text: `Applied ${ago(appliedAt, now)}. Every running workspace follows this policy.`,
+		};
+	}
+	return {
+		tone: "none",
+		text: "Nothing has been changed yet. Workspaces use open mode.",
+	};
+}
