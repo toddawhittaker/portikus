@@ -2,6 +2,8 @@ import type {
 	AddedPackagesResponse,
 	CreateInstanceRequest,
 	CreateInstanceResponse,
+	EgressApplyPolicy,
+	EgressApplyStatus,
 	GrowVolumesRequest,
 	GrowVolumesResponse,
 	HostSnapshot,
@@ -199,6 +201,18 @@ export class FakeControllerClient implements ControllerClient {
 		this.calls.push({ method: "replaceHome", args: [name] });
 		if (this.replaceHomeResult instanceof Error) throw this.replaceHomeResult;
 		return this.replaceHomeResult;
+	}
+
+	egressResult: EgressApplyStatus | Error = {
+		appliedVersion: null,
+		appliedAt: null,
+		error: null,
+	};
+
+	async applyEgressPolicy(policy: EgressApplyPolicy): Promise<EgressApplyStatus> {
+		this.calls.push({ method: "applyEgressPolicy", args: [policy] });
+		if (this.egressResult instanceof Error) throw this.egressResult;
+		return this.egressResult;
 	}
 
 	/** Helper to make a ControllerClientError. */

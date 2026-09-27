@@ -5,6 +5,8 @@ import type { Kysely } from "kysely";
 import { httpAgentFactory } from "./agent-client.js";
 import { startBackupVmLoop } from "./backups.js";
 import { HttpControllerClient } from "./controller-client.js";
+import { startEgressSync } from "./egress.js";
+import { startBlockedCounter } from "./egress-blocked.js";
 import { startGuard } from "./guard.js";
 import { startHealthSampling } from "./health.js";
 import { createLogLevelSync } from "./log-level.js";
@@ -103,6 +105,12 @@ async function main(): Promise<void> {
 	startNotificationPrune({ db, logger });
 	startProcessSnapshots({ db, controller, logger });
 	startBackupVmLoop({ db, controller, logger });
+	startEgressSync({ db, controller, logger });
+	// Only the egress dnsmasq and the workspace Squid talk to this, on loopback (ADR 0038).
+	// If it cannot listen, unlisted names time out instead of NXDOMAIN: still refused.
+	startBlockedCounter({ db, logger }).catch((e: Error) =>
+		logger.error({ error: e.message }, "blocked-name counter failed to listen"),
+	);
 
 	let lastRefreshAt: Date | null = null;
 	let controllerUnreachable = false;

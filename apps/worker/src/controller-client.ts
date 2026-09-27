@@ -3,6 +3,7 @@ import type {
 	ControllerErrorCode,
 	CreateInstanceRequest,
 	CreateInstanceResponse,
+	EgressApplyPolicy,
 	GrowVolumesRequest,
 	InstanceProcess,
 	InstanceUsage,
@@ -21,6 +22,7 @@ import {
 	AddedPackagesResponse as AddedPackagesResponseSchema,
 	ControllerError,
 	CreateInstanceResponse as CreateInstanceResponseSchema,
+	EgressApplyStatus,
 	GrowVolumesResponse,
 	HostSnapshot,
 	InstanceProcessesResponse,
@@ -37,6 +39,8 @@ import {
 const SHORT_BUDGET_MS = 30_000;
 const CREATE_BUDGET_MS = 300_000;
 const MAINTENANCE_BUDGET_MS = 15 * 60_000;
+/** The controller waits up to 30 s for the egress helper. */
+const EGRESS_BUDGET_MS = 45_000;
 
 /** A stop may take a graceful and a forced try, the controller's settle poll (up to 10 s), plus margin. */
 export function stopBudgetMs(timeoutSeconds: number): number {
@@ -92,6 +96,8 @@ export interface ControllerClient {
 	deleteKeptHome(volume: string): Promise<void>;
 	/** Swap the imported home in on a stopped instance; repeatable. */
 	replaceHome(name: string): Promise<ReplaceHomeResponse>;
+	/** Hand the expanded egress policy to the root helper and wait for it (ADR 0038). */
+	applyEgressPolicy(policy: EgressApplyPolicy): Promise<EgressApplyStatus>;
 }
 
 /**
@@ -321,5 +327,10 @@ export class HttpControllerClient implements ControllerClient {
 			MAINTENANCE_BUDGET_MS,
 		);
 		return ReplaceHomeResponseSchema.parse(res);
+	}
+
+	async applyEgressPolicy(policy: EgressApplyPolicy): Promise<EgressApplyStatus> {
+		const res = await this.request("PUT", "/egress-policy", policy, EGRESS_BUDGET_MS);
+		return EgressApplyStatus.parse(res);
 	}
 }
