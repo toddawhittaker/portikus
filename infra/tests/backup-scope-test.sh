@@ -494,14 +494,14 @@ expect "nothing is asked for or written for the made-up volumes" \
 expect "the skip is counted in the set and warned about" \
   "[ \"\$(cat '${skipset}/SKIPPED')\" = 2 ] && grep -q 'WARNING: skipped 2 volumes' '${work}/backup.out'"
 sleep 1
-# Leave the run a budget of 1 to 2 MiB, and stream a 64 MiB volume that
+# Leave the run a budget of about 16 MiB (slack for other writers on the host), and stream a 64 MiB volume that
 # does not compress.
 mkdir -p "${work}/big/backup/volume"
 head -c 64M /dev/urandom >"${work}/big/backup/volume/noise"
 tar -czf "${work}/big.tar.gz" -C "${work}/big" backup
 rm -rf "${work}/big"
 sleep 1
-floor_mib=$(( $(avail_mib) - 1 ))
+floor_mib=$(( $(avail_mib) - 16 ))
 refused_run "a VM streaming past the run's budget stops the whole run and keeps nothing" "passed its byte budget" \
   PORTIKUS_BACKUP_MIN_FREE_MB="$floor_mib" FAKE_VOLUME_FILE="${work}/big.tar.gz"
 expect "the partial set is removed" "! find '$mine' -maxdepth 1 -name '.partial-*' | grep -q ."
@@ -533,7 +533,7 @@ PY
 tmp_probe="${work}/tmp-probe"
 mkdir -p "$tmp_probe"
 sleep 1
-floor_mib=$(( $(avail_mib) - 1 ))
+floor_mib=$(( $(avail_mib) - 16 ))
 refused_run "an index bigger than the budget stops the run and keeps nothing" "passed its byte budget" \
   PORTIKUS_BACKUP_MIN_FREE_MB="$floor_mib" FAKE_VOLUME_FILE="${work}/paths.tar.gz" TMPDIR="$tmp_probe"
 expect "the budgeted run leaves no partial set or scratch" "! find '$mine' -maxdepth 1 -name '.partial-*' | grep -q ."
