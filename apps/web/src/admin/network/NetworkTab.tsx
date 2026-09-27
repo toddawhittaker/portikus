@@ -45,10 +45,12 @@ export function NetworkTab() {
 
 	const allowFrom = (headingId: string) => (host: string) => {
 		setReturnTo(headingId);
+		saved.current = false;
 		setDraft({ kind: "host", value: host, label: "" });
 	};
 	const edit = (next: EntryDraft) => {
 		setReturnTo(null);
+		saved.current = false;
 		setDraft(next);
 	};
 
