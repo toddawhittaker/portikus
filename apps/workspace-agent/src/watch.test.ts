@@ -2,6 +2,7 @@
  * The project watcher against a real temporary directory and real chokidar
  * (SPEC.md §11.4, §25.1).
  */
+import { EventEmitter } from "node:events";
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,21 @@ import type { FSWatcher } from "chokidar";
 import type { FastifyBaseLogger } from "fastify";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ProjectWatchers, WatchLimitedError } from "./watch.js";
+
+/** When set, the next watch() returns this instead of a real watcher. */
+let nextWatcher: FSWatcher | null = null;
+
+vi.mock("chokidar", async (importOriginal) => {
+	const real = await importOriginal<typeof import("chokidar")>();
+	return {
+		...real,
+		watch: (...args: Parameters<typeof real.watch>) => {
+			const stub = nextWatcher;
+			nextWatcher = null;
+			return stub ?? real.watch(...args);
+		},
+	};
+});
 
 let homeDir: string;
 let project: string;
@@ -230,9 +246,12 @@ test("a project at the folder cap is watched", async () => {
 test("a project that takes too long to scan is refused with WatchLimitedError", async () => {
 	const { logger } = collectingLogger();
 	const slow = new ProjectWatchers(logger as unknown as FastifyBaseLogger, 1000, 1);
-	for (const name of ["a", "b", "c", "d"]) await mkdir(join(project, name));
+	// A real scan can finish inside the 1 ms limit, so use one that never ends.
+	const close = vi.fn(async () => {});
+	nextWatcher = Object.assign(new EventEmitter(), { close }) as unknown as FSWatcher;
 	await expect(slow.subscribe(homeDir, "demo", () => {})).rejects.toBeInstanceOf(
 		WatchLimitedError,
 	);
 	expect(slow.size()).toBe(0);
+	expect(close).toHaveBeenCalled();
 });
