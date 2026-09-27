@@ -215,6 +215,12 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /admin/health": { access: "admin" },
 	"GET /admin/health/series": { access: "admin" },
 	"HEAD /admin/health/series": { access: "admin" },
+	// The package survey and the student's reinstall note (ADR 0042).
+	"GET /admin/packages": { access: "admin" },
+	"HEAD /admin/packages": { access: "admin" },
+	"GET /workspaces/:id/reinstall-note": owner,
+	"HEAD /workspaces/:id/reinstall-note": owner,
+	"POST /workspaces/:id/reinstall-note/dismiss": owner,
 
 	"GET /__portikus/bootstrap": { access: "preview-edge" },
 	"HEAD /__portikus/bootstrap": { access: "preview-edge" },

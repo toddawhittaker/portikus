@@ -10,6 +10,7 @@ import { formatBytes } from "../../monitor/format.js";
 import { AdminSection } from "../AdminSection.js";
 import { shortTime } from "../shortTime.js";
 import { KNOWN_STATES, WorkspaceStateBadge } from "../WorkspacesTab.js";
+import { PackagesSection } from "./PackagesSection.js";
 import { useHealth } from "./queries.js";
 import { TrendsCard } from "./TrendsCard.js";
 
@@ -69,6 +70,7 @@ export function HealthTab() {
 			) : (
 				<div aria-busy="true" data-testid="health-loading" />
 			)}
+			<PackagesSection />
 		</AdminSection>
 	);
 }

@@ -50,6 +50,7 @@ import {
 	workspaceInterfaceAddress,
 } from "./listening.js";
 import { listeningRoutes } from "./listening-route.js";
+import { type PackagesRouteOptions, packagesRoutes } from "./packages-route.js";
 import { tmuxPidSource } from "./processes.js";
 import { processesRoutes } from "./processes-route.js";
 import {
@@ -141,6 +142,8 @@ export interface ServerOptions {
 	recoveryRoot?: string;
 	/** Overrides where the terminals unit's exit record is read. For tests. */
 	terminalsExitPath?: string;
+	/** Overrides where the reinstall note reads the image and dpkg. For tests. */
+	packages?: Omit<PackagesRouteOptions, "homeDir">;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -641,6 +644,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		registerGitRoutes(instance, { homeDir: options.homeDir });
 		registerRecoveryRoutes(instance, { homeDir: options.homeDir, recoveryRoot });
 		instance.register(checksRoute, { homeDir: options.homeDir });
+		instance.register(packagesRoutes, {
+			...options.packages,
+			homeDir: options.homeDir,
+		});
 		instance.register(listeningRoutes, { monitor, forwards });
 		instance.register(processesRoutes, {
 			procRoot: options.usage?.procRoot,
