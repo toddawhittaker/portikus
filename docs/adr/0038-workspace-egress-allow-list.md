@@ -43,7 +43,22 @@ In allow-list mode, three layers each check the name:
    only listed names, and refuses the rest. So an address shared by a CDN
    cannot reach an unlisted site on it. A redirect is rendered only for a
    port the policy allows, because redirected traffic skips the forward
-   chain's port rule.
+   chain's port rule. Squid runs as its own system user,
+   `portikus-wsproxy`, which owns nothing else and is the only reader of
+   its certificate's key.
+
+**Squid's own lookups.** Squid resolves the `Host` a workspace sends,
+listed or not. Through Incus's dnsmasq that lookup would reach the
+internet for any name, so a workspace could spell data into a name and
+send it out through DNS. So in allow-list mode the table also has a nat
+output rule: TCP and UDP 53 to the gateway from sockets owned by
+`portikus-wsproxy` are sent (`dnat`) to our dnsmasq on port 5300, where an
+unlisted name reaches only the counter. The rule matches the user, whose
+id Ansible writes to `egress.env` as `EGRESS_PROXY_UID`, not the service's
+cgroup: nft turns a cgroup path into an id when the rule loads, and a
+restarted service gets a new cgroup, so the rule would silently stop
+matching. The rule is rendered with the workspace DNS redirect, for every
+mode in which our dnsmasq is the resolver.
 
 **Who changes what.** The worker sees the settings' `egress_version`
 ahead of the applied version, expands the presets, and sends the policy
@@ -74,7 +89,23 @@ before `incus.service`. Finding no table, it loads the last applied
 policy and queues our dnsmasq with `--no-block`, since the bridge does not
 exist yet. If that allow-list does not load, or `applied.json` cannot be
 read, it loads a table that drops all forwarded workspace traffic. A site
-that never applied a policy loads nothing and stays open, as today.
+that never applied a policy loads nothing and stays open, as today. A
+pending request is taken before anything else, so a failed run never
+leaves it for the path unit to start the helper again at once, and at
+boot every service call is only queued (`--no-block`): our dnsmasq starts
+after Incus, which waits for the helper, so waiting would hang until the
+start timeout.
+
+**A guard without Node.** If the helper cannot run at all (a crash, a
+failed import, the memory cap, the timeout), the table would stay missing
+and a last allow-list would come back open. The helper unit's
+`ExecStopPost=` runs `/usr/lib/portikus/egress-guard.sh`, a short shell
+script, after every run however it ended. When the table is missing and
+`applied.json` exists but does not plainly record open mode (one line,
+exactly one `"mode"` key, set to `"open"`), it loads
+`/etc/portikus/egress-drop-all.nft`, which Ansible renders from the same
+bridge variable as everything else; a unit test checks it matches the
+helper's own drop-all table. Anything it cannot read fails closed.
 
 **Blocked names.** The worker's counter answers NXDOMAIN on
 127.0.0.1:5399 (UDP and TCP) and hears Squid's refusals as name-only UDP
@@ -102,6 +133,12 @@ Squid itself, so such a name is counted under both sources.
 - An Incus upgrade reruns the egress security checks, since the ACL
   change (the gateway carved out of the drops for 3129, 3130 and 5300)
   depends on how Incus orders its rules.
+- While `nftables.service` is stopped, the host's input chain is gone.
+  The Incus ACL still drops TCP, UDP and ICMP to the gateway except the
+  redirect targets, but not other IP protocols, so for that time a
+  workspace can reach the host over, say, SCTP or GRE if something
+  listens. Accepted: a stop is short and deliberate, and nothing on the
+  VM listens on those protocols.
 
 Rejected:
 

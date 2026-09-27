@@ -26,8 +26,7 @@
 
 - name: Read the build the API's proxy runs
   ansible.builtin.shell:
-    cmd: set -o pipefail; readlink "/proc/$(systemctl show -p MainPID --value squid)/exe" || true
-    executable: /bin/bash
+    cmd: readlink "/proc/$(systemctl show -p MainPID --value squid)/exe" || true
   register: workspace_egress_api_squid_exe
   changed_when: false
   check_mode: false
@@ -43,16 +42,16 @@
 
 - name: Create the egress request directory
   ansible.builtin.file:
-    path: "{{ workspace_egress_request_dir }}"
+    path: /var/lib/portikus/egress-request
     state: directory
     owner: root
     group: portikus-controller
     mode: "0770"
-  notify: Restart the controller for the request directory
+  notify: Restart portikus-controller
 
 - name: Create the egress state directory
   ansible.builtin.file:
-    path: "{{ workspace_egress_state_dir }}"
+    path: /var/lib/portikus/egress-state
     state: directory
     owner: root
     group: root
@@ -62,7 +61,7 @@
 # helper owns their content.
 - name: Create empty proxy lists if the helper has not written them
   ansible.builtin.copy:
-    dest: "{{ workspace_egress_state_dir }}/{{ item }}"
+    dest: "/var/lib/portikus/egress-state/{{ item }}"
     content: ""
     force: false
     owner: root
@@ -73,10 +72,35 @@
     - blocked.txt
     - open.txt
 
+# Its own user, not Debian's proxy: the helper's table sends this user's DNS
+# to our dnsmasq, and nothing else runs as it.
+- name: Create the workspace proxy's user
+  ansible.builtin.user:
+    name: portikus-wsproxy
+    system: true
+    shell: /usr/sbin/nologin
+    home: /nonexistent
+    create_home: false
+
+- name: Read the workspace proxy's user id
+  ansible.builtin.getent:
+    database: passwd
+    key: portikus-wsproxy
+
 - name: Write the egress helper's settings
   ansible.builtin.template:
     src: egress.env.j2
     dest: /etc/portikus/egress.env
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Re-apply the last egress policy
+
+# The helper's guard loads this without Node when the helper fails at boot.
+- name: Write the drop-all table for the egress guard
+  ansible.builtin.template:
+    src: egress-drop-all.nft.j2
+    dest: /etc/portikus/egress-drop-all.nft
     owner: root
     group: root
     mode: "0644"
@@ -88,7 +112,7 @@
     path: "{{ workspace_egress_proxy_dir }}"
     state: directory
     owner: root
-    group: proxy
+    group: portikus-wsproxy
     mode: "0750"
 
 # https_port with ssl-bump insists on a certificate.  With
@@ -105,12 +129,13 @@
     creates: "{{ workspace_egress_proxy_dir }}/bump.key"
   notify: Restart the workspace proxy
 
-- name: Let only Squid's group read the key
+- name: Let only the workspace proxy's group read the key
   ansible.builtin.file:
     path: "{{ workspace_egress_proxy_dir }}/bump.key"
     owner: root
-    group: proxy
+    group: portikus-wsproxy
     mode: "0640"
+  notify: Restart the workspace proxy
 
 - name: Make the certificate readable
   ansible.builtin.file:

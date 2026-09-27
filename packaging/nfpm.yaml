@@ -74,6 +74,13 @@ contents:
   - src: ./packaging/systemd/portikus-egress-apply.path
     dst: /usr/lib/systemd/system/portikus-egress-apply.path
     file_info: *unit_info
+  # Its Node-free guard, which fails closed when the helper itself fails.
+  - src: ./packaging/egress-guard.sh
+    dst: /usr/lib/portikus/egress-guard.sh
+    file_info:
+      owner: root
+      group: root
+      mode: 0755
   # Shipped but never enabled by the package; Ansible enables it (ADR 0008).
   - src: ./packaging/systemd/portikus-mock-idp.service
     dst: /usr/lib/systemd/system/portikus-mock-idp.service

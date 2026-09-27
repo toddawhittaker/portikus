@@ -5,7 +5,7 @@
 # allow-list mode and stops it in open mode.
 [Unit]
 Description=Portikus workspace egress DNS (dnsmasq)
-ConditionPathExists={{ workspace_egress_state_dir }}/dnsmasq.conf
+ConditionPathExists=/var/lib/portikus/egress-state/dnsmasq.conf
 # It binds the bridge gateway, which Incus makes.  At boot the helper, which
 # runs before Incus, only queues this start.  A failed bind is retried.
 After=incus.service
@@ -13,7 +13,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --pid-file= --conf-file={{ workspace_egress_state_dir }}/dnsmasq.conf
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --pid-file= --conf-file=/var/lib/portikus/egress-state/dnsmasq.conf
 Restart=on-failure
 RestartSec=1
 

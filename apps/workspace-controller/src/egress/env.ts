@@ -12,6 +12,8 @@ export interface EgressEnv {
 	counterDnsPort: number;
 	/** The private ranges that stay denied; a policy range may not overlap one. */
 	deniedRanges: string[];
+	/** The workspace proxy's user id, whose own DNS lookups go to our dnsmasq. */
+	proxyUid: number;
 }
 
 const KEYS = [
@@ -20,6 +22,7 @@ const KEYS = [
 	"EGRESS_UPSTREAM",
 	"EGRESS_COUNTER_DNS_PORT",
 	"EGRESS_DENIED_RANGES",
+	"EGRESS_PROXY_UID",
 ] as const;
 
 // Linux interface names are at most 15 bytes.
@@ -74,7 +77,13 @@ export function parseEgressEnv(text: string): EgressEnv {
 			);
 		}
 	}
-	return { bridge, gateway, upstream, counterDnsPort, deniedRanges };
+	const uidText = get("EGRESS_PROXY_UID");
+	// Never root: the rule it feeds would catch the host's own lookups.
+	if (!/^[1-9][0-9]{0,9}$/.test(uidText) || Number(uidText) > 4294967294) {
+		throw new Error("egress.env EGRESS_PROXY_UID is not a user id");
+	}
+	const proxyUid = Number(uidText);
+	return { bridge, gateway, upstream, counterDnsPort, deniedRanges, proxyUid };
 }
 
 /** Whether a policy range overlaps a built-in or configured denied range. */

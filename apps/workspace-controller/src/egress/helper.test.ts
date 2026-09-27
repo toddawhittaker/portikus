@@ -26,6 +26,7 @@ const ENV_TEXT = [
 	"EGRESS_UPSTREAM=127.0.0.53",
 	"EGRESS_COUNTER_DNS_PORT=5399",
 	"EGRESS_DENIED_RANGES=10.0.0.0/8,192.168.0.0/16,198.18.0.0/15",
+	"EGRESS_PROXY_UID=999",
 	"",
 ].join("\n");
 
@@ -37,6 +38,7 @@ describe("parseEgressEnv", () => {
 			upstream: "127.0.0.53",
 			counterDnsPort: 5399,
 			deniedRanges: ["10.0.0.0/8", "192.168.0.0/16", "198.18.0.0/15"],
+			proxyUid: 999,
 		});
 	});
 
@@ -53,6 +55,8 @@ describe("parseEgressEnv", () => {
 		["a gateway that is a name", ENV_TEXT.replace("=10.200.0.1", "=gateway")],
 		["an upstream with a port", ENV_TEXT.replace("=127.0.0.53", "=127.0.0.53#53")],
 		["a port out of range", ENV_TEXT.replace("=5399", "=70000")],
+		["root as the proxy user", ENV_TEXT.replace("=999", "=0")],
+		["a proxy user by name", ENV_TEXT.replace("=999", "=portikus-wsproxy")],
 		[
 			"a denied range that is not one",
 			ENV_TEXT.replace("198.18.0.0/15", "198.18.0.1/15"),
@@ -576,6 +580,49 @@ describe("at boot, when the table is missing", () => {
 		expect(await runHelper(deps)).toBe(0);
 		expect(loads()).toHaveLength(2);
 		expect(status()).toMatchObject({ requestId: "boot-req", ok: true });
+	});
+
+	// Our dnsmasq starts after Incus, which waits for this run: a blocking
+	// call would hang the boot until the helper's start timeout.
+	test("a pending request at boot only queues its service changes", async () => {
+		await applyOnce(policy());
+		writeRequest(policy({ version: 4, names: ["github.com"] }), "boot-req");
+		expect(await runHelper(deps)).toBe(0);
+		expect(systemctls()).toEqual([
+			"restart --no-block portikus-egress-dns.service",
+			"restart --no-block portikus-egress-dns.service",
+			"reload --no-block portikus-workspace-proxy.service",
+		]);
+	});
+
+	test("a pending switch to open at boot queues the stop too", async () => {
+		await applyOnce(policy());
+		writeRequest(policy({ version: 4, mode: "open" }), "boot-req");
+		expect(await runHelper(deps)).toBe(0);
+		expect(systemctls()).toEqual([
+			"restart --no-block portikus-egress-dns.service",
+			"stop --no-block portikus-egress-dns.service",
+			"reload --no-block portikus-workspace-proxy.service",
+		]);
+	});
+
+	test("a failed restore still takes the pending request and answers it", async () => {
+		await applyOnce(policy({ mode: "open" }));
+		answers.set("nft -f", { code: 1, stderr: "Error: no such file" });
+		writeRequest(policy({ version: 4, mode: "open" }), "boot-req");
+		expect(await runHelper(deps)).toBe(1);
+		// Left in place, the request would make the path unit start the helper again at once.
+		expect(existsSync(deps.requestPath)).toBe(false);
+		expect(status()).toMatchObject({ requestId: "boot-req", ok: false });
+		expect(status().error).toMatch(/nft refused the table/);
+	});
+});
+
+describe("once the table is loaded", () => {
+	test("service changes wait for systemd", async () => {
+		writeRequest(policy());
+		await runHelper(deps);
+		expect(systemctls().every((c) => !c.includes("--no-block"))).toBe(true);
 	});
 });
 

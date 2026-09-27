@@ -58,6 +58,7 @@ function declareTable(): string[] {
 		"\tset ranges_v4 {\n\t\ttype ipv4_addr\n\t\tflags interval\n\t}",
 		"\tset ports {\n\t\ttype inet_service\n\t}",
 		"\tchain prerouting {\n\t\ttype nat hook prerouting priority dstnat - 1\n\t}",
+		"\tchain output {\n\t\ttype nat hook output priority dstnat - 1\n\t}",
 		"\tchain forward {\n\t\ttype filter hook forward priority filter - 1\n\t}",
 		"}",
 	];
@@ -69,7 +70,22 @@ function resetTable(flushNames: boolean): string[] {
 		`flush set ${TABLE} ranges_v4`,
 		`flush set ${TABLE} ports`,
 		`flush chain ${TABLE} prerouting`,
+		`flush chain ${TABLE} output`,
 		`flush chain ${TABLE} forward`,
+	];
+}
+
+/**
+ * Send DNS to our dnsmasq: the workspaces' lookups, and the workspace
+ * proxy's own lookups of the names it is asked for, which would otherwise
+ * reach Incus's resolver and the internet for any name (ADR 0038). The
+ * proxy is matched by its user, which, unlike its cgroup, survives a restart.
+ */
+function ownResolverRules(env: EgressEnv): string[] {
+	const dns = `ip daddr ${env.gateway} meta l4proto { tcp, udp } th dport 53`;
+	return [
+		`add rule ${TABLE} prerouting iifname "${env.bridge}" ${dns} redirect to :${EGRESS_DNS_PORT}`,
+		`add rule ${TABLE} output meta skuid ${env.proxyUid} ${dns} dnat ip to ${env.gateway}:${EGRESS_DNS_PORT}`,
 	];
 }
 
@@ -87,6 +103,7 @@ export function renderTable(
 	const ranges = checkedRanges(policy.ranges);
 	const ports = checkedPorts(policy.ports);
 	const lines = [...declareTable(), ...resetTable(flushNames)];
+	if (usesOurResolver(policy)) lines.push(...ownResolverRules(env));
 	if (policy.mode === "allow-list") {
 		const ws = `iifname "${env.bridge}"`;
 		if (ranges.length > 0) {
@@ -94,10 +111,7 @@ export function renderTable(
 		}
 		lines.push(`add element ${TABLE} ports { ${ports.join(", ")} }`);
 		const pre = `add rule ${TABLE} prerouting ${ws}`;
-		lines.push(
-			`${pre} ip daddr ${env.gateway} meta l4proto { tcp, udp } th dport 53 redirect to :${EGRESS_DNS_PORT}`,
-			`${pre} ip daddr @ranges_v4 return`,
-		);
+		lines.push(`${pre} ip daddr @ranges_v4 return`);
 		// A redirect goes to input, not forward, so it must honour the port list itself.
 		if (ports.includes(443)) {
 			lines.push(
@@ -122,7 +136,6 @@ export function renderTable(
 		const pre = `add rule ${TABLE} prerouting ${ws}`;
 		const publicDst = `ip daddr != { ${checkedRanges(env.deniedRanges).join(", ")} }`;
 		lines.push(
-			`${pre} ip daddr ${env.gateway} meta l4proto { tcp, udp } th dport 53 redirect to :${EGRESS_DNS_PORT}`,
 			`${pre} ${publicDst} tcp dport 443 redirect to :${SQUID_TLS_PORT}`,
 			`${pre} ${publicDst} tcp dport 80 redirect to :${SQUID_HTTP_PORT}`,
 			`add rule ${TABLE} forward ${ws} meta l4proto { tcp, udp } th dport { 53, 853 } drop`,

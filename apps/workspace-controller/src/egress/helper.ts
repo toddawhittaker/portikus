@@ -282,13 +282,16 @@ async function writeSquidLists(
 /**
  * Apply a checked policy in the order that fails closed (ADR 0038): the
  * table, then dnsmasq, then Squid's list. A step that fails stops the rest
- * and leaves applied.json as it was, so the worker retries.
+ * and leaves applied.json as it was, so the worker retries. At boot the
+ * services are only queued: our dnsmasq starts after Incus, which waits for
+ * this run, so waiting for it would hang until the start timeout.
  */
 async function applyPolicy(
 	deps: HelperDeps,
 	env: EgressEnv,
 	policy: EgressApplyPolicy,
 	previous: AppliedFile | null,
+	boot: boolean,
 ): Promise<void> {
 	// A failed earlier request may have loaded names applied.json does not know; flush then too.
 	const flush =
@@ -296,11 +299,11 @@ async function applyPolicy(
 	await loadTable(deps, renderTable(policy, env, flush));
 
 	await writeState(deps, STATE_FILES.dnsmasq, renderDnsmasq(policy, env));
-	if (usesOurResolver(policy)) await systemctl(deps, "restart", EGRESS_DNS_UNIT);
-	else await systemctl(deps, "stop", EGRESS_DNS_UNIT);
+	if (usesOurResolver(policy)) await systemctl(deps, "restart", EGRESS_DNS_UNIT, boot);
+	else await systemctl(deps, "stop", EGRESS_DNS_UNIT, boot);
 
 	await writeSquidLists(deps, policy);
-	await systemctl(deps, "reload", WORKSPACE_PROXY_UNIT);
+	await systemctl(deps, "reload", WORKSPACE_PROXY_UNIT, boot);
 
 	const applied: AppliedFile = {
 		policy,
@@ -398,12 +401,23 @@ export async function runHelper(deps: HelperDeps): Promise<number> {
 		return 1;
 	}
 
-	if (!(await tableLoaded(deps))) {
+	// Take the request before anything can fail, so a failed run never leaves
+	// it behind for the path unit to start this run again at once.
+	let text: string | null = null;
+	let takeError: Error | null = null;
+	try {
+		text = await takeRequest(deps);
+	} catch (e) {
+		takeError = e as Error;
+	}
+
+	const boot = !(await tableLoaded(deps));
+	if (boot) {
 		try {
 			await restoreAtBoot(deps, env);
 		} catch (e) {
 			await status({
-				requestId: null,
+				requestId: text === null ? null : requestIdOf(text),
 				version: null,
 				ok: false,
 				error: (e as Error).message,
@@ -412,15 +426,12 @@ export async function runHelper(deps: HelperDeps): Promise<number> {
 		}
 	}
 
-	let text: string | null;
-	try {
-		text = await takeRequest(deps);
-	} catch (e) {
+	if (takeError) {
 		await status({
 			requestId: null,
 			version: null,
 			ok: false,
-			error: `request refused: ${(e as Error).message}`,
+			error: `request refused: ${takeError.message}`,
 		});
 		return 1;
 	}
@@ -442,7 +453,7 @@ export async function runHelper(deps: HelperDeps): Promise<number> {
 	const { requestId, policy } = request;
 	try {
 		const previous = await readApplied(deps).catch(() => null);
-		await applyPolicy(deps, env, policy, previous);
+		await applyPolicy(deps, env, policy, previous, boot);
 	} catch (e) {
 		await status({
 			requestId,

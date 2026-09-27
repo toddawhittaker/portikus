@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -26,6 +26,7 @@ const env: EgressEnv = {
 	upstream: "127.0.0.53",
 	counterDnsPort: 5399,
 	deniedRanges: ["10.0.0.0/8"],
+	proxyUid: 999,
 };
 
 const policy: EgressPolicy = {
@@ -248,6 +249,7 @@ describe("renderTable", () => {
 		const rules = t.split("\n").filter((l) => l.startsWith("add rule"));
 		expect(rules).toEqual([
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 redirect to :5300',
+			"add rule inet portikus_egress output meta skuid 999 ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 dnat ip to 10.200.0.1:5300",
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @ranges_v4 return',
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @names_v4 tcp dport 443 redirect to :3130',
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @names_v4 tcp dport 80 redirect to :3129',
@@ -265,10 +267,11 @@ describe("renderTable", () => {
 		expect(t).not.toMatch(/timeout/);
 	});
 
-	test("open mode with blocked sites: DNS redirect, every public web port to Squid, outside DNS dropped", () => {
+	test("open mode with blocked sites: both DNS rules, every public web port to Squid, outside DNS dropped", () => {
 		const t = renderTable(applied({ ...policy, mode: "open" }), env, true);
 		expect(t.split("\n").filter((l) => l.startsWith("add rule"))).toEqual([
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 redirect to :5300',
+			"add rule inet portikus_egress output meta skuid 999 ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 dnat ip to 10.200.0.1:5300",
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr != { 10.0.0.0/8 } tcp dport 443 redirect to :3130',
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr != { 10.0.0.0/8 } tcp dport 80 redirect to :3129',
 			'add rule inet portikus_egress forward iifname "portikus-ws" meta l4proto { tcp, udp } th dport { 53, 853 } drop',
@@ -287,6 +290,32 @@ describe("renderTable", () => {
 				true,
 			),
 		).toThrow();
+	});
+
+	// Squid looks up the Host a workspace sent; through Incus's resolver any
+	// name would reach the internet, a channel out for data (ADR 0038).
+	test("the workspace proxy's own DNS goes to our dnsmasq, and only its own", () => {
+		const t = renderTable(applied(policy), env, false);
+		const output = t
+			.split("\n")
+			.filter((l) => l.startsWith("add rule inet portikus_egress output"));
+		expect(output).toEqual([
+			"add rule inet portikus_egress output meta skuid 999 ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 dnat ip to 10.200.0.1:5300",
+		]);
+		expect(t).toMatch(
+			/chain output \{\n\t\ttype nat hook output priority dstnat - 1\n\t\}/,
+		);
+		expect(t).toMatch(/^flush chain inet portikus_egress output$/m);
+	});
+
+	test("open mode with no blocked site sends no DNS to our dnsmasq, and redirects nothing", () => {
+		const t = renderTable(
+			applied({ ...policy, mode: "open", blockedSites: [] }),
+			env,
+			true,
+		);
+		expect(t).not.toMatch(/add rule/);
+		expect(t).toMatch(/^flush chain inet portikus_egress output$/m);
 	});
 
 	test("a port left out of the list gets no Squid redirect", () => {
@@ -322,6 +351,23 @@ describe("renderTable", () => {
 		expect(t.split("\n").filter((l) => l.startsWith("add rule"))).toEqual([
 			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
 		]);
+	});
+
+	// The helper's guard loads Ansible's copy when the helper cannot run at all.
+	test("Ansible's drop-all file is the same table", () => {
+		const template = readFileSync(
+			new URL(
+				"../../../../infra/ansible/roles/workspace_egress/templates/egress-drop-all.nft.j2",
+				import.meta.url,
+			),
+			"utf8",
+		);
+		const rendered = template
+			.split("\n")
+			.filter((l) => !l.startsWith("#"))
+			.join("\n")
+			.replaceAll("{{ workspace_egress_bridge }}", env.bridge);
+		expect(rendered).toBe(renderDropAll(env));
 	});
 });
 
