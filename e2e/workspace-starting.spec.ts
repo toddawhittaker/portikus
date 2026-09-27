@@ -103,7 +103,7 @@ test("a STORAGE_FULL error with Docker full shows the meters and offers Clean up
 	await expect(page.getByTestId("dialog-reset-docker")).toBeVisible();
 });
 
-test("an error whose agent does not answer offers only Try again and Workspace details", async ({
+test("an error with no agent offers only Try again and Workspace details", async ({
 	page,
 	context,
 }) => {

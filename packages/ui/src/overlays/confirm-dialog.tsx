@@ -21,8 +21,10 @@ export interface ConfirmDialogProps {
 	onConfirm?: () => void;
 	onCancel?: () => void;
 	pending?: boolean;
-	/** Keeps the confirm button off; say why in `children`. */
+	/** Keeps the confirm button off but focusable; say why in `disabledReason`. */
 	disabled?: boolean;
+	/** Why confirm is off, announced and tied to the button while `disabled`. */
+	disabledReason?: React.ReactNode;
 	inline?: boolean;
 	/** Test hook: set as `data-testid` on the dialog surface. */
 	testId?: string;
@@ -47,6 +49,7 @@ export function ConfirmDialog({
 	onCancel,
 	pending,
 	disabled,
+	disabledReason,
 	inline,
 	testId,
 	typedValue,
@@ -83,6 +86,14 @@ export function ConfirmDialog({
 							</RadixAlertDialog.Description>
 						) : null}
 						{children ? <div className="mt-2">{children}</div> : null}
+						{/* Always mounted so a screen reader hears the reason when it appears. */}
+						<div id={`${id}-reason`} role="status" className="pk-text-small">
+							{disabled && disabledReason ? (
+								<p className="m-0 mt-2" data-testid="dialog-disabled-reason">
+									{disabledReason}
+								</p>
+							) : null}
+						</div>
 					</div>
 				</div>
 				{lost || survives || confirmText ? (
@@ -142,9 +153,15 @@ export function ConfirmDialog({
 					<Button
 						data-testid="dialog-confirm"
 						variant={destructive ? "danger" : "primary"}
-						disabled={!ready || disabled}
+						disabled={!ready}
+						aria-disabled={disabled ? true : undefined}
+						aria-describedby={disabled && disabledReason ? `${id}-reason` : undefined}
 						loading={pending}
-						onClick={onConfirm}
+						onClick={() => {
+							// Like `pending`: stays focusable, so the click is dropped here.
+							if (disabled) return;
+							onConfirm?.();
+						}}
 					>
 						{pending ? `${confirmLabel}…` : confirmLabel}
 					</Button>

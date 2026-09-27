@@ -561,12 +561,14 @@ test.describe("application preview", () => {
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 		await dialog.getByRole("button", { name: "Cancel" }).click();
 		await expect(dialog).toBeHidden();
+		await expect(page.getByTestId("preview-more")).toBeFocused();
 		await expect(appHeading(page)).toHaveText("Reset me");
 		expect(resets).toEqual([]);
 
 		await page.getByTestId("preview-more").click();
 		await page.getByTestId("preview-reset").click();
 		await page.getByTestId("dialog-confirm").click();
+		await expect(page.getByTestId("preview-more")).toBeFocused();
 		await expect(toast(page, "Preview data reset")).toBeVisible();
 		expect(resets).toHaveLength(1);
 		// A fresh grant and a fresh preview session put the application back.

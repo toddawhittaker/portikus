@@ -397,7 +397,8 @@ test("a restart confirmation opened while the state settles waits with a reason,
 		fetchMock.mock.calls.find(([url]) => String(url).endsWith("/restart"));
 
 	const confirm = screen.getByTestId("dialog-confirm") as HTMLButtonElement;
-	expect(confirm.disabled).toBe(true);
+	expect(confirm.disabled).toBe(false);
+	expect(confirm.getAttribute("aria-disabled")).toBe("true");
 	expect(screen.getByTestId("dialog-workspace-restart").textContent).toContain(
 		"You can restart once it has finished.",
 	);

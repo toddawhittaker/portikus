@@ -286,6 +286,26 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
+	"usage never calls the recorded agent of a workspace whose instance is missing (SPEC.md §24)",
+	async () => {
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ state: "error", error_code: "INSTANCE_MISSING" })
+			.where("id", "=", workspaceId)
+			.execute();
+		const before = agent.requests.length;
+		const response = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/usage`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		expect(response.statusCode).toBe(409);
+		expect(response.json().code).toBe("AGENT_UNAVAILABLE");
+		expect(agent.requests.length).toBe(before);
+	},
+);
+
+test.skipIf(skip)(
 	"usage fails in the error state when the agent does not answer",
 	async () => {
 		await testDb.db
@@ -298,7 +318,8 @@ test.skipIf(skip)(
 			url: `/workspaces/${workspaceId}/usage`,
 			headers: { cookie: alice.cookieHeader() },
 		});
-		expect(refused.statusCode).toBeGreaterThanOrEqual(400);
+		expect(refused.statusCode).toBe(503);
+		expect(refused.json().code).toBe("AGENT_UNAVAILABLE");
 
 		const port = await closedPort();
 		const unreachable = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: port });

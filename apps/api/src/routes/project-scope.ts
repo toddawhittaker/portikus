@@ -171,7 +171,11 @@ export async function ownedScope(
 		workspaceId: params.data.id,
 		running,
 		agent: running ? agent : null,
-		errorAgent: workspace.state === "error" ? agent : null,
+		// A missing instance's recorded address may now belong to another one: never send it our token.
+		errorAgent:
+			workspace.state === "error" && workspace.error_code !== "INSTANCE_MISSING"
+				? agent
+				: null,
 	};
 }
 
