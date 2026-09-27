@@ -1138,6 +1138,9 @@ const OPERATION_FAILED_MESSAGE: Record<PendingOperation, string> = {
 	rebuild: "The workspace could not be rebuilt. Please contact your administrator.",
 	"rebuild-reset-docker":
 		"The workspace could not be rebuilt. Please contact your administrator.",
+	// runReplaceHome in backups.ts writes its own message; this keeps the map whole.
+	"replace-home":
+		"Your home folder could not be replaced. Please contact your administrator.",
 };
 
 /**
