@@ -10,7 +10,7 @@ import { ApiError, request } from "../api/request.js";
 import { formatBytes, formatCpu } from "../monitor/format.js";
 import { stopErrorText } from "../monitor/stop.js";
 
-/** The browser polls once a second for at most 20 seconds (docs/EPIC-21.md ruling 16). */
+/** The browser polls once a second for at most 20 seconds (SPEC.md §20.1). */
 export const POLL_MS = 1000;
 export const POLL_LIMIT_MS = 20_000;
 

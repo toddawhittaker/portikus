@@ -1,6 +1,6 @@
 /**
- * Stopping one of the student's own processes from Monitor (SPEC.md §18.3;
- * docs/EPIC-21.md ruling 20). The start ticks travel with the PID so a
+ * Stopping one of the student's own processes from Monitor (SPEC.md §18.3). The
+ * start ticks travel with the PID so a
  * reused PID is refused rather than signalled.
  */
 import { ProcessStopResponse } from "@portikus/contracts";

@@ -2,7 +2,7 @@
  * The Monitor tab (SPEC.md §18.3): workspace CPU, memory, the home disk,
  * network rates, and the processes in the workspace. It refreshes once a second
  * while it is the selected tab. A student can stop their own processes and
- * read a process's full command line (docs/EPIC-21.md rulings 20 and 21).
+ * read a process's full command line (SPEC.md §18.3).
  */
 import type { UsageProcess, WorkspaceUsage } from "@portikus/contracts";
 import { ConfirmDialog, ConfirmDialogRoot, IconButton } from "@portikus/ui";
@@ -23,19 +23,9 @@ import { useWorkspaceUsage } from "./usage.js";
 export function MonitorPane({ workspaceId }: { workspaceId: string }) {
 	const query = useWorkspaceUsage(workspaceId, true);
 	const usage = query.data;
-	const { monitorFocus, setMonitorFocus } = useRightPaneState();
-	const titleRef = useRef<HTMLHeadingElement>(null);
-
-	// A notice or the status bar opened Monitor; focus follows the pane change.
-	useEffect(() => {
-		if (!monitorFocus) return;
-		setMonitorFocus(false);
-		titleRef.current?.focus();
-	}, [monitorFocus, setMonitorFocus]);
-
 	return (
 		<>
-			<h2 className="sr-only" ref={titleRef} tabIndex={-1} data-testid="monitor-title">
+			<h2 className="sr-only" data-testid="monitor-title">
 				Monitor
 			</h2>
 			<div className="pk-pane-body pk-monitor" data-testid="monitor">

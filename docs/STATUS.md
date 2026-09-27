@@ -2993,3 +2993,67 @@ Gaps:
   (BACKLOG).
 - At the rehearsal's load the CPU weight made no measurable difference to
   `/health` or terminal latency, because the platform's work is short.
+
+## Epic 21 — Resource tools for students and admins
+
+Built on `epic/21-resource-tools`. Task PRs #668, #669, #674, #676,
+#678, #681, #682, #689, #691 and this closing task, which also merged
+`main` (Epics 16, 17, 18 and 20) into the branch; issues #595, #596 and
+#607. The rules are in SPEC.md sections 18.3, 19.2, 19.4, 20.1, 24.11 and
+26, and the administrator's process read is ADR 0037. Migrations 0023
+and 0024 (0022 is left for Epic 19). Not yet deployed to the pilot.
+
+Delivered:
+
+- Monitor has a Stop button on each of the student's own processes. The
+  agent checks the PID and start ticks, refuses PID 1, itself, other
+  users' processes and the terminals' tmux server (found by PID through
+  its own socket), sends SIGTERM, and offers Force stop only when the
+  program is still running. A disclosure shows the full command line to
+  the student alone.
+- A CPU throttle lifts on its own after 5 minutes under 10% of the full
+  CPU limit (both platform settings, 0 turns it off), and never while a
+  workspace is busy at its throttled share. The notice says so, and an
+  open page shows "Your workspace is back to full speed".
+- The student sees a memory notice when the guard flags memory, and the
+  throttle and memory notices open Monitor sorted by CPU or memory. The
+  status bar always shows memory (the working set) and disk meters,
+  which warn from 85% and clear below 80%.
+- An administrator presses Refresh in the workspace detail panel to read
+  the heaviest processes. The worker asks the controller, which reads the
+  cgroup tree and `/proc` on the host and runs nothing in the workspace.
+  Stop and Force stop go through the agent's checked route, and the
+  student is notified only when a process really exited. Each Refresh
+  and each signal is audited.
+- An agent older than Epic 21 still gives a working Monitor, without Stop
+  buttons, until its workspace restarts.
+- Review fixes, among others: one stop lock and rate limit shared by the
+  student and administrator routes, the memory flag reaching an open
+  page, a fast first status-bar read, and focus kept when a Monitor row
+  vanishes.
+- The closing task: after the merge with Epic 16, the tmux server runs
+  in `portikus-terminals.service`, and both protections cover it (a test
+  checks the agent finds that server's PID). A "no server" answer is
+  reused for 10 seconds, so the usage sample no longer starts a tmux
+  client every second. Opening Monitor from a notice or the status bar
+  focuses the visible Monitor tab, and a notice that never held focus
+  no longer moves it when it goes away.
+
+Rehearsal (throwaway VM, package 0.1.503+g042e11e, before the merge with
+`main`): smoke test 244 passed, security suite 252 passed with one
+expected warning, and the Epic 21 checks passed: the unprivileged
+controller read `/proc` and the cgroup tree, student and administrator
+stops with Force stop, refusals, notifications, audit rows, the idle
+lift, the memory notice and the 10,000-cgroup bound.
+
+Gaps:
+
+- A sudo student can make a program show as protected in the
+  administrator's list by restarting a unit and moving the program into
+  its cgroup, and can make every Refresh fail with 10,000 empty cgroups
+  (about 2.8 seconds, then an error). The administrator can still stop
+  the whole workspace (ADR 0037, BACKLOG).
+- The "See what's using" buttons do nothing visible while Find in files
+  covers the right pane's tabs; this predates the epic (BACKLOG).
+- The items the plan left out, such as stopping a process tree and an
+  administrator's stop without the agent, are in BACKLOG.

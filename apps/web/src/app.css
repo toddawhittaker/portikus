@@ -824,7 +824,7 @@ button.pk-statusbar-item:hover {
 	font-weight: 600;
 }
 
-/* The status bar's always-visible memory and disk meters (docs/EPIC-21.md ruling 24). No transition, so reduced motion needs nothing. */
+/* The status bar's always-visible memory and disk meters (SPEC.md §19.2). No transition, so reduced motion needs nothing. */
 .pk-statusbar-meter {
 	display: inline-flex;
 	gap: var(--space-1\.5);

@@ -68,14 +68,19 @@ that names no process.
 ## Consequences
 
 - No code runs inside the workspace and nothing is written to disk, so the
-  student cannot slow the read, fill the host's disk, or feed it false text
-  beyond a process's own short name.
+  student can slow the read only up to its caps, cannot fill the host's
+  disk, and cannot feed it false text beyond a process's own short name.
+  Root in the container can create more than 10,000 empty cgroups; every
+  Refresh then fails with an error (measured at 2.8 seconds) rather than
+  showing a false list, and the administrator can still stop the workspace.
 - The PID, uid, cgroup, CPU and memory come from the host kernel, so a
   student cannot forge them. A student with sudo can still run a program as
-  root or move it into a protected unit's cgroup inside the container; the
-  first makes it protected (it is root's, not the student's), the second
-  does not, because it is not the unit's oldest process. Neither hides it
-  from the list.
+  root, which makes it protected (it is root's, not the student's). The
+  student can also restart or stop the agent or terminals unit and then
+  move a long-running program into that unit's cgroup, so it becomes the
+  oldest process there and shows as protected. Neither hides it from the
+  list, and the effect is the same as the old name trick: the
+  administrator stops the whole workspace instead of one process.
 - The controller needs only read access to `/proc` and `/sys/fs/cgroup`,
   which it has as an ordinary user while `/proc` is mounted without
   `hidepid`.

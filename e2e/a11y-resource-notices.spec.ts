@@ -1,6 +1,6 @@
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the student's
- * resource tools (docs/EPIC-21.md rulings 20 to 24): Monitor with the stop
+ * resource tools (SPEC.md §18.3, §19.2, §19.4): Monitor with the stop
  * dialog open at its Force stop step, both notices, and the status bar's
  * memory and disk meters (at the warning tone), in the light and dark themes.
  */

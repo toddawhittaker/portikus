@@ -1,6 +1,6 @@
 /**
- * Stopping a process from Monitor (SPEC.md §18.3; docs/EPIC-21.md rulings 20
- * and 21). The fake agent reports the processes a test seeds and stops them
+ * Stopping a process from Monitor (SPEC.md §18.3). The fake agent reports the
+ * processes a test seeds and stops them
  * with the real agent's checks; `ignoresTerm` survives a plain stop.
  */
 import { expect, type Page, test } from "@playwright/test";

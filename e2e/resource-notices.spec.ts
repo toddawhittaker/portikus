@@ -1,6 +1,6 @@
 /**
- * The student's side of the resource guard (ADR 0032; docs/EPIC-21.md rulings
- * 5, 7, 22 to 24): each notice opens Monitor sorted by what it is about, the
+ * The student's side of the resource guard (ADR 0032; SPEC.md §18.3, §19.2,
+ * §19.4): each notice opens Monitor sorted by what it is about, the
  * status bar warns about memory from 85%, and a lifted throttle is told by a
  * toast. The worker does not run here, so each test writes the rows it would.
  */
@@ -85,7 +85,7 @@ test("See what's using CPU opens Monitor sorted by CPU, and the notice says when
 	await notice.getByRole("button", { name: "See what's using CPU" }).click();
 	await expectMonitorSortedBy(page, "CPU");
 	// Focus follows the pane change.
-	await expect(page.getByTestId("monitor-title")).toBeFocused();
+	await expect(page.getByTestId("right-pane-tab-monitor")).toBeFocused();
 });
 
 test("the memory notice explains the flag and opens Monitor sorted by memory", async ({
@@ -111,7 +111,7 @@ test("the memory notice explains the flag and opens Monitor sorted by memory", a
 
 	await notice.getByRole("button", { name: "See what's using memory" }).click();
 	await expectMonitorSortedBy(page, "Memory");
-	await expect(page.getByTestId("monitor-title")).toBeFocused();
+	await expect(page.getByTestId("right-pane-tab-monitor")).toBeFocused();
 
 	await notice.getByRole("button", { name: "Dismiss the memory notice" }).click();
 	await expect(notice).toHaveCount(0);
@@ -160,7 +160,7 @@ test("the status bar memory meter warns at 85% and opens Monitor sorted by memor
 	);
 	await warning.click();
 	await expectMonitorSortedBy(page, "Memory");
-	await expect(page.getByTestId("monitor-title")).toBeFocused();
+	await expect(page.getByTestId("right-pane-tab-monitor")).toBeFocused();
 });
 
 test("below 85% the status bar still shows memory, in the plain tone and unannounced", async ({

@@ -1,6 +1,6 @@
 /**
- * The administrator's process list and stop (ADR 0037; SPEC.md §20.1, §24.11;
- * docs/EPIC-21.md rulings 14 to 16). Admin-only; Refresh only writes a request
+ * The administrator's process list and stop (ADR 0037; SPEC.md §20.1, §24.11).
+ * Admin-only; Refresh only writes a request
  * row; the stop goes through the agent's checked route, writes an audit row
  * and tells the student, and nothing names a process or its command line.
  */

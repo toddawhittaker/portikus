@@ -1936,9 +1936,11 @@ first and refuses a gone PID (404 `PROCESS_NOT_FOUND`), different start
 ticks (field 22 of `stat`, which catches a reused PID; 409
 `PROCESS_CHANGED`), and a protected process (403 `PROCESS_PROTECTED`):
 PID 1, the agent itself, anything whose real or effective uid is not the
-student's, and the tmux server that holds the terminals, found by PID
-through the agent's own tmux socket (never by the name `tmux: server`,
-which any process can take). Otherwise it sends
+student's, and the tmux server that holds the terminals (the main
+process of `portikus-terminals.service`), found by PID through the
+agent's own tmux socket (never by the name `tmux: server`, which any
+process can take). A "no server" answer is reused for 10 seconds by the
+usage sample, but never by a stop. Otherwise it sends
 SIGTERM, or SIGKILL when `force` is set, waits up to 3 seconds, and answers
 `{pid, exited}`; a zombie or a vanished PID has exited. It never escalates
 to SIGKILL on its own. The student reaches it through
@@ -1972,8 +1974,10 @@ rather than being cut off. A row with a
 {pid}") that shows the command line in a row below it, in the monospace
 face. Monitor's sort is held by the right pane, so a notice or the status
 bar can open Monitor sorted by CPU or memory, largest first; opened that
-way, Monitor takes focus on its heading. A throttle or memory notice that
-goes away on its own while it holds focus hands focus to the work area.
+way, focus moves to the visible Monitor tab once the tabs are shown (not
+while Find in files covers them). A throttle or memory notice that goes
+away on its own while it holds focus hands focus to the work area; a
+notice that never held focus moves nothing.
 
 ### 18.4 Recognized run/build commands
 
@@ -2169,7 +2173,7 @@ username), Role, Workspace, Last activity, Image (an "Older image" tag only
 when out of date) and Connections; source, last sign-in and storage are in
 the detail panel. The detail panel stays in view beside the table with its
 own scroll, and shows its head (name, state, Start, Stop, Restart) and then
-Error, Account, Workspace, Storage, Resource guard, Ports and connections,
+Error, Account, Workspace, Storage, Resource guard, Processes, Ports and connections,
 Logs and Recent audit. The Audit table shows the first 8 characters of an
 ID with the full ID in its title and accessible name, short times with the
 full time in the title, the result as a tag (red for anything but ok or
@@ -3687,6 +3691,24 @@ Acceptance:
 - killing Caddy or PostgreSQL brings the site back within about 10 s without restarting the API or worker;
 - a workspace whose stop hangs does not delay another workspace's start;
 - a write to a full pool fails at once, and a new workspace waits in `provisioning` until there is room.
+
+### Epic 21 — Resource tools for students and admins
+
+See `docs/adr/0037-admin-process-list-through-incus.md` for the decision and sections 18.3, 19.2, 19.4, 20.1, 24.11 and 26 for the rules; built on `epic/21-resource-tools` (issues #595, #596 and #607). Migrations 0023 and 0024.
+
+Includes:
+
+- Stop and Force stop for the student's own processes in Monitor, through a checked agent route keyed on PID and start ticks, and the full command line on request;
+- a throttle that lifts on its own after a quiet spell (5 minutes under 10% by default), with the facts in the student's notice and a "back to full speed" toast;
+- a memory notice for the student, "See what's using CPU" and "See what's using memory" buttons that open Monitor sorted, and always-visible memory and disk meters in the status bar;
+- an administrator's process list read on the host from the cgroup tree and `/proc` through the worker, never from the agent, with Stop and Force stop through the agent and a notification to the student.
+
+Acceptance:
+
+- no stop path signals PID 1, the agent, the terminals' tmux server, another user's process or a reused PID, and nothing escalates to SIGKILL without the person asking;
+- no log, audit row, snapshot or administrator view carries a command line;
+- a throttled workspace lifts only after a quiet spell measured against its full CPU limit, and a workspace busy at its throttled share never looks quiet;
+- the administrator's list shows a program the student hid from the agent, because nothing in it comes from the workspace but short names.
 
 ### Estimated total
 

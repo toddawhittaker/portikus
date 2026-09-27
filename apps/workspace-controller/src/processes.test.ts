@@ -1,6 +1,6 @@
 /**
- * The administrator's process read from the host (ADR 0037; docs/EPIC-21.md
- * rulings 17 and 18). Everything under /proc and the cgroup tree that a
+ * The administrator's process read from the host (ADR 0037; SPEC.md §20.1).
+ * Everything under /proc and the cgroup tree that a
  * student can influence is faked here, including hostile names.
  */
 import * as fs from "node:fs";

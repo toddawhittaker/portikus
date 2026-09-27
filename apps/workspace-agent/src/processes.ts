@@ -1,6 +1,6 @@
 /**
  * Reading and stopping one of the student's processes (SPEC.md §18.3;
- * docs/EPIC-21.md rulings 8 to 11). The agent runs as the student, so the
+ * SPEC.md §18.3). The agent runs as the student, so the
  * kernel already refuses anyone else's process; the protected list keeps
  * the agent, the tmux server the agent runs the terminals in, and PID 1 from
  * being signalled by accident. Command lines are returned to the student only and never logged.
@@ -101,7 +101,7 @@ export function ownedByStudent(facts: ProcessFacts, owner: ProcessOwner): boolea
 	return facts.uids[0] === owner.studentUid && facts.uids[1] === owner.studentUid;
 }
 
-/** A process no stop path may signal (docs/EPIC-21.md, "Terms"). */
+/** A process no stop path may signal (SPEC.md §18.3). */
 export function isProtected(facts: ProcessFacts, owner: ProcessOwner): boolean {
 	return (
 		facts.pid === 1 ||
@@ -139,24 +139,38 @@ export class ProcessStopFailure extends Error {
 	}
 }
 
+/** How long a "no tmux server" answer is reused before tmux is asked again. */
+const NO_SERVER_REUSE_MS = 10_000;
+
 /**
  * Remembers the tmux server's PID while that process lives, so a usage
  * sample each second does not start a tmux client each second. `lookup`
  * asks tmux itself; a PID left over from a dead server is asked again.
+ * A "no server" answer is reused for ten seconds unless `fresh` is set,
+ * which a stop does so a just-started server is never missed.
  */
 export function tmuxPidSource(
 	procRoot: string,
 	lookup: () => Promise<number | null>,
-): () => Promise<number | null> {
+	now: () => number = Date.now,
+): (fresh?: boolean) => Promise<number | null> {
 	let known: { pid: number; startTicks: number } | null = null;
-	return async () => {
+	let noServerAt: number | null = null;
+	return async (fresh = false) => {
 		if (known) {
 			const facts = await readProcess(procRoot, known.pid);
 			if (facts && facts.startTicks === known.startTicks) return known.pid;
 			known = null;
 		}
+		if (!fresh && noServerAt !== null && now() - noServerAt < NO_SERVER_REUSE_MS) {
+			return null;
+		}
+		noServerAt = null;
 		const pid = await lookup();
-		if (pid === null) return null;
+		if (pid === null) {
+			noServerAt = now();
+			return null;
+		}
 		const facts = await readProcess(procRoot, pid);
 		if (facts) known = { pid, startTicks: facts.startTicks };
 		return pid;

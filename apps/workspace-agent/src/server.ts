@@ -216,7 +216,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	monitor.start();
 
 	const recoveryRoot = options.recoveryRoot ?? "/var/lib/portikus/recovery";
-	// The terminals' tmux server is protected by PID (docs/EPIC-21.md ruling 10).
+	// The terminals' tmux server is protected by PID (SPEC.md §18.3).
 	const tmuxPid = tmuxPidSource(options.usage?.procRoot ?? "/proc", () =>
 		serverPid(tmuxServer),
 	);
@@ -642,7 +642,10 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		registerRecoveryRoutes(instance, { homeDir: options.homeDir, recoveryRoot });
 		instance.register(checksRoute, { homeDir: options.homeDir });
 		instance.register(listeningRoutes, { monitor, forwards });
-		instance.register(processesRoutes, { procRoot: options.usage?.procRoot, tmuxPid });
+		instance.register(processesRoutes, {
+			procRoot: options.usage?.procRoot,
+			tmuxPid: () => tmuxPid(true),
+		});
 		instance.register(eventsRoute, {
 			homeDir: options.homeDir,
 			maxSockets: options.maxEventSockets,

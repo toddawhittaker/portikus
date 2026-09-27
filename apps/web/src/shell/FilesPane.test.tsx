@@ -10,7 +10,12 @@ import { afterEach, expect, test, vi } from "vitest";
 import { DEFAULT_PROCESS_SORT } from "../monitor/sort.js";
 import { renderWithQuery } from "../test-utils.js";
 import { FilesPane } from "./FilesPane.js";
-import { type RightPane, RightPaneContext } from "./rightPane.js";
+import {
+	type RightPane,
+	RightPaneContext,
+	showMonitor,
+	useRightPaneStore,
+} from "./rightPane.js";
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
 
@@ -255,4 +260,41 @@ test("closing find in files while another surface is chosen focuses that surface
 	await waitFor(() =>
 		expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Running" })),
 	);
+});
+
+/** A workspace screen stand-in with the real shared pane state. */
+function RealPane({
+	onApi,
+}: {
+	onApi: (api: ReturnType<typeof useRightPaneStore>) => void;
+}) {
+	const api = useRightPaneStore();
+	onApi(api);
+	return (
+		<RightPaneContext.Provider value={api}>
+			<FilesPane workspaceId={WORKSPACE} project={project()} />
+		</RightPaneContext.Provider>
+	);
+}
+
+test("opened from a notice, Monitor's visible tab takes focus, but not while search covers the tabs", async () => {
+	stubEmpty();
+	let api = {} as ReturnType<typeof useRightPaneStore>;
+	renderWithQuery(
+		<RealPane
+			onApi={(value) => {
+				api = value;
+			}}
+		/>,
+	);
+	fireEvent.click(await screen.findByTestId("search-open"));
+	await act(async () => showMonitor(api, "memory"));
+	expect(screen.queryByRole("tab", { name: "Monitor" })).toBeNull();
+	expect(api.monitorFocus).toBe(true);
+
+	fireEvent.click(await screen.findByTestId("search-close"));
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Monitor" })),
+	);
+	expect(api.monitorFocus).toBe(false);
 });

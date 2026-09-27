@@ -436,27 +436,3 @@ test("the row order holds while focus is in the list, and sorts again when it le
 		expect(order()).toEqual(["monitor-process-4", "monitor-process-3"]),
 	);
 });
-
-test("opened by a notice or the status bar, Monitor takes focus on its heading", async () => {
-	stubLive([OWN]);
-	const setMonitorFocus = vi.fn();
-	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-	render(
-		<QueryClientProvider client={client}>
-			<RightPaneContext.Provider
-				value={{
-					pane: "monitor",
-					show: () => {},
-					monitorSort: { column: "cpu", direction: "desc" },
-					setMonitorSort: () => {},
-					monitorFocus: true,
-					setMonitorFocus,
-				}}
-			>
-				<MonitorPane workspaceId={WORKSPACE} />
-			</RightPaneContext.Provider>
-		</QueryClientProvider>,
-	);
-	expect(document.activeElement).toBe(screen.getByTestId("monitor-title"));
-	expect(setMonitorFocus).toHaveBeenCalledWith(false);
-});

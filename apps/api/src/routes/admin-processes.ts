@@ -12,7 +12,7 @@ const adminOnly = { preHandler: requireRole("administrator") };
 const UuidParam = z.object({ id: z.string().uuid() });
 const Rows = z.array(InstanceProcess);
 
-/** What the student is told; it names no process (docs/EPIC-21.md ruling 14). */
+/** What the student is told; it names no process (SPEC.md §20.1). */
 export const ADMIN_STOP_NOTIFICATION_TITLE =
 	"An administrator stopped a process in your workspace";
 
@@ -134,7 +134,7 @@ export function registerAdminProcessRoutes(
 					"The workspace agent is not reachable.",
 				);
 			}
-			// The student hears only of a stop that happened (docs/EPIC-21.md ruling 14).
+			// The student hears only of a stop that happened (SPEC.md §20.1).
 			return stopThroughAgent({
 				db,
 				agent,

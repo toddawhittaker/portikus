@@ -15,8 +15,8 @@ import {
 import { FAKE_AGENT_URL } from "./ports";
 
 /**
- * The administrator's process list and stop (SPEC.md §20.1; docs/EPIC-21.md
- * rulings 16 and 26). The worker does not run here, so each test writes the
+ * The administrator's process list and stop (SPEC.md §20.1). The worker does
+ * not run here, so each test writes the
  * snapshot the worker would once carol's Refresh has made its request row.
  * The stop goes through the fake agent, which checks it as the real one does.
  */

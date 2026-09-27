@@ -1286,14 +1286,6 @@ The admin area is desktop-only today (SPEC.md section 20.1).
 
 **Source.** Left out of Epic 18.
 
-## A process list in the admin detail panel
-
-**What.** A section listing a workspace's processes in the detail panel.
-
-**What it would take.** Issue #595 adds its own section.
-
-**Source.** Left out of Epic 18.
-
 ## Shared storage thresholds for the admin detail panel
 
 **What.** The admin detail panel could reuse the student side's
@@ -1350,16 +1342,6 @@ technology.
 radio group item, used by the width menu. Half a day.
 
 **Source.** Left out of Epic 20 (issue #609).
-
-## The rest of the resource notices (#607)
-
-**What.** "See what's using CPU" on the throttle notice, a memory notice,
-a memory warning in the status bar, and Stop buttons in Monitor.
-
-**What it would take.** Its own epic, branched after Epic 20, per issue
-#607.
-
-**Source.** Left out of Epic 20.
 
 ## A full accessibility audit of the student interface
 
@@ -1562,3 +1544,94 @@ with no explanation.
 new image, which fixes it.
 
 **Source.** Left out of Epic 16.
+
+## Monitor buttons while Find in files is open
+
+**What.** "See what's using CPU", "See what's using memory" and the
+status bar's Memory meter do nothing visible while Find in files covers
+the right pane's tabs. Monitor is chosen and focus moves to its tab only
+once the search closes.
+
+**What it would take.** Close the search, or show Monitor over it, when
+one of these buttons is pressed, with a unit and a Playwright test. Half
+a day.
+
+**Source.** Epic 21 accessibility confirmation review; the behaviour
+predates Epic 21.
+
+## Stop a process tree, and renice
+
+**What.** Stop a program and its children together from Monitor, or
+lower its priority.
+
+**What it would take.** Reuse Epic 16's `process-tree.ts` behind the
+agent's checked stop route, with the same PID and start-ticks checks for
+each process. About two days with tests.
+
+**Source.** Left out of Epic 21 (issue #607).
+
+## Per-workspace idle-lift settings
+
+**What.** Let one workspace override the automatic throttle lift's quiet
+time and percent.
+
+**What it would take.** Two more keys in the guard override dialog and
+the worker's settings lookup. A day with tests.
+
+**Source.** Left out of Epic 21 (issue #596 asks for none until needed).
+
+## An administrator's stop when the agent is down
+
+**What.** Stop one process in a workspace whose agent does not answer.
+Today the administrator stops or restarts the whole workspace instead.
+
+**What it would take.** A root-level kill path in the controller keyed on
+host PID and start ticks, with its own security review. More to secure
+than the case is worth so far (ADR 0037).
+
+**Source.** Left out of Epic 21.
+
+## A live administrator's process list
+
+**What.** Refresh the administrator's process list on its own, or show
+it with the workspace list.
+
+**What it would take.** A timer in the section that presses Refresh, with
+thought about the audit rows each read writes. A day.
+
+**Source.** Left out of Epic 21 (issue #595 asks for a Refresh button).
+
+## Tell the student of an idle lift they missed
+
+**What.** A student who was away when their throttle lifted on its own
+is not told; only an open page shows the "back to full speed" toast.
+
+**What it would take.** A notification row written by the worker on an
+idle lift. Half a day.
+
+**Source.** Left out of Epic 21.
+
+## Protect a unit's main process by its MainPID
+
+**What.** A student with sudo can restart the agent or terminals unit
+and then move a long-running program into that unit's cgroup, so it is
+the oldest process there and the administrator's list marks it
+protected. The administrator then stops the whole workspace instead.
+
+**What it would take.** Read each unit's MainPID from the host side, or
+have the agent report its own PID and the tmux server's, and protect only
+those. About a day with tests (ADR 0037).
+
+**Source.** Epic 21 security confirmation review.
+
+## Stop the host-side process read when the worker gives up
+
+**What.** The controller's cgroup walk runs to its caps even after the
+worker's 10-second request has timed out. A student can make it slow up
+to those caps with thousands of empty cgroups.
+
+**What it would take.** Pass the request's abort signal into the walk,
+and decide how a read shared by two callers treats one caller's abort.
+Half a day.
+
+**Source.** Epic 21 security confirmation review.
