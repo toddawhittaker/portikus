@@ -20,7 +20,9 @@ ExecStart=/usr/bin/node /usr/lib/portikus/controller/dist/egress-apply-main.js
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_DAC_READ_SEARCH
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/portikus/egress-request /var/lib/portikus/egress-state
+# One mount for both of its directories: it renames the request from one
+# into the other, which fails across two separate ReadWritePaths mounts.
+ReadWritePaths=/var/lib/portikus
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
