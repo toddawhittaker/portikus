@@ -176,7 +176,7 @@ export function RunningPane({
 									icon="stop"
 									label={`Stop port ${service.port}`}
 									size="sm"
-									className="pk-running-stop"
+									className="pk-iconbtn-danger"
 									data-testid={`running-stop-${service.port}`}
 									onClick={() => {
 										setSelectedPort(service.port);

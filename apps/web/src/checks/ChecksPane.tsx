@@ -149,7 +149,7 @@ export function ChecksPane({
 												icon={running ? "stop" : "play"}
 												label={`${running ? "Stop" : "Run"} ${check.name}`}
 												size="sm"
-												className={running ? "pk-check-stop" : "pk-check-run"}
+												className={running ? "pk-iconbtn-danger" : "pk-check-run"}
 												data-testid={`check-${running ? "stop" : "run"}-${check.id}`}
 												onClick={() =>
 													running ? stop.mutate(check.id) : start(check.id)

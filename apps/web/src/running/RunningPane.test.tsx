@@ -171,7 +171,7 @@ test("a previewable port offers a visible Preview button, then a new tab and sto
 	expect(tab.querySelector("[data-icon=external]")).toBeTruthy();
 	const stop = screen.getByTestId("running-stop-3000");
 	expect(stop.getAttribute("aria-label")).toBe("Stop port 3000");
-	expect(stop.className).toContain("pk-running-stop");
+	expect(stop.className).toContain("pk-iconbtn-danger");
 	expect(stop.querySelector("[data-icon=stop]")).toBeTruthy();
 	expect(screen.queryByText("Open preview")).toBeNull();
 	expect(screen.queryByText("Stop")).toBeNull();

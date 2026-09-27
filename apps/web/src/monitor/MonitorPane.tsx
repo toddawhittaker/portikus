@@ -302,27 +302,34 @@ function ProcessRow({
 					{process.command}
 				</td>
 				<td className="pk-monitor-actions">
-					{process.commandLine !== null ? (
-						<IconButton
-							icon={expanded ? "chevron-down" : "chevron-right"}
-							size="sm"
-							label={`Show the full command for PID ${process.pid}`}
-							aria-expanded={expanded}
-							aria-controls={expanded ? detailId : undefined}
-							data-testid={`monitor-show-command-${process.pid}`}
-							onClick={onToggle}
-						/>
-					) : null}
-					{process.stoppable ? (
-						<IconButton
-							icon="stop"
-							size="sm"
-							label={`Stop ${process.command} (PID ${process.pid})`}
-							aria-haspopup="dialog"
-							data-testid={`monitor-stop-${process.pid}`}
-							onClick={onStop}
-						/>
-					) : null}
+					<div className="pk-action-slots">
+						<span className="pk-action-slot">
+							{process.commandLine !== null ? (
+								<IconButton
+									icon={expanded ? "chevron-down" : "chevron-right"}
+									size="sm"
+									label={`Show the full command for PID ${process.pid}`}
+									aria-expanded={expanded}
+									aria-controls={expanded ? detailId : undefined}
+									data-testid={`monitor-show-command-${process.pid}`}
+									onClick={onToggle}
+								/>
+							) : null}
+						</span>
+						<span className="pk-action-slot">
+							{process.stoppable ? (
+								<IconButton
+									icon="stop"
+									size="sm"
+									className="pk-iconbtn-danger"
+									label={`Stop ${process.command} (PID ${process.pid})`}
+									aria-haspopup="dialog"
+									data-testid={`monitor-stop-${process.pid}`}
+									onClick={onStop}
+								/>
+							) : null}
+						</span>
+					</div>
 				</td>
 			</tr>
 			{expanded && process.commandLine !== null ? (
