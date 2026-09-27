@@ -88,10 +88,15 @@ async function fakeProcess(
 	comm: string,
 	inodes: number[],
 	cmdline?: string,
+	uid = 1000,
 ): Promise<void> {
 	const dir = join(procRoot, String(pid));
 	await mkdir(join(dir, "fd"), { recursive: true });
 	await writeFile(join(dir, "comm"), `${comm}\n`);
+	await writeFile(
+		join(dir, "status"),
+		`Name:\t${comm}\nUid:\t${uid}\t${uid}\t${uid}\t${uid}\n`,
+	);
 	if (cmdline !== undefined) await writeFile(join(dir, "cmdline"), cmdline);
 	let descriptor = 3;
 	for (const inode of inodes) {
@@ -107,7 +112,7 @@ test("maps socket inodes to the pid and command that hold them", async () => {
 	await mkdir(join(procRoot, "self"), { recursive: true });
 	await mkdir(join(procRoot, "44"), { recursive: true });
 
-	const owners = await readSocketOwners(procRoot);
+	const owners = await readSocketOwners(procRoot, 1000);
 	expect(owners.get("34567")).toEqual({ pid: 42, command: "node" });
 	expect(owners.get("34568")).toEqual({ pid: 42, command: "node" });
 	expect(owners.get("55555")).toEqual({ pid: 43, command: "python3" });
@@ -121,7 +126,7 @@ test("reads a NUL-separated command line and turns the separators into spaces", 
 		[34567],
 		"python\x00server.py\x00--port\x008080\x00",
 	);
-	const owners = await readSocketOwners(procRoot);
+	const owners = await readSocketOwners(procRoot, 1000);
 	expect(owners.get("34567")).toEqual({
 		pid: 42,
 		command: "MainThread",
@@ -131,7 +136,20 @@ test("reads a NUL-separated command line and turns the separators into spaces", 
 
 test("an empty command line is left out", async () => {
 	await fakeProcess(42, "node", [34567], "\x00");
-	const owners = await readSocketOwners(procRoot);
+	const owners = await readSocketOwners(procRoot, 1000);
+	expect(owners.get("34567")).toEqual({ pid: 42, command: "node" });
+});
+
+test("another account's command line is never read (SPEC.md §24.11)", async () => {
+	await fakeProcess(42, "resolved", [34567], "systemd-resolved\x00--secret\x00", 991);
+	const owners = await readSocketOwners(procRoot, 1000);
+	expect(owners.get("34567")).toEqual({ pid: 42, command: "resolved" });
+});
+
+test("a process with no status file gets no command line", async () => {
+	await fakeProcess(42, "node", [34567], "node\x00server.js\x00");
+	await rm(join(procRoot, "42", "status"));
+	const owners = await readSocketOwners(procRoot, 1000);
 	expect(owners.get("34567")).toEqual({ pid: 42, command: "node" });
 });
 
@@ -139,12 +157,12 @@ test("a process with no comm file still maps its sockets", async () => {
 	const dir = join(procRoot, "50", "fd");
 	await mkdir(dir, { recursive: true });
 	await symlink("socket:[777]", join(dir, "3"));
-	const owners = await readSocketOwners(procRoot);
+	const owners = await readSocketOwners(procRoot, 1000);
 	expect(owners.get("777")).toEqual({ pid: 50, command: undefined });
 });
 
 test("a missing /proc yields no owners rather than an error", async () => {
-	expect((await readSocketOwners(join(procRoot, "nope"))).size).toBe(0);
+	expect((await readSocketOwners(join(procRoot, "nope"), 1000)).size).toBe(0);
 });
 
 // --- docker ps parsing ---
@@ -176,6 +194,7 @@ function monitorFor(
 		procRoot,
 		interfaceAddress: "10.0.0.5",
 		docker: null,
+		studentUid: 1000,
 		...overrides,
 	});
 }
@@ -205,6 +224,30 @@ test("a service carries the command line when /proc has one", async () => {
 		command: "MainThread",
 		commandLine: "python server.py",
 	});
+});
+
+test("a system listener carries no command line, even one the student's uid runs", async () => {
+	await writeProcNet([HEADER, row("0100007F:1F90", "0A", "34567")].join("\n"));
+	// The agent itself runs as the student but is a system listener.
+	await fakeProcess(42, "node", [34567], "node\x00agent.js\x00");
+	const services = await monitorFor({ selfPid: 42 }).refresh();
+	expect(services[0]?.system).toBe(true);
+	expect(services[0]?.process).toEqual({ pid: 42, command: "node" });
+});
+
+test("a Docker listener carries no command line", async () => {
+	await writeProcNet([HEADER, row("00000000:1538", "0A", "34567")].join("\n"));
+	await fakeProcess(
+		42,
+		"docker-proxy",
+		[34567],
+		"docker-proxy\x00-host-port\x005432\x00",
+	);
+	const services = await monitorFor({
+		docker: async () => [{ id: "abc123", name: "pg", ports: [5432] }],
+	}).refresh();
+	expect(services[0]?.container).toEqual({ id: "abc123", name: "pg" });
+	expect(services[0]?.process).toEqual({ pid: 42, command: "docker-proxy" });
 });
 
 test("a wildcard bind is reachable and a low port is still reported", async () => {

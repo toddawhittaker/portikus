@@ -904,3 +904,14 @@ button.pk-statusbar-item:hover {
 	align-items: center;
 	height: var(--size-control-sm);
 }
+
+/* The student's full command line (FullCommand.tsx), wrapped for a narrow pane. */
+.pk-full-command {
+	font-family: var(--font-mono);
+	font-variant-ligatures: none;
+	font-size: 12px;
+	line-height: 16px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	color: var(--ink-muted);
+}

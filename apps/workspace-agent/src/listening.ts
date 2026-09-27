@@ -12,6 +12,7 @@ import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import type { AgentListeningService } from "@portikus/contracts";
 import type { FastifyBaseLogger } from "fastify";
+import { ownedByStudent, parseStatusUids, readCommandLine } from "./processes.js";
 
 /** The TCP state `/proc` uses for a listening socket. */
 const LISTEN_STATE = "0A";
@@ -60,7 +61,10 @@ export interface SocketOwner {
 	pid: number;
 	/** `/proc/<pid>/comm`, the thread name. */
 	command?: string;
-	/** `/proc/<pid>/cmdline` with NULs turned into spaces. Never logged. */
+	/**
+	 * `/proc/<pid>/cmdline` with NULs turned into spaces, read only when the
+	 * student owns the process (SPEC.md §24.11). Never logged.
+	 */
 	commandLine?: string;
 }
 
@@ -194,10 +198,12 @@ export function isSystemListener(input: {
 
 /**
  * Map socket inodes to the process holding them, by walking `/proc/<pid>/fd`.
- * Directories and links we may not read are skipped.
+ * Directories and links we may not read are skipped. The command line is
+ * read only for the student's own processes, the same test Monitor uses.
  */
 export async function readSocketOwners(
 	procRoot: string,
+	studentUid: number,
 ): Promise<Map<string, SocketOwner>> {
 	const owners = new Map<string, SocketOwner>();
 	let entries: string[];
@@ -230,7 +236,9 @@ export async function readSocketOwners(
 			if (!commandRead) {
 				commandRead = true;
 				command = await readComm(procRoot, entry);
-				commandLine = await readCommandLine(procRoot, entry);
+				if (await isStudentProcess(procRoot, entry, studentUid)) {
+					commandLine = (await readCommandLine(procRoot, pid)) ?? undefined;
+				}
 			}
 			// The first process found for an inode wins; a forked child holding
 			// the same socket tells the student nothing extra.
@@ -257,23 +265,20 @@ async function readComm(procRoot: string, pid: string): Promise<string | undefin
 	}
 }
 
-/**
- * The command line, with NUL separators turned into spaces. The file usually
- * ends in a NUL; an empty one is not a command line. Never log the result:
- * arguments can carry secrets (STACK.md §15).
- */
-async function readCommandLine(
+/** Whether the student owns this process: its real and effective uid are theirs. */
+async function isStudentProcess(
 	procRoot: string,
 	pid: string,
-): Promise<string | undefined> {
+	studentUid: number,
+): Promise<boolean> {
+	let text: string;
 	try {
-		const text = await readFile(join(procRoot, pid, "cmdline"), "utf8");
-		const body = text.replace(/\0+$/, "");
-		if (body === "") return undefined;
-		return body.replaceAll("\0", " ");
+		text = await readFile(join(procRoot, pid, "status"), "utf8");
 	} catch {
-		return undefined;
+		return false;
 	}
+	const uids = parseStatusUids(text);
+	return uids !== null && ownedByStudent({ uids }, { studentUid });
 }
 
 /** Stop an inner Docker container by id or name. */
@@ -363,6 +368,8 @@ export interface ListeningMonitorOptions {
 	docker?: DockerLookup | null;
 	/** The agent's own pid. Tests override it; production never needs to. */
 	selfPid?: number;
+	/** The student's uid. Defaults to the uid the agent runs as. */
+	studentUid?: number;
 	/** How a process is signalled. Tests override it. */
 	kill?: (pid: number, signal: NodeJS.Signals) => void;
 	/** How a container is stopped. Tests override it. */
@@ -415,6 +422,7 @@ export class ListeningMonitor {
 	private readonly intervalMs: number;
 	private readonly logger: FastifyBaseLogger | undefined;
 	private readonly selfPid: number;
+	private readonly studentUid: number;
 	private readonly kill: (pid: number, signal: NodeJS.Signals) => void;
 	private readonly dockerStop: (container: string) => Promise<void>;
 	private readonly graceMs: number;
@@ -441,6 +449,7 @@ export class ListeningMonitor {
 		this.intervalMs = options.intervalMs ?? SCAN_INTERVAL_MS;
 		this.logger = options.logger;
 		this.selfPid = options.selfPid ?? process.pid;
+		this.studentUid = options.studentUid ?? process.getuid?.() ?? 1000;
 		this.kill = options.kill ?? ((pid, signal) => process.kill(pid, signal));
 		this.dockerStop = options.dockerStop ?? dockerStopContainer;
 		this.graceMs = options.graceMs ?? STOP_GRACE_MS;
@@ -732,6 +741,16 @@ export class ListeningMonitor {
 			// holds this port too, that one is the owner (issue #299).
 			const owner = found.find((entry) => entry.pid !== this.selfPid) ?? found[0];
 			const container = containers.find((entry) => entry.ports.includes(port));
+			const system = isSystemListener({
+				...(owner ? { ownerPid: owner.pid } : {}),
+				uids: listeners.map((entry) => entry.uid),
+				hasContainer: container !== undefined,
+				selfPid: this.selfPid,
+				isForwarded: forwarded.has(port),
+			});
+			// Only the student's own listener carries its command line; a system
+			// or Docker row never does (SPEC.md §24.11, ADR 0037).
+			const commandLine = system || container ? undefined : owner?.commandLine;
 			services.push({
 				port,
 				addresses,
@@ -741,21 +760,13 @@ export class ListeningMonitor {
 							process: {
 								pid: owner.pid,
 								command: owner.command,
-								...(owner.commandLine !== undefined
-									? { commandLine: owner.commandLine }
-									: {}),
+								...(commandLine !== undefined ? { commandLine } : {}),
 							},
 						}
 					: {}),
 				...(container ? { container: { id: container.id, name: container.name } } : {}),
 				previewReachability: this.reachability(addresses, forwarded.has(port)),
-				system: isSystemListener({
-					...(owner ? { ownerPid: owner.pid } : {}),
-					uids: listeners.map((entry) => entry.uid),
-					hasContainer: container !== undefined,
-					selfPid: this.selfPid,
-					isForwarded: forwarded.has(port),
-				}),
+				system,
 				observedAt,
 			});
 		}
@@ -782,7 +793,7 @@ export class ListeningMonitor {
 			}
 		}
 		if (stale) {
-			const walked = await readSocketOwners(this.procRoot);
+			const walked = await readSocketOwners(this.procRoot, this.studentUid);
 			const next = new Map<string, SocketOwner | null>();
 			for (const inode of inodes) next.set(inode, walked.get(inode) ?? null);
 			this.owners = next;

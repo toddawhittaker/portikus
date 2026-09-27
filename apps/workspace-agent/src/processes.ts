@@ -97,7 +97,10 @@ export async function readProcess(
 }
 
 /** Whether the student owns the process: both its real and effective uid are theirs. */
-export function ownedByStudent(facts: ProcessFacts, owner: ProcessOwner): boolean {
+export function ownedByStudent(
+	facts: Pick<ProcessFacts, "uids">,
+	owner: Pick<ProcessOwner, "studentUid">,
+): boolean {
 	return facts.uids[0] === owner.studentUid && facts.uids[1] === owner.studentUid;
 }
 
