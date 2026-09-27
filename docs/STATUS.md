@@ -3022,13 +3022,25 @@ Delivered:
 - Only the API process has the `systemd-journal` group. A 401 without a
   session is logged at info, so signed-out polling does not fill the
   Warn view.
+- Rehearsed on a throwaway VM (8 vCPUs, 16 GiB, Debian 13, systemd 257)
+  together with Epics 16 and 17: smoke test 299 of 299 and the heavy
+  security suite 295 of 295. `journalctl --grep` and `--reverse
+  --after-cursor` work as the reader expects. With the Debug level on
+  and 2.6 million lines (1.5 GB) in the journal, the 7-day error count
+  was complete after two requests and 10.6 s, and matched a `grep`
+  count exactly. Stored host rates matched counters read by hand
+  within 1%. A planted line with a bearer token, cookie, token and URL
+  password showed only `[redacted]` values.
+- The smoke test checks the Logs tab, the Health series rates, and that
+  terminal output reaches no journal; the security suite's new
+  `observability.sh` module checks who may read logs and series, the
+  journal group, `journalctl` support and redaction.
+- The rehearsal's PostgreSQL kill ended the API: a database connection
+  that dies mid-query raised an unhandled error. Every pool connection
+  now has an error listener.
 
 Gaps:
 
-- The rehearsal on a throwaway VM (the plan's T6: journal access,
-  `--grep` and backwards paging on Debian 13, plausible host rates, and
-  the new smoke and security checks) had not run when the plan was
-  folded; it runs before the epic merges.
 - The heat map's cell values are not readable by sighted keyboard users;
   the Peak column is the summary.
 - Everything under "Left out of Epic 19" in BACKLOG.md: per-route
