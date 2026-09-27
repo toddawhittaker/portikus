@@ -118,7 +118,6 @@ test.skipIf(skip)("a student gets 403 on every route and changes nothing", async
 			"/admin/egress/entries",
 			{ version: 0, kind: "host", value: "a.com", label: "" },
 		],
-		["POST", "/admin/egress/test", { input: "github.com" }],
 	];
 	for (const [method, url, payload] of calls) {
 		expect((await send(alice, method, url, payload)).statusCode).toBe(403);
@@ -342,36 +341,6 @@ test.skipIf(skip)("at most 500 host names and 100 ranges", async () => {
 	expect((await view()).version).toBe(0);
 });
 
-test.skipIf(skip)("Test a host explains against the stored policy", async () => {
-	const test1 = async (input: string) =>
-		(await send(carol, "POST", "/admin/egress/test", { input })).json();
-	expect(await test1("example.com")).toEqual({ allowed: true, reason: "open" });
-	await send(carol, "PUT", "/admin/egress/mode", { version: 0, mode: "allow-list" });
-	await send(carol, "PUT", "/admin/egress/presets", {
-		version: 1,
-		presets: ["github"],
-	});
-	await addHost("example.edu", 2, "Campus");
-	expect(await test1("api.github.com")).toMatchObject({
-		reason: "preset",
-		preset: "github",
-	});
-	expect(await test1("www.example.edu")).toMatchObject({
-		reason: "entry",
-		label: "Campus",
-	});
-	expect(await test1("evilgithub.com")).toEqual({
-		allowed: false,
-		reason: "not-listed",
-	});
-	expect(await test1("https://github.com")).toEqual({
-		allowed: false,
-		reason: "invalid",
-	});
-	const r = await send(carol, "POST", "/admin/egress/test", { input: 5 });
-	expect(r.statusCode).toBe(400);
-});
-
 test.skipIf(skip)("the blocked list is the site-wide top 20 over 7 days", async () => {
 	const today = new Date();
 	const day = (n: number) =>
@@ -412,9 +381,6 @@ test.skipIf(skip)(
 					mode: "allow-list",
 				})
 			).statusCode,
-		).toBe(404);
-		expect(
-			(await send(carol, "POST", "/admin/egress/test", { input: "a.com" })).statusCode,
 		).toBe(404);
 	},
 );

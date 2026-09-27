@@ -22,8 +22,8 @@ import {
 	queryName,
 } from "./egress-blocked.js";
 
-/** A DNS query for `name`, type A, with the given id and RD set. */
-function query(name: string, id = 0x1234): Buffer {
+/** A DNS query for `name`, type A unless given, with the given id and RD set. */
+function query(name: string, id = 0x1234, type = 1): Buffer {
 	const labels = name
 		.split(".")
 		.map((l) => Buffer.concat([Buffer.from([l.length]), Buffer.from(l)]));
@@ -31,7 +31,9 @@ function query(name: string, id = 0x1234): Buffer {
 	header.writeUInt16BE(id, 0);
 	header.writeUInt8(0x01, 2); // RD
 	header.writeUInt16BE(1, 4);
-	return Buffer.concat([header, ...labels, Buffer.from([0, 0, 1, 0, 1])]);
+	const question = Buffer.from([0, 0, 0, 0, 1]);
+	question.writeUInt16BE(type, 1);
+	return Buffer.concat([header, ...labels, question]);
 }
 
 describe("DNS parsing", () => {
@@ -210,6 +212,20 @@ describe.skipIf(skip)("the blocked-name counter (ADR 0038)", () => {
 		expect(await rows()).toEqual([
 			{ day: "2026-09-27", name: "evil.test", source: "dns", count: 1 },
 			{ day: "2026-09-27", name: "example.com", source: "dns", count: 2 },
+		]);
+	});
+
+	test("AAAA and HTTPS queries are answered NXDOMAIN but only A queries count", async () => {
+		const c = await listening();
+		const { dns } = c.ports();
+		for (const type of [1, 28, 65]) {
+			const r = await udpAsk(dns, query("example.com", type, type));
+			expect(r.readUInt16BE(0)).toBe(type);
+			expect(r.readUInt8(3) & 0x0f).toBe(3);
+		}
+		await c.flush();
+		expect(await rows()).toEqual([
+			{ day: "2026-09-27", name: "example.com", source: "dns", count: 1 },
 		]);
 	});
 

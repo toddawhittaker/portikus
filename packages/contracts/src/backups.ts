@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+	KeptHomeVolumeName,
+	PreChangeSnapshotName,
+	WorkspaceVolumeName,
+} from "./controller.js";
 
 /**
  * Backups run from the admin page (SPEC.md §24.9, §24.11; ADR 0024). The API
@@ -16,13 +21,6 @@ export const BACKUP_INSTANCE_PATTERN = /^ws-[0-9a-f]{24}$/;
 /** The side-copy folder in `/home/student`, derived from the set's stamp. */
 export const BACKUP_RESTORE_DIR_PATTERN =
 	/^restored-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}$/;
-/** A workspace volume whose `pre-*` snapshots may be deleted. */
-export const BACKUP_SNAPSHOT_VOLUME_PATTERN =
-	/^ws-[0-9a-f]{24}-(home|docker|recovery)$/;
-/** A pre-change snapshot; the backup's own `portikus-backup` never matches. */
-export const BACKUP_SNAPSHOT_PATTERN = /^pre-[a-z0-9][a-z0-9-]{0,62}$/;
-/** A home volume a replace took out of service. */
-export const BACKUP_KEPT_HOME_PATTERN = /^ws-[0-9a-f]{24}-home-replaced-[0-9]+$/;
 
 /** A host status older than this is stale, and Back up now waits. */
 export const BACKUP_HOST_STALE_SECONDS = 180;
@@ -33,9 +31,10 @@ export const BackupStamp = z.string().regex(BACKUP_STAMP_PATTERN);
 export const BackupDumpFile = z.string().regex(BACKUP_DUMP_PATTERN);
 export const BackupInstance = z.string().regex(BACKUP_INSTANCE_PATTERN);
 export const BackupRestoreDir = z.string().regex(BACKUP_RESTORE_DIR_PATTERN);
-export const BackupSnapshotVolume = z.string().regex(BACKUP_SNAPSHOT_VOLUME_PATTERN);
-export const BackupSnapshotName = z.string().regex(BACKUP_SNAPSHOT_PATTERN);
-export const BackupKeptHome = z.string().regex(BACKUP_KEPT_HOME_PATTERN);
+/** The controller's own names, so the API and the controller check the same forms. */
+export const BackupSnapshotVolume = WorkspaceVolumeName;
+export const BackupSnapshotName = PreChangeSnapshotName;
+export const BackupKeptHome = KeptHomeVolumeName;
 
 /** `20260924T023000Z` becomes `restored-2026-09-24-0230`. */
 export function restoreDirFor(stamp: string): string {

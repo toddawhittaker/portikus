@@ -3,7 +3,7 @@ import {
 	type AddedPackagesResponse,
 	CpuAllowance,
 	type CreateInstanceResponse,
-	DebianPackageName,
+	countIncusCpus,
 	type GrowVolumesRequest,
 	type GrowVolumesResponse,
 	type HostSnapshot,
@@ -16,6 +16,7 @@ import {
 	type KeptVolumesResponse,
 	POOL_FULL_PERCENT,
 	PreChangeSnapshotName,
+	parseAptList,
 	poolFillPercent,
 	type RebuildInstanceResponse,
 	type ReplaceHomeResponse,
@@ -26,7 +27,6 @@ import {
 } from "@portikus/contracts";
 import { type Logger, silentLogger } from "@portikus/observability";
 import {
-	countIncusCpus,
 	growVolumes,
 	parseIncusSize,
 	readHostSnapshot,
@@ -112,23 +112,6 @@ const ADDED_PACKAGES_PATH = "/home/student/.portikus/apt-packages.txt";
 
 /** The most the controller reads of that file. */
 export const ADDED_PACKAGES_MAX_BYTES = 64 * 1024;
-
-const IMAGE_HEADER = /^# portikus-image: ([0-9A-Za-z.+~-]{1,64})$/;
-
-/**
- * Parse the apt hook's list: an optional `# portikus-image: <version>` first line (`unknown` reads as null), then
- * one package name per line. Anything that is not a package name is dropped.
- */
-export function parseAddedPackages(text: string): AddedPackagesResponse {
-	const lines = text.split("\n").map((line) => line.trim());
-	const version = IMAGE_HEADER.exec(lines[0] ?? "")?.[1];
-	const image = version === undefined || version === "unknown" ? null : version;
-	const packages = new Set<string>();
-	for (const line of lines) {
-		if (DebianPackageName.safeParse(line).success) packages.add(line);
-	}
-	return { image, packages: [...packages] };
-}
 
 /** Where the workspace agent reads its bearer token (ADR 0009). */
 const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
@@ -1214,7 +1197,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		if (file.tooLarge) {
 			throw new IncusError("BAD_REQUEST", "the added-packages list is over 64 KiB");
 		}
-		return parseAddedPackages(file.content.toString("utf8"));
+		const { image, packages } = parseAptList(file.content.toString("utf8"));
+		return { image, packages };
 	}
 
 	private volumePath(volume: string): string {

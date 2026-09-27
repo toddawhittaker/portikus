@@ -9,11 +9,13 @@
 #     host", and nothing runs: no backup, no delete, no decryption, no command
 #     beyond pull and report reaches the VM;
 #   - a delete never removes the newest complete set, a symbolic link, or
-#     anything outside this VM's directory;
+#     anything outside this VM's directory, and keeps the host's retention
+#     floor (a minimum age and the newest complete sets);
 #   - a restore into an instance whose home is not in the set, or onto a VM
 #     with another hostname, is refused; a side copy runs as uid 1000 inside
 #     the workspace, refuses an existing folder and a copy larger than the
-#     free space, and is the only way decrypted data leaves the host;
+#     free space, cuts a VM call that hangs, and is the only way decrypted
+#     data leaves the host;
 #   - the private key never reaches the VM, and counts as installed only when
 #     it is owner-only in an owner-only directory;
 #   - the status report has the contract's shape and stays under 256 KiB;
@@ -79,7 +81,9 @@ case "$cmd" in
     [ ! -e "$f/report-refuse" ] || { rm -f "$f/report-refuse"; exit 1; } ;;
   hostname) echo "${FAKE_HOSTNAME:-portikus}" ;;
   *"incus list"*) echo "${FAKE_INSTANCE_STATE:-ws-0123456789abcdef01234567,RUNNING}" ;;
-  *" -- test -e "*) [ -n "${FAKE_DIR_EXISTS:-}" ] ;;
+  *" -- test -e "*)
+    [ -z "${FAKE_HANG:-}" ] || exec sleep 30
+    [ -n "${FAKE_DIR_EXISTS:-}" ] ;;
   *" -- df "*) printf 'Avail\n%s\n' "${FAKE_AVAIL:-1000000000}" ;;
   *" -- tar "* | *"storage volume import"*) cat >"$f/stream"; cp "$f/stream" "$f/stdin.$n" ;;
   *"storage volume show"*) [ -n "${FAKE_IMPORT_EXISTS:-}" ] ;;
@@ -162,7 +166,7 @@ reset() {
   touch -d '2026-09-20' "${sets}/dumps/portikus-pre-older.dump"
   : >"$log"
   unset FAKE_SSH_FAIL FAKE_HOSTNAME FAKE_INSTANCE_STATE FAKE_DIR_EXISTS FAKE_AVAIL FAKE_IMPORT_EXISTS
-  unset FAKE_NIGHTLY_ACTIVE FAKE_NIGHTLY_RESULT FAKE_BACKUP_FAILS
+  unset FAKE_NIGHTLY_ACTIVE FAKE_NIGHTLY_RESULT FAKE_BACKUP_FAILS FAKE_HANG
 }
 
 run_channel() {
@@ -170,6 +174,7 @@ run_channel() {
     PORTIKUS_BACKUP_DIR="$backups" PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients" \
     PORTIKUS_BACKUP_KEY="$key" PORTIKUS_BACKUP_CHANNEL_STATE="$state" \
     PORTIKUS_BACKUP_CMD="${work}/bin/fake-backup" PORTIKUS_RESTORE_COPY_CMD="${repo}/infra/host/restore-copy.sh" \
+    PORTIKUS_BACKUP_MIN_AGE_DAYS="${MIN_AGE-0}" PORTIKUS_BACKUP_KEEP_COMPLETE="${KEEP-1}" \
     bash "$channel" --operator "$(id -un)" --vm-name "$VM_NAME" "$VM_IP" >"${work}/out" 2>&1
 }
 
@@ -380,6 +385,34 @@ pull "{\"id\":\"${ID}\",\"kind\":\"backup\",\"args\":{}}"
 FAKE_NIGHTLY_ACTIVE=1 run_channel
 expect "a backup is refused while the nightly one runs" "[ \"\$(field \"r['request']['state']\")\" = failed ] && ! grep -q '^backup ' '$log'"
 
+echo "--- the host's retention floor ---"
+ago() { date -u -d "-$1 days" +%Y%m%dT%H%M%SZ; }
+floor_refused() { refused && field "r['request']['error']" | grep -q '^refused by the host: retention floor ('; }
+del() { pull "{\"id\":\"${ID}\",\"kind\":\"delete_set\",\"args\":{\"stamp\":\"$1\"}}"; }
+reset
+del "$OLD"
+KEEP=3 run_channel
+expect "one of the newest three complete sets is kept" "floor_refused && [ -d '${sets}/${OLD}' ]"
+reset
+young=$(ago 2)
+make_set "$young"
+make_set "$(ago 1)"
+del "$young"
+MIN_AGE=7 run_channel
+expect "a set younger than the minimum age is kept" "floor_refused && [ -d '${sets}/${young}' ]"
+# With the unit's defaults (7 days, 3 sets) and four old complete sets, only the oldest can go.
+reset
+rm -rf "${sets:?}/${OLD}" "${sets:?}/${GOOD}" "${sets:?}/${NEWEST}" "${sets:?}/${BROKEN}"
+oldest=$(ago 40)
+third=$(ago 20)
+for st in "$oldest" "$(ago 30)" "$third" "$(ago 10)"; do make_set "$st"; done
+del "$oldest"
+MIN_AGE='' KEEP='' run_channel
+expect "with the defaults an old set beyond the newest three is deleted" "[ \"\$(field \"r['request']['state']\")\" = done ] && [ ! -e '${sets}/${oldest}' ]"
+del "$third"
+MIN_AGE='' KEEP='' run_channel
+expect "with the defaults the third newest complete set is kept" "floor_refused && [ -d '${sets}/${third}' ]"
+
 echo "--- side copy ---"
 copy_req="{\"id\":\"${ID}\",\"kind\":\"restore_copy\",\"args\":{\"stamp\":\"${GOOD}\",\"instance\":\"${INST}\",\"dir\":\"restored-2026-09-24-0230\"}}"
 reset
@@ -399,6 +432,14 @@ pull "$copy_req"
 FAKE_DIR_EXISTS=1 run_channel
 expect "an existing folder is refused, with the ruling's message" \
   "[ \"\$(field \"r['request']['error']\")\" = '~/restored-2026-09-24-0230 already exists. Rename or delete it, then try again.' ] && [ ! -e '${fakes}/stream' ] && ! vm_commands | grep -q -- '-- mkdir'"
+
+reset
+pull "$copy_req"
+# shellcheck disable=SC2034 # read inside the expect string
+started=$(date +%s)
+FAKE_HANG=1 PORTIKUS_RESTORE_CALL_TIMEOUT=2 run_channel
+expect "a VM call that hangs is cut by the host's time limit and nothing is copied" \
+  "[ \$((\$(date +%s) - started)) -lt 20 ] && field \"r['request']['error']\" | grep -q 'could not check' && [ ! -e '${fakes}/stream' ]"
 
 reset
 pull "$copy_req"

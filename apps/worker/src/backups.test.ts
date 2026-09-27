@@ -495,6 +495,38 @@ test.skipIf(skip)("the loop lists kept volumes into backup_status", async () => 
 });
 
 test.skipIf(skip)(
+	"the loop lists again only after five minutes, or right after a delete",
+	async () => {
+		const logger = collectingLogger().logger;
+		let at = NOW.getTime();
+		const tick = () =>
+			backupVmTick({ db: tdb.db, controller: fake, logger, now: () => new Date(at) });
+		const lists = () => fake.calls.filter((c) => c.method === "keptVolumes").length;
+
+		await tick();
+		expect(lists()).toBe(1);
+		at += 30_000;
+		await tick();
+		expect(lists()).toBe(1);
+
+		await insertRequest({
+			kind: "delete_snapshot",
+			args: { volume: `${INSTANCE}-docker`, snapshot: "pre-upgrade" },
+		});
+		at += 30_000;
+		await tick();
+		expect(lists()).toBe(2);
+
+		at += 299_000;
+		await tick();
+		expect(lists()).toBe(2);
+		at += 1_000;
+		await tick();
+		expect(lists()).toBe(3);
+	},
+);
+
+test.skipIf(skip)(
 	"the loop logs a listing failure and keeps the old listing",
 	async () => {
 		fake.keptVolumesResult = new ControllerClientError("INCUS_UNAVAILABLE", "down");

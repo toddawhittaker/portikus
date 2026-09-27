@@ -4,6 +4,12 @@ import { DebianPackageName } from "./controller.js";
 /** How long the package survey keeps its daily counts (ADR 0042). */
 export const PACKAGE_SURVEY_KEEP_DAYS = 90;
 
+/**
+ * The fewest workspaces a day's survey must hold before its counts are
+ * shown, so a count can never point at one student (ADR 0042).
+ */
+export const PACKAGE_SURVEY_MIN_SURVEYED = 3;
+
 /** The most rows `GET /admin/packages` returns, most-added first. */
 export const ADMIN_PACKAGES_LIMIT = 200;
 
@@ -28,8 +34,11 @@ export const PackageSurveyRow = z.object({
 export type PackageSurveyRow = z.infer<typeof PackageSurveyRow>;
 
 /**
- * `GET /admin/packages`: the latest surveyed day's site-wide counts
- * (SPEC.md §20.1). `day` is null before the first survey.
+ * `GET /admin/packages`: the site-wide counts of the latest day that
+ * surveyed at least PACKAGE_SURVEY_MIN_SURVEYED workspaces (SPEC.md §20.1).
+ * When no day has that many, `packages` is empty and `day` and `surveyed`
+ * describe the latest day, so the page can say why. `day` is null before
+ * the first survey.
  */
 export const AdminPackagesResponse = z.object({
 	day: Day.nullable(),
@@ -51,4 +60,36 @@ export type ReinstallNote = z.infer<typeof ReinstallNote>;
 export function reinstallCommand(packages: readonly string[]): string {
 	const names = packages.filter((name) => DebianPackageName.safeParse(name).success);
 	return `sudo apt install ${names.join(" ")}`;
+}
+
+const IMAGE_HEADER = /^# portikus-image: ([0-9A-Za-z.+~-]{1,64})$/;
+
+/** The image's apt hook list, `~/.portikus/apt-packages.txt` (ADR 0042). */
+export interface AptList {
+	/** The image named in the header, or null when there is none or it is `unknown`. */
+	image: string | null;
+	packages: string[];
+	/** The lines after the header, kept as written for a dismiss. */
+	body: string[];
+}
+
+/**
+ * Parse the apt hook's list: an optional `# portikus-image: <version>` first
+ * line, then one package name per line. Anything that is not a package name
+ * is dropped.
+ */
+export function parseAptList(text: string): AptList {
+	const lines = text.split("\n");
+	const version = IMAGE_HEADER.exec((lines[0] ?? "").trim())?.[1];
+	const body = version === undefined ? lines : lines.slice(1);
+	const packages = new Set<string>();
+	for (const line of body) {
+		const name = line.trim();
+		if (DebianPackageName.safeParse(name).success) packages.add(name);
+	}
+	return {
+		image: version === undefined || version === "unknown" ? null : version,
+		packages: [...packages],
+		body,
+	};
 }

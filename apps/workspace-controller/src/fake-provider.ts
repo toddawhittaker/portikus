@@ -12,6 +12,7 @@ import {
 	KeptHomeVolumeName,
 	type KeptVolumesResponse,
 	PreChangeSnapshotName,
+	parseAptList,
 	type RebuildInstanceResponse,
 	type ReplaceHomeResponse,
 	type SetInstanceLimitsRequest,
@@ -23,7 +24,6 @@ import { IncusError } from "./incus.js";
 import {
 	ADDED_PACKAGES_MAX_BYTES,
 	InstanceNotStoppedError,
-	parseAddedPackages,
 	VolumeInUseError,
 	type WorkspaceProvider,
 } from "./provider.js";
@@ -361,7 +361,8 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 		if (Buffer.byteLength(file.content) > ADDED_PACKAGES_MAX_BYTES) {
 			throw new IncusError("BAD_REQUEST", "the added-packages list is over 64 KiB");
 		}
-		return parseAddedPackages(file.content);
+		const { image, packages } = parseAptList(file.content);
+		return { image, packages };
 	}
 
 	async keptVolumes(): Promise<KeptVolumesResponse> {

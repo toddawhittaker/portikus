@@ -17,11 +17,15 @@
 # A user-facing reason is the last "FAIL: " line on standard error.
 #
 # Environment:
-#   PORTIKUS_BACKUP_KEY  private age key (default /etc/portikus-backup/age-key.txt)
+#   PORTIKUS_BACKUP_KEY            private age key (default /etc/portikus-backup/age-key.txt)
+#   PORTIKUS_RESTORE_CALL_TIMEOUT  seconds a short command on the VM may take (default 60)
 set -euo pipefail
 umask 077
 
 KEY="${PORTIKUS_BACKUP_KEY:-/etc/portikus-backup/age-key.txt}"
+# The VM is not trusted to answer: every remote call has a host-side time limit.
+CALL_TIMEOUT="${PORTIKUS_RESTORE_CALL_TIMEOUT:-60}"
+[[ "$CALL_TIMEOUT" =~ ^[1-9][0-9]{0,4}$ ]] || CALL_TIMEOUT=60
 POOL=workspace-data
 PROJECT=portikus
 HOME_DIR=/home/student
@@ -101,8 +105,17 @@ idmap=$(awk -v v="$VOL" '$1 == "volume" && $2 == v { print $5 }' "${scratch}/MAN
 regular "${VOL}.age" || die "refused by the host: set ${STAMP} does not hold ${VOL}"
 
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-vm() { runuser -u "$OPERATOR" -- ssh -n "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
-vm_in() { runuser -u "$OPERATOR" -- ssh "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
+vm() { timeout -k 5 "$CALL_TIMEOUT" runuser -u "$OPERATOR" -- ssh -n "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
+# vm_in SECONDS CMD -- a stream from standard input, with its own time limit.
+vm_in() { local t=$1; shift; timeout -k 5 "$t" runuser -u "$OPERATOR" -- ssh "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
+# The stream's limit: 10 minutes plus 1 second per 5 MB of the encrypted volume, at most 6 hours.
+stream_seconds() {
+  local size t
+  size=$(stat -c %s "${SET}/${VOL}.age")
+  t=$((600 + size / 5000000))
+  [ "$t" -le 21600 ] || t=21600
+  echo "$t"
+}
 q() { printf '%q' "$1"; }
 # in_ws CMD... -- run CMD in the workspace as the student, never as root.
 in_ws() {
@@ -132,9 +145,14 @@ print(total)') || die "refused by the host: the set's index for ${VOL} is not in
   state=$(vm "sudo incus list $(q "$INSTANCE") --project ${PROJECT} --format csv --columns ns") || die "could not ask ${VM} about ${INSTANCE}"
   grep -qx "${INSTANCE},RUNNING" <<<"$state" || die "The workspace is not running. Start it, then try again."
 
-  if in_ws test -e "${HOME_DIR}/${DIR}" -o -L "${HOME_DIR}/${DIR}"; then
-    die "~/${DIR} already exists. Rename or delete it, then try again."
-  fi
+  # test answers 1 for "absent"; anything else (a time limit, a lost connection) is not an answer.
+  rc=0
+  in_ws test -e "${HOME_DIR}/${DIR}" -o -L "${HOME_DIR}/${DIR}" || rc=$?
+  case "$rc" in
+    0) die "~/${DIR} already exists. Rename or delete it, then try again." ;;
+    1) ;;
+    *) die "could not check ~/${DIR} in the workspace; nothing was copied" ;;
+  esac
   avail=$(in_ws df -B1 --output=avail "$HOME_DIR" | tail -1 | tr -d ' ')
   [[ "$avail" =~ ^[0-9]+$ ]] || die "could not read the free space in the workspace's home"
   # Room for the copy and 5% of the free space to spare.
@@ -145,7 +163,7 @@ print(total)') || die "refused by the host: the set's index for ${VOL} is not in
   in_ws mkdir "${HOME_DIR}/${DIR}" || die "~/${DIR} could not be made. Rename or delete anything by that name, then try again."
   created=yes
   info "copying ${VOL} from set ${STAMP} into ~/${DIR} (${need} bytes)"
-  decrypt "$VOL" | vm_in "sudo incus exec $(q "$INSTANCE") --project ${PROJECT} --user 1000 --group 1000 --cwd ${HOME_DIR} --env HOME=${HOME_DIR} -- tar -xz --strip-components=2 -C $(q "${HOME_DIR}/${DIR}") backup/volume" \
+  decrypt "$VOL" | vm_in "$(stream_seconds)" "sudo incus exec $(q "$INSTANCE") --project ${PROJECT} --user 1000 --group 1000 --cwd ${HOME_DIR} --env HOME=${HOME_DIR} -- tar -xz --strip-components=2 -C $(q "${HOME_DIR}/${DIR}") backup/volume" \
     || die "The copy into ~/${DIR} failed part way; nothing was kept."
   created=no
   info "copied ${VOL} from set ${STAMP} into ~/${DIR}"
@@ -159,7 +177,7 @@ if vm "sudo incus storage volume show ${POOL} $(q "$IMPORT") --project ${PROJECT
     || die "${IMPORT} already exists and could not be removed"
 fi
 info "importing ${VOL} from set ${STAMP} as ${IMPORT}"
-decrypt "$VOL" | vm_in "sudo incus storage volume import ${POOL} /dev/stdin $(q "$IMPORT") --project ${PROJECT} -q" \
+decrypt "$VOL" | vm_in "$(stream_seconds)" "sudo incus storage volume import ${POOL} /dev/stdin $(q "$IMPORT") --project ${PROJECT} -q" \
   || die "The import of the backed-up home failed."
 if [ "$idmap" != "-" ]; then
   vm "sudo incus storage volume set ${POOL} $(q "$IMPORT") --project ${PROJECT} volatile.idmap.last=$(q "$idmap")" \
