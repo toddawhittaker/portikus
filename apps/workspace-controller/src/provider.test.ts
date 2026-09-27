@@ -19,6 +19,7 @@ import {
 	IncusWorkspaceProvider,
 	InstanceNotStoppedError,
 	VOLUME_CREATE_TIMEOUT_MS,
+	VolumeInUseError,
 } from "./provider.js";
 
 let socketPath: string;
@@ -1843,5 +1844,385 @@ describe("processes", () => {
 		await expect(hostProvider().processes("ws-test")).rejects.toMatchObject({
 			code: "OPERATION_FAILED",
 		});
+	});
+});
+
+// Admin operations (SPEC.md §19.3, §20.1): limits, the package list, kept
+// volumes, Replace home and the network's dnsmasq settings.
+describe("admin operations", () => {
+	const WS = "ws-0123456789abcdef01234567";
+	const POOL = "/1.0/storage-pools/mypool/volumes/custom";
+
+	interface OpsState {
+		status: string;
+		config: Record<string, string>;
+		devices: Record<string, Record<string, string>>;
+		etagSeq: number;
+		/** Volume name to its snapshots. */
+		volumes: Map<string, string[]>;
+		usedBy: Map<string, string[]>;
+		file: { status: number; type: string; body: string } | null;
+		networkPatches: Array<{ path: string; body: unknown }>;
+		requests: string[];
+		/** Fail the first request whose "METHOD path" starts with this, once. */
+		failOnce: string | null;
+	}
+
+	function opsState(): OpsState {
+		return {
+			status: "Stopped",
+			config: { "image.os": "debian", "limits.cpu": "2" },
+			devices: {
+				home: disk(`${WS}-home`, "/home/student"),
+				docker: disk(`${WS}-docker`, "/var/lib/docker"),
+			},
+			etagSeq: 1,
+			volumes: new Map([
+				[`${WS}-home`, []],
+				[`${WS}-docker`, []],
+			]),
+			usedBy: new Map(),
+			file: null,
+			networkPatches: [],
+			requests: [],
+			failOnce: null,
+		};
+	}
+
+	function serveOps(state: OpsState): void {
+		handler = async (req, res) => {
+			const body = await readBody(req);
+			const url = new URL(req.url ?? "/", "http://incus");
+			const p = decodeURIComponent(url.pathname);
+			const method = req.method ?? "";
+			const key = `${method} ${p}`;
+			state.requests.push(key);
+			if (state.failOnce && key.startsWith(state.failOnce)) {
+				state.failOnce = null;
+				incusError(res, 500, "interrupted");
+				return;
+			}
+			const etag = `"e${state.etagSeq}"`;
+			if (p === `/1.0/instances/${WS}` && method === "GET") {
+				res.writeHead(200, { "Content-Type": "application/json", ETag: etag });
+				res.end(
+					JSON.stringify(
+						sync({
+							name: WS,
+							status: state.status,
+							architecture: "x86_64",
+							config: state.config,
+							devices: state.devices,
+							ephemeral: false,
+							profiles: ["workspace"],
+							stateful: false,
+							description: "",
+						}),
+					),
+				);
+			} else if (p === `/1.0/instances/${WS}` && method === "PUT") {
+				if (req.headers["if-match"] !== etag) {
+					incusError(res, 412, "ETag doesn't match");
+					return;
+				}
+				const parsed = JSON.parse(body);
+				state.config = parsed.config;
+				state.devices = parsed.devices;
+				state.etagSeq++;
+				respond(res, 200, sync({}));
+			} else if (p === `/1.0/instances/${WS}` && method === "PATCH") {
+				state.devices = { ...state.devices, ...JSON.parse(body).devices };
+				state.etagSeq++;
+				respond(res, 200, sync({}));
+			} else if (p === `/1.0/instances/${WS}/files` && method === "GET") {
+				if (!state.file) {
+					incusError(res, 404, "not found");
+					return;
+				}
+				res.writeHead(state.file.status, {
+					"Content-Type": "application/octet-stream",
+					"X-Incus-type": state.file.type,
+				});
+				res.end(state.file.body);
+			} else if (p === POOL && method === "GET") {
+				respond(
+					res,
+					200,
+					sync(
+						[...state.volumes.keys()].map((name) => ({
+							name,
+							created_at: `created-${name}`,
+						})),
+					),
+				);
+			} else if (p.startsWith(`${POOL}/`)) {
+				const rest = p.slice(POOL.length + 1).split("/");
+				const volume = rest[0] ?? "";
+				const snapshots = state.volumes.get(volume);
+				if (!snapshots) {
+					incusError(res, 404, "Storage volume not found");
+				} else if (rest.length === 1 && method === "GET") {
+					respond(
+						res,
+						200,
+						sync({ name: volume, used_by: state.usedBy.get(volume) ?? [] }),
+					);
+				} else if (rest.length === 1 && method === "POST") {
+					const { name } = JSON.parse(body);
+					state.volumes.delete(volume);
+					state.volumes.set(name, snapshots);
+					respond(res, 200, sync({}));
+				} else if (rest.length === 1 && method === "DELETE") {
+					state.volumes.delete(volume);
+					respond(res, 200, sync({}));
+				} else if (rest[1] === "snapshots" && rest.length === 2) {
+					respond(
+						res,
+						200,
+						sync(
+							snapshots.map((s) => ({ name: `${volume}/${s}`, created_at: `at-${s}` })),
+						),
+					);
+				} else if (rest[1] === "snapshots" && method === "DELETE") {
+					state.volumes.set(
+						volume,
+						snapshots.filter((s) => s !== rest[2]),
+					);
+					respond(res, 200, sync({}));
+				} else {
+					incusError(res, 404, `unexpected ${key}`);
+				}
+			} else if (p === "/1.0/networks/portikus-ws" && method === "PATCH") {
+				state.networkPatches.push({ path: req.url ?? "", body: JSON.parse(body) });
+				respond(res, 200, sync({}));
+			} else {
+				incusError(res, 404, `unexpected ${key}`);
+			}
+		};
+	}
+
+	let ops: IncusWorkspaceProvider;
+	beforeEach(() => {
+		ops = usageProvider(fs.mkdtempSync(path.join(os.tmpdir(), "ops-cgroup-")));
+	});
+
+	test("setLimits writes the instance's own keys and removes a null one", async () => {
+		const state = opsState();
+		serveOps(state);
+
+		await ops.setLimits(WS, { cpu: 4, memoryMiB: 2048, processes: null });
+		expect(state.config).toEqual({
+			"image.os": "debian",
+			"limits.cpu": "4",
+			"limits.memory": "2048MiB",
+		});
+
+		await ops.setLimits(WS, { cpu: null, memoryMiB: 2048, processes: 1000 });
+		expect(state.config).toEqual({
+			"image.os": "debian",
+			"limits.memory": "2048MiB",
+			"limits.processes": "1000",
+		});
+		expect(state.devices.home?.source).toBe(`${WS}-home`);
+
+		// The same values again write nothing.
+		const puts = state.requests.filter((r) => r.startsWith("PUT")).length;
+		await ops.setLimits(WS, { cpu: null, memoryMiB: 2048, processes: 1000 });
+		expect(state.requests.filter((r) => r.startsWith("PUT")).length).toBe(puts);
+	});
+
+	test("setLimits refuses more CPUs than the host has before touching Incus", async () => {
+		const state = opsState();
+		serveOps(state);
+		await expect(
+			ops.setLimits(WS, { cpu: 9, memoryMiB: null, processes: null }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(state.requests).toEqual([]);
+	});
+
+	test("start with an allowance sets it before the instance runs", async () => {
+		const state = fakeIncus();
+		serveIncus(state);
+		const original = handler;
+		let statusAtPut = "";
+		handler = (req, res) => {
+			if (req.method === "PUT" && req.url?.startsWith("/1.0/instances/ws-test?")) {
+				statusAtPut = state.status;
+			}
+			original(req, res);
+		};
+
+		await provider.start("ws-test", { ...START, cpuAllowance: "50ms/100ms" });
+
+		expect(statusAtPut).toBe("Stopped");
+		expect(state.config["limits.cpu.allowance"]).toBe("50ms/100ms");
+		expect(state.status).toBe("Running");
+		await expect(
+			provider.start("ws-test", { ...START, cpuAllowance: "50%" }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
+	test("addedPackages reads the list and keeps only package names", async () => {
+		const state = opsState();
+		state.file = {
+			status: 200,
+			type: "file",
+			body: "# image 2026.09.9\nhtop\n$(reboot)\n../x\nripgrep\n",
+		};
+		serveOps(state);
+		expect(await ops.addedPackages(WS)).toEqual({
+			image: "2026.09.9",
+			packages: ["htop", "ripgrep"],
+		});
+		expect(state.requests).toEqual([`GET /1.0/instances/${WS}/files`]);
+	});
+
+	test("addedPackages refuses a symbolic link, a missing file and an oversized one", async () => {
+		const state = opsState();
+		serveOps(state);
+		await expect(ops.addedPackages(WS)).rejects.toMatchObject({ code: "NOT_FOUND" });
+		state.file = { status: 200, type: "symlink", body: "/etc/shadow" };
+		await expect(ops.addedPackages(WS)).rejects.toMatchObject({ code: "NOT_FOUND" });
+		state.file = { status: 200, type: "directory", body: "[]" };
+		await expect(ops.addedPackages(WS)).rejects.toMatchObject({ code: "NOT_FOUND" });
+		state.file = { status: 200, type: "file", body: "a\n".repeat(40 * 1024) };
+		await expect(ops.addedPackages(WS)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
+	test("keptVolumes lists pre-change snapshots and kept homes only", async () => {
+		const state = opsState();
+		state.volumes.set(`${WS}-home`, ["pre-upgrade", "portikus-backup"]);
+		state.volumes.set(`${WS}-home-replaced-1790000000`, ["pre-old"]);
+		state.volumes.set("other-volume", ["pre-x"]);
+		serveOps(state);
+
+		expect(await ops.keptVolumes()).toEqual({
+			snapshots: [
+				{ volume: `${WS}-home`, name: "pre-upgrade", createdAt: "at-pre-upgrade" },
+			],
+			keptHomes: [
+				{
+					volume: `${WS}-home-replaced-1790000000`,
+					instance: WS,
+					createdAt: `created-${WS}-home-replaced-1790000000`,
+				},
+			],
+		});
+	});
+
+	test("deleteSnapshot deletes a pre-change snapshot and refuses any other", async () => {
+		const state = opsState();
+		state.volumes.set(`${WS}-home`, ["pre-upgrade", "portikus-backup"]);
+		serveOps(state);
+
+		for (const [volume, snapshot] of [
+			[`${WS}-home`, "portikus-backup"],
+			[`${WS}-home`, "pre-a/../b"],
+			["ws-test-home", "pre-upgrade"],
+			[`${WS}-home-replaced-1`, "pre-upgrade"],
+		] as const) {
+			await expect(ops.deleteSnapshot(volume, snapshot)).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+			});
+		}
+		expect(state.requests).toEqual([]);
+
+		await ops.deleteSnapshot(`${WS}-home`, "pre-upgrade");
+		expect(state.volumes.get(`${WS}-home`)).toEqual(["portikus-backup"]);
+	});
+
+	test("deleteKeptHome deletes only an unused kept home", async () => {
+		const state = opsState();
+		const kept = `${WS}-home-replaced-1790000000`;
+		state.volumes.set(kept, []);
+		state.usedBy.set(kept, [`/1.0/instances/${WS}`]);
+		serveOps(state);
+
+		await expect(ops.deleteKeptHome(`${WS}-home`)).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+		});
+		await expect(ops.deleteKeptHome(kept)).rejects.toBeInstanceOf(VolumeInUseError);
+		expect(state.volumes.has(kept)).toBe(true);
+
+		state.usedBy.delete(kept);
+		await ops.deleteKeptHome(kept);
+		expect(state.volumes.has(kept)).toBe(false);
+	});
+
+	test("replaceHome refuses a running instance and touches nothing", async () => {
+		const state = opsState();
+		state.status = "Running";
+		state.volumes.set(`${WS}-home-import`, []);
+		serveOps(state);
+		await expect(ops.replaceHome(WS)).rejects.toBeInstanceOf(InstanceNotStoppedError);
+		expect(state.requests).toEqual([`GET /1.0/instances/${WS}`]);
+	});
+
+	test("replaceHome refuses when there is no imported home", async () => {
+		const state = opsState();
+		serveOps(state);
+		await expect(ops.replaceHome(WS)).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(state.devices.home?.source).toBe(`${WS}-home`);
+	});
+
+	function expectSwapped(state: OpsState, kept: string): void {
+		expect(kept).toMatch(new RegExp(`^${WS}-home-replaced-\\d+$`));
+		expect(state.volumes.get(kept)).toEqual(["old-home"]);
+		expect(state.volumes.get(`${WS}-home`)).toEqual(["imported"]);
+		expect(state.volumes.has(`${WS}-home-import`)).toBe(false);
+		expect(state.devices.home).toEqual(disk(`${WS}-home`, "/home/student"));
+		expect(state.devices.docker).toEqual(disk(`${WS}-docker`, "/var/lib/docker"));
+	}
+
+	function swapState(): OpsState {
+		const state = opsState();
+		// Snapshot lists stand in for the volumes' contents.
+		state.volumes.set(`${WS}-home`, ["old-home"]);
+		state.volumes.set(`${WS}-home-import`, ["imported"]);
+		return state;
+	}
+
+	test("replaceHome detaches, keeps the old home, renames the import and attaches", async () => {
+		const state = swapState();
+		serveOps(state);
+		const { kept } = await ops.replaceHome(WS);
+		expectSwapped(state, kept);
+	});
+
+	for (const [step, failOnce] of [
+		["the detach", `PUT /1.0/instances/${WS}`],
+		["keeping the old home", `POST ${POOL}/${WS}-home`],
+		["renaming the import", `POST ${POOL}/${WS}-home-import`],
+		["the attach", `PATCH /1.0/instances/${WS}`],
+	] as const) {
+		test(`a replaceHome interrupted at ${step} is finished by a retry`, async () => {
+			const state = swapState();
+			state.failOnce = failOnce;
+			serveOps(state);
+			await expect(ops.replaceHome(WS)).rejects.toBeInstanceOf(Error);
+			expect(state.failOnce).toBeNull();
+			// Nothing is lost at any point: both homes still exist under some name.
+			const contents = [...state.volumes.values()].flat();
+			expect(contents).toContain("old-home");
+			expect(contents).toContain("imported");
+
+			const { kept } = await ops.replaceHome(WS);
+			expectSwapped(state, kept);
+			expect([...state.volumes.keys()].filter((v) => v.includes("replaced"))).toEqual([
+				kept,
+			]);
+		});
+	}
+
+	test("setNetworkDnsmasq patches only raw.dnsmasq on the workspace network", async () => {
+		const state = opsState();
+		serveOps(state);
+		await ops.setNetworkDnsmasq("server=/example.edu/#\n");
+		await ops.setNetworkDnsmasq("");
+		expect(state.networkPatches.map((p) => p.body)).toEqual([
+			{ config: { "raw.dnsmasq": "server=/example.edu/#\n" } },
+			{ config: { "raw.dnsmasq": "" } },
+		]);
+		expect(state.networkPatches[0]?.path).toContain("project=portikus");
 	});
 });

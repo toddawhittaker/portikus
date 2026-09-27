@@ -3,12 +3,16 @@ import {
 	CreateInstanceRequest,
 	GrowVolumesRequest,
 	InstanceName,
+	KeptHomeVolumeName,
+	PreChangeSnapshotName,
 	RebuildInstanceRequest,
 	ResetDockerRequest,
 	SetCpuAllowanceRequest,
+	SetInstanceLimitsRequest,
 	SetLogLevelRequest,
 	StartInstanceRequest,
 	StopInstanceRequest,
+	WorkspaceVolumeName,
 } from "@portikus/contracts";
 import {
 	applyLevel,
@@ -21,7 +25,11 @@ import {
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { tokenAuth } from "./auth.js";
 import { IncusError } from "./incus.js";
-import { InstanceNotStoppedError, type WorkspaceProvider } from "./provider.js";
+import {
+	InstanceNotStoppedError,
+	VolumeInUseError,
+	type WorkspaceProvider,
+} from "./provider.js";
 
 const ERROR_STATUS: Record<ControllerErrorCode, number> = {
 	BAD_REQUEST: 400,
@@ -168,6 +176,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 					timezone: bodyResult.data.timezone,
 					dockerGiB: bodyResult.data.dockerGiB,
 					recoveryGiB: bodyResult.data.recoveryGiB,
+					cpuAllowance: bodyResult.data.cpuAllowance,
 				}),
 			);
 			request.log.info(
@@ -348,6 +357,111 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		}
 	});
 
+	// Per-workspace limits on the instance, never the profile (SPEC.md §19.3).
+	app.put("/instances/:name/limits", async (request, reply) => {
+		const params = request.params as { name: string };
+		if (!InstanceName.safeParse(params.name).success) {
+			return reply
+				.code(400)
+				.send({ code: "INVALID_NAME", message: "invalid instance name" });
+		}
+		const bodyResult = SetInstanceLimitsRequest.safeParse(request.body ?? {});
+		if (!bodyResult.success) {
+			return reply.code(400).send({
+				code: "BAD_REQUEST",
+				message: bodyResult.error.issues.map((i) => i.message).join("; "),
+			});
+		}
+		try {
+			await provider.setLimits(params.name, bodyResult.data);
+			return reply.code(204).send();
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	// The worker's daily package survey reads the apt hook's list (SPEC.md §20.1).
+	app.get("/instances/:name/added-packages", async (request, reply) => {
+		const params = request.params as { name: string };
+		if (!InstanceName.safeParse(params.name).success) {
+			return reply
+				.code(400)
+				.send({ code: "INVALID_NAME", message: "invalid instance name" });
+		}
+		try {
+			return reply.code(200).send(await provider.addedPackages(params.name));
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	// Swap an imported home in, keeping the old one (ADR 0021's pattern).
+	app.post("/instances/:name/replace-home", async (request, reply) => {
+		const params = request.params as { name: string };
+		if (!InstanceName.safeParse(params.name).success) {
+			return reply
+				.code(400)
+				.send({ code: "INVALID_NAME", message: "invalid instance name" });
+		}
+		const started = Date.now();
+		try {
+			const result = await singleFlight(`replace-home:${params.name}`, () =>
+				provider.replaceHome(params.name),
+			);
+			request.log.info(
+				{ instance: params.name, kept: result.kept, durationMs: Date.now() - started },
+				"home replaced",
+			);
+			return reply.code(200).send(result);
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	app.get("/volumes/kept", async (_request, reply) => {
+		try {
+			return reply.code(200).send(await provider.keptVolumes());
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	// Only pre-change snapshots of a workspace's own volumes can be deleted.
+	app.delete("/volumes/:volume/snapshots/:snapshot", async (request, reply) => {
+		const params = request.params as { volume: string; snapshot: string };
+		if (
+			!WorkspaceVolumeName.safeParse(params.volume).success ||
+			!PreChangeSnapshotName.safeParse(params.snapshot).success
+		) {
+			return reply.code(400).send({
+				code: "BAD_REQUEST",
+				message: "only pre-change snapshots can be deleted",
+			});
+		}
+		try {
+			await provider.deleteSnapshot(params.volume, params.snapshot);
+			return reply.code(204).send();
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	// Only a home kept by Replace home can be deleted by name.
+	app.delete("/volumes/:volume", async (request, reply) => {
+		const params = request.params as { volume: string };
+		if (!KeptHomeVolumeName.safeParse(params.volume).success) {
+			return reply
+				.code(400)
+				.send({ code: "BAD_REQUEST", message: "only kept homes can be deleted" });
+		}
+		try {
+			await provider.deleteKeptHome(params.volume);
+			return reply.code(204).send();
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
 	app.post("/instances/:name/volumes", async (request, reply) => {
 		const params = request.params as { name: string };
 		if (!InstanceName.safeParse(params.name).success) {
@@ -379,7 +493,7 @@ function sendError(
 	reply: { code: (n: number) => { send: (b: unknown) => unknown } },
 	err: unknown,
 ): unknown {
-	if (err instanceof InstanceNotStoppedError) {
+	if (err instanceof InstanceNotStoppedError || err instanceof VolumeInUseError) {
 		return reply.code(409).send({ code: err.code, message: err.message });
 	}
 	if (err instanceof IncusError) {

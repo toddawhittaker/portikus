@@ -1,4 +1,5 @@
 import {
+	type AddedPackagesResponse,
 	type ControllerErrorCode,
 	type CreateInstanceResponse,
 	type GrowVolumesRequest,
@@ -8,12 +9,30 @@ import {
 	type InstanceProcess,
 	type InstanceStatus,
 	type InstanceUsage,
+	KeptHomeVolumeName,
+	type KeptVolumesResponse,
+	PreChangeSnapshotName,
 	type RebuildInstanceResponse,
+	type ReplaceHomeResponse,
+	type SetInstanceLimitsRequest,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
+	WorkspaceVolumeName,
 } from "@portikus/contracts";
 import { IncusError } from "./incus.js";
-import { InstanceNotStoppedError, type WorkspaceProvider } from "./provider.js";
+import {
+	ADDED_PACKAGES_MAX_BYTES,
+	InstanceNotStoppedError,
+	parseAddedPackages,
+	VolumeInUseError,
+	type WorkspaceProvider,
+} from "./provider.js";
+
+interface FakeVolume {
+	createdAt: string;
+	/** Snapshot name to creation time. */
+	snapshots: Map<string, string>;
+}
 
 interface FakeInstance {
 	name: string;
@@ -30,10 +49,19 @@ interface FakeInstance {
 	dockerGeneration: number;
 	rebuilds: number;
 	cpuAllowance: string | null;
+	limits: SetInstanceLimitsRequest;
+	/** The volume attached as home. */
+	homeVolume: string;
+	/** The apt hook's list in this fake, or null when it is missing. */
+	addedPackagesFile: { type: "file" | "symlink" | "directory"; content: string } | null;
 }
 
 export class FakeWorkspaceProvider implements WorkspaceProvider {
 	readonly instances = new Map<string, FakeInstance>();
+	readonly volumes = new Map<string, FakeVolume>();
+	/** What `setNetworkDnsmasq` last wrote. */
+	networkDnsmasq = "";
+	readonly hostCpuCount = 4;
 	private nextError: ControllerErrorCode | null = null;
 	private stopShouldHang = false;
 
@@ -89,8 +117,14 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			dockerGeneration: 1,
 			rebuilds: 0,
 			cpuAllowance: null,
+			limits: { cpu: null, memoryMiB: null, processes: null },
+			homeVolume: `${name}-home`,
+			addedPackagesFile: null,
 		};
 		this.instances.set(name, inst);
+		for (const kind of ["home", "docker", "recovery"]) {
+			this.addVolume(`${name}-${kind}`);
+		}
 		return { created: true, imageFingerprint: "abc123", quota };
 	}
 
@@ -104,6 +138,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			timezone: string;
 			dockerGiB?: number;
 			recoveryGiB?: number;
+			cpuAllowance?: string;
 		},
 	): Promise<StartInstanceResponse> {
 		this.validate(name);
@@ -114,7 +149,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 		}
 		inst.status = "Running";
 		inst.ipv4 = "10.0.0.2";
-		inst.cpuAllowance = null;
+		inst.cpuAllowance = opts.cpuAllowance ?? null;
 		// The real provider pushes this token and waits for agent health;
 		// the fake records it and treats the agent as already healthy.
 		inst.agentToken = opts.agentToken;
@@ -292,5 +327,112 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			throw new IncusError("OPERATION_FAILED", `instance ${name} is not running`);
 		}
 		return this.processRows;
+	}
+
+	/** Add a custom volume, as the backup channel's import would. */
+	addVolume(name: string, createdAt = new Date().toISOString()): void {
+		if (!this.volumes.has(name)) {
+			this.volumes.set(name, { createdAt, snapshots: new Map() });
+		}
+	}
+
+	private existingInstance(name: string): FakeInstance {
+		this.validate(name);
+		this.checkError();
+		const inst = this.instances.get(name);
+		if (!inst) {
+			throw new IncusError("NOT_FOUND", `instance ${name} not found`);
+		}
+		return inst;
+	}
+
+	async setLimits(name: string, limits: SetInstanceLimitsRequest): Promise<void> {
+		const inst = this.existingInstance(name);
+		if (limits.cpu !== null && limits.cpu > this.hostCpuCount) {
+			throw new IncusError("BAD_REQUEST", `the host has ${this.hostCpuCount} CPUs`);
+		}
+		inst.limits = { ...limits };
+	}
+
+	async addedPackages(name: string): Promise<AddedPackagesResponse> {
+		const inst = this.existingInstance(name);
+		const file = inst.addedPackagesFile;
+		if (file?.type !== "file") {
+			throw new IncusError("NOT_FOUND", "no added-packages list");
+		}
+		if (Buffer.byteLength(file.content) > ADDED_PACKAGES_MAX_BYTES) {
+			throw new IncusError("BAD_REQUEST", "the added-packages list is over 64 KiB");
+		}
+		return parseAddedPackages(file.content);
+	}
+
+	async keptVolumes(): Promise<KeptVolumesResponse> {
+		this.checkError();
+		const result: KeptVolumesResponse = { snapshots: [], keptHomes: [] };
+		for (const [volume, info] of this.volumes) {
+			if (KeptHomeVolumeName.safeParse(volume).success) {
+				result.keptHomes.push({
+					volume,
+					instance: volume.slice(0, "ws-".length + 24),
+					createdAt: info.createdAt,
+				});
+				continue;
+			}
+			if (!WorkspaceVolumeName.safeParse(volume).success) continue;
+			for (const [name, createdAt] of info.snapshots) {
+				if (PreChangeSnapshotName.safeParse(name).success) {
+					result.snapshots.push({ volume, name, createdAt });
+				}
+			}
+		}
+		return result;
+	}
+
+	async deleteSnapshot(volume: string, snapshot: string): Promise<void> {
+		if (
+			!WorkspaceVolumeName.safeParse(volume).success ||
+			!PreChangeSnapshotName.safeParse(snapshot).success
+		) {
+			throw new IncusError("BAD_REQUEST", "only pre-change snapshots can be deleted");
+		}
+		this.checkError();
+		if (!this.volumes.get(volume)?.snapshots.delete(snapshot)) {
+			throw new IncusError("NOT_FOUND", `snapshot ${volume}/${snapshot} not found`);
+		}
+	}
+
+	async deleteKeptHome(volume: string): Promise<void> {
+		if (!KeptHomeVolumeName.safeParse(volume).success) {
+			throw new IncusError("BAD_REQUEST", "only kept homes can be deleted");
+		}
+		this.checkError();
+		if (!this.volumes.has(volume)) {
+			throw new IncusError("NOT_FOUND", `volume ${volume} not found`);
+		}
+		if ([...this.instances.values()].some((inst) => inst.homeVolume === volume)) {
+			throw new VolumeInUseError(volume);
+		}
+		this.volumes.delete(volume);
+	}
+
+	async replaceHome(name: string): Promise<ReplaceHomeResponse> {
+		const inst = this.stoppedInstance(name);
+		const importVolume = `${name}-home-import`;
+		const imported = this.volumes.get(importVolume);
+		if (!imported) {
+			throw new IncusError("NOT_FOUND", `volume ${importVolume} not found`);
+		}
+		const kept = `${name}-home-replaced-${Math.floor(Date.now() / 1000)}`;
+		const home = this.volumes.get(`${name}-home`);
+		if (home) this.volumes.set(kept, home);
+		this.volumes.set(`${name}-home`, imported);
+		this.volumes.delete(importVolume);
+		inst.homeVolume = `${name}-home`;
+		return { kept };
+	}
+
+	async setNetworkDnsmasq(raw: string): Promise<void> {
+		this.checkError();
+		this.networkDnsmasq = raw;
 	}
 }

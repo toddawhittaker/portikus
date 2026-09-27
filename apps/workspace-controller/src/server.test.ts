@@ -926,3 +926,286 @@ test("GET /instances/:name/processes refuses bad names, unknown and stopped inst
 	});
 	expect(anonymous.statusCode).toBe(401);
 });
+
+// Admin operations (SPEC.md §19.3, §20.1): limits, the package list, kept
+// volumes and Replace home.
+
+const WS = "ws-0123456789abcdef01234567";
+
+async function createWs(): Promise<void> {
+	await provider.create(WS, { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+}
+
+test("every new route needs the token", async () => {
+	for (const [method, url] of [
+		["PUT", `/instances/${WS}/limits`],
+		["GET", `/instances/${WS}/added-packages`],
+		["GET", "/volumes/kept"],
+		["DELETE", `/volumes/${WS}-home/snapshots/pre-x`],
+		["DELETE", `/volumes/${WS}-home-replaced-1`],
+		["POST", `/instances/${WS}/replace-home`],
+	] as const) {
+		const res = await app.inject({ method, url });
+		expect(res.statusCode, `${method} ${url}`).toBe(401);
+	}
+});
+
+test("PUT /instances/:name/limits sets and removes each limit", async () => {
+	await createWs();
+	const res = await app.inject({
+		method: "PUT",
+		url: `/instances/${WS}/limits`,
+		headers: auth(),
+		payload: { cpu: 2, memoryMiB: 4096, processes: null },
+	});
+	expect(res.statusCode).toBe(204);
+	expect(provider.instances.get(WS)?.limits).toEqual({
+		cpu: 2,
+		memoryMiB: 4096,
+		processes: null,
+	});
+});
+
+test("limits refuses more CPUs than the host has, and values out of range", async () => {
+	await createWs();
+	const tooMany = await app.inject({
+		method: "PUT",
+		url: `/instances/${WS}/limits`,
+		headers: auth(),
+		payload: { cpu: provider.hostCpuCount + 1, memoryMiB: null, processes: null },
+	});
+	expect(tooMany.statusCode).toBe(400);
+	expect(tooMany.json().code).toBe("BAD_REQUEST");
+
+	for (const payload of [
+		{ cpu: 0, memoryMiB: null, processes: null },
+		{ cpu: null, memoryMiB: 511, processes: null },
+		{ cpu: null, memoryMiB: null, processes: 32769 },
+		{ cpu: null, memoryMiB: null },
+		{ cpu: null, memoryMiB: null, processes: null, extra: 1 },
+	]) {
+		const res = await app.inject({
+			method: "PUT",
+			url: `/instances/${WS}/limits`,
+			headers: auth(),
+			payload,
+		});
+		expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+	}
+	const badName = await app.inject({
+		method: "PUT",
+		url: "/instances/Bad_Name/limits",
+		headers: auth(),
+		payload: { cpu: 1, memoryMiB: null, processes: null },
+	});
+	expect(badName.json().code).toBe("INVALID_NAME");
+	expect(provider.instances.get(WS)?.limits.cpu).toBeNull();
+});
+
+test("start with an allowance leaves the instance throttled; without one it is cleared", async () => {
+	await createWs();
+	const body = {
+		agentToken: AGENT_TOKEN,
+		hostname: "tw7",
+		previewHostSuffix: "preview.example.edu",
+		timezone: "America/New_York",
+	};
+	const held = await app.inject({
+		method: "POST",
+		url: `/instances/${WS}/start`,
+		headers: auth(),
+		payload: { ...body, cpuAllowance: "50ms/100ms" },
+	});
+	expect(held.statusCode).toBe(200);
+	expect(provider.instances.get(WS)?.cpuAllowance).toBe("50ms/100ms");
+
+	await provider.stop(WS, { timeoutSeconds: 1 });
+	await app.inject({
+		method: "POST",
+		url: `/instances/${WS}/start`,
+		headers: auth(),
+		payload: body,
+	});
+	expect(provider.instances.get(WS)?.cpuAllowance).toBeNull();
+
+	const bad = await app.inject({
+		method: "POST",
+		url: `/instances/${WS}/start`,
+		headers: auth(),
+		payload: { ...body, cpuAllowance: "50%" },
+	});
+	expect(bad.statusCode).toBe(400);
+});
+
+test("GET /instances/:name/added-packages returns the checked list", async () => {
+	await createWs();
+	const inst = provider.instances.get(WS);
+	if (!inst) throw new Error("no instance");
+	inst.addedPackagesFile = {
+		type: "file",
+		content:
+			"# image 2026.09.9\nhtop\n\nrm -rf /\nlibfoo2:amd64\npython3.13-venv\nhtop\n",
+	};
+	const res = await app.inject({
+		method: "GET",
+		url: `/instances/${WS}/added-packages`,
+		headers: auth(),
+	});
+	expect(res.statusCode).toBe(200);
+	expect(res.json()).toEqual({
+		image: "2026.09.9",
+		packages: ["htop", "python3.13-venv"],
+	});
+});
+
+test("added-packages answers 404 for a missing file or a symbolic link, and refuses an oversized one", async () => {
+	await createWs();
+	const inst = provider.instances.get(WS);
+	if (!inst) throw new Error("no instance");
+	const get = () =>
+		app.inject({
+			method: "GET",
+			url: `/instances/${WS}/added-packages`,
+			headers: auth(),
+		});
+
+	expect((await get()).statusCode).toBe(404);
+	inst.addedPackagesFile = { type: "symlink", content: "/etc/shadow" };
+	const link = await get();
+	expect(link.statusCode).toBe(404);
+	expect(link.json().code).toBe("NOT_FOUND");
+	inst.addedPackagesFile = { type: "file", content: "a".repeat(64 * 1024 + 1) };
+	expect((await get()).statusCode).toBe(400);
+});
+
+test("GET /volumes/kept lists only pre-change snapshots and kept homes", async () => {
+	await createWs();
+	provider.volumes
+		.get(`${WS}-home`)
+		?.snapshots.set("pre-upgrade", "2026-09-24T02:30:00Z");
+	provider.volumes
+		.get(`${WS}-home`)
+		?.snapshots.set("portikus-backup", "2026-09-24T02:00:00Z");
+	provider.addVolume(`${WS}-home-replaced-1790000000`, "2026-09-25T00:00:00Z");
+	provider.addVolume("something-else");
+
+	const res = await app.inject({
+		method: "GET",
+		url: "/volumes/kept",
+		headers: auth(),
+	});
+	expect(res.statusCode).toBe(200);
+	expect(res.json()).toEqual({
+		snapshots: [
+			{ volume: `${WS}-home`, name: "pre-upgrade", createdAt: "2026-09-24T02:30:00Z" },
+		],
+		keptHomes: [
+			{
+				volume: `${WS}-home-replaced-1790000000`,
+				instance: WS,
+				createdAt: "2026-09-25T00:00:00Z",
+			},
+		],
+	});
+});
+
+test("DELETE a snapshot deletes only pre-change snapshots on workspace volumes", async () => {
+	await createWs();
+	const snaps = provider.volumes.get(`${WS}-home`)?.snapshots;
+	snaps?.set("pre-upgrade", "t");
+	snaps?.set("portikus-backup", "t");
+
+	for (const url of [
+		`/volumes/${WS}-home/snapshots/portikus-backup`,
+		`/volumes/${WS}-home/snapshots/pre-`,
+		`/volumes/${WS}-home/snapshots/pre-UP`,
+		`/volumes/${WS}-home-replaced-1/snapshots/pre-upgrade`,
+		`/volumes/${WS}-other/snapshots/pre-upgrade`,
+		"/volumes/ws-abc-home/snapshots/pre-upgrade",
+		`/volumes/..%2F${WS}-home/snapshots/pre-upgrade`,
+	]) {
+		const res = await app.inject({ method: "DELETE", url, headers: auth() });
+		expect(res.statusCode, url).toBe(400);
+		expect(res.json().code).toBe("BAD_REQUEST");
+	}
+	expect([...(snaps?.keys() ?? [])]).toEqual(["pre-upgrade", "portikus-backup"]);
+
+	const ok = await app.inject({
+		method: "DELETE",
+		url: `/volumes/${WS}-home/snapshots/pre-upgrade`,
+		headers: auth(),
+	});
+	expect(ok.statusCode).toBe(204);
+	expect([...(snaps?.keys() ?? [])]).toEqual(["portikus-backup"]);
+});
+
+test("DELETE a volume deletes only kept homes", async () => {
+	await createWs();
+	provider.addVolume(`${WS}-home-replaced-1790000000`);
+	for (const url of [
+		`/volumes/${WS}-home`,
+		`/volumes/${WS}-docker`,
+		`/volumes/${WS}-home-import`,
+		`/volumes/${WS}-home-replaced-`,
+		`/volumes/${WS}-home-replaced-12x`,
+	]) {
+		const res = await app.inject({ method: "DELETE", url, headers: auth() });
+		expect(res.statusCode, url).toBe(400);
+	}
+	expect(provider.volumes.has(`${WS}-home`)).toBe(true);
+
+	const ok = await app.inject({
+		method: "DELETE",
+		url: `/volumes/${WS}-home-replaced-1790000000`,
+		headers: auth(),
+	});
+	expect(ok.statusCode).toBe(204);
+	expect(provider.volumes.has(`${WS}-home-replaced-1790000000`)).toBe(false);
+});
+
+test("POST /instances/:name/replace-home swaps the import in and keeps the old home", async () => {
+	await createWs();
+	const oldHome = provider.volumes.get(`${WS}-home`);
+	provider.addVolume(`${WS}-home-import`);
+	const imported = provider.volumes.get(`${WS}-home-import`);
+
+	const res = await app.inject({
+		method: "POST",
+		url: `/instances/${WS}/replace-home`,
+		headers: auth(),
+	});
+	expect(res.statusCode).toBe(200);
+	const { kept } = res.json() as { kept: string };
+	expect(kept).toMatch(new RegExp(`^${WS}-home-replaced-\\d+$`));
+	expect(provider.volumes.get(kept)).toBe(oldHome);
+	expect(provider.volumes.get(`${WS}-home`)).toBe(imported);
+	expect(provider.volumes.has(`${WS}-home-import`)).toBe(false);
+});
+
+test("replace-home refuses a running instance and a missing import", async () => {
+	await createWs();
+	provider.addVolume(`${WS}-home-import`);
+	await provider.start(WS, {
+		timeoutSeconds: 1,
+		agentToken: AGENT_TOKEN,
+		hostname: "tw7",
+		previewHostSuffix: "p.example.edu",
+		timezone: "America/New_York",
+	});
+	const running = await app.inject({
+		method: "POST",
+		url: `/instances/${WS}/replace-home`,
+		headers: auth(),
+	});
+	expect(running.statusCode).toBe(409);
+	expect(provider.volumes.has(`${WS}-home-import`)).toBe(true);
+
+	await provider.stop(WS, { timeoutSeconds: 1 });
+	provider.volumes.delete(`${WS}-home-import`);
+	const missing = await app.inject({
+		method: "POST",
+		url: `/instances/${WS}/replace-home`,
+		headers: auth(),
+	});
+	expect(missing.statusCode).toBe(404);
+});

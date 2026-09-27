@@ -1,7 +1,9 @@
 import { availableParallelism } from "node:os";
 import {
+	type AddedPackagesResponse,
 	CpuAllowance,
 	type CreateInstanceResponse,
+	DebianPackageName,
 	type GrowVolumesRequest,
 	type GrowVolumesResponse,
 	type HostSnapshot,
@@ -10,11 +12,17 @@ import {
 	type InstanceStatus,
 	type InstanceUsage,
 	isSystemTimezone,
+	KeptHomeVolumeName,
+	type KeptVolumesResponse,
 	POOL_FULL_PERCENT,
+	PreChangeSnapshotName,
 	poolFillPercent,
 	type RebuildInstanceResponse,
+	type ReplaceHomeResponse,
+	type SetInstanceLimitsRequest,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
+	WorkspaceVolumeName,
 } from "@portikus/contracts";
 import { type Logger, silentLogger } from "@portikus/observability";
 import {
@@ -43,6 +51,7 @@ export interface WorkspaceProvider {
 			timezone: string;
 			dockerGiB?: number;
 			recoveryGiB?: number;
+			cpuAllowance?: string;
 		},
 	): Promise<StartInstanceResponse>;
 	stop(name: string, opts: { timeoutSeconds: number }): Promise<StopInstanceResponse>;
@@ -65,6 +74,20 @@ export interface WorkspaceProvider {
 	setCpuAllowance(name: string, allowance: string | null): Promise<void>;
 	/** The heaviest processes of a running instance, short names only (ADR 0037). */
 	processes(name: string, signal?: AbortSignal): Promise<InstanceProcess[]>;
+	/** Set or, with null, remove the instance's own CPU, memory and process limits. */
+	setLimits(name: string, limits: SetInstanceLimitsRequest): Promise<void>;
+	/** The packages the student added, from the apt hook's list in their home. */
+	addedPackages(name: string): Promise<AddedPackagesResponse>;
+	/** Pre-change snapshots and homes kept by Replace home. */
+	keptVolumes(): Promise<KeptVolumesResponse>;
+	/** Delete one `pre-*` snapshot of a workspace volume. */
+	deleteSnapshot(volume: string, snapshot: string): Promise<void>;
+	/** Delete one kept home that nothing uses. */
+	deleteKeptHome(volume: string): Promise<void>;
+	/** Swap `<name>-home-import` in as the home and keep the old one; stopped only. */
+	replaceHome(name: string): Promise<ReplaceHomeResponse>;
+	/** Set `raw.dnsmasq` on the workspace network; an empty string removes it. */
+	setNetworkDnsmasq(raw: string): Promise<void>;
 }
 
 /**
@@ -76,6 +99,36 @@ export class InstanceNotStoppedError extends IncusError {
 		super("OPERATION_FAILED", `instance ${name} is ${status}; stop it first`);
 		this.name = "InstanceNotStoppedError";
 	}
+}
+
+/** Refused because a volume is still attached to an instance; answered 409. */
+export class VolumeInUseError extends IncusError {
+	constructor(volume: string) {
+		super("OPERATION_FAILED", `volume ${volume} is in use`);
+		this.name = "VolumeInUseError";
+	}
+}
+
+/** Where the image's apt hook writes the packages the student added. */
+const ADDED_PACKAGES_PATH = "/home/student/.portikus/apt-packages.txt";
+
+/** The most the controller reads of that file. */
+export const ADDED_PACKAGES_MAX_BYTES = 64 * 1024;
+
+const IMAGE_HEADER = /^# image ([0-9A-Za-z.+~-]{1,64})$/;
+
+/**
+ * Parse the apt hook's list: an optional `# image <version>` first line, then
+ * one package name per line. Anything that is not a package name is dropped.
+ */
+export function parseAddedPackages(text: string): AddedPackagesResponse {
+	const lines = text.split("\n").map((line) => line.trim());
+	const image = IMAGE_HEADER.exec(lines[0] ?? "")?.[1] ?? null;
+	const packages = new Set<string>();
+	for (const line of lines) {
+		if (DebianPackageName.safeParse(line).success) packages.add(line);
+	}
+	return { image, packages: [...packages] };
 }
 
 /** Where the workspace agent reads its bearer token (ADR 0009). */
@@ -183,6 +236,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly procRoot: string;
 	private readonly hostCpuCount: number;
 	private readonly thinPoolStatusPath: string | undefined;
+	private readonly network: string;
 
 	constructor(opts: {
 		client: IncusClient;
@@ -199,6 +253,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		hostCpuCount?: number;
 		/** The lvm role's status file; tests point it elsewhere. */
 		thinPoolStatusPath?: string;
+		/** The Incus network the workspaces are on. */
+		network?: string;
 	}) {
 		this.client = opts.client;
 		this.pool = opts.pool;
@@ -210,6 +266,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		this.procRoot = opts.procRoot ?? "/proc";
 		this.hostCpuCount = opts.hostCpuCount ?? availableParallelism();
 		this.thinPoolStatusPath = opts.thinPoolStatusPath;
+		this.network = opts.network ?? "portikus-ws";
 	}
 
 	async create(
@@ -252,12 +309,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					source: { type: "image", alias: this.imageAlias },
 					profiles: [this.profile],
 					devices: {
-						home: {
-							type: "disk",
-							pool: this.pool,
-							source: `${name}-home`,
-							path: "/home/student",
-						},
+						home: this.homeDevice(name),
 						docker: this.dockerDevice(name),
 						recovery: this.recoveryDevice(name),
 					},
@@ -303,6 +355,15 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 	}
 
+	private homeDevice(name: string): Record<string, string> {
+		return {
+			type: "disk",
+			pool: this.pool,
+			source: `${name}-home`,
+			path: "/home/student",
+		};
+	}
+
 	private dockerDevice(name: string): Record<string, string> {
 		return {
 			type: "disk",
@@ -331,6 +392,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			timezone: string;
 			dockerGiB?: number;
 			recoveryGiB?: number;
+			cpuAllowance?: string;
 		},
 	): Promise<StartInstanceResponse> {
 		validateName(name);
@@ -362,8 +424,22 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			opts.recoveryGiB !== undefined &&
 			(await this.ensureRecoveryDevice(name, opts.recoveryGiB, signal));
 
-		// A throttle never outlives a stop: every start begins at full speed.
-		const status = await this.writeCpuAllowance(name, null, signal);
+		// A throttle ends at a stop unless the worker says it is held; a held
+		// one is set before the instance runs, so it never runs at full speed.
+		if (
+			opts.cpuAllowance !== undefined &&
+			!CpuAllowance.safeParse(opts.cpuAllowance).success
+		) {
+			throw new IncusError(
+				"BAD_REQUEST",
+				`invalid cpu allowance: ${opts.cpuAllowance}`,
+			);
+		}
+		const status = await this.writeCpuAllowance(
+			name,
+			opts.cpuAllowance ?? null,
+			signal,
+		);
 
 		// A retry after a start that failed late finds the container running.
 		if (status !== "Running") {
@@ -1093,5 +1169,213 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	): Promise<GrowVolumesResponse> {
 		validateName(name);
 		return growVolumes(this.client, this.pool, name, sizes);
+	}
+
+	/**
+	 * Set the instance's own limits, never the profile's; Incus applies them
+	 * live to a running container. Null removes the key so the profile applies.
+	 */
+	async setLimits(name: string, limits: SetInstanceLimitsRequest): Promise<void> {
+		validateName(name);
+		if (limits.cpu !== null && limits.cpu > this.hostCpuCount) {
+			throw new IncusError(
+				"BAD_REQUEST",
+				`the host has ${this.hostCpuCount} CPUs; ${limits.cpu} is more`,
+			);
+		}
+		const wanted: Record<string, string | null> = {
+			"limits.cpu": limits.cpu === null ? null : String(limits.cpu),
+			"limits.memory": limits.memoryMiB === null ? null : `${limits.memoryMiB}MiB`,
+			"limits.processes": limits.processes === null ? null : String(limits.processes),
+		};
+		const path = `/1.0/instances/${enc(name)}`;
+		const { metadata, etag } = await this.client.getWithEtag(path);
+		const inst = metadata as InstanceConfig;
+		const config = { ...(inst.config ?? {}) };
+		let changed = false;
+		for (const [key, value] of Object.entries(wanted)) {
+			if ((config[key] ?? null) === value) continue;
+			changed = true;
+			if (value === null) delete config[key];
+			else config[key] = value;
+		}
+		if (!changed) return;
+		// PATCH cannot remove a config key, so write back as read, ETag-guarded.
+		await this.client.putIfMatch(path, { ...writableFields(inst), config }, etag);
+		this.log.info({ instance: name, ...limits }, "instance limits set");
+	}
+
+	async addedPackages(name: string): Promise<AddedPackagesResponse> {
+		validateName(name);
+		const file = await this.client.readFile(
+			name,
+			ADDED_PACKAGES_PATH,
+			ADDED_PACKAGES_MAX_BYTES,
+		);
+		// A symbolic link or directory there is not the hook's list.
+		if (file.type !== "file") {
+			throw new IncusError("NOT_FOUND", "no added-packages list");
+		}
+		if (file.tooLarge) {
+			throw new IncusError("BAD_REQUEST", "the added-packages list is over 64 KiB");
+		}
+		return parseAddedPackages(file.content.toString("utf8"));
+	}
+
+	private volumePath(volume: string): string {
+		return `/1.0/storage-pools/${enc(this.pool)}/volumes/custom/${enc(volume)}`;
+	}
+
+	private async volumeExists(volume: string): Promise<boolean> {
+		try {
+			await this.client.request("GET", this.volumePath(volume));
+			return true;
+		} catch (err) {
+			if (err instanceof IncusError && err.code === "NOT_FOUND") return false;
+			throw err;
+		}
+	}
+
+	async keptVolumes(): Promise<KeptVolumesResponse> {
+		const volumes = (await this.client.request(
+			"GET",
+			`/1.0/storage-pools/${enc(this.pool)}/volumes/custom?recursion=1`,
+		)) as Array<{ name: string; created_at?: string }>;
+		const result: KeptVolumesResponse = { snapshots: [], keptHomes: [] };
+		for (const volume of volumes) {
+			if (KeptHomeVolumeName.safeParse(volume.name).success) {
+				result.keptHomes.push({
+					volume: volume.name,
+					instance: volume.name.slice(0, "ws-".length + 24),
+					createdAt: volume.created_at ?? "",
+				});
+				continue;
+			}
+			if (!WorkspaceVolumeName.safeParse(volume.name).success) continue;
+			const snapshots = (await this.client.request(
+				"GET",
+				`${this.volumePath(volume.name)}/snapshots?recursion=1`,
+			)) as Array<{ name: string; created_at?: string }>;
+			for (const snapshot of snapshots) {
+				// Incus may name a snapshot `<volume>/<snapshot>`.
+				const name = snapshot.name.slice(snapshot.name.lastIndexOf("/") + 1);
+				if (!PreChangeSnapshotName.safeParse(name).success) continue;
+				result.snapshots.push({
+					volume: volume.name,
+					name,
+					createdAt: snapshot.created_at ?? "",
+				});
+			}
+		}
+		return result;
+	}
+
+	async deleteSnapshot(volume: string, snapshot: string): Promise<void> {
+		// Checked again here: the backup's own snapshot must never be deleted.
+		if (
+			!WorkspaceVolumeName.safeParse(volume).success ||
+			!PreChangeSnapshotName.safeParse(snapshot).success
+		) {
+			throw new IncusError("BAD_REQUEST", "only pre-change snapshots can be deleted");
+		}
+		await this.client.request(
+			"DELETE",
+			`${this.volumePath(volume)}/snapshots/${enc(snapshot)}`,
+		);
+		this.log.info({ volume, snapshot }, "snapshot deleted");
+	}
+
+	async deleteKeptHome(volume: string): Promise<void> {
+		if (!KeptHomeVolumeName.safeParse(volume).success) {
+			throw new IncusError("BAD_REQUEST", "only kept homes can be deleted");
+		}
+		const info = (await this.client.request("GET", this.volumePath(volume))) as {
+			used_by?: string[];
+		};
+		if ((info.used_by ?? []).length > 0) {
+			throw new VolumeInUseError(volume);
+		}
+		await this.client.request("DELETE", this.volumePath(volume));
+		this.log.info({ volume }, "kept home deleted");
+	}
+
+	/**
+	 * Swap an imported home in the way Reset Docker swaps Docker's: detach
+	 * home, keep the old volume under a new name, rename the import, attach.
+	 * Each step can be repeated, so a retry finishes a half-done swap.
+	 */
+	async replaceHome(name: string): Promise<ReplaceHomeResponse> {
+		validateName(name);
+		const path = `/1.0/instances/${enc(name)}`;
+		const homeVolume = `${name}-home`;
+		const importVolume = `${name}-home-import`;
+		const { metadata, etag } = await this.client.getWithEtag(path);
+		const inst = metadata as InstanceConfig;
+		assertStopped(name, inst.status);
+
+		const home = inst.devices?.home;
+		if (home && (home.source !== homeVolume || home.pool !== this.pool)) {
+			throw new IncusError(
+				"OPERATION_FAILED",
+				`instance ${name} has an unexpected home device; refusing to replace it`,
+			);
+		}
+		const importExists = await this.volumeExists(importVolume);
+		if (home && !importExists) {
+			throw new IncusError("NOT_FOUND", `volume ${importVolume} not found`);
+		}
+
+		if (home) {
+			const { home: _removed, ...devices } = inst.devices;
+			await this.client.putIfMatch(path, { ...writableFields(inst), devices }, etag);
+		}
+
+		if (importExists && (await this.volumeExists(homeVolume))) {
+			const keptName = `${name}-home-replaced-${Math.floor(Date.now() / 1000)}`;
+			await this.client.request("POST", this.volumePath(homeVolume), {
+				name: keptName,
+			});
+		}
+		if (importExists) {
+			await this.client.request("POST", this.volumePath(importVolume), {
+				name: homeVolume,
+			});
+		}
+
+		await this.client.request("PATCH", path, {
+			devices: { home: this.homeDevice(name) },
+		});
+
+		const kept = await this.newestKeptHome(name);
+		if (!kept) {
+			throw new IncusError("OPERATION_FAILED", `no kept home for ${name}`);
+		}
+		this.log.info({ instance: name, kept }, "home replaced");
+		return { kept };
+	}
+
+	private async newestKeptHome(name: string): Promise<string | null> {
+		const volumes = (await this.client.request(
+			"GET",
+			`/1.0/storage-pools/${enc(this.pool)}/volumes/custom?recursion=1`,
+		)) as Array<{ name: string }>;
+		const prefix = `${name}-home-replaced-`;
+		let newest: { name: string; at: number } | null = null;
+		for (const { name: volume } of volumes) {
+			if (!volume.startsWith(prefix)) continue;
+			const at = Number(volume.slice(prefix.length));
+			if (Number.isInteger(at) && (!newest || at > newest.at)) {
+				newest = { name: volume, at };
+			}
+		}
+		return newest?.name ?? null;
+	}
+
+	async setNetworkDnsmasq(raw: string): Promise<void> {
+		// PATCH merges config, so it changes this key and nothing else on the network.
+		await this.client.request("PATCH", `/1.0/networks/${enc(this.network)}`, {
+			config: { "raw.dnsmasq": raw },
+		});
+		this.log.info({ network: this.network }, "network dnsmasq settings set");
 	}
 }

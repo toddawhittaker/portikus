@@ -527,3 +527,57 @@ test("an operation wait is bounded at its own timeout plus 5 seconds", async () 
 		vi.useRealTimers();
 	}
 });
+
+test("readFile returns the body and the type Incus reports", async () => {
+	let receivedUrl = "";
+	handler = (req, res) => {
+		receivedUrl = req.url ?? "";
+		res.writeHead(200, {
+			"Content-Type": "application/octet-stream",
+			"X-Incus-type": "file",
+		});
+		res.end("htop\n");
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	const file = await client.readFile("ws-a", "/home/student/x y.txt", 100);
+	expect(file).toEqual({
+		type: "file",
+		content: Buffer.from("htop\n"),
+		tooLarge: false,
+	});
+	expect(receivedUrl).toBe(
+		"/1.0/instances/ws-a/files?path=%2Fhome%2Fstudent%2Fx%20y.txt&project=testproj",
+	);
+});
+
+test("readFile stops reading past the limit", async () => {
+	handler = (_req, res) => {
+		res.writeHead(200, { "X-Incus-type": "file" });
+		res.end("x".repeat(1000));
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	const file = await client.readFile("ws-a", "/f", 999);
+	expect(file.tooLarge).toBe(true);
+	expect(file.content.length).toBe(0);
+});
+
+test("readFile maps a missing file to NOT_FOUND", async () => {
+	handler = (_req, res) => {
+		respond(res, 404, { type: "error", error: "not found", error_code: 404 });
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await expect(client.readFile("ws-a", "/f", 10)).rejects.toMatchObject({
+		code: "NOT_FOUND",
+	});
+});
+
+test("readFile maps a server error that is not an envelope to OPERATION_FAILED", async () => {
+	handler = (_req, res) => {
+		res.writeHead(500);
+		res.end("oops");
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await expect(client.readFile("ws-a", "/f", 10)).rejects.toMatchObject({
+		code: "OPERATION_FAILED",
+	});
+});

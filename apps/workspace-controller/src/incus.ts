@@ -154,6 +154,89 @@ export class IncusClient {
 		});
 	}
 
+	/**
+	 * Read a file from an instance through the Incus files API. Incus does not
+	 * follow a final symbolic link, so `type` says what the path is. A body
+	 * longer than `maxBytes` is cut off and reported as `tooLarge`.
+	 */
+	readFile(
+		instance: string,
+		filePath: string,
+		maxBytes: number,
+		signal?: AbortSignal,
+	): Promise<{ type: string; content: Buffer; tooLarge: boolean }> {
+		const path =
+			`/1.0/instances/${encodeURIComponent(instance)}/files` +
+			`?path=${encodeURIComponent(filePath)}` +
+			`&project=${encodeURIComponent(this.project)}`;
+		return new Promise((resolve, reject) => {
+			const timer = signal
+				? undefined
+				: setTimeout(() => {
+						reject(new IncusError("TIMEOUT", "request timed out"));
+						req.destroy();
+					}, DEFAULT_REQUEST_TIMEOUT_MS);
+			const req = http.request(
+				{ socketPath: this.socketPath, method: "GET", path, signal },
+				(res) => {
+					const status = res.statusCode ?? 0;
+					const chunks: Buffer[] = [];
+					let size = 0;
+					let tooLarge = false;
+					res.on("data", (chunk: Buffer) => {
+						if (tooLarge) return;
+						size += chunk.length;
+						if (status === 200 && size > maxBytes) {
+							tooLarge = true;
+							clearTimeout(timer);
+							resolve({ type: "file", content: Buffer.alloc(0), tooLarge });
+							req.destroy();
+							return;
+						}
+						chunks.push(chunk);
+					});
+					res.on("end", () => {
+						clearTimeout(timer);
+						if (tooLarge) return;
+						const body = Buffer.concat(chunks);
+						if (status !== 200) {
+							let envelope: IncusEnvelope | null = null;
+							try {
+								envelope = JSON.parse(body.toString()) as IncusEnvelope;
+							} catch {
+								// Not an Incus envelope; fall through with the status alone.
+							}
+							reject(
+								this.mapEnvelopeError(
+									envelope ?? ({ error: `HTTP ${status}` } as IncusEnvelope),
+									status,
+								) ?? new IncusError("OPERATION_FAILED", `HTTP ${status}`),
+							);
+							return;
+						}
+						const type = res.headers["x-incus-type"];
+						resolve({
+							type: typeof type === "string" ? type : "unknown",
+							content: body,
+							tooLarge: false,
+						});
+					});
+				},
+			);
+			req.on("error", (err: NodeJS.ErrnoException) => {
+				clearTimeout(timer);
+				if (err.name === "AbortError") {
+					reject(new IncusError("TIMEOUT", "request timed out"));
+				} else {
+					reject(
+						new IncusError("INCUS_UNAVAILABLE", `cannot read file: ${err.message}`),
+					);
+				}
+			});
+			req.end();
+		});
+	}
+
 	private rawRequest(
 		method: string,
 		path: string,
