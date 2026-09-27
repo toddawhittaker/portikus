@@ -6,6 +6,8 @@ export interface EgressEnv {
 	bridge: string;
 	/** The bridge gateway, where our dnsmasq and the workspace Squid listen. */
 	gateway: string;
+	/** The workspace bridge's subnet, whose connections the helper forgets when blocks change. */
+	subnet: string;
 	/** Where dnsmasq sends a listed name; 127.0.0.53 is systemd-resolved. */
 	upstream: string;
 	/** The blocked-name counter's DNS port on 127.0.0.1. */
@@ -19,6 +21,7 @@ export interface EgressEnv {
 const KEYS = [
 	"EGRESS_BRIDGE",
 	"EGRESS_GATEWAY",
+	"EGRESS_SUBNET",
 	"EGRESS_UPSTREAM",
 	"EGRESS_COUNTER_DNS_PORT",
 	"EGRESS_DENIED_RANGES",
@@ -60,6 +63,10 @@ export function parseEgressEnv(text: string): EgressEnv {
 	if (parseIpv4(gateway) === null) {
 		throw new Error("egress.env EGRESS_GATEWAY is not an IPv4 address");
 	}
+	const subnet = get("EGRESS_SUBNET");
+	if (parseIpv4Cidr(subnet) === null) {
+		throw new Error("egress.env EGRESS_SUBNET is not a range");
+	}
 	const upstream = get("EGRESS_UPSTREAM");
 	if (parseIpv4(upstream) === null) {
 		throw new Error("egress.env EGRESS_UPSTREAM is not an IPv4 address");
@@ -83,7 +90,7 @@ export function parseEgressEnv(text: string): EgressEnv {
 		throw new Error("egress.env EGRESS_PROXY_UID is not a user id");
 	}
 	const proxyUid = Number(uidText);
-	return { bridge, gateway, upstream, counterDnsPort, deniedRanges, proxyUid };
+	return { bridge, gateway, subnet, upstream, counterDnsPort, deniedRanges, proxyUid };
 }
 
 /** Whether a policy range overlaps a built-in or configured denied range. */

@@ -12,6 +12,9 @@ export const SQUID_TLS_PORT = 3130;
 
 const TABLE = "inet portikus_egress";
 
+/** Open connections to Squid one workspace may hold, so it cannot exhaust the shared proxy. */
+export const SQUID_CONNECTIONS_PER_WORKSPACE = 256;
+
 /**
  * Whether workspace DNS goes through our dnsmasq and web traffic through
  * Squid: always in allow-list mode, and in open mode while any site is
@@ -57,9 +60,11 @@ function declareTable(): string[] {
 		"\tset names_v4 {\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t}",
 		"\tset ranges_v4 {\n\t\ttype ipv4_addr\n\t\tflags interval\n\t}",
 		"\tset ports {\n\t\ttype inet_service\n\t}",
+		"\tset squid_conns {\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t\tflags dynamic\n\t}",
 		"\tchain prerouting {\n\t\ttype nat hook prerouting priority dstnat - 1\n\t}",
 		"\tchain output {\n\t\ttype nat hook output priority dstnat - 1\n\t}",
 		"\tchain forward {\n\t\ttype filter hook forward priority filter - 1\n\t}",
+		"\tchain input {\n\t\ttype filter hook input priority filter - 1\n\t}",
 		"}",
 	];
 }
@@ -72,6 +77,7 @@ function resetTable(flushNames: boolean): string[] {
 		`flush chain ${TABLE} prerouting`,
 		`flush chain ${TABLE} output`,
 		`flush chain ${TABLE} forward`,
+		`flush chain ${TABLE} input`,
 	];
 }
 
@@ -90,6 +96,14 @@ function ownResolverRules(env: EgressEnv): string[] {
 }
 
 /**
+ * Cap each workspace's open connections to Squid. A redirected connection
+ * reaches input with the proxy's port; conntrack counts the live ones.
+ */
+function squidCapRule(env: EgressEnv): string {
+	return `add rule ${TABLE} input iifname "${env.bridge}" tcp dport { ${SQUID_HTTP_PORT}, ${SQUID_TLS_PORT} } ct state new add @squid_conns { ip saddr ct count over ${SQUID_CONNECTIONS_PER_WORKSPACE} } reject with tcp reset`;
+}
+
+/**
  * The `nft -f` script for a policy: one transaction that declares the
  * table, empties it and fills it again. The names set keeps the addresses
  * dnsmasq learned unless `flushNames` is set, which the helper does when a
@@ -103,7 +117,7 @@ export function renderTable(
 	const ranges = checkedRanges(policy.ranges);
 	const ports = checkedPorts(policy.ports);
 	const lines = [...declareTable(), ...resetTable(flushNames)];
-	if (usesOurResolver(policy)) lines.push(...ownResolverRules(env));
+	if (usesOurResolver(policy)) lines.push(...ownResolverRules(env), squidCapRule(env));
 	if (policy.mode === "allow-list") {
 		const ws = `iifname "${env.bridge}"`;
 		if (ranges.length > 0) {
@@ -225,5 +239,5 @@ export function renderSquidBlocked(
 export function renderSquidOpen(
 	policy: Pick<EgressApplyPolicy, "mode" | "blocked">,
 ): string {
-	return policy.mode === "open" && usesOurResolver(policy) ? ".\n" : "";
+	return policy.mode === "open" && policy.blocked.length > 0 ? ".\n" : "";
 }

@@ -483,7 +483,10 @@ describe("blocked sites (ADR 0043)", () => {
 			await addBlock("a.com", 0);
 			const dup = await addBlock("a.com", 1);
 			expect(dup.statusCode).toBe(409);
-			expect(dup.json().code).toBe("EGRESS_ENTRY_EXISTS");
+			expect(dup.json()).toMatchObject({
+				code: "EGRESS_ENTRY_EXISTS",
+				message: "That site is already blocked",
+			});
 			const missing = "33333333-3333-4333-8333-333333333333";
 			const put = await send(carol, "PUT", `/admin/egress/blocked-sites/${missing}`, {
 				version: 1,

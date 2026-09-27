@@ -79,6 +79,7 @@ export interface AppliedFile {
 
 const NFT = "/usr/sbin/nft";
 const SYSTEMCTL = "/usr/bin/systemctl";
+const CONNTRACK = "/usr/sbin/conntrack";
 /** The bridge the Incus network role creates; the fallback when applied.json cannot say. */
 const DEFAULT_BRIDGE = "portikus-ws";
 
@@ -270,6 +271,22 @@ function namesRemoved(
 	return before.names.some((n) => !kept.has(n));
 }
 
+function blockedChanged(
+	before: EgressApplyPolicy | undefined,
+	after: EgressApplyPolicy,
+): boolean {
+	return (before?.blocked ?? []).join("\n") !== after.blocked.join("\n");
+}
+
+/** Delete the conntrack entries of every connection from the workspace subnet. */
+async function forgetConnections(deps: HelperDeps, env: EgressEnv): Promise<void> {
+	const r = await deps.run(CONNTRACK, ["-D", "-s", env.subnet]);
+	// It exits 1 when nothing matched; its summary line says whether it ran.
+	if (r.code !== 0 && !/flow entries have been deleted/.test(r.stderr)) {
+		throw new Error(`conntrack failed: ${r.stderr.trim()}`);
+	}
+}
+
 async function writeSquidLists(
 	deps: HelperDeps,
 	policy: EgressApplyPolicy,
@@ -285,6 +302,10 @@ async function writeSquidLists(
  * and leaves applied.json as it was, so the worker retries. At boot the
  * services are only queued: our dnsmasq starts after Incus, which waits for
  * this run, so waiting for it would hang until the start timeout.
+ *
+ * Going from plain open mode to open mode with blocked sites, the services
+ * come first (ADR 0043): nothing reaches them until the table redirects, and
+ * a Squid still on the empty lists would refuse, and count, every name.
  */
 async function applyPolicy(
 	deps: HelperDeps,
@@ -296,7 +317,11 @@ async function applyPolicy(
 	// A failed earlier request may have loaded names applied.json does not know; flush then too.
 	const flush =
 		namesRemoved(previous?.policy, policy) || !(await readLastStatusOk(deps));
-	await loadTable(deps, renderTable(policy, env, flush));
+	const servicesFirst =
+		policy.mode === "open" &&
+		policy.blocked.length > 0 &&
+		!(previous && usesOurResolver(previous.policy));
+	if (!servicesFirst) await loadTable(deps, renderTable(policy, env, flush));
 
 	await writeState(deps, STATE_FILES.dnsmasq, renderDnsmasq(policy, env));
 	if (usesOurResolver(policy)) await systemctl(deps, "restart", EGRESS_DNS_UNIT, boot);
@@ -304,6 +329,10 @@ async function applyPolicy(
 
 	await writeSquidLists(deps, policy);
 	await systemctl(deps, "reload", WORKSPACE_PROXY_UNIT, boot);
+
+	if (servicesFirst) await loadTable(deps, renderTable(policy, env, flush));
+	// NAT is decided when a connection starts; forget open ones so a new block covers them too.
+	if (blockedChanged(previous?.policy, policy)) await forgetConnections(deps, env);
 
 	const applied: AppliedFile = {
 		policy,

@@ -260,21 +260,6 @@ export const EgressBlockedSiteRequest = z
 	.strict();
 export type EgressBlockedSiteRequest = z.input<typeof EgressBlockedSiteRequest>;
 
-/**
- * The public DNS-over-HTTPS services seeded into the blocked sites once, so a
- * tool cannot look a blocked name up past our resolver. Removable.
- */
-export const EGRESS_DEFAULT_BLOCKED_SITES = [
-	"cloudflare-dns.com",
-	"dns.adguard-dns.com",
-	"dns.google",
-	"dns.nextdns.io",
-	"dns.quad9.net",
-	"doh.cleanbrowsing.org",
-	"doh.opendns.com",
-	"one.one.one.one",
-] as const;
-
 /** The version of a DELETE rides in the query string: `?version=N`. */
 export const EgressDeleteQuery = z.object({
 	version: z.coerce.number().int().nonnegative(),

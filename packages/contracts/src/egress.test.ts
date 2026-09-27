@@ -5,7 +5,6 @@
  */
 import { describe, expect, test } from "vitest";
 import {
-	EGRESS_DEFAULT_BLOCKED_SITES,
 	EGRESS_PRESETS,
 	EgressApplyPolicy,
 	EgressBlockedSiteRequest,
@@ -336,11 +335,5 @@ describe("blocked sites (ADR 0043)", () => {
 			EgressBlockedSiteRequest.safeParse({ version: 0, value: "1.2.3.4", label: "" })
 				.success,
 		).toBe(false);
-	});
-
-	test("the DNS over HTTPS seed is sorted, unique and made of valid host names", () => {
-		const seed = [...EGRESS_DEFAULT_BLOCKED_SITES];
-		expect(seed).toEqual([...new Set(seed)].sort());
-		for (const h of seed) expect(EgressHost.safeParse(h).success).toBe(true);
 	});
 });

@@ -17,12 +17,17 @@ import {
 	renderSquidNames,
 	renderSquidOpen,
 	renderTable,
+	SQUID_CONNECTIONS_PER_WORKSPACE,
 	usesOurResolver,
 } from "./render.js";
+
+const CAP =
+	'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 3129, 3130 } ct state new add @squid_conns { ip saddr ct count over 256 } reject with tcp reset';
 
 const env: EgressEnv = {
 	bridge: "portikus-ws",
 	gateway: "10.200.0.1",
+	subnet: "10.200.0.0/24",
 	upstream: "127.0.0.53",
 	counterDnsPort: 5399,
 	deniedRanges: ["10.0.0.0/8"],
@@ -250,6 +255,7 @@ describe("renderTable", () => {
 		expect(rules).toEqual([
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 redirect to :5300',
 			"add rule inet portikus_egress output meta skuid 999 ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 dnat ip to 10.200.0.1:5300",
+			CAP,
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @ranges_v4 return',
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @names_v4 tcp dport 443 redirect to :3130',
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @names_v4 tcp dport 80 redirect to :3129',
@@ -272,6 +278,7 @@ describe("renderTable", () => {
 		expect(t.split("\n").filter((l) => l.startsWith("add rule"))).toEqual([
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 redirect to :5300',
 			"add rule inet portikus_egress output meta skuid 999 ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 dnat ip to 10.200.0.1:5300",
+			CAP,
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr != { 10.0.0.0/8 } tcp dport 443 redirect to :3130',
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr != { 10.0.0.0/8 } tcp dport 80 redirect to :3129',
 			'add rule inet portikus_egress forward iifname "portikus-ws" meta l4proto { tcp, udp } th dport { 53, 853 } drop',
@@ -290,6 +297,27 @@ describe("renderTable", () => {
 				true,
 			),
 		).toThrow();
+	});
+
+	// One workspace must not exhaust the Squid every workspace shares.
+	test("caps each workspace's connections to Squid whenever Squid is in the path", () => {
+		const open = applied({ ...policy, mode: "open" });
+		for (const p of [applied(policy), open]) {
+			const t = renderTable(p, env, false);
+			expect(
+				t
+					.split("\n")
+					.filter((l) => l.startsWith("add rule inet portikus_egress input")),
+			).toEqual([CAP]);
+			expect(t).toMatch(/^flush chain inet portikus_egress input$/m);
+		}
+		const plain = renderTable(
+			applied({ ...policy, mode: "open", blockedSites: [] }),
+			env,
+			false,
+		);
+		expect(plain).not.toContain("ct count");
+		expect(SQUID_CONNECTIONS_PER_WORKSPACE).toBe(256);
 	});
 
 	// Squid looks up the Host a workspace sent; through Incus's resolver any

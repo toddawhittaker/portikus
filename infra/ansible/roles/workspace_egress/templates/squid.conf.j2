@@ -52,6 +52,10 @@ http_access allow intercepted_http listed_host
 http_access allow intercepted_http open_host
 http_access deny all
 
+# Squid strips an HTTP Upgrade unless told otherwise; let an allowed request
+# become a WebSocket, as it would without the proxy.
+http_upgrade_request_protocols WebSocket allow all
+
 # A private destination is closed, never bumped to show an error page.
 ssl_bump terminate denied_dst
 ssl_bump peek step1

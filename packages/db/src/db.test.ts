@@ -2463,7 +2463,7 @@ describe("resource guard migration", () => {
 		},
 	);
 	test.skipIf(!hasTestDb())(
-		"0030 adds blocked sites seeded with the DNS over HTTPS services, and rolls back",
+		"0030 adds an empty blocked sites table with unique names, and rolls back",
 		async () => {
 			const { Migrator } = await import("kysely/migration");
 			const { migrations } = await import("./migrations/index.js");
@@ -2484,22 +2484,14 @@ describe("resource guard migration", () => {
 					expect((await migrator.migrateToLatest()).error).toBeUndefined();
 					const rows = await trx
 						.selectFrom("egress_blocked_entries")
-						.select(["value", "label"])
-						.orderBy("value")
+						.select("value")
 						.execute();
-					expect(rows.map((r) => r.value)).toEqual([
-						"cloudflare-dns.com",
-						"dns.adguard-dns.com",
-						"dns.google",
-						"dns.nextdns.io",
-						"dns.quad9.net",
-						"doh.cleanbrowsing.org",
-						"doh.opendns.com",
-						"one.one.one.one",
-					]);
-					expect(new Set(rows.map((r) => r.label))).toEqual(
-						new Set(["DNS over HTTPS service (default)"]),
-					);
+					// No seed: a non-empty list would put open mode behind Squid (ADR 0043).
+					expect(rows).toEqual([]);
+					await trx
+						.insertInto("egress_blocked_entries")
+						.values({ value: "dns.google", label: "" })
+						.execute();
 					await expect(
 						trx
 							.insertInto("egress_blocked_entries")

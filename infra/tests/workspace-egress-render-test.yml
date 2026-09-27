@@ -153,6 +153,7 @@
           - "'negative_dns_ttl 1 second' in squid_rules"
           - "'cache deny all' in squid_rules"
           - "'debug_options ALL,0' in squid_rules"
+          - "'http_upgrade_request_protocols WebSocket allow all' in squid_rules"
           - squid_rules | select('match', '^acl denied_dst dst 0\.0\.0\.0/8 10\.0\.0\.0/8 ') | list | length == 1
           - "'acl listed_sni ssl::server_name \"/var/lib/portikus/egress-state/names.txt\"' in squid_rules"
           - "'acl listed_host dstdomain -n \"/var/lib/portikus/egress-state/names.txt\"' in squid_rules"
@@ -192,7 +193,7 @@
         that:
           - >-
             egress_env == {
-              'EGRESS_BRIDGE': 'portikus-ws', 'EGRESS_GATEWAY': '10.200.0.1', 'EGRESS_UPSTREAM': '127.0.0.53',
+              'EGRESS_BRIDGE': 'portikus-ws', 'EGRESS_GATEWAY': '10.200.0.1', 'EGRESS_SUBNET': '10.200.0.0/24', 'EGRESS_UPSTREAM': '127.0.0.53',
               'EGRESS_COUNTER_DNS_PORT': '5399', 'EGRESS_PROXY_UID': '998',
               'EGRESS_DENIED_RANGES': contracts_denied | join(',') }
 

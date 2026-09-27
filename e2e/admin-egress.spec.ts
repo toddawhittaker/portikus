@@ -1,8 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import {
-	EGRESS_DEFAULT_BLOCKED_SITES,
-	EGRESS_PRESETS,
-} from "../packages/contracts/dist/egress.js";
+import { EGRESS_PRESETS } from "../packages/contracts/dist/egress.js";
 import { loginAs, query } from "./helpers";
 
 /**
@@ -30,13 +27,6 @@ async function reset(mode: "open" | "allow-list" = "open"): Promise<void> {
 	]);
 	await query("delete from egress_blocked_names where name like $1", [`%${SUFFIX}`]);
 	await query("delete from egress_blocked_entries where value like $1", [`%${SUFFIX}`]);
-	// The seed is removable; put back any a test removed.
-	await query(
-		`insert into egress_blocked_entries (value, label)
-		 select unnest($1::text[]), 'DNS over HTTPS service (default)'
-		 on conflict (value) do nothing`,
-		[[...EGRESS_DEFAULT_BLOCKED_SITES]],
-	);
 }
 
 /** What the worker records once the controller has applied the policy. */
@@ -360,16 +350,10 @@ test("blocked sites are added, edited and removed, and Test a host explains them
 	await open(page);
 	const card = page.getByRole("region", { name: "Blocked sites" });
 	const rows = card.getByTestId("egress-block-row");
-	// The DNS over HTTPS seed is listed and marked as the default.
-	for (const host of EGRESS_DEFAULT_BLOCKED_SITES) {
-		await expect(rows.filter({ hasText: host })).toContainText("default");
-	}
+	// Nothing is seeded: open mode stays as it was until a site is blocked.
+	await expect(rows).toHaveCount(0);
 	await expect(card.getByTestId("egress-block-note")).toContainText(
-		"passes through the platform's proxy",
-	);
-	expect(await testHost(page, "dns.google")).toBe("blocked");
-	await expect(page.getByTestId("egress-test-result")).toContainText(
-		"Blocked by your list: dns.google (DNS over HTTPS service (default)).",
+		"Nothing is blocked",
 	);
 
 	const dialog = page.getByTestId("egress-block-dialog");
@@ -399,7 +383,7 @@ test("blocked sites are added, edited and removed, and Test a host explains them
 	await value.fill(`games.${SUFFIX}`);
 	await dialog.getByTestId("egress-block-save").click();
 	await expect(dialog.getByTestId("egress-block-error")).toHaveText(
-		"That entry is already listed",
+		"That site is already blocked",
 	);
 	await dialog.getByRole("button", { name: "Cancel" }).click();
 
@@ -413,14 +397,18 @@ test("blocked sites are added, edited and removed, and Test a host explains them
 	).toBeFocused();
 	await expect(games).toContainText("Games site");
 
-	// A seed entry is removable; focus lands on the card heading.
-	await card.getByRole("button", { name: "Remove one.one.one.one" }).click();
+	await expect(card.getByTestId("egress-block-note")).toContainText("QUIC is dropped");
+
+	// Removing asks first; focus lands on the card heading.
+	await card.getByRole("button", { name: `Remove games.${SUFFIX}` }).click();
 	const confirm = page.getByTestId("egress-block-remove-dialog");
 	await expect(confirm).toContainText("Workspaces can reach it again");
 	await confirm.getByRole("button", { name: "Remove" }).click();
-	await expect(rows.filter({ hasText: "one.one.one.one" })).toHaveCount(0);
-	await expect(page.getByRole("heading", { name: "Blocked sites" })).toBeFocused();
-	expect(await testHost(page, "one.one.one.one")).toBe("open");
+	await expect(games).toHaveCount(0);
+	await expect(
+		page.getByRole("heading", { name: "Blocked sites", exact: true }),
+	).toBeFocused();
+	expect(await testHost(page, `games.${SUFFIX}`)).toBe("open");
 
 	const audit = await query<{ action: string }>(
 		`select action from audit_events where action like 'egress.block_%'

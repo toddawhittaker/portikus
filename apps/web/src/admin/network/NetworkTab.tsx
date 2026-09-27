@@ -67,10 +67,12 @@ export function NetworkTab() {
 				) : null}
 				<div className="grid items-start gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
 					<div className="grid gap-6">
-						<BlockedSitesCard view={view} />
+						{/* The list that matters in the current mode comes first. */}
+						{view.mode === "open" ? <BlockedSitesCard view={view} /> : null}
 						<PresetsCard view={view} />
 						<EntriesCard view={view} onEdit={edit} />
 						<PortsCard view={view} />
+						{view.mode === "allow-list" ? <BlockedSitesCard view={view} /> : null}
 					</div>
 					<div className="grid gap-6">
 						<TestHostCard view={view} onAllow={allowFrom("egress-test-title")} />

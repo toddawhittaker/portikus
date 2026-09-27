@@ -181,6 +181,7 @@ export function registerAdminEgressRoutes(
 	async function write(
 		reply: FastifyReply,
 		work: (trx: Transaction<Database>) => Promise<void>,
+		duplicate = "That entry is already listed",
 	): Promise<unknown> {
 		try {
 			await db.transaction().execute(work);
@@ -188,12 +189,7 @@ export function registerAdminEgressRoutes(
 			if (err instanceof Refusal)
 				return sendError(reply, err.status, err.code, err.message);
 			if (isUniqueViolation(err)) {
-				return sendError(
-					reply,
-					409,
-					"EGRESS_ENTRY_EXISTS",
-					"That entry is already listed",
-				);
+				return sendError(reply, 409, "EGRESS_ENTRY_EXISTS", duplicate);
 			}
 			throw err;
 		}
@@ -352,31 +348,36 @@ export function registerAdminEgressRoutes(
 		});
 	});
 	// Blocked sites: refused in open mode only (ADR 0043).
+	const BLOCK_EXISTS = "That site is already blocked";
 	app.post("/admin/egress/blocked-sites", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
 		const body = EgressBlockedSiteRequest.safeParse(request.body);
 		if (!body.success) return invalid(reply, body.error);
 		const { value, label, version } = body.data;
-		return write(reply, async (trx) => {
-			await bumpVersion(trx, version);
-			const row = await trx
-				.selectFrom("egress_blocked_entries")
-				.select(sql<number>`count(*)::int`.as("n"))
-				.executeTakeFirstOrThrow();
-			if (row.n >= EGRESS_LIMITS.blockedSites) {
-				throw new Refusal(
-					409,
-					"EGRESS_LIMIT_REACHED",
-					`At most ${EGRESS_LIMITS.blockedSites} sites can be blocked`,
-				);
-			}
-			const added = await trx
-				.insertInto("egress_blocked_entries")
-				.values({ value, label, created_by: admin.id })
-				.returning("id")
-				.executeTakeFirstOrThrow();
-			await audit(trx, admin.id, added.id, "egress.block_added", { value, label });
-		});
+		return write(
+			reply,
+			async (trx) => {
+				await bumpVersion(trx, version);
+				const row = await trx
+					.selectFrom("egress_blocked_entries")
+					.select(sql<number>`count(*)::int`.as("n"))
+					.executeTakeFirstOrThrow();
+				if (row.n >= EGRESS_LIMITS.blockedSites) {
+					throw new Refusal(
+						409,
+						"EGRESS_LIMIT_REACHED",
+						`At most ${EGRESS_LIMITS.blockedSites} sites can be blocked`,
+					);
+				}
+				const added = await trx
+					.insertInto("egress_blocked_entries")
+					.values({ value, label, created_by: admin.id })
+					.returning("id")
+					.executeTakeFirstOrThrow();
+				await audit(trx, admin.id, added.id, "egress.block_added", { value, label });
+			},
+			BLOCK_EXISTS,
+		);
 	});
 
 	app.put("/admin/egress/blocked-sites/:id", adminOnly, async (request, reply) => {
@@ -387,24 +388,28 @@ export function registerAdminEgressRoutes(
 		const body = EgressBlockedSiteRequest.safeParse(request.body);
 		if (!body.success) return invalid(reply, body.error);
 		const { value, label, version } = body.data;
-		return write(reply, async (trx) => {
-			await bumpVersion(trx, version);
-			const before = await trx
-				.selectFrom("egress_blocked_entries")
-				.select(["value", "label"])
-				.where("id", "=", params.data.id)
-				.executeTakeFirst();
-			if (!before) throw new Refusal(404, "NOT_FOUND", "Blocked site not found");
-			await trx
-				.updateTable("egress_blocked_entries")
-				.set({ value, label, updated_at: new Date().toISOString() })
-				.where("id", "=", params.data.id)
-				.execute();
-			await audit(trx, admin.id, params.data.id, "egress.block_updated", {
-				from: before,
-				to: { value, label },
-			});
-		});
+		return write(
+			reply,
+			async (trx) => {
+				await bumpVersion(trx, version);
+				const before = await trx
+					.selectFrom("egress_blocked_entries")
+					.select(["value", "label"])
+					.where("id", "=", params.data.id)
+					.executeTakeFirst();
+				if (!before) throw new Refusal(404, "NOT_FOUND", "Blocked site not found");
+				await trx
+					.updateTable("egress_blocked_entries")
+					.set({ value, label, updated_at: new Date().toISOString() })
+					.where("id", "=", params.data.id)
+					.execute();
+				await audit(trx, admin.id, params.data.id, "egress.block_updated", {
+					from: before,
+					to: { value, label },
+				});
+			},
+			BLOCK_EXISTS,
+		);
 	});
 
 	app.delete("/admin/egress/blocked-sites/:id", adminOnly, async (request, reply) => {

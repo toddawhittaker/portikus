@@ -77,6 +77,9 @@ p private_vm "$(tcp "$vm" 22)"
 p private_metadata "$(tcp 169.254.169.254 80)"
 p direct_proxy_ports "$(tcp "$gw" 3129)/$(tcp "$gw" 3130)/$(tcp "$gw" 5300)/$(udp_dns "$gw" 5300)"
 p direct_forward_proxy "$(code --proxy "http://${gw}:3129" http://github.com/)"
+p ws_upgrade_forwarded "$(curl -s --max-time 10 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' http://httpbin.org/headers \
+  | grep -q '"Upgrade": "websocket"' && echo yes || echo no)"
 p gateway_other_ports "$(for port in 22 80 443 3000 3001 3128 3199 5398 5399 8443; do tcp "$gw" "$port"; done | sort -u | paste -sd,)"
 EOF
 }
@@ -206,6 +209,8 @@ we_check_open_blocked() {
   we_expect "blocked, a" "$r" direct_proxy_ports "closed/closed/closed/silent" "the redirect targets cannot be used directly"
   we_expect "blocked, a" "$r" direct_forward_proxy 000 "the proxy cannot be used as a forward proxy"
   we_expect "blocked, a" "$r" gateway_other_ports closed "the gateway is closed on every other port probed"
+  we_expect "blocked, a" "$r" ws_upgrade_forwarded yes "a WebSocket upgrade on port 80 reaches the site"
+  we_expect "blocked, a" "$(we_squid_cap)" squid_cap "256+/44-" "one workspace holds at most 256 connections to the proxy; the rest are reset"
 
   r=$(we_run_docker)
   printf '%s\n' "$r" | sed 's/^/    /'
@@ -222,6 +227,42 @@ we_check_open_blocked() {
   check "the blocked name is counted from DNS and from Squid" we_counted example.com
   # Only refusals are counted: an unblocked site that was reached is not.
   check_output "an unblocked site that was reached is not counted" "$before" we_unblocked_count
+}
+
+# we_squid_cap -- opens 300 connections from a to port 80 and holds them;
+# prints how many connected and how many were refused.
+we_squid_cap() {
+  sec_exec a student 'python3 -c "
+import socket
+ip = socket.gethostbyname(\"example.org\")
+held, refused = [], 0
+for _ in range(300):
+    s = socket.socket()
+    s.settimeout(5)
+    try:
+        s.connect((ip, 80))
+        held.append(s)
+    except OSError:
+        refused += 1
+print(\"squid_cap %s%s/%s%s\" % (len(held), \"+\" if len(held) == 256 else \"\", refused, \"-\" if refused == 44 else \"\"))
+"' 2>/dev/null
+}
+
+# A connection opened before a block must not outlive it: the helper forgets
+# the subnet's connections, so NAT is decided again (ADR 0043).
+we_held_ip=""
+we_hold_connection() {
+  we_held_ip=$(sec_exec a student "getent ahostsv4 example.com | awk '{ print \$1; exit }'" 2>/dev/null)
+  [ -n "$we_held_ip" ] || return 1
+  sec_exec a student "setsid -f bash -c 'exec 3<>/dev/tcp/${we_held_ip}/80; sleep 300' >/dev/null 2>&1" >/dev/null 2>&1
+  sleep 1
+}
+we_held_tracked() {
+  sec_ssh "sudo conntrack -L -p tcp -s ${we_a_ip} -d ${we_held_ip} --dport 80 2>/dev/null | grep -c ESTABLISHED; true"
+}
+we_release_connection() {
+  [ -n "$we_held_ip" ] && sec_exec a student "pkill -f '/dev/tcp/${we_held_ip}/80'; true" >/dev/null 2>&1
+  we_held_ip=""
 }
 
 # Today's counts for the unblocked names the probes reach; an earlier run may have refused them.
@@ -535,6 +576,10 @@ we_restore() {
     [ -n "$body" ] && { we_send POST /admin/egress/blocked-sites "$body" || true; }
   done <<<"$we_start_blocked"
   if we_wait_applied; then sec_pass "the egress policy is back as it was"; else sec_fail "the egress policy is back as it was (not applied)"; fi
+  check_output "the blocked sites are exactly as they were" "$we_start_blocked" \
+    sec_psql "SELECT '{\"version\":@VERSION@,\"value\":' || to_json(value) || ',\"label\":' || to_json(label) || '}' FROM egress_blocked_entries ORDER BY value"
+  # A VM that had never applied a policy now has one applied: the same open
+  # mode, which the helper loads as the empty table a fresh site runs with.
 }
 
 # The applied policy blocks sites in open mode when Squid's switch is on.
@@ -559,12 +604,19 @@ elif [ "$we_start_mode" = "open" ]; then
   else
     we_check_open
   fi
+  if we_hold_connection; then
+    check_output "open mode: a's long-lived connection to example.com is tracked (control)" "1" we_held_tracked
+  else
+    sec_fail "open mode: a opens a long-lived connection to example.com"
+  fi
   if ! we_set_blocked "${WE_BLOCKED[@]}" || ! we_wait_applied; then
     sec_fail "the administrator blocks sites through the API, and it is applied ($(sec_psql "SELECT coalesce(egress_apply_error, 'no error') FROM settings WHERE id = 1"))"
   else
     sec_pass "the administrator blocks sites through the API, and it is applied"
+    [ -n "$we_held_ip" ] && check_output "the connection opened before the block is forgotten" "0" we_held_tracked
     we_check_open_blocked
   fi
+  we_release_connection
   if ! we_clear_blocked; then
     sec_fail "the administrator empties the blocked sites before allow-list mode"
     we_restore

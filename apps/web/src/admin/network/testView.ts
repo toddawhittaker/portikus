@@ -35,7 +35,7 @@ export function egressView(overrides: Partial<AdminEgressView> = {}): AdminEgres
 			{
 				id: "44444444-4444-4444-8444-444444444444",
 				value: "dns.google",
-				label: "DNS over HTTPS service (default)",
+				label: "DNS over HTTPS service",
 				createdAt: "2026-09-27T10:00:00.000Z",
 				updatedAt: "2026-09-27T10:00:00.000Z",
 			},

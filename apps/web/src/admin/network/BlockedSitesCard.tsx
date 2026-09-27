@@ -1,6 +1,5 @@
 import {
 	type AdminEgressView,
-	EGRESS_DEFAULT_BLOCKED_SITES,
 	EGRESS_LIMITS,
 	type EgressBlockedSite,
 } from "@portikus/contracts";
@@ -14,8 +13,6 @@ import {
 import { useRef, useState } from "react";
 import { BlockedSiteDialog, type BlockedSiteDraft } from "./BlockedSiteDialog.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
-
-const DEFAULTS: readonly string[] = EGRESS_DEFAULT_BLOCKED_SITES;
 
 /**
  * Sites workspaces cannot reach in open mode (ADR 0043). Allow-list mode
@@ -75,8 +72,8 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 				{view.mode === "allow-list"
 					? "Allow-list mode is on, so this list is not used: anything you have not allowed is already blocked. It applies again when you switch to open mode."
 					: sites.length > 0
-						? "While any site is blocked, workspace web traffic passes through the platform's proxy, which checks only each connection's site name."
-						: "Nothing is blocked, so workspaces reach every public site."}
+						? "While any site is blocked, workspace DNS goes through the platform's resolver, ports 80 and 443 carry only HTTP and TLS through the platform's proxy (which checks only each connection's site name), and QUIC is dropped. Blocking is best effort against casual use: other DNS services, direct addresses and tunnels on other ports get round it. Only allow-list mode stops a determined student."
+						: "Nothing is blocked, so workspaces reach every public site. Blocking a site puts workspace DNS and web traffic through the platform's resolver and proxy."}
 			</p>
 			{sites.length === 0 ? (
 				<EmptyState icon="info" title="No blocked sites">
@@ -102,9 +99,6 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 										<span className="font-mono [overflow-wrap:anywhere]">
 											{site.value}
 										</span>
-										{DEFAULTS.includes(site.value) ? (
-											<span className="ml-2 text-[12px] text-ink-muted">default</span>
-										) : null}
 									</td>
 									<td className="text-ink-muted">{site.label || "No label"}</td>
 									<td className="text-right whitespace-nowrap">

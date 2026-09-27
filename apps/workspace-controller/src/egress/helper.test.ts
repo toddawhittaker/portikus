@@ -23,6 +23,7 @@ const ENV_TEXT = [
 	"# written by Ansible",
 	"EGRESS_BRIDGE=portikus-ws",
 	"EGRESS_GATEWAY=10.200.0.1",
+	"EGRESS_SUBNET=10.200.0.0/24",
 	"EGRESS_UPSTREAM=127.0.0.53",
 	"EGRESS_COUNTER_DNS_PORT=5399",
 	"EGRESS_DENIED_RANGES=10.0.0.0/8,192.168.0.0/16,198.18.0.0/15",
@@ -35,6 +36,7 @@ describe("parseEgressEnv", () => {
 		expect(parseEgressEnv(ENV_TEXT)).toEqual({
 			bridge: "portikus-ws",
 			gateway: "10.200.0.1",
+			subnet: "10.200.0.0/24",
 			upstream: "127.0.0.53",
 			counterDnsPort: 5399,
 			deniedRanges: ["10.0.0.0/8", "192.168.0.0/16", "198.18.0.0/15"],
@@ -52,6 +54,7 @@ describe("parseEgressEnv", () => {
 			"a bridge that is too long",
 			ENV_TEXT.replace("=portikus-ws", "=a-very-long-bridge-name"),
 		],
+		["a subnet that is an address", ENV_TEXT.replace("=10.200.0.0/24", "=10.200.0.1")],
 		["a gateway that is a name", ENV_TEXT.replace("=10.200.0.1", "=gateway")],
 		["an upstream with a port", ENV_TEXT.replace("=127.0.0.53", "=127.0.0.53#53")],
 		["a port out of range", ENV_TEXT.replace("=5399", "=70000")],
@@ -219,6 +222,70 @@ describe("a request (ADR 0038)", () => {
 		expect(loads()[0]).not.toMatch(/add rule/);
 		expect(read("blocked.txt")).toBe("");
 		expect(read("open.txt")).toBe("");
+	});
+
+	test("from plain open mode, Squid and dnsmasq are ready before the table redirects to them", async () => {
+		writeRequest(policy({ mode: "open", names: [], blocked: ["games.com"] }));
+		expect(await runHelper(deps)).toBe(0);
+		expect(calls.map((c) => `${c.file} ${c.args[0]}`)).toEqual([
+			"/usr/sbin/nft list",
+			"/usr/bin/systemctl restart",
+			"/usr/bin/systemctl reload",
+			"/usr/sbin/nft -f",
+			"/usr/sbin/conntrack -D",
+		]);
+
+		// Once Squid is in the path, a change loads the table first as usual.
+		calls = [];
+		writeRequest(
+			policy({ version: 4, mode: "open", names: [], blocked: ["a.com", "games.com"] }),
+			"r2",
+		);
+		expect(await runHelper(deps)).toBe(0);
+		expect(calls.map((c) => `${c.file} ${c.args[0]}`)[1]).toBe("/usr/sbin/nft -f");
+	});
+
+	test("a Squid that fails to reload leaves plain open mode's table alone", async () => {
+		answers.set("systemctl reload", { code: 1, stderr: "bad config" });
+		writeRequest(policy({ mode: "open", names: [], blocked: ["games.com"] }));
+		expect(await runHelper(deps)).toBe(1);
+		expect(loads()).toEqual([]);
+		expect(read("applied.json")).toBeNull();
+		expect(status().ok).toBe(false);
+	});
+
+	test("a changed blocked list forgets the subnet's open connections; an unchanged one does not", async () => {
+		const conntrack = () => calls.filter((c) => c.file === "/usr/sbin/conntrack");
+		writeRequest(policy({ mode: "open", names: [], blocked: ["games.com"] }));
+		await runHelper(deps);
+		expect(conntrack().map((c) => c.args)).toEqual([["-D", "-s", "10.200.0.0/24"]]);
+
+		calls = [];
+		writeRequest(
+			policy({ version: 4, mode: "open", names: [], blocked: ["games.com"] }),
+			"r2",
+		);
+		await runHelper(deps);
+		expect(conntrack()).toEqual([]);
+
+		calls = [];
+		writeRequest(policy({ version: 5, mode: "open", names: [], blocked: [] }), "r3");
+		await runHelper(deps);
+		expect(conntrack()).toHaveLength(1);
+	});
+
+	test("conntrack finding nothing is fine; conntrack failing fails the request", async () => {
+		answers.set("conntrack -D", {
+			code: 1,
+			stderr: "conntrack v1.4.8 (conntrack-tools): 0 flow entries have been deleted.",
+		});
+		writeRequest(policy({ mode: "open", names: [], blocked: ["games.com"] }));
+		expect(await runHelper(deps)).toBe(0);
+
+		answers.set("conntrack -D", { code: 2, stderr: "Operation not permitted" });
+		writeRequest(policy({ version: 4, mode: "open", names: [], blocked: [] }), "r2");
+		expect(await runHelper(deps)).toBe(1);
+		expect(status().error).toContain("conntrack failed");
 	});
 
 	test("blocked sites in allow-list mode are refused", async () => {

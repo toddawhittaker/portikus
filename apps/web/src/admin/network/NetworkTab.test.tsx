@@ -1,5 +1,5 @@
 import type { AdminEgressView } from "@portikus/contracts";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { NetworkTab } from "./NetworkTab.js";
@@ -346,20 +346,36 @@ test("open mode with blocked sites still expects refusals", async () => {
 });
 
 describe("blocked sites (ADR 0043)", () => {
-	test("lists each site with its label, marks the default seed, and counts toward 500", async () => {
+	test("lists each site with its label, and counts toward 500", async () => {
 		stubEgress(egressView({ mode: "open" }));
 		renderWithQuery(<NetworkTab />);
 		await shown();
 		const rows = screen.getAllByTestId("egress-block-row");
 		expect(rows.map((r) => r.textContent)).toEqual([
-			expect.stringContaining("dns.googledefault"),
+			expect.stringContaining("dns.googleDNS over HTTPS service"),
 			expect.stringContaining("games.example.comGames"),
 		]);
-		expect(rows[1]?.textContent).not.toContain("default");
+		expect(rows[0]?.textContent).not.toContain("default");
 		expect(screen.getByText(/2 of 500 used/)).toBeDefined();
 		expect(screen.getByTestId("egress-block-note").textContent).toContain(
-			"passes through the platform's proxy",
+			"QUIC is dropped",
 		);
+	});
+
+	test("comes first in open mode and after Ports in allow-list mode", async () => {
+		const headings = () =>
+			screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+		stubEgress(egressView({ mode: "open" }));
+		renderWithQuery(<NetworkTab />);
+		await shown();
+		const open = headings();
+		expect(open.indexOf("Blocked sites")).toBeLessThan(open.indexOf("Presets"));
+		cleanup();
+		stubEgress(egressView());
+		renderWithQuery(<NetworkTab />);
+		await shown();
+		const allow = headings();
+		expect(allow.indexOf("Blocked sites")).toBe(allow.indexOf("Ports") + 1);
 	});
 
 	test("allow-list mode says the list is not used", async () => {
@@ -417,7 +433,7 @@ describe("blocked sites (ADR 0043)", () => {
 		stubEgress(egressView({ mode: "open" }), () =>
 			json(409, {
 				code: "EGRESS_ENTRY_EXISTS",
-				message: "That entry is already listed",
+				message: "That site is already blocked",
 			}),
 		);
 		renderWithQuery(<NetworkTab />);
@@ -429,7 +445,7 @@ describe("blocked sites (ADR 0043)", () => {
 		});
 		fireEvent.click(within(dialog).getByTestId("egress-block-save"));
 		expect((await within(dialog).findByTestId("egress-block-error")).textContent).toBe(
-			"That entry is already listed",
+			"That site is already blocked",
 		);
 	});
 
