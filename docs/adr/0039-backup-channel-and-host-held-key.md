@@ -85,7 +85,14 @@ nights than rotation used to. Every run, nightly or requested, also needs
 free space in the backup directory of at least the newest complete set's
 size plus a fifth, and at least `PORTIKUS_BACKUP_MIN_FREE_MB` (default
 1024); otherwise it fails with "refused by the host: not enough free space"
-before contacting the VM for data.
+before contacting the VM for data. Free space is measured after leftover
+partial sets from a killed run are removed. The run then has a byte
+budget: the free space less `PORTIKUS_BACKUP_MIN_FREE_MB`. Every stream
+from the VM counts against it (before encryption, which adds well under
+one percent), and a stream that passes it stops the whole run, not just
+that volume, and keeps nothing. The run also refuses any volume that is
+not the home or recovery volume of an instance the VM listed, so made-up
+volume names cannot pad a run.
 
 **The private key is installed on the host, root-only,** as
 `/etc/portikus-backup/age-key.txt` (file 0600, directory 0700, owner
