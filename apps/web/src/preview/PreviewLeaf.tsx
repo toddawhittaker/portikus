@@ -8,6 +8,8 @@
  */
 import {
 	Button,
+	ConfirmDialog,
+	ConfirmDialogRoot,
 	EmptyState,
 	IconButton,
 	Menu,
@@ -396,6 +398,7 @@ export function PreviewLeaf({
 		void connect();
 	}
 
+	const [confirmingReset, setConfirmingReset] = useState(false);
 	const showingGrant = grantOf(state);
 	const host = showingGrant ? new URL(showingGrant.previewOrigin).host : `port ${port}`;
 
@@ -470,8 +473,8 @@ export function PreviewLeaf({
 							</MenuCheckboxItem>
 						))}
 						<MenuSeparator />
-						<MenuItem testId="preview-reset" onSelect={() => void resetData()}>
-							Reset preview data
+						<MenuItem testId="preview-reset" onSelect={() => setConfirmingReset(true)}>
+							Reset preview data…
 						</MenuItem>
 						<MenuItem testId="preview-running-link" onSelect={onShowRunning}>
 							Show in Running
@@ -637,6 +640,21 @@ export function PreviewLeaf({
 					/>
 				) : null}
 			</div>
+
+			<ConfirmDialogRoot open={confirmingReset} onOpenChange={setConfirmingReset}>
+				<ConfirmDialog
+					testId="dialog-preview-reset"
+					title="Reset preview data?"
+					description="The preview signs in again with a fresh session. Your application and its files are not touched."
+					lost={["the cookies, storage and service workers this preview holds"]}
+					confirmLabel="Reset preview data"
+					destructive={false}
+					onConfirm={() => {
+						setConfirmingReset(false);
+						void resetData();
+					}}
+				/>
+			</ConfirmDialogRoot>
 		</div>
 	);
 }
