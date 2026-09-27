@@ -166,6 +166,8 @@ test("an old set is deleted by the host; the newest complete set is refused", as
 		stamp: null,
 	});
 	await expect(page.getByTestId(`backup-set-${OLD}`)).toHaveCount(0, SOON);
+	// The row took the focused button with it, so focus lands on the list heading.
+	await expect(page.getByRole("heading", { name: "Backup sets" })).toBeFocused();
 });
 
 test("a refusal from the host is shown with its reason", async ({ page }) => {

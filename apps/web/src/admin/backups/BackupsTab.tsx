@@ -5,7 +5,7 @@ import type {
 	HostBackupSet,
 } from "@portikus/contracts";
 import { Button, EmptyState, useToast } from "@portikus/ui";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { formatBytes } from "../../monitor/format.js";
 import { AdminSection } from "../AdminSection.js";
 import { sampleAge } from "../health/HealthTab.js";
@@ -251,9 +251,27 @@ function Card({
 	children: ReactNode;
 	testId?: string;
 }) {
+	// The last element focused in this card, such as a row's Deleting button.
+	const focused = useRef<HTMLElement | null>(null);
+	const heading = useRef<HTMLHeadingElement>(null);
+	// A finished delete removes its row; if focus went with it, catch it here.
+	useEffect(() => {
+		const last = focused.current;
+		if (!last || last.isConnected) return;
+		focused.current = null;
+		const active = document.activeElement;
+		if (active === null || active === document.body) heading.current?.focus();
+	});
 	return (
-		<section className="pk-card p-6" aria-labelledby={id} data-testid={testId}>
-			<h3 className="pk-text-heading m-0" id={id}>
+		<section
+			className="pk-card p-6"
+			aria-labelledby={id}
+			data-testid={testId}
+			onFocus={(event) => {
+				focused.current = event.target;
+			}}
+		>
+			<h3 className="pk-text-heading m-0" id={id} ref={heading} tabIndex={-1}>
 				{title}
 			</h3>
 			<div className="mt-4">{children}</div>
