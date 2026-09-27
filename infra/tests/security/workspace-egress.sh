@@ -598,3 +598,6 @@ else
   fi
 fi
 we_check_logs
+# This section takes several minutes; renew presence so the shutdown grace
+# period cannot stop a or b during the sections after it.
+sec_hold_presence a && sec_hold_presence b
