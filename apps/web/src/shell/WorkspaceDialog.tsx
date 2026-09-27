@@ -203,6 +203,12 @@ function WorkspaceControls({
 	const moving = resolved === null || resolved.moving || action.isPending;
 	const stopped = workspace?.state === "stopped" || workspace?.state === "error";
 
+	const transition = resolved?.moving
+		? workspace?.pendingOperation
+			? resolved.label
+			: `${resolved.label} your workspace.`
+		: "";
+
 	function run(next: "start" | "stop" | "restart") {
 		setConfirming(null);
 		if (moving) return;
@@ -264,11 +270,7 @@ function WorkspaceControls({
 				role="status"
 				data-testid="workspace-transition"
 			>
-				{resolved?.moving
-					? workspace?.pendingOperation
-						? resolved.label
-						: `${resolved.label} your workspace.`
-					: ""}
+				{transition}
 			</span>
 
 			<ConfirmDialogRoot
@@ -288,9 +290,17 @@ function WorkspaceControls({
 							confirming === "stop" ? "Stop workspace" : "Restart workspace"
 						}
 						pending={action.isPending}
+						// Opened while the state settles (the throttle notice can): wait, say why.
+						disabled={moving && !action.isPending}
 						onCancel={() => setConfirming(null)}
 						onConfirm={() => run(confirming)}
-					/>
+					>
+						{moving && !action.isPending ? (
+							<p className="pk-text-small m-0" data-testid="workspace-confirm-wait">
+								{transition || "Connecting."} You can {confirming} once it has finished.
+							</p>
+						) : null}
+					</ConfirmDialog>
 				) : null}
 			</ConfirmDialogRoot>
 		</div>
