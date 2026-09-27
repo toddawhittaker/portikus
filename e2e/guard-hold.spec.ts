@@ -5,12 +5,17 @@
  * the held throttle row the worker would.
  */
 import { type Browser, expect, type Page, test } from "@playwright/test";
-import { createStudent, loginAs, query, settledAxe, workspacePath } from "./helpers";
+import {
+	createStudent,
+	loginAs,
+	query,
+	settledAxe,
+	WCAG_TAGS,
+	workspacePath,
+} from "./helpers";
 
 async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page))
-		.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
-		.analyze();
+	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 

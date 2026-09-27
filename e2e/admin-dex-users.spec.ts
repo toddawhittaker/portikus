@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, query, settledAxe, WEB_ORIGIN } from "./helpers";
+import { loginAs, query, settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
 
 /**
  * Add, reset and remove Dex users from the Users view (docs/archive/epics/EPIC-14.md
@@ -10,7 +10,7 @@ import { loginAs, query, settledAxe, WEB_ORIGIN } from "./helpers";
 
 async function expectNoViolations(page: Page, selector: string) {
 	const results = await (await settledAxe(page))
-		.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+		.withTags(WCAG_TAGS)
 		.include(selector)
 		.analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

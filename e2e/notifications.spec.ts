@@ -10,13 +10,14 @@ import {
 	query,
 	settledAxe,
 	toast,
+	WCAG_TAGS,
 	WEB_ORIGIN,
 	workspacePath,
 } from "./helpers";
 
 async function expectNoViolations(page: Page, include: string) {
 	const results = await (await settledAxe(page))
-		.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+		.withTags(WCAG_TAGS)
 		.include(include)
 		.analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

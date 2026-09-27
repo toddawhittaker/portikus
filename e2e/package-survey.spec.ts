@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, loginAs, query, settledAxe } from "./helpers";
+import { createStudent, loginAs, query, settledAxe, WCAG_TAGS } from "./helpers";
 
 /**
  * "Packages students add" on the Health tab (SPEC.md §20.1, ADR 0042). No
@@ -72,7 +72,7 @@ test.describe("package survey", () => {
 
 		const results = await (await settledAxe(page))
 			.include('[aria-labelledby="health-packages-title"]')
-			.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+			.withTags(WCAG_TAGS)
 			.analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});

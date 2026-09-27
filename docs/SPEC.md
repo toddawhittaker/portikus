@@ -2940,6 +2940,8 @@ A control that cannot act yet, such as a Confirm button while the workspace is c
 
 Every Stop icon button (Running, Checks, Monitor and the admin Processes table) uses one shared danger colour, the `pk-iconbtn-danger` class, for its normal, hover and focus states, and keeps a target of at least 24 px (WCAG 2.5.8) (Epic 22).
 
+The automated axe checks in the Playwright suite run the WCAG 2.0, 2.1 and 2.2 A and AA rules from one shared tag list, `WCAG_TAGS` in `e2e/helpers.ts`.
+
 ### 25.9 Browser support
 
 P0 should support current versions of:

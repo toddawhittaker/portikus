@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createStudent, settledAxe, toast, workspacePath } from "./helpers";
+import { createStudent, settledAxe, toast, WCAG_TAGS, workspacePath } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
 /**
@@ -52,7 +52,7 @@ test("after a rebuild the student sees what to reinstall and can copy the line",
 		await page.emulateMedia({ colorScheme: scheme });
 		const results = await (await settledAxe(page))
 			.include('[data-testid="reinstall-notice"]')
-			.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+			.withTags(WCAG_TAGS)
 			.analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	}

@@ -220,7 +220,7 @@ export function AppHeader({
 							setNotificationsOpen(true);
 						}}
 					>
-						{badge}
+						<span className="pk-account-badge-pill">{badge}</span>
 					</button>
 				) : null}
 			</span>
