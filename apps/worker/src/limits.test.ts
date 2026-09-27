@@ -123,6 +123,35 @@ test.skipIf(skip)("clearing every limit removes them from the instance", async (
 	});
 });
 
+test.skipIf(skip)(
+	"after a re-provision clears limits_applied, the recreated instance gets the limits again",
+	async () => {
+		const ws = await insertWorkspace({ config: { cpu: 2 }, applied: { cpu: 2 } });
+		const { tick, sets } = build();
+		await tick();
+		expect(sets()).toEqual([]);
+
+		// What POST /admin/workspaces/:id/reprovision writes, then the create landing in stopped.
+		await tdb.db
+			.updateTable("workspaces")
+			.set({ state: "provisioning", limits_applied: null })
+			.where("id", "=", ws.id)
+			.execute();
+		await tick();
+		expect(sets()).toEqual([]);
+		await tdb.db
+			.updateTable("workspaces")
+			.set({ state: "stopped" })
+			.where("id", "=", ws.id)
+			.execute();
+		await tick();
+		expect(sets().map((c) => c.args)).toEqual([
+			[ws.instance, { cpu: 2, memoryMiB: null, processes: null }],
+		]);
+		expect(await applied(ws.id)).toEqual({ cpu: 2 });
+	},
+);
+
 test.skipIf(skip)("a stopped workspace gets its limits too", async () => {
 	const ws = await insertWorkspace({
 		config: { processes: 1000 },
