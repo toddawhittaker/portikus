@@ -8,8 +8,10 @@
  */
 import { execFile } from "node:child_process";
 import { access, readdir, readFile, readlink } from "node:fs/promises";
+import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
+import { connect as tlsConnect } from "node:tls";
 import type { AgentListeningService } from "@portikus/contracts";
 import type { FastifyBaseLogger } from "fastify";
 import { ownedByStudent, parseStatusUids, readCommandLine } from "./processes.js";
@@ -28,12 +30,63 @@ export const DOCKER_TIMEOUT_MS = 500;
 
 /**
  * Ports that development servers use for plain HTTP often enough to label.
- * Anything else is "unknown"; the agent does not probe student services.
+ * Anything else is "unknown" unless the TLS probe below finds HTTPS.
  */
 const HTTP_PORTS: ReadonlySet<number> = new Set([
 	80, 3000, 3001, 4000, 4200, 5000, 5173, 5174, 7000, 8000, 8001, 8080, 8081, 8888,
 	9000,
 ]);
+
+/** How long one TLS probe may take before the listener counts as not HTTPS. */
+export const TLS_PROBE_TIMEOUT_MS = 1000;
+
+/** How many TLS probes run at once. */
+export const TLS_PROBE_CONCURRENCY = 4;
+
+/** Ports below this are never probed. */
+const FIRST_PROBED_PORT = 1024;
+
+export type TlsProbe = (host: string, port: number) => Promise<boolean>;
+
+/**
+ * Whether a listener completes a TLS handshake (issue #283). Certificate
+ * checks are off because a development server's certificate is self-signed;
+ * nothing is sent after the handshake.
+ */
+export function probeTls(
+	host: string,
+	port: number,
+	timeoutMs = TLS_PROBE_TIMEOUT_MS,
+): Promise<boolean> {
+	return new Promise((resolve) => {
+		let settled = false;
+		const socket = tlsConnect({
+			host,
+			port,
+			rejectUnauthorized: false,
+			// SNI may not be an IP address.
+			...(isIP(host) === 0 ? { servername: host } : {}),
+		});
+		const finish = (https: boolean) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			socket.destroy();
+			resolve(https);
+		};
+		const timer = setTimeout(() => finish(false), timeoutMs);
+		socket.once("secureConnect", () => finish(true));
+		socket.once("error", () => finish(false));
+		socket.once("close", () => finish(false));
+	});
+}
+
+/** The address a probe dials for a listener bound to this address. */
+function probeAddress(address: string): string {
+	if (address === "0.0.0.0") return "127.0.0.1";
+	if (address === "::") return "::1";
+	return address;
+}
 
 /** One listening socket as `/proc/net/tcp` reports it. */
 export interface ProcListener {
@@ -374,6 +427,8 @@ export interface ListeningMonitorOptions {
 	kill?: (pid: number, signal: NodeJS.Signals) => void;
 	/** How a container is stopped. Tests override it. */
 	dockerStop?: (container: string) => Promise<void>;
+	/** How a listener is checked for TLS. Tests override it. */
+	probeTls?: TlsProbe;
 	intervalMs?: number;
 	/** How long a process has after SIGTERM. Tests shorten it. */
 	graceMs?: number;
@@ -426,6 +481,9 @@ export class ListeningMonitor {
 	private readonly kill: (pid: number, signal: NodeJS.Signals) => void;
 	private readonly dockerStop: (container: string) => Promise<void>;
 	private readonly graceMs: number;
+	private readonly probe: TlsProbe;
+	/** Socket inode to whether it spoke TLS, so each listener is probed once. */
+	private tlsByInode = new Map<string, boolean>();
 	private readonly listeners = new Set<Listener>();
 	private services: AgentListeningService[] = [];
 	private print = fingerprint([]);
@@ -453,6 +511,7 @@ export class ListeningMonitor {
 		this.kill = options.kill ?? ((pid, signal) => process.kill(pid, signal));
 		this.dockerStop = options.dockerStop ?? dockerStopContainer;
 		this.graceMs = options.graceMs ?? STOP_GRACE_MS;
+		this.probe = options.probeTls ?? probeTls;
 	}
 
 	start(): void {
@@ -732,6 +791,8 @@ export class ListeningMonitor {
 		}
 
 		const services: AgentListeningService[] = [];
+		/** The inode and address to probe for each student port. */
+		const probeTargets = new Map<number, { inode: string; address: string }>();
 		for (const [port, listeners] of byPort) {
 			const addresses = [...new Set(listeners.map((entry) => entry.address))].sort();
 			const found = listeners
@@ -751,6 +812,10 @@ export class ListeningMonitor {
 			// Only the student's own listener carries its command line; a system
 			// or Docker row never does (SPEC.md §24.11, ADR 0037).
 			const commandLine = system || container ? undefined : owner?.commandLine;
+			const first = listeners[0];
+			if (!system && port >= FIRST_PROBED_PORT && first) {
+				probeTargets.set(port, { inode: first.inode, address: first.address });
+			}
 			services.push({
 				port,
 				addresses,
@@ -770,8 +835,50 @@ export class ListeningMonitor {
 				observedAt,
 			});
 		}
+		const https = await this.httpsPorts(probeTargets);
+		for (const service of services) {
+			if (https.has(service.port)) service.protocolHint = "https";
+		}
 		services.sort((left, right) => left.port - right.port);
 		return services;
+	}
+
+	/**
+	 * Which of these ports speak TLS (issue #283). Only a listener not seen
+	 * before is probed, at most four at a time; a closed listener's answer is
+	 * dropped with it.
+	 */
+	private async httpsPorts(
+		targets: Map<number, { inode: string; address: string }>,
+	): Promise<Set<number>> {
+		const next = new Map<string, boolean>();
+		const pending: { inode: string; address: string; port: number }[] = [];
+		for (const [port, target] of targets) {
+			const known = this.tlsByInode.get(target.inode);
+			if (known === undefined) pending.push({ ...target, port });
+			else next.set(target.inode, known);
+		}
+		let index = 0;
+		const worker = async () => {
+			while (index < pending.length) {
+				const target = pending[index];
+				index += 1;
+				if (!target) continue;
+				next.set(
+					target.inode,
+					await this.probe(probeAddress(target.address), target.port),
+				);
+			}
+		};
+		await Promise.all(
+			Array.from({ length: Math.min(TLS_PROBE_CONCURRENCY, pending.length) }, worker),
+		);
+		this.tlsByInode = next;
+		const https = new Set<number>();
+		for (const [port, target] of targets) {
+			if (next.get(target.inode)) https.add(port);
+		}
+		return https;
 	}
 
 	/**
