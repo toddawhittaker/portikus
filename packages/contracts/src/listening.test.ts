@@ -5,6 +5,7 @@
  */
 import { expect, test } from "vitest";
 import { AgentListeningService, ListeningService } from "./listening.js";
+import { PROCESS_COMMAND_LINE_LIMIT } from "./usage.js";
 
 const service = {
 	workspaceId: "11111111-1111-4111-8111-111111111111",
@@ -51,4 +52,13 @@ test("a command line that is not text is refused", () => {
 			process: { pid: 7, commandLine: 5 },
 		}).success,
 	).toBe(false);
+});
+
+test("an over-long command line is accepted and cut to the limit", () => {
+	const { workspaceId: _workspaceId, ...agent } = service;
+	const parsed = AgentListeningService.parse({
+		...agent,
+		process: { pid: 7, commandLine: "x".repeat(PROCESS_COMMAND_LINE_LIMIT + 500) },
+	});
+	expect(parsed.process?.commandLine).toBe("x".repeat(PROCESS_COMMAND_LINE_LIMIT));
 });

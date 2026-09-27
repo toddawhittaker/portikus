@@ -54,13 +54,14 @@ export function RunningPane({
 	const [showSystem, setShowSystem] = useState(readShowSystem);
 	const [stopping, setStopping] = useState<ListeningService | null>(null);
 	const [selectedPort, setSelectedPort] = useState<number | null>(null);
-	const [expandedPorts, setExpandedPorts] = useState<Set<number>>(() => new Set());
+	// Keyed by port and pid, so a new process on the same port starts collapsed.
+	const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set());
 
-	function toggleCommand(port: number) {
-		setExpandedPorts((previous) => {
+	function toggleCommand(key: string) {
+		setExpandedRows((previous) => {
 			const next = new Set(previous);
-			if (next.has(port)) next.delete(port);
-			else next.add(port);
+			if (next.has(key)) next.delete(key);
+			else next.add(key);
 			return next;
 		});
 	}
@@ -119,7 +120,8 @@ export function RunningPane({
 					service.system || isDocker(service)
 						? undefined
 						: service.process?.commandLine;
-				const expanded = commandLine !== undefined && expandedPorts.has(service.port);
+				const rowKey = `${service.port}:${service.process?.pid ?? ""}`;
+				const expanded = commandLine !== undefined && expandedRows.has(rowKey);
 				const detailId = `running-command-${service.port}`;
 				return (
 					<div
@@ -164,6 +166,11 @@ export function RunningPane({
 								) : null}
 							</span>
 						</button>
+						{expanded ? (
+							<div className="pk-portrow-command">
+								<FullCommandText id={detailId} commandLine={commandLine} />
+							</div>
+						) : null}
 						<span className="pk-portrow-actions">
 							{commandLine !== undefined ? (
 								<FullCommandButton
@@ -171,7 +178,7 @@ export function RunningPane({
 									expanded={expanded}
 									detailId={detailId}
 									testId={`running-show-command-${service.port}`}
-									onToggle={() => toggleCommand(service.port)}
+									onToggle={() => toggleCommand(rowKey)}
 								/>
 							) : null}
 							{isPreviewable(service) && !service.system ? (
@@ -213,11 +220,6 @@ export function RunningPane({
 								/>
 							)}
 						</span>
-						{expanded ? (
-							<div className="pk-portrow-command">
-								<FullCommandText id={detailId} commandLine={commandLine} />
-							</div>
-						) : null}
 					</div>
 				);
 			})}

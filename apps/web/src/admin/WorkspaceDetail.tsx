@@ -1246,11 +1246,10 @@ function UserGrace({ user }: { user: AdminUser }) {
 
 	return (
 		<div className="pk-actions flex-nowrap items-start">
-			{/* A one-line label keeps Save's mt-6 offset true; a wrapped label pushed the input down. */}
 			<TextField
 				id={`user-grace-${user.id}`}
 				label="Grace period override (seconds)"
-				className="w-48 [&_label]:whitespace-nowrap"
+				className="w-64"
 				inputMode="numeric"
 				placeholder={globalSeconds === null ? undefined : defaultLabel(globalSeconds)}
 				data-testid={`user-grace-input-${user.id}`}
