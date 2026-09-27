@@ -27,7 +27,7 @@ export function TestHostCard({
 
 	return (
 		<section className="pk-card p-6" aria-labelledby="egress-test-title">
-			<h3 className="pk-text-heading m-0" id="egress-test-title">
+			<h3 className="pk-text-heading m-0" id="egress-test-title" tabIndex={-1}>
 				Test a host
 			</h3>
 			<p className="pk-text-body pk-muted mt-1 mb-0">

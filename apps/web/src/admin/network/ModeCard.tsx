@@ -2,7 +2,7 @@ import type { AdminEgressView, EgressMode } from "@portikus/contracts";
 import { ConfirmDialog, ConfirmDialogRoot, Icon, useToast } from "@portikus/ui";
 import { useEffect, useState } from "react";
 import { egressErrorText, useEgressWrite } from "./queries.js";
-import { applyState, joinPorts, listedHostCount } from "./text.js";
+import { applyAnnouncement, applyState, joinPorts, listedHostCount } from "./text.js";
 
 const MODE_TEXT: Record<EgressMode, { name: string; summary: string }> = {
 	open: {
@@ -107,7 +107,6 @@ export function ModeCard({ view }: { view: AdminEgressView }) {
 							? "bg-status-starting-soft text-ink"
 							: "bg-surface-sunken text-ink-muted"
 				}`}
-				role="status"
 				data-testid="egress-apply-status"
 				data-tone={status.tone}
 			>
@@ -130,6 +129,10 @@ export function ModeCard({ view }: { view: AdminEgressView }) {
 					)}
 				</span>
 				<span>{status.text}</span>
+			</p>
+			{/* Announces state changes only; the visible age text ticks every 30 seconds. */}
+			<p className="sr-only" role="status" data-testid="egress-apply-announce">
+				{applyAnnouncement(status)}
 			</p>
 			<ConfirmDialogRoot
 				open={target !== null}

@@ -149,6 +149,13 @@ test("an old set is deleted by the host; the newest complete set is refused", as
 	await dialog.getByTestId("dialog-confirm").click();
 	await expect(toast(page, "Delete requested")).toBeVisible();
 	await expect(page.getByTestId(`backup-set-${OLD}`)).toContainText("Deleting…");
+	// The button stays mounted while the host works, so focus returns to it.
+	const deleting = page
+		.getByTestId(`backup-set-${OLD}`)
+		.getByTestId("backup-set-delete");
+	await expect(deleting).toHaveText("Deleting…");
+	await expect(deleting).toHaveAttribute("aria-disabled", "true");
+	await expect(deleting).toBeFocused();
 
 	const claimed = hostPull();
 	expect(claimed).toMatchObject({ kind: "delete_set", args: { stamp: OLD } });
