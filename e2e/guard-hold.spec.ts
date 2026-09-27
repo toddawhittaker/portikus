@@ -10,6 +10,7 @@ import {
 	loginAs,
 	query,
 	settledAxe,
+	toast,
 	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
@@ -71,7 +72,7 @@ test("an administrator changes the hold settings, and a bad value is named", asy
 		await after.fill("4");
 		await hours.fill("48");
 		await page.getByTestId("guard-settings-save").click();
-		await expect(page.getByText("Resource guard saved")).toBeVisible();
+		await expect(toast(page, "Resource guard saved")).toBeVisible();
 		const [row] = await query<{ after: number; hours: number }>(
 			"select cpu_throttle_hold_after as after, cpu_throttle_hold_hours as hours from settings where id = 1",
 		);

@@ -41,13 +41,18 @@ export function PackagesSection() {
 	);
 }
 
+// The API keeps a day's rows back until this many workspaces were surveyed.
+const MIN_SURVEYED = 3;
+
 export function PackagesTable({ survey }: { survey: AdminPackagesResponse }) {
 	if (survey.day === null || survey.packages.length === 0) {
 		return (
 			<p className="pk-muted m-0 mt-4 text-[13px]" data-testid="packages-empty">
 				{survey.day === null
 					? "No workspace has been surveyed yet."
-					: `No surveyed workspace had added a package on ${surveyDay(survey.day)}.`}
+					: survey.surveyed < MIN_SURVEYED
+						? `Not enough workspaces surveyed on ${surveyDay(survey.day)}. Packages show once at least ${MIN_SURVEYED} are surveyed in a day.`
+						: `No surveyed workspace had added a package on ${surveyDay(survey.day)}.`}
 			</p>
 		);
 	}
@@ -56,8 +61,9 @@ export function PackagesTable({ survey }: { survey: AdminPackagesResponse }) {
 		<div className="pk-table-wrap mt-4">
 			<table className="pk-table" data-testid="packages-table">
 				<caption className="pk-text-label pk-muted text-left">
-					Packages added with sudo apt, out of {surveyed}. A package at least 2 and a
-					third of them added is a base-image candidate.
+					Packages added with sudo apt, out of {surveyed}. A package added in at least 2
+					workspaces, and in at least a third of those surveyed, is a base-image
+					candidate.
 				</caption>
 				<thead>
 					<tr>

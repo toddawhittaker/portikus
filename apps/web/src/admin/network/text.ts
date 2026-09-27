@@ -130,3 +130,17 @@ export function applyState(view: AdminEgressView, now: number): ApplyState {
 		text: "Nothing has been changed yet. Workspaces use open mode.",
 	};
 }
+
+/** What a screen reader hears: the state, never the ticking age. */
+export function applyAnnouncement(state: ApplyState): string {
+	if (state.tone === "error") return state.text;
+	if (state.tone === "pending") return "Applying the latest change to every workspace.";
+	if (state.tone === "applied")
+		return "Applied. Every running workspace follows this policy.";
+	return "";
+}
+
+/** Focuses a heading once the closing dialog has let go of focus. */
+export function focusAfterClose(id: string): void {
+	requestAnimationFrame(() => document.getElementById(id)?.focus());
+}

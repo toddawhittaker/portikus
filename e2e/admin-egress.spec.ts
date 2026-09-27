@@ -136,7 +136,12 @@ test("each preset turns on, shows its sites, and allows them", async ({ page }) 
 	for (const preset of EGRESS_PRESETS) {
 		const card = page.getByTestId(`egress-preset-${preset.id}`);
 		const n = preset.hosts.length;
-		await card.getByText(`${n} ${n === 1 ? "site" : "sites"}`, { exact: true }).click();
+		// The summary also carries the preset's name for screen readers.
+		const summary = card.locator("summary");
+		await expect(summary).toHaveText(
+			`${preset.label}: ${n} ${n === 1 ? "site" : "sites"}`,
+		);
+		await summary.click();
 		for (const host of preset.hosts)
 			await expect(card.getByText(host, { exact: true })).toBeVisible();
 		expect(await testHost(page, `www.${preset.hosts[0]}`)).toBe("not-listed");
@@ -233,6 +238,10 @@ test("hosts and ranges are added, edited and removed, with validation", async ({
 	await page.getByRole("button", { name: `Remove ${RANGES[0]}` }).click();
 	await confirm.getByRole("button", { name: "Remove" }).click();
 	await expect(rows.filter({ hasText: RANGES[0] as string })).toHaveCount(0);
+	// The removed row took its button with it, so focus lands on the card heading.
+	await expect(
+		page.getByRole("heading", { name: "Your hosts and ranges" }),
+	).toBeFocused();
 });
 
 test("ports are checked and saved", async ({ page }) => {
@@ -290,6 +299,7 @@ test("Test a host explains every answer and can allow an unlisted name", async (
 	await dialog.getByTestId("egress-entry-save").click();
 	await expect(dialog).toBeHidden();
 	await expect(result).toHaveAttribute("data-reason", "entry");
+	await expect(page.getByRole("heading", { name: "Test a host" })).toBeFocused();
 
 	await query("update settings set egress_mode = 'open' where id = 1");
 	await page.reload();
@@ -319,6 +329,7 @@ test("a refused name is allowed from the blocked list", async ({ page }) => {
 	await dialog.getByTestId("egress-entry-save").click();
 	await expect(dialog).toBeHidden();
 	await expect(row).toContainText("Listed now");
+	await expect(page.getByRole("heading", { name: "Refused names" })).toBeFocused();
 	await expect(
 		page.getByTestId("egress-entry-row").filter({ hasText: `registry.${SUFFIX}` }),
 	).toContainText("Package mirror");

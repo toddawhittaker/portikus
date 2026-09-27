@@ -9,11 +9,14 @@ import { PortsCard } from "./PortsCard.js";
 import { PresetsCard } from "./PresetsCard.js";
 import { egressErrorText, useEgress } from "./queries.js";
 import { TestHostCard } from "./TestHostCard.js";
+import { focusAfterClose } from "./text.js";
 
 /** The admin Network tab: the workspace egress allow-list (issue #284, SPEC.md section 20.1). */
 export function NetworkTab() {
 	const egress = useEgress();
 	const [draft, setDraft] = useState<EntryDraft | null>(null);
+	// Where focus goes after an Allow saves: the row or button it came from is gone.
+	const [returnTo, setReturnTo] = useState<string | null>(null);
 
 	if (egress.isError && !egress.data) {
 		return (
@@ -40,7 +43,14 @@ export function NetworkTab() {
 		);
 	}
 
-	const allow = (host: string) => setDraft({ kind: "host", value: host, label: "" });
+	const allowFrom = (headingId: string) => (host: string) => {
+		setReturnTo(headingId);
+		setDraft({ kind: "host", value: host, label: "" });
+	};
+	const edit = (next: EntryDraft) => {
+		setReturnTo(null);
+		setDraft(next);
+	};
 
 	return (
 		<AdminSection title="Network">
@@ -55,12 +65,12 @@ export function NetworkTab() {
 				<div className="grid items-start gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
 					<div className="grid gap-6">
 						<PresetsCard view={view} />
-						<EntriesCard view={view} onEdit={setDraft} />
+						<EntriesCard view={view} onEdit={edit} />
 						<PortsCard view={view} />
 					</div>
 					<div className="grid gap-6">
-						<TestHostCard view={view} onAllow={allow} />
-						<BlockedCard view={view} onAllow={allow} />
+						<TestHostCard view={view} onAllow={allowFrom("egress-test-title")} />
+						<BlockedCard view={view} onAllow={allowFrom("egress-blocked-title")} />
 					</div>
 				</div>
 			</div>
@@ -69,6 +79,10 @@ export function NetworkTab() {
 					draft={draft}
 					version={view.version}
 					onClose={() => setDraft(null)}
+					onSaved={() => {
+						setDraft(null);
+						if (returnTo) focusAfterClose(returnTo);
+					}}
 				/>
 			) : null}
 		</AdminSection>

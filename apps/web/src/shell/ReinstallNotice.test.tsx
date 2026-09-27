@@ -2,7 +2,11 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../test-utils.js";
-import { REINSTALL_TITLE, ReinstallNotice } from "./ReinstallNotice.js";
+import {
+	REINSTALL_TITLE,
+	ReinstallNotice,
+	reinstallAnnouncement,
+} from "./ReinstallNotice.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -30,6 +34,24 @@ test("nothing shows when nothing was removed", async () => {
 	renderWithQuery(<ReinstallNotice workspaceId={ID} running />);
 	await waitFor(() => expect(fetch).toHaveBeenCalled());
 	expect(screen.queryByTestId("reinstall-notice")).toBeNull();
+});
+
+test("a first 503 while the agent starts is retried, and the notice shows", async () => {
+	let calls = 0;
+	stubFetch(() => {
+		calls += 1;
+		return calls === 1
+			? json(503, { error: { code: "AGENT_UNAVAILABLE", message: "Starting." } })
+			: json(200, { packages: ["htop"] });
+	});
+	renderWithQuery(<ReinstallNotice workspaceId={ID} running />);
+	expect(await screen.findByText(REINSTALL_TITLE, {}, { timeout: 4000 })).toBeTruthy();
+	expect(calls).toBe(2);
+});
+
+test("the announcement names the removed packages, and nothing when none", () => {
+	expect(reinstallAnnouncement(["htop", "jq"])).toBe(`${REINSTALL_TITLE}: htop, jq.`);
+	expect(reinstallAnnouncement([])).toBe("");
 });
 
 test("a stopped workspace is not asked", () => {

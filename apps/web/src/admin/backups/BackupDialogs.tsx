@@ -134,7 +134,15 @@ export function RestoreDialog({
 								data-testid="backup-restore-confirm"
 								loading={pending}
 								aria-disabled={!picked || stopped ? true : undefined}
-								aria-describedby={stopped ? "backup-restore-stopped" : undefined}
+								aria-describedby={
+									covered.length === 0
+										? "backup-restore-none"
+										: !picked
+											? "backup-restore-choose"
+											: stopped
+												? "backup-restore-stopped"
+												: undefined
+								}
 								onClick={() => {
 									if (picked && !stopped) onRestore(picked.id);
 								}}
@@ -158,10 +166,19 @@ export function RestoreDialog({
 								}))}
 							/>
 						) : (
-							<p className="m-0 text-[13px]" data-testid="backup-restore-none">
+							<p
+								id="backup-restore-none"
+								className="m-0 text-[13px]"
+								data-testid="backup-restore-none"
+							>
 								None of the workspaces in this set exist on the platform now.
 							</p>
 						)}
+						{covered.length > 0 && !picked ? (
+							<p id="backup-restore-choose" className="pk-muted m-0 text-[13px]">
+								Choose a workspace to restore.
+							</p>
+						) : null}
 						{missing > 0 && covered.length > 0 ? (
 							<p className="pk-muted m-0 text-[13px]">
 								{missing} workspace{missing === 1 ? "" : "s"} in this set no longer
@@ -179,16 +196,16 @@ export function RestoreDialog({
 							does not have room for the copy, the host refuses and nothing changes. The
 							student is told when the copy is done.
 						</p>
-						{stopped ? (
-							<p
-								id="backup-restore-stopped"
-								className="m-0 text-[13px] text-status-warning"
-								role="status"
-							>
-								Start this workspace first. The copy is written by the student's own
-								account inside the running workspace.
-							</p>
-						) : null}
+						{/* Always mounted so the text change is announced. */}
+						<p
+							id="backup-restore-stopped"
+							className="m-0 text-[13px] text-status-warning empty:hidden"
+							role="status"
+						>
+							{stopped
+								? "Start this workspace first. The copy is written by the student's own account inside the running workspace."
+								: ""}
+						</p>
 						{serverError ? (
 							<p className="m-0 text-[13px] text-status-error" role="alert">
 								{serverError}

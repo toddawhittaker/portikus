@@ -10,6 +10,8 @@ export interface CheckboxProps {
 	/** Some but not all of a group are ticked; drawn as a dash. */
 	indeterminate?: boolean;
 	disabled?: boolean;
+	/** Busy: stays focusable and announced as unavailable; the caller ignores changes. */
+	ariaDisabled?: boolean;
 	onChange?: React.ChangeEventHandler<HTMLInputElement>;
 	className?: string;
 }
@@ -25,6 +27,7 @@ export function Checkbox({
 	checked,
 	indeterminate = false,
 	disabled,
+	ariaDisabled,
 	onChange,
 	className,
 }: CheckboxProps): React.ReactElement {
@@ -43,6 +46,7 @@ export function Checkbox({
 				className="peer absolute size-px opacity-0"
 				checked={checked}
 				disabled={disabled}
+				aria-disabled={ariaDisabled || undefined}
 				onChange={onChange}
 				readOnly={onChange ? undefined : true}
 			/>
