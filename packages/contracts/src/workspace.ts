@@ -261,6 +261,8 @@ export const ApiErrorCode = z.enum([
 	"ACCEPTABLE_USE_CHANGED",
 	"NOT_LOCAL_PASSWORD",
 	"WRONG_PASSWORD",
+	// journalctl missing, failing or refused (docs/adr/0036).
+	"LOGS_UNAVAILABLE",
 	// The database pool had no free connection in time (ADR 0034 ruling 14).
 	"SERVICE_BUSY",
 	"INTERNAL",

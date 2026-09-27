@@ -96,22 +96,27 @@ test.describe("admin layout", () => {
 
 		await rows.last().getByRole("button").focus();
 		const header = table.locator("thead th").first();
+		const firstId = await rows.first().getByRole("button").getAttribute("id");
+		// Press until the first row's name has focus, however many stops a row has.
 		let checked = 0;
-		for (let step = 0; step < 80; step++) {
+		let reachedTop = false;
+		for (let step = 0; step < 200 && !reachedTop; step++) {
 			await page.keyboard.press("Shift+Tab");
 			const focused = await page.evaluate(() => {
 				const el = document.activeElement as HTMLElement | null;
 				return el?.tagName === "BUTTON" && el.id
-					? el.getBoundingClientRect().top
+					? { id: el.id, top: el.getBoundingClientRect().top }
 					: null;
 			});
 			if (focused === null) continue;
 			const headerBox = await header.boundingBox();
 			if (!headerBox) throw new Error("the header has no box");
-			expect(focused).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+			expect(focused.top).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
 			checked++;
+			reachedTop = focused.id === firstId;
 		}
-		// The walk really reached the rows that sat under the header.
-		expect(checked).toBeGreaterThan(30);
+		// The walk really reached every row above the last, up to the first.
+		expect(reachedTop).toBe(true);
+		expect(checked).toBeGreaterThanOrEqual(39);
 	});
 });

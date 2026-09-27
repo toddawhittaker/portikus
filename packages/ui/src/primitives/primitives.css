@@ -19,6 +19,22 @@
 	outline-offset: var(--ring-offset);
 }
 
+/* An inline text link (design/mockups/portikus-screens.css). */
+.pk-link {
+	color: var(--accent-text);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.pk-link:hover {
+	color: var(--ink);
+}
+
+.pk-link:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+
 /* Rows, tabs and cells inside scrolling containers, so the ring is never clipped. */
 .pk-focus-inset:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
