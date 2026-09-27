@@ -17,7 +17,9 @@ import { registerRequestMetrics } from "./request-metrics.js";
 import { registerAcceptableUseRoutes } from "./routes/acceptable-use.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
+import { registerAdminBackupRoutes } from "./routes/admin-backups.js";
 import { registerAdminDexUserRoutes } from "./routes/admin-dex-users.js";
+import { registerAdminEgressRoutes } from "./routes/admin-egress.js";
 import { registerAdminHealthRoutes } from "./routes/admin-health.js";
 import { registerAdminLogRoutes } from "./routes/admin-logs.js";
 import { registerAdminProcessRoutes } from "./routes/admin-processes.js";
@@ -235,9 +237,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerMaintenanceRoutes(instance, deps);
 		registerAdminWorkspaceRoutes(instance, routeDeps);
 		registerAdminProcessRoutes(instance, deps);
+		registerAdminEgressRoutes(instance, deps);
 		registerAdminAuditRoutes(instance, routeDeps);
 		registerAdminLogRoutes(instance, deps);
 		registerAdminHealthRoutes(instance, routeDeps);
+		registerAdminBackupRoutes(instance, deps);
 	});
 
 	return app;
