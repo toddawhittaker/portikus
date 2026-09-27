@@ -555,3 +555,6 @@ jobs:
       - name: Backup scope
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/backup-scope-test.sh
+      - name: Backup channel against a lying VM
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/backup-channel-test.sh
