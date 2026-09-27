@@ -694,3 +694,34 @@ test("a port that stays quiet past the grace says nothing is listening", async (
 	expect(screen.queryByTestId("preview-frame")).toBeNull();
 	vi.useRealTimers();
 });
+
+// --- a port speaking HTTPS (issue #283, step 1) ---
+
+test("a port speaking HTTPS says so and asks no grant", async () => {
+	const fetchMock = stubFetch(() => json(200, GRANT));
+	show({ services: [{ ...service(5173), protocolHint: "https" }] });
+	expect((await screen.findByTestId("preview-https")).textContent).toBe(
+		"This port is speaking HTTPS; the preview expects plain HTTP. Start your server without TLS, or wait for HTTPS previews.",
+	);
+	expect(screen.queryByTestId("preview-frame")).toBeNull();
+	expect(fetchMock).not.toHaveBeenCalled();
+	expect(screen.getByTestId("preview-status").textContent).toBe(
+		"Port 5173 is speaking HTTPS",
+	);
+});
+
+test("an open preview switches to the HTTPS notice and back", async () => {
+	stubFetch(() => json(200, GRANT));
+	const { rerender } = render(tab([service(5173)]));
+	await screen.findByTestId("preview-frame");
+
+	rerender(tab([{ ...service(5173), protocolHint: "https" }]));
+	await screen.findByTestId("preview-https");
+	expect(screen.queryByTestId("preview-frame")).toBeNull();
+
+	// The student restarts the server without TLS.
+	rerender(tab([service(5173)]));
+	expect((await screen.findByTestId("preview-frame")).getAttribute("src")).toBe(
+		GRANT.bootstrapUrl,
+	);
+});

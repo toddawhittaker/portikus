@@ -78,3 +78,15 @@ export function tooManyRequestsPage(): string {
 			"seconds, then reload it.",
 	);
 }
+
+/**
+ * The preview gateway speaks plain HTTP to the workspace, so a listener the
+ * agent found speaking TLS is explained rather than proxied (issue #283).
+ */
+export function httpsServicePage(port: number): string {
+	return previewPage(
+		`Port ${port} is speaking HTTPS`,
+		"This port is speaking HTTPS; the preview expects plain HTTP. Start " +
+			"your server without TLS, or wait for HTTPS previews.",
+	);
+}
