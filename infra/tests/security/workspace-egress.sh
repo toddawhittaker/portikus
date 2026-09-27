@@ -211,7 +211,7 @@ we_check_nftables_restart() {
   check "nftables' stop removes only the firewall's own tables" \
     sec_ssh "stop=\$(systemctl show nftables -p ExecStop --value); [[ \$stop == *'destroy table inet filter; destroy table inet nat'* && \$stop != *'flush ruleset'* ]]"
   check "the firewall's ruleset file never flushes the whole ruleset" \
-    sec_ssh "! grep -q 'flush ruleset' /etc/nftables.conf"
+    sec_ssh "! grep -v '^[[:space:]]*#' /etc/nftables.conf | grep -q 'flush ruleset'"
   before=$(sec_ssh "sudo nft list table inet portikus_egress | grep -c redirect")
   sec_ssh "sudo systemctl restart nftables" >/dev/null 2>&1
   after=$(sec_ssh "sudo nft list table inet portikus_egress | grep -c redirect")

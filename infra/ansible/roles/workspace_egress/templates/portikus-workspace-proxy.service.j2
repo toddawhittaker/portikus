@@ -6,8 +6,6 @@
 [Unit]
 Description=Portikus workspace egress proxy (Squid)
 After=network.target
-# It listens on the bridge gateway, which exists only once Incus is up, so a
-# failed start is retried until it does.
 StartLimitIntervalSec=0
 
 [Service]
@@ -19,7 +17,10 @@ PIDFile=/run/portikus-workspace-proxy/squid.pid
 RuntimeDirectory=portikus-workspace-proxy
 LogsDirectory=portikus-workspace-proxy
 LogsDirectoryMode=0750
-ExecStartPre=/usr/sbin/squid-openssl -k parse -f {{ workspace_egress_proxy_dir }}/squid.conf
+# Squid keeps running without a listener it cannot bind, so wait for Incus
+# to give the bridge its gateway address; after the timeout, start again.
+ExecStartPre=/bin/sh -c 'until ip -4 -o addr show to {{ workspace_egress_gateway }}/32 | grep -q .; do sleep 1; done'
+TimeoutStartSec=180
 ExecStart=/usr/sbin/squid-openssl --foreground -YC -n portikusws -f {{ workspace_egress_proxy_dir }}/squid.conf
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=mixed
