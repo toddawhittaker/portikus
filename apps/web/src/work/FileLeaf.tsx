@@ -12,6 +12,7 @@ import type { CodeEditorHandle } from "../editor/CodeEditor.js";
 import { lineForTop, readBlocks, topForLine } from "../editor/scrollSync.js";
 import { useEditorSettings } from "../editor/settingsQueries.js";
 import { DownloadFileButton } from "../files/DownloadFileButton.js";
+import { isStorageFull, STORAGE_FULL_SAVE_MESSAGE } from "../files/errors.js";
 import {
 	FileConflictError,
 	flushWrite,
@@ -324,7 +325,13 @@ export function FileLeaf({
 				setStatus("conflict");
 				return;
 			}
-			setSaveError(error instanceof Error ? error.message : "The save failed.");
+			setSaveError(
+				isStorageFull(error)
+					? STORAGE_FULL_SAVE_MESSAGE
+					: error instanceof Error
+						? error.message
+						: "The save failed.",
+			);
 			setStatus("failed");
 		} finally {
 			writing.current = false;

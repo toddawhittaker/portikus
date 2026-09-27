@@ -84,6 +84,8 @@ function userMessage(code: ControllerErrorCode): string {
 	switch (code) {
 		case "STORAGE_FULL":
 			return "Your workspace could not start because its storage is full.";
+		case "POOL_FULL":
+			return "There is no room for a new workspace right now. Your administrator has been told.";
 		case "IMAGE_NOT_FOUND":
 			return "The workspace image is not available. Please contact your administrator.";
 		case "TIMEOUT":
@@ -339,7 +341,7 @@ export async function reconcile(
 	// 3a: provisioning -> create -> stopped/error
 	const provisioning = await db
 		.selectFrom("workspaces")
-		.select(["id", "incus_instance_name"])
+		.select(["id", "incus_instance_name", "error_code"])
 		.where("state", "=", "provisioning")
 		.execute();
 
@@ -349,7 +351,11 @@ export async function reconcile(
 			db,
 			controller,
 			config,
-			{ id: ws.id, incus_instance_name: ws.incus_instance_name },
+			{
+				id: ws.id,
+				incus_instance_name: ws.incus_instance_name,
+				error_code: ws.error_code,
+			},
 			now,
 			createRetryDelaysMs,
 		);
@@ -397,7 +403,7 @@ export async function reconcile(
 		transitions++;
 		record(ws.id, "stop requested");
 		await endOpenTerminals(db, ws.id, now);
-		await doStop(db, controller, config, ws, now);
+		stopInBackground(db, controller, config, ws, log);
 	}
 
 	// A pending maintenance operation stops a running workspace without
@@ -423,7 +429,7 @@ export async function reconcile(
 		transitions++;
 		record(ws.id, `stop for ${ws.pending_operation}`);
 		await endOpenTerminals(db, ws.id, now);
-		await doStop(db, controller, config, ws, now);
+		stopInBackground(db, controller, config, ws, log);
 	}
 
 	// Deadline passed with zero connections: single UPDATE with count subquery.
@@ -455,7 +461,7 @@ export async function reconcile(
 		record(ws.id, "stop after grace period");
 		await endOpenTerminals(db, ws.id, now);
 		if (!ws.incus_instance_name) continue;
-		await doStop(db, controller, config, ws, now);
+		stopInBackground(db, controller, config, ws, log);
 	}
 
 	// Idle stop (ADR 0032): a workspace override wins over the platform value,
@@ -503,7 +509,7 @@ export async function reconcile(
 		});
 		await endOpenTerminals(db, ws.id, now);
 		if (!ws.incus_instance_name) continue;
-		await doStop(db, controller, config, ws, now);
+		stopInBackground(db, controller, config, ws, log);
 	}
 
 	// 3d: error with desired running (or restarting) -> retry a start, but
@@ -569,6 +575,8 @@ export async function reconcile(
 
 	if (shouldRefresh) {
 		let instances: Awaited<ReturnType<ControllerClient["list"]>> | null = null;
+		// A stop that ends while list() runs leaves a list older than the row.
+		const stoppingDuringList = new Set(stopsInFlight.keys());
 		try {
 			instances = await controller.list();
 			// Only count a refresh that actually happened.
@@ -658,7 +666,11 @@ export async function reconcile(
 				}
 
 				// Drift: row says stopped but instance is Running.
-				if (ws.state === "stopped" && inst.status === "Running") {
+				if (
+					ws.state === "stopped" &&
+					inst.status === "Running" &&
+					!stoppingDuringList.has(ws.id)
+				) {
 					const updated = await casUpdate(
 						db,
 						ws.id,
@@ -713,7 +725,11 @@ export async function reconcile(
 					}
 				}
 
-				if (ws.state === "stopping") {
+				if (
+					ws.state === "stopping" &&
+					!stopsInFlight.has(ws.id) &&
+					!stoppingDuringList.has(ws.id)
+				) {
 					if (inst.status === "Stopped") {
 						const updated = await casUpdate(
 							db,
@@ -813,13 +829,15 @@ function isTransient(err: ControllerClientError): boolean {
  * stopped, or to error if the create fails (SPEC.md §6.3). The controller
  * answers an existing instance with `created: false`, which is adopted like
  * a fresh one. Unreachable-controller failures are retried with backoff.
- * Returns what happened for the debug line, or null if the row moved on.
+ * A full storage pool leaves the row in provisioning, to be tried again next
+ * sweep (SPEC.md §20.1). Returns what happened for the debug line, or null if
+ * the row moved on or nothing changed.
  */
 async function createWorkspace(
 	db: Kysely<Database>,
 	controller: ControllerClient,
 	config: ReconcileConfig,
-	ws: { id: string; incus_instance_name: string },
+	ws: { id: string; incus_instance_name: string; error_code: string | null },
 	now: Date,
 	retryDelaysMs: readonly number[],
 ): Promise<string | null> {
@@ -862,6 +880,22 @@ async function createWorkspace(
 			if (isTransient(err) && delay !== undefined) {
 				await new Promise((resolve) => setTimeout(resolve, delay));
 				continue;
+			}
+			if (err.code === "POOL_FULL") {
+				// Audit only the first refusal, so a long wait is one row, not one per sweep.
+				if (ws.error_code === "POOL_FULL") return null;
+				const refused = await casUpdate(
+					db,
+					ws.id,
+					"provisioning",
+					{ error_code: err.code, error_message: userMessage(err.code) },
+					now,
+				);
+				if (!refused) return null;
+				await audit(db, ws.id, "workspace.provision_refused", "refused", {
+					errorCode: err.code,
+				});
+				return "create refused: storage pool full";
 			}
 			const updated = await casUpdate(
 				db,
@@ -971,6 +1005,39 @@ async function startWorkspace(
 	return transitions;
 }
 
+/** Stops still running, by workspace id; step 5 leaves these rows alone. */
+const stopsInFlight = new Map<string, Promise<void>>();
+
+/**
+ * Start a stop without waiting for it, so a slow stop never delays the
+ * next sweep's starts (SPEC.md §6.5). On worker exit it is abandoned and
+ * step 5 resolves the row after the restart.
+ */
+function stopInBackground(
+	db: Kysely<Database>,
+	controller: ControllerClient,
+	config: ReconcileConfig,
+	ws: { id: string; incus_instance_name: string | null },
+	log: Logger,
+): void {
+	const running = doStop(db, controller, config, ws)
+		.catch((e: unknown) => {
+			log.error(
+				{ workspaceId: ws.id, error: e instanceof Error ? e.message : String(e) },
+				"background stop failed",
+			);
+		})
+		.finally(() => {
+			stopsInFlight.delete(ws.id);
+		});
+	stopsInFlight.set(ws.id, running);
+}
+
+/** Wait for every stop in flight to finish; for tests. */
+export async function settleStops(): Promise<void> {
+	await Promise.all(stopsInFlight.values());
+}
+
 /**
  * Execute a stop on a workspace that is already in 'stopping' state.
  * Exported for tests that need to drive it directly.
@@ -980,7 +1047,6 @@ export async function doStop(
 	controller: ControllerClient,
 	config: ReconcileConfig,
 	ws: { id: string; incus_instance_name: string | null },
-	now: Date,
 ): Promise<void> {
 	if (!ws.incus_instance_name) return;
 	try {
@@ -998,7 +1064,8 @@ export async function doStop(
 				desired_state: settleRestarting,
 				disconnected_at: null,
 			},
-			now,
+			// The stop may have taken minutes; stamp when it ended.
+			new Date(),
 		);
 		// The stop happened, so record it even if another pass already
 		// moved the row out of 'stopping' (SPEC.md §6.5).
@@ -1018,7 +1085,8 @@ export async function doStop(
 				error_code: err.code,
 				error_message: userMessage(err.code),
 			},
-			now,
+			// The stop may have taken minutes; stamp when it ended.
+			new Date(),
 		);
 		await audit(db, ws.id, "workspace.stop_failed", "failed", {
 			errorCode: err.code,

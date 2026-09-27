@@ -169,3 +169,19 @@ test.skipIf(skip)("a malformed query is 400", async () => {
 	expect((await getAudit("?before=-1")).statusCode).toBe(400);
 	expect((await getAudit("?unknown=1")).statusCode).toBe(400);
 });
+
+test.skipIf(skip)(
+	"every user actor the code writes resolves to a name (#600 item 7)",
+	async () => {
+		// Real sign-ins write their own audit rows through the production code.
+		const alice = new CookieJar();
+		await loginAs(app, "alice", alice);
+		await loginAs(app, "carol", carol);
+		const events = AuditPage.parse((await getAudit("")).json()).events;
+		const userActors = events.filter((event) => event.actor.startsWith("user:"));
+		expect(userActors.length).toBeGreaterThan(0);
+		for (const event of userActors) expect(event.actorName).not.toBeNull();
+		// A bare id as actor would not resolve; no code path writes one.
+		for (const event of events) expect(event.actor).not.toMatch(/^[0-9a-f]{8}-/);
+	},
+);

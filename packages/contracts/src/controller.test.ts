@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+	ControllerError,
 	CpuAllowance,
 	InstanceUsage,
 	InstanceUsageResponse,
@@ -82,5 +83,11 @@ describe("the resource guard's controller contracts (ADR 0032)", () => {
 		expect(
 			SetCpuAllowanceRequest.safeParse({ allowance: null, name: "ws-alice" }).success,
 		).toBe(false);
+	});
+
+	test("a full storage pool has its own error code, apart from a full volume", () => {
+		expect(
+			ControllerError.parse({ code: "POOL_FULL", message: "pool is 91% full" }).code,
+		).toBe("POOL_FULL");
 	});
 });

@@ -205,8 +205,11 @@ else
     sec_http a GET /me/acceptable-use
   check "a without acceptance cannot open its workspace socket" \
     test "$(sec_ws_upgrade a "/workspaces/$(sec_ws_id a)/ws" "$SEC_API")" != 101
+  # The gateway caches a's rows for up to 2 s (SPEC.md 24.7), both ways.
+  sleep 3
   pe_refused "a's preview session is refused while a has not accepted" 403 pe-a.cookie "${pe_a_origin}/"
   pe_aup_set "$pe_aup_version"
+  sleep 3
   check_output "a's preview works again once a has accepted (control)" "200 sectest-pe-a" \
     pe_serves pe-a.cookie "${pe_a_origin}/"
 

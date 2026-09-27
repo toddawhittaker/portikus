@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { createStudent, query, workspacePath } from "./helpers";
 
 /**
@@ -13,6 +13,16 @@ async function desiredState(workspaceId: string): Promise<string> {
 		[workspaceId],
 	);
 	return rows[0]?.desired_state ?? "";
+}
+
+/**
+ * The presence socket writes desired_state = running before its first report,
+ * so a test that stops the row must wait for that report or be overwritten.
+ */
+async function presenceReported(page: Page): Promise<void> {
+	await expect(page.getByTestId("workspace-status-state")).toBeVisible({
+		timeout: 15_000,
+	});
 }
 
 test("stopping asks to confirm, then sets the desired state to stopped", async ({
@@ -51,6 +61,7 @@ test("a stopped workspace offers Start, which sets the desired state to running"
 	await page.goto(workspacePath(student.workspaceId));
 	await page.getByTestId("workspace-status").click();
 	await expect(page.getByTestId("dialog-workspace-status")).toBeVisible();
+	await presenceReported(page);
 
 	// Opening the page asks for a running workspace (SPEC.md §6.3), so a
 	// stopped one with the dialog open is what a stop request leaves behind.
@@ -113,6 +124,7 @@ test("closing the dialog on a stopped workspace shows a Start button, not a spin
 	await page.goto(workspacePath(student.workspaceId));
 	await page.getByTestId("workspace-status").click();
 	await expect(page.getByTestId("dialog-workspace-status")).toBeVisible();
+	await presenceReported(page);
 
 	await query(
 		"update workspaces set state = 'stopped', desired_state = 'stopped', updated_at = now() where id = $1",

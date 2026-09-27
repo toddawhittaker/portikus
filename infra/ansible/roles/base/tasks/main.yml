@@ -90,3 +90,29 @@
     group: root
     mode: "0644"
   notify: Restart journald
+
+# ── Platform priority over workspaces (issue #612) ──────────────
+# Every platform service runs in system.slice, a sibling of each workspace's
+# lxc.payload cgroup, so by default the whole platform counts as one busy
+# workspace.  A weight of 1000 lets it win about ten to one over each
+# workspace (weight 100), and MemoryLow here lets the units' own MemoryLow
+# take effect (docs/CAPACITY.md).
+- name: Create the system.slice drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/system.slice.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Give the platform's slice priority over workspaces
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/system.slice.d/10-portikus-priority.conf
+    content: |
+      [Slice]
+      CPUWeight=1000
+      MemoryLow=512M
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd for the platform slice

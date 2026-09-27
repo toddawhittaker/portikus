@@ -36,6 +36,7 @@ const app = buildServer({
 	homeDir: config.HOME_DIR,
 	recoveryRoot: config.RECOVERY_ROOT,
 	tmuxSocketName: config.TMUX_SOCKET_NAME,
+	tmuxExternalServer: config.TMUX_EXTERNAL_SERVER,
 	logger,
 	brokerSocketPath: "/run/portikus/browser.sock",
 	workspaceId,

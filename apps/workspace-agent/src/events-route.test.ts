@@ -69,7 +69,7 @@ beforeAll(async () => {
 	await mkdir(join(homeDir, "projects", "demo"), { recursive: true });
 	const tokenPath = join(homeDir, "agent.token");
 	await writeFile(tokenPath, `${TOKEN}\n`, { mode: 0o600 });
-	app = buildServer({ tokenPath, homeDir });
+	app = buildServer({ tmuxSocketName: "portikus-test", tokenPath, homeDir });
 	await app.listen({ port: 0, host: "127.0.0.1" });
 	port = (app.server.address() as { port: number }).port;
 });
@@ -101,6 +101,7 @@ test("a bad slug closes the socket with 1008", async () => {
 
 test("a socket beyond the cap is refused", async () => {
 	const other = buildServer({
+		tmuxSocketName: "portikus-test",
 		tokenPath: join(homeDir, "agent.token"),
 		homeDir,
 		maxEventSockets: 1,
@@ -131,6 +132,7 @@ test("a missing project closes the socket with 4404", async () => {
 test("a watcher that fails after start closes the socket with 1011", async () => {
 	const watchers = new ProjectWatchers(app.log);
 	const other = buildServer({
+		tmuxSocketName: "portikus-test",
 		tokenPath: join(homeDir, "agent.token"),
 		homeDir,
 		watchers,
@@ -160,4 +162,23 @@ test("the upgrade needs the token", async () => {
 		ws.addEventListener("error", () => resolve(-1), { once: true });
 	});
 	expect(code).not.toBe(1000);
+});
+
+test("a project past the folder cap sends one watch_limited frame and closes normally", async () => {
+	const watchers = new ProjectWatchers(app.log, 0);
+	const other = buildServer({
+		tmuxSocketName: "portikus-test",
+		tokenPath: join(homeDir, "agent.token"),
+		homeDir,
+		watchers,
+	});
+	await other.listen({ port: 0, host: "127.0.0.1" });
+	const otherPort = (other.server.address() as { port: number }).port;
+	try {
+		const socket = await openEvents("demo", otherPort);
+		expect(await socket.closed).toBe(1000);
+		expect(socket.frames).toEqual([{ type: "watch_limited" }]);
+	} finally {
+		await other.close();
+	}
 });

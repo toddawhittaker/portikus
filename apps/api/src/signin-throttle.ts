@@ -3,6 +3,7 @@ import type { ApiError } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
+import { createCounter, type Window } from "./rate-limit.js";
 
 /**
  * The sign-in rate limit (issue #398; docs/archive/epics/EPIC-12B.md, "Sign-in rate
@@ -29,49 +30,10 @@ export interface ThrottleDecision {
 	audit: boolean;
 }
 
-interface Window {
-	startedAt: number;
-	count: number;
-	audited: boolean;
-}
-
-/** Fixed windows keyed by address. */
-function createCounter(limit: number, windowMs: number, now: () => number) {
-	const windows = new Map<string, Window>();
-	let lastSweep = now();
-
-	function current(key: string): Window {
-		const at = now();
-		// Drop old windows now and then, so a flood of addresses cannot pile up.
-		if (at - lastSweep >= windowMs) {
-			for (const [k, w] of windows) if (at - w.startedAt >= windowMs) windows.delete(k);
-			lastSweep = at;
-		}
-		let window = windows.get(key);
-		if (!window || at - window.startedAt >= windowMs) {
-			window = { startedAt: at, count: 0, audited: false };
-			windows.set(key, window);
-		}
-		return window;
-	}
-
-	return {
-		/** Count one attempt and return its window. */
-		hit(key: string): Window {
-			const window = current(key);
-			window.count += 1;
-			return window;
-		},
-		/** The window as it stands, without counting. */
-		peek: current,
-		limit,
-	};
-}
-
 function decide(window: Window, refused: boolean): ThrottleDecision {
 	if (!refused) return { allowed: true, audit: false };
-	const audit = !window.audited;
-	window.audited = true;
+	const audit = !window.reported;
+	window.reported = true;
 	return { allowed: false, audit };
 }
 

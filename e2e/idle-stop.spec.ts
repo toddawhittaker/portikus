@@ -160,6 +160,10 @@ test("Keep working hands the keyboard back to the terminal", async ({
 	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
 	await page.getByTestId("launcher").click();
 	await page.getByTestId("launcher-terminal").click();
+	// The launcher creates the terminal row asynchronously; wait for it.
+	await expect
+		.poll(() => terminalIds(student.workspaceId, project.id), { timeout: 15_000 })
+		.toHaveLength(1);
 	const [id] = await terminalIds(student.workspaceId, project.id);
 	if (!id) throw new Error("the terminal row was not created");
 	await expectConnected(page, id);

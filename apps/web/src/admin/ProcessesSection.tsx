@@ -224,18 +224,18 @@ export function ProcessesSection({
 	return (
 		<section
 			aria-labelledby="detail-processes"
-			className="flex flex-col gap-2"
+			className="pk-detail-section"
 			data-testid="detail-processes"
 		>
 			<div className="flex items-center gap-2">
-				<h3
+				<h4
 					id="detail-processes"
 					ref={headingRef}
 					tabIndex={-1}
 					className="pk-text-label m-0 outline-none"
 				>
 					Processes
-				</h3>
+				</h4>
 				{running ? (
 					<Button
 						size="sm"

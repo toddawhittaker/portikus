@@ -1179,6 +1179,8 @@ A simple Incus `dir` storage pool is acceptable for an early proof of concept, b
 
 A future bare-metal or specialized deployment may intentionally use another Incus storage driver such as ZFS or Ceph. Application code must not depend on LVM-specific details.
 
+The thin pool is overcommitted, so it can fill before any volume reaches its quota. The `lvm` role therefore makes a full pool fail writes at once (`lvchange --errorwhenfull y`) rather than hold them for about 60 seconds, which would freeze every workspace and can hang Incus. It also installs a root timer that writes the pool's data and metadata use every minute to `/run/portikus-thinpool.json`, because Incus reports data use only. The controller reads that file as plain JSON and treats a missing or stale file as unknown, so it still depends on nothing LVM-specific. The administrator is warned from 70% full, and new workspaces are refused from 90% (docs/CAPACITY.md, "When the storage pool fills").
+
 ## 24. Incus
 
 Use **Incus** to manage student system containers.

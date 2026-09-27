@@ -2,6 +2,13 @@ import { type Kysely, sql } from "kysely";
 import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import {
+	createDb,
+	createPool,
+	isDatabaseUnavailable,
+	isPoolTimeout,
+	poolOptions,
+} from "./index.js";
+import {
 	basePrefix,
 	createTestDb,
 	hasTestDb,
@@ -2178,5 +2185,82 @@ describe("resource guard migration", () => {
 				}),
 			).rejects.toBe(rollback);
 		},
+	);
+});
+
+// ── Pool guard rails (ADR 0034 ruling 14) ──
+
+describe("pool options", () => {
+	test("bound the wait for a connection, a statement and an idle transaction", () => {
+		expect(poolOptions("postgres://x/y", 3)).toEqual({
+			connectionString: "postgres://x/y",
+			max: 3,
+			connectionTimeoutMillis: 5000,
+			statement_timeout: 30_000,
+			idle_in_transaction_session_timeout: 60_000,
+		});
+	});
+
+	test("only the pool's own timeout counts as a pool timeout", () => {
+		expect(isPoolTimeout(new Error("timeout exceeded when trying to connect"))).toBe(
+			true,
+		);
+		expect(isPoolTimeout(new Error("connection refused"))).toBe(false);
+		expect(isPoolTimeout("timeout exceeded when trying to connect")).toBe(false);
+	});
+
+	test("an idle connection dying is reported, not thrown", async () => {
+		const heard: Error[] = [];
+		const pool = createPool("postgres://x/y", 1, (error) => heard.push(error));
+		// With no listener, EventEmitter throws an "error" event, ending the process.
+		expect(() => pool.emit("error", new Error("terminated"))).not.toThrow();
+		expect(heard.map((e) => e.message)).toEqual(["terminated"]);
+		await pool.end();
+	});
+
+	test("an unreachable database counts as unavailable; query errors do not", () => {
+		const coded = (message: string, code: string) =>
+			Object.assign(new Error(message), { code });
+		expect(
+			isDatabaseUnavailable(new Error("timeout exceeded when trying to connect")),
+		).toBe(true);
+		expect(isDatabaseUnavailable(coded("connect ECONNREFUSED", "ECONNREFUSED"))).toBe(
+			true,
+		);
+		expect(
+			isDatabaseUnavailable(coded("the database system is starting up", "57P03")),
+		).toBe(true);
+		expect(
+			isDatabaseUnavailable(
+				new Error("Connection terminated due to connection timeout"),
+			),
+		).toBe(true);
+		expect(isDatabaseUnavailable(coded("syntax error", "42601"))).toBe(false);
+		expect(isDatabaseUnavailable(new Error("boom"))).toBe(false);
+		expect(isDatabaseUnavailable("ECONNREFUSED")).toBe(false);
+	});
+
+	test.skipIf(!hasTestDb())(
+		"a full pool fails the next query in about five seconds",
+		async () => {
+			const db = createDb(process.env.TEST_DATABASE_URL as string, 1);
+			try {
+				let release: () => void = () => {};
+				const held = db
+					.transaction()
+					.execute(() => new Promise<void>((resolve) => (release = resolve)));
+				const started = Date.now();
+				const error = await sql`select 1`.execute(db).catch((e: unknown) => e);
+				const waited = Date.now() - started;
+				release();
+				await held;
+				expect(isPoolTimeout(error)).toBe(true);
+				expect(waited).toBeGreaterThanOrEqual(4500);
+				expect(waited).toBeLessThan(8000);
+			} finally {
+				await db.destroy();
+			}
+		},
+		15_000,
 	);
 });

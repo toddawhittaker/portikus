@@ -10,6 +10,8 @@ import {
 	type InstanceStatus,
 	type InstanceUsage,
 	isSystemTimezone,
+	POOL_FULL_PERCENT,
+	poolFillPercent,
 	type RebuildInstanceResponse,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
@@ -21,6 +23,7 @@ import {
 	parseIncusSize,
 	readHostSnapshot,
 	readInactiveFileBytes,
+	readPoolUse,
 } from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
 import { parseIdmap, readInstanceProcesses } from "./processes.js";
@@ -133,11 +136,21 @@ function assertStopped(name: string, status: string | undefined): void {
 }
 
 /**
+ * A volume create on a busy thin pool can pass the default 30 s, so each gets
+ * 60 s. The instance create's wait is 240 s and the worker's whole create
+ * budget is 300 s; a retry adopts whatever already exists.
+ */
+export const VOLUME_CREATE_TIMEOUT_MS = 60_000;
+
+/**
  * How long the agent has to answer /health once the instance is running. This
  * is its own budget, not the rest of the start timeout, so one broken agent
  * cannot hold the worker's serial start loop for the whole start deadline.
  */
 export const AGENT_HEALTH_TIMEOUT_MS = 15_000;
+
+/** The instance create's operation wait, inside the worker's 300 s create budget. */
+export const INSTANCE_CREATE_WAIT_SECONDS = 240;
 
 function validateName(name: string): void {
 	const result = InstanceName.safeParse(name);
@@ -169,6 +182,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly cgroupRoot: string;
 	private readonly procRoot: string;
 	private readonly hostCpuCount: number;
+	private readonly thinPoolStatusPath: string | undefined;
 
 	constructor(opts: {
 		client: IncusClient;
@@ -183,6 +197,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		procRoot?: string;
 		/** CPUs on the host, for an instance with no `limits.cpu`. */
 		hostCpuCount?: number;
+		/** The lvm role's status file; tests point it elsewhere. */
+		thinPoolStatusPath?: string;
 	}) {
 		this.client = opts.client;
 		this.pool = opts.pool;
@@ -193,6 +209,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		this.cgroupRoot = opts.cgroupRoot ?? "/sys/fs/cgroup";
 		this.procRoot = opts.procRoot ?? "/proc";
 		this.hostCpuCount = opts.hostCpuCount ?? availableParallelism();
+		this.thinPoolStatusPath = opts.thinPoolStatusPath;
 	}
 
 	async create(
@@ -200,6 +217,24 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		sizes: { homeGiB: number; dockerGiB: number; recoveryGiB: number },
 	): Promise<CreateInstanceResponse> {
 		validateName(name);
+
+		// Refuse before any volume is made; start, stop, rebuild and adopting an
+		// instance that already exists are never refused.
+		if (!(await this.instanceExists(name))) {
+			const use = await readPoolUse(
+				this.client,
+				this.pool,
+				new Date(),
+				this.thinPoolStatusPath,
+			);
+			const fill = poolFillPercent(use);
+			if (fill >= POOL_FULL_PERCENT) {
+				throw new IncusError(
+					"POOL_FULL",
+					`storage pool is ${Math.floor(fill)}% full; new workspaces are refused`,
+				);
+			}
+		}
 
 		await this.ensureVolume(`${name}-home`, sizes.homeGiB);
 		await this.ensureVolume(`${name}-docker`, sizes.dockerGiB);
@@ -209,21 +244,27 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		const quota = { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
 
 		try {
-			await this.client.request("POST", "/1.0/instances", {
-				name,
-				source: { type: "image", alias: this.imageAlias },
-				profiles: [this.profile],
-				devices: {
-					home: {
-						type: "disk",
-						pool: this.pool,
-						source: `${name}-home`,
-						path: "/home/student",
+			await this.client.request(
+				"POST",
+				"/1.0/instances",
+				{
+					name,
+					source: { type: "image", alias: this.imageAlias },
+					profiles: [this.profile],
+					devices: {
+						home: {
+							type: "disk",
+							pool: this.pool,
+							source: `${name}-home`,
+							path: "/home/student",
+						},
+						docker: this.dockerDevice(name),
+						recovery: this.recoveryDevice(name),
 					},
-					docker: this.dockerDevice(name),
-					recovery: this.recoveryDevice(name),
 				},
-			});
+				undefined,
+				INSTANCE_CREATE_WAIT_SECONDS,
+			);
 		} catch (err) {
 			if (err instanceof IncusError && err.code === "ALREADY_EXISTS") {
 				return { created: false, imageFingerprint, quota };
@@ -232,6 +273,16 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 
 		return { created: true, imageFingerprint, quota };
+	}
+
+	private async instanceExists(name: string): Promise<boolean> {
+		try {
+			await this.client.request("GET", `/1.0/instances/${enc(name)}`);
+			return true;
+		} catch (err) {
+			if (err instanceof IncusError && err.code === "NOT_FOUND") return false;
+			throw err;
+		}
 	}
 
 	private async imageFingerprint(): Promise<string> {
@@ -312,15 +363,24 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			(await this.ensureRecoveryDevice(name, opts.recoveryGiB, signal));
 
 		// A throttle never outlives a stop: every start begins at full speed.
-		await this.writeCpuAllowance(name, null, signal);
+		const status = await this.writeCpuAllowance(name, null, signal);
 
-		await this.client.request(
-			"PUT",
-			`/1.0/instances/${enc(name)}/state`,
-			{ action: "start" },
-			signal,
-			opts.timeoutSeconds,
-		);
+		// A retry after a start that failed late finds the container running.
+		if (status !== "Running") {
+			try {
+				await this.client.request(
+					"PUT",
+					`/1.0/instances/${enc(name)}/state`,
+					{ action: "start" },
+					signal,
+					opts.timeoutSeconds,
+				);
+			} catch (err) {
+				if ((await this.instanceStatus(name, signal).catch(() => null)) !== "Running") {
+					throw err;
+				}
+			}
+		}
 
 		const deadline = Date.now() + opts.timeoutSeconds * 1000;
 		const ipv4 = await this.waitForAddress(name, deadline, signal);
@@ -657,19 +717,39 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			);
 			return { forced: false };
 		} catch {
-			await this.client.request(
-				"PUT",
-				`/1.0/instances/${enc(name)}/state`,
-				{
-					action: "stop",
-					timeout: opts.timeoutSeconds,
-					force: true,
-				},
-				AbortSignal.timeout((opts.timeoutSeconds + 5) * 1000),
-				opts.timeoutSeconds,
-			);
+			try {
+				await this.client.request(
+					"PUT",
+					`/1.0/instances/${enc(name)}/state`,
+					{
+						action: "stop",
+						timeout: opts.timeoutSeconds,
+						force: true,
+					},
+					AbortSignal.timeout((opts.timeoutSeconds + 5) * 1000),
+					opts.timeoutSeconds,
+				);
+			} catch (err) {
+				// The graceful stop may have finished just as its wait gave up.
+				if ((await this.instanceStatus(name).catch(() => null)) !== "Stopped") {
+					throw err;
+				}
+			}
 			return { forced: true };
 		}
+	}
+
+	private async instanceStatus(
+		name: string,
+		signal?: AbortSignal,
+	): Promise<string | undefined> {
+		const state = (await this.client.request(
+			"GET",
+			`/1.0/instances/${enc(name)}/state`,
+			undefined,
+			signal,
+		)) as { status?: string } | undefined;
+		return state?.status;
 	}
 
 	async list(): Promise<InstanceStatus[]> {
@@ -830,13 +910,13 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		name: string,
 		allowance: string | null,
 		signal?: AbortSignal,
-	): Promise<void> {
+	): Promise<string | undefined> {
 		const path = `/1.0/instances/${enc(name)}`;
 		const { metadata, etag } = await this.client.getWithEtag(path, signal);
 		const inst = metadata as InstanceConfig;
 		const { [CPU_ALLOWANCE_KEY]: current, ...config } = inst.config ?? {};
 		if ((current ?? null) === allowance) {
-			return;
+			return inst.status;
 		}
 		if (allowance !== null) {
 			config[CPU_ALLOWANCE_KEY] = allowance;
@@ -847,6 +927,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			etag,
 			signal,
 		);
+		return inst.status;
 	}
 
 	/**
@@ -968,6 +1049,9 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					name: volName,
 					config: { size: `${sizeGiB}GiB` },
 				},
+				undefined,
+				undefined,
+				VOLUME_CREATE_TIMEOUT_MS,
 			);
 		} catch (err) {
 			if (err instanceof IncusError && err.code === "ALREADY_EXISTS") {
@@ -982,6 +1066,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			pool: this.pool,
 			profile: this.profile,
 			imageAlias: this.imageAlias,
+			thinPoolStatusPath: this.thinPoolStatusPath,
 		});
 	}
 

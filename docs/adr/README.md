@@ -61,4 +61,6 @@ has four sections:
 | [0031](0031-dex-is-the-only-front-door.md) | Dex is the only sign-in front door, with a local administrator made at install (accepted, not yet built) |
 | [0032](0032-resource-guard.md) | The resource guard: time-slice CPU throttle set through Incus, rolling averages remembered across restarts, and one ordered gate list (accepted, Epic 14.3) |
 | [0033](0033-notifications-on-the-server-by-polling.md) | Notifications live on the server, and browsers poll for them (accepted, Epic 14.3) |
+| [0034](0034-platform-resilience.md) | Platform resilience: restarts, priority, background stops, cached preview checks and a fail-fast storage pool (accepted, Epic 17) |
+| [0035](0035-terminals-in-their-own-unit.md) | Terminals run in their own systemd unit, and the agent's negative OOM score was dropped (accepted, Epic 16) |
 | [0037](0037-admin-process-list-through-incus.md) | The administrator reads processes from the host through the worker and stops them through the agent (accepted, Epic 21) |

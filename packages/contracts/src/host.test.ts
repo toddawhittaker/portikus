@@ -4,6 +4,9 @@ import {
 	GrowVolumesResponse,
 	HealthSample,
 	HostSnapshot,
+	POOL_FULL_PERCENT,
+	POOL_WARN_PERCENT,
+	poolFillPercent,
 } from "./host.js";
 
 const snapshot = {
@@ -11,13 +14,37 @@ const snapshot = {
 	loadAverage: [0.5, 0.4, 0.3],
 	cpuCount: 8,
 	memory: { usedBytes: 4, totalBytes: 16 },
-	pool: { name: "portikus", usedBytes: 10, totalBytes: 100 },
+	pool: { name: "portikus", usedBytes: 10, totalBytes: 100, metadataPercent: 12.5 },
 	profileLimits: { cpu: "2", memory: "4GiB", processes: null },
 	image: { fingerprint: "abc", serial: "2026.09.9" },
 	instances: [{ name: "ws-alice", imageFingerprint: "abc", imageSerial: null }],
 };
 
 describe("host contracts", () => {
+	test("a sample written before metadata was reported reads as null", () => {
+		const old = {
+			...snapshot,
+			pool: { name: "portikus", usedBytes: 10, totalBytes: 100 },
+		};
+		expect(HostSnapshot.parse(old).pool.metadataPercent).toBeNull();
+	});
+
+	test("the pool's fill is the larger of data and metadata use", () => {
+		expect(
+			poolFillPercent({ usedBytes: 50, totalBytes: 100, metadataPercent: 75 }),
+		).toBe(75);
+		expect(
+			poolFillPercent({ usedBytes: 80, totalBytes: 100, metadataPercent: 10 }),
+		).toBe(80);
+		expect(
+			poolFillPercent({ usedBytes: 30, totalBytes: 100, metadataPercent: null }),
+		).toBe(30);
+		expect(
+			poolFillPercent({ usedBytes: 0, totalBytes: 0, metadataPercent: null }),
+		).toBe(0);
+		expect([POOL_WARN_PERCENT, POOL_FULL_PERCENT]).toEqual([70, 90]);
+	});
+
 	test("a host snapshot round-trips", () => {
 		expect(HostSnapshot.parse(snapshot)).toEqual(snapshot);
 	});
