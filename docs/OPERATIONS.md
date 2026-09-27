@@ -667,6 +667,8 @@ change it.
   the last applied policy from `applied.json`. If that was an allow-list
   and it cannot be loaded, it drops all workspace traffic to the outside
   instead of opening it. A site that has never saved a policy stays open.
+  The resolver and the workspace proxy start once Incus has given the
+  bridge its gateway address.
 - **When something fails, it fails closed.** If the resolver stops, lookups
   from workspaces fail; if the workspace proxy stops, HTTPS and HTTP fail.
   Both restart themselves after a failure. The API's own proxy, `squid`,
