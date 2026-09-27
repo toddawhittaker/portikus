@@ -8,6 +8,7 @@ import { AuditTab } from "./audit/AuditTab.js";
 import { BackupsTab } from "./backups/BackupsTab.js";
 import { HealthTab } from "./health/HealthTab.js";
 import { LogsTab } from "./logs/LogsTab.js";
+import { NetworkTab } from "./network/NetworkTab.js";
 import { SettingsTab } from "./SettingsTab.js";
 import { WorkspacesTab } from "./WorkspacesTab.js";
 
@@ -16,6 +17,7 @@ export const ADMIN_TABS = [
 	"audit",
 	"logs",
 	"health",
+	"network",
 	"backups",
 	"settings",
 ] as const;
@@ -27,6 +29,7 @@ const TAB_LABEL: Record<AdminTab, string> = {
 	audit: "Audit",
 	logs: "Logs",
 	health: "Health",
+	network: "Network",
 	backups: "Backups",
 	settings: "Settings",
 };
@@ -96,6 +99,7 @@ export function AdminPage() {
 					{tab === "audit" ? <AuditTab /> : null}
 					{tab === "logs" ? <LogsTab /> : null}
 					{tab === "health" ? <HealthTab /> : null}
+					{tab === "network" ? <NetworkTab /> : null}
 					{tab === "backups" ? <BackupsTab /> : null}
 					{tab === "settings" ? <SettingsTab /> : null}
 				</div>
