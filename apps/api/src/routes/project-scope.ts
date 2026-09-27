@@ -35,6 +35,8 @@ export interface Scope {
 	/** Whether the workspace itself is running, whatever the agent's state. */
 	running: boolean;
 	agent: AgentClient | null;
+	/** The agent of a workspace in error, for reads that still help there (SPEC.md §28). */
+	errorAgent: AgentClient | null;
 }
 
 export function sendError(
@@ -169,6 +171,11 @@ export async function ownedScope(
 		workspaceId: params.data.id,
 		running,
 		agent: running ? agent : null,
+		// A missing instance's recorded address may now belong to another one: never send it our token.
+		errorAgent:
+			workspace.state === "error" && workspace.error_code !== "INSTANCE_MISSING"
+				? agent
+				: null,
 	};
 }
 

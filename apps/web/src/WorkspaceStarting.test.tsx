@@ -285,6 +285,40 @@ test("the error screen shows the meters and Clean up Docker when Docker filled u
 	expect(screen.getByTestId("dialog-reset-docker")).toBeDefined();
 });
 
+test("a failed Docker cleanup shows its error below the actions row, not inside it", async () => {
+	stubFetch((url) =>
+		String(url).endsWith("/usage")
+			? json(200, {
+					observedAt: "2026-01-01T00:00:00.000Z",
+					cpuPercent: 1,
+					memory: { usedBytes: 1, totalBytes: 2 },
+					disk: { usedBytes: 1, totalBytes: 2 },
+					network: { receiveBytesPerSecond: 0, transmitBytesPerSecond: 0 },
+					processes: [],
+					storage: { home: at(10), docker: at(99), recovery: null },
+				})
+			: json(409, {
+					code: "OPERATION_IN_PROGRESS",
+					message: "Something else is running.",
+				}),
+	);
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "error", errorCode: "STORAGE_FULL" }}
+			onOpenWorkspace={noop}
+		/>,
+	);
+
+	fireEvent.click(await screen.findByRole("button", { name: "Clean up Docker…" }));
+	fireEvent.click(screen.getByRole("button", { name: "Reset Docker" }));
+	const error = await screen.findByTestId("dialog-error");
+	const actions = screen.getByRole("button", { name: "Try again" }).parentElement;
+	expect(actions?.contains(error)).toBe(false);
+	expect(actions?.nextElementSibling).toBe(error);
+	expect(screen.getAllByTestId("dialog-error")).toHaveLength(1);
+});
+
 test("with Docker not full the error screen shows the meters but no Clean up Docker", async () => {
 	stubUsage(at(20));
 	renderWithQuery(
