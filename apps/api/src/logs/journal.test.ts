@@ -40,11 +40,20 @@ describe("journalArgs", () => {
 			afterCursor: cursorAt(10),
 			levels: ["error", "warn"],
 		});
-		expect(args).toContain("--since=@1790424000");
+		// journalctl refuses --since with a cursor (issue #703); --until stays.
+		expect(args.some((arg) => arg.startsWith("--since"))).toBe(false);
 		expect(args).toContain("--until=@1790427600");
 		expect(args).toContain(`--after-cursor=${cursorAt(10)}`);
 		expect(args).toContain('--grep="level":"(error|fatal|warn)"');
 		expect(args).not.toContain("--reverse");
+	});
+
+	test("without a cursor, --since is passed", () => {
+		const args = journalArgs({
+			reverse: true,
+			since: new Date("2026-09-26T12:00:00.900Z"),
+		});
+		expect(args).toContain("--since=@1790424000");
 	});
 
 	test("--until rounds up so a slice ending mid-second keeps its last lines", () => {
@@ -221,8 +230,19 @@ describe("JournalReader", () => {
 		const { spawn, calls } = fakeSpawn();
 		const reader = new JournalReader({ path: "j", spawn });
 		const done = reader.read({ reverse: true }, () => "continue");
-		calls[0]?.child.finish([], 1, "Failed to open journal\n");
-		await expect(done).rejects.toBeInstanceOf(LogsUnavailableError);
+		calls[0]?.child.finish([], 1, `  Failed to open journal\nsecond line\n`);
+		await expect(done).rejects.toThrow(
+			new LogsUnavailableError("journalctl exited 1: Failed to open journal"),
+		);
+	});
+
+	test("journalctl's error text is capped at 200 characters", async () => {
+		const { spawn, calls } = fakeSpawn();
+		const reader = new JournalReader({ path: "j", spawn });
+		const done = reader.read({ reverse: true }, () => "continue");
+		calls[0]?.child.finish([], 1, "x".repeat(500));
+		await expect(done).rejects.toThrow(`journalctl exited 1: ${"x".repeat(200)}`);
+		await done.catch((error: Error) => expect(error.message).toHaveLength(221));
 	});
 
 	test("a refused permission is unavailable even with exit 0", async () => {

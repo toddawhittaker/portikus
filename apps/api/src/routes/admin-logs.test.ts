@@ -135,6 +135,41 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"an older page keeps the since and until window (issue #703)",
+	async () => {
+		const now = Date.now();
+		const since = new Date(now - 3_600_000);
+		// A millisecond part, so journalctl's whole-second --until lets a later line through.
+		const until = new Date(Math.floor((now - 30_000) / 1000) * 1000 + 200);
+		const base = now - 200_000;
+		journal([
+			...Array.from({ length: 5 }, (_, i) => ({
+				msg: `old ${i}`,
+				time: new Date(since.getTime() - 60_000 + i).toISOString(),
+			})),
+			...Array.from({ length: 120 }, (_, i) => ({
+				msg: `line ${i}`,
+				time: new Date(base + i * 1000).toISOString(),
+			})),
+			{ msg: "too late", time: new Date(until.getTime() + 300).toISOString() },
+		]);
+		const window = `since=${encodeURIComponent(since.toISOString())}&until=${encodeURIComponent(until.toISOString())}`;
+		const first = LogPage.parse((await get(`/admin/logs?${window}`)).json());
+		expect(first.lines).toHaveLength(100);
+		expect(first.lines[0]?.line.msg).toBe("line 119");
+		const res = await get(
+			`/admin/logs?${window}&cursor=${encodeURIComponent(first.nextCursor ?? "")}`,
+		);
+		expect(res.statusCode).toBe(200);
+		const next = LogPage.parse(res.json());
+		expect(next.lines.map((line) => line.line.msg)).toEqual(
+			Array.from({ length: 20 }, (_, i) => `line ${19 - i}`),
+		);
+		expect(next.nextCursor).toBeNull();
+	},
+);
+
 test.skipIf(skip)("filters by text and user, and pages by cursor", async () => {
 	journal(Array.from({ length: 120 }, (_, i) => ({ msg: `line ${i}` })));
 	const first = LogPage.parse((await get("/admin/logs")).json());

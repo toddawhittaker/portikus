@@ -128,15 +128,25 @@ export async function readLogPage(
 	};
 	const lines: FoundLine[] = [];
 	let skippedLines = 0;
+	const since = query.since ? new Date(query.since) : undefined;
+	const until = query.until ? new Date(query.until) : undefined;
+	let reachedSince = false;
 	const result = await reader.read(
 		{
 			reverse: true,
 			levels: query.level,
-			...(query.since ? { since: new Date(query.since) } : {}),
-			...(query.until ? { until: new Date(query.until) } : {}),
+			...(since ? { since } : {}),
+			...(until ? { until } : {}),
 			...(query.cursor ? { afterCursor: query.cursor } : {}),
 		},
 		(entry) => {
+			// Newest first, so the first entry before `since` ends the window;
+			// journalctl gets no --since with a cursor and rounds --until up.
+			if (since && entry.at < since) {
+				reachedSince = true;
+				return "stop";
+			}
+			if (until && entry.at > until) return "continue";
 			const parsed = parsePortikusLine(entry.message);
 			if (!parsed) {
 				skippedLines++;
@@ -150,7 +160,7 @@ export async function readLogPage(
 	);
 	return {
 		lines,
-		nextCursor: result.reason === "end" ? null : result.lastCursor,
+		nextCursor: result.reason === "end" || reachedSince ? null : result.lastCursor,
 		scanComplete: result.reason !== "limit",
 		skippedLines,
 	};
