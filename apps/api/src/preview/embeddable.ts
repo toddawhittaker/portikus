@@ -24,9 +24,14 @@
  *    and webpack-dev-server use to refuse an unknown `Host` (issue #262).
  *    Only which of those sentences matched leaves this file; no application
  *    content is returned, stored, or logged.
+ *
+ * A listener the agent found speaking TLS is asked over HTTPS with
+ * certificate checks off, because a development server's certificate is
+ * self-signed; the target is still only the registry's (ADR 0041).
  */
 
-import { request as httpRequest } from "node:http";
+import { request as httpRequest, type IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
 
 /** How long the application has to answer before it counts as unreachable. */
 const PROBE_TIMEOUT_MS = 3_000;
@@ -43,6 +48,9 @@ export type EmbeddableReason =
 	| "frame-ancestors"
 	| "unreachable"
 	| "host-refused";
+
+/** How the application on the port speaks, from the agent's TLS probe. */
+export type UpstreamScheme = "http" | "https";
 
 /** A development server whose refusal of the preview host is recognised. */
 export type RefusingServer = "vite" | "webpack-dev-server";
@@ -178,6 +186,7 @@ interface ProbeAnswer {
  */
 function ask(
 	upstream: string,
+	scheme: UpstreamScheme,
 	method: "HEAD" | "GET",
 	hostHeader: string,
 	/** Read the start of the body only for statuses this says yes to. */
@@ -201,43 +210,47 @@ function ask(
 			settled = true;
 			reject(error);
 		};
-		const outbound = httpRequest(
-			{
-				host: hostname,
-				port,
-				path: "/",
-				method,
-				signal,
-				headers: { host: hostHeader },
-			},
-			(response) => {
-				const headers = new Headers();
-				for (const [name, value] of Object.entries(response.headers)) {
-					if (typeof value === "string") headers.append(name, value);
-					else if (Array.isArray(value))
-						for (const one of value) headers.append(name, one);
-				}
-				const status = response.statusCode ?? 0;
-				let body = "";
-				if (!wantBody(status)) {
-					response.resume();
-					settle({ status, headers, body });
-					return;
-				}
-				response.setEncoding("utf8");
-				response.on("data", (chunk: string) => {
-					if (settled) return;
-					body += chunk.slice(0, MAX_REFUSAL_BODY_BYTES - body.length);
-					if (body.length < MAX_REFUSAL_BODY_BYTES) return;
-					// Enough to recognise a refusal. The rest of the student's
-					// page never enters this process: the connection goes now.
-					response.destroy();
-					settle({ status, headers, body });
-				});
-				response.on("end", () => settle({ status, headers, body }));
-				response.on("error", fail);
-			},
-		);
+		const options = {
+			host: hostname,
+			port,
+			path: "/",
+			method,
+			signal,
+			headers: { host: hostHeader },
+		};
+		const onResponse = (response: IncomingMessage) => {
+			const headers = new Headers();
+			for (const [name, value] of Object.entries(response.headers)) {
+				if (typeof value === "string") headers.append(name, value);
+				else if (Array.isArray(value))
+					for (const one of value) headers.append(name, one);
+			}
+			const status = response.statusCode ?? 0;
+			let body = "";
+			if (!wantBody(status)) {
+				response.resume();
+				settle({ status, headers, body });
+				return;
+			}
+			response.setEncoding("utf8");
+			response.on("data", (chunk: string) => {
+				if (settled) return;
+				body += chunk.slice(0, MAX_REFUSAL_BODY_BYTES - body.length);
+				if (body.length < MAX_REFUSAL_BODY_BYTES) return;
+				// Enough to recognise a refusal. The rest of the student's
+				// page never enters this process: the connection goes now.
+				response.destroy();
+				settle({ status, headers, body });
+			});
+			response.on("end", () => settle({ status, headers, body }));
+			response.on("error", fail);
+		};
+		// A student's development certificate is self-signed, so it is not
+		// checked on this one hop to the workspace.
+		const outbound =
+			scheme === "https"
+				? httpsRequest({ ...options, rejectUnauthorized: false }, onResponse)
+				: httpRequest(options, onResponse);
 		outbound.on("error", fail);
 		outbound.end();
 	});
@@ -258,6 +271,7 @@ function ask(
  */
 export async function probeEmbeddable(
 	upstream: string,
+	scheme: UpstreamScheme,
 	portikusOrigin: string,
 	previewHost: string,
 ): Promise<EmbeddableVerdict> {
@@ -267,10 +281,10 @@ export async function probeEmbeddable(
 	const signal = AbortSignal.timeout(PROBE_TIMEOUT_MS);
 	try {
 		const refused = (status: number) => status === 403;
-		let answer = await ask(upstream, "HEAD", hostHeader, () => false, signal);
+		let answer = await ask(upstream, scheme, "HEAD", hostHeader, () => false, signal);
 		if (answer.status >= 400) {
 			// An application that will not answer HEAD gets one GET instead.
-			answer = await ask(upstream, "GET", hostHeader, refused, signal);
+			answer = await ask(upstream, scheme, "GET", hostHeader, refused, signal);
 		}
 		const server = hostRefusalFrom(answer.status, answer.body);
 		if (server) {
