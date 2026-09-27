@@ -72,6 +72,7 @@ export function WorkspaceDialog({
 	const setStatusOpen = (open: boolean) => onDialogChange(open ? "open" : "closed");
 	// The confirmation open on top of the workspace dialog, if any.
 	const [chosen, setChosen] = useState<Confirming>(null);
+	const resetDocker = useResetDocker(workspaceId);
 	const confirming: Confirming = dialog === "restart" ? "restart" : chosen;
 	const setConfirming = (next: Confirming) => {
 		// Leaving the confirmation the page opened keeps the dialog under it.
@@ -145,11 +146,12 @@ export function WorkspaceDialog({
 								Throws away images, containers and volumes; keeps your projects.
 							</p>
 							<ResetDocker
-								workspaceId={workspaceId}
 								workspace={workspace}
 								confirming={confirming === "reset-docker"}
 								setConfirming={(open) => setConfirming(open ? "reset-docker" : null)}
+								reset={resetDocker}
 							/>
+							<DialogError error={resetDocker.error} />
 						</section>
 						<p className="pk-text-small m-0 text-ink-muted" data-testid="rebuild-note">
 							An administrator can rebuild the workspace system. Your home folder and
@@ -293,14 +295,13 @@ function WorkspaceControls({
 						// Opened while the state settles (the throttle notice can): wait, say why.
 						disabled={moving && !action.isPending}
 						onCancel={() => setConfirming(null)}
-						onConfirm={() => run(confirming)}
-					>
-						{moving && !action.isPending ? (
-							<p className="pk-text-small m-0" data-testid="workspace-confirm-wait">
+						disabledReason={
+							<span data-testid="workspace-confirm-wait">
 								{transition || "Connecting."} You can {confirming} once it has finished.
-							</p>
-						) : null}
-					</ConfirmDialog>
+							</span>
+						}
+						onConfirm={() => run(confirming)}
+					/>
 				) : null}
 			</ConfirmDialogRoot>
 		</div>
@@ -312,26 +313,22 @@ function WorkspaceControls({
  * (SPEC.md §16.4). The worker stops, resets and restarts the workspace.
  */
 export function ResetDocker({
-	workspaceId,
 	workspace,
 	confirming,
 	setConfirming,
 	label = "Reset Docker…",
 	testId = "workspace-reset-docker",
-	reset: sharedReset,
+	reset,
 }: {
-	workspaceId: string;
 	workspace: Workspace | null;
 	/** "Clean up Docker…" on the error screen opens the same confirmation. */
 	label?: string;
 	testId?: string;
 	confirming: boolean;
 	setConfirming: (open: boolean) => void;
-	/** Given when the caller shows the error itself, below its own actions row. */
-	reset?: ReturnType<typeof useResetDocker>;
+	/** The caller owns the request so it can show the error where it fits. */
+	reset: ReturnType<typeof useResetDocker>;
 }) {
-	const ownReset = useResetDocker(workspaceId);
-	const reset = sharedReset ?? ownReset;
 	const busy = !workspace || workspace.pendingOperation !== null || reset.isPending;
 
 	return (
@@ -344,7 +341,6 @@ export function ResetDocker({
 			>
 				{label}
 			</Button>
-			{!sharedReset && <DialogError error={reset.error} />}
 			<ConfirmDialogRoot
 				open={confirming}
 				onOpenChange={(open) => !open && setConfirming(false)}
@@ -367,7 +363,7 @@ export function ResetDocker({
 						onCancel={() => setConfirming(false)}
 						onConfirm={() => {
 							if (reset.isPending) return;
-							// An error shows in this dialog: a toast behind it would be hidden.
+							// The caller shows an error next to the button: a toast behind a dialog would be hidden.
 							reset.mutate(undefined, { onSettled: () => setConfirming(false) });
 						}}
 					/>

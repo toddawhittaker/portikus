@@ -645,8 +645,9 @@ export function PreviewLeaf({
 				<ConfirmDialog
 					testId="dialog-preview-reset"
 					title="Reset preview data?"
-					description="The preview signs in again with a fresh session. Your application and its files are not touched."
+					description="The preview signs in again with a fresh session."
 					lost={["the cookies, storage and service workers this preview holds"]}
+					survives={["your application and its files"]}
 					confirmLabel="Reset preview data"
 					destructive={false}
 					onConfirm={() => {

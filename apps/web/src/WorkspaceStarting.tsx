@@ -133,7 +133,12 @@ export function WorkspaceStarting({
 	// No spinner while waiting for room: nothing is starting yet.
 	const at = waitingForRoom ? -1 : STEPS.indexOf(phase as (typeof STEPS)[number]);
 	// The agent may still answer while the workspace is in error (SPEC.md §18.3).
-	const usage = useWorkspaceUsage(workspaceId, phase === "error", STORAGE_POLL_MS);
+	const usage = useWorkspaceUsage(
+		workspaceId,
+		phase === "error",
+		STORAGE_POLL_MS,
+		true,
+	);
 	const storage = phase === "error" ? usage.data?.storage : undefined;
 	const reset = useResetDocker(workspaceId);
 	const [cleaning, setCleaning] = useState(false);
@@ -265,7 +270,6 @@ export function WorkspaceStarting({
 								</Button>
 								{offerDockerCleanup(workspace?.errorCode, storage) && (
 									<ResetDocker
-										workspaceId={workspaceId}
 										workspace={workspace}
 										label="Clean up Docker…"
 										testId="workspace-clean-docker"
