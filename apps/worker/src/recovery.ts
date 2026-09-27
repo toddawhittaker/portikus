@@ -28,7 +28,12 @@ const SWEEP_CONCURRENCY = 4;
 
 const GIB = 1024 ** 3;
 
-const REBUILD_OPERATIONS = ["rebuild", "rebuild-reset-docker"];
+/** Operations that wait for a point of every active project, and the reason they record. */
+const BEFORE_OPERATION_REASON: Record<string, RecoveryReason> = {
+	rebuild: "before-rebuild",
+	"rebuild-reset-docker": "before-rebuild",
+	"replace-home": "before-replace-home",
+};
 
 interface RunningWorkspace {
 	id: string;
@@ -62,13 +67,14 @@ export async function recoverySweep(
 
 	const sweepOne = async (ws: (typeof running)[number]): Promise<void> => {
 		const agent = agentFor(ws.agent_address, ws.agent_token);
-		const rebuilding = REBUILD_OPERATIONS.includes(ws.pending_operation ?? "");
+		const beforeReason = BEFORE_OPERATION_REASON[ws.pending_operation ?? ""];
+		const rebuilding = beforeReason !== undefined;
 		// Rebuilds need every active project tried (SPEC.md §22.3); periodic
 		// points only the ones due.
 		let reason: RecoveryReason | null = null;
 		let projects: { id: string; slug: string }[] = [];
 		if (rebuilding) {
-			reason = "before-rebuild";
+			reason = beforeReason;
 			projects = await activeProjects(db, ws.id, undefined, true);
 		} else if (ws.pending_operation === null) {
 			reason = "periodic";

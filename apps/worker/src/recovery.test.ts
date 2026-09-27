@@ -457,6 +457,24 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"a pending replace home gets a before-replace-home point of each project",
+	async () => {
+		const now = new Date();
+		const pendingAt = minutesAgo(now, 1);
+		const ws = await insertWorkspace({
+			pending_operation: "replace-home",
+			pending_operation_at: pendingAt.toISOString(),
+		});
+		const pid = await insertProject(ws, {
+			recovery_checked_at: minutesAgo(now, 5).toISOString(),
+		});
+		await recoverySweep(tdb.db, agentFor, cfg, now);
+		expect((await points(pid)).map((r) => r.reason)).toEqual(["before-replace-home"]);
+		expect(await rebuildPointsDone(tdb.db, ws, pendingAt)).toBe(true);
+	},
+);
+
 test.skipIf(skip)("a pending reset docker makes no points", async () => {
 	const ws = await insertWorkspace({
 		pending_operation: "reset-docker",
