@@ -1,5 +1,10 @@
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import type { AddressInfo, Server } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import {
 	hostRefusalFrom,
@@ -134,7 +139,9 @@ test("the probe reads the framing headers of a live application", async () => {
 		seen.push(method);
 		return { status: 200, headers: { "x-frame-options": "DENY" } };
 	});
-	await expect(probeEmbeddable(upstream, PORTIKUS, PREVIEW_HOST)).resolves.toEqual({
+	await expect(
+		probeEmbeddable(upstream, "http", PORTIKUS, PREVIEW_HOST),
+	).resolves.toEqual({
 		embeddable: false,
 		reason: "x-frame-options",
 	});
@@ -153,7 +160,9 @@ test("an application that refuses HEAD is asked with GET instead", async () => {
 			body: "secret source code",
 		};
 	});
-	await expect(probeEmbeddable(upstream, PORTIKUS, PREVIEW_HOST)).resolves.toEqual({
+	await expect(
+		probeEmbeddable(upstream, "http", PORTIKUS, PREVIEW_HOST),
+	).resolves.toEqual({
 		embeddable: false,
 		reason: "frame-ancestors",
 	});
@@ -166,7 +175,7 @@ test("the probe never returns any of the application's content", async () => {
 		headers: { "content-type": "text/html" },
 		body: "<h1>the student's page</h1>",
 	}));
-	const verdict = await probeEmbeddable(upstream, PORTIKUS, PREVIEW_HOST);
+	const verdict = await probeEmbeddable(upstream, "http", PORTIKUS, PREVIEW_HOST);
 	expect(verdict).toEqual({ embeddable: true });
 	expect(JSON.stringify(verdict)).not.toContain("student");
 });
@@ -184,7 +193,9 @@ test.each([400, 403, 404, 500, 503])(
 				body: "the student's page",
 			};
 		});
-		await expect(probeEmbeddable(upstream, PORTIKUS, PREVIEW_HOST)).resolves.toEqual({
+		await expect(
+			probeEmbeddable(upstream, "http", PORTIKUS, PREVIEW_HOST),
+		).resolves.toEqual({
 			embeddable: false,
 			reason: "x-frame-options",
 		});
@@ -208,7 +219,7 @@ test("both attempts together take no longer than the probe budget", async () => 
 	const started = Date.now();
 	try {
 		await expect(
-			probeEmbeddable(`127.0.0.1:${port}`, PORTIKUS, PREVIEW_HOST),
+			probeEmbeddable(`127.0.0.1:${port}`, "http", PORTIKUS, PREVIEW_HOST),
 		).resolves.toEqual({
 			embeddable: false,
 			reason: "unreachable",
@@ -222,12 +233,12 @@ test("both attempts together take no longer than the probe budget", async () => 
 
 test("an application that cannot be reached is reported as unreachable", async () => {
 	// Port 1 on loopback has nothing listening.
-	await expect(probeEmbeddable("127.0.0.1:1", PORTIKUS, PREVIEW_HOST)).resolves.toEqual(
-		{
-			embeddable: false,
-			reason: "unreachable",
-		},
-	);
+	await expect(
+		probeEmbeddable("127.0.0.1:1", "http", PORTIKUS, PREVIEW_HOST),
+	).resolves.toEqual({
+		embeddable: false,
+		reason: "unreachable",
+	});
 });
 
 // ── A development server that refuses the preview host (issue #262) ──
@@ -258,7 +269,9 @@ test("a dev server refusing the preview host is reported with the host", async (
 		hosts.push(host);
 		return { status: 403, headers: { "content-type": "text/html" }, body: VITE_BODY };
 	});
-	await expect(probeEmbeddable(upstream, PORTIKUS, REFUSED_HOST)).resolves.toEqual({
+	await expect(
+		probeEmbeddable(upstream, "http", PORTIKUS, REFUSED_HOST),
+	).resolves.toEqual({
 		embeddable: false,
 		reason: "host-refused",
 		refusedHost: REFUSED_HOST,
@@ -275,7 +288,7 @@ test("a plain 403 that is not about the host stays an ordinary verdict", async (
 		headers: { "x-frame-options": "DENY" },
 		body: "the student's secret page",
 	}));
-	const verdict = await probeEmbeddable(upstream, PORTIKUS, REFUSED_HOST);
+	const verdict = await probeEmbeddable(upstream, "http", PORTIKUS, REFUSED_HOST);
 	expect(verdict).toEqual({ embeddable: false, reason: "x-frame-options" });
 	expect(JSON.stringify(verdict)).not.toContain("secret");
 });
@@ -287,7 +300,7 @@ test("only the first bytes of a refusing answer are read", async () => {
 		// The message sits past the cap, so it is not seen.
 		body: `${"x".repeat(MAX_REFUSAL_BODY_BYTES + 100)}${VITE_BODY}`,
 	}));
-	const verdict = await probeEmbeddable(upstream, PORTIKUS, REFUSED_HOST);
+	const verdict = await probeEmbeddable(upstream, "http", PORTIKUS, REFUSED_HOST);
 	expect(verdict.reason).not.toBe("host-refused");
 });
 
@@ -320,7 +333,12 @@ test("a body past the cap is cut off and the connection dropped", async () => {
 	await new Promise<void>((resolve) => endless.listen(0, "127.0.0.1", resolve));
 	const { port } = endless.address() as AddressInfo;
 	try {
-		const verdict = await probeEmbeddable(`127.0.0.1:${port}`, PORTIKUS, PREVIEW_HOST);
+		const verdict = await probeEmbeddable(
+			`127.0.0.1:${port}`,
+			"http",
+			PORTIKUS,
+			PREVIEW_HOST,
+		);
 		// Nothing in the stream refuses the host, so it is an ordinary verdict.
 		expect(verdict).toEqual({ embeddable: true });
 		// The socket goes a tick later, so give it one.
@@ -344,7 +362,7 @@ test("a refusal that starts inside the cap is still recognised", async () => {
 		body: `${VITE_BODY}${"z".repeat(MAX_REFUSAL_BODY_BYTES * 4)}`,
 	}));
 	await expect(
-		probeEmbeddable(upstream, PORTIKUS, REFUSED_HOST),
+		probeEmbeddable(upstream, "http", PORTIKUS, REFUSED_HOST),
 	).resolves.toMatchObject({ reason: "host-refused", refusedServer: "vite" });
 });
 
@@ -353,4 +371,87 @@ test("a page that merely mentions server.allowedHosts is not a refusal", () => {
 	expect(
 		hostRefusalFrom(403, "See `server.allowedHosts` in the Vite guide for more."),
 	).toBe(null);
+});
+
+// ── Over HTTPS, as `vite --https` serves (issue #283, ADR 0041) ──
+
+function selfSigned(): { key: Buffer; cert: Buffer } {
+	const dir = mkdtempSync(join(tmpdir(), "portikus-probe-tls-"));
+	try {
+		execFileSync(
+			"openssl",
+			[
+				"req",
+				"-x509",
+				"-newkey",
+				"rsa:2048",
+				"-nodes",
+				"-days",
+				"1",
+				"-subj",
+				"/CN=localhost",
+				"-keyout",
+				join(dir, "key.pem"),
+				"-out",
+				join(dir, "cert.pem"),
+			],
+			{ stdio: "ignore" },
+		);
+		return {
+			key: readFileSync(join(dir, "key.pem")),
+			cert: readFileSync(join(dir, "cert.pem")),
+		};
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+async function listenTls(
+	headers: Record<string, string>,
+	seenHosts: string[] = [],
+): Promise<string> {
+	const tls = createHttpsServer(selfSigned(), (request, response) => {
+		seenHosts.push(request.headers.host ?? "");
+		response.writeHead(200, headers);
+		response.end("");
+	});
+	server = tls;
+	await new Promise<void>((resolve) => tls.listen(0, "127.0.0.1", resolve));
+	return `127.0.0.1:${(tls.address() as AddressInfo).port}`;
+}
+
+test("the probe reads framing headers over HTTPS with a self-signed certificate", async () => {
+	const hosts: string[] = [];
+	const upstream = await listenTls({ "x-frame-options": "DENY" }, hosts);
+	await expect(
+		probeEmbeddable(upstream, "https", PORTIKUS, PREVIEW_HOST),
+	).resolves.toEqual({ embeddable: false, reason: "x-frame-options" });
+	expect(hosts).toEqual([PREVIEW_HOST]);
+});
+
+test("an HTTPS application that allows framing is embeddable", async () => {
+	const upstream = await listenTls({});
+	await expect(
+		probeEmbeddable(upstream, "https", PORTIKUS, PREVIEW_HOST),
+	).resolves.toEqual({ embeddable: true });
+});
+
+test("plain HTTP to an HTTPS listener counts as unreachable", async () => {
+	const upstream = await listenTls({});
+	await expect(
+		probeEmbeddable(upstream, "http", PORTIKUS, PREVIEW_HOST),
+	).resolves.toEqual({
+		embeddable: false,
+		reason: "unreachable",
+	});
+});
+
+test("HTTPS to a plain HTTP listener counts as unreachable", async () => {
+	const upstream = await listen(() => ({ status: 200, headers: {} }));
+	await expect(
+		probeEmbeddable(upstream, "https", PORTIKUS, PREVIEW_HOST),
+	).resolves.toEqual({
+		embeddable: false,
+		reason: "unreachable",
+	});
 });
