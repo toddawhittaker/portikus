@@ -80,6 +80,13 @@ test("a throttled or memory-flagged workspace adds its tags after the account's"
 		markerLabels({ ...NONE, stale: true }, { cpuThrottle: throttle, memoryFlag: flag }),
 	).toEqual(["Stale", "Throttled", "High memory"]);
 	expect(markerLabels(NONE, { cpuThrottle: null, memoryFlag: null })).toEqual([]);
+	// A held throttle shows Held beside Throttled (SPEC.md §19.4).
+	expect(
+		markerLabels(NONE, {
+			cpuThrottle: { ...throttle, held: { count: 3, hours: 24 } },
+			memoryFlag: null,
+		}),
+	).toEqual(["Throttled", "Held"]);
 	expect(markerLabels(NONE, null)).toEqual([]);
 });
 

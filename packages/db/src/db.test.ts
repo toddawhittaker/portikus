@@ -654,8 +654,10 @@ describe("database migrations and schema", () => {
 				expect(down24.error).toBeUndefined();
 				const down26 = await migrator.migrateDown();
 				expect(down26.error).toBeUndefined();
-				const down27 = await migrator.migrateDown();
-				expect(down27.error).toBeUndefined();
+				const down28 = await migrator.migrateDown();
+				expect(down28.error).toBeUndefined();
+				const down25 = await migrator.migrateDown();
+				expect(down25.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -685,6 +687,7 @@ describe("database migrations and schema", () => {
 					"0024_process_snapshots",
 					"0025_egress",
 					"0026_backups",
+					"0028_throttle_hold",
 					"0029_package_survey",
 				]);
 				throw rollback;
@@ -710,6 +713,9 @@ describe("database migrations and schema", () => {
 					// Past 0029 (Epic 24) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0028_throttle_hold",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0026_backups",
@@ -817,7 +823,8 @@ describe("database migrations and schema", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
 					);
-					// Past 0026, 0025, 0024, 0023 (Epic 21), 0022 (Epic 19), 0021 and 0020 first.
+					// Past 0028, 0026, 0025, 0024, 0023 (Epic 21), 0022 (Epic 19), 0021 and 0020 first.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -886,6 +893,9 @@ describe("database migrations and schema", () => {
 					// Past 0029 (Epic 24) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0028_throttle_hold",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0026_backups",
@@ -1257,6 +1267,9 @@ describe("database migrations and schema", () => {
 						"0029_package_survey",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0028_throttle_hold",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0026_backups",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1335,6 +1348,7 @@ describe("database migrations and schema", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
 					);
+					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
@@ -1775,7 +1789,8 @@ describe("database migrations and schema", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
 					);
-					// Down past 0026, 0025, 0024 and 0023 (Epic 21), 0022 (Epic 19),
+					// Down past 0028, 0026, 0025, 0024 and 0023 (Epic 21), 0022 (Epic 19),
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -1922,6 +1937,7 @@ describe("resource guard migration", () => {
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0023_guard_idle_lift");
@@ -1951,6 +1967,9 @@ describe("resource guard migration", () => {
 					// Past 0029 (Epic 24) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0028_throttle_hold",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0026_backups",
@@ -2200,7 +2219,8 @@ describe("resource guard migration", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
 					);
-					// Build a database that took 0020 to 0026 (with 0025) before 0019 existed.
+					// Build a database that took 0020 to 0028 (with 0025) before 0019 existed.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2217,11 +2237,13 @@ describe("resource guard migration", () => {
 						"0024_process_snapshots",
 						"0025_egress",
 						"0026_backups",
+						"0028_throttle_hold",
 						"0029_package_survey",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0029, 0026 down to 0020, and 0018 (applied 0018, 0020 to 0026, 0029, 0019).
+					// Undo 0019, 0029, 0028 down to 0020, and 0018 (applied 0018, 0020 to 0028, 0029, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2245,6 +2267,7 @@ describe("resource guard migration", () => {
 						"0024_process_snapshots",
 						"0025_egress",
 						"0026_backups",
+						"0028_throttle_hold",
 						"0029_package_survey",
 					]);
 					throw rollback;
@@ -2292,6 +2315,7 @@ describe("resource guard migration", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
 					);
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const down = await migrator.migrateDown();
@@ -2414,6 +2438,7 @@ describe("backups migration", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
 					);
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0026_backups");
 					expect((await tables.execute(trx)).rows[0]?.n).toBe(0);
@@ -2502,6 +2527,9 @@ describe("backups migration", () => {
 						"0029_package_survey",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0028_throttle_hold",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0026_backups",
 					);
 					const down = await migrator.migrateDown();
@@ -2559,7 +2587,8 @@ describe("api request samples migration", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
 					);
-					// Past 0026, 0025, 0024 and 0023 (Epic 21) first.
+					// Past 0028, 0026, 0025, 0024 and 0023 (Epic 21) first.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2668,5 +2697,81 @@ describe("pool options", () => {
 			}
 		},
 		15_000,
+	);
+});
+
+describe("throttle hold migration", () => {
+	let t: TestDb;
+
+	beforeAll(async () => {
+		t = await createTestDb();
+	});
+
+	afterAll(async () => {
+		await t?.close();
+	});
+
+	test.skipIf(!hasTestDb())(
+		"0028 adds the hold settings with their defaults and bounds, the recent list, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const columns = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.columns
+				where (table_name = 'settings'
+					and column_name in ('cpu_throttle_hold_after', 'cpu_throttle_hold_hours'))
+				or (table_name = 'workspaces' and column_name = 'cpu_throttle_recent')`;
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					await trx
+						.insertInto("settings")
+						.values({ id: 1, shutdown_grace_seconds: 600 })
+						.execute();
+					const row = await trx
+						.selectFrom("settings")
+						.select(["cpu_throttle_hold_after", "cpu_throttle_hold_hours"])
+						.executeTakeFirstOrThrow();
+					expect(row).toEqual({
+						cpu_throttle_hold_after: 3,
+						cpu_throttle_hold_hours: 24,
+					});
+					for (const bad of [
+						sql`update settings set cpu_throttle_hold_after = 11`,
+						sql`update settings set cpu_throttle_hold_after = -1`,
+						sql`update settings set cpu_throttle_hold_hours = 0`,
+						sql`update settings set cpu_throttle_hold_hours = 169`,
+					]) {
+						await expect(
+							sql`savepoint bound`.execute(trx).then(() => bad.execute(trx)),
+						).rejects.toThrow(/cpu_throttle_hold/);
+						await sql`rollback to savepoint bound`.execute(trx);
+					}
+					const owner = await insertTestUser(trx);
+					const ws = await trx
+						.insertInto("workspaces")
+						.values({ label: testLabel(), owner_user_id: owner, state: "running" })
+						.returning("cpu_throttle_recent")
+						.executeTakeFirstOrThrow();
+					expect(ws.cpu_throttle_recent).toEqual([]);
+
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					// Past 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0028_throttle_hold");
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(0);
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(3);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
 	);
 });

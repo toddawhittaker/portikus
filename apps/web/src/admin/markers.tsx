@@ -37,6 +37,8 @@ export function markerLabels(
 		? MARKER_ORDER.filter((key) => markers[key]).map((key) => MARKER_LABEL[key])
 		: [];
 	if (workspace?.cpuThrottle) labels.push("Throttled");
+	// A throttle a restart does not lift (SPEC.md §19.4).
+	if (workspace?.cpuThrottle?.held) labels.push("Held");
 	if (workspace?.memoryFlag) labels.push("High memory");
 	return labels;
 }

@@ -3,6 +3,7 @@ import { createDb, type Database } from "@portikus/db";
 import { createLogger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { httpAgentFactory } from "./agent-client.js";
+import { startBackupVmLoop } from "./backups.js";
 import { HttpControllerClient } from "./controller-client.js";
 import { startGuard } from "./guard.js";
 import { startHealthSampling } from "./health.js";
@@ -102,6 +103,7 @@ async function main(): Promise<void> {
 	startGuard({ db, controller, logger });
 	startNotificationPrune({ db, logger });
 	startProcessSnapshots({ db, controller, logger });
+	startBackupVmLoop({ db, controller, logger });
 	startPackageSurvey({ db, controller, logger });
 
 	let lastRefreshAt: Date | null = null;

@@ -256,6 +256,18 @@ test("a workspace with both a throttle and a flag gets a row for each", () => {
 	expect(guardRows([{ ...GUARDED, memoryFlag: null }])).toHaveLength(1);
 });
 
+test("a held throttle shows Held beside Throttled (SPEC.md §19.4)", () => {
+	const held = {
+		...GUARDED,
+		memoryFlag: null,
+		cpuThrottle: { ...GUARDED.cpuThrottle, held: { count: 3, hours: 24 } },
+	};
+	expect(guardRows([held]).map((row) => [row.which, row.held])).toEqual([
+		["Throttled", true],
+	]);
+	expect(guardRows([GUARDED]).map((row) => row.held)).toEqual([false, false]);
+});
+
 test("each guard row links to the owner's detail panel", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") {
