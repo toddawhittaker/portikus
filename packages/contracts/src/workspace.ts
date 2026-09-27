@@ -269,6 +269,8 @@ export const ApiErrorCode = z.enum([
 	// Lift throttle or clear memory flag with nothing set (ADR 0032).
 	"NOT_THROTTLED",
 	"NOT_FLAGGED",
+	// Re-provision of a workspace that is not in error (SPEC.md section 20.1).
+	"NOT_IN_ERROR",
 	// The local administrator and password change (SPEC.md section 5.3).
 	"PASSWORD_CHANGE_REQUIRED",
 	// The acceptable-use gate (SPEC.md section 5.1).

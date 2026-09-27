@@ -9,6 +9,7 @@ import { startEgressSync } from "./egress.js";
 import { startBlockedCounter } from "./egress-blocked.js";
 import { startGuard } from "./guard.js";
 import { startHealthSampling } from "./health.js";
+import { startLimitsSync } from "./limits.js";
 import { createLogLevelSync } from "./log-level.js";
 import { startNotificationPrune } from "./notifications.js";
 import { startPackageSurvey } from "./package-survey.js";
@@ -102,6 +103,7 @@ async function main(): Promise<void> {
 	// Host samples, quota grows and the resource guard each run on their own timer, off the sweep.
 	startHealthSampling({ db, controller, logger });
 	startQuotaSync({ db, controller, logger });
+	startLimitsSync({ db, controller, logger });
 	startGuard({ db, controller, logger });
 	startNotificationPrune({ db, logger });
 	startProcessSnapshots({ db, controller, logger });

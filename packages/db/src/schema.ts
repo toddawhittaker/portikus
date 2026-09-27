@@ -173,6 +173,18 @@ export interface WorkspacesTable {
 		string | null | undefined,
 		string | null
 	>;
+	/** Per-workspace CPU, memory and process limits; a missing key uses the profile. */
+	limits_config: ColumnType<
+		{ cpu?: number; memoryMiB?: number; processes?: number } | null,
+		string | null | undefined,
+		string | null
+	>;
+	/** The limits the worker last set on the instance. */
+	limits_applied: ColumnType<
+		{ cpu?: number; memoryMiB?: number; processes?: number } | null,
+		string | null | undefined,
+		string | null
+	>;
 	last_activity_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	/** When the idle stop happens unless the student answers. */
 	idle_stop_at: ColumnType<Date | null, string | null | undefined, string | null>;
