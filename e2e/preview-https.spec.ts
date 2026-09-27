@@ -1,25 +1,38 @@
+import { request as httpsRequest } from "node:https";
+import { createRequire } from "node:module";
 import { expect, type Page, test } from "@playwright/test";
 import { createProject, createStudent, settledAxe, workspacePath } from "./helpers";
 import { API_ORIGIN, FAKE_AGENT_URL } from "./ports";
 
 /**
- * A student application serving HTTPS (issue #283, step 1). The preview
- * gateway speaks plain HTTP to the workspace, so the API answers such a port
- * with a Portikus page and the Preview tab says the same thing instead of
- * showing a broken frame (SPEC.md §14.5, BROWSER-HANDLING.md §10).
+ * A student application serving HTTPS (issue #283, step 2, ADR 0041). The
+ * API answers `/preview/authorize` with the upstream and the trusted
+ * `X-Portikus-Upstream-Scheme` header, and the gateway speaks TLS to the
+ * workspace, with certificate checks off, only when that header says https.
  *
- * The fake agent runs a real HTTPS application and reports it with the
- * `https` hint the real agent's TLS probe would give it. As in
- * preview.spec.ts, Caddy does not exist here, so a small route stands in for
- * it: reserved paths go to the API, everything else is authorized by
- * `/preview/authorize`, and a refusal's page is passed straight through.
+ * The fake agent runs a real HTTPS and WebSocket application and reports it
+ * with the `https` hint the real agent's TLS probe would give it. Caddy does
+ * not exist here, so small routes stand in for it as in preview.spec.ts:
+ * reserved paths go to the API, everything else is authorized first and
+ * then proxied to the upstream over the scheme the API named.
  */
 
-const PREVIEW_SUFFIX = ".preview.localhost";
+// `ws` is a dependency of the API, not of the root; Node's own WebSocket
+// cannot turn certificate checks off for the self-signed hop.
+const WebSocketClient = createRequire(
+	new URL("../apps/api/package.json", import.meta.url),
+)("ws") as new (
+	url: string,
+	options: { rejectUnauthorized: boolean },
+) => {
+	on(event: "message", listener: (data: Buffer) => void): void;
+	on(event: "open" | "close", listener: () => void): void;
+	send(data: string): void;
+	close(): void;
+};
 
-const HTTPS_SENTENCE =
-	"This port is speaking HTTPS; the preview expects plain HTTP. Start your " +
-	"server without TLS, or wait for HTTPS previews.";
+const PREVIEW_SUFFIX = ".preview.localhost";
+const SCHEME_HEADER = "x-portikus-upstream-scheme";
 
 /** Start an HTTPS application inside the fake agent and report it listening. */
 async function startHttpsApp(workspaceId: string): Promise<number> {
@@ -34,20 +47,74 @@ async function startHttpsApp(workspaceId: string): Promise<number> {
 	return ((await response.json()) as { port: number }).port;
 }
 
+/** One GET over TLS to a workspace upstream, certificate unchecked. */
+function tlsGet(
+	upstream: string,
+	path: string,
+	host: string,
+): Promise<{ status: number; contentType?: string; body: Buffer }> {
+	const [hostname, port] = upstream.split(":");
+	return new Promise((resolve, reject) => {
+		const outbound = httpsRequest(
+			{
+				host: hostname,
+				port: Number(port),
+				path,
+				headers: { host },
+				rejectUnauthorized: false,
+			},
+			(response) => {
+				const chunks: Buffer[] = [];
+				response.on("data", (chunk: Buffer) => chunks.push(chunk));
+				response.on("end", () =>
+					resolve({
+						status: response.statusCode ?? 502,
+						contentType: response.headers["content-type"],
+						body: Buffer.concat(chunks),
+					}),
+				);
+			},
+		);
+		outbound.on("error", reject);
+		outbound.end();
+	});
+}
+
 /**
- * Stand in for Caddy. Returns how many requests the API authorized, which
- * must stay zero: an HTTPS port is never proxied.
+ * Stand in for Caddy, for plain requests and WebSockets to preview hosts.
+ * Returns the schemes the API named for each proxied request.
  */
-async function previewGateway(page: Page): Promise<{ authorized: number }> {
-	const counts = { authorized: 0 };
+async function previewGateway(page: Page): Promise<{ schemes: string[] }> {
+	const seen = { schemes: [] as string[] };
 
 	async function authorize(host: string, cookie: string) {
-		const answer = await fetch(`${API_ORIGIN}/preview/authorize`, {
+		return fetch(`${API_ORIGIN}/preview/authorize`, {
 			headers: { "x-forwarded-host": host, "x-forwarded-proto": "https", cookie },
 			redirect: "manual",
 		});
-		if (answer.ok) counts.authorized += 1;
-		return answer;
+	}
+
+	/** Authorize, then reach the upstream the way the API says to. */
+	async function proxy(host: string, path: string, cookie: string) {
+		const answer = await authorize(host, cookie);
+		if (!answer.ok) {
+			return {
+				status: answer.status,
+				contentType: answer.headers.get("content-type") ?? undefined,
+				body: Buffer.from(await answer.arrayBuffer()),
+			};
+		}
+		const upstream = answer.headers.get("x-portikus-upstream");
+		const scheme = answer.headers.get(SCHEME_HEADER);
+		if (!upstream || !scheme) throw new Error("the authorization named no upstream");
+		seen.schemes.push(scheme);
+		if (scheme === "https") return tlsGet(upstream, path, host);
+		const plain = await fetch(`http://${upstream}${path}`, { headers: { host } });
+		return {
+			status: plain.status,
+			contentType: plain.headers.get("content-type") ?? undefined,
+			body: Buffer.from(await plain.arrayBuffer()),
+		};
 	}
 
 	await page.route(
@@ -56,7 +123,7 @@ async function previewGateway(page: Page): Promise<{ authorized: number }> {
 			const request = route.request();
 			const url = new URL(request.url());
 			const cookie = (await request.headerValue("cookie")) ?? "";
-			let answer: Response;
+			let answer: { status: number; contentType?: string; body: Buffer };
 			if (url.pathname.startsWith("/__portikus/")) {
 				const boot = await fetch(`${API_ORIGIN}${url.pathname}${url.search}`, {
 					headers: {
@@ -66,28 +133,77 @@ async function previewGateway(page: Page): Promise<{ authorized: number }> {
 					},
 					redirect: "manual",
 				});
+				const setCookie = boot.headers.getSetCookie();
+				const location = boot.headers.get("location");
+				if (boot.status !== 303 || location === null) {
+					return route.fulfill({
+						status: boot.status,
+						body: Buffer.from(await boot.arrayBuffer()),
+					});
+				}
 				// Follow the bootstrap redirect here, with the cookie it set.
-				const minted = boot.headers
-					.getSetCookie()
-					.map((line) => line.split(";")[0] ?? "")
-					.filter(Boolean)
-					.join("; ");
-				answer =
-					boot.status === 303
-						? await authorize(url.host, [cookie, minted].filter(Boolean).join("; "))
-						: boot;
-			} else {
-				answer = await authorize(url.host, cookie);
+				const minted = setCookie.map((line) => line.split(";")[0] ?? "").join("; ");
+				answer = await proxy(
+					url.host,
+					location,
+					[cookie, minted].filter(Boolean).join("; "),
+				);
+				return route.fulfill({
+					status: answer.status,
+					headers: {
+						...(answer.contentType ? { "content-type": answer.contentType } : {}),
+						...(setCookie.length > 0 ? { "set-cookie": setCookie.join("\n") } : {}),
+					},
+					body: answer.body,
+				});
 			}
-			const contentType = answer.headers.get("content-type");
+			answer = await proxy(url.host, `${url.pathname}${url.search}`, cookie);
 			return route.fulfill({
 				status: answer.status,
-				headers: contentType ? { "content-type": contentType } : {},
-				body: Buffer.from(await answer.arrayBuffer()),
+				headers: answer.contentType ? { "content-type": answer.contentType } : {},
+				body: answer.body,
 			});
 		},
 	);
-	return counts;
+
+	await page.routeWebSocket(
+		(url) => url.hostname.endsWith(PREVIEW_SUFFIX),
+		async (socket) => {
+			const url = new URL(socket.url());
+			const cookies = await page
+				.context()
+				.cookies(`https://${url.host}/`)
+				.then((all) => all.map((one) => `${one.name}=${one.value}`).join("; "));
+			const answer = await authorize(url.host, cookies);
+			const upstream = answer.headers.get("x-portikus-upstream");
+			const scheme = answer.headers.get(SCHEME_HEADER);
+			if (!answer.ok || !upstream || !scheme) {
+				socket.close({ code: 1008, reason: "not authorized" });
+				return;
+			}
+			seen.schemes.push(scheme);
+			const wsScheme = scheme === "https" ? "wss" : "ws";
+			const server = new WebSocketClient(`${wsScheme}://${upstream}${url.pathname}`, {
+				rejectUnauthorized: false,
+			});
+			const early: string[] = [];
+			let open = false;
+			server.on("open", () => {
+				open = true;
+				for (const message of early.splice(0)) server.send(message);
+			});
+			server.on("message", (data) => socket.send(data.toString()));
+			server.on("close", () => socket.close());
+			socket.onMessage((message) => {
+				const text = message.toString();
+				if (open) server.send(text);
+				else early.push(text);
+			});
+			socket.onClose(() => server.close());
+		},
+	);
+
+	return seen;
 }
 
 async function openProject(page: Page, workspaceId: string) {
@@ -96,41 +212,52 @@ async function openProject(page: Page, workspaceId: string) {
 	await expect(page.getByTestId("work-tabs")).toBeVisible({ timeout: 15_000 });
 }
 
+/** Open the Preview tab on the HTTPS application. */
+async function previewInTab(page: Page, workspaceId: string, port: number) {
+	await openProject(page, workspaceId);
+	await page.getByTestId("right-pane-tab-running").click();
+	await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
+}
+
 test.describe("a preview of a port speaking HTTPS", () => {
-	test("the Preview tab explains the port speaks HTTPS", async ({ page, context }) => {
+	test("the Preview tab shows the HTTPS application", async ({ page, context }) => {
 		const student = await createStudent(context);
+		const seen = await previewGateway(page);
 		const port = await startHttpsApp(student.workspaceId);
-		await openProject(page, student.workspaceId);
+		await previewInTab(page, student.workspaceId, port);
 
-		await page.getByTestId("right-pane-tab-running").click();
-		await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
-
-		await expect(page.getByTestId("preview-https")).toHaveText(HTTPS_SENTENCE, {
-			timeout: 20_000,
-		});
 		await expect(
-			page.getByText(`Port ${port} is speaking HTTPS`).first(),
-		).toBeVisible();
-		await expect(page.getByTestId("preview-frame")).toHaveCount(0);
+			page.frameLocator("[data-testid=preview-frame]").locator("h1"),
+		).toHaveText("Secure app", { timeout: 20_000 });
+		await expect(page.getByTestId("preview-https")).toHaveCount(0);
+		expect(seen.schemes).toContain("https");
+		expect(seen.schemes).not.toContain("http");
 	});
 
-	test("the HTTPS notice has no axe violations", async ({ page, context }) => {
+	test("the HTTPS preview has no axe violations", async ({ page, context }) => {
 		const student = await createStudent(context);
+		await previewGateway(page);
 		const port = await startHttpsApp(student.workspaceId);
-		await openProject(page, student.workspaceId);
-		await page.getByTestId("right-pane-tab-running").click();
-		await page.getByTestId(`running-open-${port}`).click({ timeout: 20_000 });
-		await expect(page.getByTestId("preview-https")).toBeVisible({ timeout: 20_000 });
+		await previewInTab(page, student.workspaceId, port);
+		await expect(
+			page.frameLocator("[data-testid=preview-frame]").locator("h1"),
+		).toHaveText("Secure app", { timeout: 20_000 });
 
 		const results = await (await settledAxe(page))
+			// WCAG rules only: the framed page is the student's, and axe's
+			// best-practice rules would judge its missing landmarks.
+			.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
 			.include(".pk-preview-body")
 			.analyze();
-		expect(results.violations).toEqual([]);
+		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});
 
-	test("the preview host answers with the Portikus page", async ({ page, context }) => {
+	test("a new tab opens the application and its WebSocket over TLS", async ({
+		page,
+		context,
+	}) => {
 		const student = await createStudent(context);
-		const counts = await previewGateway(page);
+		const seen = await previewGateway(page);
 		const port = await startHttpsApp(student.workspaceId);
 		await openProject(page, student.workspaceId);
 		// The Running pane showing the port means the API's registry has it.
@@ -154,9 +281,28 @@ test.describe("a preview of a port speaking HTTPS", () => {
 		);
 
 		const response = await page.goto(bootstrapUrl);
-		expect(response?.status()).toBe(503);
-		await expect(page.locator("h1")).toHaveText(`Port ${port} is speaking HTTPS`);
-		await expect(page.locator("p")).toHaveText(HTTPS_SENTENCE);
-		expect(counts.authorized).toBe(0);
+		expect(response?.status()).toBe(200);
+		await expect(page.locator("h1")).toHaveText("Secure app");
+
+		// The application's own WebSocket, through the gateway to wss upstream.
+		const messages = await page.evaluate(
+			() =>
+				new Promise<string[]>((resolve, reject) => {
+					const scheme = location.protocol === "https:" ? "wss" : "ws";
+					const socket = new WebSocket(`${scheme}://${location.host}/`);
+					const got: string[] = [];
+					socket.onmessage = (event) => {
+						got.push(String(event.data));
+						if (got.length === 1) socket.send("ping");
+						if (got.length === 2) {
+							socket.close();
+							resolve(got);
+						}
+					};
+					socket.onerror = () => reject(new Error("the WebSocket failed"));
+				}),
+		);
+		expect(messages).toEqual(["hello", "echo:ping"]);
+		expect(seen.schemes.every((scheme) => scheme === "https")).toBe(true);
 	});
 });

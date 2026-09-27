@@ -42,11 +42,18 @@ Name the snapshots after the change, for example `pre-epic12b`.
 
 ```
 ssh deploy@10.100.0.120 'for v in $(sudo incus storage volume list workspace-data --project portikus -f csv -c n | grep -E "^ws-.*-(home|docker|recovery)$"); do sudo incus storage volume snapshot create workspace-data "$v" pre-CHANGE --project portikus; done'
-ssh deploy@10.100.0.120 'sudo runuser -u postgres -- pg_dump -Fc portikus' > ~/portikus-pre-CHANGE-$(date +%F).dump
+install -d -m 0700 /var/backups/portikus/portikus/dumps
+ssh deploy@10.100.0.120 'sudo runuser -u postgres -- pg_dump -Fc portikus' > /var/backups/portikus/portikus/dumps/portikus-pre-CHANGE-$(date +%F).dump
 ```
 
-No script ever deletes a `pre-...` snapshot. Delete old ones by hand once
-the change has proved itself for a week or so. A fresh `make backup` is
+Write `CHANGE` in lower-case letters, digits and hyphens, so the admin
+page's Backups tab lists the dump and can delete it. It lists only files
+named `portikus-pre-<name>.dump` in that `dumps` folder; older dumps in
+your home directory are left for you to delete.
+
+No script deletes a `pre-...` snapshot on its own. Delete old ones from
+the Backups tab, or by hand, once the change has proved itself for a week
+or so. A fresh `make backup` is
 also a good idea before any larger change.
 
 To undo a bad change, install the previous package
@@ -963,10 +970,34 @@ pilot.
 - **The key.** `make backup-setup` (run by `make backup`) makes the age key
   pair once: the public half at `~/.config/portikus/backup-recipients.txt`
   and the private half at `~/.config/portikus/backup-age-key.txt`. Backing
-  up needs only the public half. **Keep the private key in your password
-  manager and remove it from the host.** Without it no backup can be read,
-  and on the host it would open every backup to anyone who takes the host.
-  A restore reads it from wherever `PORTIKUS_BACKUP_IDENTITY` points.
+  up needs only the public half. Restoring from the admin page needs the
+  private half on the host, root-only (ADR 0039):
+
+  ```
+  make backup-install-key KEY=~/.config/portikus/backup-age-key.txt
+  ```
+
+  This checks that the key matches the recipients file and installs it as
+  `/etc/portikus-backup/age-key.txt` (owner root, mode 0600, in a 0700
+  directory). **Keep your password-manager copy** as the recovery copy,
+  and delete the one in your home directory afterwards. Accepted risk:
+  **whoever takes the host can read every backup.** Without any copy of
+  the key no backup can be read.
+- **The admin page's channel.** The Backups tab does not reach the host.
+  It records a request, and a host timer, `portikus-backup-channel.timer`,
+  asks the VM for one every 30 seconds over SSH as your account, runs it,
+  and sends back the result and a fresh status (the sets, the dumps, the
+  nightly timer, whether the key is installed). It runs Back up now,
+  deletes a set or a pre-change dump, and restores one workspace. The
+  host checks every value the VM sends against a strict pattern and runs
+  nothing it does not recognise. `make backup-install-timer` installs it
+  with the nightly timer; `make backup-install-channel` installs it alone.
+  There is one channel per host: `make backup-install-channel
+  TOFU_ENV=rehearsal-libvirt` points it at the rehearsal VM, and
+  `make backup-install-timer` points it back at the pilot afterwards.
+  Check it with `systemctl status portikus-backup-channel.service` and
+  `journalctl -u portikus-backup-channel.service`. When the page says
+  the host has not reported for more than 3 minutes, look there first.
 - **Off-host copy, weekly.** The sets sit on the same physical disk as the
   VM, so they protect against losing the VM or a mistake, not against
   losing the disk. Once a week, copy `/var/backups/portikus` to external
@@ -985,6 +1016,43 @@ This touches no VM:
 PORTIKUS_BACKUP_IDENTITY=<path to the private key> \
   bash infra/host/restore.sh --check /var/backups/portikus/portikus/<timestamp>
 ```
+
+With the key installed on the host, the path is
+`/etc/portikus-backup/age-key.txt`, and the command needs `sudo` in front.
+
+**One workspace, from the admin page.** On the Backups tab, open a set
+and choose "Restore a workspace…". The workspace must be running. The
+channel checks that the set holds that workspace's home, that
+`~/restored-<date>-<time>` (the set's UTC time) does not exist yet, and
+that the home has room for the copy with 5% of its free space to spare.
+It then decrypts the home on the host, as root, and unpacks it inside the
+workspace as the student (uid 1000), into that new folder beside the live
+files. Nothing is merged or overwritten, and the copy counts against the
+student's home quota. The student is told where it is. A copy that fails
+part way is removed, so the request can simply be repeated.
+
+"Replace home…" on a finished copy is a second, confirmed step. The
+worker makes a `before-replace-home` recovery point of each project and
+stops the workspace. The channel imports the set's home volume as
+`<instance>-home-import`, and the controller swaps it in. The previous
+home is kept, untouched, as `<instance>-home-replaced-<unix seconds>` and
+listed on the Backups tab until an administrator deletes it
+(ADR 0040).
+
+**Putting a kept home back.** There is no button for this. With the
+workspace stopped from the admin page, on the VM (`X` is the instance
+name, `N` the kept home's number):
+
+```
+sudo incus config device remove X home --project portikus
+sudo incus storage volume rename workspace-data X-home X-home-replaced-$(date +%s) --project portikus
+sudo incus storage volume rename workspace-data X-home-replaced-N X-home --project portikus
+sudo incus config device add X home disk pool=workspace-data source=X-home path=/home/student --project portikus
+```
+
+The home it replaced becomes a kept home in turn, so this too can be
+undone. Start the workspace from the admin page and ask the student to
+check it.
 
 **Onto the rehearsal VM** (a drill, or the cutover rehearsal):
 

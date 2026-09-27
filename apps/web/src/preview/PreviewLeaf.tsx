@@ -61,8 +61,6 @@ type State =
 	| { status: "connecting" }
 	| { status: "available"; grant: Grant }
 	| { status: "inactive" }
-	/** The port speaks HTTPS, which the preview cannot show yet (issue #283). */
-	| { status: "https" }
 	| { status: "unauthorized" }
 	/**
 	 * `probed` is true when the control plane asked the application and it
@@ -137,8 +135,6 @@ function announcement(state: State, port: number): string {
 			return `Showing port ${port}`;
 		case "inactive":
 			return `Nothing is running on port ${port}`;
-		case "https":
-			return `Port ${port} is speaking HTTPS`;
 		case "unauthorized":
 			return "You cannot preview this workspace";
 		case "error":
@@ -200,10 +196,6 @@ export function PreviewLeaf({
 
 	/** Whether the API says something is listening on this port. */
 	const isListening = listening.services.some((service) => service.port === port);
-	/** Whether the agent found this port speaking TLS (issue #283). */
-	const speaksHttps = listening.services.some(
-		(service) => service.port === port && service.protocolHint === "https",
-	);
 
 	const connect = useCallback(async () => {
 		setState({ status: "connecting" });
@@ -290,10 +282,6 @@ export function PreviewLeaf({
 			statusRef.current === "available" ||
 			statusRef.current === "blocked" ||
 			statusRef.current === "host-refused";
-		if (isListening && speaksHttps) {
-			setState({ status: "https" });
-			return;
-		}
 		if (isListening) {
 			// An open preview is already pointed at this port; re-granting here
 			// would reload the application for nothing.
@@ -311,7 +299,7 @@ export function PreviewLeaf({
 			LISTENING_GRACE_MS,
 		);
 		return () => clearTimeout(timer);
-	}, [listening.loaded, isListening, speaksHttps, connect]);
+	}, [listening.loaded, isListening, connect]);
 
 	// A frame that never loads while the port is listening is taken to have
 	// been refused embedding; see LOAD_TIMEOUT_MS. The guess is not made twice
@@ -530,17 +518,6 @@ export function PreviewLeaf({
 							<span data-testid="preview-inactive">
 								Nothing is currently listening on port {port}. Start your application to
 								reconnect this preview.
-							</span>
-						</EmptyState>
-					</div>
-				) : null}
-
-				{state.status === "https" ? (
-					<div className="pk-preview-state">
-						<EmptyState icon="alert" title={`Port ${port} is speaking HTTPS`}>
-							<span data-testid="preview-https">
-								This port is speaking HTTPS; the preview expects plain HTTP. Start your
-								server without TLS, or wait for HTTPS previews.
 							</span>
 						</EmptyState>
 					</div>
