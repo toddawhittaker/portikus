@@ -265,6 +265,10 @@ export const ApiErrorCode = z.enum([
 	"LOGS_UNAVAILABLE",
 	// The database pool had no free connection in time (ADR 0034 ruling 14).
 	"SERVICE_BUSY",
+	// The workspace egress policy (issue #284).
+	"EGRESS_VERSION_STALE",
+	"EGRESS_ENTRY_EXISTS",
+	"EGRESS_LIMIT_REACHED",
 	"INTERNAL",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;
