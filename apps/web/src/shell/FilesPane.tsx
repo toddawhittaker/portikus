@@ -32,7 +32,7 @@ export function FilesPane({
 	const [searching, setSearching] = useState(false);
 	// The chosen surface lives above this pane, because a Preview tab can ask
 	// for the Running surface too (BROWSER-HANDLING.md §12).
-	const { pane, show } = useRightPaneState();
+	const { pane, show, monitorFocus, setMonitorFocus } = useRightPaneState();
 	const open = project !== undefined && !project.missing;
 	// Closing the search hands focus back to the button that opened it (issue #358),
 	// or to the chosen surface's tab when the pane has moved off Files meanwhile.
@@ -50,6 +50,13 @@ export function FilesPane({
 		refocus.current = false;
 		(searchButton.current ?? currentTab.current)?.focus();
 	}, [searching]);
+
+	// A notice or the status bar opened Monitor: focus its visible tab (SPEC.md §25.8).
+	useEffect(() => {
+		if (!monitorFocus || searching || pane !== "monitor") return;
+		setMonitorFocus(false);
+		currentTab.current?.focus();
+	}, [monitorFocus, searching, pane, setMonitorFocus]);
 
 	// Mod+Shift+F opens find in files from anywhere in the workspace
 	// (SPEC.md §11.5). With no project open there is nothing to search.

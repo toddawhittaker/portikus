@@ -28,6 +28,8 @@ const THROTTLE = {
 	thresholdPercent: 80,
 	windowMinutes: 30,
 	sharePercent: 25,
+	idleLiftMinutes: null,
+	idleLiftPercent: null,
 };
 
 beforeEach(() => {

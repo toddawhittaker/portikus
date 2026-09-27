@@ -98,6 +98,7 @@ const SAMPLE_WORKSPACE = {
 	lastActiveConnectionAt: null,
 	shutdownDeadline: null,
 	cpuThrottle: null,
+	memoryFlag: null,
 	idleStopAt: null,
 	lastActivityAt: null,
 	createdAt: "2026-09-21T00:00:00.000Z",
@@ -106,12 +107,21 @@ const SAMPLE_WORKSPACE = {
 
 describe("the Workspace contract's resource guard fields", () => {
 	const at = "2026-09-25T10:00:00.000Z";
-	const throttle = { at, thresholdPercent: 80, windowMinutes: 30, sharePercent: 25 };
+	const throttle = {
+		at,
+		thresholdPercent: 80,
+		windowMinutes: 30,
+		sharePercent: 25,
+		idleLiftMinutes: 5,
+		idleLiftPercent: 10,
+	};
+	const flag = { at, averagePercent: 93.5, thresholdPercent: 90, windowMinutes: 30 };
 
 	test("a throttle, an idle deadline and the last activity round-trip", () => {
 		const workspace = {
 			...SAMPLE_WORKSPACE,
 			cpuThrottle: throttle,
+			memoryFlag: flag,
 			idleStopAt: at,
 			lastActivityAt: at,
 		};
@@ -127,7 +137,12 @@ describe("the Workspace contract's resource guard fields", () => {
 	});
 
 	test("each field is required, and a throttle's numbers are in range", () => {
-		for (const key of ["cpuThrottle", "idleStopAt", "lastActivityAt"] as const) {
+		for (const key of [
+			"cpuThrottle",
+			"memoryFlag",
+			"idleStopAt",
+			"lastActivityAt",
+		] as const) {
 			const { [key]: _dropped, ...missing } = SAMPLE_WORKSPACE;
 			expect(Workspace.safeParse(missing).success, key).toBe(false);
 		}
@@ -138,8 +153,31 @@ describe("the Workspace contract's resource guard fields", () => {
 			}).success,
 		).toBe(false);
 		expect(
+			Workspace.safeParse({
+				...SAMPLE_WORKSPACE,
+				cpuThrottle: { ...throttle, idleLiftMinutes: 61 },
+			}).success,
+		).toBe(false);
+		expect(
+			Workspace.safeParse({
+				...SAMPLE_WORKSPACE,
+				cpuThrottle: { ...throttle, idleLiftPercent: 101 },
+			}).success,
+		).toBe(false);
+		expect(
 			Workspace.safeParse({ ...SAMPLE_WORKSPACE, idleStopAt: "in five minutes" })
 				.success,
+		).toBe(false);
+	});
+
+	test("with lifting off, the throttle's lift fields are null", () => {
+		const off = { ...throttle, idleLiftMinutes: null, idleLiftPercent: null };
+		expect(
+			Workspace.parse({ ...SAMPLE_WORKSPACE, cpuThrottle: off }).cpuThrottle,
+		).toEqual(off);
+		const { idleLiftMinutes: _dropped, ...missing } = throttle;
+		expect(
+			Workspace.safeParse({ ...SAMPLE_WORKSPACE, cpuThrottle: missing }).success,
 		).toBe(false);
 	});
 });

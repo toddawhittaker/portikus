@@ -27,6 +27,7 @@ import { DexUserActions } from "./DexUserDialogs.js";
 import { GuardDialog } from "./GuardDialog.js";
 import { defaultLabel, graceText } from "./graceText.js";
 import { imageText, isCourseAccount, roleText, sourceText } from "./markers.js";
+import { ProcessesSection } from "./ProcessesSection.js";
 import { QuotaDialog } from "./QuotaDialog.js";
 import {
 	useAdminWorkspace,
@@ -231,7 +232,7 @@ function ErrorSection({ detail }: { detail: AdminWorkspaceDetail }) {
 	);
 }
 
-/** Storage, Resource guard, Ports and connections, Logs and Recent audit, in that order. */
+/** Storage, Resource guard, Processes, Ports and connections, Logs and Recent audit, in that order. */
 function DataSections({
 	detail,
 	ownerName,
@@ -245,6 +246,13 @@ function DataSections({
 			<StorageSection detail={detail} ownerName={ownerName} />
 
 			<GuardSection detail={detail} ownerName={ownerName} />
+
+			<ProcessesSection
+				key={workspace.id}
+				workspaceId={workspace.id}
+				running={workspace.state === "running"}
+				ownerName={ownerName}
+			/>
 
 			<section aria-labelledby="detail-ports" className="pk-detail-section">
 				<h4 id="detail-ports" className="pk-text-label m-0">

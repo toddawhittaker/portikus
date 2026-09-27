@@ -19,6 +19,7 @@ import {
 	afterAll,
 	beforeAll,
 	beforeEach,
+	describe,
 	expect,
 	onTestFinished,
 	test,
@@ -56,6 +57,8 @@ interface Behaviour {
 	/** Sent over and over on the listening events socket. */
 	listeningFrame: string | null;
 	forwardAddress: string;
+	/** The status and body `POST /processes/:pid/stop` answers with. */
+	processStop: [number, unknown];
 }
 
 function calm(): Behaviour {
@@ -67,6 +70,7 @@ function calm(): Behaviour {
 		eventsFrame: null,
 		listeningFrame: null,
 		forwardAddress: "127.0.0.1",
+		processStop: [200, { pid: 7, exited: true }],
 	};
 }
 
@@ -113,6 +117,10 @@ async function startHostileAgent(host: string, port = 0): Promise<HostileAgent> 
 		const body = agent.behaviour.checks;
 		if (typeof body !== "string") return body;
 		return reply.header("content-type", "application/json").send(body);
+	});
+	app.post("/processes/:pid/stop", async (_request, reply) => {
+		const [status, body] = agent.behaviour.processStop;
+		return reply.status(status).send(body);
 	});
 	app.get("/projects/:slug/search", async () => agent.behaviour.search);
 	// An archive that never ends, as an agent lying about the size cap would send.
@@ -622,5 +630,54 @@ test.skipIf(skip)(
 		).rejects.toThrow();
 		expect(received).toBeLessThanOrEqual(MAX_DOWNLOAD_BYTES + ZIP_OVERHEAD_BYTES);
 		expect(received).toBeGreaterThan(MAX_DOWNLOAD_BYTES);
+	},
+);
+
+describe.skipIf(skip)("a lying process stop answer", () => {
+	const cases: [string, [number, unknown]][] = [
+		["names another pid", [200, { pid: 8, exited: true }]],
+		["is malformed", [200, { pid: 7, exited: "yes" }]],
+		["carries extra fields", [200, { pid: 7, exited: true, name: "zzsecret" }]],
+		["is not JSON", [200, "{not json"]],
+		["invents a refusal", [403, { error: { code: "PWNED", message: "zzsecret" } }]],
+	];
+	for (const [name, answer] of cases) {
+		test(name, async () => {
+			hostile.behaviour.processStop = answer;
+			const response = await app.inject({
+				method: "POST",
+				url: `/workspaces/${workspaceId}/processes/7/stop`,
+				headers: csrfHeaders(alice, PUBLIC_URL),
+				payload: { startTicks: 100 },
+			});
+			expect(response.statusCode).toBe(502);
+			expect(response.body).not.toContain("zzsecret");
+			const audits = await testDb.db
+				.selectFrom("audit_events")
+				.selectAll()
+				.where("action", "=", "workspace.process_stopped")
+				.execute();
+			expect(audits).toEqual([]);
+			await healthy();
+		});
+	}
+});
+
+test.skipIf(skip)(
+	"an agent refusal's own message never reaches the browser",
+	async () => {
+		hostile.behaviour.processStop = [
+			403,
+			{ error: { code: "PROCESS_PROTECTED", message: "zzsecret" } },
+		];
+		const response = await app.inject({
+			method: "POST",
+			url: `/workspaces/${workspaceId}/processes/7/stop`,
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { startTicks: 100 },
+		});
+		expect(response.statusCode).toBe(403);
+		expect(response.json().code).toBe("PROCESS_PROTECTED");
+		expect(response.body).not.toContain("zzsecret");
 	},
 );

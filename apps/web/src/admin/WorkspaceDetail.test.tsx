@@ -274,6 +274,7 @@ test("the panel's sections come in the order of SPEC.md section 20.1", async () 
 		"H4 Workspace",
 		"H4 Storage",
 		"H4 Resource guard",
+		"H4 Processes",
 		"H4 Ports and connections",
 		"H4 Logs",
 		"H4 Recent audit events",

@@ -64,3 +64,4 @@ has four sections:
 | [0034](0034-platform-resilience.md) | Platform resilience: restarts, priority, background stops, cached preview checks and a fail-fast storage pool (accepted, Epic 17) |
 | [0035](0035-terminals-in-their-own-unit.md) | Terminals run in their own systemd unit, and the agent's negative OOM score was dropped (accepted, Epic 16) |
 | [0036](0036-admin-log-viewer-reads-the-journal.md) | The admin Logs tab reads the journal through `journalctl` with fixed arguments, limits and redaction (accepted, Epic 19) |
+| [0037](0037-admin-process-list-through-incus.md) | The administrator reads processes from the host through the worker and stops them through the agent (accepted, Epic 21) |

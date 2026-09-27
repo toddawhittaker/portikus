@@ -92,7 +92,7 @@ export interface FakeAgent {
 	/** While true, `POST /forwards` fails so the grant route's 409 shows. */
 	failForward: boolean;
 	/**
-	 * Hold the next listener stop until `release` is called; `reached`
+	 * Hold the next listener or process stop until `release` is called; `reached`
 	 * resolves once that stop has arrived at the fake.
 	 */
 	holdNextStop: () => { reached: Promise<void>; release: () => void };
@@ -108,6 +108,8 @@ export interface FakeAgent {
 	restoreFailure: Map<string, [number, string]>;
 	/** Storage figures `/usage` reports, by workspace key; absent means null. */
 	storage: Map<string, FakeStorage>;
+	/** Processes `/usage` reports and `/processes/:pid/stop` stops, by workspace key. */
+	processes: Map<string, FakeProcess[]>;
 	/** Push one frame to every events subscriber of a project. */
 	pushEvent: (key: string, slug: string, frame: unknown) => number;
 	/** Push one frame larger than the control plane's 1 MiB cap. */
@@ -136,6 +138,36 @@ export interface FakeStorage {
 	home: StorageFigure;
 	docker: StorageFigure;
 	recovery: StorageFigure;
+}
+
+/**
+ * One process of the fake. `ignoresTerm` survives SIGTERM, so the browser
+ * offers Force stop; `stoppable` false is a protected process.
+ */
+export interface FakeProcess {
+	pid: number;
+	command: string;
+	cpuPercent: number;
+	residentBytes: number;
+	startTicks: number;
+	stoppable: boolean;
+	commandLine: string | null;
+	ignoresTerm?: boolean;
+}
+
+/** What a workspace runs until a test says otherwise. */
+function defaultProcesses(): FakeProcess[] {
+	return [
+		{
+			pid: 7,
+			command: "node",
+			cpuPercent: 1.5,
+			residentBytes: 4096,
+			startTicks: 100,
+			stoppable: true,
+			commandLine: "node server.js --port 3000",
+		},
+	];
 }
 
 /** One entry of the fake filesystem. Paths are `<slug>/<path inside it>`. */
@@ -1681,6 +1713,16 @@ export async function startFakeAgent(
 	const restoreIncomplete = new Set<string>();
 	const restoreFailure = new Map<string, [number, string]>();
 	const storage = new Map<string, FakeStorage>();
+	const processes = new Map<string, FakeProcess[]>();
+	const memory = new Map<string, { usedBytes: number; totalBytes: number }>();
+	function processesFor(key: string): FakeProcess[] {
+		let list = processes.get(key);
+		if (!list) {
+			list = defaultProcesses();
+			processes.set(key, list);
+		}
+		return list;
+	}
 
 	function recoveryError(reply: FastifyReply, status: number, code: string) {
 		return reply.status(status).send({ error: { code, message: code.toLowerCase() } });
@@ -1831,16 +1873,86 @@ export async function startFakeAgent(
 	app.get("/usage", async (request) => ({
 		observedAt: "2026-01-01T00:00:00.000Z",
 		cpuPercent: 1.5,
-		memory: { usedBytes: 100, totalBytes: 200 },
+		memory: memory.get(keyOf(request)) ?? { usedBytes: 100, totalBytes: 200 },
 		disk: { usedBytes: 300, totalBytes: 400 },
 		network: { receiveBytesPerSecond: 10, transmitBytesPerSecond: 20 },
-		processes: [{ pid: 7, cpuPercent: 1.5, residentBytes: 4096, command: "node" }],
+		processes: processesFor(keyOf(request)).map((one) => ({
+			pid: one.pid,
+			cpuPercent: one.cpuPercent,
+			residentBytes: one.residentBytes,
+			command: one.command,
+			startTicks: one.startTicks,
+			stoppable: one.stoppable,
+			commandLine: one.commandLine,
+		})),
 		storage: storage.get(keyOf(request)) ?? {
 			home: null,
 			docker: null,
 			recovery: null,
 		},
 	}));
+
+	/** Set the memory figure `/usage` reports, for the status bar's warning. */
+	app.post("/__test/memory", async (request, reply) => {
+		const body = (request.body ?? {}) as {
+			key?: string;
+			usedBytes: number;
+			totalBytes: number;
+		};
+		memory.set(body.key ?? "", {
+			usedBytes: body.usedBytes,
+			totalBytes: body.totalBytes,
+		});
+		return reply.status(204).send();
+	});
+
+	/** Replace a workspace's process list. */
+	app.post("/__test/processes", async (request, reply) => {
+		const body = (request.body ?? {}) as { key?: string; processes?: FakeProcess[] };
+		processes.set(body.key ?? "", body.processes ?? defaultProcesses());
+		return reply.status(204).send();
+	});
+
+	/** Stop a process, with the real agent's checks and answers (SPEC.md §18.3). */
+	app.post("/processes/:pid/stop", async (request, reply) => {
+		const pid = Number((request.params as { pid: string }).pid);
+		const body = (request.body ?? {}) as { startTicks?: unknown; force?: unknown };
+		if (!Number.isSafeInteger(pid) || pid < 1 || typeof body.startTicks !== "number") {
+			return reply
+				.status(400)
+				.send({ error: { code: "BAD_REQUEST", message: "invalid pid or body" } });
+		}
+		const hold = stopHold;
+		stopHold = null;
+		if (hold) {
+			hold.arrived();
+			await hold.released;
+		}
+		const key = keyOf(request);
+		const list = processesFor(key);
+		const found = list.find((one) => one.pid === pid);
+		if (!found) {
+			return reply
+				.status(404)
+				.send({ error: { code: "PROCESS_NOT_FOUND", message: "no such process" } });
+		}
+		if (found.startTicks !== body.startTicks) {
+			return reply.status(409).send({
+				error: { code: "PROCESS_CHANGED", message: "the process id was reused" },
+			});
+		}
+		if (!found.stoppable) {
+			return reply.status(403).send({
+				error: { code: "PROCESS_PROTECTED", message: "this process is protected" },
+			});
+		}
+		if (found.ignoresTerm && body.force !== true) return { pid, exited: false };
+		processes.set(
+			key,
+			list.filter((one) => one !== found),
+		);
+		return { pid, exited: true };
+	});
 
 	app.get(
 		"/listening/events",
@@ -2068,6 +2180,7 @@ export async function startFakeAgent(
 		restoreIncomplete,
 		restoreFailure,
 		storage,
+		processes,
 		get failForward() {
 			return state.failForward;
 		},

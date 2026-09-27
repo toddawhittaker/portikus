@@ -468,53 +468,84 @@ test.skipIf(skip)(
 	},
 );
 
-test.skipIf(skip)("throttle and idle-stop changes reach an open socket", async () => {
-	const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
-	await socket.next();
+test.skipIf(skip)(
+	"throttle and idle-stop changes reach an open socket",
+	async () => {
+		const socket = await openWorkspaceSocket(app, workspaceId, alice, PUBLIC_URL);
+		await socket.next();
 
-	const throttle = {
-		at: "2026-09-25T12:00:00.000Z",
-		averagePercent: 98,
-		thresholdPercent: 80,
-		windowMinutes: 30,
-		sharePercent: 25,
-		allowance: "100ms/100ms",
-	};
-	let update = socket.nextOf("workspace");
-	// Only cpu_throttle changes, so nothing else could trigger the push.
-	await testDb.db
-		.updateTable("workspaces")
-		.set({ cpu_throttle: JSON.stringify(throttle) })
-		.where("id", "=", workspaceId)
-		.execute();
-	let message = await update;
-	// The student sees the numbers, never the allowance or the average.
-	expect(message.workspace.cpuThrottle).toEqual({
-		at: throttle.at,
-		thresholdPercent: 80,
-		windowMinutes: 30,
-		sharePercent: 25,
-	});
+		const throttle = {
+			at: "2026-09-25T12:00:00.000Z",
+			averagePercent: 98,
+			thresholdPercent: 80,
+			windowMinutes: 30,
+			sharePercent: 25,
+			allowance: "100ms/100ms",
+		};
+		let update = socket.nextOf("workspace");
+		// Only cpu_throttle changes, so nothing else could trigger the push.
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ cpu_throttle: JSON.stringify(throttle) })
+			.where("id", "=", workspaceId)
+			.execute();
+		let message = await update;
+		// The student sees the numbers, never the allowance or the average; with no
+		// settings row there are no lift facts.
+		expect(message.workspace.cpuThrottle).toEqual({
+			at: throttle.at,
+			thresholdPercent: 80,
+			windowMinutes: 30,
+			sharePercent: 25,
+			idleLiftMinutes: null,
+			idleLiftPercent: null,
+		});
 
-	const idleStopAt = new Date(Date.now() + 5 * 60_000).toISOString();
-	update = socket.nextOf("workspace");
-	await testDb.db
-		.updateTable("workspaces")
-		.set({ idle_stop_at: idleStopAt })
-		.where("id", "=", workspaceId)
-		.execute();
-	message = await update;
-	expect(message.workspace.idleStopAt).toBe(idleStopAt);
+		const idleStopAt = new Date(Date.now() + 5 * 60_000).toISOString();
+		update = socket.nextOf("workspace");
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ idle_stop_at: idleStopAt })
+			.where("id", "=", workspaceId)
+			.execute();
+		message = await update;
+		expect(message.workspace.idleStopAt).toBe(idleStopAt);
 
-	update = socket.nextOf("workspace");
-	await testDb.db
-		.updateTable("workspaces")
-		.set({ idle_stop_at: null, cpu_throttle: null })
-		.where("id", "=", workspaceId)
-		.execute();
-	message = await update;
-	expect(message.workspace.idleStopAt).toBeNull();
-	expect(message.workspace.cpuThrottle).toBeNull();
+		update = socket.nextOf("workspace");
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ idle_stop_at: null, cpu_throttle: null })
+			.where("id", "=", workspaceId)
+			.execute();
+		message = await update;
+		expect(message.workspace.idleStopAt).toBeNull();
+		expect(message.workspace.cpuThrottle).toBeNull();
 
-	await socket.close();
-});
+		// The memory flag alone must push too, when set and when cleared.
+		const flag = {
+			at: "2026-09-25T12:00:00.000Z",
+			averagePercent: 93.2,
+			thresholdPercent: 90,
+			windowMinutes: 30,
+		};
+		update = socket.nextOf("workspace");
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ memory_flag: JSON.stringify(flag) })
+			.where("id", "=", workspaceId)
+			.execute();
+		message = await update;
+		expect(message.workspace.memoryFlag).toEqual(flag);
+		update = socket.nextOf("workspace");
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ memory_flag: null })
+			.where("id", "=", workspaceId)
+			.execute();
+		message = await update;
+		expect(message.workspace.memoryFlag).toBeNull();
+
+		await socket.close();
+	},
+	15_000,
+);

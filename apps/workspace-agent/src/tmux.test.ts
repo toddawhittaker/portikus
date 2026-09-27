@@ -15,6 +15,7 @@ import {
 	hasSession,
 	listSessions,
 	SHELL_WRAPPER,
+	serverPid,
 	sessionName,
 } from "./tmux.js";
 
@@ -343,4 +344,43 @@ test.skipIf(!haveTmux)(
 		}
 	},
 	20_000,
+);
+
+test.skipIf(!haveTmux)("the server PID comes from the agent's own socket", async () => {
+	const pid = await serverPid(SERVER);
+	expect(pid).toBeGreaterThan(1);
+	const { stdout } = await run("tmux", [
+		"-L",
+		SOCKET_NAME,
+		"display-message",
+		"-p",
+		"#{pid}",
+	]);
+	expect(pid).toBe(Number(stdout.trim()));
+	expect(
+		await serverPid({ socketName: `${SOCKET_NAME}-none`, external: false }),
+	).toBeNull();
+});
+
+test.skipIf(!haveTmux)(
+	"in external mode the server PID is the terminals unit's server, and none is started",
+	async () => {
+		const server = { socketName: `portikus-ext-pid-${process.pid}`, external: true };
+		expect(await serverPid(server)).toBeNull();
+		await expect(
+			run("tmux", ["-L", server.socketName, "list-sessions"]),
+		).rejects.toThrow();
+		const daemon = spawn("tmux", ["-L", server.socketName, "-f", "/dev/null", "-D"], {
+			stdio: "ignore",
+		});
+		try {
+			// The terminals unit runs `tmux -D`, so its PID is the server's PID.
+			await vi.waitFor(async () => expect(await serverPid(server)).toBe(daemon.pid), {
+				timeout: 5000,
+			});
+		} finally {
+			await killServer(server.socketName);
+			daemon.kill();
+		}
+	},
 );

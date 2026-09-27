@@ -2,6 +2,8 @@ import { z } from "zod";
 import { AdminAccountMarkers, AdminWorkspaceSummary } from "./admin.js";
 import { Role } from "./auth.js";
 import {
+	CpuIdleLiftMinutes,
+	CpuIdleLiftPercent,
 	GuardThresholdPercent,
 	GuardWindowMinutes,
 	IdleStopMinutes,
@@ -34,6 +36,8 @@ export const PlatformSettings = z.object({
 	memoryGuardThresholdPercent: GuardThresholdPercent,
 	guardWindowMinutes: GuardWindowMinutes,
 	cpuThrottleSharePercent: ThrottleSharePercent,
+	cpuIdleLiftMinutes: CpuIdleLiftMinutes,
+	cpuIdleLiftPercent: CpuIdleLiftPercent,
 	idleStopMinutes: IdleStopMinutes,
 	/** Null means the built-in DEFAULT_ACCEPTABLE_USE_TEXT. */
 	acceptableUseText: z.string().nullable(),
@@ -71,6 +75,8 @@ export const UpdatePlatformSettingsRequest = z
 		memoryGuardThresholdPercent: GuardThresholdPercent.optional(),
 		guardWindowMinutes: GuardWindowMinutes.optional(),
 		cpuThrottleSharePercent: ThrottleSharePercent.optional(),
+		cpuIdleLiftMinutes: CpuIdleLiftMinutes.optional(),
+		cpuIdleLiftPercent: CpuIdleLiftPercent.optional(),
 		idleStopMinutes: IdleStopMinutes.optional(),
 		acceptableUseText: z
 			.string()

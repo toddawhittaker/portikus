@@ -52,6 +52,18 @@ statement. Five choices shape how.
 Every number is a runtime setting with a per-workspace override, not an
 environment setting (ADR 0011).
 
+### Amendment (Epic 21, #596): automatic lift
+
+A throttle also lifts on its own once the workspace has been quiet: the
+CPU average over the last `cpu_idle_lift_minutes` (default 5), counting
+only samples taken after the throttle and measured against the full CPU
+limit with the same restart rule as decision 4, is strictly below
+`cpu_idle_lift_percent` (default 10; 0 turns it off). The lift deletes
+the samples from before the throttle, as a stop does, and is audited
+with `reason: "idle"`. The two settings are platform-wide with no
+per-workspace override, until someone needs one. Reusing the judged
+average keeps one definition of "busy".
+
 ## Consequences
 
 - A throttle bites on a quiet host too, and changes nothing when the
@@ -59,7 +71,8 @@ environment setting (ADR 0011).
 - The controller gains one read route and one write route to Incus, and
   reads each instance's cgroup `memory.stat` to leave page cache out of
   memory.
-- A student can lift their own throttle by stopping and starting. Each
+- A student can lift their own throttle by stopping and starting, or by
+  going quiet for a few minutes (amendment above). Each
   throttle and each lift is audited, so a repeat offender shows in the
   audit log, but the number of throttle-then-restart cycles is not
   limited (docs/BACKLOG.md).

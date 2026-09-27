@@ -644,6 +644,10 @@ describe("database migrations and schema", () => {
 				expect(down21.error).toBeUndefined();
 				const down22 = await migrator.migrateDown();
 				expect(down22.error).toBeUndefined();
+				const down23 = await migrator.migrateDown();
+				expect(down23.error).toBeUndefined();
+				const down24 = await migrator.migrateDown();
+				expect(down24.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -669,6 +673,8 @@ describe("database migrations and schema", () => {
 					"0020_resource_guard",
 					"0021_notifications",
 					"0022_api_request_samples",
+					"0023_guard_idle_lift",
+					"0024_process_snapshots",
 				]);
 				throw rollback;
 			}),
@@ -690,6 +696,12 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0024_process_snapshots",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0023_guard_idle_lift",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0022_api_request_samples",
 					);
@@ -780,7 +792,9 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0022 (Epic 19), 0021 and 0020 (Epic 14.3) first.
+					// Past 0024, 0023 (Epic 21), 0022 (Epic 19), 0021 and 0020 first.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -842,6 +856,12 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0024_process_snapshots",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0023_guard_idle_lift",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0022_api_request_samples",
 					);
@@ -1196,6 +1216,12 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0024_process_snapshots",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0023_guard_idle_lift",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0022_api_request_samples",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1258,6 +1284,8 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					await migrator.migrateDown();
+					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
@@ -1690,7 +1718,10 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Down past 0022 (Epic 19), 0021 and 0020 (Epic 14.3), 0019 (Epic 14.2), 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					// Down past 0024 and 0023 (Epic 21), 0022 (Epic 19),
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					// 0021 and 0020 (Epic 14.3), 0019 (Epic 14.2), 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -1784,6 +1815,62 @@ describe("resource guard migration", () => {
 	});
 
 	test.skipIf(!hasTestDb())(
+		"0023 adds the idle-lift settings with their defaults and bounds, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const columns = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.columns
+				where table_name = 'settings'
+				and column_name in ('cpu_idle_lift_minutes', 'cpu_idle_lift_percent')`;
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					await sql`insert into settings (id, shutdown_grace_seconds) values (1, 600)`.execute(
+						trx,
+					);
+					const row = await trx
+						.selectFrom("settings")
+						.select(["cpu_idle_lift_minutes", "cpu_idle_lift_percent"])
+						.executeTakeFirstOrThrow();
+					expect(row).toEqual({ cpu_idle_lift_minutes: 5, cpu_idle_lift_percent: 10 });
+					await trx
+						.updateTable("settings")
+						.set({ cpu_idle_lift_minutes: 60, cpu_idle_lift_percent: 0 })
+						.execute();
+					for (const bad of [
+						{ cpu_idle_lift_minutes: 0 },
+						{ cpu_idle_lift_minutes: 61 },
+						{ cpu_idle_lift_percent: -1 },
+						{ cpu_idle_lift_percent: 101 },
+					]) {
+						await sql`savepoint bad`.execute(trx);
+						await expect(
+							trx.updateTable("settings").set(bad).execute(),
+						).rejects.toThrow(/check constraint/);
+						await sql`rollback to savepoint bad`.execute(trx);
+					}
+
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					const down = await migrator.migrateDown();
+					expect(down.error).toBeUndefined();
+					expect(down.results?.[0]?.migrationName).toBe("0023_guard_idle_lift");
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(0);
+					const up = await migrator.migrateToLatest();
+					expect(up.error).toBeUndefined();
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(2);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+
+	test.skipIf(!hasTestDb())(
 		"0020 fills settings defaults, gives grace-0 owners an idle override of 0, and rolls back",
 		async () => {
 			const { Migrator } = await import("kysely/migration");
@@ -1796,6 +1883,12 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0024_process_snapshots",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0023_guard_idle_lift",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0022_api_request_samples",
 					);
@@ -2028,7 +2121,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 						allowUnorderedMigrations: true,
 					});
-					// Build a database that took 0020 to 0022 before 0019 existed.
+					// Build a database that took 0020, 0021, 0022, 0023 and 0024 before 0019 existed.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2037,10 +2132,14 @@ describe("resource guard migration", () => {
 						"0020_resource_guard",
 						"0021_notifications",
 						"0022_api_request_samples",
+						"0023_guard_idle_lift",
+						"0024_process_snapshots",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0022, 0021, 0020 and 0018 (applied 0018, 0020, 0021, 0022, 0019).
+					// Undo 0019, 0024, 0023, 0022, 0021, 0020 and 0018 (applied 0018, 0020, 0021, 0022, 0023, 0024, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2055,7 +2154,55 @@ describe("resource guard migration", () => {
 						"0020_resource_guard",
 						"0021_notifications",
 						"0022_api_request_samples",
+						"0023_guard_idle_lift",
+						"0024_process_snapshots",
 					]);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+	test.skipIf(!hasTestDb())(
+		"0024 adds the process snapshot table, cascades with the workspace, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const table = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.tables
+				where table_name = 'workspace_process_snapshots'`;
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const owner = await insertTestUser(trx);
+					const ws = await trx
+						.insertInto("workspaces")
+						.values({ label: testLabel(), owner_user_id: owner, state: "running" })
+						.returning("id")
+						.executeTakeFirstOrThrow();
+					await trx
+						.insertInto("workspace_process_snapshots")
+						.values({
+							workspace_id: ws.id,
+							requested_at: new Date().toISOString(),
+						})
+						.execute();
+					await trx.deleteFrom("workspaces").where("id", "=", ws.id).execute();
+					const left = await trx
+						.selectFrom("workspace_process_snapshots")
+						.select("workspace_id")
+						.execute();
+					expect(left).toEqual([]);
+
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0024_process_snapshots");
+					expect((await table.execute(trx)).rows[0]?.n).toBe(0);
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					expect((await table.execute(trx)).rows[0]?.n).toBe(1);
 					throw rollback;
 				}),
 			).rejects.toBe(rollback);
@@ -2100,6 +2247,9 @@ describe("api request samples migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0024 and 0023 (Epic 21) first.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
 					expect(down.results?.[0]?.migrationName).toBe("0022_api_request_samples");

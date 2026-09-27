@@ -2,7 +2,16 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vitest";
 import { IncusClient } from "./incus.js";
 import {
 	AGENT_HEALTH_TIMEOUT_MS,
@@ -1609,4 +1618,100 @@ test("start without an allowance makes no guarded write", async () => {
 	await provider.start("ws-test", START);
 
 	expect(state.puts).toHaveLength(0);
+});
+
+describe("processes", () => {
+	const BASE = 1_000_000;
+	let root: string;
+
+	function writeProc(hostPid: number, nsPid: number, uid: number, name: string): void {
+		const dir = path.join(root, "proc", String(hostPid));
+		fs.mkdirSync(dir, { recursive: true });
+		const rest = Array.from({ length: 22 }, () => "0").join(" ");
+		fs.writeFileSync(path.join(dir, "stat"), `${hostPid} (${name}) ${rest}\n`);
+		fs.writeFileSync(
+			path.join(dir, "status"),
+			`Uid:\t${uid + BASE}\t0\t0\t0\nNSpid:\t${hostPid}\t${nsPid}\nVmRSS:\t4 kB\n`,
+		);
+	}
+
+	beforeEach(() => {
+		root = fs.mkdtempSync(path.join(os.tmpdir(), "provider-procs-"));
+		fs.mkdirSync(path.join(root, "proc"));
+		fs.writeFileSync(path.join(root, "proc", "uptime"), "100.0 1.0\n");
+		writeProc(4000, 1, 0, "systemd");
+		writeProc(4001, 77, 1000, "burn");
+		// The project is in the cgroup name for any project but default.
+		const cg = path.join(root, "cgroup", "lxc.payload.testproj_ws-test");
+		fs.mkdirSync(path.join(cg, "user.slice"), { recursive: true });
+		fs.writeFileSync(path.join(cg, "cgroup.procs"), "4000\n");
+		fs.writeFileSync(path.join(cg, "user.slice", "cgroup.procs"), "4001\n");
+	});
+
+	afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+	function hostProvider(): IncusWorkspaceProvider {
+		return new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort: 1,
+			cgroupRoot: path.join(root, "cgroup"),
+			procRoot: path.join(root, "proc"),
+		});
+	}
+
+	function fakeIncus(status = "Running", pid = 4000) {
+		const seen: string[] = [];
+		handler = (req, res) => {
+			const p = (req.url ?? "").split("?")[0] ?? "";
+			seen.push(`${req.method} ${p}`);
+			if (req.method === "GET" && p === "/1.0/instances/ws-test") {
+				respond(
+					res,
+					200,
+					sync({
+						config: {
+							"volatile.idmap.current": JSON.stringify([
+								{ Isuid: true, Isgid: false, Hostid: BASE, Nsid: 0, Maprange: 65536 },
+							]),
+						},
+						expanded_config: { "limits.cpu": "2" },
+					}),
+				);
+			} else if (req.method === "GET" && p === "/1.0/instances/ws-test/state") {
+				respond(res, 200, sync({ status, pid }));
+			} else {
+				respond(res, 404, { type: "error", error: "not found", error_code: 404 });
+			}
+		};
+		return seen;
+	}
+
+	test("reads the host's /proc and cgroup tree and asks Incus only for metadata", async () => {
+		const seen = fakeIncus();
+		const rows = await hostProvider().processes("ws-test");
+		expect(rows.map((r) => [r.pid, r.uid, r.name, r.protected])).toEqual([
+			[1, 0, "systemd", true],
+			[77, 1000, "burn", false],
+		]);
+		expect(seen.every((s) => s.startsWith("GET "))).toBe(true);
+	});
+
+	test("refuses a stopped instance without reading anything", async () => {
+		const seen = fakeIncus("Stopped", 0);
+		await expect(hostProvider().processes("ws-test")).rejects.toMatchObject({
+			code: "OPERATION_FAILED",
+		});
+		expect(seen.every((s) => s.startsWith("GET "))).toBe(true);
+	});
+
+	test("reports an unreadable cgroup tree as an operation failure", async () => {
+		fakeIncus();
+		fs.rmSync(path.join(root, "cgroup"), { recursive: true });
+		await expect(hostProvider().processes("ws-test")).rejects.toMatchObject({
+			code: "OPERATION_FAILED",
+		});
+	});
 });

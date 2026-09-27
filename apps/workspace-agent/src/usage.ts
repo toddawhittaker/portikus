@@ -10,6 +10,13 @@
 import { readdir, readFile, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import type { UsageProcess, WorkspaceUsage } from "@portikus/contracts";
+import {
+	isProtected,
+	ownedByStudent,
+	parseStatLine,
+	parseStatusUids,
+	readCommandLine,
+} from "./processes.js";
 
 /** The short name `/proc` allows. Longer text is not a comm. */
 const COMM_LIMIT = 15;
@@ -33,6 +40,12 @@ export interface UsageSamplerOptions {
 	 * it, so a test cannot pick up the host.
 	 */
 	cgroupRoot?: string | null;
+	/** The agent's own PID, which is never stoppable. Defaults to this process. */
+	selfPid?: number;
+	/** The student's uid. Defaults to the uid the agent runs as. */
+	studentUid?: number;
+	/** The terminals' tmux server PID, never stoppable. Defaults to none. */
+	tmuxPid?: () => Promise<number | null>;
 	now?: () => number;
 	statfs?: (path: string) => Promise<DiskStat>;
 }
@@ -91,28 +104,6 @@ export function parseTotalCpu(text: string): number | null {
 	const fields = line.trim().split(/\s+/).slice(1, 9).map(Number);
 	if (fields.length < 8 || fields.some((value) => !Number.isFinite(value))) return null;
 	return fields.reduce((sum, value) => sum + value, 0);
-}
-
-/**
- * utime and stime from `/proc/<pid>/stat`. The command field is in
- * parentheses and may itself contain spaces and parentheses, so the fields
- * are counted from the last `)`.
- */
-export function parseProcessStat(
-	text: string,
-): { utime: number; stime: number } | null {
-	const end = text.lastIndexOf(")");
-	if (end < 0) return null;
-	const fields = text
-		.slice(end + 1)
-		.trim()
-		.split(/\s+/);
-	// utime is field 14 and stime field 15, which are indexes 11 and 12
-	// of what follows the command.
-	const utime = Number(fields[11]);
-	const stime = Number(fields[12]);
-	if (!Number.isFinite(utime) || !Number.isFinite(stime)) return null;
-	return { utime, stime };
 }
 
 export function parseStatus(
@@ -214,6 +205,9 @@ export function diskBytes(stat: DiskStat): { usedBytes: number; totalBytes: numb
 
 interface ProcessSnap {
 	ticks: number;
+	startTicks: number;
+	stoppable: boolean;
+	commandLine: string | null;
 	residentBytes: number;
 	command: string;
 }
@@ -232,6 +226,9 @@ export class UsageSampler {
 	private readonly dockerPath: string;
 	private readonly recoveryPath: string;
 	private readonly cgroupRoot: string | null;
+	private readonly selfPid: number;
+	private readonly studentUid: number;
+	private readonly tmuxPid: () => Promise<number | null>;
 	private readonly now: () => number;
 	private readonly readDisk: (path: string) => Promise<DiskStat>;
 	private previous: Sample | null = null;
@@ -244,6 +241,9 @@ export class UsageSampler {
 		this.recoveryPath = options.recoveryPath ?? "/var/lib/portikus/recovery";
 		this.now = options.now ?? Date.now;
 		this.readDisk = options.statfs ?? readDisk;
+		this.selfPid = options.selfPid ?? process.pid;
+		this.studentUid = options.studentUid ?? process.getuid?.() ?? 1000;
+		this.tmuxPid = options.tmuxPid ?? (async () => null);
 		if (options.cgroupRoot === null) this.cgroupRoot = null;
 		else if (typeof options.cgroupRoot === "string")
 			this.cgroupRoot = options.cgroupRoot;
@@ -296,6 +296,9 @@ export class UsageSampler {
 				cpuPercent,
 				residentBytes: process.residentBytes,
 				command: process.command,
+				startTicks: process.startTicks,
+				stoppable: process.stoppable,
+				commandLine: process.commandLine,
 			});
 		}
 		rows.sort((left, right) => left.pid - right.pid);
@@ -353,6 +356,11 @@ export class UsageSampler {
 		} catch {
 			return found;
 		}
+		const owner = {
+			selfPid: this.selfPid,
+			studentUid: this.studentUid,
+			tmuxPid: await this.tmuxPid(),
+		};
 		await Promise.all(
 			names.map(async (name) => {
 				if (!/^[1-9]\d*$/.test(name)) return;
@@ -362,11 +370,20 @@ export class UsageSampler {
 					readText(join(this.procRoot, name, "status")),
 				]);
 				if (statText === null || statusText === null) return;
-				const stat = parseProcessStat(statText);
+				const stat = parseStatLine(statText);
 				const status = parseStatus(statusText);
-				if (!stat || !status) return;
+				const uids = parseStatusUids(statusText);
+				if (!stat || !status || !uids) return;
+				const facts = { pid, ...stat, uids };
+				// Anyone else's command line is never read (SPEC.md §24.11).
+				const commandLine = ownedByStudent(facts, owner)
+					? await readCommandLine(this.procRoot, pid)
+					: null;
 				found.set(pid, {
 					ticks: stat.utime + stat.stime,
+					startTicks: stat.startTicks,
+					stoppable: !isProtected(facts, owner),
+					commandLine,
 					residentBytes: status.residentBytes,
 					command: status.command,
 				});
@@ -394,10 +411,12 @@ export class UsageSampler {
 			await readText(join(this.cgroupRoot, "memory.current")),
 		);
 		const maxText = await readText(join(this.cgroupRoot, "memory.max"));
+		const statText = await readText(join(this.cgroupRoot, "memory.stat"));
 		if (current !== null && maxText !== null && maxText.trim() !== "max") {
 			const total = parseByteFile(maxText);
 			if (total !== null && total > 0 && total < UNLIMITED_BYTES) {
-				return { usedBytes: current, totalBytes: total };
+				const cache = statValue(statText, "inactive_file");
+				return { usedBytes: Math.max(0, current - cache), totalBytes: total };
 			}
 		}
 		const usage = parseByteFile(
@@ -407,7 +426,8 @@ export class UsageSampler {
 			await readText(join(this.cgroupRoot, "memory.limit_in_bytes")),
 		);
 		if (usage !== null && limit !== null && limit > 0 && limit < UNLIMITED_BYTES) {
-			return { usedBytes: usage, totalBytes: limit };
+			const cache = statValue(statText, "total_inactive_file");
+			return { usedBytes: Math.max(0, usage - cache), totalBytes: limit };
 		}
 		return null;
 	}
@@ -456,6 +476,22 @@ async function readText(path: string): Promise<string | null> {
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * One counter from `memory.stat`, or 0. Used memory is the working set:
+ * page cache the kernel can drop is not counted, as the guard does
+ * (SPEC.md §19.4).
+ */
+export function statValue(text: string | null, key: string): number {
+	if (text === null) return 0;
+	for (const line of text.split("\n")) {
+		const [name, value] = line.trim().split(/\s+/);
+		if (name !== key) continue;
+		const parsed = Number(value);
+		return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+	}
+	return 0;
 }
 
 function parseByteFile(text: string | null): number | null {

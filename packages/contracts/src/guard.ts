@@ -25,3 +25,20 @@ export function effectiveGuard(
 		idleStopMinutes: overrides?.idleStopMinutes ?? platform.idle_stop_minutes,
 	};
 }
+
+/** The idle-lift values as the `settings` row holds them (#596). */
+export interface IdleLiftPlatform {
+	cpu_idle_lift_minutes: number;
+	cpu_idle_lift_percent: number;
+}
+
+/** When a throttle lifts on its own, or null when lifting is off (percent 0). */
+export function idleLift(
+	platform: IdleLiftPlatform,
+): { minutes: number; percent: number } | null {
+	if (platform.cpu_idle_lift_percent === 0) return null;
+	return {
+		minutes: platform.cpu_idle_lift_minutes,
+		percent: platform.cpu_idle_lift_percent,
+	};
+}

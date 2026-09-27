@@ -49,6 +49,8 @@ const SETTINGS_COLUMNS = [
 	"memory_guard_threshold_percent",
 	"guard_window_minutes",
 	"cpu_throttle_share_percent",
+	"cpu_idle_lift_minutes",
+	"cpu_idle_lift_percent",
 	"idle_stop_minutes",
 	"acceptable_use_text",
 	"acceptable_use_version",
@@ -62,6 +64,8 @@ function toPlatformSettings(row: {
 	memory_guard_threshold_percent: number;
 	guard_window_minutes: number;
 	cpu_throttle_share_percent: number;
+	cpu_idle_lift_minutes: number;
+	cpu_idle_lift_percent: number;
 	idle_stop_minutes: number;
 	acceptable_use_text: string | null;
 	acceptable_use_version: number;
@@ -74,6 +78,8 @@ function toPlatformSettings(row: {
 		memoryGuardThresholdPercent: row.memory_guard_threshold_percent,
 		guardWindowMinutes: row.guard_window_minutes,
 		cpuThrottleSharePercent: row.cpu_throttle_share_percent,
+		cpuIdleLiftMinutes: row.cpu_idle_lift_minutes,
+		cpuIdleLiftPercent: row.cpu_idle_lift_percent,
 		idleStopMinutes: row.idle_stop_minutes,
 		acceptableUseText: row.acceptable_use_text,
 		acceptableUseVersion: row.acceptable_use_version,
@@ -365,12 +371,14 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			.execute();
 
 		const workspaces = await Promise.all(
-			rows.map(async (row) =>
-				toWorkspace(
-					row as Record<string, unknown>,
-					await countActive(db, row.id as string, config),
-					config,
-				),
+			rows.map(
+				async (row) =>
+					await toWorkspace(
+						db,
+						row as Record<string, unknown>,
+						await countActive(db, row.id as string, config),
+						config,
+					),
 			),
 		);
 
@@ -436,12 +444,14 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			});
 		}
 
-		// The four guard numbers share one audit row with only the keys whose value changed.
+		// The guard numbers, idle lift included, share one audit row with only the keys whose value changed.
 		const guardFields = [
 			["cpuGuardThresholdPercent", "cpu_guard_threshold_percent"],
 			["memoryGuardThresholdPercent", "memory_guard_threshold_percent"],
 			["guardWindowMinutes", "guard_window_minutes"],
 			["cpuThrottleSharePercent", "cpu_throttle_share_percent"],
+			["cpuIdleLiftMinutes", "cpu_idle_lift_minutes"],
+			["cpuIdleLiftPercent", "cpu_idle_lift_percent"],
 		] as const;
 		const guardFrom: Record<string, number> = {};
 		const guardTo: Record<string, number> = {};

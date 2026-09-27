@@ -6,6 +6,7 @@ import {
 	type GrowVolumesResponse,
 	type HostSnapshot,
 	InstanceName,
+	type InstanceProcess,
 	type InstanceStatus,
 	type InstanceUsage,
 	isSystemTimezone,
@@ -25,6 +26,7 @@ import {
 	readPoolUse,
 } from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
+import { parseIdmap, readInstanceProcesses } from "./processes.js";
 
 export interface WorkspaceProvider {
 	create(
@@ -61,6 +63,8 @@ export interface WorkspaceProvider {
 	usage(): Promise<InstanceUsage[]>;
 	/** Set or, with null, remove `limits.cpu.allowance` (ADR 0032). */
 	setCpuAllowance(name: string, allowance: string | null): Promise<void>;
+	/** The heaviest processes of a running instance, short names only (ADR 0037). */
+	processes(name: string, signal?: AbortSignal): Promise<InstanceProcess[]>;
 }
 
 /**
@@ -176,6 +180,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly agentPort: number;
 	private readonly log: Logger;
 	private readonly cgroupRoot: string;
+	private readonly procRoot: string;
 	private readonly hostCpuCount: number;
 	private readonly thinPoolStatusPath: string | undefined;
 
@@ -188,6 +193,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		logger?: Logger;
 		/** Where the host's cgroup tree is mounted; tests point it elsewhere. */
 		cgroupRoot?: string;
+		/** Where the host's /proc is mounted; tests point it elsewhere. */
+		procRoot?: string;
 		/** CPUs on the host, for an instance with no `limits.cpu`. */
 		hostCpuCount?: number;
 		/** The lvm role's status file; tests point it elsewhere. */
@@ -200,6 +207,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		this.agentPort = opts.agentPort;
 		this.log = opts.logger ?? silentLogger();
 		this.cgroupRoot = opts.cgroupRoot ?? "/sys/fs/cgroup";
+		this.procRoot = opts.procRoot ?? "/proc";
 		this.hostCpuCount = opts.hostCpuCount ?? availableParallelism();
 		this.thinPoolStatusPath = opts.thinPoolStatusPath;
 	}
@@ -967,6 +975,48 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			});
 		}
 		return result;
+	}
+
+	/**
+	 * Read the instance's processes from the host's /proc and cgroup tree
+	 * (ADR 0037). Nothing runs inside the instance and nothing is written.
+	 */
+	async processes(name: string, signal?: AbortSignal): Promise<InstanceProcess[]> {
+		validateName(name);
+		const inst = (await this.client.request(
+			"GET",
+			`/1.0/instances/${enc(name)}`,
+			undefined,
+			signal,
+		)) as { config?: Record<string, string>; expanded_config?: Record<string, string> };
+		const state = (await this.client.request(
+			"GET",
+			`/1.0/instances/${enc(name)}/state`,
+			undefined,
+			signal,
+		)) as { status?: string; pid?: number };
+		const initPid = state.pid ?? 0;
+		if (state.status !== "Running" || !(initPid > 0)) {
+			throw new IncusError("OPERATION_FAILED", `instance ${name} is not running`);
+		}
+		const scope =
+			this.client.project === "default" ? name : `${this.client.project}_${name}`;
+		try {
+			return await readInstanceProcesses({
+				procRoot: this.procRoot,
+				cgroupDir: `${this.cgroupRoot}/lxc.payload.${scope}`,
+				initPid,
+				idmap: parseIdmap(inst.config?.["volatile.idmap.current"]),
+				cpuLimit:
+					countIncusCpus(inst.expanded_config?.["limits.cpu"]) ?? this.hostCpuCount,
+				wait: () => new Promise((r) => setTimeout(r, 1000)),
+			});
+		} catch (err) {
+			throw new IncusError(
+				"OPERATION_FAILED",
+				err instanceof Error ? err.message : "could not read processes",
+			);
+		}
 	}
 
 	/**

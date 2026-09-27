@@ -1,10 +1,34 @@
 import { expect, test } from "vitest";
-import { compareProcesses, toggleProcessSort } from "./sort.js";
+import { compareProcesses, keepOrder, toggleProcessSort } from "./sort.js";
 
 const processes = [
-	{ pid: 10, cpuPercent: 1, residentBytes: 100, command: "node10" },
-	{ pid: 2, cpuPercent: null, residentBytes: 5000, command: "node2" },
-	{ pid: 9, cpuPercent: 20, residentBytes: 200, command: "python" },
+	{
+		pid: 10,
+		cpuPercent: 1,
+		residentBytes: 100,
+		command: "node10",
+		startTicks: 100,
+		stoppable: true,
+		commandLine: null,
+	},
+	{
+		pid: 2,
+		cpuPercent: null,
+		residentBytes: 5000,
+		command: "node2",
+		startTicks: 100,
+		stoppable: true,
+		commandLine: null,
+	},
+	{
+		pid: 9,
+		cpuPercent: 20,
+		residentBytes: 200,
+		command: "python",
+		startTicks: 100,
+		stoppable: true,
+		commandLine: null,
+	},
 ];
 
 function order(
@@ -32,4 +56,11 @@ test("clicking the same column flips direction, and a new column starts ascendin
 	const cpu = { column: "cpu" as const, direction: "desc" as const };
 	expect(toggleProcessSort(cpu, "cpu")).toEqual({ column: "cpu", direction: "asc" });
 	expect(toggleProcessSort(cpu, "pid")).toEqual({ column: "pid", direction: "asc" });
+});
+
+test("keepOrder holds known rows in place and puts new ones after", () => {
+	const key = (row: { id: string }) => row.id;
+	const rows = [{ id: "c" }, { id: "a" }, { id: "d" }];
+	expect(keepOrder(rows, ["a", "b", "c"], key).map(key)).toEqual(["a", "c", "d"]);
+	expect(keepOrder(rows, [], key).map(key)).toEqual(["c", "a", "d"]);
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { effectiveGuard } from "./guard.js";
+import { effectiveGuard, idleLift } from "./guard.js";
 
 const platform = {
 	cpu_guard_threshold_percent: 80,
@@ -30,5 +30,18 @@ describe("effectiveGuard", () => {
 			throttleSharePercent: 25,
 			idleStopMinutes: 0,
 		});
+	});
+});
+
+describe("idleLift", () => {
+	test("gives the minutes and percent when lifting is on", () => {
+		expect(idleLift({ cpu_idle_lift_minutes: 5, cpu_idle_lift_percent: 10 })).toEqual({
+			minutes: 5,
+			percent: 10,
+		});
+	});
+
+	test("percent 0 turns lifting off", () => {
+		expect(idleLift({ cpu_idle_lift_minutes: 5, cpu_idle_lift_percent: 0 })).toBeNull();
 	});
 });

@@ -1186,6 +1186,52 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
+	"the idle-lift settings default to 5 minutes under 10%, save, and are audited with the guard",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const before = await app.inject({
+			method: "GET",
+			url: "/admin/settings",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		expect(before.json()).toMatchObject({
+			cpuIdleLiftMinutes: 5,
+			cpuIdleLiftPercent: 10,
+		});
+
+		const put = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: { cpuIdleLiftMinutes: 12, cpuIdleLiftPercent: 0 },
+		});
+		expect(put.statusCode).toBe(200);
+		expect(put.json()).toMatchObject({ cpuIdleLiftMinutes: 12, cpuIdleLiftPercent: 0 });
+		const after = await app.inject({
+			method: "GET",
+			url: "/admin/settings",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		expect(after.json()).toMatchObject({
+			cpuIdleLiftMinutes: 12,
+			cpuIdleLiftPercent: 0,
+		});
+
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("target", "=", "settings")
+			.execute();
+		expect(rows.map((row) => row.action)).toEqual(["settings.resource_guard_updated"]);
+		expect(rows[0]?.metadata).toMatchObject({
+			from: { cpuIdleLiftMinutes: 5, cpuIdleLiftPercent: 10 },
+			to: { cpuIdleLiftMinutes: 12, cpuIdleLiftPercent: 0 },
+		});
+	},
+);
+
+test.skipIf(skip)(
 	"the guard audit row names only the fields that were sent",
 	async () => {
 		await seedSettings();
@@ -1274,6 +1320,10 @@ test.skipIf(skip)(
 			{ guardWindowMinutes: 240 },
 			{ cpuThrottleSharePercent: 5 },
 			{ cpuThrottleSharePercent: 100 },
+			{ cpuIdleLiftMinutes: 1 },
+			{ cpuIdleLiftMinutes: 60 },
+			{ cpuIdleLiftPercent: 0 },
+			{ cpuIdleLiftPercent: 100 },
 			{ idleStopMinutes: 0 },
 			{ idleStopMinutes: 10 },
 			{ idleStopMinutes: 1440 },
@@ -1296,6 +1346,10 @@ test.skipIf(skip)(
 			{ guardWindowMinutes: 241 },
 			{ cpuThrottleSharePercent: 4 },
 			{ cpuThrottleSharePercent: 101 },
+			{ cpuIdleLiftMinutes: 0 },
+			{ cpuIdleLiftMinutes: 61 },
+			{ cpuIdleLiftPercent: -1 },
+			{ cpuIdleLiftPercent: 101 },
 			{ idleStopMinutes: 9 },
 			{ idleStopMinutes: 1441 },
 			{ idleStopMinutes: -1 },

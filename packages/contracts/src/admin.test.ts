@@ -36,6 +36,7 @@ const workspace: Workspace = {
 	shutdownDeadline: null,
 	archivedAt: null,
 	cpuThrottle: null,
+	memoryFlag: null,
 	idleStopAt: null,
 	lastActivityAt: null,
 	createdAt: now,
@@ -260,6 +261,8 @@ describe("admin contracts", () => {
 					thresholdPercent: 80,
 					windowMinutes: 30,
 					sharePercent: 25,
+					idleLiftMinutes: 5,
+					idleLiftPercent: 10,
 				},
 			},
 			guardConfig: { cpuThresholdPercent: 100, windowMinutes: 5 },
@@ -341,5 +344,36 @@ describe("admin contracts", () => {
 	test("archived workspaces have their own error code", () => {
 		expect(ApiErrorCode.parse("WORKSPACE_ARCHIVED")).toBe("WORKSPACE_ARCHIVED");
 		expect(Workspace.parse({ ...workspace, archivedAt: now }).archivedAt).toBe(now);
+	});
+});
+
+describe("process snapshot (ADR 0037)", () => {
+	const row = {
+		pid: 42,
+		uid: 1000,
+		name: "node",
+		startTicks: 9,
+		cpuPercent: 12.5,
+		residentBytes: 1024,
+		protected: false,
+	};
+
+	test("a row holds a short name and nothing else from the workspace", async () => {
+		const { InstanceProcess } = await import("./admin.js");
+		expect(InstanceProcess.parse(row)).toEqual(row);
+		expect(InstanceProcess.safeParse({ ...row, name: "x".repeat(16) }).success).toBe(
+			false,
+		);
+		expect(InstanceProcess.safeParse({ ...row, name: "a\nb" }).success).toBe(false);
+		expect(InstanceProcess.safeParse({ ...row, name: "a‮b" }).success).toBe(false);
+		expect(
+			InstanceProcess.safeParse({ ...row, commandLine: "node --secret" }).success,
+		).toBe(false);
+	});
+
+	test("the snapshot allows the not-yet-taken state", async () => {
+		const { AdminProcessSnapshot } = await import("./admin.js");
+		const empty = { requestedAt: null, takenAt: null, processes: [], error: null };
+		expect(AdminProcessSnapshot.parse(empty)).toEqual(empty);
 	});
 });

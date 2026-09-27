@@ -9,8 +9,20 @@ import { request } from "../api/request.js";
 /** How often a visible surface asks again. */
 export const USAGE_POLL_MS = 1000;
 
-/** The status bar only watches storage, so it asks far less often. */
+/** The status bar only watches storage and memory, so it asks far less often. */
 export const STORAGE_POLL_MS = 30_000;
+
+/** Until the first sample arrives, ask this often whatever the poll is. */
+export const FIRST_SAMPLE_POLL_MS = 2000;
+
+/**
+ * The interval for one poll: quick until there is a sample, because the
+ * query client does not retry and a workspace's agent answers a little
+ * after it reports running.
+ */
+export function usagePollInterval(hasSample: boolean, pollMs: number): number {
+	return hasSample ? pollMs : Math.min(pollMs, FIRST_SAMPLE_POLL_MS);
+}
 
 export function useWorkspaceUsage(
 	workspaceId: string,
@@ -21,7 +33,9 @@ export function useWorkspaceUsage(
 		queryKey: ["workspace-usage", workspaceId],
 		enabled,
 		staleTime: 0,
-		refetchInterval: enabled ? pollMs : false,
+		refetchInterval: enabled
+			? (query) => usagePollInterval(query.state.data !== undefined, pollMs)
+			: false,
 		queryFn: () => request(WorkspaceUsage, `/workspaces/${workspaceId}/usage`),
 	});
 }
