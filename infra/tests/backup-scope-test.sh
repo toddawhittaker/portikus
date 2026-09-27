@@ -249,6 +249,14 @@ no_set "a failed volume listing fails the backup and leaves no set" FAKE_VOLUMES
 no_set "an empty volume listing, while a workspace's instance exists, leaves no set" FAKE_VOLUMES_EMPTY=1
 expect "the refusal names the workspace with no home volume" "grep -q 'no ${HOME_VOL}' '${work}/refusal'"
 no_set "a workspace listing that disagrees with the row count leaves no set" FAKE_WORKSPACES_EMPTY=1
+# The disk floor (ADR 0039): no run starts without room for another set.
+no_set "a run with less free space than the minimum is refused" PORTIKUS_BACKUP_MIN_FREE_MB=999999999
+expect "the refusal says there is not enough free space" "grep -q 'FAIL: refused by the host: not enough free space' '${work}/refusal'"
+big=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -1)
+# A sparse 15 TB file (ext4's largest) makes the last set bigger than any test disk.
+truncate -s 15T "${big}/huge"
+no_set "a run with less free space than the last complete set is refused" PORTIKUS_BACKUP_MIN_FREE_MB=0
+rm -f "${big}/huge"
 
 # The VM names itself, and it is not trusted: a rooted rehearsal VM calling
 # itself portikus must not write into, or prune, the pilot's sets.
