@@ -92,3 +92,11 @@ that names no process.
 - CPU ticks are counted at 100 a second (Linux's fixed USER_HZ), and
   `startTicks` comes from the host's `stat`, which matches the agent's view
   as long as instances have no time namespace (Incus does not give them one).
+
+## Later note (Epic 22)
+
+The Running pane's listener `commandLine` field has existed since Epic 9.1.
+Epic 22 narrowed it to listeners owned by the student's own processes. The
+agent reads the uid and then `cmdline`, so a PID reused in between is a
+low-severity race, accepted while `/proc` has no `hidepid`. If `hidepid` is
+ever turned on, re-check the uid after the read (SPEC.md section 24.11).
