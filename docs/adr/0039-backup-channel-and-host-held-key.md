@@ -1,0 +1,106 @@
+# 0039. Backup requests reach the host through a polling channel, and the host holds the restore key
+
+- **Status**: Proposed (Epic 24, task T9)
+- **Date**: 2026-09-27
+- **References**: SPEC.md sections 24.9 and 24.11; ADRs 0024, 0030, 0040; issue #730
+
+## Context
+
+Epic 24 adds a Backups tab to the admin page: Back up now, delete an old
+set or pre-change dump, and restore one workspace into a side copy or
+replace its home. Backups live on the host, not the VM (ADR 0024), and the
+host must stay out of the VM's reach: a compromised VM must not be able to
+write to the host, read other backups, or run a command there.
+
+Restoring needs the private age key. ADR 0024 said the private half belongs
+offline, in Todd's password manager, and a restore reads it from wherever
+the operator points. A restore started from a web page cannot wait for
+someone to paste a key.
+
+## Decision
+
+**The host polls; the VM never calls the host.** A host timer,
+`portikus-backup-channel.timer`, runs `portikus-backup-channel.service`
+(root, oneshot) every 30 seconds. Each run:
+
+1. sends any result the VM has not yet taken (kept in
+   `/var/lib/portikus-backup-channel/pending.json`);
+2. runs `ssh deploy@<VM> sudo portikus backup-channel pull`, which prints
+   at most one claimed request as one JSON line (empty for none);
+3. checks it, runs it, and pipes a report to
+   `ssh deploy@<VM> sudo portikus backup-channel report`: the request's
+   result (`done` or `failed`, a one-line error, the new set's stamp) and
+   a fresh status (the sets, the dumps, the nightly timer's next and last
+   run, the last failure, what is running, and whether the key is
+   installed). With no request it sends the status alone.
+
+While a long request runs (a backup, a copy, an import), a background loop
+sends a status every 30 seconds naming the request as running, so the VM
+can tell a slow job from an interrupted one. The shapes are
+`BackupChannelRequest` and `BackupChannelReport` in
+`packages/contracts/src/backups.ts`.
+
+**Everything that talks to the VM runs as the operator's account**
+(`runuser -u <operator> -- ssh …`), so the VM trusts no new key, and new
+sets stay owned by that account, as ADR 0024 set out. Back up now runs the
+same `backup.sh` as the nightly timer, as that account. There is one
+channel per host, for the VM the Makefile names; the rehearsal VM borrows
+it for a rehearsal and the pilot gets it back afterwards.
+
+**The VM is not trusted.** The request is read with a 4 KiB cap and parsed
+strictly: one line, UTF-8, JSON with no duplicate keys, exactly the fields
+`id`, `kind` and `args`, a UUID id, one of five kinds, exactly that kind's
+arguments, each a string matching the contract's pattern, and a restore
+folder equal to the one derived from the set's stamp. Each value is
+checked again in the shell before use and quoted in every remote command.
+Anything else is reported "refused by the host" and nothing runs. A delete
+also refuses a symbolic link, anything outside this VM's own directory,
+and the newest complete set. A restore also refuses an instance whose home
+is not in the set's MANIFEST and a VM whose hostname is not the one in the
+OpenTofu state, so decrypted data never goes to the wrong machine.
+`infra/tests/backup-channel-test.sh` plays a lying VM and checks every
+refusal.
+
+**The private key is installed on the host, root-only,** as
+`/etc/portikus-backup/age-key.txt` (file 0600, directory 0700, owner
+root), by `make backup-install-key KEY=<path>`, which first checks that the
+key matches the recipients file backups are encrypted to. Only the
+channel's restore steps (`restore-copy.sh`) read it, as root; they refuse
+a key file that is not in that root-only form. The operator's account
+never gets it: no `LoadCredential`, no copy in its home. The status says
+whether the key is installed, so the page can say why a restore cannot
+start.
+
+**A side copy runs as the student.** The host decrypts the home volume as
+root and streams it over SSH to
+`incus exec --user 1000 --group 1000 … -- tar -xz --strip-components=2
+-C /home/student/<folder> backup/volume`, so the files are written by the
+student's own account, bound by the student's permissions and quota.
+Before that, and also as the student, it checks that the folder does not
+exist and that the home's free space, less 5%, holds the sum of the file
+sizes in the set's index. A copy that fails part way removes the folder it
+made. An import for a replace goes to `<instance>-home-import` only, never
+over the live home, with the backup's ID map, as `restore.sh` does
+(ADR 0040 covers the swap).
+
+## Consequences
+
+- **Whoever takes the host can read every backup.** This supersedes ADR
+  0024's "the private half belongs offline". Todd accepted it so that
+  restores can start from the admin page; his password-manager copy stays
+  the recovery copy. Root on the host could already read the VM's disk
+  image, so the new exposure is the older sets, not the live data.
+- The decrypted stream passes through the operator's SSH process, which
+  that account could in principle read. It already has passwordless sudo
+  on the VM and can read every student's live files, so this adds nothing.
+- The VM can make the host decrypt a set only into a workspace the set
+  holds, as that workspace's student, in a new folder. A rooted VM could
+  keep that stream, but it already held those files when the set was made.
+- A request waits up to 30 seconds before the host sees it. A request the
+  host never finishes (the host rebooted mid-run) stays claimed until the
+  VM marks it interrupted, 15 minutes after the host last said it was
+  running.
+- A report larger than 256 KiB drops its oldest sets until it fits.
+- The rehearsal and the pilot share one channel unit, so a rehearsal of
+  the channel points it away from the pilot until `make
+  backup-install-timer` is run again.

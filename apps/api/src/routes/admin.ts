@@ -51,6 +51,8 @@ const SETTINGS_COLUMNS = [
 	"cpu_throttle_share_percent",
 	"cpu_idle_lift_minutes",
 	"cpu_idle_lift_percent",
+	"cpu_throttle_hold_after",
+	"cpu_throttle_hold_hours",
 	"idle_stop_minutes",
 	"acceptable_use_text",
 	"acceptable_use_version",
@@ -66,6 +68,8 @@ function toPlatformSettings(row: {
 	cpu_throttle_share_percent: number;
 	cpu_idle_lift_minutes: number;
 	cpu_idle_lift_percent: number;
+	cpu_throttle_hold_after: number;
+	cpu_throttle_hold_hours: number;
 	idle_stop_minutes: number;
 	acceptable_use_text: string | null;
 	acceptable_use_version: number;
@@ -80,6 +84,8 @@ function toPlatformSettings(row: {
 		cpuThrottleSharePercent: row.cpu_throttle_share_percent,
 		cpuIdleLiftMinutes: row.cpu_idle_lift_minutes,
 		cpuIdleLiftPercent: row.cpu_idle_lift_percent,
+		cpuThrottleHoldAfter: row.cpu_throttle_hold_after,
+		cpuThrottleHoldHours: row.cpu_throttle_hold_hours,
 		idleStopMinutes: row.idle_stop_minutes,
 		acceptableUseText: row.acceptable_use_text,
 		acceptableUseVersion: row.acceptable_use_version,
@@ -444,7 +450,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			});
 		}
 
-		// The guard numbers, idle lift included, share one audit row with only the keys whose value changed.
+		// The guard numbers, idle lift and throttle hold included, share one audit row with only the keys whose value changed.
 		const guardFields = [
 			["cpuGuardThresholdPercent", "cpu_guard_threshold_percent"],
 			["memoryGuardThresholdPercent", "memory_guard_threshold_percent"],
@@ -452,6 +458,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			["cpuThrottleSharePercent", "cpu_throttle_share_percent"],
 			["cpuIdleLiftMinutes", "cpu_idle_lift_minutes"],
 			["cpuIdleLiftPercent", "cpu_idle_lift_percent"],
+			["cpuThrottleHoldAfter", "cpu_throttle_hold_after"],
+			["cpuThrottleHoldHours", "cpu_throttle_hold_hours"],
 		] as const;
 		const guardFrom: Record<string, number> = {};
 		const guardTo: Record<string, number> = {};

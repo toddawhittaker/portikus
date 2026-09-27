@@ -8,6 +8,7 @@ export const RecoveryReason = z.enum([
 	"before-restore",
 	"before-rebuild",
 	"agent-session",
+	"before-replace-home",
 ]);
 export type RecoveryReason = z.infer<typeof RecoveryReason>;
 

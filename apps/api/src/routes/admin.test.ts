@@ -1232,6 +1232,61 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
+	"the throttle-hold settings default to 3 in 24 hours, save, and are audited with the guard",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const before = await app.inject({
+			method: "GET",
+			url: "/admin/settings",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		expect(before.json()).toMatchObject({
+			cpuThrottleHoldAfter: 3,
+			cpuThrottleHoldHours: 24,
+		});
+
+		const put = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: { cpuThrottleHoldAfter: 0, cpuThrottleHoldHours: 168 },
+		});
+		expect(put.statusCode).toBe(200);
+		expect(put.json()).toMatchObject({
+			cpuThrottleHoldAfter: 0,
+			cpuThrottleHoldHours: 168,
+		});
+
+		for (const payload of [
+			{ cpuThrottleHoldAfter: 11 },
+			{ cpuThrottleHoldAfter: -1 },
+			{ cpuThrottleHoldHours: 0 },
+			{ cpuThrottleHoldHours: 169 },
+		]) {
+			const res = await app.inject({
+				method: "PUT",
+				url: "/admin/settings",
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload,
+			});
+			expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+		}
+
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("target", "=", "settings")
+			.execute();
+		expect(rows.map((row) => row.action)).toEqual(["settings.resource_guard_updated"]);
+		expect(rows[0]?.metadata).toMatchObject({
+			from: { cpuThrottleHoldAfter: 3, cpuThrottleHoldHours: 24 },
+			to: { cpuThrottleHoldAfter: 0, cpuThrottleHoldHours: 168 },
+		});
+	},
+);
+
+test.skipIf(skip)(
 	"the guard audit row names only the fields that were sent",
 	async () => {
 		await seedSettings();

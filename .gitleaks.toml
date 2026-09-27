@@ -10,3 +10,8 @@ paths = [
   # Hashes a test password published on purpose: sample-password-not-secret.
   '''infra/tests/fixtures/users\.sample\.json$''',
 ]
+# RFC 6455's published sample Sec-WebSocket-Key ("the sample nonce"), used by
+# infra/tests/caddy-preview-test.sh.
+regexes = [
+  '''dGhlIHNhbXBsZSBub25jZQ''',
+]
