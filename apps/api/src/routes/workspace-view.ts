@@ -24,6 +24,7 @@ function toStudentThrottle(
 		thresholdPercent: raw.thresholdPercent,
 		windowMinutes: raw.windowMinutes,
 		sharePercent: raw.sharePercent,
+		...(raw.held ? { held: { count: raw.held.count, hours: raw.held.hours } } : {}),
 		idleLiftMinutes: lift?.minutes ?? null,
 		// The worker lifts under half the share too; whole percents, rounded down.
 		idleLiftPercent: lift

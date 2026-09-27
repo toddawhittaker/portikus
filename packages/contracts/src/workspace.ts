@@ -66,12 +66,26 @@ export const CpuIdleLiftMinutes = z.number().int().min(1).max(60);
 /** CPU percent below which a throttled workspace counts as quiet; 0 turns lifting off. */
 export const CpuIdleLiftPercent = z.number().int().min(0).max(100);
 
+/** Throttles within the hold hours that make the latest survive a restart; 0 turns it off. */
+export const CpuThrottleHoldAfter = z.number().int().min(0).max(10);
+
+/** The window, in hours, the hold counts throttles over. */
+export const CpuThrottleHoldHours = z.number().int().min(1).max(168);
+
+/** Why a throttle is held: `count` throttles in the last `hours` hours (SPEC.md §19.4). */
+export const CpuThrottleHeld = z.object({
+	count: z.number().int().min(1),
+	hours: CpuThrottleHoldHours,
+});
+
 /** The throttle numbers every view of `workspaces.cpu_throttle` shares. */
 const CpuThrottleBase = z.object({
 	at: z.string().datetime(),
 	thresholdPercent: GuardThresholdPercent,
 	windowMinutes: GuardWindowMinutes,
 	sharePercent: ThrottleSharePercent,
+	/** Present when a stop and start does not lift this throttle. */
+	held: CpuThrottleHeld.optional(),
 });
 
 /**
