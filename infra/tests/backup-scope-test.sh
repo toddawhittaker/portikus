@@ -175,7 +175,9 @@ case "\$cmd" in
     echo '[{"Isuid":true,"Hostid":1327680}]' ;;
   *"\$X volume "*)
     [ "\${cmd##* }" = "\${FAKE_VOLUME_FAILS:-}" ] && exit 1
-    [ -z "\${FAKE_VOLUME_FILE:-}" ] || { cat "\$FAKE_VOLUME_FILE"; exit "\${FAKE_VOLUME_EXIT:-0}"; }
+    if [ -n "\${FAKE_VOLUME_FILE:-}" ] && { [ -z "\${FAKE_VOLUME_FILE_FOR:-}" ] || [ "\${cmd##* }" = "\$FAKE_VOLUME_FILE_FOR" ]; }; then
+      cat "\$FAKE_VOLUME_FILE"; exit "\${FAKE_VOLUME_EXIT:-0}"
+    fi
     cat "${work}/volume.tar.gz" ;;
   "incus image show"*) ;;
   "incus storage volume list"*) printf '%s\n' \${FAKE_EXISTING:-} ;;
@@ -313,7 +315,7 @@ expect "the set is kept, with the other volume and without the failed one" \
 expect "the set's FAILED file names the failed volume" "[ \"\$(cat '${partial}/FAILED' 2>/dev/null)\" = '${HOME_VOL}' ]"
 age -d -i "${work}/key.txt" "${partial}/MANIFEST.age" >"${work}/partial-manifest" 2>/dev/null
 expect "the MANIFEST records the failure" "grep -qx 'failed ${HOME_VOL}' '${work}/partial-manifest' && ! grep -q '^volume ${HOME_VOL}' '${work}/partial-manifest'"
-expect "the run says which volume failed" "grep -q 'failed to export (${HOME_VOL})' '${work}/backup.out'"
+expect "the run says which volume failed" "grep -q 'failed to export (${HOME_VOL}: the export failed)' '${work}/backup.out'"
 expect "an incomplete set does not count toward the fourteen" "[ \$(set_count) = 15 ] && [ -d '${mine}/20260103T000000Z' ]"
 
 # A VM whose export fails every night: incomplete sets are capped at the
@@ -559,7 +561,27 @@ refused_run "an index bigger than the budget stops the run and keeps nothing" "p
   "${budget_env[@]}" FAKE_VOLUME_FILE="${work}/paths.tar.gz" TMPDIR="$tmp_probe"
 expect "the budgeted run leaves no partial set or scratch" "! find '$mine' -maxdepth 1 -name '.partial-*' | grep -q ."
 sleep 1
-refused_run "a path longer than 4096 bytes stops the run and keeps nothing" "a path is longer than 4096 bytes" \
+# volume_failed LABEL REASON ENV... -- only the home volume fails, for
+# REASON, which the run's last line names; the other volume is kept.
+volume_failed() {
+  local label=$1 reason=$2 s
+  shift 2
+  if env "$@" FAKE_VOLUME_FILE_FOR="$HOME_VOL" PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$sets" \
+    PORTIKUS_BACKUP_RECIPIENTS="${work}/recipients.txt" \
+    bash "${repo}/infra/host/backup.sh" --vm-name portikus-rehearsal 10.101.0.210 >"${work}/backup.out" 2>&1; then
+    bad "${label} (the run succeeded)"
+    return
+  fi
+  s=$(find "$mine" -mindepth 1 -maxdepth 1 -type d -name '2*' | sort | tail -1)
+  if [ "$(cat "${s}/FAILED" 2>/dev/null)" != "$HOME_VOL" ] || [ ! -f "${s}/${REC_VOL}.age" ] || [ -e "${s}/${HOME_VOL}.age" ]; then
+    bad "${label} (the set is not the other volume alone, marked failed)"
+  elif ! tail -1 "${work}/backup.out" | grep -q "${HOME_VOL}: ${reason}"; then
+    bad "${label} (the reason is missing: $(tail -1 "${work}/backup.out"))"
+  else
+    ok "$label"
+  fi
+}
+volume_failed "a path longer than 4096 bytes fails only that volume" "a path is longer than 4096 bytes" \
   FAKE_VOLUME_FILE="${work}/longpath.tar.gz" TMPDIR="$tmp_probe"
 expect "a run writes nothing to the temporary directory" "[ -z \"\$(ls -A '$tmp_probe')\" ]"
 # A tar of directories with 20,000-byte names: every member is checked, not
@@ -576,10 +598,10 @@ build(sys.argv[1], [f"elsewhere/{i}" + "d" * 20000 for i in range(200)])
 build(sys.argv[2], [f"elsewhere/{i}" for i in range(50)])
 PY
 sleep 1
-refused_run "a directory name of 20,000 bytes outside the volume stops the run" "a path is longer than 4096 bytes" \
+volume_failed "a directory name of 20,000 bytes outside the volume fails that volume" "a path is longer than 4096 bytes" \
   FAKE_VOLUME_FILE="${work}/longdirs.tar.gz"
 sleep 1
-refused_run "directories count toward the member cap" "the volume has more than 10 files" \
+volume_failed "directories count toward the member cap, which fails only that volume" "the volume has more than 10 files" \
   FAKE_VOLUME_FILE="${work}/manydirs.tar.gz" PORTIKUS_BACKUP_MAX_INDEX_ENTRIES=10
 # Exports that fail after streaming a large index still spend the budget,
 # so a VM cannot repeat them to use more than the budget.  Each index is
@@ -589,8 +611,34 @@ refused_run "failed exports still count their index against the budget" "passed 
   PORTIKUS_BACKUP_MIN_FREE_MB=100 FAKE_FREE_BYTES=$((160 * 1048576)) FAKE_VOLUME_FILE="${work}/paths.tar.gz" FAKE_VOLUME_EXIT=1 \
   FAKE_MORE_INSTANCES=2 FAKE_EXTRA_VOLUME="$(printf 'ws-%024x-home ws-%024x-home ws-%024x-recovery' 1 2 2)"
 sleep 1
-refused_run "a volume with more files than the cap stops the run" "the volume has more than 0 files" \
-  PORTIKUS_BACKUP_MAX_INDEX_ENTRIES=0
+
+# The Git tables have a total cap (ADR 0039): 1500 repositories with 64 KiB
+# packed-refs each would keep over a million refs; the run completes under a 250 MB limit
+# on the indexer's address space.
+python3 - "${work}/repos.tar.gz" <<'PY'
+import io, sys, tarfile
+g = "." + "git"
+line = ("1" * 40 + " refs/heads/b{}\n")
+with tarfile.open(sys.argv[1], "w:gz") as t:
+    for r in range(1500):
+        data = "".join(line.format(f"{r}-{i}") for i in range(1200)).encode()[:65536]
+        info = tarfile.TarInfo(f"backup/volume/r{r}/{g}/packed-refs")
+        info.size = len(data)
+        t.addfile(info, io.BytesIO(data))
+PY
+cat >"${work}/bin/python3" <<EOF
+#!/usr/bin/env bash
+ulimit -v \${FAKE_PYTHON_KB:-unlimited}
+exec $(command -v python3) "\$@"
+EOF
+chmod +x "${work}/bin/python3"
+sleep 1
+if FAKE_PYTHON_KB=250000 FAKE_VOLUME_FILE="${work}/repos.tar.gz" run_backup >"${work}/backup.out" 2>&1; then
+  ok "many repositories with large packed-refs stay under the memory limit and the run completes"
+else
+  bad "many repositories with large packed-refs stay under the memory limit and the run completes ($(tail -1 "${work}/backup.out"))"
+fi
+rm -f "${work}/bin/python3"
 
 echo "--- what the VM may list ---"
 sleep 1

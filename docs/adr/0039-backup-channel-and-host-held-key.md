@@ -104,9 +104,14 @@ in plain and encrypted form at once; an export that fails still spends
 the index it wrote, and its files are deleted at once. Any tar member name
 or link target longer than 4096 bytes (plus the tar's own prefix), or more
 than `PORTIKUS_BACKUP_MAX_INDEX_ENTRIES` (default 1,000,000) members of any
-kind in one volume, stops the whole run and keeps nothing. The indexer
-clears tarfile's member list as it reads and keeps only the first 100
-bytes of Git HEAD and ref files, and both units set `MemoryMax=1G`. SSH
+kind in one volume, fails only that volume: it is recorded in FAILED like
+any failed export, the other volumes are kept, and the run's last FAIL
+line, which the status report shows, names the volume and the reason.
+Only the run-wide byte budget stops the whole run, so one student's
+volume cannot stop everyone's backups. The indexer clears tarfile's member
+list as it reads, keeps only the first 100 bytes of Git HEAD and ref
+files, and keeps at most 100,000 Git entries or 64 MB in total, past
+which it silently stops recording them, since they only verify a restore; and both units set `MemoryMax=1G`. SSH
 to the VM uses a 30-second keepalive, so a hung connection ends the run.
 Restore and the side copy accept the `skipped` MANIFEST line. Each file the run
 writes also counts a fixed 8 KiB. Scratch files live in a

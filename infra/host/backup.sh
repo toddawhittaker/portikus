@@ -76,10 +76,26 @@ import hashlib, json, sys, tarfile
 mode, sum_path = sys.argv[1], sys.argv[2]
 budget, over_path = int(sys.argv[4]), sys.argv[5]
 max_path, max_entries = int(sys.argv[6]), int(sys.argv[7])
-def over(reason):
+# "run: " stops the whole run; "volume: " fails only this volume.
+def over(reason, scope="run"):
     with open(over_path, "w") as f:
-        f.write(reason)
+        f.write(f"{scope}: {reason}")
     sys.exit(3)
+# The Git tables only verify a restore, so past this they stop growing.
+KEPT_MAX_ENTRIES, KEPT_MAX_BYTES = 100000, 64 << 20
+kept_entries = kept_bytes = 0
+def remember(table, key, value, replace=True):
+    global kept_entries, kept_bytes
+    if key in table:
+        if replace:
+            table[key] = value
+        return
+    size = len(str(key)) + len(value)
+    if kept_entries >= KEPT_MAX_ENTRIES or kept_bytes + size > KEPT_MAX_BYTES:
+        return
+    kept_entries += 1
+    kept_bytes += size
+    table[key] = value
 class Tee:
     def __init__(self):
         self.h, self.n, self.index = hashlib.sha256(), 0, 0
@@ -108,10 +124,10 @@ if mode == "tar":
             tar.members = []
             entries += 1
             if entries > max_entries:
-                over(f"the volume has more than {max_entries} files")
+                over(f"the volume has more than {max_entries} files", "volume")
             for name in (m.name, m.linkname):
                 if len(name.encode(errors="surrogateescape")) > max_path + len(prefix):
-                    over(f"a path is longer than {max_path} bytes")
+                    over(f"a path is longer than {max_path} bytes", "volume")
             if not m.isfile() or not m.name.startswith(prefix):
                 continue
             path = m.name[len(prefix):]
@@ -135,14 +151,14 @@ if mode == "tar":
                 continue
             repo = repo.rstrip("/") or "."
             if rest == "HEAD":
-                heads[repo] = small.decode(errors="replace").strip()
+                remember(heads, repo, small.decode(errors="replace").strip())
             elif rest.startswith("refs/heads/"):
-                refs[(repo, rest)] = small.decode(errors="replace").strip()
+                remember(refs, (repo, rest), small.decode(errors="replace").strip())
             elif rest == "packed-refs":
                 for line in small.decode(errors="replace").splitlines():
                     parts = line.split()
                     if len(parts) == 2 and not line.startswith(("#", "^")):
-                        refs.setdefault((repo, parts[1]), parts[0])
+                        remember(refs, (repo, parts[1]), parts[0], replace=False)
         for repo, head in sorted(heads.items()):
             ref = head[5:].strip() if head.startswith("ref:") else None
             commit = refs.get((repo, ref)) if ref else head
@@ -326,14 +342,21 @@ done
 pull() {
   local name=$1 mode=$2
   shift 2
+  pull_error="the export failed"
   # .sum, .index, .age and .index.age.
   used=$((used + 4 * FILE_OVERHEAD))
   if ! remote_export "$@" \
     | python3 -c "$INDEXER" "$mode" "${scratch}/${name}.sum" "${scratch}/${name}.index" \
       "$((budget - used))" "${scratch}/over" "$MAX_PATH_BYTES" "$MAX_INDEX_ENTRIES" \
     | age -R "$RECIPIENTS" -o "${work}/${name}.age"; then
-    # A breached limit stops the whole run; the trap removes the partial set.
-    [ ! -e "${scratch}/over" ] || die "${name}: $(head -c 200 "${scratch}/over"); nothing was kept"
+    local reason=""
+    if [ -e "${scratch}/over" ]; then
+      reason=$(head -c 200 "${scratch}/over")
+      rm -f "${scratch}/over"
+      # The byte budget stops the whole run; the trap removes the partial set.
+      [[ "$reason" != run:* ]] || die "${name}: ${reason#run: }; nothing was kept"
+      pull_error=${reason#volume: }
+    fi
     # A failed export still spent its index against the budget.
     [ ! -e "${scratch}/${name}.index" ] || used=$((used + 2 * $(stat -c %s "${scratch}/${name}.index")))
     rm -f "${work}/${name}.age" "${scratch}/${name}.index" "${scratch}/${name}.sum"
@@ -357,11 +380,13 @@ if [ "$has_dex" = 1 ]; then
 fi
 
 failed=()
+failed_why=()
 for vol in "${volumes[@]}"; do
   info "volume ${vol}"
   if ! pull "$vol" tar volume "$vol"; then
-    printf '[backup] FAIL: %s: the export failed; carrying on with the other volumes\n' "$vol" >&2
+    printf '[backup] FAIL: %s: %s; carrying on with the other volumes\n' "$vol" "$pull_error" >&2
     failed+=("$vol")
+    failed_why+=("${vol}: ${pull_error}")
     echo "failed ${vol}" >>"$manifest"
     continue
   fi
@@ -416,5 +441,7 @@ done
 
 info "set ${HOST_DIR}/${stamp}: ${#volumes[@]} volumes, $(du -sh "${HOST_DIR}/${stamp}" | cut -f1), $(($(date +%s) - started)) s"
 if [ "${#failed[@]}" -gt 0 ]; then
-  die "${#failed[@]} of ${#volumes[@]} volumes failed to export (${failed[*]}); the set is kept and marked incomplete"
+  # The first three reasons, so the status report says why.
+  why=$(printf '%s; ' "${failed_why[@]:0:3}")
+  die "${#failed[@]} of ${#volumes[@]} volumes failed to export (${why%; }); the set is kept and marked incomplete"
 fi
