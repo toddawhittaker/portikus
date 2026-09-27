@@ -2486,7 +2486,7 @@ process name or command line. The same row is written when an
 administrator stops a process (section 20.1); the actor's role tells the two
 apart. An administrator's **Refresh** of a workspace's process list writes
 `workspace.processes_read` (actor `user:<id>`, target the workspace, no
-metadata), because it runs a command inside the student's container.
+metadata), because it reads what the student is running.
 
 ### 24.12 Dependency/security maintenance
 
