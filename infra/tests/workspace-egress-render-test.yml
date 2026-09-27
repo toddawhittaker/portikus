@@ -24,6 +24,7 @@
     portikus_agent_port: 7400
     portikus_preview_port_min: 1024
     portikus_preview_port_max: 65535
+    getent_passwd: {portikus-wsproxy: [x, '998', '998', '', /nonexistent, /usr/sbin/nologin]}
 
   tasks:
     - name: Load the role's defaults
@@ -49,6 +50,26 @@
           ({{ contracts_denied | join(', ') }}) must equal the IPv4 entries of
           workspace_egress_denied_ranges in infra/ansible/site.yml
           ({{ workspace_egress_denied_ranges | ansible.utils.ipv4 | join(', ') }}).
+
+    # ── The helper's fixed ports agree with site.yml ──────────────
+
+    - name: Read the helper's port constants
+      ansible.builtin.set_fact:
+        helper_ports: >-
+          {{ dict(lookup('ansible.builtin.file', '../../apps/workspace-controller/src/egress/render.ts')
+             | regex_findall('export const (EGRESS_DNS_PORT|SQUID_HTTP_PORT|SQUID_TLS_PORT) = ([0-9]+);')) }}
+
+    - name: Check the helper redirects to the ports the ACL, firewall and Squid open
+      ansible.builtin.assert:
+        that:
+          - helper_ports.EGRESS_DNS_PORT | int == workspace_egress_dns_port | int
+          - helper_ports.SQUID_HTTP_PORT | int == workspace_egress_http_port | int
+          - helper_ports.SQUID_TLS_PORT | int == workspace_egress_https_port | int
+        fail_msg: >-
+          The port constants in apps/workspace-controller/src/egress/render.ts
+          ({{ helper_ports }}) must equal workspace_egress_dns_port,
+          workspace_egress_http_port and workspace_egress_https_port in
+          infra/ansible/site.yml.
 
     # ── The network ACL ───────────────────────────────────────────
 
@@ -138,11 +159,12 @@
           # A private destination is closed before anything is peeked, never bumped.
           - bump == ['ssl_bump terminate denied_dst', 'ssl_bump peek step1',
                      'ssl_bump splice listed_sni', 'ssl_bump terminate all']
-          - access[0] == 'http_access deny forward_port'
-          - access | last == 'http_access deny all'
-          # Only names go to the counter; no file access log is written.
-          - logs | length == 2
-          - logs | reject('match', '^access_log udp://127\.0\.0\.1:5398 logformat=portikus_name_') | list | length == 0
+          - access == ['http_access deny forward_port', 'http_access allow intercepted_tls',
+                       'http_access deny denied_dst', 'http_access allow intercepted_http listed_host',
+                       'http_access deny all']
+          # Only refused names go to the counter; no file access log is written.
+          - logs == ['access_log udp://127.0.0.1:5398 logformat=portikus_name_tls buffer-size=0KB intercepted_tls !listed_sni',
+                     'access_log udp://127.0.0.1:5398 logformat=portikus_name_http buffer-size=0KB intercepted_http !listed_host']
           - "'logformat portikus_name_tls %ssl::>sni' in squid_rules"
           - "'logformat portikus_name_http %>rd' in squid_rules"
 
@@ -160,5 +182,14 @@
           - >-
             egress_env == {
               'EGRESS_BRIDGE': 'portikus-ws', 'EGRESS_GATEWAY': '10.200.0.1', 'EGRESS_UPSTREAM': '127.0.0.53',
-              'EGRESS_COUNTER_DNS_PORT': '5399',
+              'EGRESS_COUNTER_DNS_PORT': '5399', 'EGRESS_PROXY_UID': '998',
               'EGRESS_DENIED_RANGES': contracts_denied | join(',') }
+
+    # ── The guard's drop-all table (render.test.ts checks the rest) ──
+
+    - name: Check the drop-all table drops forwarding on the site's bridge
+      ansible.builtin.assert:
+        that:
+          - >-
+            (lookup('ansible.builtin.template', '../ansible/roles/workspace_egress/templates/egress-drop-all.nft.j2').splitlines() | last)
+            == 'add rule inet portikus_egress forward iifname "portikus-ws" drop'

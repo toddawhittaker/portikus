@@ -16,6 +16,7 @@ echo "--- Workspace egress ---"
 
 we_gateway=$(sec_ssh "incus network get portikus-ws ipv4.address" | cut -d/ -f1)
 we_a_ip=$(sec_ws_ip a)
+we_b_ip=$(sec_ws_ip b)
 we_since=$(sec_ssh "date -u '+%Y-%m-%d %H:%M:%S'")
 we_policy=$(sec_psql "SELECT egress_mode || ' ' || array_to_string(egress_presets, ',') FROM settings WHERE id = 1")
 we_start_mode=${we_policy%% *}
@@ -119,6 +120,29 @@ we_expect() {
 we_run_bash() { sec_exec a student "$(we_probe_bash)" 2>/dev/null; }
 we_run_docker() { sec_docker_exec a "$(we_probe_docker)" 2>/dev/null; }
 
+# we_quic_leaks -- how many UDP 443 (QUIC) packets from a to a listed
+# address left the VM.  A counter in a table of the test's own, hooked after
+# every filter and before Incus's masquerade, sees only what got through;
+# the probe needs no answer from the other end.
+we_quic_leaks() {
+  local out
+  sec_ssh "sudo nft -f - <<'NFT'
+table inet portikus_sectest {
+  chain post { type filter hook postrouting priority srcnat - 10; ip saddr ${we_a_ip} oifname != \"portikus-ws\" udp dport 443 counter; }
+}
+NFT" >/dev/null 2>&1
+  sec_exec a student 'ip=$(getent ahostsv4 api.github.com | awk "{ print \$1; exit }")
+    for i in 1 2 3; do printf quic > "/dev/udp/${ip:-192.0.2.1}/443"; sleep 0.2; done' >/dev/null 2>&1
+  out=$(sec_ssh "sudo nft list table inet portikus_sectest; sudo nft delete table inet portikus_sectest" 2>/dev/null)
+  printf '%s\n' "$out" | awk '/counter packets/ { for (i = 1; i < NF; i++) if ($i == "packets") { print $(i + 1); exit } }'
+}
+
+# The probe from a to b's listener and agent ports; it prints only what is open.
+we_peer_probe() {
+  printf 'for t in %s,5173 %s,7400; do timeout 3 bash -c "exec 3<>/dev/tcp/${t%%,*}/${t#*,}" 2>/dev/null && echo "$t open"; done; true' \
+    "$we_b_ip" "$we_b_ip"
+}
+
 # ── Open mode ────────────────────────────────────────────────────
 
 we_check_open() {
@@ -137,6 +161,8 @@ we_check_open() {
   we_expect "open, a's Docker" "$r" unlisted_resolves yes "any name resolves"
   we_expect "open, a's Docker" "$r" unlisted_host_on_listed_address '!403' "plain HTTP is not intercepted (control)"
   we_expect "open, a's Docker" "$r" direct_proxy_ports "closed/closed/closed" "the redirect targets cannot be used directly"
+  r=$(we_quic_leaks)
+  if [ "${r:-0}" -gt 0 ]; then sec_pass "open, a: UDP 443 (QUIC) leaves the VM (control for the allow-list check)"; else sec_fail "open, a: UDP 443 (QUIC) leaves the VM (control; counted ${r:-nothing})"; fi
 }
 
 # ── Allow-list mode ──────────────────────────────────────────────
@@ -170,6 +196,27 @@ we_check_allow_list() {
   we_expect "allow-list, a" "$r" direct_proxy_ports "closed/closed/closed/silent" "the redirect targets cannot be used directly"
   we_expect "allow-list, a" "$r" direct_forward_proxy 000 "the proxy cannot be used as a forward proxy"
   we_expect "allow-list, a" "$r" gateway_other_ports closed "the gateway is closed on every other port probed"
+  check_output "allow-list, a: UDP 443 (QUIC) to a listed address never leaves the VM" "0" we_quic_leaks
+
+  # The peers stay apart in allow-list mode too.  b's listener answers the VM (control).
+  sec_exec b student "mkdir -p /tmp/sectest-www && echo sectest-b > /tmp/sectest-www/index.html && \
+    (setsid nohup python3 -m http.server 5173 --bind :: --directory /tmp/sectest-www >/tmp/sectest-www.log 2>&1 &) ; sleep 1" >/dev/null 2>&1
+  check_output "allow-list: the VM reaches b's listener (control)" "sectest-b" \
+    sec_ssh "curl -s --max-time 5 http://${we_b_ip}:5173/"
+  check_output "allow-list, a: b's listener and agent ports are unreachable" "" \
+    sec_exec a student "$(we_peer_probe)"
+
+  # Squid looks up an intercepted Host itself.  Through Incus's resolver any
+  # name would reach the internet, a channel out for data; the helper's table
+  # sends Squid's lookups to our dnsmasq, which gives an unlisted name only to
+  # the counter.  So the counter hears a fresh name the workspace never looked up.
+  we_label="sectest-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n').example.com"
+  # The second request is a forged Host: listed, but not at that address.
+  sec_exec a student "gh=\$(getent ahostsv4 api.github.com | awk '{ print \$1; exit }'); \
+    curl -s -o /dev/null --max-time 10 -H 'Host: ${we_label}' \"http://\${gh:-192.0.2.1}/\"; \
+    curl -s -o /dev/null --max-time 10 -H 'Host: github.com' \"http://\${gh:-192.0.2.1}/\"" >/dev/null 2>&1
+  check "the workspace proxy's lookup of an unlisted Host goes to the counter, not the internet" \
+    we_counted_from "$we_label" dns
 
   r=$(we_run_docker)
   printf '%s\n' "$r" | sed 's/^/    /'
@@ -184,12 +231,24 @@ we_check_allow_list() {
   # Docker Hub is listed, so a pull goes through the allow-list.
   check "allow-list, a's Docker: a listed registry serves a pull" \
     sec_exec a student "docker pull -q busybox:1.37"
+  check_output "allow-list, a's Docker: b's listener and agent ports are unreachable" "" \
+    sec_docker_exec a "for t in ${we_b_ip}:5173 ${we_b_ip}:7400; do nc -z -w 3 \${t%:*} \${t#*:} && echo \"\$t open\"; done; true"
 
   # The refused lookup and the refused TLS name both reach the site-wide
   # counts, which hold no workspace, user or address (ruling 13).
   check "the refused name is counted from DNS and from Squid" we_counted example.com
   check_output "the blocked-name counts have no workspace, user or address column" "" \
     sec_psql "SELECT string_agg(column_name, ',') FROM information_schema.columns WHERE table_name = 'egress_blocked_names' AND column_name NOT IN ('day', 'name', 'source', 'count')"
+}
+
+# we_counted_from NAME SOURCE -- today's counts hold NAME from SOURCE, within a minute.
+we_counted_from() {
+  local i
+  for ((i = 0; i < 60; i += 3)); do
+    [ "$(sec_psql "SELECT count(*) FROM egress_blocked_names WHERE day = (now() AT TIME ZONE 'UTC')::date AND name = '$1' AND source = '$2'")" = "1" ] && return 0
+    sleep 3
+  done
+  return 1
 }
 
 # we_counted NAME -- today's counts hold NAME from both sources, within a minute.
@@ -252,6 +311,15 @@ we_forwarding() {
 
 we_check_reboots() {
   local r i
+  # A request left pending across the reboot is applied by the boot run.  If
+  # that run waited for our DNS, which starts after Incus, which waits for
+  # the helper, it would hang until its start timeout.
+  echo "Leaving an egress request pending, then rebooting..."
+  sec_ssh "sudo systemctl stop portikus-egress-apply.path"
+  printf '%s\n' 'import json' \
+    'a = json.load(open("/var/lib/portikus/egress-state/applied.json"))' \
+    'json.dump({"requestId": "sectest-boot", **a["policy"]}, open("/var/lib/portikus/egress-request/request.json", "w"))' \
+    | sec_ssh_stdin "sudo python3 -"
   we_reboot || { sec_fail "the workspaces run again after a reboot in allow-list mode"; return; }
   for ((i = 0; i < 60; i += 3)); do
     sec_ssh "systemctl is-active --quiet portikus-egress-dns" >/dev/null 2>&1 && break
@@ -259,6 +327,10 @@ we_check_reboots() {
   done
   check "after a reboot, the egress helper's boot run succeeded" \
     sec_ssh "[ \"\$(systemctl show portikus-egress-apply.service -p Result --value)\" = success ]"
+  check_output "after a reboot, the boot run applied the pending request" '"requestId":"sectest-boot"' \
+    sec_ssh "grep -o '\"requestId\":\"sectest-boot\"' /var/lib/portikus/egress-state/status.json"
+  check "after a reboot, no request is left pending" \
+    sec_ssh "! test -e /var/lib/portikus/egress-request/request.json"
   check "after a reboot, the egress DNS runs" sec_ssh "systemctl is-active --quiet portikus-egress-dns"
   sec_exec a root "resolvectl flush-caches" >/dev/null 2>&1
   r=$(we_run_bash)
@@ -274,14 +346,43 @@ we_check_reboots() {
   we_reboot
   check_output "with unusable settings after a reboot, workspace forwarding is dropped, not open" "dropped" we_forwarding
   sec_ssh "sudo chmod 0644 /etc/portikus/egress.env"
+
+  # If the helper itself cannot run (a crash, a failed import, the memory
+  # cap), its Node-free guard loads the drop-all table.
+  echo "Making the egress helper fail at once, then rebooting..."
+  sec_ssh "sudo install -d /etc/systemd/system/portikus-egress-apply.service.d && \
+    printf '[Service]\nExecStart=\nExecStart=/bin/false\n' | sudo tee /etc/systemd/system/portikus-egress-apply.service.d/sectest-broken.conf >/dev/null && \
+    sudo systemctl daemon-reload"
+  we_reboot
+  check_output "with the helper failing at boot, workspace forwarding is dropped, not open" "dropped" we_forwarding
+  check "with the helper failing at boot, the guard loaded the drop-all table" \
+    sec_ssh "sudo nft list chain inet portikus_egress forward | grep -q 'iifname \"portikus-ws\" drop'"
+  sec_ssh "sudo rm -f /etc/systemd/system/portikus-egress-apply.service.d/sectest-broken.conf; \
+    sudo rmdir --ignore-fail-on-non-empty /etc/systemd/system/portikus-egress-apply.service.d; \
+    sudo systemctl daemon-reload"
 }
 
 # ── Logs ─────────────────────────────────────────────────────────
 
 # No Squid log and no egress DNS log holds a workspace address (ruling 13);
 # only names leave the workspace proxy, to the counter.
+we_cache_log_lines() { sec_ssh "sudo cat /var/log/portikus-workspace-proxy/cache.log 2>/dev/null | wc -l"; }
+we_cache_log_start=$(we_cache_log_lines)
+
 we_check_logs() {
   local hits
+  # A reload in open mode makes Squid write its empty-list warnings, so the
+  # search below runs on a log Squid really writes, after the run's refusals
+  # and a forged Host, which Squid reports with the client's address at a
+  # level this log does not keep.
+  sec_ssh "sudo systemctl reload portikus-workspace-proxy" >/dev/null 2>&1
+  sleep 2
+  if [ "$(sec_psql "SELECT egress_mode FROM settings WHERE id = 1")" = "open" ]; then
+    check "Squid wrote to its cache.log during the run" \
+      test "$(we_cache_log_lines)" -gt "${we_cache_log_start:-0}"
+  else
+    sec_na "Squid wrote to its cache.log during the run" "in allow-list mode a reload writes nothing"
+  fi
   hits=$(sec_ssh "sudo grep -rlF '${we_a_ip}' /var/log/portikus-workspace-proxy/ /var/log/squid/ 2>/dev/null; \
     sudo journalctl -q --no-pager --since '${we_since}' -u portikus-workspace-proxy -u portikus-egress-dns -u squid | grep -cF '${we_a_ip}'; true")
   check_output "no Squid or egress DNS log holds a's address" "0" echo "$hits"
