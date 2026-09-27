@@ -730,12 +730,27 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					opts.timeoutSeconds,
 				);
 			} catch (err) {
-				// The graceful stop may have finished just as its wait gave up.
-				if ((await this.instanceStatus(name).catch(() => null)) !== "Stopped") {
+				// The instance may already be stopping (Incus then fails with
+				// "Invalid PID -1"), so trust the state, not the error (issue #704).
+				if (!(await this.settlesStopped(name, opts.timeoutSeconds))) {
 					throw err;
 				}
 			}
 			return { forced: true };
+		}
+	}
+
+	/** Polls the state for up to `timeoutSeconds` (at most 10) and reports whether it reached Stopped. */
+	private async settlesStopped(name: string, timeoutSeconds: number): Promise<boolean> {
+		const deadline = Date.now() + Math.min(timeoutSeconds, 10) * 1000;
+		for (;;) {
+			if ((await this.instanceStatus(name).catch(() => null)) === "Stopped") {
+				return true;
+			}
+			if (Date.now() >= deadline) {
+				return false;
+			}
+			await new Promise((r) => setTimeout(r, 250));
 		}
 	}
 

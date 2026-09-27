@@ -653,9 +653,42 @@ test("a forced stop that fails because the graceful stop just finished still rep
 	expect(puts.map((p) => p.force)).toEqual([false, true]);
 });
 
+// Issue #704: a stop that meets an instance already shutting down fails in
+// Incus with "Invalid PID -1"; the instance reads Stopping, then Stopped.
+test("a stop that races an instance already shutting down reports stopped", async () => {
+	const puts: Array<{ force?: boolean }> = [];
+	let readsAfter = 0;
+	handler = async (req, res) => {
+		const body = await readBody(req);
+		if (req.method === "PUT" && req.url?.includes("/state")) {
+			puts.push(JSON.parse(body));
+			respond(res, 202, {
+				type: "async",
+				status: "Operation created",
+				status_code: 100,
+				operation: `/1.0/operations/stop-${puts.length}`,
+			});
+		} else if (req.url?.includes("/wait")) {
+			respond(
+				res,
+				200,
+				sync({ status_code: 400, status: "Failure", err: "Invalid PID -1" }),
+			);
+		} else if (puts.length === 0) {
+			respond(res, 200, sync({ status: "Running" }));
+		} else {
+			readsAfter++;
+			respond(res, 200, sync({ status: readsAfter < 3 ? "Stopping" : "Stopped" }));
+		}
+	};
+	const result = await provider.stop("ws-test", { timeoutSeconds: 5 });
+	expect(result.forced).toBe(true);
+	expect(puts.map((p) => p.force)).toEqual([false, true]);
+});
+
 test("a forced stop that fails while the instance still runs is an error", async () => {
 	handler = stopsFail("Running", []);
-	await expect(provider.stop("ws-test", { timeoutSeconds: 5 })).rejects.toMatchObject({
+	await expect(provider.stop("ws-test", { timeoutSeconds: 1 })).rejects.toMatchObject({
 		code: "OPERATION_FAILED",
 	});
 });
