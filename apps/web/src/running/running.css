@@ -107,6 +107,11 @@
 .pk-portrow button {
 	white-space: nowrap;
 }
+/* The full command, when shown, takes a line of its own under the row. */
+.pk-portrow > .pk-portrow-command {
+	grid-column: 1 / -1;
+	white-space: normal;
+}
 
 .pk-portrow-port {
 	min-width: 5ch;

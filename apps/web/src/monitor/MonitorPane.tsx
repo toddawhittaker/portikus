@@ -7,6 +7,7 @@
 import type { UsageProcess, WorkspaceUsage } from "@portikus/contracts";
 import { ConfirmDialog, ConfirmDialogRoot, IconButton } from "@portikus/ui";
 import { type FocusEvent, useEffect, useRef, useState } from "react";
+import { FullCommandButton, FullCommandText } from "./FullCommand.js";
 import "./monitor.css";
 import { useRightPaneState } from "../shell/rightPane.js";
 import { formatBytes, formatCpu, formatRate } from "./format.js";
@@ -305,14 +306,12 @@ function ProcessRow({
 					<div className="pk-action-slots">
 						<span className="pk-action-slot">
 							{process.commandLine !== null ? (
-								<IconButton
-									icon={expanded ? "chevron-down" : "chevron-right"}
-									size="sm"
-									label={`Show the full command for PID ${process.pid}`}
-									aria-expanded={expanded}
-									aria-controls={expanded ? detailId : undefined}
-									data-testid={`monitor-show-command-${process.pid}`}
-									onClick={onToggle}
+								<FullCommandButton
+									subject={`PID ${process.pid}`}
+									expanded={expanded}
+									detailId={detailId}
+									testId={`monitor-show-command-${process.pid}`}
+									onToggle={onToggle}
 								/>
 							) : null}
 						</span>
@@ -334,8 +333,8 @@ function ProcessRow({
 			</tr>
 			{expanded && process.commandLine !== null ? (
 				<tr className="pk-monitor-cmdline-row">
-					<td colSpan={5} id={detailId} data-testid={detailId}>
-						{process.commandLine}
+					<td colSpan={5}>
+						<FullCommandText id={detailId} commandLine={process.commandLine} />
 					</td>
 				</tr>
 			) : null}

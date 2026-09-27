@@ -419,3 +419,45 @@ test("Docker and reserved-port tags sit on a second line under the name", () => 
 	expect(tags?.textContent).toContain("Docker");
 	expect(row.querySelector(".pk-portrow-name")?.textContent).toBe("postgres");
 });
+
+test("a student's own listener can reveal its full command below the row (issue #701)", () => {
+	show([
+		service({
+			port: 3000,
+			process: { pid: 7, command: "node", commandLine: "node server.js --port 3000" },
+		}),
+	]);
+	const toggle = screen.getByRole("button", {
+		name: "Show the full command for port 3000",
+	});
+	expect(toggle.getAttribute("aria-expanded")).toBe("false");
+	expect(screen.queryByTestId("running-command-3000")).toBeNull();
+	fireEvent.click(toggle);
+	expect(toggle.getAttribute("aria-expanded")).toBe("true");
+	expect(toggle.getAttribute("aria-controls")).toBe("running-command-3000");
+	const text = screen.getByTestId("running-command-3000");
+	expect(text.textContent).toBe("node server.js --port 3000");
+	expect(text.className).toBe("pk-full-command");
+	// The command sits inside the row, not in the row's select button.
+	expect(screen.getByTestId("running-row-3000").contains(text)).toBe(true);
+	fireEvent.click(toggle);
+	expect(screen.queryByTestId("running-command-3000")).toBeNull();
+});
+
+test("a listener without a command line, as from an older agent, has no disclosure", () => {
+	show([
+		service({ port: 3000 }),
+		// A system or Docker row never offers it, even if a command line arrives.
+		service({
+			port: 5355,
+			system: true,
+			process: { pid: 2, command: "resolved", commandLine: "resolved" },
+		}),
+		service({
+			port: 8080,
+			container: { id: "abc", name: "pg" },
+			process: { pid: 3, command: "docker-proxy", commandLine: "docker-proxy" },
+		}),
+	]);
+	expect(screen.queryByRole("button", { name: /Show the full command/ })).toBeNull();
+});
