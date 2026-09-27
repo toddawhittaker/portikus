@@ -5,7 +5,14 @@
  * the held throttle row the worker would.
  */
 import { type Browser, expect, type Page, test } from "@playwright/test";
-import { createStudent, loginAs, query, settledAxe, workspacePath } from "./helpers";
+import {
+	createStudent,
+	loginAs,
+	query,
+	settledAxe,
+	toast,
+	workspacePath,
+} from "./helpers";
 
 async function expectNoViolations(page: Page) {
 	const results = await (await settledAxe(page))
@@ -66,7 +73,7 @@ test("an administrator changes the hold settings, and a bad value is named", asy
 		await after.fill("4");
 		await hours.fill("48");
 		await page.getByTestId("guard-settings-save").click();
-		await expect(page.getByText("Resource guard saved")).toBeVisible();
+		await expect(toast(page, "Resource guard saved")).toBeVisible();
 		const [row] = await query<{ after: number; hours: number }>(
 			"select cpu_throttle_hold_after as after, cpu_throttle_hold_hours as hours from settings where id = 1",
 		);

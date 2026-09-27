@@ -62,6 +62,13 @@ test("a day with nothing added says so", () => {
 	);
 });
 
+test("a day with too few workspaces surveyed says so", () => {
+	render(<PackagesTable survey={{ day: "2026-09-27", surveyed: 2, packages: [] }} />);
+	expect(screen.getByTestId("packages-empty").textContent).toBe(
+		"Not enough workspaces surveyed on 27 September 2026. Packages show once at least 3 are surveyed in a day.",
+	);
+});
+
 test("the section loads the survey from the API", async () => {
 	stubFetch((url) => {
 		if (url === "/admin/packages") return json(200, SURVEY);

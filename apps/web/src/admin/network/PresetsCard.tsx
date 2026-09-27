@@ -8,6 +8,8 @@ export function PresetsCard({ view }: { view: AdminEgressView }) {
 	const toast = useToast();
 
 	function toggle(id: EgressPresetId, label: string, on: boolean) {
+		// Busy rather than natively disabled, so focus stays on the box.
+		if (write.isPending) return;
 		// Kept in catalogue order, so the saved list reads the same as the page.
 		const presets = view.presetCatalog
 			.map((preset) => preset.id)
@@ -53,13 +55,14 @@ export function PresetsCard({ view }: { view: AdminEgressView }) {
 							<Checkbox
 								label={<span className="font-semibold">{preset.label}</span>}
 								checked={on}
-								disabled={write.isPending}
+								ariaDisabled={write.isPending}
 								onChange={(event) =>
 									toggle(preset.id, preset.label, event.target.checked)
 								}
 							/>
 							<details className="mt-2 ml-6 text-[12px]">
 								<summary className="pk-focus-ring w-fit cursor-pointer rounded-xs text-ink-muted">
+									<span className="sr-only">{preset.label}: </span>
 									{preset.hosts.length === 1
 										? "1 site"
 										: `${preset.hosts.length} sites`}
