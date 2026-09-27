@@ -503,7 +503,11 @@ A stop should allow the workspace operating system and inner services a bounded 
 
 If graceful stop does not complete within the configured timeout, the platform may force-stop the workspace and must record the event.
 
-A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 15 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`.
+A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 25 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`.
+
+A stop succeeds when the instance reaches Stopped within the timeout. The controller decides from the instance's state, never from the text of an Incus error, so a stop that races another stop or a shutdown from inside still ends Stopped with no error. Its first state read tolerates any error except not-found, because for about a second of some shutdowns Incus answers the state read itself with HTTP 500 "Invalid PID -1" (Epic 22).
+
+A stop or restart confirmation opened while the workspace is changing state keeps its Confirm button disabled and says why, until the workspace settles. The Confirm button stays focusable (`aria-disabled`) and the reason is announced to screen readers.
 
 ### 6.6 Persistence contract
 
@@ -1576,6 +1580,8 @@ The user may:
 
 In the "Open a preview" dialog each listening port is a bordered row with a trailing chevron, so it reads as a button. The Preview tab's toolbar holds the host, Back, Forward, Reload and Open in new tab; a "More preview actions" menu holds Copy URL, the frame width (one checkable item per width), Reset preview data and Show in Running.
 
+"Reset preview data…" first asks for confirmation in the neutral (not red) confirmation dialog.
+
 ### 14.7 Port discovery
 
 The workspace agent should detect listening TCP ports.
@@ -1910,6 +1916,8 @@ The Running surface is not intended to replace `ps`, `top`, `docker ps`, or a ge
 
 Each row shows the port, then the process or container name with its tags (Docker, reserved port, system service) on a second line, so the name keeps the row's width. A previewable row's first action is a visible **Preview** button named "Preview port <n>" for assistive technology; opening in a new tab and Stop stay icon buttons. The details panel under a selected row is a key-and-value list on the page surface, not terminal-styled. In the tabbed right pane (Files, Checks, Running, Monitor) the tab names the pane, so each pane's heading is kept for screen readers only and no title row repeats it.
 
+A listener owned by one of the student's own processes carries an optional `commandLine`, and its row has the same full-command disclosure button as Monitor (section 18.3). The workspace agent reads `/proc/<pid>/cmdline` only when the process's real and effective uid are the student's; system and Docker listeners carry none, and an older agent sends none, so the row shows no button. The API truncates it to 1024 characters. Like Monitor's, it goes only to the student and is never logged, audited or shown to an administrator (Epic 22).
+
 The workspace agent finds listening ports by scanning `/proc` on a timer. A scan never starts while the previous one runs, and the timer scans only while a browser or the control plane watches the port events or a forward exists; `GET /listening` still scans on demand. A socket's owner is remembered from the last scan, and the `/proc/<pid>/fd` links are walked only for a new socket or an owner that has exited. Stopping a listener always walks afresh, and fails with `STOP_FAILED` rather than act on stale data when that scan fails.
 
 ### 18.3 Workspace status
@@ -1978,6 +1986,8 @@ way, focus moves to the visible Monitor tab once the tabs are shown (not
 while Find in files covers them). A throttle or memory notice that goes
 away on its own while it holds focus hands focus to the work area; a
 notice that never held focus moves nothing.
+
+Every Monitor row has the same height, with or without buttons. The actions sit in two fixed columns, the command disclosure first and Stop second, and a row without one of them leaves that cell empty (Epic 22).
 
 ### 18.4 Recognized run/build commands
 
@@ -2157,7 +2167,9 @@ sorted column's button shows an arrow, and a protected row says
 the process exited, the student
 gets a notification, "An administrator stopped a process in your
 workspace", naming no process; a stop the process survived tells the
-student nothing but is still audited.
+student nothing but is still audited. Like Monitor, the Processes table
+keeps a fixed Stop column, so a row without Stop leaves that cell empty
+(Epic 22).
 
 The admin area is desktop-only: it is built for windows 1024 px wide and up,
 scrolls sideways below that, and has no tablet layout (Epic 18).
@@ -2713,6 +2725,16 @@ apart. An administrator's **Refresh** of a workspace's process list writes
 `workspace.processes_read` (actor `user:<id>`, target the workspace, no
 metadata), because it reads what the student is running.
 
+As built (Epic 22): the listener `commandLine` field has existed since
+Epic 9.1; Epic 22 narrowed who receives it to listeners owned by the
+student's own processes (section 18.2), and it is never audited or logged.
+The agent checks the uid in `/proc/<pid>/status` and then reads
+`cmdline`, so a PID reused between the two reads could expose another
+process's command line to the student. This low-severity race is
+accepted because `/proc` is mounted without `hidepid` today, so the
+student can already read any command line; if `hidepid` is ever turned
+on, the agent must re-check the uid after the read.
+
 ### 24.12 Dependency/security maintenance
 
 The project must define a process for:
@@ -2914,6 +2936,10 @@ Terminal and code-editor accessibility constraints should be documented where th
 
 Keyboard navigation is required for primary application controls.
 
+A control that cannot act yet, such as a Confirm button while the workspace is changing state (section 6.5), stays focusable with `aria-disabled` and has its reason announced, rather than being removed from the tab order.
+
+Every Stop icon button (Running, Checks, Monitor and the admin Processes table) uses one shared danger colour, the `pk-iconbtn-danger` class, for its normal, hover and focus states, and keeps a target of at least 24 px (WCAG 2.5.8) (Epic 22).
+
 ### 25.9 Browser support
 
 P0 should support current versions of:
@@ -3076,6 +3102,10 @@ ENOSPC
 Technical details should remain available for administrators and debugging.
 
 When a workspace fails to start and the workspace agent still reports storage figures, the error screen shows the storage meters. It offers "Clean up Docker…" (the Reset Docker confirmation) only when the error is `STORAGE_FULL` and Docker storage is at the critical level, because resetting Docker when project storage is what filled up would destroy data for nothing.
+
+While a workspace is in error, the API still serves its usage figures if the workspace agent answers. The error screen then shows the storage meters and, for `STORAGE_FULL` with Docker at the critical level, "Clean up Docker…". With no answer it offers only "Try again" and "Workspace details". After a failed first request the error screen asks for usage again every 30 seconds.
+
+To make that safe, the worker keeps an error workspace's recorded agent address current: the address Incus reports now, or none when the instance is stopped or gone. The API never calls the agent of an `INSTANCE_MISSING` workspace.
 
 ## 29. Epics and rough implementation effort
 

@@ -3,6 +3,7 @@ import {
 	createProject,
 	createStudent,
 	query,
+	seedStorage,
 	setWorkspaceState,
 	workspacePath,
 	workTabs,
@@ -85,26 +86,12 @@ test("a STORAGE_FULL error with Docker full shows the meters and offers Clean up
 }) => {
 	const student = await createStudent(context);
 	await failWorkspace(student.workspaceId);
-	// The API answers usage only for a running workspace today, so the figures an
-	// agent would report in the error state are served here.
+	// The agent still answers in the error state, so the API serves its figures.
 	const GIB = 1024 ** 3;
-	await page.route(`**/workspaces/${student.workspaceId}/usage`, (route) =>
-		route.fulfill({
-			json: {
-				observedAt: new Date().toISOString(),
-				cpuPercent: 0,
-				memory: { usedBytes: 1, totalBytes: 2 },
-				disk: { usedBytes: 1, totalBytes: 2 },
-				network: { receiveBytesPerSecond: 0, transmitBytesPerSecond: 0 },
-				processes: [],
-				storage: {
-					home: { usedBytes: 3 * GIB, totalBytes: 10 * GIB },
-					docker: { usedBytes: 99 * GIB, totalBytes: 100 * GIB },
-					recovery: null,
-				},
-			},
-		}),
-	);
+	await seedStorage(student.workspaceId, {
+		home: { usedBytes: 3 * GIB, totalBytes: 10 * GIB },
+		docker: { usedBytes: 99 * GIB, totalBytes: 100 * GIB },
+	});
 	await page.goto(workspacePath(student.workspaceId));
 
 	const progress = page.getByTestId("workspace-progress");
@@ -116,12 +103,20 @@ test("a STORAGE_FULL error with Docker full shows the meters and offers Clean up
 	await expect(page.getByTestId("dialog-reset-docker")).toBeVisible();
 });
 
-test("an error with no storage figures offers only Try again and Workspace details", async ({
+test("an error with no agent offers only Try again and Workspace details", async ({
 	page,
 	context,
 }) => {
 	const student = await createStudent(context);
 	await failWorkspace(student.workspaceId);
+	await seedStorage(student.workspaceId, {
+		docker: { usedBytes: 99, totalBytes: 100 },
+	});
+	// No agent to ask, so there are no figures to show.
+	await query(
+		"update workspaces set agent_address = null, agent_token = null where id = $1",
+		[student.workspaceId],
+	);
 	await page.goto(workspacePath(student.workspaceId));
 
 	const progress = page.getByTestId("workspace-progress");

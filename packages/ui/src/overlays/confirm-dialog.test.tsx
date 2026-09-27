@@ -11,6 +11,8 @@ function Fixture(props: {
 	onConfirm?: () => void;
 	pending?: boolean;
 	confirmText?: string;
+	disabled?: boolean;
+	disabledReason?: string;
 }) {
 	return (
 		<ConfirmDialogRoot defaultOpen>
@@ -24,6 +26,8 @@ function Fixture(props: {
 				onConfirm={props.onConfirm}
 				pending={props.pending}
 				confirmText={props.confirmText}
+				disabled={props.disabled}
+				disabledReason={props.disabledReason}
 			/>
 		</ConfirmDialogRoot>
 	);
@@ -40,6 +44,37 @@ describe("ConfirmDialog", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Archive project" }));
 		expect(onConfirm).toHaveBeenCalledTimes(1);
+	});
+
+	it("a disabled confirm does nothing and the dialog stays open", () => {
+		const onConfirm = vi.fn();
+		render(<Fixture disabled onConfirm={onConfirm} />);
+
+		const confirm = screen.getByRole("button", { name: "Archive project" });
+		expect(confirm.hasAttribute("disabled")).toBe(false);
+		expect(confirm.getAttribute("aria-disabled")).toBe("true");
+		confirm.focus();
+		expect(document.activeElement).toBe(confirm);
+		fireEvent.click(confirm);
+		expect(onConfirm).not.toHaveBeenCalled();
+		expect(screen.getByRole("alertdialog")).toBeDefined();
+	});
+
+	it("announces why confirm is off and ties the reason to the button", () => {
+		const { rerender } = render(<Fixture />);
+		const region = screen.getByRole("status");
+		expect(region.textContent).toBe("");
+
+		rerender(
+			<Fixture
+				disabled
+				disabledReason="Starting. You can archive once it has finished."
+			/>,
+		);
+		expect(screen.getByRole("status")).toBe(region);
+		expect(region.textContent).toContain("You can archive once it has finished.");
+		const confirm = screen.getByRole("button", { name: "Archive project" });
+		expect(confirm.getAttribute("aria-describedby")).toBe(region.id);
 	});
 
 	it("keeps the confirm button focusable but inert while pending", () => {

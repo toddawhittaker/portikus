@@ -3111,3 +3111,67 @@ Gaps:
   covers the right pane's tabs; this predates the epic (BACKLOG).
 - The items the plan left out, such as stopping a process tree and an
   administrator's stop without the agent, are in BACKLOG.
+
+## Epic 23 — Student interface leftovers
+
+Built on `epic/23-ux-leftovers`. Task PRs #710, #712, #714, #719, #720,
+#722, #723 and this closing task; issues #706, #707 and #708, the three
+gaps Epic 20's reviews left. The rules are in SPEC.md sections 6.5,
+14.6, 25.8 and 28. No migrations and no infrastructure changes.
+
+Delivered:
+
+- The error screen shows the storage meters, and "Clean up Docker…" for
+  `STORAGE_FULL` with Docker at the critical level, whenever the
+  workspace agent still answers. With no answer it offers only "Try
+  again" and "Workspace details", and it asks for usage again every 30
+  seconds. The worker keeps an error workspace's agent address current,
+  and the API never calls the agent of an `INSTANCE_MISSING` workspace.
+- A stop or restart confirmation opened while the workspace is changing
+  state keeps Confirm disabled and says why, instead of closing
+  silently. The button stays focusable and the reason is announced.
+- "Reset preview data…" asks for confirmation in the neutral dialog.
+
+Verified by unit and Playwright tests in each task, and by code,
+security and accessibility reviews over the epic head, each followed by
+a confirmation review.
+
+Gaps:
+
+- The radio-item menu component is still in BACKLOG.
+- The id of the region that states why Confirm is disabled is a fixed
+  default. That is safe while only one confirmation is open at a time.
+
+## Epic 22 — Pilot fixes after Epics 16 to 21
+
+Built on `epic/22-pilot-fixes`. Task PRs #709, #711, #713, #715, #718,
+#721, #726 and this closing task (#716 was replaced by #718); issues
+#699, #700, #701, #702 and #704 from the pilot. The rules are in SPEC.md
+sections 6.5, 18.2, 18.3, 20.1, 24.11 and 25.8. No migrations and no
+infrastructure changes.
+
+Delivered:
+
+- A workspace stop succeeds when the instance reaches Stopped, decided
+  from the instance's state rather than error text, including when Incus
+  briefly answers the state read with 500 "Invalid PID -1" (#704).
+- Every Stop icon button shares one danger colour (#700).
+- Monitor rows have equal heights and two fixed action columns, and the
+  admin Processes table has a fixed Stop column (#702).
+- The Running pane shows the full command for the student's own
+  listeners, through the disclosure Monitor uses (#701).
+- The grace period Save button lines up with its input (#699).
+
+Verified by unit and Playwright tests in each task, by code, security and
+accessibility reviews over the epic head with confirmation reviews, and
+by a rehearsal on a throwaway VM: `make smoke-test` 299 passed, and
+`make security-test PORTIKUS_SECURITY_HEAVY=1` 295 passed. The rehearsal
+found that the stop still failed when the first state read hit the
+Incus 500; #726 fixed that and the rehearsal passed again.
+
+Gaps:
+
+- A screen reader in the Running pane reads the command just before the
+  disclosure chevron.
+- The grace period label may wrap at 200% text size.
+- The narrow Running pane truncates even short names.
