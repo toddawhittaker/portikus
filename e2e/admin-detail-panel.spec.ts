@@ -186,12 +186,19 @@ test.describe("at 1280 px", () => {
 			expect(
 				Math.abs(inputBox.y + inputBox.height - (saveBox.y + saveBox.height)),
 			).toBeLessThanOrEqual(1);
+			// Same row as the input (issue #699), not centred on the label and hint.
+			expect(Math.abs(inputBox.y - saveBox.y)).toBeLessThanOrEqual(1);
+			expect(saveBox.x).toBeGreaterThan(inputBox.x + inputBox.width);
 		}
 		await input.scrollIntoViewIfNeeded();
 		await expectAligned();
 		await input.fill("soon");
 		await save.click();
 		await expect(panel.getByText("Enter a whole number of seconds")).toBeVisible();
+		await expectAligned();
+		// The panel at its narrowest still keeps Save beside the input.
+		await page.setViewportSize({ width: 800, height: 900 });
+		await input.scrollIntoViewIfNeeded();
 		await expectAligned();
 	});
 });
