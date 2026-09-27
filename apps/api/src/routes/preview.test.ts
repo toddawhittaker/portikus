@@ -267,6 +267,67 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"usage is served in the error state while the agent still answers (SPEC.md §28)",
+	async () => {
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ state: "error", error_code: "STORAGE_FULL" })
+			.where("id", "=", workspaceId)
+			.execute();
+		const response = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/usage`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		expect(response.statusCode).toBe(200);
+		expect(response.json()).toMatchObject({ cpuPercent: 1.5 });
+	},
+);
+
+test.skipIf(skip)(
+	"usage fails in the error state when the agent does not answer",
+	async () => {
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ state: "error", agent_address: "127.0.0.1", agent_token: "wrong" })
+			.where("id", "=", workspaceId)
+			.execute();
+		const refused = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/usage`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		expect(refused.statusCode).toBeGreaterThanOrEqual(400);
+
+		const port = await closedPort();
+		const unreachable = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: port });
+		try {
+			const response = await unreachable.inject({
+				method: "GET",
+				url: `/workspaces/${workspaceId}/usage`,
+				headers: { cookie: alice.cookieHeader() },
+			});
+			expect(response.statusCode).toBe(503);
+			expect(response.json().code).toBe("AGENT_UNAVAILABLE");
+		} finally {
+			await unreachable.close();
+		}
+
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ agent_address: null, agent_token: null })
+			.where("id", "=", workspaceId)
+			.execute();
+		const noAgent = await app.inject({
+			method: "GET",
+			url: `/workspaces/${workspaceId}/usage`,
+			headers: { cookie: alice.cookieHeader() },
+		});
+		expect(noAgent.statusCode).toBe(409);
+	},
+);
+
 test.skipIf(skip)("the registry stamps the workspace id on every service", async () => {
 	const response = await app.inject({
 		method: "GET",

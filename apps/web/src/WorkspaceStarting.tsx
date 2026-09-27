@@ -3,6 +3,8 @@ import { Button, Icon, Skeleton, useToast } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { useWorkspaceAction } from "./api/workspace.js";
 import { STORAGE_POLL_MS, useWorkspaceUsage } from "./monitor/usage.js";
+import { DialogError } from "./projects/DialogError.js";
+import { useResetDocker } from "./recovery/queries.js";
 import { storageLevel } from "./recovery/storage.js";
 import { StorageMeters } from "./shell/StorageMeters.js";
 import { ResetDocker } from "./shell/WorkspaceDialog.js";
@@ -133,6 +135,7 @@ export function WorkspaceStarting({
 	// The agent may still answer while the workspace is in error (SPEC.md §18.3).
 	const usage = useWorkspaceUsage(workspaceId, phase === "error", STORAGE_POLL_MS);
 	const storage = phase === "error" ? usage.data?.storage : undefined;
+	const reset = useResetDocker(workspaceId);
 	const [cleaning, setCleaning] = useState(false);
 	const headingRef = useRef<HTMLHeadingElement>(null);
 	const cardRef = useRef<HTMLElement>(null);
@@ -268,9 +271,11 @@ export function WorkspaceStarting({
 										testId="workspace-clean-docker"
 										confirming={cleaning}
 										setConfirming={setCleaning}
+										reset={reset}
 									/>
 								)}
 							</div>
+							<DialogError error={reset.error} />
 							{(workspace?.errorMessage || workspace?.errorCode) && (
 								<details data-testid="workspace-error-details">
 									<summary className="pk-text-body pk-summary">

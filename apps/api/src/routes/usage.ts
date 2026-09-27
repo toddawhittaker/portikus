@@ -21,7 +21,9 @@ export function registerUsageRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	app.get("/workspaces/:id/usage", async (request, reply) => {
 		const scope = await ownedScope(db, config, request, reply);
 		if (!scope) return;
-		const agent = requireAgent(scope, reply);
+		// A workspace in error may still have a live agent, and its figures
+		// drive the error screen's meters and Docker cleanup (SPEC.md §28).
+		const agent = scope.errorAgent ?? requireAgent(scope, reply);
 		if (!agent) return;
 		let response: Response;
 		try {
