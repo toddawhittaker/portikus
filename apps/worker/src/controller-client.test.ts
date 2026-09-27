@@ -192,3 +192,53 @@ test("a caller's own abort reads as unreachable, not TIMEOUT", async () => {
 	ac.abort();
 	expect(((await caught) as ControllerClientError).code).toBe("INCUS_UNAVAILABLE");
 });
+
+const WS = "ws-0123456789abcdef01234567";
+
+test("the admin-operations calls use the controller's routes", async () => {
+	seen = [];
+	const client = new HttpControllerClient(baseUrl, "tok");
+
+	answer = { status: 204, body: null };
+	await client.setLimits(WS, { cpu: 2, memoryMiB: null, processes: 1000 });
+	await client.deleteSnapshot(`${WS}-home`, "pre-upgrade");
+	await client.deleteKeptHome(`${WS}-home-replaced-1790000000`);
+	answer = { status: 200, body: { image: "2026.09.9", packages: ["htop"] } };
+	expect(await client.addedPackages(WS)).toEqual({
+		image: "2026.09.9",
+		packages: ["htop"],
+	});
+	answer = { status: 200, body: { snapshots: [], keptHomes: [] } };
+	expect(await client.keptVolumes()).toEqual({ snapshots: [], keptHomes: [] });
+	answer = { status: 200, body: { kept: `${WS}-home-replaced-1790000000` } };
+	expect(await client.replaceHome(WS)).toEqual({
+		kept: `${WS}-home-replaced-1790000000`,
+	});
+
+	expect(seen.map((r) => [r.method, r.url, r.body])).toEqual([
+		[
+			"PUT",
+			`/instances/${WS}/limits`,
+			JSON.stringify({ cpu: 2, memoryMiB: null, processes: 1000 }),
+		],
+		["DELETE", `/volumes/${WS}-home/snapshots/pre-upgrade`, ""],
+		["DELETE", `/volumes/${WS}-home-replaced-1790000000`, ""],
+		["GET", `/instances/${WS}/added-packages`, ""],
+		["GET", "/volumes/kept", ""],
+		["POST", `/instances/${WS}/replace-home`, ""],
+	]);
+});
+
+test("addedPackages keeps the controller's NOT_FOUND when there is no list", async () => {
+	answer = { status: 404, body: { code: "NOT_FOUND", message: "no list" } };
+	await expect(
+		new HttpControllerClient(baseUrl, "tok").addedPackages(WS),
+	).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("addedPackages refuses a reply with a line that is not a package name", async () => {
+	answer = { status: 200, body: { image: null, packages: ["rm -rf /"] } };
+	await expect(
+		new HttpControllerClient(baseUrl, "tok").addedPackages(WS),
+	).rejects.toThrow();
+});

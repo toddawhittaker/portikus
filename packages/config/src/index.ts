@@ -345,6 +345,7 @@ export const ControllerConfigSchema = BaseConfig.extend({
 	INCUS_PROJECT: z.string().min(1).default("portikus"),
 	INCUS_POOL: z.string().min(1).default("workspace-data"),
 	INCUS_PROFILE: z.string().min(1).default("workspace"),
+	INCUS_NETWORK: z.string().min(1).default("portikus-ws"),
 	INCUS_IMAGE_ALIAS: z.string().min(1).default("portikus"),
 	AGENT_PORT: positiveInt.default(7400),
 }).refine(
