@@ -11,6 +11,7 @@ function Fixture(props: {
 	onConfirm?: () => void;
 	pending?: boolean;
 	confirmText?: string;
+	disabled?: boolean;
 }) {
 	return (
 		<ConfirmDialogRoot defaultOpen>
@@ -24,6 +25,7 @@ function Fixture(props: {
 				onConfirm={props.onConfirm}
 				pending={props.pending}
 				confirmText={props.confirmText}
+				disabled={props.disabled}
 			/>
 		</ConfirmDialogRoot>
 	);
@@ -40,6 +42,17 @@ describe("ConfirmDialog", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Archive project" }));
 		expect(onConfirm).toHaveBeenCalledTimes(1);
+	});
+
+	it("a disabled confirm does nothing and the dialog stays open", () => {
+		const onConfirm = vi.fn();
+		render(<Fixture disabled onConfirm={onConfirm} />);
+
+		const confirm = screen.getByRole("button", { name: "Archive project" });
+		expect(confirm.hasAttribute("disabled")).toBe(true);
+		fireEvent.click(confirm);
+		expect(onConfirm).not.toHaveBeenCalled();
+		expect(screen.getByRole("alertdialog")).toBeDefined();
 	});
 
 	it("keeps the confirm button focusable but inert while pending", () => {

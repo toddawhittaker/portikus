@@ -21,6 +21,8 @@ export interface ConfirmDialogProps {
 	onConfirm?: () => void;
 	onCancel?: () => void;
 	pending?: boolean;
+	/** Keeps the confirm button off; say why in `children`. */
+	disabled?: boolean;
 	inline?: boolean;
 	/** Test hook: set as `data-testid` on the dialog surface. */
 	testId?: string;
@@ -44,6 +46,7 @@ export function ConfirmDialog({
 	onConfirm,
 	onCancel,
 	pending,
+	disabled,
 	inline,
 	testId,
 	typedValue,
@@ -139,7 +142,7 @@ export function ConfirmDialog({
 					<Button
 						data-testid="dialog-confirm"
 						variant={destructive ? "danger" : "primary"}
-						disabled={!ready}
+						disabled={!ready || disabled}
 						loading={pending}
 						onClick={onConfirm}
 					>
