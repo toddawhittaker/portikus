@@ -175,7 +175,7 @@ case "\$cmd" in
     echo '[{"Isuid":true,"Hostid":1327680}]' ;;
   *"\$X volume "*)
     [ "\${cmd##* }" = "\${FAKE_VOLUME_FAILS:-}" ] && exit 1
-    [ -z "\${FAKE_VOLUME_FILE:-}" ] || exec cat "\$FAKE_VOLUME_FILE"
+    [ -z "\${FAKE_VOLUME_FILE:-}" ] || { cat "\$FAKE_VOLUME_FILE"; exit "\${FAKE_VOLUME_EXIT:-0}"; }
     cat "${work}/volume.tar.gz" ;;
   "incus image show"*) ;;
   "incus storage volume list"*) printf '%s\n' \${FAKE_EXISTING:-} ;;
@@ -503,6 +503,16 @@ expect "nothing is asked for or written for the made-up volumes" \
   "! grep -q '${fake}' '$log' && ! ls '$skipset' | grep -q '${fake}'"
 expect "the skip is counted in the set and warned about" \
   "[ \"\$(cat '${skipset}/SKIPPED')\" = 2 ] && grep -q 'WARNING: skipped 2 volumes' '${work}/backup.out'"
+if run_restore --check "$skipset" >"${work}/check.out" 2>&1; then
+  ok "--check accepts a set that skipped volumes"
+else
+  bad "--check accepts a set that skipped volumes ($(tail -1 "${work}/check.out"))"
+fi
+if run_restore --target-name portikus-rehearsal 10.101.0.210 "$skipset" >"${work}/restore.out" 2>&1; then
+  ok "a set that skipped volumes restores onto an empty VM"
+else
+  bad "a set that skipped volumes restores onto an empty VM ($(tail -1 "${work}/restore.out"))"
+fi
 sleep 1
 # Leave the run a budget of 16 MiB, and stream a 64 MiB volume that does
 # not compress.
@@ -552,6 +562,32 @@ sleep 1
 refused_run "a path longer than 4096 bytes stops the run and keeps nothing" "a path is longer than 4096 bytes" \
   FAKE_VOLUME_FILE="${work}/longpath.tar.gz" TMPDIR="$tmp_probe"
 expect "a run writes nothing to the temporary directory" "[ -z \"\$(ls -A '$tmp_probe')\" ]"
+# A tar of directories with 20,000-byte names: every member is checked, not
+# only regular files under backup/volume, before tarfile keeps any of them.
+python3 - "${work}/longdirs.tar.gz" "${work}/manydirs.tar.gz" <<'PY'
+import sys, tarfile
+def build(out, names):
+    with tarfile.open(out, "w:gz", format=tarfile.PAX_FORMAT) as t:
+        for n in names:
+            i = tarfile.TarInfo(n)
+            i.type = tarfile.DIRTYPE
+            t.addfile(i)
+build(sys.argv[1], [f"elsewhere/{i}" + "d" * 20000 for i in range(200)])
+build(sys.argv[2], [f"elsewhere/{i}" for i in range(50)])
+PY
+sleep 1
+refused_run "a directory name of 20,000 bytes outside the volume stops the run" "a path is longer than 4096 bytes" \
+  FAKE_VOLUME_FILE="${work}/longdirs.tar.gz"
+sleep 1
+refused_run "directories count toward the member cap" "the volume has more than 10 files" \
+  FAKE_VOLUME_FILE="${work}/manydirs.tar.gz" PORTIKUS_BACKUP_MAX_INDEX_ENTRIES=10
+# Exports that fail after streaming a large index still spend the budget,
+# so a VM cannot repeat them to use more than the budget.  Each index is
+# about 12 MB, counted twice; five volumes would need about 120 MB.
+sleep 1
+refused_run "failed exports still count their index against the budget" "passed its byte budget" \
+  PORTIKUS_BACKUP_MIN_FREE_MB=100 FAKE_FREE_BYTES=$((160 * 1048576)) FAKE_VOLUME_FILE="${work}/paths.tar.gz" FAKE_VOLUME_EXIT=1 \
+  FAKE_MORE_INSTANCES=2 FAKE_EXTRA_VOLUME="$(printf 'ws-%024x-home ws-%024x-home ws-%024x-recovery' 1 2 2)"
 sleep 1
 refused_run "a volume with more files than the cap stops the run" "the volume has more than 0 files" \
   PORTIKUS_BACKUP_MAX_INDEX_ENTRIES=0

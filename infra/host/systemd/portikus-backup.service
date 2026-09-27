@@ -21,5 +21,7 @@ ExecStart=/usr/local/sbin/portikus-backup --vm-name @VM_NAME@ @VM_IP@
 Nice=10
 IOSchedulingClass=idle
 PrivateTmp=yes
+# Bounds the indexer and tarfile, whatever a VM streams (ADR 0039).
+MemoryMax=1G
 # A large pull takes hours; a hung SSH is cut by its keepalive.
 TimeoutStartSec=12h

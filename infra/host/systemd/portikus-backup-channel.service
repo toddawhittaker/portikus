@@ -24,6 +24,8 @@ StateDirectory=portikus-backup-channel
 StateDirectoryMode=0700
 ExecStart=/usr/local/sbin/portikus-backup-channel --operator @USER@ --vm-name @VM_NAME@ @VM_IP@
 PrivateTmp=yes
+# Bounds the indexer and tarfile, whatever a VM streams (ADR 0039).
+MemoryMax=1G
 ProtectSystem=full
 # A restore of a large home can take hours; a hung SSH is cut by its keepalive.
 TimeoutStartSec=12h

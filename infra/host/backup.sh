@@ -67,8 +67,10 @@ IDMAP_PATTERN='^\[[][{}":,A-Za-z0-9]{0,4096}\]$'
 # regular file (path, size, SHA-256) and per Git repository (HEAD commit)
 # to argv[3], so a restore can be checked file by file.  The stream plus
 # twice the index (plain here, encrypted later) may not pass argv[4] bytes,
-# nor a path argv[6] bytes, nor the index argv[7] entries: past any of
-# them it writes the reason to argv[5] and exits 3.
+# nor any member name argv[6] bytes, nor the tar argv[7] members: past any
+# of them it writes the reason to argv[5] and exits 3.  Its memory stays
+# small: tarfile's member list is cleared as it goes, and only the first
+# bytes of Git HEAD and ref files are kept.
 INDEXER='
 import hashlib, json, sys, tarfile
 mode, sum_path = sys.argv[1], sys.argv[2]
@@ -91,12 +93,7 @@ class Tee:
         sys.stdout.buffer.write(b)
         return b
 tee = Tee()
-entries = 0
 def record(index, entry):
-    global entries
-    entries += 1
-    if entries > max_entries:
-        over(f"the volume has more than {max_entries} files")
     line = json.dumps(entry) + "\n"
     tee.index += len(line.encode(errors="surrogateescape"))
     tee.check()
@@ -104,23 +101,37 @@ def record(index, entry):
 if mode == "tar":
     prefix = "backup/volume/"
     heads, refs = {}, {}
+    entries = 0
     with open(sys.argv[3], "w") as index, tarfile.open(fileobj=tee, mode="r|gz") as tar:
         for m in tar:
+            # Stream mode keeps every member it has read; nothing here needs them.
+            tar.members = []
+            entries += 1
+            if entries > max_entries:
+                over(f"the volume has more than {max_entries} files")
+            for name in (m.name, m.linkname):
+                if len(name.encode(errors="surrogateescape")) > max_path + len(prefix):
+                    over(f"a path is longer than {max_path} bytes")
             if not m.isfile() or not m.name.startswith(prefix):
                 continue
             path = m.name[len(prefix):]
-            if len(path.encode(errors="surrogateescape")) > max_path:
-                over(f"a path is longer than {max_path} bytes")
+            repo, sep, rest = path.rpartition(".git/")
+            is_git = bool(sep) and (not repo or repo.endswith("/"))
+            if is_git and rest == "packed-refs":
+                keep = 65536
+            elif is_git and (rest == "HEAD" or rest.startswith("refs/heads/")):
+                keep = 100
+            else:
+                keep = 0
             data = tar.extractfile(m)
             h = hashlib.sha256()
             small = b""
             while chunk := data.read(1 << 20):
                 h.update(chunk)
-                if len(small) < 65536:
-                    small += chunk
+                if len(small) < keep:
+                    small = (small + chunk)[:keep]
             record(index, {"f": path, "size": m.size, "sha256": h.hexdigest()})
-            repo, sep, rest = path.rpartition(".git/")
-            if not sep or (repo and not repo.endswith("/")):
+            if not is_git:
                 continue
             repo = repo.rstrip("/") or "."
             if rest == "HEAD":
@@ -200,7 +211,7 @@ if [ ! -d "$BACKUP_DIR" ] || [ ! -w "$BACKUP_DIR" ]; then
   die "${BACKUP_DIR} is missing or not writable (make backup creates it)"
 fi
 
-vm() { ssh -n -o BatchMode=yes -o ConnectTimeout=15 "deploy@${VM}" "$@"; }
+vm() { ssh -n -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=4 "deploy@${VM}" "$@"; }
 # Base64 keeps the script intact through the remote shell, whatever it is.
 export_b64=$(base64 -w0 "$EXPORT_SCRIPT")
 remote_export() { vm "sudo bash -c \"\$(echo ${export_b64} | base64 -d)\" portikus-backup-export $*"; }
@@ -321,9 +332,11 @@ pull() {
     | python3 -c "$INDEXER" "$mode" "${scratch}/${name}.sum" "${scratch}/${name}.index" \
       "$((budget - used))" "${scratch}/over" "$MAX_PATH_BYTES" "$MAX_INDEX_ENTRIES" \
     | age -R "$RECIPIENTS" -o "${work}/${name}.age"; then
-    rm -f "${work}/${name}.age"
     # A breached limit stops the whole run; the trap removes the partial set.
     [ ! -e "${scratch}/over" ] || die "${name}: $(head -c 200 "${scratch}/over"); nothing was kept"
+    # A failed export still spent its index against the budget.
+    [ ! -e "${scratch}/${name}.index" ] || used=$((used + 2 * $(stat -c %s "${scratch}/${name}.index")))
+    rm -f "${work}/${name}.age" "${scratch}/${name}.index" "${scratch}/${name}.sum"
     return 1
   fi
   local index_bytes=0
