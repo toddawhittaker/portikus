@@ -263,6 +263,11 @@ export const ApiErrorCode = z.enum([
 	"WRONG_PASSWORD",
 	// journalctl missing, failing or refused (docs/adr/0036).
 	"LOGS_UNAVAILABLE",
+	// Backups from the admin page (SPEC.md section 24.9, ADR 0024).
+	"BACKUP_HOST_STALE",
+	"BACKUP_RUNNING",
+	"BACKUP_NEWEST_SET",
+	"RESTORE_NOT_FINISHED",
 	// The database pool had no free connection in time (ADR 0034 ruling 14).
 	"SERVICE_BUSY",
 	"INTERNAL",
