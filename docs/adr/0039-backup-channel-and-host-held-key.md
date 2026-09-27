@@ -67,7 +67,13 @@ delete every older set. So the host never deletes a set younger than
 `PORTIKUS_BACKUP_MIN_AGE_DAYS` (default 7) and always keeps the newest
 `PORTIKUS_BACKUP_KEEP_COMPLETE` (default 3) complete sets. Both come from
 the channel unit's environment, never from a request; a refused delete
-reads "refused by the host: retention floor (...)".
+reads "refused by the host: retention floor (...)". The same floor holds
+in `backup.sh`'s own retention step, with the values set in both the
+nightly unit and the channel unit, so repeated requested backups cannot
+prune those sets either. The host also refuses a requested backup within
+`PORTIKUS_BACKUP_MIN_GAP_MINUTES` (default 60) of the end of the last one,
+read from the channel's `last-run` file, with "refused by the host: a
+backup ran N minutes ago". The nightly timer is not limited.
 
 **The private key is installed on the host, root-only,** as
 `/etc/portikus-backup/age-key.txt` (file 0600, directory 0700, owner

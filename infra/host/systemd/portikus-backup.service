@@ -11,6 +11,9 @@ Type=oneshot
 User=@USER@
 Environment=PORTIKUS_BACKUP_DIR=@BACKUP_DIR@
 Environment=PORTIKUS_BACKUP_RECIPIENTS=@RECIPIENTS@
+# The retention floor, the same as the channel unit (ADR 0039).
+Environment=PORTIKUS_BACKUP_MIN_AGE_DAYS=7
+Environment=PORTIKUS_BACKUP_KEEP_COMPLETE=3
 # The name comes from the OpenTofu state; the VM's own hostname must match it.
 ExecStart=/usr/local/sbin/portikus-backup --vm-name @VM_NAME@ @VM_IP@
 Nice=10

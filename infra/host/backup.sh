@@ -19,12 +19,20 @@
 #   PORTIKUS_BACKUP_DIR         holds one directory of sets per VM (default /var/backups/portikus)
 #   PORTIKUS_BACKUP_RECIPIENTS  age recipients file (default ~/.config/portikus/backup-recipients.txt)
 #   PORTIKUS_BACKUP_KEEP        complete sets, and incomplete ones, kept per VM (default 14)
+#   PORTIKUS_BACKUP_MIN_AGE_DAYS   retention never removes a set younger than this (default 7)
+#   PORTIKUS_BACKUP_KEEP_COMPLETE  retention always keeps this many newest complete sets (default 3)
 set -euo pipefail
 umask 077
 
 BACKUP_DIR="${PORTIKUS_BACKUP_DIR:-/var/backups/portikus}"
 RECIPIENTS="${PORTIKUS_BACKUP_RECIPIENTS:-${HOME}/.config/portikus/backup-recipients.txt}"
 KEEP="${PORTIKUS_BACKUP_KEEP:-14}"
+# The same retention floor as backup-channel.sh's delete (ADR 0039), so
+# repeated requested backups cannot prune recent sets either.
+MIN_AGE_DAYS="${PORTIKUS_BACKUP_MIN_AGE_DAYS:-7}"
+KEEP_COMPLETE="${PORTIKUS_BACKUP_KEEP_COMPLETE:-3}"
+[[ "$MIN_AGE_DAYS" =~ ^[0-9]{1,4}$ ]] || MIN_AGE_DAYS=7
+[[ "$KEEP_COMPLETE" =~ ^[0-9]{1,3}$ ]] || KEEP_COMPLETE=3
 # The VM half, sent with every command rather than installed on the VM.
 EXPORT_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-export"
 SET_PATTERN='^[0-9]{8}T[0-9]{6}Z$'
@@ -257,16 +265,23 @@ fi
 # stay, and the newest KEEP incomplete sets newer than the oldest of those.
 # Complete sets are counted apart, so nights of failed exports never push
 # out the last good copy of a volume, and cannot fill the disk either.
+# The floor wins over KEEP: a set younger than MIN_AGE_DAYS, or among the
+# newest KEEP_COMPLETE complete sets, is never removed.
+now=$(date +%s)
 mapfile -t sets < <(find "$HOST_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -E "$SET_PATTERN" | sort -r)
 complete=0
 incomplete=0
 for set in "${sets[@]}"; do
-  if [ "$complete" -lt "$KEEP" ] && [ ! -e "${HOST_DIR}/${set}/FAILED" ]; then
+  if [ ! -e "${HOST_DIR}/${set}/FAILED" ] && { [ "$complete" -lt "$KEEP" ] || [ "$complete" -lt "$KEEP_COMPLETE" ]; }; then
     complete=$((complete + 1))
     continue
   fi
   if [ "$complete" -lt "$KEEP" ] && [ "$incomplete" -lt "$KEEP" ]; then
     incomplete=$((incomplete + 1))
+    continue
+  fi
+  set_epoch=$(date -u -d "${set:0:4}-${set:4:2}-${set:6:2}T${set:9:2}:${set:11:2}:${set:13:2}Z" +%s)
+  if [ $((now - set_epoch)) -lt $((MIN_AGE_DAYS * 86400)) ]; then
     continue
   fi
   info "removing old set ${set}"

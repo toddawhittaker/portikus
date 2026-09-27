@@ -48,21 +48,21 @@ test.describe("package survey", () => {
 	test("the table shows the latest day's counts and marks candidates", async ({
 		page,
 	}) => {
-		await seedDay("2026-09-25", 8, { "python3-venv": 4, cowsay: 1 });
-		await seedDay("2026-09-27", 9, { "python3-venv": 6, htop: 2 });
+		await seedDay("2026-09-23", 8, { "python3-venv": 4, cowsay: 1 });
+		await seedDay("2026-09-26", 9, { "python3-venv": 6, htop: 2 });
 
 		await openHealth(page);
 
 		const table = page.getByTestId("packages-table");
 		await expect(table.locator("caption")).toContainText(
-			"9 workspaces surveyed on 27 September 2026",
+			"9 workspaces surveyed on 26 September 2026",
 		);
 		const rows = table.getByTestId("packages-row");
 		await expect(rows).toHaveCount(3);
 		const venv = rows.filter({ hasText: "python3-venv" });
 		await expect(venv).toContainText("Base-image candidate");
 		await expect(venv).toContainText("6 of 9");
-		await expect(venv).toContainText("25 September 2026");
+		await expect(venv).toContainText("23 September 2026");
 		// Two of nine is under a third: counted, not a candidate.
 		const htop = rows.filter({ hasText: "htop" });
 		await expect(htop).toContainText("2 of 9");

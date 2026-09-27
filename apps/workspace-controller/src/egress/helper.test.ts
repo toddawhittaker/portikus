@@ -470,7 +470,12 @@ describe("at boot, when the table is missing", () => {
 		expect(loads()).toEqual([]);
 	});
 
-	test("a recorded bridge that fails the bridge pattern is not used", async () => {
+	const droppedRules = () =>
+		loads()[0]
+			?.split("\n")
+			.filter((l) => l.startsWith("add rule"));
+
+	test("a recorded bridge that fails the bridge pattern is not used; the default bridge is dropped", async () => {
 		await applyOnce(policy());
 		const applied = JSON.parse(read("applied.json") ?? "");
 		writeFileSync(
@@ -479,7 +484,33 @@ describe("at boot, when the table is missing", () => {
 		);
 		writeFileSync(deps.envPath, "garbage\n");
 		expect(await runHelper(deps)).toBe(1);
-		expect(loads()).toEqual([]);
+		expect(loads()).toHaveLength(1);
+		expect(droppedRules()).toEqual([
+			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
+		]);
+	});
+
+	test("an unusable egress.env after an allow-list with no recorded bridge drops the default bridge", async () => {
+		await applyOnce(policy());
+		const { bridge: _b, ...applied } = JSON.parse(read("applied.json") ?? "");
+		writeFileSync(state("applied.json"), JSON.stringify(applied));
+		writeFileSync(deps.envPath, "garbage\n");
+		expect(await runHelper(deps)).toBe(1);
+		expect(droppedRules()).toEqual([
+			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
+		]);
+		expect(status().error).toMatch(/workspace forwarding is dropped/);
+	});
+
+	test("an unusable egress.env with a corrupt applied.json fails closed on the default bridge", async () => {
+		await applyOnce(policy({ mode: "open" }));
+		writeFileSync(state("applied.json"), "{not json");
+		writeFileSync(deps.envPath, "garbage\n");
+		expect(await runHelper(deps)).toBe(1);
+		expect(droppedRules()).toEqual([
+			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
+		]);
+		expect(status().error).toMatch(/workspace forwarding is dropped/);
 	});
 
 	test("a pending request is applied after the restore", async () => {

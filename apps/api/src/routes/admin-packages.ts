@@ -10,11 +10,14 @@ import { sql } from "kysely";
 import type { ServerDeps } from "../server.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
+const today = sql<Date>`(now() at time zone 'utc')::date`;
 
 /**
  * The package survey's site-wide counts (SPEC.md §20.1, ADR 0042). Only
  * days that surveyed at least PACKAGE_SURVEY_MIN_SURVEYED workspaces count,
- * so a count cannot single out one student. Every package seen on those
+ * so a count cannot single out one student, and only completed UTC days
+ * (before today), so watching today's count grow cannot single one out
+ * either. Every package seen on those
  * days is listed with the latest such day's count, so a package nobody has
  * any more shows 0 with the day it was last seen.
  */
@@ -30,6 +33,7 @@ export function registerAdminPackageRoutes(
 				.selectFrom("package_survey_days")
 				.select([sql<string>`to_char(day, 'YYYY-MM-DD')`.as("day"), "surveyed"])
 				.where("surveyed", ">=", minimum)
+				.where("day", "<", today)
 				.orderBy("day", "desc")
 				.limit(1)
 				.executeTakeFirst();
@@ -50,7 +54,8 @@ export function registerAdminPackageRoutes(
 					selectFrom("package_survey_days as d")
 						.select(sql`1`.as("one"))
 						.whereRef("d.day", "=", "package_survey_counts.day")
-						.where("d.surveyed", ">=", PACKAGE_SURVEY_MIN_SURVEYED),
+						.where("d.surveyed", ">=", PACKAGE_SURVEY_MIN_SURVEYED)
+						.where("d.day", "<", today),
 				),
 			)
 			.select([
