@@ -126,6 +126,8 @@ export function renderTable(
 			`${pre} ${publicDst} tcp dport 443 redirect to :${SQUID_TLS_PORT}`,
 			`${pre} ${publicDst} tcp dport 80 redirect to :${SQUID_HTTP_PORT}`,
 			`add rule ${TABLE} forward ${ws} meta l4proto { tcp, udp } th dport { 53, 853 } drop`,
+			// QUIC would reach a blocked site's address past Squid; clients fall back to TCP.
+			`add rule ${TABLE} forward ${ws} udp dport 443 drop`,
 		);
 	}
 	return `${lines.join("\n")}\n`;

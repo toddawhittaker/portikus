@@ -272,6 +272,7 @@ describe("renderTable", () => {
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr != { 10.0.0.0/8 } tcp dport 443 redirect to :3130',
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr != { 10.0.0.0/8 } tcp dport 80 redirect to :3129',
 			'add rule inet portikus_egress forward iifname "portikus-ws" meta l4proto { tcp, udp } th dport { 53, 853 } drop',
+			'add rule inet portikus_egress forward iifname "portikus-ws" udp dport 443 drop',
 		]);
 		// Nothing else is dropped: open mode stays open apart from the blocked names.
 		expect(t).not.toMatch(/forward iifname "portikus-ws" drop/);

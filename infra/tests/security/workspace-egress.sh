@@ -153,6 +153,8 @@ we_check_open_blocked() {
   check "open mode with blocked sites: the egress DNS runs" sec_ssh "systemctl is-active --quiet portikus-egress-dns"
   check "open mode with blocked sites: the workspace proxy runs" sec_ssh "systemctl is-active --quiet portikus-workspace-proxy"
   check "open mode with blocked sites: Squid's open switch is on" sec_ssh "grep -qx '[.]' /var/lib/portikus/egress-state/open.txt"
+  check "open mode with blocked sites: QUIC (UDP 443) is dropped, so it cannot pass Squid" \
+    sec_ssh "sudo nft list chain inet portikus_egress forward | grep -q 'udp dport 443 drop'"
   sec_exec a root "resolvectl flush-caches" >/dev/null 2>&1
   r=$(we_run_bash)
   printf '%s\n' "$r" | sed 's/^/    /'

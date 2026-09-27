@@ -18,7 +18,7 @@ ADR 0038 gives workspaces two egress modes: open, which reaches any public site,
 
 **Enforcement.** The worker sends `blocked` (sorted names, empty unless open mode) with the expanded policy; the helper's schema refuses blocked names in allow-list mode. In open mode with a non-empty list:
 
-- The helper's table redirects workspace DNS to the gateway (TCP and UDP 53) to our dnsmasq on port 5300, and drops other DNS on 53 and 853, as in allow-list mode. It redirects TCP 80 and 443 to every address outside the denied private ranges to Squid. Nothing else is dropped, and there is no names set.
+- The helper's table redirects workspace DNS to the gateway (TCP and UDP 53) to our dnsmasq on port 5300, and drops other DNS on 53 and 853, as in allow-list mode. It redirects TCP 80 and 443 to every address outside the denied private ranges to Squid, and drops UDP 443 so QUIC cannot pass Squid by address (clients fall back to TCP). Nothing else is dropped, and there is no names set.
 - Our dnsmasq forwards every name to the upstream (`server=/#/<upstream>`) except the blocked ones, which go to the worker's counter and get NXDOMAIN.
 - Squid refuses a blocked TLS name (`ssl_bump terminate`) or HTTP Host, and splices everything else. Its lists are three helper-written files: `names.txt` (allowed names), `blocked.txt` (blocked sites) and `open.txt`, which holds a single `.` while open mode has blocked sites and is empty otherwise. The `.` is a regular expression that matches every name, so one static Squid configuration serves both modes. Denied ranges are still terminated. Refusals reach the counter as before, and a spliced open-mode connection is never logged.
 - Failures fail closed as in allow-list mode: at boot, a policy with blocked sites that cannot be loaded drops workspace forwarding. An `applied.json` written before this change has no `blocked` field and reads as none.
@@ -30,5 +30,7 @@ ADR 0038 gives workspaces two egress modes: open, which reaches any public site,
 - While any site is blocked, all workspace web traffic on ports 80 and 443 passes through the workspace Squid, and all DNS through our dnsmasq. That costs some latency and makes both services load-bearing for every workspace, not only for allow-list sites. The page says so.
 - Squid never decrypts anything. It reads only the TLS name or the HTTP Host.
 - A blocked site reached by a hard-coded address with no TLS name, or with a false name, is not refused. That includes DNS over HTTPS by address, such as `https://1.1.1.1/dns-query`. Blocking by name cannot stop this; allow-list mode does.
+- Our dnsmasq keeps `stop-dns-rebind`, so a public name that answers with a private address gets no answer; those addresses are unreachable anyway.
+- A protocol other than TLS on port 443 no longer works while a site is blocked, because Squid expects TLS there.
 - Only ports 80 and 443 are checked. A blocked site on another port is refused only through DNS.
 - Because the seeded list is not empty, a site's first egress change after this migration also turns on the proxy path in open mode, unless the administrator removes the defaults.
