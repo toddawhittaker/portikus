@@ -67,6 +67,14 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"HEAD /admin/logs": 503,
 	"GET /admin/logs/counts": 503,
 	"HEAD /admin/logs/counts": 503,
+	// The matrix host never reported, so there is nothing to back up, delete or restore.
+	"POST /admin/backups/run": 409,
+	"DELETE /admin/backups/sets/:stamp": 400,
+	"DELETE /admin/backups/dumps/:file": 400,
+	"POST /admin/backups/restores": 404,
+	"POST /admin/backups/restores/:id/replace-home": 404,
+	"DELETE /admin/backups/snapshots/:volume/:snapshot": 400,
+	"DELETE /admin/backups/kept-homes/:volume": 400,
 };
 
 // The smallest PNG: one transparent pixel.
@@ -236,6 +244,10 @@ const PAYLOADS: Record<string, object> = {
 	"PUT /admin/workspaces/:id/quota": { homeGiB: 100, dockerGiB: 100 },
 	"PUT /admin/workspaces/:id/guard": { idleStopMinutes: 0 },
 	"POST /admin/workspaces/:id/rebuild": { resetDocker: false },
+	"POST /admin/backups/restores": {
+		stamp: "20260924T023000Z",
+		workspaceId: "550e8400-e29b-41d4-a716-446655440000",
+	},
 };
 
 /**

@@ -23,6 +23,7 @@ import { down as down0021, up as up0021 } from "./0021_notifications.js";
 import { down as down0022, up as up0022 } from "./0022_api_request_samples.js";
 import { down as down0023, up as up0023 } from "./0023_guard_idle_lift.js";
 import { down as down0024, up as up0024 } from "./0024_process_snapshots.js";
+import { down as down0026, up as up0026 } from "./0026_backups.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -53,4 +54,5 @@ export const migrations: Record<string, Migration> = {
 	"0022_api_request_samples": { up: up0022, down: down0022 },
 	"0023_guard_idle_lift": { up: up0023, down: down0023 },
 	"0024_process_snapshots": { up: up0024, down: down0024 },
+	"0026_backups": { up: up0026, down: down0026 },
 };
