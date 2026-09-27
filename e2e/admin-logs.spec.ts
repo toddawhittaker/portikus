@@ -237,4 +237,34 @@ test.describe("admin logs", () => {
 		await page.keyboard.press("Enter");
 		await expect(toggle).toHaveAttribute("aria-expanded", "false");
 	});
+
+	test("Load older lines pages back within the time window (issue #703)", async ({
+		page,
+		browser,
+	}) => {
+		// More than one page (100 lines) of one student's info lines.
+		const context = await browser.newContext({ baseURL: WEB_ORIGIN });
+		let userId: string;
+		try {
+			const student = await createStudent(context);
+			userId = student.userId;
+			for (let i = 0; i < 110; i++) {
+				const read = await context.request.get(`/workspaces/${student.workspaceId}`);
+				expect(read.status()).toBe(200);
+			}
+		} finally {
+			await context.close();
+		}
+		await loginAs(page, "carol");
+		await expect(async () => {
+			await page.goto(`/admin?tab=logs&level=info&since=1h&user=${userId}`);
+			await expect(logRows(page)).toHaveCount(100, { timeout: 2_000 });
+			await expect(page.getByTestId("logs-older")).toBeVisible({ timeout: 2_000 });
+		}).toPass({ timeout: 20_000 });
+
+		await page.getByTestId("logs-older").click();
+		await expect(page.getByTestId("logs-error")).toHaveCount(0);
+		await expect.poll(() => logRows(page).count()).toBeGreaterThan(100);
+		await expect(page.getByTestId("logs-error")).toHaveCount(0);
+	});
 });

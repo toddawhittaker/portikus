@@ -38,6 +38,19 @@ const entries = text
 		};
 	});
 
+// systemd 257 refuses a start time together with a cursor.
+if (
+	value("since").length > 0 &&
+	(value("cursor").length > 0 ||
+		value("after-cursor").length > 0 ||
+		value("cursor-file").length > 0)
+) {
+	process.stderr.write(
+		"Please specify only one of --since=, --cursor=, --cursor-file=, and --after-cursor=.\n",
+	);
+	process.exit(1);
+}
+
 const units = value("unit");
 const since = value("since")[0];
 const until = value("until")[0];

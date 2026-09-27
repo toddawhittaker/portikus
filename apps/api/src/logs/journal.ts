@@ -112,7 +112,9 @@ export function journalArgs(request: ReadRequest): string[] {
 		...Object.keys(PORTIKUS_UNITS).map((unit) => `--unit=${unit}`),
 	];
 	if (request.reverse) args.push("--reverse");
-	if (request.since) args.push(`--since=${epochSeconds(request.since, Math.floor)}`);
+	// journalctl refuses --since together with a cursor; the caller stops at `since` itself.
+	if (request.since && !request.afterCursor)
+		args.push(`--since=${epochSeconds(request.since, Math.floor)}`);
 	if (request.until) args.push(`--until=${epochSeconds(request.until, Math.ceil)}`);
 	if (request.afterCursor) args.push(`--after-cursor=${request.afterCursor}`);
 	const levels = request.levels ?? [];
@@ -124,6 +126,12 @@ export function journalArgs(request: ReadRequest): string[] {
 		args.push(`--grep="level":"(${parts.join("|")})"`);
 	}
 	return args;
+}
+
+// journalctl's own error text, never log content: its first line, capped.
+function firstLine(stderr: string): string {
+	const line = stderr.trim().split("\n")[0]?.trim().slice(0, 200) ?? "";
+	return line ? `: ${line}` : "";
 }
 
 /** One `--output=json` line as an entry, or null when it is not a usable one. */
@@ -284,7 +292,7 @@ export class JournalReader {
 						new LogsUnavailableError(
 							refused
 								? "journalctl may not read the journal"
-								: `journalctl exited ${code}`,
+								: `journalctl exited ${code}${firstLine(stderr)}`,
 						),
 					);
 					return;
