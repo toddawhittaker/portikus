@@ -83,7 +83,8 @@ export function useReturnFocus(returnFocusTo?: () => HTMLElement | null): {
 			if (chosen?.isConnected) {
 				origin.current = null;
 				event.preventDefault();
-				chosen.focus({ preventScroll: true });
+				// A caller-chosen target may have scrolled off-screen; bring it into view.
+				chosen.focus();
 				return;
 			}
 			// The caller already moved focus somewhere deliberate while closing.

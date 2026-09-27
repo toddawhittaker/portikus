@@ -225,7 +225,10 @@ function CourseMembers() {
 										<Button
 											size="sm"
 											data-remove-id={member.userId}
-											onClick={() => setRemoving(member)}
+											onClick={() => {
+												removedNext.current = null;
+												setRemoving(member);
+											}}
 										>
 											Remove{" "}
 											<span className="sr-only">{member.displayName} from course</span>

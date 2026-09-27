@@ -113,7 +113,10 @@ export function EntriesCard({
 											size="sm"
 											variant="quiet"
 											aria-label={`Remove ${entry.value}`}
-											onClick={() => setRemoving(entry)}
+											onClick={() => {
+												removed.current = false;
+												setRemoving(entry);
+											}}
 										>
 											Remove
 										</Button>
