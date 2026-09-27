@@ -14,6 +14,7 @@ const SECTIONS = [
 	"Workspace",
 	"Storage",
 	"Resource guard",
+	"Processes",
 	"Ports and connections",
 	"Logs",
 	"Recent audit events",

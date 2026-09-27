@@ -82,6 +82,8 @@ type GuardSettingKey =
 
 interface GuardSettingField {
 	key: GuardSettingKey;
+	/** The field's id and test id, named as in the per-workspace dialog. */
+	name: string;
 	label: string;
 	schema: z.ZodType<number>;
 	rangeText: string;
@@ -94,16 +96,19 @@ interface GuardSettingField {
 const GUARD_SETTING_FIELDS: GuardSettingField[] = [
 	...GUARD_FIELDS.filter((field) => field.key !== "idleStopMinutes").map((field) => ({
 		...field,
+		name: field.key,
 		key: GUARD_SETTING[field.key as Exclude<GuardKey, "idleStopMinutes">],
 	})),
 	{
 		key: "cpuIdleLiftMinutes",
+		name: "cpuIdleLiftMinutes",
 		label: "Quiet time to lift (minutes)",
 		schema: CpuIdleLiftMinutes,
 		rangeText: "Enter a whole number from 1 to 60.",
 	},
 	{
 		key: "cpuIdleLiftPercent",
+		name: "cpuIdleLiftPercent",
 		label: "Quiet below (%)",
 		schema: CpuIdleLiftPercent,
 		rangeText: "Enter 0 to turn it off, or a whole number up to 100.",
@@ -241,11 +246,11 @@ function ResourceGuardSection() {
 					return (
 						<TextField
 							key={key}
-							id={`settings-${key}`}
+							id={`settings-${field.name}`}
 							className="w-48"
 							label={field.label}
 							inputMode="numeric"
-							data-testid={`settings-${key}`}
+							data-testid={`settings-${field.name}`}
 							value={fieldValue(key)}
 							// Only the first problem is announced, so a reader hears one alert.
 							error={key === firstError ? announced(error) : error}
