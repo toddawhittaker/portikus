@@ -51,6 +51,7 @@ async function seedListening(
 	services: {
 		port: number;
 		addresses?: string[];
+		protocolHint?: "http" | "https" | "unknown";
 		previewReachability?: "reachable" | "forwarded" | "unknown";
 		system?: boolean;
 		process?: { pid?: number; command?: string };
@@ -972,6 +973,90 @@ test.skipIf(skip)("a port with nothing listening explains itself", async () => {
 	const response = await authorize(token, previewHostFor(5173));
 	expect(response.body).toContain("Nothing is currently listening on port 5173");
 	expect(response.body).toContain("Start your application to reconnect this preview");
+});
+
+// ── A listener speaking HTTPS (issue #283, step 1) ──
+
+const HTTPS_SENTENCE =
+	"This port is speaking HTTPS; the preview expects plain HTTP. Start your " +
+	"server without TLS, or wait for HTTPS previews.";
+
+test.skipIf(skip)(
+	"a port speaking HTTPS explains itself and names no upstream",
+	async () => {
+		const token = await openPreview(5173);
+		await seedListening([{ port: 5173, protocolHint: "https" }]);
+		await until(async () => {
+			const response = await authorize(token, previewHostFor(5173));
+			return response.statusCode === 503;
+		});
+		const response = await authorize(token, previewHostFor(5173));
+		expect(response.headers["content-type"]).toContain("text/html");
+		expect(response.headers["x-portikus-upstream"]).toBeUndefined();
+		expect(response.body).toContain("Port 5173 is speaking HTTPS");
+		expect(response.body).toContain(HTTPS_SENTENCE);
+	},
+);
+
+test.skipIf(skip)(
+	"the same port previews again once it speaks plain HTTP",
+	async () => {
+		const token = await openPreview(5173);
+		await seedListening([{ port: 5173, protocolHint: "https" }]);
+		await until(
+			async () => (await authorize(token, previewHostFor(5173))).statusCode === 503,
+		);
+		await seedListening([{ port: 5173, protocolHint: "http" }]);
+		await until(
+			async () => (await authorize(token, previewHostFor(5173))).statusCode === 200,
+		);
+		const response = await authorize(token, previewHostFor(5173));
+		expect(response.headers["x-portikus-upstream"]).toBe("127.0.0.1:5173");
+	},
+);
+
+test.skipIf(skip)("an unknown protocol hint still previews", async () => {
+	const token = await openPreview(5173);
+	await seedListening([{ port: 5173, protocolHint: "unknown" }]);
+	await until(
+		async () => (await authorize(token, previewHostFor(5173))).statusCode === 200,
+	);
+});
+
+test.skipIf(skip)(
+	"a bridge to a port speaking HTTPS gets the page, not a forward",
+	async () => {
+		await seedListening([
+			{ port: 5173 },
+			{ port: 3000, protocolHint: "https", previewReachability: "unknown" },
+		]);
+		await listeningPorts(2);
+		const token = await openPreview(5173);
+		const response = await authorize(token, previewHostFor(5173), {
+			extra: { "x-forwarded-uri": "/__portikus/ports/3000/api" },
+		});
+		expect(response.statusCode).toBe(503);
+		expect(response.headers["x-portikus-upstream"]).toBeUndefined();
+		expect(response.body).toContain(HTTPS_SENTENCE);
+		expect(agent.forwards.get(workspaceId) ?? new Set()).not.toContain(3000);
+	},
+);
+
+test.skipIf(skip)("the HTTPS page is never shown before authorization", async () => {
+	const token = await openPreview(5173);
+	await seedListening([{ port: 5173, protocolHint: "https" }]);
+	await until(
+		async () => (await authorize(token, previewHostFor(5173))).statusCode === 503,
+	);
+	// No cookie, a forged cookie, another port's host, and a remote caller.
+	expect((await authorize(null, previewHostFor(5173))).statusCode).toBe(401);
+	expect((await authorize("nonsense", previewHostFor(5173))).statusCode).toBe(401);
+	expect((await authorize(token, previewHostFor(3000))).statusCode).toBe(403);
+	const remote = await authorize(token, previewHostFor(5173), {
+		remoteAddress: "10.1.2.3",
+	});
+	expect(remote.statusCode).toBe(403);
+	expect(remote.body).not.toContain("HTTPS");
 });
 
 test.skipIf(skip)("only loopback may ask for an authorization", async () => {
