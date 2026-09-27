@@ -1,6 +1,6 @@
 /**
- * Stopping one of the student's processes (SPEC.md §18.3; docs/EPIC-21.md
- * rulings 8 to 11). Refusals are checked against a fake `/proc`; the signals
+ * Stopping one of the student's processes (SPEC.md §18.3). Refusals are checked
+ * against a fake `/proc`; the signals
  * against real child processes of this test.
  */
 import { type ChildProcess, spawn } from "node:child_process";
@@ -137,6 +137,28 @@ test("the tmux PID is asked for again only when that process is gone", async () 
 	expect(await source()).toBeNull();
 	expect(asked).toBe(2);
 	await fakeProcess(TMUX, "tmux: server", STUDENT, 65);
+});
+
+test("a no-server answer is reused for ten seconds, except by a fresh ask", async () => {
+	let asked = 0;
+	let clock = 0;
+	const source = tmuxPidSource(
+		fakeProc,
+		async () => {
+			asked++;
+			return null;
+		},
+		() => clock,
+	);
+	expect(await source()).toBeNull();
+	clock = 9_000;
+	expect(await source()).toBeNull();
+	expect(asked).toBe(1);
+	expect(await source(true)).toBeNull();
+	expect(asked).toBe(2);
+	clock = 19_500;
+	expect(await source()).toBeNull();
+	expect(asked).toBe(3);
 });
 
 test("a refused stop sends no signal", async () => {

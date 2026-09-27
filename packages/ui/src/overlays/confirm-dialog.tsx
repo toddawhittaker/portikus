@@ -10,6 +10,8 @@ export interface ConfirmDialogProps {
 	id?: string;
 	title: string;
 	description?: React.ReactNode;
+	/** Controls shown under the description, kept out of the accessible description. */
+	children?: React.ReactNode;
 	lost?: React.ReactNode[];
 	survives?: React.ReactNode[];
 	confirmLabel: string;
@@ -33,6 +35,7 @@ export function ConfirmDialog({
 	id = "pk-confirm",
 	title,
 	description,
+	children,
 	lost,
 	survives,
 	confirmLabel,
@@ -76,6 +79,7 @@ export function ConfirmDialog({
 								{description}
 							</RadixAlertDialog.Description>
 						) : null}
+						{children ? <div className="mt-2">{children}</div> : null}
 					</div>
 				</div>
 				{lost || survives || confirmText ? (

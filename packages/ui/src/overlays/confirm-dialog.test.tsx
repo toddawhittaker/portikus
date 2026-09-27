@@ -178,4 +178,22 @@ describe("ConfirmDialog", () => {
 			"info",
 		);
 	});
+
+	it("renders children inside the dialog", () => {
+		render(
+			<ConfirmDialogRoot defaultOpen>
+				<ConfirmDialog
+					title="Rebuild all?"
+					lost={["The running processes"]}
+					survives={["The files on disk"]}
+					confirmLabel="Rebuild"
+				>
+					<p>Three workspaces will be rebuilt.</p>
+				</ConfirmDialog>
+			</ConfirmDialogRoot>,
+		);
+		expect(screen.getByRole("alertdialog").textContent).toContain(
+			"Three workspaces will be rebuilt.",
+		);
+	});
 });

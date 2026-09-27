@@ -16,14 +16,22 @@ vi.mock("../TerminalPane", () => ({
 	TerminalPane: ({
 		terminal,
 		focusOnMount,
+		onExited,
 	}: {
 		terminal: Terminal;
 		focusOnMount?: boolean;
+		onExited?: (id: string) => void;
 	}) => (
 		<div
 			data-testid={`terminal-pane-${terminal.id}`}
 			data-focus-on-mount={focusOnMount ? "true" : "false"}
-		/>
+		>
+			<button
+				type="button"
+				data-testid={`fake-shell-${terminal.id}`}
+				onClick={() => onExited?.(terminal.id)}
+			/>
+		</div>
 	),
 }));
 
@@ -167,6 +175,30 @@ test("a terminal that is gone loses its pane", async () => {
 
 	await waitFor(() => expect(screen.getByTestId(`terminal-leaf-${ONE}`)).toBeTruthy());
 	expect(screen.queryByTestId(`terminal-leaf-${TWO}`)).toBeNull();
+});
+
+test("a shell that ends in the focused pane hands focus to New", async () => {
+	stubFetch({
+		layout: savedLayout,
+		terminals: [terminal(ONE, "zsh"), terminal(TWO, "zsh")],
+	});
+	renderArea();
+	const shell = await screen.findByTestId(`fake-shell-${ONE}`);
+	shell.focus();
+	fireEvent.click(shell);
+	expect(document.activeElement).toBe(screen.getByTestId("launcher"));
+});
+
+test("a shell that ends in another pane leaves focus where it is", async () => {
+	stubFetch({
+		layout: savedLayout,
+		terminals: [terminal(ONE, "zsh"), terminal(TWO, "zsh")],
+	});
+	renderArea();
+	const typing = await screen.findByTestId(`fake-shell-${TWO}`);
+	typing.focus();
+	fireEvent.click(screen.getByTestId(`fake-shell-${ONE}`));
+	expect(document.activeElement).toBe(typing);
 });
 
 test("an ended terminal keeps its pane and marks the tab as ended", async () => {

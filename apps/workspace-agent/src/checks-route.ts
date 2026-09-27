@@ -20,7 +20,9 @@ import {
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { type IPty, spawn } from "node-pty";
 import { sendError } from "./errors.js";
+import { killProcessTree, readStartTime } from "./process-tree.js";
 import { resolveProject } from "./projects.js";
+import { DRAIN_POLL_MS, HIGH_WATER_BYTES, LOW_WATER_BYTES } from "./terminals.js";
 import { AgentFailure } from "./tmux.js";
 
 /** Close code for a socket asking about a run that does not exist. */
@@ -45,9 +47,13 @@ interface LiveRun {
 	bytes: number;
 	/** Null once the command has ended or never started. */
 	pty: IPty | null;
+	/** The PTY root's start time, so a stop never hits a reused pid. */
+	ptyStart: Promise<string | null>;
 	watchers: Set<WebSocket>;
 	/** The frame that ended this run, replayed to a late watcher. */
 	final: CheckOutputFrame | null;
+	/** Set while the PTY is paused for a slow watcher (SPEC.md §18.1). */
+	drainTimer: NodeJS.Timeout | null;
 }
 
 function key(slug: string, checkId: string): string {
@@ -112,8 +118,10 @@ export class CheckRunner {
 			chunks: [],
 			bytes: 0,
 			pty: null,
+			ptyStart: Promise.resolve(null),
 			watchers: new Set(),
 			final: null,
+			drainTimer: null,
 		};
 		// Re-inserting puts this check at the newest end of the map, which is
 		// the order eviction walks.
@@ -141,6 +149,7 @@ export class CheckRunner {
 			return run.meta;
 		}
 		run.pty = pty;
+		run.ptyStart = readStartTime(pty.pid);
 
 		pty.onData((data: string) => {
 			const chunk = Buffer.from(data, "utf8");
@@ -150,6 +159,7 @@ export class CheckRunner {
 				data: chunk.toString("base64"),
 			};
 			for (const socket of run.watchers) send(socket, frame);
+			this.applyBackpressure(run);
 		});
 
 		pty.onExit(({ exitCode }: { exitCode: number }) => {
@@ -171,11 +181,17 @@ export class CheckRunner {
 		if (run?.meta.state !== "running" || !run.pty) {
 			throw new AgentFailure("CHECK_NOT_RUNNING", "that check is not running");
 		}
-		try {
-			run.pty.kill();
-		} catch {
-			// The process may already be gone; onExit still settles the run.
-		}
+		// The whole tree, so a background child cannot outlive the stop
+		// (SPEC.md §18.1); onExit still settles the run.
+		const pid = run.pty.pid;
+		run.ptyStart
+			.then((start) => (start === null ? undefined : killProcessTree(pid, start)))
+			.catch((error: unknown) => {
+				this.log.warn(
+					{ error: error instanceof Error ? error.message : String(error) },
+					"could not stop a check's processes",
+				);
+			});
 	}
 
 	/**
@@ -213,6 +229,33 @@ export class CheckRunner {
 		}
 	}
 
+	/**
+	 * Pause the PTY while any watcher's socket is backed up, as a terminal
+	 * does (SPEC.md §9.7), and resume once every one has drained.
+	 */
+	private applyBackpressure(run: LiveRun): void {
+		const pty = run.pty;
+		if (run.drainTimer || !pty) return;
+		const backedUp = [...run.watchers].some(
+			(socket) => socket.bufferedAmount > HIGH_WATER_BYTES,
+		);
+		if (!backedUp) return;
+		pty.pause();
+		run.drainTimer = setInterval(() => {
+			const draining = [...run.watchers].some(
+				(socket) => socket.bufferedAmount >= LOW_WATER_BYTES,
+			);
+			if (draining && run.pty) return;
+			this.stopDrain(run);
+			run.pty?.resume();
+		}, DRAIN_POLL_MS);
+	}
+
+	private stopDrain(run: LiveRun): void {
+		if (run.drainTimer) clearInterval(run.drainTimer);
+		run.drainTimer = null;
+	}
+
 	/** Forget finished runs, oldest first, until the map is back in bounds. */
 	private evictOldFinishedRuns(): void {
 		while (this.runs.size > MAX_REMEMBERED_RUNS) {
@@ -248,6 +291,7 @@ export class CheckRunner {
 		frame: CheckOutputFrame,
 		state: "passed" | "failed" | "error",
 	): void {
+		this.stopDrain(run);
 		run.meta.state = state;
 		run.meta.endedAt = new Date().toISOString();
 		run.final = frame;

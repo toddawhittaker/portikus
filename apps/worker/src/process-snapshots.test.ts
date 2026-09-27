@@ -1,6 +1,6 @@
 /**
  * The worker's side of the administrator's process list (ADR 0037;
- * docs/EPIC-21.md ruling 16): each pending Refresh is served once, from the
+ * SPEC.md §20.1): each pending Refresh is served once, from the
  * controller, and old snapshots are deleted.
  */
 import type { InstanceProcess } from "@portikus/contracts";

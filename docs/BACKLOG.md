@@ -1238,6 +1238,65 @@ design/. Half a day with the header tests.
 
 **Source.** Accessibility review of Epic 14.3 (issue #475).
 
+## Health tab layout
+
+**What.** The Health tab in three rows, with state badges, a warning
+coloured pool tag and chart tokens (issue #603).
+
+**What it would take.** Goes to the observability epic with the Health
+charts (#597, #598, #599, #476).
+
+**Source.** Admin UX review of 2026-09-26, left out of Epic 18.
+
+## Sortable admin tables and a table component
+
+**What.** Sortable column headers and a React `<Table>` component.
+
+**What it would take.** Port the design's sortable-header rules and add
+sort state per table. Worth a component only once column definitions
+repeat.
+
+**Source.** Left out of Epic 18; the CSS classes are enough today.
+
+## Admin tabs in the app header
+
+**What.** Move the admin tab navigation into the app header, as the
+mockup's `.pk-adminnav` does, to save about 110 px of height.
+
+**What it would take.** A header change that knows about admin routes,
+with the header tests and e2e updated.
+
+**Source.** Left out of Epic 18.
+
+## Per-row "more" menus in admin tables
+
+**What.** A menu on each Users row with its actions, from the mockup.
+
+**What it would take.** A menu per row reusing the detail panel's
+actions. Bulk selection and the detail panel already carry them.
+
+**Source.** Left out of Epic 18.
+
+## A tablet admin layout
+
+**What.** An admin area usable below 1024 px.
+
+**What it would take.** A narrow layout for the tables and detail panel.
+The admin area is desktop-only today (SPEC.md section 20.1).
+
+**Source.** Left out of Epic 18.
+
+## Shared storage thresholds for the admin detail panel
+
+**What.** The admin detail panel could reuse the student side's
+StorageMeters and storageLevel thresholds, so both sides colour usage
+the same way.
+
+**What it would take.** Import the shared helper in the panel's meters,
+with a unit test. Under half a day.
+
+**Source.** Epic 18 confirmation review.
+
 ## Workspace usage in the error state
 
 **What.** The error screen already shows the storage meters and offers
@@ -1284,16 +1343,6 @@ radio group item, used by the width menu. Half a day.
 
 **Source.** Left out of Epic 20 (issue #609).
 
-## The rest of the resource notices (#607)
-
-**What.** "See what's using CPU" on the throttle notice, a memory notice,
-a memory warning in the status bar, and Stop buttons in Monitor.
-
-**What it would take.** Its own epic, branched after Epic 20, per issue
-#607.
-
-**Source.** Left out of Epic 20.
-
 ## A full accessibility audit of the student interface
 
 **What.** Epic 20's accessibility review covered only that epic's changes.
@@ -1302,3 +1351,287 @@ a memory warning in the status bar, and Stop buttons in Monitor.
 interface against SPEC.md section 25.8, with fixes filed as issues.
 
 **Source.** Left out of Epic 20.
+
+## One deadline for a workspace create
+
+**What.** A workspace create has no single shared deadline. Each step has
+its own bound (60 s per volume create, 240 s for the instance create's
+wait), so on paper the steps can add up to about 420 s, past the worker's
+300 s create budget. The rehearsal measured 17 to 30 s under load, and a
+retry adopts whatever the first try already made, so nothing is lost.
+
+**What it would take.** Pass one deadline from the worker's call down
+through the controller's create steps, with a unit test. About half a day.
+
+**Source.** Left out of Epic 17 (ADR 0034).
+
+## Clone and template on a full disk
+
+**What.** Cloning a repository or creating a project from a template on a
+full disk still reports `GIT_FAILED`, not `STORAGE_FULL`, so the student
+is not told that storage is the cause.
+
+**What it would take.** Have the workspace agent recognise "No space left
+on device" in the git or copy output and answer `STORAGE_FULL`, with unit
+tests. Under a day.
+
+**Source.** Left out of Epic 17.
+
+## Systemd watchdogs for the Node services
+
+**What.** systemd could restart a Portikus service that hangs without
+crashing.
+
+**What it would take.** `sd_notify` support in each Node service and
+`WatchdogSec=` on its unit. No process has been seen wedged so far.
+
+**Source.** Left out of Epic 17 (ADR 0034).
+
+## Disk I/O priority between the platform and workspaces
+
+**What.** `IOWeight` on the platform's services or `limits.disk.priority`
+on workspaces. Neither works without the BFQ disk scheduler, and the VM's
+disks use `none`. Contention between the VM's two disks on the host was
+not measured.
+
+**What it would take.** Measure host-level contention first; if it
+matters, switch the VM's disks to BFQ and set weights.
+
+**Source.** Left out of Epic 17 (ADR 0034).
+
+## A per-address limit on made-up preview cookies
+
+**What.** A made-up preview cookie is neither cached nor capped; each costs
+two indexed lookups, bounded only by the database pool timeouts.
+
+**What it would take.** Reuse the sign-in edge throttle for
+`/preview/authorize` misses, per address.
+
+**Source.** Left out of Epic 17.
+
+## Connection-tracking and dnsmasq limits per workspace
+
+**What.** Workspaces share the host's connection-tracking table (262,144
+entries) and dnsmasq. No pressure has been measured.
+
+**What it would take.** Measure under load, then add per-workspace limits
+if one workspace can fill either.
+
+**Source.** Left out of Epic 17.
+
+## Rate limits on reads and recovery points
+
+**What.** File reads and project reads are not rate-limited, and recovery
+points and check runs are outside the new file-write limit. Reads are
+cheap and bounded by size caps; recovery points already have their own
+limit.
+
+**What it would take.** Add counters with the shared
+`apps/api/src/rate-limit.ts` if a need appears.
+
+**Source.** Left out of Epic 17.
+
+## Remove the pilot's pre-epic snapshots
+
+**What.** The pilot's `pre-epic*` snapshots are Todd's rollback kits.
+
+**What it would take.** Delete them on Todd's schedule, 2026-10-01 to
+2026-10-03.
+
+**Source.** Epic 17 plan.
+
+## Keep the old save error while the disk stays full
+
+**What.** While the home folder is full, the editor's save error is
+announced to screen readers again after every autosave attempt.
+
+**What it would take.** Keep the existing error in `FileLeaf.tsx` until a
+save succeeds instead of replacing it with an identical one. Under a day.
+
+**Source.** Accessibility review of Epic 16.
+
+## A per-user cap on terminal WebSocket connections
+
+**What.** Each terminal allows 4 attachments and each workspace 20
+terminals, but nothing caps how many terminal WebSockets one user holds
+open across the control plane. This predates Epic 16.
+
+**What it would take.** A per-user connection count in the terminal
+WebSocket route with a clear refusal code. About a day with tests.
+
+**Source.** Security review of Epic 16.
+
+## An exact out-of-memory reason in the terminals exit record
+
+**What.** The exit record says `oom-kill` when tmux died of `SIGKILL` and
+the terminals unit's cgroup counts any `oom_kill`. An earlier pane OOM
+kill followed by a plain `SIGKILL` of tmux in the same run is reported as
+out of memory (ADR 0035).
+
+**What it would take.** Record the `oom_kill` count when the unit starts
+and compare it at stop, or read the kernel's per-process OOM report.
+About a day, with a rehearsal.
+
+**Source.** Epic 16 rehearsal.
+
+## CPU weights and a memory floor for the agent
+
+**What.** Audit recommendation 3: give the agent a CPU weight and
+`MemoryMin`. Checks still run in the agent's cgroup, so a CPU weight would
+favour student Check code too.
+
+**What it would take.** Moving Checks out first (below), then the unit
+settings and a rehearsal.
+
+**Source.** Left out of Epic 16.
+
+## Move Checks out of the agent's cgroup
+
+**What.** Checks run in the agent's cgroup, so a Check that uses too much
+memory can take the agent with it.
+
+**What it would take.** Start Checks in the terminals unit or their own,
+and change how they are started and replayed. Several days.
+
+**Source.** Left out of Epic 16.
+
+## A watchdog for a stopped agent
+
+**What.** An agent stopped with `SIGSTOP` stays stopped. Only a deliberate
+act causes it.
+
+**What it would take.** A systemd watchdog with a heartbeat from the
+agent. About a day.
+
+**Source.** Left out of Epic 16.
+
+## The preview registry connecting only on demand
+
+**What.** The control plane keeps one port-events socket per running
+workspace, so each agent's scanner stays awake.
+
+**What it would take.** Connect only while a browser watches Running or a
+preview is open, without losing current ports for preview routing.
+
+**Source.** Left out of Epic 16.
+
+## A Docker process share per student
+
+**What.** Docker containers share the container's 2000 processes with the
+agent; the terminals unit's cap does not cover them.
+
+**What it would take.** A pids limit for the Docker daemon's containers,
+set in the image. About a day with a rehearsal.
+
+**Source.** Left out of Epic 16.
+
+## `INTERNAL` instead of `TMUX_FAILED` for other project route errors
+
+**What.** Project routes report errors other than a full disk as
+`TMUX_FAILED`, which is the wrong code for them.
+
+**What it would take.** Change the fallback in the agent's project routes
+and their tests. Under a day.
+
+**Source.** Left out of Epic 16.
+
+## Explain an agent restart on images before 2026.09.11
+
+**What.** On older images an agent restart still closes every terminal
+with no explanation.
+
+**What it would take.** Nothing beyond rebuilding those workspaces on the
+new image, which fixes it.
+
+**Source.** Left out of Epic 16.
+
+## Monitor buttons while Find in files is open
+
+**What.** "See what's using CPU", "See what's using memory" and the
+status bar's Memory meter do nothing visible while Find in files covers
+the right pane's tabs. Monitor is chosen and focus moves to its tab only
+once the search closes.
+
+**What it would take.** Close the search, or show Monitor over it, when
+one of these buttons is pressed, with a unit and a Playwright test. Half
+a day.
+
+**Source.** Epic 21 accessibility confirmation review; the behaviour
+predates Epic 21.
+
+## Stop a process tree, and renice
+
+**What.** Stop a program and its children together from Monitor, or
+lower its priority.
+
+**What it would take.** Reuse Epic 16's `process-tree.ts` behind the
+agent's checked stop route, with the same PID and start-ticks checks for
+each process. About two days with tests.
+
+**Source.** Left out of Epic 21 (issue #607).
+
+## Per-workspace idle-lift settings
+
+**What.** Let one workspace override the automatic throttle lift's quiet
+time and percent.
+
+**What it would take.** Two more keys in the guard override dialog and
+the worker's settings lookup. A day with tests.
+
+**Source.** Left out of Epic 21 (issue #596 asks for none until needed).
+
+## An administrator's stop when the agent is down
+
+**What.** Stop one process in a workspace whose agent does not answer.
+Today the administrator stops or restarts the whole workspace instead.
+
+**What it would take.** A root-level kill path in the controller keyed on
+host PID and start ticks, with its own security review. More to secure
+than the case is worth so far (ADR 0037).
+
+**Source.** Left out of Epic 21.
+
+## A live administrator's process list
+
+**What.** Refresh the administrator's process list on its own, or show
+it with the workspace list.
+
+**What it would take.** A timer in the section that presses Refresh, with
+thought about the audit rows each read writes. A day.
+
+**Source.** Left out of Epic 21 (issue #595 asks for a Refresh button).
+
+## Tell the student of an idle lift they missed
+
+**What.** A student who was away when their throttle lifted on its own
+is not told; only an open page shows the "back to full speed" toast.
+
+**What it would take.** A notification row written by the worker on an
+idle lift. Half a day.
+
+**Source.** Left out of Epic 21.
+
+## Protect a unit's main process by its MainPID
+
+**What.** A student with sudo can restart the agent or terminals unit
+and then move a long-running program into that unit's cgroup, so it is
+the oldest process there and the administrator's list marks it
+protected. The administrator then stops the whole workspace instead.
+
+**What it would take.** Read each unit's MainPID from the host side, or
+have the agent report its own PID and the tmux server's, and protect only
+those. About a day with tests (ADR 0037).
+
+**Source.** Epic 21 security confirmation review.
+
+## Stop the host-side process read when the worker gives up
+
+**What.** The controller's cgroup walk runs to its caps even after the
+worker's 10-second request has timed out. A student can make it slow up
+to those caps with thousands of empty cgroups.
+
+**What it would take.** Pass the request's abort signal into the walk,
+and decide how a read shared by two callers treats one caller's abort.
+Half a day.
+
+**Source.** Epic 21 security confirmation review.

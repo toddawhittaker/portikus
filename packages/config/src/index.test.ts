@@ -432,6 +432,18 @@ test("AgentConfigSchema applies the workspace agent defaults", () => {
 	expect(config.PORT).toBe(7400);
 	expect(config.TOKEN_PATH).toBe("/etc/portikus/agent.token");
 	expect(config.HOME_DIR).toBe("/home/student");
+	expect(config.TMUX_SOCKET_NAME).toBe("portikus");
+	expect(config.TMUX_EXTERNAL_SERVER).toBe(false);
+});
+
+test("AgentConfigSchema reads TMUX_EXTERNAL_SERVER and refuses other values", () => {
+	expect(
+		loadConfig(AgentConfigSchema, { TMUX_EXTERNAL_SERVER: "true" })
+			.TMUX_EXTERNAL_SERVER,
+	).toBe(true);
+	expect(() =>
+		loadConfig(AgentConfigSchema, { TMUX_EXTERNAL_SERVER: "yes" }),
+	).toThrow();
 });
 
 test("AgentConfigSchema coerces an overridden PORT", () => {
@@ -615,6 +627,9 @@ test("ApiConfig's sign-in limits let a lab of 30 behind one address sign in with
 	// One sign-in takes five starts: /auth/login, three /dex/auth pages, /auth/callback.
 	expect(config.SIGNIN_START_LIMIT_PER_MINUTE).toBe(150);
 	expect(config.PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES).toBe(30);
+	// Epic 17 ruling 16: per-user lifecycle and file-write limits.
+	expect(config.WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE).toBe(20);
+	expect(config.FILE_WRITE_LIMIT_PER_MINUTE).toBe(600);
 });
 
 test("AgentConfig defaults RECOVERY_ROOT to the recovery volume mount", () => {

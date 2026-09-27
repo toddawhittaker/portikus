@@ -1,6 +1,6 @@
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the administrator's
- * process list (docs/EPIC-21.md ruling 26): the table, then the stop dialog at
+ * process list (SPEC.md §20.1): the table, then the stop dialog at
  * its Force stop step, in the light and dark themes.
  */
 import { expect, type Page, test } from "@playwright/test";

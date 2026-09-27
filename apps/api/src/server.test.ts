@@ -116,6 +116,64 @@ test("an unexpected error returns a generic INTERNAL body", async () => {
 	await app.close();
 });
 
+test("a busy database pool answers 503 SERVICE_BUSY (ADR 0034 ruling 14)", async () => {
+	const busy: OidcClient = {
+		buildLoginRedirect: async () => {
+			throw new Error("timeout exceeded when trying to connect");
+		},
+		completeLogin: async () => {
+			throw new Error("unused");
+		},
+	};
+	const app = buildServer({
+		db: {} as unknown as Kysely<Database>,
+		config: testConfig("http://127.0.0.1:3002"),
+		logger: silentLogger(),
+		oidc: busy,
+	});
+	const response = await app.inject({ method: "GET", url: "/auth/login" });
+	expect(response.statusCode).toBe(503);
+	expect(response.json()).toEqual({
+		code: "SERVICE_BUSY",
+		message: "The server is busy. Try again in a moment.",
+	});
+	await app.close();
+});
+
+test("an unreachable database answers 503, an ordinary query error 500", async () => {
+	async function statusFor(error: Error): Promise<number> {
+		const oidc: OidcClient = {
+			buildLoginRedirect: async () => {
+				throw error;
+			},
+			completeLogin: async () => {
+				throw new Error("unused");
+			},
+		};
+		const app = buildServer({
+			db: {} as unknown as Kysely<Database>,
+			config: testConfig("http://127.0.0.1:3002"),
+			logger: silentLogger(),
+			oidc,
+		});
+		const response = await app.inject({ method: "GET", url: "/auth/login" });
+		await app.close();
+		return response.statusCode;
+	}
+	const coded = (message: string, code: string) =>
+		Object.assign(new Error(message), { code });
+	expect(
+		await statusFor(coded("connect ECONNREFUSED 127.0.0.1:5432", "ECONNREFUSED")),
+	).toBe(503);
+	expect(await statusFor(coded("the database system is starting up", "57P03"))).toBe(
+		503,
+	);
+	expect(
+		await statusFor(new Error("Connection terminated due to connection timeout")),
+	).toBe(503);
+	expect(await statusFor(coded("relation does not exist", "42P01"))).toBe(500);
+});
+
 /** One keep-alive request, resolving with the status and the local port used. */
 function request(
 	port: number,

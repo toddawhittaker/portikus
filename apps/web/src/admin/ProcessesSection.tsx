@@ -10,7 +10,7 @@ import { ApiError, request } from "../api/request.js";
 import { formatBytes, formatCpu } from "../monitor/format.js";
 import { stopErrorText } from "../monitor/stop.js";
 
-/** The browser polls once a second for at most 20 seconds (docs/EPIC-21.md ruling 16). */
+/** The browser polls once a second for at most 20 seconds (SPEC.md §20.1). */
 export const POLL_MS = 1000;
 export const POLL_LIMIT_MS = 20_000;
 
@@ -224,18 +224,18 @@ export function ProcessesSection({
 	return (
 		<section
 			aria-labelledby="detail-processes"
-			className="flex flex-col gap-2"
+			className="pk-detail-section"
 			data-testid="detail-processes"
 		>
 			<div className="flex items-center gap-2">
-				<h3
+				<h4
 					id="detail-processes"
 					ref={headingRef}
 					tabIndex={-1}
 					className="pk-text-label m-0 outline-none"
 				>
 					Processes
-				</h3>
+				</h4>
 				{running ? (
 					<Button
 						size="sm"

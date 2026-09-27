@@ -155,6 +155,7 @@ export function registerAdminHealthRoutes(
 							pool: {
 								usedBytes: host.pool.usedBytes,
 								totalBytes: host.pool.totalBytes,
+								metadataPercent: host.pool.metadataPercent,
 							},
 							profileLimits: host.profileLimits,
 							image: host.image,

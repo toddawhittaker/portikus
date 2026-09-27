@@ -19,7 +19,7 @@ export const REFUSAL_STATUS: Record<ProcessStopErrorCode, number> = {
 };
 
 // Shared by the student's and the administrator's stop, so "one stop at a
-// time per workspace" (docs/EPIC-21.md ruling 13) holds across both.
+// time per workspace" (SPEC.md §18.3) holds across both.
 const stopping = new Set<string>();
 const stopTimes = new Map<string, number[]>();
 
@@ -118,8 +118,8 @@ export async function stopThroughAgent(opts: {
 }
 
 /**
- * The student stops one of their own processes (SPEC.md §18.3; docs/EPIC-21.md
- * rulings 13 and 15). Owner-only; the agent checks the PID, its start ticks
+ * The student stops one of their own processes (SPEC.md §18.3). Owner-only; the
+ * agent checks the PID, its start ticks
  * and the protected list.
  */
 export function registerProcessRoutes(app: FastifyInstance, deps: ServerDeps): void {

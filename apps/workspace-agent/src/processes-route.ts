@@ -1,5 +1,5 @@
 /**
- * `POST /processes/:pid/stop` (SPEC.md §18.3; docs/EPIC-21.md ruling 8). One
+ * `POST /processes/:pid/stop` (SPEC.md §18.3). One
  * route serves the student and the administrator, both through the API.
  * Token auth comes from the server's own preHandler hook.
  */

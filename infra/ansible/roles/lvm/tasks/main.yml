@@ -151,3 +151,77 @@
           {{ lvm_vg_name }}/{{ lvm_thinpool_name }}
       when: lvm_tp_data_target_ext | int > lvm_tp_data_ext | int
       changed_when: true
+
+# ── A full pool fails writes at once (docs/CAPACITY.md) ─────────
+# With the default "queue", a full pool blocks every workspace's writes for
+# about 60 seconds and can hang Incus operations, which stalls the worker.
+# With "error", the writer gets "No space left on device" straight away.
+- name: Read what the thin pool does when full
+  ansible.builtin.command:
+    cmd: "lvs --noheadings -o lv_when_full {{ lvm_vg_name }}/{{ lvm_thinpool_name }}"
+  register: lvm_when_full
+  changed_when: false
+  check_mode: false
+
+- name: Make the thin pool fail writes when full instead of queueing them
+  ansible.builtin.command:
+    cmd: "lvchange --errorwhenfull y {{ lvm_vg_name }}/{{ lvm_thinpool_name }}"
+  when: lvm_when_full.stdout | trim != 'error'
+  changed_when: true
+
+# ── Thin pool status for the controller (docs/CAPACITY.md) ──────
+# Incus reports data use only, and the controller cannot run lvs, so root
+# writes both figures to /run/portikus-thinpool.json every minute.
+- name: Install the thin pool status script
+  ansible.builtin.template:
+    src: portikus-thinpool-status.j2
+    dest: /usr/local/sbin/portikus-thinpool-status
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Refresh the thin pool status
+
+- name: Install the thin pool status service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/portikus-thinpool-status.service
+    content: |
+      [Unit]
+      Description=Write the Portikus thin pool's data and metadata use
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/portikus-thinpool-status
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd for the thin pool status
+    - Refresh the thin pool status
+
+- name: Install the thin pool status timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/portikus-thinpool-status.timer
+    content: |
+      [Unit]
+      Description=Write the Portikus thin pool's use every minute
+
+      [Timer]
+      OnBootSec=30s
+      OnUnitActiveSec=60s
+      AccuracySec=5s
+
+      [Install]
+      WantedBy=timers.target
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd for the thin pool status
+
+- name: Apply the thin pool status units now
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the thin pool status timer
+  ansible.builtin.systemd_service:
+    name: portikus-thinpool-status.timer
+    enabled: true
+    state: started

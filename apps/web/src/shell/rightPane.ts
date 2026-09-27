@@ -1,10 +1,10 @@
 /**
- * Which surface the right pane is showing (SPEC.md §8.4, §18.1, §18.2, §18.3). The
+ * Which surface the right pane is showing (SPEC.md §8.4, §18.1, §18.2, §18.3).
+ * The
  * work area needs to switch it too, because a Preview tab offers a link to
  * the Running surface (BROWSER-HANDLING.md §12), so the choice is held by
  * the workspace screen rather than by the pane itself. Monitor's sort lives
- * here as well, so a notice can open Monitor already sorted (docs/EPIC-21.md
- * ruling 22).
+ * here as well, so a notice can open Monitor already sorted (SPEC.md §18.3).
  */
 import { createContext, useContext, useMemo, useState } from "react";
 import {
@@ -20,7 +20,7 @@ export interface RightPaneApi {
 	show: (pane: RightPane) => void;
 	monitorSort: ProcessSort;
 	setMonitorSort: (sort: ProcessSort) => void;
-	/** Set when a button elsewhere opened Monitor; Monitor focuses its heading and clears it. */
+	/** Set when a button elsewhere opened Monitor; the pane focuses the Monitor tab and clears it. */
 	monitorFocus: boolean;
 	setMonitorFocus: (focus: boolean) => void;
 }

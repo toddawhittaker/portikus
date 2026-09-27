@@ -48,7 +48,7 @@ export interface Meter {
 /**
  * One status bar meter: warning at or above 85% of the limit, or at or above
  * 80% while it is already `warning`, and full from 95% when `canBeFull`
- * (docs/EPIC-21.md ruling 24). Null when there is no figure to show.
+ * (SPEC.md §19.2). Null when there is no figure to show.
  */
 export function usageMeter(
 	figure: { usedBytes: number; totalBytes: number } | null | undefined,
@@ -191,7 +191,7 @@ const METER_CLASS: Record<Meter["level"], string> = {
 };
 
 /**
- * An always-visible meter (docs/EPIC-21.md ruling 24). Its name starts with
+ * An always-visible meter (SPEC.md §19.2). Its name starts with
  * the visible text; the bar is decoration. High use adds the alert icon and
  * "high" to the name, so it is not told by colour alone.
  */

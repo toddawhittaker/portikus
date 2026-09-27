@@ -18,7 +18,16 @@ export const HostSnapshot = z.object({
 	]),
 	cpuCount: z.number().int().positive(),
 	memory: z.object({ usedBytes: bytes, totalBytes: bytes }),
-	pool: z.object({ name: z.string().min(1), usedBytes: bytes, totalBytes: bytes }),
+	pool: z.object({
+		name: z.string().min(1),
+		usedBytes: bytes,
+		totalBytes: bytes,
+		/**
+		 * The thin pool's metadata use from the host's status file; null when
+		 * the file is missing, unreadable or stale. Older samples lack it.
+		 */
+		metadataPercent: z.number().nonnegative().nullable().default(null),
+	}),
 	/** The shared workspace profile's limits, as Incus spells them. */
 	profileLimits: z.object({
 		cpu: z.string().nullable(),
@@ -40,6 +49,25 @@ export const HostSnapshot = z.object({
 	),
 });
 export type HostSnapshot = z.infer<typeof HostSnapshot>;
+
+/** The Health tab warns and administrators are told at this fill (SPEC.md §20.1). */
+export const POOL_WARN_PERCENT = 70;
+
+/** New workspaces are refused at this fill (SPEC.md §20.1). */
+export const POOL_FULL_PERCENT = 90;
+
+/**
+ * How full the storage pool is: the larger of data and metadata use, in
+ * percent, since the pool stops taking writes when either fills.
+ */
+export function poolFillPercent(pool: {
+	usedBytes: number;
+	totalBytes: number;
+	metadataPercent: number | null;
+}): number {
+	const data = pool.totalBytes > 0 ? (pool.usedBytes / pool.totalBytes) * 100 : 0;
+	return Math.max(data, pool.metadataPercent ?? 0);
+}
 
 /**
  * What the worker stores in `health_samples.sample` every 60 seconds. A row

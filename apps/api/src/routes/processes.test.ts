@@ -1,6 +1,6 @@
 /**
- * The student's process stop route (SPEC.md §18.3, §24.11; docs/EPIC-21.md
- * rulings 13 and 15). Owner-only, one stop at a time, rate limited, the
+ * The student's process stop route (SPEC.md §18.3, §24.11). Owner-only, one
+ * stop at a time, rate limited, the
  * agent's refusals passed on, and an audit row with no name or command line.
  */
 import {

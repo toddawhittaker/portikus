@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 /**
- * Stopping one process in a workspace (SPEC.md §18.3; docs/EPIC-21.md
- * ruling 8). The start ticks come from the usage sample, so a PID the
+ * Stopping one process in a workspace (SPEC.md §18.3). The start ticks come
+ * from the usage sample, so a PID the
  * kernel has since given to another program is refused, not signalled.
  */
 export const ProcessStopRequest = z

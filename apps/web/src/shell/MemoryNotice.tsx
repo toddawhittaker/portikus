@@ -16,7 +16,7 @@ export function memoryAnnouncement(flag: MemoryFlag): string {
 
 /**
  * Shown while the resource guard has flagged the workspace's memory use
- * (ADR 0032; docs/EPIC-21.md ruling 7). Dismissing it lasts for the page's life.
+ * (ADR 0032; SPEC.md §19.4). Dismissing it lasts for the page's life.
  */
 export function MemoryNotice({
 	flag,

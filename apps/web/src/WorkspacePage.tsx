@@ -243,7 +243,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 
 /**
  * Says so when a throttle this page was showing goes away, which is how the
- * student learns of an idle lift (docs/EPIC-21.md ruling 5).
+ * student learns of an idle lift (SPEC.md §19.4).
  */
 function useThrottleLiftToast(workspace: Workspace | null) {
 	const toast = useToast();

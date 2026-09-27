@@ -69,3 +69,11 @@ test("focus elsewhere stays put when the notice goes away", () => {
 		screen.getByRole("button", { name: "elsewhere" }),
 	);
 });
+
+test("a notice that never had focus leaves focus on the page alone when it goes", () => {
+	const view = render(<Page shown />);
+	(document.activeElement as HTMLElement | null)?.blur();
+	expect(document.activeElement).toBe(document.body);
+	view.rerender(<Page shown={false} />);
+	expect(document.activeElement).toBe(document.body);
+});
