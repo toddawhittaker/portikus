@@ -3,6 +3,7 @@ import {
 	createStudent,
 	loginAs,
 	query,
+	setWorkspaceState,
 	type TestStudent,
 	toast,
 	workspacePath,
@@ -165,4 +166,35 @@ test("the slowed-down notice's Restart workspace… opens Restart's confirmation
 	await confirm.getByRole("button", { name: "Cancel" }).click();
 	await expect(confirm).toHaveCount(0);
 	await expect(page.getByTestId("dialog-workspace-status")).toBeVisible();
+});
+
+test("Restart from the throttle notice waits while the state settles, then restarts (#707)", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await throttle(student.workspaceId);
+	await page.goto(workspacePath(student.workspaceId));
+	await page.getByTestId("throttle-restart").click();
+	const confirmDialog = page.getByTestId("dialog-workspace-restart");
+	await expect(confirmDialog).toBeVisible({ timeout: 15_000 });
+
+	// The workspace starts moving under the open confirmation.
+	await setWorkspaceState(student.workspaceId, "starting");
+	const confirm = confirmDialog.getByTestId("dialog-confirm");
+	await expect(confirm).toBeDisabled({ timeout: 15_000 });
+	await expect(confirmDialog).toContainText(
+		"Starting your workspace. You can restart once it has finished.",
+	);
+
+	await setWorkspaceState(student.workspaceId, "running");
+	await expect(confirm).toBeEnabled({ timeout: 15_000 });
+	const restart = page.waitForResponse(
+		(response) =>
+			response.url().endsWith(`/workspaces/${student.workspaceId}/restart`) &&
+			response.request().method() === "POST",
+	);
+	await confirm.click();
+	expect((await restart).ok()).toBe(true);
+	await expect(confirmDialog).toHaveCount(0);
 });

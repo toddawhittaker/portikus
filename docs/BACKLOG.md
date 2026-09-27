@@ -1287,17 +1287,14 @@ with a unit test. Under half a day.
 
 **Source.** Epic 18 confirmation review.
 
-## Restart confirmation before the workspace moves
+## A confirmation before "Reset preview data"
 
-**What.** A restart confirmation opened before the workspace starts moving
-(for example from the throttle notice while the state is still settling)
-does nothing when confirmed.
+**What.** "Reset preview data" in the Preview tab's More menu acts at once.
 
-**What it would take.** Find why the confirm sends no action, or disable
-it until the workspace can restart, with a unit test that reproduces it.
-Half a day.
+**What it would take.** Reuse the neutral confirmation dialog and add an
+ellipsis to the item. Half a day with tests.
 
-**Source.** Confirmation reviews of Epic 20 (issue #608).
+**Source.** Left out of Epic 20 (issue #609).
 
 ## A radio-item menu component
 

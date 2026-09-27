@@ -439,7 +439,6 @@ test("resetting preview data revokes, clears the origin, and re-grants", async (
 	const grantsBefore = seen.filter((url) => url.endsWith("/preview-grants")).length;
 	openMore();
 	fireEvent.click(await screen.findByTestId("preview-reset"));
-	fireEvent.click(await screen.findByTestId("dialog-confirm"));
 
 	await waitFor(() =>
 		expect(
@@ -453,27 +452,6 @@ test("resetting preview data revokes, clears the origin, and re-grants", async (
 	expect(clear).toBeGreaterThan(revoke);
 	expect(regrant).toBeGreaterThan(clear);
 	expect(modes[clear]).toBe("no-cors");
-});
-
-test("Reset preview data asks first, and cancelling resets nothing", async () => {
-	const seen: string[] = [];
-	stubFetch((url) => {
-		seen.push(url);
-		return json(200, GRANT);
-	});
-	show({});
-	await screen.findByTestId("preview-frame");
-	openMore();
-	const item = await screen.findByTestId("preview-reset");
-	expect(item.textContent).toBe("Reset preview data…");
-	fireEvent.click(item);
-
-	const dialog = await screen.findByTestId("dialog-preview-reset");
-	expect(dialog.textContent).toContain("Reset preview data?");
-	fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-	await waitFor(() => expect(screen.queryByTestId("dialog-preview-reset")).toBeNull());
-	expect(seen.some((url) => url.endsWith("/preview/reset"))).toBe(false);
-	expect(seen.some((url) => url.includes("/__portikus/reset"))).toBe(false);
 });
 
 /** Open the toolbar's "more" menu (Radix opens a dropdown on pointer down). */
@@ -512,7 +490,7 @@ test("the bar keeps host, Back, Forward, Reload and new tab; the rest is in the 
 		"768 px wide",
 		"1024 px wide",
 		"1440 px wide",
-		"Reset preview data…",
+		"Reset preview data",
 		"Show in Running",
 	]);
 	expect(menu.textContent).toContain("Width");
