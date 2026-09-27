@@ -5,7 +5,6 @@ import * as path from "node:path";
 import { HostSnapshot } from "@portikus/contracts";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import {
-	countIncusCpus,
 	parseIncusSize,
 	readHostSnapshot,
 	readInactiveFileBytes,
@@ -303,17 +302,6 @@ test("grow refuses an invalid instance name without calling Incus", async () => 
 		provider().growVolumes("../etc", { homeGiB: 30, dockerGiB: 30 }),
 	).rejects.toMatchObject({ code: "INVALID_NAME" });
 	expect(requests).toEqual([]);
-});
-
-test("countIncusCpus reads a count or a CPU set, and null otherwise", () => {
-	expect(countIncusCpus("4")).toBe(4);
-	expect(countIncusCpus("0-3")).toBe(4);
-	expect(countIncusCpus("0,2,5-6")).toBe(4);
-	expect(countIncusCpus(undefined)).toBeNull();
-	expect(countIncusCpus("")).toBeNull();
-	expect(countIncusCpus("0")).toBeNull();
-	expect(countIncusCpus("3-1")).toBeNull();
-	expect(countIncusCpus("four")).toBeNull();
 });
 
 test("readInactiveFileBytes reads the instance's cgroup under its project", async () => {

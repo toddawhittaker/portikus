@@ -21,6 +21,8 @@ const FLUSH_SECONDS = 10;
 const PRUNE_HOURS = 6;
 const MAX_TCP_CONNECTIONS = 64;
 const TCP_IDLE_MS = 10_000;
+// A client asks A, AAAA and HTTPS for one name; only A is counted so each lookup counts once.
+const QTYPE_A = 1;
 
 export type BlockedSource = "dns" | "tls";
 
@@ -38,8 +40,10 @@ export function countableName(raw: string): string | null {
 	return name;
 }
 
-/** The first question's name in a DNS query, or null for anything malformed. */
-export function queryName(msg: Buffer): { name: string; end: number } | null {
+/** The first question's name and type in a DNS query, or null for anything malformed. */
+export function queryName(
+	msg: Buffer,
+): { name: string; type: number; end: number } | null {
 	if (msg.length < 12) return null;
 	if ((msg.readUInt8(2) & 0x80) !== 0) return null; // a response, not a query
 	if (msg.readUInt16BE(4) < 1) return null;
@@ -55,7 +59,7 @@ export function queryName(msg: Buffer): { name: string; end: number } | null {
 		off += len;
 	}
 	if (off + 4 > msg.length) return null;
-	return { name: labels.join("."), end: off + 4 };
+	return { name: labels.join("."), type: msg.readUInt16BE(off), end: off + 4 };
 }
 
 /** NXDOMAIN for a query: its id, opcode and RD kept, the question echoed, no records. */
@@ -182,7 +186,7 @@ export function createBlockedCounter(options: BlockedCounterOptions): BlockedCou
 	function answerUdp(msg: Buffer, rinfo: { port: number; address: string }): void {
 		const q = queryName(msg);
 		if (!q) return;
-		count(q.name, "dns");
+		if (q.type === QTYPE_A) count(q.name, "dns");
 		udp?.send(nxdomain(msg, q.end), rinfo.port, rinfo.address);
 	}
 
@@ -211,7 +215,7 @@ export function createBlockedCounter(options: BlockedCounterOptions): BlockedCou
 					socket.destroy();
 					return;
 				}
-				count(q.name, "dns");
+				if (q.type === QTYPE_A) count(q.name, "dns");
 				const reply = nxdomain(msg, q.end);
 				const framed = Buffer.alloc(2 + reply.length);
 				framed.writeUInt16BE(reply.length, 0);

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { installedPackages, LIST_MAX_BYTES, parseAptList } from "./packages-route.js";
+import { installedPackages, LIST_MAX_BYTES } from "./packages-route.js";
 import { buildServer } from "./server.js";
 
 const TOKEN = "p".repeat(64);
@@ -69,17 +69,6 @@ afterEach(async () => {
 });
 
 describe("parsing", () => {
-	test("reads the header and drops lines that are not package names", () => {
-		expect(
-			parseAptList("# portikus-image: 2026.09.9\nhtop\nlibc6:amd64\n$(id)\nhtop\n\n"),
-		).toMatchObject({ image: "2026.09.9", packages: ["htop"] });
-	});
-
-	test("an unknown or missing header names no image", () => {
-		expect(parseAptList("# portikus-image: unknown\nhtop\n").image).toBeNull();
-		expect(parseAptList("htop\n")).toMatchObject({ image: null, packages: ["htop"] });
-	});
-
 	test("only fully installed packages count as installed", () => {
 		expect([
 			...installedPackages(

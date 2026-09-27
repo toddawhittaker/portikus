@@ -265,26 +265,3 @@ export async function readInactiveFileBytes(
 	}
 	return Number(match[1]);
 }
-
-/**
- * The number of CPUs in an Incus `limits.cpu` value: a count such as "4",
- * or a CPU set such as "0-3" or "0,2". Null when unset or unreadable.
- */
-export function countIncusCpus(value: unknown): number | null {
-	if (typeof value !== "string" || value.trim() === "") return null;
-	const text = value.trim();
-	if (/^\d+$/.test(text)) {
-		const n = Number(text);
-		return n > 0 ? n : null;
-	}
-	let count = 0;
-	for (const part of text.split(",")) {
-		const range = /^(\d+)(?:-(\d+))?$/.exec(part.trim());
-		if (!range) return null;
-		const first = Number(range[1]);
-		const last = range[2] === undefined ? first : Number(range[2]);
-		if (last < first) return null;
-		count += last - first + 1;
-	}
-	return count;
-}

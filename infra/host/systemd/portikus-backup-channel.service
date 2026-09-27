@@ -13,6 +13,9 @@ User=root
 Environment=PORTIKUS_BACKUP_DIR=@BACKUP_DIR@
 Environment=PORTIKUS_BACKUP_RECIPIENTS=@RECIPIENTS@
 Environment=PORTIKUS_BACKUP_NIGHTLY=@NIGHTLY@
+# The retention floor a compromised VM cannot lower (ADR 0039).
+Environment=PORTIKUS_BACKUP_MIN_AGE_DAYS=7
+Environment=PORTIKUS_BACKUP_KEEP_COMPLETE=3
 StateDirectory=portikus-backup-channel
 StateDirectoryMode=0700
 ExecStart=/usr/local/sbin/portikus-backup-channel --operator @USER@ --vm-name @VM_NAME@ @VM_IP@

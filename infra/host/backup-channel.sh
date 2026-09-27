@@ -22,6 +22,8 @@
 #   PORTIKUS_BACKUP_CHANNEL_STATE  state directory (default /var/lib/portikus-backup-channel)
 #   PORTIKUS_BACKUP_CMD            backup.sh (default: portikus-backup beside this script)
 #   PORTIKUS_RESTORE_COPY_CMD      restore-copy.sh (default: portikus-restore-copy beside this script)
+#   PORTIKUS_BACKUP_MIN_AGE_DAYS   a delete never removes a set younger than this (default 7)
+#   PORTIKUS_BACKUP_KEEP_COMPLETE  a delete always keeps this many newest complete sets (default 3)
 set -euo pipefail
 umask 077
 
@@ -33,6 +35,11 @@ NIGHTLY="${PORTIKUS_BACKUP_NIGHTLY-portikus-backup}"
 STATE="${PORTIKUS_BACKUP_CHANNEL_STATE:-/var/lib/portikus-backup-channel}"
 BACKUP_CMD="${PORTIKUS_BACKUP_CMD:-${here}/portikus-backup}"
 RESTORE_COPY_CMD="${PORTIKUS_RESTORE_COPY_CMD:-${here}/portikus-restore-copy}"
+# The retention floor comes from the unit, never from a request (ADR 0039).
+MIN_AGE_DAYS="${PORTIKUS_BACKUP_MIN_AGE_DAYS:-7}"
+KEEP_COMPLETE="${PORTIKUS_BACKUP_KEEP_COMPLETE:-3}"
+[[ "$MIN_AGE_DAYS" =~ ^[0-9]{1,4}$ ]] || MIN_AGE_DAYS=7
+[[ "$KEEP_COMPLETE" =~ ^[0-9]{1,3}$ ]] || KEEP_COMPLETE=3
 # A real request line is under 300 bytes.
 PULL_MAX_BYTES=4096
 HEARTBEAT_SECONDS=30
@@ -342,6 +349,21 @@ newest_complete_set() {
   done
 }
 
+# newest_complete_sets N -- the N newest complete sets, newest first.
+newest_complete_sets() {
+  local s n=0
+  for s in $(list_sets); do
+    [ "$n" -lt "$1" ] || return 0
+    [ -e "${HOST_DIR}/${s}/FAILED" ] || { echo "$s"; n=$((n + 1)); }
+  done
+}
+
+# stamp_epoch STAMP -- seconds since the epoch for a set name.
+stamp_epoch() {
+  local s=$1
+  date -u -d "${s:0:4}-${s:4:2}-${s:6:2}T${s:9:2}:${s:11:2}:${s:13:2}Z" +%s
+}
+
 # last_fail FILE -- the text of the last "FAIL: " line a script wrote.
 last_fail() { sed -n 's/^\[[a-z -]*\] FAIL: //p' "$1" | tail -1; }
 
@@ -382,6 +404,14 @@ run_delete_set() {
   if [ -L "$dir" ] || [ ! -d "$dir" ]; then job_fail "refused by the host: there is no set ${stamp}"; return; fi
   if [ "$stamp" = "$(newest_complete_set)" ]; then
     job_fail "refused by the host: ${stamp} is the newest complete set"
+    return
+  fi
+  if newest_complete_sets "$KEEP_COMPLETE" | grep -qx "$stamp"; then
+    job_fail "refused by the host: retention floor (the newest ${KEEP_COMPLETE} complete sets are kept)"
+    return
+  fi
+  if [ $(( $(date +%s) - $(stamp_epoch "$stamp") )) -lt $((MIN_AGE_DAYS * 86400)) ]; then
+    job_fail "refused by the host: retention floor (sets younger than ${MIN_AGE_DAYS} days are kept)"
     return
   fi
   rm -rf -- "$dir"

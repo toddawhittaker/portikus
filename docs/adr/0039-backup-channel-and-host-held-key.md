@@ -61,6 +61,14 @@ OpenTofu state, so decrypted data never goes to the wrong machine.
 `infra/tests/backup-channel-test.sh` plays a lying VM and checks every
 refusal.
 
+**Deletes keep a host-side retention floor.** A compromised VM could ask
+for backups until a set holding its poisoned data is the newest, then
+delete every older set. So the host never deletes a set younger than
+`PORTIKUS_BACKUP_MIN_AGE_DAYS` (default 7) and always keeps the newest
+`PORTIKUS_BACKUP_KEEP_COMPLETE` (default 3) complete sets. Both come from
+the channel unit's environment, never from a request; a refused delete
+reads "refused by the host: retention floor (...)".
+
 **The private key is installed on the host, root-only,** as
 `/etc/portikus-backup/age-key.txt` (file 0600, directory 0700, owner
 root), by `make backup-install-key KEY=<path>`, which first checks that the

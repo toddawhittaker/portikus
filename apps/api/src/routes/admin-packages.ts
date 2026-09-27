@@ -3,6 +3,7 @@ import {
 	ADMIN_PACKAGES_LIMIT,
 	type AdminPackagesResponse,
 	isBaseImageCandidate,
+	PACKAGE_SURVEY_MIN_SURVEYED,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
@@ -11,10 +12,11 @@ import type { ServerDeps } from "../server.js";
 const adminOnly = { preHandler: requireRole("administrator") };
 
 /**
- * The package survey's site-wide counts (SPEC.md §20.1, ADR 0042). Every
- * package seen in the kept days is listed with the latest day's count, so a
- * package nobody has any more shows 0 with the day it was last seen. The
- * tables hold counts only, so nothing here can name a workspace.
+ * The package survey's site-wide counts (SPEC.md §20.1, ADR 0042). Only
+ * days that surveyed at least PACKAGE_SURVEY_MIN_SURVEYED workspaces count,
+ * so a count cannot single out one student. Every package seen on those
+ * days is listed with the latest such day's count, so a package nobody has
+ * any more shows 0 with the day it was last seen.
  */
 export function registerAdminPackageRoutes(
 	app: FastifyInstance,
@@ -23,16 +25,36 @@ export function registerAdminPackageRoutes(
 	const { db } = deps;
 
 	app.get("/admin/packages", adminOnly, async (): Promise<AdminPackagesResponse> => {
-		const latest = await db
-			.selectFrom("package_survey_days")
-			.select([sql<string>`to_char(day, 'YYYY-MM-DD')`.as("day"), "surveyed"])
-			.orderBy("day", "desc")
-			.limit(1)
-			.executeTakeFirst();
-		if (!latest) return { day: null, surveyed: 0, packages: [] };
+		const minimumSurveyed = PACKAGE_SURVEY_MIN_SURVEYED;
+		const latestOf = (minimum: number) =>
+			db
+				.selectFrom("package_survey_days")
+				.select([sql<string>`to_char(day, 'YYYY-MM-DD')`.as("day"), "surveyed"])
+				.where("surveyed", ">=", minimum)
+				.orderBy("day", "desc")
+				.limit(1)
+				.executeTakeFirst();
+		const latest = await latestOf(minimumSurveyed);
+		if (!latest) {
+			const any = await latestOf(0);
+			return {
+				day: any?.day ?? null,
+				surveyed: any?.surveyed ?? 0,
+				minimumSurveyed,
+				packages: [],
+			};
+		}
 
 		const rows = await db
 			.selectFrom("package_survey_counts")
+			.where(({ exists, selectFrom }) =>
+				exists(
+					selectFrom("package_survey_days as d")
+						.select(sql`1`.as("one"))
+						.whereRef("d.day", "=", "package_survey_counts.day")
+						.where("d.surveyed", ">=", minimumSurveyed),
+				),
+			)
 			.select([
 				"package",
 				sql<number>`coalesce(sum(workspaces) filter (where day = ${latest.day}::date), 0)::int`.as(
@@ -51,6 +73,7 @@ export function registerAdminPackageRoutes(
 		return {
 			day: latest.day,
 			surveyed: latest.surveyed,
+			minimumSurveyed,
 			packages: rows.map((row) => ({
 				package: row.package,
 				workspaces: row.workspaces,

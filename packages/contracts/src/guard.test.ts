@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { effectiveGuard, idleLift, throttleHold } from "./guard.js";
+import {
+	allowanceFor,
+	countIncusCpus,
+	effectiveGuard,
+	idleLift,
+	throttleHold,
+} from "./guard.js";
 
 const platform = {
 	cpu_guard_threshold_percent: 80,
@@ -78,4 +84,22 @@ describe("throttleHold (SPEC.md §19.4)", () => {
 		expect(result.held).toBeNull();
 		expect(result.recent).toHaveLength(3);
 	});
+});
+
+test("allowanceFor is a time slice for a share of the CPUs", () => {
+	expect(allowanceFor(25, 4)).toBe("100ms/100ms");
+	expect(allowanceFor(25, 2)).toBe("50ms/100ms");
+	expect(allowanceFor(100, 4)).toBe("400ms/100ms");
+	expect(allowanceFor(5, 1)).toBe("5ms/100ms");
+});
+
+test("countIncusCpus reads a count or a CPU set, and null otherwise", () => {
+	expect(countIncusCpus("4")).toBe(4);
+	expect(countIncusCpus("0-3")).toBe(4);
+	expect(countIncusCpus("0,2,5-6")).toBe(4);
+	expect(countIncusCpus(undefined)).toBeNull();
+	expect(countIncusCpus("")).toBeNull();
+	expect(countIncusCpus("0")).toBeNull();
+	expect(countIncusCpus("3-1")).toBeNull();
+	expect(countIncusCpus("four")).toBeNull();
 });

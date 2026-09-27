@@ -5,7 +5,9 @@ import {
 	type AdminWorkspaceSummary,
 	type ApiError,
 	type AuditEvent,
+	allowanceFor,
 	type CpuThrottle,
+	countIncusCpus,
 	effectiveGuard,
 	type GuardConfig,
 	HealthSample,
@@ -101,10 +103,14 @@ export function toImageVersion(
 	return { label, fingerprint, current };
 }
 
-/** The host's CPU count and the profile's `limits.cpu`, from the newest health sample. */
+/**
+ * The host's CPU count and the profile's CPU count, from the newest health
+ * sample. Like the guard, a profile without a readable `limits.cpu` counts as
+ * the whole host.
+ */
 async function loadHostCpu(
 	db: Kysely<Database>,
-): Promise<{ cpuCount: number; profileCpu: number | null } | null> {
+): Promise<{ cpuCount: number; profileCpu: number } | null> {
 	const row = await db
 		.selectFrom("health_samples")
 		.select("sample")
@@ -116,16 +122,7 @@ async function loadHostCpu(
 	const parsed = HealthSample.safeParse(row.sample);
 	if (!parsed.success || parsed.data.host === null) return null;
 	const { cpuCount, profileLimits } = parsed.data.host;
-	// A CPU set such as "0-3" names cores, not a count, so it is not used.
-	const profileCpu = /^\d+$/.test(profileLimits.cpu ?? "")
-		? Number(profileLimits.cpu)
-		: null;
-	return { cpuCount, profileCpu };
-}
-
-/** The same slice the worker's guard sets for a share of `cpu` CPUs (ADR 0032). */
-function allowanceFor(sharePercent: number, cpu: number): string {
-	return `${Math.max(1, Math.round((sharePercent / 100) * cpu * 100))}ms/100ms`;
+	return { cpuCount, profileCpu: countIncusCpus(profileLimits.cpu) ?? cpuCount };
 }
 
 /** A jsonb quota column, or null when it is unset. */

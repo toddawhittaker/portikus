@@ -69,20 +69,20 @@ export const UpdateGuardRequest = z
 	});
 export type UpdateGuardRequest = z.infer<typeof UpdateGuardRequest>;
 
-const limitCpu = z.number().int().min(1).max(64);
-const limitMemoryMiB = z.number().int().min(512).max(262144);
-const limitProcesses = z.number().int().min(500).max(32768);
+/** One workspace's limit bounds, shared with the controller's SetInstanceLimitsRequest. */
+export const LimitCpu = z.number().int().min(1).max(64);
+export const LimitMemoryMiB = z.number().int().min(512).max(262144);
+export const LimitProcesses = z.number().int().min(500).max(32768);
 
 /**
  * Body of `PUT /admin/workspaces/:id/limits`: the whole set, null where the
- * Incus profile's value applies. The bounds match the controller's
- * SetInstanceLimitsRequest, which cannot be imported here without a cycle.
+ * Incus profile's value applies.
  */
 export const UpdateLimitsRequest = z
 	.object({
-		cpu: limitCpu.nullable(),
-		memoryMiB: limitMemoryMiB.nullable(),
-		processes: limitProcesses.nullable(),
+		cpu: LimitCpu.nullable(),
+		memoryMiB: LimitMemoryMiB.nullable(),
+		processes: LimitProcesses.nullable(),
 	})
 	.strict();
 export type UpdateLimitsRequest = z.infer<typeof UpdateLimitsRequest>;
@@ -90,9 +90,9 @@ export type UpdateLimitsRequest = z.infer<typeof UpdateLimitsRequest>;
 /** `workspaces.limits_config` and `limits_applied`: a missing key uses the profile. */
 export const WorkspaceLimits = z
 	.object({
-		cpu: limitCpu.optional(),
-		memoryMiB: limitMemoryMiB.optional(),
-		processes: limitProcesses.optional(),
+		cpu: LimitCpu.optional(),
+		memoryMiB: LimitMemoryMiB.optional(),
+		processes: LimitProcesses.optional(),
 	})
 	.strict();
 export type WorkspaceLimits = z.infer<typeof WorkspaceLimits>;

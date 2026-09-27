@@ -266,7 +266,6 @@ const PAYLOADS: Record<string, object> = {
 		value: "example.edu",
 		label: "",
 	},
-	"POST /admin/egress/test": { input: "github.com" },
 	"POST /admin/backups/restores": {
 		stamp: "20260924T023000Z",
 		workspaceId: "550e8400-e29b-41d4-a716-446655440000",

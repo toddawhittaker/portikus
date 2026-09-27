@@ -110,7 +110,7 @@ export function renderTable(
 }
 
 /** The fallback when the last applied allow-list cannot be loaded at boot: drop all forwarding. */
-export function renderDropAll(env: EgressEnv): string {
+export function renderDropAll(env: Pick<EgressEnv, "bridge">): string {
 	return `${[
 		...declareTable(),
 		...resetTable(true),

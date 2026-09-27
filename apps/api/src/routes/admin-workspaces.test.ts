@@ -1086,6 +1086,38 @@ describe("per-workspace limits", () => {
 	);
 
 	test.skipIf(skip)(
+		"clearing the CPU override under a profile without a count uses the host's CPUs, as the guard does",
+		async () => {
+			for (const [profileCpu, expected] of [
+				[null, "200ms/100ms"],
+				["0-3", "100ms/100ms"],
+			] as const) {
+				await testDb.db.deleteFrom("health_samples").execute();
+				await testDb.db
+					.insertInto("health_samples")
+					.values({
+						sample: JSON.stringify(
+							sample({
+								cpuCount: 8,
+								profileLimits: { cpu: profileCpu, memory: "4GiB", processes: "2000" },
+							}),
+						),
+					})
+					.execute();
+				await testDb.db
+					.updateTable("workspaces")
+					.set({ cpu_throttle: JSON.stringify(THROTTLE) })
+					.where("id", "=", workspaceId)
+					.execute();
+				await putLimits({ ...NO_LIMITS, cpu: 2 });
+				await putLimits(NO_LIMITS);
+				// 25% of the host's 8 CPUs, or of the 4 CPUs in the set 0-3.
+				expect((await storedLimits()).cpu_throttle?.allowance).toBe(expected);
+			}
+		},
+	);
+
+	test.skipIf(skip)(
 		"a student cannot set limits, and an unknown workspace is 404",
 		async () => {
 			const forbidden = await putLimits({ ...NO_LIMITS, cpu: 2 }, alice);
