@@ -12,6 +12,7 @@ import type { EgressApplyPolicy } from "@portikus/contracts";
 import { beforeEach, describe, expect, test } from "vitest";
 import { parseEgressEnv } from "./env.js";
 import {
+	defaultRunner,
 	type HelperDeps,
 	MAX_REQUEST_BYTES,
 	type RunResult,
@@ -488,5 +489,15 @@ describe("at boot, when the table is missing", () => {
 		expect(await runHelper(deps)).toBe(0);
 		expect(loads()).toHaveLength(2);
 		expect(status()).toMatchObject({ requestId: "boot-req", ok: true });
+	});
+});
+
+describe("the command runner", () => {
+	// At boot `nft list table` exits at once when the table is missing; a
+	// write to its closed input must not crash the helper and leave
+	// workspaces open.
+	test("survives a command that exits before reading its input", async () => {
+		const r = await defaultRunner()("/bin/false", [], "x".repeat(1 << 20));
+		expect(r.code).not.toBe(0);
 	});
 });

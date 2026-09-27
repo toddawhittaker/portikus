@@ -89,6 +89,9 @@ export function defaultRunner(): Runner {
 				const code = err ? (typeof err.code === "number" ? err.code : 1) : 0;
 				resolve({ code, stderr: String(stderr).slice(0, 500) });
 			});
+			// A command may exit before reading its input (nft list at boot); EPIPE
+			// is then expected, and unhandled it would crash the helper.
+			child.stdin?.on("error", () => undefined);
 			child.stdin?.end(input ?? "");
 		});
 }
