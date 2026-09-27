@@ -8,6 +8,7 @@ import {
 import type { Database } from "@portikus/db";
 import { type Logger, silentLogger } from "@portikus/observability";
 import { type ExpressionBuilder, type Kysely, sql } from "kysely";
+import { runReplaceHome } from "./backups.js";
 import type { ControllerClient } from "./controller-client.js";
 import { ControllerClientError } from "./controller-client.js";
 import { rebuildPointsDone } from "./recovery.js";
@@ -543,6 +544,8 @@ export async function reconcile(
 			"state",
 			"pending_operation",
 			"pending_operation_by",
+			"pending_operation_at",
+			"pending_operation_args",
 			"quota_config",
 		])
 		.where("state", "in", ["stopped", "error"])
@@ -552,6 +555,23 @@ export async function reconcile(
 	for (const ws of toMaintain) {
 		if (!ws.incus_instance_name || !ws.pending_operation) continue;
 		record(ws.id, ws.pending_operation);
+		// Replace home spans several sweeps while the host imports (ADR 0040).
+		if (ws.pending_operation === "replace-home") {
+			transitions += await runReplaceHome(
+				db,
+				controller,
+				{
+					id: ws.id,
+					instance: ws.incus_instance_name,
+					state: ws.state,
+					pendingAt: ws.pending_operation_at,
+					pendingBy: ws.pending_operation_by,
+					args: ws.pending_operation_args,
+				},
+				now,
+			);
+			continue;
+		}
 		transitions += await runOperation(
 			db,
 			controller,
