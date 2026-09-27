@@ -32,9 +32,9 @@ const SHORT_BUDGET_MS = 30_000;
 const CREATE_BUDGET_MS = 300_000;
 const MAINTENANCE_BUDGET_MS = 15 * 60_000;
 
-/** A stop may take a graceful and a forced try, plus margin. */
+/** A stop may take a graceful and a forced try, the controller's settle poll (up to 10 s), plus margin. */
 export function stopBudgetMs(timeoutSeconds: number): number {
-	return (2 * timeoutSeconds + 15) * 1000;
+	return (2 * timeoutSeconds + 25) * 1000;
 }
 
 /** A start may wait for the agent for its timeout, plus margin. */

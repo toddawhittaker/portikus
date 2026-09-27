@@ -461,3 +461,41 @@ test("a listener without a command line, as from an older agent, has no disclosu
 	]);
 	expect(screen.queryByRole("button", { name: /Show the full command/ })).toBeNull();
 });
+
+test("the revealed command is read right after the row, before its actions", () => {
+	show([
+		service({
+			port: 3000,
+			process: { pid: 7, command: "node", commandLine: "node server.js" },
+		}),
+	]);
+	fireEvent.click(screen.getByTestId("running-show-command-3000"));
+	const row = screen.getByTestId("running-row-3000");
+	const children = [...row.children];
+	const command = row.querySelector(".pk-portrow-command");
+	const actions = row.querySelector(".pk-portrow-actions");
+	if (!command || !actions) throw new Error("row is missing its command or actions");
+	expect(children.indexOf(command)).toBeLessThan(children.indexOf(actions));
+});
+
+test("a new process on the same port starts with its command collapsed", () => {
+	const first = service({
+		port: 3000,
+		process: { pid: 7, command: "node", commandLine: "node server.js" },
+	});
+	const view = show([first]);
+	fireEvent.click(screen.getByTestId("running-show-command-3000"));
+	expect(screen.getByTestId("running-command-3000")).toBeTruthy();
+	view.rerender(
+		tree([
+			service({
+				port: 3000,
+				process: { pid: 8, command: "node", commandLine: "node other.js" },
+			}),
+		]),
+	);
+	expect(screen.queryByTestId("running-command-3000")).toBeNull();
+	expect(
+		screen.getByTestId("running-show-command-3000").getAttribute("aria-expanded"),
+	).toBe("false");
+});

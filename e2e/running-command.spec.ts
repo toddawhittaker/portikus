@@ -11,7 +11,7 @@ import {
 /**
  * The Running tab's "Show the full command" disclosure (SPEC.md §18.2,
  * §24.11, issue #701). Only the student's own listener has a command line;
- * a listener without one, such as a Docker row, has no button.
+ * a Docker row never has the button, even when a command line arrives.
  */
 const LONG = "node server.js --port 3000 --host 0.0.0.0 --config ./config/dev.json";
 
@@ -36,13 +36,23 @@ for (const theme of ["light", "dark"] as const) {
 			{ port: 3000, process: { pid: 7, command: "node", commandLine: LONG } },
 			{
 				port: 8080,
-				process: { pid: 9, command: "docker-proxy" },
+				process: {
+					pid: 9,
+					command: "docker-proxy",
+					commandLine: "docker-proxy -proto tcp -host-port 8080 -container-port 5432",
+				},
 				container: { id: "abc", name: "postgres" },
 			},
 		]);
 		const project = await createProject(student.workspaceId, { name: "cmd" });
 		await openRunning(page, student.workspaceId, project.id);
 		await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+		// A short name keeps its floor and is never cut to "no…".
+		const nameCell = page.getByTestId("running-row-3000").locator(".pk-portrow-name");
+		await expect(nameCell).toHaveText("node");
+		expect(
+			await nameCell.evaluate((element) => element.scrollWidth <= element.clientWidth),
+		).toBe(true);
 
 		await expect(
 			page.getByRole("button", { name: "Show the full command for port 8080" }),
