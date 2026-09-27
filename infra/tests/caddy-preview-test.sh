@@ -5,9 +5,12 @@
 # It renders infra/ansible/roles/caddy/templates/Caddyfile.j2 with the
 # pilot's variables and asserts the properties the preview edge and the
 # sign-in provider routes depend on.
-# Needs no VM.  When the caddy binary happens to be installed, the rendered
-# file is also run through `caddy validate`.
+# Needs no VM.  When a caddy binary is found (on PATH, or named by CADDY),
+# the rendered file is also run through `caddy validate`, and a live Caddy
+# on loopback proxies to stand-in plain and TLS upstreams (#283).
 set -uo pipefail
+
+caddy_bin="${CADDY:-$(command -v caddy || true)}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEMPLATE="${REPO_ROOT}/infra/ansible/roles/caddy/templates/Caddyfile.j2"
@@ -161,8 +164,28 @@ fi
 has "every request is authorized by the API" \
   "forward_auth 127\.0\.0\.1:${API_PORT} \{" "${preview}"
 has "the authorization subrequest asks /preview/authorize" '^[[:space:]]+uri /preview/authorize$' "${preview}"
-has "the upstream is copied off the authorization response" \
-  '^[[:space:]]+copy_headers X-Portikus-Upstream$' "${preview}"
+has "the upstream and its scheme are copied off the authorization response" \
+  '^[[:space:]]+copy_headers X-Portikus-Upstream X-Portikus-Upstream-Scheme$' "${preview}"
+has "a client-supplied upstream scheme header is deleted" \
+  '^[[:space:]]+request_header -X-Portikus-Upstream-Scheme$' "${preview}"
+has "the application never sees the upstream scheme header" \
+  '^[[:space:]]+header_up -X-Portikus-Upstream-Scheme$' "${preview}"
+has "only an https answer selects the TLS proxy" \
+  '^[[:space:]]+@portikus_tls_upstream header X-Portikus-Upstream-Scheme https$' "${preview}"
+has "the TLS proxy dials the same copied upstream" \
+  '^[[:space:]]+reverse_proxy @portikus_tls_upstream \{http\.request\.header\.X-Portikus-Upstream\} \{$' "${preview}"
+# Certificate checks are off for the student's hop and nowhere else.
+if [ "$(grep -cE '^[[:space:]]+tls_insecure_skip_verify$' "${rendered}")" = "1" ] &&
+  [ "$(grep -cE '^[[:space:]]+tls_insecure_skip_verify$' "${preview}")" = "1" ]; then
+  ok "certificate checks are skipped only on the TLS preview hop"
+else
+  no "certificate checks are skipped only on the TLS preview hop"
+fi
+if [ "$(grep -c 'import portikus_preview_proxy_rules' "${preview}")" = "2" ]; then
+  ok "both preview proxies share one set of header rules"
+else
+  no "both preview proxies share one set of header rules"
+fi
 has "the authorization subrequest is a plain request, not an upgrade" \
   '^[[:space:]]+header_up -Upgrade$' "${preview}"
 has "the proxy dials the copied upstream and nothing else" \
@@ -193,7 +216,7 @@ has "the empty-Cookie matcher is defined on the preview host" \
 # cookie, and before the proxy, which must never see it.
 authorize_line="$(grep -n 'forward_auth 127' "${preview}" | head -1 | cut -d: -f1)"
 cut_line="$(grep -n 'request_header Cookie' "${preview}" | head -1 | cut -d: -f1)"
-proxy_line="$(grep -n 'reverse_proxy {http.request.header.X-Portikus-Upstream}' "${preview}" | head -1 | cut -d: -f1)"
+proxy_line="$(grep -n 'reverse_proxy .*{http.request.header.X-Portikus-Upstream}' "${preview}" | head -1 | cut -d: -f1)"
 if [ -n "${authorize_line}" ] && [ -n "${cut_line}" ] && [ -n "${proxy_line}" ] &&
   [ "${authorize_line}" -lt "${cut_line}" ] && [ "${cut_line}" -lt "${proxy_line}" ]; then
   ok "the cookie is cut after the authorization and before the proxy"
@@ -224,7 +247,7 @@ has "a rewritten redirect on the bridge keeps the bridge prefix" \
 # still be on the URI when the authorization subrequest runs.
 strip_line="$(grep -n 'uri path_regexp' "${preview}" | head -1 | cut -d: -f1)"
 bridge_auth_line="$(grep -n 'import portikus_preview_authorize' "${preview}" | head -1 | cut -d: -f1)"
-bridge_proxy_line="$(grep -n 'import portikus_preview_proxy' "${preview}" | head -1 | cut -d: -f1)"
+bridge_proxy_line="$(grep -n 'import portikus_preview_proxy "' "${preview}" | head -1 | cut -d: -f1)"
 if [ -n "${strip_line}" ] && [ -n "${bridge_auth_line}" ] && [ -n "${bridge_proxy_line}" ] &&
   [ "${bridge_auth_line}" -lt "${strip_line}" ] && [ "${strip_line}" -lt "${bridge_proxy_line}" ]; then
   ok "the prefix is still on the URI when the API is asked"
@@ -370,18 +393,194 @@ has "PREVIEW_SUFFIX is written beside PUBLIC_URL" \
   '^PREVIEW_SUFFIX=\{\{ portikus_preview_suffix \}\}$' \
   "${REPO_ROOT}/infra/ansible/roles/portikus/templates/api.env.j2"
 
-if command -v caddy >/dev/null; then
+if [ -z "${caddy_bin}" ]; then
+  echo ""
+  echo "SKIP  caddy validate and the live proxy checks: no caddy binary (set CADDY to one)"
+else
   echo ""
   for idp in dex mock; do
     config="${rendered}"
     [ "${idp}" = dex ] || config="${rendered}.${idp}"
-    if caddy validate --adapter caddyfile --config "${config}" >"${work}/validate.log" 2>&1; then
+    if "${caddy_bin}" validate --adapter caddyfile --config "${config}" >"${work}/validate.log" 2>&1; then
       ok "caddy validate accepts the configuration for ${idp}"
     else
       no "caddy validate accepts the configuration for ${idp}"
       cat "${work}/validate.log" >&2
     fi
   done
+
+  echo ""
+  echo "--- Live: TLS and plain upstreams behind the preview host (#283) ---"
+
+  # A stand-in API answers /preview/authorize by the first label of the
+  # preview host, as the real API answers from its registry: "tls" names a
+  # self-signed HTTPS upstream, "plain" a plain one, "old" a plain one with
+  # no scheme header at all.  Each upstream echoes what it was sent.
+  cat >"${work}/stubs.py" <<'PY'
+import base64, hashlib, http.server, ssl, sys, threading
+
+api_port, plain_port, tls_port, cert, key = sys.argv[1:6]
+UPSTREAMS = {"tls": (tls_port, "https"), "plain": (plain_port, "http"), "old": (plain_port, None)}
+
+class Api(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        label = self.headers.get("X-Forwarded-Host", "").split("-")[0]
+        port, scheme = UPSTREAMS.get(label, (None, None))
+        if not self.path.startswith("/preview/authorize") or port is None:
+            self.send_response(403); self.send_header("Content-Length", "0"); self.end_headers(); return
+        self.send_response(200)
+        self.send_header("X-Portikus-Upstream", "127.0.0.1:" + port)
+        if scheme:
+            self.send_header("x-portikus-upstream-scheme", scheme)
+        self.send_header("Content-Length", "0"); self.end_headers()
+    def log_message(self, *a): pass
+
+def upstream(name, port):
+    class Up(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        def do_GET(self):
+            if self.headers.get("Upgrade", "").lower() == "websocket":
+                return self.websocket()
+            if self.path == "/redirect":
+                self.send_response(302)
+                self.send_header("Location", "http://localhost:%s/landed" % port)
+                self.send_header("Content-Length", "0"); self.end_headers(); return
+            body = ("upstream=%s path=%s scheme-header=%s upstream-header=%s\n" % (
+                name, self.path,
+                self.headers.get("X-Portikus-Upstream-Scheme", "none"),
+                self.headers.get("X-Portikus-Upstream", "none"))).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body))); self.end_headers()
+            self.wfile.write(body)
+        def websocket(self):
+            accept = base64.b64encode(hashlib.sha1((self.headers["Sec-WebSocket-Key"] +
+                "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
+            self.send_response(101)
+            self.send_header("Upgrade", "websocket"); self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept); self.end_headers(); self.wfile.flush()
+            head = self.rfile.read(2); length = head[1] & 0x7F
+            mask = self.rfile.read(4)
+            data = bytes(b ^ mask[i % 4] for i, b in enumerate(self.rfile.read(length)))
+            reply = (name + ":").encode() + data
+            self.wfile.write(bytes([0x81, len(reply)]) + reply); self.wfile.flush()
+            self.close_connection = True
+        def log_message(self, *a): pass
+    return Up
+
+servers = [http.server.ThreadingHTTPServer(("127.0.0.1", int(api_port)), Api),
+           http.server.ThreadingHTTPServer(("127.0.0.1", int(plain_port)), upstream("plain", plain_port)),
+           http.server.ThreadingHTTPServer(("127.0.0.1", int(tls_port)), upstream("tls", tls_port))]
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(cert, key)
+servers[2].socket = ctx.wrap_socket(servers[2].socket, server_side=True)
+for s in servers[:-1]:
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+servers[-1].serve_forever()
+PY
+
+  # A WebSocket client: upgrade through Caddy, send one masked text frame,
+  # print the echoed frame's text.
+  cat >"${work}/ws.py" <<'PY'
+import os, socket, ssl, sys
+host, port = sys.argv[1], int(sys.argv[2])
+ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+s = ctx.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=5), server_hostname=host)
+s.sendall(("GET /socket HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+           "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n" % (host, port)).encode())
+head = b""
+while b"\r\n\r\n" not in head:
+    chunk = s.recv(1)
+    if not chunk: sys.exit("closed before the upgrade answer")
+    head += chunk
+if not head.startswith(b"HTTP/1.1 101"): sys.exit(head.split(b"\r\n")[0].decode())
+mask = os.urandom(4); payload = b"ping"
+s.sendall(bytes([0x81, 0x80 | len(payload)]) + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(payload)))
+frame = s.recv(2); print(s.recv(frame[1] & 0x7F).decode())
+PY
+
+  free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
+  live_public="$(free_port)"
+  live_http="$(free_port)"
+  live_api="$(free_port)"
+  live_plain="$(free_port)"
+  live_tls="$(free_port)"
+
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
+    -keyout "${work}/up.key" -out "${work}/up.crt" >/dev/null 2>&1
+  python3 "${work}/stubs.py" "${live_api}" "${live_plain}" "${live_tls}" \
+    "${work}/up.crt" "${work}/up.key" >"${work}/stubs.log" 2>&1 &
+  stubs_pid=$!
+
+  ansible localhost -c local -m ansible.builtin.template \
+    -a "src=${TEMPLATE} dest=${work}/Caddyfile.live mode=0644" \
+    -e "portikus_public_host=${PUBLIC_HOST}" \
+    -e "portikus_preview_suffix=${PREVIEW_SUFFIX}" \
+    -e "portikus_public_port=${live_public}" \
+    -e "portikus_api_port=${live_api}" \
+    -e "portikus_idp=mock" \
+    -e "portikus_mock_idp_port=3002" >"${work}/render.log" 2>&1
+  # Keep the test Caddy's certificates and ports out of the host's own.
+  {
+    printf '{\n\tadmin off\n\tskip_install_trust\n\tstorage file_system %s\n\thttp_port %s\n}\n' \
+      "${work}/caddy-data" "${live_http}"
+    cat "${work}/Caddyfile.live"
+  } >"${work}/Caddyfile.run"
+  "${caddy_bin}" run --adapter caddyfile --config "${work}/Caddyfile.run" >"${work}/caddy.log" 2>&1 &
+  caddy_pid=$!
+  trap 'kill "${caddy_pid}" "${stubs_pid}" 2>/dev/null; rm -rf "${work}"' EXIT
+
+  # get LABEL PATH [CURL ARGS...] — a request to a preview host of that label.
+  get() {
+    local h="$1-5173.${PREVIEW_SUFFIX}" p="$2"
+    shift 2
+    curl -sk --max-time 5 --resolve "${h}:${live_public}:127.0.0.1" "$@" "https://${h}:${live_public}${p}"
+  }
+  for _ in $(seq 50); do
+    [ "$(get plain / -o /dev/null -w '%{http_code}')" = 200 ] && break
+    sleep 0.2
+  done
+
+  expect() { # LABEL EXPECTED ACTUAL
+    case "$3" in
+      *"$2"*) ok "$1" ;;
+      *) no "$1 (got: $3)" ;;
+    esac
+  }
+
+  expect "an HTTPS upstream with a self-signed certificate is proxied" \
+    "upstream=tls path=/page" "$(get tls /page)"
+  expect "a plain upstream is still proxied" \
+    "upstream=plain path=/page" "$(get plain /page)"
+  expect "an answer with no scheme header still goes to the plain upstream" \
+    "upstream=plain" "$(get old /)"
+  expect "neither the scheme nor the upstream header reaches the application" \
+    "scheme-header=none upstream-header=none" "$(get tls /)"
+  expect "the bridge path reaches an HTTPS upstream with its prefix stripped" \
+    "upstream=tls path=/inner" "$(get tls /__portikus/ports/5174/inner)"
+  expect "a redirect over the TLS hop is rewritten to the preview origin" \
+    "location: https://tls-5173.${PREVIEW_SUFFIX}:${live_public}/landed" \
+    "$(get tls /redirect -D - -o /dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+
+  # A forged header changes nothing: the plain upstream would fail a TLS
+  # handshake and the TLS upstream a plain request, so either leak would
+  # show up as a 502 instead of the page.
+  expect "a client-sent https scheme header does not turn TLS on" \
+    "upstream=plain path=/ scheme-header=none" "$(get plain / -H 'X-Portikus-Upstream-Scheme: https')"
+  expect "a client-sent https scheme header is ignored when the API sends none" \
+    "upstream=plain path=/ scheme-header=none" "$(get old / -H 'X-Portikus-Upstream-Scheme: https')"
+  expect "a client-sent http scheme header does not turn TLS off" \
+    "upstream=tls path=/ scheme-header=none" "$(get tls / -H 'X-Portikus-Upstream-Scheme: http')"
+  expect "a client-sent upstream header does not move the target" \
+    "upstream=tls" "$(get tls / -H "X-Portikus-Upstream: 127.0.0.1:${live_plain}")"
+
+  expect "a WebSocket works over the TLS hop" \
+    "tls:ping" "$(python3 "${work}/ws.py" "tls-5173.${PREVIEW_SUFFIX}" "${live_public}" 2>&1)"
+  expect "a WebSocket still works over the plain hop" \
+    "plain:ping" "$(python3 "${work}/ws.py" "plain-5173.${PREVIEW_SUFFIX}" "${live_public}" 2>&1)"
+
+  if [ "${fail}" -gt 0 ]; then
+    echo "--- caddy log ---" >&2
+    tail -n 30 "${work}/caddy.log" >&2
+  fi
 fi
 
 echo ""
