@@ -389,3 +389,44 @@ export const AdminEgressView = z
 	})
 	.strict();
 export type AdminEgressView = z.infer<typeof AdminEgressView>;
+
+const PRESET_HOST_COUNT = EGRESS_PRESETS.reduce((n, p) => n + p.hosts.length, 0);
+
+/**
+ * The expanded policy the worker sends to the controller's
+ * `PUT /egress-policy`, and the controller hands to the root helper. The
+ * helper checks it again with this same schema before any value reaches a
+ * file or the firewall, so a name here can never carry a newline, space,
+ * slash or `#` into dnsmasq, nft or Squid.
+ */
+export const EgressApplyPolicy = z
+	.object({
+		version: z.number().int().nonnegative().max(2_147_483_647),
+		mode: EgressMode,
+		names: z
+			.array(z.string().refine(isEgressHostName))
+			.max(EGRESS_LIMITS.hosts + PRESET_HOST_COUNT)
+			.refine((n) => new Set(n).size === n.length),
+		ranges: z
+			.array(
+				z.string().refine((r) => {
+					const parsed = parseIpv4Cidr(r);
+					return parsed !== null && deniedOverlap(parsed) === null;
+				}),
+			)
+			.max(EGRESS_LIMITS.ranges)
+			.refine((r) => new Set(r).size === r.length),
+		ports: EgressPorts,
+	})
+	.strict();
+export type EgressApplyPolicy = z.infer<typeof EgressApplyPolicy>;
+
+/** `GET /egress-policy` on the controller, and the answer to a successful PUT. */
+export const EgressApplyStatus = z
+	.object({
+		appliedVersion: z.number().int().nullable(),
+		appliedAt: z.string().nullable(),
+		error: z.string().nullable(),
+	})
+	.strict();
+export type EgressApplyStatus = z.infer<typeof EgressApplyStatus>;

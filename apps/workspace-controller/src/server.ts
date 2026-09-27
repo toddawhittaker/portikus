@@ -24,6 +24,7 @@ import {
 } from "@portikus/observability";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { tokenAuth } from "./auth.js";
+import { type EgressRouteOptions, registerEgressRoutes } from "./egress/routes.js";
 import { IncusError } from "./incus.js";
 import {
 	InstanceNotStoppedError,
@@ -50,6 +51,8 @@ interface ServerOptions {
 	token: string;
 	/** The process logger. Tests default to one that writes nothing. */
 	logger?: Logger;
+	/** Where the egress routes meet the root helper; tests point it elsewhere. */
+	egress?: EgressRouteOptions;
 }
 
 export function buildServer(opts: ServerOptions): FastifyInstance {
@@ -485,6 +488,8 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			return sendError(reply, err);
 		}
 	});
+
+	registerEgressRoutes(app, opts.egress);
 
 	return app;
 }

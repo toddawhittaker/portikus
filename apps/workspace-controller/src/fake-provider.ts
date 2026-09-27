@@ -59,8 +59,6 @@ interface FakeInstance {
 export class FakeWorkspaceProvider implements WorkspaceProvider {
 	readonly instances = new Map<string, FakeInstance>();
 	readonly volumes = new Map<string, FakeVolume>();
-	/** What `setNetworkDnsmasq` last wrote. */
-	networkDnsmasq = "";
 	readonly hostCpuCount = 4;
 	private nextError: ControllerErrorCode | null = null;
 	private stopShouldHang = false;
@@ -429,10 +427,5 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 		this.volumes.delete(importVolume);
 		inst.homeVolume = `${name}-home`;
 		return { kept };
-	}
-
-	async setNetworkDnsmasq(raw: string): Promise<void> {
-		this.checkError();
-		this.networkDnsmasq = raw;
 	}
 }
