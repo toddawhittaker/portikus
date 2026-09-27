@@ -202,15 +202,89 @@ we_counted() {
   return 1
 }
 
+# ── The table survives the firewall ──────────────────────────────
+
+# Restarting nftables reloads only the firewall's own tables; the helper's
+# table, and so allow-list mode, stays in force.
+we_check_nftables_restart() {
+  local before after
+  check "nftables' stop removes only the firewall's own tables" \
+    sec_ssh "stop=\$(systemctl show nftables -p ExecStop --value); [[ \$stop == *'destroy table inet filter; destroy table inet nat'* && \$stop != *'flush ruleset'* ]]"
+  check "the firewall's ruleset file never flushes the whole ruleset" \
+    sec_ssh "! grep -q 'flush ruleset' /etc/nftables.conf"
+  before=$(sec_ssh "sudo nft list table inet portikus_egress | grep -c redirect")
+  sec_ssh "sudo systemctl restart nftables" >/dev/null 2>&1
+  after=$(sec_ssh "sudo nft list table inet portikus_egress | grep -c redirect")
+  if [ -n "$before" ] && [ "$before" -gt 0 ] && [ "$after" = "$before" ]; then
+    sec_pass "restarting nftables keeps the egress table's ${after} redirect rule(s)"
+  else
+    sec_fail "restarting nftables keeps the egress table's redirect rules (before ${before:-none}, after ${after:-none})"
+  fi
+}
+
+# ── Reboots (PORTIKUS_SECURITY_HEAVY=1) ──────────────────────────
+
+# Reboots the VM, waits for the platform, and puts back what the run keeps
+# in the VM's /tmp, which a reboot empties; then holds both workspaces again.
+we_reboot() {
+  local i key
+  echo "Rebooting the VM..."
+  sec_ssh "sudo systemctl reboot" >/dev/null 2>&1 || true
+  sleep 15
+  for ((i = 0; i < 300; i += 5)); do
+    sec_ssh "systemctl is-active --quiet portikus-api portikus-worker portikus-controller" >/dev/null 2>&1 && break
+    sleep 5
+  done
+  sec_ssh "install -d -m 0700 ${SEC_REMOTE_DIR}"
+  for key in a b admin; do
+    printf 'Cookie: %s\n' "$(cat "${SEC_LOCAL_DIR}/${key}.cookie")" \
+      | sec_ssh_stdin "umask 077; cat > ${SEC_REMOTE_DIR}/${key}.cookie"
+  done
+  sec_hold_presence a && sec_hold_presence b
+}
+
+# we_forwarding CMD-CONTEXT -- "open" when a reaches anything outside, "dropped" otherwise.
+we_forwarding() {
+  sec_exec a student 'for u in https://1.1.1.1/ https://api.github.com/; do
+    [ "$(curl -sk -o /dev/null -w "%{http_code}" --max-time 8 "$u")" != 000 ] && { echo open; exit; }
+  done; echo dropped' 2>/dev/null
+}
+
+we_check_reboots() {
+  local r i
+  we_reboot || { sec_fail "the workspaces run again after a reboot in allow-list mode"; return; }
+  for ((i = 0; i < 60; i += 3)); do
+    sec_ssh "systemctl is-active --quiet portikus-egress-dns" >/dev/null 2>&1 && break
+    sleep 3
+  done
+  check "after a reboot, the egress helper's boot run succeeded" \
+    sec_ssh "[ \"\$(systemctl show portikus-egress-apply.service -p Result --value)\" = success ]"
+  check "after a reboot, the egress DNS runs" sec_ssh "systemctl is-active --quiet portikus-egress-dns"
+  sec_exec a root "resolvectl flush-caches" >/dev/null 2>&1
+  r=$(we_run_bash)
+  we_expect "allow-list after a reboot, a" "$r" listed_https '!000' "a listed name is reached"
+  we_expect "allow-list after a reboot, a" "$r" unlisted_resolves no "an unlisted name gets no address"
+  we_expect "allow-list after a reboot, a" "$r" unlisted_address 000 "a hard-coded unlisted address is dropped"
+  we_expect "allow-list after a reboot, a" "$r" unlisted_sni_on_listed_address 000 "an unlisted TLS name on a listed address is refused"
+
+  # The helper cannot trust settings others could write, so at boot it
+  # applies nothing from them and drops workspace forwarding instead.
+  echo "Making /etc/portikus/egress.env group-writable, then rebooting..."
+  sec_ssh "sudo chmod 0664 /etc/portikus/egress.env"
+  we_reboot
+  check_output "with unusable settings after a reboot, workspace forwarding is dropped, not open" "dropped" we_forwarding
+  sec_ssh "sudo chmod 0644 /etc/portikus/egress.env"
+}
+
 # ── Logs ─────────────────────────────────────────────────────────
 
-# No log of the workspace proxy or the egress DNS holds a workspace address
-# (ruling 13); only names leave Squid, to the counter.
+# No Squid log and no egress DNS log holds a workspace address (ruling 13);
+# only names leave the workspace proxy, to the counter.
 we_check_logs() {
   local hits
-  hits=$(sec_ssh "sudo grep -rlF '${we_a_ip}' /var/log/portikus-workspace-proxy/ 2>/dev/null; \
-    sudo journalctl -q --no-pager --since '${we_since}' -u portikus-workspace-proxy -u portikus-egress-dns | grep -cF '${we_a_ip}'; true")
-  check_output "no workspace proxy or egress DNS log holds a's address" "0" echo "$hits"
+  hits=$(sec_ssh "sudo grep -rlF '${we_a_ip}' /var/log/portikus-workspace-proxy/ /var/log/squid/ 2>/dev/null; \
+    sudo journalctl -q --no-pager --since '${we_since}' -u portikus-workspace-proxy -u portikus-egress-dns -u squid | grep -cF '${we_a_ip}'; true")
+  check_output "no Squid or egress DNS log holds a's address" "0" echo "$hits"
   check_output "the workspace proxy writes no access log file" "cache.log" \
     sec_ssh "sudo ls /var/log/portikus-workspace-proxy/ | paste -sd' '"
 }
@@ -268,6 +342,12 @@ if [ "$we_start_mode" = "open" ]; then
   else
     sec_pass "the administrator switches to allow-list mode through the API, and it is applied"
     we_check_allow_list
+    we_check_nftables_restart
+    if [ "$SEC_HEAVY" = "1" ]; then
+      we_check_reboots
+    else
+      sec_na "allow-list mode after a reboot" "set PORTIKUS_SECURITY_HEAVY=1 to reboot the VM"
+    fi
     we_restore
     we_check_open
   fi

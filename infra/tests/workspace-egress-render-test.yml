@@ -89,6 +89,27 @@
           - acl_public.egress[0].destination == '198.51.100.0,198.51.100.2-198.51.100.255'
           - acl_public.egress[5].destination.split(',') | select('match', '^10\.') | list == ['10.0.0.0/8']
 
+    # ── The host firewall ─────────────────────────────────────────
+
+    - name: Render the host firewall
+      ansible.builtin.set_fact:
+        firewall_lines: >-
+          {{ lookup('ansible.builtin.template', '../ansible/roles/firewall/templates/nftables.conf.j2').splitlines()
+             | map('trim') | reject('match', '^(#|$)') | list }}
+      vars:
+        portikus_public_port: 8443
+        ansible_default_ipv4: {interface: enp1s0}
+
+    - name: Check the firewall leaves the egress table alone and opens the redirect targets only to redirects
+      vars:
+        egress_ports: "{{ firewall_lines | select('search', '(3129|3130|5300)') | list }}"
+      ansible.builtin.assert:
+        that:
+          - firewall_lines | select('search', 'flush ruleset') | list | length == 0
+          - firewall_lines | select('match', '^flush ') | list == ['flush table inet filter', 'flush table inet nat']
+          - egress_ports | length == 2
+          - egress_ports | reject('search', '^iifname "portikus-ws" .* ct status dnat accept$') | list | length == 0
+
     # ── The workspace proxy ───────────────────────────────────────
 
     - name: Render the workspace proxy configuration

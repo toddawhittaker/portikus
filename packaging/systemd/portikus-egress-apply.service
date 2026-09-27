@@ -8,7 +8,8 @@
 Description=Portikus workspace egress helper
 After=nftables.service
 Before=incus.service
-ConditionPathExists=/etc/portikus/egress.env
+# No condition on its settings file: without it the helper must still run,
+# so a last allow-list fails closed rather than being skipped.
 
 [Service]
 Type=oneshot
