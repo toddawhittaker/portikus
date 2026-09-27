@@ -97,6 +97,8 @@ for an administrator, after a set number within a set time.
 
 **Source.** Epic 14.3 review, 2026-09-25.
 
+Scheduled as Epic 24 (docs/EPIC-24.md).
+
 ## Re-provision after a failed create
 
 **What.** An administrator action that retries a workspace stuck in `error`.
@@ -109,6 +111,8 @@ worker will pick up again, an audit row recording who did it, and a button
 on the administration page. About a day.
 
 **Source.** `docs/SPEC.md` around line 2225, Epic 3 known gaps.
+
+Scheduled as Epic 24 (docs/EPIC-24.md).
 
 ## OpenAPI generation from the Zod contracts
 
@@ -898,6 +902,22 @@ first. About a day.
 
 **Source.** SPEC.md section 25.10; `docs/archive/epics/EPIC-11.md`, "Out of this epic".
 
+## Automated weekly off-host backup copy
+
+**What.** Copy the backup sets in `/var/backups/portikus` to storage off
+the host (an external drive, network storage, or a cloud bucket) once a
+week, automatically.
+
+**Why.** The sets sit on the same physical disk as the VM, so they do not
+survive losing that disk (ADR 0024). Today Todd copies them by hand
+weekly (docs/OPERATIONS.md, "Backups").
+
+**What it would take.** A host timer that copies the newest complete set,
+still encrypted, to a configured destination and reports its result on
+the admin Backups tab. About two days.
+
+**Source.** Issue #730; left out of Epic 24.
+
 ## Per-workspace CPU, memory, and process limits
 
 **What.** Let an administrator set CPU, memory and process limits on one
@@ -912,6 +932,8 @@ workspace is bounded only by the platform-wide profile.
 store the chosen values, and admin UI to set them. About two days.
 
 **Source.** `docs/archive/epics/EPIC-11.md`, "Out of this epic".
+
+Scheduled as Epic 24 (docs/EPIC-24.md).
 
 ## Egress allow-list (issue #284)
 
@@ -931,6 +953,8 @@ admin UI in the Settings tab, which Epic 11 left a place for. About two
 days.
 
 **Source.** Issue #284; `docs/archive/epics/EPIC-11.md`, "Settings tab" and task 7.
+
+Scheduled as Epic 24 (docs/EPIC-24.md).
 
 ## Bulk admin actions
 
