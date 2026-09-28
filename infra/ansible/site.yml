@@ -6,6 +6,12 @@
   hosts: platform
   become: true
 
+  # Setup starts from postinst, whose outer apt still holds the dpkg lock
+  # until it finishes (docs/EPIC-15.md ruling 10).
+  module_defaults:
+    ansible.builtin.apt:
+      lock_timeout: 900
+
   vars:
     # The account that runs incus and owns the development image-build
     # directories: the SSH user Ansible connects as, none on a local run.
@@ -292,16 +298,13 @@
     caddy_dns_cloudflare_version: v0.2.4
 
     # ── Workspace image (docs/EPIC-15.md ruling 19) ───────────────
-    # The signed release setup downloads and imports.  Default: the recipe
+    # The signed release a first install fetches with the image job, which
+    # reads portikus_image_base_url from portikus.yaml.  Default: the recipe
     # VERSION shipped beside the play.  none downloads nothing, for a host
     # that builds its own with make build-workspace-image.
     portikus_image_version: >-
       {{ lookup('env', 'PORTIKUS_IMAGE_VERSION')
          or (lookup('ansible.builtin.file', playbook_dir ~ '/../workspace-image/VERSION', errors='ignore') | default('', true)) }}
-    # Release <V>'s files are <base>/image-<V>/<file>; the image job reads
-    # the same key from portikus.yaml.
-    portikus_image_base_url: https://github.com/toddawhittaker/portikus/releases/download
-    portikus_image_keyring: /usr/share/keyrings/portikus-archive-keyring.gpg
 
   # Checked before any role runs, so bad identity-provider settings change
   # nothing on the VM.  The guards are tagged always, so a run limited with
@@ -456,13 +459,15 @@
       tags: dex
     - role: portikus
       tags: portikus
-    # After portikus, whose package ships the keyring the image is checked with.
-    - role: workspace_image
-      tags: workspace_image
     # After egress_proxy, whose Squid build it pins, and after portikus,
     # which creates the controller's group.
     - role: workspace_egress
       tags: workspace_egress
+    # After portikus, whose package ships the image job and its keyring, and
+    # after workspace_egress, so the health check's container starts on a
+    # workspace network set up as the admin page's jobs see it.
+    - role: workspace_image
+      tags: workspace_image
     - role: backup
       tags: backup
 

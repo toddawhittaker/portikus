@@ -15,6 +15,9 @@ depends on, is imported only to read /etc/portikus/portikus.yaml).
 Usage:
   image-job                 take and run pending requests (the unit)
   image-job recover         mark a job the host lost as failed (ExecStopPost)
+  image-job first-install VERSION
+                            setup's first install: fetch VERSION and make it
+                            the default, unless the host has a default already
   image-job manifest ...    print a schema 1 manifest for a built rootfs
                             (also used by .github/workflows/workspace-image.yml)
 """
@@ -33,6 +36,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 JOBS_DIR = "/var/lib/portikus/image-jobs"
 IMAGES_DIR = "/var/lib/portikus/images"
@@ -63,6 +67,7 @@ NODE_CHOICES = ("24", "26")
 PYTHON_CHOICES = ("debian", "uv-3.14")
 TOOLS = ("node", "npm", "python3", "git", "docker", "claude", "codex")
 MAX_REQUEST_BYTES = 64 * 1024
+KEEP_JOBS = 20
 
 # The only keys each kind may carry; "version" is optional for fetch alone.
 REQUEST_KEYS = {
@@ -594,6 +599,8 @@ class Runner:
             version = self.newest(job, releases)
         job.version = version
         if version in roles(alias_map()):
+            if request.get("version") is None:
+                return "Already up to date"
             raise JobFailed(f"Image {version} is already imported and in use.")
         work = self.work_dir(job)
         try:
@@ -786,16 +793,21 @@ class Runner:
         job.status("refused", "Refused", message=f"The request was refused: {reason}.")
 
     def execute(self, job, doc):
-        request = doc["request"]
         journal(f"running {job.kind} job {job.id} requested by {doc['requestedBy']}")
+        return self.perform(job, doc["request"])
+
+    def perform(self, job, request):
+        """Run one job to its end and return its final state. A kind may return a message for the admin."""
         job.version = request.get("version")
         try:
             job.status("running", "Starting")
-            getattr(self, job.kind)(job, request)
-            job.status("succeeded", "Done")
+            message = getattr(self, job.kind)(job, request)
+            job.status("succeeded", "Done", message=message)
             journal(f"{job.kind} job {job.id} succeeded")
+            return "succeeded"
         except Refused as err:
             self.refuse(job, str(err))
+            return "refused"
         except JobFailed as err:
             job.line(f"Failed: {err}")
             job.status("failed", "Failed", message=str(err))
@@ -806,9 +818,11 @@ class Runner:
             journal(f"{job.kind} job {job.id} crashed: {type(err).__name__}")
         finally:
             job.close()
+        return "failed"
 
     def recover(self, jobs_fd, gid):
-        """Mark a job that was running when the host or the unit stopped as failed."""
+        """Mark a job that was running when the host or the unit stopped as failed, and drop old jobs."""
+        self.drop_old_jobs(jobs_fd)
         for name in os.listdir(jobs_fd):
             if not UUID_RE.fullmatch(name):
                 continue
@@ -836,6 +850,21 @@ class Runner:
         for name in os.listdir(self.images_dir):
             if name.startswith(".work-") or name.startswith(".manifest-"):
                 safe_rmtree(os.path.join(self.images_dir, name))
+
+    def drop_old_jobs(self, jobs_fd):
+        """Keep the newest KEEP_JOBS job directories, by when each last changed."""
+        jobs = []
+        for name in os.listdir(jobs_fd):
+            if not UUID_RE.fullmatch(name):
+                continue
+            try:
+                st = os.stat(name, dir_fd=jobs_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if stat.S_ISDIR(st.st_mode) and st.st_uid == os.geteuid():
+                jobs.append((st.st_mtime_ns, name))
+        for _, name in sorted(jobs, reverse=True)[KEEP_JOBS:]:
+            shutil.rmtree(os.path.join(self.jobs_dir, name), ignore_errors=True)
 
     def run_pending(self, lock_path=LOCK_FILE):
         lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
@@ -871,6 +900,41 @@ class Runner:
                     if taken:
                         self.execute(*taken)
                         last_finish = time.time_ns()
+            finally:
+                os.close(jobs_fd)
+        finally:
+            os.close(lock_fd)
+
+    def run_first_install(self, version, lock_path=LOCK_FILE):
+        """Setup's first install: fetch version and activate it, as two jobs the admin page lists.
+
+        Prints "changed" or "unchanged" for Ansible. A host with a default
+        image already is left to the admin page, so setup never moves it.
+        """
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            jobs_fd = os.open(self.jobs_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                gid = os.fstat(jobs_fd).st_gid
+                try:
+                    has_default = ALIAS_DEFAULT in alias_map()
+                except JobFailed as err:
+                    journal(str(err))
+                    return 1
+                if has_default:
+                    journal("the host has a default image already; the admin page manages it")
+                    print("unchanged")
+                    return 0
+                for kind in ("fetch", "activate"):
+                    job = Job(jobs_fd, str(uuid.uuid4()), gid)
+                    job.kind = kind
+                    journal(f"running setup's {kind} job {job.id} for image {version}")
+                    if self.perform(job, {"kind": kind, "version": version}) != "succeeded":
+                        journal(f"the job's log is {os.path.join(self.jobs_dir, job.id, 'log.txt')}")
+                        return 1
+                print("changed")
+                return 0
             finally:
                 os.close(jobs_fd)
         finally:
@@ -917,6 +981,8 @@ def main(argv):
         return 0
     if argv[1:] == ["recover"]:
         return Runner().run_recover()
+    if argv[1:2] == ["first-install"] and len(argv) == 3 and PUBLISHED_RE.fullmatch(argv[2]):
+        return Runner().run_first_install(argv[2])
     if argv[1:] in ([], ["run"]):
         return Runner().run_pending()
     print(__doc__, file=sys.stderr)

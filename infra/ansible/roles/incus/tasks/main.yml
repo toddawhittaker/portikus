@@ -18,6 +18,7 @@
     owner: root
     group: root
     mode: "0644"
+  register: incus_repo_key
 
 - name: Add Incus stable repository
   ansible.builtin.deb822_repository:
@@ -28,12 +29,22 @@
     components: main
     signed_by: /etc/apt/keyrings/zabbly-incus.asc
     state: present
+  register: incus_repo
+
+# Only when the repository is new; base refreshes every run.
+- name: Refresh the apt index for the Incus repository
+  ansible.builtin.apt:
+    update_cache: true
+  register: incus_apt_refresh
+  retries: 3
+  delay: 10
+  until: incus_apt_refresh is succeeded
+  when: incus_repo is changed or incus_repo_key is changed
 
 - name: Install Incus
   ansible.builtin.apt:
     name: incus
     state: present
-    update_cache: true
 
 - name: Enable and start Incus
   ansible.builtin.systemd:

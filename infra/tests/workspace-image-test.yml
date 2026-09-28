@@ -1,0 +1,79 @@
+---
+# The workspace_image role's first-install decision (docs/EPIC-15.md
+# ruling 19, ADR 0030), tried with no VM: stand-ins for incus and the
+# image job show when setup calls the job, and when a failed first install
+# fails setup or only warns.  `make infra-check` runs it.
+- name: Check when setup installs the first workspace image
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    wi_dir: "{{ lookup('env', 'TMPDIR') | default('/tmp', true) }}/portikus-workspace-image-test"
+    wi_default: '[{"name": "portikus-2026.09.11", "target": "aaa"}, {"name": "portikus", "target": "aaa"}]'
+    wi_none: '[{"name": "portikus-2026.09.10", "target": "bbb"}]'
+    wi_cases:
+      - { name: a host that builds its own image, version: none, before: "{{ wi_none }}", job: none,
+          accept: true, called: false }
+      - { name: a host with a default image, version: 2026.09.12, before: "{{ wi_default }}", job: none,
+          accept: true, called: false }
+      - { name: a first install, version: 2026.09.12, before: "{{ wi_none }}", job: succeeds,
+          accept: true, called: true }
+      - { name: a failed first install with no default, version: 2026.09.12, before: "{{ wi_none }}", job: fails,
+          accept: false, called: true }
+      - { name: a failed first install once a default exists, version: 2026.09.12, before: "{{ wi_none }}",
+          job: fails-after-default, accept: true, called: true }
+
+  environment:
+    PATH: "{{ wi_dir }}/bin:{{ lookup('env', 'PATH') }}"
+
+  tasks:
+    - name: Start with an empty test directory
+      ansible.builtin.file:
+        path: "{{ wi_dir }}"
+        state: absent
+
+    - name: Create the stand-ins' directory
+      ansible.builtin.file:
+        path: "{{ wi_dir }}/bin"
+        state: directory
+        mode: "0755"
+
+    # incus prints the aliases file; the job records its call and, unless it
+    # fails before, sets a default as the real one does.
+    - name: Write the stand-ins
+      ansible.builtin.copy:
+        dest: "{{ wi_dir }}/bin/{{ item.name }}"
+        mode: "0755"
+        content: "{{ item.content }}"
+      loop:
+        - name: incus
+          content: |
+            #!/bin/sh
+            cat "{{ wi_dir }}/aliases.json"
+        - name: image-job
+          content: |
+            #!/bin/sh
+            echo "$*" > "{{ wi_dir }}/called"
+            case "$(cat "{{ wi_dir }}/job")" in
+              fails) echo "image-job: the download failed" >&2; exit 1 ;;
+            esac
+            echo '{{ wi_default }}' > "{{ wi_dir }}/aliases.json"
+            case "$(cat "{{ wi_dir }}/job")" in
+              fails-after-default) echo "image-job: a default appeared" >&2; exit 1 ;;
+            esac
+            echo changed
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Try each case
+      ansible.builtin.include_tasks: workspace-image-case.yml
+      loop: "{{ wi_cases }}"
+      loop_control:
+        loop_var: wi_case
+
+    - name: Remove the test directory
+      ansible.builtin.file:
+        path: "{{ wi_dir }}"
+        state: absent

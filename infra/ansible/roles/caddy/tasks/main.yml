@@ -22,6 +22,7 @@
     owner: root
     group: root
     mode: "0644"
+  register: caddy_repo_key
 
 - name: Add the Caddy stable repository
   ansible.builtin.deb822_repository:
@@ -32,13 +33,23 @@
     components: main
     signed_by: /etc/apt/keyrings/caddy-stable.asc
     state: present
+  register: caddy_repo
+
+# Only when the repository is new; base refreshes every run.
+- name: Refresh the apt index for the Caddy repository
+  ansible.builtin.apt:
+    update_cache: true
+  register: caddy_apt_refresh
+  retries: 3
+  delay: 10
+  until: caddy_apt_refresh is succeeded
+  when: caddy_repo is changed or caddy_repo_key is changed
 
 # Pinned to the version CI tests against (.github/workflows/ci.yml); change both together.
 - name: Install Caddy
   ansible.builtin.apt:
     name: "caddy={{ caddy_version | regex_replace('^v', '') }}"
     state: present
-    update_cache: true
 
 # The API fetches the identity provider's discovery document over the public
 # host name.  This entry keeps that fetch on loopback, where the units'

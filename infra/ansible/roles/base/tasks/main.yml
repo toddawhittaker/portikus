@@ -1,9 +1,14 @@
 ---
 # Base OS configuration for the Debian platform VM.
+# The one refresh every run makes; a role that adds a repository refreshes again.
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true
     cache_valid_time: 3600
+  register: base_apt_refresh
+  retries: 3
+  delay: 10
+  until: base_apt_refresh is succeeded
 
 - name: Install base packages
   ansible.builtin.apt:
