@@ -193,6 +193,16 @@ export function AppHeader({
 						<MenuItem onSelect={() => setSettingsOpen(true)}>
 							<span data-testid="editor-settings">Settings</span>
 						</MenuItem>
+						{/* A new tab from everywhere, so the workspace keeps its sockets. */}
+						<MenuItem
+							icon="help"
+							href="/help"
+							target="_blank"
+							rel="noopener"
+							testId="help-link"
+						>
+							Help<span className="sr-only"> (opens in a new tab)</span>
+						</MenuItem>
 						<MenuSeparator />
 						<MenuItem
 							icon="sign-out"
