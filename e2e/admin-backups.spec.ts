@@ -170,6 +170,31 @@ test("an old set is deleted by the host; the newest complete set is refused", as
 	await expect(page.getByRole("heading", { name: "Backup sets" })).toBeFocused();
 });
 
+test("empty lists are one line each, and Clean up stays closed until there is something to delete", async ({
+	page,
+}) => {
+	hostReport(hostStatus({}));
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await openTab(page);
+	await expect(page.getByTestId("backups-status")).toBeVisible();
+	// No table is drawn just for its headers.
+	await expect(page.getByText("No backup sets yet.")).toBeVisible();
+	await expect(page.getByText("No workspaces restored recently.")).toBeVisible();
+	await expect(page.getByRole("table")).toHaveCount(0);
+
+	const summary = page.getByTestId("backups-cleanup-summary");
+	await expect(summary).toHaveText(/^Clean up: /);
+	await expect(page.getByText("No pre-change dumps.")).toBeHidden();
+	await summary.click();
+	await expect(page.getByText("No pre-change dumps.")).toBeVisible();
+
+	// At this width the status pairs sit two to a row.
+	const host = await page.getByTestId("backups-host").boundingBox();
+	const running = await page.getByTestId("backups-running").boundingBox();
+	expect(running?.y).toBe(host?.y);
+	expect(running?.x).toBeGreaterThan((host?.x ?? 0) + (host?.width ?? 0));
+});
+
 test("a refusal from the host is shown with its reason", async ({ page }) => {
 	hostReport(
 		hostStatus({

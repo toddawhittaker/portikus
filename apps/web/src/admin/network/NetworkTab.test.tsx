@@ -53,6 +53,35 @@ test("shows a skeleton, then the policy and its applied status", async () => {
 	expect(screen.queryByTestId("egress-open-note")).toBeNull();
 });
 
+test("the mode summary is stated as fact only once the policy is applied", async () => {
+	stubEgress(egressView());
+	renderWithQuery(<NetworkTab />);
+	await shown();
+	expect(screen.getByTestId("egress-mode-summary").textContent).toMatch(
+		/^Workspaces can reach only/,
+	);
+	cleanup();
+	stubEgress(
+		egressView({ apply: { appliedVersion: 2, appliedAt: null, error: null } }),
+	);
+	renderWithQuery(<NetworkTab />);
+	await shown();
+	expect(screen.getByTestId("egress-mode-summary").textContent).toMatch(
+		/^Saved setting: Workspaces can reach only/,
+	);
+	cleanup();
+	stubEgress(
+		egressView({
+			apply: { appliedVersion: 2, appliedAt: null, error: "the gateway refused it" },
+		}),
+	);
+	renderWithQuery(<NetworkTab />);
+	await shown();
+	expect(screen.getByTestId("egress-mode-summary").textContent).toMatch(
+		/^Saved setting: /,
+	);
+});
+
 test("a read failure is shown with a way to try again", async () => {
 	let fail = true;
 	stubFetch(() =>
@@ -387,14 +416,29 @@ describe("blocked sites (ADR 0043)", () => {
 		);
 	});
 
-	test("an empty list shows an empty state", async () => {
+	test("an empty list in open mode is one line of text with an example, not a table", async () => {
 		stubEgress(egressView({ mode: "open", blockedSites: [] }));
 		renderWithQuery(<NetworkTab />);
 		await shown();
-		expect(screen.getByText("No blocked sites")).toBeDefined();
+		const card = screen.getByRole("region", { name: "Blocked sites" });
+		expect(within(card).queryByRole("table")).toBeNull();
 		expect(screen.getByTestId("egress-block-note").textContent).toContain(
-			"Nothing is blocked",
+			"Nothing is blocked, so workspaces reach every public site. Blocking a site, such as games.example.com",
 		);
+		expect(within(card).getByText(/0 of 500 used/)).toBeDefined();
+	});
+
+	test("an empty list in allow-list mode collapses to its heading, one note and Block", async () => {
+		stubEgress(egressView({ blockedSites: [] }));
+		renderWithQuery(<NetworkTab />);
+		await shown();
+		const card = screen.getByRole("region", { name: "Blocked sites" });
+		expect(within(card).queryByRole("table")).toBeNull();
+		expect(within(card).queryByText(/of 500 used/)).toBeNull();
+		expect(within(card).getByTestId("egress-block-note").textContent).toBe(
+			"Allow-list mode is on, so this list is not used until you switch to open mode.",
+		);
+		expect(within(card).getByRole("button", { name: "Block…" })).toBeDefined();
 	});
 
 	test("blocking a site checks it first, then posts it with its label", async () => {

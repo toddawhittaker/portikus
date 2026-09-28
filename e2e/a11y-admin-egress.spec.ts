@@ -98,3 +98,34 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("egress-remove-dialog")).toBeHidden();
 	});
 }
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the Network tab with an unapplied change and no blocked sites has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.route("**/admin/egress", async (route) => {
+			if (route.request().method() !== "GET") return route.continue();
+			const response = await route.fetch();
+			const view = await response.json();
+			await route.fulfill({
+				response,
+				json: {
+					...view,
+					mode: "allow-list",
+					blockedSites: [],
+					apply: { appliedVersion: view.version - 1, appliedAt: null, error: null },
+				},
+			});
+		});
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin?tab=network");
+		await expect(page.getByTestId("egress-mode-summary")).toHaveText(
+			/^Saved setting:/,
+			{
+				timeout: 15_000,
+			},
+		);
+		await expectNoViolations(page);
+	});
+}

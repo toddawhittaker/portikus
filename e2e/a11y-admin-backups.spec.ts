@@ -106,11 +106,13 @@ const BACKUPS = {
 	],
 };
 
-async function openTab(page: Page, colorScheme: "light" | "dark") {
+async function openTab(
+	page: Page,
+	colorScheme: "light" | "dark",
+	json: unknown = BACKUPS,
+) {
 	await page.route("**/admin/backups", (route) =>
-		route.request().method() === "GET"
-			? route.fulfill({ json: BACKUPS })
-			: route.continue(),
+		route.request().method() === "GET" ? route.fulfill({ json }) : route.continue(),
 	);
 	await page.emulateMedia({ colorScheme });
 	await loginAs(page, "carol");
@@ -129,6 +131,26 @@ for (const colorScheme of ["light", "dark"] as const) {
 	}) => {
 		await openTab(page, colorScheme);
 		await expect(page.getByTestId("backups-host-stale")).toBeVisible();
+		await expectNoViolations(page);
+	});
+
+	test(`the Backups tab with nothing listed has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await openTab(page, colorScheme, {
+			...BACKUPS,
+			host: { ...BACKUPS.host, sets: [], dumps: [] },
+			hostStale: false,
+			vm: { snapshots: [], keptHomes: [] },
+			requests: [],
+		});
+		await expect(page.getByText("No backup sets yet.")).toBeVisible();
+		await expectNoViolations(page);
+		// Clean up opens and closes from the keyboard.
+		const summary = page.getByTestId("backups-cleanup-summary");
+		await summary.focus();
+		await page.keyboard.press("Enter");
+		await expect(page.getByText("No pre-change dumps.")).toBeVisible();
 		await expectNoViolations(page);
 	});
 

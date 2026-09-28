@@ -75,7 +75,9 @@ export function ModeCard({ view }: { view: AdminEgressView }) {
 						className="pk-text-body pk-muted mt-1 mb-0"
 						data-testid="egress-mode-summary"
 					>
-						{MODE_TEXT[view.mode].summary}
+						{status.tone === "applied"
+							? MODE_TEXT[view.mode].summary
+							: `Saved setting: ${MODE_TEXT[view.mode].summary}`}
 					</p>
 				</div>
 				<fieldset
