@@ -48,7 +48,7 @@ export const PYTHON_LABEL: Record<ImagePythonChoice, string> = {
 	"uv-3.14": "Debian's plus Python 3.14 from uv",
 };
 
-const KIND_LABEL: Record<ImageJobView["kind"], string> = {
+const KIND_LABEL: Record<NonNullable<ImageJobView["kind"]>, string> = {
 	fetch: "Update to the latest published image",
 	build: "Rebuild with latest packages",
 	activate: "Make default",
@@ -363,7 +363,7 @@ function jobTitle(job: ImageJobView): string {
 		return `${KIND_LABEL.build}: ${NODE_LABEL[request.node]}, ${PYTHON_LABEL[request.python]}`;
 	}
 	if (job.kind === "activate" && job.version) return `Make ${job.version} the default`;
-	return KIND_LABEL[job.kind];
+	return job.kind ? KIND_LABEL[job.kind] : "Unknown request";
 }
 
 function JobGroup({

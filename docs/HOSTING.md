@@ -94,9 +94,9 @@ threads, 64 GB), its second NVMe disk becomes the storage pool with
 nothing extra to buy, traffic is unmetered, and it is in the US. The
 catches: a one-time setup fee of one month, CPUs a few years old, stock
 that changes daily, and minimal support. Whether OVH's installer offers
-Debian 13 was not checked. docs/INSTALL.md, "Renting the server and
-installing Debian 13 on OVH", covers installing it, including the disk
-layout.
+Debian 13 was not checked. docs/INSTALL.md, "Example: an OVH
+dedicated server", covers installing it, including the disk layout. Any
+Debian 13 server of this size works; OVH is only the recommendation.
 
 Other choices, and why not first:
 

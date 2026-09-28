@@ -89,7 +89,7 @@ export const ImageJobRequestFile = z.object({
 });
 export type ImageJobRequestFile = z.infer<typeof ImageJobRequestFile>;
 
-/** `queued` is the API's own name for a request file the job has not taken yet. */
+/** `queued` is the API's own name for a request the job has not started: a request file, or a `<id>/request.json` with no status yet. */
 export const ImageJobState = z.enum([
 	"queued",
 	"running",
@@ -100,20 +100,26 @@ export const ImageJobState = z.enum([
 export type ImageJobState = z.infer<typeof ImageJobState>;
 
 /** `<id>/status.json` as the job writes it. */
-export const ImageJobStatusFile = z.object({
-	id: ImageJobId,
-	kind: ImageJobKind,
-	/** Never `queued`: the file exists only once the job has taken the request. */
-	state: ImageJobState.exclude(["queued"]),
-	/** One short sentence for the page, such as "Downloading" or "Checking health". */
-	step: z.string().max(200),
-	/** The image the job is about: fetched, built, activated, or rolled back to. Null until known. */
-	version: ImageVersion.nullable(),
-	/** Why it failed or was refused, in one sentence; null otherwise. */
-	message: z.string().max(1000).nullable(),
-	startedAt: z.string().datetime(),
-	finishedAt: z.string().datetime().nullable(),
-});
+export const ImageJobStatusFile = z
+	.object({
+		id: ImageJobId,
+		/** Null only for a request refused before its kind was known good. */
+		kind: ImageJobKind.nullable(),
+		/** Never `queued`: the file exists only once the job has taken the request. */
+		state: ImageJobState.exclude(["queued"]),
+		/** One short sentence for the page, such as "Downloading" or "Checking health". */
+		step: z.string().max(200),
+		/** The image the job is about: fetched, built, activated, or rolled back to. Null until known. */
+		version: ImageVersion.nullable(),
+		/** Why it failed or was refused, in one sentence; null otherwise. */
+		message: z.string().max(1000).nullable(),
+		startedAt: z.string().datetime(),
+		finishedAt: z.string().datetime().nullable(),
+	})
+	.refine((file) => file.kind !== null || file.state === "refused", {
+		message: "kind may be null only for a refused request",
+		path: ["kind"],
+	});
 export type ImageJobStatusFile = z.infer<typeof ImageJobStatusFile>;
 
 /** `images/aliases.json`. */
@@ -186,7 +192,8 @@ export type ImageHealth = z.infer<typeof ImageHealth>;
 
 export const ImageJobView = z.object({
 	id: ImageJobId,
-	kind: ImageJobKind,
+	/** Null only for a request refused before its kind was known good. */
+	kind: ImageJobKind.nullable(),
 	state: ImageJobState,
 	step: z.string(),
 	version: ImageVersion.nullable(),

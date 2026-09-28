@@ -245,6 +245,52 @@ describe.skipIf(skip)("GET /admin/image", () => {
 	});
 });
 
+describe.skipIf(skip)("GET /admin/image, jobs the root job wrote", () => {
+	test("shows a request refused before its kind was known", async () => {
+		await putJob(
+			jobStatus({
+				kind: null,
+				state: "refused",
+				step: "Refused",
+				version: null,
+				message: "unknown kind",
+				finishedAt: "2026-09-28T10:00:01Z",
+			}),
+		);
+		const res = await send(carol, "GET", "/admin/image");
+		expect(res.statusCode).toBe(200);
+		expect(res.json().job).toMatchObject({
+			kind: null,
+			state: "refused",
+			message: "unknown kind",
+		});
+	});
+
+	test("ignores a null kind on any state but refused", async () => {
+		await putJob(jobStatus({ kind: null, state: "failed" }));
+		const res = await send(carol, "GET", "/admin/image");
+		expect(res.json().job).toBeNull();
+	});
+
+	test("a request the job has taken but not started is still waiting", async () => {
+		const id = "22222222-2222-4222-8222-222222222222";
+		await mkdir(join(jobsDir, id), { recursive: true });
+		await writeFile(
+			join(jobsDir, id, "request.json"),
+			JSON.stringify({
+				id,
+				requestedAt: "2026-09-28T10:00:00Z",
+				requestedBy: "33333333-3333-4333-8333-333333333333",
+				request: { kind: "rollback" },
+			}),
+		);
+		const res = await send(carol, "GET", "/admin/image");
+		expect(res.json().job).toMatchObject({ id, kind: "rollback", state: "queued" });
+		const busy = await send(carol, "POST", "/admin/image/jobs", { kind: "fetch" });
+		expect(busy.statusCode).toBe(409);
+	});
+});
+
 describe.skipIf(skip)("POST /admin/image/jobs", () => {
 	test("writes one request file and audits it", async () => {
 		const res = await send(carol, "POST", "/admin/image/jobs", {

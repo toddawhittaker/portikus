@@ -75,6 +75,8 @@ contents:
     file_info:
       owner: root
       group: root
+  - src: ./packaging/debian/preseed.example
+    dst: /usr/share/doc/portikus/preseed.example
   # The apt repository's public key (ruling 17), dearmored by build-deb.sh.
   - src: ./dist/deploy/portikus-archive-keyring.gpg
     dst: /usr/share/keyrings/portikus-archive-keyring.gpg
