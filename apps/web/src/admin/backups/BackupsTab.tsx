@@ -4,8 +4,15 @@ import type {
 	BackupWorkspace,
 	HostBackupSet,
 } from "@portikus/contracts";
-import { Button, EmptyState, useToast } from "@portikus/ui";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Button, EmptyState, Skeleton, useToast } from "@portikus/ui";
+import {
+	type FocusEvent,
+	type ReactNode,
+	type RefObject,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { formatBytes } from "../../monitor/format.js";
 import { AdminSection } from "../AdminSection.js";
 import { sampleAge } from "../health/HealthTab.js";
@@ -56,7 +63,10 @@ export function BackupsTab() {
 	if (!backups.data) {
 		return (
 			<AdminSection title="Backups">
-				<div aria-busy="true" data-testid="backups-loading" />
+				<div className="grid gap-6" aria-busy="true" data-testid="backups-loading">
+					<Skeleton variant="block" height={200} />
+					<Skeleton variant="block" height={120} />
+				</div>
 			</AdminSection>
 		);
 	}
@@ -128,36 +138,7 @@ function BackupsView({ data, host }: { data: AdminBackups; host: Host }) {
 	}
 
 	return (
-		<AdminSection
-			title="Backups"
-			actions={
-				<Button
-					variant="primary"
-					data-testid="backup-run"
-					loading={run.isPending}
-					aria-disabled={runOffReason ? true : undefined}
-					aria-describedby={runOffReason ? "backup-run-note" : undefined}
-					onClick={() => {
-						if (runOffReason || run.isPending) return;
-						run.mutate(undefined, {
-							onSuccess: requested("Backup requested"),
-							onError: failed("Could not start a backup"),
-						});
-					}}
-				>
-					Back up now
-				</Button>
-			}
-		>
-			{runOffReason ? (
-				<p
-					id="backup-run-note"
-					className="pk-muted m-0 -mt-2 text-right text-[13px]"
-					data-testid="backup-run-note"
-				>
-					{runOffReason}
-				</p>
-			) : null}
+		<AdminSection title="Backups">
 			{data.hostStale && data.hostReportedAt ? (
 				<div
 					className="pk-card border-status-warning bg-status-warning-soft p-4 text-status-warning"
@@ -170,29 +151,58 @@ function BackupsView({ data, host }: { data: AdminBackups; host: Host }) {
 				</div>
 			) : null}
 
-			<StatusCard data={data} host={host} />
+			<Group
+				id="backups-backups-title"
+				title="Backups"
+				actions={
+					<Button
+						variant="primary"
+						data-testid="backup-run"
+						loading={run.isPending}
+						aria-disabled={runOffReason ? true : undefined}
+						aria-describedby={runOffReason ? "backup-run-note" : undefined}
+						onClick={() => {
+							if (runOffReason || run.isPending) return;
+							run.mutate(undefined, {
+								onSuccess: requested("Backup requested"),
+								onError: failed("Could not start a backup"),
+							});
+						}}
+					>
+						Back up now
+					</Button>
+				}
+			>
+				{runOffReason ? (
+					<p
+						id="backup-run-note"
+						className="pk-muted m-0 text-[13px]"
+						data-testid="backup-run-note"
+					>
+						{runOffReason}
+					</p>
+				) : null}
+				<StatusPart data={data} host={host} />
+				<SetsPart
+					host={host}
+					requests={requests}
+					onRestore={(set) => {
+						setRestoreError(null);
+						setRestoring(set);
+					}}
+					onDelete={setDeleting}
+				/>
+			</Group>
 
-			<SetsSection
-				host={host}
-				requests={requests}
-				onRestore={(set) => {
-					setRestoreError(null);
-					setRestoring(set);
-				}}
-				onDelete={setDeleting}
-			/>
-
-			<SideCopiesSection
+			<RestoresGroup
 				requests={requests}
 				workspaces={workspaces}
 				onReplace={setReplacing}
 			/>
 
-			<VmSection data={data} onDelete={setDeleting} />
+			<CleanUpGroup data={data} host={host} onDelete={setDeleting} />
 
-			<DumpsSection host={host} requests={requests} onDelete={setDeleting} />
-
-			<RecentSection requests={requests} workspaces={workspaces} />
+			<RecentGroup requests={requests} workspaces={workspaces} />
 
 			<DeleteDialog
 				target={deleting}
@@ -206,11 +216,10 @@ function BackupsView({ data, host }: { data: AdminBackups; host: Host }) {
 				pending={restore.isPending}
 				serverError={restoreError}
 				onClose={() => setRestoring(null)}
-				onRestore={(workspaceId) => {
-					if (!restoring) return;
+				onRestore={(workspaceId, stamp) => {
 					setRestoreError(null);
 					restore.mutate(
-						{ stamp: restoring.stamp, workspaceId },
+						{ stamp, workspaceId },
 						{
 							onSuccess: () => {
 								requested("Restore requested")();
@@ -240,7 +249,67 @@ function BackupsView({ data, host }: { data: AdminBackups; host: Host }) {
 	);
 }
 
-function Card({
+/**
+ * Catches focus when a finished delete removes the focused row, such as its
+ * Deleting button, and puts it on `heading` instead.
+ */
+function useFocusCatch(heading: RefObject<HTMLElement | null>) {
+	const focused = useRef<HTMLElement | null>(null);
+	useEffect(() => {
+		const last = focused.current;
+		if (!last || last.isConnected) return;
+		focused.current = null;
+		const active = document.activeElement;
+		if (active === null || active === document.body) heading.current?.focus();
+	});
+	return (event: FocusEvent<HTMLElement>) => {
+		focused.current = event.target;
+	};
+}
+
+/** One of the page's h3 groups, drawn as a card. */
+function Group({
+	id,
+	title,
+	description,
+	actions,
+	children,
+	testId,
+}: {
+	id: string;
+	title: string;
+	description?: string;
+	actions?: ReactNode;
+	children: ReactNode;
+	testId?: string;
+}) {
+	const heading = useRef<HTMLHeadingElement>(null);
+	const onFocus = useFocusCatch(heading);
+	return (
+		<section
+			className="pk-card @container grid gap-5 p-6"
+			aria-labelledby={id}
+			data-testid={testId}
+			onFocus={onFocus}
+		>
+			<div className="flex flex-wrap items-start gap-x-4 gap-y-2">
+				<div className="min-w-0 flex-1">
+					<h3 className="pk-text-heading m-0" id={id} ref={heading} tabIndex={-1}>
+						{title}
+					</h3>
+					{description ? (
+						<p className="pk-muted mt-1 mb-0 text-[13px]">{description}</p>
+					) : null}
+				</div>
+				{actions}
+			</div>
+			{children}
+		</section>
+	);
+}
+
+/** A titled part inside a group, with an h4. */
+function Part({
 	id,
 	title,
 	children,
@@ -251,43 +320,42 @@ function Card({
 	children: ReactNode;
 	testId?: string;
 }) {
-	// The last element focused in this card, such as a row's Deleting button.
-	const focused = useRef<HTMLElement | null>(null);
 	const heading = useRef<HTMLHeadingElement>(null);
-	// A finished delete removes its row; if focus went with it, catch it here.
-	useEffect(() => {
-		const last = focused.current;
-		if (!last || last.isConnected) return;
-		focused.current = null;
-		const active = document.activeElement;
-		if (active === null || active === document.body) heading.current?.focus();
-	});
+	const onFocus = useFocusCatch(heading);
 	return (
 		<section
-			className="pk-card p-6"
+			className="grid gap-3"
 			aria-labelledby={id}
 			data-testid={testId}
-			onFocus={(event) => {
-				focused.current = event.target;
-			}}
+			onFocus={onFocus}
 		>
-			<h3 className="pk-text-heading m-0" id={id} ref={heading} tabIndex={-1}>
+			<h4
+				className="pk-text-compact m-0 font-semibold text-ink-muted"
+				id={id}
+				ref={heading}
+				tabIndex={-1}
+			>
 				{title}
-			</h3>
-			<div className="mt-4">{children}</div>
+			</h4>
+			{children}
 		</section>
 	);
 }
 
-function StatusCard({ data, host }: { data: AdminBackups; host: Host }) {
+function StatusPart({ data, host }: { data: AdminBackups; host: Host }) {
 	return (
-		<Card id="backups-status-title" title="Status" testId="backups-status">
-			<dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-[13px]">
+		<Part id="backups-status-title" title="Status" testId="backups-status">
+			{/* Pairs sit side by side once the card is wide enough. */}
+			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px] @3xl:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)]">
 				<dt className="pk-muted">Host</dt>
 				<dd className="m-0" data-testid="backups-host">
 					{data.hostReportedAt
 						? `${data.hostStale ? "Not reporting" : "Reporting"}, last report ${sampleAge(data.hostReportedAt, Date.now())}`
 						: "Not reporting"}
+				</dd>
+				<dt className="pk-muted">Running now</dt>
+				<dd className="m-0" data-testid="backups-running">
+					{runningText(host.running, data.requests, data.workspaces)}
 				</dd>
 				<dt className="pk-muted">Last run</dt>
 				<dd className="m-0" data-testid="backups-last-run">
@@ -295,19 +363,15 @@ function StatusCard({ data, host }: { data: AdminBackups; host: Host }) {
 						? `${host.lastRun.result === "success" ? "Succeeded" : "Failed"}, started ${longTime(host.lastRun.startedAt)}`
 						: "None yet"}
 				</dd>
-				<dt className="pk-muted">Last failure</dt>
-				<dd className="m-0" data-testid="backups-last-failure">
-					{host.lastFailure
-						? `${longTime(host.lastFailure.at)}: ${host.lastFailure.reason}`
-						: "None"}
-				</dd>
 				<dt className="pk-muted">Next scheduled run</dt>
 				<dd className="m-0" data-testid="backups-next-run">
 					{host.nextRunAt ? longTime(host.nextRunAt) : "Not scheduled"}
 				</dd>
-				<dt className="pk-muted">Running now</dt>
-				<dd className="m-0" data-testid="backups-running">
-					{runningText(host.running, data.requests, data.workspaces)}
+				<dt className="pk-muted">Last failure</dt>
+				<dd className="m-0 [overflow-wrap:anywhere]" data-testid="backups-last-failure">
+					{host.lastFailure
+						? `${longTime(host.lastFailure.at)}: ${host.lastFailure.reason}`
+						: "None"}
 				</dd>
 				<dt className="pk-muted">Restore key</dt>
 				<dd className="m-0" data-testid="backups-key">
@@ -316,11 +380,11 @@ function StatusCard({ data, host }: { data: AdminBackups; host: Host }) {
 						: "Not installed on the host, so workspaces cannot be restored"}
 				</dd>
 			</dl>
-		</Card>
+		</Part>
 	);
 }
 
-/** A table inside a card, with one full-width row when it is empty. */
+/** A table, or one line of text in its place when there is nothing to list. */
 function Table({
 	testId,
 	caption,
@@ -334,6 +398,13 @@ function Table({
 	empty: string | null;
 	children: ReactNode;
 }) {
+	if (empty !== null) {
+		return (
+			<p className="pk-muted m-0 text-[13px]" data-testid={`${testId}-empty`}>
+				{empty}
+			</p>
+		);
+	}
 	return (
 		<div className="pk-table-wrap">
 			<table className="pk-table" data-testid={testId}>
@@ -347,23 +418,13 @@ function Table({
 						))}
 					</tr>
 				</thead>
-				<tbody>
-					{empty !== null ? (
-						<tr>
-							<td colSpan={headers.length} className="pk-cell-muted">
-								{empty}
-							</td>
-						</tr>
-					) : (
-						children
-					)}
-				</tbody>
+				<tbody>{children}</tbody>
 			</table>
 		</div>
 	);
 }
 
-function SetsSection({
+function SetsPart({
 	host,
 	requests,
 	onRestore,
@@ -376,9 +437,9 @@ function SetsSection({
 }) {
 	const newest = newestCompleteStamp(host.sets);
 	return (
-		<Card id="backups-sets-title" title="Backup sets">
+		<Part id="backups-sets-title" title="Backup sets">
 			{!host.keyInstalled ? (
-				<p id="backups-key-note" className="pk-muted m-0 mb-3 text-[13px]">
+				<p id="backups-key-note" className="pk-muted m-0 text-[13px]">
 					Restore is off until the restore key is installed on the host.
 				</p>
 			) : null}
@@ -487,7 +548,7 @@ function SetsSection({
 					);
 				})}
 			</Table>
-		</Card>
+		</Part>
 	);
 }
 
@@ -504,7 +565,7 @@ function copyState(request: BackupRequestView): ReactNode {
 	return request.state === "claimed" ? "Copying" : "Waiting for the host";
 }
 
-function SideCopiesSection({
+function RestoresGroup({
 	requests,
 	workspaces,
 	onReplace,
@@ -515,11 +576,12 @@ function SideCopiesSection({
 }) {
 	const copies = requests.filter((r) => r.kind === "restore_copy");
 	return (
-		<Card id="backups-copies-title" title="Restored copies">
-			<p className="pk-muted m-0 mb-3 text-[13px]">
-				A copy sits next to the student's files. To swap the whole home folder for it,
-				choose Replace home.
-			</p>
+		<Group
+			id="backups-restores-title"
+			title="Restores"
+			description="Each restored copy sits next to the student's files. To swap their whole home folder for it, choose Replace home."
+			testId="backups-restores"
+		>
 			<Table
 				testId="backup-copies"
 				caption="Workspaces restored into a side copy, newest first"
@@ -552,11 +614,67 @@ function SideCopiesSection({
 					);
 				})}
 			</Table>
-		</Card>
+		</Group>
 	);
 }
 
-function VmSection({
+function count(n: number, one: string, many: string): string {
+	return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * Snapshots, kept homes and dumps, which only need a look now and then, so the
+ * group is closed while all three are empty.
+ */
+function CleanUpGroup({
+	data,
+	host,
+	onDelete,
+}: {
+	data: AdminBackups;
+	host: Host;
+	onDelete: (target: DeleteTarget) => void;
+}) {
+	const { vm } = data;
+	const dumps = count(host.dumps.length, "dump", "dumps");
+	const summary = vm
+		? `${count(vm.snapshots.length, "snapshot", "snapshots")}, ${count(vm.keptHomes.length, "kept home", "kept homes")}, ${dumps}`
+		: `${dumps}; snapshots and kept homes not listed yet`;
+	const anything =
+		host.dumps.length > 0 ||
+		(vm !== null && vm.snapshots.length + vm.keptHomes.length > 0);
+	// Opened once from what is there; after that the admin's toggle stands.
+	const [open] = useState(anything);
+	const summaryRef = useRef<HTMLElement>(null);
+	const onFocus = useFocusCatch(summaryRef);
+	return (
+		<section
+			className="pk-card p-6"
+			aria-labelledby="backups-cleanup-title"
+			data-testid="backups-cleanup"
+			onFocus={onFocus}
+		>
+			<details open={open}>
+				<summary
+					ref={summaryRef}
+					className="pk-focus-ring w-fit cursor-pointer rounded-xs"
+					data-testid="backups-cleanup-summary"
+				>
+					<h3 className="pk-text-heading m-0 inline" id="backups-cleanup-title">
+						Clean up
+					</h3>
+					<span className="pk-muted text-[13px]">: {summary}</span>
+				</summary>
+				<div className="mt-6 grid gap-6">
+					<VmParts data={data} onDelete={onDelete} />
+					<DumpsPart host={host} requests={data.requests} onDelete={onDelete} />
+				</div>
+			</details>
+		</section>
+	);
+}
+
+function VmParts({
 	data,
 	onDelete,
 }: {
@@ -566,8 +684,8 @@ function VmSection({
 	const { vm, requests, workspaces } = data;
 	const notListed = vm === null ? "Not listed yet." : null;
 	return (
-		<div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-2">
-			<Card id="backups-snapshots-title" title="Pre-change snapshots">
+		<>
+			<Part id="backups-snapshots-title" title="Pre-change snapshots">
 				<Table
 					testId="backup-snapshots"
 					caption="Pre-change snapshots of workspace volumes"
@@ -614,8 +732,8 @@ function VmSection({
 						);
 					})}
 				</Table>
-			</Card>
-			<Card id="backups-kept-title" title="Kept homes">
+			</Part>
+			<Part id="backups-kept-title" title="Kept homes">
 				<Table
 					testId="backup-kept-homes"
 					caption="Home folders a replace took out of service"
@@ -660,12 +778,12 @@ function VmSection({
 						);
 					})}
 				</Table>
-			</Card>
-		</div>
+			</Part>
+		</>
 	);
 }
 
-function DumpsSection({
+function DumpsPart({
 	host,
 	requests,
 	onDelete,
@@ -675,7 +793,7 @@ function DumpsSection({
 	onDelete: (target: DeleteTarget) => void;
 }) {
 	return (
-		<Card id="backups-dumps-title" title="Pre-change database dumps">
+		<Part id="backups-dumps-title" title="Pre-change database dumps">
 			<Table
 				testId="backup-dumps"
 				caption="Pre-change database dumps on the host"
@@ -710,11 +828,11 @@ function DumpsSection({
 					);
 				})}
 			</Table>
-		</Card>
+		</Part>
 	);
 }
 
-function RecentSection({
+function RecentGroup({
 	requests,
 	workspaces,
 }: {
@@ -723,7 +841,7 @@ function RecentSection({
 }) {
 	const shown = requests.slice(0, RECENT_SHOWN);
 	return (
-		<Card id="backups-recent-title" title="Recent requests">
+		<Group id="backups-recent-title" title="Recent requests">
 			<Table
 				testId="backup-requests"
 				caption="Recent backup requests, newest first"
@@ -750,6 +868,6 @@ function RecentSection({
 					</tr>
 				))}
 			</Table>
-		</Card>
+		</Group>
 	);
 }
