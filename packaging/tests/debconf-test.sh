@@ -44,7 +44,7 @@ fi
 
 cp "$repo_root/packaging/tests/debconf-scenario.sh" "$work/"
 failed=0
-for scenario in dex-file entra-vg google-disk ldap-unconfirmed oidc-missing-secret reconfigure unanswered; do
+for scenario in dex-file entra-vg google-disk ldap-unconfirmed oidc-missing-secret reconfigure no-debconf-keys unanswered; do
 	if docker run --rm -v "$work:/t:ro" "$image" bash /t/debconf-scenario.sh "$scenario"; then
 		echo "PASS $scenario"
 	else
