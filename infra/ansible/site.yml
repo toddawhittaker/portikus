@@ -79,10 +79,6 @@
     # The Node the package bundles (docs/EPIC-15.md ruling 11), which the
     # play's own calls into the API's scripts use.
     portikus_node: /usr/lib/portikus/node/bin/node
-    # TODO(Epic 15 T3): the node role and this checksum go once the removal
-    # is approved; the package no longer needs NodeSource's Node.
-    # NodeSource GPG signing checksum, verified 2026-09-16.
-    nodesource_gpg_checksum: "b42e0321dabdc24e892115da705cf061167eac12a317f23d329862d0aa0a271d"
 
     # ── Portikus control-plane services ───────────────────────────
     # Empty means install the newest GitHub release.  Set
@@ -429,8 +425,6 @@
       tags: image_builder
     - role: postgresql
       tags: postgresql
-    - role: node
-      tags: node
     - role: caddy
       tags: caddy
     # After caddy, which pins the site's name to loopback.  Tagged lti too,
