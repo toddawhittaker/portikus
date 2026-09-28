@@ -12,6 +12,7 @@ Type=oneshot
 User=root
 Environment=PORTIKUS_BACKUP_DIR=@BACKUP_DIR@
 Environment=PORTIKUS_BACKUP_RECIPIENTS=@RECIPIENTS@
+Environment=PORTIKUS_BACKUP_MAC_KEY=@MAC_KEY@
 Environment=PORTIKUS_BACKUP_NIGHTLY=@NIGHTLY@
 # The retention floor a compromised VM cannot lower (ADR 0039).
 Environment=PORTIKUS_BACKUP_MIN_AGE_DAYS=14

@@ -10,6 +10,27 @@
     name: nftables
     state: present
 
+# SSH stays open on the ports sshd really listens on, so a host whose sshd
+# is not on port 22 does not lock its administrator out.
+- name: Check for sshd
+  ansible.builtin.stat:
+    path: /usr/sbin/sshd
+  register: firewall_sshd
+
+- name: Read the ports sshd listens on
+  ansible.builtin.command: /usr/sbin/sshd -T
+  register: firewall_sshd_config
+  changed_when: false
+  check_mode: false
+  when: firewall_sshd.stat.exists
+
+- name: Keep those ports open
+  ansible.builtin.set_fact:
+    firewall_ssh_ports: >-
+      {{ ((firewall_sshd_config.stdout_lines | default([]) | select('match', '^port [0-9]+$') | map('regex_replace', '^port ', '') | list)
+          + (firewall_sshd_config.stdout_lines | default([]) | select('match', '^listenaddress .*:[0-9]+$') | map('regex_replace', '^.*:', '') | list))
+         | map('int') | unique | sort }}
+
 - name: Deploy nftables ruleset
   ansible.builtin.template:
     src: nftables.conf.j2

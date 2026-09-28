@@ -21,6 +21,7 @@
 # Environment:
 #   PORTIKUS_BACKUP_DIR            one directory of sets per VM (default /var/backups/portikus)
 #   PORTIKUS_BACKUP_RECIPIENTS     age recipients file, passed to backup.sh
+#   PORTIKUS_BACKUP_MAC_KEY        the key backup.sh signs sets with, passed to it
 #   PORTIKUS_BACKUP_KEY            private age key (default /etc/portikus-backup/age-key.txt)
 #   PORTIKUS_BACKUP_NIGHTLY        nightly unit to report on, empty for none (default portikus-backup)
 #   PORTIKUS_BACKUP_CHANNEL_STATE  state directory (default /var/lib/portikus-backup-channel)
@@ -42,6 +43,8 @@ NIGHTLY="${PORTIKUS_BACKUP_NIGHTLY-portikus-backup}"
 STATE="${PORTIKUS_BACKUP_CHANNEL_STATE:-/var/lib/portikus-backup-channel}"
 BACKUP_CMD="${PORTIKUS_BACKUP_CMD:-${here}/portikus-backup}"
 RESTORE_COPY_CMD="${PORTIKUS_RESTORE_COPY_CMD:-${here}/portikus-restore-copy}"
+MAC_KEY="${PORTIKUS_BACKUP_MAC_KEY:-}"
+MAC_CMD="${here}/portikus-backup-mac"
 # The retention floor comes from the unit, never from a request (ADR 0039).
 MIN_AGE_DAYS="${PORTIKUS_BACKUP_MIN_AGE_DAYS:-14}"
 MIN_FREE_MB="${PORTIKUS_BACKUP_MIN_FREE_MB:-1024}"
@@ -139,7 +142,7 @@ print("\t".join(["ok", kind, rid] + [args.get(n, "-") for n in ("stamp", "instan
 # Prints the report document (BackupChannelReport) to stdout.
 #   argv: host_dir vm state_dir running nightly_file request_file max_bytes
 BUILD_REPORT='
-import json, os, re, stat, sys, time
+import json, os, re, stat, subprocess, sys, time
 from datetime import datetime, timezone
 host_dir, vm, state, running, nightly_file, request_file, max_bytes = sys.argv[1:8]
 SET = re.compile(r"[0-9]{8}T[0-9]{6}Z")
@@ -198,6 +201,17 @@ def size_of(top):
             if st and stat.S_ISREG(st.st_mode):
                 total += st.st_size
     return total
+# Whether the MAC of the set shows the installed key made it (ADR 0044); a
+# set without one, or with no key to check it, is shown as not verified.
+def verified(top):
+    if os.environ.get("CH_KEY_INSTALLED") != "yes":
+        return False
+    try:
+        r = subprocess.run(["python3", os.environ["CH_MAC_CMD"], "verify", os.environ["CH_KEY"], top],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+    except (OSError, KeyError, subprocess.TimeoutExpired):
+        return False
+    return r.returncode == 0
 sets = []
 st = lstat(host_dir)
 if st and stat.S_ISDIR(st.st_mode):
@@ -215,7 +229,7 @@ if st and stat.S_ISDIR(st.st_mode):
         if sst and stat.S_ISREG(sst.st_mode) and sst.st_size <= 16:
             text = read(os.path.join(top, "SKIPPED")).strip()
             skipped = int(text) if text.isdigit() and len(text) <= 7 else 0
-        sets.append({"stamp": name, "complete": fst is None, "sizeBytes": size_of(top), "instances": instances, "failedVolumes": failed, "skippedVolumes": skipped})
+        sets.append({"stamp": name, "complete": fst is None, "sizeBytes": size_of(top), "instances": instances, "failedVolumes": failed, "skippedVolumes": skipped, "verified": verified(top)})
 dumps = []
 ddir = os.path.join(host_dir, "dumps")
 st = lstat(ddir)
@@ -347,6 +361,7 @@ record_nightly_failure() {
 report() {
   local out="${scratch}/report.$$.${RANDOM}.json"
   if key_installed; then export CH_KEY_INSTALLED=yes; else export CH_KEY_INSTALLED=no; fi
+  export CH_KEY="$KEY" CH_MAC_CMD="$MAC_CMD"
   python3 -c "$BUILD_REPORT" "$HOST_DIR" "$VM_NAME" "$STATE" "$1" "${scratch}/nightly" "${2:-}" 262144 >"$out"
   vm_in sudo portikus backup-channel report <"$out" >/dev/null
 }
@@ -442,6 +457,7 @@ run_backup() {
   [ -z "${PORTIKUS_BACKUP_MAX_INDEX_ENTRIES:-}" ] || env+=(PORTIKUS_BACKUP_MAX_INDEX_ENTRIES="$PORTIKUS_BACKUP_MAX_INDEX_ENTRIES")
   local last_end ago
   [ -z "$RECIPIENTS" ] || env+=(PORTIKUS_BACKUP_RECIPIENTS="$RECIPIENTS")
+  [ -z "$MAC_KEY" ] || env+=(PORTIKUS_BACKUP_MAC_KEY="$MAC_KEY")
   if nightly_active; then job_fail "A backup is already running."; return; fi
   # A compromised VM must not queue backups back to back (ADR 0039).
   last_end=$(awk '{print $2}' "${STATE}/last-run" 2>/dev/null || true)

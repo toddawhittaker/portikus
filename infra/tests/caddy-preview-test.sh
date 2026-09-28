@@ -20,6 +20,7 @@ PUBLIC_HOST="portikus.192.0.2.10.nip.io"
 PREVIEW_SUFFIX="preview.${PUBLIC_HOST}"
 PUBLIC_PORT=8443
 API_PORT=3000
+ADMIN_SOCKET=/var/lib/caddy/admin.sock
 
 pass=0
 fail=0
@@ -70,6 +71,7 @@ render() {
     -e "portikus_public_port=${PUBLIC_PORT}" \
     -e "portikus_api_port=${API_PORT}" \
     -e "portikus_idp=${1}" \
+    -e "caddy_admin_socket=${ADMIN_SOCKET}" \
     -e "dex_port=5556" \
     -e "portikus_mock_idp_port=3002" "${@:3}" >"${work}/render.log" 2>&1 || {
     echo "error: rendering ${TEMPLATE} for ${1} failed" >&2
@@ -121,6 +123,17 @@ has "site.yml refuses a preview suffix equal to the application host" \
   'portikus_preview_suffix != portikus_public_host' "${SITE_YML}"
 has "site.yml refuses a preview suffix whose wildcard covers the application host" \
   "portikus_public_host\.split\('\.', 1\) \| last != portikus_preview_suffix" "${SITE_YML}"
+
+echo "--- The admin interface ---"
+
+# Loopback port 2019 is open to every local account; the socket is not.
+has "the admin interface is a socket only its owner may open" \
+  "^[[:space:]]+admin unix/${ADMIN_SOCKET}\\|0600$" "${rendered}"
+if [ "$(grep -cE '^[[:space:]]*admin ' "${rendered}")" = 1 ]; then
+  ok "no other admin address is set"
+else
+  no "no other admin address is set"
+fi
 
 has "the preview virtual host is the wildcard on the public port" \
   "^https://\*\.${PREVIEW_SUFFIX}:${PUBLIC_PORT} \{$" "${rendered}"
@@ -542,13 +555,17 @@ PY
     -e "portikus_public_port=${live_public}" \
     -e "portikus_api_port=${live_api}" \
     -e "portikus_idp=mock" \
+    -e "caddy_admin_socket=${ADMIN_SOCKET}" \
     -e "portikus_mock_idp_port=3002" >"${work}/render.log" 2>&1
-  # Keep the test Caddy's certificates and ports out of the host's own.
-  {
-    printf '{\n\tadmin off\n\tskip_install_trust\n\tstorage file_system %s\n\thttp_port %s\n}\n' \
-      "${work}/caddy-data" "${live_http}"
-    cat "${work}/Caddyfile.live"
-  } >"${work}/Caddyfile.run"
+  # Keep the test Caddy's admin, certificates and ports out of the host's
+  # own, in the template's one global block.
+  awk -v data="${work}/caddy-data" -v port="${live_http}" '
+    /^[[:space:]]*admin unix\// {
+      printf "\tadmin off\n\tskip_install_trust\n\tstorage file_system %s\n\thttp_port %s\n", data, port
+      next
+    }
+    { print }
+  ' "${work}/Caddyfile.live" >"${work}/Caddyfile.run"
   "${caddy_bin}" run --adapter caddyfile --config "${work}/Caddyfile.run" >"${work}/caddy.log" 2>&1 &
   caddy_pid=$!
   trap 'kill "${caddy_pid}" "${stubs_pid}" 2>/dev/null; rm -rf "${work}"' EXIT

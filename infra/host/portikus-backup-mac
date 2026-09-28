@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""Authenticate a backup set (docs/adr/0044-backups-on-the-server.md,
+"Authenticated sets").
+
+Anyone who knows the age recipient can encrypt a set, so encryption alone
+does not show who made one.  backup.sh writes MANIFEST.mac, an HMAC-SHA256
+of the set's MANIFEST.age under a key derived from the age identity, and
+every restore checks it before it trusts anything else in the set.  The
+MANIFEST holds each file's size and SHA-256, so the MAC covers those too.
+The one key file an administrator keeps is enough to check a set, and the
+public recipient alone cannot make one.
+
+Usage:
+  portikus-backup-mac derive KEYFILE          print a MAC key file's line
+  portikus-backup-mac recipient KEYFILE       print the age recipient it signs for
+  portikus-backup-mac sign KEYFILE SET-DIR    write SET-DIR/MANIFEST.mac
+  portikus-backup-mac verify KEYFILE SET-DIR  exit 0 when the MAC is right
+
+KEYFILE is an age identity file, or a file `derive` wrote: a host's
+backup account signs with that, so it can make sets without being able
+to read them.  verify exits 3 when the set has no MAC (a set made before
+MACs) and 4 when the MAC is wrong or unreadable; 1 is any other error.
+"""
+import hashlib
+import hmac
+import os
+import re
+import stat
+import subprocess
+import sys
+
+IDENTITY = re.compile(r"AGE-SECRET-KEY-1[0-9A-Z]{58}")
+MAC_KEY = re.compile(r"portikus-backup-mac-key 1 ([0-9a-f]{64}) (age1[0-9a-z]{58})")
+RECIPIENT = re.compile(r"age1[0-9a-z]{58}")
+MAC_LINE = re.compile(r"portikus-backup-mac 1 ([0-9a-f]{64})\n?")
+LABEL = b"portikus-backup-mac-v1\n"
+# The restores refuse a MANIFEST over 4 MiB; this leaves room for age's framing.
+MAX_MANIFEST_AGE = (4 << 20) + (64 << 10)
+NO_MAC, BAD_MAC = 3, 4
+
+
+def die(message, code=1):
+    print(f"portikus-backup-mac: {message}", file=sys.stderr)
+    sys.exit(code)
+
+
+def read_key(path, with_recipient=False):
+    """The MAC key from an identity file or a MAC key file, and the recipient if asked."""
+    try:
+        with open(path) as f:
+            text = f.read(4096)
+    except OSError as e:
+        die(f"cannot read the key file: {e.strerror}")
+    for line in text.splitlines():
+        line = line.strip()
+        m = MAC_KEY.fullmatch(line)
+        if m:
+            return bytes.fromhex(m.group(1)), m.group(2)
+        if not IDENTITY.fullmatch(line):
+            continue
+        recipient = None
+        if with_recipient:
+            # Through standard input, so the identity is on no command line.
+            out = subprocess.run(["age-keygen", "-y"], input=line + "\n", capture_output=True, text=True)
+            recipient = out.stdout.strip()
+            if out.returncode != 0 or not RECIPIENT.fullmatch(recipient):
+                die("age-keygen does not accept the identity")
+        return hashlib.sha256(LABEL + line.encode()).digest(), recipient
+    die("the key file holds no age identity and no MAC key")
+
+
+def read_regular(path, limit):
+    """The file's bytes, or None unless it is a regular file within limit."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    with os.fdopen(fd, "rb") as f:
+        st = os.fstat(f.fileno())
+        if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
+            return None
+        return f.read(limit + 1)
+
+
+def mac_of(key, set_dir):
+    data = read_regular(os.path.join(set_dir, "MANIFEST.age"), MAX_MANIFEST_AGE)
+    if data is None or len(data) > MAX_MANIFEST_AGE:
+        return None
+    return hmac.new(key, b"portikus-backup-set 1\n" + data, hashlib.sha256).hexdigest()
+
+
+def main(argv):
+    if len(argv) == 2 and argv[0] == "derive":
+        key, recipient = read_key(argv[1], with_recipient=True)
+        print(f"portikus-backup-mac-key 1 {key.hex()} {recipient}")
+        return 0
+    if len(argv) == 2 and argv[0] == "recipient":
+        print(read_key(argv[1], with_recipient=True)[1])
+        return 0
+    if len(argv) != 3 or argv[0] not in ("sign", "verify"):
+        die("usage: portikus-backup-mac derive|recipient KEYFILE | sign|verify KEYFILE SET-DIR")
+    verb, key_path, set_dir = argv
+    key = read_key(key_path)[0]
+    mac = mac_of(key, set_dir)
+    if verb == "sign":
+        if mac is None:
+            die("the set has no readable MANIFEST.age")
+        tmp = os.path.join(set_dir, ".MANIFEST.mac.new")
+        with open(tmp, "w") as f:
+            f.write(f"portikus-backup-mac 1 {mac}\n")
+        os.rename(tmp, os.path.join(set_dir, "MANIFEST.mac"))
+        return 0
+    path = os.path.join(set_dir, "MANIFEST.mac")
+    if not os.path.lexists(path):
+        return NO_MAC
+    stored = read_regular(path, 256)
+    m = MAC_LINE.fullmatch(stored.decode("ascii", "replace")) if stored else None
+    if mac is None or m is None or not hmac.compare_digest(m.group(1), mac):
+        return BAD_MAC
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

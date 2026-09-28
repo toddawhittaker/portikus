@@ -143,6 +143,11 @@ export const HostBackupSet = z
 		failedVolumes: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,80}$/)).max(4000),
 		/** Volumes of no listed instance that the run skipped; absent from older hosts. */
 		skippedVolumes: z.number().int().nonnegative().max(9_999_999).optional(),
+		/**
+		 * Whether the set's MAC shows the host's key made it (ADR 0044). A set
+		 * that is not verified is never restored; absent from older hosts.
+		 */
+		verified: z.boolean().optional(),
 	})
 	.strict();
 export type HostBackupSet = z.infer<typeof HostBackupSet>;

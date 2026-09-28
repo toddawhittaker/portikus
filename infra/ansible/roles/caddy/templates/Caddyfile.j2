@@ -20,6 +20,13 @@
 {% endif %}
 {% endset %}
 
+# The admin interface can load any configuration, so it is a socket only
+# the caddy user and root can open, never a loopback port every local
+# account can reach (SPEC 24.3).  `systemctl reload caddy` uses it.
+{
+	admin unix/{{ caddy_admin_socket }}|0600
+}
+
 # ── Preview edge building blocks ─────────────────────────────────────
 # The plain preview path and the multi-port bridge (BROWSER-HANDLING 14)
 # run the same steps, so the steps live here once and are imported twice.

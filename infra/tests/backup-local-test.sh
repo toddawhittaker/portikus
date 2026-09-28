@@ -144,11 +144,12 @@ lib="${work}/lib"
 mkdir -p "$lib"
 cp "${repo}/infra/host/backup.sh" "${lib}/portikus-backup"
 cp "${repo}/infra/host/portikus-backup-export" "${lib}/portikus-backup-export"
+cp "${repo}/infra/host/portikus-backup-mac" "${lib}/portikus-backup-mac"
 mkdir -p "$sets"
 chmod 0700 "$backups"
 run_backup() {
   PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$backups" \
-    PORTIKUS_BACKUP_RECIPIENTS="${keydir}/recipients.txt" \
+    PORTIKUS_BACKUP_RECIPIENTS="${keydir}/recipients.txt" PORTIKUS_BACKUP_MAC_KEY="$key" \
     bash "${lib}/portikus-backup" "$@" >"${work}/out" 2>&1
 }
 : >"$log"
@@ -239,6 +240,10 @@ expect "a link named like a set and a badly named directory are not listed" \
   "[ \"\$(field \"sorted({s['stamp'] for s in r['status']['sets']} & {'20260916T023000Z', 'not-a-set', '${copied}'})\")\" = \"['${copied}']\" ]"
 expect "a linked volume file is not counted as an instance" \
   "[ \"\$(field \"[s['instances'] for s in r['status']['sets'] if s['stamp'] == '${linked}']\")\" = '[[]]' ]"
+expect "a hand-copied set this key made is listed as verified" \
+  "[ \"\$(field \"[s['verified'] for s in r['status']['sets'] if s['stamp'] == '${copied}']\")\" = '[True]' ]"
+expect "a set without a MAC is listed as not verified" \
+  "[ \"\$(field \"[s['verified'] for s in r['status']['sets'] if s['stamp'] == '${linked}']\")\" = '[False]' ]"
 : >"$log"
 pull "{\"id\":\"${ID}\",\"kind\":\"delete_set\",\"args\":{\"stamp\":\"20260916T023000Z\"}}"
 run_channel --local
@@ -282,6 +287,79 @@ PATH="${work}/bin:${PATH}" bash "${repo}/infra/host/restore.sh" --local "${sets}
 expect "a whole-server restore refuses to run as anyone but root" "[ $? != 0 ] && grep -q 'must run as root' '${work}/out'"
 FAKE_ROOT=1 PATH="${work}/bin:${PATH}" bash "${repo}/infra/host/restore.sh" --local --target-name x "${sets}/${copied}" >"${work}/out" 2>&1
 expect "and takes no target name" "[ $? != 0 ] && grep -q 'takes only --start-check' '${work}/out'"
+requested=20260914T023000Z
+cp -r "${work}/keep-set" "${sets}/${requested}"
+: >"${sets}/${requested}/REQUESTED"
+FAKE_ROOT=1 PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_IDENTITY="$key" \
+  bash "${repo}/infra/host/restore.sh" --local "${sets}/${requested}" >"${work}/out" 2>&1
+expect "a whole-server restore drops a copied-in set's REQUESTED marker" "[ ! -e '${sets}/${requested}/REQUESTED' ]"
+
+echo "--- authenticated sets (ADR 0044) ---"
+mac="${repo}/infra/host/portikus-backup-mac"
+recipient=$(cat "${keydir}/recipients.txt")
+check_set() { # SET [OPTION] -- restore.sh --check with the server's key
+  PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_IDENTITY="$key" \
+    bash "${repo}/infra/host/restore.sh" --check ${2:+"$2"} "$1" >"${work}/out" 2>&1
+}
+# copy_set NAME -- a copy of the genuine set, in the set directory, for one test to spoil.
+copy_set() { rm -rf "${sets:?}/$1"; cp -r "${work}/keep-set" "${sets}/$1"; }
+expect "a local backup signs its set with a MAC" \
+  "[ -f '${sets}/${stamp}/MANIFEST.mac' ] && python3 '$mac' verify '$key' '${sets}/${stamp}'"
+check_set "${sets}/${copied}"
+expect "a genuine set passes the check" "[ $? = 0 ] && grep -q \"MAC matches\" '${work}/out'"
+
+# What someone who knows only the public recipient can make: the same
+# MANIFEST, or any other, encrypted again, beside the genuine MAC.
+forged=20260910T023000Z
+copy_set "$forged"
+age -d -i "$key" "${work}/keep-set/MANIFEST.age" | age -r "$recipient" -o "${sets}/${forged}/MANIFEST.age"
+check_set "${sets}/${forged}"
+expect "a forged set is refused" "[ $? != 0 ] && grep -q 'failed verification' '${work}/out'"
+# ... and a MAC made with a key of their own.
+(umask 077 && age-keygen -o "${work}/attacker.txt" 2>/dev/null)
+python3 "$mac" sign "${work}/attacker.txt" "${sets}/${forged}"
+check_set "${sets}/${forged}"
+expect "a set signed with another key is refused" "[ $? != 0 ] && grep -q 'failed verification' '${work}/out'"
+tampered=20260911T023000Z
+copy_set "$tampered"
+# Its last digit changed, so it is still well formed.
+sed -i -E 's/0$/1/; t; s/[0-9a-f]$/0/' "${sets}/${tampered}/MANIFEST.mac"
+check_set "${sets}/${tampered}"
+expect "a set whose MAC was changed is refused" "[ $? != 0 ] && grep -q 'failed verification' '${work}/out'"
+old=20260912T023000Z
+copy_set "$old"
+rm "${sets}/${old}/MANIFEST.mac"
+check_set "${sets}/${old}"
+expect "a set with no MAC is refused without --unverified" "[ $? != 0 ] && grep -q 'has no MAC' '${work}/out'"
+check_set "${sets}/${old}" --unverified
+expect "--unverified is for root only" "[ $? != 0 ] && grep -q 'only as root' '${work}/out'"
+FAKE_ROOT=1 check_set "${sets}/${old}" --unverified
+expect "as root, --unverified opens a set with no MAC, with a warning" "[ $? = 0 ] && grep -q 'WARNING: .* has no MAC' '${work}/out'"
+FAKE_ROOT=1 check_set "${sets}/${forged}" --unverified
+expect "--unverified never accepts a wrong MAC" "[ $? != 0 ] && grep -q 'failed verification' '${work}/out'"
+
+: >"$log"
+pull ""
+run_channel --local
+expect "the listing shows forged, changed and MAC-less sets as not verified" \
+  "[ \"\$(field \"sorted((s['stamp'], s['verified']) for s in r['status']['sets'] if s['stamp'] in ('${forged}', '${tampered}', '${old}', '${copied}'))\")\" = \"[('${forged}', False), ('${tampered}', False), ('${old}', False), ('${copied}', True)]\" ]"
+
+for bad in "$forged" "$tampered" "$old"; do
+  : >"$log"
+  run_copy --local copy 127.0.0.1 "${sets}/${bad}" "$INST" "restored-${bad:0:4}-${bad:4:2}-${bad:6:2}-${bad:9:4}"
+  expect "a side copy from set ${bad} is refused before any command" \
+    "[ $? != 0 ] && grep -qE 'not verified|failed verification' '${work}/out' && ! grep -q '^incus ' '$log'"
+done
+# A genuine MAC and MANIFEST around a home that is not the one it lists.
+swapped=20260913T023000Z
+copy_set "$swapped"
+echo "not the home" | age -r "$recipient" -o "${sets}/${swapped}/${INST}-home.age"
+: >"$log"
+run_copy --local copy 127.0.0.1 "${sets}/${swapped}" "$INST" "restored-2026-09-13-0230"
+expect "a side copy of a home the MANIFEST does not list is refused, and its folder removed" \
+  "[ $? != 0 ] && grep -q 'not the one its MANIFEST lists' '${work}/out' && grep -q 'rm -rf --one-file-system /home/student/restored-2026-09-13-0230' '$log'"
+check_set "${sets}/${swapped}"
+expect "and the whole-server check refuses it too" "[ $? != 0 ] && grep -q 'the MANIFEST says' '${work}/out'"
 
 echo "--- the backup key helper ---"
 helper="${repo}/packaging/backup/backup-key"
@@ -313,7 +391,14 @@ expect "export: ok with the recipient, then the key file" \
   "[ \"\$(head -1 '${work}/answer')\" = 'ok ${server_recipient}' ] && grep -qx '${server_secret}' '${work}/answer'"
 expect "the key never reaches standard error, the journal" "! grep -q AGE-SECRET-KEY '${work}/helper-err' && grep -q 'handed the backup key for ${server_recipient}' '${work}/helper-err'"
 run_helper status
-expect "the handout is recorded against that recipient" "grep -q '\"handedOutRecipient\":\"${server_recipient}\"' '${work}/answer'"
+expect "export alone records no download, since the file may never arrive" "grep -q '\"handedOutRecipient\":null' '${work}/answer'"
+run_helper "mark-downloaded ${offsite_recipient}"
+expect "a download of a key that is not installed is not recorded" \
+  "[ \"\$(cat '${work}/answer')\" = 'error not-installed' ] && [ ! -e '${hdir}/handed-out' ]"
+run_helper "mark-downloaded ${server_recipient}"
+run_helper status
+expect "once the API has sent the file, the download is recorded against that recipient" \
+  "grep -q '\"handedOutRecipient\":\"${server_recipient}\"' '${work}/answer'"
 
 printf 'not a key\n' >"${work}/junk"
 printf '%s\n%s\n' "$offsite_secret" "$server_secret" >"${work}/two"
@@ -343,10 +428,24 @@ expect "the installed key and recipients are owner-only" \
   "[ \"\$(stat -c %a '${hdir}/age-key.txt')\" = 600 ] && [ \"\$(stat -c %a '${hdir}/recipients.txt')\" = 600 ]"
 expect "the installed key still opens what the uploader's key encrypted" \
   "echo secret | age -r '${offsite_recipient}' | age -d -i '${hdir}/age-key.txt' | grep -qx secret"
+kept=$(find "$hdir" -maxdepth 1 -name 'age-key.txt.replaced-*' -printf '%f\n')
+expect "the replaced key is kept beside it, root-only, under its replacement time" \
+  "[[ '$kept' =~ ^age-key\\.txt\\.replaced-[0-9]{10}\$ ]] && grep -qx '${server_secret}' '${hdir}/${kept}' && [ \"\$(stat -c %a '${hdir}/${kept}')\" = 600 ]"
 run_helper status
-expect "the upload counts as the admin holding the key" "grep -q '\"handedOutRecipient\":\"${offsite_recipient}\"' '${work}/answer'"
+expect "an upload is not a download: the reminder stays" \
+  "! grep -q '\"handedOutRecipient\":\"${offsite_recipient}\"' '${work}/answer'"
 run_helper import "${work}/offsite.txt"
 expect "the same key again is unchanged" "[ \"\$(cat '${work}/answer')\" = 'ok unchanged ${offsite_recipient}' ]"
+run_helper status
+expect "and still not a download" "! grep -q '\"handedOutRecipient\":\"${offsite_recipient}\"' '${work}/answer'"
+# A second replace in the same second must not overwrite the first kept key.
+mkdir -p "${work}/samesecond"
+printf '#!/usr/bin/env bash\necho %s\n' "${kept##*-}" >"${work}/samesecond/date"
+chmod +x "${work}/samesecond/date"
+{ printf 'import-replace\n'; cat "${hdir}/${kept}"; } | PATH="${work}/samesecond:${PATH}" \
+  PORTIKUS_BACKUP_KEY_DIR="$hdir" PORTIKUS_BACKUP_LOCK="$lockfile" bash "$helper" >"${work}/answer" 2>/dev/null
+expect "a replace that would overwrite a kept key is refused, and both keys stay" \
+  "[ \"\$(cat '${work}/answer')\" = 'error busy' ] && grep -qx '${server_secret}' '${hdir}/${kept}' && grep -qx '${offsite_secret}' '${hdir}/age-key.txt'"
 
 rm -rf "$hdir"
 install -d -m 0700 "$hdir"

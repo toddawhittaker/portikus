@@ -20,9 +20,14 @@
 #   --target-name   the VM's hostname; the script refuses any other machine
 #   --start-check   afterwards, start one restored workspace and check its
 #                   files and Git HEADs from inside it, then stop it
+#   --unverified    root only: accept a set that has no MAC, as sets made
+#                   before MACs have none; one whose MAC is wrong is never
+#                   accepted
 #
-# Everything in a set came from the VM, so it is checked against a strict
-# form before it reaches a file name or a command.
+# A set is accepted only when its MAC shows it was made with this key
+# (portikus-backup-mac, ADR 0044), since anyone with the public recipient
+# can encrypt one.  Everything in it is still checked against a strict form
+# before it reaches a file name or a command.
 #
 # Environment:
 #   PORTIKUS_BACKUP_IDENTITY  age identity (default ~/.config/portikus/backup-age-key.txt,
@@ -39,15 +44,19 @@ LOCAL_ADMIN_SUBJECT=Cgtsb2NhbC1hZG1pbhIFbG9jYWw
 INSTANCE_PATTERN='^ws-[0-9a-f]{24}$'
 UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 # Every line backup.sh writes, and nothing else.
-MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|failed ws-[0-9a-f]{24}-(home|recovery)|skipped [0-9]{1,7}|seconds [0-9]+)$'
+MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|index ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64}|failed ws-[0-9a-f]{24}-(home|recovery)|skipped [0-9]{1,7}|seconds [0-9]+)$'
+# backup.sh never writes a larger one.
+MANIFEST_MAX=4194304
+MAC_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-mac"
 
 info() { printf '[restore %s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf '[restore] FAIL: %s\n' "$*" >&2; exit 1; }
 
-mode=restore start_check=no target_name="" local_mode=no
+mode=restore start_check=no target_name="" local_mode=no unverified=no
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) mode=check; shift ;;
+    --unverified) unverified=yes; shift ;;
     --remove) mode=remove; shift ;;
     --start-check) start_check=yes; shift ;;
     --target-name) target_name="${2:?--target-name needs a value}"; shift 2 ;;
@@ -58,7 +67,7 @@ done
 IDENTITY="${PORTIKUS_BACKUP_IDENTITY:-${HOME}/.config/portikus/backup-age-key.txt}"
 if [ "$local_mode" = yes ]; then
   IDENTITY="${PORTIKUS_BACKUP_IDENTITY:-/etc/portikus-backup/age-key.txt}"
-  if [ "$mode" != restore ] || [ -n "$target_name" ]; then die "--local takes only --start-check"; fi
+  if [ "$mode" != restore ] || [ -n "$target_name" ]; then die "--local takes only --start-check and --unverified"; fi
   [ "$(id -u)" = 0 ] || die "--local must run as root"
   SET="${1:?Usage: restore.sh --local [--start-check] <set-dir>}"
   VM=127.0.0.1
@@ -76,6 +85,20 @@ fi
 if [ -L "$SET" ] || [ -n "$(find "$SET" -type l -print -quit)" ]; then
   die "${SET} is or holds a symbolic link; refusing the set"
 fi
+# Before anything in the set is decrypted or read.
+mac_rc=0
+python3 "$MAC_SCRIPT" verify "$IDENTITY" "$SET" || mac_rc=$?
+case "$mac_rc" in
+  0) info "the set's MAC matches: it was made with this key" ;;
+  3)
+    [ "$unverified" = yes ] \
+      || die "${SET} has no MAC, so nothing shows it was made with this key. A set made before MACs has none; if you know where this one came from, run the restore again as root with --unverified. Nothing was changed"
+    [ "$(id -u)" = 0 ] || die "--unverified runs only as root"
+    printf '[restore] WARNING: %s has no MAC. It is restored only because --unverified was given: anyone who knows the public recipient could have made it.\n' "$SET" >&2
+    ;;
+  4) die "${SET} failed verification: it was not made with this key, or it was changed after it was made. Refusing the set; nothing was changed" ;;
+  *) die "could not check the set's MAC with ${IDENTITY}; nothing was changed" ;;
+esac
 scratch=$(mktemp -d)
 # Set once Dex is stopped, and once a restored workspace is held running.
 dex_stopped=no ws_held=no
@@ -132,7 +155,12 @@ EOF
 
 # ── 1. Prove the key works and every file is whole ────────────────
 manifest="${scratch}/MANIFEST"
-decrypt MANIFEST >"$manifest" || die "cannot decrypt the MANIFEST with ${IDENTITY}"
+set +o pipefail
+decrypt MANIFEST | head -c $((MANIFEST_MAX + 1)) >"$manifest"
+decrypt_rc=${PIPESTATUS[0]}
+set -o pipefail
+[ "$(stat -c %s "$manifest")" -le "$MANIFEST_MAX" ] || die "the MANIFEST is larger than 4 MiB; refusing the set"
+[ "$decrypt_rc" = 0 ] || die "cannot decrypt the MANIFEST with ${IDENTITY}"
 n=0
 while IFS= read -r line; do
   n=$((n + 1))
@@ -145,12 +173,21 @@ info "set $(basename "$SET"): package ${backup_version}, $(awk '$1 == "counts"' 
 
 mapfile -t volumes < <(awk '$1 == "volume" { print $2 }' "$manifest")
 mapfile -t instances < <(awk '$1 == "workspace" && $3 != "-" { print $3 }' "$manifest")
+declare -A index_sums=()
+while read -r vol size sum; do
+  index_sums[$vol]="$size $sum"
+done < <(awk '$1 == "index" { print $2, $3, $4 }' "$manifest")
 while read -r kind name size sum _; do
   case "$kind" in file | volume) ;; *) continue ;; esac
   got=$(decrypt "$name" | size_sum)
   [ "$got" = "$size $sum" ] || die "${name}: ${got}, the MANIFEST says ${size} ${sum}"
   if [ "$kind" = volume ]; then
     decrypt "${name}.index" >"${scratch}/${name}.index.raw"
+    # A set made before index lines has none to compare.
+    if [ -n "${index_sums[$name]:-}" ]; then
+      got=$(size_sum <"${scratch}/${name}.index.raw")
+      [ "$got" = "${index_sums[$name]}" ] || die "${name}.index: ${got}, the MANIFEST says ${index_sums[$name]}"
+    fi
     check_index "${scratch}/${name}.index.raw" "${scratch}/${name}.index" \
       || die "${name}.index is not in the expected form; refusing the set"
   fi
@@ -163,6 +200,9 @@ if [ "${#failed[@]}" -gt 0 ]; then
   [ "$mode" != restore ] || die "a restore needs a complete set; use an older one. Nothing was changed"
 fi
 [ "$mode" = check ] && exit 0
+# A set copied back in by hand is not one this server's channel made, so
+# its marker must not count against the requested-backup limit (ADR 0039).
+[ "$local_mode" = no ] || rm -f "${SET}/REQUESTED"
 
 # ── 2. The right VM ───────────────────────────────────────────────
 vm() { ssh -n -o BatchMode=yes -o ConnectTimeout=15 "deploy@${VM}" "$@"; }

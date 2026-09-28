@@ -38,7 +38,10 @@ HOSTNAME_PATTERN='^[a-z0-9][a-z0-9-]{0,62}$'
 USER_PATTERN='^[a-z_][a-z0-9_-]{0,31}$'
 IP_PATTERN='^[0-9]{1,3}(\.[0-9]{1,3}){3}$'
 # Every line backup.sh writes, as restore.sh checks them.
-MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|failed ws-[0-9a-f]{24}-(home|recovery)|skipped [0-9]{1,7}|seconds [0-9]+)$'
+MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|index ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64}|failed ws-[0-9a-f]{24}-(home|recovery)|skipped [0-9]{1,7}|seconds [0-9]+)$'
+# backup.sh never writes a larger one.
+MANIFEST_MAX=4194304
+MAC_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-mac"
 
 die() { printf '[restore-copy] FAIL: %s\n' "$*" >&2; exit 1; }
 info() { printf '[restore-copy] %s\n' "$*"; }
@@ -100,15 +103,51 @@ regular() {
 }
 decrypt() { age -d -i "$KEY" "${SET}/$1.age"; }
 
+# "<bytes> <sha256>" of standard input, as backup.sh records it; with a file
+# argument, standard input also goes on to standard output and the sum to it.
+size_sum() {
+  python3 -c 'import hashlib, sys
+h, n = hashlib.sha256(), 0
+out = sys.stdout.buffer if len(sys.argv) > 1 else None
+for b in iter(lambda: sys.stdin.buffer.read(1 << 20), b""):
+    h.update(b); n += len(b)
+    if out: out.write(b)
+line = f"{n} {h.hexdigest()}\n"
+if out:
+    out.flush()
+    open(sys.argv[1], "w").write(line)
+else:
+    sys.stdout.write(line)' "$@"
+}
+
 VOL="${INSTANCE}-home"
 regular MANIFEST.age || die "refused by the host: the set has no MANIFEST"
-decrypt MANIFEST >"${scratch}/MANIFEST" || die "The restore key cannot open this set's MANIFEST."
+# Only a set made with this key is restored (ADR 0044), and nothing in it is read before this.
+mac_rc=0
+python3 "$MAC_SCRIPT" verify "$KEY" "$SET" || mac_rc=$?
+case "$mac_rc" in
+  0) ;;
+  3) die "Set ${STAMP} is not verified: it has no MAC, so nothing shows this server's key made it. Nothing was restored." ;;
+  4) die "Set ${STAMP} failed verification: it was not made with this server's key, or it was changed. Nothing was restored." ;;
+  *) die "could not check set ${STAMP}'s MAC; nothing was restored" ;;
+esac
+set +o pipefail
+decrypt MANIFEST | head -c $((MANIFEST_MAX + 1)) >"${scratch}/MANIFEST"
+decrypt_rc=${PIPESTATUS[0]}
+set -o pipefail
+[ "$(stat -c %s "${scratch}/MANIFEST")" -le "$MANIFEST_MAX" ] || die "refused by the host: the set's MANIFEST is larger than 4 MiB"
+[ "$decrypt_rc" = 0 ] || die "The restore key cannot open this set's MANIFEST."
 while IFS= read -r line; do
   [[ "$line" =~ $MANIFEST_LINE ]] || die "refused by the host: the set's MANIFEST is not in the expected form"
 done <"${scratch}/MANIFEST"
 head -1 "${scratch}/MANIFEST" | grep -qx 'portikus-backup 1' || die "refused by the host: unknown MANIFEST format"
 idmap=$(awk -v v="$VOL" '$1 == "volume" && $2 == v { print $5 }' "${scratch}/MANIFEST")
 [ -n "$idmap" ] || die "refused by the host: set ${STAMP} does not hold ${VOL}"
+# The MAC covers the MANIFEST, and the MANIFEST these, so the files are checked against them.
+vol_sum=$(awk -v v="$VOL" '$1 == "volume" && $2 == v { print $3, $4 }' "${scratch}/MANIFEST")
+index_sum=$(awk -v v="$VOL" '$1 == "index" && $2 == v { print $3, $4 }' "${scratch}/MANIFEST")
+# streamed_whole -- was the volume just decrypted the one the MANIFEST lists?
+streamed_whole() { [ "$(cat "${scratch}/stream.sum" 2>/dev/null)" = "$vol_sum" ]; }
 regular "${VOL}.age" || die "refused by the host: set ${STAMP} does not hold ${VOL}"
 
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
@@ -145,7 +184,7 @@ fi
 if [ "$MODE" = copy ]; then
   regular "${VOL}.index.age" || die "refused by the host: set ${STAMP} has no index for ${VOL}"
   # The copy's size is the sum of the index's file sizes.
-  need=$(decrypt "${VOL}.index" | python3 -c '
+  need=$(decrypt "${VOL}.index" | size_sum "${scratch}/index.sum" | python3 -c '
 import json, sys
 total = 0
 for n, line in enumerate(sys.stdin, 1):
@@ -157,6 +196,10 @@ for n, line in enumerate(sys.stdin, 1):
     elif "git" not in r:
         sys.exit(f"index line {n} is not in the expected form")
 print(total)') || die "refused by the host: the set's index for ${VOL} is not in the expected form"
+  # A set made before index lines has none to compare.
+  if [ -n "$index_sum" ] && [ "$(cat "${scratch}/index.sum")" != "$index_sum" ]; then
+    die "refused by the host: the index for ${VOL} in set ${STAMP} is not the one its MANIFEST lists"
+  fi
 
   state=$(vm "sudo incus list $(q "$INSTANCE") --project ${PROJECT} --format csv --columns ns") || die "could not ask ${VM} about ${INSTANCE}"
   grep -qx "${INSTANCE},RUNNING" <<<"$state" || die "The workspace is not running. Start it, then try again."
@@ -179,8 +222,10 @@ print(total)') || die "refused by the host: the set's index for ${VOL} is not in
   in_ws mkdir "${HOME_DIR}/${DIR}" || die "~/${DIR} could not be made. Rename or delete anything by that name, then try again."
   created=yes
   info "copying ${VOL} from set ${STAMP} into ~/${DIR} (${need} bytes)"
-  decrypt "$VOL" | vm_in "$(stream_seconds)" "sudo incus exec $(q "$INSTANCE") --project ${PROJECT} --user 1000 --group 1000 --cwd ${HOME_DIR} --env HOME=${HOME_DIR} -- tar -xz --strip-components=2 -C $(q "${HOME_DIR}/${DIR}") backup/volume" \
+  decrypt "$VOL" | size_sum "${scratch}/stream.sum" | vm_in "$(stream_seconds)" "sudo incus exec $(q "$INSTANCE") --project ${PROJECT} --user 1000 --group 1000 --cwd ${HOME_DIR} --env HOME=${HOME_DIR} -- tar -xz --strip-components=2 -C $(q "${HOME_DIR}/${DIR}") backup/volume" \
     || die "The copy into ~/${DIR} failed part way; nothing was kept."
+  # The folder is still ours to remove, so a changed volume leaves nothing behind.
+  streamed_whole || die "refused by the host: ${VOL} in set ${STAMP} is not the one its MANIFEST lists; nothing was kept"
   created=no
   info "copied ${VOL} from set ${STAMP} into ~/${DIR}"
   exit 0
@@ -193,8 +238,12 @@ if vm "sudo incus storage volume show ${POOL} $(q "$IMPORT") --project ${PROJECT
     || die "${IMPORT} already exists and could not be removed"
 fi
 info "importing ${VOL} from set ${STAMP} as ${IMPORT}"
-decrypt "$VOL" | vm_in "$(stream_seconds)" "sudo incus storage volume import ${POOL} /dev/stdin $(q "$IMPORT") --project ${PROJECT} -q" \
+decrypt "$VOL" | size_sum "${scratch}/stream.sum" | vm_in "$(stream_seconds)" "sudo incus storage volume import ${POOL} /dev/stdin $(q "$IMPORT") --project ${PROJECT} -q" \
   || die "The import of the backed-up home failed."
+if ! streamed_whole; then
+  vm "sudo incus storage volume delete ${POOL} $(q "$IMPORT") --project ${PROJECT}" || true
+  die "refused by the host: ${VOL} in set ${STAMP} is not the one its MANIFEST lists; the import was removed"
+fi
 if [ "$idmap" != "-" ]; then
   vm "sudo incus storage volume set ${POOL} $(q "$IMPORT") --project ${PROJECT} volatile.idmap.last=$(q "$idmap")" \
     || die "could not record the backup's ID map on ${IMPORT}"

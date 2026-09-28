@@ -22,6 +22,9 @@
 #   PORTIKUS_BACKUP_DIR         holds one directory of sets per VM (default /var/backups/portikus)
 #   PORTIKUS_BACKUP_RECIPIENTS  age recipients file (default ~/.config/portikus/backup-recipients.txt,
 #                               or /etc/portikus-backup/recipients.txt with --local)
+#   PORTIKUS_BACKUP_MAC_KEY     signs the set (portikus-backup-mac): the MAC key file make backup-setup
+#                               derives (default ~/.config/portikus/backup-mac-key.txt), or the age
+#                               identity itself with --local (default /etc/portikus-backup/age-key.txt)
 #   PORTIKUS_BACKUP_KEEP        complete sets, and incomplete ones, kept per VM (default 14)
 #   PORTIKUS_BACKUP_MIN_AGE_DAYS   retention never removes a set younger than this (default 14)
 #   PORTIKUS_BACKUP_MIN_FREE_MB    a run needs this much free space at least (default 1024)
@@ -54,6 +57,7 @@ MAX_INSTANCES=2000
 MAX_VOLUMES=8000
 # The VM half, sent with every command rather than installed on the VM.
 EXPORT_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-export"
+MAC_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-mac"
 SET_PATTERN='^[0-9]{8}T[0-9]{6}Z$'
 # The VM is not trusted: everything it says must match one of these before
 # it reaches a file name or the MANIFEST (restore.sh checks the same forms).
@@ -223,11 +227,13 @@ done
 if [ "$local_mode" = yes ]; then
   if [ "$check_state" = yes ] || [ -n "$expected_name" ]; then die "--local takes no other option"; fi
   RECIPIENTS="${PORTIKUS_BACKUP_RECIPIENTS:-/etc/portikus-backup/recipients.txt}"
+  MAC_KEY="${PORTIKUS_BACKUP_MAC_KEY:-/etc/portikus-backup/age-key.txt}"
   # The MANIFEST's vm line keeps its address form.
   VM=127.0.0.1
   expected_name=local
 else
   RECIPIENTS="${PORTIKUS_BACKUP_RECIPIENTS:-${HOME}/.config/portikus/backup-recipients.txt}"
+  MAC_KEY="${PORTIKUS_BACKUP_MAC_KEY:-${HOME}/.config/portikus/backup-mac-key.txt}"
   VM="${1:?Usage: backup.sh [--check-state] --vm-name <name> <vm-ip>}"
 fi
 [ -n "$expected_name" ] || die "--vm-name is required, so one VM can never write into another's sets"
@@ -237,6 +243,12 @@ command -v age >/dev/null || die "age is not installed (make bootstrap-host)"
 command -v python3 >/dev/null || die "python3 is not installed"
 [ -r "$EXPORT_SCRIPT" ] || die "${EXPORT_SCRIPT} is missing"
 [ -s "$RECIPIENTS" ] || die "no age recipients in ${RECIPIENTS} (make backup creates them)"
+[ -r "$MAC_SCRIPT" ] || die "${MAC_SCRIPT} is missing"
+[ -r "$MAC_KEY" ] || die "no key to sign the set with at ${MAC_KEY} (make backup-setup derives it)"
+# A set signed with another key would not verify on restore, so stop before any work.
+mac_recipient=$(python3 "$MAC_SCRIPT" recipient "$MAC_KEY") || die "cannot read the signing key ${MAC_KEY}"
+grep -qxF "$mac_recipient" "$RECIPIENTS" \
+  || die "the signing key ${MAC_KEY} is not for the recipients in ${RECIPIENTS}; nothing was kept"
 if [ ! -d "$BACKUP_DIR" ] || [ ! -w "$BACKUP_DIR" ]; then
   die "${BACKUP_DIR} is missing or not writable (make backup creates it)"
 fi
@@ -282,8 +294,8 @@ find "$HOST_DIR" -maxdepth 1 -name '.partial-*' -exec rm -rf {} +
 enough_free_space || die "refused by the host: not enough free space"
 # The run's byte budget: what is free now, less the floor it must leave.
 budget=$(( $(df -B1 --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ') - MIN_FREE_MB * 1048576 ))
-# The MANIFEST, its encrypted copy, FAILED and SKIPPED.
-used=$((4 * FILE_OVERHEAD))
+# The MANIFEST, its encrypted copy, its MAC, FAILED and SKIPPED.
+used=$((5 * FILE_OVERHEAD))
 install -d -m 0700 "$work" "$scratch"
 manifest="${scratch}/MANIFEST"
 
@@ -418,12 +430,17 @@ for vol in "${volumes[@]}"; do
   idmap=$(bounded "volume ID map" 4200 1 remote_export idmap "$vol")
   [ -z "$idmap" ] || must "volume ID map" "$IDMAP_PATTERN" "$idmap"
   age -R "$RECIPIENTS" -o "${work}/${vol}.index.age" "${scratch}/${vol}.index"
+  # The index's own size and checksum, so the MAC covers it too.
+  index_sum="$(stat -c %s "${scratch}/${vol}.index") $(sha256sum "${scratch}/${vol}.index" | cut -d' ' -f1)"
   rm -f "${scratch}/${vol}.index"
   echo "volume ${vol} $(cat "${scratch}/${vol}.sum") ${idmap:--}" >>"$manifest"
+  echo "index ${vol} ${index_sum}" >>"$manifest"
 done
 
 echo "seconds $(($(date +%s) - started))" >>"$manifest"
 age -R "$RECIPIENTS" -o "${work}/MANIFEST.age" "$manifest"
+[ "$(stat -c %s "$manifest")" -le 4194304 ] || die "the MANIFEST passed 4 MiB, which restores refuse; nothing was kept"
+python3 "$MAC_SCRIPT" sign "$MAC_KEY" "$work" || die "could not sign the set; nothing was kept"
 # Also in plain text, so retention can tell an incomplete set without the key.
 if [ "${#failed[@]}" -gt 0 ]; then printf '%s\n' "${failed[@]}" >"${work}/FAILED"; fi
 # -T: a set of the same second is never nested inside another.

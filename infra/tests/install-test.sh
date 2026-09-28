@@ -26,7 +26,8 @@
 #      set copied off the server with rsync;
 #  11. the rebuild from that off-site copy (docs/INSTALL.md, "Rebuilding
 #      from an off-site backup"): destroy the VM, install a fresh one, upload
-#      the key, rsync the set back in, `portikus restore`, and check that the
+#      the key, rsync the set back in, show that a forged set is listed as
+#      not verified and refused, `portikus restore`, and check that the
 #      users, the Dex accounts and the workspace's files are back;
 #  12. destroy the VM.
 #
@@ -512,6 +513,29 @@ copy_in() {
   rehearse wait-set --stamp "$stamp"
 }
 
+# What someone who knows only the public key can make (ADR 0044): the set's
+# MANIFEST encrypted again beside the genuine MAC.  The tab must show it as
+# not verified, and a restore must refuse it.
+forged_set() {
+  local stamp forged=20200101T000000Z
+  stamp=$(cat "${LOGS}/stamp")
+  rm -rf "${LOGS}/forged"
+  mkdir -p "${LOGS}/forged"
+  cp -a "${LOGS}/offsite/${stamp}" "${LOGS}/forged/${forged}"
+  age -d -i "${LOGS}/backup-key.txt" "${LOGS}/offsite/${stamp}/MANIFEST.age" \
+    | age -r "$(age-keygen -y "${LOGS}/backup-key.txt")" -o "${LOGS}/forged/${forged}/MANIFEST.age"
+  rsync -a --rsync-path="sudo rsync" -e "ssh -o BatchMode=yes" \
+    "${LOGS}/forged/${forged}" "deploy@${IP}:/var/backups/portikus/local/"
+  rehearse wait-set --stamp "$forged" --unverified
+  if vm "sudo portikus restore --check ${forged}" >"${LOGS}/forged.txt" 2>&1; then
+    echo "portikus restore accepted a forged set"
+    return 1
+  fi
+  cat "${LOGS}/forged.txt"
+  grep -q 'failed verification' "${LOGS}/forged.txt"
+  vm "sudo rm -rf /var/backups/portikus/local/${forged}"
+}
+
 restore_server() {
   local stamp
   stamp=$(cat "${LOGS}/stamp")
@@ -567,5 +591,6 @@ keep_old_signin
 step "rebuild: sign in with the new one-time password and change it" first_signin
 step "rebuild: upload the old server's key from the Backups tab" upload_key
 step "rebuild: rsync the set back onto the server" copy_in
+step "rebuild: a forged set is shown not verified and refused" forged_set
 step "rebuild: portikus restore" restore_server
 step "rebuild: users, Dex accounts and workspace files are back" check_restored

@@ -131,7 +131,8 @@ test("uploading another server's key asks before replacing this one", async ({
 	await expect(page.getByTestId("backup-key-recipient")).toHaveText(
 		OFFSITE_KEY.recipient,
 	);
-	await expect(page.getByTestId("backup-key-reminder")).toHaveCount(0);
+	// An upload is not a download: the reminder stays until a real one.
+	await expect(page.getByTestId("backup-key-reminder")).toBeVisible();
 	const rows = await keyAudits("backup.key_uploaded");
 	expect(rows.slice(-2)).toEqual([
 		{ result: "refused", metadata: { reason: "exists" } },

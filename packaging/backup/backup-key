@@ -6,18 +6,25 @@
 #
 #   status          answers "ok" and one JSON line: whether a key is
 #                   installed, its public half (the recipient), and the
-#                   recipient last handed out or uploaded, with the time
-#   export          answers "ok <recipient>", then the key file, and records
-#                   the handout
+#                   recipient last downloaded, with the time
+#   export          answers "ok <recipient>", then the key file; it records
+#                   nothing, since the download may still fail on its way
+#   mark-downloaded RECIPIENT
+#                   records that the admin now holds the installed key,
+#                   sent by the API only once the whole download has gone;
+#                   answers "ok" or "error not-installed"
 #   import          reads an age identity from the rest of the input and
 #                   installs it with a matching recipients file; answers
 #                   "ok installed <recipient> <replaced recipient or ->",
 #                   "ok unchanged <recipient>", or "error exists" when a
 #                   different key is installed
-#   import-replace  the same, but replaces a different key
+#   import-replace  the same, but replaces a different key, which is kept
+#                   as age-key.txt.replaced-<unix time>, root-only
 #
-# Anything else answers "error <code>" and changes nothing.  The key only
-# ever goes to standard output; standard error is the journal.
+# An upload is never recorded as a download: the reminder to download the
+# key stays until one really happens.  Anything else answers "error <code>"
+# and changes nothing.  The key only ever goes to standard output; standard
+# error is the journal.
 #
 # Environment (tests only): PORTIKUS_BACKUP_KEY_DIR, PORTIKUS_BACKUP_LOCK.
 set -euo pipefail
@@ -54,12 +61,6 @@ current_recipient() {
   [[ "$r" =~ $RECIPIENT_PATTERN ]] && printf '%s' "$r"
 }
 
-# record_handout RECIPIENT -- the admin now holds this key.
-record_handout() {
-  printf '%s %s\n' "$(date +%s)" "$1" >"${HANDED}.new"
-  mv -f "${HANDED}.new" "$HANDED"
-}
-
 status() {
   local r handed_at="" handed=""
   r=$(current_recipient)
@@ -81,12 +82,23 @@ export_key() {
   [ -n "$r" ] || refuse "no-key"
   printf 'ok %s\n' "$r"
   cat "$KEY"
-  record_handout "$r"
   log "handed the backup key for ${r} to the admin page"
 }
 
+# mark_downloaded RECIPIENT -- the admin now holds this key, if it is still the installed one.
+mark_downloaded() {
+  local r
+  [[ "$1" =~ $RECIPIENT_PATTERN ]] || refuse "invalid"
+  r=$(current_recipient)
+  [ "$r" = "$1" ] || refuse "not-installed"
+  printf '%s %s\n' "$(date +%s)" "$r" >"${HANDED}.new"
+  mv -f "${HANDED}.new" "$HANDED"
+  printf 'ok\n'
+  log "the admin page finished downloading the backup key for ${r}"
+}
+
 import_key() {
-  local replace=$1 identity recipient current lines
+  local replace=$1 identity recipient current lines kept=""
   tmp=$(mktemp "${DIR}/.upload.XXXXXX")
   head -c $((MAX_BYTES + 1)) >"$tmp"
   [ "$(stat -c %s "$tmp")" -le "$MAX_BYTES" ] || refuse "too-large"
@@ -105,7 +117,6 @@ import_key() {
     # Brings a missing or different recipients file back in line.
     printf '%s\n' "$recipient" >"${RECIPIENTS}.new"
     mv -f "${RECIPIENTS}.new" "$RECIPIENTS"
-    record_handout "$recipient"
     printf 'ok unchanged %s\n' "$recipient"
     log "an uploaded backup key matches the installed one (${recipient})"
     return 0
@@ -118,21 +129,30 @@ import_key() {
     flock -n "$lock" || refuse "busy"
   fi
   { printf '# public key: %s\n' "$recipient"; printf '%s\n' "$identity"; } >"$tmp"
+  if installed; then
+    # A second name for the old key, so the sets made with it stay readable.
+    # ln never overwrites, so an earlier replaced key is never lost.
+    kept="${KEY}.replaced-$(date +%s)"
+    ln -- "$KEY" "$kept" 2>/dev/null || refuse "busy"
+  fi
   # Recipients first: a backup that starts in between is for the new key, which the uploader holds.
   printf '%s\n' "$recipient" >"${RECIPIENTS}.new"
   mv -f "${RECIPIENTS}.new" "$RECIPIENTS"
   mv -f "$tmp" "$KEY"
   tmp=""
-  record_handout "$recipient"
   printf 'ok installed %s %s\n' "$recipient" "${current:--}"
-  log "installed an uploaded backup key for ${recipient}${current:+, replacing the key for ${current}}"
+  log "installed an uploaded backup key for ${recipient}${current:+, replacing the key for ${current}}${kept:+, which is kept as ${kept}}"
 }
 
 if [ ! -d "$DIR" ] || [ -L "$DIR" ]; then refuse "no-key-dir"; fi
-IFS= read -r -n 32 verb || true
+IFS= read -r -n 128 line || true
+verb=${line%% *}
+arg=""
+[ "$verb" = "$line" ] || arg=${line#* }
 case "$verb" in
   status) status ;;
   export) export_key ;;
+  mark-downloaded) mark_downloaded "$arg" ;;
   import) import_key no ;;
   import-replace) import_key yes ;;
   *) refuse "unknown-verb" ;;
