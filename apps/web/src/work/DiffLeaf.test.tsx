@@ -134,7 +134,9 @@ test("a modified file shows both sides with no note", async () => {
 	await screen.findByTestId(`diff-editor-${PATH}`);
 	expect(editorState.models?.original.getValue()).toBe("one\n");
 	expect(editorState.models?.modified.getValue()).toBe("two\n");
-	expect(screen.getByTestId(`diff-status-${PATH}`).textContent).toBe("M");
+	// The status is a word, and each column is named (review S13).
+	expect(screen.getByTestId(`diff-status-${PATH}`).textContent).toBe("Modified");
+	expect(screen.getByTestId("diff-sides").textContent).toBe("Last commitYour changes");
 	expect(screen.queryByTestId("diff-note")).toBeNull();
 });
 
@@ -161,6 +163,10 @@ test("an added file under session review says it is new since the session starte
 	expect(screen.getByTestId("diff-note").textContent).toBe(
 		"New since this session started",
 	);
+	// Under session review the left column is the session's start.
+	expect(screen.getByTestId("diff-sides").textContent).toBe(
+		"Session startYour changes",
+	);
 });
 
 test("a deleted file shows the HEAD side and offers no Open file", async () => {
@@ -180,7 +186,7 @@ test("a rename shows the old path and the new one", async () => {
 	renderLeaf();
 	await screen.findByTestId(`diff-editor-${PATH}`);
 	expect(screen.getByText(`Diff · src/old.ts → ${PATH}`)).not.toBeNull();
-	expect(screen.getByTestId(`diff-status-${PATH}`).textContent).toBe("R");
+	expect(screen.getByTestId(`diff-status-${PATH}`).textContent).toBe("Renamed");
 });
 
 test("an unmerged file explains the conflict markers", async () => {

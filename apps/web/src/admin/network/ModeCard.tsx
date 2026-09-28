@@ -1,5 +1,11 @@
 import type { AdminEgressView, EgressMode } from "@portikus/contracts";
-import { ConfirmDialog, ConfirmDialogRoot, Icon, useToast } from "@portikus/ui";
+import {
+	ConfirmDialog,
+	ConfirmDialogRoot,
+	Icon,
+	Toggletip,
+	useToast,
+} from "@portikus/ui";
 import { useEffect, useState } from "react";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 import { applyAnnouncement, applyState, joinPorts, listedHostCount } from "./text.js";
@@ -68,9 +74,16 @@ export function ModeCard({ view }: { view: AdminEgressView }) {
 		<section className="pk-card p-6" aria-labelledby="egress-mode-title">
 			<div className="flex flex-wrap items-start gap-6">
 				<div className="min-w-0 flex-1">
-					<h3 className="pk-text-heading m-0" id="egress-mode-title">
-						Internet access from workspaces
-					</h3>
+					<div className="flex items-center gap-1">
+						<h3 className="pk-text-heading m-0" id="egress-mode-title">
+							Internet access from workspaces
+						</h3>
+						<Toggletip label="open and allow-list modes">
+							Open lets workspaces reach any public site except the ones you block.
+							Allow-list lets them reach only the presets, hosts and ranges you list.
+							Private networks are always blocked.
+						</Toggletip>
+					</div>
 					<p
 						className="pk-text-body pk-muted mt-1 mb-0"
 						data-testid="egress-mode-summary"
@@ -130,7 +143,11 @@ export function ModeCard({ view }: { view: AdminEgressView }) {
 						/>
 					)}
 				</span>
-				<span>{status.text}</span>
+				<span className="min-w-0 flex-1">{status.text}</span>
+				<Toggletip label="apply status">
+					Saved changes reach the workspaces within seconds. Applied means every running
+					workspace follows the saved setting.
+				</Toggletip>
 			</p>
 			{/* Announces state changes only; the visible age text ticks every 30 seconds. */}
 			<p className="sr-only" role="status" data-testid="egress-apply-announce">

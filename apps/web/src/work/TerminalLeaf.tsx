@@ -9,6 +9,7 @@ import {
 	Button,
 	IconButton,
 	Menu,
+	MenuCheckboxItem,
 	MenuItem,
 	MenuRoot,
 	MenuSeparator,
@@ -252,18 +253,15 @@ export function TerminalLeaf({
 						>
 							<span data-testid="terminal-rename">Rename</span>
 						</MenuItem>
-						<MenuItem
-							onSelect={() =>
-								onSetTheme(terminal.id, terminal.theme === "light" ? "dark" : "light")
+						<MenuCheckboxItem
+							testId="terminal-theme-toggle"
+							checked={terminal.theme === "light"}
+							onCheckedChange={(light) =>
+								onSetTheme(terminal.id, light ? "light" : "dark")
 							}
 						>
-							<span
-								data-testid="terminal-theme-toggle"
-								title="The colours change straight away. A program already running keeps the light or dark hint it started with, so restart it or use its own theme command."
-							>
-								{terminal.theme === "light" ? "Dark terminal" : "Light terminal"}
-							</span>
-						</MenuItem>
+							Light terminal
+						</MenuCheckboxItem>
 						<MenuSeparator />
 						<MenuItem
 							shortcut={["Alt", "Shift", "Q"]}

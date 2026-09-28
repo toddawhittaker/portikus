@@ -52,6 +52,18 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("egress-test-result")).toBeVisible();
 		await expectNoViolations(page);
 
+		// The intro and an open toggletip.
+		await expect(page.getByTestId("intro-admin-network")).toBeVisible();
+		await page.getByRole("button", { name: "About open and allow-list modes" }).click();
+		await expect(
+			page.getByRole("dialog", { name: "open and allow-list modes" }),
+		).toBeVisible();
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(
+			page.getByRole("button", { name: "About open and allow-list modes" }),
+		).toBeFocused();
+
 		// The mode switch's confirmation, for whichever mode is not current.
 		const other = page.locator('[data-testid^="egress-mode-"][aria-pressed="false"]');
 		await other.click();

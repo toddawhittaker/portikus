@@ -132,6 +132,35 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await openTab(page, colorScheme);
 		await expect(page.getByTestId("backups-host-stale")).toBeVisible();
 		await expectNoViolations(page);
+		// The intro and an open toggletip, which Escape closes back onto its button.
+		await expect(page.getByTestId("intro-admin-backups")).toBeVisible();
+		const tip = page.getByRole("button", { name: "About the restore key" });
+		await tip.click();
+		await expect(page.getByRole("dialog", { name: "the restore key" })).toBeVisible();
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(page.getByRole("dialog", { name: "the restore key" })).toHaveCount(0);
+		await expect(tip).toBeFocused();
+	});
+
+	test(`the Backups tab with nothing listed has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await openTab(page, colorScheme, {
+			...BACKUPS,
+			host: { ...BACKUPS.host, sets: [], dumps: [] },
+			hostStale: false,
+			vm: { snapshots: [], keptHomes: [] },
+			requests: [],
+		});
+		await expect(page.getByText("No backup sets yet.")).toBeVisible();
+		await expectNoViolations(page);
+		// Clean up opens and closes from the keyboard.
+		const summary = page.getByTestId("backups-cleanup-summary");
+		await summary.focus();
+		await page.keyboard.press("Enter");
+		await expect(page.getByText("No pre-change dumps.")).toBeVisible();
+		await expectNoViolations(page);
 	});
 
 	test(`the Backups tab with nothing listed has no automatic accessibility violations (${colorScheme})`, async ({

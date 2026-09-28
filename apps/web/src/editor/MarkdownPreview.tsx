@@ -94,7 +94,7 @@ export function MarkdownPreview({ text, scrollRef, onScroll }: MarkdownPreviewPr
 			<Markdown
 				remarkPlugins={PLUGINS}
 				rehypePlugins={[[rehypeSourceLines, offset]]}
-				components={{ a: Link }}
+				components={{ a: Link, input: TaskBox }}
 			>
 				{body}
 			</Markdown>
@@ -105,6 +105,19 @@ export function MarkdownPreview({ text, scrollRef, onScroll }: MarkdownPreviewPr
 /** How many lines of text a frontmatter block holds; empty is none. */
 function countLines(frontmatter: string): number {
 	return frontmatter === "" ? 0 : frontmatter.split("\n").length;
+}
+
+/**
+ * A task list's checkbox. remark-gfm draws it with no label, and the item's
+ * text comes after it, so it gets a short name of its own.
+ */
+function TaskBox({
+	node: _node,
+	...props
+}: ComponentPropsWithoutRef<"input"> & { node?: unknown }) {
+	return (
+		<input {...props} aria-label={props.type === "checkbox" ? "Task" : undefined} />
+	);
 }
 
 /** Only a real web link leaves the workspace UI, so only it gets a new tab. */

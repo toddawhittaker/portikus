@@ -185,3 +185,77 @@ test.skipIf(skip)(
 		for (const event of events) expect(event.actor).not.toMatch(/^[0-9a-f]{8}-/);
 	},
 );
+
+async function seedWorkspace(ownerId: string): Promise<string> {
+	const row = await testDb.db
+		.insertInto("workspaces")
+		.values({
+			owner_user_id: ownerId,
+			incus_instance_name: `ws-${ownerId.slice(0, 8)}`,
+			label: `label-${ownerId.slice(0, 8)}`,
+			state: "stopped",
+			desired_state: "stopped",
+			quota_config: JSON.stringify({}),
+		})
+		.returning("id")
+		.executeTakeFirstOrThrow();
+	return row.id;
+}
+
+test.skipIf(skip)(
+	"a user or workspace target carries the person's name, any other target none",
+	async () => {
+		const alice = new CookieJar();
+		await loginAs(app, "alice", alice);
+		await testDb.db.deleteFrom("audit_events").execute();
+		const aliceId = await userId("alice");
+		const carolId = await userId("carol");
+		const workspace = await seedWorkspace(aliceId);
+		const gone = randomUUID();
+		await seed([
+			{ actor: `user:${carolId}`, target: aliceId, action: "user.disabled" },
+			{ actor: `user:${carolId}`, target: workspace, action: "workspace.rebuild" },
+			{ actor: "worker", target: gone, action: "workspace.stop" },
+			{ actor: "host:root", target: "settings", action: "settings.changed" },
+			// Not a UUID after the prefix, so no lookup and no failed cast.
+			{ actor: "user:nope", target: "user:nope", action: "odd.row" },
+		]);
+
+		const res = await getAudit("");
+		expect(res.statusCode).toBe(200);
+		const byAction = new Map(
+			AuditPage.parse(res.json()).events.map((event) => [event.action, event]),
+		);
+		expect(byAction.get("user.disabled")?.targetName).toBe("Alice Student");
+		expect(byAction.get("workspace.rebuild")?.targetName).toBe("Alice Student");
+		expect(byAction.get("workspace.rebuild")?.actorName).toBe("Carol Admin");
+		expect(byAction.get("workspace.stop")?.targetName).toBeNull();
+		expect(byAction.get("settings.changed")?.targetName).toBeNull();
+		expect(byAction.get("odd.row")?.targetName).toBeNull();
+		expect(byAction.get("odd.row")?.actorName).toBeNull();
+	},
+);
+
+test.skipIf(skip)(
+	"a person filter also finds rows about the workspace they own, like the detail panel",
+	async () => {
+		const alice = new CookieJar();
+		await loginAs(app, "alice", alice);
+		await testDb.db.deleteFrom("audit_events").execute();
+		const aliceId = await userId("alice");
+		const carolId = await userId("carol");
+		const aliceWorkspace = await seedWorkspace(aliceId);
+		const carolWorkspace = await seedWorkspace(carolId);
+		await seed([
+			{ actor: "worker", target: aliceWorkspace, action: "workspace.quota_applied" },
+			{ actor: "worker", target: carolWorkspace, action: "workspace.limits_applied" },
+			{ actor: `user:${carolId}`, target: aliceId, action: "user.disabled" },
+		]);
+
+		const byAlice = AuditPage.parse((await getAudit(`?user=${aliceId}`)).json());
+		expect(byAlice.events.map((event) => event.action)).toEqual([
+			"user.disabled",
+			"workspace.quota_applied",
+		]);
+	},
+);

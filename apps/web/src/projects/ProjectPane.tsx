@@ -104,7 +104,7 @@ export function ProjectPane({
 							<span data-testid="new-project-new">New project…</span>
 						</MenuItem>
 						<MenuItem
-							icon="external"
+							icon="download"
 							onSelect={() => setOpen({ kind: "create", mode: "clone" })}
 						>
 							<span data-testid="new-project-clone">Clone repository…</span>
