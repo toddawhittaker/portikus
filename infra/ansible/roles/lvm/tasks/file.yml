@@ -52,6 +52,14 @@
   register: lvm_file_made
   changed_when: true
 
+# It holds every workspace's data.
+- name: Make the storage file root's alone
+  ansible.builtin.file:
+    path: "{{ lvm_storage_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+
 - name: Install the storage file attach script
   ansible.builtin.template:
     src: portikus-storage-attach.j2
