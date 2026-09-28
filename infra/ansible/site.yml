@@ -295,7 +295,7 @@
     # that builds its own with make build-workspace-image.
     portikus_image_version: >-
       {{ lookup('env', 'PORTIKUS_IMAGE_VERSION')
-         | default(lookup('ansible.builtin.file', playbook_dir ~ '/../workspace-image/VERSION', errors='ignore'), true) }}
+         or (lookup('ansible.builtin.file', playbook_dir ~ '/../workspace-image/VERSION', errors='ignore') | default('', true)) }}
     portikus_image_base_url: "https://github.com/toddawhittaker/portikus/releases/download/image-{{ portikus_image_version }}"
     portikus_image_keyring: /usr/share/keyrings/portikus-archive-keyring.gpg
 
