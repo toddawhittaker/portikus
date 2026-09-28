@@ -26,14 +26,35 @@ and lifecycle control are part of the platform rather than an afterthought.
 ## What it looks like
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/shell-dark.png">
-  <img alt="The Portikus workspace: a project list on the left, two split terminals in the middle, and the files pane on the right" src="docs/images/shell.png" width="900">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/student-shell-dark.png">
+  <img alt="The Portikus workspace: a project list on the left, two terminals in the middle, and the project's files and Git changes on the right" src="docs/images/student-shell.png" width="900">
 </picture>
 
-The three-pane shell: projects on the left, a tabbed work area in the middle
-holding two split terminals in the `weather-cli` project, and the files pane
-on the right. The header shows the workspace state and the signed-in user;
-the status bar shows the current directory and how to leave the terminal.
+A student's workspace. Projects are on the left. The middle holds tabs; here
+one tab is split into two terminals in the `weather-cli` project, one
+running the tests and one running a development server. The files pane on
+the right shows the project's folders, the Git state of each file, and the
+changes waiting to be committed. The status bar shows the Git branch,
+memory and disk use, and the workspace's state.
+
+<img alt="The editor with a Markdown file and its preview side by side" src="docs/images/student-editor.png" width="900">
+
+The editor saves as you type, and a Markdown file shows its preview beside
+the source.
+
+<img alt="A web app previewed inside Portikus, with the Running list of listening ports on the right" src="docs/images/student-running-preview.png" width="900">
+
+A web app the student is running, previewed in a tab. Only the student can
+open it, after signing in.
+
+<img alt="The administration Users tab with one student's workspace panel open" src="docs/images/admin-users.png" width="900">
+
+Administrators find a person on the Users tab and act on their workspace
+from its panel: start, stop, rebuild, restore, change storage and limits.
+
+The [student guide](docs/STUDENT-GUIDE.md) and the
+[administrator guide](docs/ADMIN-GUIDE.md) walk through the rest, with more
+screenshots. The same help is built into Portikus on its Help page.
 
 ## How it works
 
@@ -61,8 +82,9 @@ change must respect.
 
 ## Status
 
-Epics 0 through 12a have landed and run on the pilot VM. Epic 12b, sign-in
-through Dex and pilot readiness, is the last epic before the pilot.
+Every epic through Epic 24 has landed and runs on the pilot VM, except Epic
+15, installing from an APT repository, which is planned in
+`docs/EPIC-15.md`. Epic 25 polishes the interface and adds in-app help.
 
 `docs/STATUS.md` records what each epic delivered and the gaps it left.
 
@@ -130,6 +152,8 @@ checks) is in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 | Document | What it is |
 |---|---|
 | [docs/OVERVIEW.md](docs/OVERVIEW.md) | One-page orientation and the design rules. Read this first |
+| [docs/STUDENT-GUIDE.md](docs/STUDENT-GUIDE.md) | How to use a workspace, for students |
+| [docs/ADMIN-GUIDE.md](docs/ADMIN-GUIDE.md) | How to run Portikus for a course, for administrators and instructors |
 | [docs/VISION.md](docs/VISION.md) | Product intent; wins on questions of intent |
 | [docs/SPEC.md](docs/SPEC.md) | Requirements; wins on implementation detail |
 | [docs/STACK.md](docs/STACK.md) | Technology choices and why, plus what was rejected |
