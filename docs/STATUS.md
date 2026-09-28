@@ -3238,3 +3238,64 @@ Gaps:
 - Blocking sites in open mode is best effort against casual use; only
   allow-list mode stops a determined student (ADR 0043).
 - The weekly off-host backup copy is still manual (issue #753).
+
+## Epic 25 — UI polish and help
+
+Built on `epic/25-ui-polish` from a design review of every student and
+administrator screen, with screenshots. The rules are in SPEC.md sections
+5.1, 5.3, 8.5, 8.6 (new, help in the product), 12.7, 13.5, 14.7, 15.8,
+18.2, 18.3, 19.2, 19.4, 20.1, 24.11, 25.1, 25.6, 25.8 and 28, and in
+`design/system/README.md`, "Help in the product". No migrations.
+
+Delivered, by task pull request:
+
+- #774: the Toggletip and PageIntro components, the `/help` page with
+  parts by role, and the new admin tab order.
+- #769: a five-column Users table with a toolbar row that is always
+  there, and neutral confirmations for Enable and Unarchive.
+- #770: the Backups and Network tabs regrouped and explained.
+- #775: the Health tab reordered, with readable charts and a calmer
+  sampling strip.
+- #778: Settings saves each change at once and has only Close; profile
+  values shown as text; keyboard help moved to the Help page.
+- #773: work area, file tree, preview and editor polish, including the
+  refused-port screen with "Choose another port…".
+- #777: the Audit tab names people and filters by person; the Course page
+  uses the admin table and frame.
+- #772: Settings in one column with four guard groups, and a Logs tab that
+  filters by person and sets the service log level.
+- #780: header, account menu, a separate unread-count button, standalone
+  pages, menu tooltips and the student Help.
+- #779: the right pane as a size container, with narrow layouts for
+  Running and Monitor.
+- #771: workspace states, the Workspace dialog, and the storage-full error
+  screen with Reset Docker….
+- #776: the workspace detail panel reordered, with its Resources section
+  and dialogs.
+- #781: follow-ups: one shared Person matcher, help text checked against
+  the code, and layout and test fixes.
+- #782: review fixes: Try again after storage full, a toast for a settings
+  save that fails after Settings closed, and the recovery tip moved.
+- #783: review fixes: rescuing a stuck workspace, site limits read without
+  polling, and Course page focus.
+- #784: review fixes: toggletip keyboard behaviour, tooltips that can be
+  hovered, and focus on Help anchors.
+- This task folds the epic into SPEC.md and STATUS.md.
+
+Verified by unit, Playwright and axe tests in each task, in both themes;
+by a design review with screenshots of each screen; by code and
+accessibility reviews over the epic head, whose findings were fixed in
+#781 to #784 and then confirmed by both reviewers; and by CI on every task
+pull request.
+
+Gaps:
+
+- `<summary>` elements that hold headings (PageIntro, the Trends groups,
+  Clean up) are untested with VoiceOver.
+- The Course page scrolls sideways at narrow widths.
+- A toggletip in a table header adds to what a screen reader reads for
+  each cell; accepted as it is.
+- The `Checkbox` component has no help slot, so a checkbox's toggletip sits
+  in the row beside it.
+- The remembered-open `<details>` logic is copied in PageIntro and
+  TrendsCard; it will be shared if a third copy appears.
