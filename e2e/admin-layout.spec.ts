@@ -32,6 +32,32 @@ test.describe("admin layout", () => {
 		}
 	});
 
+	test("tabs read Users, then Health, Logs, Audit, then Network, Backups, Settings (Epic 25 R1)", async ({
+		page,
+	}) => {
+		await loginAs(page, "carol");
+		await page.goto("/admin");
+		const nav = page.getByRole("navigation", { name: "Administration" });
+		await expect(nav.getByRole("link")).toHaveText(
+			["Users", "Health", "Logs", "Audit", "Network", "Backups", "Settings"],
+			{ timeout: 15_000 },
+		);
+		// A wider gap before each group than between neighbours in a group.
+		const left = async (name: string) =>
+			(await nav.getByRole("link", { name, exact: true }).boundingBox())?.x ?? 0;
+		const right = async (name: string) => {
+			const box = await nav.getByRole("link", { name, exact: true }).boundingBox();
+			return (box?.x ?? 0) + (box?.width ?? 0);
+		};
+		const inGroup = (await left("Logs")) - (await right("Health"));
+		expect((await left("Health")) - (await right("Users"))).toBeGreaterThan(
+			inGroup + 8,
+		);
+		expect((await left("Network")) - (await right("Audit"))).toBeGreaterThan(
+			inGroup + 8,
+		);
+	});
+
 	test("a secondary button shows its border", async ({ page }) => {
 		await loginAs(page, "carol");
 		await page.goto("/admin?tab=audit");

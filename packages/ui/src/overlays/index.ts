@@ -44,3 +44,4 @@ export {
 	type ToastTone,
 	useToast,
 } from "./toast";
+export { Toggletip, type ToggletipProps } from "./toggletip";
