@@ -14,6 +14,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { RightPaneContext } from "../shell/rightPane.js";
+import { openToggletip } from "../test-utils.js";
 import { MonitorPane } from "./MonitorPane.js";
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
@@ -163,6 +164,8 @@ test("the Monitor heading is for screen readers only; the tab names the pane", (
 	renderPane();
 	const heading = screen.getByRole("heading", { level: 2, name: "Monitor" });
 	expect(heading.className).toBe("sr-only");
+	// In a pane head like the other surfaces, so their bodies start level.
+	expect(heading.parentElement?.className).toContain("pk-pane-head");
 });
 
 const OWN = {
@@ -459,4 +462,17 @@ test("the row order holds while focus is in the list, and sorts again when it le
 	await waitFor(() =>
 		expect(order()).toEqual(["monitor-process-4", "monitor-process-3"]),
 	);
+});
+
+test("Processes explains what Stop may end", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => json(USAGE)),
+	);
+	renderPane();
+	const tip = await screen.findByRole("button", { name: "About Processes" });
+	// Beside the heading, not inside it, so the heading's name stays "Processes".
+	expect(screen.getByRole("heading", { level: 3, name: "Processes" })).toBeTruthy();
+	fireEvent.click(tip);
+	expect(openToggletip().textContent).toContain("busiest first");
 });

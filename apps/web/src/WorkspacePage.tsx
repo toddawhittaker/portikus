@@ -1,5 +1,5 @@
 import type { Workspace } from "@portikus/contracts";
-import { EmptyState, PaneHandle, Skeleton, useToast } from "@portikus/ui";
+import { PaneHandle, Skeleton, useToast } from "@portikus/ui";
 import { Navigate, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
@@ -325,7 +325,7 @@ function PaneWaiting({
 				<h2 className="pk-pane-title">{label}</h2>
 			</div>
 			<div className="pk-pane-body">
-				<EmptyState title={text} />
+				<p className="pk-text-body m-0 px-5 py-12 text-center text-ink-muted">{text}</p>
 			</div>
 		</section>
 	);

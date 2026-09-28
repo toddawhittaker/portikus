@@ -1,16 +1,60 @@
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useCallback, useId, useState } from "react";
 import {
 	bucketStart,
 	type ChartFrame,
 	readoutTime,
+	tickText,
 	timeLabel,
 	timeTickIndexes,
 } from "./scales.js";
 
-/** The SVG's drawing box. Plot height is about 160 px at 1:1. */
-export const BOX = { width: 560, height: 200, left: 48, right: 12, top: 8, bottom: 26 };
-export const PLOT_WIDTH = BOX.width - BOX.left - BOX.right;
+/**
+ * The SVG's vertical layout, in CSS pixels. The SVG is drawn at its real
+ * width (see `Plot`), so text stays 12 px however wide the chart is.
+ */
+export const BOX = { height: 200, right: 12, top: 8, bottom: 26 };
 export const PLOT_HEIGHT = BOX.height - BOX.top - BOX.bottom;
+
+/** The width drawn before the chart has been measured, and in tests. */
+export const DEFAULT_WIDTH = 560;
+
+/** Axis text size in CSS pixels; nothing in the product is smaller than 12 px. */
+export const AXIS_FONT = 12;
+
+/** A generous width of one axis character at 12 px, digits being tabular. */
+const CHAR_WIDTH = 7.5;
+
+/** The horizontal layout of one chart at its measured width. */
+export interface Plot {
+	width: number;
+	/** Where the plot starts: the Y-axis gutter, sized to the longest tick label. */
+	left: number;
+	plotWidth: number;
+}
+
+export function plotOf(width: number, tickLabels: readonly string[]): Plot {
+	const longest = Math.max(1, ...tickLabels.map((label) => label.length));
+	const left = Math.ceil(longest * CHAR_WIDTH) + 10;
+	return { width, left, plotWidth: Math.max(1, width - left - BOX.right) };
+}
+
+/** X positions of the time labels, dropping any that would overlap the one before or pass either edge. */
+export function timeLabelPositions(
+	frame: ChartFrame,
+	plot: Plot,
+): { index: number; x: number; text: string }[] {
+	const placed: { index: number; x: number; text: string }[] = [];
+	let lastEnd = Number.NEGATIVE_INFINITY;
+	for (const index of timeTickIndexes(frame)) {
+		const text = timeLabel(bucketStart(frame, index), frame.range);
+		const x = plot.left + (index * plot.plotWidth) / frame.count;
+		const half = (text.length * CHAR_WIDTH) / 2;
+		if (x - half < Math.max(0, lastEnd + 12) || x + half > plot.width) continue;
+		placed.push({ index, x, text });
+		lastEnd = x + half;
+	}
+	return placed;
+}
 
 /** One line or bar series and how it is drawn, so no series relies on colour. */
 export interface SeriesStyle {
@@ -27,8 +71,8 @@ export const LINE_STYLES: readonly SeriesStyle[] = [
 	{ className: "stroke-ink-muted", dash: "10 3 1 3" },
 ];
 
-export function bucketCenterX(frame: ChartFrame, index: number): number {
-	return BOX.left + ((index + 0.5) * PLOT_WIDTH) / frame.count;
+export function bucketCenterX(frame: ChartFrame, index: number, plot: Plot): number {
+	return plot.left + ((index + 0.5) * plot.plotWidth) / frame.count;
 }
 
 export function valueY(value: number, top: number): number {
@@ -62,11 +106,15 @@ export interface LegendEntry {
 }
 
 /**
- * The parts every Health chart shares (SPEC.md section 25.6): a caption,
- * one focusable plot whose SVG is `role="img"` named by the summary, gridlines
- * and Y ticks, X time labels, the cursor with a hover and keyboard readout,
- * a polite live region, the visible summary, and a legend when there is more
- * than one series. `children` draws the data inside the plot box.
+ * The parts every Health chart shares (SPEC.md section 25.6): a caption
+ * that names the unit, one focusable plot whose SVG is `role="img"` named by
+ * the summary, gridlines and bare-number Y ticks, X time labels, the cursor
+ * with a hover and keyboard readout, a polite live region, the visible
+ * summary, and a legend when there is more than one series. `children`
+ * draws the data inside the plot box.
+ *
+ * With `empty` there is nothing to plot: no axis and no tab stop, only the
+ * caption and the summary, which then says so ("No requests in this range.").
  *
  * `describe(index)` gives the readout's values for a bucket, such as "42%".
  * `onKey` lets a chart claim extra keys (a bar chart's Up, Down and Enter);
@@ -78,8 +126,9 @@ export function ChartShell({
 	label,
 	frame,
 	yTicks,
-	formatTick,
+	formatTick = tickText,
 	summary,
+	empty = false,
 	legend,
 	describe,
 	onKey,
@@ -90,19 +139,52 @@ export function ChartShell({
 	label: string;
 	frame: ChartFrame;
 	yTicks: readonly number[];
-	formatTick: (value: number) => string;
+	/** A tick's text: a bare number, the unit being in `label`. */
+	formatTick?: (value: number) => string;
 	summary: string;
+	empty?: boolean;
 	legend?: readonly LegendEntry[];
 	describe: (index: number) => string;
 	onKey?: (key: string, index: number) => boolean | string;
 	keysHint?: string;
-	children: (cursor: number | null) => ReactNode;
+	children: (cursor: number | null, plot: Plot) => ReactNode;
 }) {
 	const [cursor, setCursor] = useState<number | null>(null);
 	const [announcement, setAnnouncement] = useState("");
+	const [width, setWidth] = useState(DEFAULT_WIDTH);
 	const summaryId = useId();
 	const top = yTicks[yTicks.length - 1] ?? 1;
 
+	// Draw at the real width before the first paint, then follow the pane.
+	const measure = useCallback((box: HTMLDivElement | null) => {
+		if (!box) return;
+		const read = () => {
+			const measured = Math.round(box.clientWidth);
+			if (measured > 0) setWidth(measured);
+		};
+		read();
+		if (typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(read);
+		observer.observe(box);
+		return () => observer.disconnect();
+	}, []);
+
+	if (empty) {
+		return (
+			<figure className="m-0 min-w-0" data-testid={testId}>
+				<figcaption className="pk-text-label text-ink-muted">{label}</figcaption>
+				<p
+					className="pk-text-body pk-muted m-0 mt-2 text-[13px]"
+					data-testid={`${testId}-summary`}
+				>
+					{summary}
+				</p>
+			</figure>
+		);
+	}
+
+	const tickLabels = yTicks.map(formatTick);
+	const plot = plotOf(width, tickLabels);
 	const readout =
 		cursor === null
 			? null
@@ -127,16 +209,17 @@ export function ChartShell({
 	function onMouseMove(event: React.MouseEvent<SVGSVGElement>) {
 		const rect = event.currentTarget.getBoundingClientRect();
 		if (rect.width === 0) return;
-		const x = ((event.clientX - rect.left) / rect.width) * BOX.width;
-		const index = Math.floor(((x - BOX.left) / PLOT_WIDTH) * frame.count);
+		const x = ((event.clientX - rect.left) / rect.width) * plot.width;
+		const index = Math.floor(((x - plot.left) / plot.plotWidth) * frame.count);
 		setCursor(index >= 0 && index < frame.count ? index : null);
 	}
 
-	const cursorX = cursor === null ? null : bucketCenterX(frame, cursor);
+	const cursorX = cursor === null ? null : bucketCenterX(frame, cursor, plot);
 	return (
 		<figure className="m-0 min-w-0" data-testid={testId}>
 			<figcaption className="pk-text-label text-ink-muted">{label}</figcaption>
 			<div
+				ref={measure}
 				className="pk-focus-ring relative mt-2 rounded-sm"
 				// "application" lets screen readers pass the arrow keys through.
 				role="application"
@@ -154,56 +237,55 @@ export function ChartShell({
 				<svg
 					role="img"
 					aria-label={`${label}: ${summary}`}
-					viewBox={`0 0 ${BOX.width} ${BOX.height}`}
+					viewBox={`0 0 ${plot.width} ${BOX.height}`}
 					className="block h-auto w-full"
 					onMouseMove={onMouseMove}
 					onMouseLeave={() => setCursor(null)}
 				>
 					<rect
-						x={BOX.left}
+						x={plot.left}
 						y={BOX.top}
-						width={PLOT_WIDTH}
+						width={plot.plotWidth}
 						height={PLOT_HEIGHT}
 						className="fill-surface-raised"
 					/>
-					{yTicks.map((tick) => (
+					{yTicks.map((tick, index) => (
 						<g key={tick}>
 							<line
-								x1={BOX.left}
-								x2={BOX.left + PLOT_WIDTH}
+								x1={plot.left}
+								x2={plot.left + plot.plotWidth}
 								y1={valueY(tick, top)}
 								y2={valueY(tick, top)}
 								className="stroke-line"
 								strokeWidth="1"
 							/>
 							<text
-								x={BOX.left - 6}
+								x={plot.left - 6}
 								y={valueY(tick, top)}
 								textAnchor="end"
 								dominantBaseline="middle"
-								fontSize="11"
+								fontSize={AXIS_FONT}
 								className="fill-ink-muted tabular-nums"
+								data-axis="y"
 							>
-								{formatTick(tick)}
+								{tickLabels[index]}
 							</text>
 						</g>
 					))}
-					{timeTickIndexes(frame)
-						// A label at the very right edge would be cut off.
-						.filter((index) => index / frame.count < 0.95)
-						.map((index) => (
-							<text
-								key={index}
-								x={BOX.left + (index * PLOT_WIDTH) / frame.count}
-								y={BOX.height - 8}
-								textAnchor="middle"
-								fontSize="11"
-								className="fill-ink-muted tabular-nums"
-							>
-								{timeLabel(bucketStart(frame, index), frame.range)}
-							</text>
-						))}
-					{children(cursor)}
+					{timeLabelPositions(frame, plot).map((tick) => (
+						<text
+							key={tick.index}
+							x={tick.x}
+							y={BOX.height - 8}
+							textAnchor="middle"
+							fontSize={AXIS_FONT}
+							className="fill-ink-muted tabular-nums"
+							data-axis="x"
+						>
+							{tick.text}
+						</text>
+					))}
+					{children(cursor, plot)}
 					{cursorX === null ? null : (
 						<line
 							x1={cursorX}
@@ -220,7 +302,7 @@ export function ChartShell({
 					<div
 						aria-hidden="true"
 						className="pk-text-body pointer-events-none absolute top-0 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-sm border border-line bg-surface-raised px-2 py-1 text-[12px] shadow-md tabular-nums"
-						style={{ left: `${(cursorX / BOX.width) * 100}%` }}
+						style={{ left: `${(cursorX / plot.width) * 100}%` }}
 						data-testid={`${testId}-readout`}
 					>
 						{readout}

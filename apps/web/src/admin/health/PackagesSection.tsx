@@ -2,6 +2,7 @@ import {
 	AdminPackagesResponse,
 	PACKAGE_SURVEY_MIN_SURVEYED,
 } from "@portikus/contracts";
+import { Toggletip } from "@portikus/ui";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, request } from "../../api/request.js";
 
@@ -61,13 +62,20 @@ export function PackagesTable({ survey }: { survey: AdminPackagesResponse }) {
 		<div className="pk-table-wrap mt-4">
 			<table className="pk-table" data-testid="packages-table">
 				<caption className="pk-text-label pk-muted text-left">
-					Packages added with sudo apt, out of {surveyed}. A package added in at least 2
-					workspaces, and in at least a third of those surveyed, is a base-image
-					candidate.
+					Packages added with sudo apt, out of {surveyed}.
 				</caption>
 				<thead>
 					<tr>
-						<th scope="col">Package</th>
+						<th scope="col">
+							<span className="-my-1 inline-flex items-center gap-1">
+								Package
+								<Toggletip label="Base-image candidate">
+									A package added in at least 2 surveyed workspaces, and in at least a
+									third of them, on the latest survey day. Consider putting it in the
+									next base image.
+								</Toggletip>
+							</span>
+						</th>
 						<th scope="col">Workspaces</th>
 						<th scope="col">First seen</th>
 						<th scope="col">Last seen</th>

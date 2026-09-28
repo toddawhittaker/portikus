@@ -75,7 +75,28 @@ export function yTicks(max: number): number[] {
 	return ticks.length < 3 ? [0, top / 2, top] : ticks;
 }
 
+/** Whole-number Y ticks from 0 to at least `max`, three to five of them, for counts. */
+export function countTicks(max: number): number[] {
+	const step = Math.max(1, Math.ceil(niceNumber(max / 4)));
+	const steps = Math.max(2, Math.ceil(max / step));
+	return Array.from({ length: steps + 1 }, (_, i) => i * step);
+}
+
 export const PERCENT_TICKS = [0, 25, 50, 75, 100];
+
+const COMPACT = new Intl.NumberFormat("en-US", {
+	notation: "compact",
+	maximumFractionDigits: 1,
+});
+
+/**
+ * A Y tick as a bare number, the unit being in the chart's title: "0.25",
+ * "1,500", "60K". Nice ticks never round to the same text.
+ */
+export function tickText(value: number): string {
+	if (Math.abs(value) >= 10_000) return COMPACT.format(value);
+	return value.toLocaleString("en-US", { maximumFractionDigits: 3 });
+}
 
 /** Minutes between X-axis labels for each range. */
 const LABEL_EVERY_MINUTES: Record<HealthRange, number> = {

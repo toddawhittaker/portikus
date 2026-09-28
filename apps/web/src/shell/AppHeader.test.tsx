@@ -1,5 +1,5 @@
 import type { Workspace } from "@portikus/contracts";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
 	json,
@@ -181,7 +181,13 @@ test("on the admin page, Open my workspace sits in the account menu where Admini
 	openAccountMenu();
 
 	const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
-	expect(items).toEqual(["Open my workspace", "Notifications", "Settings", "Sign out"]);
+	expect(items).toEqual([
+		"Open my workspace",
+		"Notifications",
+		"Settings",
+		"Help (opens in a new tab)",
+		"Sign out",
+	]);
 	expect(screen.queryByTestId("admin-link")).toBeNull();
 });
 
@@ -209,7 +215,10 @@ test("the account button names the unread count and the badge shows it", async (
 	expect(badge.getAttribute("aria-label")).toBe(
 		"Notifications, 3 unread notifications",
 	);
-	expect(screen.getByTestId("me").textContent).toContain(", 3 unread notifications");
+	// The name reads "Alice Example, 3 unread notifications", with no space before the comma.
+	expect(screen.getByTestId("me").getAttribute("aria-label")).toBe(
+		"Alice Example, 3 unread notifications",
+	);
 });
 
 test("the badge reads 9+ above nine and is hidden at zero", async () => {
@@ -237,10 +246,24 @@ test("the badge and the menu item both open the Notifications dialog", async () 
 	await waitFor(() => expect(screen.queryByTestId("dialog-notifications")).toBeNull());
 
 	openAccountMenu();
-	fireEvent.click(
-		screen.getByRole("menuitem", { name: "Notifications (2 unread notifications)" }),
-	);
+	fireEvent.click(screen.getByRole("menuitem", { name: "Notifications, 2 unread" }));
 	expect(await screen.findByTestId("dialog-notifications")).toBeDefined();
+});
+
+// Epic 25 S9: the count is a trailing caption, and a long address cannot widen the menu.
+test("the menu item shows the unread count after its name, and the address is cut", async () => {
+	stubUnread(4);
+	const email = `${"a-very-long-local-part".repeat(4)}@students.example.edu`;
+	renderHeader(WORKSPACE, { ...USER, email });
+	await screen.findByTestId("notifications-badge");
+	openAccountMenu();
+
+	const item = screen.getByRole("menuitem", { name: "Notifications, 4 unread" });
+	expect(item.getAttribute("data-testid")).toBe("notifications-item");
+	expect(within(item).getByText("4 unread").getAttribute("aria-hidden")).toBe("true");
+	const address = screen.getByTitle(email);
+	expect(address.textContent).toBe(email);
+	expect(address.className).toContain("pk-account-email");
 });
 
 // Closed without reading, the badge still exists and takes focus back; the
@@ -255,4 +278,26 @@ test("closing the dialog the badge opened returns focus to the badge", async () 
 	await waitFor(() =>
 		expect(document.activeElement).toBe(screen.getByTestId("notifications-badge")),
 	);
+});
+
+test("every role gets Help after Settings, opening in a new tab (Epic 25)", () => {
+	for (const role of ["student", "instructor", "administrator"] as const) {
+		renderWithQuery(
+			<AppHeader
+				workspaceId={WORKSPACE.id}
+				user={{ ...USER, role }}
+				workspace={WORKSPACE}
+				project={undefined}
+			/>,
+		);
+		openAccountMenu();
+		const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
+		const settings = items.indexOf("Settings");
+		expect(items[settings + 1]).toBe("Help (opens in a new tab)");
+		const link = screen.getByTestId("help-link");
+		expect(link.getAttribute("href")).toBe("/help");
+		expect(link.getAttribute("target")).toBe("_blank");
+		expect(link.getAttribute("rel")).toBe("noopener");
+		cleanup();
+	}
 });

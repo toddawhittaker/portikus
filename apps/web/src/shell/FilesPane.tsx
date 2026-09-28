@@ -9,13 +9,13 @@ import {
 } from "@portikus/ui";
 import { type Ref, useEffect, useRef, useState } from "react";
 import { ChecksPane } from "../checks/ChecksPane.js";
-import "../checks/checks.css";
 import { FileTreePane } from "../files/FileTree.js";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { MonitorPane } from "../monitor/MonitorPane.js";
 import { RunningPane } from "../running/RunningPane.js";
 import { SearchPanel } from "../search/SearchPanel.js";
 import { type RightPane, useRightPaneState } from "./rightPane.js";
+import "./right-pane.css";
 
 /**
  * The right pane (SPEC.md §8.4): one project's file tree, its checks
@@ -197,10 +197,33 @@ function Switchers({
 	currentRef: Ref<HTMLButtonElement>;
 }) {
 	const refFor = (value: RightPane) => (value === current ? currentRef : undefined);
+	const list = useRef<HTMLDivElement>(null);
+	// The strip scrolls sideways in a narrow pane; keep the chosen surface in view,
+	// however it was chosen (a notice can open Monitor). Scrolled by hand, because
+	// Chrome's scrollIntoView moves the Tab starting point and the page's first
+	// Tab stop (the screen-reader toggle) would be skipped.
+	useEffect(() => {
+		const strip = list.current;
+		const tab = strip?.querySelector<HTMLElement>(
+			`[data-testid="right-pane-tab-${current}"]`,
+		);
+		if (!strip || !tab) return;
+		const start = tab.offsetLeft - strip.offsetLeft;
+		const end = start + tab.offsetWidth;
+		if (start < strip.scrollLeft) strip.scrollLeft = start;
+		else if (end > strip.scrollLeft + strip.clientWidth)
+			strip.scrollLeft = end - strip.clientWidth;
+	}, [current]);
 	return (
 		<TabsList
+			ref={list}
 			className="pk-pane-tabs"
 			aria-label="Files, checks, running services or monitor"
+			// The wheel scrolls the strip sideways, as the work-area tabs do.
+			onWheel={(event) => {
+				if (!list.current || event.deltaY === 0 || event.deltaX !== 0) return;
+				list.current.scrollLeft += event.deltaY;
+			}}
 		>
 			<Switcher value="files" buttonRef={refFor("files")} label="Files" onPick={show} />
 			<Switcher
@@ -268,15 +291,12 @@ function RunningSurface({
 	const activePort =
 		activeTab && activeTab.root.type === "preview" ? activeTab.root.port : null;
 	return (
-		<>
-			<h2 className="sr-only">Running</h2>
-			<RunningPane
-				workspaceId={workspaceId}
-				activePort={projectId ? activePort : null}
-				onOpenPreview={(port) => {
-					if (projectId) store.getState().openPreview(port);
-				}}
-			/>
-		</>
+		<RunningPane
+			workspaceId={workspaceId}
+			activePort={projectId ? activePort : null}
+			onOpenPreview={(port) => {
+				if (projectId) store.getState().openPreview(port);
+			}}
+		/>
 	);
 }

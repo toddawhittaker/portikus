@@ -180,6 +180,14 @@ body {
 	line-height: 16px;
 	color: var(--ink-muted);
 }
+/* The acceptable-use rules after its opening paragraph. */
+.pk-aup-rules {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding-inline-start: var(--space-5);
+	list-style: disc;
+}
 .pk-account-box {
 	display: flex;
 	align-items: center;
@@ -261,40 +269,51 @@ button.pk-statusbar-item:focus-visible {
 }
 /* Notifications (SPEC.md section 8.5) */
 .pk-account-wrap {
-	position: relative;
 	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-width: 0;
 }
+/* The unread count sits after the name in the accent, never over the picture (Epic 25 S8). */
 .pk-account-badge {
-	/* A transparent 24px hit area around the small pill (WCAG 2.5.8). */
-	position: absolute;
-	top: -1px;
-	left: 17px;
+	/* A 24px hit area around the small pill (WCAG 2.5.8). */
+	display: grid;
+	place-items: center;
 	min-width: 24px;
 	height: 24px;
 	padding: 0;
 	border: 0;
-	border-radius: 12px;
+	border-radius: var(--radius-sm);
 	background: transparent;
-	display: grid;
-	place-items: center;
 	font: inherit;
 	cursor: pointer;
 }
 .pk-account-badge-pill {
-	min-width: 18px;
+	min-width: 20px;
 	height: 18px;
-	padding: 0 4px;
-	border: 2px solid var(--surface);
-	border-radius: 9px;
-	background: var(--status-danger);
-	color: var(--on-danger);
+	padding: 0 var(--space-1\.5);
+	border-radius: var(--radius-sm);
+	background: var(--accent);
+	color: var(--on-accent);
 	font-size: 12px;
-	font-weight: 700;
-	line-height: 14px;
+	font-weight: 600;
+	line-height: 18px;
+	text-align: center;
+}
+.pk-account-badge:hover .pk-account-badge-pill {
+	background: var(--accent-hover);
 }
 .pk-account-badge:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset);
+}
+/* The account menu's address: cut with an ellipsis rather than widening the menu. */
+.pk-account-email {
+	display: block;
+	max-inline-size: 18rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .pk-notification-list {
 	margin: 0;
@@ -335,7 +354,7 @@ button.pk-statusbar-item:focus-visible {
 	height: 8px;
 	margin-top: 8px;
 	border-radius: 50%;
-	background: var(--status-danger);
+	background: var(--accent);
 }
 .pk-wsbutton {
 	display: inline-flex;
@@ -534,6 +553,9 @@ button.pk-statusbar-item:focus-visible {
 	color: var(--ink-muted);
 	font-size: 12px;
 	font-weight: 500;
+	/* A tag is one word group: it never wraps inside or shrinks (Epic 25 M2). */
+	white-space: nowrap;
+	flex: none;
 }
 .pk-tag--warning {
 	background: var(--status-warning-soft);
@@ -925,4 +947,131 @@ button.pk-statusbar-item:hover {
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 	color: var(--ink-muted);
+}
+
+/* Help page (Epic 25): contents beside the text when there is room, above it when not. */
+.pk-help {
+	container-type: inline-size;
+}
+.pk-help-layout {
+	display: grid;
+	gap: var(--space-8);
+	margin-block-start: var(--space-6);
+}
+@container (min-width: 900px) {
+	.pk-help-layout {
+		grid-template-columns: 220px minmax(0, 72ch);
+	}
+	.pk-help-nav {
+		position: sticky;
+		top: 0;
+		align-self: start;
+	}
+}
+.pk-help-toc {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	display: grid;
+	gap: var(--space-4);
+	font-size: 13px;
+	line-height: 18px;
+}
+.pk-help-toc-part {
+	font-weight: 600;
+}
+.pk-help-toc-sub {
+	display: grid;
+	gap: var(--space-1);
+	margin: var(--space-1) 0 0;
+	padding: 0 0 0 var(--space-3);
+	list-style: none;
+	font-weight: 400;
+}
+.pk-help-toc a {
+	display: inline-block;
+	padding-block: 2px;
+	color: var(--ink-muted);
+	text-decoration: none;
+	border-radius: var(--radius-sm);
+}
+.pk-help-toc a:hover {
+	color: var(--ink);
+	text-decoration: underline;
+}
+.pk-help-toc a:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+.pk-help-article {
+	display: grid;
+	gap: var(--space-10);
+	min-width: 0;
+	font-size: 14px;
+	line-height: 22px;
+	overflow-wrap: break-word;
+}
+.pk-help-article > section {
+	display: grid;
+	gap: var(--space-6);
+}
+.pk-help-article > section + section {
+	padding-block-start: var(--space-10);
+	border-block-start: 1px solid var(--line);
+}
+.pk-help-article section section {
+	display: grid;
+	gap: var(--space-2);
+	scroll-margin-block-start: var(--space-4);
+}
+.pk-help-article h3 {
+	margin: 0;
+	font-size: 14px;
+	line-height: 20px;
+	font-weight: 600;
+}
+.pk-help-article p,
+.pk-help-article ol,
+.pk-help-article ul {
+	margin: 0;
+}
+.pk-help-article ol,
+.pk-help-article ul {
+	list-style: decimal;
+	display: grid;
+	gap: var(--space-2);
+	padding-inline-start: var(--space-5);
+}
+.pk-help-article ul {
+	list-style: disc;
+}
+.pk-help-article h4 {
+	margin: var(--space-2) 0 0;
+	font-size: 13px;
+	line-height: 18px;
+	font-weight: 600;
+	color: var(--ink-muted);
+}
+/* Keys beside what they do when there is room, stacked when not. */
+.pk-help-keys {
+	display: grid;
+	gap: var(--space-3);
+	margin: 0;
+}
+.pk-help-keys > div {
+	display: grid;
+	gap: var(--space-1);
+}
+@container (min-width: 640px) {
+	.pk-help-keys > div {
+		grid-template-columns: 13rem minmax(0, 1fr);
+		gap: var(--space-4);
+	}
+}
+.pk-help-keys dd {
+	margin: 0;
+}
+.pk-help-article code,
+.pk-help-article kbd {
+	font-size: 13px;
 }

@@ -3,7 +3,13 @@
  * the LMS brings them back. Rex and Una in CS 350 belong to this spec alone.
  */
 import { expect, test } from "@playwright/test";
-import { settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
+import {
+	createSignedInUser,
+	query,
+	settledAxe,
+	WCAG_TAGS,
+	WEB_ORIGIN,
+} from "./helpers";
 import { launchAs, openCourseTab } from "./lti-helpers";
 
 test("an instructor removes a student, who reappears after a relaunch", async ({
@@ -64,5 +70,110 @@ test("an instructor removes a student, who reappears after a relaunch", async ({
 	} finally {
 		await unaContext.close();
 		await rexContext.close();
+	}
+});
+
+test("another instructor in the course has no Remove button", async ({ browser }) => {
+	const rexContext = await browser.newContext({ baseURL: WEB_ORIGIN });
+	const otherContext = await browser.newContext({ baseURL: WEB_ORIGIN });
+	try {
+		const rex = await rexContext.newPage();
+		await launchAs(rex, { person: "rex", course: "cs350" });
+		// A second instructor, made in the database so no seeded person gains a course.
+		const other = await createSignedInUser(otherContext, "student");
+		const name = `Co Teacher ${other.userId.slice(0, 8)}`;
+		await query("update users set display_name = $2 where id = $1", [
+			other.userId,
+			name,
+		]);
+		await query(
+			`insert into lti_memberships (context_id, user_id, role, last_launch_at)
+			 select m.context_id, $1, 'instructor', now()
+			 from lti_memberships m join lti_contexts c on c.id = m.context_id
+			 where c.context_id = 'mock-course-cs350' and m.role = 'instructor'
+			 limit 1`,
+			[other.userId],
+		);
+
+		const course = await openCourseTab(rex);
+		const row = course
+			.getByTestId("course-members")
+			.getByRole("row", { name: new RegExp(name) });
+		await expect(row).toBeVisible();
+		await expect(row).toContainText("Instructor");
+		await expect(row.getByRole("button")).toHaveCount(0);
+	} finally {
+		await rexContext.close();
+		await otherContext.close();
+	}
+});
+
+test("Shift+Tab up a long course never hides the focused Remove under the header", async ({
+	browser,
+}) => {
+	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
+	try {
+		// A course of its own, so the other tests here keep their members.
+		const instructor = await createSignedInUser(context, "student");
+		const tag = instructor.userId.slice(0, 8);
+		const [course] = await query<{ id: string }>(
+			`insert into lti_contexts (platform_issuer, context_id, title, platform_name)
+			 values ('e2e-focus', $1, $2, 'E2E LMS') returning id`,
+			[`focus-${tag}`, `Focus ${tag}`],
+		);
+		if (!course) throw new Error("could not create the course");
+		await query(
+			`insert into lti_memberships (context_id, user_id, role, last_launch_at)
+			 values ($1, $2, 'instructor', now())`,
+			[course.id, instructor.userId],
+		);
+		await query(
+			`with made as (
+			   insert into users (oidc_issuer, oidc_subject, email, display_name, role)
+			   select 'e2e-focus', 'focus-' || $2 || '-' || n,
+			          'focus-' || $2 || '-' || n || '@example.edu',
+			          'Focus ' || $2 || ' ' || lpad(n::text, 2, '0'), 'student'
+			   from generate_series(1, 40) as n
+			   returning id)
+			 insert into lti_memberships (context_id, user_id, role, last_launch_at)
+			 select $1, id, 'student', now() from made`,
+			[course.id, tag],
+		);
+
+		const page = await context.newPage();
+		await page.setViewportSize({ width: 1280, height: 600 });
+		await page.goto(`/course/${course.id}`);
+		const table = page.getByTestId("course-members");
+		const removes = table.getByRole("button", { name: /^Remove / });
+		await expect(removes).toHaveCount(40, { timeout: 15_000 });
+
+		await removes.last().focus();
+		const header = table.locator("thead th").first();
+		const firstId = await removes.first().getAttribute("data-remove-id");
+		let checked = 0;
+		let reachedTop = false;
+		for (let step = 0; step < 200 && !reachedTop; step++) {
+			await page.keyboard.press("Shift+Tab");
+			const focused = await page.evaluate(() => {
+				const el = document.activeElement as HTMLElement | null;
+				const id = el?.getAttribute("data-remove-id");
+				if (!el || !id) return null;
+				const box = el.getBoundingClientRect();
+				return { id, top: box.top, bottom: box.bottom };
+			});
+			if (focused === null) continue;
+			const headerBox = await header.boundingBox();
+			const mainBox = await page.getByTestId("page-course").boundingBox();
+			if (!headerBox || !mainBox) throw new Error("the header or main has no box");
+			// Fully visible: below the sticky header and above the bottom of <main>.
+			expect(focused.top).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+			expect(focused.bottom).toBeLessThanOrEqual(mainBox.y + mainBox.height + 1);
+			checked++;
+			reachedTop = focused.id === firstId;
+		}
+		expect(reachedTop).toBe(true);
+		expect(checked).toBeGreaterThanOrEqual(39);
+	} finally {
+		await context.close();
 	}
 });

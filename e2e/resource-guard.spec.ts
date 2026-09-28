@@ -69,13 +69,15 @@ test("an administrator sets a workspace override and sees it", async ({
 	const panel = await openDetail(page, student.name);
 
 	await panel
-		.getByRole("button", { name: `Change overrides for ${student.name}'s workspace` })
+		.getByRole("button", { name: `Guard settings for ${student.name}'s workspace` })
 		.click();
-	const dialog = page.getByRole("dialog", { name: "Resource guard overrides" });
+	const dialog = page.getByRole("dialog", {
+		name: `Resource guard for ${student.name}'s workspace`,
+	});
 	await dialog.getByLabel("CPU threshold (%)").fill("95");
 	await dialog.getByLabel("Idle stop (minutes)").fill("0");
 	await dialog.getByTestId("guard-save").click();
-	await expect(toast(page, "Overrides saved")).toBeVisible();
+	await expect(toast(page, "Guard settings saved")).toBeVisible();
 
 	const limits = panel.getByTestId("detail-guard-limits");
 	await expect(limits).toContainText("CPU above 95% (override)");

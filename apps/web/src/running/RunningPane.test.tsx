@@ -15,6 +15,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { openToggletip } from "../test-utils.js";
 import { RunningPane } from "./RunningPane.js";
 import { ListeningContext } from "./services.js";
 
@@ -198,7 +199,9 @@ test("a port policy denies says why instead of offering a preview", () => {
 	// the pane does not keep a copy of the rules.
 	show([service({ port: 5432, previewReachability: "denied" })]);
 	expect(screen.queryByTestId("running-open-5432")).toBeNull();
-	expect(screen.getByTestId("running-reason-5432").textContent).toBe("reserved port");
+	expect(screen.getByTestId("running-reason-5432").textContent).toBe(
+		"Can't be previewed",
+	);
 	// It is still the student's process, so it can still be stopped.
 	expect(screen.getByTestId("running-stop-5432")).toBeTruthy();
 });
@@ -211,7 +214,7 @@ test("a system listener is hidden until the toggle is on", () => {
 	expect(screen.queryByTestId("running-row-5355")).toBeNull();
 	fireEvent.click(screen.getByRole("checkbox"));
 	expect(screen.getByTestId("running-row-5355")).toBeTruthy();
-	expect(screen.getByTestId("running-reason-5355").textContent).toBe("system service");
+	expect(screen.getByTestId("running-reason-5355").textContent).toBe("System service");
 	// Nothing about a system service can be acted on.
 	expect(screen.queryByTestId("running-stop-5355")).toBeNull();
 	expect(screen.queryByTestId("running-open-5355")).toBeNull();
@@ -303,11 +306,28 @@ test("clicking a row shows the port, addresses, pid, command and command line", 
 	expect(screen.getByTestId("running-row-3000").className).toContain("is-selected");
 });
 
-test("a process with no command line says it is unknown", () => {
+test("a process with no command line says it is not known", () => {
 	show([service({ port: 3000 })]);
 	selectRow(3000);
 	expect(screen.getByTestId("running-details").textContent).toContain("Command line");
-	expect(screen.getByTestId("running-details").textContent).toContain("unknown");
+	expect(screen.getByTestId("running-details").textContent).toContain("Not known");
+});
+
+test("a port whose program is not known says so in words", () => {
+	show([service({ port: 5432, process: undefined })]);
+	expect(screen.getByTestId("running-row-5432").textContent).toContain(
+		"Program not known",
+	);
+	fireEvent.click(screen.getByTestId("running-stop-5432"));
+	expect(screen.getByRole("alertdialog", { name: "Stop port 5432?" })).toBeTruthy();
+});
+
+test("the system toggle sits in the pane head, above the list", () => {
+	show([service({ port: 5173 }), service({ port: 5355, system: true })]);
+	const toggle = screen.getByTestId("running-system-toggle");
+	expect(toggle.closest(".pk-pane-head")).toBeTruthy();
+	expect(screen.getByRole("heading", { level: 2, name: "Running" })).toBeTruthy();
+	expect(screen.getByRole("checkbox", { name: "Show system" })).toBeTruthy();
 });
 
 test("selecting another row replaces the details", () => {
@@ -498,4 +518,24 @@ test("a new process on the same port starts with its command collapsed", () => {
 	expect(
 		screen.getByTestId("running-show-command-3000").getAttribute("aria-expanded"),
 	).toBe("false");
+});
+
+test("the pane, Show system and a port that can't be previewed each explain themselves", () => {
+	show([
+		service({ port: 5173 }),
+		service({ port: 5432, previewReachability: "denied" }),
+		service({ port: 5355, system: true }),
+	]);
+	expect(screen.getByRole("button", { name: "About Running" })).toBeTruthy();
+	expect(screen.getByRole("button", { name: "About Show system" })).toBeTruthy();
+	const tip = screen.getByRole("button", {
+		name: "About Can't be previewed, port 5432",
+	});
+	expect(tip.closest("[data-testid='running-row-5432']")).toBeTruthy();
+	// Only the refused port carries one.
+	expect(
+		screen.getAllByRole("button", { name: /^About Can't be previewed/ }),
+	).toHaveLength(1);
+	fireEvent.click(tip);
+	expect(openToggletip().textContent).toContain("from 1024 up");
 });

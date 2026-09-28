@@ -1256,10 +1256,10 @@ function CreateMenuItems({
 	const api = useTreeApi();
 	return (
 		<>
-			<MenuItem icon="file" onSelect={() => api.newIn(dir, "file")}>
+			<MenuItem onSelect={() => api.newIn(dir, "file")}>
 				<span data-testid={`${testIdPrefix}-new-file`}>New file…</span>
 			</MenuItem>
-			<MenuItem icon="folder" onSelect={() => api.newIn(dir, "dir")}>
+			<MenuItem onSelect={() => api.newIn(dir, "dir")}>
 				<span data-testid={`${testIdPrefix}-new-folder`}>New folder…</span>
 			</MenuItem>
 		</>

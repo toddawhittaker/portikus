@@ -28,7 +28,7 @@ test("80% names the class", () => {
 		"Recovery storage is 85% full",
 	);
 	expect(storageWarning({ ...none, home: figure(81) })?.text).toBe(
-		"Projects & home storage is 81% full",
+		"Projects and home storage is 81% full",
 	);
 });
 

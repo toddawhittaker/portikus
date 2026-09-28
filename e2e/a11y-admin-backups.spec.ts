@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, settledAxe, WCAG_TAGS } from "./helpers";
+import { loginAs, openToggletip, settledAxe, WCAG_TAGS } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Backups tab
@@ -106,11 +106,13 @@ const BACKUPS = {
 	],
 };
 
-async function openTab(page: Page, colorScheme: "light" | "dark") {
+async function openTab(
+	page: Page,
+	colorScheme: "light" | "dark",
+	json: unknown = BACKUPS,
+) {
 	await page.route("**/admin/backups", (route) =>
-		route.request().method() === "GET"
-			? route.fulfill({ json: BACKUPS })
-			: route.continue(),
+		route.request().method() === "GET" ? route.fulfill({ json }) : route.continue(),
 	);
 	await page.emulateMedia({ colorScheme });
 	await loginAs(page, "carol");
@@ -129,6 +131,35 @@ for (const colorScheme of ["light", "dark"] as const) {
 	}) => {
 		await openTab(page, colorScheme);
 		await expect(page.getByTestId("backups-host-stale")).toBeVisible();
+		await expectNoViolations(page);
+		// The intro and an open toggletip, which Escape closes back onto its button.
+		await expect(page.getByTestId("intro-admin-backups")).toBeVisible();
+		const tip = page.getByRole("button", { name: "About the restore key" });
+		await tip.click();
+		await expect(openToggletip(page)).toBeVisible();
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(openToggletip(page)).toHaveCount(0);
+		await expect(tip).toBeFocused();
+	});
+
+	test(`the Backups tab with nothing listed has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await openTab(page, colorScheme, {
+			...BACKUPS,
+			host: { ...BACKUPS.host, sets: [], dumps: [] },
+			hostStale: false,
+			vm: { snapshots: [], keptHomes: [] },
+			requests: [],
+		});
+		await expect(page.getByText("No backup sets yet.")).toBeVisible();
+		await expectNoViolations(page);
+		// Clean up opens and closes from the keyboard.
+		const summary = page.getByTestId("backups-cleanup-summary");
+		await summary.focus();
+		await page.keyboard.press("Enter");
+		await expect(page.getByText("No pre-change dumps.")).toBeVisible();
 		await expectNoViolations(page);
 	});
 

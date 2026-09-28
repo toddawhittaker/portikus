@@ -112,7 +112,8 @@ sentence first, administrators can expand the technical detail.
 Error copy pattern (SPEC 28): user terms first, implementation second,
 then actions. Example: "Your workspace could not start because its
 storage allocation is full. Docker is using 19.8 GB of your 20 GB Docker
-quota. [Clean up Docker] [View details]".
+quota. [Reset Docker…] [Workspace details]". Try again appears only when
+starting again could succeed.
 
 After a full stop and restart (SPEC 6.8): file tabs reopen, layout is
 reconstructed, old terminals appear as ended sessions, previews come back
@@ -244,6 +245,29 @@ there is no leave-terminal hint. In the right pane the tab names the pane,
 so no visible title row repeats it. The Preview frame width is a set of
 checkable items in the More menu rather than radio items, and "Reset
 preview data" has no ellipsis because it opens no confirmation.
+
+**Help inside the product (Epic 25).** Two new components carry
+explanations: `PageIntro`, a remembered, closable note under a page heading
+with a "More in Help" link, and `Toggletip`, a click-to-open help button
+beside a label, header or heading. Their placement rules are in
+`design/system/README.md`, "Help in the product". `Toggletip` wraps Radix
+Popover; a native popover was rejected because Firefox lacks anchor
+positioning, and a Tooltip because it opens on hover only. The panel never
+takes focus, so Tab moves on and closes it; a polite live region beside the
+button reads the text to screen readers. The account menu
+has a Help item that opens `/help` in a new tab. The page shows the part
+for students to everyone, the administrator part to administrators, and the
+instructor part to instructors, administrators and anyone who teaches a
+course. That split is presentation only; the text holds nothing secret.
+
+**Native select in dense filter bars (Epic 25).** The Users filters and the
+Logs time filter keep the native `select`; everywhere else uses `Select`.
+Dialogs take the density of what opened them, so a dialog opened from the
+compact admin page is compact.
+
+**Admin tab order (Epic 25).** Users, then Health, Logs and Audit, then
+Network, Backups and Settings, with a small gap before each group and no
+group labels. The tab addresses did not change.
 
 ## 10. Which Monaco features are on
 

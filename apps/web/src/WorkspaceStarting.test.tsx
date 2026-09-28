@@ -6,8 +6,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "./api/queryClient.js";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "./test-utils.js";
 import {
+	canRetry,
 	offerDockerCleanup,
 	startingPhase,
+	storageFullText,
 	WorkspaceStarting,
 } from "./WorkspaceStarting.js";
 
@@ -114,6 +116,8 @@ test("stopping and error have their own copy, and the error shows the detail", (
 	const details = screen.getByTestId("workspace-error-details") as HTMLDetailsElement;
 	expect(details.open).toBe(false);
 	expect(details.querySelector("summary")?.textContent).toBe("Technical details");
+	// The system's chevron replaces the browser's triangle.
+	expect(details.querySelector("summary svg")).not.toBeNull();
 	// Nothing is loading, so no skeleton.
 	expect(document.querySelector(".pk-tabs-skeleton")).toBeNull();
 });
@@ -130,7 +134,7 @@ test("the error screen's Try again starts the workspace and Workspace details op
 	renderWithQuery(
 		<WorkspaceStarting
 			workspaceId={WORKSPACE.id}
-			workspace={{ ...WORKSPACE, state: "error" }}
+			workspace={{ ...WORKSPACE, state: "error", errorCode: "TIMEOUT" }}
 			onOpenWorkspace={onOpenWorkspace}
 		/>,
 	);
@@ -241,7 +245,7 @@ test("without an idle stop the stopped screen says nothing about it", () => {
 const GB = 1024 ** 3;
 const at = (percent: number) => ({ usedBytes: percent * GB, totalBytes: 100 * GB });
 
-test("Clean up Docker is offered only for STORAGE_FULL with Docker at the critical level", () => {
+test("Reset Docker is offered only for STORAGE_FULL with Docker at the critical level", () => {
 	expect(
 		offerDockerCleanup("STORAGE_FULL", {
 			home: at(10),
@@ -283,7 +287,7 @@ function stubUsage(docker: { usedBytes: number; totalBytes: number } | null) {
 	);
 }
 
-test("the error screen shows the meters and Clean up Docker when Docker filled up", async () => {
+test("the error screen shows the meters and Reset Docker as the main action when Docker filled up", async () => {
 	stubUsage(at(99));
 	renderWithQuery(
 		<WorkspaceStarting
@@ -294,7 +298,21 @@ test("the error screen shows the meters and Clean up Docker when Docker filled u
 	);
 
 	await screen.findByTestId("storage-meters");
-	const clean = await screen.findByRole("button", { name: "Clean up Docker…" });
+	const clean = await screen.findByRole("button", { name: "Reset Docker…" });
+	expect(screen.getByTestId("progress-sub").textContent).toBe(
+		"Its storage is full. Docker is using 99.0 GB of 100 GB. Reset Docker to free that space; your projects and home folder are kept.",
+	);
+	// Reset Docker leads; Try again stays as a secondary action because an
+	// administrator may have grown the quota since.
+	expect(clean.className).toContain("bg-surface-inverse");
+	const names = screen
+		.getAllByRole("button")
+		.filter((button) => !button.getAttribute("aria-label")?.startsWith("About "))
+		.map((button) => button.textContent);
+	expect(names).toEqual(["Reset Docker…", "Try again", "Workspace details"]);
+	expect(screen.getByRole("button", { name: "Try again" }).className).not.toContain(
+		"bg-surface-inverse",
+	);
 	fireEvent.click(clean);
 	expect(screen.getByTestId("dialog-reset-docker")).toBeDefined();
 });
@@ -324,16 +342,18 @@ test("a failed Docker cleanup shows its error below the actions row, not inside 
 		/>,
 	);
 
-	fireEvent.click(await screen.findByRole("button", { name: "Clean up Docker…" }));
+	fireEvent.click(await screen.findByRole("button", { name: "Reset Docker…" }));
 	fireEvent.click(screen.getByRole("button", { name: "Reset Docker" }));
 	const error = await screen.findByTestId("dialog-error");
-	const actions = screen.getByRole("button", { name: "Try again" }).parentElement;
+	const actions = screen.getByRole("button", {
+		name: "Workspace details",
+	}).parentElement;
 	expect(actions?.contains(error)).toBe(false);
 	expect(actions?.nextElementSibling).toBe(error);
 	expect(screen.getAllByTestId("dialog-error")).toHaveLength(1);
 });
 
-test("with Docker not full the error screen shows the meters but no Clean up Docker", async () => {
+test("with Docker not full the error screen shows the meters, no Reset Docker, and Try again as the main action", async () => {
 	stubUsage(at(20));
 	renderWithQuery(
 		<WorkspaceStarting
@@ -344,10 +364,16 @@ test("with Docker not full the error screen shows the meters but no Clean up Doc
 	);
 
 	await screen.findByTestId("storage-meters");
-	expect(screen.queryByRole("button", { name: "Clean up Docker…" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Reset Docker…" })).toBeNull();
+	expect(screen.getByRole("button", { name: "Try again" }).className).toContain(
+		"bg-surface-inverse",
+	);
+	expect(screen.getByTestId("progress-sub").textContent).toContain(
+		"Ask your administrator for more space.",
+	);
 });
 
-test("with no figures the error screen offers only Try again and Workspace details", async () => {
+test("a full storage with no figures offers Try again and Workspace details", async () => {
 	const fetchMock = stubFetch(() =>
 		json(503, { code: "AGENT_UNAVAILABLE", message: "no" }),
 	);
@@ -366,6 +392,73 @@ test("with no figures the error screen offers only Try again and Workspace detai
 	expect(names).toEqual(["Try again", "Workspace details"]);
 });
 
+test("an error that may pass offers Try again first, then Workspace details", async () => {
+	stubFetch(() => json(503, { code: "AGENT_UNAVAILABLE", message: "no" }));
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "error", errorCode: "INCUS_UNAVAILABLE" }}
+			onOpenWorkspace={noop}
+		/>,
+	);
+	const names = screen.getAllByRole("button").map((button) => button.textContent);
+	expect(names).toEqual(["Try again", "Workspace details"]);
+});
+
+test("an error only an administrator can fix says so and offers no Try again", () => {
+	stubFetch(() => json(503, { code: "AGENT_UNAVAILABLE", message: "no" }));
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "error", errorCode: "INSTANCE_MISSING" }}
+			onOpenWorkspace={noop}
+		/>,
+	);
+	expect(screen.getByTestId("progress-sub").textContent).toContain(
+		"Ask your administrator for help.",
+	);
+	expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+});
+
+test("a missing image offers no Try again either", () => {
+	stubFetch(() => json(503, { code: "AGENT_UNAVAILABLE", message: "no" }));
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "error", errorCode: "IMAGE_NOT_FOUND" }}
+			onOpenWorkspace={noop}
+		/>,
+	);
+	const names = screen.getAllByRole("button").map((button) => button.textContent);
+	expect(names).toEqual(["Workspace details"]);
+});
+
+test("Try again is for errors a second start can get past", () => {
+	expect(canRetry(null)).toBe(true);
+	expect(canRetry("TIMEOUT")).toBe(true);
+	expect(canRetry("OPERATION_FAILED")).toBe(true);
+	// An administrator may have grown the quota since.
+	expect(canRetry("STORAGE_FULL")).toBe(true);
+	expect(canRetry("IMAGE_NOT_FOUND")).toBe(false);
+	expect(canRetry("INSTANCE_MISSING")).toBe(false);
+});
+
+test("the storage sentence names what filled up, with its figures", () => {
+	expect(storageFullText({ home: at(99), docker: at(20), recovery: null })).toBe(
+		"Its storage is full. Your projects and home folder are using 99.0 GB of 100 GB. Ask your administrator for more space. Your files are kept.",
+	);
+	expect(storageFullText({ home: at(10), docker: at(10), recovery: at(97) })).toBe(
+		"Its storage is full. Recovery points are using 97.0 GB of 100 GB. Ask your administrator for more space. Your files are kept.",
+	);
+	// Docker first when both are full: a reset frees it without losing work.
+	expect(storageFullText({ home: at(99), docker: at(99), recovery: null })).toContain(
+		"Docker is using 99.0 GB of 100 GB.",
+	);
+	expect(storageFullText(undefined)).toBe(
+		"Its storage is full. Ask your administrator for more space. Your files are kept.",
+	);
+});
+
 test("a full storage says so in plain words instead of blaming nothing", () => {
 	stubFetch(() => json(503, { code: "AGENT_UNAVAILABLE", message: "no" }));
 	renderWithQuery(
@@ -376,7 +469,7 @@ test("a full storage says so in plain words instead of blaming nothing", () => {
 		/>,
 	);
 	const sub = screen.getByTestId("progress-sub").textContent;
-	expect(sub).toContain("Your storage is full.");
+	expect(sub).toContain("Its storage is full.");
 	expect(sub).not.toContain("Nothing you did caused this");
 });
 

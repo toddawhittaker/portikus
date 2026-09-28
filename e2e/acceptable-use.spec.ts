@@ -26,7 +26,7 @@ async function currentVersion(): Promise<number> {
 	return row?.version ?? 1;
 }
 
-test("first sign-in shows the statement, and I accept lands on the workspace", async ({
+test("first sign-in shows the statement, and Accept and continue lands on the workspace", async ({
 	page,
 	context,
 }) => {
@@ -42,6 +42,10 @@ test("first sign-in shows the statement, and I accept lands on the workspace", a
 		"none",
 	);
 	await expect(page.getByTestId("acceptable-use-text")).toContainText("coursework");
+	// The opening paragraph leads; the rules after it read as a list (Epic 25 S14).
+	const rules = page.getByTestId("acceptable-use-text").getByRole("listitem");
+	await expect(rules).toHaveCount(4);
+	await expect(rules.first()).toContainText("Do not mine cryptocurrency");
 	await expect(page).toHaveTitle("Acceptable use, Portikus");
 
 	// The server holds everything else back too.
@@ -49,7 +53,7 @@ test("first sign-in shows the statement, and I accept lands on the workspace", a
 	expect(blocked.status()).toBe(403);
 	expect((await blocked.json()).code).toBe("ACCEPTABLE_USE_REQUIRED");
 
-	await page.getByRole("button", { name: "I accept" }).click();
+	await page.getByRole("button", { name: "Accept and continue" }).click();
 	await expect(page).toHaveURL(new RegExp(`/workspaces/${student.workspaceId}`), {
 		timeout: 15_000,
 	});
@@ -80,7 +84,7 @@ test("an acceptance of an older statement shows it again, from any page", async 
 		await expect(page).toHaveURL(/\/acceptable-use$/, { timeout: 15_000 });
 	}
 	await expect(page.getByRole("heading", { name: "Acceptable use" })).toBeVisible();
-	await page.getByRole("button", { name: "I accept" }).click();
+	await page.getByRole("button", { name: "Accept and continue" }).click();
 	await expect(page).toHaveURL(new RegExp(`/workspaces/${student.workspaceId}`), {
 		timeout: 15_000,
 	});
@@ -133,7 +137,7 @@ test("a new local administrator changes the password first, then accepts", async
 	await query("update users set must_change_password = false where id = $1", [userId]);
 	await page.goto("/admin");
 	await expect(page).toHaveURL(/\/acceptable-use$/, { timeout: 15_000 });
-	await page.getByRole("button", { name: "I accept" }).click();
+	await page.getByRole("button", { name: "Accept and continue" }).click();
 	await expect(page).toHaveURL(/\/admin$/, { timeout: 15_000 });
 	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 });

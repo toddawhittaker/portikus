@@ -4,6 +4,21 @@ import { cx } from "./cx.js";
 import { Icon, type IconName } from "./Icon.js";
 import { type Key, ShortcutHint } from "./ShortcutHint.js";
 
+// Set while a closing menu hands focus back to its trigger (Epic 25 M4).
+let focusFromMenu = false;
+
+/**
+ * The next focus, if it lands on an IconButton now, does not open its
+ * tooltip. A menu calls this as it returns focus to its trigger, so the
+ * name does not pop up over the neighbouring control.
+ */
+export function skipTooltipOnReturnedFocus(): void {
+	focusFromMenu = true;
+	queueMicrotask(() => {
+		focusFromMenu = false;
+	});
+}
+
 export interface IconButtonProps
 	extends Omit<React.ComponentPropsWithRef<"button">, "children"> {
 	icon: IconName;
@@ -29,7 +44,13 @@ export function IconButton({
 	return (
 		<Tooltip.Provider delayDuration={400}>
 			<Tooltip.Root open={tooltipOpen || undefined}>
-				<Tooltip.Trigger asChild={true}>
+				<Tooltip.Trigger
+					asChild={true}
+					onFocus={(event) => {
+						// Radix skips its open when the event is default-prevented.
+						if (focusFromMenu) event.preventDefault();
+					}}
+				>
 					<button
 						type="button"
 						{...rest}

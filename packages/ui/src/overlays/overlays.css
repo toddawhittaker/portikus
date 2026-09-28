@@ -34,6 +34,10 @@
 	user-select: none;
 	outline: none;
 }
+/* Once a menu has a check item, items without an icon keep the check's gutter. */
+.pk-menu:has(.pk-menu-check) .pk-menu-item:not(:has(> svg, > .pk-menu-check)) {
+	padding-inline-start: calc(var(--space-2) * 2 + var(--size-icon-sm));
+}
 .pk-menu-item[data-highlighted] {
 	background: var(--surface-hover);
 	outline: var(--ring-width) solid var(--focus);
@@ -366,4 +370,58 @@
 .pk-handle:focus-visible .pk-handle-grip,
 .pk-handle[data-separator="hover"] .pk-handle-grip {
 	display: block;
+}
+
+/* Toggletip (Radix Popover): a quiet help button and its short note */
+.pk-toggletip {
+	flex: none;
+	display: inline-grid;
+	place-items: center;
+	/* 24px: the WCAG 2.5.8 minimum target. */
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--ink-muted);
+	cursor: pointer;
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+.pk-toggletip:hover,
+.pk-toggletip[data-state="open"] {
+	background: var(--surface-hover);
+	color: var(--ink);
+}
+.pk-toggletip-content {
+	z-index: var(--z-menu);
+	max-width: 36ch;
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	background: var(--surface-raised);
+	box-shadow: var(--shadow-md);
+	color: var(--ink);
+	font-size: 13px;
+	font-weight: 400;
+	line-height: 18px;
+	text-align: start;
+	text-transform: none;
+	white-space: normal;
+	overflow-wrap: break-word;
+	animation: pk-toggletip-in var(--duration-base) var(--ease-standard);
+}
+.pk-toggletip-content:focus {
+	outline: none;
+}
+@keyframes pk-toggletip-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pk-toggletip-content {
+		animation: none;
+	}
 }

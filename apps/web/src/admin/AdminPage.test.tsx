@@ -148,12 +148,12 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 	expect(within(nav).getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
 		"/admin?tab=settings",
 	);
-	// Logs sits between Audit and Health (SPEC.md section 24.11).
+	// People, then what to look at, then what to change (Epic 25 R1).
 	expect(
 		within(nav)
 			.getAllByRole("link")
 			.map((link) => link.textContent),
-	).toEqual(["Users", "Audit", "Logs", "Health", "Network", "Backups", "Settings"]);
+	).toEqual(["Users", "Health", "Logs", "Audit", "Network", "Backups", "Settings"]);
 	expect(
 		await screen.findByRole("table", { name: /Accounts and their workspaces/ }),
 	).toBeDefined();
@@ -180,13 +180,13 @@ test("an unknown tab falls back to Users", async () => {
 	expect(await screen.findByTestId("admin-accounts")).toBeDefined();
 });
 
-test("the Settings tab shows the global grace period", async () => {
+test("the Settings tab shows the global grace period in minutes", async () => {
 	stubAdmin(5400);
 
 	renderApp("/admin?tab=settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("5400"));
+	await waitFor(() => expect(input.value).toBe("90"));
 	expect(screen.getAllByText("1 hour 30 minutes").length).toBe(1);
 });
 
@@ -209,7 +209,7 @@ test("saving the global value sends the seconds as a number", async () => {
 	renderApp("/admin?tab=settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("600"));
+	await waitFor(() => expect(input.value).toBe("10"));
 	fireEvent.change(input, { target: { value: "0" } });
 	fireEvent.click(screen.getByTestId("grace-save"));
 
@@ -219,57 +219,6 @@ test("saving the global value sends the seconds as a number", async () => {
 		body: { shutdownGraceSeconds: 0 },
 	});
 	expect(await screen.findByText("Grace period saved")).toBeDefined();
-});
-
-test("clearing a user's input sends null, and a number sets the override", async () => {
-	const writes: { url: string; body: unknown }[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-
-	renderApp("/admin");
-	await openDetail("Alice Example");
-
-	const input = await screen.findByTestId(`user-grace-input-${USER.id}`);
-	await waitFor(() => expect((input as HTMLInputElement).value).toBe("30"));
-	fireEvent.change(input, { target: { value: "" } });
-	fireEvent.click(screen.getByTestId(`user-grace-save-${USER.id}`));
-
-	await waitFor(() => expect(writes.length).toBe(1));
-	expect(writes[0]).toEqual({
-		url: `/admin/users/${USER.id}/settings`,
-		body: { shutdownGraceSeconds: null },
-	});
-
-	fireEvent.change(input, { target: { value: "45" } });
-	fireEvent.click(screen.getByTestId(`user-grace-save-${USER.id}`));
-
-	await waitFor(() => expect(writes.length).toBe(2));
-	expect(writes[1]?.body).toEqual({ shutdownGraceSeconds: 45 });
-});
-
-test("a user's override shows no default until the settings load", async () => {
-	stubFetch((url) => {
-		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users")
-			return json(200, { users: [STUDENT_ROW, ADMIN_ROW], dexUsers: false });
-		if (url === "/admin/settings") {
-			return json(500, { code: "INTERNAL", message: "Settings are unavailable." });
-		}
-		throw new Error(`unexpected request: ${url}`);
-	});
-
-	renderApp("/admin");
-	await openDetail("Carol Admin");
-
-	// The account with no override claims no default, in the placeholder or the hint.
-	const input = (await screen.findByTestId(
-		`user-grace-input-${ADMIN.id}`,
-	)) as HTMLInputElement;
-	expect(input.value).toBe("");
-	expect(input.placeholder).toBe("");
-	expect(screen.queryByText(/^Default \(/)).toBeNull();
-	expect(
-		screen.queryByText("Workspaces keep running until stopped by hand"),
-	).toBeNull();
 });
 
 test("the Settings tab shows a settings read failure", async () => {
@@ -293,12 +242,12 @@ test("a value beyond the integer limit is refused before any request", async () 
 	renderApp("/admin?tab=settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("600"));
-	fireEvent.change(input, { target: { value: "2147483648" } });
+	await waitFor(() => expect(input.value).toBe("10"));
+	fireEvent.change(input, { target: { value: "35791395" } });
 	fireEvent.click(screen.getByTestId("grace-save"));
 
 	expect(
-		await screen.findByText("Enter a whole number of seconds, 0 or more."),
+		await screen.findByText("Enter a number of minutes, 0 or more."),
 	).toBeDefined();
 	expect(writes.length).toBe(0);
 });
@@ -314,70 +263,22 @@ test("a student sent to /admin lands on the not-authorized page", async () => {
 	await waitFor(() => expect(router.state.location.pathname).toBe("/not-authorized"));
 });
 
-test("the log level select starts on the service default", async () => {
-	stubAdmin(600);
-
-	renderApp("/admin?tab=settings");
-
-	const select = (await screen.findByTestId("log-level-select")) as HTMLSelectElement;
-	await waitFor(() => expect(select.disabled).toBe(false));
-	expect(select.value).toBe("default");
-	expect(within(select).getByText("Use service default")).toBeDefined();
-});
-
-test("choosing a level sends only the log level, and the default sends null", async () => {
-	const writes: { url: string; body: unknown }[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-
-	renderApp("/admin?tab=settings");
-
-	const select = (await screen.findByTestId("log-level-select")) as HTMLSelectElement;
-	await waitFor(() => expect(select.disabled).toBe(false));
-	fireEvent.change(select, { target: { value: "debug" } });
-	fireEvent.click(screen.getByTestId("log-level-save"));
-
-	await waitFor(() => expect(writes.length).toBe(1));
-	expect(writes[0]).toEqual({ url: "/admin/settings", body: { logLevel: "debug" } });
-	expect(await screen.findByText("Log level saved")).toBeDefined();
-
-	fireEvent.change(select, { target: { value: "default" } });
-	fireEvent.click(screen.getByTestId("log-level-save"));
-
-	await waitFor(() => expect(writes.length).toBe(2));
-	expect(writes[1]?.body).toEqual({ logLevel: null });
-});
-
-test("the grace form still sends only the seconds", async () => {
+test("the grace form takes minutes and still sends only the seconds", async () => {
 	const writes: { url: string; body: unknown }[] = [];
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
 
 	renderApp("/admin?tab=settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("600"));
-	fireEvent.change(input, { target: { value: "900" } });
+	await waitFor(() => expect(input.value).toBe("10"));
+	expect(input).toBe(
+		screen.getByRole("textbox", { name: "Disconnect grace (minutes)" }),
+	);
+	fireEvent.change(input, { target: { value: "15" } });
 	fireEvent.click(screen.getByTestId("grace-save"));
 
 	await waitFor(() => expect(writes.length).toBe(1));
 	expect(writes[0]?.body).toEqual({ shutdownGraceSeconds: 900 });
-});
-
-test("the grace field is named by its visible label and Save after the user (WCAG 2.5.3, issue #371)", async () => {
-	stubAdmin(600);
-
-	renderApp("/admin");
-	await openDetail("Alice Example");
-
-	expect(screen.getByRole("textbox", { name: "Grace period override (seconds)" })).toBe(
-		screen.getByTestId(`user-grace-input-${USER.id}`),
-	);
-	expect(screen.getByRole("button", { name: "Save Alice Example" })).toBe(
-		screen.getByTestId(`user-grace-save-${USER.id}`),
-	);
-	// Each row's details button says whose row it is.
-	expect(
-		screen.getByRole("button", { name: /^Show details for Carol Admin, / }),
-	).toBeDefined();
 });
 
 test("the page title names the tab (issue #374, SPEC.md section 20.1)", async () => {
@@ -438,55 +339,12 @@ test("grace-period errors are announced as alerts (issue #363)", async () => {
 	renderApp("/admin?tab=settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("600"));
+	await waitFor(() => expect(input.value).toBe("10"));
 	fireEvent.change(input, { target: { value: "soon" } });
 	fireEvent.click(screen.getByTestId("grace-save"));
 	expect((await screen.findByRole("alert")).textContent).toBe(
-		"Enter a whole number of seconds, 0 or more.",
+		"Enter a number of minutes, 0 or more.",
 	);
-});
-
-test("a user's grace error is announced as an alert (issue #363)", async () => {
-	stubAdmin(600);
-
-	renderApp("/admin");
-	await openDetail("Alice Example");
-
-	const row = screen.getByTestId(`user-grace-input-${USER.id}`);
-	fireEvent.change(row, { target: { value: "later" } });
-	fireEvent.click(screen.getByTestId(`user-grace-save-${USER.id}`));
-	expect((await screen.findByRole("alert")).textContent).toBe(
-		"Enter a whole number of seconds, 0 or more.",
-	);
-});
-
-test("a failed log-level save is an alert tied to the select (issue #363)", async () => {
-	stubFetch((url, init) => {
-		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/settings" && init?.method === "PUT") {
-			return json(500, { error: "internal", message: "Something broke" });
-		}
-		if (url === "/admin/settings") {
-			return json(200, {
-				...GUARD_SETTINGS,
-				shutdownGraceSeconds: 600,
-				logLevel: null,
-				updatedAt: null,
-			});
-		}
-		throw new Error(`unexpected request: ${url}`);
-	});
-
-	renderApp("/admin?tab=settings");
-
-	const select = (await screen.findByTestId("log-level-select")) as HTMLSelectElement;
-	await waitFor(() => expect(select.disabled).toBe(false));
-	fireEvent.change(select, { target: { value: "debug" } });
-	fireEvent.click(screen.getByTestId("log-level-save"));
-
-	const error = await screen.findByRole("alert");
-	expect(select.getAttribute("aria-invalid")).toBe("true");
-	expect(select.getAttribute("aria-describedby")).toBe(error.id);
 });
 
 test("the Audit tab's filters survive in the address, and bad values are dropped", async () => {
@@ -771,4 +629,15 @@ test("a statement over the limit is refused before any request", async () => {
 		"The statement can be at most 10,000 characters.",
 	);
 	expect(writes).toEqual([]);
+});
+
+test("a small gap starts each group of admin tabs (Epic 25 R1)", async () => {
+	stubAdmin(600);
+	renderApp("/admin");
+	const nav = await screen.findByRole("navigation", { name: "Administration" });
+	const gapped = within(nav)
+		.getAllByRole("link")
+		.filter((link) => link.classList.contains("ml-4"))
+		.map((link) => link.textContent);
+	expect(gapped).toEqual(["Health", "Network"]);
 });

@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { ApiError } from "../../api/request.js";
 import { json, renderApp, stubFetch, USER } from "../../test-utils.js";
 import {
+	emptyText,
 	levelTagClass,
 	levelText,
 	linesText,
@@ -15,7 +16,7 @@ import { refreshInterval, retryBusy } from "./queries.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
-const ALICE = "11111111-2222-4333-8444-555555555555";
+const ALICE = USER.id;
 const WS = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
 function cursor(index: number): string {
@@ -41,16 +42,83 @@ function page(lines: LogLine[], nextCursor: string | null = null): LogPage {
 	return { lines, nextCursor, scanComplete: true, skippedLines: 0 };
 }
 
-/** Serves `/admin/logs` from `answer` and records every query string. */
-function stubLogs(answer: (params: URLSearchParams) => Response) {
+/** Alice as the Users list has her, with her workspace. */
+const ALICE_ROW = {
+	id: ALICE,
+	displayName: "Alice Example",
+	email: "alice@example.edu",
+	role: "student",
+	providerRole: "student",
+	grantedRole: null,
+	disabledAt: null,
+	shutdownGraceSeconds: null,
+	preferredUsername: null,
+	issuer: null,
+	lastLoginAt: null,
+	markers: {
+		disabled: false,
+		archived: false,
+		duplicateEmail: false,
+		stale: false,
+		linked: false,
+	},
+	workspace: {
+		id: WS,
+		label: "alice",
+		state: "running",
+		desiredState: "running",
+		activeConnections: 0,
+		lastActiveConnectionAt: null,
+		quotaConfig: { homeGiB: 10, dockerGiB: 20 },
+		quotaApplied: null,
+		image: { label: "2026.09.9", fingerprint: null, current: true },
+		archivedAt: null,
+		cpuThrottle: null,
+		memoryFlag: null,
+	},
+	dexLocal: false,
+};
+
+const SETTINGS = {
+	shutdownGraceSeconds: 600,
+	logLevel: null,
+	cpuGuardThresholdPercent: 80,
+	memoryGuardThresholdPercent: 90,
+	guardWindowMinutes: 30,
+	cpuThrottleSharePercent: 25,
+	cpuIdleLiftMinutes: 5,
+	cpuIdleLiftPercent: 10,
+	cpuThrottleHoldAfter: 3,
+	cpuThrottleHoldHours: 24,
+	idleStopMinutes: 60,
+	acceptableUseText: null,
+	acceptableUseVersion: 1,
+	updatedAt: null,
+};
+
+/**
+ * Serves `/admin/logs` from `answer` and records every query string; the
+ * users list and settings answer too, and `onWrite` sees each settings PUT.
+ */
+function stubLogs(
+	answer: (params: URLSearchParams) => Response,
+	onWrite?: (body: Record<string, unknown>) => Response | undefined,
+) {
 	const requested: URLSearchParams[] = [];
-	stubFetch((url) => {
+	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
 		if (url.startsWith("/admin/logs?")) {
 			const params = new URLSearchParams(url.split("?")[1]);
 			requested.push(params);
 			return answer(params);
 		}
+		if (url === "/admin/users")
+			return json(200, { users: [ALICE_ROW], dexUsers: false });
+		if (url === "/admin/settings" && init?.method === "PUT") {
+			const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+			return onWrite?.(body) ?? json(200, { ...SETTINGS, ...body });
+		}
+		if (url === "/admin/settings") return json(200, SETTINGS);
 		return json(200, {});
 	});
 	return requested;
@@ -237,6 +305,10 @@ test("rows show named fields as text, and a row expands to the whole line", asyn
 	expect(within(first).getByText("TERMINAL_LIMIT")).toBeDefined();
 	expect(within(first).getByText("Alice Example")).toBeDefined();
 	expect(within(first).getByText("409")).toBeDefined();
+	// The route reads whole, and may wrap only before a slash.
+	const route = within(first).getByTestId("log-route");
+	expect(route.textContent).toBe("/workspaces/:id/terminals");
+	expect(route.querySelectorAll("wbr")).toHaveLength(3);
 	// The line is text, never markup.
 	const message = within(first).getByTestId("log-message");
 	expect(message.textContent).toBe(
@@ -322,7 +394,8 @@ test("skipped entries and a stopped scan are explained", async () => {
 		"3 journal entries were not a Portikus log line",
 	);
 	expect(screen.getByTestId("logs-partial").textContent).toBe(partialText(true));
-	expect(screen.getByTestId("logs-empty")).toBeDefined();
+	// The search did not finish, so it does not claim there are no lines.
+	expect(screen.queryByTestId("logs-empty")).toBeNull();
 });
 
 test("a stopped scan with nothing to resume asks for a narrower range", async () => {
@@ -336,18 +409,28 @@ test("a stopped scan with nothing to resume asks for a narrower range", async ()
 	expect(screen.queryByTestId("logs-older")).toBeNull();
 });
 
-test("applying filters puts them in the URL and the request", async () => {
+test("applying filters puts them in the URL and the request, the person as an ID", async () => {
 	const requested = stubLogs(() => json(200, page([])));
 	const { router } = renderApp("/admin?tab=logs");
 	await screen.findByTestId("logs-empty");
-	expect(screen.getByTestId("logs-level-note").textContent).toContain(
-		"Debug lines exist only while the log level on the Settings tab is Debug.",
+	// The level note is a toggletip beside Levels now, not a line of its own.
+	expect(screen.queryByTestId("logs-level-note")).toBeNull();
+	expect(screen.getByRole("button", { name: "About Levels" })).toBeDefined();
+	expect(screen.getByRole("group", { name: "Levels" })).toBeDefined();
+	// The people list is there to pick from.
+	await waitFor(() =>
+		expect(document.querySelector("#logs-people option")?.getAttribute("value")).toBe(
+			"Alice Example",
+		),
 	);
+	const person = screen.getByRole("combobox", { name: "Person" });
+	expect(person.getAttribute("list")).toBe("logs-people");
 
 	fireEvent.click(screen.getByRole("checkbox", { name: "Info" }));
 	fireEvent.click(screen.getByRole("checkbox", { name: "Worker" }));
 	fireEvent.change(screen.getByLabelText("Text"), { target: { value: "terminal" } });
-	fireEvent.change(screen.getByLabelText("User ID"), { target: { value: ALICE } });
+	fireEvent.change(person, { target: { value: "Alice Example" } });
+	fireEvent.change(screen.getByLabelText("Time"), { target: { value: "1h" } });
 	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
 
 	await waitFor(() =>
@@ -355,6 +438,7 @@ test("applying filters puts them in the URL and the request", async () => {
 			tab: "logs",
 			level: "error,warn,info",
 			service: "api,controller",
+			since: "1h",
 			q: "terminal",
 			user: ALICE,
 		}),
@@ -362,40 +446,194 @@ test("applying filters puts them in the URL and the request", async () => {
 	await waitFor(() => expect(requested.at(-1)?.get("q")).toBe("terminal"));
 	expect(requested.at(-1)?.get("level")).toBe("error,warn,info");
 	expect(requested.at(-1)?.get("service")).toBe("api,controller");
+	expect(requested.at(-1)?.get("user")).toBe(ALICE);
+	// The field keeps showing the name, not the ID.
+	expect(
+		(screen.getByRole("combobox", { name: "Person" }) as HTMLInputElement).value,
+	).toBe("Alice Example");
 
 	fireEvent.click(screen.getByRole("button", { name: "Clear" }));
 	await waitFor(() => expect(router.state.location.search).toEqual({ tab: "logs" }));
+	expect(
+		(screen.getByRole("combobox", { name: "Person" }) as HTMLInputElement).value,
+	).toBe("");
 });
 
-test("a bad ID or no level is refused in the form", async () => {
+test("a link with a user ID shows the person's name", async () => {
+	stubLogs(() => json(200, page([])));
+	renderApp(`/admin?tab=logs&user=${ALICE}`);
+	const person = (await screen.findByRole("combobox", {
+		name: "Person",
+	})) as HTMLInputElement;
+	await waitFor(() => expect(person.value).toBe("Alice Example"));
+});
+
+test("a workspace link is a checkbox naming its owner, and unticking it drops the filter", async () => {
+	const requested = stubLogs(() => json(200, page([])));
+	const { router } = renderApp(`/admin?tab=logs&workspace=${WS}&since=1h`);
+	const only = await screen.findByRole("checkbox", {
+		name: "Only Alice Example's workspace",
+	});
+	expect((only as HTMLInputElement).checked).toBe(true);
+	await waitFor(() => expect(requested.at(-1)?.get("workspace")).toBe(WS));
+
+	fireEvent.click(only);
+	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+	await waitFor(() =>
+		expect(router.state.location.search).toEqual({ tab: "logs", since: "1h" }),
+	);
+	expect(screen.queryByRole("checkbox", { name: /workspace$/ })).toBeNull();
+});
+
+test("a name typed before the people list loads asks to wait, not to choose again", async () => {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
+		if (url.startsWith("/admin/logs?")) return json(200, page([]));
+		// The people list never arrives.
+		if (url === "/admin/users")
+			return new Promise<Response>(() => {}) as unknown as Response;
+		if (url === "/admin/settings") return json(200, SETTINGS);
+		return json(200, {});
+	});
+	renderApp("/admin?tab=logs");
+	await screen.findByTestId("logs-empty");
+	const person = screen.getByRole("combobox", { name: "Person" });
+	fireEvent.change(person, { target: { value: "Alice Example" } });
+	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+	expect(
+		await screen.findByText(
+			"The list of people is still loading. Try again in a moment.",
+		),
+	).toBeDefined();
+	expect(screen.queryByText("Choose a person from the list.")).toBeNull();
+});
+
+test("an unknown person or no level is refused in the form", async () => {
 	stubLogs(() => json(200, page([])));
 	const { router } = renderApp("/admin?tab=logs");
 	await screen.findByTestId("logs-empty");
 
-	fireEvent.change(screen.getByLabelText("Workspace ID"), { target: { value: "abc" } });
+	const person = screen.getByRole("combobox", { name: "Person" });
+	fireEvent.change(person, { target: { value: "Nobody Here" } });
 	fireEvent.click(screen.getByRole("checkbox", { name: "Error" }));
 	fireEvent.click(screen.getByRole("checkbox", { name: "Warn" }));
 	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
 
 	expect(await screen.findByText("Choose at least one level.")).toBeDefined();
-	expect(
-		screen.getByText("Enter a full ID, as shown in the detail panel."),
-	).toBeDefined();
+	expect(screen.getByText("Choose a person from the list.")).toBeDefined();
+	expect(person.getAttribute("aria-invalid")).toBe("true");
 	expect(router.state.location.search).toEqual({ tab: "logs" });
 	// Focus goes to the first bad field, so its error is heard.
 	expect(document.activeElement).toBe(screen.getByRole("checkbox", { name: "Error" }));
 
 	fireEvent.click(screen.getByRole("checkbox", { name: "Error" }));
 	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
-	await waitFor(() =>
-		expect(document.activeElement).toBe(screen.getByLabelText("Workspace ID")),
-	);
+	await waitFor(() => expect(document.activeElement).toBe(person));
 
 	// Enter in the bad field itself: focus leaves and returns, so the error is heard again.
-	const workspace = screen.getByLabelText("Workspace ID");
 	const focused = vi.fn();
-	workspace.addEventListener("focus", focused);
-	fireEvent.submit(workspace.closest("form") as HTMLFormElement);
+	person.addEventListener("focus", focused);
+	fireEvent.submit(person.closest("form") as HTMLFormElement);
 	expect(focused).toHaveBeenCalledTimes(1);
-	expect(document.activeElement).toBe(workspace);
+	expect(document.activeElement).toBe(person);
+});
+
+test("an empty result says once what was searched and what to widen", async () => {
+	stubLogs(() => json(200, page([])));
+	renderApp("/admin?tab=logs");
+	expect((await screen.findByTestId("logs-empty")).textContent).toBe(
+		"No lines in the last day at Error or Warn. Try a longer time, or include Info.",
+	);
+	// No "0 lines" beside it, and no header row over nothing.
+	expect(screen.getByTestId("logs-count").textContent).toBe("");
+	expect(screen.queryByTestId("logs-table")).toBeNull();
+	await waitFor(() =>
+		expect(screen.getByTestId("logs-announce").textContent).toBe(
+			"No lines in the last day at Error or Warn. Try a longer time, or include Info.",
+		),
+	);
+});
+
+test("the empty text follows the filters", () => {
+	const base = {
+		levels: ["error", "warn"] as ("error" | "warn" | "info" | "debug")[],
+		services: [],
+		since: "1d",
+		until: "",
+		q: "",
+		user: "",
+		workspace: "",
+	};
+	expect(emptyText({ ...base, since: "1h", levels: ["error"] })).toBe(
+		"No lines in the last hour at Error. Try a longer time, or include Warn.",
+	);
+	expect(emptyText({ ...base, since: "7d" })).toBe(
+		"No lines in the last 7 days at Error or Warn. Try including Info.",
+	);
+	expect(
+		emptyText({ ...base, since: "7d", levels: ["error", "warn", "info", "debug"] }),
+	).toBe("No lines in the last 7 days at Error, Warn, Info or Debug.");
+	expect(
+		emptyText({
+			...base,
+			since: "7d",
+			levels: ["error", "warn", "info", "debug"],
+			user: ALICE,
+		}),
+	).toBe(
+		"No lines in the last 7 days at Error, Warn, Info or Debug match the other filters. Try removing a filter.",
+	);
+	expect(
+		emptyText({
+			...base,
+			since: "2026-09-01T00:00:00.000Z",
+			until: "2026-09-02T00:00:00.000Z",
+		}),
+	).toBe("No lines in this time range at Error or Warn. Try including Info.");
+});
+
+test("the service log level sits on the Logs tab, starts on the default and saves", async () => {
+	const writes: Record<string, unknown>[] = [];
+	stubLogs(
+		() => json(200, page([])),
+		(body) => {
+			writes.push(body);
+			return undefined;
+		},
+	);
+	renderApp("/admin?tab=logs");
+
+	const select = (await screen.findByRole("combobox", {
+		name: "Services log at",
+	})) as HTMLSelectElement;
+	await waitFor(() => expect(select.disabled).toBe(false));
+	expect(select.value).toBe("default");
+	expect(within(select).getByText("Service default")).toBeDefined();
+
+	fireEvent.change(select, { target: { value: "debug" } });
+	fireEvent.click(screen.getByTestId("log-level-save"));
+	await waitFor(() => expect(writes).toEqual([{ logLevel: "debug" }]));
+	expect(await screen.findByText("Log level saved")).toBeDefined();
+
+	fireEvent.change(select, { target: { value: "default" } });
+	fireEvent.click(screen.getByTestId("log-level-save"));
+	await waitFor(() => expect(writes[1]).toEqual({ logLevel: null }));
+});
+
+test("a failed log-level save is an alert tied to the select (issue #363)", async () => {
+	stubLogs(
+		() => json(200, page([])),
+		() => json(500, { code: "INTERNAL", message: "Something broke" }),
+	);
+	renderApp("/admin?tab=logs");
+
+	const select = (await screen.findByTestId("log-level-select")) as HTMLSelectElement;
+	await waitFor(() => expect(select.disabled).toBe(false));
+	fireEvent.change(select, { target: { value: "debug" } });
+	fireEvent.click(screen.getByTestId("log-level-save"));
+
+	const error = await screen.findByRole("alert");
+	expect(error.textContent).toBe("Something broke");
+	expect(select.getAttribute("aria-invalid")).toBe("true");
+	expect(select.getAttribute("aria-describedby")).toBe(error.id);
 });

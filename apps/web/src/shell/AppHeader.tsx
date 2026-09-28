@@ -136,6 +136,11 @@ export function AppHeader({
 							className="pk-account"
 							data-testid="me"
 							ref={accountButton}
+							// Named in full here: a hidden span after the name gained a stray space
+							// before its comma, and the initials were read as a word.
+							aria-label={
+								badge ? `${user.displayName}, ${unreadLabel}` : user.displayName
+							}
 						>
 							{picture ? (
 								<img
@@ -147,14 +152,18 @@ export function AppHeader({
 							) : (
 								<span className="pk-initials">{initials(user.displayName)}</span>
 							)}
-							{/* The gap is only visual. This space is part of the button text. */}{" "}
+							{/* The gap is only visual. This space keeps the text readable when copied. */}{" "}
 							<span>{user.displayName}</span>
-							{badge ? <span className="sr-only">, {unreadLabel}</span> : null}
 							<Icon name="chevron-down" size="sm" />
 						</button>
 					</MenuTrigger>
 					<Menu label="Account">
-						<MenuLabel>{user.email ?? user.displayName}</MenuLabel>
+						<MenuLabel>
+							{/* A long address is cut, not allowed to widen the menu (Epic 25 S9). */}
+							<span className="pk-account-email" title={user.email ?? user.displayName}>
+								{user.email ?? user.displayName}
+							</span>
+						</MenuLabel>
 						<MenuSeparator />
 						{user.role === "administrator" && workspaceId ? (
 							<>
@@ -188,10 +197,33 @@ export function AppHeader({
 							onSelect={() => setNotificationsOpen(true)}
 							testId="notifications-item"
 						>
-							{badge ? `Notifications (${unreadLabel})` : "Notifications"}
+							<span className="flex items-baseline justify-between gap-4">
+								{unread > 0 ? (
+									<>
+										{/* One spoken name: browsers put spaces around a hidden comma. */}
+										<span className="sr-only">Notifications, {unread} unread</span>
+										<span aria-hidden="true">Notifications</span>
+										<span aria-hidden="true" className="text-xs text-ink-muted">
+											{unread} unread
+										</span>
+									</>
+								) : (
+									"Notifications"
+								)}
+							</span>
 						</MenuItem>
 						<MenuItem onSelect={() => setSettingsOpen(true)}>
 							<span data-testid="editor-settings">Settings</span>
+						</MenuItem>
+						{/* A new tab from everywhere, so the workspace keeps its sockets. */}
+						<MenuItem
+							icon="help"
+							href="/help"
+							target="_blank"
+							rel="noopener"
+							testId="help-link"
+						>
+							Help<span className="sr-only"> (opens in a new tab)</span>
 						</MenuItem>
 						<MenuSeparator />
 						<MenuItem
@@ -206,7 +238,7 @@ export function AppHeader({
 						</MenuItem>
 					</Menu>
 				</MenuRoot>
-				{/* Its own button over the picture's corner, so a click opens the history directly. */}
+				{/* Its own button beside the account button, so a click opens the history directly. */}
 				{badge ? (
 					<button
 						type="button"

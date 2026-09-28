@@ -1,7 +1,7 @@
 /** Issue #357: the check output follows the student's screen-reader setting. */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
 import { editorSettingsKey } from "../editor/settingsQueries.js";
@@ -57,7 +57,13 @@ function renderOutput(screenReaderMode: boolean) {
 	client.setQueryData(editorSettingsKey, settings);
 	render(
 		<QueryClientProvider client={client}>
-			<CheckOutput workspaceId="w" projectId="p" checkId="c" onFinished={vi.fn()} />
+			<CheckOutput
+				workspaceId="w"
+				projectId="p"
+				checkId="c"
+				name="Tests"
+				onFinished={vi.fn()}
+			/>
 		</QueryClientProvider>,
 	);
 	return { client, settings };
@@ -87,4 +93,10 @@ test("the check output uses screen-reader mode and follows a change live", async
 		expect(opened.terminals[0]?.options.screenReaderMode).toBe(false),
 	);
 	expect(opened.terminals).toHaveLength(1);
+});
+
+test("the output is named after its check", async () => {
+	renderOutput(false);
+	await waitFor(() => expect(opened.terminals).toHaveLength(1));
+	expect(screen.getByRole("log").getAttribute("aria-label")).toBe("Output of Tests");
 });

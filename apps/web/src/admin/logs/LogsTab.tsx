@@ -2,17 +2,38 @@ import {
 	LOG_LEVELS,
 	LOG_SERVICES,
 	type LogLevel,
+	LogLevel as LogLevelSchema,
 	type LogLine,
 	type LogService,
 } from "@portikus/contracts";
-import { Button, Checkbox, Select, TextField } from "@portikus/ui";
+import {
+	Button,
+	Checkbox,
+	CONTROL_CLASS,
+	FIELD_CLASS,
+	LABEL_CLASS,
+	TextField,
+	Toggletip,
+	useToast,
+} from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/request.js";
-import { UUID } from "../../links.js";
 import { AdminSection, focusAdminHeading } from "../AdminSection.js";
 import { shortId } from "../audit/AuditTab.js";
+import {
+	personLabel,
+	personOptions,
+	resolvePerson,
+	workspaceLabel,
+} from "../people.js";
+import {
+	useAdminUsers,
+	usePlatformSettings,
+	useUpdatePlatformSettings,
+} from "../queries.js";
+import { errorText } from "../SettingsTab.js";
 import { shortTime } from "../shortTime.js";
 import {
 	DEFAULT_LEVELS,
@@ -49,8 +70,10 @@ interface Draft {
 	from: string;
 	to: string;
 	q: string;
-	user: string;
-	workspace: string;
+	/** What the Person field holds; null until the admin types, so it follows the URL. */
+	person: string | null;
+	/** Whether a workspace filter from a link stays on. */
+	onlyWorkspace: boolean;
 }
 
 function draftOf(filters: LogFilters): Draft {
@@ -62,8 +85,8 @@ function draftOf(filters: LogFilters): Draft {
 		from: preset ? "" : toLocalInput(filters.since),
 		to: toLocalInput(filters.until),
 		q: filters.q,
-		user: filters.user,
-		workspace: filters.workspace,
+		person: null,
+		onlyWorkspace: filters.workspace !== "",
 	};
 }
 
@@ -72,15 +95,47 @@ function toggled<T>(list: readonly T[], item: T, on: boolean): T[] {
 }
 
 /** The form's checked fields, in the order they appear. */
-const FIELD_ORDER = ["levels", "from", "to", "user", "workspace"] as const;
+const FIELD_ORDER = ["levels", "from", "to", "person"] as const;
 const FIELD_IDS: Record<Exclude<(typeof FIELD_ORDER)[number], "levels">, string> = {
 	from: "logs-from",
 	to: "logs-to",
-	user: "logs-user",
-	workspace: "logs-workspace",
+	person: "logs-person",
 };
 
-export const INVALID_ID_TEXT = "Enter a full ID, as shown in the detail panel.";
+/** Levels joined for a sentence: "Error or Warn", "Error, Warn or Info". */
+function levelList(levels: readonly LogLevel[]): string {
+	const words = LOG_LEVELS.filter((level) => levels.includes(level)).map(
+		(level) => LEVEL_LABELS[level],
+	);
+	if (words.length <= 1) return words.join("");
+	return `${words.slice(0, -1).join(", ")} or ${words.at(-1)}`;
+}
+
+/**
+ * What an empty result says, once: what was searched, and what to widen
+ * (docs/DESIGN.md section 5).
+ */
+export function emptyText(filters: LogFilters): string {
+	const preset = LOG_WINDOWS.find((item) => item === filters.since);
+	const time =
+		preset && !filters.until
+			? `in the ${WINDOW_LABELS[preset].replace(/^Last /, "last ")}`
+			: "in this time range";
+	const others =
+		filters.q !== "" ||
+		filters.user !== "" ||
+		filters.workspace !== "" ||
+		filters.services.length > 0;
+	const head = `No lines ${time} at ${levelList(filters.levels)}${others ? " match the other filters" : ""}.`;
+	const longer = Boolean(preset) && preset !== "7d" && !filters.until;
+	const missing = LOG_LEVELS.find((level) => !filters.levels.includes(level));
+	const include = missing ? LEVEL_LABELS[missing] : null;
+	if (longer && include) return `${head} Try a longer time, or include ${include}.`;
+	if (longer) return `${head} Try a longer time.`;
+	if (include) return `${head} Try including ${include}.`;
+	if (others) return `${head} Try removing a filter.`;
+	return head;
+}
 
 /**
  * The Logs tab (SPEC.md section 24.11): the platform's own JSON
@@ -91,6 +146,9 @@ export function LogsTab() {
 	const filters = filtersFromSearch(search);
 	const key = JSON.stringify(filters);
 	const navigate = useNavigate();
+	const users = useAdminUsers({ poll: false });
+	const userList = users.data?.users ?? [];
+	const people = personOptions(userList);
 	const [draft, setDraft] = useState(() => draftOf(filters));
 	const [draftKey, setDraftKey] = useState(key);
 	const [invalid, setInvalid] = useState<Record<string, string>>({});
@@ -102,6 +160,8 @@ export function LogsTab() {
 		setDraftKey(key);
 		setDraft(draftOf(filters));
 	}
+	const personText =
+		draft.person ?? (filters.user ? personLabel(people, filters.user) : "");
 
 	function show(next: LogFilters) {
 		void navigate({ to: "/admin", search: searchFromFilters(next) });
@@ -109,26 +169,27 @@ export function LogsTab() {
 
 	function apply(event: FormEvent) {
 		event.preventDefault();
-		const user = draft.user.trim();
-		const workspace = draft.workspace.trim();
+		const person =
+			draft.person === null
+				? { id: filters.user }
+				: resolvePerson(draft.person, users.data?.users);
 		const since = draft.window === "custom" ? fromLocalInput(draft.from) : draft.window;
 		const until = draft.window === "custom" ? fromLocalInput(draft.to) : "";
 		const errors: Record<string, string> = {};
 		if (draft.levels.length === 0) errors.levels = "Choose at least one level.";
-		if (user !== "" && !UUID.test(user)) errors.user = INVALID_ID_TEXT;
-		if (workspace !== "" && !UUID.test(workspace)) errors.workspace = INVALID_ID_TEXT;
+		if ("error" in person) errors.person = person.error;
 		if (draft.window === "custom" && since === "") errors.from = "Enter a start time.";
 		if (since !== "" && until !== "" && !errors.from && since > until) {
 			errors.to = "The end must not be before the start.";
 		}
 		setInvalid(errors);
 		const first = FIELD_ORDER.find((name) => errors[name]);
-		if (first) {
+		if (first || "error" in person) {
 			// Focus the first bad field so a screen reader hears its error.
 			const target =
 				first === "levels"
 					? formRef.current?.querySelector<HTMLElement>("[data-level-checks] input")
-					: document.getElementById(FIELD_IDS[first]);
+					: document.getElementById(FIELD_IDS[first ?? "person"]);
 			// Focusing the field that already has focus says nothing, so leave it first.
 			if (target && target === document.activeElement) target.blur();
 			target?.focus();
@@ -140,14 +201,13 @@ export function LogsTab() {
 			since,
 			until,
 			q: draft.q.trim(),
-			user,
-			workspace,
+			user: person.id,
+			workspace: draft.onlyWorkspace ? filters.workspace : "",
 		});
 	}
 
 	function clear() {
-		setInvalid({});
-		show({
+		const cleared: LogFilters = {
 			levels: [...DEFAULT_LEVELS],
 			services: [],
 			since: DEFAULT_WINDOW,
@@ -155,24 +215,47 @@ export function LogsTab() {
 			q: "",
 			user: "",
 			workspace: "",
-		});
+		};
+		setInvalid({});
+		// Also reset here: when the URL is already clear, nothing else refills the form.
+		setDraft(draftOf(cleared));
+		show(cleared);
 	}
 
 	return (
-		<AdminSection title="Logs">
-			<form
-				ref={formRef}
-				className="flex flex-col gap-4"
-				onSubmit={apply}
-				data-testid="logs-filters"
-			>
-				<div className="flex flex-wrap gap-8">
+		<AdminSection
+			title="Logs"
+			intro={{
+				id: "admin-logs",
+				helpAnchor: "admin-logs",
+				text: "The platform's own error, warning, info and debug lines. They never include students' files, commands or terminal output.",
+			}}
+		>
+			<ServiceLogLevel />
+			<form ref={formRef} onSubmit={apply} data-testid="logs-filters" noValidate>
+				<fieldset className="m-0 flex min-w-0 flex-wrap items-end gap-x-6 gap-y-4 rounded-md border-0 bg-surface-sunken p-4">
+					<legend className="sr-only">Filters</legend>
 					<fieldset
-						className="m-0 flex flex-col gap-1.5 border-0 p-0"
+						className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0"
+						// Named by the word alone, not also by its help button.
+						aria-labelledby="logs-levels-label"
 						aria-describedby={invalid.levels ? "logs-levels-err" : undefined}
 					>
-						<legend className="pk-text-label mb-1.5 p-0">Levels</legend>
-						<div className="flex flex-wrap gap-4" data-level-checks>
+						<legend className="mb-1.5 p-0">
+							<span className="flex items-center gap-1">
+								<span className={LABEL_CLASS} id="logs-levels-label">
+									Levels
+								</span>
+								<Toggletip label="Levels">
+									Debug lines exist only while the service log level is Debug. Info
+									lines exist unless it is Warn or Error.
+								</Toggletip>
+							</span>
+						</legend>
+						<div
+							className="flex h-[var(--pk-control)] flex-wrap items-center gap-4"
+							data-level-checks
+						>
 							{LOG_LEVELS.map((level) => (
 								<Checkbox
 									key={level}
@@ -188,14 +271,31 @@ export function LogsTab() {
 							))}
 						</div>
 						{invalid.levels ? (
-							<p id="logs-levels-err" className="pk-error m-0 text-status-error">
+							<p
+								id="logs-levels-err"
+								className="pk-error m-0 text-[12px] leading-4 text-status-error"
+							>
 								{invalid.levels}
 							</p>
 						) : null}
 					</fieldset>
-					<fieldset className="m-0 flex flex-col gap-1.5 border-0 p-0">
-						<legend className="pk-text-label mb-1.5 p-0">Services</legend>
-						<div className="flex flex-wrap gap-4">
+					<fieldset
+						className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0"
+						aria-labelledby="logs-services-label"
+					>
+						<legend className="mb-1.5 p-0">
+							<span className="flex items-center gap-1">
+								<span className={LABEL_CLASS} id="logs-services-label">
+									Services
+								</span>
+								<Toggletip label="Services">
+									API answers the browser's requests. Worker runs the background jobs:
+									starting, stopping and rebuilding workspaces, the resource guard and
+									health samples. Controller talks to the host that runs the workspaces.
+								</Toggletip>
+							</span>
+						</legend>
+						<div className="flex h-[var(--pk-control)] flex-wrap items-center gap-4">
 							{LOG_SERVICES.map((service) => (
 								<Checkbox
 									key={service}
@@ -215,31 +315,27 @@ export function LogsTab() {
 							))}
 						</div>
 					</fieldset>
-				</div>
-				<p
-					className="pk-text-body pk-muted m-0 text-[13px]"
-					data-testid="logs-level-note"
-				>
-					Debug lines exist only while the log level on the Settings tab is Debug. Info
-					lines exist unless it is Warn or Error.
-				</p>
-				<div className="pk-actions items-start">
-					<div className="w-48">
-						<Select
+					{/* A native select, as in the Users filter bar (ruling S18). */}
+					<div className={FIELD_CLASS}>
+						<label className={LABEL_CLASS} htmlFor="logs-window">
+							Time
+						</label>
+						<select
 							id="logs-window"
-							label="Time"
+							className={`${CONTROL_CLASS} w-40 cursor-pointer`}
+							data-testid="logs-window"
 							value={draft.window}
-							options={[
-								...LOG_WINDOWS.map((window) => ({
-									value: window,
-									label: WINDOW_LABELS[window],
-								})),
-								{ value: "custom", label: "Custom" },
-							]}
-							onValueChange={(value) =>
-								setDraft({ ...draft, window: value as Draft["window"] })
+							onChange={(event) =>
+								setDraft({ ...draft, window: event.target.value as Draft["window"] })
 							}
-						/>
+						>
+							{LOG_WINDOWS.map((window) => (
+								<option key={window} value={window}>
+									{WINDOW_LABELS[window]}
+								</option>
+							))}
+							<option value="custom">Custom</option>
+						</select>
 					</div>
 					{draft.window === "custom" ? (
 						<>
@@ -267,41 +363,142 @@ export function LogsTab() {
 					<TextField
 						id="logs-text"
 						label="Text"
-						className="w-64"
+						type="search"
+						className="w-56"
 						maxLength={200}
-						hint="Matches the code, message and error."
+						placeholder="Code, message or error"
 						value={draft.q}
 						onChange={(event) => setDraft({ ...draft, q: event.target.value })}
 					/>
 					<TextField
-						id="logs-user"
-						label="User ID"
-						className="w-80"
-						value={draft.user}
-						error={invalid.user}
-						onChange={(event) => setDraft({ ...draft, user: event.target.value })}
+						id="logs-person"
+						label="Person"
+						type="search"
+						className="w-56"
+						list="logs-people"
+						autoComplete="off"
+						placeholder="Name or email"
+						value={personText}
+						error={invalid.person}
+						onChange={(event) => setDraft({ ...draft, person: event.target.value })}
 					/>
-					<TextField
-						id="logs-workspace"
-						label="Workspace ID"
-						className="w-80"
-						value={draft.workspace}
-						error={invalid.workspace}
-						onChange={(event) => setDraft({ ...draft, workspace: event.target.value })}
-					/>
-				</div>
-				<div className="flex gap-2">
-					<Button variant="primary" type="submit" data-testid="logs-filter-apply">
-						Apply filters
-					</Button>
-					<Button type="button" data-testid="logs-filter-clear" onClick={clear}>
-						Clear
-					</Button>
-				</div>
+					<datalist id="logs-people">
+						{people.map((option) => (
+							<option key={option.id} value={option.label} />
+						))}
+					</datalist>
+					{filters.workspace ? (
+						<div className="flex h-[var(--pk-control)] items-center">
+							<Checkbox
+								label={workspaceLabel(people, filters.workspace)}
+								checked={draft.onlyWorkspace}
+								onChange={(event) =>
+									setDraft({ ...draft, onlyWorkspace: event.target.checked })
+								}
+							/>
+						</div>
+					) : null}
+					<div className="pk-actions ml-auto">
+						<Button variant="primary" type="submit" data-testid="logs-filter-apply">
+							Apply filters
+						</Button>
+						<Button type="button" data-testid="logs-filter-clear" onClick={clear}>
+							Clear
+						</Button>
+					</div>
+				</fieldset>
 			</form>
 			{/* Only the results re-key on new filters, so the focused form button stays. */}
 			<LogResults key={key} filters={filters} auto={auto} setAuto={setAuto} />
 		</AdminSection>
+	);
+}
+
+/** The value the select uses for "no override"; the API takes null. */
+const SERVICE_DEFAULT = "default";
+
+/**
+ * The runtime log level every service follows (ADR 0012). "Use service
+ * default" clears the override, so each service falls back to its own
+ * LOG_LEVEL from the environment. It sits here, beside the lines it
+ * decides, rather than on the Settings tab.
+ */
+function ServiceLogLevel() {
+	const settings = usePlatformSettings();
+	const update = useUpdatePlatformSettings();
+	const toast = useToast();
+	const [draft, setDraft] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(null);
+
+	const saved = settings.data?.logLevel ?? null;
+	const value = draft ?? (saved === null ? SERVICE_DEFAULT : saved);
+
+	function save(event: FormEvent) {
+		event.preventDefault();
+		setError(null);
+		const parsed = LogLevelSchema.safeParse(value);
+		update.mutate(
+			{ logLevel: parsed.success ? parsed.data : null },
+			{
+				onSuccess: () => {
+					setDraft(null);
+					toast.show({ tone: "success", title: "Log level saved" });
+				},
+				onError: (failure) => setError(errorText(failure)),
+			},
+		);
+	}
+
+	return (
+		<form
+			className="flex flex-col gap-1.5"
+			onSubmit={save}
+			data-testid="log-level-form"
+		>
+			<div className="flex flex-wrap items-center gap-2">
+				<span className="flex items-center gap-1">
+					<label className={LABEL_CLASS} htmlFor="log-level">
+						Services log at
+					</label>
+					<Toggletip label="Service log level">
+						How much every service writes. Service default uses each service's own
+						setting. Debug fills the journal quickly, so turn it back down when you are
+						done.
+					</Toggletip>
+				</span>
+				<div className="w-48">
+					<select
+						id="log-level"
+						className={`${CONTROL_CLASS} cursor-pointer disabled:border-line disabled:bg-surface-sunken disabled:text-ink-faint`}
+						data-testid="log-level-select"
+						value={value}
+						disabled={settings.isLoading}
+						aria-invalid={error ? true : undefined}
+						aria-describedby={error ? "log-level-err" : undefined}
+						onChange={(event) => setDraft(event.target.value)}
+					>
+						<option value={SERVICE_DEFAULT}>Service default</option>
+						{LogLevelSchema.options.map((level) => (
+							<option key={level} value={level}>
+								{LEVEL_LABELS[level]}
+							</option>
+						))}
+					</select>
+				</div>
+				<Button type="submit" data-testid="log-level-save" loading={update.isPending}>
+					Save
+				</Button>
+			</div>
+			{error ? (
+				<p
+					className="pk-error m-0 text-[12px] leading-4 text-status-error"
+					id="log-level-err"
+					role="alert"
+				>
+					{error}
+				</p>
+			) : null}
+		</form>
 	);
 }
 
@@ -369,15 +566,18 @@ function LogResults({
 	const announceNext = useRef(true);
 	const [announcement, setAnnouncement] = useState("");
 	const settled = pages.isSuccess && !pages.isFetching;
-	const countText = pages.isSuccess
-		? linesText(lines.length, Boolean(last?.nextCursor))
-		: "";
+	const empty = pages.isSuccess && lines.length === 0;
+	// An empty, finished search says so once, in the empty line, not also as "0 lines".
+	const emptyMessage = empty && last?.scanComplete ? emptyText(filters) : "";
+	const countText =
+		pages.isSuccess && !empty ? linesText(lines.length, Boolean(last?.nextCursor)) : "";
+	const announceText = countText || emptyMessage;
 
 	useEffect(() => {
 		if (!settled) return;
 		if (announceNext.current) {
 			announceNext.current = false;
-			setAnnouncement(countText);
+			setAnnouncement(announceText);
 		}
 		const index = firstNewRow.current;
 		if (index === null) return;
@@ -388,7 +588,7 @@ function LogResults({
 			"[data-testid=log-row-toggle]",
 		);
 		(toggles?.[index] ?? countRef.current)?.focus();
-	}, [settled, countText, last?.nextCursor]);
+	}, [settled, announceText, last?.nextCursor]);
 
 	function loadOlder() {
 		firstNewRow.current = lines.length;
@@ -427,43 +627,46 @@ function LogResults({
 					{refreshNote(auto, paused)}
 				</span>
 			</div>
-			{/* overflow-clip keeps the header sticking to the scrolling <main> (SPEC.md section 20.1). */}
-			<div className="pk-table-wrap overflow-clip">
-				<table
-					ref={tableRef}
-					className="pk-table pk-table--page"
-					data-testid="logs-table"
-					aria-busy={pages.isLoading}
-				>
-					<caption className="sr-only">Log lines, newest first</caption>
-					<thead>
-						<tr>
-							<th scope="col">
-								<span className="sr-only">Full line</span>
-							</th>
-							<th scope="col">Time</th>
-							<th scope="col">Level</th>
-							<th scope="col">Service</th>
-							<th scope="col">Code</th>
-							<th scope="col">Message</th>
-							<th scope="col">Route</th>
-							<th scope="col" className="pk-num">
-								Status
-							</th>
-							<th scope="col">User</th>
-							<th scope="col">Workspace</th>
-						</tr>
-					</thead>
-					<tbody>
-						{lines.map((line) => (
-							<LogRow key={line.cursor} line={line} />
-						))}
-					</tbody>
-				</table>
-			</div>
-			{pages.isSuccess && lines.length === 0 ? (
-				<p className="pk-text-body pk-muted" data-testid="logs-empty">
-					No log lines match.
+			{/* No header row over nothing: an empty result is one line of text. overflow-clip
+			    keeps the header sticking to the scrolling <main> (SPEC.md section 20.1). */}
+			{empty ? null : (
+				<div className="pk-table-wrap overflow-clip">
+					<table
+						ref={tableRef}
+						className="pk-table pk-table--page"
+						data-testid="logs-table"
+						aria-busy={pages.isLoading}
+					>
+						<caption className="sr-only">Log lines, newest first</caption>
+						<thead>
+							<tr>
+								<th scope="col">
+									<span className="sr-only">Full line</span>
+								</th>
+								<th scope="col">Time</th>
+								<th scope="col">Level</th>
+								<th scope="col">Service</th>
+								<th scope="col">Code</th>
+								<th scope="col">Message</th>
+								<th scope="col">Route</th>
+								<th scope="col" className="pk-num">
+									Status
+								</th>
+								<th scope="col">User</th>
+								<th scope="col">Workspace</th>
+							</tr>
+						</thead>
+						<tbody>
+							{lines.map((line) => (
+								<LogRow key={line.cursor} line={line} />
+							))}
+						</tbody>
+					</table>
+				</div>
+			)}
+			{emptyMessage ? (
+				<p className="pk-text-body pk-muted m-0" data-testid="logs-empty">
+					{emptyMessage}
 				</p>
 			) : null}
 			{last && !last.scanComplete ? (
@@ -521,6 +724,21 @@ function IdText({ id }: { id: string }) {
 	);
 }
 
+/** A route that may break before each slash, and nowhere else. */
+function RouteText({ route }: { route: string }) {
+	return route.split("/").map((part, index) => (
+		// biome-ignore lint/suspicious/noArrayIndexKey: the segments of one fixed string never move.
+		<Fragment key={index}>
+			{index > 0 ? (
+				<>
+					<wbr />/
+				</>
+			) : null}
+			{part}
+		</Fragment>
+	));
+}
+
 function LogRow({ line }: { line: LogLine }) {
 	const [open, setOpen] = useState(false);
 	const body = line.line;
@@ -558,13 +776,14 @@ function LogRow({ line }: { line: LogLine }) {
 				</td>
 				<td>{SERVICE_LABELS[line.service]}</td>
 				<td className="pk-mono-small">{field(body, "code")}</td>
-				<td
-					className="max-w-[48ch] whitespace-normal break-words"
-					data-testid="log-message"
-				>
-					{messageOf(body)}
+				{/* The inner min width keeps a narrow table from squeezing the message to one
+				    word a line; the route wraps at its slashes instead (SPEC.md section 24.11). */}
+				<td className="whitespace-normal" data-testid="log-message">
+					<div className="min-w-[24ch] max-w-[48ch] break-words">{messageOf(body)}</div>
 				</td>
-				<td className="pk-mono-small">{field(body, "route")}</td>
+				<td className="pk-mono-small whitespace-normal" data-testid="log-route">
+					<RouteText route={field(body, "route")} />
+				</td>
 				<td className="pk-num">{status}</td>
 				<td>{line.userName ?? (userId ? <IdText id={userId} /> : "")}</td>
 				<td>{workspaceId ? <IdText id={workspaceId} /> : ""}</td>

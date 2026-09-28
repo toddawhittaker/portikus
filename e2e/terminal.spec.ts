@@ -277,8 +277,9 @@ test("one terminal can be light while another stays dark", async ({
 	const dark = await paneBackground(page, secondId);
 
 	await page.getByTestId(`terminal-actions-${secondId}`).click();
-	await expect(page.getByTestId("terminal-theme-toggle")).toHaveText("Light terminal");
-	await page.getByTestId("terminal-theme-toggle").click();
+	const lightItem = page.getByRole("menuitemcheckbox", { name: "Light terminal" });
+	await expect(lightItem).not.toBeChecked();
+	await lightItem.click();
 
 	await expect
 		.poll(async () => await paneBackground(page, secondId), { timeout: 10_000 })
@@ -297,9 +298,11 @@ test("one terminal can be light while another stays dark", async ({
 		.toBe(light);
 	expect(await paneBackground(page, firstId)).toBe(dark);
 
-	// The menu of the light one now offers dark.
+	// The menu of the light one now shows the item checked.
 	await page.getByTestId(`terminal-actions-${secondId}`).click();
-	await expect(page.getByTestId("terminal-theme-toggle")).toHaveText("Dark terminal");
+	await expect(
+		page.getByRole("menuitemcheckbox", { name: "Light terminal" }),
+	).toBeChecked();
 });
 
 /** The colour the pane's chrome, including its title bar, is painted on. */

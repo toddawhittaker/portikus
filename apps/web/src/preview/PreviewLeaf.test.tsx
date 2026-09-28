@@ -8,7 +8,7 @@ import { ToastProvider } from "@portikus/ui";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ListeningContext } from "../running/services.js";
-import { json, stubFetch } from "../test-utils.js";
+import { json, openToggletip, stubFetch } from "../test-utils.js";
 import { resetPreviewHistory } from "./history.js";
 import { PreviewLeaf } from "./PreviewLeaf.js";
 
@@ -53,6 +53,7 @@ function show(options: {
 					port={port}
 					visible={true}
 					onShowRunning={() => {}}
+					onChoosePort={() => {}}
 				/>
 			</ListeningContext.Provider>
 		</ToastProvider>,
@@ -101,6 +102,26 @@ test("a granted preview points the frame at the bootstrap URL", async () => {
 	);
 });
 
+test("the address has a toggletip saying only the student can open it", async () => {
+	stubFetch(() => json(200, GRANT));
+	show({});
+	await screen.findByTestId("preview-frame");
+	fireEvent.click(screen.getByRole("button", { name: "About the preview address" }));
+	expect(openToggletip().textContent).toBe(
+		"Your preview's own address. Only you can open it, after signing in to Portikus. It does not work for anyone else.",
+	);
+});
+
+test("a preview with no address yet has no address toggletip", () => {
+	stubFetch(() => json(200, GRANT));
+	// Until the listening list is in, the tab is connecting and has no grant.
+	show({ loaded: false });
+	expect(screen.getByTestId("preview-host").textContent).toBe("port 5173");
+	expect(
+		screen.queryByRole("button", { name: "About the preview address" }),
+	).toBeNull();
+});
+
 test("the frame carries the sandbox and permissions policy the design fixes", async () => {
 	stubFetch(() => json(200, GRANT));
 	show({});
@@ -140,6 +161,7 @@ test("the preview reconnects when the port starts listening again", async () => 
 					port={5173}
 					visible={true}
 					onShowRunning={() => {}}
+					onChoosePort={() => {}}
 				/>
 			</ListeningContext.Provider>
 		</ToastProvider>,
@@ -153,6 +175,7 @@ test("the preview reconnects when the port starts listening again", async () => 
 					port={5173}
 					visible={true}
 					onShowRunning={() => {}}
+					onChoosePort={() => {}}
 				/>
 			</ListeningContext.Provider>
 		</ToastProvider>,
@@ -184,18 +207,41 @@ test("a grant the gateway could not open shows its message", async () => {
 	);
 });
 
-test("a port policy refuses keeps the sentence about the port", async () => {
+/** Review S6: a refused port says what to do instead, and offers no retry. */
+test("a port the policy refuses explains the rule and offers another port", async () => {
 	stubFetch(() =>
 		json(403, {
 			code: "PREVIEW_PORT_NOT_ALLOWED",
 			message: "Port 5432 cannot be previewed",
 		}),
 	);
-	show({});
-	expect((await screen.findByTestId("preview-error")).textContent).toBe(
+	const onChoosePort = vi.fn();
+	render(
+		<ToastProvider>
+			<ListeningContext.Provider value={{ services: [service(5432)], loaded: true }}>
+				<PreviewLeaf
+					workspaceId={WORKSPACE}
+					port={5432}
+					visible={true}
+					onShowRunning={() => {}}
+					onChoosePort={onChoosePort}
+				/>
+			</ListeningContext.Provider>
+		</ToastProvider>,
+	);
+	expect(
+		await screen.findByRole("heading", { name: "Port 5432 cannot be previewed" }),
+	).toBeDefined();
+	expect(screen.getByTestId("preview-port-refused").textContent).toBe(
+		"Ports below 1024, and a few kept for services such as SSH, Docker and PostgreSQL, cannot be opened as a preview. Run your app on a port from 1024 up, such as 3000 or 5173.",
+	);
+	expect(screen.getByTestId("preview-status").textContent).toBe(
 		"Port 5432 cannot be previewed",
 	);
+	expect(screen.queryByTestId("preview-retry")).toBeNull();
 	expect(screen.queryByTestId("preview-unauthorized")).toBeNull();
+	fireEvent.click(screen.getByRole("button", { name: "Choose another port…" }));
+	expect(onChoosePort).toHaveBeenCalledTimes(1);
 });
 
 test("a server failure falls back to a plain sentence", async () => {
@@ -499,6 +545,14 @@ test("the bar keeps host, Back, Forward, Reload and new tab; the rest is in the 
 	}
 	expect(screen.queryByTestId("preview-copy")).toBeNull();
 	expect(screen.getByRole("button", { name: "More preview actions" })).toBeTruthy();
+	// Back and Forward are icons with names, like the rest of the bar (review S7).
+	expect(screen.getByTestId("preview-back").textContent).toBe("");
+	expect(screen.getByRole("button", { name: "Back" })).toBe(
+		screen.getByTestId("preview-back"),
+	);
+	expect(screen.getByRole("button", { name: "Forward" })).toBe(
+		screen.getByTestId("preview-forward"),
+	);
 
 	openMore();
 	const menu = await screen.findByRole("menu", { name: "More preview actions" });
@@ -535,6 +589,7 @@ test("Show in Running calls back to the shell", async () => {
 					port={5173}
 					visible
 					onShowRunning={onShowRunning}
+					onChoosePort={() => {}}
 				/>
 			</ListeningContext.Provider>
 		</ToastProvider>,
@@ -606,6 +661,7 @@ function tab(services: ListeningService[]) {
 					port={5173}
 					visible={true}
 					onShowRunning={() => {}}
+					onChoosePort={() => {}}
 				/>
 			</ListeningContext.Provider>
 		</ToastProvider>

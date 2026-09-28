@@ -134,13 +134,71 @@ test("the members table shows name, role, last launch and workspace state", asyn
 	expect(rows[1]?.textContent).toContain("Student");
 	expect(rows[1]?.textContent).toContain("No workspace");
 	// Only the other person can be removed, and no cell is a live region.
+	const body = table.querySelector("tbody") as HTMLElement;
 	expect(
-		within(table)
+		within(body)
 			.getAllByRole("button")
 			.map((b) => b.textContent),
 	).toEqual(["Remove Sam Student from course"]);
 	expect(within(table).queryByRole("status")).toBeNull();
 	expect(document.title).toBe(`${CS101.title}, Portikus`);
+});
+
+test("another instructor has no Remove button, because the learning system manages them", async () => {
+	serve({
+		[`/courses/${CS101.id}/members`]: () =>
+			json(200, {
+				course: CS101,
+				members: [
+					{
+						userId: SAM_ID,
+						displayName: "Tia Teacher",
+						role: "instructor",
+						lastLaunchAt: "2026-09-22T09:00:00.000Z",
+						workspaceState: null,
+					},
+				],
+			}),
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	const table = await screen.findByTestId("course-members");
+	expect(within(table).getByRole("rowheader").textContent).toBe("Tia Teacher");
+	expect(
+		within(table.querySelector("tbody") as HTMLElement).queryByRole("button"),
+	).toBeNull();
+});
+
+test("the members table uses the admin page's table and frame", async () => {
+	serve({
+		[`/courses/${CS101.id}/members`]: () =>
+			json(200, {
+				course: CS101,
+				members: [
+					{
+						userId: SAM_ID,
+						displayName: "Sam Student",
+						role: "student",
+						lastLaunchAt: "2026-09-22T09:00:00.000Z",
+						workspaceState: null,
+					},
+				],
+			}),
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	const table = await screen.findByTestId("course-members");
+	expect(table.className).toBe("pk-table pk-table--page");
+	// The wrap may not scroll, so the header sticks to the scrolling <main>.
+	expect(table.parentElement?.className).toContain("pk-table-wrap");
+	expect(table.parentElement?.className).toContain("overflow-clip");
+	const main = screen.getByTestId("page-course");
+	expect(main.getAttribute("data-density")).toBe("compact");
+	expect(main.firstElementChild?.className).toContain("max-w-[1440px]");
+	// The launch time is machine-readable as well as shown in the local format.
+	expect(table.querySelector("time")?.getAttribute("datetime")).toBe(
+		"2026-09-22T09:00:00.000Z",
+	);
 });
 
 test("a course the caller does not teach looks like nothing", async () => {
@@ -322,4 +380,30 @@ test("the next Remove button skips the caller's own row and falls back to the pr
 	expect(nextRemovable(list, "b", "me")).toBe("c");
 	expect(nextRemovable(list, "c", "me")).toBe("b");
 	expect(nextRemovable([member("a"), member("me")], "a", "me")).toBeNull();
+	// Instructors have no Remove button, so focus skips them too.
+	const teacher = { ...member("t"), role: "instructor" as const };
+	expect(nextRemovable([member("a"), teacher, member("c")], "a", "me")).toBe("c");
+	expect(nextRemovable([member("a"), teacher], "a", "me")).toBeNull();
+});
+
+test("the page explains itself, and Last launch and Remove have help", async () => {
+	serve({
+		[`/courses/${CS101.id}/members`]: () =>
+			json(200, { course: CS101, members: [samMember()] }),
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	const table = await screen.findByTestId("course-members");
+	const intro = screen.getByTestId("intro-course");
+	expect(intro.textContent).toContain(
+		"they come back if they open Portikus from the course again",
+	);
+	expect(intro.querySelector("a")?.getAttribute("href")).toBe(
+		"/help#instructor-course",
+	);
+	expect(
+		within(table).getByRole("button", { name: "About Last launch" }),
+	).toBeDefined();
+	// The intro explains Remove, so its column has no toggletip of its own.
+	expect(within(table).queryByRole("button", { name: "About Remove" })).toBeNull();
 });

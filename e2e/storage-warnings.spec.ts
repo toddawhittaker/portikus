@@ -52,7 +52,7 @@ async function warningColour(page: Page, token: string) {
 	}, token);
 }
 
-test("the dialog lists Projects & home, Docker and Recovery", async ({
+test("the dialog lists Projects and home, Docker and Recovery", async ({
 	page,
 	context,
 }) => {
@@ -69,7 +69,7 @@ test("the dialog lists Projects & home, Docker and Recovery", async ({
 	await expect(dialog.getByTestId("storage-home")).toHaveText("10.0 GB of 100 GB");
 	await expect(dialog.getByTestId("storage-docker")).toHaveText("20.0 GB of 100 GB");
 	await expect(dialog.getByTestId("storage-recovery")).toHaveText("Not available");
-	await expect(dialog).toContainText("Projects & home");
+	await expect(dialog).toContainText("Projects and home");
 	await expect(page.getByTestId("storage-warning")).toHaveCount(0);
 	// One meter per class; the bar is drawn only where there is a figure.
 	await expect(dialog.locator(".pk-meter")).toHaveCount(3);

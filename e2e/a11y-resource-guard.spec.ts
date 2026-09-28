@@ -98,7 +98,9 @@ for (const scheme of ["light", "dark"] as const) {
 		await expectNoViolations(page);
 
 		await panel.getByTestId("detail-guard-edit").click();
-		const dialog = page.getByRole("dialog", { name: "Resource guard overrides" });
+		const dialog = page.getByRole("dialog", {
+			name: `Resource guard for ${name}'s workspace`,
+		});
 		await dialog.getByLabel("Window (minutes)").fill("1");
 		await dialog.getByTestId("guard-save").click();
 		await expect(dialog.getByRole("alert")).toBeVisible();

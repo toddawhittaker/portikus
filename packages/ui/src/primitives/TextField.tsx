@@ -24,6 +24,32 @@ export interface TextFieldProps
 	warning?: React.ReactNode;
 	/** Use for folder names, URLs, ports and typed confirmations. */
 	mono?: boolean;
+	/** A Toggletip, shown beside the label and never inside it. */
+	help?: React.ReactNode;
+}
+
+/**
+ * The label row with a help button beside the label. The row keeps the label's
+ * 18px line and the 24px button overflows it evenly, so a field with help lines
+ * up with one without (the target stays 24px, WCAG 2.5.8).
+ */
+export const LABEL_ROW_CLASS = "flex h-[18px] min-w-0 items-center gap-1";
+
+/** The label row: the label, then a help button beside it when there is one. */
+export function FieldLabel({
+	help,
+	children,
+}: {
+	help?: React.ReactNode;
+	children: React.ReactElement;
+}): React.ReactElement {
+	if (!help) return children;
+	return (
+		<div className={LABEL_ROW_CLASS}>
+			{children}
+			{help}
+		</div>
+	);
 }
 
 export function TextField({
@@ -33,6 +59,7 @@ export function TextField({
 	error,
 	warning,
 	mono,
+	help,
 	className,
 	...rest
 }: TextFieldProps): React.ReactElement {
@@ -46,9 +73,11 @@ export function TextField({
 			.join(" ") || undefined;
 	return (
 		<div className={cx(FIELD_CLASS, className)}>
-			<label className={LABEL_CLASS} htmlFor={id}>
-				{label}
-			</label>
+			<FieldLabel help={help}>
+				<label className={LABEL_CLASS} htmlFor={id}>
+					{label}
+				</label>
+			</FieldLabel>
 			<input
 				type="text"
 				{...rest}

@@ -2,7 +2,7 @@ import type { HealthSeries } from "@portikus/contracts";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
-import { TrendsCard } from "./TrendsCard.js";
+import { readGroupOpen, TrendsCard } from "./TrendsCard.js";
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -64,7 +64,7 @@ test("the charts load for the stored range and switch with the control", async (
 
 	expect(
 		await screen.findByRole("img", {
-			name: "Storage pool used: Now 16%, highest 18%.",
+			name: "Storage pool used, %: Now 16%, highest 18%.",
 		}),
 	).toBeDefined();
 	expect(
@@ -81,4 +81,40 @@ test("a failed load is announced", async () => {
 	stubFetch(() => json(500, { code: "INTERNAL", message: "Something broke." }));
 	renderWithQuery(<TrendsCard warnPercent={80} />);
 	expect((await screen.findByRole("alert")).textContent).toBe("Something broke.");
+});
+
+test("the four groups are open by default, and a closed one stays closed", async () => {
+	stubFetch((url) => {
+		if (url.startsWith("/admin/logs/counts"))
+			return json(503, { code: "LOGS_UNAVAILABLE", message: "No journal." });
+		return json(200, series("1d", 900, 86_400));
+	});
+
+	const first = renderWithQuery(<TrendsCard warnPercent={80} />);
+	await screen.findByTestId("health-trends");
+	const groups = ["host", "workspaces", "api", "events"].map((id) =>
+		screen.getByTestId(`health-group-${id}`),
+	);
+	for (const group of groups) expect(group.hasAttribute("open")).toBe(true);
+
+	const host = groups[0] as HTMLDetailsElement;
+	host.open = false;
+	fireEvent(host, new Event("toggle"));
+	await waitFor(() => expect(screen.queryByTestId("health-chart-pool")).toBeNull());
+	expect(localStorage.getItem("portikus.admin.healthGroup.host")).toBe("closed");
+	first.unmount();
+
+	renderWithQuery(<TrendsCard warnPercent={80} />);
+	await screen.findByTestId("health-trends");
+	expect(screen.getByTestId("health-group-host").hasAttribute("open")).toBe(false);
+	expect(screen.getByTestId("health-group-api").hasAttribute("open")).toBe(true);
+	expect(screen.queryByTestId("health-chart-pool")).toBeNull();
+});
+
+test("a browser that refuses storage opens every group", () => {
+	vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+		throw new Error("denied");
+	});
+	expect(readGroupOpen("host")).toBe(true);
+	vi.restoreAllMocks();
 });

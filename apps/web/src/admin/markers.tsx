@@ -43,7 +43,7 @@ export function markerLabels(
 	return labels;
 }
 
-/** The tags beside a name in the Workspaces table. */
+/** The tags under a name in the Users table. The parent spaces them from the name. */
 export function Markers({
 	markers,
 	workspace,
@@ -54,7 +54,7 @@ export function Markers({
 	const labels = markerLabels(markers, workspace);
 	if (labels.length === 0) return null;
 	return (
-		<span className="ml-2 inline-flex gap-1">
+		<span className="flex flex-wrap gap-1">
 			{labels.map((label) => (
 				<span
 					key={label}

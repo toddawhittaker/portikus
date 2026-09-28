@@ -15,19 +15,31 @@ import {
 	Checkbox,
 	ConfirmDialog,
 	ConfirmDialogRoot,
+	type DesiredState,
 	IconButton,
-	TextField,
+	resolveWorkspaceState,
+	Toggletip,
 	useToast,
+	type WorkspaceState,
 } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
+import type * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { formatBytes, formatCpu } from "../monitor/format.js";
 import { PENDING_LABEL } from "../shell/StatusBar.js";
+import { RestoreFromBackupDialog } from "./backups/BackupDialogs.js";
 import { ConfirmByLabelDialog } from "./ConfirmByLabelDialog.js";
 import { DexUserActions } from "./DexUserDialogs.js";
+import { GraceDialog, graceValueText } from "./GraceDialog.js";
 import { GuardDialog } from "./GuardDialog.js";
-import { defaultLabel, graceText } from "./graceText.js";
-import { LimitsDialog } from "./LimitsDialog.js";
+import { useSiteLimits } from "./health/queries.js";
+import {
+	type LimitKey,
+	LimitsDialog,
+	limitPhrase,
+	type SiteLimits,
+	siteLimits,
+} from "./LimitsDialog.js";
 import { imageText, isCourseAccount, roleText, sourceText } from "./markers.js";
 import { ProcessesSection } from "./ProcessesSection.js";
 import { QuotaDialog } from "./QuotaDialog.js";
@@ -48,9 +60,86 @@ import {
 	useUpdateQuota,
 	useUpdateUserSettings,
 } from "./queries.js";
-import { announced, errorText, parseSeconds } from "./SettingsTab.js";
+import { errorText } from "./SettingsTab.js";
 import { shortTime } from "./shortTime.js";
-import { storageText, timeAgo, WorkspaceStateBadge } from "./WorkspacesTab.js";
+import {
+	KNOWN_STATES,
+	storageText,
+	timeAgo,
+	WorkspaceStateBadge,
+} from "./WorkspacesTab.js";
+
+/** Every section heading in the panel: small, bold and quiet (Epic 25, S5). */
+export const SECTION_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
+
+/** Help text for the panel's toggletips, checked against the code (Epic 25, phase 2). */
+export const PANEL_HELP = {
+	reprovision:
+		"Creates the workspace again after it failed. Its home folder and files are kept.",
+	rebuild:
+		"Recreates the workspace from the current image. Anything installed with sudo apt is lost. Projects, home and, unless you untick it, Docker data stay.",
+	resetDocker:
+		"Deletes every Docker image, container and volume in this workspace. Use it when Docker is stuck or full. Projects and home stay.",
+	archive:
+		"Stops the workspace and keeps it stopped until you unarchive it. Its files are kept. Use it at the end of a term.",
+	storage:
+		"Home holds projects and files. Docker holds images and volumes. Recovery holds recovery points. Home and Docker can only grow.",
+	limits:
+		"The most CPU, memory and processes this workspace may use. A site value comes from the workspace profile, shown on the Health tab.",
+	grace:
+		"How long this person's workspace keeps running after their last browser tab closes. Without an override, the site setting applies.",
+	cpu: "Throttled means the workspace's CPU use averaged above the threshold for the whole window, so it now gets a smaller share. It gets full speed back after a quiet spell, or now with Lift throttle.",
+	memory:
+		"High memory is a flag only. Nothing is slowed. It stays until you clear it or the workspace stops.",
+	lastInput:
+		"The student's last key press in the page, file save or preview page load; a start counts too. Idle stop counts from here. Your own visits never count.",
+	preview:
+		"Reachable and forwarded ports open in a preview; forwarded means Portikus relays a port that listens only inside the workspace. Unknown ports are relayed when a preview first opens them. System marks the workspace's own services.",
+	promote:
+		"Makes this person an administrator from their next page load. Only SSO accounts can be given a role here.",
+	makeInstructor:
+		"Lets them open the Course page for courses they teach, from their next page load. Only SSO accounts can be given a role here; course accounts teach through their learning system.",
+	disable:
+		"Signs them out everywhere, closes their previews and stops their workspace. Nothing is deleted, and you can enable them again.",
+} as const;
+
+/** A definition term with its toggletip beside it. */
+function TipTerm({
+	children,
+	label,
+	tip,
+}: {
+	children: string;
+	label: string;
+	tip: string;
+}) {
+	return (
+		<dt className="flex items-start gap-0.5">
+			<span className="pt-0.5">{children}</span>
+			<Toggletip label={label}>{tip}</Toggletip>
+		</dt>
+	);
+}
+
+/** A button with its toggletip, kept together inside an actions row. */
+function WithTip({
+	children,
+	label,
+	tip,
+}: {
+	children: React.ReactNode;
+	label: string;
+	/** Null shows the button alone, for the state the tip does not describe. */
+	tip: string | null;
+}) {
+	return (
+		<span className="inline-flex items-center gap-0.5">
+			{children}
+			{/* Always this wrapper, so the button keeps its focus when the tip goes. */}
+			{tip === null ? null : <Toggletip label={label}>{tip}</Toggletip>}
+		</span>
+	);
+}
 
 /** A storage class at or above this share of its limit is flagged (SPEC.md §19.2). */
 export const STORAGE_WARN_RATIO = 0.8;
@@ -88,6 +177,8 @@ export function WorkspaceDetail({
 	const data = detail.data ?? null;
 	const headingRef = useRef<HTMLHeadingElement>(null);
 	const userId = user.id;
+	// Sections that need the detail wait for it; an account without a workspace has none to wait for.
+	const settled = data !== null || workspaceId === null;
 
 	// Opening a panel moves focus to its heading so the change is announced.
 	useEffect(() => {
@@ -104,17 +195,19 @@ export function WorkspaceDetail({
 		>
 			<div className="pk-detail-head">
 				<div className="flex min-w-0 flex-col gap-2">
-					<div className="flex flex-col gap-0.5">
+					<div className="flex min-w-0 flex-col gap-0.5">
 						<h3
 							id="detail-title"
 							ref={headingRef}
 							tabIndex={-1}
-							className="pk-text-heading m-0 outline-none"
+							className="pk-text-heading m-0 break-words outline-none"
 						>
 							{user.displayName}
 						</h3>
 						{user.workspace ? (
-							<span className="pk-mono-small pk-muted">{user.workspace.label}</span>
+							<span className="pk-mono-small pk-muted break-all">
+								{user.workspace.label}
+							</span>
 						) : null}
 					</div>
 					{data ? <HeadState detail={data} ownerName={user.displayName} /> : null}
@@ -126,19 +219,19 @@ export function WorkspaceDetail({
 					onClick={onClose}
 				/>
 			</div>
-			{workspaceId !== null && !data ? (
+			{settled ? null : (
 				<div className="pk-detail-section">
 					{detail.isError ? (
 						<p className="m-0 text-status-error" role="alert">
 							{errorText(detail.error)}
 						</p>
 					) : (
-						<p className="pk-muted m-0" aria-busy="true">
+						<p className="pk-text-compact pk-muted m-0" aria-busy="true">
 							Loading…
 						</p>
 					)}
 				</div>
-			) : null}
+			)}
 			{data ? (
 				<ErrorSection
 					detail={data}
@@ -146,14 +239,61 @@ export function WorkspaceDetail({
 					onReprovisioned={() => headingRef.current?.focus()}
 				/>
 			) : null}
+			{settled ? (
+				<>
+					<WorkspaceSection detail={data} ownerName={user.displayName} />
+					<ResourcesSection detail={data} user={user} />
+				</>
+			) : null}
+			{data ? (
+				<>
+					<GuardSection detail={data} ownerName={user.displayName} />
+					<ProcessesSection
+						key={data.workspace.id}
+						workspaceId={data.workspace.id}
+						running={data.workspace.state === "running"}
+						ownerName={user.displayName}
+					/>
+					<PortsSection detail={data} />
+				</>
+			) : null}
 			<AccountSection user={user} isSelf={isSelf} />
-			<WorkspaceSection detail={data} user={user} hasWorkspace={workspaceId !== null} />
-			{data ? <DataSections detail={data} ownerName={user.displayName} /> : null}
+			{data ? <AuditSection detail={data} /> : null}
 		</section>
 	);
 }
 
-/** The state badge and Start, Stop and Restart, directly under the name (SPEC.md section 20.1). */
+export type LifecycleAction = "start" | "stop" | "restart";
+
+/**
+ * The lifecycle buttons that make sense now, and, during a transition, the
+ * word for what the workspace is doing ("starting"). A transition keeps the
+ * opposite action, so an admin can rescue a stuck workspace.
+ */
+export function lifecycleActions(
+	state: string,
+	desiredState: string,
+): { actions: LifecycleAction[]; waiting: string | null } {
+	if (!KNOWN_STATES.includes(state)) {
+		return { actions: ["start", "stop", "restart"], waiting: null };
+	}
+	const resolved = resolveWorkspaceState(
+		state as WorkspaceState,
+		desiredState as DesiredState,
+	);
+	if (resolved.moving) {
+		return {
+			actions: desiredState === "stopped" ? ["start"] : ["stop", "restart"],
+			waiting: resolved.label.toLowerCase(),
+		};
+	}
+	return {
+		actions: state === "running" ? ["stop", "restart"] : ["start"],
+		waiting: null,
+	};
+}
+
+/** The state badge and the lifecycle buttons that fit it, under the name (SPEC.md §20.1). */
 function HeadState({
 	detail,
 	ownerName,
@@ -164,9 +304,24 @@ function HeadState({
 	const { workspace } = detail;
 	const toast = useToast();
 	const lifecycle = useLifecycleAction();
+	const { actions, waiting } = lifecycleActions(
+		workspace.state,
+		workspace.desiredState,
+	);
+	const archived = workspace.archivedAt !== null;
+	const noteId = `lifecycle-note-${workspace.id}`;
+	const archivedNote =
+		archived && actions.includes("start")
+			? "An archived workspace cannot start. Unarchive it first."
+			: null;
+	const note =
+		[waiting ? `Waiting for the workspace to finish ${waiting}.` : null, archivedNote]
+			.filter(Boolean)
+			.join(" ") || null;
+	const off = (action: LifecycleAction) => archived && action === "start";
 
-	function runLifecycle(action: "start" | "stop" | "restart") {
-		if (lifecycle.isPending) return;
+	function runLifecycle(action: LifecycleAction) {
+		if (lifecycle.isPending || off(action)) return;
 		lifecycle.mutate(
 			{ workspaceId: workspace.id, action },
 			{
@@ -187,7 +342,7 @@ function HeadState({
 
 	return (
 		<>
-			<div className="flex items-center gap-2">
+			<div className="flex flex-wrap items-center gap-2">
 				{/* Announces each state change while the panel refreshes. */}
 				<span role="status" data-testid="detail-state">
 					<WorkspaceStateBadge
@@ -196,23 +351,33 @@ function HeadState({
 						statusRole={false}
 					/>
 				</span>
-				{workspace.archivedAt ? <span className="pk-tag">Archived</span> : null}
+				{archived ? <span className="pk-tag">Archived</span> : null}
 			</div>
-			<div className="flex flex-wrap gap-2">
-				{(["start", "stop", "restart"] as const).map((action) => (
+			<div className="pk-actions">
+				{actions.map((action) => (
 					<Button
 						key={action}
 						size="sm"
 						data-testid={`detail-${action}`}
 						aria-label={`${ACTION_LABEL[action]} ${ownerName}'s workspace`}
+						aria-describedby={off(action) ? noteId : undefined}
 						loading={lifecycle.isPending && lifecycle.variables?.action === action}
-						aria-disabled={lifecycle.isPending ? true : undefined}
+						aria-disabled={lifecycle.isPending || off(action) ? true : undefined}
 						onClick={() => runLifecycle(action)}
 					>
 						{ACTION_LABEL[action]}
 					</Button>
 				))}
 			</div>
+			{note ? (
+				<p
+					id={noteId}
+					className="pk-text-compact pk-muted m-0"
+					data-testid="detail-lifecycle-note"
+				>
+					{note}
+				</p>
+			) : null}
 		</>
 	);
 }
@@ -253,7 +418,7 @@ function ErrorSection({
 
 	return (
 		<section aria-labelledby="detail-error" className="pk-detail-section">
-			<h4 id="detail-error" className="pk-text-label m-0">
+			<h4 id="detail-error" className={SECTION_HEADING}>
 				Error
 			</h4>
 			<p className="pk-text-compact m-0">
@@ -270,215 +435,122 @@ function ErrorSection({
 				</div>
 			</dl>
 			{workspace.state === "error" ? (
-				<div className="flex flex-col items-start gap-2">
-					<p className="pk-muted m-0 text-[13px]">
-						Re-provision creates the workspace again and keeps its home folder.
-					</p>
-					<Button
-						size="sm"
-						data-testid="detail-reprovision"
-						aria-label={`Re-provision ${ownerName}'s workspace`}
-						loading={reprovision.isPending}
-						onClick={run}
-					>
-						Re-provision
-					</Button>
+				<div className="pk-actions">
+					<WithTip label="Re-provision" tip={PANEL_HELP.reprovision}>
+						<Button
+							size="sm"
+							data-testid="detail-reprovision"
+							aria-label={`Re-provision ${ownerName}'s workspace`}
+							loading={reprovision.isPending}
+							onClick={run}
+						>
+							Re-provision
+						</Button>
+					</WithTip>
 				</div>
 			) : null}
 		</section>
 	);
 }
 
-/** Storage, Resource guard, Processes, Ports and connections, Logs and Recent audit, in that order. */
-function DataSections({
-	detail,
-	ownerName,
-}: {
-	detail: AdminWorkspaceDetail;
-	ownerName: string;
-}) {
-	const workspace = detail.workspace;
+function PortsSection({ detail }: { detail: AdminWorkspaceDetail }) {
 	return (
-		<>
-			<StorageSection detail={detail} ownerName={ownerName} />
-
-			<GuardSection detail={detail} ownerName={ownerName} />
-
-			<ProcessesSection
-				key={workspace.id}
-				workspaceId={workspace.id}
-				running={workspace.state === "running"}
-				ownerName={ownerName}
-			/>
-
-			<section aria-labelledby="detail-ports" className="pk-detail-section">
-				<h4 id="detail-ports" className="pk-text-label m-0">
-					Ports and connections
-				</h4>
-				{detail.ports.length === 0 ? (
-					<p className="pk-muted m-0 text-[13px]">No listening ports.</p>
-				) : (
-					<div className="pk-table-wrap">
-						<table className="pk-table" data-testid="detail-ports">
-							<caption className="sr-only">Listening ports</caption>
-							<thead>
-								<tr>
-									<th scope="col" className="pk-num">
-										Port
-									</th>
-									<th scope="col">Process</th>
-									<th scope="col">Preview</th>
+		<section aria-labelledby="detail-ports" className="pk-detail-section">
+			<h4 id="detail-ports" className={SECTION_HEADING}>
+				Ports and connections
+			</h4>
+			{detail.ports.length === 0 ? (
+				<p className="pk-text-compact pk-muted m-0">No listening ports.</p>
+			) : (
+				<div className="pk-table-wrap">
+					<table className="pk-table" data-testid="detail-ports">
+						<caption className="sr-only">Listening ports</caption>
+						<thead>
+							<tr>
+								<th scope="col" className="pk-num">
+									Port
+								</th>
+								<th scope="col">Process</th>
+								<th scope="col">
+									<span className="inline-flex items-center gap-0.5">
+										Preview
+										<Toggletip label="Preview column">{PANEL_HELP.preview}</Toggletip>
+									</span>
+								</th>
+							</tr>
+						</thead>
+						<tbody>
+							{detail.ports.map((port) => (
+								<tr key={port.port}>
+									<td className="pk-num pk-mono-small">{port.port}</td>
+									<td className="break-all">
+										{port.command ?? "—"}
+										{port.system ? <span className="pk-tag ml-1">System</span> : null}
+									</td>
+									<td>{port.previewReachability}</td>
 								</tr>
-							</thead>
-							<tbody>
-								{detail.ports.map((port) => (
-									<tr key={port.port}>
-										<td className="pk-num pk-mono-small">{port.port}</td>
-										<td>
-											{port.command ?? "—"}
-											{port.system ? <span className="pk-tag ml-1">System</span> : null}
-										</td>
-										<td>{port.previewReachability}</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
-				)}
-				<p className="m-0 text-[13px]" data-testid="detail-sessions">
-					{detail.previewSessions.length === 0
-						? "No open preview sessions."
-						: `Open preview sessions: ${detail.previewSessions
-								.map(
-									(session) =>
-										`port ${session.port} since ${shortTime(session.openedAt)}`,
-								)
-								.join(", ")}.`}
-				</p>
-			</section>
+							))}
+						</tbody>
+					</table>
+				</div>
+			)}
+			<p className="pk-text-compact m-0" data-testid="detail-sessions">
+				{detail.previewSessions.length === 0
+					? "No open preview sessions."
+					: `Open preview sessions: ${detail.previewSessions
+							.map(
+								(session) =>
+									`port ${session.port} since ${shortTime(session.openedAt)}`,
+							)
+							.join(", ")}.`}
+			</p>
+		</section>
+	);
+}
 
-			<section aria-labelledby="detail-logs" className="pk-detail-section">
-				<h4 id="detail-logs" className="pk-text-label m-0">
-					Logs
-				</h4>
-				<Link
-					to="/admin"
-					search={{ tab: "logs", workspace: workspace.id, since: "1h" }}
-					className="pk-link text-[13px]"
-					data-testid="detail-view-logs"
-				>
-					View logs
-				</Link>
-			</section>
-
-			<section aria-labelledby="detail-audit" className="pk-detail-section">
-				<h4 id="detail-audit" className="pk-text-label m-0">
-					Recent audit events
-				</h4>
-				<ul className="m-0 flex list-none flex-col gap-1 p-0 text-[13px]">
+/** The workspace's recent audit rows, with links to all of them and to its logs. */
+function AuditSection({ detail }: { detail: AdminWorkspaceDetail }) {
+	const { workspace } = detail;
+	return (
+		<section aria-labelledby="detail-audit" className="pk-detail-section">
+			<h4 id="detail-audit" className={SECTION_HEADING}>
+				Recent audit events
+			</h4>
+			{detail.recentAudit.length === 0 ? (
+				<p className="pk-text-compact pk-muted m-0">No events yet.</p>
+			) : (
+				<ul className="pk-text-compact m-0 flex list-none flex-col gap-1 p-0">
 					{detail.recentAudit.map((event) => (
-						<li key={event.id} className="flex gap-2">
-							<time dateTime={event.at} className="pk-muted">
+						<li key={event.id} className="flex min-w-0 gap-2">
+							<time dateTime={event.at} className="pk-muted flex-none">
 								{shortTime(event.at)}
 							</time>
-							<span>
+							<span className="min-w-0 break-words">
 								<span className="pk-mono-small">{event.action}</span> ·{" "}
 								{event.actorName ?? event.actor}
 							</span>
 						</li>
 					))}
 				</ul>
+			)}
+			<div className="pk-actions pk-text-compact gap-x-4">
 				<Link
 					to="/admin"
 					search={{ tab: "audit", workspace: workspace.id }}
-					className="pk-link text-[13px]"
+					className="pk-link"
 					data-testid="detail-all-events"
 				>
 					All events for this workspace
 				</Link>
-			</section>
-		</>
-	);
-}
-
-function StorageSection({
-	detail,
-	ownerName,
-}: {
-	detail: AdminWorkspaceDetail;
-	ownerName: string;
-}) {
-	const { workspace } = detail;
-	const toast = useToast();
-	const quota = useUpdateQuota();
-	const [editing, setEditing] = useState(false);
-	const pending = quotaPending(workspace.quotaConfig, detail.quotaApplied);
-	return (
-		<section aria-labelledby="detail-storage" className="pk-detail-section">
-			<div className="flex items-center justify-between gap-3">
-				<h4 id="detail-storage" className="pk-text-label m-0">
-					Storage
-				</h4>
-				<Button
-					size="sm"
-					data-testid="detail-quota-edit"
-					aria-label={`Edit quotas for ${ownerName}'s workspace`}
-					onClick={() => setEditing(true)}
+				<Link
+					to="/admin"
+					search={{ tab: "logs", workspace: workspace.id, since: "1h" }}
+					className="pk-link"
+					data-testid="detail-view-logs"
 				>
-					Edit quotas…
-				</Button>
+					Logs for this workspace
+				</Link>
 			</div>
-			<dl className="pk-dl">
-				<dt>Configured</dt>
-				<dd data-testid="detail-quota">{storageText(workspace.quotaConfig)}</dd>
-				<dt>Usage</dt>
-				<dd data-testid="detail-usage">
-					{detail.agent === "stopped"
-						? "Stopped"
-						: detail.agent === "not_answering" || !detail.usage
-							? "Agent not answering"
-							: `Home disk ${formatBytes(detail.usage.disk.usedBytes)} of ${formatBytes(
-									detail.usage.disk.totalBytes,
-								)} · CPU ${formatCpu(detail.usage.cpuPercent)} · Memory ${formatBytes(
-									detail.usage.memory.usedBytes,
-								)} of ${formatBytes(detail.usage.memory.totalBytes)}`}
-				</dd>
-			</dl>
-			{pending ? (
-				<p
-					className="m-0 text-[13px] text-status-warning"
-					data-testid="detail-quota-pending"
-				>
-					Change pending. The worker applies it shortly.
-				</p>
-			) : null}
-			{detail.storage ? <StorageMeters storage={detail.storage} /> : null}
-			{editing ? (
-				<QuotaDialog
-					open
-					onOpenChange={(open) => {
-						if (!open) {
-							quota.reset();
-							setEditing(false);
-						}
-					}}
-					current={workspace.quotaConfig}
-					ownerName={ownerName}
-					pending={quota.isPending}
-					serverError={quota.error ? errorText(quota.error) : null}
-					onSave={(next) =>
-						quota.mutate(
-							{ workspaceId: workspace.id, quota: next },
-							{
-								onSuccess: () => {
-									toast.show({ tone: "success", title: "Storage change requested" });
-									setEditing(false);
-								},
-							},
-						)
-					}
-				/>
-			) : null}
 		</section>
 	);
 }
@@ -488,7 +560,7 @@ export function throttleText(throttle: CpuThrottle | null): string {
 	if (!throttle) return "Normal";
 	return `Throttled since ${shortTime(throttle.at)}. It averaged ${Math.round(
 		throttle.averagePercent,
-	)}% over ${throttle.windowMinutes} minutes, above ${throttle.thresholdPercent}%, and now gets ${throttle.sharePercent}% of its CPU (${throttle.allowance}).`;
+	)}% over ${throttle.windowMinutes} minutes, above ${throttle.thresholdPercent}%, and now gets ${throttle.sharePercent}% of its CPU.`;
 }
 
 export function memoryFlagText(flag: MemoryFlag | null): string {
@@ -514,11 +586,30 @@ export function effectiveGuardText(
 	];
 }
 
-/** "CPUs 2 · Memory platform · Processes 1000": each limit, or the profile's. */
-export function limitsText(config: WorkspaceLimits | null): string {
-	const value = (n: number | undefined, unit = "") =>
-		n === undefined ? "platform" : `${n}${unit}`;
-	return `CPUs ${value(config?.cpu)} · Memory ${value(config?.memoryMiB, " MiB")} · Processes ${value(config?.processes)}`;
+const LIMIT_NOUN: Record<LimitKey, string> = {
+	cpu: "CPUs",
+	memoryMiB: "Memory",
+	processes: "Processes",
+};
+
+/**
+ * "4 CPUs · 4 GiB memory (site value) · 2,000 processes (site value)": each
+ * limit, marking the ones that come from the site's profile.
+ */
+export function limitsText(
+	config: WorkspaceLimits | null,
+	site: SiteLimits | null,
+): string {
+	return (["cpu", "memoryMiB", "processes"] as const)
+		.map((key) => {
+			const own = config?.[key];
+			if (own !== undefined) return limitPhrase(key, own);
+			const fallback = site?.[key] ?? null;
+			return fallback === null
+				? `${LIMIT_NOUN[key]} (site value)`
+				: `${limitPhrase(key, fallback)} (site value)`;
+		})
+		.join(" · ");
 }
 
 /** True while the worker has not yet set the limits an administrator asked for. */
@@ -531,7 +622,7 @@ export function limitsPending(
 	);
 }
 
-/** Throttle and memory flag, overrides, limits and last activity (ADR 0032, SPEC.md §20.1). */
+/** Throttle and memory flag, the guard's values and the last input (ADR 0032, SPEC.md §20.1). */
 function GuardSection({
 	detail,
 	ownerName,
@@ -543,12 +634,10 @@ function GuardSection({
 	const toast = useToast();
 	const clear = useGuardClear();
 	const update = useUpdateGuard();
-	const limits = useUpdateLimits();
 	const settings = usePlatformSettings();
 	const [editing, setEditing] = useState(false);
-	const [editingLimits, setEditingLimits] = useState(false);
 	const headingRef = useRef<HTMLHeadingElement>(null);
-	const platform = settings.data
+	const site = settings.data
 		? {
 				cpuThresholdPercent: settings.data.cpuGuardThresholdPercent,
 				memoryThresholdPercent: settings.data.memoryGuardThresholdPercent,
@@ -591,51 +680,51 @@ function GuardSection({
 				id="detail-guard"
 				ref={headingRef}
 				tabIndex={-1}
-				className="pk-text-label m-0 outline-none"
+				className={`${SECTION_HEADING} outline-none`}
 			>
 				Resource guard
 			</h4>
 			<dl className="pk-dl">
-				<dt>CPU</dt>
+				<TipTerm label="CPU throttle" tip={PANEL_HELP.cpu}>
+					CPU
+				</TipTerm>
 				<dd
 					className={cpuThrottle ? "text-status-warning" : undefined}
 					data-testid="detail-guard-cpu"
 				>
 					{throttleText(cpuThrottle)}
 				</dd>
-				<dt>Memory</dt>
+				<TipTerm label="High memory" tip={PANEL_HELP.memory}>
+					Memory
+				</TipTerm>
 				<dd
 					className={memoryFlag ? "text-status-warning" : undefined}
 					data-testid="detail-guard-memory"
 				>
 					{memoryFlagText(memoryFlag)}
 				</dd>
-				<dt>Last activity</dt>
+				<TipTerm label="Last input" tip={PANEL_HELP.lastInput}>
+					Last input (idle stop)
+				</TipTerm>
 				<dd data-testid="detail-last-activity">
-					{workspace.lastActivityAt
-						? shortTime(workspace.lastActivityAt)
-						: "None recorded"}
+					{workspace.lastActivityAt ? (
+						<time dateTime={workspace.lastActivityAt}>
+							{shortTime(workspace.lastActivityAt)}
+						</time>
+					) : (
+						"None recorded"
+					)}
 				</dd>
-				<dt>Limits</dt>
-				<dd data-testid="detail-limits">{limitsText(detail.limitsConfig)}</dd>
 			</dl>
-			{limitsPending(detail.limitsConfig, detail.limitsApplied) ? (
-				<p
-					className="m-0 text-[13px] text-status-warning"
-					data-testid="detail-limits-pending"
-				>
-					Limits change pending. The worker applies it shortly.
-				</p>
-			) : null}
 			<ul
-				className="m-0 flex list-none flex-col gap-0.5 p-0 text-[13px]"
+				className="pk-text-compact m-0 flex list-none flex-col gap-0.5 p-0"
 				data-testid="detail-guard-limits"
 			>
 				{effectiveGuardText(detail.effectiveGuard, detail.guardConfig).map((line) => (
 					<li key={line}>{line}</li>
 				))}
 			</ul>
-			<div className="flex flex-wrap gap-2">
+			<div className="pk-actions">
 				{cpuThrottle ? (
 					<Button
 						size="sm"
@@ -661,46 +750,12 @@ function GuardSection({
 				<Button
 					size="sm"
 					data-testid="detail-guard-edit"
-					aria-label={`Change overrides for ${ownerName}'s workspace`}
+					aria-label={`Guard settings for ${ownerName}'s workspace`}
 					onClick={() => setEditing(true)}
 				>
-					Change overrides…
-				</Button>
-				<Button
-					size="sm"
-					data-testid="detail-limits-edit"
-					aria-label={`Limits for ${ownerName}'s workspace`}
-					onClick={() => setEditingLimits(true)}
-				>
-					Limits…
+					Guard settings…
 				</Button>
 			</div>
-			{editingLimits ? (
-				<LimitsDialog
-					open
-					onOpenChange={(open) => {
-						if (!open) {
-							limits.reset();
-							setEditingLimits(false);
-						}
-					}}
-					current={detail.limitsConfig}
-					ownerName={ownerName}
-					pending={limits.isPending}
-					serverError={limits.error ? errorText(limits.error) : null}
-					onSave={(body) =>
-						limits.mutate(
-							{ workspaceId: workspace.id, body },
-							{
-								onSuccess: () => {
-									toast.show({ tone: "success", title: "Limits saved" });
-									setEditingLimits(false);
-								},
-							},
-						)
-					}
-				/>
-			) : null}
 			{editing ? (
 				<GuardDialog
 					open
@@ -711,7 +766,7 @@ function GuardSection({
 						}
 					}}
 					current={detail.guardConfig}
-					defaults={platform}
+					defaults={site}
 					ownerName={ownerName}
 					pending={update.isPending}
 					serverError={update.error ? errorText(update.error) : null}
@@ -720,7 +775,7 @@ function GuardSection({
 							{ workspaceId: workspace.id, body },
 							{
 								onSuccess: () => {
-									toast.show({ tone: "success", title: "Overrides saved" });
+									toast.show({ tone: "success", title: "Guard settings saved" });
 									setEditing(false);
 								},
 							},
@@ -780,6 +835,221 @@ function StorageMeters({ storage }: { storage: AdminStorage }) {
 	);
 }
 
+/** "Not measured: the workspace is not running" and the like, when the agent sent no usage. */
+export function usageGap(agent: AdminWorkspaceDetail["agent"]): string {
+	return agent === "stopped"
+		? "Not measured: the workspace is not running"
+		: "Not measured: the workspace agent is not answering";
+}
+
+type ResourceDialog = "quota" | "limits" | "grace";
+
+/**
+ * Storage, CPU and memory use, limits and the disconnect grace, each with its
+ * editor in one row of actions (Epic 25, R2). Only the grace shows for an
+ * account without a workspace, because it belongs to the account.
+ */
+function ResourcesSection({
+	detail,
+	user,
+}: {
+	detail: AdminWorkspaceDetail | null;
+	user: AdminUser;
+}) {
+	const toast = useToast();
+	const quota = useUpdateQuota();
+	const limits = useUpdateLimits();
+	const grace = useUpdateUserSettings();
+	const settings = usePlatformSettings();
+	const health = useSiteLimits();
+	const [dialog, setDialog] = useState<ResourceDialog | null>(null);
+	const ownerName = user.displayName;
+	const site = siteLimits(health.data?.host);
+	const siteGrace = settings.data?.shutdownGraceSeconds ?? null;
+	const workspace = detail?.workspace ?? null;
+	const usage = detail?.usage ?? null;
+
+	function close(reset: () => void) {
+		return (open: boolean) => {
+			if (!open) {
+				reset();
+				setDialog(null);
+			}
+		};
+	}
+
+	return (
+		<section aria-labelledby="detail-resources" className="pk-detail-section">
+			<h4 id="detail-resources" className={SECTION_HEADING}>
+				Resources
+			</h4>
+			{detail?.storage ? <StorageMeters storage={detail.storage} /> : null}
+			<dl className="pk-dl">
+				{workspace && detail ? (
+					<>
+						<TipTerm label="Storage" tip={PANEL_HELP.storage}>
+							Storage
+						</TipTerm>
+						<dd data-testid="detail-quota">{storageText(workspace.quotaConfig)}</dd>
+						{usage ? (
+							<>
+								{detail.storage ? null : (
+									<>
+										<dt>Home disk</dt>
+										<dd data-testid="detail-disk-use">
+											{formatBytes(usage.disk.usedBytes)} of{" "}
+											{formatBytes(usage.disk.totalBytes)}
+										</dd>
+									</>
+								)}
+								<dt>CPU use</dt>
+								<dd data-testid="detail-cpu-use">{formatCpu(usage.cpuPercent)}</dd>
+								<dt>Memory use</dt>
+								<dd data-testid="detail-memory-use">
+									{formatBytes(usage.memory.usedBytes)} of{" "}
+									{formatBytes(usage.memory.totalBytes)}
+								</dd>
+							</>
+						) : (
+							<>
+								<dt>Use</dt>
+								<dd data-testid="detail-usage">{usageGap(detail.agent)}</dd>
+							</>
+						)}
+						<TipTerm label="Limits" tip={PANEL_HELP.limits}>
+							Limits
+						</TipTerm>
+						<dd data-testid="detail-limits">{limitsText(detail.limitsConfig, site)}</dd>
+					</>
+				) : null}
+				<TipTerm label="Disconnect grace" tip={PANEL_HELP.grace}>
+					Disconnect grace
+				</TipTerm>
+				<dd data-testid="detail-grace">
+					{user.shutdownGraceSeconds !== null
+						? graceValueText(user.shutdownGraceSeconds)
+						: siteGrace === null
+							? "Site setting"
+							: `${graceValueText(siteGrace)} (site setting)`}
+				</dd>
+			</dl>
+			{workspace &&
+			detail &&
+			quotaPending(workspace.quotaConfig, detail.quotaApplied) ? (
+				<p
+					className="pk-text-compact m-0 text-status-warning"
+					data-testid="detail-quota-pending"
+				>
+					Storage saved. It takes effect within a minute.
+				</p>
+			) : null}
+			{detail && limitsPending(detail.limitsConfig, detail.limitsApplied) ? (
+				<p
+					className="pk-text-compact m-0 text-status-warning"
+					data-testid="detail-limits-pending"
+				>
+					Limits saved. They take effect within a minute.
+				</p>
+			) : null}
+			<div className="pk-actions">
+				{workspace ? (
+					<>
+						<Button
+							size="sm"
+							data-testid="detail-quota-edit"
+							aria-label={`Edit quotas for ${ownerName}'s workspace`}
+							onClick={() => setDialog("quota")}
+						>
+							Edit quotas…
+						</Button>
+						<Button
+							size="sm"
+							data-testid="detail-limits-edit"
+							aria-label={`Edit limits for ${ownerName}'s workspace`}
+							onClick={() => setDialog("limits")}
+						>
+							Edit limits…
+						</Button>
+					</>
+				) : null}
+				<Button
+					size="sm"
+					data-testid="detail-grace-edit"
+					aria-label={`Edit disconnect grace for ${ownerName}`}
+					onClick={() => setDialog("grace")}
+				>
+					Edit disconnect grace…
+				</Button>
+			</div>
+			{workspace && dialog === "quota" ? (
+				<QuotaDialog
+					open
+					onOpenChange={close(quota.reset)}
+					current={workspace.quotaConfig}
+					ownerName={ownerName}
+					pending={quota.isPending}
+					serverError={quota.error ? errorText(quota.error) : null}
+					onSave={(next) =>
+						quota.mutate(
+							{ workspaceId: workspace.id, quota: next },
+							{
+								onSuccess: () => {
+									toast.show({ tone: "success", title: "Storage change requested" });
+									setDialog(null);
+								},
+							},
+						)
+					}
+				/>
+			) : null}
+			{workspace && detail && dialog === "limits" ? (
+				<LimitsDialog
+					open
+					onOpenChange={close(limits.reset)}
+					current={detail.limitsConfig}
+					ownerName={ownerName}
+					site={site}
+					pending={limits.isPending}
+					serverError={limits.error ? errorText(limits.error) : null}
+					onSave={(body) =>
+						limits.mutate(
+							{ workspaceId: workspace.id, body },
+							{
+								onSuccess: () => {
+									toast.show({ tone: "success", title: "Limits saved" });
+									setDialog(null);
+								},
+							},
+						)
+					}
+				/>
+			) : null}
+			{dialog === "grace" ? (
+				<GraceDialog
+					open
+					onOpenChange={close(grace.reset)}
+					current={user.shutdownGraceSeconds}
+					siteSeconds={siteGrace}
+					ownerName={ownerName}
+					pending={grace.isPending}
+					serverError={grace.error ? errorText(grace.error) : null}
+					onSave={(seconds) =>
+						grace.mutate(
+							{ userId: user.id, body: { shutdownGraceSeconds: seconds } },
+							{
+								onSuccess: () => {
+									toast.show({ tone: "success", title: "Disconnect grace saved" });
+									setDialog(null);
+								},
+							},
+						)
+					}
+				/>
+			) : null}
+		</section>
+	);
+}
+
 /** The explanation shown under a Rebuild or Reset Docker button that is off. */
 export function capabilityNote(capabilities: AdminCapabilities): string | null {
 	if (!capabilities.rebuild && !capabilities.resetDocker) return NOT_AVAILABLE_TEXT;
@@ -789,27 +1059,24 @@ export function capabilityNote(capabilities: AdminCapabilities): string | null {
 	return null;
 }
 
-/** Image, Rebuild, Reset Docker, Archive and the grace override (SPEC.md section 20.1). */
+/** Image, Rebuild, Reset Docker and Archive (SPEC.md section 20.1). */
 function WorkspaceSection({
 	detail,
-	user,
-	hasWorkspace,
+	ownerName,
 }: {
 	detail: AdminWorkspaceDetail | null;
-	user: AdminUser;
-	hasWorkspace: boolean;
+	ownerName: string;
 }) {
 	return (
 		<section aria-labelledby="detail-workspace" className="pk-detail-section">
-			<h4 id="detail-workspace" className="pk-text-label m-0">
+			<h4 id="detail-workspace" className={SECTION_HEADING}>
 				Workspace
 			</h4>
 			{detail ? (
-				<WorkspaceActions detail={detail} ownerName={user.displayName} />
-			) : hasWorkspace ? null : (
-				<p className="pk-text-body pk-muted m-0">This account has no workspace.</p>
+				<WorkspaceActions detail={detail} ownerName={ownerName} />
+			) : (
+				<p className="pk-text-compact pk-muted m-0">This account has no workspace.</p>
 			)}
-			<UserGrace user={user} />
 		</section>
 	);
 }
@@ -828,6 +1095,7 @@ function WorkspaceActions({
 	const archive = useSetArchived();
 	const [dialog, setDialog] = useState<DialogName | null>(null);
 	const [preserveDocker, setPreserveDocker] = useState(true);
+	const [restoring, setRestoring] = useState<string | null>(null);
 	const archived = workspace.archivedAt !== null;
 	// A second request would only answer 409 OPERATION_PENDING (ADR 0021).
 	const operationPending = workspace.pendingOperation !== null;
@@ -863,49 +1131,68 @@ function WorkspaceActions({
 		<>
 			<dl className="pk-dl">
 				<dt>Image</dt>
-				<dd className="pk-mono-small">{imageText(detail.image)}</dd>
+				<dd className="pk-mono-small break-all">{imageText(detail.image)}</dd>
 			</dl>
-			<div className="flex flex-wrap gap-2">
+			<div className="pk-actions">
 				<Button
 					size="sm"
-					data-testid="detail-rebuild"
-					aria-label={`Rebuild workspace for ${ownerName}`}
-					aria-describedby={offReason(capabilities.rebuild)}
-					aria-disabled={rebuildOff ? true : undefined}
-					onClick={() => (rebuildOff ? undefined : setDialog("rebuild"))}
+					data-testid="detail-restore"
+					aria-label={`Restore from backup: ${ownerName}'s workspace`}
+					aria-haspopup="dialog"
+					onClick={() => setRestoring(workspace.id)}
 				>
-					Rebuild workspace…
+					Restore from backup…
 				</Button>
-				<Button
-					size="sm"
-					data-testid="detail-reset-docker"
-					aria-label={`Reset Docker for ${ownerName}`}
-					aria-describedby={offReason(capabilities.resetDocker)}
-					aria-disabled={resetOff ? true : undefined}
-					onClick={() => (resetOff ? undefined : setDialog("reset"))}
-				>
-					Reset Docker…
-				</Button>
-				<Button
-					size="sm"
-					data-testid="detail-archive"
-					aria-label={`${archived ? "Unarchive" : "Archive"} workspace for ${ownerName}`}
-					loading={archived && archive.isPending}
-					aria-disabled={archive.isPending ? true : undefined}
-					onClick={() => {
-						// A second dialog mid-request would only race the first.
-						if (archive.isPending) return;
-						if (archived) unarchive();
-						else setDialog("archive");
-					}}
-				>
-					{archived ? "Unarchive" : "Archive workspace…"}
-				</Button>
+				<WithTip label="Rebuild workspace" tip={PANEL_HELP.rebuild}>
+					<Button
+						size="sm"
+						data-testid="detail-rebuild"
+						aria-label={`Rebuild workspace for ${ownerName}`}
+						aria-describedby={offReason(capabilities.rebuild)}
+						aria-disabled={rebuildOff ? true : undefined}
+						onClick={() => (rebuildOff ? undefined : setDialog("rebuild"))}
+					>
+						Rebuild workspace…
+					</Button>
+				</WithTip>
+				<WithTip label="Reset Docker" tip={PANEL_HELP.resetDocker}>
+					<Button
+						size="sm"
+						data-testid="detail-reset-docker"
+						aria-label={`Reset Docker for ${ownerName}`}
+						aria-describedby={offReason(capabilities.resetDocker)}
+						aria-disabled={resetOff ? true : undefined}
+						onClick={() => (resetOff ? undefined : setDialog("reset"))}
+					>
+						Reset Docker…
+					</Button>
+				</WithTip>
+				<WithTip label="Archive workspace" tip={archived ? null : PANEL_HELP.archive}>
+					<Button
+						size="sm"
+						data-testid="detail-archive"
+						aria-label={`${archived ? "Unarchive" : "Archive"} workspace for ${ownerName}`}
+						loading={archived && archive.isPending}
+						aria-disabled={archive.isPending ? true : undefined}
+						onClick={() => {
+							// A second dialog mid-request would only race the first.
+							if (archive.isPending) return;
+							if (archived) unarchive();
+							else setDialog("archive");
+						}}
+					>
+						{archived ? "Unarchive" : "Archive workspace…"}
+					</Button>
+				</WithTip>
 			</div>
+			<RestoreFromBackupDialog
+				workspaceId={restoring}
+				onClose={() => setRestoring(null)}
+			/>
 			{workspace.pendingOperation ? (
 				<p
 					id={pendingId}
-					className="pk-muted m-0 text-[13px]"
+					className="pk-text-compact pk-muted m-0"
 					data-testid="pending-operation"
 				>
 					{PENDING_LABEL[workspace.pendingOperation]} Rebuild and Reset Docker are off
@@ -915,7 +1202,7 @@ function WorkspaceActions({
 			{note ? (
 				<p
 					id={noteId}
-					className="pk-muted m-0 text-[13px]"
+					className="pk-text-compact pk-muted m-0"
 					data-testid="capability-note"
 				>
 					{note}
@@ -1059,18 +1346,23 @@ function RoleChange({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 
 	return (
 		<>
-			<Button
-				size="sm"
-				data-testid={promote ? "detail-promote" : "detail-demote"}
-				aria-label={promote ? `Promote ${name} to administrator` : `Demote ${name}`}
-				aria-describedby={note ? noteId : undefined}
-				aria-disabled={note ? true : undefined}
-				onClick={() => (note ? undefined : open(true))}
+			<WithTip
+				label={promote ? "Promote" : "Demote"}
+				tip={promote ? PANEL_HELP.promote : null}
 			>
-				{promote ? "Promote…" : "Demote…"}
-			</Button>
+				<Button
+					size="sm"
+					data-testid={promote ? "detail-promote" : "detail-demote"}
+					aria-label={promote ? `Promote ${name} to administrator` : `Demote ${name}`}
+					aria-describedby={note ? noteId : undefined}
+					aria-disabled={note ? true : undefined}
+					onClick={() => (note ? undefined : open(true))}
+				>
+					{promote ? "Promote…" : "Demote…"}
+				</Button>
+			</WithTip>
 			{note ? (
-				<p id={noteId} className="pk-muted m-0 w-full text-[13px]">
+				<p id={noteId} className="pk-text-compact pk-muted m-0 w-full">
 					{note}
 				</p>
 			) : null}
@@ -1098,6 +1390,7 @@ function RoleChange({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 						</>
 					}
 					confirmLabel={promote ? "Promote" : "Demote"}
+					destructive={!promote}
 					pending={change.isPending}
 					onConfirm={run}
 				/>
@@ -1154,18 +1447,23 @@ function InstructorChange({ user }: { user: AdminUser }) {
 
 	return (
 		<>
-			<Button
-				size="sm"
-				data-testid={make ? "detail-make-instructor" : "detail-remove-instructor"}
-				aria-label={make ? `Make instructor: ${name}` : `Remove instructor: ${name}`}
-				aria-describedby={note ? noteId : undefined}
-				aria-disabled={note ? true : undefined}
-				onClick={() => (note ? undefined : open(true))}
+			<WithTip
+				label={make ? "Make instructor" : "Remove instructor"}
+				tip={make ? PANEL_HELP.makeInstructor : null}
 			>
-				{make ? "Make instructor…" : "Remove instructor…"}
-			</Button>
+				<Button
+					size="sm"
+					data-testid={make ? "detail-make-instructor" : "detail-remove-instructor"}
+					aria-label={make ? `Make instructor: ${name}` : `Remove instructor: ${name}`}
+					aria-describedby={note ? noteId : undefined}
+					aria-disabled={note ? true : undefined}
+					onClick={() => (note ? undefined : open(true))}
+				>
+					{make ? "Make instructor…" : "Remove instructor…"}
+				</Button>
+			</WithTip>
 			{note ? (
-				<p id={noteId} className="pk-muted m-0 w-full text-[13px]">
+				<p id={noteId} className="pk-text-compact pk-muted m-0 w-full">
 					{note}
 				</p>
 			) : null}
@@ -1195,6 +1493,7 @@ function InstructorChange({ user }: { user: AdminUser }) {
 						</>
 					}
 					confirmLabel={make ? "Make instructor" : "Remove instructor"}
+					destructive={false}
 					pending={change.isPending}
 					onConfirm={run}
 				/>
@@ -1250,7 +1549,7 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 
 	return (
 		<section aria-labelledby="detail-account" className="pk-detail-section">
-			<h4 id="detail-account" className="pk-text-label m-0">
+			<h4 id="detail-account" className={SECTION_HEADING}>
 				Account
 			</h4>
 			<dl className="pk-dl">
@@ -1272,7 +1571,7 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 					)}
 				</dd>
 				<dt>Username</dt>
-				<dd className="pk-mono-small">{user.preferredUsername ?? "—"}</dd>
+				<dd className="pk-mono-small break-all">{user.preferredUsername ?? "—"}</dd>
 				<dt>Email</dt>
 				<dd className="break-all" data-testid="detail-email">
 					{user.email ?? "—"}
@@ -1285,33 +1584,41 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 			<Link
 				to="/admin"
 				search={{ tab: "logs", user: user.id }}
-				className="pk-link text-[13px]"
+				className="pk-link pk-text-compact justify-self-start"
 				data-testid="detail-user-logs"
 			>
 				View this user's logs
 			</Link>
-			<div className="flex flex-wrap gap-2">
-				<Button
-					size="sm"
-					data-testid="detail-disable"
-					aria-label={`${disabled ? "Enable" : "Disable"} account for ${user.displayName}`}
-					aria-describedby={isSelf ? selfNoteId : undefined}
-					aria-disabled={isSelf ? true : undefined}
-					loading={disabled && setDisabled.isPending}
-					onClick={() => {
-						if (isSelf) return;
-						if (disabled) run(false);
-						else setConfirming(true);
-					}}
-				>
-					{disabled ? "Enable account" : "Disable account…"}
-				</Button>
+			<div className="pk-actions">
 				<RoleChange user={user} isSelf={isSelf} />
 				<InstructorChange user={user} />
 				{user.dexLocal ? <DexUserActions user={user} isSelf={isSelf} /> : null}
 			</div>
+			{/* Disabling is the heaviest action, so it sits alone and last. */}
+			<div className="pk-actions">
+				<WithTip
+					label={disabled ? "Enable account" : "Disable account"}
+					tip={disabled ? null : PANEL_HELP.disable}
+				>
+					<Button
+						size="sm"
+						data-testid="detail-disable"
+						aria-label={`${disabled ? "Enable" : "Disable"} account for ${user.displayName}`}
+						aria-describedby={isSelf ? selfNoteId : undefined}
+						aria-disabled={isSelf ? true : undefined}
+						loading={disabled && setDisabled.isPending}
+						onClick={() => {
+							if (isSelf) return;
+							if (disabled) run(false);
+							else setConfirming(true);
+						}}
+					>
+						{disabled ? "Enable account" : "Disable account…"}
+					</Button>
+				</WithTip>
+			</div>
 			{isSelf ? (
-				<p id={selfNoteId} className="pk-muted m-0 text-[13px]">
+				<p id={selfNoteId} className="pk-text-compact pk-muted m-0">
 					You cannot disable your own account.
 				</p>
 			) : null}
@@ -1327,68 +1634,5 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 				/>
 			</ConfirmDialogRoot>
 		</section>
-	);
-}
-
-/** The per-user grace override, moved here from the old users table. */
-function UserGrace({ user }: { user: AdminUser }) {
-	const settings = usePlatformSettings();
-	const globalSeconds = settings.data?.shutdownGraceSeconds ?? null;
-	const update = useUpdateUserSettings();
-	const toast = useToast();
-	const [draft, setDraft] = useState<string | null>(null);
-	const [error, setError] = useState<string | null>(null);
-
-	const value =
-		draft ??
-		(user.shutdownGraceSeconds === null ? "" : String(user.shutdownGraceSeconds));
-	const blank = value.trim() === "";
-	const seconds = blank ? null : parseSeconds(value);
-	const effective = blank ? globalSeconds : seconds;
-
-	function save() {
-		if (!blank && seconds === null) {
-			setError("Enter a whole number of seconds, 0 or more.");
-			return;
-		}
-		setError(null);
-		update.mutate(
-			{ userId: user.id, body: { shutdownGraceSeconds: blank ? null : seconds } },
-			{
-				onSuccess: () => {
-					setDraft(null);
-					toast.show({ tone: "success", title: `Saved ${user.displayName}` });
-				},
-				onError: (failure) => setError(errorText(failure)),
-			},
-		);
-	}
-
-	return (
-		<div className="pk-actions flex-nowrap items-start">
-			<TextField
-				id={`user-grace-${user.id}`}
-				label="Grace period override (seconds)"
-				className="w-64"
-				inputMode="numeric"
-				placeholder={globalSeconds === null ? undefined : defaultLabel(globalSeconds)}
-				data-testid={`user-grace-input-${user.id}`}
-				value={value}
-				hint={effective === null ? undefined : graceText(effective)}
-				error={announced(error)}
-				onChange={(event) => setDraft(event.target.value)}
-			/>
-			{/* mt-6 is LABEL_CLASS's 18 px line plus FIELD_CLASS's 6 px gap, so Save
-			    lines up with the input even when the hint or an error shows. */}
-			<Button
-				className="mt-6"
-				data-testid={`user-grace-save-${user.id}`}
-				loading={update.isPending}
-				aria-label={`Save ${user.displayName}`}
-				onClick={save}
-			>
-				Save
-			</Button>
-		</div>
 	);
 }

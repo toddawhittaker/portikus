@@ -322,7 +322,7 @@ Added by Epic 14.3 (ADR 0032): every account accepts the acceptable-use statemen
   2. the account's accepted version differs from the current one: code `ACCEPTABLE_USE_REQUIRED`, allowed routes `GET /me/acceptable-use` (the statement and its version) and `POST /me/acceptable-use`, web page `/acceptable-use`.
 
   So a new local administrator changes the password first, then accepts. While a gate is unmet, every other API route answers 403 with that gate's code, except `GET /auth/me`, `POST /auth/logout` and the routes that need no session. New WebSocket upgrades are refused, and open sockets (terminal, workspace, project events and checks) are closed at their periodic session re-check. The preview gateway refuses the account. `loadSession` decides both gates in its one query, left-joining the settings row (`id = 1`) and treating a missing row as version 1.
-- `GET /auth/me` carries `mustAcceptUse: boolean`, and the web sends every page to the first unmet gate. When any request answers with a gate code, the web fetches `/auth/me` again, so an open tab moves to the gate page. Both gate pages move focus to their heading on arrival. The acceptable-use page shows the text, **I accept** and **Sign out**.
+- `GET /auth/me` carries `mustAcceptUse: boolean`, and the web sends every page to the first unmet gate. When any request answers with a gate code, the web fetches `/auth/me` again, so an open tab moves to the gate page. Both gate pages move focus to their heading on arrival. The acceptable-use page shows the text, its first paragraph as an introduction and the rest as a list, with **Accept and continue** and **Sign out** (Epic 25).
 - `POST /me/acceptable-use {version}` is CSRF-checked. It is one conditional update of the account plus the audit row `user.acceptable_use_accepted` with `{version}`, in one transaction. When `version` is not the current one it answers 409 `ACCEPTABLE_USE_CHANGED` and records nothing, so nobody accepts a text they did not see.
 - The gate is checked on every request, so a text change reaches people already signed in at their next request. Their workspaces keep running. An administrator who saves a new text meets the gate too.
 
@@ -422,6 +422,10 @@ change clears the flag and ends the account's other sessions and preview
 sessions; the current session stays. The route answers 404 without Dex's
 gRPC API and 400 `NOT_LOCAL_PASSWORD` for an account that is not a Dex
 local password.
+
+On the forced change page the first field is labelled "Current or one-time
+password", with a hint that a one-time password from an administrator goes
+there; in Settings it stays "Current password" (Epic 25).
 
 ### 5.4 Multiple browser connections
 
@@ -810,15 +814,46 @@ user per minute. Titles and bodies are never logged, because they can
 name files and projects. If recording fails, the toast still shows, and
 the failure is neither retried nor reported.
 
-The account button in the top bar carries a badge with the unread count,
-"9+" above nine and hidden at zero, and its accessible name includes the
-count ("…, 3 unread notifications"). The browser polls the count every
+The unread count is its own button in the top bar, right after the account
+button, in the accent colour: "9+" above nine and hidden at zero, named
+"Notifications, 3 unread notifications", and it opens the Notifications
+dialog. The account button's accessible name includes the count too
+("…, 3 unread notifications"), and the menu's "Notifications" item shows
+the count after its label (Epic 25). The browser polls the count every
 30 seconds and again when the window regains focus, so a read on one
 device clears the badge on another. A "Notifications" item in the
-account menu, or a click on the badge, opens the Notifications dialog:
+account menu, or the unread-count button, opens the Notifications dialog:
 newest first, each with its tone icon, title, body and relative time,
 unread ones marked. The user can mark one read, mark all read, or clear
 the list. Opening the dialog marks nothing read by itself.
+
+### 8.6 Help in the product
+
+Added by Epic 25. The account menu has a Help item that opens `/help` in a
+new tab. The Help page is one page of plain sentences with a table of
+contents, in parts: the student part for everyone, the administrator part
+for administrators, and the instructor part for instructors,
+administrators and anyone who teaches a course. That split is presentation
+only; the text holds nothing secret, and no route is gated by it. The text
+lives in `apps/web/src/help/content` (one file per part), and every topic
+has a stable anchor such as `/help#student-keyboard`. Opening `/help#topic`
+scrolls to that heading and moves focus to it; a malformed anchor is
+ignored.
+
+Two components explain the product where it is used (placement rules in
+`design/system/README.md`, "Help in the product"):
+
+- **PageIntro**: one or two sentences under a page's heading on what the
+  page is for, in a native `details` whose summary reads "About {page}".
+  It is open until the person closes it, the browser remembers that per
+  page, and it may link to the matching Help section. Once per page, and
+  only where the heading does not already say it.
+- **Toggletip**: a small help button named "About {subject}" that shows
+  one to three sentences when clicked or pressed, never on hover. It sits
+  beside a field's label, after the text of a table header, beside a
+  section heading, or beside a button; never inside a sentence, never
+  holding a link or control, and never more than one per control.
+  Keyboard behaviour is in section 25.8.
 
 ## 9. Terminal functionality
 
@@ -1335,6 +1370,8 @@ The session review must:
 
 The UI should make the baseline explicit, for example `Changes since Claude session started`, rather than presenting session changes as Git changes.
 
+As built: the session baseline holds tracked files and the untracked files Git would show, so Git-ignored files are left out of the session review, except `.env` and `.env.*` files at the project root. The diff's two sides are labelled "Session start" (or "Last commit" in the Git diff) and "Your changes" (Epic 25).
+
 ### 12.8 Branch, remote, and preservation state
 
 Portikus must make the minimum Git state needed to understand whether work has been preserved visible without becoming a graphical Git client.
@@ -1432,7 +1469,7 @@ An explicit keyboard save command such as `Ctrl/Cmd+S` may force an immediate sa
 Per-user preferences. Autosave on or off, the autosave delay, word wrap, the
 terminal colour scheme, and the workspace timezone are settings of the
 signed-in user, not of the browser. They are stored on the server, read and
-written through `GET` and `PUT /me/settings`, and changed in the account menu,
+written through `GET` and `PUT /me/settings`, and changed in Settings,
 so they follow the student to any browser they sign in from. Word wrap
 defaults to on. The terminal colour scheme is dark or light, and it is
 deliberately independent of the page appearance: a student in a bright room
@@ -1462,18 +1499,28 @@ to open terminals and editors without a reload. It is set in Settings or
 by the workspace page's first Tab stop, a skip-link-style button that is
 hidden until focused, reads "Turn on screen-reader mode" or "Turn off
 screen-reader mode", saves the setting at once, and announces the change
-from a status region. Settings also has a "Keyboard and screen readers"
-section listing the keys that are hard to discover and what xterm.js and
-Monaco cannot do (section 25.8).
+from a status region. The keys that are hard to discover and what xterm.js
+and Monaco cannot do (section 25.8) are listed on the Help page under
+`/help#student-keyboard`; Settings, Accessibility links there (Epic 25).
+
+Settings saves as it goes (Epic 25). Each preference is saved as soon as it
+changes; a typed value, such as the autosave delay, is saved on blur, Enter
+or when the dialog closes. One status line says "Saved", and the dialog has
+only a Close button. A save that fails while the dialog is open shows its
+error in the dialog; one that fails after it closed shows the danger toast
+"Your settings change was not saved".
 
 Profile. Settings opens with a Profile section. The display name, email,
 sign-in name, and workspace label come from the institution sign-in and are
-read-only. The student may add a GitHub username or https link, one personal
+shown as a list of labels and values, not as fields. The student may add a GitHub username or https link, one personal
 https link, and a PNG or JPEG picture of at most 1 MiB, read through
 `GET /me/profile`, changed through `PUT /me/profile`, `PUT /me/picture`, and
 `DELETE /me/picture`. The API reads the picture type from its bytes, stores
 the picture on the users row, and serves it at `GET /me/picture` to its owner
-only. The picture replaces the initials in the account menu button. Links are
+only. The picture replaces the initials in the account menu button. The
+links are saved like the autosave delay, on blur, Enter or close, and only
+when valid: an invalid link shows its error and is not sent. A picture is
+saved as soon as it is chosen. Links are
 shown only as plain anchors with `rel="noopener"`. Nothing in the profile is
 used for authorization, and picture bytes are never logged.
 
@@ -1603,6 +1650,8 @@ The UI may surface likely development ports automatically.
 
 P0 should favor unprivileged application ports, normally `1024-65535`.
 
+As built: a preview is refused for a port below `PREVIEW_PORT_MIN` (1024) or listed in `PREVIEW_DENIED_PORTS` (by default 22, 2375, 2376 and 5432, plus the agent's port). The preview then says "Port {n} cannot be previewed", explains that such ports, including ones kept for SSH, Docker and PostgreSQL, cannot be opened, suggests a port such as 3000 or 5173, and offers **Choose another port…** (Epic 25).
+
 ### 14.8 Inactive preview
 
 After a full workspace restart, a saved preview tab must fail gracefully until the application is restarted.
@@ -1699,6 +1748,8 @@ Restoring a recovery point must:
 - warn that current files will be replaced;
 - create a recovery point of the current state before restoration when practical;
 - not alter Git through hidden commits.
+
+A restore puts back the whole project, its `.git` folder included, so the repository returns to the state it was in at that point, commits and all. Portikus never makes Git commits for the student; the recovery dialog says so (Epic 25).
 
 ### 15.9 File-level recovery history
 
@@ -1927,7 +1978,9 @@ P0 should include:
 
 The Running surface is not intended to replace `ps`, `top`, `docker ps`, or a general process manager.
 
-Each row shows the port, then the process or container name with its tags (Docker, reserved port, system service) on a second line, so the name keeps the row's width. A previewable row's first action is a visible **Preview** button named "Preview port <n>" for assistive technology; opening in a new tab and Stop stay icon buttons. The details panel under a selected row is a key-and-value list on the page surface, not terminal-styled. In the tabbed right pane (Files, Checks, Running, Monitor) the tab names the pane, so each pane's heading is kept for screen readers only and no title row repeats it.
+Each row shows the port, then the process or container name with its tags (Docker, Can't be previewed, System service) on a second line, so the name keeps the row's width. A previewable row's first action is a visible **Preview** button named "Preview port <n>" for assistive technology; opening in a new tab and Stop stay icon buttons. The details panel under a selected row is a key-and-value list on the page surface, not terminal-styled. In the tabbed right pane (Files, Checks, Running, Monitor) the tab names the pane, so each pane's heading is kept for screen readers only and no title row repeats it.
+
+Added by Epic 25: Checks, Running and Monitor each have a pane head row with an "About" toggletip at the start and the pane's actions at the end; Running's head holds the "Show system" checkbox, shown when there are system listeners or the box is ticked, and a row that cannot be previewed has a toggletip saying why. The right pane is a size container (the product's first `@container`), so each surface lays itself out from the pane's width, not the window's: below 18rem a Running row moves its actions to a second line, and the tabs tighten below 17rem. Checks that have never run say "Run a check to see its output here."
 
 A listener owned by one of the student's own processes carries an optional `commandLine`, and its row has the same full-command disclosure button as Monitor (section 18.3). The workspace agent reads `/proc/<pid>/cmdline` only when the process's real and effective uid are the student's; system and Docker listeners carry none, and an older agent sends none, so the row shows no button. The API truncates it to 1024 characters. Like Monitor's, it goes only to the student and is never logged, audited or shown to an administrator (Epic 22).
 
@@ -1949,7 +2002,9 @@ P0 should include:
 
 Error messages must suggest a next action where possible.
 
-The "Your workspace" dialog, opened from the status bar, puts the state and its Restart and Stop (or Start) buttons first. Below them come "Storage", with one meter per class that also states its figure as text ("X of Y"); "Docker", with Reset Docker and a line saying what it throws away and what it keeps; the rebuild note; and a collapsed "Technical details" with the desired state, connections and image.
+The "Your workspace" dialog, opened from the status bar, puts the state and its Restart and Stop (or Start) buttons first. Below them come "Storage", with one meter per class that also states its figure as text ("X of Y"); "Docker", with Reset Docker and a line saying what it throws away and what it keeps; the rebuild note; and a collapsed "Technical details" with the desired state, connections and image. While the workspace is in error, the dialog shows the error message and the same storage figures as the error screen (section 28).
+
+As Monitor narrows, the PID column hides below 16rem and the Memory column below 14rem, so Command, CPU and the two action cells always fit; the Stop button still names the PID (Epic 25).
 
 Stopping one process (Epic 21): the agent's `POST /processes/:pid/stop`
 takes `{startTicks, force}`. It rereads `/proc/<pid>/stat` and `status`
@@ -2031,7 +2086,7 @@ At approximately 80% utilization, the UI should warn the user.
 
 Near a hard limit, the UI should identify the major storage class involved, e.g.:
 
-- Projects & home;
+- Projects and home;
 - Docker;
 - Recovery.
 
@@ -2042,14 +2097,14 @@ workspace has nothing to measure, and the UI says the figures are available
 when it runs. The status bar warns at 80% of any class and names it. At 95%
 the message also names a next step: Reset Docker or `docker system prune`
 for Docker, automatic removal of older points for Recovery, and deleting
-files for Projects & home. The warning, like the workspace state beside it, is a bordered
+files for Projects and home. The warning, like the workspace state beside it, is a bordered
 button that opens the workspace dialog, and it keeps its warning or error
 colour. Quotas are environment configuration in this
 epic; changing them at runtime is Epic 11.
 
 The status bar always shows two compact meters while the workspace runs
 (Epic 21): "Memory {used} of {total}", the working set against the limit
-(19.4), and "Disk {used} of {total}", the Projects & home volume. Each is a
+(19.4), and "Disk {used} of {total}", the Projects and home volume. Each is a
 bordered button with a small bar: Memory opens Monitor sorted by memory, Disk
 opens the workspace dialog and its storage meters. A meter turns to the
 warning tone with the alert icon at or above 85% of its limit and stays so
@@ -2103,7 +2158,7 @@ Added by Epic 14.3 (ADR 0032). The guard slows a workspace that keeps its CPUs b
 
 **Memory flag.** A workspace whose memory average is above the memory threshold (default 90%) is flagged: `workspaces.memory_flag` (when, the average, the threshold, the window) and `workspace.memory_flagged`. Nothing is slowed, because memory already has a hard limit. The owner's workspace view carries the flag as `memoryFlag` (when, the average, the threshold, the window). The student sees a warning notice, dismissible for the page's life per flag: "Your workspace has been near its memory limit", "For {window} minutes it used more than {threshold}% of its memory. If it runs out, the biggest program is stopped.", with a **See what's using memory** button that opens Monitor sorted by memory. The flag clears at the next stop (`workspace.memory_flag_cleared` with `{reason: "stopped"}`) or when an administrator clears it (`{reason: "administrator"}`, which also deletes the workspace's samples).
 
-**Settings and overrides.** The platform values are columns on the `settings` row, edited in the admin Settings tab: CPU threshold (1 to 100, default 80), memory threshold (1 to 100, default 90), window (5 to 240 minutes, default 30), throttle share (5 to 100, default 25; 100 means the throttle changes nothing), the automatic lift's quiet time (`cpu_idle_lift_minutes`, 1 to 60, default 5) and quiet percent (`cpu_idle_lift_percent`, 0 to 100, default 10; 0 turns automatic lifting off), and the idle time of section 6.4. The two lift settings have no per-workspace override. Each workspace may override any of the others in the nullable jsonb column `workspaces.guard_config`, with the keys `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes`; a missing key uses the platform value, as `quota_config` does. A change takes effect on the next tick.
+**Settings and overrides.** The platform values are columns on the `settings` row, edited in the admin Settings tab in four groups, "Slow down heavy CPU use", "Give full speed back", "Keep repeat cases slowed" and "Flag high memory" (Epic 25): CPU threshold (1 to 100, default 80), memory threshold (1 to 100, default 90), window (5 to 240 minutes, default 30), throttle share (5 to 100, default 25; 100 means the throttle changes nothing), the automatic lift's quiet time (`cpu_idle_lift_minutes`, 1 to 60, default 5) and quiet percent (`cpu_idle_lift_percent`, 0 to 100, default 10; 0 turns automatic lifting off), and the idle time of section 6.4. The two lift settings have no per-workspace override. Each workspace may override any of the others in the nullable jsonb column `workspaces.guard_config`, with the keys `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes`; a missing key uses the platform value, as `quota_config` does. A change takes effect on the next tick.
 
 **Throttle hold (Epic 24).** Stopping and starting used to lift every throttle, so a student could run a heavy load, get throttled, restart and repeat. Two settings bound that: `cpu_throttle_hold_after` (0 turns holding off, otherwise 1 to 10, default 3) and `cpu_throttle_hold_hours` (1 to 168, default 24). The worker keeps each workspace's recent throttle times in `workspaces.cpu_throttle_recent`, trimmed to the window. When a throttle is the Nth within the window, the row's `cpu_throttle` gains `held: true`, the worker audits `workspace.cpu_throttle_held`, and every enabled administrator gets one warning notification. A held throttle is not cleared when the worker records a stop: the worker passes the allowance with the start request (`POST /instances/:name/start` with `{cpuAllowance}`), and the controller sets it before the instance runs, so there is no moment at full speed. The automatic idle lift and an administrator's lift still work. The student's notice adds "It stays slowed after a restart because it was slowed {n} times in the last {hours} hours." The Health tab and the Workspaces table show a **Held** tag beside **Throttled**. An administrator's lift does not clear `cpu_throttle_recent`, so a workspace lifted by hand can be held again sooner than one that started fresh.
 
@@ -2204,15 +2259,13 @@ seven columns: selection, a two-line Account cell (name, then email or
 username), Role, Workspace, Last activity, Image (an "Older image" tag only
 when out of date) and Connections; source, last sign-in and storage are in
 the detail panel. The detail panel stays in view beside the table with its
-own scroll, and shows its head (name, state, Start, Stop, Restart) and then
-Error, Account, Workspace, Storage, Resource guard, Processes, Ports and connections,
-Logs and Recent audit. The Audit table shows the first 8 characters of an
+own scroll. (Epic 25 changed the Users table and the panel; see below.) The Audit table shows the first 8 characters of an
 ID with the full ID in its title and accessible name, short times with the
 full time in the title, the result as a tag (red for anything but ok or
 success), and details clipped to one line per key with the full text
 available to screen readers. A target ID links to the Audit filter for
 that target, labelled "Target ID". Settings cards sit in a grid, each Save
-below its fields.
+below its fields (one column since Epic 25).
 
 Rebuild is also a bulk action on the Users table, with a "Rebuild all on
 older images…" shortcut while the Image filter is Older (Epic 18). The
@@ -2285,6 +2338,59 @@ built to the frame rules above.
   /admin/packages`, section 22.3, ADR 0042). Figures are aggregates
   only; no table or view pairs a package with a workspace or student. A
   per-student view would need a spec change.
+
+Changed by Epic 25 (UI polish and help):
+
+- **Tab order.** Users, Health, Logs, Audit, Network, Backups, Settings,
+  with a small gap before Health and before Network and no group labels.
+  The `?tab=` values did not change. Every tab has a PageIntro and
+  toggletips on its fields and headers (section 8.6).
+- **Users table.** Five columns: selection; Account (the name with its
+  tags, then email or username); Role; Workspace (label, state, and an
+  "Older image" tag when out of date); and Activity ("Now" with the
+  connection count, or the time since a browser last connected). A
+  toolbar row is always there: "Showing N of M" when the view hides rows
+  (archived workspaces are hidden by default), or "N selected" with the
+  bulk actions. Bulk Enable and Unarchive confirm in the neutral style.
+- **Detail panel.** Its head holds the name, the state and the lifecycle
+  actions that fit the state. During a transition the opposite action
+  stays enabled (Stop and Restart while starting, Start while stopping),
+  so an administrator can rescue a stuck workspace, and a note says what
+  it is waiting for. Only Start on an archived workspace is off, with its
+  reason. Then come Error, Workspace, Resources, Resource guard,
+  Processes, Ports and connections, Account, and Recent audit with the
+  logs link. Workspace has **Restore from backup…**, the Backups tab's
+  restore dialog set to that workspace with a choice of the sets that
+  hold it. Resources shows storage, use, limits and disconnect grace,
+  with **Edit limits…**, whose blank fields name the site value, and
+  **Edit disconnect grace…**, in minutes (the API stores seconds). It
+  reads the site limits without polling. Resource guard has **Guard
+  settings…** and shows the last input time as "Last input (idle stop)".
+  The quota dialog is titled "Storage for {name}'s workspace".
+- **Settings.** One column. The guard settings are in four groups
+  (section 19.4), and the disconnect grace is edited in minutes while the
+  API keeps seconds. The service log level moved to the Logs tab.
+- **Logs.** Filters sit in one block with Apply filters and Clear: level,
+  service, time (a native select), text, a Person field that takes a
+  name, email or username and sends the person's ID, and, when a link
+  named a workspace, an "Only {name}'s workspace" checkbox. The URL keys
+  did not change. An empty result is one sentence saying what was searched
+  and what to widen, with no table. The head sets the level the services
+  log at ("Services log at").
+- **Audit.** Filters are Person (resolved to an ID as on Logs) and "Action
+  starts with". Actor and target cells show a name when one is known (a
+  workspace shows its owner's), with the short ID under a named target. A
+  target filter shows as "Only events about {name}" with **Show all
+  targets**.
+- **Backups.** The tab groups the status, the sets and Back up now; then
+  restored copies; then a Clean up section for snapshots, kept homes and
+  dumps, which starts closed when all three are empty. A restore can also
+  start from the workspace's panel.
+- **Network.** While the policy is not yet applied, the mode summary
+  starts "Saved setting:".
+- **Course page.** It has an intro, and **Remove** is offered only on
+  students; the API refuses removing an instructor, whose membership
+  belongs to the learning system.
 
 ### 20.2 User impersonation
 
@@ -2992,8 +3098,9 @@ with `{from, to}`), and `settings.acceptable_use_updated` with
 `user.acceptable_use_accepted` with `{version}`. No row holds a process
 name, a command line, a file name or the statement's text.
 
-As built (Epic 19, the Logs tab): the admin page has a Logs tab between
-Audit and Health. It reads `GET /admin/logs` and shows the platform's own
+As built (Epic 19, the Logs tab): the admin page has a Logs tab (since
+Epic 25 between Health and Audit; its filters are described in section
+20.1). It reads `GET /admin/logs` and shows the platform's own
 JSON log lines, newest first, 100 a page, with "Load older lines" for
 more. Filters are level (Error, which includes fatal, Warn, Info and
 Debug; Error and Warn by default), service, time (last hour, last day,
@@ -3022,6 +3129,13 @@ bucket's column opens the Logs tab for its time span and the level under
 the pointer, and from the keyboard Up and Down pick the level, announced,
 and Enter opens it. Reading logs is not audited, because it is a read by
 an administrator like the Audit tab and a row per refresh would be noise.
+
+Added by Epic 25: each `GET /admin/audit` row carries `targetName`, the
+target user's display name or, for a workspace, its owner's, and null
+otherwise. The `user=` filter matches rows where the person is the actor
+or the target, and also rows whose target is a workspace the person owns
+now; rows about a workspace that has since been destroyed are not
+matched.
 
 How the journal is read (Epic 19, ADR 0036): only the units
 `portikus-api.service`, `portikus-worker.service` and
@@ -3123,6 +3237,8 @@ Initial targets:
 
 Targets should be measured and revised from pilot telemetry.
 
+The web app loads `/admin`, `/course` and `/help` on first visit, as separate files, so a student's first page does not carry them (Epic 25). When such a file is gone after a deploy, the page reloads once, guarded in `sessionStorage`; if that fails too, the router's error page shows.
+
 ### 25.2 Capacity
 
 Pilot design target:
@@ -3210,6 +3326,15 @@ whose arrow keys read each bucket aloud. The host charts show pool and
 memory use and the 1, 5 and 15 minute load, each the maximum in its
 bucket, with the CPU count as a reference line.
 
+Changed by Epic 25: the Health tab reads top to bottom as the worker-stale
+banner; "At a glance", four cards side by side when there is room
+(Platform, Resource guard, Failures in the last 24 hours, Workspaces by
+state); the Trends card in four groups, Host, Workspaces, API and Events,
+open by default and remembered per browser; then "Packages students add".
+Each chart names its unit in its title, its Y ticks are bare numbers, and
+axis text is 12 px at any width. A chart with no samples in the range is
+one line of text with no axis.
+
 As built (Epic 19, activity): the Trends card has a per-workspace heat
 map, one row per workspace with a guard sample in the window and one
 cell per bucket, capped at the 50 highest peaks and sorted by owner
@@ -3238,7 +3363,8 @@ throughput uses the average bytes per second; counts are sums. An
 availability strip shows, per bucket, the share of minutes with a sample
 and where the controller was unreachable, with a pattern as well as
 colour. Buckets with no data are left out of the series, and charts draw
-a gap.
+a gap. Since Epic 25 outages are the error colour with a stripe and
+missing samples a faint grey dot pattern.
 
 As built (Epic 19, API requests): the API counts every response per
 minute in memory (requests, 4xx, 5xx, WebSocket upgrades apart from
@@ -3295,6 +3421,8 @@ Keyboard navigation is required for primary application controls.
 A control that cannot act yet, such as a Confirm button while the workspace is changing state (section 6.5), stays focusable with `aria-disabled` and has its reason announced, rather than being removed from the tab order.
 
 Every Stop icon button (Running, Checks, Monitor and the admin Processes table) uses one shared danger colour, the `pk-iconbtn-danger` class, for its normal, hover and focus states, and keeps a target of at least 24 px (WCAG 2.5.8) (Epic 22).
+
+Added by Epic 25: a Toggletip (section 8.6) is a button named "About {subject}". Opening it leaves focus on the button, and a polite live region reads the text. The live region sits at the end of the page, or of the dialog that holds the tip, so the text never joins the name of a table header or label around the button. The button makes no popup claim (no `aria-haspopup`), and the visible tip is hidden from screen readers, so browse mode never finds an empty dialog; the button still reports `aria-expanded`. Tab or Shift+Tab moves on and closes it, as do Escape and a click outside; after Escape focus is still on the button. The PageIntro is a native `details`. Icon-button tooltips can be hovered, so the pointer can move onto them without closing them (WCAG 1.4.13). The Help page moves focus to the heading its anchor names. A sticky table header never hides a focused control (WCAG 2.4.11): the admin page and the Course page keep a scroll padding for it.
 
 The automated axe checks in the Playwright suite run the WCAG 2.0, 2.1 and 2.2 A and AA rules from one shared tag list, `WCAG_TAGS` in `e2e/helpers.ts`.
 
@@ -3459,7 +3587,7 @@ Example:
 Your workspace could not start because its storage allocation is full.
 Docker is using 19.8 GB of your 20 GB Docker quota.
 
-[ Clean up Docker ] [ View details ]
+[ Reset Docker… ] [ Workspace details ]
 ```
 
 rather than only:
@@ -3470,9 +3598,9 @@ ENOSPC
 
 Technical details should remain available for administrators and debugging.
 
-When a workspace fails to start and the workspace agent still reports storage figures, the error screen shows the storage meters. It offers "Clean up Docker…" (the Reset Docker confirmation) only when the error is `STORAGE_FULL` and Docker storage is at the critical level, because resetting Docker when project storage is what filled up would destroy data for nothing.
+When a workspace fails to start and the workspace agent still reports storage figures, the error screen shows the storage meters. It offers "Reset Docker…" (the Reset Docker confirmation) as its main action only when the error is `STORAGE_FULL` and Docker storage is at the critical level, because resetting Docker when project storage is what filled up would destroy data for nothing.
 
-While a workspace is in error, the API still serves its usage figures if the workspace agent answers. The error screen then shows the storage meters and, for `STORAGE_FULL` with Docker at the critical level, "Clean up Docker…". With no answer it offers only "Try again" and "Workspace details". After a failed first request the error screen asks for usage again every 30 seconds.
+While a workspace is in error, the API still serves its usage figures if the workspace agent answers. The error screen then shows the storage meters and, for `STORAGE_FULL` with Docker at the critical level, "Reset Docker…". It offers "Try again" for every error except `IMAGE_NOT_FOUND` and `INSTANCE_MISSING`, which only an administrator can fix; for `STORAGE_FULL` it follows "Reset Docker…" when that is offered, because an administrator may have grown the quota. "Workspace details" is always there, and the Workspace dialog shows the same figures while the workspace is in error (Epic 25). After a failed first request the error screen asks for usage again every 30 seconds.
 
 To make that safe, the worker keeps an error workspace's recorded agent address current: the address Incus reports now, or none when the instance is stopped or gone. The API never calls the agent of an `INSTANCE_MISSING` workspace.
 
@@ -4253,6 +4381,21 @@ Acceptance:
 - allow-list mode fails closed at every layer and after a reboot, and no table, log or audit row pairs a looked-up name with a workspace;
 - a lying VM makes the host refuse and run nothing, and the VM never reads the key or decrypted data except a copy into the named workspace as its student;
 - a client-sent upstream scheme header never reaches the proxy.
+
+### Epic 25 — UI polish and help
+
+See sections 5.1, 5.3, 8.5, 8.6, 12.7, 13.5, 14.7, 15.8, 18.2, 18.3, 19.2, 19.4, 20.1, 24.11, 25.1, 25.6, 25.8 and 28, and `design/system/README.md`, "Help in the product"; built on `epic/25-ui-polish`.
+
+Includes:
+
+- a Help page with parts by role, and PageIntro and Toggletip help on every admin tab and student pane;
+- the admin tabs reordered, a five-column Users table, a reordered workspace detail panel, one-column Settings, and Logs and Audit filters by person;
+- Settings that saves as it goes, narrow right-pane layouts, and a Reset Docker… and Try again error screen.
+
+Acceptance:
+
+- every help button works the same by keyboard, mouse and touch, and axe passes in both themes;
+- an administrator can stop or start a workspace stuck in a transition.
 
 ### Estimated total
 

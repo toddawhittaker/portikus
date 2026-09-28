@@ -1,11 +1,12 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { createStudent, query, WEB_ORIGIN, workspacePath } from "./helpers";
 import { API_ORIGIN } from "./ports";
 
 /**
  * The Profile section of Settings (issue #300, SPEC.md §13.5): links are
- * checked and shown only as plain anchors, and a picture is capped by the
- * server and replaces the initials in the account menu button.
+ * checked, saved when the student leaves the field, and shown only as plain
+ * anchors, and a picture is capped by the server and replaces the initials
+ * in the account menu button.
  */
 
 /** A 1 by 1 transparent PNG. */
@@ -24,6 +25,11 @@ async function openProfile(page: Page) {
 	return dialog;
 }
 
+/** The read-only value shown beside a sign-in label (a dt and its dd). */
+function signInValue(dialog: Locator, label: string): Locator {
+	return dialog.locator(`[data-testid=profile-signin] dt:text-is("${label}") + dd`);
+}
+
 test("the sign-in name is the username, not the identity provider's subject", async ({
 	page,
 	context,
@@ -38,7 +44,7 @@ test("the sign-in name is the username, not the identity provider's subject", as
 	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
 
 	const dialog = await openProfile(page);
-	await expect(dialog.getByLabel("Sign-in name")).toHaveValue("e2e-name");
+	await expect(signInValue(dialog, "Sign-in name")).toHaveText("e2e-name");
 });
 
 test("a profile link is saved and shown as a plain anchor; a bad one is refused", async ({
@@ -52,7 +58,7 @@ test("a profile link is saved and shown as a plain anchor; a bad one is refused"
 	let dialog = await openProfile(page);
 	await dialog.getByLabel("Personal site").fill("javascript:alert(1)");
 	await expect(dialog.getByText("Give an https:// link")).toBeVisible();
-	await expect(page.getByTestId("editor-settings-save")).toBeDisabled();
+	await expect(dialog.getByRole("button", { name: "Save links" })).toHaveCount(0);
 
 	// The server refuses it too, whatever the browser does.
 	const refused = await page.request.put("/me/profile", {
@@ -63,7 +69,12 @@ test("a profile link is saved and shown as a plain anchor; a bad one is refused"
 
 	await dialog.getByLabel("Personal site").fill("https://example.edu/~student");
 	await dialog.getByLabel("GitHub").fill("e2e-student");
-	await page.getByTestId("editor-settings-save").click();
+	// Leaving the field saves the valid links; the bad one was never sent.
+	await dialog.getByLabel("GitHub").press("Tab");
+	await expect(dialog.getByTestId("profile-website-link")).toBeVisible();
+	await expect(dialog.getByTestId("profile-github-link")).toBeVisible();
+	await expect(dialog.getByTestId("settings-saved")).toHaveText("Saved");
+	await dialog.getByTestId("settings-close").click();
 	await expect(dialog).toHaveCount(0);
 
 	dialog = await openProfile(page);
@@ -73,6 +84,34 @@ test("a profile link is saved and shown as a plain anchor; a bad one is refused"
 	const site = dialog.getByTestId("profile-website-link");
 	await expect(site).toHaveAttribute("href", "https://example.edu/~student");
 	await expect(site).toHaveAttribute("rel", "noopener");
+});
+
+/** Epic 25 ruling: no silent loss; a link typed before Escape is saved. */
+test("a link still being typed is saved when Escape closes Settings", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+
+	let dialog = await openProfile(page);
+	await dialog.getByLabel("GitHub").fill("typed-then-escape");
+	await page.keyboard.press("Escape");
+	await expect(dialog).toHaveCount(0);
+
+	await expect
+		.poll(
+			async () =>
+				(
+					(await (await page.request.get("/me/profile")).json()) as {
+						github: string | null;
+					}
+				).github,
+		)
+		.toBe("typed-then-escape");
+	dialog = await openProfile(page);
+	await expect(dialog.getByLabel("GitHub")).toHaveValue("typed-then-escape");
 });
 
 test("a picture over the cap is refused, and a saved one shows in the account button", async ({
@@ -85,8 +124,14 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 	await expect(page.getByTestId("account-picture")).toHaveCount(0);
 
 	const dialog = await openProfile(page);
-	const input = dialog.getByTestId("profile-picture-input");
-	await input.setInputFiles({
+	const choose = dialog.getByRole("button", { name: "Choose picture…" });
+	// The native file input is hidden; the labelled button opens its picker (review S3).
+	await expect(dialog.getByTestId("profile-picture-input")).toBeHidden();
+	const [chooser] = await Promise.all([
+		page.waitForEvent("filechooser"),
+		choose.click(),
+	]);
+	await chooser.setFiles({
 		name: "big.png",
 		mimeType: "image/png",
 		buffer: Buffer.concat([PNG, Buffer.alloc(1024 * 1024 + 1)]),
@@ -106,12 +151,22 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 	expect(refused.status()).toBe(413);
 	expect((await refused.json()).code).toBe("FILE_TOO_LARGE");
 
-	await input.setInputFiles({ name: "me.png", mimeType: "image/png", buffer: PNG });
+	const [second] = await Promise.all([
+		page.waitForEvent("filechooser"),
+		choose.click(),
+	]);
+	await second.setFiles({ name: "me.png", mimeType: "image/png", buffer: PNG });
 	await expect(dialog.getByTestId("profile-picture")).toBeVisible();
 	await expect(page.getByTestId("account-picture")).toHaveAttribute(
 		"src",
 		/^\/me\/picture\?v=\d+$/,
 	);
+
+	// Removing it brings the initials back and keeps focus beside the picture.
+	await dialog.getByRole("button", { name: "Remove picture" }).click();
+	await expect(dialog.getByTestId("account-initials")).toBeVisible();
+	await expect(page.getByTestId("account-picture")).toHaveCount(0);
+	await expect(choose).toBeFocused();
 });
 
 test("group titles stand apart and a long email wraps inside the dialog (issue #609)", async ({
@@ -125,8 +180,12 @@ test("group titles stand apart and a long email wraps inside the dialog (issue #
 	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
 
 	const dialog = await openProfile(page);
-	const field = dialog.getByLabel("Email");
-	await expect(field).toHaveValue(email);
+	// Read-only values are text in a description list, not form fields (review S1).
+	const field = signInValue(dialog, "Email");
+	await expect(field).toHaveText(email);
+	await expect(dialog.getByTestId("profile-signin").getByRole("textbox")).toHaveCount(
+		0,
+	);
 	const fits = await field.evaluate((el) => {
 		const box = el.getBoundingClientRect();
 		const pane = el.closest(".pk-dialog")?.getBoundingClientRect();
@@ -138,15 +197,23 @@ test("group titles stand apart and a long email wraps inside the dialog (issue #
 	});
 	expect(fits).toEqual({ wraps: true, inside: true, noScroll: true });
 
-	// The second group title is bold and has a rule above it; the first has none.
+	// Group titles are body-size semibold, set apart by a rule and a full step
+	// of space; the first group has no rule (review S2).
 	const first = dialog.getByRole("heading", { level: 3 }).first();
 	const second = dialog.getByRole("heading", { name: "About you" });
-	expect(await second.evaluate((el) => getComputedStyle(el).fontWeight)).toBe("600");
+	const label = dialog.locator("[data-testid=profile-signin] dt").first();
+	const title = await second.evaluate((el) => ({
+		weight: getComputedStyle(el).fontWeight,
+		size: getComputedStyle(el).fontSize,
+	}));
+	expect(title).toEqual({ weight: "600", size: "14px" });
+	expect(await label.evaluate((el) => getComputedStyle(el).fontSize)).toBe("13px");
 	expect(
-		await second.evaluate(
-			(el) => getComputedStyle(el.parentElement as Element).borderTopWidth,
-		),
-	).toBe("1px");
+		await second.evaluate((el) => {
+			const group = getComputedStyle(el.parentElement as Element);
+			return [group.borderTopWidth, group.paddingTop];
+		}),
+	).toEqual(["1px", "24px"]);
 	expect(
 		await first.evaluate(
 			(el) => getComputedStyle(el.parentElement as Element).borderTopWidth,

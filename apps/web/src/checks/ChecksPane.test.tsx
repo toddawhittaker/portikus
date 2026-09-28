@@ -5,7 +5,7 @@
 import type { Project } from "@portikus/contracts";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { renderWithQuery } from "../test-utils.js";
+import { openToggletip, renderWithQuery } from "../test-utils.js";
 import { ChecksPane } from "./ChecksPane.js";
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
@@ -32,8 +32,12 @@ function project(): Project {
 	} as Project;
 }
 
+/** The output sockets the pane opened, by URL. */
+const sockets: string[] = [];
+
 /** xterm.js needs these, and jsdom has neither. */
 function stubBrowserApis() {
+	sockets.length = 0;
 	vi.stubGlobal(
 		"matchMedia",
 		vi.fn(() => ({
@@ -61,7 +65,9 @@ function stubBrowserApis() {
 			static readonly OPEN = 1;
 			readyState = 1;
 			onmessage: ((event: { data: unknown }) => void) | null = null;
-			constructor(public url: string) {}
+			constructor(public url: string) {
+				sockets.push(url);
+			}
 			send() {}
 			close() {}
 		},
@@ -284,4 +290,70 @@ test("the Checks heading is for screen readers only and Edit checks stays", asyn
 	const heading = await screen.findByRole("heading", { level: 2, name: "Checks" });
 	expect(heading.className).toBe("sr-only");
 	expect(screen.getByTestId("checks-edit")).toBeTruthy();
+});
+
+test("before any run the output says how to get some, and connects to nothing", async () => {
+	stubBrowserApis();
+	stubChecks({ checks: CHECKS, error: null, runs: [] });
+	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
+
+	await waitFor(() =>
+		expect(screen.getByTestId("check-output-empty").textContent).toBe(
+			"Run a check to see its output here.",
+		),
+	);
+	const head = screen.getByRole("heading", { level: 3, name: /^Output/ });
+	expect(head.textContent).toBe("Output Tests");
+	expect(screen.queryByTestId("check-output-tests")).toBeNull();
+	expect(sockets).toEqual([]);
+	// The pane head no longer repeats the project path.
+	expect(screen.queryByText("~/projects/todo-api")).toBeNull();
+
+	fireEvent.click(screen.getByText("Lint"));
+	expect(screen.getByTestId("check-output-name").textContent).toBe("Lint");
+});
+
+test("Run swaps the empty state for that check's output", async () => {
+	stubBrowserApis();
+	stubChecks({ checks: CHECKS, error: null, runs: [] });
+	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
+
+	await waitFor(() => expect(screen.getByTestId("check-run-lint")).toBeTruthy());
+	fireEvent.click(screen.getByTestId("check-run-lint"));
+
+	await waitFor(() => expect(screen.getByTestId("check-output-lint")).toBeTruthy());
+	expect(screen.queryByTestId("check-output-empty")).toBeNull();
+	expect(screen.getByTestId("check-output-name").textContent).toBe("Lint");
+	expect(sockets.some((url) => url.endsWith("/checks/lint/runs/current"))).toBe(true);
+});
+
+test("a check that has run shows its output at once", async () => {
+	stubBrowserApis();
+	stubChecks({
+		checks: CHECKS,
+		error: null,
+		runs: [
+			{
+				id: "run-1",
+				checkId: "tests",
+				state: "passed",
+				startedAt: "2026-01-01T00:00:00.000Z",
+				endedAt: "2026-01-01T00:00:01.000Z",
+				exitCode: 0,
+			},
+		],
+	});
+	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
+
+	await waitFor(() => expect(screen.getByTestId("check-output-tests")).toBeTruthy());
+	expect(screen.getByRole("log", { name: "Output of Tests" })).toBeTruthy();
+});
+
+test("the Checks head explains where checks come from", async () => {
+	stubBrowserApis();
+	stubChecks({ checks: CHECKS, error: null, runs: [] });
+	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
+
+	fireEvent.click(await screen.findByRole("button", { name: "About Checks" }));
+	expect(openToggletip().textContent).toContain(".portikus/checks.json");
 });

@@ -1,5 +1,5 @@
 import type { WorkspaceUsage } from "@portikus/contracts";
-import { Icon } from "@portikus/ui";
+import { Icon, Toggletip } from "@portikus/ui";
 import { formatBytes } from "../monitor/format.js";
 import {
 	STORAGE_CLASSES,
@@ -38,7 +38,16 @@ export function StorageMeters({ storage }: { storage: WorkspaceUsage["storage"] 
 						data-level={level ?? undefined}
 					>
 						<div className="pk-meter-head">
-							<span className="pk-meter-label">{STORAGE_LABEL[storageClass]}</span>
+							<span className="pk-meter-label inline-flex items-center gap-1">
+								{STORAGE_LABEL[storageClass]}
+								{storageClass === "recovery" ? (
+									<Toggletip label="Recovery storage">
+										Space used by recovery points, the copies of your projects that
+										Portikus keeps outside the project folders. Old points are removed
+										automatically.
+									</Toggletip>
+								) : null}
+							</span>
 							<span className="pk-meter-value">
 								{high ? <Icon name="alert" size="sm" /> : null}
 								<span data-testid={`storage-${storageClass}`}>

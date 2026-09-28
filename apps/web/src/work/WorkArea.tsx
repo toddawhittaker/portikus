@@ -142,7 +142,10 @@ export function WorkArea({
 	const loaded = useLayoutPersistence(workspaceId, projectId, store, onSessionEnded);
 	const terminals = useTerminals(workspaceId, projectId, true, onSessionEnded);
 	const [closingTabId, setClosingTabId] = useState<string | null>(null);
-	const [pickingPreview, setPickingPreview] = useState(false);
+	// Open when set; `replacing` is a refused preview tab the choice replaces.
+	const [pickingPreview, setPickingPreview] = useState<{
+		replacing: string | null;
+	} | null>(null);
 	const showRightPane = useShowRightPane();
 	const [draggedPane, setDraggedPane] = useState<{
 		terminalId: string;
@@ -502,7 +505,10 @@ export function WorkArea({
 										>
 											<span data-testid="launcher-codex">Codex</span>
 										</MenuItem>
-										<MenuItem icon="preview" onSelect={() => setPickingPreview(true)}>
+										<MenuItem
+											icon="preview"
+											onSelect={() => setPickingPreview({ replacing: null })}
+										>
 											<span data-testid="launcher-preview">Preview</span>
 										</MenuItem>
 									</Menu>
@@ -551,7 +557,8 @@ export function WorkArea({
 							</>
 						}
 					>
-						Or use New tab (+) in the tab bar for Codex and previews.
+						Open a terminal or start Claude Code. The + in the tab bar also opens Codex
+						and previews.
 					</EmptyState>
 				) : (
 					layout.tabs.map((tab) => (
@@ -574,6 +581,7 @@ export function WorkArea({
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
 							onSessionEnded={onSessionEnded}
 							onShowRunning={() => showRightPane("running")}
+							onChoosePreviewPort={() => setPickingPreview({ replacing: tab.id })}
 							onLeave={leaveTerminal}
 							onMoveToNewTab={moveToNewTab}
 							onCloseTab={() => store.getState().closeTab(tab.id)}
@@ -598,9 +606,12 @@ export function WorkArea({
 
 				{pickingPreview ? (
 					<PreviewPicker
-						onClose={() => setPickingPreview(false)}
+						onClose={() => setPickingPreview(null)}
 						onOpen={(port) => {
-							setPickingPreview(false);
+							if (pickingPreview.replacing) {
+								store.getState().closeTab(pickingPreview.replacing);
+							}
+							setPickingPreview(null);
 							store.getState().openPreview(port);
 						}}
 					/>

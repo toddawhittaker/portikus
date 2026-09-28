@@ -42,10 +42,13 @@ export function checkPasswords(current: string, next: string, confirm: string): 
 
 export function ChangePasswordForm({
 	idPrefix,
+	oneTime = false,
 	onChanged,
 	onSubmitStart,
 }: {
 	idPrefix: string;
+	/** On the forced change page, where the current password may be a one-time one. */
+	oneTime?: boolean;
 	onChanged: () => void | Promise<void>;
 	/** Called as each submit starts, so a caller can clear an old status. */
 	onSubmitStart?: () => void;
@@ -78,6 +81,9 @@ export function ChangePasswordForm({
 		if (change.isPending) return;
 		onSubmitStart?.();
 		const found = checkPasswords(current, next, confirm);
+		if (oneTime && found.current) {
+			found.current = "Enter your current or one-time password.";
+		}
 		if (Object.keys(found).length > 0) {
 			change.reset();
 			showErrors(found);
@@ -116,7 +122,12 @@ export function ChangePasswordForm({
 		>
 			<TextField
 				id={`${idPrefix}-current`}
-				label="Current password"
+				label={oneTime ? "Current or one-time password" : "Current password"}
+				hint={
+					oneTime
+						? "If an administrator gave you a one-time password, enter it here."
+						: undefined
+				}
 				type="password"
 				autoComplete="current-password"
 				value={current}

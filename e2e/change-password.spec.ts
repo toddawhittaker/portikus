@@ -55,7 +55,7 @@ async function signInAsAdmin(page: Page) {
 }
 
 async function submit(page: Page, current: string, next: string) {
-	await page.getByLabel("Current password").fill(current);
+	await page.getByLabel("Current or one-time password").fill(current);
 	await page.getByLabel("New password", { exact: true }).fill(next);
 	await page.getByLabel("New password again").fill(next);
 	await page.getByRole("button", { name: "Change password" }).click();
@@ -94,9 +94,9 @@ test("a wrong current password is shown on that field, which keeps focus", async
 }) => {
 	await signInAsAdmin(page);
 	await submit(page, "not the password", "a brand new long password");
-	const current = page.getByLabel("Current password");
+	const current = page.getByLabel("Current or one-time password");
 	await expect(current).toHaveAccessibleDescription(
-		"The current password is not right.",
+		"If an administrator gave you a one-time password, enter it here. The current password is not right.",
 	);
 	await expect(current).toBeFocused();
 	await expect(page).toHaveURL(/\/change-password$/);
@@ -141,7 +141,7 @@ test("a good change lands on the administration page and Settings offers Passwor
 		.fill("another long passphrase");
 	await dialog.getByLabel("New password again").fill("another long passphrase");
 	await dialog.getByRole("button", { name: "Change password" }).click();
-	await expect(dialog.getByRole("status")).toHaveText(
+	await expect(dialog.getByTestId("password-changed")).toHaveText(
 		"Your password has been changed.",
 	);
 });

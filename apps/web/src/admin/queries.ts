@@ -42,11 +42,12 @@ export function usePlatformSettings() {
 }
 
 /** Every account, and whether the site manages Dex users (docs/archive/epics/EPIC-14.md ruling 24). */
-export function useAdminUsers() {
+export function useAdminUsers({ poll = true }: { poll?: boolean } = {}) {
 	return useQuery({
 		queryKey: adminKeys.users,
 		queryFn: () => request(AdminUserList, "/admin/users"),
-		refetchInterval: ADMIN_REFRESH_MS,
+		// A Person list needs no 5-second refresh; the Users table does.
+		refetchInterval: poll ? ADMIN_REFRESH_MS : false,
 	});
 }
 

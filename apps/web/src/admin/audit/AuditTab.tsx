@@ -1,10 +1,12 @@
-import type { AuditEvent } from "@portikus/contracts";
-import { Button, TextField } from "@portikus/ui";
+import type { AdminUser, AuditEvent } from "@portikus/contracts";
+import { Button, TextField, Toggletip } from "@portikus/ui";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { UUID } from "../../links.js";
 import { AdminSection } from "../AdminSection.js";
+import { personLabel, personOptions, resolvePerson } from "../people.js";
+import { useAdminUsers } from "../queries.js";
 import { shortTime } from "../shortTime.js";
 import { type AuditFilters, useAuditPage } from "./queries.js";
 
@@ -21,27 +23,41 @@ export function filtersFromSearch(search: Record<string, unknown>): AuditFilters
 	};
 }
 
+/** "Alice Student" for a user, "Alice Student's workspace" for their workspace, else null. */
+export function targetLabel(id: string, users: AdminUser[] | undefined): string | null {
+	for (const user of users ?? []) {
+		if (user.id === id) return user.displayName;
+		if (user.workspace?.id === id) return `${user.displayName}'s workspace`;
+	}
+	return null;
+}
+
 /**
  * The Audit tab of the admin page (SPEC.md §24.11): newest first, 50 rows a
- * page, filtered by target, user and action prefix. The target filter keeps
- * the `workspace` URL key so older links still work.
+ * page, filtered by person and action prefix. A target link filters by that
+ * target, under the `workspace` URL key so older links still work.
  */
 export function AuditTab() {
 	const search = useSearch({ strict: false }) as Record<string, unknown>;
 	const filters = filtersFromSearch(search);
 	const key = JSON.stringify(filters);
 	const navigate = useNavigate();
-	const [draft, setDraft] = useState(filters);
+	const users = useAdminUsers({ poll: false }).data?.users;
+	const people = personOptions(users ?? []);
+	// null until typed in, so the field shows the filtered person's name once the list loads.
+	const [personDraft, setPersonDraft] = useState<string | null>(null);
+	const [actionDraft, setActionDraft] = useState(filters.action);
 	const [draftKey, setDraftKey] = useState(key);
-	const [invalid, setInvalid] = useState<{ workspace: boolean; user: boolean }>({
-		workspace: false,
-		user: false,
-	});
+	const [personError, setPersonError] = useState<string | null>(null);
 	// A new link (for example "All events" from a workspace) refills the form.
 	if (draftKey !== key) {
 		setDraftKey(key);
-		setDraft(filters);
+		setPersonDraft(null);
+		setActionDraft(filters.action);
+		setPersonError(null);
 	}
+	const personValue =
+		personDraft ?? (filters.user ? personLabel(people, filters.user) : "");
 
 	// Filters live in the URL so a filtered view can be linked.
 	function show(next: AuditFilters) {
@@ -58,59 +74,74 @@ export function AuditTab() {
 
 	function apply(event: FormEvent) {
 		event.preventDefault();
-		const next = {
-			workspace: draft.workspace.trim(),
-			user: draft.user.trim(),
-			action: draft.action.trim(),
-		};
-		// The router drops an ID that is not a UUID, so say so instead.
-		const bad = {
-			workspace: next.workspace !== "" && !UUID.test(next.workspace),
-			user: next.user !== "" && !UUID.test(next.user),
-		};
-		setInvalid(bad);
-		if (bad.workspace || bad.user) return;
-		show(next);
+		const person =
+			personDraft === null ? { id: filters.user } : resolvePerson(personDraft, users);
+		if ("error" in person) {
+			setPersonError(person.error);
+			// Focus the field so a screen reader hears its error; refocusing says nothing, so leave first.
+			const field = document.getElementById("audit-person");
+			if (field && field === document.activeElement) field.blur();
+			field?.focus();
+			return;
+		}
+		setPersonError(null);
+		show({ workspace: filters.workspace, user: person.id, action: actionDraft.trim() });
 	}
 
 	function clear() {
-		setInvalid({ workspace: false, user: false });
+		setPersonDraft("");
+		setActionDraft("");
+		setPersonError(null);
 		show({ workspace: "", user: "", action: "" });
 	}
 
+	const targetName = filters.workspace ? targetLabel(filters.workspace, users) : null;
+
 	return (
-		<AdminSection title="Audit">
-			<form className="pk-actions items-end" onSubmit={apply}>
+		<AdminSection
+			title="Audit"
+			intro={{
+				id: "admin-audit",
+				text: "A record of every sign-in and every change to accounts, workspaces and settings, and who made it. Use it to find out who did something, and when.",
+				helpAnchor: "admin-audit",
+			}}
+		>
+			<form className="pk-actions items-start" onSubmit={apply}>
 				<TextField
-					id="audit-workspace"
-					label="Target ID"
+					id="audit-person"
+					label="Person"
 					className="w-80"
-					data-testid="audit-filter-workspace"
-					value={draft.workspace}
-					error={invalid.workspace ? INVALID_ID_TEXT : undefined}
-					onChange={(event) => setDraft({ ...draft, workspace: event.target.value })}
+					list="audit-people"
+					autoComplete="off"
+					data-testid="audit-filter-person"
+					value={personValue}
+					error={personError ?? undefined}
+					onChange={(event) => setPersonDraft(event.target.value)}
 				/>
-				<TextField
-					id="audit-user"
-					label="User ID"
-					className="w-80"
-					data-testid="audit-filter-user"
-					value={draft.user}
-					error={invalid.user ? INVALID_ID_TEXT : undefined}
-					onChange={(event) => setDraft({ ...draft, user: event.target.value })}
-				/>
+				<datalist id="audit-people">
+					{people.map((option) => (
+						<option key={option.id} value={option.label} />
+					))}
+				</datalist>
 				<TextField
 					id="audit-action"
 					label="Action starts with"
+					help={
+						<Toggletip label="Action starts with">
+							Actions are named for their area and then the event, such as
+							workspace.start_requested or user.disabled. Type workspace. to see every
+							workspace action.
+						</Toggletip>
+					}
 					className="w-48"
 					placeholder="workspace."
 					data-testid="audit-filter-action"
-					value={draft.action}
-					onChange={(event) => setDraft({ ...draft, action: event.target.value })}
+					value={actionDraft}
+					onChange={(event) => setActionDraft(event.target.value)}
 				/>
 				{/* mt-6 is LABEL_CLASS's 18 px line plus FIELD_CLASS's 6 px gap, so the
 				    buttons line up with the inputs even when a field shows an error. */}
-				<div className="mt-6 flex gap-2 self-start">
+				<div className="mt-6 flex gap-2">
 					<Button variant="primary" type="submit" data-testid="audit-filter-apply">
 						Apply filters
 					</Button>
@@ -118,15 +149,35 @@ export function AuditTab() {
 						Clear
 					</Button>
 				</div>
+				{filters.workspace ? (
+					<div
+						className="flex basis-full items-center gap-2 pk-text-compact"
+						data-testid="audit-filter-target"
+					>
+						<span className="min-w-0">
+							Only events about{" "}
+							{targetName ? (
+								<strong className="font-semibold">{targetName}</strong>
+							) : (
+								<IdText full={filters.workspace} short={shortId(filters.workspace)} />
+							)}
+						</span>
+						<Button
+							size="sm"
+							type="button"
+							data-testid="audit-filter-target-remove"
+							onClick={() => show({ ...filters, workspace: "" })}
+						>
+							Show all targets
+						</Button>
+					</div>
+				) : null}
 			</form>
 			{/* Only the results re-key on new filters, so the focused form button stays. */}
 			<AuditResults key={key} filters={filters} />
 		</AdminSection>
 	);
 }
-
-export const INVALID_ID_TEXT =
-	"Enter a full ID, as shown in the workspace detail panel.";
 
 function AuditResults({ filters }: { filters: AuditFilters }) {
 	// The `before` cursor of every page shown so far; the last one is current.
@@ -164,7 +215,15 @@ function AuditResults({ filters }: { filters: AuditFilters }) {
 							<th scope="col">Actor</th>
 							<th scope="col">Action</th>
 							<th scope="col">Target</th>
-							<th scope="col">Result</th>
+							<th scope="col">
+								<span className="inline-flex items-center gap-1">
+									Result
+									<Toggletip label="Result">
+										ok and success mean it worked. denied means Portikus refused it, and
+										failed means it was tried and did not work.
+									</Toggletip>
+								</span>
+							</th>
 							<th scope="col">Details</th>
 						</tr>
 					</thead>
@@ -240,22 +299,39 @@ function AuditRow({ event }: { event: AuditEvent }) {
 					<span className="sr-only">{new Date(event.at).toLocaleString()}</span>
 				</time>
 			</td>
-			<td title={event.actor}>
-				{event.actorName ?? <IdText full={event.actor} short={actorShort} />}
+			<td title={event.actorName ? `${event.actorName}, ${event.actor}` : event.actor}>
+				{event.actorName ? (
+					<span className="block max-w-[24ch] truncate">{event.actorName}</span>
+				) : (
+					<IdText full={event.actor} short={actorShort} />
+				)}
 			</td>
 			<td className="font-mono">{event.action}</td>
 			<td>
 				{UUID.test(event.target) ? (
-					<Link
-						to="/admin"
-						search={{ tab: "audit", workspace: event.target }}
-						className="pk-focus-ring pk-mono-small text-[var(--accent-text)] underline"
-						title={event.target}
-						aria-label={`Show events for target ${event.target}`}
-						data-testid="audit-target-link"
-					>
-						{shortId(event.target)}
-					</Link>
+					<span className="pk-cell-stack">
+						<Link
+							to="/admin"
+							search={{ tab: "audit", workspace: event.target }}
+							className={
+								event.targetName
+									? "pk-focus-ring block max-w-[24ch] truncate text-[var(--accent-text)] underline"
+									: "pk-focus-ring pk-mono-small text-[var(--accent-text)] underline"
+							}
+							title={
+								event.targetName ? `${event.targetName}, ${event.target}` : event.target
+							}
+							aria-label={`Show events for target ${event.targetName ? `${event.targetName}, ` : ""}${event.target}`}
+							data-testid="audit-target-link"
+						>
+							{event.targetName ?? shortId(event.target)}
+						</Link>
+						{event.targetName ? (
+							<span className="pk-cell-secondary pk-mono-small" aria-hidden="true">
+								{shortId(event.target)}
+							</span>
+						) : null}
+					</span>
 				) : (
 					<span className="pk-mono-small">{event.target}</span>
 				)}

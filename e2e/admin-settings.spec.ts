@@ -1,72 +1,312 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { loginAs } from "./helpers";
+import { loginAs, openToggletip, query, settledAxe, toast, WCAG_TAGS } from "./helpers";
 
-/** The Settings tab layout (SPEC.md section 20.1, issue #601). */
-test.describe("admin settings layout", () => {
-	test.use({ viewport: { width: 1920, height: 1080 } });
+/**
+ * The Settings tab layout (SPEC.md section 20.1, Epic 25 findings M4 and
+ * R3): one column of sections split by hairlines, the resource guard in four
+ * groups, the grace period in minutes. These tests write the one settings
+ * row, so they run one after another.
+ */
+test.describe.configure({ mode: "serial" });
 
-	async function bottom(locator: Locator): Promise<number> {
-		const box = await locator.boundingBox();
-		if (!box) throw new Error("not visible");
-		return box.y + box.height;
+async function box(locator: Locator) {
+	const found = await locator.boundingBox();
+	if (!found) throw new Error("not visible");
+	return found;
+}
+
+async function open(page: Page) {
+	await loginAs(page, "carol");
+	await page.goto("/admin?tab=settings");
+	await expect(page.getByTestId("guard-settings-save")).toBeEnabled({
+		timeout: 15_000,
+	});
+	await expect(page.getByTestId("grace-input")).not.toHaveValue("");
+}
+
+for (const width of [1920, 1024]) {
+	test.describe(`at ${width} px`, () => {
+		test.use({ viewport: { width, height: 1080 } });
+
+		test("sections stack in one column, with no cards and no log level", async ({
+			page,
+		}) => {
+			await open(page);
+			const column = page.getByTestId("settings-sections");
+			const sections = column.locator(":scope > section");
+			await expect(sections).toHaveCount(3);
+			await expect(column.getByRole("heading", { level: 3 })).toHaveText([
+				"When workspaces stop",
+				"Resource guard",
+				"Acceptable use",
+			]);
+			// Stacked, each below the last, in a column no wider than 72ch.
+			const tops = [];
+			for (let index = 0; index < 3; index++) {
+				tops.push((await box(sections.nth(index))).y);
+			}
+			expect(tops).toEqual([...tops].sort((a, b) => a - b));
+			expect((await box(column)).width).toBeLessThan(700);
+			// A hairline, not a card, between sections.
+			await expect(sections.nth(1)).toHaveCSS("border-top-width", "1px");
+			await expect(sections.nth(1)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+			await expect(page.getByTestId("log-level-select")).toHaveCount(0);
+		});
+
+		test("grace and idle stop sit side by side, and every Save is below its fields", async ({
+			page,
+		}) => {
+			await open(page);
+			// Both read in one go, so nothing can move between the two.
+			const [grace, idle] = await page.evaluate(() =>
+				["grace-input", "idle-input"].map((id) => {
+					const rect = document
+						.querySelector(`[data-testid="${id}"]`)
+						?.getBoundingClientRect();
+					return { x: rect?.x ?? 0, y: rect?.y ?? 0, right: rect?.right ?? 0 };
+				}),
+			);
+			expect(idle?.y).toBe(grace?.y);
+			expect(idle?.x).toBeGreaterThan(grace?.right ?? 0);
+			const pairs: [string, string][] = [
+				["grace-input", "grace-save"],
+				["idle-input", "idle-save"],
+				["settings-memoryThresholdPercent", "guard-settings-save"],
+				["aup-text", "aup-save"],
+			];
+			for (const [field, save] of pairs) {
+				const above = await box(page.getByTestId(field));
+				expect((await box(page.getByTestId(save))).y).toBeGreaterThan(
+					above.y + above.height,
+				);
+			}
+		});
+	});
+}
+
+test("the resource guard is four named groups with one line each and no long paragraph", async ({
+	page,
+}) => {
+	await open(page);
+	const guard = page.getByRole("region", { name: "Resource guard" });
+	await expect(guard.getByRole("group")).toHaveCount(4);
+	const expected: [string, string[]][] = [
+		[
+			"Slow down heavy CPU use",
+			["CPU threshold (%)", "Window (minutes)", "Throttled share (%)"],
+		],
+		["Give full speed back", ["Quiet time to lift (minutes)", "Quiet below (%)"]],
+		["Keep repeat cases slowed", ["Hold after throttles", "Hold window (hours)"]],
+		["Flag high memory", ["Memory threshold (%)"]],
+	];
+	for (const [name, fields] of expected) {
+		const group = guard.getByRole("group", { name });
+		await expect(group).toBeVisible();
+		for (const label of fields) {
+			await expect(group.getByLabel(label, { exact: true })).toBeVisible();
+		}
+		const described = await group.getAttribute("aria-describedby");
+		await expect(page.locator(`[id="${described}"]`)).toHaveText(/\.$/);
 	}
-
-	async function top(locator: Locator): Promise<number> {
-		const box = await locator.boundingBox();
-		if (!box) throw new Error("not visible");
-		return box.y;
+	for (const key of [
+		"cpuThresholdPercent",
+		"memoryThresholdPercent",
+		"windowMinutes",
+	]) {
+		expect((await box(page.getByTestId(`settings-${key}`))).width).toBe(208);
 	}
+	// No paragraph in the section runs past a couple of lines.
+	for (const text of await guard.locator("p").allTextContents()) {
+		expect(text.split(/\s+/).length).toBeLessThan(30);
+	}
+});
 
-	async function open(page: Page) {
-		await loginAs(page, "carol");
-		await page.goto("/admin?tab=settings");
-		await expect(page.getByTestId("guard-settings-save")).toBeEnabled({
+test("a field with a help button lines its input up with one without (Epic 25 S-C)", async ({
+	page,
+}) => {
+	await open(page);
+	// From the top of each field to the top of its control: the label row plus the gap.
+	const offsets = await page.evaluate(() =>
+		[...document.querySelectorAll<HTMLElement>(".pk-field")].flatMap((field) => {
+			const control = field.querySelector("input, textarea, select");
+			if (!control) return [];
+			return [
+				{
+					id: control.id,
+					help: field.querySelector(".pk-toggletip") !== null,
+					offset:
+						control.getBoundingClientRect().top - field.getBoundingClientRect().top,
+				},
+			];
+		}),
+	);
+	const withHelp = offsets.filter((entry) => entry.help);
+	const without = offsets.filter((entry) => !entry.help);
+	// The guard fields, grace and idle stop have help; the statement has none.
+	expect(withHelp.length).toBeGreaterThanOrEqual(10);
+	expect(without.map((entry) => entry.id)).toContain("aup-text");
+	const reference = without[0]?.offset ?? -1;
+	for (const entry of offsets) {
+		expect(Math.abs(entry.offset - reference), entry.id).toBeLessThanOrEqual(0.5);
+	}
+	// Side by side, grace (help) and idle stop (help) start on one line.
+	const [grace, idle] = await Promise.all(
+		["grace-input", "idle-input"].map((id) => box(page.getByTestId(id))),
+	);
+	expect(Math.abs((grace?.y ?? 0) - (idle?.y ?? 1))).toBeLessThanOrEqual(0.5);
+});
+
+test("the grace period is shown and saved in minutes, stored in seconds", async ({
+	page,
+}) => {
+	const [before] = await query<{ seconds: number }>(
+		"select shutdown_grace_seconds as seconds from settings where id = 1",
+	);
+	try {
+		await open(page);
+		const input = page.getByRole("textbox", { name: "Disconnect grace (minutes)" });
+		await input.fill("90");
+		await expect(page.getByText("1 hour 30 minutes")).toBeVisible();
+		// Enter saves: the field sits in its own form.
+		await input.press("Enter");
+		await expect(toast(page, "Grace period saved")).toBeVisible();
+		const [row] = await query<{ seconds: number }>(
+			"select shutdown_grace_seconds as seconds from settings where id = 1",
+		);
+		expect(row?.seconds).toBe(5400);
+		await page.reload();
+		await expect(page.getByTestId("grace-input")).toHaveValue("90", {
 			timeout: 15_000,
 		});
-	}
 
-	test("cards sit in a grid under the Settings heading", async ({ page }) => {
-		await open(page);
-		await expect(
-			page.getByRole("heading", { level: 2, name: "Settings", exact: true }),
-		).toBeVisible();
-		const cards = page.getByTestId("settings-grid").locator(":scope > section");
-		await expect(cards).toHaveCount(5);
-		// At 1920 px the first two cards share a row.
-		expect(await top(cards.nth(1))).toBe(await top(cards.nth(0)));
-		// Cards keep their own height instead of stretching to the tallest in the row.
-		await expect(page.getByTestId("settings-grid")).toHaveCSS(
-			"align-items",
-			"flex-start",
+		await page.getByTestId("grace-input").fill("ten");
+		await page.getByTestId("grace-save").click();
+		await expect(page.getByRole("alert")).toHaveText(
+			"Enter a number of minutes, 0 or more.",
 		);
-	});
-
-	test("every Save sits below its fields", async ({ page }) => {
-		await open(page);
-		const pairs: [string, string][] = [
-			["grace-input", "grace-save"],
-			["idle-input", "idle-save"],
-			["settings-throttleSharePercent", "guard-settings-save"],
-			["aup-text", "aup-save"],
-			["log-level-select", "log-level-save"],
-		];
-		for (const [field, save] of pairs) {
-			expect(await top(page.getByTestId(save))).toBeGreaterThan(
-				await bottom(page.getByTestId(field)),
-			);
-		}
-	});
-
-	test("resource guard inputs are 192 px wide", async ({ page }) => {
-		await open(page);
-		for (const key of [
-			"cpuThresholdPercent",
-			"memoryThresholdPercent",
-			"windowMinutes",
-			"throttleSharePercent",
-		]) {
-			const box = await page.getByTestId(`settings-${key}`).boundingBox();
-			expect(box?.width).toBe(192);
-		}
-	});
+	} finally {
+		await query("update settings set shutdown_grace_seconds = $1 where id = 1", [
+			before?.seconds ?? 600,
+		]);
+	}
 });
+
+test("the stop settings work from the keyboard alone", async ({ page }) => {
+	const [before] = await query<{ minutes: number }>(
+		"select idle_stop_minutes as minutes from settings where id = 1",
+	);
+	try {
+		await open(page);
+		await page.getByTestId("grace-input").focus();
+		await page.keyboard.press("Tab");
+		await expect(page.getByTestId("grace-save")).toBeFocused();
+		// The help button beside the next label comes first, then its field.
+		await page.keyboard.press("Tab");
+		await expect(page.getByRole("button", { name: "About Idle stop" })).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(page.getByTestId("idle-input")).toBeFocused();
+		await page.keyboard.press("ControlOrMeta+A");
+		await page.keyboard.type("45");
+		await page.keyboard.press("Enter");
+		await expect(toast(page, "Idle stop saved")).toBeVisible();
+		const [row] = await query<{ minutes: number }>(
+			"select idle_stop_minutes as minutes from settings where id = 1",
+		);
+		expect(row?.minutes).toBe(45);
+	} finally {
+		await query("update settings set idle_stop_minutes = $1 where id = 1", [
+			before?.minutes ?? 60,
+		]);
+	}
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the Settings tab has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await open(page);
+		// With an error showing, so the error state is checked too.
+		await page.getByLabel("Window (minutes)", { exact: true }).fill("1");
+		await page.getByTestId("guard-settings-save").click();
+		await expect(page.getByRole("alert")).toBeVisible();
+		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+	});
+}
+
+test("a setting's help opens on click, shows its text, and Escape returns focus", async ({
+	page,
+}) => {
+	await open(page);
+	await expect(page.getByTestId("intro-admin-settings")).toContainText(
+		"Site-wide rules for when workspaces stop",
+	);
+	const button = page.getByRole("button", { name: "About Quiet below (%)" });
+	await button.click();
+	const tip = openToggletip(page);
+	await expect(tip).toContainText("0 turns the automatic lift off.");
+	await page.keyboard.press("Escape");
+	await expect(tip).toHaveCount(0);
+	await expect(button).toBeFocused();
+	// From the keyboard too.
+	await page.keyboard.press("Enter");
+	await expect(tip).toBeVisible();
+});
+
+/**
+ * Epic 25 a11y MUST1: an open help tip keeps focus on its button, reads its
+ * text out through a live region, and Tab or Shift+Tab moves on and closes it.
+ */
+test("a help tip keeps focus on its button, and Tab or Shift+Tab moves on and closes it", async ({
+	page,
+}) => {
+	await open(page);
+	const button = page.getByRole("button", { name: "About Idle stop" });
+	const tip = openToggletip(page);
+
+	await button.focus();
+	await page.keyboard.press("Enter");
+	await expect(tip).toBeVisible();
+	await expect(button).toBeFocused();
+	await expect(button).toHaveAttribute("aria-expanded", "true");
+	// The tip itself is hidden from screen readers; they hear its text from a
+	// live region kept outside the button's label or header.
+	await expect(tip).toHaveAttribute("aria-hidden", "true");
+	await expect(button).not.toHaveAttribute("aria-haspopup");
+	const text = await tip.innerText();
+	const status = page.locator("body > [aria-live='polite']").filter({ hasText: text });
+	await expect(status).toHaveCount(1);
+
+	await page.keyboard.press("Tab");
+	await expect(tip).toHaveCount(0);
+	await expect(page.getByTestId("idle-input")).toBeFocused();
+	await expect(status).toHaveCount(0);
+
+	await page.keyboard.press("Shift+Tab");
+	await expect(button).toBeFocused();
+	await page.keyboard.press("Space");
+	await expect(tip).toBeVisible();
+	await page.keyboard.press("Shift+Tab");
+	await expect(tip).toHaveCount(0);
+	await expect(page.getByTestId("grace-save")).toBeFocused();
+
+	// A click elsewhere closes it too.
+	await button.click();
+	await expect(tip).toBeVisible();
+	await page.getByRole("heading", { name: "When workspaces stop" }).click();
+	await expect(tip).toHaveCount(0);
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the Settings tab with a help tip open has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await open(page);
+		await page.getByRole("button", { name: "About Disconnect grace" }).click();
+		await expect(openToggletip(page)).toBeVisible();
+		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+	});
+}

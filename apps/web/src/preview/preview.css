@@ -21,6 +21,15 @@
 	flex-wrap: nowrap;
 }
 
+/* The host and its toggletip take the free space; the host alone shrinks. */
+.pk-preview-where {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
 .pk-preview-host {
 	font-family: var(--font-mono);
 	font-size: 12px;
@@ -28,7 +37,6 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	flex: 1 1 auto;
 	min-width: 0;
 }
 

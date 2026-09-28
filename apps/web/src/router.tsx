@@ -10,11 +10,17 @@ import {
 	useParams,
 	useRouterState,
 } from "@tanstack/react-router";
-import { useEffect } from "react";
+import {
+	type ComponentType,
+	type LazyExoticComponent,
+	lazy,
+	type ReactNode,
+	Suspense,
+	useEffect,
+} from "react";
 import { AcceptableUsePage } from "./acceptable-use/AcceptableUsePage.js";
-import { ADMIN_TABS, AdminPage } from "./admin/AdminPage.js";
 import { sanitizeLogSearch } from "./admin/logs/filters.js";
-import { CourseListPage, CourseMembersPage } from "./course/CoursePage.js";
+import { ADMIN_TABS } from "./admin/tabs.js";
 import { LinkPage } from "./link/LinkPage.js";
 import { LinkStartPage } from "./link/LinkStartPage.js";
 import { useLinkedReload } from "./link/useLinkedReload.js";
@@ -30,6 +36,75 @@ import { useProjects } from "./projects/queries.js";
 import { gatePath, useMe } from "./useMe.js";
 import { WorkspacePage } from "./WorkspacePage.js";
 import { WorkArea } from "./work/WorkArea.js";
+
+const RELOADED_KEY = "portikus.chunk-reload";
+
+/**
+ * After a deploy an open tab can ask for a page file that no longer exists.
+ * Reload once to fetch the new build; if that fails too, or storage is off,
+ * the error goes on to the router's error page. True when reloading.
+ */
+export function reloadOnceForStaleChunk(): boolean {
+	try {
+		if (sessionStorage.getItem(RELOADED_KEY)) return false;
+		sessionStorage.setItem(RELOADED_KEY, "1");
+	} catch {
+		return false;
+	}
+	window.location.reload();
+	return true;
+}
+
+/** A page loaded on first visit, reloading once if its file is gone. */
+export function lazyPage<T extends ComponentType>(
+	load: () => Promise<{ default: T }>,
+): LazyExoticComponent<T> {
+	return lazy(() =>
+		load().then(
+			(module) => {
+				try {
+					sessionStorage.removeItem(RELOADED_KEY);
+				} catch {
+					// Storage off: the next stale file just shows the error page.
+				}
+				return module;
+			},
+			(error: unknown) => {
+				// Never settles, so nothing renders while the page reloads.
+				if (reloadOnceForStaleChunk()) return new Promise<never>(() => {});
+				throw error;
+			},
+		),
+	);
+}
+
+// Pages most people never open load on first visit, keeping the shell's
+// first load small (SPEC.md section 25.1).
+const AdminPage = lazyPage(() =>
+	import("./admin/AdminPage.js").then((module) => ({ default: module.AdminPage })),
+);
+const CourseListPage = lazyPage(() =>
+	import("./course/CoursePage.js").then((module) => ({
+		default: module.CourseListPage,
+	})),
+);
+const CourseMembersPage = lazyPage(() =>
+	import("./course/CoursePage.js").then((module) => ({
+		default: module.CourseMembersPage,
+	})),
+);
+const HelpPage = lazyPage(() =>
+	import("./help/HelpPage.js").then((module) => ({ default: module.HelpPage })),
+);
+
+/** The same quiet, busy page a signed-in screen shows while it loads. */
+function Lazy({ children }: { children: ReactNode }) {
+	return (
+		<Suspense fallback={<div className="pk-root" aria-busy="true" />}>
+			{children}
+		</Suspense>
+	);
+}
 
 const rootRoute = createRootRoute({
 	component: function Root() {
@@ -129,20 +204,43 @@ const adminRoute = createRoute({
 				: undefined,
 		...sanitizeLogSearch(search),
 	}),
-	component: AdminPage,
+	component: () => (
+		<Lazy>
+			<AdminPage />
+		</Lazy>
+	),
 });
 
 /** An instructor's read-only Course page (Epic 13 ruling 24). */
 const courseRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/course",
-	component: CourseListPage,
+	component: () => (
+		<Lazy>
+			<CourseListPage />
+		</Lazy>
+	),
 });
 
 const courseMembersRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/course/$courseId",
-	component: CourseMembersPage,
+	component: () => (
+		<Lazy>
+			<CourseMembersPage />
+		</Lazy>
+	),
+});
+
+/** Help for every role; admin and instructor parts show by role (Epic 25). */
+const helpRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/help",
+	component: () => (
+		<Lazy>
+			<HelpPage />
+		</Lazy>
+	),
 });
 
 /** The shell: header, three panes and status bar. Its children fill the centre. */
@@ -267,6 +365,7 @@ export const routeTree = rootRoute.addChildren([
 	adminRoute,
 	courseRoute,
 	courseMembersRoute,
+	helpRoute,
 	workspaceRoute.addChildren([workspaceIndexRoute, projectRoute]),
 	filesRoute,
 	previewRoute,

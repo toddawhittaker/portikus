@@ -1,16 +1,31 @@
 import type { AdminUser, AdminWorkspaceDetail } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { json, renderApp, stubFetch, USER, WORKSPACE } from "../test-utils.js";
+import {
+	json,
+	openToggletip,
+	renderApp,
+	stubFetch,
+	USER,
+	WORKSPACE,
+} from "../test-utils.js";
+import {
+	GRACE_ERROR,
+	graceDraft,
+	graceSeconds,
+	graceValueText,
+} from "./GraceDialog.js";
 import { quotaError } from "./QuotaDialog.js";
 import {
 	capabilityNote,
 	effectiveGuardText,
 	instructorChangeNote,
+	lifecycleActions,
 	limitsPending,
 	limitsText,
 	memoryFlagText,
 	NOT_AVAILABLE_TEXT,
+	PANEL_HELP,
 	quotaPending,
 	roleChangeNote,
 	throttleText,
@@ -134,6 +149,53 @@ function detail(overrides: Partial<AdminWorkspaceDetail> = {}): AdminWorkspaceDe
 	};
 }
 
+const GIB = 1024 ** 3;
+
+/** The site settings, whole, so the panel can read the grace and guard values. */
+const SETTINGS = {
+	shutdownGraceSeconds: 600,
+	logLevel: null,
+	cpuGuardThresholdPercent: 80,
+	memoryGuardThresholdPercent: 90,
+	guardWindowMinutes: 30,
+	cpuThrottleSharePercent: 25,
+	cpuIdleLiftMinutes: 10,
+	cpuIdleLiftPercent: 10,
+	cpuThrottleHoldAfter: 3,
+	cpuThrottleHoldHours: 24,
+	idleStopMinutes: 60,
+	acceptableUseText: null,
+	acceptableUseVersion: 1,
+	updatedAt: null,
+};
+
+/** The Health report the panel reads the site's profile limits from. */
+const HEALTH = {
+	sampledAt: "2026-09-22T11:59:30.000Z",
+	workerStale: false,
+	controller: { reachable: true, errorCode: null },
+	host: {
+		loadAverage: [0.5, 0.4, 0.3],
+		cpuCount: 4,
+		memory: { usedBytes: 4 * GIB, totalBytes: 16 * GIB },
+		pool: { usedBytes: 50 * GIB, totalBytes: 100 * GIB, metadataPercent: 20 },
+		profileLimits: { cpu: "2", memory: "4GiB", processes: "2000" },
+		image: { fingerprint: null, serial: null },
+	},
+	workspacesByState: {},
+	agents: { answering: 1, running: 1 },
+	last24h: {
+		startFailures: 0,
+		stopFailures: 0,
+		forcedStops: 0,
+		provisionFailures: 0,
+		controllerOutages: 0,
+		signInFailures: 0,
+		previewRefusals: 0,
+	},
+	guard: [],
+};
+
 /**
  * Answers the admin reads with one detail; every POST and PUT lands in
  * `writes`. With `hold`, writes never answer, so a request stays in flight.
@@ -150,8 +212,9 @@ function stubDetail(
 		if (url === "/auth/me") return json(200, ADMIN);
 		if (url === "/admin/users") return json(200, { users, dexUsers: false });
 		if (url === "/admin/settings") {
-			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
+			return json(200, SETTINGS);
 		}
+		if (url === "/admin/health") return json(200, HEALTH);
 		if (init?.method === "POST" || init?.method === "PUT") {
 			writes.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });
 			if (hold) return new Promise<Response>(() => undefined) as unknown as Response;
@@ -226,8 +289,13 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 
 	const panel = await openAlice();
 
-	expect(within(panel).getByTestId("detail-usage").textContent).toBe(
-		"Home disk 2.0 GB of 10.0 GB · CPU 12.5% · Memory 1.0 GB of 4.0 GB",
+	// Use is one fact per row; the disk shows here only without its meter (Epic 25, S6).
+	expect(within(panel).getByTestId("detail-disk-use").textContent).toBe(
+		"2.0 GB of 10.0 GB",
+	);
+	expect(within(panel).getByTestId("detail-cpu-use").textContent).toBe("12.5%");
+	expect(within(panel).getByTestId("detail-memory-use").textContent).toBe(
+		"1.0 GB of 4.0 GB",
 	);
 	expect(within(panel).getByTestId("detail-quota").textContent).toBe(
 		"Home 10 GiB · Docker 10 GiB",
@@ -239,8 +307,8 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 	expect(allEvents.getAttribute("href")).toBe(
 		`/admin?tab=audit&workspace=${WORKSPACE.id}`,
 	);
-	// "View logs" replaces the printed journalctl command (SPEC.md section 24.11).
-	const viewLogs = within(panel).getByRole("link", { name: "View logs" });
+	// The logs link replaces the printed journalctl command (SPEC.md section 24.11).
+	const viewLogs = within(panel).getByRole("link", { name: "Logs for this workspace" });
 	expect(viewLogs.getAttribute("href")).toBe(
 		`/admin?tab=logs&workspace=${WORKSPACE.id}&since=1h`,
 	);
@@ -256,7 +324,7 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 	).toBe("true");
 });
 
-test("the panel's sections come in the order of SPEC.md section 20.1", async () => {
+test("the panel's sections come in the Epic 25 order (R2)", async () => {
 	stubDetail(
 		detail({
 			workspace: {
@@ -274,15 +342,30 @@ test("the panel's sections come in the order of SPEC.md section 20.1", async () 
 	expect(headings).toEqual([
 		"H3 Alice Example",
 		"H4 Error",
-		"H4 Account",
 		"H4 Workspace",
-		"H4 Storage",
+		"H4 Resources",
 		"H4 Resource guard",
 		"H4 Processes",
 		"H4 Ports and connections",
-		"H4 Logs",
+		"H4 Account",
 		"H4 Recent audit events",
 	]);
+});
+
+test("an account without a workspace shows its workspace note, grace and account only", async () => {
+	stubDetail(detail(), { users: [{ ...ALICE_ROW, workspace: null }, ADMIN_ROW] });
+	renderApp("/admin");
+	fireEvent.click(
+		await screen.findByRole("button", { name: /^Show details for Alice Example, / }),
+	);
+	const panel = await screen.findByRole("region", { name: "Alice Example" });
+	await within(panel).findByText("This account has no workspace.");
+	const headings = within(panel)
+		.getAllByRole("heading", { level: 4 })
+		.map((heading) => heading.textContent);
+	expect(headings).toEqual(["Workspace", "Resources", "Account"]);
+	expect(within(panel).queryByTestId("detail-quota-edit")).toBeNull();
+	expect(within(panel).getByTestId("detail-grace-edit")).toBeDefined();
 });
 
 test("every section heading sits in a padded, divided detail section", async () => {
@@ -300,30 +383,145 @@ test("every section heading sits in a padded, divided detail section", async () 
 	}
 });
 
-test("Start, Stop and Restart sit in the head, directly under the state badge", async () => {
+test("a running workspace offers Stop and Restart in the head, under the state badge", async () => {
 	stubDetail(detail());
 	const panel = await openAlice();
 	const head = within(panel).getByTestId("detail-state").closest(".pk-detail-head");
 	expect(head).not.toBeNull();
-	for (const action of ["Start", "Stop", "Restart"]) {
-		expect(
-			within(head as HTMLElement).getByRole("button", {
-				name: `${action} Alice Example's workspace`,
-			}),
-		).toBeDefined();
+	const buttons = within(head as HTMLElement)
+		.getAllByRole("button")
+		.map((button) => button.getAttribute("aria-label"));
+	expect(buttons).toEqual([
+		"Stop Alice Example's workspace",
+		"Restart Alice Example's workspace",
+		"Close details for Alice Example",
+	]);
+	expect(within(panel).queryByTestId("detail-lifecycle-note")).toBeNull();
+});
+
+test.each([
+	["running", "running", ["stop", "restart"], null],
+	["stopped", "stopped", ["start"], null],
+	["error", "running", ["start"], null],
+	["error", "stopped", ["start"], null],
+	["starting", "running", ["stop", "restart"], "starting"],
+	["stopped", "running", ["stop", "restart"], "starting"],
+	["running", "stopped", ["start"], "stopping"],
+	["stopping", "stopped", ["start"], "stopping"],
+	["running", "restarting", ["stop", "restart"], "restarting"],
+	["provisioning", "running", ["stop", "restart"], "setting up"],
+	["mystery", "running", ["start", "stop", "restart"], null],
+])("state %s wanting %s offers %j, waiting %s", (state, desired, actions, waiting) => {
+	expect(lifecycleActions(state, desired)).toEqual({ actions, waiting });
+});
+
+test.each([
+	["starting", "running", "Stop", "stop", "starting"],
+	["stopped", "running", "Stop", "stop", "starting"],
+	["starting", "running", "Restart", "restart", "starting"],
+	["stopping", "stopped", "Start", "start", "stopping"],
+] as const)(
+	"a workspace %s wanting %s keeps %s on to rescue it, with the waiting note",
+	async (state, desiredState, label, action, waiting) => {
+		const writes = stubDetail(
+			detail({ workspace: { ...WORKSPACE, state, desiredState, archivedAt: null } }),
+		);
+		const panel = await openAlice();
+		const button = within(panel).getByRole("button", {
+			name: `${label} Alice Example's workspace`,
+		});
+		expect(button.getAttribute("aria-disabled")).toBeNull();
+		expect(button.getAttribute("aria-describedby")).toBeNull();
+		expect(within(panel).getByTestId("detail-lifecycle-note").textContent).toBe(
+			`Waiting for the workspace to finish ${waiting}.`,
+		);
+		fireEvent.click(button);
+		await waitFor(() => expect(writes).toHaveLength(1));
+		expect(writes[0]?.url).toBe(`/workspaces/${WORKSPACE.id}/${action}`);
+	},
+);
+
+test("an archived workspace that is stopping keeps Start off and says both why", async () => {
+	const writes = stubDetail(
+		detail({
+			workspace: {
+				...WORKSPACE,
+				state: "stopping",
+				desiredState: "stopped",
+				archivedAt: "2026-09-20T00:00:00.000Z",
+			},
+		}),
+	);
+	const panel = await openAlice();
+	const start = within(panel).getByRole("button", {
+		name: "Start Alice Example's workspace",
+	});
+	expect(start.getAttribute("aria-disabled")).toBe("true");
+	const note = within(panel).getByTestId("detail-lifecycle-note");
+	expect(note.textContent).toBe(
+		"Waiting for the workspace to finish stopping. An archived workspace cannot start. Unarchive it first.",
+	);
+	expect(start.getAttribute("aria-describedby")).toBe(note.id);
+	fireEvent.click(start);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	expect(writes).toEqual([]);
+});
+
+test("a stopped archived workspace offers Start, off, with the reason", async () => {
+	stubDetail(
+		detail({
+			workspace: {
+				...WORKSPACE,
+				state: "stopped",
+				desiredState: "stopped",
+				archivedAt: "2026-09-20T00:00:00.000Z",
+			},
+		}),
+	);
+	const panel = await openAlice();
+	const start = within(panel).getByRole("button", {
+		name: "Start Alice Example's workspace",
+	});
+	expect(start.getAttribute("aria-disabled")).toBe("true");
+	expect(within(panel).getByTestId("detail-lifecycle-note").textContent).toBe(
+		"An archived workspace cannot start. Unarchive it first.",
+	);
+	expect(within(panel).queryByRole("button", { name: /^Stop / })).toBeNull();
+});
+
+test("the panel reads the site limits once and does not poll the health report", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	try {
+		stubDetail(detail());
+		const panel = await openAlice();
+		await within(panel).findByTestId("detail-limits-edit");
+		const healthCalls = () =>
+			vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/admin/health")
+				.length;
+		expect(healthCalls()).toBe(1);
+		await vi.advanceTimersByTimeAsync(5 * 60_000);
+		expect(healthCalls()).toBe(1);
+	} finally {
+		vi.useRealTimers();
 	}
 });
 
-test("Edit quotas sits in the Storage heading row", async () => {
+test("each section's actions sit in one row after its content (S5)", async () => {
 	stubDetail(detail());
 	const panel = await openAlice();
-	const storage = within(panel).getByRole("region", { name: "Storage" });
-	const heading = within(storage).getByRole("heading", { name: "Storage" });
-	const edit = within(storage).getByRole("button", {
-		name: "Edit quotas for Alice Example's workspace",
-	});
-	expect(edit.textContent).toBe("Edit quotas…");
-	expect(edit.parentElement).toBe(heading.parentElement);
+	const resources = within(panel).getByRole("region", { name: "Resources" });
+	const actions = within(resources)
+		.getAllByRole("button")
+		.filter((button) => !button.getAttribute("aria-label")?.startsWith("About "))
+		.map((button) => button.textContent);
+	expect(actions).toEqual(["Edit quotas…", "Edit limits…", "Edit disconnect grace…"]);
+	const row = within(resources).getByTestId("detail-quota-edit").parentElement;
+	expect(row?.className).toContain("pk-actions");
+	expect(row?.nextElementSibling).toBeNull();
+	for (const heading of within(panel).getAllByRole("heading", { level: 4 })) {
+		expect(heading.className).toContain("font-semibold");
+		expect(heading.className).not.toContain("pk-text-label");
+	}
 });
 
 test("the Account section shows source, last sign-in, username and email", async () => {
@@ -348,21 +546,26 @@ test("an account that never signed in says Never", async () => {
 test("a stopped workspace and a silent agent are said plainly, not as errors", async () => {
 	stubDetail(detail({ agent: "stopped", usage: null }));
 	const panel = await openAlice();
-	expect(within(panel).getByTestId("detail-usage").textContent).toBe("Stopped");
+	expect(within(panel).getByTestId("detail-usage").textContent).toBe(
+		"Not measured: the workspace is not running",
+	);
 });
 
 test("an agent that does not answer says so", async () => {
 	stubDetail(detail({ agent: "not_answering", usage: null }));
 	const panel = await openAlice();
 	expect(within(panel).getByTestId("detail-usage").textContent).toBe(
-		"Agent not answering",
+		"Not measured: the workspace agent is not answering",
 	);
 });
 
 test("an unapplied storage change shows as pending", async () => {
 	stubDetail(detail({ quotaApplied: { homeGiB: 5, dockerGiB: 10 } }));
 	const panel = await openAlice();
-	expect(within(panel).getByTestId("detail-quota-pending")).toBeDefined();
+	// No worker jargon (S7).
+	expect(within(panel).getByTestId("detail-quota-pending").textContent).toBe(
+		"Storage saved. It takes effect within a minute.",
+	);
 });
 
 test("the error sentence comes first, then the technical detail", async () => {
@@ -693,12 +896,12 @@ test("Stop keeps focus and ignores repeats while its request runs (Gate E)", asy
 	await waitFor(() => expect(stop.getAttribute("aria-busy")).toBe("true"));
 	expect(document.activeElement).toBe(stop);
 	expect(stop.hasAttribute("disabled")).toBe(false);
-	const start = within(panel).getByRole("button", {
-		name: "Start Alice Example's workspace",
+	const restart = within(panel).getByRole("button", {
+		name: "Restart Alice Example's workspace",
 	});
-	expect(start.getAttribute("aria-disabled")).toBe("true");
+	expect(restart.getAttribute("aria-disabled")).toBe("true");
 	fireEvent.click(stop);
-	fireEvent.click(start);
+	fireEvent.click(restart);
 	expect(writes.length).toBe(1);
 });
 
@@ -781,13 +984,125 @@ test("closing a panel whose row is filtered out focuses the table caption (Gate 
 	);
 });
 
-test("the grace field is named by its visible label (WCAG 2.5.3)", async () => {
-	stubDetail(detail());
-	const panel = await openAlice();
-	const field = within(panel).getByRole("textbox", {
-		name: "Grace period override (seconds)",
+test("the disconnect grace shows the site setting, and its dialog takes minutes (S8)", async () => {
+	const writes: { url: string; body: unknown }[] = [];
+	let row = { ...ALICE_ROW };
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, ADMIN);
+		if (url === "/admin/users")
+			return json(200, { users: [row, ADMIN_ROW], dexUsers: false });
+		if (url === "/admin/settings") {
+			return json(200, SETTINGS);
+		}
+		if (url === "/admin/health") return json(200, HEALTH);
+		if (init?.method === "PUT") {
+			const body = JSON.parse(String(init.body));
+			writes.push({ url, body });
+			row = { ...row, shutdownGraceSeconds: body.shutdownGraceSeconds };
+			return json(200, row);
+		}
+		if (url === `/admin/workspaces/${WORKSPACE.id}`) return json(200, detail());
+		throw new Error(`unexpected request: ${url}`);
 	});
-	expect(field.hasAttribute("aria-label")).toBe(false);
+	const panel = await openAlice();
+	const resources = within(panel).getByRole("region", { name: "Resources" });
+	expect(await within(resources).findByText("10 minutes (site setting)")).toBeDefined();
+	// The old seconds field is gone from the panel.
+	expect(within(panel).queryByRole("textbox")).toBeNull();
+
+	fireEvent.click(
+		within(resources).getByRole("button", {
+			name: "Edit disconnect grace for Alice Example",
+		}),
+	);
+	const dialog = await screen.findByRole("dialog", {
+		name: "Disconnect grace for Alice Example",
+	});
+	const field = within(dialog).getByRole("textbox", {
+		name: "Disconnect grace (minutes)",
+	}) as HTMLInputElement;
+	expect(field.value).toBe("");
+	expect(
+		document.getElementById(field.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toBe("Site setting: 10 minutes. 0 keeps it running until it is stopped.");
+
+	fireEvent.change(field, { target: { value: "soon" } });
+	fireEvent.click(within(dialog).getByTestId("grace-dialog-save"));
+	expect((await within(dialog).findByRole("alert")).textContent).toBe(GRACE_ERROR);
+	expect(writes).toEqual([]);
+
+	fireEvent.change(field, { target: { value: "30" } });
+	fireEvent.click(within(dialog).getByTestId("grace-dialog-save"));
+	await waitFor(() => expect(writes.length).toBe(1));
+	// The API still takes seconds.
+	expect(writes[0]).toEqual({
+		url: `/admin/users/${USER.id}/settings`,
+		body: { shutdownGraceSeconds: 1800 },
+	});
+	expect(await screen.findByText("Disconnect grace saved")).toBeDefined();
+	await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+	expect(await within(resources).findByText("30 minutes")).toBeDefined();
+
+	fireEvent.click(
+		within(resources).getByRole("button", {
+			name: "Edit disconnect grace for Alice Example",
+		}),
+	);
+	const again = await screen.findByRole("dialog", {
+		name: "Disconnect grace for Alice Example",
+	});
+	const minutes = within(again).getByLabelText(
+		"Disconnect grace (minutes)",
+	) as HTMLInputElement;
+	expect(minutes.value).toBe("30");
+	fireEvent.change(minutes, { target: { value: "" } });
+	fireEvent.click(within(again).getByTestId("grace-dialog-save"));
+	await waitFor(() => expect(writes.length).toBe(2));
+	expect(writes[1]?.body).toEqual({ shutdownGraceSeconds: null });
+});
+
+test("without the site settings, the grace claims no value it does not know", async () => {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, ADMIN);
+		if (url === "/admin/users")
+			return json(200, { users: [ALICE_ROW, ADMIN_ROW], dexUsers: false });
+		if (url === "/admin/settings") {
+			return json(500, { code: "INTERNAL", message: "Settings are unavailable." });
+		}
+		if (url === "/admin/health") return json(200, HEALTH);
+		if (url === `/admin/workspaces/${WORKSPACE.id}`) return json(200, detail());
+		throw new Error(`unexpected request: ${url}`);
+	});
+	const panel = await openAlice();
+	expect(within(panel).getByTestId("detail-grace").textContent).toBe("Site setting");
+	fireEvent.click(
+		within(panel).getByRole("button", {
+			name: "Edit disconnect grace for Alice Example",
+		}),
+	);
+	const dialog = await screen.findByRole("dialog", {
+		name: "Disconnect grace for Alice Example",
+	});
+	const field = within(dialog).getByLabelText("Disconnect grace (minutes)");
+	expect(
+		document.getElementById(field.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toBe("0 keeps it running until it is stopped.");
+});
+
+test("grace minutes convert to and from the API's seconds", () => {
+	expect(graceSeconds("")).toBeNull();
+	expect(graceSeconds(" 0 ")).toBe(0);
+	expect(graceSeconds("10")).toBe(600);
+	expect(graceSeconds("1.5")).toBe(90);
+	expect(graceSeconds("-1")).toBeUndefined();
+	expect(graceSeconds("ten")).toBeUndefined();
+	expect(graceSeconds("99999999999")).toBeUndefined();
+	expect(graceDraft(null)).toBe("");
+	expect(graceDraft(600)).toBe("10");
+	expect(graceDraft(90)).toBe("1.5");
+	expect(graceDraft(100)).toBe("1.67");
+	expect(graceValueText(0)).toBe("Never stops on disconnect");
+	expect(graceValueText(3600)).toBe("1 hour");
 });
 
 // Promote and demote (docs/archive/epics/EPIC-13-1.md ruling 23).
@@ -823,7 +1138,7 @@ function stubRoles(refusal?: string) {
 		if (url === "/auth/me") return json(200, ADMIN);
 		if (url === "/admin/users") return json(200, { users: ROLE_ROWS, dexUsers: false });
 		if (url === "/admin/settings") {
-			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
+			return json(200, SETTINGS);
 		}
 		if (init?.method === "POST") {
 			writes.push(url);
@@ -833,6 +1148,13 @@ function stubRoles(refusal?: string) {
 		throw new Error(`unexpected request: ${url}`);
 	});
 	return writes;
+}
+
+/** Whether a confirmation is drawn as destructive: the alert icon rather than the neutral one. */
+function isDestructive(dialog: HTMLElement): boolean {
+	const status = dialog.querySelector(".pk-dialog-status");
+	if (!status) throw new Error("no dialog status icon");
+	return !status.classList.contains("pk-dialog-status--neutral");
 }
 
 async function openRow(name: string) {
@@ -866,6 +1188,8 @@ test("promote asks first, then calls the promote route", async () => {
 	const dialog = await screen.findByRole("alertdialog", {
 		name: "Make Alice Example an administrator?",
 	});
+	// Promoting takes nothing away, so it is not drawn as destructive (S3).
+	expect(isDestructive(dialog)).toBe(false);
 	fireEvent.click(within(dialog).getByRole("button", { name: "Promote" }));
 	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 	expect(writes).toEqual([`/admin/users/${USER.id}/promote`]);
@@ -885,6 +1209,7 @@ test("demote asks first, says where they go back to, then calls the demote route
 		name: "Demote Gina Granted?",
 	});
 	expect(within(dialog).getByText(/They go back to Student/)).toBeDefined();
+	expect(isDestructive(dialog)).toBe(true);
 	fireEvent.click(within(dialog).getByRole("button", { name: "Demote" }));
 	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 	expect(writes).toEqual([`/admin/users/${GRANTED_ROW.id}/demote`]);
@@ -953,6 +1278,8 @@ test("a refused promote shows the refusal in its dialog", async () => {
 	const dialog = await screen.findByRole("alertdialog", {
 		name: "Make Alice Example an administrator?",
 	});
+	// Promoting takes nothing away, so it is not drawn as destructive (S3).
+	expect(isDestructive(dialog)).toBe(false);
 	fireEvent.click(within(dialog).getByRole("button", { name: "Promote" }));
 	expect((await within(dialog).findByRole("alert")).textContent).toBe(
 		"Only SSO accounts can be administrators.",
@@ -979,7 +1306,7 @@ function stubInstructors(refusal?: string) {
 			return json(200, { users: [...ROLE_ROWS, TEACHER_ROW], dexUsers: false });
 		}
 		if (url === "/admin/settings") {
-			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
+			return json(200, SETTINGS);
 		}
 		if (init?.method === "POST") {
 			writes.push(url);
@@ -1000,6 +1327,7 @@ test("make instructor asks first, then calls its route", async () => {
 	const dialog = await screen.findByRole("alertdialog", {
 		name: "Make Alice Example an instructor?",
 	});
+	expect(isDestructive(dialog)).toBe(false);
 	fireEvent.click(within(dialog).getByRole("button", { name: "Make instructor" }));
 	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 	expect(writes).toEqual([`/admin/users/${USER.id}/make-instructor`]);
@@ -1020,6 +1348,7 @@ test("remove instructor shows for a granted instructor and says where they go ba
 		name: "Remove instructor from Tia Teacher?",
 	});
 	expect(within(dialog).getByText(/They go back to Student/)).toBeDefined();
+	expect(isDestructive(dialog)).toBe(false);
 	fireEvent.click(within(dialog).getByRole("button", { name: "Remove instructor" }));
 	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 	expect(writes).toEqual([`/admin/users/${TEACHER_ROW.id}/remove-instructor`]);
@@ -1065,6 +1394,7 @@ test("a refused make instructor shows the refusal in its dialog", async () => {
 	const dialog = await screen.findByRole("alertdialog", {
 		name: "Make Alice Example an instructor?",
 	});
+	expect(isDestructive(dialog)).toBe(false);
 	fireEvent.click(within(dialog).getByRole("button", { name: "Make instructor" }));
 	expect((await within(dialog).findByRole("alert")).textContent).toBe("Demote first.");
 });
@@ -1087,7 +1417,7 @@ const FLAG = {
 test("the guard texts give the numbers and mark overrides", () => {
 	expect(throttleText(null)).toBe("Normal");
 	expect(throttleText(THROTTLE)).toContain(
-		"It averaged 97% over 30 minutes, above 80%, and now gets 25% of its CPU (100ms/100ms).",
+		"It averaged 97% over 30 minutes, above 80%, and now gets 25% of its CPU.",
 	);
 	expect(memoryFlagText(FLAG)).toContain("It averaged 93% over 30 minutes, above 90%.");
 	const guard = {
@@ -1115,6 +1445,8 @@ test("a normal workspace shows its limits and last activity, with no lift or cle
 	const section = within(panel).getByRole("region", { name: "Resource guard" });
 	expect(within(section).getByTestId("detail-guard-cpu").textContent).toBe("Normal");
 	expect(within(section).getByTestId("detail-guard-memory").textContent).toBe("Normal");
+	// The panel names it for what it is: the input idle stop counts from (S1).
+	expect(within(section).getByText("Last input (idle stop)")).toBeDefined();
 	expect(within(section).getByTestId("detail-last-activity").textContent).not.toBe(
 		"None recorded",
 	);
@@ -1162,11 +1494,11 @@ test("the overrides dialog refuses a bad value, then sends numbers and nulls", a
 	const panel = await openAlice();
 	fireEvent.click(
 		within(panel).getByRole("button", {
-			name: "Change overrides for Alice Example's workspace",
+			name: "Guard settings for Alice Example's workspace",
 		}),
 	);
 	const dialog = await screen.findByRole("dialog", {
-		name: "Resource guard overrides",
+		name: "Resource guard for Alice Example's workspace",
 	});
 	const cpu = within(dialog).getByLabelText("CPU threshold (%)") as HTMLInputElement;
 	expect(cpu.value).toBe("95");
@@ -1193,15 +1525,24 @@ test("the overrides dialog refuses a bad value, then sends numbers and nulls", a
 			idleStopMinutes: 0,
 		},
 	});
-	expect(await screen.findByText("Overrides saved")).toBeDefined();
+	expect(await screen.findByText("Guard settings saved")).toBeDefined();
 });
 
 // --- Per-workspace limits and re-provision (SPEC.md section 20.1) ---
 
-test("the limits line names each limit or the platform value, and pending compares keys", () => {
-	expect(limitsText(null)).toBe("CPUs platform · Memory platform · Processes platform");
-	expect(limitsText({ cpu: 2, memoryMiB: 4096 })).toBe(
-		"CPUs 2 · Memory 4096 MiB · Processes platform",
+test("the limits line names each limit or the site value, and pending compares keys", () => {
+	const site = { cpu: 2, memoryMiB: 4096, processes: 2000 };
+	expect(limitsText(null, site)).toBe(
+		"2 CPUs (site value) · 4 GiB memory (site value) · 2,000 processes (site value)",
+	);
+	expect(limitsText({ cpu: 1, memoryMiB: 6144 }, site)).toBe(
+		"1 CPU · 6 GiB memory · 2,000 processes (site value)",
+	);
+	expect(limitsText(null, null)).toBe(
+		"CPUs (site value) · Memory (site value) · Processes (site value)",
+	);
+	expect(limitsText(null, { cpu: 2, memoryMiB: null, processes: 2000 })).toBe(
+		"2 CPUs (site value) · Memory (site value) · 2,000 processes (site value)",
 	);
 	expect(limitsPending(null, null)).toBe(false);
 	expect(limitsPending({}, null)).toBe(false);
@@ -1215,18 +1556,34 @@ test("the limits line names each limit or the platform value, and pending compar
 test("the Limits dialog refuses a bad value, then sends numbers and nulls", async () => {
 	const writes = stubDetail(detail({ limitsConfig: { cpu: 2 }, limitsApplied: null }));
 	const panel = await openAlice();
-	const section = within(panel).getByRole("region", { name: "Resource guard" });
-	expect(within(section).getByTestId("detail-limits").textContent).toBe(
-		"CPUs 2 · Memory platform · Processes platform",
+	const section = within(panel).getByRole("region", { name: "Resources" });
+	expect(
+		await within(section).findByText(
+			"2 CPUs · 4 GiB memory (site value) · 2,000 processes (site value)",
+		),
+	).toBeDefined();
+	expect(within(section).getByTestId("detail-limits-pending").textContent).toBe(
+		"Limits saved. They take effect within a minute.",
 	);
-	expect(within(section).getByTestId("detail-limits-pending")).toBeDefined();
 
 	fireEvent.click(
 		within(section).getByRole("button", {
-			name: "Limits for Alice Example's workspace",
+			name: "Edit limits for Alice Example's workspace",
 		}),
 	);
-	const dialog = await screen.findByRole("dialog", { name: "Workspace limits" });
+	const dialog = await screen.findByRole("dialog", {
+		name: "Limits for Alice Example's workspace",
+	});
+	// A blank field says what it falls back to, memory in MiB and GiB (S4, N6).
+	const hint = (label: string) => {
+		const input = within(dialog).getByLabelText(label);
+		return document.getElementById(input.getAttribute("aria-describedby") ?? "")
+			?.textContent;
+	};
+	expect(hint("Memory (MiB)")).toBe(
+		"Site value: 4,096 MiB (4 GiB). Below what the workspace uses now, the kernel stops its largest process.",
+	);
+	expect(hint("CPUs")).toBe("Site value: 2. At most the host's CPU count.");
 	const cpu = within(dialog).getByLabelText("CPUs") as HTMLInputElement;
 	expect(cpu.value).toBe("2");
 	const memory = within(dialog).getByLabelText("Memory (MiB)");
@@ -1302,4 +1659,63 @@ test("an error message on a workspace not in error has no Re-provision", async (
 	const panel = await openAlice();
 	expect(within(panel).getByRole("region", { name: "Error" })).toBeDefined();
 	expect(within(panel).queryByTestId("detail-reprovision")).toBeNull();
+});
+
+test("the panel's toggletips are named after what they explain and open on click", async () => {
+	stubDetail(detail({ capabilities: { rebuild: true, resetDocker: true } }));
+	const panel = await openAlice();
+	const names = within(panel)
+		.getAllByRole("button", { name: /^About / })
+		.map((button) => button.getAttribute("aria-label"));
+	expect(names).toEqual([
+		"About Rebuild workspace",
+		"About Reset Docker",
+		"About Archive workspace",
+		"About Storage",
+		"About Limits",
+		"About Disconnect grace",
+		"About CPU throttle",
+		"About High memory",
+		"About Last input",
+		"About Preview column",
+		"About Promote",
+		"About Make instructor",
+		"About Disable account",
+	]);
+	fireEvent.click(within(panel).getByRole("button", { name: "About Last input" }));
+	const tip = openToggletip();
+	expect(tip.textContent).toBe(PANEL_HELP.lastInput);
+});
+
+test("Restore from backup opens the restore dialog preset to this workspace", async () => {
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, ADMIN);
+		if (url === "/admin/users")
+			return json(200, { users: [ALICE_ROW, ADMIN_ROW], dexUsers: false });
+		if (url === "/admin/settings") return json(200, SETTINGS);
+		if (url === "/admin/health") return json(200, HEALTH);
+		if (url === "/admin/backups" && !init?.method) {
+			return json(200, {
+				host: null,
+				hostReportedAt: null,
+				hostStale: false,
+				vm: null,
+				vmListedAt: null,
+				requests: [],
+				workspaces: [],
+			});
+		}
+		if (url === `/admin/workspaces/${WORKSPACE.id}`) return json(200, detail());
+		throw new Error(`unexpected request: ${url}`);
+	});
+	const panel = await openAlice();
+	const open = within(panel).getByRole("button", {
+		name: "Restore from backup: Alice Example's workspace",
+	});
+	expect(open.textContent).toBe("Restore from backup…");
+	fireEvent.click(open);
+	const dialog = await screen.findByRole("dialog", { name: "Restore from backup" });
+	expect(
+		await within(dialog).findByText("Backups are not connected on this site."),
+	).toBeDefined();
 });

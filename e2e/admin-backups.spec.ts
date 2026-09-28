@@ -7,7 +7,15 @@ import {
 	resetBackups,
 	setVmListing,
 } from "./backup-channel";
-import { createStudent, loginAs, query, toast, WEB_ORIGIN } from "./helpers";
+import {
+	createStudent,
+	loginAs,
+	query,
+	settledAxe,
+	toast,
+	WCAG_TAGS,
+	WEB_ORIGIN,
+} from "./helpers";
 
 /**
  * The admin Backups tab (SPEC.md §20.1, §24.9; ADR 0024, ADR 0040), with the
@@ -168,6 +176,31 @@ test("an old set is deleted by the host; the newest complete set is refused", as
 	await expect(page.getByTestId(`backup-set-${OLD}`)).toHaveCount(0, SOON);
 	// The row took the focused button with it, so focus lands on the list heading.
 	await expect(page.getByRole("heading", { name: "Backup sets" })).toBeFocused();
+});
+
+test("empty lists are one line each, and Clean up stays closed until there is something to delete", async ({
+	page,
+}) => {
+	hostReport(hostStatus({}));
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await openTab(page);
+	await expect(page.getByTestId("backups-status")).toBeVisible();
+	// No table is drawn just for its headers.
+	await expect(page.getByText("No backup sets yet.")).toBeVisible();
+	await expect(page.getByText("No workspaces restored recently.")).toBeVisible();
+	await expect(page.getByRole("table")).toHaveCount(0);
+
+	const summary = page.getByTestId("backups-cleanup-summary");
+	await expect(summary).toHaveText(/^Clean up: /);
+	await expect(page.getByText("No pre-change dumps.")).toBeHidden();
+	await summary.click();
+	await expect(page.getByText("No pre-change dumps.")).toBeVisible();
+
+	// At this width the status pairs sit two to a row.
+	const host = await page.getByTestId("backups-host").boundingBox();
+	const running = await page.getByTestId("backups-running").boundingBox();
+	expect(running?.y).toBe(host?.y);
+	expect(running?.x).toBeGreaterThan((host?.x ?? 0) + (host?.width ?? 0));
 });
 
 test("a refusal from the host is shown with its reason", async ({ page }) => {
@@ -333,3 +366,37 @@ test("pre-change snapshots and kept homes are deleted through the platform", asy
 	// These are VM work for the worker; the host is never handed them.
 	expect(hostPull()).toBeNull();
 });
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`with backups not connected, Restore from backup in a panel says only that (${colorScheme})`, async ({
+		page,
+	}) => {
+		const ws = await student(page);
+		const [owner] = await query<{ display_name: string }>(
+			"select display_name from users where id = $1",
+			[ws.userId],
+		);
+		// No host has reported (the beforeEach reset), so the API sends host: null.
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto(`/admin?tab=workspaces&user=${ws.userId}`);
+		const panel = page.getByTestId("workspace-detail");
+		await panel
+			.getByRole("button", {
+				name: `Restore from backup: ${owner?.display_name}'s workspace`,
+			})
+			.click({ timeout: 15_000 });
+		const dialog = page.getByRole("dialog", { name: "Restore from backup" });
+		await expect(dialog.getByTestId("backup-restore-none")).toHaveText(
+			"Backups are not connected on this site.",
+		);
+		await expect(dialog).not.toContainText("No backup set holds this workspace yet.");
+		await expect(dialog.getByTestId("backup-restore-folder")).toHaveCount(0);
+		await expect(dialog.getByTestId("backup-restore-confirm")).toHaveAttribute(
+			"aria-disabled",
+			"true",
+		);
+		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+	});
+}

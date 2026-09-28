@@ -10,7 +10,7 @@ export type StorageLevel = "ok" | "warning" | "critical";
 export const STORAGE_CLASSES: readonly StorageClass[] = ["home", "docker", "recovery"];
 
 export const STORAGE_LABEL: Record<StorageClass, string> = {
-	home: "Projects & home",
+	home: "Projects and home",
 	docker: "Docker",
 	recovery: "Recovery",
 };

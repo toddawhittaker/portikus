@@ -1,8 +1,10 @@
 import type { AdminUser } from "@portikus/contracts";
+import { render } from "@testing-library/react";
 import { expect, test } from "vitest";
 import {
 	imageText,
 	isCourseAccount,
+	Markers,
 	markerLabels,
 	roleText,
 	shortIssuer,
@@ -148,4 +150,34 @@ test("role labels say where an administrator's role came from", () => {
 	);
 	expect(roleText({ role: "instructor", grantedRole: null })).toBe("Instructor");
 	expect(roleText({ role: "student", grantedRole: null })).toBe("Student");
+});
+
+test("the tags wrap as a group, with no outer margin, and only Disabled is neutral", () => {
+	const { container } = render(
+		<Markers
+			markers={{ ...NONE, disabled: true, stale: true }}
+			workspace={{
+				cpuThrottle: null,
+				memoryFlag: {
+					at: "2026-09-22T00:00:00.000Z",
+					averagePercent: 91,
+					thresholdPercent: 90,
+					windowMinutes: 10,
+				},
+			}}
+		/>,
+	);
+	const group = container.firstElementChild as HTMLElement;
+	// The parent spaces the group; it wraps rather than squeezing a tag onto two lines.
+	expect(group.className).toBe("flex flex-wrap gap-1");
+	expect([...group.children].map((tag) => [tag.textContent, tag.className])).toEqual([
+		["Disabled", "pk-tag"],
+		["Stale", "pk-tag pk-tag--warning"],
+		["High memory", "pk-tag pk-tag--warning"],
+	]);
+});
+
+test("an account with no tags renders nothing", () => {
+	const { container } = render(<Markers markers={NONE} workspace={null} />);
+	expect(container.innerHTML).toBe("");
 });

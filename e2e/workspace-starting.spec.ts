@@ -38,23 +38,25 @@ test("the starting screen gives way to the terminal tabs", async ({
 });
 
 /** A workspace the worker could not start, as its error row reads (SPEC.md §28). */
-async function failWorkspace(workspaceId: string): Promise<void> {
+async function failWorkspace(
+	workspaceId: string,
+	code = "STORAGE_FULL",
+	message = "Your workspace could not start because its storage is full.",
+): Promise<void> {
 	await query(
 		`update workspaces
-		    set state = 'error', error_code = 'STORAGE_FULL',
-		        error_message = 'Your workspace could not start because its storage is full.',
-		        updated_at = now()
+		    set state = 'error', error_code = $2, error_message = $3, updated_at = now()
 		  where id = $1`,
-		[workspaceId],
+		[workspaceId, code, message],
 	);
 }
 
-test("the error screen offers Try again and Workspace details, with the detail folded away", async ({
+test("an error a second start can get past offers Try again and Workspace details, with the detail folded away", async ({
 	page,
 	context,
 }) => {
 	const student = await createStudent(context);
-	await failWorkspace(student.workspaceId);
+	await failWorkspace(student.workspaceId, "TIMEOUT", "The operation timed out.");
 	await page.goto(workspacePath(student.workspaceId));
 
 	const progress = page.getByTestId("workspace-progress");
@@ -62,9 +64,9 @@ test("the error screen offers Try again and Workspace details, with the detail f
 	// The raw error is there, but collapsed under "Technical details".
 	const details = page.getByTestId("workspace-error-details");
 	await expect(details.getByText("Technical details")).toBeVisible();
-	await expect(details.getByText("STORAGE_FULL")).toBeHidden();
+	await expect(details.getByText("TIMEOUT")).toBeHidden();
 	await details.getByText("Technical details").click();
-	await expect(details.getByText("STORAGE_FULL")).toBeVisible();
+	await expect(details.getByText("TIMEOUT")).toBeVisible();
 
 	await page.getByRole("button", { name: "Workspace details" }).click();
 	await expect(page.getByTestId("dialog-workspace-status")).toBeVisible();
@@ -80,7 +82,7 @@ test("the error screen offers Try again and Workspace details, with the detail f
 	expect((await start).ok()).toBe(true);
 });
 
-test("a STORAGE_FULL error with Docker full shows the meters and offers Clean up Docker", async ({
+test("a STORAGE_FULL error with Docker full says so with figures and leads with Reset Docker", async ({
 	page,
 	context,
 }) => {
@@ -99,11 +101,20 @@ test("a STORAGE_FULL error with Docker full shows the meters and offers Clean up
 	await expect(progress.getByTestId("storage-meter-docker")).toHaveClass(
 		/pk-meter--full/,
 	);
-	await progress.getByRole("button", { name: "Clean up Docker…" }).click();
+	await expect(progress.getByTestId("progress-sub")).toHaveText(
+		"Its storage is full. Docker is using 99.0 GB of 100 GB. Reset Docker to free that space; your projects and home folder are kept.",
+	);
+	// Try again stays, after Reset Docker: an administrator may have grown the quota.
+	await expect(progress.locator(".pk-actions").getByRole("button")).toHaveText([
+		"Reset Docker…",
+		"Try again",
+		"Workspace details",
+	]);
+	await progress.getByRole("button", { name: "Reset Docker…", exact: true }).click();
 	await expect(page.getByTestId("dialog-reset-docker")).toBeVisible();
 });
 
-test("an error with no agent offers only Try again and Workspace details", async ({
+test("a STORAGE_FULL error with no agent offers Try again and Workspace details", async ({
 	page,
 	context,
 }) => {
@@ -122,9 +133,33 @@ test("an error with no agent offers only Try again and Workspace details", async
 	const progress = page.getByTestId("workspace-progress");
 	await expect(progress).toHaveAttribute("data-phase", "error", { timeout: 15_000 });
 	await expect(progress.getByTestId("storage-meters")).toHaveCount(0);
-	await expect(progress.getByRole("button", { name: "Clean up Docker…" })).toHaveCount(
-		0,
+	await expect(progress.getByTestId("progress-sub")).toHaveText(
+		"Its storage is full. Ask your administrator for more space. Your files are kept.",
 	);
+	await expect(progress.getByRole("button")).toHaveText([
+		"Try again",
+		"Workspace details",
+	]);
+	// The dialog still has Start workspace for when space has been freed.
+	await progress.getByRole("button", { name: "Workspace details" }).click();
+	await expect(
+		page.getByTestId("dialog-workspace-status").getByTestId("workspace-start"),
+	).toBeVisible();
+});
+
+test("a missing image offers no Try again, only Workspace details", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await failWorkspace(student.workspaceId, "IMAGE_NOT_FOUND", "The image is missing.");
+	await page.goto(workspacePath(student.workspaceId));
+
+	const progress = page.getByTestId("workspace-progress");
+	await expect(progress).toHaveAttribute("data-phase", "error", { timeout: 15_000 });
+	await expect(progress.locator(".pk-actions").getByRole("button")).toHaveText([
+		"Workspace details",
+	]);
 });
 
 for (const state of ["stopped", "error"] as const) {

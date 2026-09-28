@@ -20,7 +20,9 @@ import {
 async function chooseFromActions(page: Page, terminalId: string, item: string) {
 	await page.getByTestId(`terminal-actions-${terminalId}`).focus();
 	await page.keyboard.press("Enter");
-	const menuItem = page.getByRole("menuitem", { name: item });
+	const menuItem = page
+		.getByRole("menuitem", { name: item })
+		.or(page.getByRole("menuitemcheckbox", { name: item }));
 	await expect(menuItem).toBeVisible();
 	await menuItem.focus();
 	await page.keyboard.press("Enter");

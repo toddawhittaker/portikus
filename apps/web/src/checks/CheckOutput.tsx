@@ -26,6 +26,8 @@ export interface CheckOutputProps {
 	workspaceId: string;
 	projectId: string;
 	checkId: string;
+	/** The check's name, for the output's accessible name. */
+	name: string;
 	/** The run ended; the list refetches so the badge catches up. */
 	onFinished: () => void;
 }
@@ -39,6 +41,7 @@ export function CheckOutput({
 	workspaceId,
 	projectId,
 	checkId,
+	name,
 	onFinished,
 }: CheckOutputProps) {
 	const host = useRef<HTMLDivElement | null>(null);
@@ -123,7 +126,7 @@ export function CheckOutput({
 			className="pk-check-screen"
 			data-testid={`check-output-${checkId}`}
 			role="log"
-			aria-label="Check output"
+			aria-label={name ? `Output of ${name}` : "Check output"}
 		>
 			<div className="pk-terminal-surface" ref={host} />
 		</div>

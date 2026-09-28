@@ -1,6 +1,13 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { json, project, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
+import {
+	json,
+	openToggletip,
+	project,
+	renderWithQuery,
+	stubFetch,
+	WORKSPACE,
+} from "../test-utils.js";
 import { REASON_LABEL, RecoveryDialog } from "./RecoveryDialog.js";
 import { pointTime } from "./RestoreConfirm.js";
 
@@ -201,4 +208,24 @@ test("a leftover rollback copy is explained, not offered a skip", async () => {
 
 	await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(message));
 	expect(screen.queryByTestId("dialog-restore-without-safety")).toBeNull();
+});
+
+test("the head explains what a point holds, and says restoring rolls back commits", async () => {
+	render(() => json(200, LIST));
+	const dialog = screen.getByTestId("dialog-recovery-points");
+	// The old line claimed Git was never touched; a point holds .git (SPEC.md §15.10).
+	expect(dialog.textContent).not.toContain("Git is never touched");
+	expect(dialog.textContent).toContain("Portikus never makes Git commits for you.");
+	// The tip sits beside the description, so the description reads cleanly.
+	const described = document.getElementById(
+		dialog.getAttribute("aria-describedby") ?? "",
+	);
+	expect(described?.textContent).toBe(
+		"Copies of this project that Portikus keeps outside the folder. Portikus never makes Git commits for you.",
+	);
+	expect(described?.querySelector("button")).toBeNull();
+	fireEvent.click(screen.getByRole("button", { name: "About Recovery points" }));
+	const tip = openToggletip();
+	expect(tip.textContent).toContain("its Git folder included");
+	expect(tip.textContent).toContain("commits included");
 });

@@ -153,6 +153,11 @@ export const AuditEvent = z.object({
 	actorName: z.string().nullable(),
 	action: z.string(),
 	target: z.string(),
+	/**
+	 * Whose the target is when it is a user or a workspace: the user's or the
+	 * owner's display name. Null for any other target; only the Audit tab sends it.
+	 */
+	targetName: z.string().nullable().optional(),
 	result: z.string(),
 	metadata: z.record(z.string(), z.unknown()).nullable(),
 });
@@ -222,7 +227,10 @@ export function isQuotaGrowOnly(from: QuotaConfig, to: QuotaConfig): boolean {
 	return to.homeGiB >= from.homeGiB && to.dockerGiB >= from.dockerGiB;
 }
 
-/** Query string of `GET /admin/audit`. */
+/**
+ * Query string of `GET /admin/audit`. `user` matches rows the person made,
+ * rows about their account, and rows about the workspace they own.
+ */
 export const AuditQuery = z
 	.object({
 		workspace: z.string().uuid().optional(),
