@@ -74,6 +74,15 @@ database itself is wrong, load the dump with `pg_restore --clean`.
 
 ## Deploying
 
+**A server installed with apt** (docs/INSTALL.md) is upgraded with
+`sudo apt update && sudo apt upgrade`, which installs the new release and
+reruns setup on its own. `sudo dpkg-reconfigure portikus` changes the
+install answers, and `sudo portikus setup` reapplies them. That is the
+normal path, and the rest of this section does not apply to it.
+
+**The development pilot and the rehearsal VM** are built and deployed
+from a workstation with Ansible, as follows.
+
 ```
 git fetch origin && git checkout origin/main
 nvm use

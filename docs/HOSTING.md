@@ -7,9 +7,9 @@ from docs/OPERATIONS.md, "Host hardware for a class of about 24".
 
 ## What the rented machine must be
 
-A rented machine is the Portikus host itself, set up by the steps in
-infra/README.md, "Bring your own Debian host". There is no libvirt VM
-inside it. It must have:
+A rented machine is the Portikus host itself, installed with
+`apt install portikus` by the steps in docs/INSTALL.md. There is no
+libvirt VM inside it. It must have:
 
 - Debian 13 (trixie), 64-bit, with root access.
 - An x86-64 (Intel or AMD) processor. The workspace image and most
@@ -18,14 +18,16 @@ inside it. It must have:
 - A full virtual machine or a physical server. A container-based VPS
   (OpenVZ or LXC) cannot run Incus with nested Docker. Hardware
   virtualisation (KVM) is not needed.
-- A second empty disk for the student storage pool. On a physical server
-  it is usually named `/dev/nvme1n1`, so pass
-  `-e data_disk_device=/dev/nvme1n1` to the playbook.
-- A public IPv4 address, with inbound TCP 22 and 443 (or 8443).
+- Space for the student storage pool. A second empty disk is best: the
+  installer's storage question offers it (on a physical server it is
+  usually `/dev/nvme1n1`). Without one, the installer can use an existing
+  LVM volume group or a file on the main disk, which is slower.
+- A public IPv4 address, with inbound TCP 22, 80 and 443.
 
-A rented host with a real domain name can also use a public certificate
+A rented host with a real domain name should use a public certificate
 from Let's Encrypt instead of Caddy's private one, which removes the
-risk of students clicking through certificate warnings.
+risk of students clicking through certificate warnings. The installer
+asks which (docs/INSTALL.md, "The install screens").
 
 ## Prices for the recommended size
 
@@ -92,7 +94,9 @@ threads, 64 GB), its second NVMe disk becomes the storage pool with
 nothing extra to buy, traffic is unmetered, and it is in the US. The
 catches: a one-time setup fee of one month, CPUs a few years old, stock
 that changes daily, and minimal support. Whether OVH's installer offers
-Debian 13 was not checked.
+Debian 13 was not checked. docs/INSTALL.md, "Example: an OVH
+dedicated server", covers installing it, including the disk layout. Any
+Debian 13 server of this size works; OVH is only the recommendation.
 
 Other choices, and why not first:
 

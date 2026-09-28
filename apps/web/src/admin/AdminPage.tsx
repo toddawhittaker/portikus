@@ -7,6 +7,7 @@ import { focusAdminHeading } from "./AdminSection.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { BackupsTab } from "./backups/BackupsTab.js";
 import { HealthTab } from "./health/HealthTab.js";
+import { ImageTab } from "./image/ImageTab.js";
 import { LogsTab } from "./logs/LogsTab.js";
 import { NetworkTab } from "./network/NetworkTab.js";
 import { SettingsTab } from "./SettingsTab.js";
@@ -21,6 +22,7 @@ const TAB_LABEL: Record<AdminTab, string> = {
 	audit: "Audit",
 	network: "Network",
 	backups: "Backups",
+	image: "Workspace image",
 	settings: "Settings",
 };
 
@@ -96,6 +98,7 @@ export function AdminPage() {
 					{tab === "audit" ? <AuditTab /> : null}
 					{tab === "network" ? <NetworkTab /> : null}
 					{tab === "backups" ? <BackupsTab /> : null}
+					{tab === "image" ? <ImageTab /> : null}
 					{tab === "settings" ? <SettingsTab /> : null}
 				</div>
 			</main>

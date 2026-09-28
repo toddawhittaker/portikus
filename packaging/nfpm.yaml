@@ -75,6 +75,8 @@ contents:
     file_info:
       owner: root
       group: root
+  - src: ./packaging/debian/preseed.example
+    dst: /usr/share/doc/portikus/preseed.example
   # The apt repository's public key (ruling 17), dearmored by build-deb.sh.
   - src: ./dist/deploy/portikus-archive-keyring.gpg
     dst: /usr/share/keyrings/portikus-archive-keyring.gpg
@@ -119,20 +121,30 @@ contents:
   - src: ./packaging/systemd/portikus-setup.service
     dst: /usr/lib/systemd/system/portikus-setup.service
     file_info: *unit_info
-  # TODO(Epic 15 T6): uncomment when packaging/systemd/portikus-image-job.{path,service}
-  # and packaging/image/image-job exist (ruling 28, ADR 0030).
-  # - src: ./packaging/systemd/portikus-image-job.path
-  #   dst: /usr/lib/systemd/system/portikus-image-job.path
-  #   file_info: *unit_info
-  # - src: ./packaging/systemd/portikus-image-job.service
-  #   dst: /usr/lib/systemd/system/portikus-image-job.service
-  #   file_info: *unit_info
-  # - src: ./packaging/image/image-job
-  #   dst: /usr/lib/portikus/image-job
-  #   file_info:
-  #     owner: root
-  #     group: root
-  #     mode: 0755
+  # The root workspace image job and its trigger (ruling 28, ADR 0030).
+  # Enabled by Ansible, which creates the directories they need.
+  - src: ./packaging/systemd/portikus-image-job.path
+    dst: /usr/lib/systemd/system/portikus-image-job.path
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-image-job.service
+    dst: /usr/lib/systemd/system/portikus-image-job.service
+    file_info: *unit_info
+  - src: ./packaging/image/image-job
+    dst: /usr/lib/portikus/image-job
+    file_info:
+      owner: root
+      group: root
+      mode: 0755
+  # The recipe a "rebuild" job builds from (ruling 23).
+  - src: ./infra/workspace-image/portikus.yaml
+    dst: /usr/share/portikus/workspace-image/portikus.yaml
+    file_info: &recipe_info
+      owner: root
+      group: root
+      mode: 0644
+  - src: ./infra/workspace-image/VERSION
+    dst: /usr/share/portikus/workspace-image/VERSION
+    file_info: *recipe_info
 
   # The host command, run by root (SPEC.md section 5.1).
   - src: ./packaging/bin/portikus
@@ -156,11 +168,11 @@ contents:
       owner: root
       group: root
 
-# TODO(Epic 15 T2): uncomment when packaging/debian/templates and config exist.
-# deb:
-#   scripts:
-#     templates: ./packaging/debian/templates
-#     config: ./packaging/debian/config
+# The install questions (docs/EPIC-15.md, rulings 2 to 6).
+deb:
+  scripts:
+    templates: ./packaging/debian/templates
+    config: ./packaging/debian/config
 
 scripts:
   postinstall: ./packaging/scripts/postinst

@@ -17,6 +17,13 @@ the shim reads what it is given and writes it to the terminal as an OSC 52
 escape sequence, which tmux passes through to the browser (issue #125).
 Reading the clipboard is not possible, so `xclip -o` prints nothing.
 
+The recipe takes four build parameters from the environment: the Node
+major (24 or 26), Python (Debian's alone, or with Python 3.14 from uv), and
+the Claude Code and Codex versions. Unset, they give the pinned defaults CI
+publishes. The admin "rebuild" job (`packaging/image/image-job`) sets them
+from its dropdowns and asks for the latest Claude Code and Codex. The
+comment at the top of `portikus.yaml` lists them.
+
 To bump pinned tool versions, update the npm install action in `portikus.yaml`
 and the comment block at the top of the file. Run `npm view <pkg> version`
 to find the current release and record the date in the comment.

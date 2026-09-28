@@ -121,9 +121,17 @@ mock identity provider in `packages/auth`.
 provider's accounts, the Playwright browser install, gitleaks for the
 pre-commit hook, and the tools `make infra-check` needs.
 
-## Deploying
+## Installing
 
-The platform is a reproducible VM built from `infra/`: host bootstrap,
+To run Portikus for a class, get a Debian 13 x86-64 server (bare metal or
+a full virtual machine, from any provider or your own hardware), add the Portikus
+package repository and run `apt install portikus`; a few text screens
+set it up. [docs/INSTALL.md](docs/INSTALL.md) walks through every step,
+and [docs/HOSTING.md](docs/HOSTING.md) says what size of server suits a class.
+
+## Deploying for development
+
+The project's own pilot and rehearsal machines are a reproducible VM built from `infra/`: host bootstrap,
 OpenTofu on libvirt, cloud-init, and Ansible roles for the firewall, storage,
 Incus, network, PostgreSQL, Caddy, and the application. The control plane
 ships as one versioned Debian package, so an upgrade is a package install and
@@ -153,6 +161,7 @@ checks) is in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 |---|---|
 | [docs/OVERVIEW.md](docs/OVERVIEW.md) | One-page orientation and the design rules. Read this first |
 | [docs/STUDENT-GUIDE.md](docs/STUDENT-GUIDE.md) | How to use a workspace, for students |
+| [docs/INSTALL.md](docs/INSTALL.md) | How to install Portikus on a Debian 13 server |
 | [docs/ADMIN-GUIDE.md](docs/ADMIN-GUIDE.md) | How to run Portikus for a course, for administrators and instructors |
 | [docs/VISION.md](docs/VISION.md) | Product intent; wins on questions of intent |
 | [docs/SPEC.md](docs/SPEC.md) | Requirements; wins on implementation detail |

@@ -1,0 +1,259 @@
+Template: portikus/welcome
+Type: note
+Description: Welcome to Portikus
+ Portikus gives each student a development workspace in the browser, with
+ terminals, an editor and AI coding assistants, running in containers on
+ this server.
+ .
+ The next screens ask for this server's web address, the administrator's
+ email, how to get the HTTPS certificate, how people sign in, and where to
+ keep student files. Each one suggests an answer.
+ .
+ Nothing on this server changes until you confirm on the last screen.
+ Setup then runs in the background and takes about fifteen minutes.
+
+Template: portikus/error
+Type: note
+Description: Please check that answer
+ ${message}
+
+Template: portikus/public_host
+Type: string
+Description: Web address of this server:
+ The host name people type in their browser to reach Portikus, such as
+ portikus.example.edu. It should already point at this server in DNS.
+ .
+ Student previews use names under preview.<this name>.
+
+Template: portikus/admin_email
+Type: string
+Description: Email of the Portikus administrator:
+ Setup creates a local administrator account with this email and a
+ one-time password, which you change at first sign-in. The address does
+ not need to receive mail.
+
+Template: portikus/tls
+Type: select
+Choices-C: letsencrypt, files, internal
+Choices: Let's Encrypt (a free public certificate), Certificate files I already have, Portikus's own certificate authority (testing)
+Default: letsencrypt
+Description: HTTPS certificate:
+ Portikus is served only over HTTPS. Choose where its certificate comes
+ from.
+ .
+ Let's Encrypt: a free certificate every browser trusts. It needs a public
+ DNS name, and a Cloudflare API token for the student preview names.
+ .
+ Certificate files: a certificate and key you already have. They must
+ cover this name and *.preview.<this name>.
+ .
+ Own authority: works without public DNS, but every browser must be told
+ to trust its root certificate. Use it for testing and private networks.
+
+Template: portikus/acme_email
+Type: string
+Description: Email for Let's Encrypt:
+ Let's Encrypt writes to this address if a certificate is about to expire
+ or has a problem.
+
+Template: portikus/cloudflare_api_token
+Type: password
+Description: Cloudflare API token:
+ Student previews need a wildcard certificate, which Let's Encrypt issues
+ only after a DNS check. Portikus makes that check through Cloudflare, so
+ your domain's DNS must be hosted there.
+ .
+ In Cloudflare, create a token with the "Edit zone DNS" permission for
+ this domain. It is stored only in /etc/portikus/secrets.yaml, which only
+ root can read. ${keep}
+
+Template: portikus/tls_cert
+Type: string
+Description: Certificate file:
+ The full path to the certificate on this server, in PEM format, with any
+ intermediate certificates after it.
+
+Template: portikus/tls_key
+Type: string
+Description: Private key file:
+ The full path to the certificate's private key on this server, in PEM
+ format. Keep it readable by root only.
+
+Template: portikus/provider
+Type: select
+Choices-C: dex, entra, google, ldap, oidc
+Choices: Local accounts only, Microsoft Entra ID, Google Workspace, LDAP or Active Directory, Another OpenID Connect provider
+Default: dex
+Description: How people sign in:
+ Portikus always has local accounts, which the administrator creates. It
+ can also let people sign in with your institution's accounts.
+ .
+ Local accounts only: nothing more to set up now. You can add single
+ sign-on later with "dpkg-reconfigure portikus".
+ .
+ Microsoft Entra ID or Google Workspace: people use their school accounts.
+ Register Portikus as an application there first.
+ .
+ LDAP or Active Directory: people use their directory accounts.
+ .
+ Another OpenID Connect provider: such as Okta, Keycloak or Shibboleth.
+
+Template: portikus/entra_tenant_id
+Type: string
+Description: Entra tenant ID:
+ The Directory (tenant) ID of your organization, shown on the app
+ registration's Overview page. It looks like
+ 12345678-90ab-cdef-1234-567890abcdef.
+
+Template: portikus/google_domains
+Type: string
+Description: Google Workspace domains:
+ The domains whose accounts may sign in, such as example.edu. Separate
+ more than one with spaces.
+
+Template: portikus/oidc_issuer
+Type: string
+Description: Provider's issuer URL:
+ The provider's HTTPS issuer address, such as
+ https://login.example.edu/realms/main. Portikus finds the rest from it.
+
+Template: portikus/client_id
+Type: string
+Description: Client ID:
+ The client (application) ID your provider gave Portikus when you
+ registered it. The redirect address to register there is
+ https://${host}/dex/callback.
+
+Template: portikus/client_secret
+Type: password
+Description: Client secret:
+ The client secret of that registration. It is stored only in
+ /etc/portikus/secrets.yaml, which only root can read. ${keep}
+
+Template: portikus/oidc_groups_claim
+Type: string
+Default: groups
+Description: Groups claim:
+ The name of the claim in the provider's tokens that lists a person's
+ groups. Most providers use "groups".
+
+Template: portikus/ldap_host
+Type: string
+Description: Directory server:
+ The directory's host name, with a port if it is not 636, such as
+ ad.example.edu or ldap.example.edu:3269. Portikus always connects over
+ TLS.
+
+Template: portikus/ldap_schema
+Type: select
+Choices-C: ad, openldap
+Choices: Active Directory, OpenLDAP or another LDAP server
+Default: ad
+Description: Kind of directory:
+ This picks the attribute names Portikus reads for user names, emails and
+ groups.
+
+Template: portikus/ldap_ip_allow
+Type: string
+Description: Directory server addresses:
+ The IP addresses or networks of the directory servers, such as 10.0.0.5
+ or 10.0.0.0/24. Separate more than one with spaces. The sign-in service
+ may connect only to these.
+
+Template: portikus/ldap_bind_dn
+Type: string
+Description: Service account:
+ The distinguished name Portikus signs in to the directory as, to look
+ people up, such as cn=portikus,ou=Services,dc=example,dc=edu.
+
+Template: portikus/ldap_bind_password
+Type: password
+Description: Service account password:
+ It is stored only in /etc/portikus/secrets.yaml, which only root can
+ read. ${keep}
+
+Template: portikus/ldap_user_base_dn
+Type: string
+Description: Where people are:
+ The part of the directory to search for people, such as
+ ou=People,dc=example,dc=edu.
+
+Template: portikus/ldap_user_filter
+Type: string
+Description: Who may sign in:
+ An LDAP filter, in parentheses, naming who may sign in. Without a narrow
+ filter every account in the directory could, so name a group, such as
+ (memberOf=cn=portikus-users,ou=Groups,dc=example,dc=edu).
+
+Template: portikus/ldap_group_base_dn
+Type: string
+Description: Where groups are (optional):
+ The part of the directory to search for groups, such as
+ ou=Groups,dc=example,dc=edu. Leave it blank to skip group lookups; then
+ everyone signs in as a student and the administrator assigns other roles.
+
+Template: portikus/ldap_root_ca
+Type: string
+Description: Directory's CA certificate (optional):
+ The full path to the certificate authority file that signed the
+ directory's certificate, if this server does not already trust it. Leave
+ it blank to use the system's trusted authorities.
+
+Template: portikus/student_group
+Type: string
+Default: portikus-students
+Description: Students' group:
+ The group whose members sign in as students. Only members of one of the
+ three groups asked for here may sign in.
+
+Template: portikus/instructor_group
+Type: string
+Default: portikus-instructors
+Description: Instructors' group:
+ The group whose members sign in as instructors.
+
+Template: portikus/admin_group
+Type: string
+Default: portikus-administrators
+Description: Administrators' group:
+ The group whose members sign in as administrators.
+
+Template: portikus/storage
+Type: select
+Choices-C: ${values}
+Choices: ${labels}
+Description: Where to keep student files:
+ Student files, containers and Docker data live in one storage pool.
+ .
+ An empty disk is fastest; setup erases it. An LVM volume group gives its
+ free space and leaves existing volumes alone. A file on the main disk
+ needs no spare disk, but is slower and shares space with the system.
+
+Template: portikus/storage_confirm
+Type: boolean
+Default: false
+Description: Erase ${device}?
+ EVERYTHING ON ${device} (${size}) WILL BE ERASED when setup runs. This
+ cannot be undone.
+ .
+ Choose Yes only if that disk holds nothing you need. Choose No to decide
+ later: setup will not touch the disk until you say Yes.
+
+Template: portikus/storage_size
+Type: string
+Description: Size of the storage file, in GiB:
+ Student files go in one file on this server's main disk. It is slower
+ than a disk of its own and shares space with the system.
+ .
+ The main disk has ${free} GiB free. Give a whole number of GiB, at most
+ ${max}, so the system keeps room to work.
+
+Template: portikus/summary
+Type: boolean
+Default: true
+Description: Save these answers and start setup?
+ ${summary}
+ .
+ Yes saves them in /etc/portikus/portikus.yaml, with secrets in
+ /etc/portikus/secrets.yaml, and starts setup in the background. No goes
+ back to change an answer.

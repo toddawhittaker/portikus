@@ -1,0 +1,544 @@
+#!/bin/sh
+# portikus debconf config: ask the install questions (docs/EPIC-15.md,
+# rulings 2 to 6 and 9). Answers are written to /etc/portikus by postinst.
+set -e
+
+# shellcheck source=/dev/null
+. /usr/share/debconf/confmodule
+
+CONFIG_FILE=/etc/portikus/portikus.yaml
+SECRETS_FILE=/etc/portikus/secrets.yaml
+
+db_capb backup escape
+
+# The questions in the order they are asked; step() skips the ones that do
+# not apply to the answers so far.
+STEPS="welcome public_host admin_email tls acme_email cloudflare_api_token
+tls_cert tls_key provider entra_tenant_id google_domains oidc_issuer client_id
+client_secret oidc_groups_claim ldap_host ldap_schema ldap_ip_allow
+ldap_bind_dn ldap_bind_password ldap_user_base_dn ldap_user_filter
+ldap_group_base_dn ldap_root_ca student_group instructor_group admin_group
+storage storage_confirm storage_size summary"
+# shellcheck disable=SC2086
+LAST=$(set -- $STEPS; echo $#)
+
+# A hand edit of portikus.yaml wins over the answer remembered by debconf,
+# so reconfiguring starts from what the file says. Needs python3, which is
+# there once the package has been installed (ansible-core depends on it).
+import_config_file() {
+	[ -r "$CONFIG_FILE" ] && command -v python3 >/dev/null 2>&1 || return 0
+	answers=$(python3 - "$CONFIG_FILE" <<'PY'
+
+import sys, yaml
+names = {
+    "portikus_public_host": "public_host", "portikus_admin_email": "admin_email",
+    "portikus_tls": "tls", "portikus_acme_email": "acme_email",
+    "portikus_tls_cert": "tls_cert", "portikus_tls_key": "tls_key",
+    "portikus_dex_upstream": "provider", "portikus_entra_tenant_id": "entra_tenant_id",
+    "portikus_google_domains": "google_domains", "portikus_dex_upstream_issuer": "oidc_issuer",
+    "portikus_dex_upstream_client_id": "client_id",
+    "portikus_oidc_upstream_groups_claim": "oidc_groups_claim",
+    "portikus_ldap_host": "ldap_host", "portikus_ldap_schema": "ldap_schema",
+    "portikus_ldap_ip_allow": "ldap_ip_allow", "portikus_ldap_bind_dn": "ldap_bind_dn",
+    "portikus_ldap_user_base_dn": "ldap_user_base_dn",
+    "portikus_ldap_user_filter": "ldap_user_filter",
+    "portikus_ldap_group_base_dn": "ldap_group_base_dn", "portikus_ldap_root_ca": "ldap_root_ca",
+    "portikus_oidc_student_group": "student_group",
+    "portikus_oidc_instructor_group": "instructor_group",
+    "portikus_oidc_admin_group": "admin_group", "portikus_storage": "storage",
+    "portikus_storage_confirm": "storage_confirm", "portikus_storage_size": "storage_size",
+}
+try:
+    with open(sys.argv[1]) as f:
+        data = yaml.safe_load(f) or {}
+except (OSError, yaml.YAMLError):
+    sys.exit(0)
+if not isinstance(data, dict):
+    sys.exit(0)
+for key, question in names.items():
+    if key not in data or data[key] is None:
+        continue
+    value = data[key]
+    if isinstance(value, list):
+        value = " ".join(str(v) for v in value)
+    elif isinstance(value, bool):
+        value = "true" if value else "false"
+    else:
+        value = str(value)
+    if question == "provider" and value == "none":
+        value = "dex"
+    if "\n" in value or "\t" in value:
+        continue
+    print(question + "\t" + value)
+PY
+)
+	# db_set talks over stdin and stdout, so the lines come in on fd 4.
+	while IFS='	' read -r question value <&4; do
+		[ -n "$question" ] && db_set "portikus/$question" "$value"
+	done 4<<EOF
+$answers
+EOF
+}
+
+# Sets KEEP_TEXT when a secret is already stored, so a blank answer keeps it.
+has_secret() {
+	[ -r "$SECRETS_FILE" ] && grep -q "^$1:" "$SECRETS_FILE"
+}
+
+# Empty disks: no partitions, no filesystem or other signature, writable.
+empty_disks() {
+	lsblk -dnp -o NAME,TYPE 2>/dev/null | while read -r dev type; do
+		[ "$type" = disk ] || continue
+		[ "$(lsblk -nro NAME "$dev" 2>/dev/null | wc -l)" = 1 ] || continue
+		[ "$(lsblk -dno RO "$dev" 2>/dev/null | tr -d ' ')" = 0 ] || continue
+		[ -z "$(lsblk -dno FSTYPE,PTTYPE,MOUNTPOINT "$dev" 2>/dev/null | tr -d ' ')" ] || continue
+		if blkid -p "$dev" >/dev/null 2>&1; then
+			continue
+		fi
+		echo "$dev $(($(lsblk -dnbo SIZE "$dev") / 1073741824))"
+	done
+}
+
+# Volume groups with at least 1 GiB free, with that free space in GiB.
+free_vgs() {
+	command -v vgs >/dev/null 2>&1 || return 0
+	vgs --noheadings --nosuffix --units g -o vg_name,vg_free 2>/dev/null |
+		awk '$2 >= 1 { printf "%s %d\n", $1, $2 }'
+}
+
+root_free_gib() {
+	df -B1G --output=avail / 2>/dev/null | tail -n 1 | tr -d ' '
+}
+
+# The most a storage file may take: leave 10 GiB or a tenth, whichever is more.
+max_file_gib() {
+	free=$(root_free_gib)
+	spare=$((free / 10))
+	[ "$spare" -ge 10 ] || spare=10
+	echo $((free - spare))
+}
+
+prepare_storage() {
+	db_get portikus/storage
+	current=$RET
+	disks=$(empty_disks)
+	vgs=$(free_vgs)
+	values=""
+	labels=""
+	add() {
+		values="${values:+$values, }$1"
+		labels="${labels:+$labels, }$2"
+	}
+	found=0
+	count=0
+	only=""
+	while read -r dev size; do
+		[ -n "$dev" ] || continue
+		add "$dev" "$dev - an empty disk of $size GiB (erased)"
+		count=$((count + 1))
+		only=$dev
+		[ "$dev" = "$current" ] && found=1
+	done <<EOF
+$disks
+EOF
+	while read -r vg size; do
+		[ -n "$vg" ] || continue
+		add "$vg" "LVM volume group $vg - $size GiB free"
+		[ "$vg" = "$current" ] && found=1
+	done <<EOF
+$vgs
+EOF
+	add file "A file on the main disk - $(root_free_gib) GiB free and slower"
+	[ "$current" = file ] && found=1
+	if [ -n "$current" ] && [ "$found" = 0 ]; then
+		add "$current" "$current - the current choice"
+	fi
+	db_subst portikus/storage values "$values"
+	db_subst portikus/storage labels "$labels"
+	if [ -z "$current" ]; then
+		if [ "$count" = 1 ]; then
+			db_set portikus/storage "$only"
+		else
+			db_set portikus/storage file
+		fi
+	fi
+}
+
+# Whether a question applies, given the answers so far.
+relevant() {
+	case "$1" in
+	acme_email | cloudflare_api_token)
+		db_get portikus/tls
+		[ "$RET" = letsencrypt ]
+		;;
+	tls_cert | tls_key)
+		db_get portikus/tls
+		[ "$RET" = files ]
+		;;
+	entra_tenant_id)
+		db_get portikus/provider
+		[ "$RET" = entra ]
+		;;
+	google_domains)
+		db_get portikus/provider
+		[ "$RET" = google ]
+		;;
+	oidc_issuer | oidc_groups_claim)
+		db_get portikus/provider
+		[ "$RET" = oidc ]
+		;;
+	client_id | client_secret)
+		db_get portikus/provider
+		[ "$RET" = entra ] || [ "$RET" = google ] || [ "$RET" = oidc ]
+		;;
+	ldap_*)
+		db_get portikus/provider
+		[ "$RET" = ldap ]
+		;;
+	student_group | instructor_group | admin_group)
+		db_get portikus/provider
+		[ "$RET" = oidc ] && return 0
+		[ "$RET" = ldap ] || return 1
+		db_get portikus/ldap_group_base_dn
+		[ -n "$RET" ]
+		;;
+	storage_confirm)
+		db_get portikus/storage
+		case "$RET" in /dev/*) return 0 ;; esac
+		return 1
+		;;
+	storage_size)
+		db_get portikus/storage
+		[ "$RET" = file ]
+		;;
+	*)
+		return 0
+		;;
+	esac
+}
+
+# Fills in defaults and the text substituted into a question.
+prepare() {
+	case "$1" in
+	public_host)
+		db_get portikus/public_host
+		if [ -z "$RET" ]; then
+			db_set portikus/public_host "$(hostname -f 2>/dev/null || hostname)"
+		fi
+		;;
+	admin_email)
+		db_get portikus/admin_email
+		if [ -z "$RET" ]; then
+			db_get portikus/public_host
+			db_set portikus/admin_email "admin@$RET"
+		fi
+		;;
+	acme_email)
+		db_get portikus/acme_email
+		if [ -z "$RET" ]; then
+			db_get portikus/admin_email
+			db_set portikus/acme_email "$RET"
+		fi
+		;;
+	cloudflare_api_token | client_secret | ldap_bind_password)
+		if has_secret "$(secret_key "$1")"; then
+			db_subst "portikus/$1" keep "A secret is already stored: leave this blank to keep it."
+		else
+			db_subst "portikus/$1" keep ""
+		fi
+		;;
+	client_id)
+		db_get portikus/public_host
+		db_subst portikus/client_id host "$RET"
+		;;
+	storage)
+		prepare_storage
+		;;
+	storage_confirm)
+		db_get portikus/storage
+		dev=$RET
+		size="$(($(lsblk -dnbo SIZE "$dev" 2>/dev/null || echo 0) / 1073741824)) GiB"
+		db_subst portikus/storage_confirm device "$dev"
+		db_subst portikus/storage_confirm size "$size"
+		;;
+	storage_size)
+		db_subst portikus/storage_size free "$(root_free_gib)"
+		db_subst portikus/storage_size max "$(max_file_gib)"
+		db_get portikus/storage_size
+		if [ -z "$RET" ]; then
+			db_set portikus/storage_size "$(($(root_free_gib) / 2))"
+		fi
+		;;
+	summary)
+		summary
+		db_subst portikus/summary summary "$SUMMARY"
+		;;
+	esac
+}
+
+secret_key() {
+	case "$1" in
+	cloudflare_api_token) echo portikus_cloudflare_api_token ;;
+	client_secret) echo portikus_dex_upstream_client_secret ;;
+	ldap_bind_password) echo portikus_ldap_bind_password ;;
+	esac
+}
+
+# Sets SUMMARY: the answers, one per line (escaped for debconf), never a secret.
+summary() {
+	out=""
+	line() {
+		out="$out$1\\n"
+	}
+	db_get portikus/public_host
+	line "Web address: https://$RET"
+	db_get portikus/admin_email
+	line "Administrator: $RET"
+	db_get portikus/tls
+	case "$RET" in
+	letsencrypt)
+		db_get portikus/acme_email
+		line "Certificate: Let's Encrypt, notices to $RET"
+		;;
+	files)
+		db_get portikus/tls_cert
+		line "Certificate: the file $RET"
+		;;
+	*) line "Certificate: Portikus's own authority" ;;
+	esac
+	db_get portikus/provider
+	case "$RET" in
+	entra)
+		db_get portikus/entra_tenant_id
+		line "Sign-in: local accounts and Microsoft Entra ID (tenant $RET)"
+		;;
+	google)
+		db_get portikus/google_domains
+		line "Sign-in: local accounts and Google Workspace ($RET)"
+		;;
+	ldap)
+		db_get portikus/ldap_host
+		line "Sign-in: local accounts and the directory at $RET"
+		;;
+	oidc)
+		db_get portikus/oidc_issuer
+		line "Sign-in: local accounts and $RET"
+		;;
+	*) line "Sign-in: local accounts only" ;;
+	esac
+	db_get portikus/storage
+	case "$RET" in
+	file)
+		db_get portikus/storage_size
+		line "Student files: a $RET GiB file on the main disk"
+		;;
+	/dev/*)
+		dev=$RET
+		db_get portikus/storage_confirm
+		if [ "$RET" = true ]; then
+			line "Student files: $dev, which setup will ERASE"
+		else
+			line "Student files: $dev, NOT confirmed, so setup will not start"
+		fi
+		;;
+	*) line "Student files: LVM volume group $RET" ;;
+	esac
+	SUMMARY=$out
+}
+
+is_hostname() {
+	echo "$1" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+}
+
+is_email() {
+	echo "$1" | grep -Eq '^[A-Za-z0-9._%+-]+@([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9-]+$'
+}
+
+# Checks an answer the person just gave; sets PROBLEM and fails.
+check() {
+	db_get "portikus/$1"
+	value=$RET
+	case "$1" in
+	public_host)
+		lower=$(echo "$value" | tr '[:upper:]' '[:lower:]')
+		[ "$lower" = "$value" ] || db_set portikus/public_host "$lower"
+		is_hostname "$lower" || {
+			PROBLEM="\"$value\" is not a full host name. Use letters, digits, hyphens and dots, such as portikus.example.edu."
+			return 1
+		}
+		;;
+	admin_email | acme_email)
+		is_email "$value" || {
+			PROBLEM="\"$value\" is not an email address, such as someone@example.edu."
+			return 1
+		}
+		;;
+	tls_cert | tls_key | ldap_root_ca)
+		[ "$1" = ldap_root_ca ] && [ -z "$value" ] && return 0
+		case "$value" in /*) ;; *)
+			PROBLEM="Give the full path, starting with /."
+			return 1
+			;;
+		esac
+		if [ ! -f "$value" ] || [ ! -r "$value" ]; then
+			PROBLEM="There is no readable file at $value on this server."
+			return 1
+		fi
+		;;
+	cloudflare_api_token | ldap_bind_password | client_secret)
+		if [ -z "$value" ]; then
+			has_secret "$(secret_key "$1")" && return 0
+			PROBLEM="This cannot be blank."
+			return 1
+		fi
+		if [ "$1" = client_secret ] && [ "${#value}" -lt 16 ]; then
+			PROBLEM="A client secret is at least 16 characters. Check that you copied all of it."
+			return 1
+		fi
+		;;
+	entra_tenant_id)
+		echo "$value" | grep -Eq '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$' || {
+			PROBLEM="A tenant ID looks like 12345678-90ab-cdef-1234-567890abcdef."
+			return 1
+		}
+		;;
+	google_domains)
+		[ -n "$value" ] || {
+			PROBLEM="Give at least one domain, such as example.edu."
+			return 1
+		}
+		for domain in $value; do
+			is_hostname "$domain" || {
+				PROBLEM="\"$domain\" is not a domain name, such as example.edu."
+				return 1
+			}
+		done
+		;;
+	oidc_issuer)
+		echo "$value" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[^[:space:]?#]*)?$' || {
+			PROBLEM="The issuer is an https:// address, such as https://login.example.edu/realms/main."
+			return 1
+		}
+		;;
+	oidc_groups_claim)
+		echo "$value" | grep -Eq '^[A-Za-z0-9_.:/-]+$' || {
+			PROBLEM="A claim name has no spaces or quotes, such as groups."
+			return 1
+		}
+		;;
+	ldap_host)
+		echo "$value" | grep -Eq '^[A-Za-z0-9.-]+(:[0-9]{1,5})?$' || {
+			PROBLEM="Give a host name, optionally with :port, such as ad.example.edu:636."
+			return 1
+		}
+		;;
+	ldap_ip_allow)
+		[ -n "$value" ] || {
+			PROBLEM="Give at least one address, such as 10.0.0.5."
+			return 1
+		}
+		for net in $value; do
+			echo "$net" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?$' || {
+				PROBLEM="\"$net\" is not an IPv4 address or network, such as 10.0.0.5 or 10.0.0.0/24."
+				return 1
+			}
+		done
+		;;
+	ldap_user_filter)
+		case "$value" in "("*")") ;; *)
+			PROBLEM="The filter must be in parentheses, such as (memberOf=cn=portikus-users,ou=Groups,dc=example,dc=edu)."
+			return 1
+			;;
+		esac
+		;;
+	client_id | ldap_bind_dn | ldap_user_base_dn | student_group | instructor_group | admin_group)
+		[ -n "$value" ] || {
+			PROBLEM="This cannot be blank."
+			return 1
+		}
+		;;
+	storage_size)
+		# A file made on an earlier run already uses its space.
+		[ "$value" = "$ORIGINAL_SIZE" ] && [ -n "$value" ] && return 0
+		max=$(max_file_gib)
+		case "$value" in '' | *[!0-9]*)
+			PROBLEM="Give a whole number of GiB, such as 100."
+			return 1
+			;;
+		esac
+		if [ "$value" -lt 1 ] || [ "$value" -gt "$max" ]; then
+			PROBLEM="Give a size from 1 to $max GiB, so the main disk keeps room to spare."
+			return 1
+		fi
+		;;
+	esac
+	return 0
+}
+
+import_config_file
+
+db_get portikus/storage_size
+ORIGINAL_SIZE=$RET
+SHOWN_ANY=0
+STATE=1
+DIR=1
+while [ "$STATE" -ge 1 ] && [ "$STATE" -le "$LAST" ]; do
+	# shellcheck disable=SC2086
+	name=$(set -- $STEPS; eval "echo \${$STATE}")
+	if ! relevant "$name"; then
+		STATE=$((STATE + DIR))
+		continue
+	fi
+	if [ "$name" = summary ]; then
+		# The summary is shown whenever anything was asked in this run.
+		[ "$SHOWN_ANY" = 1 ] || break
+		db_fset portikus/summary seen false
+	fi
+	db_get portikus/storage
+	STORAGE_BEFORE=$RET
+	prepare "$name"
+	rc=0
+	db_input high "portikus/$name" || rc=$?
+	shown=0
+	if [ "$rc" = 0 ]; then
+		shown=1
+		SHOWN_ANY=1
+	fi
+	go=0
+	db_go || go=$?
+	# No on the summary means go back and change something.
+	if [ "$go" = 0 ] && [ "$name" = summary ]; then
+		db_get portikus/summary
+		if [ "$RET" = false ]; then
+			db_set portikus/summary true
+			go=30
+		fi
+	fi
+	if [ "$go" = 0 ]; then
+		DIR=1
+		# A new storage choice needs its own confirmation.
+		db_get portikus/storage
+		if [ "$RET" != "$STORAGE_BEFORE" ]; then
+			db_set portikus/storage_confirm false
+			db_fset portikus/storage_confirm seen false
+		fi
+		PROBLEM=""
+		if [ "$shown" = 1 ] && ! check "$name"; then
+			db_subst portikus/error message "$PROBLEM"
+			db_fset portikus/error seen false
+			db_input critical portikus/error || true
+			db_go || true
+			db_fset "portikus/$name" seen false
+			continue
+		fi
+		STATE=$((STATE + 1))
+	else
+		DIR=-1
+		STATE=$((STATE - 1))
+		# Back from the first screen stays on it.
+		[ "$STATE" -ge 1 ] || { STATE=1; DIR=1; }
+		db_fset "portikus/$name" seen false
+	fi
+done
+
+exit 0

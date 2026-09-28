@@ -1,0 +1,93 @@
+# Answers for an unattended `apt install portikus` (docs/EPIC-15.md, flow 2).
+#
+#   sudo debconf-set-selections preseed.txt
+#   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y portikus
+#   sudo portikus setup --follow
+#
+# Copy this file, keep the lines that apply, and fill them in. Each line is
+# "portikus portikus/<question> <type> <answer>". The comment above each
+# question names the key it writes in /etc/portikus/portikus.yaml, or in
+# /etc/portikus/secrets.yaml (root only) for a secret. Secrets are removed
+# from the debconf database once written, so delete this file afterwards.
+# Setup starts only when every answer it needs is present.
+
+# The name browsers use. Default: this host's fully qualified name.
+# portikus_public_host
+portikus portikus/public_host string portikus.example.edu
+
+# The local administrator's email. Default: admin@<public_host>.
+# portikus_admin_email
+portikus portikus/admin_email string admin@example.edu
+
+# The HTTPS certificate: letsencrypt, files or internal.
+# portikus_tls
+portikus portikus/tls select letsencrypt
+
+# For letsencrypt: the account email (portikus_acme_email) and a Cloudflare
+# API token with "Edit zone DNS" permission, for the preview wildcard
+# (secrets.yaml: portikus_cloudflare_api_token).
+portikus portikus/acme_email string admin@example.edu
+portikus portikus/cloudflare_api_token password REPLACE-WITH-CLOUDFLARE-TOKEN
+
+# For files: PEM certificate and key paths on this host
+# (portikus_tls_cert, portikus_tls_key).
+#portikus portikus/tls_cert string /etc/ssl/portikus/fullchain.pem
+#portikus portikus/tls_key string /etc/ssl/portikus/privkey.pem
+
+# How people sign in: dex (local accounts only), entra, google, ldap or oidc.
+# portikus_dex_upstream (dex is written as none)
+portikus portikus/provider select dex
+
+# entra: tenant ID (portikus_entra_tenant_id), client ID
+# (portikus_dex_upstream_client_id) and secret
+# (secrets.yaml: portikus_dex_upstream_client_secret).
+#portikus portikus/entra_tenant_id string 12345678-90ab-cdef-1234-567890abcdef
+#portikus portikus/client_id string 00000000-0000-0000-0000-000000000000
+#portikus portikus/client_secret password REPLACE-WITH-CLIENT-SECRET
+
+# google: domains separated by spaces (portikus_google_domains, a list),
+# client ID and secret as for entra.
+#portikus portikus/google_domains string example.edu
+#portikus portikus/client_id string 1234.apps.googleusercontent.com
+#portikus portikus/client_secret password REPLACE-WITH-CLIENT-SECRET
+
+# oidc: issuer (portikus_dex_upstream_issuer), client ID and secret as for
+# entra, groups claim (portikus_oidc_upstream_groups_claim, default groups)
+# and the three group names below.
+#portikus portikus/oidc_issuer string https://login.example.edu/realms/main
+#portikus portikus/client_id string portikus
+#portikus portikus/client_secret password REPLACE-WITH-CLIENT-SECRET
+#portikus portikus/oidc_groups_claim string groups
+
+# ldap: each writes portikus_ldap_<name>; ldap_ip_allow is a list of
+# addresses or networks separated by spaces; the bind password goes to
+# secrets.yaml as portikus_ldap_bind_password. ldap_group_base_dn and
+# ldap_root_ca are optional; with a group base, the three group names below
+# apply.
+#portikus portikus/ldap_host string ad.example.edu:636
+#portikus portikus/ldap_schema select ad
+#portikus portikus/ldap_ip_allow string 10.0.0.5 10.0.0.6
+#portikus portikus/ldap_bind_dn string cn=portikus,ou=Services,dc=example,dc=edu
+#portikus portikus/ldap_bind_password password REPLACE-WITH-BIND-PASSWORD
+#portikus portikus/ldap_user_base_dn string ou=People,dc=example,dc=edu
+#portikus portikus/ldap_user_filter string (memberOf=cn=portikus-users,ou=Groups,dc=example,dc=edu)
+#portikus portikus/ldap_group_base_dn string ou=Groups,dc=example,dc=edu
+#portikus portikus/ldap_root_ca string
+
+# oidc and ldap group names (portikus_oidc_student_group,
+# portikus_oidc_instructor_group, portikus_oidc_admin_group).
+#portikus portikus/student_group string portikus-students
+#portikus portikus/instructor_group string portikus-instructors
+#portikus portikus/admin_group string portikus-administrators
+
+# Student storage (portikus_storage): an empty whole disk such as
+# /dev/nvme1n1, the name of an existing LVM volume group, or file.
+# Default: the one empty disk if exactly one exists, otherwise file.
+portikus portikus/storage select file
+
+# For a disk: setup erases it only when this is true (portikus_storage_confirm).
+#portikus portikus/storage_confirm boolean true
+
+# For file: the size in GiB (portikus_storage_size). Default: half the free
+# space on the root filesystem.
+portikus portikus/storage_size string 200
