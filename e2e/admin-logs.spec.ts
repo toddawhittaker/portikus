@@ -163,7 +163,11 @@ test.describe("admin logs", () => {
 		await page.getByRole("button", { name: `Show details for ${warned.name}` }).click();
 		const panel = page.getByRole("region", { name: warned.name });
 		await expect(panel.getByText(/journalctl/)).toHaveCount(0);
-		await panel.getByRole("link", { name: "View logs" }).click();
+		// The workspace's logs link sits in the panel's Recent audit section (Epic 25, R2).
+		await panel
+			.getByRole("region", { name: "Recent audit events" })
+			.getByRole("link", { name: "Logs for this workspace" })
+			.click();
 		await expect(page).toHaveURL(
 			new RegExp(`tab=logs.*workspace=${warned.workspaceId}.*since=1h`),
 		);

@@ -178,16 +178,13 @@ test.describe("admin and standalone page accessibility", () => {
 			.getByRole("button", { name: /^Show details for Alice Student, / })
 			.click();
 
-		// The grace override moved into the detail panel and keeps its names.
+		// The grace override lives in the detail panel, and its button names whose it is.
 		const panel = page.getByRole("region", { name: "Alice Student" });
 		await expect(
-			panel.getByRole("textbox", {
-				name: "Grace period override (seconds)",
+			panel.getByRole("button", {
+				name: "Edit disconnect grace for Alice Student",
 				exact: true,
 			}),
-		).toBeVisible();
-		await expect(
-			panel.getByRole("button", { name: "Save Alice Student", exact: true }),
 		).toBeVisible();
 	});
 

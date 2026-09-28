@@ -1,4 +1,9 @@
-import type { UpdateLimitsRequest, WorkspaceLimits } from "@portikus/contracts";
+import {
+	countIncusCpus,
+	type HealthReport,
+	type UpdateLimitsRequest,
+	type WorkspaceLimits,
+} from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
 import { announced } from "./SettingsTab.js";
@@ -33,6 +38,67 @@ export const LIMIT_FIELDS: {
 ];
 
 export type LimitDrafts = Record<LimitKey, string>;
+
+/** The shared profile's limits in the dialog's units; null where unset or unreadable. */
+export type SiteLimits = Record<LimitKey, number | null>;
+
+const BYTES_PER_UNIT: Record<string, number> = {
+	"": 1,
+	B: 1,
+	kB: 1e3,
+	KB: 1e3,
+	KiB: 1024,
+	MB: 1e6,
+	MiB: 1024 ** 2,
+	GB: 1e9,
+	GiB: 1024 ** 3,
+	TB: 1e12,
+	TiB: 1024 ** 4,
+};
+
+/** Incus's `limits.memory` ("4GB", "4096MiB") in MiB; null for a percentage or nonsense. */
+export function incusMemoryMiB(value: string | null): number | null {
+	const match = /^(\d+(?:\.\d+)?)\s*([A-Za-z]*)$/.exec(value?.trim() ?? "");
+	const unit = match ? BYTES_PER_UNIT[match[2] ?? ""] : undefined;
+	if (!match || unit === undefined) return null;
+	return Math.round((Number(match[1]) * unit) / 1024 ** 2);
+}
+
+/** The site values a blank field falls back to, from the Health report's host sample. */
+export function siteLimits(host: HealthReport["host"] | undefined): SiteLimits | null {
+	if (!host) return null;
+	const { cpu, memory, processes } = host.profileLimits;
+	return {
+		cpu: countIncusCpus(cpu),
+		memoryMiB: incusMemoryMiB(memory),
+		processes: processes && /^\d+$/.test(processes.trim()) ? Number(processes) : null,
+	};
+}
+
+const count = (n: number) => n.toLocaleString("en-US");
+
+/** "4 GiB" or "3.7 GiB" from MiB, one decimal at most. */
+export function gibText(mib: number): string {
+	return `${count(Math.round((mib / 1024) * 10) / 10)} GiB`;
+}
+
+/** "4,096 MiB (4 GiB)"; below a GiB, MiB alone. */
+export function memoryText(mib: number): string {
+	return mib < 1024 ? `${count(mib)} MiB` : `${count(mib)} MiB (${gibText(mib)})`;
+}
+
+/** One limit as a phrase: "2 CPUs", "4 GiB memory", "2,000 processes". */
+export function limitPhrase(key: LimitKey, value: number): string {
+	if (key === "cpu") return `${count(value)} ${value === 1 ? "CPU" : "CPUs"}`;
+	if (key === "memoryMiB") return `${gibText(value)} memory`;
+	return `${count(value)} processes`;
+}
+
+function siteHint(key: LimitKey, site: SiteLimits | null): string | null {
+	const value = site?.[key] ?? null;
+	if (value === null) return null;
+	return `Site value: ${key === "memoryMiB" ? memoryText(value) : count(value)}.`;
+}
 
 /**
  * The request body for the drafts, or the errors by field. A blank field
@@ -76,6 +142,7 @@ export function LimitsDialog({
 	onOpenChange,
 	current,
 	ownerName,
+	site,
 	pending,
 	serverError,
 	onSave,
@@ -84,6 +151,8 @@ export function LimitsDialog({
 	onOpenChange: (open: boolean) => void;
 	current: WorkspaceLimits | null;
 	ownerName: string;
+	/** What a blank field falls back to, once the Health report has loaded. */
+	site: SiteLimits | null;
 	pending: boolean;
 	serverError: string | null;
 	onSave: (body: UpdateLimitsRequest) => void;
@@ -106,8 +175,8 @@ export function LimitsDialog({
 		<DialogRoot open={open} onOpenChange={onOpenChange}>
 			<Dialog
 				testId="limits-dialog"
-				title="Workspace limits"
-				description={`Limits for ${ownerName}'s workspace. Leave a field blank to use the platform value. Changes apply to a running workspace within a minute.`}
+				title={`Limits for ${ownerName}'s workspace`}
+				description="The most CPU, memory and processes this workspace may use. Leave a field blank to use the site value."
 				footer={
 					<>
 						<Button onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -131,9 +200,10 @@ export function LimitsDialog({
 								id={`limits-${field.key}`}
 								label={field.label}
 								inputMode="numeric"
-								className="w-40"
+								// Only the input is narrow; the label and hint use the dialog's width.
+								className="[&>input]:w-40"
 								data-testid={`limits-${field.key}`}
-								hint={field.hint}
+								hint={[siteHint(field.key, site), field.hint].filter(Boolean).join(" ")}
 								// Only the first problem is announced, so a reader hears one alert.
 								error={field.key === firstError ? announced(error) : error}
 								value={drafts[field.key]}
@@ -145,7 +215,7 @@ export function LimitsDialog({
 					})}
 				</div>
 				{firstError === undefined && serverError ? (
-					<p className="m-0 mt-3 text-[13px] text-status-error" role="alert">
+					<p className="pk-text-compact m-0 mt-3 text-status-error" role="alert">
 						{serverError}
 					</p>
 				) : null}

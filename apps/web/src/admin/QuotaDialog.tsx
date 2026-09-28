@@ -86,8 +86,8 @@ export function QuotaDialog({
 		<DialogRoot open={open} onOpenChange={onOpenChange}>
 			<Dialog
 				testId="quota-dialog"
-				title="Change storage"
-				description={`Storage for ${ownerName}. Sizes can only grow, up to ${MAX_QUOTA_GIB} GiB each.`}
+				title={`Storage for ${ownerName}'s workspace`}
+				description={`Sizes can only grow, up to ${MAX_QUOTA_GIB} GiB each.`}
 				footer={
 					<>
 						<Button onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -128,7 +128,7 @@ export function QuotaDialog({
 					/>
 				</div>
 				{!error && serverError ? (
-					<p className="m-0 mt-3 text-[13px] text-status-error" role="alert">
+					<p className="pk-text-compact m-0 mt-3 text-status-error" role="alert">
 						{serverError}
 					</p>
 				) : null}

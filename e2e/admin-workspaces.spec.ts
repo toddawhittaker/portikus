@@ -233,12 +233,29 @@ test("archive hides the row, refuses a start, and unarchive brings it back", asy
 	await page.getByText("Show archived").click();
 	await expect(row.getByText("Archived", { exact: true })).toBeVisible();
 
-	await panel
-		.getByRole("button", { name: `Start ${student.name}'s workspace`, exact: true })
-		.click();
-	await expect(
-		toast(page, "This workspace was archived by an administrator."),
-	).toBeVisible();
+	// No worker runs here, so settle the stop the archive asked for.
+	await query(
+		"update workspaces set state = 'stopped', updated_at = now() where id = $1",
+		[student.workspaceId],
+	);
+	// Start stays in reach but refuses, and says why (SPEC.md §25.8).
+	const start = panel.getByRole("button", {
+		name: `Start ${student.name}'s workspace`,
+		exact: true,
+	});
+	// The panel refetches on its own timer, so the settled state can take a moment.
+	await expect(start).toHaveAccessibleDescription(
+		"An archived workspace cannot start. Unarchive it first.",
+		{ timeout: 15_000 },
+	);
+	await expect(start).toHaveAttribute("aria-disabled", "true");
+	await start.focus();
+	await page.keyboard.press("Enter");
+	const [desired] = await query<{ desired_state: string }>(
+		"select desired_state from workspaces where id = $1",
+		[student.workspaceId],
+	);
+	expect(desired?.desired_state).toBe("stopped");
 
 	const unarchive = panel.getByRole("button", {
 		name: `Unarchive workspace for ${student.name}`,
