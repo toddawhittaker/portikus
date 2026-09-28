@@ -71,6 +71,30 @@ test.describe("checks", () => {
 		await expect(page.getByTestId("check-state-tests")).toContainText("Not run yet");
 	});
 
+	test("before a run the output panel names the check and says how to fill it", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await openChecks(page, student.workspaceId, "Unrun", CHECKS);
+
+		const panel = page.getByRole("region", { name: /^Output/ });
+		await expect(panel.getByRole("heading", { level: 3 })).toHaveText("Output Tests");
+		await expect(page.getByTestId("check-output-empty")).toHaveText(
+			"Run a check to see its output here.",
+		);
+		await expect(page.getByTestId("check-output-tests")).toHaveCount(0);
+		// The project path is already in the header and status bar.
+		await expect(
+			page
+				.getByRole("tabpanel", { name: "Checks" })
+				.getByText(`~/projects/${project.slug}`),
+		).toHaveCount(0);
+
+		await page.getByText("Lint", { exact: true }).click();
+		await expect(page.getByTestId("check-output-name")).toHaveText("Lint");
+	});
+
 	test("a passing check shows Passed and its output", async ({ page, context }) => {
 		const student = await createStudent(context);
 		await openChecks(page, student.workspaceId, "Passing", CHECKS);
