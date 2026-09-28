@@ -1,0 +1,32 @@
+---
+# One case of setup-settings-test.yml: the role's settings.yml with the
+# case's variables, accepted or refused as expected.
+- name: Try {{ setup_case.name }}
+  block:
+    - name: Run the settings checks for {{ setup_case.name }}
+      ansible.builtin.include_tasks: "../ansible/roles/{{ setup_case.role }}/tasks/settings.yml"
+      vars:
+        portikus_tls: "{{ setup_case.vars.portikus_tls | default('internal') }}"
+        portikus_acme_email: "{{ setup_case.vars.portikus_acme_email | default('') }}"
+        portikus_acme_ca: https://acme-staging-v02.api.letsencrypt.org/directory
+        portikus_cloudflare_api_token: "{{ setup_case.vars.portikus_cloudflare_api_token | default('') }}"
+        portikus_tls_cert: "{{ setup_case.vars.portikus_tls_cert | default('') }}"
+        portikus_tls_key: "{{ setup_case.vars.portikus_tls_key | default('') }}"
+        portikus_storage: "{{ setup_case.vars.portikus_storage | default('') }}"
+        portikus_storage_confirm: false
+        portikus_storage_size: "{{ setup_case.vars.portikus_storage_size | default(0) }}"
+
+    - name: Note that it was accepted, for {{ setup_case.name }}
+      ansible.builtin.set_fact:
+        setup_case_accepted: true
+  rescue:
+    - name: Note that it was refused, for {{ setup_case.name }}
+      ansible.builtin.set_fact:
+        setup_case_accepted: false
+
+- name: Require the expected answer for {{ setup_case.name }}
+  ansible.builtin.assert:
+    that:
+      - setup_case_accepted == setup_case.accept
+    fail_msg: "{{ setup_case.name }} was {{ 'accepted' if setup_case_accepted else 'refused' }}."
+    success_msg: "{{ setup_case.name }}: {{ 'accepted' if setup_case_accepted else 'refused' }}, as expected."

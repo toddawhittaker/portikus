@@ -10,3 +10,6 @@ portikus_lti_platforms_check_script: /usr/lib/portikus/api/node_modules/@portiku
 # platforms file and the tool key on the VM.
 portikus_lti_platforms_path: /etc/portikus/lti-platforms.json
 portikus_lti_tool_key_path: /etc/portikus/lti-tool-key.pem
+
+# The workspace image job's request directory (docs/EPIC-15.md ruling 28).
+portikus_image_jobs_dir: /var/lib/portikus/image-jobs

@@ -41,12 +41,14 @@
     enabled: true
     state: started
 
-# The operator account runs incus without sudo (smoke test, day-to-day admin).
-- name: Add the deploy user to the incus-admin group
+# The account Ansible connects as runs incus without sudo (smoke test,
+# day-to-day admin).  A local run as root, as `portikus setup` does, has none.
+- name: Add the operator account to the incus-admin group
   ansible.builtin.user:
-    name: "{{ ansible_user }}"
+    name: "{{ portikus_operator_user }}"
     groups: incus-admin
     append: true
+  when: portikus_operator_user | length > 0
 
 - name: Check if Incus storage pool exists
   ansible.builtin.command:

@@ -86,40 +86,37 @@
     mode: "0644"
 
 # ── Working directories ──────────────────────────────────────────
+# `make build-workspace-image` rsyncs the recipe and workspace.sh in as the
+# SSH user, so the development directories belong to that account (root on
+# a local run, which has none).
 
 - name: Create image-build staging directory
   ansible.builtin.file:
     path: /var/lib/portikus/image-build
     state: directory
-    owner: deploy
-    group: deploy
+    owner: "{{ portikus_operator_user or 'root' }}"
+    group: "{{ portikus_operator_user or 'root' }}"
     mode: "0755"
 
-- name: Create images output directory
-  ansible.builtin.file:
-    path: /var/lib/portikus/images
-    state: directory
-    owner: deploy
-    group: deploy
-    mode: "0755"
+# Every converge from a checkout brings the VM's copy in step with the
+# repository, so a rebuilt or long-lived VM never runs a stale workspace.sh
+# (Epic 12b B1).  The package ships no copy, so a packaged run has neither
+# the directory nor the scripts, and the smoke test brings its own.
+- name: Keep the Incus helper scripts in step with the checkout
+  when: (playbook_dir ~ '/../incus') is directory
+  block:
+    - name: Create workspace script directory
+      ansible.builtin.file:
+        path: /var/lib/portikus/incus
+        state: directory
+        owner: "{{ portikus_operator_user or 'root' }}"
+        group: "{{ portikus_operator_user or 'root' }}"
+        mode: "0755"
 
-# The package owns /var/lib/portikus and leaves it root-only for deploy, so
-# the directory `make build-workspace-image` rsyncs workspace.sh into has to
-# exist and be writable by deploy before that target runs.
-- name: Create workspace script directory
-  ansible.builtin.file:
-    path: /var/lib/portikus/incus
-    state: directory
-    owner: deploy
-    group: deploy
-    mode: "0755"
-
-# Every converge brings the VM's copy in step with the repository, so a
-# rebuilt or long-lived VM never runs a stale workspace.sh (Epic 12b B1).
-- name: Sync the Incus helper scripts
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../incus/"
-    dest: /var/lib/portikus/incus/
-    owner: deploy
-    group: deploy
-    mode: "0755"
+    - name: Sync the Incus helper scripts
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../incus/"
+        dest: /var/lib/portikus/incus/
+        owner: "{{ portikus_operator_user or 'root' }}"
+        group: "{{ portikus_operator_user or 'root' }}"
+        mode: "0755"

@@ -1,6 +1,24 @@
 # Portikus edge configuration — managed by Ansible.
-# Caddy terminates TLS with its own internal certificate authority and
-# proxies to services that listen on loopback only.
+# Caddy terminates TLS and proxies to services that listen on loopback only.
+{#
+  The certificate for both sites (docs/EPIC-15.md ruling 9): Caddy's own
+  authority, Let's Encrypt by a DNS-01 challenge through Cloudflare (which
+  also gives the preview wildcard), or files on the host.  The token is a
+  runtime placeholder, so it never lands in Caddy's saved configuration.
+#}
+{% set tls_mode = portikus_tls | default('internal') %}
+{% set tls_directive %}
+{% if tls_mode == 'internal' %}
+	tls internal
+{% elif tls_mode == 'files' %}
+	tls {{ caddy_tls_dir }}/site.crt {{ caddy_tls_dir }}/site.key
+{% else %}
+	tls {{ portikus_acme_email }} {
+		ca {{ portikus_acme_ca }}
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+{% endif %}
+{% endset %}
 
 # ── Preview edge building blocks ─────────────────────────────────────
 # The plain preview path and the multi-port bridge (BROWSER-HANDLING 14)
@@ -142,7 +160,7 @@
 }
 
 https://{{ portikus_public_host }}:{{ portikus_public_port }} {
-	tls internal
+{{ tls_directive | trim("\n") }}
 	encode gzip
 
 	# Browser-side hardening (SPEC 24.3 and 24.10).
@@ -295,7 +313,7 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 # most specific site address, so the application host above is never served
 # by this block; site.yml asserts the two can never overlap.
 https://*.{{ portikus_preview_suffix }}:{{ portikus_public_port }} {
-	tls internal
+{{ tls_directive | trim("\n") }}
 
 	# Preview responses belong to the student's application, so Portikus
 	# adds no policy headers of its own here.  In particular there is no

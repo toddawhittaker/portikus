@@ -4,7 +4,10 @@
 # dex-signin job runs it on the stock pages of the pinned commit.
 
 # Dex serves these files as they are, so changing them needs no restart.
-# Both paths hang off playbook_dir, which is infra/ansible or infra/tests.
+# The path hangs off playbook_dir, which is infra/ansible, infra/tests, or
+# /usr/share/portikus/ansible in the package.  The font is a copy of
+# packages/ui/src/fonts/PublicSans-Variable.woff2, because the package
+# ships the roles but not the UI sources.
 - name: Install the Portikus theme for the Dex pages
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../ansible/roles/dex/files/theme/"
@@ -12,14 +15,6 @@
     owner: root
     group: root
     mode: u=rwX,go=rX
-
-- name: Install the theme's font
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../packages/ui/src/fonts/PublicSans-Variable.woff2"
-    dest: "{{ dex_web_dir }}/themes/portikus/PublicSans-Variable.woff2"
-    owner: root
-    group: root
-    mode: "0644"
 
 # Template patches, re-applied after every build: the logo moves into the
 # sign-in card with a text alternative, and the card becomes the main

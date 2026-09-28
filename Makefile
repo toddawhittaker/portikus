@@ -143,6 +143,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	ansible-playbook infra/tests/dex-render-test.yml
 	ansible-playbook infra/tests/egress-proxy-render-test.yml
 	ansible-playbook infra/tests/workspace-egress-render-test.yml
+	ansible-playbook infra/tests/setup-settings-test.yml
 	bash infra/tests/backup-scope-test.sh
 	bash infra/tests/backup-channel-test.sh
 
@@ -167,18 +168,37 @@ MANAGEMENT_CIDR ?= $(call tofu_output,management_cidr)
 # The host's own LAN address, taken from its default route.
 HOST_IP ?= $(shell ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($$i == "src") { print $$(i + 1); exit }}')
 
-# The site name the VM's Caddy serves. It has to be the host's address, not the
-# VM's, because LAN browsers reach the VM through the host port forward.
-PORTIKUS_PUBLIC_HOST ?= portikus.$(HOST_IP).nip.io
+# The account SSH and Ansible use on the VM: the one cloud-init makes on the
+# libvirt VMs.  It needs passwordless sudo.
+SSH_USER ?= deploy
+
+# Non-empty when VM_IP names a host other than this state's libvirt VM.
+FOREIGN_HOST = $(and $(filter command line environment,$(origin VM_IP)),$(filter-out $(call tofu_output,vm_ip),$(VM_IP)))
+
+# The site name the VM's Caddy serves. A libvirt VM from this state has to be
+# named after the host's address, not the VM's, because LAN browsers reach it
+# through the host port forward.  Any other host is named after its own
+# address, as the play itself would name it.
+PORTIKUS_PUBLIC_HOST ?= portikus.$(if $(FOREIGN_HOST),$(VM_IP),$(HOST_IP)).nip.io
 
 # The port browsers connect to. The host keeps 80 and 443 for another
 # service, so Caddy on the VM serves the site on 8443 and the host forwards
 # that port straight through.
 PORTIKUS_PUBLIC_PORT ?= 8443
 
+# Workspace storage (docs/EPIC-15.md ruling 3). OpenTofu gives each libvirt VM
+# an empty second disk for it, so erasing that disk is confirmed here.  Any
+# other host must name its own.
+PORTIKUS_STORAGE ?= $(if $(FOREIGN_HOST),,/dev/vdb)
+PORTIKUS_STORAGE_CONFIRM ?= $(if $(FOREIGN_HOST),,true)
+# none: these VMs build their image with make build-workspace-image rather
+# than download a published one.
+PORTIKUS_IMAGE_VERSION ?= none
+
 # Block until the VM answers SSH and cloud-init has finished, so Ansible does
-# not race the first-boot apt update. The known-hosts options are for the wait
-# only: a rebuilt VM has a new host key at the same address.
+# not race the first-boot apt update. A host without cloud-init is ready once
+# it answers. The known-hosts options are for the wait only: a rebuilt VM has
+# a new host key at the same address.
 wait-vm: ## Wait for the platform VM to finish first boot
 	@ip='$(VM_IP)'; \
 	if [ -z "$$ip" ] && [ -n '$(TOFU_VM_NAME)' ]; then \
@@ -188,7 +208,7 @@ wait-vm: ## Wait for the platform VM to finish first boot
 	test -n "$$ip" || { echo "wait-vm: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }; \
 	for i in $$(seq 1 60); do \
 		ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-			-o LogLevel=ERROR deploy@$$ip 'cloud-init status --wait >/dev/null 2>&1; cloud-init status' 2>/dev/null && exit 0; \
+			-o LogLevel=ERROR '$(SSH_USER)'@$$ip 'command -v cloud-init >/dev/null || exit 0; cloud-init status --wait >/dev/null 2>&1; cloud-init status' 2>/dev/null && exit 0; \
 		sleep 5; \
 	done; echo "wait-vm: $$ip did not become ready"; exit 1
 
@@ -217,7 +237,9 @@ export PORTIKUS_LDAP_HOST PORTIKUS_LDAP_SCHEMA PORTIKUS_LDAP_BIND_DN PORTIKUS_LD
 export PORTIKUS_LDAP_USER_BASE_DN PORTIKUS_LDAP_USER_FILTER PORTIKUS_LDAP_GROUP_BASE_DN
 export PORTIKUS_LDAP_ROOT_CA PORTIKUS_LDAP_IP_ALLOW
 
-ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) \
+ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_MANAGEMENT_CIDR=$(MANAGEMENT_CIDR) \
+	PORTIKUS_STORAGE=$(PORTIKUS_STORAGE) PORTIKUS_STORAGE_CONFIRM=$(PORTIKUS_STORAGE_CONFIRM) \
+	PORTIKUS_IMAGE_VERSION=$(PORTIKUS_IMAGE_VERSION) \
 	PORTIKUS_VERSION=$(PORTIKUS_VERSION) PORTIKUS_DEB=$(PORTIKUS_DEB_ABS) \
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
 	PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_MOCK_IDP=$(PORTIKUS_MOCK_IDP) \
@@ -263,7 +285,7 @@ lti-mock-unregister: wait-vm ## Stop trusting the mock LMS: remove its registrat
 smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_IDP=<provider> as configured; PORTIKUS_SMOKE_SIGNIN_FILE=<file> for a full Dex sign-in)
 	@test -n "$(VM_IP)" || { echo "smoke-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
-		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_SMOKE_SIGNIN_FILE=$(PORTIKUS_SMOKE_SIGNIN_FILE) \
+		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_SMOKE_SIGNIN_FILE=$(PORTIKUS_SMOKE_SIGNIN_FILE) \
 		bash infra/tests/smoke-test.sh $(VM_IP)
 
 # Safe on the live pilot: it creates and removes only its own users and two
@@ -271,7 +293,7 @@ smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HO
 security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an earlier run; PORTIKUS_SECURITY_HEAVY=1 adds heavy limit tests on an otherwise empty VM; PORTIKUS_IDP=<provider> as configured)
 	@test -n "$(VM_IP)" || { echo "security-test: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
-		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
+		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
 		bash infra/tests/security-test.sh $(VM_IP) $(if $(SWEEP),--sweep,)
 
 destroy-pilot: ## Destroy the pilot VM (irreversible)
@@ -390,26 +412,26 @@ deploy-app: ## Build the Debian package and install it on the VM
 	version="$$(cat dist/deb/VERSION)"; \
 	deb="portikus_$${version}_amd64.deb"; \
 	echo "Installing $$deb on $(VM_IP)"; \
-	scp "dist/deb/$$deb" deploy@$(VM_IP):"~/"; \
-	ssh -n deploy@$(VM_IP) "sudo apt-get install -y --reinstall --allow-downgrades ./$$deb; rm -f ./$$deb"
+	scp "dist/deb/$$deb" $(SSH_USER)@$(VM_IP):"~/"; \
+	ssh -n $(SSH_USER)@$(VM_IP) "sudo apt-get install -y --reinstall --allow-downgrades ./$$deb; rm -f ./$$deb"
 
 # ── Workspace image and lifecycle targets ─────────────────────────
 
 build-workspace-image: ## Build the workspace image on the VM with distrobuilder
 	@test -n "$(VM_IP)" || { echo "build-workspace-image: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	rsync -av --delete infra/workspace-image/ deploy@$(VM_IP):/var/lib/portikus/image-build/
-	rsync -av --delete infra/incus/ deploy@$(VM_IP):/var/lib/portikus/incus/
-	ssh -n deploy@$(VM_IP) bash /var/lib/portikus/image-build/build-on-vm.sh
+	rsync -av --delete infra/workspace-image/ $(SSH_USER)@$(VM_IP):/var/lib/portikus/image-build/
+	rsync -av --delete infra/incus/ $(SSH_USER)@$(VM_IP):/var/lib/portikus/incus/
+	ssh -n $(SSH_USER)@$(VM_IP) bash /var/lib/portikus/image-build/build-on-vm.sh
 
 workspace-create: ## Create a test workspace (NAME=<name>)
 	@test -n "$(NAME)" || { echo "workspace-create: NAME is required, e.g. make workspace-create NAME=alice"; exit 1; }
 	@test -n "$(VM_IP)" || { echo "workspace-create: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	ssh -n deploy@$(VM_IP) bash /var/lib/portikus/incus/workspace.sh create $(NAME)
+	ssh -n $(SSH_USER)@$(VM_IP) bash /var/lib/portikus/incus/workspace.sh create $(NAME)
 
 workspace-destroy: ## Destroy a test workspace (NAME=<name>)
 	@test -n "$(NAME)" || { echo "workspace-destroy: NAME is required, e.g. make workspace-destroy NAME=alice"; exit 1; }
 	@test -n "$(VM_IP)" || { echo "workspace-destroy: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	ssh -n deploy@$(VM_IP) bash /var/lib/portikus/incus/workspace.sh destroy $(NAME)
+	ssh -n $(SSH_USER)@$(VM_IP) bash /var/lib/portikus/incus/workspace.sh destroy $(NAME)
 
 # Fragments that add targets of their own (load test, rebuild exercise).
 -include mk/*.mk

@@ -1,0 +1,121 @@
+---
+# Workspace storage on a file (docs/EPIC-15.md, amendment of 2026-09-28):
+# for a host with no spare disk.  The file is attached to a loop device,
+# which then carries the same volume group and thin pool a disk would.  A
+# small unit attaches it at boot, before Incus starts.  Slower than a disk,
+# and it shares the root filesystem's space.
+
+- name: Create the storage file's directory
+  ansible.builtin.file:
+    path: "{{ lvm_storage_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Look at the storage file
+  ansible.builtin.stat:
+    path: "{{ lvm_storage_file }}"
+  register: lvm_file_stat
+
+- name: Read the free space beside the storage file
+  ansible.builtin.command:
+    argv: [df, --output=avail, -B1, "{{ lvm_storage_file | dirname }}"]
+  register: lvm_file_free
+  changed_when: false
+  check_mode: false
+  when: not lvm_file_stat.stat.exists
+
+# Whole GiB.  Without a size, half of what is free when the file is made.
+- name: Work out the storage file's size
+  ansible.builtin.set_fact:
+    lvm_file_bytes: >-
+      {{ (portikus_storage_size | int * 1073741824) if portikus_storage_size | int > 0
+         else (lvm_file_free.stdout_lines | last | int // 2 // 1073741824 * 1073741824) }}
+  when: portikus_storage_size | int > 0 or not lvm_file_stat.stat.exists
+
+- name: Require room for a storage file of at least 1 GiB
+  ansible.builtin.assert:
+    that:
+      - lvm_file_bytes | int >= 1073741824
+    fail_msg: "There is too little free space for a storage file.  Nothing was changed."
+  when: not lvm_file_stat.stat.exists
+
+# fallocate reserves the space, so a full root filesystem cannot fail the
+# pool's writes later.  It also grows an existing file without touching its data.
+- name: Make or grow the storage file
+  ansible.builtin.command:
+    argv: [fallocate, --length, "{{ lvm_file_bytes }}", "{{ lvm_storage_file }}"]
+  when: >-
+    not lvm_file_stat.stat.exists
+    or (lvm_file_bytes is defined and lvm_file_bytes | int > lvm_file_stat.stat.size)
+  register: lvm_file_made
+  changed_when: true
+
+# It holds every workspace's data.
+- name: Make the storage file root's alone
+  ansible.builtin.file:
+    path: "{{ lvm_storage_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Install the storage file attach script
+  ansible.builtin.template:
+    src: portikus-storage-attach.j2
+    dest: /usr/local/sbin/portikus-storage-attach
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the storage file attach unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/portikus-storage-attach.service
+    content: |
+      [Unit]
+      Description=Attach the Portikus workspace storage file
+      RequiresMountsFor={{ lvm_storage_file }}
+      Before=incus.service incus-startup.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/sbin/portikus-storage-attach
+
+      [Install]
+      WantedBy=multi-user.target
+    owner: root
+    group: root
+    mode: "0644"
+  register: lvm_attach_unit
+
+- name: Enable and start the storage file attach unit
+  ansible.builtin.systemd_service:
+    name: portikus-storage-attach.service
+    enabled: true
+    state: started
+    daemon_reload: "{{ lvm_attach_unit is changed }}"
+
+- name: Read the storage file's loop device
+  ansible.builtin.command:
+    argv: [losetup, --noheadings, --output, NAME, --associated, "{{ lvm_storage_file }}"]
+  register: lvm_file_loop
+  changed_when: false
+  check_mode: false
+
+- name: Require one loop device for the storage file
+  ansible.builtin.assert:
+    that:
+      - lvm_file_loop.stdout_lines | length == 1
+    fail_msg: "{{ lvm_storage_file }} should be attached to one loop device; found: {{ lvm_file_loop.stdout_lines | join(', ') or 'none' }}."
+
+- name: Set the storage device to the loop device
+  ansible.builtin.set_fact:
+    lvm_storage_device: "{{ lvm_file_loop.stdout | trim }}"
+
+# The loop device keeps its old size until told the file grew.
+- name: Tell the loop device the file grew
+  ansible.builtin.command:
+    argv: [losetup, --set-capacity, "{{ lvm_storage_device }}"]
+  when: lvm_file_made is changed and lvm_file_stat.stat.exists
+  changed_when: true

@@ -53,7 +53,7 @@
           - -u
           - portikus
           - --
-          - /usr/bin/node
+          - "{{ portikus_node }}"
           - "{{ dex_import_script }}"
           - --input
           - "{{ dex_import_input }}"

@@ -1,0 +1,216 @@
+---
+# Download the workspace image release named by portikus_image_version,
+# check its signature and checksums, and import it into Incus
+# (docs/EPIC-15.md rulings 18 and 19).  Anything that fails a check is
+# deleted and never imported.  An image already in Incus is left alone, so
+# a later run never moves the default back.  `make build-workspace-image`
+# still builds one on the host for development.
+
+- name: Look for the image in Incus
+  ansible.builtin.command:
+    argv: [incus, image, info, "portikus-{{ portikus_image_version }}", --project, "{{ incus_project_name }}"]
+  register: workspace_image_present
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: portikus_image_version != 'none'
+
+- name: Download, check and import the image
+  when: portikus_image_version != 'none' and workspace_image_present.rc != 0
+  vars:
+    workspace_image_dir: "{{ workspace_image_store }}/{{ portikus_image_version }}"
+    workspace_image_download: "{{ workspace_image_store }}/.download-{{ portikus_image_version }}"
+  block:
+    - name: Look for the repository keyring
+      ansible.builtin.stat:
+        path: "{{ portikus_image_keyring }}"
+      register: workspace_image_keyring
+
+    - name: Require the repository keyring
+      ansible.builtin.assert:
+        that:
+          - workspace_image_keyring.stat.exists
+        fail_msg: >-
+          {{ portikus_image_keyring }} is missing, so the image's signature
+          cannot be checked.  It comes with the portikus package.
+
+    - name: Start with an empty download directory
+      ansible.builtin.file:
+        path: "{{ workspace_image_download }}"
+        state: absent
+
+    - name: Create the download directory
+      ansible.builtin.file:
+        path: "{{ workspace_image_download }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Download the signed checksums
+      ansible.builtin.get_url:
+        url: "{{ portikus_image_base_url }}/image-{{ portikus_image_version }}/{{ item }}"
+        dest: "{{ workspace_image_download }}/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+        timeout: 60
+      loop:
+        - SHA256SUMS
+        - "{{ workspace_image_signature }}"
+
+    - name: Check the checksums' signature
+      ansible.builtin.command:
+        argv:
+          - gpgv
+          - --keyring
+          - "{{ portikus_image_keyring }}"
+          - "{{ workspace_image_download }}/{{ workspace_image_signature }}"
+          - "{{ workspace_image_download }}/SHA256SUMS"
+      changed_when: false
+
+    - name: Read the checksums
+      ansible.builtin.slurp:
+        src: "{{ workspace_image_download }}/SHA256SUMS"
+      register: workspace_image_sums
+
+    # Lines of "<sha256>  <file>", sha256sum's own format.
+    - name: Take each file's checksum from the signed list
+      ansible.builtin.set_fact:
+        workspace_image_checksums: >-
+          {{ dict((workspace_image_sums.content | b64decode).splitlines()
+                  | map('regex_findall', '^([0-9a-f]{64})\s+\*?(\S+)$') | select | map('first')
+                  | map('reverse') | list) }}
+
+    - name: Require a checksum for every image file
+      ansible.builtin.assert:
+        that:
+          - workspace_image_files | difference(workspace_image_checksums.keys()) | length == 0
+        fail_msg: >-
+          The signed SHA256SUMS of image {{ portikus_image_version }} lacks
+          {{ workspace_image_files | difference(workspace_image_checksums.keys()) | join(', ') }}.
+
+    # get_url fails on a checksum that does not match.
+    - name: Download the image files
+      ansible.builtin.get_url:
+        url: "{{ portikus_image_base_url }}/image-{{ portikus_image_version }}/{{ item }}"
+        dest: "{{ workspace_image_download }}/{{ item }}"
+        checksum: "sha256:{{ workspace_image_checksums[item] }}"
+        owner: root
+        group: root
+        mode: "0644"
+        timeout: 60
+      loop: "{{ workspace_image_files }}"
+
+    - name: Keep the checked files as this version's image
+      ansible.builtin.shell:
+        cmd: >-
+          rm -rf -- '{{ workspace_image_dir }}'
+          && mv -- '{{ workspace_image_download }}' '{{ workspace_image_dir }}'
+          && chmod 0755 -- '{{ workspace_image_dir }}'
+      changed_when: true
+
+    # Imported under its version alone first, so a failed import leaves the
+    # current default untouched.
+    - name: Import the image
+      ansible.builtin.command:
+        argv:
+          - incus
+          - image
+          - import
+          - "{{ workspace_image_dir }}/incus.tar.xz"
+          - "{{ workspace_image_dir }}/rootfs.squashfs"
+          - --project
+          - "{{ incus_project_name }}"
+          - --alias
+          - "portikus-{{ portikus_image_version }}"
+      changed_when: true
+
+    - name: Read the image aliases
+      ansible.builtin.command:
+        argv: [incus, image, alias, list, --project, "{{ incus_project_name }}", --format, json]
+      register: workspace_image_aliases
+      changed_when: false
+
+    # The old default stays as portikus-previous, for the admin page's
+    # rollback (T6, packages/contracts/src/image.ts); its version is the
+    # portikus-<version> alias on the same image.
+    - name: Find the new image and the old default
+      ansible.builtin.set_fact:
+        workspace_image_fingerprint: >-
+          {{ workspace_image_alias_list | selectattr('name', 'equalto', 'portikus-' ~ portikus_image_version)
+             | map(attribute='target') | first }}
+        workspace_image_previous_fingerprint: "{{ workspace_image_default_targets | first | default('') }}"
+        workspace_image_previous_version: >-
+          {{ workspace_image_alias_list
+             | selectattr('target', 'in', workspace_image_default_targets)
+             | map(attribute='name') | select('match', '^portikus-[0-9]{4}\.[0-9]{2}\.[0-9]+(-local\.[0-9]{12})?$')
+             | map('regex_replace', '^portikus-', '') | first | default('') }}
+      vars:
+        workspace_image_alias_list: "{{ workspace_image_aliases.stdout | from_json }}"
+        workspace_image_default_targets: >-
+          {{ workspace_image_alias_list | selectattr('name', 'equalto', portikus_incus_image_alias)
+             | map(attribute='target') | list }}
+
+    - name: Take the default and previous aliases off the older images
+      ansible.builtin.command:
+        argv: [incus, image, alias, delete, "{{ item }}", --project, "{{ incus_project_name }}"]
+      loop:
+        - "{{ portikus_incus_image_alias }}"
+        - "{{ portikus_incus_image_alias }}-previous"
+      register: workspace_image_alias_deleted
+      changed_when: workspace_image_alias_deleted.rc == 0
+      failed_when: workspace_image_alias_deleted.rc != 0 and 'not found' not in workspace_image_alias_deleted.stderr
+
+    - name: Make the new image the default and mark the old one previous
+      ansible.builtin.command:
+        argv: [incus, image, alias, create, "{{ item.alias }}", "{{ item.fingerprint }}", --project, "{{ incus_project_name }}"]
+      loop:
+        - { alias: "{{ portikus_incus_image_alias }}", fingerprint: "{{ workspace_image_fingerprint }}" }
+        - { alias: "{{ portikus_incus_image_alias }}-previous", fingerprint: "{{ workspace_image_previous_fingerprint }}" }
+      when: >-
+        item.fingerprint | length > 0
+        and (item.alias == portikus_incus_image_alias or item.fingerprint != workspace_image_fingerprint)
+      changed_when: true
+
+    # The image store the admin page reads (T6): the release's manifest with
+    # Incus's fingerprint, and which versions are the default and previous.
+    - name: Read the release's manifest
+      ansible.builtin.slurp:
+        src: "{{ workspace_image_dir }}/manifest.json"
+      register: workspace_image_manifest
+
+    - name: Record the image's fingerprint in its manifest
+      ansible.builtin.copy:
+        content: >-
+          {{ workspace_image_manifest.content | b64decode | from_json
+             | combine({'fingerprint': workspace_image_fingerprint}) | to_nice_json }}
+        dest: "{{ workspace_image_dir }}/manifest.json"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Record the default and previous versions
+      ansible.builtin.copy:
+        content: "{{ {'default': portikus_image_version, 'previous': workspace_image_previous_version or none} | to_nice_json }}"
+        dest: "{{ workspace_image_store }}/aliases.json"
+        owner: root
+        group: root
+        mode: "0644"
+
+  rescue:
+    - name: Delete the unchecked download
+      ansible.builtin.file:
+        path: "{{ workspace_image_download }}"
+        state: absent
+
+    - name: Refuse the image
+      ansible.builtin.fail:
+        msg: >-
+          Workspace image {{ portikus_image_version }} from
+          {{ portikus_image_base_url }}/image-{{ portikus_image_version }} was not
+          imported.  This step failed: {{ ansible_failed_task.name }}
+          ({{ ansible_failed_result.msg | default('') }}
+          {{ ansible_failed_result.stderr | default('') }}
+          {{ ansible_failed_result.results | default([]) | selectattr('failed', 'defined') | selectattr('failed')
+             | map(attribute='msg') | join('; ') }}).

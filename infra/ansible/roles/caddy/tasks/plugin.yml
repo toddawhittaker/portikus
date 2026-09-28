@@ -1,0 +1,76 @@
+---
+# A letsencrypt site needs Caddy with the caddy-dns/cloudflare plugin for
+# the DNS-01 challenge (docs/EPIC-15.md ruling 9).  It is built with xcaddy
+# from pinned versions, the Go module checksum database checking every
+# module, and put in place of the packaged binary with dpkg-divert, so the
+# package's unit, user and directories stay as they are.  Any other site
+# gets the packaged binary back.
+
+- name: Read the installed Caddy version and plugins
+  ansible.builtin.shell:
+    cmd: /usr/bin/caddy version && /usr/bin/caddy list-modules --versions --skip-standard
+  register: caddy_modules
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: portikus_tls == 'letsencrypt'
+
+- name: Build and install Caddy with the Cloudflare plugin
+  when:
+    - portikus_tls == 'letsencrypt'
+    - not (caddy_modules.stdout.startswith(caddy_version ~ ' ')
+           and ('dns.providers.cloudflare ' ~ caddy_dns_cloudflare_version) in caddy_modules.stdout)
+  block:
+    # Trixie's Go is only the bootstrap: GOTOOLCHAIN=auto fetches the
+    # version Caddy's go.mod names, as for distrobuilder (docs/adr/0004).
+    - name: Install Go
+      ansible.builtin.apt:
+        name: golang-go
+        state: present
+
+    - name: Build Caddy
+      ansible.builtin.shell:
+        cmd: >-
+          go install github.com/caddyserver/xcaddy/cmd/xcaddy@{{ caddy_xcaddy_version }}
+          && /root/go/bin/xcaddy build {{ caddy_version }}
+          --with github.com/caddy-dns/cloudflare@{{ caddy_dns_cloudflare_version }}
+          --output /root/go/caddy-portikus
+        chdir: /root/go
+      environment:
+        GOBIN: /root/go/bin
+        GOPATH: /root/go
+        GOCACHE: /root/go/cache
+        GOMODCACHE: /root/go/pkg/mod
+        GOFLAGS: -buildvcs=false
+        GOTOOLCHAIN: auto
+      changed_when: true
+
+    - name: Check the build has the Cloudflare plugin
+      ansible.builtin.command:
+        argv: [/root/go/caddy-portikus, list-modules, --versions, --skip-standard]
+      register: caddy_built_modules
+      changed_when: false
+      failed_when: ('dns.providers.cloudflare ' ~ caddy_dns_cloudflare_version) not in caddy_built_modules.stdout
+
+    - name: Move the packaged binary aside
+      ansible.builtin.command:
+        argv: [dpkg-divert, --local, --rename, --divert, /usr/bin/caddy.distrib, --add, /usr/bin/caddy]
+        creates: /usr/bin/caddy.distrib
+
+    - name: Install the Caddy build
+      ansible.builtin.copy:
+        src: /root/go/caddy-portikus
+        dest: /usr/bin/caddy
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+      notify: Restart caddy
+
+# rm first: dpkg-divert will not rename the packaged binary over a file.
+- name: Put the packaged Caddy back
+  ansible.builtin.shell:
+    cmd: rm -f /usr/bin/caddy && dpkg-divert --local --rename --remove /usr/bin/caddy
+    removes: /usr/bin/caddy.distrib
+  when: portikus_tls != 'letsencrypt'
+  notify: Restart caddy
