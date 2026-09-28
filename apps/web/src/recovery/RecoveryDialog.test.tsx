@@ -209,6 +209,14 @@ test("the head explains what a point holds, and says restoring rolls back commit
 	// The old line claimed Git was never touched; a point holds .git (SPEC.md §15.10).
 	expect(dialog.textContent).not.toContain("Git is never touched");
 	expect(dialog.textContent).toContain("Portikus never makes Git commits for you.");
+	// The tip sits beside the description, so the description reads cleanly.
+	const described = document.getElementById(
+		dialog.getAttribute("aria-describedby") ?? "",
+	);
+	expect(described?.textContent).toBe(
+		"Copies of this project that Portikus keeps outside the folder. Portikus never makes Git commits for you.",
+	);
+	expect(described?.querySelector("button")).toBeNull();
 	fireEvent.click(screen.getByRole("button", { name: "About Recovery points" }));
 	const tip = await screen.findByRole("dialog", { name: "Recovery points" });
 	expect(tip.textContent).toContain("its Git folder included");

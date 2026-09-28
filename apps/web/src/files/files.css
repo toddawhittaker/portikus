@@ -261,7 +261,7 @@
 }
 .pk-changes-actions > .pk-changes-review {
 	width: auto;
-	padding-block-end: 0;
+	padding-block: var(--space-1);
 }
 .pk-changes-review:focus-visible {
 	outline: var(--ring-width) solid var(--focus);

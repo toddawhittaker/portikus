@@ -104,16 +104,17 @@ test("a STORAGE_FULL error with Docker full says so with figures and leads with 
 	await expect(progress.getByTestId("progress-sub")).toHaveText(
 		"Its storage is full. Docker is using 99.0 GB of 100 GB. Reset Docker to free that space; your projects and home folder are kept.",
 	);
-	// Starting again would fail the same way, so there is no Try again.
+	// Try again stays, after Reset Docker: an administrator may have grown the quota.
 	await expect(progress.locator(".pk-actions").getByRole("button")).toHaveText([
 		"Reset Docker…",
+		"Try again",
 		"Workspace details",
 	]);
 	await progress.getByRole("button", { name: "Reset Docker…", exact: true }).click();
 	await expect(page.getByTestId("dialog-reset-docker")).toBeVisible();
 });
 
-test("a STORAGE_FULL error with no agent offers only Workspace details", async ({
+test("a STORAGE_FULL error with no agent offers Try again and Workspace details", async ({
 	page,
 	context,
 }) => {
@@ -135,12 +136,30 @@ test("a STORAGE_FULL error with no agent offers only Workspace details", async (
 	await expect(progress.getByTestId("progress-sub")).toHaveText(
 		"Its storage is full. Ask your administrator for more space. Your files are kept.",
 	);
-	await expect(progress.getByRole("button")).toHaveText(["Workspace details"]);
+	await expect(progress.getByRole("button")).toHaveText([
+		"Try again",
+		"Workspace details",
+	]);
 	// The dialog still has Start workspace for when space has been freed.
 	await progress.getByRole("button", { name: "Workspace details" }).click();
 	await expect(
 		page.getByTestId("dialog-workspace-status").getByTestId("workspace-start"),
 	).toBeVisible();
+});
+
+test("a missing image offers no Try again, only Workspace details", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await failWorkspace(student.workspaceId, "IMAGE_NOT_FOUND", "The image is missing.");
+	await page.goto(workspacePath(student.workspaceId));
+
+	const progress = page.getByTestId("workspace-progress");
+	await expect(progress).toHaveAttribute("data-phase", "error", { timeout: 15_000 });
+	await expect(progress.locator(".pk-actions").getByRole("button")).toHaveText([
+		"Workspace details",
+	]);
 });
 
 for (const state of ["stopped", "error"] as const) {

@@ -113,8 +113,11 @@ export function offerDockerCleanup(
 	);
 }
 
-/** Errors that starting again cannot fix until someone frees space or steps in (SPEC.md §28). */
-const NOT_RETRYABLE = new Set(["STORAGE_FULL", "IMAGE_NOT_FOUND", "INSTANCE_MISSING"]);
+/**
+ * Errors only an administrator can fix (SPEC.md §28). STORAGE_FULL is not one:
+ * an administrator may have grown the quota since, so a retry can succeed.
+ */
+const NOT_RETRYABLE = new Set(["IMAGE_NOT_FOUND", "INSTANCE_MISSING"]);
 
 /** Whether Try again can help. */
 export function canRetry(errorCode: string | null | undefined): boolean {
@@ -324,7 +327,11 @@ export function WorkspaceStarting({
 									/>
 								)}
 								{canRetry(errorCode) && (
-									<StartButton workspaceId={workspaceId} testId="workspace-retry">
+									<StartButton
+										workspaceId={workspaceId}
+										testId="workspace-retry"
+										primary={!cleanDocker}
+									>
 										Try again
 									</StartButton>
 								)}
@@ -366,10 +373,12 @@ export function WorkspaceStarting({
 function StartButton({
 	workspaceId,
 	testId,
+	primary = true,
 	children,
 }: {
 	workspaceId: string;
 	testId: string;
+	primary?: boolean;
 	children: string;
 }) {
 	const action = useWorkspaceAction(workspaceId);
@@ -377,7 +386,7 @@ function StartButton({
 
 	return (
 		<Button
-			variant="primary"
+			variant={primary ? "primary" : "secondary"}
 			disabled={action.isPending}
 			data-testid={testId}
 			onClick={() =>
