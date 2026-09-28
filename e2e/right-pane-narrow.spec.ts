@@ -231,6 +231,11 @@ for (const theme of ["light", "dark"] as const) {
 
 			// Monitor: Stop stays in the pane and the table is never wider than it.
 			await page.getByTestId("right-pane-tab-monitor").click();
+			// The last tab, off the edge at 200 px, scrolls fully into view.
+			const monitorTab = await box(page.getByTestId("right-pane-tab-monitor"));
+			expect(monitorTab.x + monitorTab.width).toBeLessThanOrEqual(
+				pane.x + pane.width + 1,
+			);
 			await expect(page.getByTestId("monitor-process-4242")).toBeVisible({
 				timeout: 15_000,
 			});

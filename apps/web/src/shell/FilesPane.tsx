@@ -199,11 +199,20 @@ function Switchers({
 	const refFor = (value: RightPane) => (value === current ? currentRef : undefined);
 	const list = useRef<HTMLDivElement>(null);
 	// The strip scrolls sideways in a narrow pane; keep the chosen surface in view,
-	// however it was chosen (a notice can open Monitor).
+	// however it was chosen (a notice can open Monitor). Scrolled by hand, because
+	// Chrome's scrollIntoView moves the Tab starting point and the page's first
+	// Tab stop (the screen-reader toggle) would be skipped.
 	useEffect(() => {
-		list.current
-			?.querySelector<HTMLElement>(`[data-testid="right-pane-tab-${current}"]`)
-			?.scrollIntoView({ block: "nearest", inline: "nearest" });
+		const strip = list.current;
+		const tab = strip?.querySelector<HTMLElement>(
+			`[data-testid="right-pane-tab-${current}"]`,
+		);
+		if (!strip || !tab) return;
+		const start = tab.offsetLeft - strip.offsetLeft;
+		const end = start + tab.offsetWidth;
+		if (start < strip.scrollLeft) strip.scrollLeft = start;
+		else if (end > strip.scrollLeft + strip.clientWidth)
+			strip.scrollLeft = end - strip.clientWidth;
 	}, [current]);
 	return (
 		<TabsList
