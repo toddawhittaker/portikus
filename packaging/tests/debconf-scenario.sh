@@ -86,6 +86,84 @@ check_not_started() {
 	grep -qF 'dpkg-reconfigure portikus' /tmp/install.log || fail "the fix command was not printed"
 }
 
+# The ui-* scenarios: apt install in a 100 by 30 tmux session with the
+# whiptail frontend, answered with key presses.
+ui_start() {
+	tmux new-session -d -s ui -x 100 -y 30 \
+		"DEBIAN_FRONTEND=dialog apt-get install -y -qq -o Dpkg::Use-Pty=0 /t/portikus.deb 2>/tmp/install.log; touch /tmp/ui-done; sleep 600"
+}
+
+# The screen's text as one line without the dialog border, so a phrase
+# matches wherever whiptail wraps it.
+screen() {
+	tmux capture-pane -p -t ui | sed 's/^ *x //; s/ *x *$//' | tr -s ' \n' '  '
+}
+
+# wait_for TEXT -- fails when TEXT is not on the screen within 20 seconds.
+wait_for() {
+	for _ in $(seq 100); do
+		screen | grep -qF -- "$1" && return 0
+		sleep 0.2
+	done
+	screen >&2
+	fail "the screen never showed: $1"
+}
+
+keys() {
+	tmux send-keys -t ui "$@"
+	sleep 0.3
+}
+
+typed() {
+	tmux send-keys -t ui -l "$1"
+	sleep 0.3
+}
+
+# Empties a text field that holds a suggestion.
+clear_field() {
+	for _ in $(seq 60); do
+		tmux send-keys -t ui BSpace
+	done
+	sleep 0.3
+}
+
+ui_done() {
+	for _ in $(seq 100); do
+		[ ! -e /tmp/ui-done ] || return 0
+		sleep 0.2
+	done
+	screen >&2
+	fail "apt-get install did not finish"
+}
+
+# Welcome, then the web address and the suggested administrator email.
+ui_first_screens() {
+	wait_for "Welcome to Portikus"
+	keys Enter
+	wait_for "Web address of this server"
+	clear_field
+	typed "$1"
+	keys Enter
+	wait_for "Email of the Portikus administrator"
+	keys Enter
+}
+
+# A server with one empty 500 GiB disk, /dev/sdb, and no volume group.
+fake_one_disk() {
+	cat >/usr/local/bin/lsblk <<'STUB'
+#!/bin/sh
+case "$*" in
+"-dnp -o NAME,TYPE") echo "/dev/sdb disk" ;;
+"-nro NAME /dev/sdb") echo sdb ;;
+"-dno RO /dev/sdb") echo " 0" ;;
+"-dno FSTYPE,PTTYPE,MOUNTPOINT /dev/sdb") echo "" ;;
+"-dnbo SIZE /dev/sdb") echo 536870912000 ;;
+*) exec /usr/bin/lsblk "$@" ;;
+esac
+STUB
+	chmod 0755 /usr/local/bin/lsblk
+}
+
 case "$scenario" in
 dex-file)
 	install_with <<'EOF'
@@ -108,7 +186,11 @@ EOF
 	[ "$(python3 -c 'import yaml; print(yaml.safe_load(open("/etc/portikus/secrets.yaml")))')" = "{}" ] ||
 		fail "secrets.yaml is not empty for a local-accounts site"
 	check_started
-	grep -qF 'https://portikus.example.edu as root@example.edu' /tmp/install.log || fail "sign-in line missing"
+	grep -qF 'Sign in at https://portikus.example.edu' /tmp/install.log || fail "sign-in line missing"
+	grep -qF 'as root@example.edu' /tmp/install.log || fail "sign-in email missing"
+	# The closing message fits an 80-column terminal.
+	long=$(sed -n '/Portikus setup is running/,$p' /tmp/install.log | awk 'length > 78')
+	[ -z "$long" ] || fail "the closing message has a line over 78 columns: $long"
 	;;
 entra-vg)
 	install_with <<'EOF'
@@ -276,6 +358,152 @@ unanswered)
 	! setup_started || fail "setup was started with no answers"
 	grep -qF 'Portikus is not configured yet: run dpkg-reconfigure portikus' /tmp/install.log ||
 		fail "the not-configured line was not printed"
+	;;
+ui-storage-default)
+	# With exactly one empty disk the suggestion is still the file, and the
+	# erase question still defaults to No.
+	fake_one_disk
+	ui_start
+	ui_first_screens portikus.example.edu
+	wait_for "HTTPS certificate"
+	keys Down Down Enter
+	wait_for "How people sign in"
+	keys Enter
+	wait_for "Where to keep student files"
+	screen | grep -qF "/dev/sdb - an empty disk of 500 GiB" || fail "the empty disk is not offered"
+	keys Enter
+	wait_for "Size of the storage file"
+	keys Escape
+	wait_for "Where to keep student files"
+	keys Up Enter
+	wait_for "Erase /dev/sdb?"
+	keys Enter
+	wait_for "Save these answers and start setup?"
+	screen | grep -qF "NOT confirmed" || fail "the erase question did not default to No"
+	keys Enter
+	ui_done
+	expect "$CONFIG" portikus_storage '"/dev/sdb"'
+	expect "$CONFIG" portikus_storage_confirm false
+	;;
+ui-host-short)
+	# A host name without a dot is not suggested, so typing the name works.
+	ui_start
+	wait_for "Welcome to Portikus"
+	keys Enter
+	wait_for "Web address of this server"
+	typed portikus.example.edu
+	keys Enter
+	wait_for "Email of the Portikus administrator"
+	screen | grep -qF "admin@portikus.example.edu" || fail "the web address was not what was typed"
+	;;
+ui-host-full)
+	ui_start
+	wait_for "Welcome to Portikus"
+	keys Enter
+	wait_for "Web address of this server"
+	wait_for "lab.example.edu"
+	keys Enter
+	wait_for "admin@lab.example.edu"
+	;;
+ui-summary-no)
+	# No on the summary returns to the first question with every answer
+	# kept, the hidden token included.
+	ui_start
+	ui_first_screens portikus.example.edu
+	wait_for "HTTPS certificate"
+	keys Enter
+	wait_for "Email for Let's Encrypt"
+	keys Enter
+	wait_for "Cloudflare API token"
+	typed CF-TOKEN-ui-0123456789abcdef
+	keys Enter
+	wait_for "How people sign in"
+	keys Escape
+	wait_for "Cloudflare API token"
+	wait_for "Leave blank to keep the value you entered"
+	keys Enter
+	wait_for "How people sign in"
+	keys Enter
+	wait_for "Size of the storage file"
+	clear_field
+	typed 1
+	keys Enter
+	wait_for "Save these answers and start setup?"
+	keys Tab Enter
+	wait_for "Web address of this server"
+	wait_for "portikus.example.edu"
+	clear_field
+	typed lab.example.edu
+	keys Enter
+	wait_for "Email of the Portikus administrator"
+	screen | grep -qF "admin@portikus.example.edu" || fail "the administrator's email was not kept"
+	keys Enter
+	wait_for "HTTPS certificate"
+	keys Enter
+	wait_for "Email for Let's Encrypt"
+	keys Enter
+	wait_for "Cloudflare API token"
+	keys Enter
+	wait_for "How people sign in"
+	keys Enter
+	wait_for "Size of the storage file"
+	keys Enter
+	wait_for "Save these answers and start setup?"
+	screen | grep -qF "https://lab.example.edu" || fail "the summary does not show the new web address"
+	keys Enter
+	ui_done
+	expect "$CONFIG" portikus_public_host '"lab.example.edu"'
+	expect "$CONFIG" portikus_admin_email '"admin@portikus.example.edu"'
+	expect "$CONFIG" portikus_storage_size 1
+	expect "$SECRETS" portikus_cloudflare_api_token '"CF-TOKEN-ui-0123456789abcdef"'
+	check_no_leak CF-TOKEN-ui-0123456789abcdef
+	check_started
+	;;
+ui-cert)
+	# The certificate and key must parse, and the key must match.
+	echo "not a certificate" >/root/junk.pem
+	openssl req -x509 -newkey rsa:2048 -nodes -subj /CN=portikus.example.edu -days 1 \
+		-keyout /root/key.pem -out /root/cert.pem 2>/dev/null
+	openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /root/other.pem 2>/dev/null
+	ui_start
+	ui_first_screens portikus.example.edu
+	wait_for "HTTPS certificate"
+	keys Down Enter
+	wait_for "Certificate file"
+	typed /root/junk.pem
+	keys Enter
+	wait_for "is not a PEM certificate"
+	keys Enter
+	wait_for "Certificate file"
+	clear_field
+	typed /root/cert.pem
+	keys Enter
+	wait_for "Private key file"
+	typed /root/junk.pem
+	keys Enter
+	wait_for "is not a PEM private key"
+	keys Enter
+	wait_for "Private key file"
+	clear_field
+	typed /root/other.pem
+	keys Enter
+	wait_for "does not match the certificate"
+	keys Enter
+	wait_for "Private key file"
+	clear_field
+	typed /root/key.pem
+	keys Enter
+	wait_for "How people sign in"
+	keys Enter
+	wait_for "Size of the storage file"
+	clear_field
+	typed 1
+	keys Enter
+	wait_for "Save these answers and start setup?"
+	keys Enter
+	ui_done
+	expect "$CONFIG" portikus_tls_cert '"/root/cert.pem"'
+	expect "$CONFIG" portikus_tls_key '"/root/key.pem"'
 	;;
 *)
 	fail "unknown scenario"

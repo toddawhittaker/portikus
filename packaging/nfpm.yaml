@@ -22,6 +22,8 @@ depends:
   - ca-certificates
   - gpg
   - curl
+  # The install questions check certificate and key files with it.
+  - openssl
 
 # The tree file modes come from the build: scripts/build-deb.sh chmods them,
 # because nfpm would apply a file_info mode to the directories as well.
