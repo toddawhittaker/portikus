@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, query, settledAxe, WCAG_TAGS } from "./helpers";
+import { loginAs, openToggletip, query, settledAxe, WCAG_TAGS } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the admin Network
@@ -8,10 +8,12 @@ import { loginAs, query, settledAxe, WCAG_TAGS } from "./helpers";
  * checks never write the policy.
  */
 /**
- * Each test seeds and removes its own rows, named for its theme. The tests
- * run in parallel workers, and a shared afterAll in one worker used to delete
- * the rows another worker's test was still clicking, so it timed out.
+ * Each test seeds and removes its own rows, named for its theme and repeat,
+ * so --repeat-each copies never share them. The file runs serially, so the
+ * seeding tests never add or delete rows under the unapplied-change check.
  */
+test.describe.configure({ mode: "serial" });
+
 async function seed(suffix: string): Promise<void> {
 	await query(
 		"insert into egress_entries (kind, value, label) values ('host', $1, 'Course API') on conflict (value) do nothing",
@@ -43,7 +45,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 	test(`the Network tab and its dialogs have no automatic accessibility violations (${colorScheme})`, async ({
 		page,
 	}) => {
-		const suffix = `a11y-egress-${colorScheme}.test`;
+		// Unique per repeat too, so --repeat-each copies never share rows.
+		const suffix = `a11y-egress-${colorScheme}-r${test.info().repeatEachIndex}.test`;
+		await unseed(suffix);
 		await seed(suffix);
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
@@ -60,9 +64,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		// The intro and an open toggletip.
 		await expect(page.getByTestId("intro-admin-network")).toBeVisible();
 		await page.getByRole("button", { name: "About open and allow-list modes" }).click();
-		await expect(
-			page.getByRole("dialog", { name: "open and allow-list modes" }),
-		).toBeVisible();
+		await expect(openToggletip(page)).toBeVisible();
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 		await expect(

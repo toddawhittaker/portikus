@@ -8,7 +8,7 @@ import { ToastProvider } from "@portikus/ui";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ListeningContext } from "../running/services.js";
-import { json, stubFetch } from "../test-utils.js";
+import { json, openToggletip, stubFetch } from "../test-utils.js";
 import { resetPreviewHistory } from "./history.js";
 import { PreviewLeaf } from "./PreviewLeaf.js";
 
@@ -107,7 +107,7 @@ test("the address has a toggletip saying only the student can open it", async ()
 	show({});
 	await screen.findByTestId("preview-frame");
 	fireEvent.click(screen.getByRole("button", { name: "About the preview address" }));
-	expect((await screen.findByRole("dialog")).textContent).toBe(
+	expect(openToggletip().textContent).toBe(
 		"Your preview's own address. Only you can open it, after signing in to Portikus. It does not work for anyone else.",
 	);
 });

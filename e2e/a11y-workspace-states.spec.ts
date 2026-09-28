@@ -8,6 +8,7 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	openToggletip,
 	query,
 	seedStorage,
 	settledAxe,
@@ -68,14 +69,10 @@ for (const scheme of ["light", "dark"] as const) {
 		for (const label of ["Reset Docker", "Recovery storage"]) {
 			await dialog.getByRole("button", { name: `About ${label}`, exact: true }).focus();
 			await page.keyboard.press("Enter");
-			await expect(
-				page.getByRole("dialog", { name: label, exact: true }),
-			).toBeVisible();
+			await expect(openToggletip(page)).toBeVisible();
 			await expectNoViolations(page);
 			await page.keyboard.press("Escape");
-			await expect(page.getByRole("dialog", { name: label, exact: true })).toHaveCount(
-				0,
-			);
+			await expect(openToggletip(page)).toHaveCount(0);
 			// Focus goes back to the tip's button, still inside the Workspace dialog.
 			await expect(
 				dialog.getByRole("button", { name: `About ${label}`, exact: true }),
@@ -98,9 +95,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.getByTestId("workspace-status").click();
 		const dialog = page.getByTestId("dialog-workspace-status");
 		await dialog.getByRole("button", { name: "About Restart workspace" }).click();
-		await expect(
-			page.getByRole("dialog", { name: "Restart workspace", exact: true }),
-		).toContainText("previews come back inactive");
+		await expect(openToggletip(page)).toContainText("previews come back inactive");
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 		await expect(dialog).toBeVisible();
@@ -111,9 +106,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.getByRole("menuitem", { name: "Recovery points…" }).click();
 		const points = page.getByTestId("dialog-recovery-points");
 		await points.getByRole("button", { name: "About Recovery points" }).click();
-		await expect(
-			page.getByRole("dialog", { name: "Recovery points", exact: true }),
-		).toContainText("commits included");
+		await expect(openToggletip(page)).toContainText("commits included");
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 		await expect(points).toBeVisible();

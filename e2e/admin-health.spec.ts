@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, query, settledAxe, WCAG_TAGS } from "./helpers";
+import { loginAs, openToggletip, query, settledAxe, WCAG_TAGS } from "./helpers";
 
 /**
  * The Health tab (SPEC.md §25.6). No worker runs in e2e, so each test writes
@@ -352,7 +352,7 @@ test.describe("admin health", () => {
 			await openHealth(page);
 			await expect(page.getByTestId("intro-admin-health")).toBeVisible();
 			await page.getByRole("button", { name: "About Storage pool" }).click();
-			await expect(page.getByRole("dialog", { name: "Storage pool" })).toBeVisible();
+			await expect(openToggletip(page)).toBeVisible();
 			const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 			expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 		});
@@ -384,9 +384,9 @@ test.describe("admin health", () => {
 			const button = page.getByRole("button", { name: `About ${label}` });
 			await button.focus();
 			await page.keyboard.press("Enter");
-			await expect(page.getByRole("dialog", { name: label })).toContainText(text);
+			await expect(openToggletip(page)).toContainText(text);
 			await page.keyboard.press("Escape");
-			await expect(page.getByRole("dialog", { name: label })).toHaveCount(0);
+			await expect(openToggletip(page)).toHaveCount(0);
 			await expect(button).toBeFocused();
 		}
 	});

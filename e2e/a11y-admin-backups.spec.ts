@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, settledAxe, WCAG_TAGS } from "./helpers";
+import { loginAs, openToggletip, settledAxe, WCAG_TAGS } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Backups tab
@@ -136,10 +136,10 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("intro-admin-backups")).toBeVisible();
 		const tip = page.getByRole("button", { name: "About the restore key" });
 		await tip.click();
-		await expect(page.getByRole("dialog", { name: "the restore key" })).toBeVisible();
+		await expect(openToggletip(page)).toBeVisible();
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
-		await expect(page.getByRole("dialog", { name: "the restore key" })).toHaveCount(0);
+		await expect(openToggletip(page)).toHaveCount(0);
 		await expect(tip).toBeFocused();
 	});
 

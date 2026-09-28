@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { createStudent, loginAs, settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
+import {
+	createStudent,
+	loginAs,
+	openToggletip,
+	settledAxe,
+	WCAG_TAGS,
+	WEB_ORIGIN,
+} from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Logs tab with
@@ -65,9 +72,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			"They never include students' files, commands or terminal output.",
 		);
 		await page.getByRole("button", { name: "About Service log level" }).click();
-		await expect(page.getByRole("dialog", { name: "Service log level" })).toContainText(
-			"Debug fills the journal quickly",
-		);
+		await expect(openToggletip(page)).toContainText("Debug fills the journal quickly");
 
 		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

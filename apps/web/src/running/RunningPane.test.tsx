@@ -15,6 +15,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { openToggletip } from "../test-utils.js";
 import { RunningPane } from "./RunningPane.js";
 import { ListeningContext } from "./services.js";
 
@@ -536,5 +537,5 @@ test("the pane, Show system and a port that can't be previewed each explain them
 		screen.getAllByRole("button", { name: /^About Can't be previewed/ }),
 	).toHaveLength(1);
 	fireEvent.click(tip);
-	expect(screen.getByRole("dialog").textContent).toContain("from 1024 up");
+	expect(openToggletip().textContent).toContain("from 1024 up");
 });

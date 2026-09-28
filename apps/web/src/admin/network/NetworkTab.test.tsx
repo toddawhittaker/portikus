@@ -1,7 +1,7 @@
 import type { AdminEgressView } from "@portikus/contracts";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
+import { json, openToggletip, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { NetworkTab } from "./NetworkTab.js";
 import { egressView } from "./testView.js";
 
@@ -102,9 +102,7 @@ test("the tab opens with its intro and explains each part in a toggletip", async
 		expect(screen.getByRole("button", { name })).toBeDefined();
 	}
 	fireEvent.click(screen.getByRole("button", { name: "About ranges" }));
-	expect((await screen.findByRole("dialog", { name: "ranges" })).textContent).toContain(
-		"It cannot overlap a private network",
-	);
+	expect(openToggletip().textContent).toContain("It cannot overlap a private network");
 });
 
 test("a read failure is shown with a way to try again", async () => {

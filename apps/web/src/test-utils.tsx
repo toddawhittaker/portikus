@@ -132,3 +132,12 @@ export function renderWithQuery(ui: React.ReactElement): QueryClient {
 	);
 	return queryClient;
 }
+
+/** The open toggletip's visible panel, which is hidden from assistive technology by design. */
+export function openToggletip(): HTMLElement {
+	const tip = document.querySelector<HTMLElement>(
+		".pk-toggletip-content[data-state='open']",
+	);
+	if (!tip) throw new Error("No toggletip is open");
+	return tip;
+}

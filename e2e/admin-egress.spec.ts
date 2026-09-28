@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { EGRESS_PRESETS } from "../packages/contracts/dist/egress.js";
-import { loginAs, query } from "./helpers";
+import { loginAs, openToggletip, query } from "./helpers";
 
 /**
  * The admin Network tab: the workspace egress allow-list (issue #284, SPEC.md
@@ -466,9 +466,7 @@ test("an unused empty block list collapses, and an unapplied mode is called the 
 	// The apply status explains itself by keyboard.
 	await page.getByRole("button", { name: "About apply status" }).focus();
 	await page.keyboard.press("Enter");
-	await expect(page.getByRole("dialog", { name: "apply status" })).toContainText(
-		"within seconds",
-	);
+	await expect(openToggletip(page)).toContainText("within seconds");
 	await page.keyboard.press("Escape");
 	// Short: the heading row and one line, not an empty state.
 	expect((await card.boundingBox())?.height ?? 999).toBeLessThan(160);

@@ -11,6 +11,7 @@ import {
 	expectConnected,
 	newTerminal,
 	openFileTab,
+	openToggletip,
 	query,
 	seedFile,
 	seedGit,
@@ -175,9 +176,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await expect(tip).toBeVisible({ timeout: 15_000 });
 			await tip.focus();
 			await page.keyboard.press("Enter");
-			await expect(
-				page.getByRole("dialog", { name: "Review session changes" }),
-			).toHaveText(
+			await expect(openToggletip(page)).toHaveText(
 				"Shows only what changed since this agent session started, not everything since your last commit. Files Git ignores are left out, except .env files at the project root.",
 			);
 			await expectNoViolations(page, '[data-testid="changes-section"]');

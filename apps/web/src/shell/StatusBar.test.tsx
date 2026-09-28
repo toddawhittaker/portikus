@@ -5,7 +5,13 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
-import { json, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
+import {
+	json,
+	openToggletip,
+	renderWithQuery,
+	stubFetch,
+	WORKSPACE,
+} from "../test-utils.js";
 import { RightPaneContext } from "./rightPane.js";
 import { MEMORY_ANNOUNCEMENT, StatusBar, usageMeter } from "./StatusBar.js";
 import type { WorkspaceDialogMode } from "./WorkspaceDialog.js";
@@ -305,9 +311,7 @@ test("the dialog's Restart, Reset Docker and Recovery storage each have a toggle
 		["Recovery storage", "copies of your projects"],
 	]) {
 		fireEvent.click(dialog.getByRole("button", { name: `About ${label}` }));
-		expect((await screen.findByRole("dialog", { name: label })).textContent).toContain(
-			phrase,
-		);
+		expect(openToggletip().textContent).toContain(phrase);
 		fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
 	}
 });

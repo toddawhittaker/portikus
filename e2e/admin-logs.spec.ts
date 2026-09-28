@@ -1,5 +1,5 @@
 import { type Browser, expect, type Page, test } from "@playwright/test";
-import { createStudent, loginAs, query, WEB_ORIGIN } from "./helpers";
+import { createStudent, loginAs, openToggletip, query, WEB_ORIGIN } from "./helpers";
 
 /**
  * The Logs tab (SPEC.md section 24.11, issue #476). The e2e API's
@@ -105,7 +105,7 @@ test.describe("admin logs", () => {
 		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "TERMINAL_LIMIT");
 		// The note on what each level needs is a toggletip beside Levels.
 		await page.getByRole("button", { name: "About Levels" }).click();
-		await expect(page.getByRole("dialog", { name: "Levels" })).toContainText(
+		await expect(openToggletip(page)).toContainText(
 			"Debug lines exist only while the service log level is Debug.",
 		);
 		await page.keyboard.press("Escape");
