@@ -92,6 +92,10 @@ const PATHS = {
 	info: ["C12 12 9", "M12 11v5", "M12 8h.01"],
 	// Lucide circle-help.
 	help: ["C12 12 9", "M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3", "M12 17h.01"],
+	// Lucide arrow-left, arrow-right and download.
+	"arrow-left": ["M12 19l-7-7 7-7", "M19 12H5"],
+	"arrow-right": ["M5 12h14", "M12 5l7 7-7 7"],
+	download: ["M12 15V3", "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "M7 10l5 5 5-5"],
 	search: ["C11 11 6.5", "M20 20l-4.4-4.4"],
 	play: ["M8 5.5v13l10.5-6.5z"],
 	stop: ["R6.5 6.5 11 11 1"],

@@ -3,7 +3,13 @@
  * the LMS brings them back. Rex and Una in CS 350 belong to this spec alone.
  */
 import { expect, test } from "@playwright/test";
-import { settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
+import {
+	createSignedInUser,
+	query,
+	settledAxe,
+	WCAG_TAGS,
+	WEB_ORIGIN,
+} from "./helpers";
 import { launchAs, openCourseTab } from "./lti-helpers";
 
 test("an instructor removes a student, who reappears after a relaunch", async ({
@@ -64,5 +70,40 @@ test("an instructor removes a student, who reappears after a relaunch", async ({
 	} finally {
 		await unaContext.close();
 		await rexContext.close();
+	}
+});
+
+test("another instructor in the course has no Remove button", async ({ browser }) => {
+	const rexContext = await browser.newContext({ baseURL: WEB_ORIGIN });
+	const otherContext = await browser.newContext({ baseURL: WEB_ORIGIN });
+	try {
+		const rex = await rexContext.newPage();
+		await launchAs(rex, { person: "rex", course: "cs350" });
+		// A second instructor, made in the database so no seeded person gains a course.
+		const other = await createSignedInUser(otherContext, "student");
+		const name = `Co Teacher ${other.userId.slice(0, 8)}`;
+		await query("update users set display_name = $2 where id = $1", [
+			other.userId,
+			name,
+		]);
+		await query(
+			`insert into lti_memberships (context_id, user_id, role, last_launch_at)
+			 select m.context_id, $1, 'instructor', now()
+			 from lti_memberships m join lti_contexts c on c.id = m.context_id
+			 where c.context_id = 'mock-course-cs350' and m.role = 'instructor'
+			 limit 1`,
+			[other.userId],
+		);
+
+		const course = await openCourseTab(rex);
+		const row = course
+			.getByTestId("course-members")
+			.getByRole("row", { name: new RegExp(name) });
+		await expect(row).toBeVisible();
+		await expect(row).toContainText("Instructor");
+		await expect(row.getByRole("button")).toHaveCount(0);
+	} finally {
+		await rexContext.close();
+		await otherContext.close();
 	}
 });

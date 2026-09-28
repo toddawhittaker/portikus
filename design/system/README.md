@@ -74,7 +74,7 @@ Motion is functional only. Colour changes take `duration-fast` (120ms); menus, d
 
 Icons are outlined on a 24px grid at a 1.75 stroke, drawn by the `Icon` component in `currentColor` at `size-icon-sm` (14px), `size-icon-md` (16px) or `size-icon-lg` (20px). The set is small and stroke-matched to Lucide; engineers may use `lucide-react` icons of the same names at the same stroke. Claude Code and Codex tabs share the neutral `agent` icon and are told apart by their labels; no vendor logos appear in the product chrome. No emoji anywhere.
 
-The product adds names to the set as screens need them; each one is Lucide's shape at the same stroke. `help` (Lucide `circle-help`) marks a Toggletip button and the Help item in the account menu, and nothing else.
+The product adds names to the set as screens need them; each one is Lucide's shape at the same stroke. `help` (Lucide `circle-help`) marks a Toggletip button and the Help item in the account menu, and nothing else. `arrow-left` and `arrow-right` are Back and Forward in the preview toolbar. `download` marks getting a copy into the workspace or onto the computer, such as Clone repository.
 
 ## Help in the product
 

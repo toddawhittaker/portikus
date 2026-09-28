@@ -11,10 +11,13 @@ import {
 	Dialog,
 	DialogRoot,
 	Select,
+	useToast,
 } from "@portikus/ui";
 import { useState } from "react";
 import { ConfirmByLabelDialog } from "../ConfirmByLabelDialog.js";
+import { errorText } from "../SettingsTab.js";
 import { setTime, workspaceName } from "./model.js";
+import { useAdminBackups, useRestoreCopy } from "./queries.js";
 
 const STOPPED_WARNING =
 	"Start this workspace first. The copy is written by the student's own account inside the running workspace.";
@@ -86,12 +89,21 @@ export function DeleteDialog({
 	);
 }
 
+/** Opened from a workspace's panel: the workspace is fixed and the admin picks a set. */
+export interface RestorePreset {
+	workspaceId: string;
+	/** Every set the host lists; undefined while they load. */
+	sets: HostBackupSet[] | undefined;
+}
+
 /**
- * Pick a workspace the set covers and restore it into a side copy in that
- * student's home (SPEC.md §24.9; ADR 0040). Nothing is overwritten.
+ * Restore one workspace from one set into a side copy in that student's home
+ * (SPEC.md §24.9; ADR 0040). Nothing is overwritten. Opened from a set, the
+ * admin picks the workspace; opened with `preset`, the admin picks the set.
  */
 export function RestoreDialog({
 	set,
+	preset,
 	workspaces,
 	pending,
 	serverError,
@@ -99,36 +111,57 @@ export function RestoreDialog({
 	onRestore,
 }: {
 	set: HostBackupSet | null;
+	preset?: RestorePreset | null;
 	workspaces: BackupWorkspace[];
 	pending: boolean;
 	serverError: string | null;
 	onClose: () => void;
-	onRestore: (workspaceId: string) => void;
+	onRestore: (workspaceId: string, stamp: string) => void;
 }) {
-	const [chosen, setChosen] = useState<string | undefined>(undefined);
+	const [choice, setChoice] = useState<string | undefined>(undefined);
+	const fromSet = set !== null;
+	const open = fromSet || (preset !== null && preset !== undefined);
+
+	// From a set: the workspaces it covers. From a workspace: the sets holding it, newest first.
 	const covered = set
 		? workspaces.filter((w) => set.instances.includes(w.instance))
 		: [];
 	const missing = set ? set.instances.length - covered.length : 0;
-	const picked = covered.find((w) => w.id === chosen);
+	const presetWorkspace = preset
+		? workspaces.find((w) => w.id === preset.workspaceId)
+		: undefined;
+	const holding =
+		preset?.sets && presetWorkspace
+			? preset.sets
+					.filter((s) => s.instances.includes(presetWorkspace.instance))
+					.sort((a, b) => b.stamp.localeCompare(a.stamp))
+			: [];
+	const loading = preset !== null && preset !== undefined && preset.sets === undefined;
+
+	const picked = fromSet ? covered.find((w) => w.id === choice) : presetWorkspace;
+	const stamp = fromSet ? set.stamp : (choice ?? holding[0]?.stamp);
+	const pickedSet = fromSet ? set : holding.find((s) => s.stamp === stamp);
+	const ready = picked !== undefined && pickedSet !== undefined;
 	const stopped = picked !== undefined && picked.state !== "running";
-	const folder = set ? restoreDirFor(set.stamp) : "";
+	const noChoices = fromSet ? covered.length === 0 : !loading && holding.length === 0;
+	const folder = pickedSet ? restoreDirFor(pickedSet.stamp) : null;
 
 	function close() {
-		setChosen(undefined);
+		setChoice(undefined);
 		onClose();
 	}
 
 	return (
-		<DialogRoot
-			open={set !== null}
-			onOpenChange={(open) => (open ? undefined : close())}
-		>
-			{set ? (
+		<DialogRoot open={open} onOpenChange={(next) => (next ? undefined : close())}>
+			{open ? (
 				<Dialog
 					testId="backup-restore-dialog"
-					title="Restore a workspace"
-					description={`From the backup of ${setTime(set.stamp)}. The files are copied into a new folder in the student's home, next to their current files. Nothing is overwritten.`}
+					title={fromSet ? "Restore a workspace" : "Restore from backup"}
+					description={
+						fromSet
+							? `From the backup of ${setTime(set.stamp)}. The files are copied into a new folder in the student's home, next to their current files. Nothing is overwritten.`
+							: "The files are copied into a new folder in the student's home, next to their current files. Nothing is overwritten."
+					}
 					footer={
 						<>
 							<Button onClick={close}>Cancel</Button>
@@ -136,18 +169,18 @@ export function RestoreDialog({
 								variant="primary"
 								data-testid="backup-restore-confirm"
 								loading={pending}
-								aria-disabled={!picked || stopped ? true : undefined}
+								aria-disabled={!ready || stopped ? true : undefined}
 								aria-describedby={
-									covered.length === 0
+									noChoices
 										? "backup-restore-none"
-										: !picked
+										: !ready
 											? "backup-restore-choose"
 											: stopped
 												? "backup-restore-stopped"
 												: undefined
 								}
 								onClick={() => {
-									if (picked && !stopped) onRestore(picked.id);
+									if (ready && !stopped) onRestore(picked.id, pickedSet.stamp);
 								}}
 							>
 								Restore copy
@@ -156,30 +189,45 @@ export function RestoreDialog({
 					}
 				>
 					<div className="flex flex-col gap-3">
-						{covered.length > 0 ? (
+						{noChoices ? (
+							<p
+								id="backup-restore-none"
+								className="m-0 text-[13px]"
+								data-testid="backup-restore-none"
+							>
+								{fromSet
+									? "None of the workspaces in this set exist on the platform now."
+									: "No backup set holds this workspace yet."}
+							</p>
+						) : fromSet ? (
 							<Select
 								id="backup-restore-workspace"
 								label="Workspace"
 								placeholder="Choose a workspace"
-								value={chosen ?? ""}
-								onValueChange={setChosen}
+								value={choice ?? ""}
+								onValueChange={setChoice}
 								options={covered.map((w) => ({
 									value: w.id,
 									label: `${workspaceName(w.instance, workspaces)}${w.state === "running" ? "" : `, ${w.state}`}`,
 								}))}
 							/>
 						) : (
-							<p
-								id="backup-restore-none"
-								className="m-0 text-[13px]"
-								data-testid="backup-restore-none"
-							>
-								None of the workspaces in this set exist on the platform now.
-							</p>
+							<Select
+								id="backup-restore-set"
+								label="Backup set"
+								placeholder={loading ? "Loading backup sets…" : "Choose a backup set"}
+								disabled={loading}
+								value={stamp ?? ""}
+								onValueChange={setChoice}
+								options={holding.map((s) => ({
+									value: s.stamp,
+									label: `${setTime(s.stamp)}${s.complete ? "" : ", incomplete"}`,
+								}))}
+							/>
 						)}
-						{covered.length > 0 && !picked ? (
+						{!noChoices && !loading && !ready ? (
 							<p id="backup-restore-choose" className="pk-muted m-0 text-[13px]">
-								Choose a workspace to restore.
+								{fromSet ? "Choose a workspace to restore." : "Choose a backup set."}
 							</p>
 						) : null}
 						{missing > 0 && covered.length > 0 ? (
@@ -189,9 +237,17 @@ export function RestoreDialog({
 							</p>
 						) : null}
 						<dl className="pk-dl text-[13px]">
+							{presetWorkspace ? (
+								<>
+									<dt>Workspace</dt>
+									<dd data-testid="backup-restore-workspace-name">
+										{workspaceName(presetWorkspace.instance, workspaces)}
+									</dd>
+								</>
+							) : null}
 							<dt>Copied into</dt>
-							<dd className="m-0 font-mono" data-testid="backup-restore-folder">
-								~/{folder}
+							<dd className="font-mono" data-testid="backup-restore-folder">
+								{folder ? `~/${folder}` : "Not chosen yet"}
 							</dd>
 						</dl>
 						<p className="pk-muted m-0 text-[13px]">
@@ -220,6 +276,65 @@ export function RestoreDialog({
 				</Dialog>
 			) : null}
 		</DialogRoot>
+	);
+}
+
+/**
+ * RestoreDialog for one workspace, loading the sets itself, for a caller
+ * outside the Backups tab such as the workspace's panel. Renders nothing,
+ * and fetches nothing, while `workspaceId` is null.
+ */
+export function RestoreFromBackupDialog({
+	workspaceId,
+	onClose,
+}: {
+	workspaceId: string | null;
+	onClose: () => void;
+}) {
+	if (workspaceId === null) return null;
+	return <RestoreFromBackupOpen workspaceId={workspaceId} onClose={onClose} />;
+}
+
+function RestoreFromBackupOpen({
+	workspaceId,
+	onClose,
+}: {
+	workspaceId: string;
+	onClose: () => void;
+}) {
+	const backups = useAdminBackups();
+	const restore = useRestoreCopy();
+	const toast = useToast();
+	const [error, setError] = useState<string | null>(null);
+	const data = backups.data;
+	const sets = data ? (data.host?.sets ?? []) : backups.isError ? [] : undefined;
+	const notice = backups.isError
+		? errorText(backups.error)
+		: data && !data.host
+			? "Backups are not connected on this site."
+			: null;
+	return (
+		<RestoreDialog
+			set={null}
+			preset={{ workspaceId, sets }}
+			workspaces={data?.workspaces ?? []}
+			pending={restore.isPending}
+			serverError={error ?? notice}
+			onClose={onClose}
+			onRestore={(id, stamp) => {
+				setError(null);
+				restore.mutate(
+					{ stamp, workspaceId: id },
+					{
+						onSuccess: () => {
+							toast.show({ tone: "success", title: "Restore requested" });
+							onClose();
+						},
+						onError: (e) => setError(errorText(e)),
+					},
+				);
+			}}
+		/>
 	);
 }
 
@@ -260,7 +375,7 @@ export function ReplaceHomeDialog({
 				<li>If the workspace is running, it stops, and the student is told why.</li>
 				<li>Each active project gets a recovery point first.</li>
 				<li>
-					The current home folder is kept, and listed under Kept homes below until you
+					The current home folder is kept, and listed under Clean up below until you
 					delete it.
 				</li>
 				<li>The workspace starts again if it was running.</li>

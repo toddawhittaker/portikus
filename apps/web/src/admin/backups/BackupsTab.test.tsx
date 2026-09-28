@@ -1,7 +1,8 @@
 import type { AdminBackups, BackupRequestView } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
-import { json, renderApp, stubFetch, USER } from "../../test-utils.js";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { json, renderApp, renderWithQuery, stubFetch, USER } from "../../test-utils.js";
+import { RestoreFromBackupDialog } from "./BackupDialogs.js";
 import {
 	newestCompleteStamp,
 	requestText,
@@ -508,6 +509,182 @@ test("empty lists say so, and an unlisted VM says not listed yet", async () => {
 	expect(screen.getAllByText("Not listed yet.")).toHaveLength(2);
 	expect(screen.getByText("No workspaces restored recently.")).toBeTruthy();
 	expect(screen.getByText("No requests yet.")).toBeTruthy();
+	// An empty list is one line of text, never a table of headers alone.
+	expect(screen.queryAllByRole("table")).toHaveLength(0);
+	const cleanUp = screen.getByTestId("backups-cleanup-summary");
+	expect(cleanUp.textContent).toBe(
+		"Clean up: 0 dumps; snapshots and kept homes not listed yet",
+	);
+	expect(cleanUp.closest("details")?.open).toBe(false);
+});
+
+test("the page reads as Backups, Restores, Clean up, then Recent requests", async () => {
+	stubBackups(backups());
+	renderApp("/admin?tab=backups");
+	await screen.findByTestId("backups-status");
+	const outline = screen
+		.getAllByRole("heading")
+		.filter((h) => ["H2", "H3", "H4"].includes(h.tagName))
+		.map((h) => `${h.tagName} ${h.textContent}`);
+	expect(outline).toEqual([
+		"H2 Backups",
+		"H3 Status and sets",
+		"H4 Status",
+		"H4 Backup sets",
+		"H3 Restores",
+		"H3 Clean up",
+		"H4 Pre-change snapshots",
+		"H4 Kept homes",
+		"H4 Pre-change database dumps",
+		"H3 Recent requests",
+	]);
+	// Back up now sits in the Backups group's heading row.
+	const group = screen
+		.getByRole("heading", { level: 3, name: "Status and sets" })
+		.closest("section") as HTMLElement;
+	expect(within(group).getByTestId("backup-run")).toBeTruthy();
+});
+
+test("the tab opens with its intro and each help button names what it explains", async () => {
+	stubBackups(backups());
+	renderApp("/admin?tab=backups");
+	await screen.findByTestId("backups-status");
+	const intro = screen.getByTestId("intro-admin-backups");
+	expect(intro.textContent).toContain("Docker data is not copied.");
+	expect(within(intro).getByRole("link").getAttribute("href")).toBe(
+		"/help#admin-backups",
+	);
+	for (const name of [
+		"About the restore key",
+		"About set times",
+		"About incomplete sets",
+		"About Replace home",
+		"About pre-change snapshots",
+		"About kept homes",
+		"About pre-change database dumps",
+	]) {
+		expect(screen.getByRole("button", { name })).toBeTruthy();
+	}
+	fireEvent.click(screen.getByRole("button", { name: "About set times" }));
+	expect((await screen.findByRole("dialog", { name: "set times" })).textContent).toBe(
+		"Set times are in UTC, because the restore folder is named with them.",
+	);
+});
+
+test("Clean up is open with counts when anything is there to delete", async () => {
+	stubBackups(backups());
+	renderApp("/admin?tab=backups");
+	const summary = await screen.findByTestId("backups-cleanup-summary");
+	expect(summary.textContent).toBe("Clean up: 1 snapshot, 1 kept home, 1 dump");
+	expect(summary.closest("details")?.open).toBe(true);
+});
+
+test("Clean up is closed when snapshots, kept homes and dumps are all empty", async () => {
+	const data = backups();
+	stubBackups({
+		...data,
+		host: data.host && { ...data.host, dumps: [] },
+		vm: { snapshots: [], keptHomes: [] },
+	});
+	renderApp("/admin?tab=backups");
+	const summary = await screen.findByTestId("backups-cleanup-summary");
+	expect(summary.textContent).toBe("Clean up: 0 snapshots, 0 kept homes, 0 dumps");
+	expect(summary.closest("details")?.open).toBe(false);
+});
+
+describe("restore from a workspace's panel (preset workspace)", () => {
+	test("lists only the sets holding the workspace, newest first, and restores the chosen one", async () => {
+		const writes = stubBackups(backups());
+		renderWithQuery(
+			<RestoreFromBackupDialog workspaceId={BOB_WS} onClose={() => {}} />,
+		);
+		const dialog = await screen.findByTestId("backup-restore-dialog");
+		expect(within(dialog).getByRole("heading").textContent).toBe("Restore from backup");
+		expect(
+			(await within(dialog).findByTestId("backup-restore-workspace-name")).textContent,
+		).toBe("Bob Jones (bob)");
+		// The newest set holding Bob is chosen for you; FAILED does not hold him.
+		await waitFor(() =>
+			expect(within(dialog).getByTestId("backup-restore-folder").textContent).toBe(
+				"~/restored-2026-09-24-0230",
+			),
+		);
+		fireEvent.click(within(dialog).getByLabelText("Backup set"));
+		const options = await screen.findAllByRole("option");
+		expect(options.map((o) => o.textContent)).toEqual([
+			"Sep 24, 2026, 02:30 UTC",
+			"Sep 20, 2026, 02:30 UTC",
+		]);
+		fireEvent.click(options[1] as HTMLElement);
+		await waitFor(() =>
+			expect(within(dialog).getByTestId("backup-restore-folder").textContent).toBe(
+				"~/restored-2026-09-20-0230",
+			),
+		);
+		// Bob's workspace is stopped, so the copy cannot be made yet.
+		const confirm = within(dialog).getByTestId("backup-restore-confirm");
+		expect(confirm.getAttribute("aria-disabled")).toBe("true");
+		expect(confirm.getAttribute("aria-describedby")).toBe("backup-restore-stopped");
+		fireEvent.click(confirm);
+		expect(writes).toEqual([]);
+	});
+
+	test("a running workspace is restored from the chosen set", async () => {
+		const writes = stubBackups(backups());
+		const onClose = vi.fn();
+		renderWithQuery(
+			<RestoreFromBackupDialog workspaceId={ALICE_WS} onClose={onClose} />,
+		);
+		const dialog = await screen.findByTestId("backup-restore-dialog");
+		const confirm = within(dialog).getByTestId("backup-restore-confirm");
+		await waitFor(() => expect(confirm.getAttribute("aria-disabled")).toBeNull());
+		fireEvent.click(confirm);
+		await waitFor(() =>
+			expect(writes).toEqual([
+				{
+					method: "POST",
+					url: "/admin/backups/restores",
+					body: { stamp: FAILED, workspaceId: ALICE_WS },
+				},
+			]),
+		);
+		await waitFor(() => expect(onClose).toHaveBeenCalled());
+	});
+
+	test("a workspace no set holds says so and cannot restore", async () => {
+		stubBackups(backups());
+		renderWithQuery(
+			<RestoreFromBackupDialog
+				workspaceId="99999999-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+				onClose={() => {}}
+			/>,
+		);
+		const dialog = await screen.findByTestId("backup-restore-dialog");
+		expect((await within(dialog).findByTestId("backup-restore-none")).textContent).toBe(
+			"No backup set holds this workspace yet.",
+		);
+		const confirm = within(dialog).getByTestId("backup-restore-confirm");
+		expect(confirm.getAttribute("aria-disabled")).toBe("true");
+		expect(confirm.getAttribute("aria-describedby")).toBe("backup-restore-none");
+	});
+
+	test("a site without a backup host says backups are not connected", async () => {
+		stubBackups(backups({ host: null, workspaces: [] }));
+		renderWithQuery(
+			<RestoreFromBackupDialog workspaceId={ALICE_WS} onClose={() => {}} />,
+		);
+		const dialog = await screen.findByTestId("backup-restore-dialog");
+		expect((await within(dialog).findByRole("alert")).textContent).toBe(
+			"Backups are not connected on this site.",
+		);
+	});
+
+	test("renders and fetches nothing while no workspace is given", () => {
+		const fetch = stubBackups(backups());
+		renderWithQuery(<RestoreFromBackupDialog workspaceId={null} onClose={() => {}} />);
+		expect(screen.queryByTestId("backup-restore-dialog")).toBeNull();
+		expect(fetch).toEqual([]);
+	});
 });
 
 test("a failed request shows its error in the recent list", async () => {

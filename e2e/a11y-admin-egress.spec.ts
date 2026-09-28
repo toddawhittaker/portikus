@@ -52,6 +52,18 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("egress-test-result")).toBeVisible();
 		await expectNoViolations(page);
 
+		// The intro and an open toggletip.
+		await expect(page.getByTestId("intro-admin-network")).toBeVisible();
+		await page.getByRole("button", { name: "About open and allow-list modes" }).click();
+		await expect(
+			page.getByRole("dialog", { name: "open and allow-list modes" }),
+		).toBeVisible();
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(
+			page.getByRole("button", { name: "About open and allow-list modes" }),
+		).toBeFocused();
+
 		// The mode switch's confirmation, for whichever mode is not current.
 		const other = page.locator('[data-testid^="egress-mode-"][aria-pressed="false"]');
 		await other.click();
@@ -96,5 +108,36 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("egress-remove-dialog")).toBeHidden();
+	});
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the Network tab with an unapplied change and no blocked sites has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.route("**/admin/egress", async (route) => {
+			if (route.request().method() !== "GET") return route.continue();
+			const response = await route.fetch();
+			const view = await response.json();
+			await route.fulfill({
+				response,
+				json: {
+					...view,
+					mode: "allow-list",
+					blockedSites: [],
+					apply: { appliedVersion: view.version - 1, appliedAt: null, error: null },
+				},
+			});
+		});
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin?tab=network");
+		await expect(page.getByTestId("egress-mode-summary")).toHaveText(
+			/^Saved setting:/,
+			{
+				timeout: 15_000,
+			},
+		);
+		await expectNoViolations(page);
 	});
 }

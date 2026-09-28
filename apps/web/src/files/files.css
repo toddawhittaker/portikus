@@ -23,8 +23,11 @@
 	background: var(--surface-hover);
 }
 /* Selection is the neutral row tone shared by every right-pane list, and the
-   whole row carries it, actions included (issue #274). */
-.pk-tree-item[aria-selected="true"] > .pk-tree-row {
+   whole row carries it, actions included (issue #274). The focused row
+   counts as selected for a screen reader, but is painted only while the
+   tree has focus, so an untouched tree shows no row picked out. */
+.pk-tree-item[data-selected="true"] > .pk-tree-row,
+:where(.pk-tree:focus-within) .pk-tree-item[aria-selected="true"] > .pk-tree-row {
 	background: var(--surface-row-selected);
 	/* The tone alone is too faint to see, so an ink bar marks the row too,
 	   never green (issue #369). */
@@ -248,6 +251,17 @@
 	text-align: left;
 	color: var(--ink-muted);
 	cursor: pointer;
+}
+/* The review button and its toggletip share one row. */
+.pk-changes-actions {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	padding-inline-end: var(--space-2);
+}
+.pk-changes-actions > .pk-changes-review {
+	width: auto;
+	padding-block-end: 0;
 }
 .pk-changes-review:focus-visible {
 	outline: var(--ring-width) solid var(--focus);

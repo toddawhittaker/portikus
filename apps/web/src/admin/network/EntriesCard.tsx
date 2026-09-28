@@ -7,7 +7,7 @@ import {
 	Button,
 	ConfirmDialog,
 	ConfirmDialogRoot,
-	EmptyState,
+	Toggletip,
 	useToast,
 } from "@portikus/ui";
 import { useRef, useState } from "react";
@@ -48,9 +48,15 @@ export function EntriesCard({
 		<section className="pk-card p-6" aria-labelledby="egress-entries-title">
 			<div className="flex items-start gap-4">
 				<div className="min-w-0 flex-1">
-					<h3 className="pk-text-heading m-0" id="egress-entries-title" tabIndex={-1}>
-						Your hosts and ranges
-					</h3>
+					<div className="flex items-center gap-1">
+						<h3 className="pk-text-heading m-0" id="egress-entries-title" tabIndex={-1}>
+							Your hosts and ranges
+						</h3>
+						<Toggletip label="ranges">
+							A range, such as 203.0.113.0/24, allows every address in it. It cannot
+							overlap a private network, because those stay blocked.
+						</Toggletip>
+					</div>
 					<p className="pk-text-body pk-muted mt-1 mb-0">
 						Anything a preset does not cover, such as your college's own sites. {hosts}{" "}
 						of {EGRESS_LIMITS.hosts} host names and {ranges} of {EGRESS_LIMITS.ranges}{" "}
@@ -66,10 +72,13 @@ export function EntriesCard({
 				</Button>
 			</div>
 			{view.entries.length === 0 ? (
-				<EmptyState icon="info" title="No hosts or ranges yet">
-					Add a host name such as api.example.edu, or allow one from the refused names
-					or the host test.
-				</EmptyState>
+				<p
+					className="m-0 mt-3 text-[13px] text-ink-muted"
+					data-testid="egress-entries-empty"
+				>
+					No hosts or ranges yet. Add a host name such as api.example.edu, or allow one
+					from the refused names or the host test.
+				</p>
 			) : (
 				<div className="pk-table-wrap mt-4">
 					<table className="pk-table" data-testid="egress-entries">

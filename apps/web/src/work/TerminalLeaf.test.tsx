@@ -176,29 +176,31 @@ test("the bar follows the directory the agent reports", () => {
 	expect(screen.getByText("zsh · ~/projects/todo-api/src")).toBeTruthy();
 });
 
-/** Issue #268: the pane menu is where one terminal changes its colours. */
-test("the actions menu offers the other colour scheme for this terminal", () => {
+/**
+ * Issue #268: the pane menu is where one terminal changes its colours. The
+ * item is one checkbox with a fixed name, checked when the terminal is light.
+ */
+test("the actions menu has a Light terminal checkbox, off for a dark terminal", () => {
 	const props = renderLeaf();
 	fireEvent.pointerDown(screen.getByTestId(`terminal-actions-${terminal.id}`), {
 		button: 0,
 		ctrlKey: false,
 	});
-	const toggle = screen.getByTestId("terminal-theme-toggle");
-	// A dark terminal offers light, and the tooltip warns about running programs.
-	expect(toggle.textContent).toBe("Light terminal");
-	expect(toggle.getAttribute("title")).toContain("already running");
+	const toggle = screen.getByRole("menuitemcheckbox", { name: "Light terminal" });
+	expect(toggle.getAttribute("aria-checked")).toBe("false");
+	expect(toggle.getAttribute("title")).toBeNull();
 	fireEvent.click(toggle);
 	expect(props.onSetTheme).toHaveBeenCalledWith(terminal.id, "light");
 });
 
-test("a light terminal offers dark", () => {
+test("a light terminal has the checkbox on, and unchecking it asks for dark", () => {
 	const props = renderLeaf({ theme: "light" });
 	fireEvent.pointerDown(screen.getByTestId(`terminal-actions-${terminal.id}`), {
 		button: 0,
 		ctrlKey: false,
 	});
-	const toggle = screen.getByTestId("terminal-theme-toggle");
-	expect(toggle.textContent).toBe("Dark terminal");
+	const toggle = screen.getByRole("menuitemcheckbox", { name: "Light terminal" });
+	expect(toggle.getAttribute("aria-checked")).toBe("true");
 	fireEvent.click(toggle);
 	expect(props.onSetTheme).toHaveBeenCalledWith(terminal.id, "dark");
 });
