@@ -566,7 +566,7 @@ jobs:
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         # age is for the backup scope test below.
-        run: sudo apt-get install -y shellcheck age && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* packaging/bin/portikus infra/host/portikus-backup-export
+        run: sudo apt-get install -y shellcheck age && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* packaging/bin/portikus packaging/backup/backup-key infra/host/portikus-backup-export
       - name: Smoke test cleanup scope
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/cleanup-scope-test.sh
@@ -610,6 +610,9 @@ jobs:
       - name: Backup channel against a lying VM
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/backup-channel-test.sh
+      - name: Backups on the server itself
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/backup-local-test.sh
 
   apt-repo:
     name: Signed apt repository

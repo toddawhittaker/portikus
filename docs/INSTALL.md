@@ -391,22 +391,108 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
   (docs/OPERATIONS.md, "Sign-in providers") and run
   `sudo dpkg-reconfigure portikus`. Otherwise create accounts in the
   Users view (docs/ADMIN-GUIDE.md).
-- **Backups.** Nightly backups are pulled by a second machine over SSH and
-  encrypted there (docs/OPERATIONS.md, "Backups"). Set that up before
-  students store work. Today the second machine is a Linux machine with a
-  checkout of the Portikus repository, which runs `infra/host/backup.sh`
-  (as `make backup` does). It signs in over SSH as an account named
-  `deploy` that has passwordless `sudo` on the server, so make that
-  account on the server and give it the second machine's SSH key. A
-  rehearsal pulled a complete set from an apt-installed server this way.
-  Keeping backups on the server itself, with no second machine, is
-  planned.
+- **Backups.** The server backs itself up every night at 02:30 and keeps
+  the encrypted sets in `/var/backups/portikus/local/`. Before students
+  store work, sign in, open **Admin**, then **Backups**, and choose
+  **Download backup key**. Store the file somewhere other than this
+  server, such as a password manager. Then set up a copy of the sets to
+  another machine ("Backups: copying them off the server", below). The
+  sets on the server alone do not survive losing the server.
 - **Own certificate authority only.** Each browser that uses the site must
   trust Caddy's root certificate, which setup copies to
   `/etc/portikus/caddy-root.crt`. Copy it to your computer, for example
   with `scp you@portikus.example.edu:/etc/portikus/caddy-root.crt .`, and
   import it into the browser's or the system's trusted authorities
   (infra/README.md, "Browser access", has the per-system steps).
+
+## Backups: copying them off the server
+
+Setup turns on two timers. `portikus-backup.timer` takes a backup at 02:30
+each night. `portikus-backup-channel.timer` runs what the admin page's
+**Backups** tab asks for (**Back up now**, deleting an old set, restoring
+one workspace) within 30 seconds. Both run on the server as root. A set
+holds the database, the sign-in accounts, and every workspace's home and
+recovery points, each file encrypted with age, a small file-encryption
+tool (docs/adr/0044-backups-on-the-server.md). The newest 14 complete sets
+are kept.
+
+**The key.** Setup makes one key pair, in `/etc/portikus-backup/`
+(readable only by root). The server encrypts to the public half and
+keeps the private half, so the Backups tab can restore with one click.
+Anyone who controls the server can read the sets, but they can already
+read the live workspaces. The encryption is for copies kept **elsewhere**:
+without the key, a copy is unreadable, so it is safe on a second machine,
+a USB disk or object storage. Download the key once from the Backups tab
+(**Download backup key**; the tab reminds you until you do), and store it
+off the server and apart from the copies, for example in a password
+manager. Without it, the copies cannot be restored if the server is lost.
+
+**The copy is the real backup.** The sets on the server protect against a
+mistake or a broken workspace, not against losing the disk or the server.
+Copy them elsewhere regularly, at least weekly. The target never needs the
+key and never needs to trust the server. From another Linux machine,
+signing in as an account on the server that may run `sudo` without a
+password (the sets are readable only by root):
+
+```
+rsync -a --rsync-path="sudo rsync" you@portikus.example.edu:/var/backups/portikus/local/ ~/portikus-backups/
+```
+
+The server needs the `rsync` package (`sudo apt install rsync`). The same
+folder can go to object storage with a tool such as `rclone` or the
+provider's own command, for example `rclone copy ~/portikus-backups
+remote:portikus-backups`. Copy whole set folders (the ones named like
+`20260924T023000Z`). A set with a `FAILED` file is incomplete; keep it,
+but restore from a complete one. Without `--delete`, the copy keeps sets
+the server has since pruned; remove old ones there when you choose.
+
+## Rebuilding from an off-site backup
+
+When the server is lost, or you move to a new one:
+
+1. Rent a new server and install Debian 13, as at the top of this guide.
+2. Add the package repository and run `apt install portikus`. Give the
+   **same web address** as before (the sign-in accounts are tied to it).
+   Follow setup to the end with `sudo portikus setup --follow`.
+3. Sign in as the local administrator with the new one-time password
+   (`sudo cat /etc/portikus/admin-password`) and choose a password.
+4. Open **Admin**, then **Backups**, and choose **Upload backup key**. Pick
+   the key file you saved. Setup made this server a key of its own, so
+   the tab asks you to confirm replacing it. It has encrypted nothing you
+   need yet, so confirm.
+5. Copy the sets back onto the server, into
+   `/var/backups/portikus/local/`:
+
+   ```
+   rsync -a --rsync-path="sudo rsync" ~/portikus-backups/ you@portikus.example.edu:/var/backups/portikus/local/
+   ```
+
+   Within a minute the Backups tab lists them.
+6. Pick the newest complete set, and first prove the key opens it:
+
+   ```
+   sudo portikus restore --check 20260924T023000Z
+   ```
+
+7. Restore it:
+
+   ```
+   sudo portikus restore 20260924T023000Z
+   ```
+
+   This replaces the new server's database with the backup's, including
+   the sign-in accounts, and brings back every workspace's home. It works
+   only on a server with no workspaces, projects or users besides the
+   local administrator, so it can never overwrite a server in use. Every
+   restored workspace is left stopped, and everyone signs in again. Your
+   old administrator password works again; the new one-time password does
+   not. Add `--start-check` to also start one restored workspace and check
+   its files from inside it.
+8. Check the **Workspaces** tab, then tell the students their workspaces
+   are back. They start them as usual.
+
+Docker data inside workspaces is not in a backup; students rebuild it by
+running their projects again.
 
 ## Unattended installs
 

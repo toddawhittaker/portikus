@@ -1,0 +1,18 @@
+# The admin page's backup key requests on an apt-installed server
+# (docs/adr/0044-backups-on-the-server.md).  Only the portikus account (the
+# API) may connect; each connection starts one portikus-backup-key@ run as
+# root, so the API never holds a key file it could write.  Enabled by setup's
+# backup role only on a local install.
+[Unit]
+Description=Portikus backup key requests
+
+[Socket]
+ListenStream=/run/portikus-backup-key.sock
+SocketUser=root
+SocketGroup=portikus
+SocketMode=0660
+Accept=yes
+MaxConnections=4
+
+[Install]
+WantedBy=sockets.target

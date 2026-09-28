@@ -1053,6 +1053,53 @@ and the OIDC provider are configured.
 
 ## Backups
 
+There are two ways backups run. A server installed with `apt install
+portikus` backs itself up, which the next part covers. The pilot and the
+development VM are backed up by the separate host that runs them, which
+the rest of this section covers.
+
+### On an apt-installed server
+
+The same backup scripts run on the server itself, as root, in a local
+mode (ADR 0044). docs/INSTALL.md, "Backups: copying them off the server"
+and "Rebuilding from an off-site backup", is the operator's guide; this is
+what is where.
+
+- **Timers.** `portikus-backup.timer` runs `portikus-backup.service` at
+  02:30. `portikus-backup-channel.timer` runs
+  `portikus-backup-channel.service` every 30 seconds, which takes the
+  Backups tab's requests from the local worker, checks them as strictly as
+  a VM's (ADR 0039), and runs them. Setup's `backup` role enables both
+  only on the server itself, never on a VM configured from a workstation.
+  Check them with `systemctl status portikus-backup.service
+  portikus-backup-channel.service` and `journalctl -u
+  portikus-backup.service`.
+- **Sets.** `/var/backups/portikus/local/<timestamp>`, root-only, the same
+  form as a host's. Sets an administrator copies in by hand, with rsync or
+  scp, are listed on the tab within 30 seconds and get the same checks: a
+  symbolic link or a badly named folder is not listed, and a restore
+  checks every file of the set before using it.
+- **The key.** `/etc/portikus-backup/age-key.txt` and `recipients.txt`
+  (root, 0600, in a 0700 directory), made by setup when there is no key.
+  The tab's **Download backup key** and **Upload backup key** reach it
+  only through `portikus-backup-key.socket`, which starts a root helper
+  for each request (`/usr/lib/portikus/backup/portikus-backup-key`). Each
+  download and upload is in the audit log with the key's public half;
+  the key itself is in no log. An upload of a different key replaces it
+  only after a confirmation, and only while no backup runs. If the tab
+  says the helper did not answer, check `systemctl status
+  portikus-backup-key.socket`.
+- **Whole-server restore.** `sudo portikus restore --check <timestamp>`
+  proves the key opens a set; `sudo portikus restore <timestamp>` restores
+  it onto a server with no workspaces, projects or users besides the local
+  administrator (`--start-check` also starts one workspace and checks it).
+  It pauses both timers while it runs.
+- **Off-server copies are the real backup.** Nothing copies the sets off
+  the server automatically. docs/INSTALL.md shows rsync and object
+  storage; the target never needs the key.
+
+### On a VM with a separate backup host
+
 A backup is pulled from the VM to the host and encrypted there with age, a
 small file-encryption tool (ADR 0024). It only reads from the VM: a
 `pg_dump` of the platform database and of Dex's `dex` database, and an

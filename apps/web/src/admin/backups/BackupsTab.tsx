@@ -1,5 +1,6 @@
 import type {
 	AdminBackups,
+	BackupKeyStatus,
 	BackupRequestView,
 	BackupWorkspace,
 	HostBackupSet,
@@ -23,6 +24,7 @@ import {
 	ReplaceHomeDialog,
 	RestoreDialog,
 } from "./BackupDialogs.js";
+import { BackupKeyPart } from "./BackupKeyPart.js";
 import {
 	isWaiting,
 	longTime,
@@ -36,6 +38,7 @@ import {
 } from "./model.js";
 import {
 	useAdminBackups,
+	useBackupKey,
 	useDeleteDump,
 	useDeleteKeptHome,
 	useDeleteSet,
@@ -48,7 +51,7 @@ import {
 const INTRO = {
 	id: "admin-backups",
 	helpAnchor: "admin-backups",
-	text: "Nightly copies of the platform database and of every workspace's home and recovery points, taken by a separate backup host. Docker data is not copied. Restore one person's files into a folder beside their own, then replace their whole home if they need it.",
+	text: "Nightly copies of the platform database and of every workspace's home and recovery points, taken by the server itself or by a separate backup host. Docker data is not copied. Restore one person's files into a folder beside their own, then replace their whole home if they need it.",
 };
 
 /** How many recent requests the page lists; the API keeps 50. */
@@ -57,6 +60,8 @@ const RECENT_SHOWN = 10;
 /** The Backups tab of the admin page (SPEC.md §20.1, §24.9; ADR 0024, ADR 0040). */
 export function BackupsTab() {
 	const backups = useAdminBackups();
+	// Answers only on a server that backs itself up and holds its key (ADR 0044).
+	const key = useBackupKey().data ?? null;
 	if (backups.isError) {
 		return (
 			<AdminSection title="Backups" intro={INTRO}>
@@ -81,20 +86,42 @@ export function BackupsTab() {
 			<AdminSection title="Backups" intro={INTRO}>
 				<div className="pk-card" data-testid="backups-not-connected">
 					<EmptyState icon="info" title="Backups are not connected on this site">
-						No backup host has reported to this platform. Backups are taken by a
-						separate host that runs the platform; see the Backups section of the
-						operations guide.
+						{key
+							? "The server's backup service has not reported yet. It reports within a minute of setup; if this stays, see the Backups section of the operations guide."
+							: "No backup host has reported to this platform. Backups are taken by a separate host that runs the platform; see the Backups section of the operations guide."}
 					</EmptyState>
 				</div>
+				{key ? <KeyGroup status={key} /> : null}
 			</AdminSection>
 		);
 	}
-	return <BackupsView data={backups.data} host={backups.data.host} />;
+	return <BackupsView data={backups.data} host={backups.data.host} keyStatus={key} />;
+}
+
+function KeyGroup({ status }: { status: BackupKeyStatus }) {
+	return (
+		<Group
+			id="backups-key-group-title"
+			title="Backup key"
+			description="The key that unlocks every backup of this server. Keep a copy off the server: copies of the backups kept elsewhere are useless without it."
+			testId="backups-key-group"
+		>
+			<BackupKeyPart status={status} />
+		</Group>
+	);
 }
 
 type Host = NonNullable<AdminBackups["host"]>;
 
-function BackupsView({ data, host }: { data: AdminBackups; host: Host }) {
+function BackupsView({
+	data,
+	host,
+	keyStatus,
+}: {
+	data: AdminBackups;
+	host: Host;
+	keyStatus: BackupKeyStatus | null;
+}) {
 	const { requests, workspaces } = data;
 	const toast = useToast();
 	const run = useRunBackup();
@@ -188,7 +215,7 @@ function BackupsView({ data, host }: { data: AdminBackups; host: Host }) {
 						{runOffReason}
 					</p>
 				) : null}
-				<StatusPart data={data} host={host} />
+				<StatusPart data={data} host={host} local={keyStatus !== null} />
 				<SetsPart
 					host={host}
 					requests={requests}
@@ -199,6 +226,8 @@ function BackupsView({ data, host }: { data: AdminBackups; host: Host }) {
 					onDelete={setDeleting}
 				/>
 			</Group>
+
+			{keyStatus ? <KeyGroup status={keyStatus} /> : null}
 
 			<RestoresGroup
 				requests={requests}
@@ -358,7 +387,16 @@ function Part({
 	);
 }
 
-function StatusPart({ data, host }: { data: AdminBackups; host: Host }) {
+function StatusPart({
+	data,
+	host,
+	local,
+}: {
+	data: AdminBackups;
+	host: Host;
+	/** The server backs itself up, so "the host" is this server. */
+	local: boolean;
+}) {
 	return (
 		<Part id="backups-status-title" title="Status" testId="backups-status">
 			{/* Pairs sit side by side once the card is wide enough. */}
@@ -392,14 +430,15 @@ function StatusPart({ data, host }: { data: AdminBackups; host: Host }) {
 				<dt className="pk-muted flex items-center gap-1">
 					Restore key
 					<Toggletip label="the restore key">
-						The private key that unlocks backups, kept on the backup host. Without it,
-						backups still run, but nothing can be restored.
+						The private key that unlocks backups, kept on{" "}
+						{local ? "this server" : "the backup host"}. Without it, backups still run,
+						but nothing can be restored.
 					</Toggletip>
 				</dt>
 				<dd className="m-0" data-testid="backups-key">
 					{host.keyInstalled
-						? "Installed on the host"
-						: "Not installed on the host, so workspaces cannot be restored"}
+						? `Installed on ${local ? "this server" : "the host"}`
+						: `Not installed on ${local ? "this server" : "the host"}, so workspaces cannot be restored`}
 				</dd>
 			</dl>
 		</Part>

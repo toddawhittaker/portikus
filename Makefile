@@ -138,7 +138,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	done
 	ansible-galaxy collection install --force -r infra/ansible/requirements.yml
 	ansible-lint infra/ansible
-	find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* infra/host/portikus-backup-export
+	find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* packaging/bin/portikus packaging/backup/backup-key infra/host/portikus-backup-export
 	bash infra/tests/cleanup-scope-test.sh
 	bash infra/tests/security-cleanup-scope-test.sh
 	bash infra/tests/clipboard-shim-test.sh
@@ -150,6 +150,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	ansible-playbook infra/tests/setup-settings-test.yml
 	bash infra/tests/backup-scope-test.sh
 	bash infra/tests/backup-channel-test.sh
+	bash infra/tests/backup-local-test.sh
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
 	bash infra/host/dev-libvirt/bootstrap.sh

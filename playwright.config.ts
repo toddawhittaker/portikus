@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+import { BACKUP_KEY_SOCKET, BACKUP_KEY_STATE } from "./e2e/backup-key";
 import { IMAGE_JOBS_DIR, IMAGES_DIR } from "./e2e/image-jobs";
 import {
 	API_ORIGIN,
@@ -145,7 +146,8 @@ export default defineConfig({
 			timeout: 120_000,
 		},
 		{
-			command: `node packages/db/dist/migrate.js && node apps/api/dist/index.js | tee ${journalFile}`,
+			// The fake backup key helper runs beside the API, in its process group.
+			command: `node e2e/fake-backup-key-server.mjs & node packages/db/dist/migrate.js && node apps/api/dist/index.js | tee ${journalFile}`,
 			url: `${API_ORIGIN}/health`,
 			env: {
 				NODE_ENV: "test",
@@ -180,6 +182,9 @@ export default defineConfig({
 				JOURNALCTL_PATH: fakeJournalctl,
 				// A fake image job directory the admin-image tests play the root job in.
 				IMAGE_JOBS_DIR,
+				// A server that backs itself up and holds its key (ADR 0044).
+				BACKUP_KEY_SOCKET,
+				BACKUP_KEY_STATE,
 				// The suite starts, stops and writes files for a few users far
 				// faster than a person; unit tests keep the real limits.
 				WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: "100000",

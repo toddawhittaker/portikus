@@ -160,6 +160,10 @@ function stubBackups(
 		if (url === "/admin/backups" && (init?.method ?? "GET") === "GET") {
 			return json(200, data);
 		}
+		// A separate host backs this site up, so the server holds no key (ADR 0044).
+		if (url === "/admin/backups/key") {
+			return json(404, { code: "NOT_FOUND", message: "Not found." });
+		}
 		if (url.startsWith("/admin/backups")) {
 			writes.push({
 				method: init?.method ?? "GET",

@@ -45,3 +45,8 @@
     cmd: incus config set storage.backups_volume={{ incus_storage_pool_name }}/{{ backup_volume_name }}
   when: backup_staging.stdout | trim != incus_storage_pool_name ~ '/' ~ backup_volume_name
   changed_when: true
+
+# An apt-installed server backs itself up: no separate host (ADR 0044).
+- name: Back up this server on the server itself
+  ansible.builtin.include_tasks: local.yml
+  when: portikus_backup_local | bool

@@ -20,7 +20,15 @@
 #      check the keyring, the services and a sign-in;
 #   9. with IMAGE_JOBS=1, the workspace image rehearsal
 #      (image-job-rehearsal.py, docs/EPIC-15.md task T6);
-#  10. destroy the VM.
+#  10. backups on the server (ADR 0044, backup-rehearsal.py): a student
+#      with a workspace, the nightly backup run on the server, Back up now
+#      from the Backups tab, the key downloaded from the tab, and the newest
+#      set copied off the server with rsync;
+#  11. the rebuild from that off-site copy (docs/INSTALL.md, "Rebuilding
+#      from an off-site backup"): destroy the VM, install a fresh one, upload
+#      the key, rsync the set back in, `portikus restore`, and check that the
+#      users, the Dex accounts and the workspace's files are back;
+#  12. destroy the VM.
 #
 # Usage: install-test.sh   (through `make install-test`)
 # Environment:
@@ -119,6 +127,8 @@ destroy_vm() { echo yes | "${M[@]}" rehearsal-destroy; }
 create_vm() { echo yes | "${M[@]}" rehearsal-up; }
 
 vm() { ssh -n -o BatchMode=yes -o ConnectTimeout=15 "deploy@${IP}" "$@"; }
+# The address can change when the VM is rebuilt, so it is read from the file each time.
+vm_ip() { cat "${LOGS}/vm.ip"; }
 vm_stdin() { ssh -o BatchMode=yes -o ConnectTimeout=15 "deploy@${IP}" "$@"; }
 
 preflight() {
@@ -299,6 +309,7 @@ add_repository() {
   grep -q "${HOST_IP}:${PORT}/apt trixie InRelease" "${LOGS}/apt-update.txt"
 }
 
+# install_package [v1|v2] -- the version apt must pick: v1 at first, v2 once the upgrade is published.
 install_package() {
   # Keys debconf does not own, as an operator's hand edit (docs/INSTALL.md,
   # "Changing your answers"): the local image server, and the SSH account
@@ -319,7 +330,7 @@ EOF
   vm "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y portikus 2>&1" | tee "${LOGS}/apt-install.txt"
   grep -q "Portikus setup is running in the background" "${LOGS}/apt-install.txt" \
     || { echo "postinst did not start setup"; return 1; }
-  vm "dpkg-query -W -f '\${Version}' portikus" | grep -qx "$(cat "${LOGS}/v1.version")"
+  vm "dpkg-query -W -f '\${Version}' portikus" | grep -qx "$(cat "${LOGS}/${1:-v1}.version")"
 }
 
 # follow_setup LABEL -- portikus setup --follow, and proof it returned when the unit ended.
@@ -430,6 +441,93 @@ image_jobs() {
   vm "sudo python3 /tmp/image-job-rehearsal.py --public-host ${PUBLIC_HOST} --recipe-version ${RECIPE_VERSION}"
 }
 
+# ── 10 and 11: backups on the server, and a rebuild from them ─────
+
+rehearse() { # STEP [ARGS...] -- backup-rehearsal.py on the VM, as root.
+  vm "sudo python3 /tmp/backup-rehearsal.py $1 --public-host ${PUBLIC_HOST} ${*:2}"
+}
+
+backup_seed() {
+  scp -q -o BatchMode=yes "${ROOT}/infra/tests/backup-rehearsal.py" "deploy@${IP}:/tmp/backup-rehearsal.py"
+  rehearse seed | tee "${LOGS}/seed.txt"
+  tail -1 "${LOGS}/seed.txt" >"${LOGS}/seed.json"
+  python3 -c 'import json, sys; json.load(open(sys.argv[1]))["instance"]' "${LOGS}/seed.json"
+}
+
+# What the nightly timer starts, started by hand: it runs here, as root, with no SSH.
+backup_nightly() {
+  local units
+  units=$(vm "systemctl is-enabled portikus-backup.timer portikus-backup-channel.timer portikus-backup-key.socket")
+  echo "$units"
+  [ "$(grep -cx enabled <<<"$units")" = 3 ] || { echo "the backup timers and the key socket are not all enabled"; return 1; }
+  vm "sudo systemctl start portikus-backup.service" || true
+  vm "sudo journalctl -u portikus-backup.service -o cat --no-pager | tail -15"
+  [ "$(vm "systemctl show -p Result --value portikus-backup.service")" = success ]
+  vm "sudo ls /var/backups/portikus/local" | tee "${LOGS}/nightly-sets.txt"
+  grep -Eqx '[0-9]{8}T[0-9]{6}Z' "${LOGS}/nightly-sets.txt"
+}
+
+backup_now() {
+  rehearse backup-now | tee "${LOGS}/backup-now.txt"
+  tail -1 "${LOGS}/backup-now.txt" | grep -Ex '[0-9]{8}T[0-9]{6}Z' >"${LOGS}/stamp"
+}
+
+# The key leaves the VM only into a file here that only this account can read.
+download_key() {
+  rehearse download-key
+  (umask 077 && vm "sudo cat /root/portikus-install-test/backup-key.txt" >"${LOGS}/backup-key.txt")
+  [ "$(age-keygen -y "${LOGS}/backup-key.txt")" = "$(vm "sudo cat /etc/portikus-backup/recipients.txt")" ]
+  echo "the downloaded key is the server's (public half $(age-keygen -y "${LOGS}/backup-key.txt"))"
+}
+
+# The off-site copy, as docs/INSTALL.md shows it: rsync over SSH, sudo on the server.
+copy_offsite() {
+  local stamp
+  stamp=$(cat "${LOGS}/stamp")
+  vm "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq rsync"
+  mkdir -p "${LOGS}/offsite"
+  rsync -a --rsync-path="sudo rsync" -e "ssh -o BatchMode=yes" \
+    "deploy@${IP}:/var/backups/portikus/local/${stamp}" "${LOGS}/offsite/"
+  ls -l "${LOGS}/offsite/${stamp}"
+  # The copy needs no key to be made or kept; the key opens it.
+  age -d -i "${LOGS}/backup-key.txt" "${LOGS}/offsite/${stamp}/MANIFEST.age" | head -4
+}
+
+keep_old_signin() { cp "${LOGS}/admin-signin" "${LOGS}/admin-signin-old"; }
+
+upload_key() {
+  vm_stdin "sudo install -d -m 0700 /root/portikus-install-test && sudo sh -c 'umask 077; cat >/root/portikus-install-test/backup-key.txt'" \
+    <"${LOGS}/backup-key.txt"
+  scp -q -o BatchMode=yes "${ROOT}/infra/tests/backup-rehearsal.py" "deploy@${IP}:/tmp/backup-rehearsal.py"
+  rehearse upload-key
+}
+
+copy_in() {
+  local stamp
+  stamp=$(cat "${LOGS}/stamp")
+  vm "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq rsync"
+  rsync -a --rsync-path="sudo rsync" -e "ssh -o BatchMode=yes" \
+    "${LOGS}/offsite/${stamp}" "deploy@${IP}:/var/backups/portikus/local/"
+  vm "sudo ls -ln /var/backups/portikus/local/${stamp}"
+  rehearse wait-set --stamp "$stamp"
+}
+
+restore_server() {
+  local stamp
+  stamp=$(cat "${LOGS}/stamp")
+  vm "sudo portikus restore --check ${stamp}"
+  vm "sudo portikus restore --start-check ${stamp}"
+  # The timers it paused are running again.
+  [ "$(vm "systemctl is-active portikus-backup-channel.timer portikus-backup.timer" | grep -cx active)" = 2 ]
+}
+
+check_restored() {
+  scp -q -o BatchMode=yes "${LOGS}/seed.json" "deploy@${IP}:/tmp/seed.json"
+  sed -n 2p "${LOGS}/admin-signin-old" | tr -d '\n' \
+    | vm_stdin "sudo sh -c 'umask 077; cat >/root/portikus-install-test/old-password'"
+  vm "sudo python3 /tmp/backup-rehearsal.py check-restored --public-host ${PUBLIC_HOST} --expect /tmp/seed.json --password-file /root/portikus-install-test/old-password"
+}
+
 trap finish EXIT
 echo "Install test on ${REHEARSAL_NAME}. Logs: ${LOGS}"
 step "check this host is ready" preflight
@@ -453,3 +551,21 @@ step "services, /health and sign-in after the upgrade" after_upgrade
 if [ -n "${IMAGE_JOBS:-}" ]; then
   step "workspace image rehearsal (image-job-rehearsal.py)" image_jobs
 fi
+step "backups: a student with a workspace and a Dex account" backup_seed
+step "backups: the nightly backup runs on the server" backup_nightly
+step "backups: Back up now from the Backups tab" backup_now
+step "backups: download the key from the Backups tab" download_key
+step "backups: copy the newest set off the server (rsync)" copy_offsite
+step "rebuild: destroy the VM" destroy_vm
+step "rebuild: create a fresh Debian 13 VM" create_vm
+step "rebuild: check the new VM and its address" vm_address
+IP=$(vm_ip)
+step "rebuild: fetch the key and add the repository" add_repository
+step "rebuild: preseed and apt install portikus" install_package v2
+step "rebuild: follow setup to its end" follow_setup install
+keep_old_signin
+step "rebuild: sign in with the new one-time password and change it" first_signin
+step "rebuild: upload the old server's key from the Backups tab" upload_key
+step "rebuild: rsync the set back onto the server" copy_in
+step "rebuild: portikus restore" restore_server
+step "rebuild: users, Dex accounts and workspace files are back" check_restored

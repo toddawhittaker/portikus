@@ -11,6 +11,8 @@
 #   restore-copy.sh --operator <user> --vm-name <name> import <vm-ip> <set-dir> <instance>
 #       import the home volume as <instance>-home-import with the backup's
 #       ID map, for the controller's replace-home swap
+#   --local in place of --operator and --vm-name: the workspace is on this
+#       server, and every command runs here as root (ADR 0044)
 #
 # "~" in messages is literal: they are shown to an administrator.
 # shellcheck disable=SC2088
@@ -41,14 +43,19 @@ MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package
 die() { printf '[restore-copy] FAIL: %s\n' "$*" >&2; exit 1; }
 info() { printf '[restore-copy] %s\n' "$*"; }
 
-OPERATOR="" VM_NAME=""
+OPERATOR="" VM_NAME="" LOCAL=no
 while [ $# -gt 0 ]; do
   case "$1" in
     --operator) OPERATOR="${2:?--operator needs a value}"; shift 2 ;;
     --vm-name) VM_NAME="${2:?--vm-name needs a value}"; shift 2 ;;
+    --local) LOCAL=yes; shift ;;
     *) break ;;
   esac
 done
+if [ "$LOCAL" = yes ]; then
+  [ -z "$OPERATOR$VM_NAME" ] || die "--local takes no --operator or --vm-name"
+  OPERATOR=root VM_NAME=local
+fi
 MODE="${1:-}"
 VM="${2:-}"
 SET="${3:-}"
@@ -108,6 +115,13 @@ SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o Ser
 vm() { timeout -k 5 "$CALL_TIMEOUT" runuser -u "$OPERATOR" -- ssh -n "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
 # vm_in SECONDS CMD -- a stream from standard input, with its own time limit.
 vm_in() { local t=$1; shift; timeout -k 5 "$t" runuser -u "$OPERATOR" -- ssh "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
+if [ "$LOCAL" = yes ]; then
+  # The same commands as over SSH, run here; this is already root, so sudo is a no-op.
+  sudo() { "$@"; }
+  export -f sudo
+  vm() { timeout -k 5 "$CALL_TIMEOUT" bash -c "$*" </dev/null; }
+  vm_in() { local t=$1; shift; timeout -k 5 "$t" bash -c "$*"; }
+fi
 # The stream's limit: 10 minutes plus 1 second per 5 MB of the encrypted volume, at most 6 hours.
 stream_seconds() {
   local size t
@@ -123,8 +137,10 @@ in_ws() {
 }
 
 # Decrypted data goes only to the VM the state names.
-actual=$(vm hostname) || die "could not reach ${VM}"
-[ "$actual" = "$VM_NAME" ] || die "refused by the host: ${VM} calls itself something other than ${VM_NAME}"
+if [ "$LOCAL" = no ]; then
+  actual=$(vm hostname) || die "could not reach ${VM}"
+  [ "$actual" = "$VM_NAME" ] || die "refused by the host: ${VM} calls itself something other than ${VM_NAME}"
+fi
 
 if [ "$MODE" = copy ]; then
   regular "${VOL}.index.age" || die "refused by the host: set ${STAMP} has no index for ${VOL}"

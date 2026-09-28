@@ -240,6 +240,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/backups/restores/:id/replace-home": { access: "admin" },
 	"DELETE /admin/backups/snapshots/:volume/:snapshot": { access: "admin" },
 	"DELETE /admin/backups/kept-homes/:volume": { access: "admin" },
+	// The server-held backup key on an apt-installed host (ADR 0044).
+	"GET /admin/backups/key": { access: "admin" },
+	"HEAD /admin/backups/key": { access: "admin" },
+	"POST /admin/backups/key": { access: "admin" },
+	"POST /admin/backups/key/download": { access: "admin" },
 	// The Workspace image section (docs/EPIC-15.md rulings 22 to 28, ADR 0030).
 	"GET /admin/image": { access: "admin" },
 	"HEAD /admin/image": { access: "admin" },

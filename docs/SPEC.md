@@ -2317,9 +2317,14 @@ built to the frame rules above.
   side copy in its home, and then, as a second step confirmed by typing
   the account's name, the whole home can be replaced with it (section
   24.9, ADRs 0039 and 0040). Each write answers 202 with the request, or
-  409. A site installed with `apt install portikus` on its own host has
-  no separate host to pull backups to, and the tab says "Backups are not
-  connected on this site".
+  409. A site installed with `apt install portikus` backs itself up on
+  the server (section 24.9, ADR 0044), and its tab also has **Download
+  backup key**, confirmed in a dialog that says what the key unlocks and
+  to store it off the server, with a "Backup key not yet downloaded"
+  reminder until the first download, and **Upload backup key**, which
+  asks before replacing a different key. The routes are `GET
+  /admin/backups/key`, `POST /admin/backups/key/download` and `POST
+  /admin/backups/key`; they are 404 on a VM whose host holds the key.
 - The workspace detail panel gains **Limits…**, a dialog for the
   workspace's CPU count, memory and process ceiling (section 19.4,
   `PUT /admin/workspaces/:id/limits`, each key a number or null), and,
@@ -3047,6 +3052,35 @@ restored from the admin Backups tab (section 20.1).
   stays until an administrator deletes it; putting it back is a runbook
   step (OPERATIONS.md), not a button.
 - The weekly off-host copy stays a manual step (issue #753).
+
+Added by Epic 15, task T7 (ADR 0044): an apt-installed server backs
+itself up.
+
+- **Local mode.** The same scripts run on the server as root with
+  `--local`: no SSH, no `deploy` account. Setup enables
+  `portikus-backup.timer` and `portikus-backup-channel.timer` only on the
+  server itself. The channel takes requests from the local worker, which
+  is unprivileged, so every check above still applies. Sets go to
+  `/var/backups/portikus/local/`; sets copied in by hand are listed and
+  checked the same way, and a link or a badly named folder is ignored.
+- **The key stays on the server**, root-only in `/etc/portikus-backup/`,
+  made by setup when there is none, so one-click restore works. Whoever
+  controls the server can already read the live workspaces; the
+  encryption protects copies kept elsewhere.
+- **Download and upload go through a root socket**,
+  `portikus-backup-key.socket`, never a file the API can read or write.
+  Both are administrator-only, CSRF-checked and audited
+  (`backup.key_downloaded`, `backup.key_uploaded` with `ok` or
+  `refused`), recording only the key's public half; the key is in no log.
+  The download is `Cache-Control: no-store`, named
+  `portikus-backup-key.txt`. An upload must be one age identity of at most
+  4 KiB, and replacing a different key needs `replace: true`, which the
+  tab sends only after a confirmation; a replace waits while a backup
+  runs.
+- **Whole-server restore** is `sudo portikus restore <set>` on the
+  server, with the same empty-target checks as `restore.sh`.
+- **Copies off the server are manual** and documented as the real backup
+  (docs/INSTALL.md); the copy's target never needs the key.
 
 ### 24.10 Transport security
 
