@@ -141,7 +141,7 @@ test("a good change lands on the administration page and Settings offers Passwor
 		.fill("another long passphrase");
 	await dialog.getByLabel("New password again").fill("another long passphrase");
 	await dialog.getByRole("button", { name: "Change password" }).click();
-	await expect(dialog.getByRole("status")).toHaveText(
+	await expect(dialog.getByTestId("password-changed")).toHaveText(
 		"Your password has been changed.",
 	);
 });
