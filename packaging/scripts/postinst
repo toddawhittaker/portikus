@@ -29,6 +29,15 @@ ldap_user_filter ldap_group_base_dn ldap_root_ca student_group
 instructor_group admin_group storage storage_confirm storage_size"
 SECRETS="cloudflare_api_token client_secret ldap_bind_password"
 
+# Each secret may live only in secrets.yaml (ruling 5), so clear them from
+# debconf on every way out, a failure under set -e included.
+clear_secrets() {
+	for question in $SECRETS; do
+		db_set "portikus/$question" "" || true
+	done
+}
+trap clear_secrets EXIT
+
 # Write nothing from pure defaults: with no settings file yet, the answers
 # count only if someone gave them. A person answering or debconf-set-selections
 # marks public_host seen; a non-interactive install with no preseed does not,
@@ -204,15 +213,13 @@ for key in wanted:
 PY
 )
 
-# Each secret now lives only in secrets.yaml (ruling 5).
-for question in $SECRETS; do
-	db_set "portikus/$question" ""
-done
 db_get portikus/public_host
 public_host=$RET
 db_get portikus/admin_email
 admin_email=$RET
 fi
+clear_secrets
+trap - EXIT
 db_stop
 
 for user in portikus portikus-controller; do
@@ -265,6 +272,13 @@ Portikus is installed, but setup has not started. It still needs:
 $missing
 
 Answer the questions with:  sudo dpkg-reconfigure portikus
+
+EOF
+elif [ -d /run/systemd/system ] && systemctl is-active --quiet portikus-setup.service; then
+	# Starting an active unit does nothing, so this change is not applied yet.
+	cat >&2 <<EOF
+
+Setup is already running with the earlier answers; when it ends, run: sudo portikus setup
 
 EOF
 elif [ -d /run/systemd/system ]; then

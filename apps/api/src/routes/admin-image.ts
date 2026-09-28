@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { open, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
@@ -53,17 +53,23 @@ async function listDir(path: string): Promise<string[]> {
 }
 
 /** The last `count` lines of a file, reading at most its last LOG_TAIL_BYTES. */
-async function tailLines(path: string, count: number): Promise<string[]> {
+export async function tailLines(path: string, count: number): Promise<string[]> {
 	let data: Buffer;
 	try {
-		data = await readFile(path);
+		const file = await open(path, "r");
+		try {
+			const { size } = await file.stat();
+			const length = Math.min(size, LOG_TAIL_BYTES);
+			data = Buffer.alloc(length);
+			const { bytesRead } = await file.read(data, 0, length, size - length);
+			data = data.subarray(0, bytesRead);
+		} finally {
+			await file.close();
+		}
 	} catch {
 		return [];
 	}
-	const text = data
-		.subarray(Math.max(0, data.length - LOG_TAIL_BYTES))
-		.toString("utf8");
-	const lines = text.split("\n");
+	const lines = data.toString("utf8").split("\n");
 	if (lines.at(-1) === "") lines.pop();
 	return lines.slice(-count);
 }
