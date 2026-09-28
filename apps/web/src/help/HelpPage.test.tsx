@@ -1,9 +1,12 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
-import { helpParts } from "./HelpPage.js";
+import { anchorId, helpParts } from "./HelpPage.js";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+	vi.unstubAllGlobals();
+	window.history.replaceState(null, "", "/");
+});
 
 const COURSE = {
 	id: "55555555-5555-4555-8555-555555555555",
@@ -141,4 +144,32 @@ test("signed out, Help sends you to sign in", async () => {
 	});
 	renderApp("/help");
 	expect(await screen.findByTestId("signin")).toBeDefined();
+});
+
+test("opened at an anchor, focus lands on that topic's heading", async () => {
+	stub("student");
+	window.history.replaceState(null, "", "/help#student-keyboard");
+	renderApp("/help");
+	const heading = await screen.findByRole("heading", {
+		level: 3,
+		name: "Keyboard and screen readers",
+	});
+	await waitFor(() => expect(document.activeElement).toBe(heading));
+});
+
+test("opened at a part's anchor, focus lands on the part heading", async () => {
+	stub("administrator");
+	window.history.replaceState(null, "", "/help#admin");
+	renderApp("/help");
+	const heading = await screen.findByRole("heading", {
+		level: 2,
+		name: "For administrators",
+	});
+	await waitFor(() => expect(document.activeElement).toBe(heading));
+});
+
+test("a malformed anchor names nothing instead of breaking the page", () => {
+	expect(anchorId("#%E0%A4%A")).toBe("");
+	expect(anchorId("#student%2Dkeyboard")).toBe("student-keyboard");
+	expect(anchorId("")).toBe("");
 });

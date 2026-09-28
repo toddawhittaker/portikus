@@ -135,8 +135,8 @@ test.describe("accessible overlays", () => {
 
 	/**
 	 * Epic 25 M4: a menu hands focus back to its button as it closes. That
-	 * focus must not open the button's tooltip, and a tooltip never takes a
-	 * click, so the control beside it answers the very next click.
+	 * focus must not open the button's tooltip, so the control beside it
+	 * answers the very next click.
 	 */
 	test("after a menu closes, the next click reaches the neighbouring control", async ({
 		page,
@@ -167,14 +167,17 @@ test.describe("accessible overlays", () => {
 		).toBeVisible();
 		await page.keyboard.press("Escape");
 
-		// Hovering still names the button, and the name lets clicks through.
+		// Hovering still names the button, and the pointer can move onto the
+		// name without it closing (WCAG 1.4.13, hoverable).
 		await page.mouse.move(0, 0);
 		await lower.hover();
-		const tooltip = page.locator(".pk-tooltip");
+		const tooltip = page.getByRole("tooltip");
 		await expect(tooltip).toBeVisible();
-		expect(await tooltip.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe(
-			"none",
-		);
+		const box = await page.locator(".pk-tooltip").boundingBox();
+		if (!box) throw new Error("tooltip has no box");
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 5 });
+		await page.waitForTimeout(300);
+		await expect(page.locator(".pk-tooltip")).toBeVisible();
 	});
 
 	/** Once a menu has a check item, plain items line up with the check's text. */

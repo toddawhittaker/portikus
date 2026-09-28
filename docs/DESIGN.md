@@ -252,7 +252,9 @@ with a "More in Help" link, and `Toggletip`, a click-to-open help button
 beside a label, header or heading. Their placement rules are in
 `design/system/README.md`, "Help in the product". `Toggletip` wraps Radix
 Popover; a native popover was rejected because Firefox lacks anchor
-positioning, and a Tooltip because it opens on hover only. The account menu
+positioning, and a Tooltip because it opens on hover only. The panel never
+takes focus, so Tab moves on and closes it; a polite live region beside the
+button reads the text to screen readers. The account menu
 has a Help item that opens `/help` in a new tab. The page shows the part
 for students to everyone, the administrator part to administrators, and the
 instructor part to instructors, administrators and anyone who teaches a

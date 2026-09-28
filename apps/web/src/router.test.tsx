@@ -1,5 +1,7 @@
-import { screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { Suspense } from "react";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { lazyPage, reloadOnceForStaleChunk } from "./router.js";
 import {
 	FakeWebSocket,
 	json,
@@ -238,4 +240,60 @@ test("the Logs tab's filters come from the URL, and unknown values are dropped (
 	expect(params.get("q")).toBe("boom");
 	expect(params.get("user")).toBe(user);
 	expect(params.has("workspace")).toBe(false);
+});
+
+describe("a page file missing after a deploy", () => {
+	afterEach(() => {
+		sessionStorage.clear();
+		vi.restoreAllMocks();
+	});
+
+	function stubReload() {
+		const reload = vi.fn();
+		vi.spyOn(window, "location", "get").mockReturnValue({
+			...window.location,
+			reload,
+		});
+		return reload;
+	}
+
+	test("reloads the page once, and the next failure is left to the error page", async () => {
+		const reload = stubReload();
+		const Page = lazyPage<() => null>(() =>
+			Promise.reject(new TypeError("Failed to fetch dynamically imported module")),
+		);
+		render(
+			<Suspense fallback={<p>Loading</p>}>
+				<Page />
+			</Suspense>,
+		);
+		await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+		// Still waiting on the reload, not showing a broken page.
+		expect(screen.getByText("Loading")).toBeDefined();
+		expect(reloadOnceForStaleChunk()).toBe(false);
+		expect(reload).toHaveBeenCalledTimes(1);
+	});
+
+	test("a page that loads clears the guard for the next deploy", async () => {
+		const reload = stubReload();
+		sessionStorage.setItem("portikus.chunk-reload", "1");
+		const Page = lazyPage(() => Promise.resolve({ default: () => <p>Loaded</p> }));
+		render(
+			<Suspense fallback={null}>
+				<Page />
+			</Suspense>,
+		);
+		expect(await screen.findByText("Loaded")).toBeDefined();
+		expect(reloadOnceForStaleChunk()).toBe(true);
+		expect(reload).toHaveBeenCalledTimes(1);
+	});
+
+	test("with storage blocked it never reloads", () => {
+		const reload = stubReload();
+		vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+			throw new DOMException("blocked", "SecurityError");
+		});
+		expect(reloadOnceForStaleChunk()).toBe(false);
+		expect(reload).not.toHaveBeenCalled();
+	});
 });
