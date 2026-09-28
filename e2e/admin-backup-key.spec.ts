@@ -165,6 +165,46 @@ test("a file that is not a key is refused in the dialog", async ({ page }) => {
 	);
 });
 
+test("the replace step starts on Cancel and shows its own errors", async ({ page }) => {
+	await openTab(page);
+	await page.getByTestId("backup-key-upload").focus();
+	await page.keyboard.press("Enter");
+	const upload = page.getByTestId("backup-key-upload-dialog");
+	await upload.getByLabel("Backup key file").setInputFiles({
+		name: "portikus-backup-key.txt",
+		mimeType: "text/plain",
+		buffer: Buffer.from(OFFSITE_KEY.file),
+	});
+	await expect(upload.getByTestId("dialog-confirm")).not.toHaveAttribute(
+		"aria-disabled",
+		"true",
+	);
+	await upload.getByTestId("dialog-confirm").focus();
+	await page.keyboard.press("Enter");
+
+	// A second Enter must not replace the key: the warning step starts on Cancel.
+	const replace = page.getByTestId("backup-key-replace-dialog");
+	await expect(replace).toBeVisible();
+	await expect(replace.getByRole("button", { name: "Cancel" })).toBeFocused();
+
+	// A failure while replacing stays on the replace step.
+	await page.route("**/admin/backups/key", (route) =>
+		route.request().method() === "POST"
+			? route.fulfill({
+					status: 500,
+					json: { code: "INTERNAL", message: "The server could not save the key." },
+				})
+			: route.fallback(),
+	);
+	await replace.getByTestId("dialog-confirm").click();
+	await expect(replace.getByRole("alert")).toBeVisible();
+	await expect(upload).toHaveCount(0);
+	await replace.getByRole("button", { name: "Cancel" }).click();
+	await expect(page.getByTestId("backup-key-recipient")).toHaveText(
+		SERVER_KEY.recipient,
+	);
+});
+
 async function expectNoViolations(page: Page) {
 	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

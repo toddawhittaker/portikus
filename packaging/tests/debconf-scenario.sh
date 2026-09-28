@@ -17,7 +17,8 @@ mkdir -p /run/systemd/system
 cat >/usr/bin/systemctl <<'EOF'
 #!/bin/sh
 echo "$*" >>/tmp/systemctl.log
-case "$1" in is-active) exit 3 ;; esac
+# is-active succeeds only for units listed in /tmp/active-units.
+case "$1" in is-active) for unit; do :; done; grep -qxF "$unit" /tmp/active-units 2>/dev/null && exit 0; exit 3 ;; esac
 exit 0
 EOF
 chmod 0755 /usr/bin/systemctl
@@ -57,7 +58,7 @@ check_modes() {
 check_no_leak() {
 	local secret
 	for secret in "$@"; do
-		grep -qF "$secret" "$CONFIG" && fail "a secret is in portikus.yaml"
+		grep -qsF "$secret" "$CONFIG" && fail "a secret is in portikus.yaml"
 		debconf-show portikus | grep -qF "$secret" && fail "a secret is shown by debconf-show"
 		grep -qF "$secret" /var/cache/debconf/config.dat /var/cache/debconf/passwords.dat &&
 			fail "a secret is left in the debconf database"
@@ -358,6 +359,31 @@ unanswered)
 	! setup_started || fail "setup was started with no answers"
 	grep -qF 'Portikus is not configured yet: run dpkg-reconfigure portikus' /tmp/install.log ||
 		fail "the not-configured line was not printed"
+	;;
+unconfigured-secret)
+	# A secret preseeded without the web address: setup does not start, and
+	# the secret still leaves debconf.
+	install_with <<'EOF'
+portikus portikus/client_secret password UNUSED-SECRET-0123456789abcdef
+EOF
+	[ ! -e "$CONFIG" ] || fail "portikus.yaml was written without a web address"
+	! setup_started || fail "setup was started with no web address"
+	check_no_leak UNUSED-SECRET-0123456789abcdef
+	;;
+setup-running)
+	# A change made while setup still runs is not applied, and postinst says so.
+	echo portikus-setup.service >/tmp/active-units
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.example.edu
+portikus portikus/tls select internal
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	! setup_started || fail "setup was started while it was already running"
+	grep -qF 'Setup is already running with the earlier answers; when it ends, run: sudo portikus setup' /tmp/install.log ||
+		fail "the already-running line was not printed"
+	! grep -qF 'is running in the background' /tmp/install.log || fail "postinst claimed the change is being applied"
 	;;
 ui-storage-default)
 	# With exactly one empty disk the suggestion is still the file, and the

@@ -84,6 +84,32 @@ const DIFF = {
 	},
 };
 
+const RUNNING_JOB = {
+	...JOB,
+	kind: "build",
+	state: "running",
+	step: "Installing packages",
+	version: null,
+	finishedAt: null,
+	request: { kind: "build", node: "24", python: "debian" },
+};
+
+const FAILED_JOB = {
+	...JOB,
+	state: "failed",
+	step: "Checking the signature",
+	message: "The image signature did not match the published key.",
+};
+
+async function routeImage(page: Page, job: object) {
+	await page.route("**/admin/image", (route) =>
+		route.fulfill({ json: { ...IMAGE, job } }),
+	);
+	await page.route(`**/admin/image/jobs/${JOB_ID}`, (route) =>
+		route.fulfill({ json: { job, log: ["fetching"] } }),
+	);
+}
+
 async function openTab(page: Page, colorScheme: "light" | "dark") {
 	await page.route("**/admin/image", (route) => route.fulfill({ json: IMAGE }));
 	await page.route("**/admin/image/diff?**", (route) => route.fulfill({ json: DIFF }));
@@ -153,3 +179,97 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("image-confirm")).toHaveCount(0);
 	});
 }
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`a running job has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await routeImage(page, RUNNING_JOB);
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin?tab=image");
+		await expect(page.getByTestId("image-job-state")).toContainText(
+			"Installing packages",
+		);
+		await expectNoViolations(page);
+	});
+
+	test(`a failed job reads its reason and has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await routeImage(page, FAILED_JOB);
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin?tab=image");
+		// The status region carries the reason, so a screen reader hears why.
+		await expect(page.getByTestId("image-job-state")).toContainText(FAILED_JOB.message);
+		await expectNoViolations(page);
+	});
+
+	test(`image management turned off has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.route("**/admin/image", (route) =>
+			route.fulfill({ status: 404, json: { code: "NOT_FOUND", message: "Not found" } }),
+		);
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin?tab=image");
+		await expect(page.getByTestId("image-off")).toBeVisible({ timeout: 15_000 });
+		await expectNoViolations(page);
+	});
+
+	test(`a failed image request has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.route("**/admin/image", (route) =>
+			route.fulfill({
+				status: 500,
+				json: { code: "INTERNAL", message: "The image list could not be read." },
+			}),
+		);
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin?tab=image");
+		await expect(page.getByRole("alert").first()).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId("image-off")).toHaveCount(0);
+		await expectNoViolations(page);
+	});
+}
+
+test("Make default from the table sends focus to the job heading, not the page", async ({
+	page,
+}) => {
+	let job: object = JOB;
+	await page.route("**/admin/image", (route) =>
+		route.fulfill({ json: { ...IMAGE, job } }),
+	);
+	await page.route("**/admin/image/diff?**", (route) => route.fulfill({ json: DIFF }));
+	await page.route("**/admin/image/jobs/*", (route) =>
+		route.fulfill({ json: { job, log: ["x"] } }),
+	);
+	await page.route("**/admin/image/jobs", (route) => {
+		job = {
+			...JOB,
+			id: "22222222-2222-4222-8222-222222222222",
+			kind: "activate",
+			state: "queued",
+			step: "Waiting",
+			startedAt: null,
+			finishedAt: null,
+			request: { kind: "activate", version: "2026.09.10" },
+		};
+		return route.fulfill({ status: 202, json: job });
+	});
+	await loginAs(page, "carol");
+	await page.goto("/admin?tab=image");
+	const make = page
+		.getByTestId("image-row-2026.09.10")
+		.getByRole("button", { name: "Make 2026.09.10 the default" });
+	await make.focus();
+	await page.keyboard.press("Enter");
+	await page.getByTestId("image-confirm").getByTestId("dialog-confirm").focus();
+	await page.keyboard.press("Enter");
+	await expect(page.getByTestId("image-confirm")).toHaveCount(0);
+	await expect(page.locator("#image-job-title")).toBeFocused();
+});

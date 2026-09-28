@@ -14,8 +14,6 @@
       - openssl
       - conntrack
     state: present
-    update_cache: true
-    cache_valid_time: 3600
 
 # Installing squid-openssl points the squid link at itself, so the API's
 # proxy (ADR 0027) would change build at its next restart.  Pin it.

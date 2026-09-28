@@ -19,7 +19,7 @@ import {
 	Toggletip,
 	useToast,
 } from "@portikus/ui";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { AdminSection } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
@@ -109,6 +109,8 @@ function ImageSections({ data }: { data: AdminImage }) {
 	const toast = useToast();
 	const ask = useRequestImageJob();
 	const [confirming, setConfirming] = useState<Confirming | null>(null);
+	// Make default unmounts its own button, so a confirmed one sends focus to the job heading.
+	const madeDefault = useRef(false);
 	const [rebuilding, setRebuilding] = useState(false);
 	const [diffOf, setDiffOf] = useState<string | null>(null);
 	const busy = isActive(data.job?.state);
@@ -216,7 +218,17 @@ function ImageSections({ data }: { data: AdminImage }) {
 						description={confirmText(confirming)}
 						confirmLabel={confirmLabel(confirming)}
 						pending={ask.isPending}
-						onConfirm={() => submit(confirming, () => setConfirming(null))}
+						returnFocusTo={() => {
+							const made = madeDefault.current;
+							madeDefault.current = false;
+							return made ? document.getElementById("image-job-title") : null;
+						}}
+						onConfirm={() =>
+							submit(confirming, () => {
+								madeDefault.current = confirming.kind === "activate";
+								setConfirming(null);
+							})
+						}
 					/>
 				) : null}
 			</ConfirmDialogRoot>
@@ -243,7 +255,7 @@ function ImageSections({ data }: { data: AdminImage }) {
 						description={`Compared with the default image, ${data.default}.`}
 						footer={<Button onClick={() => setDiffOf(null)}>Close</Button>}
 					>
-						<DiffView from={data.default} to={diffOf} />
+						<DiffView from={data.default} to={diffOf} heading="h3" />
 					</Dialog>
 				) : null}
 			</DialogRoot>
@@ -392,7 +404,7 @@ function JobGroup({
 			? "pk-tag pk-tag--error"
 			: shown.state === "succeeded"
 				? "pk-tag"
-				: "pk-tag pk-tag--warning";
+				: "pk-tag border-transparent bg-status-starting-soft text-status-starting";
 	return (
 		<Group id="image-job-title" title="Latest job" testId="image-job">
 			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
@@ -404,6 +416,10 @@ function JobGroup({
 				<dd className="m-0">
 					<span role="status" data-testid="image-job-state">
 						<span className={tone}>{STATE_LABEL[shown.state]}</span> {shown.step}
+						{shown.message &&
+						(shown.state === "failed" || shown.state === "refused") ? (
+							<span className="sr-only">. {shown.message}</span>
+						) : null}
 					</span>
 				</dd>
 				{shown.message ? (
@@ -434,7 +450,7 @@ function JobGroup({
 				{/* A focusable region, so a keyboard user can scroll it (SPEC.md section 25.8).
 				    Plain text in <pre>: a log line is never rendered as HTML. */}
 				<section
-					className="max-h-80 overflow-auto"
+					className="pk-focus-inset max-h-80 overflow-auto"
 					data-testid="image-job-log"
 					aria-labelledby="image-log-title"
 					// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus
@@ -450,7 +466,7 @@ function JobGroup({
 					<h4 className="pk-text-compact m-0 font-semibold text-ink-muted">
 						Changes in {made.version} against {defaultVersion}
 					</h4>
-					<DiffView from={defaultVersion} to={made.version} />
+					<DiffView from={defaultVersion} to={made.version} heading="h5" />
 					<div>
 						<MakeDefaultButton image={made} busy={busy} onMakeDefault={onMakeDefault} />
 					</div>
@@ -485,6 +501,7 @@ function MakeDefaultButton({
 			<Button
 				variant="primary"
 				data-testid={`image-make-default-${image.version}`}
+				aria-label={`Make ${image.version} the default`}
 				aria-disabled={off ? true : undefined}
 				aria-describedby={off ? noteId : undefined}
 				onClick={() => (off ? undefined : onMakeDefault(image.version))}
@@ -621,7 +638,16 @@ function ImagesGroup({
 	);
 }
 
-function DiffView({ from, to }: { from: string; to: string }) {
+/** heading is the level of Tools and Packages under wherever the diff is shown. */
+function DiffView({
+	from,
+	to,
+	heading,
+}: {
+	from: string;
+	to: string;
+	heading: "h3" | "h5";
+}) {
 	const diff = useImageDiff(from, to);
 	if (diff.isError) {
 		return (
@@ -633,9 +659,15 @@ function DiffView({ from, to }: { from: string; to: string }) {
 	if (!diff.data) return <Skeleton variant="block" height={80} />;
 	return (
 		<div className="grid gap-4 text-[13px]" data-testid="image-diff">
-			<DiffPart title="Tools" part={diff.data.tools} testId="image-diff-tools" />
+			<DiffPart
+				title="Tools"
+				heading={heading}
+				part={diff.data.tools}
+				testId="image-diff-tools"
+			/>
 			<DiffPart
 				title="Packages"
+				heading={heading}
 				part={diff.data.packages}
 				testId="image-diff-packages"
 			/>
@@ -645,17 +677,19 @@ function DiffView({ from, to }: { from: string; to: string }) {
 
 function DiffPart({
 	title,
+	heading: Heading,
 	part,
 	testId,
 }: {
 	title: string;
+	heading: "h3" | "h5";
 	part: ImageDiff["tools"];
 	testId: string;
 }) {
 	const none = part.added.length + part.removed.length + part.changed.length === 0;
 	return (
-		<section aria-label={title} data-testid={testId}>
-			<p className="m-0 mb-1 font-semibold">{title}</p>
+		<div data-testid={testId}>
+			<Heading className="m-0 mb-1 text-[13px] font-semibold">{title}</Heading>
 			{none ? (
 				<p className="pk-muted m-0">No changes.</p>
 			) : (
@@ -677,7 +711,7 @@ function DiffPart({
 					))}
 				</ul>
 			)}
-		</section>
+		</div>
 	);
 }
 

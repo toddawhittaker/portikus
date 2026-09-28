@@ -138,6 +138,8 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	done
 	ansible-galaxy collection install --force -r infra/ansible/requirements.yml
 	ansible-lint infra/ansible
+	cmp packages/ui/src/fonts/PublicSans-Variable.woff2 infra/ansible/roles/dex/files/theme/PublicSans-Variable.woff2 \
+		|| { echo "infra-check: Dex's theme font differs from packages/ui/src/fonts; copy it over"; exit 1; }
 	find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* packaging/bin/portikus packaging/backup/backup-key infra/host/portikus-backup-export
 	bash infra/tests/cleanup-scope-test.sh
 	bash infra/tests/security-cleanup-scope-test.sh
@@ -148,6 +150,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	ansible-playbook infra/tests/egress-proxy-render-test.yml
 	ansible-playbook infra/tests/workspace-egress-render-test.yml
 	ansible-playbook infra/tests/setup-settings-test.yml
+	ansible-playbook infra/tests/workspace-image-test.yml
 	bash infra/tests/backup-scope-test.sh
 	bash infra/tests/backup-channel-test.sh
 	bash infra/tests/backup-local-test.sh

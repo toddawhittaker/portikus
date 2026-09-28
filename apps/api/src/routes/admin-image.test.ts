@@ -22,6 +22,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { tailLines } from "./admin-image.js";
 
 // A pass-through spy, so a test can see the order the route reads files in.
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -436,6 +437,35 @@ describe.skipIf(skip)("POST /admin/image/jobs", () => {
 		});
 		expect(foreign.statusCode).toBe(403);
 		expect(await requestFiles()).toHaveLength(0);
+	});
+});
+
+describe("tailLines", () => {
+	test("reads only the end of a large log", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "portikus-tail-"));
+		try {
+			const path = join(dir, "log.txt");
+			// About 20 MiB, far past the 256 KiB the tail may read.
+			const lines = Array.from(
+				{ length: 400_000 },
+				(_, i) => `line ${i} ${"x".repeat(40)}`,
+			);
+			await writeFile(path, `${lines.join("\n")}\n`);
+			vi.mocked(readFile).mockClear();
+			const tail = await tailLines(path, 500);
+			expect(tail).toHaveLength(500);
+			expect(tail[0]).toBe(lines[399_500]);
+			expect(tail.at(-1)).toBe(lines[399_999]);
+			expect(vi.mocked(readFile)).not.toHaveBeenCalled();
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("answers no lines for a missing log", async () => {
+		expect(await tailLines(join(tmpdir(), "portikus-no-such-log.txt"), 500)).toEqual(
+			[],
+		);
 	});
 });
 
