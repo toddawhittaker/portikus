@@ -506,7 +506,11 @@ test("the empty work area opens a terminal or Claude Code from its buttons", asy
 	expect(screen.getByTestId("empty-open-claude").className).not.toContain(
 		"bg-surface-inverse",
 	);
-	expect(screen.getByText(/Or use New tab \(\+\) in the tab bar/)).toBeDefined();
+	expect(
+		screen.getByText(
+			"Open a terminal or start Claude Code. The + in the tab bar also opens Codex and previews.",
+		),
+	).toBeDefined();
 
 	fireEvent.click(screen.getByRole("button", { name: "Start Claude Code" }));
 	await waitFor(() =>

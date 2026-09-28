@@ -65,7 +65,9 @@ test.describe("diff tab", () => {
 		const student = await createStudent(context);
 		await openDiffTab(page, student, "Modified", { [PATH]: diff() });
 
-		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("M");
+		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("Modified");
+		// Each column says which version it is (review S13).
+		await expect(page.getByTestId("diff-sides")).toHaveText("Last commitYour changes");
 		const editor = page.getByTestId(`diff-editor-${PATH}`);
 		await expect(editor.locator(".monaco-diff-editor")).toBeVisible({
 			timeout: 60_000,
@@ -82,7 +84,7 @@ test.describe("diff tab", () => {
 			[PATH]: diff({ status: "A", before: null, after: "brand new\n" }),
 		});
 
-		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("A");
+		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("Added");
 		await expect(page.getByTestId("diff-note")).toHaveText("New file (not in HEAD)");
 		await expect(page.getByTestId(`diff-editor-${PATH}`)).toContainText("brand new", {
 			timeout: 60_000,
@@ -95,7 +97,7 @@ test.describe("diff tab", () => {
 			[PATH]: diff({ status: "D", before: "was here\n", after: null }),
 		});
 
-		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("D");
+		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("Deleted");
 		await expect(page.getByTestId("diff-note")).toHaveText(
 			"Deleted from the working tree",
 		);
@@ -112,7 +114,7 @@ test.describe("diff tab", () => {
 			[PATH]: diff({ status: "R", oldPath: "src/old.ts" }),
 		});
 
-		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("R");
+		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("Renamed");
 		await expect(page.getByTestId(`diff-pane-${PATH}`)).toContainText(
 			`Diff · src/old.ts → ${PATH}`,
 		);
@@ -127,7 +129,7 @@ test.describe("diff tab", () => {
 			[PATH]: diff({ status: "U", after: "<<<<<<< HEAD\nmine\n=======\ntheirs\n" }),
 		});
 
-		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("!");
+		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("Conflict");
 		await expect(page.getByTestId("diff-note")).toHaveText(
 			"Unresolved merge conflict; the working-tree side shows the conflict markers",
 		);

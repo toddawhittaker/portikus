@@ -110,6 +110,20 @@ test("switching review mode moves focus and announces the new heading", () => {
 	expect(document.activeElement).toBe(screen.getByTestId("review-session"));
 });
 
+test("Review session changes has a toggletip saying what it compares", async () => {
+	render(
+		<ToastProvider>
+			<LayoutStoreContext.Provider value={createLayoutStore()}>
+				<ChangesList projectId="pid" status={EMPTY} onReviewSession={() => {}} />
+			</LayoutStoreContext.Provider>
+		</ToastProvider>,
+	);
+	fireEvent.click(screen.getByRole("button", { name: "About Review session changes" }));
+	expect((await screen.findByRole("dialog")).textContent).toBe(
+		"Shows only what changed since this agent session started, not everything since your last commit. Files Git ignores are left out, except .env files at the project root.",
+	);
+});
+
 test("a repository with nothing changed says so", () => {
 	show(EMPTY);
 	expect(screen.getByTestId("changes-title").textContent).toBe("Changes (0)");
