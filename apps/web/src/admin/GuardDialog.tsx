@@ -14,7 +14,7 @@ export type GuardDrafts = Record<GuardKey, string>;
 
 /**
  * The request body for the drafts, or the errors by field. A blank field
- * removes that override, so the workspace uses the platform value.
+ * removes that override, so the workspace uses the site setting.
  */
 export function guardRequest(
 	drafts: GuardDrafts,
@@ -59,7 +59,7 @@ export function GuardDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	current: GuardConfig | null;
-	/** The platform values a blank field falls back to, once loaded. */
+	/** The site settings a blank field falls back to, once loaded. */
 	defaults: EffectiveGuard | null;
 	ownerName: string;
 	pending: boolean;
@@ -84,8 +84,8 @@ export function GuardDialog({
 		<DialogRoot open={open} onOpenChange={onOpenChange}>
 			<Dialog
 				testId="guard-dialog"
-				title="Resource guard overrides"
-				description={`Limits for ${ownerName}'s workspace. Leave a field blank to use the platform value. Changes apply within a minute.`}
+				title={`Resource guard for ${ownerName}'s workspace`}
+				description="When this workspace is slowed, flagged or stopped for inactivity. Leave a field blank to use the site setting."
 				footer={
 					<>
 						<Button onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -110,7 +110,7 @@ export function GuardDialog({
 								label={field.label}
 								inputMode="numeric"
 								data-testid={`guard-${field.key}`}
-								hint={defaults ? `Platform value: ${defaults[field.key]}` : undefined}
+								hint={defaults ? `Site setting: ${defaults[field.key]}` : undefined}
 								// Only the first problem is announced, so a reader hears one alert.
 								error={field.key === firstError ? announced(error) : error}
 								value={drafts[field.key]}
@@ -122,7 +122,7 @@ export function GuardDialog({
 					})}
 				</div>
 				{firstError === undefined && serverError ? (
-					<p className="m-0 mt-3 text-[13px] text-status-error" role="alert">
+					<p className="pk-text-compact m-0 mt-3 text-status-error" role="alert">
 						{serverError}
 					</p>
 				) : null}

@@ -36,7 +36,7 @@ test("a blank field removes the override and a bad one names its range", () => {
 	});
 });
 
-test("each field names its platform value in a hint tied to the field", () => {
+test("each field names its site setting in a hint tied to the field", () => {
 	render(
 		<GuardDialog
 			open
@@ -58,5 +58,9 @@ test("each field names its platform value in a hint tied to the field", () => {
 	const field = screen.getByTestId("guard-windowMinutes");
 	expect(field.getAttribute("placeholder")).toBeNull();
 	const hint = document.getElementById(field.getAttribute("aria-describedby") ?? "");
-	expect(hint?.textContent).toBe("Platform value: 30");
+	expect(hint?.textContent).toBe("Site setting: 30");
+	// Its own name, not the Limits dialog's (M5).
+	expect(
+		screen.getByRole("dialog", { name: "Resource guard for Ada's workspace" }),
+	).toBeDefined();
 });

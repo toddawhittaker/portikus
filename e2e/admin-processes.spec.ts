@@ -211,9 +211,9 @@ test("the keyboard alone reads the list and stops a process", async ({
 	await expect(section.getByTestId("processes-table")).toBeVisible();
 
 	const stop = section.getByRole("button", { name: "Stop <b>miner</b> (PID 42)" });
-	// Tab from Refresh through the table's buttons to the first Stop.
-	for (let i = 0; i < 10; i += 1) {
-		await page.keyboard.press("Tab");
+	// Refresh sits under the table, so Shift+Tab walks back through its buttons.
+	for (let i = 0; i < 20; i += 1) {
+		await page.keyboard.press("Shift+Tab");
 		if (await stop.evaluate((el) => el === document.activeElement)) break;
 	}
 	await expect(stop).toBeFocused();

@@ -60,7 +60,12 @@ test("Re-provision sends a workspace in error back to provisioning, audited", as
 	await openAdmin(page);
 	const panel = await openDetail(page, student.name);
 	const error = panel.getByRole("region", { name: "Error" });
-	await expect(error).toContainText("keeps its home folder");
+	// What Re-provision does is one click away, in its toggletip.
+	await error.getByRole("button", { name: "About Re-provision" }).click();
+	await expect(page.getByRole("dialog", { name: "Re-provision" })).toContainText(
+		"Its home folder and files are kept.",
+	);
+	await page.keyboard.press("Escape");
 
 	await error
 		.getByRole("button", { name: `Re-provision ${student.name}'s workspace` })

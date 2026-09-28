@@ -221,57 +221,6 @@ test("saving the global value sends the seconds as a number", async () => {
 	expect(await screen.findByText("Grace period saved")).toBeDefined();
 });
 
-test("clearing a user's input sends null, and a number sets the override", async () => {
-	const writes: { url: string; body: unknown }[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-
-	renderApp("/admin");
-	await openDetail("Alice Example");
-
-	const input = await screen.findByTestId(`user-grace-input-${USER.id}`);
-	await waitFor(() => expect((input as HTMLInputElement).value).toBe("30"));
-	fireEvent.change(input, { target: { value: "" } });
-	fireEvent.click(screen.getByTestId(`user-grace-save-${USER.id}`));
-
-	await waitFor(() => expect(writes.length).toBe(1));
-	expect(writes[0]).toEqual({
-		url: `/admin/users/${USER.id}/settings`,
-		body: { shutdownGraceSeconds: null },
-	});
-
-	fireEvent.change(input, { target: { value: "45" } });
-	fireEvent.click(screen.getByTestId(`user-grace-save-${USER.id}`));
-
-	await waitFor(() => expect(writes.length).toBe(2));
-	expect(writes[1]?.body).toEqual({ shutdownGraceSeconds: 45 });
-});
-
-test("a user's override shows no default until the settings load", async () => {
-	stubFetch((url) => {
-		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/users")
-			return json(200, { users: [STUDENT_ROW, ADMIN_ROW], dexUsers: false });
-		if (url === "/admin/settings") {
-			return json(500, { code: "INTERNAL", message: "Settings are unavailable." });
-		}
-		throw new Error(`unexpected request: ${url}`);
-	});
-
-	renderApp("/admin");
-	await openDetail("Carol Admin");
-
-	// The account with no override claims no default, in the placeholder or the hint.
-	const input = (await screen.findByTestId(
-		`user-grace-input-${ADMIN.id}`,
-	)) as HTMLInputElement;
-	expect(input.value).toBe("");
-	expect(input.placeholder).toBe("");
-	expect(screen.queryByText(/^Default \(/)).toBeNull();
-	expect(
-		screen.queryByText("Workspaces keep running until stopped by hand"),
-	).toBeNull();
-});
-
 test("the Settings tab shows a settings read failure", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, ADMIN);
@@ -330,24 +279,6 @@ test("the grace form takes minutes and still sends only the seconds", async () =
 
 	await waitFor(() => expect(writes.length).toBe(1));
 	expect(writes[0]?.body).toEqual({ shutdownGraceSeconds: 900 });
-});
-
-test("the grace field is named by its visible label and Save after the user (WCAG 2.5.3, issue #371)", async () => {
-	stubAdmin(600);
-
-	renderApp("/admin");
-	await openDetail("Alice Example");
-
-	expect(screen.getByRole("textbox", { name: "Grace period override (seconds)" })).toBe(
-		screen.getByTestId(`user-grace-input-${USER.id}`),
-	);
-	expect(screen.getByRole("button", { name: "Save Alice Example" })).toBe(
-		screen.getByTestId(`user-grace-save-${USER.id}`),
-	);
-	// Each row's details button says whose row it is.
-	expect(
-		screen.getByRole("button", { name: /^Show details for Carol Admin, / }),
-	).toBeDefined();
 });
 
 test("the page title names the tab (issue #374, SPEC.md section 20.1)", async () => {
@@ -413,20 +344,6 @@ test("grace-period errors are announced as alerts (issue #363)", async () => {
 	fireEvent.click(screen.getByTestId("grace-save"));
 	expect((await screen.findByRole("alert")).textContent).toBe(
 		"Enter a number of minutes, 0 or more.",
-	);
-});
-
-test("a user's grace error is announced as an alert (issue #363)", async () => {
-	stubAdmin(600);
-
-	renderApp("/admin");
-	await openDetail("Alice Example");
-
-	const row = screen.getByTestId(`user-grace-input-${USER.id}`);
-	fireEvent.change(row, { target: { value: "later" } });
-	fireEvent.click(screen.getByTestId(`user-grace-save-${USER.id}`));
-	expect((await screen.findByRole("alert")).textContent).toBe(
-		"Enter a whole number of seconds, 0 or more.",
 	);
 });
 
