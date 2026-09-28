@@ -1,9 +1,9 @@
 import {
-	BOX,
+	AXIS_FONT,
 	bucketCenterX,
 	ChartShell,
 	LINE_STYLES,
-	PLOT_WIDTH,
+	type Plot,
 	type SeriesStyle,
 	valueY,
 } from "./readout.js";
@@ -25,6 +25,7 @@ export function linePath(
 	frame: ChartFrame,
 	values: readonly (number | null)[],
 	top: number,
+	plot: Plot,
 ): string {
 	const parts: string[] = [];
 	let drawing = false;
@@ -33,7 +34,7 @@ export function linePath(
 			drawing = false;
 			return;
 		}
-		const x = Math.round(bucketCenterX(frame, index) * 10) / 10;
+		const x = Math.round(bucketCenterX(frame, index, plot) * 10) / 10;
 		const y = Math.round(valueY(value, top) * 10) / 10;
 		// "l0 0" draws a lone point as a dot with the round line cap.
 		const next = values[index + 1];
@@ -47,9 +48,11 @@ export function linePath(
 
 /**
  * A line chart of up to three series over the range (SPEC.md
- * section 25.6). `ticks` is the Y axis, from 0 to its last value; `format` writes a
- * value with its unit for the ticks and the readout. Reference lines mark a
- * threshold or capacity in the warning colour, with a label.
+ * section 25.6). `ticks` is the Y axis, from 0 to its last value, drawn as
+ * bare numbers (or by `tickFormat`), so `label` names the unit. `format`
+ * writes a value with its unit for the readout. Reference lines mark a
+ * threshold or capacity in the warning colour, with a label. With no value
+ * in any series there is no axis, only the summary.
  */
 export function LineChart({
 	testId,
@@ -58,6 +61,7 @@ export function LineChart({
 	series,
 	ticks,
 	format,
+	tickFormat,
 	summary,
 	references = [],
 }: {
@@ -67,6 +71,7 @@ export function LineChart({
 	series: readonly LineSeries[];
 	ticks: readonly number[];
 	format: (value: number) => string;
+	tickFormat?: (value: number) => string;
 	summary: string;
 	references?: readonly ReferenceLine[];
 }) {
@@ -91,21 +96,22 @@ export function LineChart({
 			label={label}
 			frame={frame}
 			yTicks={ticks}
-			formatTick={format}
+			formatTick={tickFormat}
 			summary={summary}
+			empty={series.every((line) => line.values.every((value) => value === null))}
 			describe={describe}
 			legend={series.map((line, index) => ({
 				name: line.name,
 				style: styles[index] as SeriesStyle,
 			}))}
 		>
-			{() => (
+			{(_, plot) => (
 				<>
 					{references.map((reference) => (
 						<g key={reference.label}>
 							<line
-								x1={BOX.left}
-								x2={BOX.left + PLOT_WIDTH}
+								x1={plot.left}
+								x2={plot.left + plot.plotWidth}
 								y1={valueY(reference.value, top)}
 								y2={valueY(reference.value, top)}
 								className="stroke-status-warning"
@@ -113,14 +119,14 @@ export function LineChart({
 								strokeDasharray="4 3"
 							/>
 							<text
-								x={BOX.left + PLOT_WIDTH - 4}
+								x={plot.left + plot.plotWidth - 4}
 								// Below the line when it sits at the top of the plot.
 								y={
 									valueY(reference.value, top) +
 									(reference.value >= top * 0.9 ? 12 : -4)
 								}
 								textAnchor="end"
-								fontSize="11"
+								fontSize={AXIS_FONT}
 								className="fill-status-warning"
 							>
 								{reference.label}
@@ -130,7 +136,7 @@ export function LineChart({
 					{series.map((line, index) => (
 						<path
 							key={line.name}
-							d={linePath(frame, line.values, top)}
+							d={linePath(frame, line.values, top, plot)}
 							fill="none"
 							strokeWidth="2"
 							strokeLinejoin="round"

@@ -10,11 +10,12 @@ import {
 	LABEL_CLASS,
 	StateBadge,
 	TextField,
+	Toggletip,
 	type WorkspaceState,
 } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ApiError, request } from "../api/request.js";
 import { AdminSection } from "./AdminSection.js";
@@ -104,9 +105,22 @@ export function timeAgo(iso: string | null | undefined, now: number): string {
 	return days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
-export function lastActivity(workspace: AdminWorkspaceSummary, now: number): string {
-	if (workspace.activeConnections > 0) return "Now";
+/** The Activity column: "Now, 2 connections" while connected, else when a browser last connected. */
+export function activityText(workspace: AdminWorkspaceSummary, now: number): string {
+	const count = workspace.activeConnections;
+	if (count > 0) return `Now, ${count} ${count === 1 ? "connection" : "connections"}`;
 	return timeAgo(workspace.lastActiveConnectionAt, now);
+}
+
+/** True when any filter differs from the defaults. */
+export function isFiltered(filters: AccountFilters): boolean {
+	return (
+		filters.text.trim() !== "" ||
+		filters.state !== NO_FILTERS.state ||
+		filters.image !== NO_FILTERS.image ||
+		filters.role !== NO_FILTERS.role ||
+		filters.showArchived !== NO_FILTERS.showArchived
+	);
 }
 
 export function storageText(quota: { homeGiB: number; dockerGiB: number }): string {
@@ -310,6 +324,11 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	return (
 		<AdminSection
 			title="Users"
+			intro={{
+				id: "admin-users",
+				helpAnchor: "admin-users",
+				text: "Everyone who has signed in, with their workspace. Choose a name to start, stop or rebuild a workspace, change its storage or limits, or change the account's role.",
+			}}
 			count={
 				<span data-testid="admin-account-count">
 					{all.length} accounts · {running} running
@@ -390,9 +409,17 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					</select>
 				</div>
 				<div className={FIELD_CLASS}>
-					<label className={LABEL_CLASS} htmlFor="admin-filter-image">
-						Image
-					</label>
+					{/* The help button sits beside the label, never inside it. */}
+					{/* -my-1 keeps the 24 px button from pushing this label above its neighbours'. */}
+					<div className="-my-1 flex min-w-0 items-center gap-1">
+						<label className={LABEL_CLASS} htmlFor="admin-filter-image">
+							Image
+						</label>
+						<Toggletip label="Image filter">
+							Choose Older to see who needs a rebuild. A button then rebuilds them all
+							at once.
+						</Toggletip>
+					</div>
 					<select
 						id="admin-filter-image"
 						className={SELECT_CLASS}
@@ -406,25 +433,25 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					</select>
 				</div>
 				{/* Centred on the controls' row, not on the labelled fields. */}
-				<div className="flex h-[var(--pk-control)] items-center">
+				<div className="flex h-[var(--pk-control)] items-center gap-1">
 					<Checkbox
 						label="Show archived"
 						checked={filters.showArchived}
 						onChange={(event) => set({ showArchived: event.target.checked })}
 					/>
-				</div>
-				<span className="flex-grow" />
-				<div className="flex h-[var(--pk-control)] items-center">
-					<span
-						className="pk-text-compact pk-muted"
-						role="status"
-						data-testid="admin-row-count"
-					>
-						Showing {rows.length} of {all.length}
-					</span>
+					<Toggletip label="Show archived">
+						Archived workspaces are stopped and cannot start until you unarchive them.
+						Their files are kept.
+					</Toggletip>
 				</div>
 			</div>
 			<BulkActions
+				// The heading already counts everyone; this says what a filter left (N4).
+				rowCount={
+					isFiltered(filters) || rows.length < all.length
+						? `Showing ${rows.length} of ${all.length}`
+						: ""
+				}
 				rows={checkedRows}
 				currentUserId={currentUserId}
 				confirming={confirming}
@@ -454,12 +481,43 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 										}
 									/>
 								</th>
-								<th scope="col">Account</th>
-								<th scope="col">Role</th>
-								<th scope="col">Workspace</th>
-								<th scope="col">Last activity</th>
-								<th scope="col">Image</th>
-								<th scope="col">Connections</th>
+								<th scope="col">
+									<HeaderWithHelp label="Account">
+										<Toggletip label="Account tags">
+											Stale means no sign-in for 30 days, or another account with the
+											same email signed in since. Linked is a course account joined to
+											an SSO account. Throttled, Held and High memory come from the
+											resource guard.
+										</Toggletip>
+									</HeaderWithHelp>
+								</th>
+								<th scope="col">
+									<HeaderWithHelp label="Role">
+										<Toggletip label="Role">
+											From SSO means the role comes from your sign-in provider's groups.
+											Granted means an administrator gave it here, and only a granted
+											role can be taken away here. Only SSO accounts can be granted a
+											role.
+										</Toggletip>
+									</HeaderWithHelp>
+								</th>
+								<th scope="col">
+									<HeaderWithHelp label="Workspace">
+										<Toggletip label="Older image">
+											Older image means the workspace runs an older base image. Rebuild
+											it to move to the current one. Projects and home stay.
+										</Toggletip>
+									</HeaderWithHelp>
+								</th>
+								<th scope="col">
+									<HeaderWithHelp label="Activity">
+										<Toggletip label="Activity">
+											Now means the workspace is open, with the number of pages and
+											terminals attached to it. Otherwise, how long ago someone last
+											opened it.
+										</Toggletip>
+									</HeaderWithHelp>
+								</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -500,6 +558,16 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	);
 }
 
+/** A column header's text with its help button after it, outside the text. */
+function HeaderWithHelp({ label, children }: { label: string; children: ReactNode }) {
+	return (
+		<span className="flex items-center gap-1">
+			<span>{label}</span>
+			{children}
+		</span>
+	);
+}
+
 /** Each opening starts with Reset Docker off (SPEC.md section 20.1). */
 interface BulkConfirm {
 	action: BulkAction;
@@ -508,16 +576,20 @@ interface BulkConfirm {
 }
 
 /**
- * The bar over the table while rows are ticked. Each action calls the
- * existing single-row route once per account (Epic 13.1 T4).
+ * The toolbar row over the table: the filtered count, or the bulk actions
+ * while rows are ticked. It keeps one height, so ticking a row never moves
+ * the table. Each action calls the existing single-row route once per
+ * account (Epic 13.1 T4).
  */
 function BulkActions({
+	rowCount,
 	rows,
 	currentUserId,
 	confirming,
 	setConfirming,
 	onDone,
 }: {
+	rowCount: string;
 	rows: AdminUser[];
 	currentUserId: string;
 	confirming: BulkConfirm | null;
@@ -580,35 +652,54 @@ function BulkActions({
 
 	return (
 		<>
-			{rows.length > 0 ? (
-				<fieldset
-					className="m-0 flex flex-wrap items-center gap-2 border-0 p-0"
-					data-testid="bulk-actions"
+			{/* One block, so an empty result adds no gap above the table. */}
+			<div className="flex flex-col">
+				<div
+					className="flex min-h-[var(--pk-control)] items-center"
+					data-testid="admin-table-toolbar"
 				>
-					<legend className="pk-text-compact float-left mr-2">
-						{rows.length} selected
-					</legend>
-					{offered.map((action) => (
-						<Button
-							key={action}
-							size="sm"
-							data-testid={`bulk-${action}`}
-							onClick={() =>
-								setConfirming({ action, users: targets(action), resetDocker: false })
-							}
+					<span
+						className="pk-text-compact pk-muted"
+						role="status"
+						data-testid="admin-row-count"
+					>
+						{rows.length > 0 ? "" : rowCount}
+					</span>
+					{rows.length > 0 ? (
+						<fieldset
+							className="m-0 flex min-w-0 flex-wrap items-center gap-2 border-0 p-0"
+							data-testid="bulk-actions"
 						>
-							{BULK[action].button}
-						</Button>
-					))}
-				</fieldset>
-			) : null}
+							<legend className="pk-text-compact float-left mr-2">
+								{rows.length} selected
+							</legend>
+							{offered.map((action) => (
+								<Button
+									key={action}
+									size="sm"
+									data-testid={`bulk-${action}`}
+									onClick={() =>
+										setConfirming({
+											action,
+											users: targets(action),
+											resetDocker: false,
+										})
+									}
+								>
+									{BULK[action].button}
+								</Button>
+							))}
+						</fieldset>
+					) : null}
+				</div>
+				<div role="status" data-testid="bulk-result" ref={resultRef} tabIndex={-1}>
+					{result ? <BulkSummary result={result} /> : null}
+				</div>
+			</div>
 			{/* Stays mounted, so each change to the count is announced. */}
 			<span className="sr-only" aria-live="polite" data-testid="bulk-count">
 				{rows.length > 0 ? `${rows.length} selected` : ""}
 			</span>
-			<div role="status" data-testid="bulk-result" ref={resultRef} tabIndex={-1}>
-				{result ? <BulkSummary result={result} /> : null}
-			</div>
 			<ConfirmDialogRoot
 				open={confirming !== null}
 				onOpenChange={(open) => (open || running ? undefined : setConfirming(null))}
@@ -638,6 +729,10 @@ function BulkActions({
 							)
 						}
 						confirmLabel={BULK[confirming.action].confirm}
+						// Enabling and unarchiving take nothing away, so they are not drawn as danger.
+						destructive={
+							confirming.action !== "enable" && confirming.action !== "unarchive"
+						}
 						pending={running}
 						returnFocusTo={() => {
 							if (!finished.current) return null;
@@ -708,7 +803,7 @@ function RebuildDescription({
 function BulkSummary({ result }: { result: BulkResult }) {
 	const copy = BULK[result.action];
 	return (
-		<div className="pk-text-compact flex flex-col gap-1">
+		<div className="pk-text-compact flex flex-col gap-1 pt-2">
 			{result.done.length > 0 ? (
 				<p className="m-0">
 					{copy.done} {joinNames(result.done)}.
@@ -782,11 +877,11 @@ function AccountRow({
 			</td>
 			<td className="py-2 whitespace-normal">
 				<div className="pk-cell-stack" data-testid={`account-name-${user.id}`}>
-					<span className="pk-cell-primary">
+					<span className="pk-cell-primary flex-wrap gap-x-2 gap-y-1">
 						<button
 							type="button"
 							id={rowButtonId(user.id)}
-							className="pk-focus-inset cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink"
+							className="pk-focus-inset cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink [overflow-wrap:anywhere]"
 							aria-label={`Show details for ${user.displayName}, ${user.email ?? user.preferredUsername ?? user.id}`}
 							aria-expanded={selected}
 							aria-controls={selected ? "workspace-detail" : undefined}
@@ -805,10 +900,10 @@ function AccountRow({
 					</span>
 				</div>
 			</td>
-			<td className="py-2" data-testid={`account-role-${user.id}`}>
+			<td className="py-2 whitespace-normal" data-testid={`account-role-${user.id}`}>
 				{roleText(user)}
 			</td>
-			<td className="py-2 whitespace-normal">
+			<td className="py-2">
 				{workspace ? (
 					<div className="flex flex-col items-start gap-1">
 						<span className="pk-mono-small">{workspace.label}</span>
@@ -817,20 +912,26 @@ function AccountRow({
 							desiredState={workspace.desiredState}
 							statusRole={false}
 						/>
+						{workspace.image.current === false ? (
+							<span
+								className="pk-tag pk-tag--warning"
+								title={imageText(workspace.image)}
+								data-testid={`account-image-${user.id}`}
+							>
+								Older image
+							</span>
+						) : null}
 					</div>
 				) : (
 					<span className="pk-muted">No workspace</span>
 				)}
 			</td>
-			<td className="py-2">{workspace ? lastActivity(workspace, now) : "—"}</td>
-			<td className="py-2" data-testid={`account-image-${user.id}`}>
-				{workspace?.image.current === false ? (
-					<span className="pk-tag pk-tag--warning" title={imageText(workspace.image)}>
-						Older image
-					</span>
-				) : null}
+			<td
+				className="py-2 whitespace-normal"
+				data-testid={`account-activity-${user.id}`}
+			>
+				{workspace ? activityText(workspace, now) : "—"}
 			</td>
-			<td className="py-2">{workspace ? workspace.activeConnections : "—"}</td>
 		</tr>
 	);
 }

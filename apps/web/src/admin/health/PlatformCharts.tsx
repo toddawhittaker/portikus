@@ -1,19 +1,14 @@
 import type { HealthSeries } from "@portikus/contracts";
 import { LineChart } from "./charts/LineChart.js";
-import {
-	BOX,
-	ChartShell,
-	PLOT_HEIGHT,
-	PLOT_WIDTH,
-	type SeriesStyle,
-	valueY,
-} from "./charts/readout.js";
+import { ChartShell, PLOT_HEIGHT, type SeriesStyle, valueY } from "./charts/readout.js";
 import {
 	bucketStart,
 	type ChartFrame,
+	countTicks,
 	dense,
 	lineSummary,
 	PERCENT_TICKS,
+	tickText,
 	yTicks,
 } from "./charts/scales.js";
 import { formatPercent } from "./HostCharts.js";
@@ -23,22 +18,27 @@ type PlatformPoint = HealthSeries["platform"][number];
 const RATE_UNITS = ["B/s", "KB/s", "MB/s", "GB/s"] as const;
 
 /**
- * Y ticks and a formatter for bytes per second, both in one unit picked from
- * the largest value, so the ticks read "0, 250, 500 KB/s" and not raw bytes.
+ * Y ticks and formatters for bytes per second, all in one unit picked from
+ * the largest value: the chart title names the unit ("MB/s"), the ticks are
+ * bare numbers in it ("0, 0.5, 1"), and the readout says "1.5 MB/s".
  */
 export function rateScale(max: number): {
+	unit: string;
 	ticks: number[];
+	tick: (value: number) => string;
 	format: (value: number) => string;
 } {
 	let power = 0;
 	while (max >= 1024 ** (power + 1) && power < RATE_UNITS.length - 1) power += 1;
-	const unit = 1024 ** power;
-	const name = RATE_UNITS[power];
+	const size = 1024 ** power;
+	const unit = RATE_UNITS[power] as string;
 	return {
-		ticks: yTicks(max / unit).map((tick) => tick * unit),
+		unit,
+		ticks: yTicks(max / size).map((tick) => tick * size),
+		tick: (value) => tickText(value / size),
 		format: (value) => {
-			const scaled = value / unit;
-			return `${Number.isInteger(scaled) ? scaled : scaled.toFixed(1)} ${name}`;
+			const scaled = value / size;
+			return `${Number.isInteger(scaled) ? scaled : scaled.toFixed(1)} ${unit}`;
 		},
 	};
 }
@@ -59,6 +59,7 @@ function presentMax(...lists: (number | null)[][]): number {
 const OUTAGE_PATTERN = "health-strip-outage";
 const GAP_PATTERN = "health-strip-gap";
 
+/** Red is kept for the controller being down; a missing sample is only a quiet dot. */
 const STRIP_STYLES: Record<"sampled" | "outage" | "gap", SeriesStyle> = {
 	sampled: { className: "fill-accent" },
 	outage: { className: "fill-[url(#health-strip-outage)]" },
@@ -99,10 +100,11 @@ export function stripSummary(
 
 /**
  * The availability strip (SPEC.md section 25.6): each bucket is a
- * column filled by its share of minutes. Outages and missing samples use
- * status-error with a stripe or a dot pattern, so they never rely on colour.
+ * column filled by its share of minutes. Outages are status-error with a
+ * stripe; missing samples are an ink-faint dot pattern, so neither relies
+ * on colour and only an outage reads as alarm.
  */
-function AvailabilityStrip({
+export function AvailabilityStrip({
 	frame,
 	points,
 }: {
@@ -110,7 +112,6 @@ function AvailabilityStrip({
 	points: readonly PlatformPoint[];
 }) {
 	const buckets = stripMinutes(frame, points);
-	const slot = PLOT_WIDTH / frame.count;
 	function describe(index: number): string {
 		const bucket = buckets[index];
 		if (!bucket) return "no data";
@@ -120,10 +121,9 @@ function AvailabilityStrip({
 	return (
 		<ChartShell
 			testId="health-chart-availability"
-			label="Sampling and controller availability"
+			label="Sampling and controller availability, % of minutes"
 			frame={frame}
 			yTicks={[0, 50, 100]}
-			formatTick={formatPercent}
 			summary={stripSummary(frame, points)}
 			describe={describe}
 			legend={[
@@ -132,7 +132,7 @@ function AvailabilityStrip({
 				{ name: "No sample", style: STRIP_STYLES.gap, swatch: "box" },
 			]}
 		>
-			{() => (
+			{(_, plot) => (
 				<>
 					<defs>
 						<pattern
@@ -158,11 +158,12 @@ function AvailabilityStrip({
 							height="5"
 							patternUnits="userSpaceOnUse"
 						>
-							<circle cx="2.5" cy="2.5" r="1.25" className="fill-status-error" />
+							<circle cx="2.5" cy="2.5" r="1.25" className="fill-ink-faint" />
 						</pattern>
 					</defs>
 					{buckets.map((bucket, index) => {
-						const x = BOX.left + index * slot;
+						const slot = plot.plotWidth / frame.count;
+						const x = plot.left + index * slot;
 						const parts = [
 							{ key: "sampled", minutes: bucket.reachable },
 							{ key: "outage", minutes: bucket.unreachable },
@@ -193,11 +194,30 @@ function AvailabilityStrip({
 	);
 }
 
-/**
- * The platform family of the Trends card (#598 items 2, 6, 7 and 8):
- * availability, running workspaces, host CPU, network and disk.
- */
-export function PlatformCharts({
+/** Running workspaces over the range (#598 item 2). */
+export function RunningChart({
+	series,
+	frame,
+}: {
+	series: HealthSeries;
+	frame: ChartFrame;
+}) {
+	const running = dense(frame, series.platform, (point) => point.runningWorkspaces);
+	return (
+		<LineChart
+			testId="health-chart-running"
+			label="Running workspaces"
+			frame={frame}
+			series={[{ name: "Running", values: running }]}
+			ticks={countTicks(Math.max(4, presentMax(running)))}
+			format={formatCount}
+			summary={lineSummary(running, formatCount)}
+		/>
+	);
+}
+
+/** Host CPU, network and disk over the range (#598 items 6, 7 and 8). */
+export function HostRateCharts({
 	series,
 	frame,
 }: {
@@ -205,7 +225,6 @@ export function PlatformCharts({
 	frame: ChartFrame;
 }) {
 	const points = series.platform;
-	const running = dense(frame, points, (point) => point.runningWorkspaces);
 	const cpu = dense(frame, points, (point) => point.cpuPercent);
 	const rx = dense(frame, points, (point) => point.netRxBytesPerSecond);
 	const tx = dense(frame, points, (point) => point.netTxBytesPerSecond);
@@ -213,21 +232,19 @@ export function PlatformCharts({
 	const write = dense(frame, points, (point) => point.diskWriteBytesPerSecond);
 	const network = rateScale(presentMax(rx, tx));
 	const disk = rateScale(presentMax(read, write));
+	const pair = (
+		names: readonly [string, string],
+		lines: readonly [(number | null)[], (number | null)[]],
+		format: (value: number) => string,
+	) =>
+		lines.every((line) => line.every((value) => value === null))
+			? "No samples in this range."
+			: `${names[0]}: ${lineSummary(lines[0], format)} ${names[1]}: ${lineSummary(lines[1], format)}`;
 	return (
 		<>
-			<AvailabilityStrip frame={frame} points={points} />
-			<LineChart
-				testId="health-chart-running"
-				label="Running workspaces"
-				frame={frame}
-				series={[{ name: "Running", values: running }]}
-				ticks={yTicks(Math.max(4, presentMax(running)))}
-				format={formatCount}
-				summary={lineSummary(running, formatCount)}
-			/>
 			<LineChart
 				testId="health-chart-cpu"
-				label="Host CPU used"
+				label="Host CPU used, %"
 				frame={frame}
 				series={[{ name: "CPU", values: cpu }]}
 				ticks={PERCENT_TICKS}
@@ -236,27 +253,29 @@ export function PlatformCharts({
 			/>
 			<LineChart
 				testId="health-chart-network"
-				label="Network, default interface"
+				label={`Network on the default interface, ${network.unit}`}
 				frame={frame}
 				series={[
 					{ name: "In", values: rx },
 					{ name: "Out", values: tx },
 				]}
 				ticks={network.ticks}
+				tickFormat={network.tick}
 				format={network.format}
-				summary={`In: ${lineSummary(rx, network.format)} Out: ${lineSummary(tx, network.format)}`}
+				summary={pair(["In", "Out"], [rx, tx], network.format)}
 			/>
 			<LineChart
 				testId="health-chart-disk"
-				label="Disk"
+				label={`Disk, ${disk.unit}`}
 				frame={frame}
 				series={[
 					{ name: "Read", values: read },
 					{ name: "Write", values: write },
 				]}
 				ticks={disk.ticks}
+				tickFormat={disk.tick}
 				format={disk.format}
-				summary={`Read: ${lineSummary(read, disk.format)} Write: ${lineSummary(write, disk.format)}`}
+				summary={pair(["Read", "Write"], [read, write], disk.format)}
 			/>
 		</>
 	);

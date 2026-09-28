@@ -2,7 +2,29 @@ import type { HealthSeries } from "@portikus/contracts";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import type { ChartFrame } from "./charts/scales.js";
-import { PlatformCharts, rateScale, stripSummary } from "./PlatformCharts.js";
+import {
+	AvailabilityStrip,
+	HostRateCharts,
+	RunningChart,
+	rateScale,
+	stripSummary,
+} from "./PlatformCharts.js";
+
+function PlatformCharts({
+	series,
+	frame,
+}: {
+	series: HealthSeries;
+	frame: ChartFrame;
+}) {
+	return (
+		<>
+			<AvailabilityStrip frame={frame} points={series.platform} />
+			<RunningChart series={series} frame={frame} />
+			<HostRateCharts series={series} frame={frame} />
+		</>
+	);
+}
 
 const FROM = new Date(2026, 8, 26, 13, 0);
 const FRAME: ChartFrame = {
@@ -77,7 +99,32 @@ test("the strip reads each bucket from the keyboard and marks outages and gaps",
 	);
 });
 
-test("the charts carry units in their ticks and summaries", () => {
+test("a missing sample is a quiet dot; only an outage is red", () => {
+	render(<PlatformCharts series={series(PLATFORM)} frame={FRAME} />);
+	const gap = document.getElementById("health-strip-gap");
+	const outage = document.getElementById("health-strip-outage");
+	expect(gap?.querySelector("circle")?.getAttribute("class")).toBe("fill-ink-faint");
+	expect(gap?.innerHTML).not.toContain("status-error");
+	expect(outage?.innerHTML).toContain("fill-status-error");
+});
+
+test("the charts name their unit in the title, with bare-number ticks", () => {
+	render(<PlatformCharts series={series(PLATFORM)} frame={FRAME} />);
+	const network = screen.getByTestId("health-chart-network");
+	expect(network.querySelector("figcaption")?.textContent).toBe(
+		"Network on the default interface, MB/s",
+	);
+	const ticks = [...network.querySelectorAll('text[data-axis="y"]')].map(
+		(tick) => tick.textContent,
+	);
+	expect(ticks).toEqual(["0", "0.5", "1", "1.5", "2"]);
+	expect(new Set(ticks).size).toBe(ticks.length);
+	expect(
+		screen.getByTestId("health-chart-cpu").querySelector("figcaption")?.textContent,
+	).toBe("Host CPU used, %");
+});
+
+test("the charts carry units in their summaries", () => {
 	render(<PlatformCharts series={series(PLATFORM)} frame={FRAME} />);
 	expect(screen.getByTestId("health-chart-running-summary").textContent).toBe(
 		"Now 3, highest 3.",
@@ -91,6 +138,9 @@ test("the charts carry units in their ticks and summaries", () => {
 	expect(screen.getByTestId("health-chart-disk-summary").textContent).toBe(
 		"Read: Now 1000 B/s, highest 1000 B/s. Write: Now 0 B/s, highest 0 B/s.",
 	);
+	expect(
+		screen.getByTestId("health-chart-disk").querySelector("figcaption")?.textContent,
+	).toBe("Disk, B/s");
 	expect(screen.getByText("In")).toBeDefined();
 	expect(screen.getByText("Out")).toBeDefined();
 });
@@ -114,15 +164,18 @@ test("old samples without rates give no-samples summaries, not zeros", () => {
 	expect(screen.getByTestId("health-chart-cpu-summary").textContent).toBe(
 		"No samples in this range.",
 	);
+	expect(screen.getByTestId("health-chart-network-summary").textContent).toBe(
+		"No samples in this range.",
+	);
+	// No samples, no axis and no tab stop: only the sentence.
+	expect(screen.queryByTestId("health-chart-cpu-plot")).toBeNull();
+	expect(screen.getByTestId("health-chart-cpu").querySelector("svg")).toBeNull();
 });
 
 test("rate ticks use one unit picked from the largest value", () => {
 	const scale = rateScale(3 * 1024 * 1024);
-	expect(scale.ticks.map(scale.format)).toEqual([
-		"0 MB/s",
-		"1 MB/s",
-		"2 MB/s",
-		"3 MB/s",
-	]);
+	expect(scale.unit).toBe("MB/s");
+	expect(scale.ticks.map(scale.tick)).toEqual(["0", "1", "2", "3"]);
+	expect(scale.format(1.5 * 1024 * 1024)).toBe("1.5 MB/s");
 	expect(rateScale(0).ticks.length).toBeGreaterThanOrEqual(3);
 });
