@@ -3,8 +3,9 @@
  * SPEC.md §13.5). The left pane is the section list and a search box; the
  * right pane is the section that was chosen. Search reads that same list.
  * Every setting, the appearance included, is kept on the server per user
- * (issue #300) and saved the moment it changes; only the profile links wait
- * for their own Save links button. The terminal color scheme is separate
+ * (issue #300) and saved the moment it changes; typed values (the auto-save
+ * delay and the profile links) when the student leaves the field, presses
+ * Enter or closes the dialog. The terminal color scheme is separate
  * from the page appearance. Profile shows the institution sign-in and a few
  * optional links and a picture, none of which is used for authorization.
  */
@@ -24,8 +25,9 @@ import {
 	LABEL_CLASS,
 	Select,
 	TextField,
+	Toggletip,
 } from "@portikus/ui";
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
 	useEditorSettings,
 	useUpdateEditorSettings,
@@ -197,6 +199,9 @@ function ControlFrame({
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const settings = useEditorSettings();
 	const update = useUpdateEditorSettings();
+	const profile = useProfile();
+	const updateProfile = useUpdateProfile();
+	const [links, setLinks] = useState<LinkDraft>({});
 	const [appearanceChoice, setAppearanceChoice] = useState<ThemePreference | null>(
 		null,
 	);
@@ -248,12 +253,32 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	// newer one and puts back a value the student has already changed.
 	const queue = useRef<Promise<unknown>>(Promise.resolve());
 	const [saving, setSaving] = useState(0);
-	function send(body: UpdateEditorSettingsRequest, onError?: () => void) {
+	const [saved, setSaved] = useState(false);
+	const [saveError, setSaveError] = useState<string | null>(null);
+	function enqueue(
+		task: () => Promise<unknown>,
+		onError?: () => void,
+		onSuccess?: () => void,
+	) {
 		setSaving((count) => count + 1);
 		queue.current = queue.current
-			.then(() => update.mutateAsync(body))
-			.catch(() => onError?.())
+			.then(task)
+			.then(
+				() => {
+					setSaved(true);
+					setSaveError(null);
+					onSuccess?.();
+				},
+				(failure: unknown) => {
+					setSaved(false);
+					setSaveError(failure instanceof Error ? failure.message : "");
+					onError?.();
+				},
+			)
 			.finally(() => setSaving((count) => count - 1));
+	}
+	function send(body: UpdateEditorSettingsRequest, onError?: () => void) {
+		enqueue(() => update.mutateAsync(body), onError);
 	}
 
 	/** Show the change at once and save it; a refused change goes back to what the server holds. */
@@ -280,16 +305,53 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 		change({ autoSaveDelaySeconds: parsedDelay });
 	}
 
+	// A link is saved like the delay; one that fails the check keeps its
+	// inline error and is not sent. `sentLinks` stops a blur followed by
+	// Close from sending the same text twice.
+	const sentLinks = useRef<LinkDraft>({});
+	function commitLinks() {
+		const body: UpdateProfileRequest = {};
+		const sent: LinkDraft = {};
+		for (const [key, schema] of [
+			["github", GithubLink],
+			["website", WebsiteLink],
+		] as const) {
+			const text = links[key];
+			const checked = checkLink(schema, text);
+			if (text === undefined || checked.value === undefined) continue;
+			if (text === sentLinks.current[key]) continue;
+			if (checked.value === (profile.data?.[key] ?? null)) continue;
+			body[key] = checked.value;
+			sent[key] = text;
+		}
+		if (Object.keys(body).length === 0) return;
+		sentLinks.current = { ...sentLinks.current, ...sent };
+		enqueue(
+			() => updateProfile.mutateAsync(body),
+			() => {
+				sentLinks.current = {};
+			},
+			() =>
+				// Drop the draft only where it still holds what was sent.
+				setLinks((next) => {
+					const kept = { ...next };
+					for (const key of Object.keys(sent) as (keyof LinkDraft)[]) {
+						if (kept[key] === sent[key]) delete kept[key];
+					}
+					return kept;
+				}),
+		);
+	}
+
 	function close() {
 		commitDelay();
+		commitLinks();
 		onClose();
 	}
 
 	let savedStatus = "";
-	if (sectionId === PREFERENCES?.id) {
-		if (saving > 0) savedStatus = "Saving…";
-		else if (update.isSuccess) savedStatus = "Saved";
-	}
+	if (saving > 0) savedStatus = "Saving…";
+	else if (saved) savedStatus = "Saved";
 
 	function chooseAppearance(value: ThemePreference) {
 		setAppearanceChoice(value);
@@ -323,6 +385,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 						id="editor-autosave-delay"
 						data-testid="editor-settings-delay"
 						label={control.label}
+						help={
+							<Toggletip label={control.label}>
+								How long Portikus waits after you stop typing before it saves. Ctrl+S
+								always saves at once.
+							</Toggletip>
+						}
 						className="w-48"
 						inputMode="numeric"
 						value={delay}
@@ -348,11 +416,15 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 			case "terminal-colours":
 				return (
 					<div className="grid gap-2">
-						<span className={LABEL_CLASS}>{control.label}</span>
+						<div className="flex min-w-0 items-center gap-1">
+							<span className={LABEL_CLASS}>{control.label}</span>
+							<Toggletip label={control.label}>
+								You can switch one terminal from its three-dots menu. A program that is
+								already running keeps the colors it started with until you restart it.
+							</Toggletip>
+						</div>
 						<p className="pk-hint m-0 text-[12px] leading-4 text-ink-muted">
-							What a new terminal starts with. Each terminal's three-dots menu can
-							switch that one terminal, and a program already running keeps the colors
-							it started with.
+							What a new terminal starts with.
 						</p>
 						<label className="pk-switch">
 							<input
@@ -371,12 +443,19 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 				);
 			case "screen-reader-mode":
 				return (
-					<Checkbox
-						label={control.label}
-						description="Lets a screen reader read what terminals, check output, and the editor show. While it is on, busy terminals are slower, and text that arrives without key presses, such as from an emoji picker or dictation, does not reach a terminal."
-						checked={screenReaderMode}
-						onChange={(event) => change({ screenReaderMode: event.target.checked })}
-					/>
+					// The tip sits beside the checkbox, not inside its label.
+					<div className="flex min-w-0 items-start gap-1">
+						<Checkbox
+							label={control.label}
+							description="Lets a screen reader read terminals, check output and the editor."
+							checked={screenReaderMode}
+							onChange={(event) => change({ screenReaderMode: event.target.checked })}
+						/>
+						<Toggletip label={control.label}>
+							While it is on, busy terminals are slower, and text from dictation, an
+							emoji picker or some on-screen keyboards does not reach a terminal.
+						</Toggletip>
+					</div>
 				);
 			case "keyboard-help":
 				// The keys and the terminal and editor limits live on the Help page (SPEC.md §25.8).
@@ -409,7 +488,14 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 							// the placeholder.
 							id="workspace-timezone"
 							label={control.label}
-							hint="The clock your terminals, logs, and Git commits use. A new terminal takes it at once; a shell already running keeps the zone it started with until the workspace restarts. Programs you run in Docker containers keep their own clock."
+							hint="The clock your terminals, logs and Git commits use."
+							help={
+								<Toggletip label={control.label}>
+									New terminals use it at once. A shell that is already running keeps
+									its zone until the workspace restarts. Programs in Docker containers
+									keep their own clock.
+								</Toggletip>
+							}
 							options={[currentZoneOption(timezone)]}
 							groups={timezoneGroups(zones, timezone)}
 							value={timezone}
@@ -453,8 +539,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 				description="Changes are saved as you make them and follow you to any browser you sign in from."
 				footer={
 					<>
-						{/* Always there, so a screen reader hears each save (review M5); it
-						    speaks for Preferences only, since Profile has its own. */}
+						{/* Always there, so a screen reader hears each save (review M5). */}
 						<p
 							role="status"
 							className="pk-text-compact m-0 mr-auto self-center text-ink-muted"
@@ -531,7 +616,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 							{sectionId === PASSWORD?.id && localPassword ? (
 								<PasswordPane highlightId={highlightId} />
 							) : sectionId === PROFILE?.id ? (
-								<ProfilePane highlightId={highlightId} />
+								<ProfilePane
+									highlightId={highlightId}
+									links={links}
+									onLinksChange={setLinks}
+									onCommitLinks={commitLinks}
+								/>
 							) : (
 								<div className="grid gap-6">
 									<h2
@@ -566,13 +656,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 								</div>
 							)}
 						</div>
-						{update.error ? (
+						{saveError !== null ? (
 							<p
 								role="alert"
 								className="pk-text-body px-4 pb-4 text-status-error"
 								data-testid="editor-settings-error"
 							>
-								Your change was not saved. {update.error.message}
+								Your change was not saved. {saveError}
 							</p>
 						) : null}
 					</div>
@@ -628,13 +718,21 @@ function SavedLink({ href, testId }: { href: string; testId: string }) {
 	);
 }
 
-function ProfilePane({ highlightId }: { highlightId: string | null }) {
+function ProfilePane({
+	highlightId,
+	links,
+	onLinksChange,
+	onCommitLinks,
+}: {
+	highlightId: string | null;
+	links: LinkDraft;
+	onLinksChange: (next: LinkDraft) => void;
+	onCommitLinks: () => void;
+}) {
 	const me = useMe();
 	const profile = useProfile();
 	const upload = useUploadPicture();
 	const remove = useRemovePicture();
-	const updateProfile = useUpdateProfile();
-	const [links, setLinks] = useState<LinkDraft>({});
 	const pictureInput = useRef<HTMLInputElement>(null);
 	const chooseButton = useRef<HTMLButtonElement>(null);
 	const ready = me.status === "authenticated" && profile.isSuccess;
@@ -644,17 +742,9 @@ function ProfilePane({ highlightId }: { highlightId: string | null }) {
 	const pictureError = upload.error ?? remove.error;
 	const github = checkLink(GithubLink, links.github);
 	const website = checkLink(WebsiteLink, links.website);
-	const linkError = github.error ?? website.error;
-	const linksChanged = github.value !== undefined || website.value !== undefined;
-
-	function saveLinks(event: FormEvent) {
-		event.preventDefault();
-		if (linkError !== null || !linksChanged || updateProfile.isPending) return;
-		const body: UpdateProfileRequest = {};
-		if (github.value !== undefined) body.github = github.value;
-		if (website.value !== undefined) body.website = website.value;
-		updateProfile.mutate(body, { onSuccess: () => setLinks({}) });
-	}
+	const commitOnEnter = (event: { key: string }) => {
+		if (event.key === "Enter") onCommitLinks();
+	};
 
 	function signInValue(controlId: string): string {
 		if (controlId === "display-name")
@@ -752,7 +842,11 @@ function ProfilePane({ highlightId }: { highlightId: string | null }) {
 							value={links.github ?? saved?.github ?? ""}
 							error={github.error}
 							autoComplete="off"
-							onChange={(event) => setLinks({ ...links, github: event.target.value })}
+							onChange={(event) =>
+								onLinksChange({ ...links, github: event.target.value })
+							}
+							onBlur={onCommitLinks}
+							onKeyDown={commitOnEnter}
 						/>
 						{saved?.github ? (
 							<SavedLink href={githubHref(saved.github)} testId="profile-github-link" />
@@ -769,7 +863,11 @@ function ProfilePane({ highlightId }: { highlightId: string | null }) {
 							value={links.website ?? saved?.website ?? ""}
 							error={website.error}
 							autoComplete="off"
-							onChange={(event) => setLinks({ ...links, website: event.target.value })}
+							onChange={(event) =>
+								onLinksChange({ ...links, website: event.target.value })
+							}
+							onBlur={onCommitLinks}
+							onKeyDown={commitOnEnter}
 						/>
 						{saved?.website ? (
 							<SavedLink href={saved.website} testId="profile-website-link" />
@@ -819,7 +917,15 @@ function ProfilePane({ highlightId }: { highlightId: string | null }) {
 									control={control}
 									highlighted={highlightId === control.id}
 								>
-									<dt className="pk-text-label text-ink-muted">{control.label}</dt>
+									<dt className="pk-text-label flex min-w-0 items-center gap-1 text-ink-muted">
+										{control.label}
+										{control.id === "workspace-label" ? (
+											<Toggletip label={control.label}>
+												The name of your workspace machine. It is part of your preview
+												addresses, and administrators see it.
+											</Toggletip>
+										) : null}
+									</dt>
 									<dd className="pk-text-body pk-settings-value m-0 text-ink">
 										{signInValue(control.id)}
 									</dd>
@@ -837,64 +943,40 @@ function ProfilePane({ highlightId }: { highlightId: string | null }) {
 						>
 							{about?.title}
 						</h3>
-						<p className="pk-text-compact m-0 text-ink-muted">
-							Optional. Links are saved when you choose Save links.
-						</p>
+						<p className="pk-text-compact m-0 text-ink-muted">All optional.</p>
 						{picture ? (
 							<ControlFrame control={picture} highlighted={highlightId === picture.id}>
 								{editable(picture.id)}
 							</ControlFrame>
 						) : null}
-						<form className="grid gap-4" onSubmit={saveLinks} noValidate>
-							{linkControls.map((control) => (
-								<ControlFrame
-									key={control.id}
-									control={control}
-									highlighted={highlightId === control.id}
-								>
-									{editable(control.id)}
-								</ControlFrame>
-							))}
-							<div className="flex flex-wrap items-center gap-3">
-								<Button
-									type="submit"
-									variant="primary"
-									data-testid="profile-save-links"
-									loading={updateProfile.isPending}
-									disabled={linkError !== null || !linksChanged}
-								>
-									Save links
-								</Button>
-								<p
-									role="status"
-									className="pk-text-compact m-0 text-ink-muted"
-									data-testid="profile-links-saved"
-								>
-									{updateProfile.isSuccess && !linksChanged ? "Links saved" : ""}
-								</p>
-							</div>
-							{updateProfile.error ? (
-								<p
-									role="alert"
-									className="pk-text-body m-0 text-status-error"
-									data-testid="profile-links-error"
-								>
-									The links were not saved. {updateProfile.error.message}
-								</p>
-							) : null}
-						</form>
+						{linkControls.map((control) => (
+							<ControlFrame
+								key={control.id}
+								control={control}
+								highlighted={highlightId === control.id}
+							>
+								{editable(control.id)}
+							</ControlFrame>
+						))}
 					</section>
 					<section
 						className="pk-settings-group grid gap-4"
 						aria-labelledby="settings-profile-linked"
 					>
-						<h3
-							id="settings-profile-linked"
-							className="pk-text-body font-semibold text-ink"
-							tabIndex={-1}
-						>
-							{linked?.title}
-						</h3>
+						<div className="flex min-w-0 items-center gap-1">
+							<h3
+								id="settings-profile-linked"
+								className="pk-text-body font-semibold text-ink"
+								tabIndex={-1}
+							>
+								{linked?.title}
+							</h3>
+							<Toggletip label={linked?.title ?? "Linked accounts"}>
+								If you open Portikus both from your course and by signing in with your
+								SSO account, linking them opens the same account and workspace from
+								both.
+							</Toggletip>
+						</div>
 						{linked?.controls.map((control) => (
 							<ControlFrame
 								key={control.id}

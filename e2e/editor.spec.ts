@@ -502,7 +502,7 @@ test.describe("file editor", () => {
 		// One field per section: the delay, the terminal colors, the zone.
 		await page.getByTestId("editor-settings-delay").fill("11");
 		await page.getByRole("switch", { name: "Light terminal" }).click();
-		await page.getByLabel("Workspace timezone").click();
+		await page.getByRole("combobox", { name: /^Workspace timezone/ }).click();
 		await page.getByRole("option", { name: "Los Angeles", exact: true }).click();
 		await expect(page.getByTestId("settings-saved")).toHaveText("Saved");
 		await page.getByTestId("settings-close").click();
@@ -512,7 +512,9 @@ test.describe("file editor", () => {
 		await openEditorSettings(page);
 		await expect(page.getByTestId("editor-settings-delay")).toHaveValue("11");
 		await expect(page.getByRole("switch", { name: "Light terminal" })).toBeChecked();
-		await expect(page.getByLabel("Workspace timezone")).toContainText("Los Angeles");
+		await expect(
+			page.getByRole("combobox", { name: /^Workspace timezone/ }),
+		).toContainText("Los Angeles");
 	});
 
 	test("the editor settings survive a reload (issue #159)", async ({

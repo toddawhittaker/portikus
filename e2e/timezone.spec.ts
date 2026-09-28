@@ -52,9 +52,11 @@ test("a student can change the workspace timezone and a new terminal uses it", a
 	await page.getByTestId("me").click();
 	await page.getByRole("menuitem", { name: "Settings" }).click();
 	await expect(page.getByTestId("dialog-editor-settings")).toBeVisible();
-	await expect(page.getByLabel("Workspace timezone")).toContainText("America/New York");
+	await expect(
+		page.getByRole("combobox", { name: /^Workspace timezone/ }),
+	).toContainText("America/New York");
 
-	await page.getByLabel("Workspace timezone").click();
+	await page.getByRole("combobox", { name: /^Workspace timezone/ }).click();
 	await page.getByRole("option", { name: "Los Angeles", exact: true }).click();
 	await expect(page.getByTestId("settings-saved")).toHaveText("Saved");
 	await page.getByTestId("settings-close").click();
@@ -87,5 +89,7 @@ test("a student can change the workspace timezone and a new terminal uses it", a
 	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
 	await page.getByTestId("me").click();
 	await page.getByRole("menuitem", { name: "Settings" }).click();
-	await expect(page.getByLabel("Workspace timezone")).toContainText("Los Angeles");
+	await expect(
+		page.getByRole("combobox", { name: /^Workspace timezone/ }),
+	).toContainText("Los Angeles");
 });

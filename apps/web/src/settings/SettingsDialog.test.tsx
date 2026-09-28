@@ -207,8 +207,8 @@ test("a changed preference is saved at once and Saved is announced", async () =>
 	await waitFor(() => expect(status.textContent).toBe("Saved"));
 	expect(onClose).not.toHaveBeenCalled();
 
-	// It speaks for Preferences only; Profile has its own status lines. The
-	// shared pane starts Profile at its top, not where Preferences was scrolled.
+	// One status line for the whole dialog. The shared pane starts Profile at
+	// its top, not where Preferences was scrolled.
 	const pane = screen.getByRole("heading", { name: "Preferences" }).parentElement
 		?.parentElement as HTMLElement;
 	pane.scrollTop = 300;
@@ -216,7 +216,6 @@ test("a changed preference is saved at once and Saved is announced", async () =>
 	fireEvent.click(screen.getByRole("button", { name: "Profile" }));
 	expect(pane.scrollTop).toBe(0);
 	expect(screen.getByTestId("settings-saved")).toBe(status);
-	expect(status.textContent).toBe("");
 });
 
 test("changes made quickly are saved one at a time, in order", async () => {
@@ -682,75 +681,113 @@ test("a failed account request explains that the details are missing", async () 
 	);
 });
 
-test("Save links saves only the links and shows them as plain anchors", async () => {
+/** Epic 25 ruling: links save like the delay, on leaving the field, Enter or close. */
+test("a link is saved when the field is left and shown as a plain anchor", async () => {
 	const writes = stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	const onClose = vi.fn();
 	renderWithQuery(<SettingsDialog onClose={onClose} />);
 	await openProfile();
-	const save = screen.getByRole("button", { name: "Save links" }) as HTMLButtonElement;
-	// Nothing typed, nothing to save.
-	expect(save.disabled).toBe(true);
+	expect(screen.queryByRole("button", { name: "Save links" })).toBeNull();
 
-	fireEvent.change(screen.getByLabelText("GitHub"), {
-		target: { value: " alice-ex " },
-	});
-	fireEvent.change(screen.getByLabelText("Personal site"), {
-		target: { value: "https://alice.example.edu/" },
-	});
-	expect(save.disabled).toBe(false);
-	fireEvent.click(save);
-
+	const githubField = screen.getByLabelText("GitHub");
+	fireEvent.change(githubField, { target: { value: " alice-ex " } });
+	expect(profileWrites).toHaveLength(0);
+	fireEvent.blur(githubField);
 	await waitFor(() =>
-		expect(screen.getByTestId("profile-links-saved").textContent).toBe("Links saved"),
+		expect(profileWrites.map((write) => write.body)).toEqual([{ github: "alice-ex" }]),
 	);
-	expect(profileWrites.map((write) => write.body)).toEqual([
-		{ github: "alice-ex", website: "https://alice.example.edu/" },
-	]);
+	await waitFor(() =>
+		expect(screen.getByTestId("settings-saved").textContent).toBe("Saved"),
+	);
+	// Leaving it again sends nothing more.
+	fireEvent.blur(githubField);
+
+	const siteField = screen.getByLabelText("Personal site");
+	fireEvent.change(siteField, { target: { value: "https://alice.example.edu/" } });
+	fireEvent.keyDown(siteField, { key: "Enter" });
+	await waitFor(() => expect(profileWrites).toHaveLength(2));
+	expect(profileWrites[1]?.body).toEqual({ website: "https://alice.example.edu/" });
 	expect(writes).toHaveLength(0);
 	expect(onClose).not.toHaveBeenCalled();
 
-	const github = screen.getByTestId("profile-github-link");
+	const github = await screen.findByTestId("profile-github-link");
 	expect(github.tagName).toBe("A");
 	expect(github.getAttribute("href")).toBe("https://github.com/alice-ex");
 	expect(github.getAttribute("rel")).toBe("noopener");
-	const site = screen.getByTestId("profile-website-link");
+	const site = await screen.findByTestId("profile-website-link");
 	expect(site.getAttribute("href")).toBe("https://alice.example.edu/");
 	expect(site.getAttribute("rel")).toBe("noopener");
 });
 
-test("Enter in a link field saves the links", async () => {
+test("closing the dialog saves a link still being typed, once", async () => {
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const onClose = vi.fn();
+	renderWithQuery(<SettingsDialog onClose={onClose} />);
 	await openProfile();
 
 	const field = screen.getByLabelText("GitHub");
 	fireEvent.change(field, { target: { value: "alice-ex" } });
-	fireEvent.submit(field.closest("form") as HTMLFormElement);
+	// Pressing Close first takes focus from the field, then closes.
+	fireEvent.blur(field);
+	fireEvent.click(screen.getByTestId("settings-close"));
 
+	expect(onClose).toHaveBeenCalled();
 	await waitFor(() =>
 		expect(profileWrites.map((write) => write.body)).toEqual([{ github: "alice-ex" }]),
 	);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	expect(profileWrites).toHaveLength(1);
 });
 
-test("an invalid link is refused before anything is sent", async () => {
+test("an invalid link keeps its error and is not sent, but a valid one beside it is", async () => {
 	const writes = stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const onClose = vi.fn();
+	renderWithQuery(<SettingsDialog onClose={onClose} />);
 	await openProfile();
 
 	fireEvent.change(screen.getByLabelText("Personal site"), {
 		target: { value: "javascript:alert(1)" },
 	});
 	expect(screen.getByText("Give an https:// link")).toBeTruthy();
+	fireEvent.blur(screen.getByLabelText("Personal site"));
 	fireEvent.change(screen.getByLabelText("GitHub"), {
 		target: { value: "http://github.com/alice" },
 	});
 	expect(screen.getByText("Give a GitHub username or an https:// link")).toBeTruthy();
-
-	const save = screen.getByRole("button", { name: "Save links" }) as HTMLButtonElement;
-	expect(save.disabled).toBe(true);
-	fireEvent.submit(save.closest("form") as HTMLFormElement);
+	fireEvent.keyDown(screen.getByLabelText("GitHub"), { key: "Enter" });
+	await new Promise((resolve) => setTimeout(resolve, 20));
 	expect(profileWrites).toHaveLength(0);
+
+	fireEvent.change(screen.getByLabelText("GitHub"), { target: { value: "alice" } });
+	fireEvent.click(screen.getByTestId("settings-close"));
+	await waitFor(() =>
+		expect(profileWrites.map((write) => write.body)).toEqual([{ github: "alice" }]),
+	);
 	expect(writes).toHaveLength(0);
+});
+
+/** Review N9: the long explanations sit behind a help button beside each control. */
+test("the long explanations are toggletips beside their controls", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await screen.findByRole("region", { name: "Accessibility" });
+	for (const name of [
+		"About Auto-save delay in seconds",
+		"About Terminal colors",
+		"About Screen reader mode",
+		"About Workspace timezone",
+	]) {
+		expect(screen.getByRole("button", { name })).toBeTruthy();
+	}
+	// The help button is not part of the checkbox's name.
+	expect(checkbox(/Screen reader mode/).closest("label")?.textContent).not.toContain(
+		"dictation",
+	);
+
+	await openProfile();
+	expect(screen.getByRole("button", { name: "About Workspace label" })).toBeTruthy();
+	await screen.findByTestId("link-sso");
+	expect(screen.getByRole("button", { name: "About Linked accounts" })).toBeTruthy();
 });
 
 /** Review S3: a labelled button opens the file picker; the native input is hidden. */
@@ -1011,7 +1048,12 @@ test("an SSO account with no links says how to link one and offers no button", a
 	const region = await openLinked();
 
 	expect(await within(region).findByText(/No course sign-ins are linked/)).toBeTruthy();
-	expect(within(region).queryByRole("button")).toBeNull();
+	// Only the help button beside the heading; nothing to link or unlink.
+	expect(
+		within(region)
+			.getAllByRole("button")
+			.map((button) => button.getAttribute("aria-label")),
+	).toEqual(["About Linked accounts"]);
 });
 
 test("an SSO account lists its links and unlinks one", async () => {

@@ -4,7 +4,7 @@ import { API_ORIGIN } from "./ports";
 
 /**
  * The Profile section of Settings (issue #300, SPEC.md §13.5): links are
- * checked, saved with their own Save links button and shown only as plain
+ * checked, saved when the student leaves the field, and shown only as plain
  * anchors, and a picture is capped by the server and replaces the initials
  * in the account menu button.
  */
@@ -58,8 +58,7 @@ test("a profile link is saved and shown as a plain anchor; a bad one is refused"
 	let dialog = await openProfile(page);
 	await dialog.getByLabel("Personal site").fill("javascript:alert(1)");
 	await expect(dialog.getByText("Give an https:// link")).toBeVisible();
-	const save = dialog.getByRole("button", { name: "Save links" });
-	await expect(save).toBeDisabled();
+	await expect(dialog.getByRole("button", { name: "Save links" })).toHaveCount(0);
 
 	// The server refuses it too, whatever the browser does.
 	const refused = await page.request.put("/me/profile", {
@@ -70,8 +69,11 @@ test("a profile link is saved and shown as a plain anchor; a bad one is refused"
 
 	await dialog.getByLabel("Personal site").fill("https://example.edu/~student");
 	await dialog.getByLabel("GitHub").fill("e2e-student");
-	await save.click();
-	await expect(dialog.getByTestId("profile-links-saved")).toHaveText("Links saved");
+	// Leaving the field saves the valid links; the bad one was never sent.
+	await dialog.getByLabel("GitHub").press("Tab");
+	await expect(dialog.getByTestId("profile-website-link")).toBeVisible();
+	await expect(dialog.getByTestId("profile-github-link")).toBeVisible();
+	await expect(dialog.getByTestId("settings-saved")).toHaveText("Saved");
 	await dialog.getByTestId("settings-close").click();
 	await expect(dialog).toHaveCount(0);
 
@@ -82,6 +84,34 @@ test("a profile link is saved and shown as a plain anchor; a bad one is refused"
 	const site = dialog.getByTestId("profile-website-link");
 	await expect(site).toHaveAttribute("href", "https://example.edu/~student");
 	await expect(site).toHaveAttribute("rel", "noopener");
+});
+
+/** Epic 25 ruling: no silent loss; a link typed before Escape is saved. */
+test("a link still being typed is saved when Escape closes Settings", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+
+	let dialog = await openProfile(page);
+	await dialog.getByLabel("GitHub").fill("typed-then-escape");
+	await page.keyboard.press("Escape");
+	await expect(dialog).toHaveCount(0);
+
+	await expect
+		.poll(
+			async () =>
+				(
+					(await (await page.request.get("/me/profile")).json()) as {
+						github: string | null;
+					}
+				).github,
+		)
+		.toBe("typed-then-escape");
+	dialog = await openProfile(page);
+	await expect(dialog.getByLabel("GitHub")).toHaveValue("typed-then-escape");
 });
 
 test("a picture over the cap is refused, and a saved one shows in the account button", async ({

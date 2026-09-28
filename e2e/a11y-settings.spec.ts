@@ -25,11 +25,12 @@ async function openSettings(page: Page) {
 	return dialog;
 }
 
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page))
+async function expectNoViolations(page: Page, alsoInclude?: string) {
+	let builder = (await settledAxe(page))
 		.withTags(WCAG_TAGS)
-		.include("[data-testid=dialog-editor-settings]")
-		.analyze();
+		.include("[data-testid=dialog-editor-settings]");
+	if (alsoInclude) builder = builder.include(alsoInclude);
+	const results = await builder.analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
@@ -216,8 +217,12 @@ test("preferences save at once, Saved is announced, and Escape keeps a typed del
 	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
 
 	let dialog = await openSettings(page);
-	await expect(dialog.getByRole("button", { name: "Save" })).toHaveCount(0);
-	await expect(dialog.getByRole("button", { name: "Cancel" })).toHaveCount(0);
+	await expect(dialog.getByRole("button", { name: "Save", exact: true })).toHaveCount(
+		0,
+	);
+	await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toHaveCount(
+		0,
+	);
 	const status = dialog.getByRole("status");
 	await expect(status).toHaveText("");
 
@@ -260,11 +265,26 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(dialog.getByRole("status")).toHaveText("Saved");
 		await expectNoViolations(page);
 
+		// A toggletip opens from the keyboard, is checked with the dialog, and
+		// Escape closes only the tip (review N9).
+		const help = dialog.getByRole("button", { name: "About Screen reader mode" });
+		await help.focus();
+		await page.keyboard.press("Enter");
+		const tip = page.locator(".pk-toggletip-content");
+		await expect(tip).toContainText("does not reach a terminal");
+		await expectNoViolations(page, ".pk-toggletip-content");
+		await page.keyboard.press("Escape");
+		await expect(tip).toHaveCount(0);
+		await expect(dialog).toBeVisible();
+		await expect(help).toBeFocused();
+
 		await dialog.getByRole("button", { name: "Profile", exact: true }).click();
 		await expect(dialog.getByRole("button", { name: "Choose picture…" })).toBeVisible();
 		await dialog.getByLabel("Personal site").fill("javascript:alert(1)");
 		await expect(dialog.getByText("Give an https:// link")).toBeVisible();
-		await expectNoViolations(page);
+		await dialog.getByRole("button", { name: "About Workspace label" }).click();
+		await expect(tip).toContainText("preview addresses");
+		await expectNoViolations(page, ".pk-toggletip-content");
 	});
 }
 
