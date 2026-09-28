@@ -217,7 +217,9 @@ test("a set the host could not verify is marked and cannot be restored", async (
 	);
 	await openTab(page);
 	const forged = page.getByTestId(`backup-set-${NEW}`);
-	await expect(forged).toContainText("Not verified");
+	await expect(forged).toContainText(
+		"Not verified. This server's key did not make this set, so it cannot be restored.",
+	);
 	const restore = forged.getByTestId("backup-set-restore");
 	await expect(restore).toHaveAttribute("aria-disabled", "true");
 	await expect(restore).toHaveAccessibleDescription(/cannot be restored/);
