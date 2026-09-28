@@ -271,4 +271,24 @@ describe("Dialog", () => {
 		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
 		await waitFor(() => expect(document.activeElement).toBe(trigger));
 	});
+
+	it("takes the density of the area that opened it (Epic 25 N1)", () => {
+		render(
+			<div data-density="compact">
+				<Fixture />
+			</div>,
+		);
+		const trigger = screen.getByText("New project");
+		trigger.focus();
+		fireEvent.click(trigger);
+		expect(screen.getByRole("dialog").getAttribute("data-density")).toBe("compact");
+	});
+
+	it("keeps the default density when its opener has none", () => {
+		render(<Fixture />);
+		const trigger = screen.getByText("New project");
+		trigger.focus();
+		fireEvent.click(trigger);
+		expect(screen.getByRole("dialog").getAttribute("data-density")).toBeNull();
+	});
 });

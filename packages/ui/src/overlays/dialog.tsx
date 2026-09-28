@@ -54,6 +54,25 @@ function trackFocus(event: FocusEvent): void {
 }
 
 /**
+ * A dialog portals to the body, outside any data-density container, so it
+ * copies the density around whatever opened it (Epic 25 N1). Used as the
+ * content's ref: it runs as the dialog mounts, before focus moves into it.
+ */
+export function followOpenerDensity(content: HTMLElement | null): void {
+	if (!content || content.hasAttribute("data-density")) return;
+	const active = document.activeElement;
+	const origin =
+		active instanceof HTMLElement &&
+		active !== document.body &&
+		!content.contains(active)
+			? focusOrigin(active)
+			: lastFocus;
+	const opener = origin?.menuTrigger ?? origin?.beforeMenu ?? origin?.element;
+	const density = opener?.closest("[data-density]")?.getAttribute("data-density");
+	if (density) content.setAttribute("data-density", density);
+}
+
+/**
  * Puts focus back where it was when a dialog opened. Most dialogs open from
  * state or a menu item, so Radix has no trigger to return to and focus would
  * fall to the page body (issue #358).
@@ -140,6 +159,7 @@ export function Dialog({
 		<RadixDialog.Portal>
 			<RadixDialog.Overlay className="pk-scrim" />
 			<RadixDialog.Content
+				ref={followOpenerDensity}
 				id={id}
 				data-testid={testId}
 				// Spread so we never override Radix's own role with undefined.
