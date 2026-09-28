@@ -3281,7 +3281,7 @@ Delivered, by task pull request:
 - #784: review fixes: toggletip keyboard behaviour, tooltips that can be
   hovered, and focus on Help anchors.
 - This task folds the epic into SPEC.md and STATUS.md.
-- Toggletip screen-reader polish: the button no longer says it opens a
+- #787: toggletip screen-reader polish: the button no longer says it opens a
   dialog, the visible tip is hidden from screen readers, and the live
   region that reads it moved out of table headers; the Network tab's
   accessibility spec no longer flakes in parallel runs.
