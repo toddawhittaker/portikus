@@ -24,7 +24,9 @@ Usage: portikus setup [--follow]
 
 setup        Apply ${CONFIG_FILE} to this host with the shipped Ansible
              play, in the foreground.  Safe to run again.
-             --follow  follow the journal of ${SETUP_UNIT} instead
+             --follow  show the log of the current or last run of
+                       ${SETUP_UNIT} until it ends; exit 0 if it
+                       succeeded, 1 otherwise
 status       Show the package version and the state of each unit.
 
 reset-admin  Give the local administrator a new one-time password, the
@@ -45,11 +47,39 @@ backup-channel report  Read the host's report, one JSON document, on
 EOF
 }
 
+# Shows the current or last setup run's log, then exits with its result.
+follow_setup() {
+  invocation="$(systemctl show --property=InvocationID --value "${SETUP_UNIT}")"
+  if [ -z "${invocation}" ]; then
+    echo "portikus: ${SETUP_UNIT} is not running and has not run since boot; start it with: sudo portikus setup" >&2
+    exit 1
+  fi
+  journalctl --no-pager --follow "_SYSTEMD_INVOCATION_ID=${invocation}" &
+  follower=$!
+  trap 'kill "${follower}" 2>/dev/null || true' EXIT INT TERM
+  while :; do
+    case "$(systemctl show --property=ActiveState --value "${SETUP_UNIT}")" in
+      active | activating | reloading | deactivating) sleep 2 ;;
+      *) break ;;
+    esac
+  done
+  # Give the journal a moment to deliver the run's last lines.
+  sleep 1
+  kill "${follower}" 2>/dev/null || true
+  wait "${follower}" 2>/dev/null || true
+  trap - EXIT INT TERM
+  if [ "$(systemctl show --property=Result --value "${SETUP_UNIT}")" = success ]; then
+    exit 0
+  fi
+  echo "portikus: setup failed; read its log with: sudo journalctl -u ${SETUP_UNIT}, then rerun: sudo portikus setup" >&2
+  exit 1
+}
+
 # Runs the play against this host (docs/EPIC-15.md, ruling 8, ADR 0029).
 setup() {
   case "${1:-}" in
     --follow)
-      exec journalctl --unit="${SETUP_UNIT}" --follow --no-pager
+      follow_setup
       ;;
     "") ;;
     *)
@@ -108,7 +138,8 @@ reset_admin() {
     exit 1
   fi
   if ! grep -q '^DEX_GRPC_ADDR=' "${API_ENV}" 2>/dev/null; then
-    echo "portikus: ${API_ENV} names no DEX_GRPC_ADDR, so this site has no Dex local passwords" >&2
+    # setup writes DEX_GRPC_ADDR into api.env; without it setup has not finished.
+    echo "portikus: setup has not finished; follow it with: sudo portikus setup --follow, or rerun: sudo portikus setup" >&2
     exit 2
   fi
 

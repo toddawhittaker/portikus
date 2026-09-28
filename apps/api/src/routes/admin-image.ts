@@ -128,8 +128,10 @@ export function registerAdminImageRoutes(
 
 	async function readJob(dir: string, id: string): Promise<ImageJobView | null> {
 		const status = await readJson(join(dir, id, "status.json"), ImageJobStatusFile);
-		if (!status || status.id !== id) return null;
 		const request = await readJson(join(dir, id, "request.json"), ImageJobRequestFile);
+		// The job moves the request in before it writes its first status: still waiting.
+		if (!status) return request && request.id === id ? queuedView(request) : null;
+		if (status.id !== id) return null;
 		return {
 			id,
 			kind: status.kind,

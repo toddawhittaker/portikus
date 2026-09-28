@@ -24,6 +24,12 @@ export interface FakeImage {
 	nodeVersion?: string;
 }
 
+/** Write then rename, as the root job does, so the API never reads half a file. */
+async function writeAtomic(path: string, text: string): Promise<void> {
+	await writeFile(`${path}.tmp`, text);
+	await rename(`${path}.tmp`, path);
+}
+
 /** Empty both directories. */
 export async function resetImageStore(): Promise<void> {
 	await rm(IMAGE_ROOT, { recursive: true, force: true });
@@ -35,7 +41,7 @@ export async function setAliases(
 	defaultVersion: string | null,
 	previous: string | null,
 ) {
-	await writeFile(
+	await writeAtomic(
 		join(IMAGES_DIR, "aliases.json"),
 		JSON.stringify({ default: defaultVersion, previous }),
 	);
@@ -44,7 +50,7 @@ export async function setAliases(
 export async function putImage(image: FakeImage): Promise<void> {
 	const dir = join(IMAGES_DIR, image.version);
 	await mkdir(dir, { recursive: true });
-	await writeFile(
+	await writeAtomic(
 		join(dir, "manifest.json"),
 		JSON.stringify({
 			schema: 1,
@@ -67,7 +73,7 @@ export async function putImage(image: FakeImage): Promise<void> {
 		}),
 	);
 	if (image.health) {
-		await writeFile(
+		await writeAtomic(
 			join(dir, "health.json"),
 			JSON.stringify({
 				result: image.health,
@@ -105,13 +111,13 @@ export async function takeRequest(): Promise<{
 
 export async function writeStatus(
 	id: string,
-	kind: string,
+	kind: string | null,
 	state: "running" | "succeeded" | "failed" | "refused",
 	step: string,
 	version: string | null,
 	message: string | null = null,
 ): Promise<void> {
-	await writeFile(
+	await writeAtomic(
 		join(IMAGE_JOBS_DIR, id, "status.json"),
 		JSON.stringify({
 			id,
@@ -127,5 +133,5 @@ export async function writeStatus(
 }
 
 export async function writeLog(id: string, lines: string[]): Promise<void> {
-	await writeFile(join(IMAGE_JOBS_DIR, id, "log.txt"), `${lines.join("\n")}\n`);
+	await writeAtomic(join(IMAGE_JOBS_DIR, id, "log.txt"), `${lines.join("\n")}\n`);
 }

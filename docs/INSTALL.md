@@ -1,7 +1,8 @@
 # Installing Portikus
 
-This guide installs Portikus on a server you rent. It is the normal way to
-install it: put Debian 13 on the server, add the Portikus package
+This guide installs Portikus on a Debian 13 x86-64 server: bare metal or a
+full virtual machine, rented from any provider or your own hardware. It is
+the normal way to install it: put Debian 13 on the server, add the Portikus package
 repository, run `apt install portikus`, and answer a short series of text
 screens. Setup then runs on its own, and you sign in as the administrator.
 
@@ -16,13 +17,15 @@ shown. Where a detail has not yet been checked on a real server it says
 ## What you need
 
 - **A server running Debian 13 ("trixie"), x86-64.** It must be a physical
-  server or a full virtual machine, not a container-based VPS. docs/HOSTING.md
-  says what size to rent for a class of about 24 and recommends the OVH Eco
-  SYS-GAME-2. The next section covers that one.
-- **Storage for student files.** Best is a second, empty disk that Portikus
-  can use whole. An existing LVM volume group also works (LVM, the Logical
-  Volume Manager, is Linux's disk-pooling system), and so does a file on the
-  main disk, which needs no spare disk but is slower.
+  server or a full virtual machine, not a container-based VPS. It can come
+  from any hosting provider or be your own hardware. docs/HOSTING.md says
+  what size suits a class of about 24.
+- **Storage for student files.** Best is a spare, empty disk that Portikus
+  can use whole. An existing LVM volume group with free space also works
+  (LVM, the Logical Volume Manager, is Linux's disk-pooling system). When
+  the only disk is the system disk, or the disks are mirrored together, use
+  a file on the main disk, which needs no spare disk but is slower. "Before
+  you install Debian" below says how to plan this.
 - **A DNS name you control**, such as `portikus.example.edu`, for the
   server. Students also get preview addresses under `preview.<that name>`.
 - **A way to get the HTTPS certificate**, one of:
@@ -38,53 +41,42 @@ shown. Where a detail has not yet been checked on a real server it says
 - **Outgoing internet access from the server** during setup (see "Setup").
 - **SSH access** to the server as root or as a user with `sudo`.
 
-## Renting the server and installing Debian 13 on OVH
+## Before you install Debian
 
-These steps follow OVH's control panel for an Eco dedicated server. The
-menu names are (to be confirmed in rehearsal).
+Install Debian 13 with your provider's installer or from the Debian
+installation image. Plan the disks first:
 
-1. Order the SYS-GAME-2 (docs/HOSTING.md, "Recommendation"). Pick the US
-   data centre (Vint Hill, Virginia) if your students are in the US.
-2. When the server is delivered, open it in the OVH control panel and
-   choose **Install** (or **Reinstall**) to pick an operating system.
-3. Choose the **Debian 13** template.
-4. Choose how the two NVMe disks are used. You have two good choices:
-   - **Keep the second disk out.** Use custom partitioning so Debian is
-     installed on the first disk only, with no software RAID (disk
-     mirroring), and leave the second disk completely empty: no
-     partitions. Portikus then uses the second disk whole, which is the
-     fastest option.
-   - **Accept OVH's default**, which mirrors both disks (RAID 1) so the
-     system survives one disk failing. Portikus then keeps student files
-     in a file on the main disk, which is slower and shares space with the
-     system.
+- **With a spare disk**, install Debian on one disk only and leave the
+  other completely empty, with no partitions and no software RAID (disk
+  mirroring). Portikus then uses the empty disk whole, which is the
+  fastest option.
+- **With an existing LVM volume group** that has free space, Portikus can
+  use that free space and leaves existing volumes alone.
+- **With one disk, or with the disks mirrored**, Portikus keeps student
+  files in a file on the main disk. Mirroring protects the system and
+  student files against one disk failing, at the cost of slower student
+  storage and half the total space.
 
-   The trade-off: keeping the second disk out gives students the fastest
-   storage and the whole disk, but a failure of the first disk takes the
-   system down. The default mirror protects the system and student files
-   against one disk failing, at the cost of slower student storage and
-   half the total space.
-5. Add your SSH public key when the installer asks for one, and start the
-   installation. OVH emails you when it is done.
-6. Sign in over SSH as the user OVH names in that email (often `debian`),
-   and check the release:
+Add your SSH public key during the install. Then sign in over SSH and
+check the release:
 
-   ```
-   cat /etc/debian_version
-   ```
+```
+cat /etc/debian_version
+```
 
-   It should start with `13`.
+It should start with `13`. If your provider offers only Debian 12,
+install it and upgrade to 13 by following the Debian 13 release notes
+("Upgrades from Debian 12 (bookworm)"). This path has not been tested
+with Portikus (to be confirmed in rehearsal).
 
-If OVH's installer does not offer Debian 13, install Debian 12 and upgrade
-it to 13 by following the Debian 13 release notes ("Upgrades from Debian 12
-(bookworm)"). This path has not been tested with Portikus (to be confirmed
-in rehearsal).
+"Example: an OVH dedicated server" at the end of this guide walks through
+one provider's steps.
 
 ## DNS records
 
 Create these two records at your DNS provider before you install, both
-pointing at the server's public IPv4 address (shown in the OVH control
-panel):
+pointing at the server's public IPv4 address (your provider's control
+panel shows it):
 
 | Type | Name | Value |
 |---|---|---|
@@ -255,8 +247,8 @@ when there is exactly one, and otherwise the file.
    └───────────────────────────────────────────────────────────────────────┘
 ```
 
-On the OVH server with the second disk left out, choose that disk (usually
-`/dev/nvme1n1`). With OVH's default mirror, choose the file.
+If you left a spare disk empty, choose that disk. If the disks are
+mirrored or there is only one, choose the file.
 
 - **A disk** is followed by **Erase /dev/...?** Choose Yes only if the
   disk holds nothing you need. If you choose No, the answers are saved but
@@ -312,9 +304,10 @@ lists what is missing; run `sudo dpkg-reconfigure portikus` to answer it.
 
 Setup runs as a background service, `portikus-setup.service`, so it keeps
 going if your SSH session drops. `sudo portikus setup --follow` shows its
-log as it runs. It keeps watching after setup ends, so press Ctrl-C when
-you see the play's final summary (the `PLAY RECAP` lines) or the line
-about the administrator's password.
+log as it runs and returns when setup ends. It exits with status 0 when
+setup succeeded; when setup failed it says so, with how to read the log
+and rerun it with `sudo portikus setup`. Pressing Ctrl-C only stops the
+watching, not setup.
 
 Setup takes about fifteen minutes (to be confirmed in rehearsal). It uses
 the Ansible roles shipped in the package to set up, on this server: the
@@ -377,10 +370,12 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
 ## Unattended installs
 
 For a scripted rebuild, give every answer in advance with a preseed file,
-so the install asks nothing. The file `packaging/debian/preseed.example`
-in the Portikus repository on GitHub lists every question, the key it
-writes and an example answer (the package does not install a copy). Copy
-it to the server as `preseed.txt`, keep the
+so the install asks nothing. The file
+`/usr/share/doc/portikus/preseed.example`, installed with the package,
+lists every question, the key it writes and an example answer. Before the
+package is installed, use the same file from the Portikus repository on
+GitHub, `packaging/debian/preseed.example`. Copy it to the server as
+`preseed.txt`, keep the
 lines that apply, fill them in, and then:
 
 ```
@@ -462,3 +457,50 @@ refuses updates signed by anyone else, which is the point. When a new key
 is announced, fetch it over the same address as above, check its new
 fingerprint against the announcement, and run `sudo apt update`. Do not
 trust a new key that has not been announced on the project's GitHub page.
+
+## Example: an OVH dedicated server
+
+One way to get a server: these steps follow OVH's control panel for an
+Eco dedicated server, which docs/HOSTING.md recommends. Other providers
+differ. The menu names are (to be confirmed in rehearsal).
+
+1. Order the SYS-GAME-2 (docs/HOSTING.md, "Recommendation"). Pick the US
+   data centre (Vint Hill, Virginia) if your students are in the US.
+2. When the server is delivered, open it in the OVH control panel and
+   choose **Install** (or **Reinstall**) to pick an operating system.
+3. Choose the **Debian 13** template.
+4. Choose how the two NVMe disks are used. You have two good choices:
+   - **Keep the second disk out.** Use custom partitioning so Debian is
+     installed on the first disk only, with no software RAID (disk
+     mirroring), and leave the second disk completely empty: no
+     partitions. Portikus then uses the second disk whole, which is the
+     fastest option.
+   - **Accept OVH's default**, which mirrors both disks (RAID 1) so the
+     system survives one disk failing. Portikus then keeps student files
+     in a file on the main disk, which is slower and shares space with the
+     system.
+
+   On the install screen "Where to keep student files", choose the second
+   disk (usually `/dev/nvme1n1`) in the first case and the file in the
+   second.
+
+   The trade-off: keeping the second disk out gives students the fastest
+   storage and the whole disk, but a failure of the first disk takes the
+   system down. The default mirror protects the system and student files
+   against one disk failing, at the cost of slower student storage and
+   half the total space.
+5. Add your SSH public key when the installer asks for one, and start the
+   installation. OVH emails you when it is done.
+6. Sign in over SSH as the user OVH names in that email (often `debian`),
+   and check the release:
+
+   ```
+   cat /etc/debian_version
+   ```
+
+   It should start with `13`.
+
+If OVH's installer does not offer Debian 13, install Debian 12 and upgrade
+it to 13 by following the Debian 13 release notes ("Upgrades from Debian 12
+(bookworm)"). This path has not been tested with Portikus (to be confirmed
+in rehearsal).

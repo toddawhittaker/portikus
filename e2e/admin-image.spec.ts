@@ -1,4 +1,5 @@
-import { readdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { createStudent, loginAs, query, WEB_ORIGIN } from "./helpers";
 import {
@@ -225,6 +226,19 @@ test("roll back swaps the default and the previous image", async ({ page }) => {
 	await writeStatus(id, "rollback", "succeeded", "Done", OLD);
 	await expect(page.getByTestId("image-default")).toHaveText(OLD, { timeout: 5_000 });
 	await expect(page.getByTestId("image-previous")).toHaveText(CURRENT);
+});
+
+test("a request refused before its kind was known shows as refused", async ({
+	page,
+}) => {
+	const id = crypto.randomUUID();
+	await mkdir(join(IMAGE_JOBS_DIR, id), { recursive: true });
+	await writeStatus(id, null, "refused", "Refused", null, "unknown kind");
+	await open(page);
+	const job = page.getByTestId("image-job");
+	await expect(job.getByTestId("image-job-kind")).toHaveText("Unknown request");
+	await expect(job.getByTestId("image-job-state")).toContainText("Refused");
+	await expect(job.getByTestId("image-job-message")).toHaveText("unknown kind");
 });
 
 test("shows how many workspaces run each image version", async ({ page, browser }) => {
