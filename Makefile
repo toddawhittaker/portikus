@@ -157,8 +157,11 @@ infra-apply: ## Create or update the platform VM and disks (TOFU_ENV=rehearsal-l
 	$(TOFU_BANNER)
 	cd $(TOFU_DIR) && tofu init -input=false $(TOFU_INIT_ARGS) && tofu apply
 
-# The VM address comes from OpenTofu state; override with VM_IP=<ip>.
-VM_IP ?= $(call tofu_output,vm_ip)
+# The VM address comes from OpenTofu state; override with VM_IP=<ip>. The
+# state has none after an apply that only started a stopped VM, so fall back
+# to libvirt's DHCP lease for the domain this environment's state names.
+vm_lease_cmd = virsh -q -c qemu:///system domifaddr --source lease '$(TOFU_VM_NAME)' 2>/dev/null | awk '$$3 == "ipv4" { sub("/.*", "", $$4); print $$4; exit }'
+VM_IP ?= $(or $(call tofu_output,vm_ip),$(if $(TOFU_VM_NAME),$(shell $(vm_lease_cmd))))
 MANAGEMENT_CIDR ?= $(call tofu_output,management_cidr)
 
 # The host's own LAN address, taken from its default route.
@@ -177,12 +180,17 @@ PORTIKUS_PUBLIC_PORT ?= 8443
 # not race the first-boot apt update. The known-hosts options are for the wait
 # only: a rebuilt VM has a new host key at the same address.
 wait-vm: ## Wait for the platform VM to finish first boot
-	@test -n "$(VM_IP)" || { echo "wait-vm: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	@for i in $$(seq 1 60); do \
+	@ip='$(VM_IP)'; \
+	if [ -z "$$ip" ] && [ -n '$(TOFU_VM_NAME)' ]; then \
+		echo "wait-vm: no address in the state; waiting for libvirt to lease one to '$(TOFU_VM_NAME)'"; \
+		for i in $$(seq 1 24); do ip=$$($(vm_lease_cmd)); [ -n "$$ip" ] && break; sleep 5; done; \
+	fi; \
+	test -n "$$ip" || { echo "wait-vm: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }; \
+	for i in $$(seq 1 60); do \
 		ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-			-o LogLevel=ERROR deploy@$(VM_IP) 'cloud-init status --wait >/dev/null 2>&1; cloud-init status' 2>/dev/null && exit 0; \
+			-o LogLevel=ERROR deploy@$$ip 'cloud-init status --wait >/dev/null 2>&1; cloud-init status' 2>/dev/null && exit 0; \
 		sleep 5; \
-	done; echo "wait-vm: $(VM_IP) did not become ready"; exit 1
+	done; echo "wait-vm: $$ip did not become ready"; exit 1
 
 # Ansible runs from infra/ansible, so a local package path has to be absolute.
 PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)

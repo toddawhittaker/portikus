@@ -1219,6 +1219,44 @@ shares nothing with the pilot.
 - **Destroy it after every exercise** with `make rehearsal-destroy`,
   because it holds restored student data.
 
+## VM disk files on the host
+
+Each VM's OS and data disks are qcow2 files under
+`/var/lib/libvirt/images/<vm>/`. When the guest frees space (its
+`fstrim` timer, a deleted workspace), the host file shrinks too. Two
+settings in `infra/tofu/modules/platform-vm` make that work:
+
+- `disk-as-file.xslt` sets `discard='unmap'` and `detect_zeroes='unmap'`
+  on both disks. Without them QEMU drops the guest's discards, and the
+  files only grow. The pilot's data disk once reached 122 GB on the host
+  while Incus used 14 GB.
+- `qcow2-compat.sh` (the `disk_compat` resource) upgrades both disks to
+  qcow2 compat 1.1 before the VM first boots. libvirt creates them as
+  compat 0.10, where a discard frees nothing on a disk with a backing file.
+  It never rewrites a disk in use. On a VM made before this existed, the
+  apply stops and prints the one-time steps: shut the VM down, apply
+  again, and start it. Then run `make wait-vm` with the same `TOFU_ENV`.
+  That apply leaves no address in the state, so `wait-vm` and the other
+  targets take it from libvirt's DHCP lease for that environment's VM.
+
+Check a disk with `sudo qemu-img info -U <file>` (look for `compat: 1.1`)
+and `sudo du -h <file>`.
+
+**If a file grew anyway**, for example because libvirt snapshots hold old
+blocks, compact it while the VM is off:
+
+1. Delete snapshots you no longer need (`virsh snapshot-list <vm>`,
+   `virsh snapshot-delete <vm> <name>`). They are stored inside the files.
+2. Run `sudo fstrim -av` in the guest, then `virsh shutdown <vm>`.
+3. For each disk, `sudo qemu-img convert -O qcow2 <file> <file>.new`. For
+   the OS disk add `-B <vm>-base.qcow2 -F qcow2` to keep its backing file.
+4. Check with `qemu-img check <file>.new` and
+   `qemu-img compare <file> <file>.new`. Then rename the original to
+   `<file>.orig` and `<file>.new` to `<file>`, owned by `libvirt-qemu:kvm`
+   with mode 0644.
+5. Start the VM, run `make smoke-test`, and confirm `make infra-plan`
+   replaces nothing. Only then delete the `.orig` files.
+
 ## The resource guard and idle stop
 
 The worker slows a workspace that keeps its CPUs busy, marks one that
