@@ -148,12 +148,12 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 	expect(within(nav).getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
 		"/admin?tab=settings",
 	);
-	// Logs sits between Audit and Health (SPEC.md section 24.11).
+	// People, then what to look at, then what to change (Epic 25 R1).
 	expect(
 		within(nav)
 			.getAllByRole("link")
 			.map((link) => link.textContent),
-	).toEqual(["Users", "Audit", "Logs", "Health", "Network", "Backups", "Settings"]);
+	).toEqual(["Users", "Health", "Logs", "Audit", "Network", "Backups", "Settings"]);
 	expect(
 		await screen.findByRole("table", { name: /Accounts and their workspaces/ }),
 	).toBeDefined();
@@ -771,4 +771,15 @@ test("a statement over the limit is refused before any request", async () => {
 		"The statement can be at most 10,000 characters.",
 	);
 	expect(writes).toEqual([]);
+});
+
+test("a small gap starts each group of admin tabs (Epic 25 R1)", async () => {
+	stubAdmin(600);
+	renderApp("/admin");
+	const nav = await screen.findByRole("navigation", { name: "Administration" });
+	const gapped = within(nav)
+		.getAllByRole("link")
+		.filter((link) => link.classList.contains("ml-4"))
+		.map((link) => link.textContent);
+	expect(gapped).toEqual(["Health", "Network"]);
 });

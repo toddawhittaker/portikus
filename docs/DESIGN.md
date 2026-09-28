@@ -245,6 +245,27 @@ so no visible title row repeats it. The Preview frame width is a set of
 checkable items in the More menu rather than radio items, and "Reset
 preview data" has no ellipsis because it opens no confirmation.
 
+**Help inside the product (Epic 25).** Two new components carry
+explanations: `PageIntro`, a remembered, closable note under a page heading
+with a "More in Help" link, and `Toggletip`, a click-to-open help button
+beside a label, header or heading. Their placement rules are in
+`design/system/README.md`, "Help in the product". `Toggletip` wraps Radix
+Popover; a native popover was rejected because Firefox lacks anchor
+positioning, and a Tooltip because it opens on hover only. The account menu
+has a Help item that opens `/help` in a new tab. The page shows the part
+for students to everyone, the administrator part to administrators, and the
+instructor part to instructors, administrators and anyone who teaches a
+course. That split is presentation only; the text holds nothing secret.
+
+**Native select in dense filter bars (Epic 25).** The Users filters and the
+Logs time filter keep the native `select`; everywhere else uses `Select`.
+Dialogs take the density of what opened them, so a dialog opened from the
+compact admin page is compact.
+
+**Admin tab order (Epic 25).** Users, then Health, Logs and Audit, then
+Network, Backups and Settings, with a small gap before each group and no
+group labels. The tab addresses did not change.
+
 ## 10. Which Monaco features are on
 
 Pilot feedback asked for the stock editor rather than a stripped-down one
