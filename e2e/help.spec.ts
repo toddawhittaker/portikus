@@ -80,6 +80,8 @@ test("an anchor in the address and a contents link both land on their topic", as
 	await page.goto("/help#admin-backups");
 	const backups = page.getByRole("heading", { level: 3, name: "Backups and restores" });
 	await expect(backups).toBeInViewport({ timeout: 15_000 });
+	// Focus lands there too, so Tab and a screen reader start at the topic.
+	await expect(backups).toBeFocused();
 
 	const contents = page.getByRole("navigation", { name: "Help contents" });
 	await contents.getByRole("link", { name: "The Course page" }).click();
@@ -87,6 +89,19 @@ test("an anchor in the address and a contents link both land on their topic", as
 	await expect(
 		page.getByRole("heading", { level: 3, name: "The Course page" }),
 	).toBeInViewport();
+});
+
+test("a part's anchor focuses the part heading, and a broken anchor still shows the page", async ({
+	page,
+}) => {
+	await loginAs(page, "carol");
+	await page.goto("/help#admin");
+	await expect(
+		page.getByRole("heading", { level: 2, name: "For administrators" }),
+	).toBeFocused({ timeout: 15_000 });
+
+	await page.goto("/help#%E0%A4%A");
+	expect(await partHeadings(page)).toEqual(PARTS.administrator);
 });
 
 test("the account menu keeps 8 px off the window edge (Epic 25 N2)", async ({

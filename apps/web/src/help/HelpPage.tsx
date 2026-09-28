@@ -21,6 +21,15 @@ export function helpParts(role: MeUser["role"], teaches: boolean): HelpPart[] {
 	return parts;
 }
 
+/** The id a `#hash` names; a malformed escape names nothing rather than throwing. */
+export function anchorId(hash: string): string {
+	try {
+		return decodeURIComponent(hash.slice(1));
+	} catch {
+		return "";
+	}
+}
+
 /** `/help`: one page of plain help, opened in its own tab from the account menu. */
 export function HelpPage() {
 	const me = useMe();
@@ -36,11 +45,14 @@ function HelpBody({ user }: { user: MeUser }) {
 	const parts = helpParts(user.role, (courses.data?.length ?? 0) > 0);
 	const shownIds = parts.map((part) => part.id).join(" ");
 
-	// The page arrives after the browser looked for the #anchor, so go there once it exists.
+	// The page arrives after the browser looked for the #anchor, so go there
+	// once it exists, and move focus too so Tab and screen readers start there.
 	useEffect(() => {
-		const id = decodeURIComponent(window.location.hash.slice(1));
+		const id = anchorId(window.location.hash);
 		if (!id || !shownIds) return;
-		document.getElementById(id)?.scrollIntoView();
+		const target = document.getElementById(id);
+		target?.scrollIntoView();
+		target?.focus({ preventScroll: true });
 	}, [shownIds]);
 
 	return (
@@ -76,12 +88,14 @@ function HelpBody({ user }: { user: MeUser }) {
 						<article className="pk-help-article">
 							{parts.map((part) => (
 								<section key={part.id} aria-labelledby={part.id}>
-									<h2 className="pk-text-heading" id={part.id}>
+									<h2 className="pk-text-heading" id={part.id} tabIndex={-1}>
 										{part.title}
 									</h2>
 									{part.topics.map((topic) => (
 										<section key={topic.id}>
-											<h3 id={topic.id}>{topic.title}</h3>
+											<h3 id={topic.id} tabIndex={-1}>
+												{topic.title}
+											</h3>
 											{topic.body}
 										</section>
 									))}

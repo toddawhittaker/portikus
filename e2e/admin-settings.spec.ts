@@ -254,6 +254,46 @@ test("a setting's help opens on click, reads as a dialog, and Escape returns foc
 	await expect(tip).toBeVisible();
 });
 
+/**
+ * Epic 25 a11y MUST1: an open help tip keeps focus on its button, reads its
+ * text out through a live region, and Tab or Shift+Tab moves on and closes it.
+ */
+test("a help tip keeps focus on its button, and Tab or Shift+Tab moves on and closes it", async ({
+	page,
+}) => {
+	await open(page);
+	const button = page.getByRole("button", { name: "About Idle stop" });
+	const tip = page.getByRole("dialog", { name: "Idle stop" });
+
+	await button.focus();
+	await page.keyboard.press("Enter");
+	await expect(tip).toBeVisible();
+	await expect(button).toBeFocused();
+	await expect(button).toHaveAttribute("aria-expanded", "true");
+	// Screen readers hear the text from the live region beside the button.
+	const status = button.locator("xpath=following-sibling::*[@aria-live='polite'][1]");
+	await expect(status).toHaveText(await tip.innerText());
+
+	await page.keyboard.press("Tab");
+	await expect(tip).toHaveCount(0);
+	await expect(page.getByTestId("idle-input")).toBeFocused();
+	await expect(status).toHaveText("");
+
+	await page.keyboard.press("Shift+Tab");
+	await expect(button).toBeFocused();
+	await page.keyboard.press("Space");
+	await expect(tip).toBeVisible();
+	await page.keyboard.press("Shift+Tab");
+	await expect(tip).toHaveCount(0);
+	await expect(page.getByTestId("grace-save")).toBeFocused();
+
+	// A click elsewhere closes it too.
+	await button.click();
+	await expect(tip).toBeVisible();
+	await page.getByRole("heading", { name: "When workspaces stop" }).click();
+	await expect(tip).toHaveCount(0);
+});
+
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`the Settings tab with a help tip open has no automatic accessibility violations (${colorScheme})`, async ({
 		page,

@@ -43,7 +43,7 @@ export function IconButton({
 }: IconButtonProps): React.ReactElement {
 	return (
 		<Tooltip.Provider delayDuration={400}>
-			<Tooltip.Root open={tooltipOpen || undefined} disableHoverableContent={true}>
+			<Tooltip.Root open={tooltipOpen || undefined}>
 				<Tooltip.Trigger
 					asChild={true}
 					onFocus={(event) => {

@@ -1,6 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Toggletip } from "./toggletip";
+
+const nextTick = () =>
+	act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	});
 
 function Fixture() {
 	return (
@@ -32,23 +37,45 @@ describe("Toggletip", () => {
 		expect(screen.queryByRole("dialog")).toBeNull();
 	});
 
-	it("opens on click as a named dialog and moves focus into it", async () => {
+	it("opens on click as a named panel, keeps focus on its button and announces the text", async () => {
 		render(<Fixture />);
 		const button = screen.getByRole("button", { name: "About Idle stop" });
+		const status = button.nextElementSibling as HTMLElement;
+		expect(status.getAttribute("aria-live")).toBe("polite");
+		// The live region exists before it fills, so the change is announced.
+		expect(status.textContent).toBe("");
+		button.focus();
 		fireEvent.click(button);
 		const tip = screen.getByRole("dialog", { name: "Idle stop" });
 		expect(tip.textContent).toContain("no input for this long");
+		expect(status.textContent).toContain("no input for this long");
 		expect(button.getAttribute("aria-expanded")).toBe("true");
-		await waitFor(() => expect(tip.contains(document.activeElement)).toBe(true));
+		await nextTick();
+		expect(document.activeElement).toBe(button);
 	});
 
-	it("closes on Escape and returns focus to its button", async () => {
+	it("closes on Escape and keeps focus on its button", async () => {
 		render(<Fixture />);
 		const button = screen.getByRole("button", { name: "About Idle stop" });
+		button.focus();
 		fireEvent.click(button);
-		fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+		fireEvent.keyDown(button, { key: "Escape" });
 		expect(screen.queryByRole("dialog")).toBeNull();
+		expect(button.nextElementSibling?.textContent).toBe("");
 		await waitFor(() => expect(document.activeElement).toBe(button));
+	});
+
+	it("closes when focus moves on to the next control", async () => {
+		render(<Fixture />);
+		const button = screen.getByRole("button", { name: "About Idle stop" });
+		button.focus();
+		fireEvent.click(button);
+		// Radix listens for outside focus from the next tick.
+		await nextTick();
+		const save = screen.getByRole("button", { name: "Save" });
+		await act(async () => save.focus());
+		expect(screen.queryByRole("dialog")).toBeNull();
+		expect(document.activeElement).toBe(save);
 	});
 
 	it("closes when clicked again", () => {
