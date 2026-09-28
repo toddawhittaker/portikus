@@ -4,121 +4,12 @@
 # The package owns the service users, /etc/portikus, /var/lib/portikus, and
 # the three systemd units, so nothing here creates them.
 
-# ── Remove the Epic 3 interim deployment ──────────────────────────
-# A VM configured before ADR 0007 has hand-written units, an rsynced app
-# directory, and a global pnpm.  The package owns those names now, so an
-# existing VM has to be cleaned before the package is installed.
-
-- name: Remove Epic 3 systemd units
-  ansible.builtin.file:
-    path: "/etc/systemd/system/{{ item }}"
-    state: absent
-  loop:
-    - portikus-api.service
-    - portikus-worker.service
-    - portikus-controller.service
-  register: portikus_legacy_units
-
-# Not a handler: this has to run before the package install, not at the end of the play.
-- name: Reload systemd after removing the Epic 3 units  # noqa: no-handler
-  ansible.builtin.systemd:
-    daemon_reload: true
-  when: portikus_legacy_units is changed
-
-- name: Remove the Epic 3 application directory
-  ansible.builtin.file:
-    path: /var/lib/portikus/app
-    state: absent
-
-- name: Remove the globally installed pnpm
-  community.general.npm:
-    name: pnpm
-    global: true
-    state: absent
-
-# ── Debian package ────────────────────────────────────────────────
-
-- name: Create package cache directory
-  ansible.builtin.file:
-    path: /var/cache/portikus
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-
-# Three ways to choose the package, in order: a locally built .deb named by
-# PORTIKUS_DEB (for testing a branch), the release named by PORTIKUS_VERSION
-# (for a rollback), or the newest GitHub release.
-- name: Use a locally built package
-  ansible.builtin.copy:
-    src: "{{ portikus_deb }}"
-    dest: "/var/cache/portikus/{{ portikus_deb | basename }}"
-    owner: root
-    group: root
-    mode: "0644"
-  when: portikus_deb | default('', true) | length > 0
-
-- name: Set the local package file name
-  ansible.builtin.set_fact:
-    portikus_deb_filename: "{{ portikus_deb | basename }}"
-  when: portikus_deb | default('', true) | length > 0
-
-- name: Look up the newest release
-  ansible.builtin.uri:
-    url: https://api.github.com/repos/toddawhittaker/portikus/releases/latest
-    return_content: true
-  register: portikus_latest_release
-  when:
-    - portikus_deb | default('', true) | length == 0
-    - portikus_version | default('', true) | length == 0
-
-- name: Resolve the release package
-  when: portikus_deb | default('', true) | length == 0
-  block:
-    - name: Resolve the package version
-      ansible.builtin.set_fact:
-        portikus_resolved_version: >-
-          {{ portikus_version if (portikus_version | default('', true) | length > 0)
-             else (portikus_latest_release.json.tag_name | regex_replace('^v', '')) }}
-
-    - name: Set the release package file name
-      ansible.builtin.set_fact:
-        portikus_deb_filename: "portikus_{{ portikus_resolved_version }}_amd64.deb"
-
-    - name: Download the release checksums
-      ansible.builtin.get_url:
-        url: "https://github.com/toddawhittaker/portikus/releases/download/v{{ portikus_resolved_version }}/SHA256SUMS"
-        dest: "/var/cache/portikus/{{ portikus_deb_filename }}.SHA256SUMS"
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Read the release checksums
-      ansible.builtin.slurp:
-        src: "/var/cache/portikus/{{ portikus_deb_filename }}.SHA256SUMS"
-      register: portikus_release_checksums
-
-    - name: Take this package's checksum from the release checksums
-      ansible.builtin.set_fact:
-        portikus_deb_checksum: >-
-          {{ (portikus_release_checksums.content | b64decode)
-             | regex_search('([0-9a-f]{64})\s+\*?' ~ (portikus_deb_filename | regex_escape) ~ '\s*$',
-                            '\1', multiline=True) | first }}
-
-    - name: Download the portikus package
-      ansible.builtin.get_url:
-        url: "https://github.com/toddawhittaker/portikus/releases/download/v{{ portikus_resolved_version }}/{{ portikus_deb_filename }}"
-        dest: "/var/cache/portikus/{{ portikus_deb_filename }}"
-        checksum: "sha256:{{ portikus_deb_checksum }}"
-        owner: root
-        group: root
-        mode: "0644"
-
-- name: Install the portikus package
-  ansible.builtin.apt:
-    deb: "/var/cache/portikus/{{ portikus_deb_filename }}"
-    # So that setting PORTIKUS_VERSION or PORTIKUS_DEB to an older build rolls back.
-    allow_downgrade: true
+# From a workstation the play installs the package.  `portikus setup` runs
+# from the installed package itself, which apt manages (docs/EPIC-15.md
+# ruling 8), so a local run must never replace it.
+- name: Install the package
+  ansible.builtin.include_tasks: package.yml
+  when: portikus_install_package | bool
 
 # Release 0.1.40 shipped this directory owned by the portikus service user and
 # dpkg keeps the ownership of a directory that already exists, so hosts that
@@ -376,18 +267,28 @@
     group: root
     mode: "0755"
 
-# A package from before the image job has no path unit.
-- name: Look for the image job's path unit
+# A package from before the image job has neither unit.  The service is
+# enabled too, so it runs once at boot to recover a job a reboot cut short.
+- name: Look for the image job's units
   ansible.builtin.stat:
-    path: /usr/lib/systemd/system/portikus-image-job.path
-  register: portikus_image_job_unit
+    path: "/usr/lib/systemd/system/{{ item }}"
+  loop:
+    - portikus-image-job.path
+    - portikus-image-job.service
+  register: portikus_image_job_units
 
 - name: Enable and start the image job's path unit
   ansible.builtin.systemd_service:
     name: portikus-image-job.path
     enabled: true
     state: started
-  when: portikus_image_job_unit.stat.exists
+  when: portikus_image_job_units.results[0].stat.exists
+
+- name: Enable the image job's service for boot
+  ansible.builtin.systemd_service:
+    name: portikus-image-job.service
+    enabled: true
+  when: portikus_image_job_units.results[1].stat.exists
 
 # ── Start the services ───────────────────────────────────────────
 # The package enables the units, but ConditionPathExists keeps them from

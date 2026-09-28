@@ -49,7 +49,7 @@
 
     - name: Download the signed checksums
       ansible.builtin.get_url:
-        url: "{{ portikus_image_base_url }}/{{ item }}"
+        url: "{{ portikus_image_base_url }}/image-{{ portikus_image_version }}/{{ item }}"
         dest: "{{ workspace_image_download }}/{{ item }}"
         owner: root
         group: root
@@ -93,7 +93,7 @@
     # get_url fails on a checksum that does not match.
     - name: Download the image files
       ansible.builtin.get_url:
-        url: "{{ portikus_image_base_url }}/{{ item }}"
+        url: "{{ portikus_image_base_url }}/image-{{ portikus_image_version }}/{{ item }}"
         dest: "{{ workspace_image_download }}/{{ item }}"
         checksum: "sha256:{{ workspace_image_checksums[item] }}"
         owner: root
@@ -208,5 +208,5 @@
       ansible.builtin.fail:
         msg: >-
           Workspace image {{ portikus_image_version }} from
-          {{ portikus_image_base_url }} was not imported:
+          {{ portikus_image_base_url }}/image-{{ portikus_image_version }} was not imported:
           {{ ansible_failed_result.msg | default(ansible_failed_result.stderr | default('')) }}

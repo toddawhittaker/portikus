@@ -92,6 +92,9 @@
     # A path on the Ansible host to a locally built .deb, for testing a
     # branch on a fresh VM without publishing a release.  Empty means none.
     portikus_deb: "{{ lookup('env', 'PORTIKUS_DEB') }}"
+    # A local run is `portikus setup`, which runs from the installed package;
+    # only a run from a workstation installs one.
+    portikus_install_package: "{{ ansible_connection | default('ssh') != 'local' }}"
     portikus_node_env: production
     portikus_api_port: 3000
     portikus_controller_port: 3001
@@ -296,7 +299,9 @@
     portikus_image_version: >-
       {{ lookup('env', 'PORTIKUS_IMAGE_VERSION')
          or (lookup('ansible.builtin.file', playbook_dir ~ '/../workspace-image/VERSION', errors='ignore') | default('', true)) }}
-    portikus_image_base_url: "https://github.com/toddawhittaker/portikus/releases/download/image-{{ portikus_image_version }}"
+    # Release <V>'s files are <base>/image-<V>/<file>; the image job reads
+    # the same key from portikus.yaml.
+    portikus_image_base_url: https://github.com/toddawhittaker/portikus/releases/download
     portikus_image_keyring: /usr/share/keyrings/portikus-archive-keyring.gpg
 
   # Checked before any role runs, so bad identity-provider settings change
