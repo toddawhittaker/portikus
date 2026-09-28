@@ -23,4 +23,15 @@
   <xsl:template match="disk[@type='volume']/source[@pool]">
     <source file="${pool_path}/{@volume}"/>
   </xsl:template>
+
+  <!--
+    Pass guest discards and zeroed blocks through to the qcow2 files, so space
+    the guest frees is freed on the host too; without this QEMU drops them and
+    the files only grow. The provider has no attribute for either setting.
+  -->
+  <xsl:template match="disk[@type='volume' and @device='disk']/driver">
+    <driver discard="unmap" detect_zeroes="unmap">
+      <xsl:apply-templates select="@*|node()"/>
+    </driver>
+  </xsl:template>
 </xsl:stylesheet>
