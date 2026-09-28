@@ -1338,15 +1338,6 @@ limit.
 
 **Source.** Left out of Epic 17.
 
-## Remove the pilot's pre-epic snapshots
-
-**What.** The pilot's `pre-epic*` snapshots are Todd's rollback kits.
-
-**What it would take.** Delete them on Todd's schedule, 2026-10-01 to
-2026-10-03.
-
-**Source.** Epic 17 plan.
-
 ## Keep the old save error while the disk stays full
 
 **What.** While the home folder is full, the editor's save error is
