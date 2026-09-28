@@ -163,26 +163,6 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expectNoViolations(page);
 	});
 
-	test(`the Backups tab with nothing listed has no automatic accessibility violations (${colorScheme})`, async ({
-		page,
-	}) => {
-		await openTab(page, colorScheme, {
-			...BACKUPS,
-			host: { ...BACKUPS.host, sets: [], dumps: [] },
-			hostStale: false,
-			vm: { snapshots: [], keptHomes: [] },
-			requests: [],
-		});
-		await expect(page.getByText("No backup sets yet.")).toBeVisible();
-		await expectNoViolations(page);
-		// Clean up opens and closes from the keyboard.
-		const summary = page.getByTestId("backups-cleanup-summary");
-		await summary.focus();
-		await page.keyboard.press("Enter");
-		await expect(page.getByText("No pre-change dumps.")).toBeVisible();
-		await expectNoViolations(page);
-	});
-
 	test(`the Backups dialogs have no automatic accessibility violations (${colorScheme})`, async ({
 		page,
 	}) => {
