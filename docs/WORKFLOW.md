@@ -344,6 +344,19 @@ release's `SHA256SUMS`; `make configure-vm PORTIKUS_VERSION=<ver>` installs
 an older one for a rollback. Task branches publish too, so a change that
 lands outside an epic still gives the VM a release to install.
 
+Two checks run before anything is published. First, the gate looks up the
+pull request that produced the push. GitHub can take a few seconds to list
+it, so the gate asks five times, ten seconds apart, and then fails, because
+`main` changes only by pull request. Second, the package must name a
+workspace image that is already released as `image-<V>`, where `<V>` is
+`infra/workspace-image/VERSION`. When a merge bumps that version, the
+Workspace image workflow builds the image on the same push, which takes
+twenty minutes or more. The Release build waits for it, checking once a
+minute for up to 75 minutes, before it builds or publishes anything. If
+either check fails, fix the cause (for example, let the image workflow
+finish or rerun it), then rerun the failed Release run from the Actions tab
+with "Re-run all jobs". No release was created, so the rerun starts clean.
+
 ## Secret scanning
 
 Remote: the CI secret-scan job, plus GitHub secret scanning and push

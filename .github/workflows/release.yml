@@ -40,10 +40,21 @@ jobs:
             echo "release=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # The pull request that put this commit on main, if any.
-          head="$(gh api "repos/$GH_REPO/commits/$SHA/pulls" \
-            --jq '[.[] | select(.base.ref == "main" and .merged_at != null) | .head.ref][0] // ""')"
-          echo "Merged from: ${head:-no pull request}"
+          # The pull request that put this commit on main. GitHub can list it a
+          # few seconds late, and main changes only by pull request, so an empty
+          # answer after the retries is an error, not a skip.
+          head=""
+          for attempt in 1 2 3 4 5; do
+            head="$(gh api "repos/$GH_REPO/commits/$SHA/pulls" \
+              --jq '[.[] | select(.base.ref == "main" and .merged_at != null) | .head.ref][0] // ""')"
+            [ -z "$head" ] || break
+            [ "$attempt" = 5 ] || sleep 10
+          done
+          if [ -z "$head" ]; then
+            echo "No merged pull request found for $SHA after 5 tries; rerun Release once GitHub lists it." >&2
+            exit 1
+          fi
+          echo "Merged from: $head"
           case "$head" in
             epic/*|task/*) echo "release=true" >> "$GITHUB_OUTPUT" ;;
             *) echo "release=false" >> "$GITHUB_OUTPUT" ;;
@@ -60,6 +71,25 @@ jobs:
           # The package version counts commits, so the full history is needed.
           fetch-depth: 0
           persist-credentials: false
+      # A package must never name a workspace image that was not published.
+      # A version bump builds the image in workspace-image.yml on the same push,
+      # so wait for it before creating any release.
+      - name: Wait for the workspace image release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          image="image-$(cat infra/workspace-image/VERSION)"
+          for minute in $(seq 1 75); do
+            if gh release view "$image" >/dev/null 2>&1; then
+              echo "Release $image is published."
+              exit 0
+            fi
+            echo "Release $image is not published yet (minute $minute of 75)."
+            sleep 60
+          done
+          echo "Release $image was not published within 75 minutes. Check the Workspace image workflow, then rerun Release." >&2
+          exit 1
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -125,14 +155,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      # A package must never name a workspace image that was not published.
-      - name: Check the workspace image is published
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          image="image-$(cat infra/workspace-image/VERSION)"
-          gh release view "$image" >/dev/null || { echo "Release $image is not published; publish the image first." >&2; exit 1; }
       - name: Download the package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:

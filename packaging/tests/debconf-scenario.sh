@@ -17,8 +17,13 @@ mkdir -p /run/systemd/system
 cat >/usr/bin/systemctl <<'EOF'
 #!/bin/sh
 echo "$*" >>/tmp/systemctl.log
-# is-active succeeds only for units listed in /tmp/active-units.
-case "$1" in is-active) for unit; do :; done; grep -qxF "$unit" /tmp/active-units 2>/dev/null && exit 0; exit 3 ;; esac
+# Units listed in /tmp/active-units are "activating", as a running oneshot is;
+# is-active then exits 3, the same as real systemd.
+for unit; do :; done
+case "$1" in
+is-active) exit 3 ;;
+show) grep -qxF "$unit" /tmp/active-units 2>/dev/null && echo activating || echo inactive ;;
+esac
 exit 0
 EOF
 chmod 0755 /usr/bin/systemctl
