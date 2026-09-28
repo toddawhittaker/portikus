@@ -251,32 +251,43 @@ test.describe("at 1024 px", () => {
 	});
 });
 
-test("while a workspace moves, its lifecycle buttons stay focusable, off, and say why", async ({
+test("a workspace stuck starting keeps Stop and Restart on, so an admin can rescue it", async ({
 	page,
 	browser,
 }) => {
-	const student = await namedStudent(browser, "Moving");
-	await query("update workspaces set state = 'starting' where id = $1", [
-		student.workspaceId,
-	]);
+	const student = await namedStudent(browser, "Stuck");
+	// Wanted running, still stopped: a start the worker has not finished.
+	await query(
+		"update workspaces set state = 'stopped', desired_state = 'running' where id = $1",
+		[student.workspaceId],
+	);
 	const panel = await openPanel(page, student.name);
+	await expect(panel.getByTestId("detail-lifecycle-note")).toHaveText(
+		"Waiting for the workspace to finish starting.",
+	);
 	const stop = panel.getByRole("button", {
 		name: `Stop ${student.name}'s workspace`,
 		exact: true,
 	});
-	await expect(stop).toHaveAttribute("aria-disabled", "true");
-	await expect(stop).toHaveAccessibleDescription(
-		"Waiting for the workspace to finish starting.",
+	await expect(stop).not.toHaveAttribute("aria-disabled");
+	await expect(
+		panel.getByRole("button", {
+			name: `Restart ${student.name}'s workspace`,
+			exact: true,
+		}),
+	).not.toHaveAttribute("aria-disabled");
+	const response = page.waitForResponse(
+		(r) =>
+			r.url().endsWith(`/workspaces/${student.workspaceId}/stop`) &&
+			r.request().method() === "POST",
 	);
-	// Playwright will not click an aria-disabled button, so press it as a keyboard user would.
-	await stop.focus();
-	await page.keyboard.press("Enter");
-	await expect(stop).toBeFocused();
+	await stop.click();
+	expect((await response).ok()).toBe(true);
 	const [row] = await query<{ desired_state: string }>(
 		"select desired_state from workspaces where id = $1",
 		[student.workspaceId],
 	);
-	expect(row?.desired_state).toBe("running");
+	expect(row?.desired_state).toBe("stopped");
 
 	// Once it settles as stopped, Start is the only lifecycle action.
 	await query(
@@ -459,6 +470,8 @@ test("Restore from backup restores this workspace from a set that holds it", asy
 	await expect(dialog).toHaveCount(0);
 	expect(sent).toEqual({ stamp, workspaceId: student.workspaceId });
 	await expect(open).toBeFocused();
+	// A panel refresh can still be in the backups route when the test ends.
+	await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
 test("a toggletip opens from the keyboard, explains, and gives focus back on Escape", async ({
