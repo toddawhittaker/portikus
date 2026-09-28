@@ -4,11 +4,12 @@ import { afterEach, expect, test, vi } from "vitest";
 import { ApiError } from "../api/request.js";
 import { json, renderApp, stubFetch } from "../test-utils.js";
 import {
+	activityText,
 	bulkApplies,
 	bulkOutcome,
 	filterAccounts,
+	isFiltered,
 	joinNames,
-	lastActivity,
 	NO_FILTERS,
 	olderImageTargets,
 	rebuildTitle,
@@ -131,12 +132,18 @@ test("the image filter picks current or older", () => {
 	]);
 });
 
-test("last activity is Now while connected, otherwise the time since", () => {
+test("activity is Now with the connection count while connected, otherwise the time since", () => {
 	const now = Date.parse("2026-09-22T12:00:00.000Z");
-	expect(lastActivity(summary({ activeConnections: 2 }), now)).toBe("Now");
+	expect(activityText(summary({ activeConnections: 2 }), now)).toBe(
+		"Now, 2 connections",
+	);
+	expect(activityText(summary({ activeConnections: 1 }), now)).toBe(
+		"Now, 1 connection",
+	);
 	expect(
-		lastActivity(summary({ lastActiveConnectionAt: "2026-09-22T11:56:00.000Z" }), now),
+		activityText(summary({ lastActiveConnectionAt: "2026-09-22T11:56:00.000Z" }), now),
 	).toBe("4 min ago");
+	expect(activityText(summary(), now)).toBe("—");
 	expect(timeAgo("2026-09-22T09:00:00.000Z", now)).toBe("3 h ago");
 	expect(timeAgo("2026-09-21T11:00:00.000Z", now)).toBe("1 day ago");
 	expect(timeAgo("2026-08-22T11:00:00.000Z", now)).toBe("31 days ago");
@@ -216,7 +223,7 @@ function listed(
 
 const ROWS = [
 	listed(1, "Alice Example", {
-		workspace: summary({ id: uuid(5), label: "alice" }),
+		workspace: summary({ id: uuid(5), label: "alice", activeConnections: 2 }),
 		issuer: "https://login.example.edu",
 	}),
 	listed(2, "Bob Student", {
@@ -268,7 +275,17 @@ async function openTable() {
 	await screen.findByTestId(`account-row-${uuid(1)}`);
 }
 
-test("the table has the seven columns of SPEC.md section 20.1", async () => {
+test("any filter away from its default counts as filtering", () => {
+	expect(isFiltered(NO_FILTERS)).toBe(false);
+	expect(isFiltered({ ...NO_FILTERS, text: "   " })).toBe(false);
+	expect(isFiltered({ ...NO_FILTERS, text: "ada" })).toBe(true);
+	expect(isFiltered({ ...NO_FILTERS, role: "student" })).toBe(true);
+	expect(isFiltered({ ...NO_FILTERS, state: "none" })).toBe(true);
+	expect(isFiltered({ ...NO_FILTERS, image: "older" })).toBe(true);
+	expect(isFiltered({ ...NO_FILTERS, showArchived: true })).toBe(true);
+});
+
+test("the table has five columns: selection, Account, Role, Workspace and Activity", async () => {
 	stubUsers();
 	await openTable();
 	const table = screen.getByTestId("admin-accounts");
@@ -276,15 +293,13 @@ test("the table has the seven columns of SPEC.md section 20.1", async () => {
 		within(table)
 			.getAllByRole("columnheader")
 			.map((th) => th.textContent),
-	).toEqual([
-		"Select all shown accounts",
-		"Account",
-		"Role",
-		"Workspace",
-		"Last activity",
-		"Image",
-		"Connections",
-	]);
+	).toEqual(["Select all shown accounts", "Account", "Role", "Workspace", "Activity"]);
+	expect(screen.getByTestId(`account-activity-${uuid(1)}`).textContent).toBe(
+		"Now, 2 connections",
+	);
+	expect(screen.getByTestId(`account-activity-${uuid(2)}`).textContent).toBe("—");
+	// No workspace, no activity.
+	expect(screen.getByTestId(`account-activity-${uuid(3)}`).textContent).toBe("—");
 });
 
 test("the Account cell is the name, then the email or else the username", async () => {
@@ -296,22 +311,23 @@ test("the Account cell is the name, then the email or else the username", async 
 		"alice example@example.edu",
 	);
 	expect(screen.getByTestId(`account-contact-${uuid(3)}`).textContent).toBe("sam7");
-	// The markers sit on the name's line.
+	// The markers sit with the name, in a wrapping row of their own.
 	expect(
 		within(screen.getByTestId(`account-name-${uuid(4)}`)).getByText("Disabled"),
 	).toBeDefined();
 });
 
-test("only an out-of-date image shows the Older image tag", async () => {
+test("only an out-of-date image shows the Older image tag, in the Workspace cell", async () => {
 	stubUsers();
 	await openTable();
-	const older = within(screen.getByTestId(`account-image-${uuid(2)}`)).getByText(
-		"Older image",
-	);
+	const older = screen.getByTestId(`account-image-${uuid(2)}`);
+	expect(older.textContent).toBe("Older image");
 	expect(older.className).toBe("pk-tag pk-tag--warning");
 	expect(older.title).toBe("2026.09.8 · older");
-	expect(screen.getByTestId(`account-image-${uuid(1)}`).textContent).toBe("");
-	expect(screen.getByTestId(`account-image-${uuid(3)}`).textContent).toBe("");
+	// Under the state badge, in the same cell as the workspace label.
+	expect(older.closest("td")?.textContent).toContain("bob");
+	expect(screen.queryByTestId(`account-image-${uuid(1)}`)).toBeNull();
+	expect(screen.queryByTestId(`account-image-${uuid(3)}`)).toBeNull();
 });
 
 test("the heading row carries the account count", async () => {
@@ -343,6 +359,8 @@ test("the table shows each account's role label", async () => {
 test("search and the role filter narrow the rendered rows", async () => {
 	stubUsers();
 	await openTable();
+	// Nothing filtered and nothing hidden: the heading's count says it all (N4).
+	expect(screen.getByTestId("admin-row-count").textContent).toBe("");
 	fireEvent.change(screen.getByLabelText("Search"), { target: { value: "canvas" } });
 	expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 1 of 5");
 	expect(screen.getByTestId(`account-row-${uuid(3)}`)).toBeDefined();
@@ -373,6 +391,43 @@ test("select all ticks every shown row and each box is named by the account", as
 	).toEqual(["Disable…", "Enable…", "Archive workspace…", "Rebuild workspace…"]);
 	fireEvent.click(all);
 	expect(screen.queryByTestId("bulk-actions")).toBeNull();
+});
+
+test("the toolbar row holds the count or the bulk actions, and is always there", async () => {
+	stubUsers();
+	await openTable();
+	const toolbar = screen.getByTestId("admin-table-toolbar");
+	fireEvent.change(screen.getByLabelText("Role"), { target: { value: "student" } });
+	expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 3 of 5");
+	fireEvent.click(screen.getByRole("checkbox", { name: "Select Alice Example" }));
+	// The same row now holds the actions, and the count gives way to them.
+	expect(screen.getByTestId("admin-table-toolbar")).toBe(toolbar);
+	expect(within(toolbar).getByTestId("bulk-actions")).toBeDefined();
+	expect(screen.getByTestId("admin-row-count").textContent).toBe("");
+	fireEvent.click(screen.getByRole("checkbox", { name: "Select Alice Example" }));
+	expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 3 of 5");
+});
+
+test("bulk Enable is confirmed without the danger styling; Disable keeps it", async () => {
+	stubUsers();
+	await openTable();
+	fireEvent.click(screen.getByRole("checkbox", { name: "Select Gina Granted" }));
+	fireEvent.click(screen.getByTestId("bulk-enable"));
+	const enable = await screen.findByRole("alertdialog", { name: "Enable 1 account?" });
+	expect(
+		within(enable).getByRole("button", { name: "Enable" }).className,
+	).not.toContain("bg-status-danger");
+	fireEvent.click(within(enable).getByRole("button", { name: "Cancel" }));
+	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+	fireEvent.click(screen.getByRole("checkbox", { name: "Select Gina Granted" }));
+	fireEvent.click(screen.getByRole("checkbox", { name: "Select Alice Example" }));
+	fireEvent.click(screen.getByTestId("bulk-disable"));
+	const disable = await screen.findByRole("alertdialog", {
+		name: "Disable 1 account?",
+	});
+	expect(within(disable).getByRole("button", { name: "Disable" }).className).toContain(
+		"bg-status-danger",
+	);
 });
 
 test("only the actions that apply to the ticked rows are offered", async () => {
