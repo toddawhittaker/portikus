@@ -462,3 +462,16 @@ test("the row order holds while focus is in the list, and sorts again when it le
 		expect(order()).toEqual(["monitor-process-4", "monitor-process-3"]),
 	);
 });
+
+test("Processes explains what Stop may end", async () => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => json(USAGE)),
+	);
+	renderPane();
+	const tip = await screen.findByRole("button", { name: "About Processes" });
+	// Beside the heading, not inside it, so the heading's name stays "Processes".
+	expect(screen.getByRole("heading", { level: 3, name: "Processes" })).toBeTruthy();
+	fireEvent.click(tip);
+	expect(screen.getByRole("dialog").textContent).toContain("busiest first");
+});

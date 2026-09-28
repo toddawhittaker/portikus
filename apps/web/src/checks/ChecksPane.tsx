@@ -1,5 +1,5 @@
 import type { CheckRun, CheckState, Project } from "@portikus/contracts";
-import { Button, EmptyState, IconButton, StateBadge } from "@portikus/ui";
+import { Button, EmptyState, IconButton, StateBadge, Toggletip } from "@portikus/ui";
 import { useState } from "react";
 import { CheckOutput } from "./CheckOutput.js";
 import "./checks.css";
@@ -90,6 +90,12 @@ export function ChecksPane({
 		<>
 			<div className="pk-pane-head pk-pane-head--actions">
 				<h2 className="sr-only">Checks</h2>
+				<span className="pk-pane-head-about">
+					<Toggletip label="Checks">
+						Checks are commands your project defines in .portikus/checks.json, such as
+						tests or a linter. Run shows their real output here.
+					</Toggletip>
+				</span>
 				<IconButton
 					icon="more"
 					label="Edit checks"

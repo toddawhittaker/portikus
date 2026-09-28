@@ -18,6 +18,7 @@ import {
 	ConfirmDialogRoot,
 	EmptyState,
 	IconButton,
+	Toggletip,
 	useToast,
 } from "@portikus/ui";
 import { useState } from "react";
@@ -173,6 +174,13 @@ export function RunningPane({
 							</div>
 						) : null}
 						<span className="pk-portrow-actions">
+							{service.previewReachability === "denied" && !service.system ? (
+								<Toggletip label={`Can't be previewed, port ${service.port}`}>
+									Ports below 1024, and a few kept for services such as SSH, Docker and
+									databases, cannot be opened as a preview. Run your web app on a port
+									from 1024 up, such as 3000 or 5173.
+								</Toggletip>
+							) : null}
 							{commandLine !== undefined ? (
 								<FullCommandButton
 									subject={`port ${service.port}`}
@@ -248,17 +256,30 @@ export function RunningPane({
 		<>
 			<div className="pk-pane-head pk-pane-head--actions">
 				<h2 className="sr-only">Running</h2>
+				<span className="pk-pane-head-about">
+					<Toggletip label="Running">
+						Programs in your workspace that are listening on a port. Preview opens one
+						here in a tab, and Open in new tab opens it in its own browser tab. Only you
+						can open your previews, after signing in.
+					</Toggletip>
+				</span>
 				{systemCount > 0 || showSystem ? (
-					<span className="pk-running-toggle" data-testid="running-system-toggle">
-						<Checkbox
-							label="Show system"
-							checked={showSystem}
-							onChange={(event) => {
-								setShowSystem(event.target.checked);
-								writeShowSystem(event.target.checked);
-							}}
-						/>
-					</span>
+					<>
+						<span className="pk-running-toggle" data-testid="running-system-toggle">
+							<Checkbox
+								label="Show system"
+								checked={showSystem}
+								onChange={(event) => {
+									setShowSystem(event.target.checked);
+									writeShowSystem(event.target.checked);
+								}}
+							/>
+						</span>
+						<Toggletip label="Show system">
+							Also list ports opened by the workspace system rather than by you. You
+							usually do not need these.
+						</Toggletip>
+					</>
 				) : null}
 			</div>
 			{selected ? (

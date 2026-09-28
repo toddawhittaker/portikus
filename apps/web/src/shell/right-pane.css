@@ -90,3 +90,9 @@
 		padding-inline: var(--space-1\.5);
 	}
 }
+
+/* A surface's "About" button sits at the start of its head, the actions at the end. */
+.pk-pane-head-about {
+	display: flex;
+	margin-inline-end: auto;
+}

@@ -5,7 +5,7 @@
  * read a process's full command line (SPEC.md §18.3).
  */
 import type { UsageProcess, WorkspaceUsage } from "@portikus/contracts";
-import { ConfirmDialog, ConfirmDialogRoot, IconButton } from "@portikus/ui";
+import { ConfirmDialog, ConfirmDialogRoot, IconButton, Toggletip } from "@portikus/ui";
 import { type FocusEvent, useEffect, useRef, useState } from "react";
 import { FullCommandButton, FullCommandText } from "./FullCommand.js";
 import "./monitor.css";
@@ -192,14 +192,20 @@ function Figures({
 					{formatRate(usage.network.transmitBytesPerSecond)}
 				</dd>
 			</dl>
-			<h3
-				className="pk-monitor-heading"
-				ref={headingRef}
-				tabIndex={-1}
-				data-testid="monitor-processes-heading"
-			>
-				Processes
-			</h3>
+			<div className="pk-monitor-heading-row">
+				<h3
+					className="pk-monitor-heading"
+					ref={headingRef}
+					tabIndex={-1}
+					data-testid="monitor-processes-heading"
+				>
+					Processes
+				</h3>
+				<Toggletip label="Processes">
+					Programs running in your workspace, busiest first. Stop ends a program you
+					started. System processes cannot be stopped here.
+				</Toggletip>
+			</div>
 			{/* Always mounted, so a finished stop is announced (SPEC.md §25.8). */}
 			<span role="status" className="sr-only" data-testid="monitor-stop-announce">
 				{announcement}

@@ -348,3 +348,12 @@ test("a check that has run shows its output at once", async () => {
 	await waitFor(() => expect(screen.getByTestId("check-output-tests")).toBeTruthy());
 	expect(screen.getByRole("log", { name: "Output of Tests" })).toBeTruthy();
 });
+
+test("the Checks head explains where checks come from", async () => {
+	stubBrowserApis();
+	stubChecks({ checks: CHECKS, error: null, runs: [] });
+	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
+
+	fireEvent.click(await screen.findByRole("button", { name: "About Checks" }));
+	expect(screen.getByRole("dialog").textContent).toContain(".portikus/checks.json");
+});

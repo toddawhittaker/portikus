@@ -130,3 +130,9 @@
 .pk-monitor-dialog-line {
 	display: block;
 }
+
+.pk-monitor-heading-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+}

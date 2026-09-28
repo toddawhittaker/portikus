@@ -276,7 +276,7 @@ test.describe("application preview", () => {
 
 		await page.getByTestId("running-system-toggle").locator("input").check();
 		await expect(page.getByTestId("running-row-5355")).toBeVisible();
-		await expect(page.getByTestId("running-reason-5355")).toHaveText("system service");
+		await expect(page.getByTestId("running-reason-5355")).toHaveText("System service");
 		await expect(page.getByTestId("running-stop-5355")).toHaveCount(0);
 
 		// The choice is remembered per browser (issue #265).

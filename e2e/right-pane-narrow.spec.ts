@@ -28,6 +28,8 @@ const LISTENING = [
 	// A denied port with no process: "Program not known", "Can't be previewed".
 	{ port: 5432 },
 	{ port: 8080, container: { id: "c1", name: LONG_CONTAINER } },
+	// Hidden until Show system is on; its presence brings the checkbox.
+	{ port: 5355, system: true, process: { pid: 7, command: "systemd-resolve" } },
 ];
 
 const PROCESSES = [
@@ -133,6 +135,37 @@ async function axe(page: Page): Promise<void> {
 	expect(results.violations).toEqual([]);
 }
 
+/**
+ * Open a toggletip, check it names its subject, fits the window and passes
+ * axe while open, then close it with Escape and see focus return.
+ */
+async function tip(
+	page: Page,
+	label: string,
+	text: string,
+	name?: string,
+): Promise<void> {
+	const button = page.getByRole("button", { name: `About ${label}`, exact: true });
+	await button.click();
+	const note = page.getByRole("dialog", { name: label });
+	await expect(note).toContainText(text);
+	const shown = await box(note);
+	const viewport = page.viewportSize();
+	expect(shown.x).toBeGreaterThanOrEqual(0);
+	expect(shown.x + shown.width).toBeLessThanOrEqual(viewport?.width ?? 0);
+	const results = await (await settledAxe(page))
+		.withTags(WCAG_TAGS)
+		.include(".pk-right-pane")
+		.include(".pk-toggletip-content")
+		.analyze();
+	// After axe, so the note has finished fading in.
+	if (name) await page.screenshot({ path: name });
+	expect(results.violations).toEqual([]);
+	await page.keyboard.press("Escape");
+	await expect(note).toHaveCount(0);
+	await expect(button).toBeFocused();
+}
+
 for (const theme of ["light", "dark"] as const) {
 	for (const width of [1024, 1440]) {
 		test(`the right pane fits at ${width} px${width === 1024 ? ", dragged to its narrowest" : ""} (${theme})`, async ({
@@ -181,6 +214,14 @@ for (const theme of ["light", "dark"] as const) {
 				"Can't be previewed",
 			);
 			await shot("running");
+			await tip(
+				page,
+				"Running",
+				"Only you can open your previews",
+				`screenshots/2026-09-27-e25-sa-tip-running-${theme}-${width}.png`,
+			);
+			await tip(page, "Can't be previewed, port 5432", "from 1024 up");
+			await tip(page, "Show system", "workspace system rather than by you");
 			await axe(page);
 			// Stop is reachable, not just drawn: it opens its dialog.
 			await page.getByTestId("running-stop-8080").click();
@@ -218,6 +259,7 @@ for (const theme of ["light", "dark"] as const) {
 				expect((await box(figure)).height).toBeLessThanOrEqual(20);
 			}
 			await shot("monitor");
+			await tip(page, "Processes", "busiest first");
 			await axe(page);
 			await page.getByTestId("monitor-stop-4242").click();
 			await expect(page.getByTestId("dialog-stop-process")).toBeVisible();
@@ -234,6 +276,7 @@ for (const theme of ["light", "dark"] as const) {
 			const name = page.getByTestId("check-item-tests").locator(".pk-check-name");
 			expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 			await shot("checks");
+			await tip(page, "Checks", ".portikus/checks.json");
 			await axe(page);
 
 			// Find in files: the field keeps its name without repeating the head.

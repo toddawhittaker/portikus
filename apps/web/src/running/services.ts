@@ -77,7 +77,7 @@ export function isDocker(service: ListeningService): boolean {
  * the agent attributes to the platform or a system account.
  */
 export function serviceReason(service: ListeningService): string | null {
-	if (service.system) return "system service";
+	if (service.system) return "System service";
 	if (service.previewReachability === "denied") return "Can't be previewed";
 	return null;
 }
