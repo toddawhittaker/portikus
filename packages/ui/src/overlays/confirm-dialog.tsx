@@ -1,7 +1,7 @@
 import * as RadixAlertDialog from "@radix-ui/react-alert-dialog";
 import * as React from "react";
 import { Button, Icon, TextField } from "../primitives/index.js";
-import { useReturnFocus } from "./dialog";
+import { followOpenerDensity, useReturnFocus } from "./dialog";
 
 export const ConfirmDialogRoot = RadixAlertDialog.Root;
 export const ConfirmDialogTrigger = RadixAlertDialog.Trigger;
@@ -67,6 +67,7 @@ export function ConfirmDialog({
 				className={`pk-scrim ${inline ? "pk-scrim--inline" : ""}`}
 			/>
 			<RadixAlertDialog.Content
+				ref={followOpenerDensity}
 				id={id}
 				data-testid={testId}
 				onOpenAutoFocus={returnFocus.onOpenAutoFocus}

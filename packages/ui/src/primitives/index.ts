@@ -4,6 +4,7 @@ export { EmptyState, type EmptyStateProps } from "./EmptyState.js";
 export { Icon, type IconName, type IconProps } from "./Icon.js";
 export { IconButton, type IconButtonProps } from "./IconButton.js";
 export { NameMark, type NameMarkProps } from "./NameMark.js";
+export { PageIntro, type PageIntroProps } from "./PageIntro.js";
 export {
 	Select,
 	type SelectGroup,

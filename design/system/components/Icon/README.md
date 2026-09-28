@@ -8,3 +8,4 @@ A small outlined icon set drawn on a 24 grid with a 1.75 stroke, sized by `size-
 - The set is deliberately small and stroke-matched to Lucide, so an engineer may substitute `lucide-react` icons of the same name at 1.75 stroke without visual drift. Add new names here before using them in a screen.
 - `agent` is the one icon for Claude Code and Codex tabs. Do not use vendor logos in tabs; the tab label names the tool.
 - Never use an icon as decoration beside a heading.
+- `help` (Lucide `circle-help`) was added in the product for Toggletip buttons and the Help menu item. It is drawn in `packages/ui` and not yet in this preview's bundle.
