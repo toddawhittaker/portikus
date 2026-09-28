@@ -247,6 +247,21 @@ EOF
 	expect "$CONFIG" portikus_public_port 8443
 	expect "$SECRETS" portikus_dex_upstream_client_secret null
 	;;
+no-debconf-keys)
+	# A portikus.yaml that holds none of the debconf keys must not stop the config script.
+	mkdir -p /etc/portikus
+	echo 'portikus_public_port: 8443' >"$CONFIG"
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.example.edu
+portikus portikus/tls select internal
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	expect "$CONFIG" portikus_public_port 8443
+	expect "$CONFIG" portikus_public_host '"portikus.example.edu"'
+	check_started
+	;;
 unanswered)
 	# A non-interactive install with no preseed, as `make deploy-app` does.
 	install_with </dev/null

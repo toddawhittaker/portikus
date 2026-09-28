@@ -74,7 +74,7 @@ PY
 )
 	# db_set talks over stdin and stdout, so the lines come in on fd 4.
 	while IFS='	' read -r question value <&4; do
-		[ -n "$question" ] && db_set "portikus/$question" "$value"
+		[ -z "$question" ] || db_set "portikus/$question" "$value"
 	done 4<<EOF
 $answers
 EOF
@@ -137,19 +137,19 @@ prepare_storage() {
 		add "$dev" "$dev - an empty disk of $size GiB (erased)"
 		count=$((count + 1))
 		only=$dev
-		[ "$dev" = "$current" ] && found=1
+		[ "$dev" != "$current" ] || found=1
 	done <<EOF
 $disks
 EOF
 	while read -r vg size; do
 		[ -n "$vg" ] || continue
 		add "$vg" "LVM volume group $vg - $size GiB free"
-		[ "$vg" = "$current" ] && found=1
+		[ "$vg" != "$current" ] || found=1
 	done <<EOF
 $vgs
 EOF
 	add file "A file on the main disk - $(root_free_gib) GiB free and slower"
-	[ "$current" = file ] && found=1
+	[ "$current" != file ] || found=1
 	if [ -n "$current" ] && [ "$found" = 0 ]; then
 		add "$current" "$current - the current choice"
 	fi

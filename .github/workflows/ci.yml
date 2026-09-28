@@ -560,6 +560,9 @@ jobs:
         run: ansible-galaxy collection install -r infra/ansible/requirements.yml
       - if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: pipx install ansible-lint && ansible-lint infra/ansible
+      - name: TLS and storage settings guards
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: ansible-playbook infra/tests/setup-settings-test.yml
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         # age is for the backup scope test below.
