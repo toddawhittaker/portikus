@@ -7,8 +7,6 @@
   ansible.builtin.apt:
     name: squid
     state: present
-    update_cache: true
-    cache_valid_time: 3600
 
 # Fetched from the VM, which is where the proxy will be asked to reach them.
 - name: Read the providers' discovery documents

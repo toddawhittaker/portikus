@@ -5,10 +5,12 @@ which records every command, so no test touches the host.
 Run: python3 -m unittest discover -s packaging/image/tests
 """
 
+import contextlib
 import fcntl
 import hashlib
 import importlib.machinery
 import importlib.util
+import io
 import json
 import os
 import stat
@@ -478,6 +480,25 @@ class FetchTest(Base):
         self.assertEqual(self.status()["state"], "failed")
         self.assertFalse(self.host.ran("curl"))
 
+    def test_update_to_the_latest_when_it_is_already_the_default_succeeds(self):
+        self.host.urls[ij.DEFAULT_RELEASES_URL] = json.dumps([{"tag_name": "image-2026.09.12"}]).encode()
+        for previous in (False, True):
+            with self.subTest(previous=previous):
+                self.host.aliases.clear()
+                self.put_image("2026.09.11")
+                self.put_image("2026.09.12")
+                if previous:
+                    self.set_default("2026.09.11", previous="2026.09.12")
+                else:
+                    self.set_default("2026.09.12")
+                job_id = ID if not previous else ID2
+                self.request({"kind": "fetch"}, job_id=job_id)
+                self.go()
+                status = self.status(job_id)
+                self.assertEqual((status["state"], status["message"]), ("succeeded", "Already up to date"))
+                self.assertEqual(status["version"], "2026.09.12")
+                self.assertFalse([c for c in self.host.ran("curl") if "image-2026.09.12" in c[-1]])
+
     def test_the_download_url_comes_from_portikus_yaml(self):
         config = Path(self.tmp.name) / "portikus.yaml"
         config.write_text("portikus_image_base_url: http://10.100.0.1:8000/images/\n")
@@ -695,6 +716,19 @@ class QueueTest(Base):
         self.assertIsNotNone(status["finishedAt"])
         self.assertFalse((self.images / ".work-leftover").exists())
 
+    def test_recover_keeps_only_the_newest_twenty_jobs(self):
+        ids = [f"{n:08x}-3f4a-4b5c-8d9e-0f1a2b3c4d5e" for n in range(25)]
+        for n, job_id in enumerate(ids):
+            d = self.jobs / job_id
+            d.mkdir()
+            (d / "log.txt").write_text("x")
+            os.utime(d, ns=(10**9 * (n + 1), 10**9 * (n + 1)))
+        (self.jobs / "not-a-job").mkdir()
+        (self.jobs / "request-x.json").write_text("{}")
+        self.assertEqual(self.runner.run_recover(str(self.lock)), 0)
+        left = {p.name for p in self.jobs.iterdir()}
+        self.assertEqual(left, set(ids[5:]) | {"not-a-job", "request-x.json"})
+
     def test_an_unexpected_error_never_leaves_running(self):
         self.request({"kind": "rollback"})
         ij_alias_map = ij.alias_map
@@ -705,6 +739,61 @@ class QueueTest(Base):
             ij.alias_map = ij_alias_map
         self.assertEqual(self.status()["state"], "failed")
         self.assertNotIn("boom", self.status()["message"])
+
+
+class FirstInstallTest(Base):
+    def install(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = self.runner.run_first_install("2026.09.12", str(self.lock))
+        return code, out.getvalue().strip()
+
+    def jobs_by_kind(self):
+        found = {}
+        for d in self.jobs.iterdir():
+            status = json.loads((d / "status.json").read_text())
+            found[status["kind"]] = status
+        return found
+
+    def test_a_host_with_no_default_fetches_checks_and_activates(self):
+        self.host.publish("2026.09.12")
+        self.assertEqual(self.install(), (0, "changed"))
+        self.assertEqual(self.host.aliases["portikus"], FP["2026.09.12"])
+        self.assertNotIn("portikus-previous", self.host.aliases)
+        self.assertEqual(self.aliases_file(), {"default": "2026.09.12", "previous": None})
+        health = json.loads((self.images / "2026.09.12" / "health.json").read_text())
+        self.assertEqual(health["result"], "passed")
+        # Incus holds the image; the store keeps only its manifest and health.
+        self.assertEqual({p.name for p in self.images.iterdir()}, {"2026.09.12", "aliases.json"})
+        self.assertEqual({p.name for p in (self.images / "2026.09.12").iterdir()}, {"manifest.json", "health.json"})
+        jobs = self.jobs_by_kind()
+        self.assertEqual({k: s["state"] for k, s in jobs.items()}, {"fetch": "succeeded", "activate": "succeeded"})
+
+    def test_a_host_with_a_default_is_left_to_the_admin_page(self):
+        self.put_image("2026.09.13")
+        self.set_default("2026.09.13")
+        self.host.publish("2026.09.12")
+        self.assertEqual(self.install(), (0, "unchanged"))
+        self.assertEqual(self.host.aliases["portikus"], FP["2026.09.13"])
+        self.assertFalse(self.host.ran("curl"))
+        self.assertEqual(list(self.jobs.iterdir()), [])
+
+    def test_a_failed_download_fails_and_sets_no_default(self):
+        self.assertEqual(self.install(), (1, ""))
+        self.assertNotIn("portikus", self.host.aliases)
+        self.assertEqual({k: s["state"] for k, s in self.jobs_by_kind().items()}, {"fetch": "failed"})
+
+    def test_an_unhealthy_image_is_not_made_the_default(self):
+        self.host.publish("2026.09.12")
+        self.host.exec_results["codex"] = (127, "")
+        self.assertEqual(self.install()[0], 1)
+        self.assertNotIn("portikus", self.host.aliases)
+
+    def test_the_command_line_takes_only_a_published_version(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            for argv in (["first-install"], ["first-install", "../x"],
+                         ["first-install", "2026.09.12-local.202609281200"], ["first-install", "2026.09.12", "x"]):
+                self.assertEqual(ij.main(["image-job", *argv]), 2)
 
 
 class ManifestTest(Base):
