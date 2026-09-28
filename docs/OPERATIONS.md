@@ -21,8 +21,8 @@ Names used throughout:
   machine or a disaster-recovery drill, a from-scratch bootstrap, and
   load tests bigger than the pilot. Everything else, including an epic's
   verification, is done on the pilot, which is the development VM.
-- **Out of class hours** means no student is working. Every change to the
-  pilot happens then.
+  No real students use the pilot. Every account and workspace on it is a
+  test account, so it can be changed at any time.
 
 ## Rules that hold for every pilot change
 
@@ -30,21 +30,19 @@ Names used throughout:
    never runs a package that has not been merged to `main`.
 2. Record `ssh deploy@10.100.0.120 dpkg -s portikus | grep Version` before
    and after the change.
-3. Take snapshots and a database dump first (next section).
+3. Take a database dump first (next section).
 4. Change the pilot only through a Make target or Ansible, never by hand.
-5. Never run the smoke test's lifecycle block or a load test on the pilot.
-   `make security-test` is safe on the live pilot.
-6. Nothing may destroy, stop, restart, rebuild, reset or restore a
-   student's workspace or volume without the student knowing.
+5. Rebuilds, restores, resets and restarts of workspaces, the smoke
+   test's lifecycle block, and `make security-test` (heavy tests too) may
+   all run on the pilot. Load tests go to the rehearsal VM, because the
+   pilot is too small for them and the script refuses it.
 
-## Before a change: snapshots and a database dump
+## Before a change: a database dump
 
-Take an Incus snapshot of each workspace's home, Docker and recovery volume, and
-a `pg_dump` (a PostgreSQL export) of the platform database to the host.
-Name the snapshots after the change, for example `pre-epic12b`.
+Every deploy takes a `pg_dump` (a PostgreSQL export) of the platform
+database to the host. Name it after the change, for example `epic24`.
 
 ```
-ssh deploy@10.100.0.120 'for v in $(sudo incus storage volume list workspace-data --project portikus -f csv -c n | grep -E "^ws-.*-(home|docker|recovery)$"); do sudo incus storage volume snapshot create workspace-data "$v" pre-CHANGE --project portikus; done'
 install -d -m 0700 /var/backups/portikus/portikus/dumps
 ssh deploy@10.100.0.120 'sudo runuser -u postgres -- pg_dump -Fc portikus' > /var/backups/portikus/portikus/dumps/portikus-pre-CHANGE-$(date +%F).dump
 ```
@@ -54,10 +52,21 @@ page's Backups tab lists the dump and can delete it. It lists only files
 named `portikus-pre-<name>.dump` in that `dumps` folder; older dumps in
 your home directory are left for you to delete.
 
-No script deletes a `pre-...` snapshot on its own. Delete old ones from
-the Backups tab, or by hand, once the change has proved itself for a week
-or so. A fresh `make backup` is
-also a good idea before any larger change.
+**Incus volume snapshots only when the change touches workspace
+volumes**: rebuilding workspaces on a new image, a volume migration, a
+restore, or replacing a home. Snapshot each workspace's home, Docker and
+recovery volume first:
+
+```
+ssh deploy@10.100.0.120 'for v in $(sudo incus storage volume list workspace-data --project portikus -f csv -c n | grep -E "^ws-.*-(home|docker|recovery)$"); do sudo incus storage volume snapshot create workspace-data "$v" pre-CHANGE --project portikus; done'
+```
+
+Delete them the same day, once the change checks out, from the Backups
+tab or by hand. No script deletes them on its own.
+
+Do not take whole-VM libvirt snapshots for a routine deploy. They pin old
+blocks inside the VM's disk file, so it only grows ("VM disk files on the
+host").
 
 To undo a bad change, install the previous package
 (`make configure-vm PORTIKUS_VERSION=<old version>`) and, only if the
@@ -564,8 +573,8 @@ records each run and its snapshots and dump.
 A move like these follows the same steps:
 
 1. Record `dpkg -s portikus` on the pilot.
-2. Take `pre-<change>` snapshots of each `-home`, `-docker` and
-   `-recovery` volume and a `pg_dump` to the host ("Before a change").
+2. Take a `pg_dump` to the host ("Before a change"). Take volume
+   snapshots too if the move touches workspace volumes.
 3. Rehearse on the rehearsal VM with the pilot's newest backup restored
    ("Restore"), and check with SQL that every account still owns its
    workspace.
@@ -575,8 +584,7 @@ A move like these follows the same steps:
 6. Record `dpkg -s portikus` again.
 7. If anything fails, install the previous package with its own play
    (check out the matching commit, then `make configure-vm
-   PORTIKUS_DEB=<previous package>`), and load the `pg_dump`. The
-   snapshots are untouched.
+   PORTIKUS_DEB=<previous package>`), and load the `pg_dump`.
 
 **Signing out of Portikus does not end a Dex session, and none is needed.**
 Dex's password login keeps no browser session, so the next sign-in always
@@ -909,7 +917,7 @@ on the host (Makefile `PORTIKUS_LTI_PLATFORMS_FILE`). It holds no secret.
 - Each issuer and client id pair appears once. Unknown keys and an empty
   `platforms` list are refused.
 
-Apply it with `make configure-vm` (out of class hours, after "Before a
+Apply it with `make configure-vm` (after "Before a
 change"). Ansible copies the file to `/etc/portikus/lti-platforms.json`
 and checks it with the API's own parser before installing it, so a bad
 file stops the run with the problem named. To turn LTI off, delete the
@@ -1040,8 +1048,7 @@ A backup is pulled from the VM to the host and encrypted there with age, a
 small file-encryption tool (ADR 0024). It only reads from the VM: a
 `pg_dump` of the platform database and of Dex's `dex` database, and an
 Incus export of each workspace's home and recovery
-volume, each taken from a short-lived snapshot. It is safe on the live
-pilot.
+volume, each taken from a short-lived snapshot.
 
 - **When.** Nightly at 02:30 host time, by the host timer
   `portikus-backup.timer`. Install or update it with
@@ -1389,13 +1396,12 @@ whose size changed, so it would plan to swap the grown disk for an empty
 - **`make security-test`** runs the VM security suite through the real
   edge. It makes its own users and two workspaces, touches nothing else,
   checks every other workspace and setting is unchanged, and cleans up.
-  It is allowed on the live pilot at any quiet time, and should run after
-  every deploy. `SWEEP=1` removes the leftovers of a run that was killed.
-  `PORTIKUS_SECURITY_HEAVY=1` adds tests that push a workspace past its
-  memory limit; run those only on a VM with no other workspace, which in
-  practice means the rehearsal VM.
+  Run it on the pilot after every deploy. `SWEEP=1` removes the leftovers
+  of a run that was killed. `PORTIKUS_SECURITY_HEAVY=1` adds tests that
+  push a workspace past its memory limit; they need a VM with no other
+  workspace running, so stop or delete the pilot's test workspaces first.
 - **`make load-test TOFU_ENV=rehearsal-libvirt N=25`** runs the load test
-  (`infra/tests/load-test.sh`). **Never on the pilot.** The script refuses
+  (`infra/tests/load-test.sh`) on the rehearsal VM. The script refuses
   the pilot, a VM Ansible or a restore is using, and a VM without memory
   or disk room for N workspaces. It removes only the users and workspaces
   it made. Destroy the rehearsal VM afterwards if it held restored data.
