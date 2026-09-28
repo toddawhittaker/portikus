@@ -182,7 +182,8 @@ export const STUDENT_HELP: HelpPart = {
 						<li>
 							Ports below 1024 cannot be previewed, and neither can a few reserved ones
 							such as SSH, Docker and PostgreSQL. Run your web app on a port from 1024
-							up, such as 3000 or 5173.
+							up, such as 3000 or 5173, then choose{" "}
+							<strong>Choose another port…</strong> in the preview.
 						</li>
 					</ul>
 				</>
