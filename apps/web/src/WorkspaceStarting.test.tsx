@@ -302,13 +302,17 @@ test("the error screen shows the meters and Reset Docker as the main action when
 	expect(screen.getByTestId("progress-sub").textContent).toBe(
 		"Its storage is full. Docker is using 99.0 GB of 100 GB. Reset Docker to free that space; your projects and home folder are kept.",
 	);
-	// Primary, first, and no Try again: starting again would fail the same way.
+	// Reset Docker leads; Try again stays as a secondary action because an
+	// administrator may have grown the quota since.
 	expect(clean.className).toContain("bg-surface-inverse");
 	const names = screen
 		.getAllByRole("button")
 		.filter((button) => !button.getAttribute("aria-label")?.startsWith("About "))
 		.map((button) => button.textContent);
-	expect(names).toEqual(["Reset Docker…", "Workspace details"]);
+	expect(names).toEqual(["Reset Docker…", "Try again", "Workspace details"]);
+	expect(screen.getByRole("button", { name: "Try again" }).className).not.toContain(
+		"bg-surface-inverse",
+	);
 	fireEvent.click(clean);
 	expect(screen.getByTestId("dialog-reset-docker")).toBeDefined();
 });
@@ -349,7 +353,7 @@ test("a failed Docker cleanup shows its error below the actions row, not inside 
 	expect(screen.getAllByTestId("dialog-error")).toHaveLength(1);
 });
 
-test("with Docker not full the error screen shows the meters but no Reset Docker", async () => {
+test("with Docker not full the error screen shows the meters, no Reset Docker, and Try again as the main action", async () => {
 	stubUsage(at(20));
 	renderWithQuery(
 		<WorkspaceStarting
@@ -361,12 +365,15 @@ test("with Docker not full the error screen shows the meters but no Reset Docker
 
 	await screen.findByTestId("storage-meters");
 	expect(screen.queryByRole("button", { name: "Reset Docker…" })).toBeNull();
+	expect(screen.getByRole("button", { name: "Try again" }).className).toContain(
+		"bg-surface-inverse",
+	);
 	expect(screen.getByTestId("progress-sub").textContent).toContain(
 		"Ask your administrator for more space.",
 	);
 });
 
-test("a full storage with no figures offers only Workspace details", async () => {
+test("a full storage with no figures offers Try again and Workspace details", async () => {
 	const fetchMock = stubFetch(() =>
 		json(503, { code: "AGENT_UNAVAILABLE", message: "no" }),
 	);
@@ -382,7 +389,7 @@ test("a full storage with no figures offers only Workspace details", async () =>
 	await waitFor(() => expect(client.isFetching()).toBe(0));
 	expect(screen.queryByTestId("storage-meters")).toBeNull();
 	const names = screen.getAllByRole("button").map((button) => button.textContent);
-	expect(names).toEqual(["Workspace details"]);
+	expect(names).toEqual(["Try again", "Workspace details"]);
 });
 
 test("an error that may pass offers Try again first, then Workspace details", async () => {
@@ -413,11 +420,25 @@ test("an error only an administrator can fix says so and offers no Try again", (
 	expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
 });
 
+test("a missing image offers no Try again either", () => {
+	stubFetch(() => json(503, { code: "AGENT_UNAVAILABLE", message: "no" }));
+	renderWithQuery(
+		<WorkspaceStarting
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "error", errorCode: "IMAGE_NOT_FOUND" }}
+			onOpenWorkspace={noop}
+		/>,
+	);
+	const names = screen.getAllByRole("button").map((button) => button.textContent);
+	expect(names).toEqual(["Workspace details"]);
+});
+
 test("Try again is for errors a second start can get past", () => {
 	expect(canRetry(null)).toBe(true);
 	expect(canRetry("TIMEOUT")).toBe(true);
 	expect(canRetry("OPERATION_FAILED")).toBe(true);
-	expect(canRetry("STORAGE_FULL")).toBe(false);
+	// An administrator may have grown the quota since.
+	expect(canRetry("STORAGE_FULL")).toBe(true);
 	expect(canRetry("IMAGE_NOT_FOUND")).toBe(false);
 	expect(canRetry("INSTANCE_MISSING")).toBe(false);
 });

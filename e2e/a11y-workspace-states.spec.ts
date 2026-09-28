@@ -49,6 +49,10 @@ for (const scheme of ["light", "dark"] as const) {
 		).toBeVisible({
 			timeout: 15_000,
 		});
+		// Try again follows Reset Docker in the tab order, as a secondary action.
+		await progress.getByRole("button", { name: "Reset Docker…", exact: true }).focus();
+		await page.keyboard.press("Tab");
+		await expect(progress.getByRole("button", { name: "Try again" })).toBeFocused();
 		await progress.getByText("Technical details").click();
 		await expect(progress.getByText("STORAGE_FULL")).toBeVisible();
 		await expectNoViolations(page);

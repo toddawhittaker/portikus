@@ -51,17 +51,7 @@ export function RecoveryDialog({
 				testId="dialog-recovery-points"
 				size="lg"
 				title={`Recovery points for ${project.name}`}
-				description={
-					<>
-						Copies of this project that Portikus keeps outside the folder. Portikus
-						never makes Git commits for you.{" "}
-						<Toggletip label="Recovery points">
-							Each point copies the whole project, its Git folder included, except
-							folders such as node_modules. Restoring one puts the project back as it
-							was then, commits included, after saving the current state as a new point.
-						</Toggletip>
-					</>
-				}
+				description="Copies of this project that Portikus keeps outside the folder. Portikus never makes Git commits for you."
 				onClose={onClose}
 			>
 				<div className="flex flex-wrap items-center gap-3">
@@ -79,6 +69,12 @@ export function RecoveryDialog({
 					>
 						Create recovery point now
 					</Button>
+					{/* Beside the actions, not inside the description, so that reads cleanly. */}
+					<Toggletip label="Recovery points">
+						Each point copies the whole project, its Git folder included, except folders
+						such as node_modules. Restoring one puts the project back as it was then,
+						commits included, after saving the current state as a new point.
+					</Toggletip>
 					{usage ? (
 						<span className="pk-text-small text-ink-muted" data-testid="recovery-usage">
 							{formatBytes(usage.usedBytes)} of {formatBytes(usage.quotaBytes)} recovery

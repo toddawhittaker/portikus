@@ -26,6 +26,7 @@ import {
 	Select,
 	TextField,
 	Toggletip,
+	useToast,
 } from "@portikus/ui";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
@@ -255,6 +256,15 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const [saving, setSaving] = useState(0);
 	const [saved, setSaved] = useState(false);
 	const [saveError, setSaveError] = useState<string | null>(null);
+	// A save still in flight when the dialog closes reports its failure as a toast.
+	const toast = useToast();
+	const mounted = useRef(true);
+	useEffect(() => {
+		mounted.current = true;
+		return () => {
+			mounted.current = false;
+		};
+	}, []);
 	function enqueue(
 		task: () => Promise<unknown>,
 		onError?: () => void,
@@ -270,8 +280,17 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 					onSuccess?.();
 				},
 				(failure: unknown) => {
+					const message = failure instanceof Error ? failure.message : "";
+					if (!mounted.current) {
+						toast.show({
+							tone: "danger",
+							title: "Your settings change was not saved",
+							children: message || undefined,
+						});
+						return;
+					}
 					setSaved(false);
-					setSaveError(failure instanceof Error ? failure.message : "");
+					setSaveError(message);
 					onError?.();
 				},
 			)

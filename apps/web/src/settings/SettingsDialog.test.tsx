@@ -4,6 +4,7 @@
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch, USER } from "../test-utils.js";
 import { SettingsDialog } from "./SettingsDialog.js";
@@ -271,6 +272,42 @@ test("the footer is a single Close button and it does not undo a change", async 
 
 	expect(onClose).toHaveBeenCalledTimes(1);
 	await waitFor(() => expect(writes).toHaveLength(1));
+});
+
+/** Review S3: a save that fails after the dialog has closed is not silent. */
+test("a save that fails after the dialog has closed shows a danger toast", async () => {
+	let release: () => void = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input);
+		if (url === "/me/profile") return json(200, PROFILE);
+		if (url === "/me/links") return json(200, myLinks);
+		if (url === "/me/settings" && (init?.method ?? "GET") !== "GET") {
+			await held;
+			return json(500, { code: "INTERNAL", message: "The server could not save it." });
+		}
+		if (url === "/me/settings") {
+			return json(200, { ...EDITOR_SETTINGS_DEFAULTS, timezones: SERVER_ZONES });
+		}
+		return json(404, { code: "NOT_FOUND", message: "no" });
+	});
+	function Host() {
+		const [open, setOpen] = useState(true);
+		return open ? <SettingsDialog onClose={() => setOpen(false)} /> : null;
+	}
+	renderWithQuery(<Host />);
+	await screen.findByRole("region", { name: "Editor" });
+
+	fireEvent.click(checkbox(/Word wrap/));
+	fireEvent.click(screen.getByTestId("settings-close"));
+	await waitFor(() => expect(screen.queryByTestId("settings-close")).toBeNull());
+	release();
+
+	const toast = await screen.findByText("Your settings change was not saved");
+	expect(toast.closest(".pk-toast--danger")).not.toBeNull();
+	expect(screen.getByText("The server could not save it.")).toBeDefined();
 });
 
 test("turning auto-save off is saved and the delay field is disabled", async () => {
