@@ -1235,7 +1235,9 @@ settings in `infra/tofu/modules/platform-vm` make that work:
   compat 0.10, where a discard frees nothing on a disk with a backing file.
   It never rewrites a disk in use. On a VM made before this existed, the
   apply stops and prints the one-time steps: shut the VM down, apply
-  again, and start it.
+  again, and start it. Then run `make wait-vm` with the same `TOFU_ENV`.
+  That apply leaves no address in the state, so `wait-vm` and the other
+  targets take it from libvirt's DHCP lease for that environment's VM.
 
 Check a disk with `sudo qemu-img info -U <file>` (look for `compat: 1.1`)
 and `sudo du -h <file>`.
