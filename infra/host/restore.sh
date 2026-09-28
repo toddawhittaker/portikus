@@ -97,6 +97,7 @@ case "$mac_rc" in
     printf '[restore] WARNING: %s has no MAC. It is restored only because --unverified was given: anyone who knows the public recipient could have made it.\n' "$SET" >&2
     ;;
   4) die "${SET} failed verification: it was not made with this key, or it was changed after it was made. Refusing the set; nothing was changed" ;;
+  5) die "${SET} is named for another time than it was made: its MANIFEST gives a different creation time. Refusing the set; nothing was changed" ;;
   *) die "could not check the set's MAC with ${IDENTITY}; nothing was changed" ;;
 esac
 scratch=$(mktemp -d)

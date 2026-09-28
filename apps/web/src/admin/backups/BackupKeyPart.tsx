@@ -178,14 +178,19 @@ function UploadDialog({
 					key="replace"
 					id="backup-key-replace-dialog"
 					testId="backup-key-replace-dialog"
+					// The upload step that opened it is gone, so focus goes back to its opener.
+					returnFocusTo={() =>
+						document.querySelector<HTMLElement>('[data-testid="backup-key-upload"]')
+					}
 					title="Replace this server's backup key?"
-					description="This server already has a different backup key. Replacing it deletes that key from the server for good."
+					description="This server already has a different backup key. The current key is set aside on the server, readable only by root; backups made with it can be restored only with that key."
 					lost={[
-						"The backup key on this server now",
-						"Restores of backups made with it, unless you keep a copy of it",
+						"The current key as this server's backup key",
+						"Restores of backups made with it, until that key is put back",
 					]}
 					survives={[
 						"Every backup set",
+						"A copy of the current key on the server, readable only by root",
 						"The key you are uploading, which new backups then use",
 					]}
 					confirmLabel="Replace key"

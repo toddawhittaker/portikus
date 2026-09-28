@@ -16,10 +16,14 @@ Usage:
   portikus-backup-mac sign KEYFILE SET-DIR    write SET-DIR/MANIFEST.mac
   portikus-backup-mac verify KEYFILE SET-DIR  exit 0 when the MAC is right
 
-KEYFILE is an age identity file, or a file `derive` wrote: a host's
-backup account signs with that, so it can make sets without being able
-to read them.  verify exits 3 when the set has no MAC (a set made before
-MACs) and 4 when the MAC is wrong or unreadable; 1 is any other error.
+KEYFILE is an age identity file, or for sign a file `derive` wrote: a
+host's backup account signs with that, so it can make sets without being
+able to read them.  verify needs the identity, because it also opens the
+MANIFEST: the MAC does not cover the folder's name, so a genuine set
+renamed to look newer is refused by its `created` line.  verify exits 3
+when the set has no MAC (a set made before MACs), 4 when the MAC is wrong
+or unreadable, and 5 when the MANIFEST was made for another folder name;
+1 is any other error.
 """
 import hashlib
 import hmac
@@ -36,7 +40,7 @@ MAC_LINE = re.compile(r"portikus-backup-mac 1 ([0-9a-f]{64})\n?")
 LABEL = b"portikus-backup-mac-v1\n"
 # The restores refuse a MANIFEST over 4 MiB; this leaves room for age's framing.
 MAX_MANIFEST_AGE = (4 << 20) + (64 << 10)
-NO_MAC, BAD_MAC = 3, 4
+NO_MAC, BAD_MAC, WRONG_NAME = 3, 4, 5
 
 
 def die(message, code=1):
@@ -69,6 +73,11 @@ def read_key(path, with_recipient=False):
     die("the key file holds no age identity and no MAC key")
 
 
+def identity_file(path):
+    with open(path) as f:
+        return any(IDENTITY.fullmatch(line.strip()) for line in f.read(4096).splitlines())
+
+
 def read_regular(path, limit):
     """The file's bytes, or None unless it is a regular file within limit."""
     try:
@@ -89,6 +98,20 @@ def mac_of(key, set_dir):
     return hmac.new(key, b"portikus-backup-set 1\n" + data, hashlib.sha256).hexdigest()
 
 
+def created_matches(key_path, set_dir):
+    """Whether the MANIFEST's created line names the set's folder."""
+    try:
+        out = subprocess.run(["age", "-d", "-i", key_path, os.path.join(set_dir, "MANIFEST.age")],
+                             stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if out.returncode != 0 or len(out.stdout) > 4 << 20:
+        return False
+    name = os.path.basename(os.path.normpath(set_dir))
+    lines = out.stdout.decode("utf-8", "replace").splitlines()
+    return [ln for ln in lines if ln.startswith("created ")] == [f"created {name}"]
+
+
 def main(argv):
     if len(argv) == 2 and argv[0] == "derive":
         key, recipient = read_key(argv[1], with_recipient=True)
@@ -100,7 +123,9 @@ def main(argv):
     if len(argv) != 3 or argv[0] not in ("sign", "verify"):
         die("usage: portikus-backup-mac derive|recipient KEYFILE | sign|verify KEYFILE SET-DIR")
     verb, key_path, set_dir = argv
-    key = read_key(key_path)[0]
+    key, _ = read_key(key_path)
+    if verb == "verify" and not identity_file(key_path):
+        die("verify needs the age identity, not a MAC key file")
     mac = mac_of(key, set_dir)
     if verb == "sign":
         if mac is None:
@@ -117,6 +142,8 @@ def main(argv):
     m = MAC_LINE.fullmatch(stored.decode("ascii", "replace")) if stored else None
     if mac is None or m is None or not hmac.compare_digest(m.group(1), mac):
         return BAD_MAC
+    if not created_matches(key_path, set_dir):
+        return WRONG_NAME
     return 0
 
 

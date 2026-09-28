@@ -563,6 +563,14 @@ jobs:
       - name: TLS and storage settings guards
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/setup-settings-test.yml
+      - name: Workspace image first-install decision
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: ansible-playbook infra/tests/workspace-image-test.yml
+      - name: Dex theme font matches the app font
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: |
+          cmp packages/ui/src/fonts/PublicSans-Variable.woff2 infra/ansible/roles/dex/files/theme/PublicSans-Variable.woff2 \
+            || { echo "Dex's theme font differs from packages/ui/src/fonts; copy it over"; exit 1; }
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         # age is for the backup scope test below.

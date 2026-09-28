@@ -35,7 +35,13 @@
     state: present
   register: caddy_repo
 
-# Only when the repository is new; base refreshes every run.
+# Base's refresh can be an hour old, so a rerun after a failed first
+# refresh would not see the repository's packages.
+- name: Read the installed packages
+  ansible.builtin.package_facts:
+    manager: apt
+
+# When the repository is new, or its package is not installed yet.
 - name: Refresh the apt index for the Caddy repository
   ansible.builtin.apt:
     update_cache: true
@@ -43,7 +49,7 @@
   retries: 3
   delay: 10
   until: caddy_apt_refresh is succeeded
-  when: caddy_repo is changed or caddy_repo_key is changed
+  when: caddy_repo is changed or caddy_repo_key is changed or 'caddy' not in ansible_facts.packages
 
 # Pinned to the version CI tests against (.github/workflows/ci.yml); change both together.
 - name: Install Caddy

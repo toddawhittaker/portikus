@@ -176,6 +176,15 @@ expect "--local takes no VM name" "[ $? != 0 ] && grep -q 'takes no other option
 echo "--- backup-channel.sh --local ---"
 # Keep the real set to copy around.
 cp -r "${sets}/${stamp}" "${work}/keep-set"
+# clone STAMP -- the real set as if this server had made it at STAMP: its
+# MANIFEST names the folder (the MAC does not), signed with the server's key.
+clone() {
+  rm -rf "${sets:?}/$1"
+  cp -r "${work}/keep-set" "${sets}/$1"
+  age -d -i "$key" "${work}/keep-set/MANIFEST.age" | sed "s/^created .*/created $1/" \
+    | age -R "${keydir}/recipients.txt" -o "${sets}/$1/MANIFEST.age"
+  python3 "${repo}/infra/host/portikus-backup-mac" sign "$key" "${sets}/$1"
+}
 run_channel() {
   PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_DIR="$backups" PORTIKUS_BACKUP_KEY="$key" \
     PORTIKUS_BACKUP_CHANNEL_STATE="$state" PORTIKUS_BACKUP_NIGHTLY="" \
@@ -222,7 +231,7 @@ echo "--- hand-copied sets ---"
 # An administrator copied these in by hand: a set with loose modes and
 # another owner's name, a link named like a set, and a badly named directory.
 copied=20260915T023000Z
-cp -r "${work}/keep-set" "${sets}/${copied}"
+clone "$copied"
 chmod -R a+rX "${sets}/${copied}"
 ln -s "${sets}/${copied}" "${sets}/20260916T023000Z"
 cp -r "${work}/keep-set" "${sets}/not-a-set"
@@ -288,7 +297,7 @@ expect "a whole-server restore refuses to run as anyone but root" "[ $? != 0 ] &
 FAKE_ROOT=1 PATH="${work}/bin:${PATH}" bash "${repo}/infra/host/restore.sh" --local --target-name x "${sets}/${copied}" >"${work}/out" 2>&1
 expect "and takes no target name" "[ $? != 0 ] && grep -q 'takes only --start-check' '${work}/out'"
 requested=20260914T023000Z
-cp -r "${work}/keep-set" "${sets}/${requested}"
+clone "$requested"
 : >"${sets}/${requested}/REQUESTED"
 FAKE_ROOT=1 PATH="${work}/bin:${PATH}" PORTIKUS_BACKUP_IDENTITY="$key" \
   bash "${repo}/infra/host/restore.sh" --local "${sets}/${requested}" >"${work}/out" 2>&1
@@ -302,7 +311,7 @@ check_set() { # SET [OPTION] -- restore.sh --check with the server's key
     bash "${repo}/infra/host/restore.sh" --check ${2:+"$2"} "$1" >"${work}/out" 2>&1
 }
 # copy_set NAME -- a copy of the genuine set, in the set directory, for one test to spoil.
-copy_set() { rm -rf "${sets:?}/$1"; cp -r "${work}/keep-set" "${sets}/$1"; }
+copy_set() { clone "$1"; }
 expect "a local backup signs its set with a MAC" \
   "[ -f '${sets}/${stamp}/MANIFEST.mac' ] && python3 '$mac' verify '$key' '${sets}/${stamp}'"
 check_set "${sets}/${copied}"
@@ -312,7 +321,8 @@ expect "a genuine set passes the check" "[ $? = 0 ] && grep -q \"MAC matches\" '
 # MANIFEST, or any other, encrypted again, beside the genuine MAC.
 forged=20260910T023000Z
 copy_set "$forged"
-age -d -i "$key" "${work}/keep-set/MANIFEST.age" | age -r "$recipient" -o "${sets}/${forged}/MANIFEST.age"
+age -d -i "$key" "${sets}/${forged}/MANIFEST.age" | age -r "$recipient" -o "${sets}/${forged}/MANIFEST.age.new"
+mv "${sets}/${forged}/MANIFEST.age.new" "${sets}/${forged}/MANIFEST.age"
 check_set "${sets}/${forged}"
 expect "a forged set is refused" "[ $? != 0 ] && grep -q 'failed verification' '${work}/out'"
 # ... and a MAC made with a key of their own.
@@ -337,29 +347,63 @@ FAKE_ROOT=1 check_set "${sets}/${old}" --unverified
 expect "as root, --unverified opens a set with no MAC, with a warning" "[ $? = 0 ] && grep -q 'WARNING: .* has no MAC' '${work}/out'"
 FAKE_ROOT=1 check_set "${sets}/${forged}" --unverified
 expect "--unverified never accepts a wrong MAC" "[ $? != 0 ] && grep -q 'failed verification' '${work}/out'"
+# A genuine set, MANIFEST and MAC untouched, renamed to look like a newer night's.
+renamed=20261001T023000Z
+rm -rf "${sets:?}/${renamed}"
+cp -r "${sets}/${copied}" "${sets}/${renamed}"
+check_set "${sets}/${renamed}"
+expect "a genuine set renamed to another time is refused" "[ $? != 0 ] && grep -q 'named for another time' '${work}/out'"
 
 : >"$log"
 pull ""
 run_channel --local
 expect "the listing shows forged, changed and MAC-less sets as not verified" \
-  "[ \"\$(field \"sorted((s['stamp'], s['verified']) for s in r['status']['sets'] if s['stamp'] in ('${forged}', '${tampered}', '${old}', '${copied}'))\")\" = \"[('${forged}', False), ('${tampered}', False), ('${old}', False), ('${copied}', True)]\" ]"
+  "[ \"\$(field \"sorted((s['stamp'], s['verified']) for s in r['status']['sets'] if s['stamp'] in ('${forged}', '${tampered}', '${old}', '${copied}', '${renamed}'))\")\" = \"[('${forged}', False), ('${tampered}', False), ('${old}', False), ('${copied}', True), ('${renamed}', False)]\" ]"
 
-for bad in "$forged" "$tampered" "$old"; do
+for bad in "$forged" "$tampered" "$old" "$renamed"; do
   : >"$log"
   run_copy --local copy 127.0.0.1 "${sets}/${bad}" "$INST" "restored-${bad:0:4}-${bad:4:2}-${bad:6:2}-${bad:9:4}"
   expect "a side copy from set ${bad} is refused before any command" \
-    "[ $? != 0 ] && grep -qE 'not verified|failed verification' '${work}/out' && ! grep -q '^incus ' '$log'"
+    "[ $? != 0 ] && grep -qE 'not verified|failed verification|named for another time' '${work}/out' && ! grep -q '^incus ' '$log'"
 done
+rm -rf "${sets:?}/${renamed}"
 # A genuine MAC and MANIFEST around a home that is not the one it lists.
 swapped=20260913T023000Z
 copy_set "$swapped"
 echo "not the home" | age -r "$recipient" -o "${sets}/${swapped}/${INST}-home.age"
 : >"$log"
 run_copy --local copy 127.0.0.1 "${sets}/${swapped}" "$INST" "restored-2026-09-13-0230"
-expect "a side copy of a home the MANIFEST does not list is refused, and its folder removed" \
-  "[ $? != 0 ] && grep -q 'not the one its MANIFEST lists' '${work}/out' && grep -q 'rm -rf --one-file-system /home/student/restored-2026-09-13-0230' '$log'"
+expect "a side copy of a home the MANIFEST does not list is refused before anything is made or unpacked" \
+  "[ $? != 0 ] && grep -q 'not the one its MANIFEST lists' '${work}/out' && ! grep -qE -- '-- (mkdir|tar) ' '$log'"
+expect "and its checked copy is gone" "[ -z \"\$(find '${sets}' -name '.restore-copy.*')\" ]"
 check_set "${sets}/${swapped}"
 expect "and the whole-server check refuses it too" "[ $? != 0 ] && grep -q 'the MANIFEST says' '${work}/out'"
+
+echo "--- portikus restore --key ---"
+# The host command, with its fixed paths pointed at this test's files.
+cli="${work}/bin/portikus-cli"
+sed -e "s|^BACKUP_SETS=.*|BACKUP_SETS=${sets}|" -e "s|^BACKUP_KEY=.*|BACKUP_KEY=${key}|" \
+  -e "s|^RESTORE=.*|RESTORE=${work}/bin/fake-restore|" "${repo}/packaging/bin/portikus" >"$cli"
+cat >"${work}/bin/fake-restore" <<'EOF'
+#!/usr/bin/env bash
+printf 'restore %s identity=%s\n' "$*" "$PORTIKUS_BACKUP_IDENTITY" >>"$FAKE_DIR/calls.log"
+EOF
+chmod +x "$cli" "${work}/bin/fake-restore"
+run_cli() { : >"$log"; FAKE_ROOT=1 PATH="${work}/bin:${PATH}" sh "$cli" restore "$@" >"${work}/out" 2>&1; }
+kept="${key}.replaced-1790000000"
+cp "$key" "$kept"
+run_cli --check "$copied"
+expect "restore opens a set with the server's key by default" "[ $? = 0 ] && grep -qx 'restore --check ${sets}/${copied} identity=${key}' '$log'"
+run_cli --check --key "$kept" "$copied"
+expect "--key passes a replaced key to the restore" "[ $? = 0 ] && grep -qx 'restore --check ${sets}/${copied} identity=${kept}' '$log'"
+run_cli --key "$kept" "$copied"
+expect "and to a whole-server restore" "[ $? = 0 ] && grep -qx 'restore --local ${sets}/${copied} identity=${kept}' '$log'"
+ln -s "$key" "${key}.replaced-1790000001"
+for bad in /etc/shadow "${key}.replaced-" "${key}.replaced-1/../../x" "${key}.replaced-1790000001" "${key}.replaced-1790000002" "${keydir}/age-keyXtxt.replaced-1"; do
+  run_cli --check --key "$bad" "$copied"
+  expect "--key refuses ${bad#"${work}"/} and runs nothing" "[ $? = 2 ] && grep -q 'takes a replaced key' '${work}/out' && [ ! -s '$log' ]"
+done
+rm -f "$kept" "${key}.replaced-1790000001"
 
 echo "--- the backup key helper ---"
 helper="${repo}/packaging/backup/backup-key"

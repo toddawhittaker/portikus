@@ -101,13 +101,35 @@ test("uploading another server's key asks before replacing this one", async ({
 	await upload.getByTestId("dialog-confirm").click();
 
 	const replace = page.getByTestId("backup-key-replace-dialog");
-	await expect(replace).toContainText("deletes that key from the server for good");
+	await expect(replace).toContainText(
+		"The current key is set aside on the server, readable only by root",
+	);
 	// Nothing has changed yet.
 	await replace.getByRole("button", { name: "Cancel" }).click();
 	await expect(replace).toHaveCount(0);
+	await expect(page.getByTestId("backup-key-upload")).toBeFocused();
 	await expect(page.getByTestId("backup-key-recipient")).toHaveText(
 		SERVER_KEY.recipient,
 	);
+
+	// Escape on the replace step also returns focus to "Upload backup key".
+	await page.getByTestId("backup-key-upload").click();
+	await page
+		.getByTestId("backup-key-upload-dialog")
+		.getByLabel("Backup key file")
+		.setInputFiles({
+			name: "portikus-backup-key.txt",
+			mimeType: "text/plain",
+			buffer: Buffer.from(OFFSITE_KEY.file),
+		});
+	await page
+		.getByTestId("backup-key-upload-dialog")
+		.getByTestId("dialog-confirm")
+		.click();
+	await expect(replace).toBeVisible();
+	await page.keyboard.press("Escape");
+	await expect(replace).toHaveCount(0);
+	await expect(page.getByTestId("backup-key-upload")).toBeFocused();
 
 	await page.getByTestId("backup-key-upload").click();
 	await page

@@ -358,8 +358,10 @@ Setup needs outgoing internet access to:
 - the Go module proxy (`proxy.golang.org`), to build Dex;
 - for Let's Encrypt, Let's Encrypt itself and Cloudflare's API.
 
-The firewall setup installs allows SSH (port 22), HTTP (port 80) and HTTPS
-(port 443) in, and nothing else. Port 80 only redirects browsers to HTTPS.
+The firewall setup installs allows SSH, HTTP (port 80) and HTTPS (port
+443) in, and nothing else. For SSH it opens whichever ports the SSH server
+itself reports through `sshd -T`, so a server that runs SSH on a port
+other than 22 keeps its connection. Port 80 only redirects browsers to HTTPS.
 Let's Encrypt does not need it: Portikus proves it owns the domain through
 a temporary DNS record (the DNS-01 check), not through port 80, so a
 server whose port 80 is blocked upstream still gets its certificates.

@@ -15,7 +15,9 @@
 #      apt install portikus, and follow setup to its end;
 #   6. sign in as the local administrator with /etc/portikus/admin-password,
 #      choose a new password and accept the acceptable-use statement;
-#   7. run the smoke test, with a full Dex sign-in as that administrator;
+#   7. run the smoke test, with a full Dex sign-in as that administrator,
+#      then rerun setup as after a failed first Caddy refresh: Caddy not
+#      installed, its repository added but its package lists missing;
 #   8. publish the second version, apt upgrade, follow setup again, and
 #      check the keyring, the services and a sign-in;
 #   9. with IMAGE_JOBS=1, the workspace image rehearsal
@@ -399,6 +401,21 @@ smoke() {
   grep -qE '[0-9]+ passed, 0 failed' "${LOGS}/smoke.txt"
 }
 
+# A rerun within the hour of a first run whose Caddy refresh failed: the
+# repository task reports no change and base's refresh is still fresh, so
+# only the role's own check can make apt see Caddy again.
+caddy_rerun() {
+  vm "sudo DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq caddy"
+  vm "sudo sh -c 'rm -f /var/lib/apt/lists/dl.cloudsmith.io_public_caddy_*'"
+  vm "apt-cache policy caddy" | tee "${LOGS}/caddy-policy.txt"
+  grep -q 'Candidate: (none)' "${LOGS}/caddy-policy.txt" || { echo "apt can still see Caddy; the case is not set up"; return 1; }
+  vm "sudo portikus setup" >"${LOGS}/setup-caddy-rerun.txt" 2>&1 || { tail -20 "${LOGS}/setup-caddy-rerun.txt"; return 1; }
+  grep -A1 'Refresh the apt index for the Caddy repository' "${LOGS}/setup-caddy-rerun.txt"
+  grep -A1 'Refresh the apt index for the Caddy repository' "${LOGS}/setup-caddy-rerun.txt" | grep -qE '^(ok|changed):'
+  vm "dpkg-query -W -f '\${Status} \${Version}\n' caddy" | grep -q '^install ok installed '
+  vm "curl -fsS --cacert /etc/portikus/caddy-root.crt -o /dev/null https://${PUBLIC_HOST}/health"
+}
+
 # ── 8: the upgrade ─────────────────────────────────────────────────
 
 upgrade() {
@@ -569,6 +586,7 @@ step "preseed and apt install portikus" install_package
 step "follow setup to its end (portikus setup --follow)" follow_setup install
 step "sign in with the one-time password and change it" first_signin
 step "smoke test, with the administrator's Dex sign-in" smoke
+step "setup converges after a failed first Caddy refresh" caddy_rerun
 step "apt upgrade to the second version" upgrade
 step "follow the upgrade's setup" follow_setup upgrade
 step "services, /health and sign-in after the upgrade" after_upgrade
