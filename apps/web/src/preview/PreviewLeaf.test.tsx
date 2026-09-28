@@ -102,6 +102,26 @@ test("a granted preview points the frame at the bootstrap URL", async () => {
 	);
 });
 
+test("the address has a toggletip saying only the student can open it", async () => {
+	stubFetch(() => json(200, GRANT));
+	show({});
+	await screen.findByTestId("preview-frame");
+	fireEvent.click(screen.getByRole("button", { name: "About the preview address" }));
+	expect((await screen.findByRole("dialog")).textContent).toBe(
+		"Your preview's own address. Only you can open it, after signing in to Portikus. It does not work for anyone else.",
+	);
+});
+
+test("a preview with no address yet has no address toggletip", () => {
+	stubFetch(() => json(200, GRANT));
+	// Until the listening list is in, the tab is connecting and has no grant.
+	show({ loaded: false });
+	expect(screen.getByTestId("preview-host").textContent).toBe("port 5173");
+	expect(
+		screen.queryByRole("button", { name: "About the preview address" }),
+	).toBeNull();
+});
+
 test("the frame carries the sandbox and permissions policy the design fixes", async () => {
 	stubFetch(() => json(200, GRANT));
 	show({});
@@ -525,6 +545,14 @@ test("the bar keeps host, Back, Forward, Reload and new tab; the rest is in the 
 	}
 	expect(screen.queryByTestId("preview-copy")).toBeNull();
 	expect(screen.getByRole("button", { name: "More preview actions" })).toBeTruthy();
+	// Back and Forward are icons with names, like the rest of the bar (review S7).
+	expect(screen.getByTestId("preview-back").textContent).toBe("");
+	expect(screen.getByRole("button", { name: "Back" })).toBe(
+		screen.getByTestId("preview-back"),
+	);
+	expect(screen.getByRole("button", { name: "Forward" })).toBe(
+		screen.getByTestId("preview-forward"),
+	);
 
 	openMore();
 	const menu = await screen.findByRole("menu", { name: "More preview actions" });

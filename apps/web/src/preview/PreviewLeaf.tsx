@@ -7,7 +7,6 @@
  * the application is rewritten, stripped or proxied here.
  */
 import {
-	Button,
 	ConfirmDialog,
 	ConfirmDialogRoot,
 	EmptyState,
@@ -19,6 +18,7 @@ import {
 	MenuRoot,
 	MenuSeparator,
 	MenuTrigger,
+	Toggletip,
 	useToast,
 } from "@portikus/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -419,29 +419,36 @@ export function PreviewLeaf({
 			hidden={!visible}
 		>
 			<div className="pk-preview-bar">
-				<span className="pk-preview-host" data-testid="preview-host" title={host}>
-					{host}
+				<span className="pk-preview-where">
+					<span className="pk-preview-host" data-testid="preview-host" title={host}>
+						{host}
+					</span>
+					{/* Grants go only to the workspace owner (routes/preview.ts). */}
+					{showingGrant ? (
+						<Toggletip label="the preview address">
+							Your preview's own address. Only you can open it, after signing in to
+							Portikus. It does not work for anyone else.
+						</Toggletip>
+					) : null}
 				</span>
 				{/* Always enabled: the frame is cross-origin, so whether it has
 				    somewhere to go back to cannot be read (issue #271). A press
 				    with nothing behind it does nothing and says so. */}
-				<Button
-					variant="quiet"
+				<IconButton
+					icon="arrow-left"
+					label="Back"
 					size="sm"
 					data-testid="preview-back"
 					title={backHint}
 					onClick={goBack}
-				>
-					Back
-				</Button>
-				<Button
-					variant="quiet"
+				/>
+				<IconButton
+					icon="arrow-right"
+					label="Forward"
 					size="sm"
 					data-testid="preview-forward"
 					onClick={goForward}
-				>
-					Forward
-				</Button>
+				/>
 				<IconButton
 					icon="restart"
 					label="Reload preview"

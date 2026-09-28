@@ -3,7 +3,7 @@
  * commit, one row each, opening the file's diff when it is clicked.
  */
 import type { GitStatus, Project } from "@portikus/contracts";
-import { Icon } from "@portikus/ui";
+import { Icon, Toggletip } from "@portikus/ui";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { useRecoveryPoints } from "../recovery/queries.js";
@@ -82,18 +82,28 @@ export function ChangesList({
 				</span>
 			</button>
 			{onReviewSession ? (
-				<button
-					ref={reviewButton}
-					type="button"
-					className="pk-changes-review"
-					data-testid="review-session"
-					onClick={() => {
-						moveFocusTo.current = "git";
-						onReviewSession();
-					}}
-				>
-					Review session changes
-				</button>
+				<div className="pk-changes-actions">
+					<button
+						ref={reviewButton}
+						type="button"
+						className="pk-changes-review"
+						data-testid="review-session"
+						onClick={() => {
+							moveFocusTo.current = "git";
+							onReviewSession();
+						}}
+					>
+						Review session changes
+					</button>
+					{/* Verified against recordBaseline and baselineStatus in the
+					    workspace agent's git.ts: ignored files are left out,
+					    except root .env files. */}
+					<Toggletip label="Review session changes">
+						Shows only what changed since this agent session started, not everything
+						since your last commit. Files Git ignores are left out, except .env files at
+						the project root.
+					</Toggletip>
+				</div>
 			) : null}
 			{onShowGit ? (
 				<button

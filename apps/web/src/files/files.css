@@ -252,6 +252,17 @@
 	color: var(--ink-muted);
 	cursor: pointer;
 }
+/* The review button and its toggletip share one row. */
+.pk-changes-actions {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	padding-inline-end: var(--space-2);
+}
+.pk-changes-actions > .pk-changes-review {
+	width: auto;
+	padding-block-end: 0;
+}
 .pk-changes-review:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);

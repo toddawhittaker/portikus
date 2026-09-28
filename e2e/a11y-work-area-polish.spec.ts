@@ -146,6 +146,57 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await expectNoViolations(page, '[role="tree"]');
 		});
 
+		test("Review session changes has a toggletip with no violations", async ({
+			page,
+			context,
+		}) => {
+			const student = await createStudent(context);
+			const project = await createProject(student.workspaceId, { name: "Review Tip" });
+			await page.goto(workspacePath(student.workspaceId, project.id));
+			await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+			await page.getByTestId("launcher").click();
+			await page.getByTestId("launcher-claude").click();
+			await expect(page.getByRole("tab", { name: /Claude Code/ })).toBeVisible();
+			// The fake agent takes no Git baseline, so give the session one.
+			await expect
+				.poll(
+					async () =>
+						(
+							await query(
+								"update terminals set baseline_object_id = $2 where project_id = $1 and agent = 'claude' returning id",
+								[project.id, "a".repeat(40)],
+							)
+						).length,
+				)
+				.toBe(1);
+			await page.reload();
+
+			const tip = page.getByRole("button", { name: "About Review session changes" });
+			await expect(tip).toBeVisible({ timeout: 15_000 });
+			await tip.focus();
+			await page.keyboard.press("Enter");
+			await expect(
+				page.getByRole("dialog", { name: "Review session changes" }),
+			).toHaveText(
+				"Shows only what changed since this agent session started, not everything since your last commit. Files Git ignores are left out, except .env files at the project root.",
+			);
+			await expectNoViolations(page, '[data-testid="changes-section"]');
+			await expectNoViolations(page, ".pk-toggletip-content");
+			await page.keyboard.press("Escape");
+			await expect(tip).toBeFocused();
+		});
+
+		test("Clone repository uses the download icon", async ({ page, context }) => {
+			const student = await createStudent(context);
+			await createProject(student.workspaceId, { name: "Icons" });
+			await page.goto(workspacePath(student.workspaceId));
+			await page.getByTestId("new-project").click();
+			const item = page.getByRole("menuitem", { name: "Clone repository…" });
+			await expect(item).toBeVisible({ timeout: 15_000 });
+			// The download arrow ends in a chevron; the old external icon did not.
+			await expect(item.locator('svg path[d="M7 10l5 5 5-5"]')).toHaveCount(1);
+		});
+
 		test("the terminal menu has a Light terminal checkbox", async ({
 			page,
 			context,
