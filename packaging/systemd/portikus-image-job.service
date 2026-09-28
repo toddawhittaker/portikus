@@ -8,6 +8,10 @@ Description=Portikus workspace image job
 After=incus.service network-online.target
 Wants=network-online.target
 ConditionPathIsDirectory=/var/lib/portikus/image-jobs
+# The path unit starts this once per request. systemd's default start limit
+# (5 in 10 seconds) would fail the path unit after a burst of requests and
+# stop every later job; the path unit's own trigger limit still stops a loop.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
@@ -24,6 +28,8 @@ IOSchedulingPriority=7
 # distrobuilder needs root with mounts, chroot and device nodes, and the
 # health check needs the Incus socket, so the sandbox stops at what those
 # allow. The request itself is only ever read as fixed kinds and choices.
+# No ProtectHostname: distrobuilder names its build's own UTS namespace, and
+# that filter refuses sethostname() ("Failed to set hostname").
 UMask=0022
 NoNewPrivileges=yes
 PrivateTmp=yes
@@ -31,7 +37,6 @@ ProtectHome=read-only
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectClock=yes
-ProtectHostname=yes
 RestrictRealtime=yes
 LockPersonality=yes
 SystemCallArchitectures=native

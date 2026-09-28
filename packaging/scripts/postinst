@@ -270,9 +270,10 @@ EOF
 elif [ -d /run/systemd/system ]; then
 	# Setup waits for the dpkg lock, so it must not block this script (ruling 10).
 	systemctl start --no-block portikus-setup.service
-	cat >&2 <<EOF
+	if [ -z "$2" ]; then
+		cat >&2 <<EOF
 
-Portikus setup is running in the background. It takes about fifteen minutes.
+Portikus setup is running in the background. It takes about ten minutes.
 
   1. Follow it with:  sudo portikus setup --follow
   2. When it finishes, read the administrator's one-time password with:
@@ -280,6 +281,15 @@ Portikus setup is running in the background. It takes about fifteen minutes.
   3. Sign in at https://$public_host as $admin_email and choose a new password.
 
 EOF
+	else
+		# An upgrade or a reconfigure: the administrator already exists.
+		cat >&2 <<EOF
+
+Portikus setup is running in the background to apply this change.
+Follow it with:  sudo portikus setup --follow
+
+EOF
+	fi
 else
 	cat >&2 <<EOF
 

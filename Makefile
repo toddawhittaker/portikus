@@ -3,7 +3,7 @@
 
 .PHONY: help install check typecheck lint format test test-coverage build test-e2e dev clean \
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
-       publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy \
+       publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy install-test \
        build-deb deploy-app build-workspace-image workspace-create workspace-destroy \
        backup-setup backup backup-install-timer backup-install-channel backup-install-key restore \
        mock-lms lti-mock-register lti-mock-unregister
@@ -100,6 +100,10 @@ rehearsal-up: ## Create or update the rehearsal VM beside the pilot and wait for
 
 rehearsal-destroy: ## Destroy the rehearsal VM, its disks, network and pool (never the pilot)
 	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt TOFU_DESTROY_CALLER=rehearsal-destroy tofu-destroy
+
+# The script fixes TOFU_ENV=rehearsal-libvirt and ignores VM_IP, so it cannot reach the pilot.
+install-test: ## apt install portikus on a fresh rehearsal VM from a local signed repository, claim the administrator, smoke test, upgrade, destroy it (IMAGE_JOBS=1 adds the image job rehearsal; KEEP_VM=1 keeps the VM)
+	IMAGE_JOBS=$(IMAGE_JOBS) KEEP_VM=$(KEEP_VM) bash infra/tests/install-test.sh
 
 # Refuses to start the VM when the host lacks its memory; a running VM is fine.
 rehearsal-preflight:

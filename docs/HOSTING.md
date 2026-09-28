@@ -22,7 +22,9 @@ libvirt VM inside it. It must have:
   installer's storage question offers it (on a physical server it is
   usually `/dev/nvme1n1`). Without one, the installer can use an existing
   LVM volume group or a file on the main disk, which is slower.
-- A public IPv4 address, with inbound TCP 22, 80 and 443.
+- A public IPv4 address, with inbound TCP 22 and 443. Port 80 is
+  optional: it only redirects browsers to HTTPS, and Let's Encrypt
+  certificates come through a DNS check that needs no inbound port.
 
 A rented host with a real domain name should use a public certificate
 from Let's Encrypt instead of Caddy's private one, which removes the

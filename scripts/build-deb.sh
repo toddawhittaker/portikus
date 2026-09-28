@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Build the portikus control-plane Debian package (ADR 0007, SPEC.md Epic 3.5).
 # Prints the package version as the last line of stdout.
+# PORTIKUS_VERSION overrides the version; PORTIKUS_ARCHIVE_KEYRING, an
+# ASCII-armored public key, replaces the shipped archive key (rehearsals only).
 set -euo pipefail
 
 NFPM_VERSION="2.47.0"
@@ -150,7 +152,13 @@ rm -f dist/deploy/ansible/collections/.complete
 rm -rf dist/deploy/ansible/collections/ansible_collections/*/*/tests
 chmod -R u=rwX,go=rX dist/deploy/ansible
 
-gpg --dearmor < packaging/portikus-archive-keyring.asc > dist/deploy/portikus-archive-keyring.gpg
+# A rehearsal package trusts a throwaway key instead of the real archive key,
+# so upgrades and image checks work against a local repository (install-test.sh).
+keyring="${PORTIKUS_ARCHIVE_KEYRING:-packaging/portikus-archive-keyring.asc}"
+if [ "$keyring" != packaging/portikus-archive-keyring.asc ]; then
+	echo "build-deb: this package trusts $keyring, not the Portikus archive key" >&2
+fi
+gpg --dearmor < "$keyring" > dist/deploy/portikus-archive-keyring.gpg
 
 mkdir -p dist/deb
 echo "$version" > dist/deb/VERSION

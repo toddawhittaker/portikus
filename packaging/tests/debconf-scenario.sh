@@ -69,9 +69,15 @@ setup_started() {
 	grep -qx 'start --no-block portikus-setup.service' /tmp/systemctl.log
 }
 
+# check_started [again] -- again: a reconfigure, which names only how to follow setup.
 check_started() {
 	setup_started || fail "setup was not started"
-	grep -qF 'sudo cat /etc/portikus/admin-password' /tmp/install.log || fail "the next steps were not printed"
+	grep -qF 'sudo portikus setup --follow' /tmp/install.log || fail "how to follow setup was not printed"
+	if [ "${1:-}" = again ]; then
+		! grep -qF 'admin-password' /tmp/install.log || fail "a reconfigure printed the first sign-in steps"
+	else
+		grep -qF 'sudo cat /etc/portikus/admin-password' /tmp/install.log || fail "the next steps were not printed"
+	fi
 }
 
 check_not_started() {
@@ -237,7 +243,7 @@ EOF
 	expect "$CONFIG" portikus_storage_size 3
 	expect "$SECRETS" portikus_dex_upstream_client_secret '"OIDC-SECRET-0123456789abcdef"'
 	check_no_leak OIDC-SECRET-0123456789abcdef
-	check_started
+	check_started again
 	# Switching to local accounts drops the provider's settings and secret.
 	echo 'portikus portikus/provider select dex' | debconf-set-selections
 	sed -i 's/^portikus_dex_upstream: .*/portikus_dex_upstream: none/' "$CONFIG"

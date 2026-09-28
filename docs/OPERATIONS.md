@@ -1234,6 +1234,68 @@ shares nothing with the pilot.
   8443 belongs to the pilot.
 - **Destroy it after every exercise** with `make rehearsal-destroy`,
   because it holds restored student data.
+- **`make install-test`** rehearses the operator's install
+  (docs/INSTALL.md) on a fresh rehearsal VM and destroys it at the end
+  (`infra/tests/install-test.sh`). It makes a throwaway signing key,
+  builds the package from the checkout so that it trusts that key, serves
+  a local signed apt repository and signed workspace image releases from
+  this host, preseeds a Dex-only install with Caddy's own certificate
+  authority, runs `apt install portikus` and follows setup, signs in with
+  `/etc/portikus/admin-password` and changes the password, runs the smoke
+  test, and then upgrades to a second version from the same repository.
+  `IMAGE_JOBS=1` adds the workspace image rehearsal
+  (`infra/tests/image-job-rehearsal.py`, about 90 minutes more), and
+  `KEEP_VM=1` leaves the VM for debugging. It refuses to start when a
+  rehearsal VM already exists. The image comes from the newest CI build
+  of `infra/workspace-image/`, downloaded once into
+  `~/.cache/portikus/rehearsal-image/`; CI keeps that build for one day,
+  so after the cache is lost, give `REHEARSAL_IMAGE_DIR=<dir>` holding
+  `incus.tar.xz`, `rootfs.squashfs` and `manifest.json`.
+
+## The package signing key
+
+One OpenPGP key signs the apt repository and every workspace image
+release (docs/EPIC-15.md, ruling 17). Its fingerprint is
+`9F6FD4CD5CC5C43AB5125705015D38802EF8D0F4`, and it does not expire.
+
+- **The public half** is committed as `packaging/portikus-archive-keyring.asc`.
+  The package installs it as
+  `/usr/share/keyrings/portikus-archive-keyring.gpg`, and the repository
+  publishes it beside itself. That file is an ordinary package file, not
+  a configuration file, so every upgrade writes it again (measured by
+  `make install-test`: the file's time and inode change on upgrade).
+- **The private half** exists only as the GitHub Actions secret
+  `APT_SIGNING_KEY` in the `publish` environment, which only the release
+  and image publish jobs can read, and in the maintainer's offline copy,
+  kept with the key's **revocation certificate**. Neither is on this host's
+  checkout or on any server.
+- **Rehearsals never use it.** `make install-test` makes a throwaway key
+  and builds a package that trusts it instead
+  (`PORTIKUS_ARCHIVE_KEYRING=<public key file> scripts/build-deb.sh`).
+  Such a package must never be published.
+
+**If the key is stolen or the secret leaks:**
+
+1. Delete the `APT_SIGNING_KEY` secret, so no workflow signs with it.
+2. On an offline machine, import the public key and the revocation
+   certificate (`gpg --import portikus-archive-keyring.asc
+   revocation-certificate.asc`), then export the revoked public key.
+3. Make a new key pair that does not expire, and its revocation
+   certificate, on the same offline machine. Put the new private key in
+   `APT_SIGNING_KEY`, and commit the new public key as
+   `packaging/portikus-archive-keyring.asc`.
+4. Cut a release. The release job signs the whole repository again with
+   the new key. Sign each image release still in use again too: sign its
+   `SHA256SUMS` with the new key (`gpg --armor --detach-sign`) and replace
+   `SHA256SUMS.asc` with `gh release upload <tag> SHA256SUMS.asc --clobber`.
+5. Publish the revoked old key beside the new one, and announce both, with
+   the new fingerprint, on the project's GitHub page.
+
+Operators then move to the new key by hand, as docs/INSTALL.md, "If the
+signing key is ever compromised", says. That is deliberate. Servers trust
+only the key file they hold, and a release signed with the stolen key
+could replace that file on upgrade, so a new key must come from the
+announcement, checked by its fingerprint, not from a package.
 
 ## VM disk files on the host
 

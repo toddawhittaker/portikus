@@ -51,6 +51,11 @@ EOF
 follow_setup() {
   invocation="$(systemctl show --property=InvocationID --value "${SETUP_UNIT}")"
   if [ -z "${invocation}" ]; then
+    # systemd forgets a finished run's ID when it unloads the unit; the journal keeps it.
+    invocation="$(journalctl --no-pager -u "${SETUP_UNIT}" -o export -n 20 2>/dev/null \
+      | sed -n 's/^INVOCATION_ID=//p; s/^_SYSTEMD_INVOCATION_ID=//p' | tail -n 1)"
+  fi
+  if [ -z "${invocation}" ]; then
     echo "portikus: ${SETUP_UNIT} is not running and has not run since boot; start it with: sudo portikus setup" >&2
     exit 1
   fi

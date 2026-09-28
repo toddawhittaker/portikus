@@ -11,8 +11,9 @@ workstation with Ansible) is for development only: the project's pilot and
 its rehearsal machine. You do not need it.
 
 Every command below runs on the server as root, or with `sudo` in front, as
-shown. Where a detail has not yet been checked on a real server it says
-"(to be confirmed in rehearsal)".
+shown. The steps were rehearsed on a fresh Debian 13 virtual machine
+(`make install-test`, docs/OPERATIONS.md, "The rehearsal VM"). Where a
+detail could not be checked that way, this guide says so.
 
 ## What you need
 
@@ -66,8 +67,10 @@ cat /etc/debian_version
 
 It should start with `13`. If your provider offers only Debian 12,
 install it and upgrade to 13 by following the Debian 13 release notes
-("Upgrades from Debian 12 (bookworm)"). This path has not been tested
-with Portikus (to be confirmed in rehearsal).
+("Upgrades from Debian 12 (bookworm)"). Portikus has not been tried on a
+server upgraded this way: every rehearsal starts from Debian 13's own
+image. Check that `/etc/debian_version` starts with `13` and that
+`sudo apt update` shows only `trixie` sources before you go on.
 
 "Example: an OVH dedicated server" at the end of this guide walks through
 one provider's steps.
@@ -88,8 +91,12 @@ the site itself. The second is a wildcard: each running student
 application gets its own name under `preview.<site name>`, such as
 `alice-5173.preview.portikus.example.edu`, and one wildcard record sends
 all of them to the server. If your DNS is at Cloudflare, set both records
-to "DNS only" (the grey cloud), not proxied (to be confirmed in
-rehearsal).
+to "DNS only" (the grey cloud), not proxied. Cloudflare's free proxy
+certificate covers only one level of names below your domain, so it
+cannot serve `alice-5173.preview.portikus.example.edu`, and the proxy
+would also stand between students and the server's own certificate.
+The rehearsals made no public records, so this follows Cloudflare's
+documentation rather than a test.
 
 Check the first record from your own computer before going on:
 
@@ -99,9 +106,17 @@ host portikus.example.edu
 
 ## Adding the Portikus package repository
 
-Fetch the repository's signing key and tell apt where the repository is.
-The first command downloads the key; the second adds the repository and
-says that only this key may sign it.
+A fresh Debian 13 may lack the two tools this needs, `curl` to download
+and `gpg` to check the key, so install them first:
+
+```
+sudo apt update
+sudo apt install -y curl gpg
+```
+
+Then fetch the repository's signing key and tell apt where the repository
+is. The first command downloads the key; the second adds the repository
+and says that only this key may sign it.
 
 ```
 sudo curl -fsSL -o /usr/share/keyrings/portikus-archive-keyring.gpg https://toddawhittaker.github.io/portikus/apt/portikus-archive-keyring.gpg
@@ -122,8 +137,9 @@ The fingerprint it prints must be exactly:
 
 (Written in groups: `9F6F D4CD 5CC5 C43A B512 5705 015D 3880 2EF8 D0F4`.)
 If it differs, stop, delete the file and the list, and report it: someone
-may be tampering with your download. The package later installs the same
-key at the same path, so apt keeps trusting it across upgrades.
+may be tampering with your download. The package installs the same key
+at the same path and writes it again on every upgrade, so apt keeps
+trusting it across upgrades.
 
 ## Installing
 
@@ -291,7 +307,7 @@ Yes saves the answers and starts setup. No goes back.
 When the answers are complete, apt finishes and prints:
 
 ```
-Portikus setup is running in the background. It takes about fifteen minutes.
+Portikus setup is running in the background. It takes about ten minutes.
 
   1. Follow it with:  sudo portikus setup --follow
   2. When it finishes, read the administrator's one-time password with:
@@ -309,7 +325,9 @@ setup succeeded; when setup failed it says so, with how to read the log
 and rerun it with `sudo portikus setup`. Pressing Ctrl-C only stops the
 watching, not setup.
 
-Setup takes about fifteen minutes (to be confirmed in rehearsal). It uses
+In rehearsal on a fresh Debian 13 machine with 12 processor cores, setup
+took six to seven minutes; allow up to fifteen on a slower machine or network
+(docs/OPERATIONS.md, "The rehearsal VM"). It uses
 the Ansible roles shipped in the package to set up, on this server: the
 nftables firewall, the student storage pool, Incus (the container system
 that runs each student's workspace) and its network, PostgreSQL, Caddy
@@ -328,8 +346,11 @@ Setup needs outgoing internet access to:
 - the Go module proxy (`proxy.golang.org`), to build Dex;
 - for Let's Encrypt, Let's Encrypt itself and Cloudflare's API.
 
-The firewall setup installs allows SSH (port 22), HTTP (port 80, used for
-Let's Encrypt's check) and HTTPS (port 443) in, and nothing else.
+The firewall setup installs allows SSH (port 22), HTTP (port 80) and HTTPS
+(port 443) in, and nothing else. Port 80 only redirects browsers to HTTPS.
+Let's Encrypt does not need it: Portikus proves it owns the domain through
+a temporary DNS record (the DNS-01 check), not through port 80, so a
+server whose port 80 is blocked upstream still gets its certificates.
 
 ## First sign-in
 
@@ -358,8 +379,14 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
   Users view (docs/ADMIN-GUIDE.md).
 - **Backups.** Nightly backups are pulled by a second machine over SSH and
   encrypted there (docs/OPERATIONS.md, "Backups"). Set that up before
-  students store work. How a second machine reaches a server installed
-  this way is (to be confirmed in rehearsal).
+  students store work. Today the second machine is a Linux machine with a
+  checkout of the Portikus repository, which runs `infra/host/backup.sh`
+  (as `make backup` does). It signs in over SSH as an account named
+  `deploy` that has passwordless `sudo` on the server, so make that
+  account on the server and give it the second machine's SSH key. A
+  rehearsal pulled a complete set from an apt-installed server this way.
+  Keeping backups on the server itself, with no second machine, is
+  planned.
 - **Own certificate authority only.** Each browser that uses the site must
   trust Caddy's root certificate, which setup copies to
   `/etc/portikus/caddy-root.crt`. Copy it to your computer, for example
@@ -437,9 +464,9 @@ server is applied too. Follow it with `sudo portikus setup --follow`.
 - **Let's Encrypt or DNS failures.** Check both DNS records point at the
   server (`host portikus.example.edu` and
   `host test.preview.portikus.example.edu`), that the Cloudflare token has
-  "Edit zone DNS" for the right domain, and that ports 80 and 443 reach
-  the server. To replace the token, run `sudo dpkg-reconfigure portikus`
-  and paste the new one. Let's Encrypt limits repeated failures, so fix
+  "Edit zone DNS" for the right domain, and that port 443 reaches the
+  server. Port 80 plays no part in getting the certificate. To replace
+  the token, run `sudo dpkg-reconfigure portikus` and paste the new one. Let's Encrypt limits repeated failures, so fix
   the cause before retrying many times. Caddy's own log is in
   `sudo journalctl -u caddy`.
 - **Setup waits at the start.** Setup waits up to fifteen minutes for
@@ -457,12 +484,18 @@ refuses updates signed by anyone else, which is the point. When a new key
 is announced, fetch it over the same address as above, check its new
 fingerprint against the announcement, and run `sudo apt update`. Do not
 trust a new key that has not been announced on the project's GitHub page.
+Do not rely on an upgrade to bring the new key either. The package writes
+its own copy of the key file on every upgrade, and a package signed with a
+stolen key could write any key there. Only a key whose fingerprint you
+checked against the announcement is safe.
 
 ## Example: an OVH dedicated server
 
 One way to get a server: these steps follow OVH's control panel for an
 Eco dedicated server, which docs/HOSTING.md recommends. Other providers
-differ. The menu names are (to be confirmed in rehearsal).
+differ. The menu names were not checked against a live OVH account; if one
+differs, look on the server's page for the action that installs or
+reinstalls the operating system.
 
 1. Order the SYS-GAME-2 (docs/HOSTING.md, "Recommendation"). Pick the US
    data centre (Vint Hill, Virginia) if your students are in the US.
@@ -502,5 +535,5 @@ differ. The menu names are (to be confirmed in rehearsal).
 
 If OVH's installer does not offer Debian 13, install Debian 12 and upgrade
 it to 13 by following the Debian 13 release notes ("Upgrades from Debian 12
-(bookworm)"). This path has not been tested with Portikus (to be confirmed
-in rehearsal).
+(bookworm)"). Portikus has not been tried on a server upgraded this way
+(see "Before you install Debian").
