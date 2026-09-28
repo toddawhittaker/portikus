@@ -26,12 +26,15 @@ function CourseFrame({ children }: { children: React.ReactNode }) {
 	return (
 		<div className="pk-root">
 			<AppHeader user={me.user} workspace={null} project={undefined} context="Course" />
+			{/* The admin page's frame (SPEC.md section 20.1): <main> scrolls, content
+			    at most 1440 px wide, compact density. */}
 			<main
 				className="flex-1 overflow-auto p-8"
 				data-testid="page-course"
+				data-density="compact"
 				aria-labelledby="course-title"
 			>
-				{children}
+				<div className="mx-auto w-full max-w-[1440px]">{children}</div>
 			</main>
 		</div>
 	);
@@ -179,66 +182,64 @@ function CourseMembers() {
 				{removedText}
 			</span>
 			{data && data.members.length > 0 ? (
-				<table
-					className="mt-4 w-full text-left text-[13px]"
-					data-testid="course-members"
-				>
-					<caption className="sr-only">
-						People who have opened Portikus from this course
-					</caption>
-					<thead>
-						<tr className="pk-text-label text-ink-muted">
-							<th scope="col" className="py-2 pr-4 font-medium">
-								Name
-							</th>
-							<th scope="col" className="py-2 pr-4 font-medium">
-								Role
-							</th>
-							<th scope="col" className="py-2 pr-4 font-medium">
-								Last launch
-							</th>
-							<th scope="col" className="py-2 pr-4 font-medium">
-								Workspace
-							</th>
-							<th scope="col" className="py-2 font-medium">
-								<span className="sr-only">Actions</span>
-							</th>
-						</tr>
-					</thead>
-					<tbody>
-						{data.members.map((member) => (
-							<tr key={member.userId} className="border-line border-t">
-								<th scope="row" className="py-2 pr-4 font-normal">
-									{member.displayName}
+				// overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main>.
+				<div className="pk-table-wrap mt-4 overflow-clip">
+					<table className="pk-table pk-table--page" data-testid="course-members">
+						<caption className="sr-only">
+							People who have opened Portikus from this course
+						</caption>
+						<thead>
+							<tr>
+								<th scope="col">Name</th>
+								<th scope="col">Role</th>
+								<th scope="col">Last launch</th>
+								<th scope="col">Workspace</th>
+								<th scope="col" className="pk-cell-actions">
+									<span className="sr-only">Actions</span>
 								</th>
-								<td className="py-2 pr-4">{ROLE_LABEL[member.role]}</td>
-								<td className="py-2 pr-4">{launchText(member.lastLaunchAt)}</td>
-								<td className="py-2 pr-4">
-									{member.workspaceState ? (
-										<StateBadge state={member.workspaceState} statusRole={false} />
-									) : (
-										"No workspace"
-									)}
-								</td>
-								<td className="py-2">
-									{member.userId === myId ? null : (
-										<Button
-											size="sm"
-											data-remove-id={member.userId}
-											onClick={() => {
-												removedNext.current = null;
-												setRemoving(member);
-											}}
-										>
-											Remove{" "}
-											<span className="sr-only">{member.displayName} from course</span>
-										</Button>
-									)}
-								</td>
 							</tr>
-						))}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{data.members.map((member) => (
+								<tr key={member.userId}>
+									<th scope="row" className="font-semibold">
+										{member.displayName}
+									</th>
+									<td>{ROLE_LABEL[member.role]}</td>
+									<td>
+										<time dateTime={member.lastLaunchAt}>
+											{launchText(member.lastLaunchAt)}
+										</time>
+									</td>
+									<td>
+										{member.workspaceState ? (
+											<StateBadge state={member.workspaceState} statusRole={false} />
+										) : (
+											<span className="pk-cell-muted">No workspace</span>
+										)}
+									</td>
+									<td className="pk-cell-actions">
+										{member.userId === myId ? null : (
+											<Button
+												size="sm"
+												data-remove-id={member.userId}
+												onClick={() => {
+													removedNext.current = null;
+													setRemoving(member);
+												}}
+											>
+												Remove{" "}
+												<span className="sr-only">
+													{member.displayName} from course
+												</span>
+											</Button>
+										)}
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
 			) : null}
 			{data && removing ? (
 				<RemoveMemberConfirm

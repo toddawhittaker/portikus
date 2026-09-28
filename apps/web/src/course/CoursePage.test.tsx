@@ -143,6 +143,38 @@ test("the members table shows name, role, last launch and workspace state", asyn
 	expect(document.title).toBe(`${CS101.title}, Portikus`);
 });
 
+test("the members table uses the admin page's table and frame", async () => {
+	serve({
+		[`/courses/${CS101.id}/members`]: () =>
+			json(200, {
+				course: CS101,
+				members: [
+					{
+						userId: SAM_ID,
+						displayName: "Sam Student",
+						role: "student",
+						lastLaunchAt: "2026-09-22T09:00:00.000Z",
+						workspaceState: null,
+					},
+				],
+			}),
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	const table = await screen.findByTestId("course-members");
+	expect(table.className).toBe("pk-table pk-table--page");
+	// The wrap may not scroll, so the header sticks to the scrolling <main>.
+	expect(table.parentElement?.className).toContain("pk-table-wrap");
+	expect(table.parentElement?.className).toContain("overflow-clip");
+	const main = screen.getByTestId("page-course");
+	expect(main.getAttribute("data-density")).toBe("compact");
+	expect(main.firstElementChild?.className).toContain("max-w-[1440px]");
+	// The launch time is machine-readable as well as shown in the local format.
+	expect(table.querySelector("time")?.getAttribute("datetime")).toBe(
+		"2026-09-22T09:00:00.000Z",
+	);
+});
+
 test("a course the caller does not teach looks like nothing", async () => {
 	serve({});
 	renderApp(`/course/${CS240.id}`);

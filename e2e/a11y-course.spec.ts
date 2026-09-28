@@ -13,24 +13,33 @@ async function expectNoViolations(page: Page, include?: string) {
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
-test("the Course page has no automatic accessibility violations", async ({
-	browser,
-}) => {
-	const samContext = await browser.newContext({ baseURL: WEB_ORIGIN });
-	await launchAs(await samContext.newPage(), { person: "sam", course: "cs240" });
-	await samContext.close();
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the Course page has no automatic accessibility violations (${colorScheme})`, async ({
+		browser,
+	}) => {
+		const samContext = await browser.newContext({ baseURL: WEB_ORIGIN });
+		await launchAs(await samContext.newPage(), { person: "sam", course: "cs240" });
+		await samContext.close();
 
-	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
-	try {
-		const page = await context.newPage();
-		await launchAs(page, { person: "tom", course: "cs240" });
-		const course = await openCourseTab(page);
-		await expect(course.getByRole("table")).toBeVisible();
-		await expectNoViolations(course);
-	} finally {
-		await context.close();
-	}
-});
+		const context = await browser.newContext({ baseURL: WEB_ORIGIN, colorScheme });
+		try {
+			const page = await context.newPage();
+			await launchAs(page, { person: "tom", course: "cs240" });
+			const course = await openCourseTab(page);
+			const table = course.getByRole("table");
+			await expect(table).toBeVisible();
+			// The admin page's table and compact frame (SPEC.md section 20.1).
+			await expect(table).toHaveClass("pk-table pk-table--page");
+			await expect(course.getByTestId("page-course")).toHaveAttribute(
+				"data-density",
+				"compact",
+			);
+			await expectNoViolations(course);
+		} finally {
+			await context.close();
+		}
+	});
+}
 
 test("the open-in-a-new-tab page has no automatic accessibility violations", async ({
 	page,

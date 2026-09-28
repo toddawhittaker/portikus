@@ -1,10 +1,11 @@
-import type { AuditEvent } from "@portikus/contracts";
+import type { AdminUser, AuditEvent } from "@portikus/contracts";
 import { Button, TextField } from "@portikus/ui";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { UUID } from "../../links.js";
 import { AdminSection } from "../AdminSection.js";
+import { useAdminUsers } from "../queries.js";
 import { shortTime } from "../shortTime.js";
 import { type AuditFilters, useAuditPage } from "./queries.js";
 
@@ -21,27 +22,89 @@ export function filtersFromSearch(search: Record<string, unknown>): AuditFilters
 	};
 }
 
+/** The people the Person field can name; only the fields it matches on. */
+type Person = Pick<AdminUser, "id" | "displayName" | "email" | "preferredUsername">;
+
+/**
+ * The user ID the Person field names: a display name, email or username
+ * (any case), or a pasted user ID. Returns an error to show instead when the
+ * text names nobody, or more than one person.
+ */
+export function resolvePerson(
+	text: string,
+	people: Person[] | undefined,
+): { id: string } | { error: string } {
+	const typed = text.trim();
+	if (typed === "") return { id: "" };
+	if (UUID.test(typed)) return { id: typed.toLowerCase() };
+	if (!people) {
+		return { error: "The list of people is still loading. Try again in a moment." };
+	}
+	const wanted = typed.toLowerCase();
+	const found = people.filter((person) =>
+		[person.displayName, person.email, person.preferredUsername].some(
+			(value) => value?.toLowerCase() === wanted,
+		),
+	);
+	if (found.length === 1 && found[0]) return { id: found[0].id };
+	if (found.length > 1) {
+		return {
+			error: `More than one person matches "${typed}". Type their email instead.`,
+		};
+	}
+	return { error: `No one matches "${typed}". Choose a name from the list.` };
+}
+
+/**
+ * The text a person's suggestion fills in: their name, or their email when
+ * someone else has the same name, so every suggestion resolves to one person.
+ */
+export function suggestionValue(person: Person, people: Person[]): string {
+	const shared = people.some(
+		(other) => other.id !== person.id && other.displayName === person.displayName,
+	);
+	return shared
+		? (person.email ?? person.preferredUsername ?? person.id)
+		: person.displayName;
+}
+
+/** "Alice Student" for a user, "Alice Student's workspace" for their workspace, else null. */
+export function targetLabel(id: string, users: AdminUser[] | undefined): string | null {
+	for (const user of users ?? []) {
+		if (user.id === id) return user.displayName;
+		if (user.workspace?.id === id) return `${user.displayName}'s workspace`;
+	}
+	return null;
+}
+
 /**
  * The Audit tab of the admin page (SPEC.md §24.11): newest first, 50 rows a
- * page, filtered by target, user and action prefix. The target filter keeps
- * the `workspace` URL key so older links still work.
+ * page, filtered by person and action prefix. A target link filters by that
+ * target, under the `workspace` URL key so older links still work.
  */
 export function AuditTab() {
 	const search = useSearch({ strict: false }) as Record<string, unknown>;
 	const filters = filtersFromSearch(search);
 	const key = JSON.stringify(filters);
 	const navigate = useNavigate();
-	const [draft, setDraft] = useState(filters);
+	const users = useAdminUsers().data?.users;
+	// null until typed in, so the field shows the filtered person's name once the list loads.
+	const [personDraft, setPersonDraft] = useState<string | null>(null);
+	const [actionDraft, setActionDraft] = useState(filters.action);
 	const [draftKey, setDraftKey] = useState(key);
-	const [invalid, setInvalid] = useState<{ workspace: boolean; user: boolean }>({
-		workspace: false,
-		user: false,
-	});
+	const [personError, setPersonError] = useState<string | null>(null);
 	// A new link (for example "All events" from a workspace) refills the form.
 	if (draftKey !== key) {
 		setDraftKey(key);
-		setDraft(filters);
+		setPersonDraft(null);
+		setActionDraft(filters.action);
+		setPersonError(null);
 	}
+	const personValue =
+		personDraft ??
+		(filters.user
+			? (users?.find((user) => user.id === filters.user)?.displayName ?? filters.user)
+			: "");
 
 	// Filters live in the URL so a filtered view can be linked.
 	function show(next: AuditFilters) {
@@ -58,59 +121,57 @@ export function AuditTab() {
 
 	function apply(event: FormEvent) {
 		event.preventDefault();
-		const next = {
-			workspace: draft.workspace.trim(),
-			user: draft.user.trim(),
-			action: draft.action.trim(),
-		};
-		// The router drops an ID that is not a UUID, so say so instead.
-		const bad = {
-			workspace: next.workspace !== "" && !UUID.test(next.workspace),
-			user: next.user !== "" && !UUID.test(next.user),
-		};
-		setInvalid(bad);
-		if (bad.workspace || bad.user) return;
-		show(next);
+		const person =
+			personDraft === null ? { id: filters.user } : resolvePerson(personDraft, users);
+		if ("error" in person) {
+			setPersonError(person.error);
+			return;
+		}
+		setPersonError(null);
+		show({ workspace: filters.workspace, user: person.id, action: actionDraft.trim() });
 	}
 
 	function clear() {
-		setInvalid({ workspace: false, user: false });
+		setPersonDraft("");
+		setPersonError(null);
 		show({ workspace: "", user: "", action: "" });
 	}
 
+	const targetName = filters.workspace ? targetLabel(filters.workspace, users) : null;
+
 	return (
 		<AdminSection title="Audit">
-			<form className="pk-actions items-end" onSubmit={apply}>
+			<form className="pk-actions items-start" onSubmit={apply}>
 				<TextField
-					id="audit-workspace"
-					label="Target ID"
+					id="audit-person"
+					label="Person"
 					className="w-80"
-					data-testid="audit-filter-workspace"
-					value={draft.workspace}
-					error={invalid.workspace ? INVALID_ID_TEXT : undefined}
-					onChange={(event) => setDraft({ ...draft, workspace: event.target.value })}
+					list="audit-people"
+					autoComplete="off"
+					data-testid="audit-filter-person"
+					value={personValue}
+					error={personError ?? undefined}
+					onChange={(event) => setPersonDraft(event.target.value)}
 				/>
-				<TextField
-					id="audit-user"
-					label="User ID"
-					className="w-80"
-					data-testid="audit-filter-user"
-					value={draft.user}
-					error={invalid.user ? INVALID_ID_TEXT : undefined}
-					onChange={(event) => setDraft({ ...draft, user: event.target.value })}
-				/>
+				<datalist id="audit-people">
+					{(users ?? []).map((user) => (
+						<option key={user.id} value={suggestionValue(user, users ?? [])}>
+							{user.email ?? user.preferredUsername ?? ""}
+						</option>
+					))}
+				</datalist>
 				<TextField
 					id="audit-action"
 					label="Action starts with"
 					className="w-48"
 					placeholder="workspace."
 					data-testid="audit-filter-action"
-					value={draft.action}
-					onChange={(event) => setDraft({ ...draft, action: event.target.value })}
+					value={actionDraft}
+					onChange={(event) => setActionDraft(event.target.value)}
 				/>
 				{/* mt-6 is LABEL_CLASS's 18 px line plus FIELD_CLASS's 6 px gap, so the
 				    buttons line up with the inputs even when a field shows an error. */}
-				<div className="mt-6 flex gap-2 self-start">
+				<div className="mt-6 flex gap-2">
 					<Button variant="primary" type="submit" data-testid="audit-filter-apply">
 						Apply filters
 					</Button>
@@ -118,15 +179,35 @@ export function AuditTab() {
 						Clear
 					</Button>
 				</div>
+				{filters.workspace ? (
+					<div
+						className="flex basis-full items-center gap-2 pk-text-compact"
+						data-testid="audit-filter-target"
+					>
+						<span className="min-w-0">
+							Only events about{" "}
+							{targetName ? (
+								<strong className="font-semibold">{targetName}</strong>
+							) : (
+								<IdText full={filters.workspace} short={shortId(filters.workspace)} />
+							)}
+						</span>
+						<Button
+							size="sm"
+							type="button"
+							data-testid="audit-filter-target-remove"
+							onClick={() => show({ ...filters, workspace: "" })}
+						>
+							Show all targets
+						</Button>
+					</div>
+				) : null}
 			</form>
 			{/* Only the results re-key on new filters, so the focused form button stays. */}
 			<AuditResults key={key} filters={filters} />
 		</AdminSection>
 	);
 }
-
-export const INVALID_ID_TEXT =
-	"Enter a full ID, as shown in the workspace detail panel.";
 
 function AuditResults({ filters }: { filters: AuditFilters }) {
 	// The `before` cursor of every page shown so far; the last one is current.
@@ -240,22 +321,39 @@ function AuditRow({ event }: { event: AuditEvent }) {
 					<span className="sr-only">{new Date(event.at).toLocaleString()}</span>
 				</time>
 			</td>
-			<td title={event.actor}>
-				{event.actorName ?? <IdText full={event.actor} short={actorShort} />}
+			<td title={event.actorName ? `${event.actorName}, ${event.actor}` : event.actor}>
+				{event.actorName ? (
+					<span className="block max-w-[24ch] truncate">{event.actorName}</span>
+				) : (
+					<IdText full={event.actor} short={actorShort} />
+				)}
 			</td>
 			<td className="font-mono">{event.action}</td>
 			<td>
 				{UUID.test(event.target) ? (
-					<Link
-						to="/admin"
-						search={{ tab: "audit", workspace: event.target }}
-						className="pk-focus-ring pk-mono-small text-[var(--accent-text)] underline"
-						title={event.target}
-						aria-label={`Show events for target ${event.target}`}
-						data-testid="audit-target-link"
-					>
-						{shortId(event.target)}
-					</Link>
+					<span className="pk-cell-stack">
+						<Link
+							to="/admin"
+							search={{ tab: "audit", workspace: event.target }}
+							className={
+								event.targetName
+									? "pk-focus-ring block max-w-[24ch] truncate text-[var(--accent-text)] underline"
+									: "pk-focus-ring pk-mono-small text-[var(--accent-text)] underline"
+							}
+							title={
+								event.targetName ? `${event.targetName}, ${event.target}` : event.target
+							}
+							aria-label={`Show events for target ${event.targetName ? `${event.targetName}, ` : ""}${event.target}`}
+							data-testid="audit-target-link"
+						>
+							{event.targetName ?? shortId(event.target)}
+						</Link>
+						{event.targetName ? (
+							<span className="pk-cell-secondary pk-mono-small" aria-hidden="true">
+								{shortId(event.target)}
+							</span>
+						) : null}
+					</span>
 				) : (
 					<span className="pk-mono-small">{event.target}</span>
 				)}
