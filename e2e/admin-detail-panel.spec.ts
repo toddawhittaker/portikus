@@ -1,5 +1,6 @@
 import * as crypto from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
+import { backupSet, hostStatus } from "./backup-channel";
 import {
 	createStudent,
 	loginAs,
@@ -129,10 +130,19 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 	await expect(
 		panel.getByRole("button", { name: `Close details for ${name}` }),
 	).toBeFocused();
-	// The Workspace section comes first; Rebuild stays focusable while it cannot act.
+	// The Workspace section comes first, starting with Restore from backup.
+	await page.keyboard.press("Tab");
+	await expect(
+		panel.getByRole("button", { name: `Restore from backup: ${name}'s workspace` }),
+	).toBeFocused();
+	// Rebuild stays focusable while it cannot act, with its toggletip after it.
 	await page.keyboard.press("Tab");
 	await expect(
 		panel.getByRole("button", { name: `Rebuild workspace for ${name}` }),
+	).toBeFocused();
+	await page.keyboard.press("Tab");
+	await expect(
+		panel.getByRole("button", { name: "About Rebuild workspace" }),
 	).toBeFocused();
 
 	// Scroll the page to the bottom of the long table; the panel stays in view.
@@ -379,6 +389,104 @@ for (const scheme of ["light", "dark"] as const) {
 
 		await panel.getByTestId("detail-limits-edit").click();
 		await expect(page.getByTestId("limits-dialog")).toBeVisible();
+		await expectNoViolations(page);
+	});
+}
+
+test("Restore from backup restores this workspace from a set that holds it", async ({
+	page,
+	browser,
+}) => {
+	const student = await namedStudent(browser, "Restore");
+	const [row] = await query<{ incus_instance_name: string }>(
+		"select incus_instance_name from workspaces where id = $1",
+		[student.workspaceId],
+	);
+	const instance = row?.incus_instance_name ?? "";
+	const stamp = "20260924T023000Z";
+	// The backup host is played by stubbing its report, so this spec never
+	// touches the shared backup channel the Backups tab's serial tests use.
+	await page.route("**/admin/backups", async (route) => {
+		if (route.request().method() !== "GET") return route.fallback();
+		const response = await route.fetch();
+		const body = await response.json();
+		body.host = hostStatus({ sets: [backupSet(stamp, [instance])] });
+		body.hostReportedAt = new Date().toISOString();
+		body.hostStale = false;
+		// The API lists only the workspaces a reported set holds.
+		body.workspaces = [
+			{
+				id: student.workspaceId,
+				instance,
+				label: "restore-e2e",
+				ownerName: student.name,
+				state: "running",
+			},
+		];
+		await route.fulfill({ response, json: body });
+	});
+	let sent: unknown = null;
+	await page.route("**/admin/backups/restores", async (route) => {
+		sent = route.request().postDataJSON();
+		await route.fulfill({
+			status: 202,
+			json: {
+				id: crypto.randomUUID(),
+				kind: "restore_copy",
+				args: { stamp, instance, dir: "restored-2026-09-24-0230" },
+				state: "pending",
+				requestedAt: new Date().toISOString(),
+				claimedAt: null,
+				finishedAt: null,
+				error: null,
+				workspaceId: student.workspaceId,
+				result: null,
+			},
+		});
+	});
+
+	const panel = await openPanel(page, student.name);
+	const open = panel.getByRole("button", {
+		name: `Restore from backup: ${student.name}'s workspace`,
+	});
+	await open.click();
+	const dialog = page.getByRole("dialog", { name: "Restore from backup" });
+	await expect(dialog.getByTestId("backup-restore-folder")).toHaveText(
+		"~/restored-2026-09-24-0230",
+	);
+	await dialog.getByTestId("backup-restore-confirm").click();
+	await expect(toast(page, "Restore requested")).toBeVisible();
+	await expect(dialog).toHaveCount(0);
+	expect(sent).toEqual({ stamp, workspaceId: student.workspaceId });
+	await expect(open).toBeFocused();
+});
+
+test("a toggletip opens from the keyboard, explains, and gives focus back on Escape", async ({
+	page,
+	browser,
+}) => {
+	const student = await namedStudent(browser, "Tips");
+	const panel = await openPanel(page, student.name);
+	const about = panel.getByRole("button", { name: "About Last input" });
+	await about.focus();
+	await page.keyboard.press("Enter");
+	const tip = page.getByRole("dialog", { name: "Last input" });
+	await expect(tip).toContainText("Idle stop counts from here.");
+	await page.keyboard.press("Escape");
+	await expect(tip).toHaveCount(0);
+	await expect(about).toBeFocused();
+});
+
+for (const scheme of ["light", "dark"] as const) {
+	test(`an open toggletip in the panel has no automatic violations (${scheme})`, async ({
+		page,
+		browser,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		const student = await namedStudent(browser, `A11y tip ${scheme}`);
+		const panel = await openPanel(page, student.name);
+		await panel.getByRole("button", { name: "About Rebuild workspace" }).click();
+		await expect(page.getByRole("dialog", { name: "Rebuild workspace" })).toBeVisible();
 		await expectNoViolations(page);
 	});
 }

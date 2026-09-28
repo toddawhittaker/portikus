@@ -18,13 +18,16 @@ import {
 	type DesiredState,
 	IconButton,
 	resolveWorkspaceState,
+	Toggletip,
 	useToast,
 	type WorkspaceState,
 } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
+import type * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { formatBytes, formatCpu } from "../monitor/format.js";
 import { PENDING_LABEL } from "../shell/StatusBar.js";
+import { RestoreFromBackupDialog } from "./backups/BackupDialogs.js";
 import { ConfirmByLabelDialog } from "./ConfirmByLabelDialog.js";
 import { DexUserActions } from "./DexUserDialogs.js";
 import { GraceDialog, graceValueText } from "./GraceDialog.js";
@@ -68,6 +71,75 @@ import {
 
 /** Every section heading in the panel: small, bold and quiet (Epic 25, S5). */
 export const SECTION_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
+
+/** Help text for the panel's toggletips, checked against the code (Epic 25, phase 2). */
+export const PANEL_HELP = {
+	reprovision:
+		"Creates the workspace again after it failed. Its home folder and files are kept.",
+	rebuild:
+		"Recreates the workspace from the current image. Anything installed with sudo apt is lost. Projects, home and, unless you untick it, Docker data stay.",
+	resetDocker:
+		"Deletes every Docker image, container and volume in this workspace. Use it when Docker is stuck or full. Projects and home stay.",
+	archive:
+		"Stops the workspace and keeps it stopped until you unarchive it. Its files are kept. Use it at the end of a term.",
+	storage:
+		"Home holds projects and files. Docker holds images and volumes. Recovery holds recovery points. Home and Docker can only grow.",
+	limits:
+		"The most CPU, memory and processes this workspace may use. A site value comes from the workspace profile, shown on the Health tab.",
+	grace:
+		"How long this person's workspace keeps running after their last browser tab closes. Without an override, the site setting applies.",
+	cpu: "Throttled means the workspace's CPU use averaged above the threshold for the whole window, so it now gets a smaller share. It gets full speed back after a quiet spell, or now with Lift throttle.",
+	memory:
+		"High memory is a flag only. Nothing is slowed. It stays until you clear it or the workspace stops.",
+	lastInput:
+		"The student's last key press in the page, file save or preview page load; a start counts too. Idle stop counts from here. Your own visits never count.",
+	preview:
+		"Reachable and forwarded ports open in a preview; forwarded means Portikus relays a port that listens only inside the workspace. Unknown ports are relayed when a preview first opens them. System marks the workspace's own services.",
+	promote:
+		"Makes this person an administrator from their next page load. Only SSO accounts can be given a role here.",
+	makeInstructor:
+		"Lets them open the Course page for courses they teach, from their next page load. Only SSO accounts can be given a role here; course accounts teach through their learning system.",
+	disable:
+		"Signs them out everywhere, closes their previews and stops their workspace. Nothing is deleted, and you can enable them again.",
+} as const;
+
+/** A definition term with its toggletip beside it. */
+function TipTerm({
+	children,
+	label,
+	tip,
+}: {
+	children: string;
+	label: string;
+	tip: string;
+}) {
+	return (
+		<dt className="flex items-start gap-0.5">
+			<span className="pt-0.5">{children}</span>
+			<Toggletip label={label}>{tip}</Toggletip>
+		</dt>
+	);
+}
+
+/** A button with its toggletip, kept together inside an actions row. */
+function WithTip({
+	children,
+	label,
+	tip,
+}: {
+	children: React.ReactNode;
+	label: string;
+	/** Null shows the button alone, for the state the tip does not describe. */
+	tip: string | null;
+}) {
+	return (
+		<span className="inline-flex items-center gap-0.5">
+			{children}
+			{/* Always this wrapper, so the button keeps its focus when the tip goes. */}
+			{tip === null ? null : <Toggletip label={label}>{tip}</Toggletip>}
+		</span>
+	);
+}
 
 /** A storage class at or above this share of its limit is flagged (SPEC.md §19.2). */
 export const STORAGE_WARN_RATIO = 0.8;
@@ -360,11 +432,8 @@ function ErrorSection({
 				</div>
 			</dl>
 			{workspace.state === "error" ? (
-				<>
-					<p className="pk-text-compact pk-muted m-0">
-						Re-provision creates the workspace again and keeps its home folder.
-					</p>
-					<div className="pk-actions">
+				<div className="pk-actions">
+					<WithTip label="Re-provision" tip={PANEL_HELP.reprovision}>
 						<Button
 							size="sm"
 							data-testid="detail-reprovision"
@@ -374,8 +443,8 @@ function ErrorSection({
 						>
 							Re-provision
 						</Button>
-					</div>
-				</>
+					</WithTip>
+				</div>
 			) : null}
 		</section>
 	);
@@ -399,7 +468,12 @@ function PortsSection({ detail }: { detail: AdminWorkspaceDetail }) {
 									Port
 								</th>
 								<th scope="col">Process</th>
-								<th scope="col">Preview</th>
+								<th scope="col">
+									<span className="inline-flex items-center gap-0.5">
+										Preview
+										<Toggletip label="Preview column">{PANEL_HELP.preview}</Toggletip>
+									</span>
+								</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -608,21 +682,27 @@ function GuardSection({
 				Resource guard
 			</h4>
 			<dl className="pk-dl">
-				<dt>CPU</dt>
+				<TipTerm label="CPU throttle" tip={PANEL_HELP.cpu}>
+					CPU
+				</TipTerm>
 				<dd
 					className={cpuThrottle ? "text-status-warning" : undefined}
 					data-testid="detail-guard-cpu"
 				>
 					{throttleText(cpuThrottle)}
 				</dd>
-				<dt>Memory</dt>
+				<TipTerm label="High memory" tip={PANEL_HELP.memory}>
+					Memory
+				</TipTerm>
 				<dd
 					className={memoryFlag ? "text-status-warning" : undefined}
 					data-testid="detail-guard-memory"
 				>
 					{memoryFlagText(memoryFlag)}
 				</dd>
-				<dt>Last input (idle stop)</dt>
+				<TipTerm label="Last input" tip={PANEL_HELP.lastInput}>
+					Last input (idle stop)
+				</TipTerm>
 				<dd data-testid="detail-last-activity">
 					{workspace.lastActivityAt ? (
 						<time dateTime={workspace.lastActivityAt}>
@@ -804,7 +884,9 @@ function ResourcesSection({
 			<dl className="pk-dl">
 				{workspace && detail ? (
 					<>
-						<dt>Storage</dt>
+						<TipTerm label="Storage" tip={PANEL_HELP.storage}>
+							Storage
+						</TipTerm>
 						<dd data-testid="detail-quota">{storageText(workspace.quotaConfig)}</dd>
 						{usage ? (
 							<>
@@ -831,11 +913,15 @@ function ResourcesSection({
 								<dd data-testid="detail-usage">{usageGap(detail.agent)}</dd>
 							</>
 						)}
-						<dt>Limits</dt>
+						<TipTerm label="Limits" tip={PANEL_HELP.limits}>
+							Limits
+						</TipTerm>
 						<dd data-testid="detail-limits">{limitsText(detail.limitsConfig, site)}</dd>
 					</>
 				) : null}
-				<dt>Disconnect grace</dt>
+				<TipTerm label="Disconnect grace" tip={PANEL_HELP.grace}>
+					Disconnect grace
+				</TipTerm>
 				<dd data-testid="detail-grace">
 					{user.shutdownGraceSeconds !== null
 						? graceValueText(user.shutdownGraceSeconds)
@@ -1006,6 +1092,7 @@ function WorkspaceActions({
 	const archive = useSetArchived();
 	const [dialog, setDialog] = useState<DialogName | null>(null);
 	const [preserveDocker, setPreserveDocker] = useState(true);
+	const [restoring, setRestoring] = useState<string | null>(null);
 	const archived = workspace.archivedAt !== null;
 	// A second request would only answer 409 OPERATION_PENDING (ADR 0021).
 	const operationPending = workspace.pendingOperation !== null;
@@ -1046,40 +1133,59 @@ function WorkspaceActions({
 			<div className="pk-actions">
 				<Button
 					size="sm"
-					data-testid="detail-rebuild"
-					aria-label={`Rebuild workspace for ${ownerName}`}
-					aria-describedby={offReason(capabilities.rebuild)}
-					aria-disabled={rebuildOff ? true : undefined}
-					onClick={() => (rebuildOff ? undefined : setDialog("rebuild"))}
+					data-testid="detail-restore"
+					aria-label={`Restore from backup: ${ownerName}'s workspace`}
+					aria-haspopup="dialog"
+					onClick={() => setRestoring(workspace.id)}
 				>
-					Rebuild workspace…
+					Restore from backup…
 				</Button>
-				<Button
-					size="sm"
-					data-testid="detail-reset-docker"
-					aria-label={`Reset Docker for ${ownerName}`}
-					aria-describedby={offReason(capabilities.resetDocker)}
-					aria-disabled={resetOff ? true : undefined}
-					onClick={() => (resetOff ? undefined : setDialog("reset"))}
-				>
-					Reset Docker…
-				</Button>
-				<Button
-					size="sm"
-					data-testid="detail-archive"
-					aria-label={`${archived ? "Unarchive" : "Archive"} workspace for ${ownerName}`}
-					loading={archived && archive.isPending}
-					aria-disabled={archive.isPending ? true : undefined}
-					onClick={() => {
-						// A second dialog mid-request would only race the first.
-						if (archive.isPending) return;
-						if (archived) unarchive();
-						else setDialog("archive");
-					}}
-				>
-					{archived ? "Unarchive" : "Archive workspace…"}
-				</Button>
+				<WithTip label="Rebuild workspace" tip={PANEL_HELP.rebuild}>
+					<Button
+						size="sm"
+						data-testid="detail-rebuild"
+						aria-label={`Rebuild workspace for ${ownerName}`}
+						aria-describedby={offReason(capabilities.rebuild)}
+						aria-disabled={rebuildOff ? true : undefined}
+						onClick={() => (rebuildOff ? undefined : setDialog("rebuild"))}
+					>
+						Rebuild workspace…
+					</Button>
+				</WithTip>
+				<WithTip label="Reset Docker" tip={PANEL_HELP.resetDocker}>
+					<Button
+						size="sm"
+						data-testid="detail-reset-docker"
+						aria-label={`Reset Docker for ${ownerName}`}
+						aria-describedby={offReason(capabilities.resetDocker)}
+						aria-disabled={resetOff ? true : undefined}
+						onClick={() => (resetOff ? undefined : setDialog("reset"))}
+					>
+						Reset Docker…
+					</Button>
+				</WithTip>
+				<WithTip label="Archive workspace" tip={archived ? null : PANEL_HELP.archive}>
+					<Button
+						size="sm"
+						data-testid="detail-archive"
+						aria-label={`${archived ? "Unarchive" : "Archive"} workspace for ${ownerName}`}
+						loading={archived && archive.isPending}
+						aria-disabled={archive.isPending ? true : undefined}
+						onClick={() => {
+							// A second dialog mid-request would only race the first.
+							if (archive.isPending) return;
+							if (archived) unarchive();
+							else setDialog("archive");
+						}}
+					>
+						{archived ? "Unarchive" : "Archive workspace…"}
+					</Button>
+				</WithTip>
 			</div>
+			<RestoreFromBackupDialog
+				workspaceId={restoring}
+				onClose={() => setRestoring(null)}
+			/>
 			{workspace.pendingOperation ? (
 				<p
 					id={pendingId}
@@ -1237,16 +1343,21 @@ function RoleChange({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 
 	return (
 		<>
-			<Button
-				size="sm"
-				data-testid={promote ? "detail-promote" : "detail-demote"}
-				aria-label={promote ? `Promote ${name} to administrator` : `Demote ${name}`}
-				aria-describedby={note ? noteId : undefined}
-				aria-disabled={note ? true : undefined}
-				onClick={() => (note ? undefined : open(true))}
+			<WithTip
+				label={promote ? "Promote" : "Demote"}
+				tip={promote ? PANEL_HELP.promote : null}
 			>
-				{promote ? "Promote…" : "Demote…"}
-			</Button>
+				<Button
+					size="sm"
+					data-testid={promote ? "detail-promote" : "detail-demote"}
+					aria-label={promote ? `Promote ${name} to administrator` : `Demote ${name}`}
+					aria-describedby={note ? noteId : undefined}
+					aria-disabled={note ? true : undefined}
+					onClick={() => (note ? undefined : open(true))}
+				>
+					{promote ? "Promote…" : "Demote…"}
+				</Button>
+			</WithTip>
 			{note ? (
 				<p id={noteId} className="pk-text-compact pk-muted m-0 w-full">
 					{note}
@@ -1333,16 +1444,21 @@ function InstructorChange({ user }: { user: AdminUser }) {
 
 	return (
 		<>
-			<Button
-				size="sm"
-				data-testid={make ? "detail-make-instructor" : "detail-remove-instructor"}
-				aria-label={make ? `Make instructor: ${name}` : `Remove instructor: ${name}`}
-				aria-describedby={note ? noteId : undefined}
-				aria-disabled={note ? true : undefined}
-				onClick={() => (note ? undefined : open(true))}
+			<WithTip
+				label={make ? "Make instructor" : "Remove instructor"}
+				tip={make ? PANEL_HELP.makeInstructor : null}
 			>
-				{make ? "Make instructor…" : "Remove instructor…"}
-			</Button>
+				<Button
+					size="sm"
+					data-testid={make ? "detail-make-instructor" : "detail-remove-instructor"}
+					aria-label={make ? `Make instructor: ${name}` : `Remove instructor: ${name}`}
+					aria-describedby={note ? noteId : undefined}
+					aria-disabled={note ? true : undefined}
+					onClick={() => (note ? undefined : open(true))}
+				>
+					{make ? "Make instructor…" : "Remove instructor…"}
+				</Button>
+			</WithTip>
 			{note ? (
 				<p id={noteId} className="pk-text-compact pk-muted m-0 w-full">
 					{note}
@@ -1477,21 +1593,26 @@ function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: boolean }) 
 			</div>
 			{/* Disabling is the heaviest action, so it sits alone and last. */}
 			<div className="pk-actions">
-				<Button
-					size="sm"
-					data-testid="detail-disable"
-					aria-label={`${disabled ? "Enable" : "Disable"} account for ${user.displayName}`}
-					aria-describedby={isSelf ? selfNoteId : undefined}
-					aria-disabled={isSelf ? true : undefined}
-					loading={disabled && setDisabled.isPending}
-					onClick={() => {
-						if (isSelf) return;
-						if (disabled) run(false);
-						else setConfirming(true);
-					}}
+				<WithTip
+					label={disabled ? "Enable account" : "Disable account"}
+					tip={disabled ? null : PANEL_HELP.disable}
 				>
-					{disabled ? "Enable account" : "Disable account…"}
-				</Button>
+					<Button
+						size="sm"
+						data-testid="detail-disable"
+						aria-label={`${disabled ? "Enable" : "Disable"} account for ${user.displayName}`}
+						aria-describedby={isSelf ? selfNoteId : undefined}
+						aria-disabled={isSelf ? true : undefined}
+						loading={disabled && setDisabled.isPending}
+						onClick={() => {
+							if (isSelf) return;
+							if (disabled) run(false);
+							else setConfirming(true);
+						}}
+					>
+						{disabled ? "Enable account" : "Disable account…"}
+					</Button>
+				</WithTip>
 			</div>
 			{isSelf ? (
 				<p id={selfNoteId} className="pk-text-compact pk-muted m-0">

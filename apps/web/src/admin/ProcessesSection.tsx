@@ -3,7 +3,13 @@ import {
 	type InstanceProcess,
 	ProcessStopResponse,
 } from "@portikus/contracts";
-import { Button, ConfirmDialog, ConfirmDialogRoot, IconButton } from "@portikus/ui";
+import {
+	Button,
+	ConfirmDialog,
+	ConfirmDialogRoot,
+	IconButton,
+	Toggletip,
+} from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ApiError, request } from "../api/request.js";
@@ -13,6 +19,9 @@ import { stopErrorText } from "../monitor/stop.js";
 /** The browser polls once a second for at most 20 seconds (SPEC.md §20.1). */
 export const POLL_MS = 1000;
 export const POLL_LIMIT_MS = 20_000;
+
+export const PROTECTED_HELP =
+	"Protected processes are the workspace's system processes and Portikus's own. They cannot be stopped here; restart the workspace instead.";
 
 /** The workspace's student account; every other uid is shown as system. */
 const STUDENT_UID = 1000;
@@ -283,6 +292,7 @@ export function ProcessesSection({
 								/>
 								<th scope="col">
 									<span className="sr-only">Actions</span>
+									<Toggletip label="Protected processes">{PROTECTED_HELP}</Toggletip>
 								</th>
 							</tr>
 						</thead>

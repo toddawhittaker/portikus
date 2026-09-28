@@ -18,6 +18,7 @@ import {
 	limitsText,
 	memoryFlagText,
 	NOT_AVAILABLE_TEXT,
+	PANEL_HELP,
 	quotaPending,
 	roleChangeNote,
 	throttleText,
@@ -452,6 +453,7 @@ test("each section's actions sit in one row after its content (S5)", async () =>
 	const resources = within(panel).getByRole("region", { name: "Resources" });
 	const actions = within(resources)
 		.getAllByRole("button")
+		.filter((button) => !button.getAttribute("aria-label")?.startsWith("About "))
 		.map((button) => button.textContent);
 	expect(actions).toEqual(["Edit quotas…", "Edit limits…", "Edit disconnect grace…"]);
 	const row = within(resources).getByTestId("detail-quota-edit").parentElement;
@@ -1598,4 +1600,63 @@ test("an error message on a workspace not in error has no Re-provision", async (
 	const panel = await openAlice();
 	expect(within(panel).getByRole("region", { name: "Error" })).toBeDefined();
 	expect(within(panel).queryByTestId("detail-reprovision")).toBeNull();
+});
+
+test("the panel's toggletips are named after what they explain and open on click", async () => {
+	stubDetail(detail({ capabilities: { rebuild: true, resetDocker: true } }));
+	const panel = await openAlice();
+	const names = within(panel)
+		.getAllByRole("button", { name: /^About / })
+		.map((button) => button.getAttribute("aria-label"));
+	expect(names).toEqual([
+		"About Rebuild workspace",
+		"About Reset Docker",
+		"About Archive workspace",
+		"About Storage",
+		"About Limits",
+		"About Disconnect grace",
+		"About CPU throttle",
+		"About High memory",
+		"About Last input",
+		"About Preview column",
+		"About Promote",
+		"About Make instructor",
+		"About Disable account",
+	]);
+	fireEvent.click(within(panel).getByRole("button", { name: "About Last input" }));
+	const tip = await screen.findByRole("dialog", { name: "Last input" });
+	expect(tip.textContent).toBe(PANEL_HELP.lastInput);
+});
+
+test("Restore from backup opens the restore dialog preset to this workspace", async () => {
+	stubFetch((url, init) => {
+		if (url === "/auth/me") return json(200, ADMIN);
+		if (url === "/admin/users")
+			return json(200, { users: [ALICE_ROW, ADMIN_ROW], dexUsers: false });
+		if (url === "/admin/settings") return json(200, SETTINGS);
+		if (url === "/admin/health") return json(200, HEALTH);
+		if (url === "/admin/backups" && !init?.method) {
+			return json(200, {
+				host: null,
+				hostReportedAt: null,
+				hostStale: false,
+				vm: null,
+				vmListedAt: null,
+				requests: [],
+				workspaces: [],
+			});
+		}
+		if (url === `/admin/workspaces/${WORKSPACE.id}`) return json(200, detail());
+		throw new Error(`unexpected request: ${url}`);
+	});
+	const panel = await openAlice();
+	const open = within(panel).getByRole("button", {
+		name: "Restore from backup: Alice Example's workspace",
+	});
+	expect(open.textContent).toBe("Restore from backup…");
+	fireEvent.click(open);
+	const dialog = await screen.findByRole("dialog", { name: "Restore from backup" });
+	expect(
+		await within(dialog).findByText("Backups are not connected on this site."),
+	).toBeDefined();
 });
