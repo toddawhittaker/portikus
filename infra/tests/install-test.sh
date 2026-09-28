@@ -405,10 +405,13 @@ smoke() {
 # repository task reports no change and base's refresh is still fresh, so
 # only the role's own check can make apt see Caddy again.
 caddy_rerun() {
-  vm "sudo DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq caddy"
+  local pinned
+  pinned=$(vm "dpkg-query -W -f '\${Version}' caddy")
+  vm "sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq caddy"
   vm "sudo sh -c 'rm -f /var/lib/apt/lists/dl.cloudsmith.io_public_caddy_*'"
-  vm "apt-cache policy caddy" | tee "${LOGS}/caddy-policy.txt"
-  grep -q 'Candidate: (none)' "${LOGS}/caddy-policy.txt" || { echo "apt can still see Caddy; the case is not set up"; return 1; }
+  # Debian has an older Caddy of its own; the pinned one must be gone from apt's view.
+  vm "apt-cache madison caddy" | tee "${LOGS}/caddy-madison.txt"
+  ! grep -qF " ${pinned} " "${LOGS}/caddy-madison.txt" || { echo "apt can still see Caddy ${pinned}; the case is not set up"; return 1; }
   vm "sudo portikus setup" >"${LOGS}/setup-caddy-rerun.txt" 2>&1 || { tail -20 "${LOGS}/setup-caddy-rerun.txt"; return 1; }
   grep -A1 'Refresh the apt index for the Caddy repository' "${LOGS}/setup-caddy-rerun.txt"
   grep -A1 'Refresh the apt index for the Caddy repository' "${LOGS}/setup-caddy-rerun.txt" | grep -qE '^(ok|changed):'
