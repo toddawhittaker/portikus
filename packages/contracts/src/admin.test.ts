@@ -209,6 +209,13 @@ describe("admin contracts", () => {
 		expect(AuditPage.parse(page)).toEqual(page);
 	});
 
+	test("an audit row may name its target, or say it has no name", () => {
+		for (const targetName of ["Alice Student", null]) {
+			const page = { events: [{ ...event, targetName }], nextBefore: null };
+			expect(AuditPage.parse(page)).toEqual(page);
+		}
+	});
+
 	test("a health report round-trips", () => {
 		const report = {
 			sampledAt: now,

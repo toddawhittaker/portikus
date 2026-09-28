@@ -48,6 +48,8 @@ export interface TerminalGroupProps {
 	consumePendingEdit: () => boolean;
 	/** Bring the Running surface into view (BROWSER-HANDLING.md §12). */
 	onShowRunning: () => void;
+	/** Pick another port in place of this preview tab's refused one. */
+	onChoosePreviewPort: () => void;
 	/** A file tab reporting whether its edits are on disk (issue #240). */
 	onUnsavedChange?: (unsaved: boolean) => void;
 	/** Object id this file tab's diff compares against, or null for Git HEAD. */
@@ -123,6 +125,7 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					port={node.port}
 					visible={visible}
 					onShowRunning={props.onShowRunning}
+					onChoosePort={props.onChoosePreviewPort}
 				/>
 			);
 		}

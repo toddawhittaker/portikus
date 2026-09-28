@@ -355,11 +355,22 @@ test.describe("application preview", () => {
 		await page.getByTestId("launcher-preview").click();
 		await page.getByLabel("Port").fill("80");
 		await page.getByTestId("preview-open-port").click();
-		await expect(page.getByTestId("preview-error")).toHaveText(
-			"Port 80 cannot be previewed",
-			{ timeout: 20_000 },
+		// The state says what to do instead and offers no retry (review S6).
+		await expect(
+			page.getByRole("heading", { name: "Port 80 cannot be previewed" }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(page.getByTestId("preview-port-refused")).toHaveText(
+			"Ports below 1024, and ports kept for SSH, Docker and databases, cannot be opened as a preview. Run your app on a port from 1024 up, such as 3000 or 5173.",
 		);
+		await expect(page.getByTestId("preview-retry")).toHaveCount(0);
 		await expect(page.getByTestId("preview-frame")).toHaveCount(0);
+
+		// Choosing another port replaces the refused tab with the new one.
+		await page.getByRole("button", { name: "Choose another port…" }).click();
+		await page.getByLabel("Port").fill("3000");
+		await page.getByTestId("preview-open-port").click();
+		await expect(page.getByTestId("tab-preview:3000")).toBeVisible();
+		await expect(page.getByTestId("tab-preview:80")).toHaveCount(0);
 	});
 
 	test("a port policy denies is listed but offers no preview", async ({
@@ -431,10 +442,10 @@ test.describe("application preview", () => {
 		const project = await createProject(student.workspaceId, { name: "denied" });
 		await savePreviewTab(project.id, 5432);
 		await page.goto(workspacePath(student.workspaceId, project.id));
-		await expect(page.getByTestId("preview-error")).toHaveText(
-			"Port 5432 cannot be previewed",
-			{ timeout: 20_000 },
-		);
+		await expect(
+			page.getByRole("heading", { name: "Port 5432 cannot be previewed" }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(page.getByTestId("preview-choose-port")).toBeVisible();
 	});
 
 	test("the preview route a terminal link uses opens a preview tab", async ({
@@ -575,6 +586,45 @@ test.describe("application preview", () => {
 		// A fresh grant and a fresh preview session put the application back.
 		await expect(appHeading(page)).toHaveText("Reset me", { timeout: 20_000 });
 	});
+
+	for (const colorScheme of ["light", "dark"] as const) {
+		test(`the toolbar's Back and Forward are named icons, and the address has a toggletip (${colorScheme})`, async ({
+			page,
+			context,
+		}) => {
+			await page.emulateMedia({ colorScheme });
+			const student = await createStudent(context);
+			await previewGateway(page);
+			const port = await startPreviewApp(student.workspaceId, "Tip");
+			const project = await createProject(student.workspaceId, { name: "tip" });
+			await savePreviewTab(project.id, port);
+			await page.goto(workspacePath(student.workspaceId, project.id));
+			await expect(appHeading(page)).toHaveText("Tip", { timeout: 20_000 });
+
+			// Icons with names, not words (review S7).
+			await expect(page.getByTestId("preview-back")).toHaveAccessibleName("Back");
+			await expect(page.getByTestId("preview-back")).toHaveText("");
+			await expect(page.getByTestId("preview-forward")).toHaveAccessibleName("Forward");
+
+			const tip = page.getByRole("button", { name: "About the preview address" });
+			await tip.focus();
+			await page.keyboard.press("Enter");
+			await expect(
+				page.getByRole("dialog", { name: "the preview address" }),
+			).toHaveText(
+				"Your preview's own address. Only you can open it, after signing in to Portikus. It does not work for anyone else.",
+			);
+			for (const selector of [".pk-preview-bar", ".pk-toggletip-content"]) {
+				const results = await (await settledAxe(page))
+					.withTags(WCAG_TAGS)
+					.include(selector)
+					.analyze();
+				expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+			}
+			await page.keyboard.press("Escape");
+			await expect(tip).toBeFocused();
+		});
+	}
 
 	test("a picker row opens its port, and the toolbar's extra actions sit in a menu", async ({
 		page,

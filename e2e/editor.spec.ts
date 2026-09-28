@@ -37,7 +37,8 @@ test.describe("file editor", () => {
 	async function turnAutoSaveOff(page: Page) {
 		await openEditorSettings(page);
 		await page.locator(".pk-setting-autosave").click();
-		await page.getByTestId("editor-settings-save").click();
+		await expect(page.getByTestId("settings-saved")).toHaveText("Saved");
+		await page.getByTestId("settings-close").click();
 		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
 	}
 
@@ -472,7 +473,8 @@ test.describe("file editor", () => {
 
 		await openEditorSettings(page);
 		await page.locator(".pk-setting-wordwrap").click();
-		await page.getByTestId("editor-settings-save").click();
+		await expect(page.getByTestId("settings-saved")).toHaveText("Saved");
+		await page.getByTestId("settings-close").click();
 		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
 
 		// The setting reaches the open editor without a reload.
@@ -481,7 +483,7 @@ test.describe("file editor", () => {
 
 	/**
 	 * Issue #288: one Settings dialog with three sections. A change in each is
-	 * saved together and is there again when the dialog is reopened.
+	 * saved as it is made and is there again when the dialog is reopened.
 	 */
 	test("Settings holds three sections and saves a change in each", async ({
 		page,
@@ -500,16 +502,19 @@ test.describe("file editor", () => {
 		// One field per section: the delay, the terminal colors, the zone.
 		await page.getByTestId("editor-settings-delay").fill("11");
 		await page.getByRole("switch", { name: "Light terminal" }).click();
-		await page.getByLabel("Workspace timezone").click();
+		await page.getByRole("combobox", { name: /^Workspace timezone/ }).click();
 		await page.getByRole("option", { name: "Los Angeles", exact: true }).click();
-		await page.getByTestId("editor-settings-save").click();
+		await expect(page.getByTestId("settings-saved")).toHaveText("Saved");
+		await page.getByTestId("settings-close").click();
 		await expect(dialog).toHaveCount(0);
 
 		await expect(page.locator("html")).toHaveAttribute("data-terminal-theme", "light");
 		await openEditorSettings(page);
 		await expect(page.getByTestId("editor-settings-delay")).toHaveValue("11");
 		await expect(page.getByRole("switch", { name: "Light terminal" })).toBeChecked();
-		await expect(page.getByLabel("Workspace timezone")).toContainText("Los Angeles");
+		await expect(
+			page.getByRole("combobox", { name: /^Workspace timezone/ }),
+		).toContainText("Los Angeles");
 	});
 
 	test("the editor settings survive a reload (issue #159)", async ({
@@ -524,7 +529,9 @@ test.describe("file editor", () => {
 
 		await openEditorSettings(page);
 		await page.getByTestId("editor-settings-delay").fill("9");
-		await page.getByTestId("editor-settings-save").click();
+		await page.getByTestId("editor-settings-delay").press("Enter");
+		await expect(page.getByTestId("settings-saved")).toHaveText("Saved");
+		await page.getByTestId("settings-close").click();
 		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
 
 		await page.reload();
@@ -546,7 +553,8 @@ test.describe("file editor", () => {
 
 		await openEditorSettings(page);
 		await page.getByRole("switch", { name: "Light terminal" }).click();
-		await page.getByTestId("editor-settings-save").click();
+		await expect(page.getByTestId("settings-saved")).toHaveText("Saved");
+		await page.getByTestId("settings-close").click();
 		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
 
 		// The choice reaches the shell without a reload, and survives one.
@@ -602,7 +610,9 @@ test.describe("file editor", () => {
 		// A short auto-save delay, so several saves fit in one test.
 		await openEditorSettings(page);
 		await page.getByTestId("editor-settings-delay").fill("1");
-		await page.getByTestId("editor-settings-save").click();
+		await page.getByTestId("editor-settings-delay").press("Enter");
+		await expect(page.getByTestId("settings-saved")).toHaveText("Saved");
+		await page.getByTestId("settings-close").click();
 		await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
 
 		await lines(page, MD).click();

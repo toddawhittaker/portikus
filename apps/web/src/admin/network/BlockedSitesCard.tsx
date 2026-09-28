@@ -3,13 +3,7 @@ import {
 	EGRESS_LIMITS,
 	type EgressBlockedSite,
 } from "@portikus/contracts";
-import {
-	Button,
-	ConfirmDialog,
-	ConfirmDialogRoot,
-	EmptyState,
-	useToast,
-} from "@portikus/ui";
+import { Button, ConfirmDialog, ConfirmDialogRoot, useToast } from "@portikus/ui";
 import { useRef, useState } from "react";
 import { BlockedSiteDialog, type BlockedSiteDraft } from "./BlockedSiteDialog.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
@@ -25,6 +19,7 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 	const [removing, setRemoving] = useState<EgressBlockedSite | null>(null);
 	const removed = useRef(false);
 	const sites = view.blockedSites;
+	const idle = view.mode === "allow-list" && sites.length === 0;
 
 	function remove() {
 		if (!removing) return;
@@ -52,10 +47,13 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 					>
 						Blocked sites
 					</h3>
-					<p className="pk-text-body pk-muted mt-1 mb-0">
-						Sites workspaces cannot reach in open mode. A name also blocks every name
-						under it. {sites.length} of {EGRESS_LIMITS.blockedSites} used.
-					</p>
+					{/* An unused, empty list needs no more than its one-line note. */}
+					{idle ? null : (
+						<p className="pk-text-body pk-muted mt-1 mb-0">
+							Sites workspaces cannot reach in open mode. A name also blocks every name
+							under it. {sites.length} of {EGRESS_LIMITS.blockedSites} used.
+						</p>
+					)}
 				</div>
 				<Button
 					iconStart="plus"
@@ -70,16 +68,12 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 				data-testid="egress-block-note"
 			>
 				{view.mode === "allow-list"
-					? "Allow-list mode is on, so this list is not used: anything you have not allowed is already blocked. It applies again when you switch to open mode."
+					? "Allow-list mode is on, so this list is not used until you switch to open mode."
 					: sites.length > 0
 						? "While any site is blocked, workspace DNS goes through the platform's resolver, ports 80 and 443 carry only HTTP and TLS through the platform's proxy (which checks only each connection's site name), and QUIC is dropped. Blocking is best effort against casual use: other DNS services, direct addresses and tunnels on other ports get round it. Only allow-list mode stops a determined student."
-						: "Nothing is blocked, so workspaces reach every public site. Blocking a site puts workspace DNS and web traffic through the platform's resolver and proxy."}
+						: "Nothing is blocked, so workspaces reach every public site. Blocking a site, such as games.example.com, puts workspace DNS and web traffic through the platform's resolver and proxy."}
 			</p>
-			{sites.length === 0 ? (
-				<EmptyState icon="info" title="No blocked sites">
-					Block a host name such as games.example.com.
-				</EmptyState>
-			) : (
+			{sites.length === 0 ? null : (
 				<div className="pk-table-wrap mt-4">
 					<table className="pk-table" data-testid="egress-block-list">
 						<caption className="sr-only">Blocked sites</caption>

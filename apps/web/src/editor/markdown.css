@@ -73,6 +73,22 @@
 	margin-bottom: var(--space-1);
 }
 
+/* A task item shows its checkbox in place of the bullet, with wrapped lines
+   hanging under the text. remark-gfm marks the item with this class. */
+.pk-markdown li.task-list-item {
+	position: relative;
+	list-style: none;
+}
+
+.pk-markdown li.task-list-item input[type="checkbox"] {
+	position: absolute;
+	inset-inline-start: calc(-1 * var(--space-5));
+	inset-block-start: calc((1lh - 1em) / 2);
+	inline-size: 1em;
+	block-size: 1em;
+	margin: 0;
+}
+
 .pk-markdown a {
 	color: var(--accent-text);
 }
