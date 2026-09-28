@@ -154,7 +154,17 @@ export async function createTestDb(): Promise<TestDb> {
 
 	const truncate = async () => {
 		await db.deleteFrom("notifications").execute();
+		await db.deleteFrom("package_survey_counts").execute();
+		await db.deleteFrom("package_survey_days").execute();
 		await db.deleteFrom("api_request_samples").execute();
+		await db.deleteFrom("backup_requests").execute();
+		await db.deleteFrom("egress_entries").execute();
+		await db.deleteFrom("egress_blocked_names").execute();
+		await db.deleteFrom("egress_blocked_entries").execute();
+		await db
+			.updateTable("backup_status")
+			.set({ host: null, host_reported_at: null, vm: null, vm_listed_at: null })
+			.execute();
 		await db.deleteFrom("account_link_intents").execute();
 		await db.deleteFrom("account_links").execute();
 		await db.deleteFrom("lti_memberships").execute();

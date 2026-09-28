@@ -3,7 +3,7 @@
  * the LMS brings them back. Rex and Una in CS 350 belong to this spec alone.
  */
 import { expect, test } from "@playwright/test";
-import { settledAxe, WEB_ORIGIN } from "./helpers";
+import { settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
 import { launchAs, openCourseTab } from "./lti-helpers";
 
 test("an instructor removes a student, who reappears after a relaunch", async ({
@@ -37,7 +37,7 @@ test("an instructor removes a student, who reappears after a relaunch", async ({
 			"They reappear if they open Portikus from the course again.",
 		);
 		const axe = await (await settledAxe(course))
-			.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+			.withTags(WCAG_TAGS)
 			.include('[data-testid="dialog-remove-member"]')
 			.analyze();
 		expect(axe.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

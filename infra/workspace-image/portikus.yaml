@@ -1926,6 +1926,67 @@ files:
     [Install]
     WantedBy=multi-user.target
 
+# Record the packages the student added with apt, for the admin package
+# survey and the reinstall note after a rebuild (SPEC.md 22.3).  The file
+# is ~/.portikus/apt-packages.txt: a first line "# portikus-image: VERSION",
+# then one package name per line, sorted, without the image's own packages.
+# While the header names an older image, new packages are added under it.
+- path: /usr/local/sbin/portikus-apt-packages
+  generator: dump
+  mode: "0755"
+  content: |-
+    #!/bin/sh
+    # Runs as root from DPkg::Post-Invoke.  The file is written as the
+    # student, so a symbolic link planted in the home gains nothing.
+    set -eu
+
+    user=student
+    image_list=/usr/share/portikus/image-packages.txt
+
+    [ -r "$image_list" ] || exit 0
+    home=$(getent passwd "$user" | cut -d: -f6)
+    [ -n "$home" ] || exit 0
+    # Before portikus-home-init runs, the home volume still belongs to root.
+    [ "$(stat -c %U "$home")" = "$user" ] || exit 0
+
+    version=$(head -n 1 /etc/portikus-image-version 2>/dev/null || true)
+
+    # After a rebuild the list still names the old image until the student
+    # dismisses the reinstall note, so an apt run then keeps that header and
+    # adds to the old list rather than wiping the record of what to put back.
+    # shellcheck disable=SC2016 # the inner script expands its own arguments
+    apt-mark showmanual | LC_ALL=C sort -u | LC_ALL=C comm -23 - "$image_list" \
+      | runuser -u "$user" -- sh -c '
+      set -eu
+      dir="$1/.portikus"
+      list="$dir/apt-packages.txt"
+      header="# portikus-image: $2"
+      old=""
+      mkdir -p "$dir"
+      # A planted link is never read; it is replaced below like any file.
+      if [ -f "$list" ] && [ ! -L "$list" ]; then
+        first=$(head -n 1 "$list")
+        case "$first" in
+          "$header" | "# portikus-image: unknown") ;;
+          "# portikus-image: "*) header=$first; old=$(tail -n +2 "$list" | head -c 65536) ;;
+        esac
+      fi
+      tmp=$(mktemp "$dir/.apt-packages.txt.XXXXXX")
+      # rename replaces a planted link itself, never the file it points at.
+      if { printf "%s\n" "$header"; { cat; printf "%s\n" "$old"; } | LC_ALL=C sort -u | sed "/^\$/d"; } > "$tmp"; then
+        mv -fT "$tmp" "$list"
+      else
+        rm -f "$tmp"; exit 1
+      fi
+    ' sh "$home" "${version:-unknown}"
+
+- path: /etc/apt/apt.conf.d/90portikus-apt-packages
+  generator: dump
+  mode: "0644"
+  content: |-
+    // A failure here must never fail the student's apt run.
+    DPkg::Post-Invoke { "/usr/local/sbin/portikus-apt-packages >/dev/null 2>&1 || true"; };
+
 packages:
   manager: apt
   update: true
@@ -2138,6 +2199,16 @@ actions:
 
     ln -sf xclip /usr/local/bin/xsel
     ln -sf xclip /usr/local/bin/pbcopy
+
+# The image's own manual packages, which portikus-apt-packages leaves out.
+# Taken last, after every apt install in the build.
+- trigger: post-files
+  action: |-
+    #!/bin/sh
+    set -eux
+
+    mkdir -p /usr/share/portikus
+    apt-mark showmanual | LC_ALL=C sort -u > /usr/share/portikus/image-packages.txt
 
 # Write image version file.
 # build-on-vm.sh must export PORTIKUS_IMAGE_VERSION before invoking

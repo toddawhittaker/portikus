@@ -199,6 +199,20 @@ test("a pending rebuild reads Rebuilding and says projects are kept", () => {
 	);
 });
 
+test("a pending home replace tells the student before it happens", () => {
+	renderWithQuery(
+		<WorkspaceStarting
+			onOpenWorkspace={noop}
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, state: "stopping", pendingOperation: "replace-home" }}
+		/>,
+	);
+	expect(screen.getByRole("heading").textContent).toBe("Replacing your home folder…");
+	expect(screen.getByTestId("workspace-progress").textContent).toContain(
+		"your current home folder is kept",
+	);
+});
+
 test("a stop after an unanswered Still working? says why", () => {
 	renderWithQuery(
 		<WorkspaceStarting

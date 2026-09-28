@@ -51,6 +51,7 @@ async function seedListening(
 	services: {
 		port: number;
 		addresses?: string[];
+		protocolHint?: "http" | "https" | "unknown";
 		previewReachability?: "reachable" | "forwarded" | "unknown";
 		system?: boolean;
 		process?: { pid?: number; command?: string };
@@ -974,6 +975,114 @@ test.skipIf(skip)("a port with nothing listening explains itself", async () => {
 	expect(response.body).toContain("Start your application to reconnect this preview");
 });
 
+// ── A listener speaking HTTPS (issue #283, step 2, ADR 0041) ──
+
+const SCHEME = "x-portikus-upstream-scheme";
+
+test.skipIf(skip)(
+	"a port speaking HTTPS is authorized with the https scheme",
+	async () => {
+		const token = await openPreview(5173);
+		await seedListening([{ port: 5173, protocolHint: "https" }]);
+		await until(
+			async () =>
+				(await authorize(token, previewHostFor(5173))).headers[SCHEME] === "https",
+		);
+		const response = await authorize(token, previewHostFor(5173));
+		expect(response.statusCode).toBe(200);
+		expect(response.headers["x-portikus-upstream"]).toBe("127.0.0.1:5173");
+		expect(response.body).toBe("");
+	},
+);
+
+test.skipIf(skip)("a plain HTTP port is authorized with the http scheme", async () => {
+	const token = await openPreview(5173);
+	await seedListening([{ port: 5173, protocolHint: "http" }]);
+	await until(
+		async () => (await authorize(token, previewHostFor(5173))).statusCode === 200,
+	);
+	const response = await authorize(token, previewHostFor(5173));
+	expect(response.headers[SCHEME]).toBe("http");
+});
+
+test.skipIf(skip)("an unknown protocol hint previews over http", async () => {
+	const token = await openPreview(5173);
+	await seedListening([{ port: 5173, protocolHint: "unknown" }]);
+	await until(
+		async () => (await authorize(token, previewHostFor(5173))).statusCode === 200,
+	);
+	expect((await authorize(token, previewHostFor(5173))).headers[SCHEME]).toBe("http");
+});
+
+test.skipIf(skip)("the scheme follows the listener as it changes", async () => {
+	const token = await openPreview(5173);
+	await seedListening([{ port: 5173, protocolHint: "https" }]);
+	await until(
+		async () =>
+			(await authorize(token, previewHostFor(5173))).headers[SCHEME] === "https",
+	);
+	await seedListening([{ port: 5173, protocolHint: "http" }]);
+	await until(
+		async () =>
+			(await authorize(token, previewHostFor(5173))).headers[SCHEME] === "http",
+	);
+});
+
+test.skipIf(skip)("a client-sent scheme header is never trusted", async () => {
+	const token = await openPreview(5173);
+	await seedListening([{ port: 5173, protocolHint: "http" }]);
+	await until(
+		async () => (await authorize(token, previewHostFor(5173))).statusCode === 200,
+	);
+	const forged = await authorize(token, previewHostFor(5173), {
+		extra: { [SCHEME]: "https", "x-portikus-upstream": "10.9.9.9:443" },
+	});
+	expect(forged.headers[SCHEME]).toBe("http");
+	expect(forged.headers["x-portikus-upstream"]).toBe("127.0.0.1:5173");
+});
+
+test.skipIf(skip)(
+	"a bridge to a port speaking HTTPS names the https scheme",
+	async () => {
+		await seedListening([
+			{ port: 5173 },
+			{ port: 3000, protocolHint: "https", previewReachability: "unknown" },
+		]);
+		await listeningPorts(2);
+		const token = await openPreview(5173);
+		const response = await authorize(token, previewHostFor(5173), {
+			extra: { "x-forwarded-uri": "/__portikus/ports/3000/api" },
+		});
+		expect(response.statusCode).toBe(200);
+		expect(response.headers["x-portikus-upstream"]).toBe("127.0.0.1:3000");
+		expect(response.headers[SCHEME]).toBe("https");
+		expect(agent.forwards.get(workspaceId)).toContain(3000);
+	},
+);
+
+test.skipIf(skip)(
+	"an HTTPS port is never authorized for the wrong caller",
+	async () => {
+		const token = await openPreview(5173);
+		await seedListening([{ port: 5173, protocolHint: "https" }]);
+		await until(
+			async () =>
+				(await authorize(token, previewHostFor(5173))).headers[SCHEME] === "https",
+		);
+		// No cookie, a forged cookie, another port's host, and a remote caller.
+		for (const response of [
+			await authorize(null, previewHostFor(5173)),
+			await authorize("nonsense", previewHostFor(5173)),
+			await authorize(token, previewHostFor(3000)),
+			await authorize(token, previewHostFor(5173), { remoteAddress: "10.1.2.3" }),
+		]) {
+			expect(response.statusCode).toBeGreaterThanOrEqual(400);
+			expect(response.headers["x-portikus-upstream"]).toBeUndefined();
+			expect(response.headers[SCHEME]).toBeUndefined();
+		}
+	},
+);
+
 test.skipIf(skip)("only loopback may ask for an authorization", async () => {
 	const token = await openPreview(5173);
 	const response = await authorize(token, previewHostFor(5173), {
@@ -1021,7 +1130,11 @@ test.skipIf(skip)("a preview session of one user never serves another", async ()
 // ── The framing probe (BROWSER-HANDLING.md §12) ──
 
 /** Start a real application inside the fake agent and wait for the registry. */
-async function startApp(frameOptions?: string, delayMs = 0): Promise<number> {
+async function startApp(
+	frameOptions?: string,
+	delayMs = 0,
+	https = false,
+): Promise<number> {
 	const created = await fetch(`http://127.0.0.1:${agent.port}/__test/app`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
@@ -1030,6 +1143,7 @@ async function startApp(frameOptions?: string, delayMs = 0): Promise<number> {
 			title: "Framing",
 			frameOptions,
 			delayMs,
+			https,
 		}),
 	});
 	expect(created.status).toBe(201);
@@ -1064,6 +1178,13 @@ test.skipIf(skip)("an ordinary application is reported as embeddable", async () 
 	const response = await embeddable(port);
 	expect(response.statusCode).toBe(200);
 	expect(response.json()).toEqual({ embeddable: true });
+});
+
+test.skipIf(skip)("an HTTPS application is probed over HTTPS", async () => {
+	const port = await startApp("DENY", 0, true);
+	const response = await embeddable(port);
+	expect(response.statusCode).toBe(200);
+	expect(response.json()).toEqual({ embeddable: false, reason: "x-frame-options" });
 });
 
 test.skipIf(skip)(

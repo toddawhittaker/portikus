@@ -1,6 +1,14 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createServer, type Server } from "node:http";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer, type RequestListener, type Server } from "node:http";
+import {
+	createServer as createHttpsServer,
+	type Server as HttpsServer,
+} from "node:https";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import websocket, { type WebSocket } from "@fastify/websocket";
 import {
 	type AgentListeningService,
@@ -441,7 +449,7 @@ export async function startFakeAgent(
 	const listening = new Map<string, AgentListeningService[]>();
 	const listeningSockets = new Map<string, Set<WebSocket>>();
 	const forwards = new Map<string, Set<number>>();
-	const testApps: Server[] = [];
+	const testApps: (Server | HttpsServer)[] = [];
 	const appHits = new Map<number, number>();
 
 	function listeningFor(key: string): AgentListeningService[] {
@@ -494,9 +502,10 @@ export async function startFakeAgent(
 		title: string,
 		frameOptions?: string,
 		delayMs = 0,
+		https = false,
 	): Promise<number> {
 		let ownPort = 0;
-		const server = createServer((_req, res) => {
+		const handler: RequestListener = (_req, res) => {
 			appHits.set(ownPort, (appHits.get(ownPort) ?? 0) + 1);
 			const headers: Record<string, string> = {
 				"content-type": "text/html; charset=utf-8",
@@ -510,7 +519,11 @@ export async function startFakeAgent(
 			};
 			if (delayMs > 0) setTimeout(answer, delayMs).unref?.();
 			else answer();
-		});
+		};
+		// An application serving HTTPS, as `vite --https` does (issue #283).
+		const server = https
+			? createHttpsServer(selfSignedCertificate(), handler)
+			: createServer(handler);
 		const sockets = new WebSocketServer({ server });
 		sockets.on("connection", (socket) => {
 			socket.on("message", (data: Buffer) => socket.send(`echo:${data.toString()}`));
@@ -1906,6 +1919,25 @@ export async function startFakeAgent(
 		return reply.status(204).send();
 	});
 
+	// The reinstall note by workspace key (ADR 0042); empty until a test seeds one.
+	const reinstallNotes = new Map<string, string[]>();
+	app.get("/packages/reinstall-note", async (request) => ({
+		packages: reinstallNotes.get(keyOf(request)) ?? [],
+	}));
+	app.post("/packages/reinstall-note/dismiss", async (request, reply) => {
+		reinstallNotes.delete(keyOf(request));
+		return reply.status(204).send();
+	});
+	app.post("/__test/reinstall-note", async (request, reply) => {
+		const body = (request.body ?? {}) as { key?: string; packages: string[] };
+		reinstallNotes.set(body.key ?? "", body.packages);
+		return reply.status(204).send();
+	});
+	app.get("/__test/reinstall-note", async (request) => {
+		const key = (request.query as { key?: string }).key ?? "";
+		return { packages: reinstallNotes.get(key) ?? [] };
+	});
+
 	/** Replace a workspace's process list. */
 	app.post("/__test/processes", async (request, reply) => {
 		const body = (request.body ?? {}) as { key?: string; processes?: FakeProcess[] };
@@ -2080,17 +2112,23 @@ export async function startFakeAgent(
 			title?: string;
 			frameOptions?: string;
 			delayMs?: number;
+			https?: boolean;
 		};
 		const key = body.key ?? "";
 		const title = body.title ?? "Portikus test app";
-		const port = await startTestApp(title, body.frameOptions, body.delayMs ?? 0);
+		const port = await startTestApp(
+			title,
+			body.frameOptions,
+			body.delayMs ?? 0,
+			body.https === true,
+		);
 		const current = listeningFor(key).filter((one) => one.port !== port);
 		listening.set(key, [
 			...current,
 			{
 				port,
 				addresses: ["0.0.0.0"],
-				protocolHint: "http",
+				protocolHint: body.https === true ? "https" : "http",
 				previewReachability: "reachable",
 				system: false,
 				process: { pid: 4242, command: "node" },
@@ -2197,4 +2235,40 @@ export async function startFakeAgent(
 			await app.close();
 		},
 	};
+}
+
+let certificate: { key: Buffer; cert: Buffer } | null = null;
+
+/** A throwaway self-signed certificate for the HTTPS test app, made once. */
+function selfSignedCertificate(): { key: Buffer; cert: Buffer } {
+	if (certificate) return certificate;
+	const dir = mkdtempSync(join(tmpdir(), "portikus-fake-tls-"));
+	try {
+		execFileSync(
+			"openssl",
+			[
+				"req",
+				"-x509",
+				"-newkey",
+				"rsa:2048",
+				"-nodes",
+				"-days",
+				"1",
+				"-subj",
+				"/CN=localhost",
+				"-keyout",
+				join(dir, "key.pem"),
+				"-out",
+				join(dir, "cert.pem"),
+			],
+			{ stdio: "ignore" },
+		);
+		certificate = {
+			key: readFileSync(join(dir, "key.pem")),
+			cert: readFileSync(join(dir, "cert.pem")),
+		};
+		return certificate;
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 }

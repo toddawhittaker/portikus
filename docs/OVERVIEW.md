@@ -24,7 +24,11 @@ Active Directory, or any other OpenID Connect provider) is one Dex
 connector, and every install has a local administrator with a one-time
 password, recovered with `sudo portikus reset-admin` on the host
 (SPEC.md section 5.1). Epic 15 (`docs/EPIC-15.md`)
-packages the platform for `apt install portikus` next.
+packages the platform for `apt install portikus` next. Epic 24 added
+administrator control of workspace internet access (an allow-list, or
+blocked sites in open mode), backups and single-workspace restores from
+the admin page, per-workspace limits, and HTTPS previews (SPEC.md
+sections 23.6 and 24.9, ADRs 0038 to 0043).
 
 ## Planned architecture
 

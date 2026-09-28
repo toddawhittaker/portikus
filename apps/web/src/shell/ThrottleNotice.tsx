@@ -10,7 +10,10 @@ export function throttleBody(throttle: WorkspaceCpuThrottle): string {
 		throttle.idleLiftMinutes !== null && throttle.idleLiftPercent !== null
 			? ` It returns to full speed on its own after ${throttle.idleLiftMinutes} minutes under ${throttle.idleLiftPercent}% use.`
 			: "";
-	return `It kept its CPUs more than ${throttle.thresholdPercent}% busy for ${throttle.windowMinutes} minutes, so it now gets ${throttle.sharePercent}% of its usual CPU.${lift} Stopping and starting the workspace restores full speed; an administrator can also lift this.`;
+	const restart = throttle.held
+		? ` It stays slowed after a restart because it was slowed ${throttle.held.count} times in the last ${throttle.held.hours} hours. An administrator can lift this.`
+		: " Stopping and starting the workspace restores full speed; an administrator can also lift this.";
+	return `It kept its CPUs more than ${throttle.thresholdPercent}% busy for ${throttle.windowMinutes} minutes, so it now gets ${throttle.sharePercent}% of its usual CPU.${lift}${restart}`;
 }
 
 /**

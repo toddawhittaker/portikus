@@ -374,6 +374,8 @@ type ListeningService = {
 };
 ```
 
+`protocolHint` is `https` when the agent's one TLS handshake with a new student listener (port 1024 or above, once per listener, certificate checks off, one-second timeout) completes; otherwise it keeps the label from the port number. For an `https` listener the gateway speaks TLS to the upstream, with certificate checks off on that hop only, from a scheme header the registry sets (SPEC.md section 14.5, ADR 0041); section 16.3 still holds.
+
 `forwarded` means the service is loopback-only and a loopback forward is open for it. If a forward cannot be opened (the port is denied, or the agent cannot bind the interface), the UI must not simply fail; it explains what happened and offers the next action.
 
 ### 11.2 What the forward is not

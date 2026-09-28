@@ -8,6 +8,7 @@ import {
 import type { Database } from "@portikus/db";
 import { type Logger, silentLogger } from "@portikus/observability";
 import { type ExpressionBuilder, type Kysely, sql } from "kysely";
+import { runReplaceHome } from "./backups.js";
 import type { ControllerClient } from "./controller-client.js";
 import { ControllerClientError } from "./controller-client.js";
 import { rebuildPointsDone } from "./recovery.js";
@@ -186,8 +187,9 @@ async function endOpenTerminals(
  * throttle, the memory flag and the idle warning, auditing each cleared mark
  * with reason "stopped" (ADR 0032). Samples are kept so usage is remembered
  * across restarts, except that a cleared throttle drops the samples from
- * before it, so a restart after a throttle starts fresh. The controller
- * removes the allowance itself at the next start.
+ * before it, so a restart after a throttle starts fresh. A held throttle
+ * (SPEC.md §19.4) is kept, with its samples, and the next start passes its
+ * allowance; otherwise the controller removes the allowance at the next start.
  */
 async function clearGuardAtStop(db: Kysely<Database>, id: string): Promise<void> {
 	const before = await db
@@ -195,12 +197,17 @@ async function clearGuardAtStop(db: Kysely<Database>, id: string): Promise<void>
 		.select(["cpu_throttle", "memory_flag"])
 		.where("id", "=", id)
 		.executeTakeFirst();
+	const held = before?.cpu_throttle?.held !== undefined;
 	await db
 		.updateTable("workspaces")
-		.set({ cpu_throttle: null, memory_flag: null, idle_stop_at: null })
+		.set({
+			...(held ? {} : { cpu_throttle: null }),
+			memory_flag: null,
+			idle_stop_at: null,
+		})
 		.where("id", "=", id)
 		.execute();
-	if (before?.cpu_throttle) {
+	if (before?.cpu_throttle && !held) {
 		await db
 			.deleteFrom("workspace_usage_samples")
 			.where("workspace_id", "=", id)
@@ -211,6 +218,19 @@ async function clearGuardAtStop(db: Kysely<Database>, id: string): Promise<void>
 	if (before?.memory_flag) {
 		await audit(db, id, "workspace.memory_flag_cleared", "ok", { reason: "stopped" });
 	}
+}
+
+/** A held throttle's allowance, so a start never runs at full speed (SPEC.md §19.4). */
+async function heldAllowance(
+	db: Kysely<Database>,
+	id: string,
+): Promise<string | undefined> {
+	const row = await db
+		.selectFrom("workspaces")
+		.select("cpu_throttle")
+		.where("id", "=", id)
+		.executeTakeFirst();
+	return row?.cpu_throttle?.held ? row.cpu_throttle.allowance : undefined;
 }
 
 /** A workspace that has just started counts as active, so it never starts idle (ADR 0032). */
@@ -543,6 +563,8 @@ export async function reconcile(
 			"state",
 			"pending_operation",
 			"pending_operation_by",
+			"pending_operation_at",
+			"pending_operation_args",
 			"quota_config",
 		])
 		.where("state", "in", ["stopped", "error"])
@@ -552,6 +574,23 @@ export async function reconcile(
 	for (const ws of toMaintain) {
 		if (!ws.incus_instance_name || !ws.pending_operation) continue;
 		record(ws.id, ws.pending_operation);
+		// Replace home spans several sweeps while the host imports (ADR 0040).
+		if (ws.pending_operation === "replace-home") {
+			transitions += await runReplaceHome(
+				db,
+				controller,
+				{
+					id: ws.id,
+					instance: ws.incus_instance_name,
+					state: ws.state,
+					pendingAt: ws.pending_operation_at,
+					pendingBy: ws.pending_operation_by,
+					args: ws.pending_operation_args,
+				},
+				now,
+			);
+			continue;
+		}
 		transitions += await runOperation(
 			db,
 			controller,
@@ -986,6 +1025,7 @@ async function startWorkspace(
 			timezone: await ownerTimezone(db, ws.id),
 			dockerGiB: dockerGiBOf(ws.quota_config, config),
 			recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
+			cpuAllowance: await heldAllowance(db, ws.id),
 		});
 		const updated = await casUpdate(
 			db,
@@ -1118,6 +1158,9 @@ const OPERATION_FAILED_MESSAGE: Record<PendingOperation, string> = {
 	rebuild: "The workspace could not be rebuilt. Please contact your administrator.",
 	"rebuild-reset-docker":
 		"The workspace could not be rebuilt. Please contact your administrator.",
+	// runReplaceHome in backups.ts writes its own message; this keeps the map whole.
+	"replace-home":
+		"Your home folder could not be replaced. Please contact your administrator.",
 };
 
 /**

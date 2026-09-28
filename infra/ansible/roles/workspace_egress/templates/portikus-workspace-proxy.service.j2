@@ -1,0 +1,58 @@
+# Managed by Ansible (workspace_egress role).  The workspace egress proxy
+# (ADR 0038), separate from the API's Squid so workspace traffic can never
+# slow or stop sign-ins.  It runs in both modes; only allow-list mode
+# redirects traffic to it.  The egress helper reloads it after writing
+# names.txt.
+[Unit]
+Description=Portikus workspace egress proxy (Squid)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=portikus-wsproxy
+Group=portikus-wsproxy
+PIDFile=/run/portikus-workspace-proxy/squid.pid
+RuntimeDirectory=portikus-workspace-proxy
+LogsDirectory=portikus-workspace-proxy
+LogsDirectoryMode=0750
+# Squid keeps running without a listener it cannot bind, so wait for Incus
+# to give the bridge its gateway address; after the timeout, start again.
+ExecStartPre=/bin/sh -c 'until ip -4 -o addr show to {{ workspace_egress_gateway }}/32 | grep -q .; do sleep 1; done'
+TimeoutStartSec=180
+ExecStart=/usr/sbin/squid-openssl --foreground -YC -n portikusws -f {{ workspace_egress_proxy_dir }}/squid.conf
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+Restart=on-failure
+RestartSec=2
+# Untrusted traffic must not grow it without bound.
+MemoryMax=512M
+LimitNOFILE=16384
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+# Loopback for the counter, the bridge for workspaces and the gateway's DNS;
+# every other private range is out of reach even if a rule were wrong.
+IPAddressAllow=127.0.0.0/8 ::1/128 {{ workspace_egress_subnet }}
+IPAddressDeny={{ workspace_egress_denied_ranges | join(' ') }}
+
+[Install]
+WantedBy=multi-user.target

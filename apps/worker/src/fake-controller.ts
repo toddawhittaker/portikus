@@ -1,16 +1,22 @@
 import type {
+	AddedPackagesResponse,
 	CreateInstanceRequest,
 	CreateInstanceResponse,
+	EgressApplyPolicy,
+	EgressApplyStatus,
 	GrowVolumesRequest,
 	GrowVolumesResponse,
 	HostSnapshot,
 	InstanceProcess,
 	InstanceUsage,
+	KeptVolumesResponse,
 	ListInstancesResponse,
 	LogLevel,
 	RebuildInstanceRequest,
 	RebuildInstanceResponse,
+	ReplaceHomeResponse,
 	ResetDockerRequest,
+	SetInstanceLimitsRequest,
 	StartInstanceRequest,
 	StartInstanceResponse,
 	StopInstanceResponse,
@@ -148,6 +154,65 @@ export class FakeControllerClient implements ControllerClient {
 		this.calls.push({ method: "processes", args: [name, signal] });
 		if (this.processesResult instanceof Error) throw this.processesResult;
 		return this.processesResult;
+	}
+
+	/** Set to an Error to make limit writes fail. */
+	setLimitsError: Error | null = null;
+
+	async setLimits(name: string, req: SetInstanceLimitsRequest): Promise<void> {
+		this.calls.push({ method: "setLimits", args: [name, req] });
+		if (this.setLimitsError) throw this.setLimitsError;
+	}
+
+	addedPackagesResult: AddedPackagesResponse | Error = { image: null, packages: [] };
+
+	async addedPackages(name: string): Promise<AddedPackagesResponse> {
+		this.calls.push({ method: "addedPackages", args: [name] });
+		if (this.addedPackagesResult instanceof Error) throw this.addedPackagesResult;
+		return this.addedPackagesResult;
+	}
+
+	keptVolumesResult: KeptVolumesResponse | Error = { snapshots: [], keptHomes: [] };
+
+	async keptVolumes(): Promise<KeptVolumesResponse> {
+		this.calls.push({ method: "keptVolumes", args: [] });
+		if (this.keptVolumesResult instanceof Error) throw this.keptVolumesResult;
+		return this.keptVolumesResult;
+	}
+
+	/** Set to an Error to make snapshot and kept-home deletes fail. */
+	deleteError: Error | null = null;
+
+	async deleteSnapshot(volume: string, snapshot: string): Promise<void> {
+		this.calls.push({ method: "deleteSnapshot", args: [volume, snapshot] });
+		if (this.deleteError) throw this.deleteError;
+	}
+
+	async deleteKeptHome(volume: string): Promise<void> {
+		this.calls.push({ method: "deleteKeptHome", args: [volume] });
+		if (this.deleteError) throw this.deleteError;
+	}
+
+	replaceHomeResult: ReplaceHomeResponse | Error = {
+		kept: "ws-0123456789abcdef01234567-home-replaced-1790000000",
+	};
+
+	async replaceHome(name: string): Promise<ReplaceHomeResponse> {
+		this.calls.push({ method: "replaceHome", args: [name] });
+		if (this.replaceHomeResult instanceof Error) throw this.replaceHomeResult;
+		return this.replaceHomeResult;
+	}
+
+	egressResult: EgressApplyStatus | Error = {
+		appliedVersion: null,
+		appliedAt: null,
+		error: null,
+	};
+
+	async applyEgressPolicy(policy: EgressApplyPolicy): Promise<EgressApplyStatus> {
+		this.calls.push({ method: "applyEgressPolicy", args: [policy] });
+		if (this.egressResult instanceof Error) throw this.egressResult;
+		return this.egressResult;
 	}
 
 	/** Helper to make a ControllerClientError. */

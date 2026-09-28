@@ -1,0 +1,44 @@
+# Managed by Ansible (workspace_egress role).  The workspace resolver for
+# allow-list mode (ADR 0038): it answers only listed names and adds their
+# addresses to the helper's nftables set.  Incus's own dnsmasq keeps DHCP
+# and the .incus names.  Never enabled: the egress helper restarts it in
+# allow-list mode and stops it in open mode.
+[Unit]
+Description=Portikus workspace egress DNS (dnsmasq)
+ConditionPathExists=/var/lib/portikus/egress-state/dnsmasq.conf
+# It binds the bridge gateway, which Incus makes.  At boot the helper, which
+# runs before Incus, only queues this start.  A failed bind is retried.
+After=incus.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --pid-file= --conf-file=/var/lib/portikus/egress-state/dnsmasq.conf
+Restart=on-failure
+RestartSec=1
+
+# dnsmasq drops to nobody itself (user= in its configuration) and keeps
+# only CAP_NET_ADMIN, which nftset needs.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SETUID CAP_SETGID
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+IPAddressAllow=127.0.0.0/8 {{ workspace_egress_subnet }} {{ workspace_egress_upstream }}
+IPAddressDeny=any
+MemoryMax=128M

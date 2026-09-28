@@ -7,12 +7,13 @@
 # run the same steps, so the steps live here once and are imported twice.
 
 # Everything the client said about who it is, thrown away.  The upstream
-# may only ever come from the authorization response, so a client copy of
-# that header goes too.  Every route on the preview host imports this
+# and its scheme may only ever come from the authorization response, so a
+# client copy of either header goes too.  Every route on the preview host imports this
 # first, including the two that only talk to the API: the API reads
 # X-Forwarded-Host to decide which preview host a request is for.
 (portikus_forget_forwarded) {
 	request_header -X-Portikus-Upstream
+	request_header -X-Portikus-Upstream-Scheme
 	request_header -X-Forwarded-For
 	request_header -X-Forwarded-Proto
 	request_header -X-Forwarded-Host
@@ -31,13 +32,14 @@
 	# X-Forwarded-Host, -Proto and -For, so the API sees the preview host it
 	# must check, alongside the preview cookie and the X-Forwarded-Method and
 	# -Uri that forward_auth adds.  The answer carries the internal upstream
-	# in X-Portikus-Upstream (ADR 0018).  A non-2xx answer goes back to the
+	# in X-Portikus-Upstream (ADR 0018) and whether that port speaks TLS in
+	# X-Portikus-Upstream-Scheme (#283).  A non-2xx answer goes back to the
 	# browser unchanged, body and status, so the API owns the explanation
 	# page.  On the bridge path the URI still carries the reserved prefix, so
 	# the API can read the requested port out of X-Forwarded-Uri.
 	forward_auth 127.0.0.1:{{ portikus_api_port }} {
 		uri /preview/authorize
-		copy_headers X-Portikus-Upstream
+		copy_headers X-Portikus-Upstream X-Portikus-Upstream-Scheme
 		# The subrequest is a plain GET.  Without these two lines an upgrade
 		# request would ask the API for a WebSocket it never opens, and the
 		# authorization would hang.
@@ -67,54 +69,75 @@
 	request_header @portikus_empty_cookie -Cookie
 }
 
-# Proxy to the authorized upstream and apply the two narrow compatibility
+# The body of both preview proxies below: the two narrow compatibility
 # rewrites of BROWSER-HANDLING 13.  Nothing else about the response is
 # touched: no body rewriting, no header removal, no CORS.  The argument is
 # the path prefix a rewritten redirect has to keep: empty on the plain
 # preview path, the bridge prefix on the bridge path.
-(portikus_preview_proxy) {
-	# The upstream placeholder reads the header forward_auth has just copied
-	# off the authorization response, never client text.  The header itself
-	# is dropped on the way out so the student application never sees the
-	# internal address.
-	reverse_proxy {http.request.header.X-Portikus-Upstream} {
-		header_up -X-Portikus-Upstream
+(portikus_preview_proxy_rules) {
+	# The student application never sees the internal address or scheme.
+	header_up -X-Portikus-Upstream
+	header_up -X-Portikus-Upstream-Scheme
 
-		# A cookie scoped to localhost or to a bare IP address is thrown away
-		# by the browser on the preview origin.  Dropping the attribute makes
-		# the cookie host-only on the preview origin instead, which is what
-		# the application meant.  Only those two shapes are touched: the name
-		# has to run to the end of the attribute, so Domain=localhost.evil.example
-		# is a real domain and is left as it is.
-		header_down Set-Cookie "(?i);\s*domain=(localhost|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\s*(;|$)" "${2}"
+	# A cookie scoped to localhost or to a bare IP address is thrown away
+	# by the browser on the preview origin.  Dropping the attribute makes
+	# the cookie host-only on the preview origin instead, which is what
+	# the application meant.  Only those two shapes are touched: the name
+	# has to run to the end of the attribute, so Domain=localhost.evil.example
+	# is a real domain and is left as it is.
+	header_down Set-Cookie "(?i);\s*domain=(localhost|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\s*(;|$)" "${2}"
 
-		# A redirect the application sends to its own address is the one URL
-		# rewrite allowed (BROWSER-HANDLING 13).  Every 3xx is inspected; the
-		# new Location is only written when the old one names localhost,
-		# 127.0.0.1 or the workspace address on exactly the port this preview
-		# serves, so a redirect to another service or another site is passed
-		# through untouched.
-		@portikus_redirect status 3xx
-		handle_response @portikus_redirect {
-			# `route` keeps these in the written order, and `defer` applies the
-			# new Location after the upstream response headers are copied.
-			route {
-				# The old Location split into the part that decides
-				# (scheme-less authority) and the part that is carried over.
-				map {rp.header.Location} {portikus_redirect_origin} {portikus_redirect_tail} {
-					~^[a-zA-Z][a-zA-Z0-9+.-]*://([^/]*)(/.*)?$ "${1}" "${2}"
-					default "" ""
-				}
-				# A response matcher cannot read the port out of a placeholder,
-				# so the comparison is made here instead.
-				@portikus_own_origin expression {portikus_redirect_origin} == "localhost:" + {portikus_upstream_port} || {portikus_redirect_origin} == "127.0.0.1:" + {portikus_upstream_port} || {portikus_redirect_origin} == {portikus_upstream_host} + ":" + {portikus_upstream_port}
-				header @portikus_own_origin {
-					defer
-					Location "https://{http.request.hostport}{args[0]}{portikus_redirect_tail}"
-				}
-				copy_response
+	# A redirect the application sends to its own address is the one URL
+	# rewrite allowed (BROWSER-HANDLING 13).  Every 3xx is inspected; the
+	# new Location is only written when the old one names localhost,
+	# 127.0.0.1 or the workspace address on exactly the port this preview
+	# serves, so a redirect to another service or another site is passed
+	# through untouched.
+	@portikus_redirect status 3xx
+	handle_response @portikus_redirect {
+		# `route` keeps these in the written order, and `defer` applies the
+		# new Location after the upstream response headers are copied.
+		route {
+			# The old Location split into the part that decides
+			# (scheme-less authority) and the part that is carried over.
+			map {rp.header.Location} {portikus_redirect_origin} {portikus_redirect_tail} {
+				~^[a-zA-Z][a-zA-Z0-9+.-]*://([^/]*)(/.*)?$ "${1}" "${2}"
+				default "" ""
 			}
+			# A response matcher cannot read the port out of a placeholder,
+			# so the comparison is made here instead.
+			@portikus_own_origin expression {portikus_redirect_origin} == "localhost:" + {portikus_upstream_port} || {portikus_redirect_origin} == "127.0.0.1:" + {portikus_upstream_port} || {portikus_redirect_origin} == {portikus_upstream_host} + ":" + {portikus_upstream_port}
+			header @portikus_own_origin {
+				defer
+				Location "https://{http.request.hostport}{args[0]}{portikus_redirect_tail}"
+			}
+			copy_response
 		}
+	}
+}
+
+# Proxy to the authorized upstream.  The upstream placeholder reads the
+# header forward_auth has just copied off the authorization response, never
+# client text.  A transport is fixed per reverse_proxy, so a port that
+# speaks TLS (#283) gets a second proxy chosen by the scheme header, which
+# also comes only from the authorization response.  Everything else falls
+# to the plain proxy.
+(portikus_preview_proxy) {
+	@portikus_tls_upstream header X-Portikus-Upstream-Scheme https
+	reverse_proxy @portikus_tls_upstream {http.request.header.X-Portikus-Upstream} {
+		import portikus_preview_proxy_rules {args[0]}
+		# The student's certificate is self-signed for localhost, so it is
+		# not checked on this hop only; the target is the registry's, and the
+		# browser still sees only the platform's certificate.  HTTP/1.1, as on
+		# the plain hop, keeps WebSocket upgrades on the same path.
+		transport http {
+			tls
+			tls_insecure_skip_verify
+			versions 1.1
+		}
+	}
+	reverse_proxy {http.request.header.X-Portikus-Upstream} {
+		import portikus_preview_proxy_rules {args[0]}
 	}
 }
 

@@ -20,6 +20,7 @@ export const PENDING_LABEL: Record<PendingOperation, string> = {
 	"reset-docker": "Resetting Docker…",
 	rebuild: "Rebuilding…",
 	"rebuild-reset-docker": "Rebuilding…",
+	"replace-home": "Replacing home folder…",
 };
 
 /** The workspace state, or the pending operation when there is one. */

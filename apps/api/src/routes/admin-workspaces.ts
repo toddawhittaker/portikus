@@ -5,7 +5,9 @@ import {
 	type AdminWorkspaceSummary,
 	type ApiError,
 	type AuditEvent,
+	allowanceFor,
 	type CpuThrottle,
+	countIncusCpus,
 	effectiveGuard,
 	type GuardConfig,
 	HealthSample,
@@ -15,7 +17,9 @@ import {
 	type QuotaConfig,
 	type StorageFigure,
 	UpdateGuardRequest,
+	UpdateLimitsRequest,
 	UpdateQuotaRequest,
+	type WorkspaceLimits,
 	WorkspaceUsage,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
@@ -97,6 +101,28 @@ export function toImageVersion(
 			? fingerprint === facts.currentFingerprint
 			: null;
 	return { label, fingerprint, current };
+}
+
+/**
+ * The host's CPU count and the profile's CPU count, from the newest health
+ * sample. Like the guard, a profile without a readable `limits.cpu` counts as
+ * the whole host.
+ */
+async function loadHostCpu(
+	db: Kysely<Database>,
+): Promise<{ cpuCount: number; profileCpu: number } | null> {
+	const row = await db
+		.selectFrom("health_samples")
+		.select("sample")
+		.orderBy("observed_at", "desc")
+		.orderBy("id", "desc")
+		.limit(1)
+		.executeTakeFirst();
+	if (!row) return null;
+	const parsed = HealthSample.safeParse(row.sample);
+	if (!parsed.success || parsed.data.host === null) return null;
+	const { cpuCount, profileLimits } = parsed.data.host;
+	return { cpuCount, profileCpu: countIncusCpus(profileLimits.cpu) ?? cpuCount };
 }
 
 /** A jsonb quota column, or null when it is unset. */
@@ -340,6 +366,8 @@ export function registerAdminWorkspaceRoutes(
 			effectiveGuard: effectiveGuard(settings, toJson<GuardConfig>(row.guard_config)),
 			cpuThrottle: toJson<CpuThrottle>(row.cpu_throttle),
 			memoryFlag: toJson<MemoryFlag>(row.memory_flag),
+			limitsConfig: toJson<WorkspaceLimits>(row.limits_config),
+			limitsApplied: toJson<WorkspaceLimits>(row.limits_applied),
 		};
 		return body;
 	});
@@ -600,4 +628,139 @@ export function registerAdminWorkspaceRoutes(
 		adminOnly,
 		async (request, reply) => clearGuardMark(request, reply, "memory_flag"),
 	);
+
+	/**
+	 * Set one workspace's CPU, memory and process limits; null uses the
+	 * profile, and the worker applies the change (SPEC.md section 20.1).
+	 */
+	app.put("/admin/workspaces/:id/limits", adminOnly, async (request, reply) => {
+		const actor = requireUser(request);
+		const params = UuidParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const body = UpdateLimitsRequest.safeParse(request.body ?? {});
+		if (!body.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
+		}
+		const id = params.data.id;
+		const host = await loadHostCpu(db);
+		if (body.data.cpu !== null && host && body.data.cpu > host.cpuCount) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				`This host has only ${host.cpuCount} CPUs.`,
+			);
+		}
+		const to: WorkspaceLimits = {};
+		if (body.data.cpu !== null) to.cpu = body.data.cpu;
+		if (body.data.memoryMiB !== null) to.memoryMiB = body.data.memoryMiB;
+		if (body.data.processes !== null) to.processes = body.data.processes;
+
+		const found = await db.transaction().execute(async (trx) => {
+			const row = await trx
+				.selectFrom("workspaces")
+				.select(["limits_config", "cpu_throttle"])
+				.where("id", "=", id)
+				.forUpdate()
+				.executeTakeFirst();
+			if (!row) return false;
+			const from: WorkspaceLimits = toJson<WorkspaceLimits>(row.limits_config) ?? {};
+			if (JSON.stringify(from) === JSON.stringify(to)) return true;
+			const changes: {
+				limits_config: string | null;
+				updated_at: string;
+				cpu_throttle?: string;
+			} = {
+				limits_config: Object.keys(to).length > 0 ? JSON.stringify(to) : null,
+				updated_at: new Date().toISOString(),
+			};
+			// A throttle's slice is a share of the CPU count, so it follows the new count.
+			const throttle = toJson<CpuThrottle>(row.cpu_throttle);
+			const cpu = to.cpu ?? host?.profileCpu ?? null;
+			if (throttle && from.cpu !== to.cpu && cpu !== null) {
+				changes.cpu_throttle = JSON.stringify({
+					...throttle,
+					allowance: allowanceFor(throttle.sharePercent, cpu),
+				});
+			}
+			await trx.updateTable("workspaces").set(changes).where("id", "=", id).execute();
+			await trx
+				.insertInto("audit_events")
+				.values({
+					actor: `user:${actor.id}`,
+					target: id,
+					action: "workspace.limits_updated",
+					result: "ok",
+					metadata: JSON.stringify({ from, to }),
+				})
+				.execute();
+			return true;
+		});
+		if (!found) {
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+		}
+		return reply.status(204).send();
+	});
+
+	/**
+	 * Send a workspace stuck in `error` back to `provisioning`, so the worker
+	 * creates it again. The create adopts an instance and volumes that exist,
+	 * so the home survives (SPEC.md section 20.1).
+	 */
+	app.post("/admin/workspaces/:id/reprovision", adminOnly, async (request, reply) => {
+		const actor = requireUser(request);
+		const params = UuidParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const id = params.data.id;
+		const outcome = await db.transaction().execute(async (trx) => {
+			const moved = await trx
+				.updateTable("workspaces")
+				.set({
+					state: "provisioning",
+					error_code: null,
+					error_message: null,
+					// The new instance starts from the profile, so the limits go again.
+					limits_applied: null,
+					updated_at: new Date().toISOString(),
+				})
+				.where("id", "=", id)
+				.where("state", "=", "error")
+				.executeTakeFirst();
+			if (Number(moved.numUpdatedRows) === 0) {
+				const exists = await trx
+					.selectFrom("workspaces")
+					.select("id")
+					.where("id", "=", id)
+					.executeTakeFirst();
+				return exists ? "not_in_error" : "not_found";
+			}
+			await trx
+				.insertInto("audit_events")
+				.values({
+					actor: `user:${actor.id}`,
+					target: id,
+					action: "workspace.reprovision_requested",
+					result: "ok",
+				})
+				.execute();
+			return "moved";
+		});
+		if (outcome === "not_found") {
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+		}
+		if (outcome === "not_in_error") {
+			return sendError(
+				reply,
+				409,
+				"NOT_IN_ERROR",
+				"Only a workspace in error can be re-provisioned.",
+			);
+		}
+		const updated = (await loadRow(id)) as Record<string, unknown>;
+		return toWorkspace(db, updated, await countActive(db, id, config), config);
+	});
 }

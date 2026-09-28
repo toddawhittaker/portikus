@@ -5,7 +5,7 @@
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy \
        build-deb deploy-app build-workspace-image workspace-create workspace-destroy \
-       backup-setup backup backup-install-timer restore \
+       backup-setup backup backup-install-timer backup-install-channel backup-install-key restore \
        mock-lms lti-mock-register lti-mock-unregister
 
 help: ## Show the available targets
@@ -142,7 +142,9 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/lti-platforms-test.sh
 	ansible-playbook infra/tests/dex-render-test.yml
 	ansible-playbook infra/tests/egress-proxy-render-test.yml
+	ansible-playbook infra/tests/workspace-egress-render-test.yml
 	bash infra/tests/backup-scope-test.sh
+	bash infra/tests/backup-channel-test.sh
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
 	bash infra/host/dev-libvirt/bootstrap.sh
@@ -155,8 +157,11 @@ infra-apply: ## Create or update the platform VM and disks (TOFU_ENV=rehearsal-l
 	$(TOFU_BANNER)
 	cd $(TOFU_DIR) && tofu init -input=false $(TOFU_INIT_ARGS) && tofu apply
 
-# The VM address comes from OpenTofu state; override with VM_IP=<ip>.
-VM_IP ?= $(call tofu_output,vm_ip)
+# The VM address comes from OpenTofu state; override with VM_IP=<ip>. The
+# state has none after an apply that only started a stopped VM, so fall back
+# to libvirt's DHCP lease for the domain this environment's state names.
+vm_lease_cmd = virsh -q -c qemu:///system domifaddr --source lease '$(TOFU_VM_NAME)' 2>/dev/null | awk '$$3 == "ipv4" { sub("/.*", "", $$4); print $$4; exit }'
+VM_IP ?= $(or $(call tofu_output,vm_ip),$(if $(TOFU_VM_NAME),$(shell $(vm_lease_cmd))))
 MANAGEMENT_CIDR ?= $(call tofu_output,management_cidr)
 
 # The host's own LAN address, taken from its default route.
@@ -175,12 +180,17 @@ PORTIKUS_PUBLIC_PORT ?= 8443
 # not race the first-boot apt update. The known-hosts options are for the wait
 # only: a rebuilt VM has a new host key at the same address.
 wait-vm: ## Wait for the platform VM to finish first boot
-	@test -n "$(VM_IP)" || { echo "wait-vm: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	@for i in $$(seq 1 60); do \
+	@ip='$(VM_IP)'; \
+	if [ -z "$$ip" ] && [ -n '$(TOFU_VM_NAME)' ]; then \
+		echo "wait-vm: no address in the state; waiting for libvirt to lease one to '$(TOFU_VM_NAME)'"; \
+		for i in $$(seq 1 24); do ip=$$($(vm_lease_cmd)); [ -n "$$ip" ] && break; sleep 5; done; \
+	fi; \
+	test -n "$$ip" || { echo "wait-vm: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }; \
+	for i in $$(seq 1 60); do \
 		ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-			-o LogLevel=ERROR deploy@$(VM_IP) 'cloud-init status --wait >/dev/null 2>&1; cloud-init status' 2>/dev/null && exit 0; \
+			-o LogLevel=ERROR deploy@$$ip 'cloud-init status --wait >/dev/null 2>&1; cloud-init status' 2>/dev/null && exit 0; \
 		sleep 5; \
-	done; echo "wait-vm: $(VM_IP) did not become ready"; exit 1
+	done; echo "wait-vm: $$ip did not become ready"; exit 1
 
 # Ansible runs from infra/ansible, so a local package path has to be absolute.
 PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)
@@ -298,7 +308,7 @@ backup-setup:
 	@if [ ! -f "$(PORTIKUS_BACKUP_IDENTITY)" ] && [ ! -s "$(PORTIKUS_BACKUP_RECIPIENTS)" ]; then \
 		install -d -m 0700 "$(dir $(PORTIKUS_BACKUP_IDENTITY))"; \
 		(umask 077 && age-keygen -o "$(PORTIKUS_BACKUP_IDENTITY)" 2>/dev/null); \
-		echo "backup-setup: made the backup key $(PORTIKUS_BACKUP_IDENTITY). Store it in your password manager, then remove it from this host: backups need only the public half, and without the private half no backup can be read."; \
+		echo "backup-setup: made the backup key $(PORTIKUS_BACKUP_IDENTITY). Store it in your password manager, install it for restores from the admin page with make backup-install-key KEY=$(PORTIKUS_BACKUP_IDENTITY), then delete it from your home directory."; \
 	fi
 	@test -s "$(PORTIKUS_BACKUP_RECIPIENTS)" || age-keygen -y "$(PORTIKUS_BACKUP_IDENTITY)" >"$(PORTIKUS_BACKUP_RECIPIENTS)"
 	@test -w "$(PORTIKUS_BACKUP_DIR)" || sudo install -d -m 0700 -o "$$(id -un)" -g "$$(id -gn)" "$(PORTIKUS_BACKUP_DIR)"
@@ -324,6 +334,37 @@ backup-install-timer: backup-setup ## Install the nightly 02:30 backup of the pi
 	sudo systemctl daemon-reload
 	sudo systemctl enable --now portikus-backup.timer
 	systemctl list-timers portikus-backup.timer --no-pager
+	$(MAKE) --no-print-directory backup-install-channel
+
+# The admin page's requests (docs/adr/0039-backup-channel-and-host-held-key.md).
+# One channel per host: installing it for the rehearsal VM repoints it there,
+# and make backup-install-timer points it back at the pilot.
+backup-install-channel: backup-setup ## Install the host timer that runs backup requests from the admin page, for the VM in TOFU_ENV
+	@test -n "$(VM_IP)" || { echo "backup-install-channel: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
+	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-channel: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
+	sudo install -m 0755 infra/host/backup.sh /usr/local/sbin/portikus-backup
+	sudo install -m 0644 infra/host/portikus-backup-export /usr/local/sbin/portikus-backup-export
+	sudo install -m 0755 infra/host/backup-channel.sh /usr/local/sbin/portikus-backup-channel
+	sudo install -m 0755 infra/host/restore-copy.sh /usr/local/sbin/portikus-restore-copy
+	sed -e "s|@USER@|$$(id -un)|" -e "s|@BACKUP_DIR@|$(PORTIKUS_BACKUP_DIR)|" \
+		-e "s|@RECIPIENTS@|$(abspath $(PORTIKUS_BACKUP_RECIPIENTS))|" -e "s|@VM_IP@|$(VM_IP)|" -e "s|@VM_NAME@|$(TOFU_VM_NAME)|" \
+		-e "s|@NIGHTLY@|$(if $(filter dev-libvirt,$(TOFU_ENV)),portikus-backup,)|" \
+		infra/host/systemd/portikus-backup-channel.service | sudo tee /etc/systemd/system/portikus-backup-channel.service >/dev/null
+	sudo install -m 0644 infra/host/systemd/portikus-backup-channel.timer /etc/systemd/system/portikus-backup-channel.timer
+	sudo systemctl daemon-reload
+	sudo systemctl enable --now portikus-backup-channel.timer
+	systemctl list-timers portikus-backup-channel.timer --no-pager
+
+# Root-only on the host, so restores from the admin page can read the sets;
+# whoever takes the host can then read every backup (ADR 0039).
+backup-install-key: ## Install the private backup key root-only at /etc/portikus-backup/age-key.txt (KEY=<path>)
+	@test -n "$(KEY)" && test -s "$(KEY)" || { echo "backup-install-key: KEY=<path to the private age key> is required"; exit 1; }
+	@test -s "$(PORTIKUS_BACKUP_RECIPIENTS)" || { echo "backup-install-key: no recipients file at $(PORTIKUS_BACKUP_RECIPIENTS) to check the key against"; exit 1; }
+	@pub=$$(age-keygen -y "$(KEY)") && grep -qxF "$$pub" "$(PORTIKUS_BACKUP_RECIPIENTS)" \
+		|| { echo "backup-install-key: $(KEY) is not the key backups are encrypted to ($(PORTIKUS_BACKUP_RECIPIENTS)); nothing installed"; exit 1; }
+	sudo install -d -m 0700 -o root -g root /etc/portikus-backup
+	sudo install -m 0600 -o root -g root "$(KEY)" /etc/portikus-backup/age-key.txt
+	@echo "backup-install-key: installed /etc/portikus-backup/age-key.txt (root, 0600). Keep your password-manager copy and delete $(KEY) if it is in your home directory."
 
 # Replaces the target's database, so it refuses the pilot's environment, and
 # restore.sh refuses any VM whose hostname is not the one in the state.

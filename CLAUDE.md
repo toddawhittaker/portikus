@@ -1,11 +1,10 @@
 # CLAUDE.md
 
-Guidance for Claude Code in this repository. Portikus is a browser-based
-agentic development workspace for students. Keep this file under 150
-lines. It holds only pointers and process rules: how work is delegated,
-tested, reviewed, and merged. Status, history, architecture, and anything
-that describes what the code does belong under `docs/`, cited by file and
-section, never here.
+Guidance for Claude Code here. Portikus is a browser-based agentic
+development workspace for students. Keep this file under 150 lines. It
+holds only pointers and process rules: how work is delegated, tested,
+reviewed, and merged. Status, history, architecture, and what the code
+does belong under `docs/`, cited by file and section, never here.
 
 ## Where things are documented
 
@@ -73,6 +72,7 @@ It does the work itself only for a one-line lookup or edit. Agents live in
 | security-reviewer | Read-only review against SPEC.md section 24 trust boundaries. |
 | code-reviewer | Read-only review for correctness, then YAGNI/KISS/DRY/SOLID quality. |
 | a11y-reviewer | Read-only accessibility review of UI against SPEC.md section 25.8. |
+| ui-designer | Building or polishing UI in `apps/web` and `packages/ui` to the design system: semantic markup, container-driven layout, performance first. Review-only on request. |
 | infra | Anything under `infra/`: OpenTofu, Ansible, cloud-init, Incus, images. |
 | merger | Landing a list of task PRs into an epic branch: CI wait, update, squash-merge, flake reruns; escalates conflicts and real failures. Cheap. |
 

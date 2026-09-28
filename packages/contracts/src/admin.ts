@@ -69,6 +69,34 @@ export const UpdateGuardRequest = z
 	});
 export type UpdateGuardRequest = z.infer<typeof UpdateGuardRequest>;
 
+/** One workspace's limit bounds, shared with the controller's SetInstanceLimitsRequest. */
+export const LimitCpu = z.number().int().min(1).max(64);
+export const LimitMemoryMiB = z.number().int().min(512).max(262144);
+export const LimitProcesses = z.number().int().min(500).max(32768);
+
+/**
+ * Body of `PUT /admin/workspaces/:id/limits`: the whole set, null where the
+ * Incus profile's value applies.
+ */
+export const UpdateLimitsRequest = z
+	.object({
+		cpu: LimitCpu.nullable(),
+		memoryMiB: LimitMemoryMiB.nullable(),
+		processes: LimitProcesses.nullable(),
+	})
+	.strict();
+export type UpdateLimitsRequest = z.infer<typeof UpdateLimitsRequest>;
+
+/** `workspaces.limits_config` and `limits_applied`: a missing key uses the profile. */
+export const WorkspaceLimits = z
+	.object({
+		cpu: LimitCpu.optional(),
+		memoryMiB: LimitMemoryMiB.optional(),
+		processes: LimitProcesses.optional(),
+	})
+	.strict();
+export type WorkspaceLimits = z.infer<typeof WorkspaceLimits>;
+
 /** The readable image version of one instance, and whether it is current. */
 export const AdminImageVersion = z.object({
 	/** `image.serial`, or the first 12 characters of the fingerprint. */
@@ -178,6 +206,10 @@ export const AdminWorkspaceDetail = z.object({
 	effectiveGuard: EffectiveGuard,
 	cpuThrottle: CpuThrottle.nullable(),
 	memoryFlag: MemoryFlag.nullable(),
+	/** The administrator's CPU, memory and process limits; null uses the profile. */
+	limitsConfig: WorkspaceLimits.nullable(),
+	/** What the worker last set on the instance; differs from limitsConfig while pending. */
+	limitsApplied: WorkspaceLimits.nullable(),
 });
 export type AdminWorkspaceDetail = z.infer<typeof AdminWorkspaceDetail>;
 

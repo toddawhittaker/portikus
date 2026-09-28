@@ -5,7 +5,8 @@
 # Flush only the tables this file owns.  A global "flush ruleset" would
 # also remove the "inet incus" table that Incus creates for bridge NAT and
 # network ACLs, leaving workspaces without DHCP, DNS, or ACL enforcement
-# until the daemon restarts.
+# until the daemon restarts, and the egress helper's "inet portikus_egress",
+# which would open allow-list mode.
 table inet filter
 flush table inet filter
 table inet nat
@@ -39,6 +40,12 @@ table inet filter {
     # so the allow Incus adds in its own table is not enough on its own.
     iifname "{{ incus_network_name }}" udp dport { 67, 53 } accept
     iifname "{{ incus_network_name }}" tcp dport 53 accept
+
+    # Workspace egress in allow-list mode (ADR 0038): the workspace proxy
+    # and our DNS take only connections the redirect in table inet
+    # portikus_egress made.  Dialled directly, they stay closed.
+    iifname "{{ incus_network_name }}" tcp dport { {{ workspace_egress_http_port }}, {{ workspace_egress_https_port }} } ct status dnat accept
+    iifname "{{ incus_network_name }}" meta l4proto { tcp, udp } th dport {{ workspace_egress_dns_port }} ct status dnat accept
   }
 
   chain forward {

@@ -10,14 +10,13 @@ import {
 	query,
 	seedStorage,
 	settledAxe,
+	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
 async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page))
-		.withTags(["wcag2a", "wcag2aa", "wcag21aa"])
-		.analyze();
+	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 

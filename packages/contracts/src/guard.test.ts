@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { effectiveGuard, idleLift } from "./guard.js";
+import {
+	allowanceFor,
+	countIncusCpus,
+	effectiveGuard,
+	idleLift,
+	throttleHold,
+} from "./guard.js";
 
 const platform = {
 	cpu_guard_threshold_percent: 80,
@@ -44,4 +50,56 @@ describe("idleLift", () => {
 	test("percent 0 turns lifting off", () => {
 		expect(idleLift({ cpu_idle_lift_minutes: 5, cpu_idle_lift_percent: 0 })).toBeNull();
 	});
+});
+
+describe("throttleHold (SPEC.md §19.4)", () => {
+	const hold = { cpu_throttle_hold_after: 3, cpu_throttle_hold_hours: 24 };
+	const t = (hhmm: string) => new Date(`2026-09-27T${hhmm}:00Z`);
+
+	test("the third throttle within the window is held", () => {
+		const result = throttleHold(hold, [t("10:00"), t("13:00")], t("16:00"));
+		expect(result.held).toEqual({ count: 3, hours: 24 });
+		expect(result.recent).toEqual([t("10:00"), t("13:00"), t("16:00")]);
+	});
+
+	test("the second is not held", () => {
+		expect(throttleHold(hold, [t("10:00")], t("13:00")).held).toBeNull();
+	});
+
+	test("throttles outside the window are dropped and do not count", () => {
+		const old = new Date("2026-09-26T09:00:00Z");
+		const result = throttleHold(hold, [old, t("10:00")], t("16:00"));
+		expect(result.held).toBeNull();
+		expect(result.recent).toEqual([t("10:00"), t("16:00")]);
+	});
+
+	test("a throttle exactly one window old no longer counts", () => {
+		const edge = new Date("2026-09-26T16:00:00Z");
+		expect(throttleHold(hold, [edge, t("10:00")], t("16:00")).held).toBeNull();
+	});
+
+	test("0 turns holding off, but the times are still kept", () => {
+		const off = { ...hold, cpu_throttle_hold_after: 0 };
+		const result = throttleHold(off, [t("10:00"), t("13:00")], t("16:00"));
+		expect(result.held).toBeNull();
+		expect(result.recent).toHaveLength(3);
+	});
+});
+
+test("allowanceFor is a time slice for a share of the CPUs", () => {
+	expect(allowanceFor(25, 4)).toBe("100ms/100ms");
+	expect(allowanceFor(25, 2)).toBe("50ms/100ms");
+	expect(allowanceFor(100, 4)).toBe("400ms/100ms");
+	expect(allowanceFor(5, 1)).toBe("5ms/100ms");
+});
+
+test("countIncusCpus reads a count or a CPU set, and null otherwise", () => {
+	expect(countIncusCpus("4")).toBe(4);
+	expect(countIncusCpus("0-3")).toBe(4);
+	expect(countIncusCpus("0,2,5-6")).toBe(4);
+	expect(countIncusCpus(undefined)).toBeNull();
+	expect(countIncusCpus("")).toBeNull();
+	expect(countIncusCpus("0")).toBeNull();
+	expect(countIncusCpus("3-1")).toBeNull();
+	expect(countIncusCpus("four")).toBeNull();
 });

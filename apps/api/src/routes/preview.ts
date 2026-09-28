@@ -17,7 +17,11 @@ import {
 	type PreviewDeniedReason,
 } from "../preview/audit-throttle.js";
 import { createBridgeForwards, parseBridgeUri } from "../preview/bridge.js";
-import { type EmbeddableVerdict, probeEmbeddable } from "../preview/embeddable.js";
+import {
+	type EmbeddableVerdict,
+	probeEmbeddable,
+	type UpstreamScheme,
+} from "../preview/embeddable.js";
 import {
 	inactiveServicePage,
 	refusedPage,
@@ -159,6 +163,7 @@ export function registerPreviewRoutes(
 		workspaceId: string,
 		port: number,
 		upstream: string,
+		scheme: UpstreamScheme,
 		host: string,
 	): Promise<EmbeddableVerdict> {
 		const running = probes.get(workspaceId);
@@ -169,11 +174,13 @@ export function registerPreviewRoutes(
 				(): EmbeddableVerdict => ({ embeddable: false, reason: "unreachable" }),
 			);
 			if (running.port === port) return earlier;
-			return probeOnce(workspaceId, port, upstream, host);
+			return probeOnce(workspaceId, port, upstream, scheme, host);
 		}
-		const answer = probeEmbeddable(upstream, config.PUBLIC_URL, host).finally(() => {
-			if (probes.get(workspaceId)?.answer === answer) probes.delete(workspaceId);
-		});
+		const answer = probeEmbeddable(upstream, scheme, config.PUBLIC_URL, host).finally(
+			() => {
+				if (probes.get(workspaceId)?.answer === answer) probes.delete(workspaceId);
+			},
+		);
 		probes.set(workspaceId, { port, answer });
 		return answer;
 	}
@@ -437,6 +444,7 @@ export function registerPreviewRoutes(
 			params.data.id,
 			port,
 			`${address}:${port}`,
+			upstreamScheme(service.protocolHint),
 			previewHost(workspace.label, port, config.PREVIEW_SUFFIX),
 		);
 		return reply.header("cache-control", "no-store").send(verdict);
@@ -704,12 +712,21 @@ export function registerPreviewRoutes(
 
 		// The upstream comes from the workspace row and a port the registry
 		// vouched for, never from anything the request carries (SPEC.md §24.7).
-		return reply
-			.header("x-portikus-upstream", `${workspace.agent_address}:${port}`)
-			.header("cache-control", "no-store")
-			.status(200)
-			.send();
+		return (
+			reply
+				.header("x-portikus-upstream", `${workspace.agent_address}:${port}`)
+				// Caddy speaks TLS to the upstream only when this says https (ADR 0041).
+				.header("x-portikus-upstream-scheme", upstreamScheme(service.protocolHint))
+				.header("cache-control", "no-store")
+				.status(200)
+				.send()
+		);
 	});
+}
+
+/** Only the agent's TLS probe makes an upstream HTTPS; anything else is HTTP. */
+function upstreamScheme(protocolHint: string): UpstreamScheme {
+	return protocolHint === "https" ? "https" : "http";
 }
 
 /** The main session's row id, which is the hash of its cookie token. */

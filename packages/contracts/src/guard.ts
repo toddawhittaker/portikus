@@ -42,3 +42,56 @@ export function idleLift(
 		percent: platform.cpu_idle_lift_percent,
 	};
 }
+
+/** The throttle-hold values as the `settings` row holds them (SPEC.md §19.4). */
+export interface ThrottleHoldPlatform {
+	cpu_throttle_hold_after: number;
+	cpu_throttle_hold_hours: number;
+}
+
+/**
+ * Record a throttle at `at`: the recent throttle times trimmed to the hold
+ * window with `at` added, and why it is held when it is the Nth within the
+ * window, or null when it is not or holding is off (after 0).
+ */
+export function throttleHold(
+	platform: ThrottleHoldPlatform,
+	recent: Date[],
+	at: Date,
+): { recent: Date[]; held: { count: number; hours: number } | null } {
+	const hours = platform.cpu_throttle_hold_hours;
+	const since = at.getTime() - hours * 3_600_000;
+	const kept = [...recent.filter((t) => t.getTime() > since), at];
+	const after = platform.cpu_throttle_hold_after;
+	const held = after > 0 && kept.length >= after ? { count: kept.length, hours } : null;
+	return { recent: kept, held };
+}
+
+/** The time slice for `share` percent of `cpuLimit` CPUs, never a percentage (ADR 0032). */
+export function allowanceFor(sharePercent: number, cpuLimit: number): string {
+	const ms = Math.max(1, Math.round((sharePercent / 100) * cpuLimit * 100));
+	return `${ms}ms/100ms`;
+}
+
+/**
+ * The number of CPUs an Incus `limits.cpu` value gives: a count such as "4"
+ * or a CPU set such as "0-3" or "0,2,5-6". Null when unset or unreadable.
+ */
+export function countIncusCpus(value: unknown): number | null {
+	if (typeof value !== "string" || value.trim() === "") return null;
+	const text = value.trim();
+	if (/^\d+$/.test(text)) {
+		const n = Number(text);
+		return n > 0 ? n : null;
+	}
+	let count = 0;
+	for (const part of text.split(",")) {
+		const range = /^(\d+)(?:-(\d+))?$/.exec(part.trim());
+		if (!range) return null;
+		const first = Number(range[1]);
+		const last = range[2] === undefined ? first : Number(range[2]);
+		if (last < first) return null;
+		count += last - first + 1;
+	}
+	return count;
+}

@@ -1,6 +1,6 @@
 # 0024. Backups are pulled to the host and encrypted there with age
 
-- **Status**: Accepted
+- **Status**: Accepted; the rule that the private key belongs offline is superseded by ADR 0039 (Epic 24)
 - **Date**: 2026-09-23
 - **References**: SPEC.md sections 17.3, 19, 24.9, 29 (Epic 12); STACK.md
   sections 20, 27 and 33; docs/archive/epics/EPIC-12B.md ("Part B decisions", task B3);
@@ -137,6 +137,11 @@ account's SSH key to the VM. The repository's SOPS configuration
 (`infra/secrets/.sops.yaml`) has no key yet, so this is a separate key
 used only for backups. Nothing in a set is readable without the private
 key, including the MANIFEST and the file lists.
+
+**Superseded (Epic 24, ADR 0039):** the private key is now also installed
+root-only on the host, at `/etc/portikus-backup/age-key.txt`, so restores
+can start from the admin page. Todd's password-manager copy stays the
+recovery copy. The rest of this record stands.
 
 **What a set holds.**
 

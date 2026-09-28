@@ -17,9 +17,12 @@ Names used throughout:
   reads the VM's address from the OpenTofu state, so never pass `VM_IP` by
   hand for the pilot.
 - **The rehearsal VM** is `portikus-rehearsal`, a second VM on the same
-  host for exercises that must not touch the pilot (`TOFU_ENV=rehearsal-libvirt`).
-- **Out of class hours** means no student is working. Every change to the
-  pilot happens then.
+  host (`TOFU_ENV=rehearsal-libvirt`). It is for rebuilding a whole
+  machine or a disaster-recovery drill, a from-scratch bootstrap, and
+  load tests bigger than the pilot. Everything else, including an epic's
+  verification, is done on the pilot, which is the development VM.
+  No real students use the pilot. Every account and workspace on it is a
+  test account, so it can be changed at any time.
 
 ## Rules that hold for every pilot change
 
@@ -27,27 +30,43 @@ Names used throughout:
    never runs a package that has not been merged to `main`.
 2. Record `ssh deploy@10.100.0.120 dpkg -s portikus | grep Version` before
    and after the change.
-3. Take snapshots and a database dump first (next section).
+3. Take a database dump first (next section).
 4. Change the pilot only through a Make target or Ansible, never by hand.
-5. Never run the smoke test's lifecycle block or a load test on the pilot.
-   `make security-test` is safe on the live pilot.
-6. Nothing may destroy, stop, restart, rebuild, reset or restore a
-   student's workspace or volume without the student knowing.
+5. Rebuilds, restores, resets and restarts of workspaces, the smoke
+   test's lifecycle block, and `make security-test` (heavy tests too) may
+   all run on the pilot. Load tests go to the rehearsal VM, because the
+   pilot is too small for them and the script refuses it.
 
-## Before a change: snapshots and a database dump
+## Before a change: a database dump
 
-Take an Incus snapshot of each workspace's home, Docker and recovery volume, and
-a `pg_dump` (a PostgreSQL export) of the platform database to the host.
-Name the snapshots after the change, for example `pre-epic12b`.
+Every deploy takes a `pg_dump` (a PostgreSQL export) of the platform
+database to the host. Name it after the change, for example `epic24`.
+
+```
+install -d -m 0700 /var/backups/portikus/portikus/dumps
+ssh deploy@10.100.0.120 'sudo runuser -u postgres -- pg_dump -Fc portikus' > /var/backups/portikus/portikus/dumps/portikus-pre-CHANGE-$(date +%F).dump
+```
+
+Write `CHANGE` in lower-case letters, digits and hyphens, so the admin
+page's Backups tab lists the dump and can delete it. It lists only files
+named `portikus-pre-<name>.dump` in that `dumps` folder; older dumps in
+your home directory are left for you to delete.
+
+**Incus volume snapshots only when the change touches workspace
+volumes**: rebuilding workspaces on a new image, a volume migration, a
+restore, or replacing a home. Snapshot each workspace's home, Docker and
+recovery volume first:
 
 ```
 ssh deploy@10.100.0.120 'for v in $(sudo incus storage volume list workspace-data --project portikus -f csv -c n | grep -E "^ws-.*-(home|docker|recovery)$"); do sudo incus storage volume snapshot create workspace-data "$v" pre-CHANGE --project portikus; done'
-ssh deploy@10.100.0.120 'sudo runuser -u postgres -- pg_dump -Fc portikus' > ~/portikus-pre-CHANGE-$(date +%F).dump
 ```
 
-No script ever deletes a `pre-...` snapshot. Delete old ones by hand once
-the change has proved itself for a week or so. A fresh `make backup` is
-also a good idea before any larger change.
+Delete them the same day, once the change checks out, from the Backups
+tab or by hand. No script deletes them on its own.
+
+Do not take whole-VM libvirt snapshots for a routine deploy. They pin old
+blocks inside the VM's disk file, so it only grows ("VM disk files on the
+host").
 
 To undo a bad change, install the previous package
 (`make configure-vm PORTIKUS_VERSION=<old version>`) and, only if the
@@ -554,8 +573,8 @@ records each run and its snapshots and dump.
 A move like these follows the same steps:
 
 1. Record `dpkg -s portikus` on the pilot.
-2. Take `pre-<change>` snapshots of each `-home`, `-docker` and
-   `-recovery` volume and a `pg_dump` to the host ("Before a change").
+2. Take a `pg_dump` to the host ("Before a change"). Take volume
+   snapshots too if the move touches workspace volumes.
 3. Rehearse on the rehearsal VM with the pilot's newest backup restored
    ("Restore"), and check with SQL that every account still owns its
    workspace.
@@ -565,8 +584,7 @@ A move like these follows the same steps:
 6. Record `dpkg -s portikus` again.
 7. If anything fails, install the previous package with its own play
    (check out the matching commit, then `make configure-vm
-   PORTIKUS_DEB=<previous package>`), and load the `pg_dump`. The
-   snapshots are untouched.
+   PORTIKUS_DEB=<previous package>`), and load the `pg_dump`.
 
 **Signing out of Portikus does not end a Dex session, and none is needed.**
 Dex's password login keeps no browser session, so the next sign-in always
@@ -623,6 +641,94 @@ egress rules.
   reaches the site's issuer and refuses an unlisted host. The security
   test's egress module checks that the API's own user, under the API
   unit's address rules, cannot reach the internet directly.
+
+## Workspace egress
+
+Workspaces reach the internet in one of two modes, chosen on the admin
+page's Network tab (issue #284, ADR 0038). **Open mode**, the default,
+lets a workspace reach any public address, as before. **Allow-list mode**
+lets it reach only the host names and address ranges an administrator
+listed, on the allowed ports. The private ranges in
+`workspace_egress_denied_ranges` (site.yml) stay blocked in both modes.
+The policy lives in the database; nothing in this section needs a play to
+change it.
+
+- **How allow-list mode works.** A workspace's DNS lookups go to a
+  resolver of our own (`portikus-egress-dns`, a dnsmasq on the bridge
+  gateway, port 5300). It answers only listed names and puts each answer's
+  address in a firewall set; every other name gets "no such name". The
+  firewall lets workspace traffic out only to those addresses and to the
+  listed ranges. HTTPS and plain HTTP to a listed name's address pass
+  through the workspace proxy (`portikus-workspace-proxy`, a Squid built
+  with OpenSSL, on the gateway's ports 3129 and 3130, running as its own
+  user `portikus-wsproxy`). It reads the name the client asked for, and
+  when that name is listed the connection is passed on; the proxy never
+  decrypts anything. The proxy's own lookups of those names also go to our
+  resolver, so a name a workspace sends in a request cannot leak out
+  through DNS. Incus's own dnsmasq still hands out addresses and answers
+  `.incus` names.
+- **Who changes what.** The worker sees a new policy, and the controller
+  writes a request file. `portikus-egress-apply.path` then starts the root
+  helper `portikus-egress-apply.service`, which loads the firewall table
+  `inet portikus_egress`, writes the resolver's configuration and the
+  proxy's name list under `/var/lib/portikus/egress-state/`, and restarts,
+  reloads or stops the two services. Its settings (bridge, gateway,
+  upstream resolver, denied ranges) are in `/etc/portikus/egress.env`,
+  which Ansible writes; the helper refuses the file if anyone but root
+  could change it. The Network tab shows whether the last change applied,
+  and `status.json` in the state directory says why one did not.
+- **At boot** the helper runs before Incus starts any workspace and loads
+  the last applied policy from `applied.json`. If that was an allow-list
+  and it cannot be loaded, it drops all workspace traffic to the outside
+  instead of opening it. If the helper cannot run at all (it crashes, or
+  Node fails), a small shell guard that runs after it does the same, from
+  `/etc/portikus/egress-drop-all.nft`, which Ansible writes. A site that
+  has never saved a policy stays open.
+  The resolver and the workspace proxy start once Incus has given the
+  bridge its gateway address.
+- **When something fails, it fails closed.** If the resolver stops, lookups
+  from workspaces fail; if the workspace proxy stops, HTTPS and HTTP fail.
+  Both restart themselves after a failure. The API's own proxy, `squid`,
+  is a separate process and is not affected; the play keeps it on the
+  GnuTLS build (`update-alternatives --query squid` shows
+  `/usr/sbin/squid-gnutls`).
+- **To get everything flowing again quickly,** switch the Network tab back
+  to Open. Nothing else is needed.
+- **What students see.** A refused name fails as "Could not resolve host";
+  a refused HTTPS connection is closed; a refused plain-HTTP request gets a
+  403. A name looked up just before a switch may still resolve inside the
+  workspace until the answer's DNS lifetime runs out, which after a switch
+  from open mode can exceed five minutes; its connections are dropped all
+  the same.
+- **Logs hold names, never addresses.** The proxy writes no access log;
+  each refused name goes to the worker's site-wide counts, which the
+  Network tab lists. Its `cache.log` in `/var/log/portikus-workspace-proxy/`
+  holds only start-up messages and serious warnings, never a workspace's
+  address. The resolver's query log is off.
+- **Checking it:**
+
+  ```
+  ssh deploy@10.100.0.120 'systemctl status portikus-workspace-proxy portikus-egress-dns portikus-egress-apply.service --no-pager; sudo nft list table inet portikus_egress; cat /var/lib/portikus/egress-state/status.json'
+  ```
+
+  The smoke test checks that the workspace proxy runs as
+  `portikus-wsproxy` on the gateway and loopback only, that the API's proxy stays on GnuTLS, and that
+  the helper is armed. The security test's `workspace-egress` module
+  checks both modes from a workspace and from Docker inside it; it switches
+  to allow-list only when its own workspaces are the only ones, and with
+  `PORTIKUS_SECURITY_HEAVY=1` it also reboots the VM in allow-list mode.
+  Run the security test again after an Incus or Squid upgrade, since both
+  sit on this path.
+- **Restarting the firewall is safe.** Stopping or restarting `nftables`
+  removes only the firewall's own tables (a drop-in replaces Debian's
+  "flush everything"), so the egress table and Incus's table stay. While
+  `nftables` is stopped, though, the host's input chain is gone, and with
+  it the host-side check on traffic to the gateway: Incus's network ACL
+  still blocks TCP, UDP and ICMP to the gateway except the redirect
+  targets, but not other protocols. Keep such a stop short.
+- **When the play changes the helper's settings** (`egress.env`), it
+  writes a request for the last applied policy, so the helper loads the
+  table again with the new settings. Nothing needs doing by hand.
 
 ## The sign-in throttle
 
@@ -811,7 +917,7 @@ on the host (Makefile `PORTIKUS_LTI_PLATFORMS_FILE`). It holds no secret.
 - Each issuer and client id pair appears once. Unknown keys and an empty
   `platforms` list are refused.
 
-Apply it with `make configure-vm` (out of class hours, after "Before a
+Apply it with `make configure-vm` (after "Before a
 change"). Ansible copies the file to `/etc/portikus/lti-platforms.json`
 and checks it with the API's own parser before installing it, so a bad
 file stops the run with the problem named. To turn LTI off, delete the
@@ -942,8 +1048,7 @@ A backup is pulled from the VM to the host and encrypted there with age, a
 small file-encryption tool (ADR 0024). It only reads from the VM: a
 `pg_dump` of the platform database and of Dex's `dex` database, and an
 Incus export of each workspace's home and recovery
-volume, each taken from a short-lived snapshot. It is safe on the live
-pilot.
+volume, each taken from a short-lived snapshot.
 
 - **When.** Nightly at 02:30 host time, by the host timer
   `portikus-backup.timer`. Install or update it with
@@ -963,10 +1068,34 @@ pilot.
 - **The key.** `make backup-setup` (run by `make backup`) makes the age key
   pair once: the public half at `~/.config/portikus/backup-recipients.txt`
   and the private half at `~/.config/portikus/backup-age-key.txt`. Backing
-  up needs only the public half. **Keep the private key in your password
-  manager and remove it from the host.** Without it no backup can be read,
-  and on the host it would open every backup to anyone who takes the host.
-  A restore reads it from wherever `PORTIKUS_BACKUP_IDENTITY` points.
+  up needs only the public half. Restoring from the admin page needs the
+  private half on the host, root-only (ADR 0039):
+
+  ```
+  make backup-install-key KEY=~/.config/portikus/backup-age-key.txt
+  ```
+
+  This checks that the key matches the recipients file and installs it as
+  `/etc/portikus-backup/age-key.txt` (owner root, mode 0600, in a 0700
+  directory). **Keep your password-manager copy** as the recovery copy,
+  and delete the one in your home directory afterwards. Accepted risk:
+  **whoever takes the host can read every backup.** Without any copy of
+  the key no backup can be read.
+- **The admin page's channel.** The Backups tab does not reach the host.
+  It records a request, and a host timer, `portikus-backup-channel.timer`,
+  asks the VM for one every 30 seconds over SSH as your account, runs it,
+  and sends back the result and a fresh status (the sets, the dumps, the
+  nightly timer, whether the key is installed). It runs Back up now,
+  deletes a set or a pre-change dump, and restores one workspace. The
+  host checks every value the VM sends against a strict pattern and runs
+  nothing it does not recognise. `make backup-install-timer` installs it
+  with the nightly timer; `make backup-install-channel` installs it alone.
+  There is one channel per host: `make backup-install-channel
+  TOFU_ENV=rehearsal-libvirt` points it at the rehearsal VM, and
+  `make backup-install-timer` points it back at the pilot afterwards.
+  Check it with `systemctl status portikus-backup-channel.service` and
+  `journalctl -u portikus-backup-channel.service`. When the page says
+  the host has not reported for more than 3 minutes, look there first.
 - **Off-host copy, weekly.** The sets sit on the same physical disk as the
   VM, so they protect against losing the VM or a mistake, not against
   losing the disk. Once a week, copy `/var/backups/portikus` to external
@@ -985,6 +1114,43 @@ This touches no VM:
 PORTIKUS_BACKUP_IDENTITY=<path to the private key> \
   bash infra/host/restore.sh --check /var/backups/portikus/portikus/<timestamp>
 ```
+
+With the key installed on the host, the path is
+`/etc/portikus-backup/age-key.txt`, and the command needs `sudo` in front.
+
+**One workspace, from the admin page.** On the Backups tab, open a set
+and choose "Restore a workspace…". The workspace must be running. The
+channel checks that the set holds that workspace's home, that
+`~/restored-<date>-<time>` (the set's UTC time) does not exist yet, and
+that the home has room for the copy with 5% of its free space to spare.
+It then decrypts the home on the host, as root, and unpacks it inside the
+workspace as the student (uid 1000), into that new folder beside the live
+files. Nothing is merged or overwritten, and the copy counts against the
+student's home quota. The student is told where it is. A copy that fails
+part way is removed, so the request can simply be repeated.
+
+"Replace home…" on a finished copy is a second, confirmed step. The
+worker makes a `before-replace-home` recovery point of each project and
+stops the workspace. The channel imports the set's home volume as
+`<instance>-home-import`, and the controller swaps it in. The previous
+home is kept, untouched, as `<instance>-home-replaced-<unix seconds>` and
+listed on the Backups tab until an administrator deletes it
+(ADR 0040).
+
+**Putting a kept home back.** There is no button for this. With the
+workspace stopped from the admin page, on the VM (`X` is the instance
+name, `N` the kept home's number):
+
+```
+sudo incus config device remove X home --project portikus
+sudo incus storage volume rename workspace-data X-home X-home-replaced-$(date +%s) --project portikus
+sudo incus storage volume rename workspace-data X-home-replaced-N X-home --project portikus
+sudo incus config device add X home disk pool=workspace-data source=X-home path=/home/student --project portikus
+```
+
+The home it replaced becomes a kept home in turn, so this too can be
+undone. Start the workspace from the admin page and ask the student to
+check it.
 
 **Onto the rehearsal VM** (a drill, or the cutover rehearsal):
 
@@ -1059,6 +1225,44 @@ shares nothing with the pilot.
   8443 belongs to the pilot.
 - **Destroy it after every exercise** with `make rehearsal-destroy`,
   because it holds restored student data.
+
+## VM disk files on the host
+
+Each VM's OS and data disks are qcow2 files under
+`/var/lib/libvirt/images/<vm>/`. When the guest frees space (its
+`fstrim` timer, a deleted workspace), the host file shrinks too. Two
+settings in `infra/tofu/modules/platform-vm` make that work:
+
+- `disk-as-file.xslt` sets `discard='unmap'` and `detect_zeroes='unmap'`
+  on both disks. Without them QEMU drops the guest's discards, and the
+  files only grow. The pilot's data disk once reached 122 GB on the host
+  while Incus used 14 GB.
+- `qcow2-compat.sh` (the `disk_compat` resource) upgrades both disks to
+  qcow2 compat 1.1 before the VM first boots. libvirt creates them as
+  compat 0.10, where a discard frees nothing on a disk with a backing file.
+  It never rewrites a disk in use. On a VM made before this existed, the
+  apply stops and prints the one-time steps: shut the VM down, apply
+  again, and start it. Then run `make wait-vm` with the same `TOFU_ENV`.
+  That apply leaves no address in the state, so `wait-vm` and the other
+  targets take it from libvirt's DHCP lease for that environment's VM.
+
+Check a disk with `sudo qemu-img info -U <file>` (look for `compat: 1.1`)
+and `sudo du -h <file>`.
+
+**If a file grew anyway**, for example because libvirt snapshots hold old
+blocks, compact it while the VM is off:
+
+1. Delete snapshots you no longer need (`virsh snapshot-list <vm>`,
+   `virsh snapshot-delete <vm> <name>`). They are stored inside the files.
+2. Run `sudo fstrim -av` in the guest, then `virsh shutdown <vm>`.
+3. For each disk, `sudo qemu-img convert -O qcow2 <file> <file>.new`. For
+   the OS disk add `-B <vm>-base.qcow2 -F qcow2` to keep its backing file.
+4. Check with `qemu-img check <file>.new` and
+   `qemu-img compare <file> <file>.new`. Then rename the original to
+   `<file>.orig` and `<file>.new` to `<file>`, owned by `libvirt-qemu:kvm`
+   with mode 0644.
+5. Start the VM, run `make smoke-test`, and confirm `make infra-plan`
+   replaces nothing. Only then delete the `.orig` files.
 
 ## The resource guard and idle stop
 
@@ -1192,13 +1396,12 @@ whose size changed, so it would plan to swap the grown disk for an empty
 - **`make security-test`** runs the VM security suite through the real
   edge. It makes its own users and two workspaces, touches nothing else,
   checks every other workspace and setting is unchanged, and cleans up.
-  It is allowed on the live pilot at any quiet time, and should run after
-  every deploy. `SWEEP=1` removes the leftovers of a run that was killed.
-  `PORTIKUS_SECURITY_HEAVY=1` adds tests that push a workspace past its
-  memory limit; run those only on a VM with no other workspace, which in
-  practice means the rehearsal VM.
+  Run it on the pilot after every deploy. `SWEEP=1` removes the leftovers
+  of a run that was killed. `PORTIKUS_SECURITY_HEAVY=1` adds tests that
+  push a workspace past its memory limit; they need a VM with no other
+  workspace running, so stop or delete the pilot's test workspaces first.
 - **`make load-test TOFU_ENV=rehearsal-libvirt N=25`** runs the load test
-  (`infra/tests/load-test.sh`). **Never on the pilot.** The script refuses
+  (`infra/tests/load-test.sh`) on the rehearsal VM. The script refuses
   the pilot, a VM Ansible or a restore is using, and a VM without memory
   or disk room for N workspaces. It removes only the users and workspaces
   it made. Destroy the rehearsal VM afterwards if it held restored data.
@@ -1247,8 +1450,7 @@ The journal is capped at 2 GB. On the host, the nightly backup logs to
 - Check for new Dex releases. An upgrade is a pull request that bumps
   `dex_version` and `dex_commit` in `infra/ansible/site.yml` together,
   after reading the release notes. CI's Dex sign-in job tests it, then
-  the rehearsal VM runs `configure-vm` and the smoke test before the
-  pilot does. To roll back, revert the pin.
+  the pilot runs `configure-vm` and the smoke test. To roll back, revert the pin.
 - Check that unattended upgrades are applying Debian security updates on
   the VM (`sudo journalctl -u unattended-upgrades`), which the `base` role
   sets up.

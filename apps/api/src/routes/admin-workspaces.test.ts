@@ -954,3 +954,298 @@ describe("lift throttle and clear memory flag", () => {
 		},
 	);
 });
+
+// --- Per-workspace limits and re-provision (SPEC.md section 20.1, section 24.11) ---
+
+function putLimits(payload: unknown, jar: CookieJar = carol, id = workspaceId) {
+	return app.inject({
+		method: "PUT",
+		url: `/admin/workspaces/${id}/limits`,
+		headers: csrfHeaders(jar, PUBLIC_URL),
+		payload: payload as Record<string, unknown>,
+	});
+}
+
+async function storedLimits() {
+	return testDb.db
+		.selectFrom("workspaces")
+		.select(["limits_config", "limits_applied", "cpu_throttle"])
+		.where("id", "=", workspaceId)
+		.executeTakeFirstOrThrow();
+}
+
+const NO_LIMITS = { cpu: null, memoryMiB: null, processes: null };
+
+describe("per-workspace limits", () => {
+	beforeEach(async () => {
+		if (skip) return;
+		await start();
+	});
+
+	test.skipIf(skip)(
+		"limits are stored, shown pending in the detail, and audited from and to",
+		async () => {
+			const res = await putLimits({ cpu: 2, memoryMiB: 4096, processes: null });
+			expect(res.statusCode).toBe(204);
+			expect((await storedLimits()).limits_config).toEqual({ cpu: 2, memoryMiB: 4096 });
+
+			const body = (await detail()).json();
+			expect(body.limitsConfig).toEqual({ cpu: 2, memoryMiB: 4096 });
+			expect(body.limitsApplied).toBeNull();
+
+			expect((await putLimits({ ...NO_LIMITS, processes: 1000 })).statusCode).toBe(204);
+			const audits = (await auditActions()).filter(
+				(row) => row.action === "workspace.limits_updated",
+			);
+			expect(audits).toEqual([
+				{
+					action: "workspace.limits_updated",
+					actor: `user:${await carolId()}`,
+					metadata: { from: {}, to: { cpu: 2, memoryMiB: 4096 } },
+				},
+				{
+					action: "workspace.limits_updated",
+					actor: `user:${await carolId()}`,
+					metadata: { from: { cpu: 2, memoryMiB: 4096 }, to: { processes: 1000 } },
+				},
+			]);
+		},
+	);
+
+	test.skipIf(skip)(
+		"all null stores no limits; an unchanged set is not audited",
+		async () => {
+			await putLimits({ ...NO_LIMITS, cpu: 2 });
+			expect((await putLimits(NO_LIMITS)).statusCode).toBe(204);
+			expect((await storedLimits()).limits_config).toBeNull();
+			expect((await putLimits(NO_LIMITS)).statusCode).toBe(204);
+			const audits = (await auditActions()).filter(
+				(row) => row.action === "workspace.limits_updated",
+			);
+			expect(audits).toHaveLength(2);
+		},
+	);
+
+	test.skipIf(skip)(
+		"out-of-range, partial and unknown bodies are refused",
+		async () => {
+			for (const bad of [
+				{ ...NO_LIMITS, cpu: 0 },
+				{ ...NO_LIMITS, memoryMiB: 100 },
+				{ ...NO_LIMITS, processes: 40000 },
+				{ cpu: 2 },
+				{ ...NO_LIMITS, disk: 1 },
+			]) {
+				const res = await putLimits(bad);
+				expect(res.statusCode).toBe(400);
+				expect(res.json().code).toBe("VALIDATION_FAILED");
+			}
+			expect((await storedLimits()).limits_config).toBeNull();
+		},
+	);
+
+	test.skipIf(skip)("more CPUs than the host has are refused", async () => {
+		await testDb.db
+			.insertInto("health_samples")
+			.values({ sample: JSON.stringify(sample({ cpuCount: 4 })) })
+			.execute();
+		const res = await putLimits({ ...NO_LIMITS, cpu: 5 });
+		expect(res.statusCode).toBe(400);
+		expect(res.json().message).toBe("This host has only 4 CPUs.");
+		expect((await putLimits({ ...NO_LIMITS, cpu: 4 })).statusCode).toBe(204);
+	});
+
+	test.skipIf(skip)(
+		"a CPU change while throttled rewrites the allowance from its share",
+		async () => {
+			await testDb.db
+				.insertInto("health_samples")
+				.values({ sample: JSON.stringify(sample({ cpuCount: 8 })) })
+				.execute();
+			await testDb.db
+				.updateTable("workspaces")
+				.set({ cpu_throttle: JSON.stringify(THROTTLE) })
+				.where("id", "=", workspaceId)
+				.execute();
+
+			await putLimits({ ...NO_LIMITS, cpu: 8 });
+			// 25% of 8 CPUs.
+			expect((await storedLimits()).cpu_throttle).toEqual({
+				...THROTTLE,
+				allowance: "200ms/100ms",
+			});
+
+			// A memory change leaves the allowance alone.
+			await putLimits({ ...NO_LIMITS, cpu: 8, memoryMiB: 2048 });
+			expect((await storedLimits()).cpu_throttle?.allowance).toBe("200ms/100ms");
+
+			// Back to the profile's 2 CPUs.
+			await putLimits(NO_LIMITS);
+			expect((await storedLimits()).cpu_throttle?.allowance).toBe("50ms/100ms");
+		},
+	);
+
+	test.skipIf(skip)(
+		"clearing the CPU override under a profile without a count uses the host's CPUs, as the guard does",
+		async () => {
+			for (const [profileCpu, expected] of [
+				[null, "200ms/100ms"],
+				["0-3", "100ms/100ms"],
+			] as const) {
+				await testDb.db.deleteFrom("health_samples").execute();
+				await testDb.db
+					.insertInto("health_samples")
+					.values({
+						sample: JSON.stringify(
+							sample({
+								cpuCount: 8,
+								profileLimits: { cpu: profileCpu, memory: "4GiB", processes: "2000" },
+							}),
+						),
+					})
+					.execute();
+				await testDb.db
+					.updateTable("workspaces")
+					.set({ cpu_throttle: JSON.stringify(THROTTLE) })
+					.where("id", "=", workspaceId)
+					.execute();
+				await putLimits({ ...NO_LIMITS, cpu: 2 });
+				await putLimits(NO_LIMITS);
+				// 25% of the host's 8 CPUs, or of the 4 CPUs in the set 0-3.
+				expect((await storedLimits()).cpu_throttle?.allowance).toBe(expected);
+			}
+		},
+	);
+
+	test.skipIf(skip)(
+		"a student cannot set limits, and an unknown workspace is 404",
+		async () => {
+			const forbidden = await putLimits({ ...NO_LIMITS, cpu: 2 }, alice);
+			expect(forbidden.statusCode).toBe(403);
+			expect((await storedLimits()).limits_config).toBeNull();
+			const missing = await putLimits(NO_LIMITS, carol, crypto.randomUUID());
+			expect(missing.statusCode).toBe(404);
+			expect(missing.json().code).toBe("WORKSPACE_NOT_FOUND");
+			expect((await putLimits(NO_LIMITS, carol, "not-a-uuid")).statusCode).toBe(400);
+		},
+	);
+});
+
+describe("re-provision", () => {
+	beforeEach(async () => {
+		if (skip) return;
+		await start();
+	});
+
+	async function setState(state: string): Promise<void> {
+		await testDb.db
+			.updateTable("workspaces")
+			.set({
+				state,
+				error_code: "OPERATION_FAILED",
+				error_message: "The workspace could not be created.",
+				limits_config: JSON.stringify({ cpu: 2 }),
+				limits_applied: JSON.stringify({ cpu: 2 }),
+			})
+			.where("id", "=", workspaceId)
+			.execute();
+	}
+
+	test.skipIf(skip)(
+		"a workspace in error goes back to provisioning, cleared, and is audited",
+		async () => {
+			await setState("error");
+			const res = await post(carol, `/admin/workspaces/${workspaceId}/reprovision`);
+			expect(res.statusCode).toBe(200);
+			expect(res.json().state).toBe("provisioning");
+
+			const row = await testDb.db
+				.selectFrom("workspaces")
+				.select([
+					"state",
+					"error_code",
+					"error_message",
+					"limits_config",
+					"limits_applied",
+				])
+				.where("id", "=", workspaceId)
+				.executeTakeFirstOrThrow();
+			// The limits stay wanted and are applied again to the new instance.
+			expect(row).toEqual({
+				state: "provisioning",
+				error_code: null,
+				error_message: null,
+				limits_config: { cpu: 2 },
+				limits_applied: null,
+			});
+			const audits = (await auditActions()).filter(
+				(a) => a.action === "workspace.reprovision_requested",
+			);
+			expect(audits).toEqual([
+				{
+					action: "workspace.reprovision_requested",
+					actor: `user:${await carolId()}`,
+					metadata: null,
+				},
+			]);
+
+			// It is no longer in error, so a second press is refused.
+			const again = await post(carol, `/admin/workspaces/${workspaceId}/reprovision`);
+			expect(again.statusCode).toBe(409);
+			expect(again.json().code).toBe("NOT_IN_ERROR");
+		},
+	);
+
+	test.skipIf(skip)(
+		"every state but error is refused and nothing changes",
+		async () => {
+			for (const state of [
+				"running",
+				"stopped",
+				"starting",
+				"stopping",
+				"provisioning",
+			]) {
+				await setState(state);
+				const res = await post(carol, `/admin/workspaces/${workspaceId}/reprovision`);
+				expect(res.statusCode).toBe(409);
+				expect(res.json().code).toBe("NOT_IN_ERROR");
+				const row = await testDb.db
+					.selectFrom("workspaces")
+					.select(["state", "error_code"])
+					.where("id", "=", workspaceId)
+					.executeTakeFirstOrThrow();
+				expect(row).toEqual({ state, error_code: "OPERATION_FAILED" });
+			}
+			expect(
+				(await auditActions()).filter(
+					(a) => a.action === "workspace.reprovision_requested",
+				),
+			).toEqual([]);
+		},
+	);
+
+	test.skipIf(skip)(
+		"a student cannot re-provision, and an unknown workspace is 404",
+		async () => {
+			await setState("error");
+			expect(
+				(await post(alice, `/admin/workspaces/${workspaceId}/reprovision`)).statusCode,
+			).toBe(403);
+			const missing = await post(
+				carol,
+				`/admin/workspaces/${crypto.randomUUID()}/reprovision`,
+			);
+			expect(missing.statusCode).toBe(404);
+			expect((await post(carol, "/admin/workspaces/nope/reprovision")).statusCode).toBe(
+				400,
+			);
+			const row = await testDb.db
+				.selectFrom("workspaces")
+				.select("state")
+				.where("id", "=", workspaceId)
+				.executeTakeFirstOrThrow();
+			expect(row.state).toBe("error");
+		},
+	);
+});

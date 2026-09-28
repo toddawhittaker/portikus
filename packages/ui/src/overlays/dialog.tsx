@@ -18,6 +18,8 @@ export interface DialogProps {
 	role?: "dialog" | "alertdialog";
 	/** Test hook: set as `data-testid` on the dialog surface. */
 	testId?: string;
+	/** Where focus goes on close; null falls back to the usual return. */
+	returnFocusTo?: () => HTMLElement | null;
 }
 
 interface FocusOrigin {
@@ -56,11 +58,13 @@ function trackFocus(event: FocusEvent): void {
  * state or a menu item, so Radix has no trigger to return to and focus would
  * fall to the page body (issue #358).
  */
-export function useReturnFocus(): {
+export function useReturnFocus(returnFocusTo?: () => HTMLElement | null): {
 	onOpenAutoFocus: () => void;
 	onCloseAutoFocus: (event: Event) => void;
 } {
 	const origin = React.useRef<FocusOrigin | null>(null);
+	const returnTo = React.useRef(returnFocusTo);
+	returnTo.current = returnFocusTo;
 	React.useEffect(() => {
 		if (tracking) return;
 		tracking = true;
@@ -75,6 +79,14 @@ export function useReturnFocus(): {
 					: lastFocus;
 		},
 		onCloseAutoFocus(event) {
+			const chosen = returnTo.current?.();
+			if (chosen?.isConnected) {
+				origin.current = null;
+				event.preventDefault();
+				// A caller-chosen target may have scrolled off-screen; bring it into view.
+				chosen.focus();
+				return;
+			}
 			// The caller already moved focus somewhere deliberate while closing.
 			const active = document.activeElement;
 			if (
@@ -121,8 +133,9 @@ export function Dialog({
 	onClose,
 	role,
 	testId,
+	returnFocusTo,
 }: DialogProps): React.ReactElement {
-	const returnFocus = useReturnFocus();
+	const returnFocus = useReturnFocus(returnFocusTo);
 	return (
 		<RadixDialog.Portal>
 			<RadixDialog.Overlay className="pk-scrim" />

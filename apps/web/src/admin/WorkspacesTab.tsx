@@ -14,7 +14,7 @@ import {
 } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ApiError, request } from "../api/request.js";
 import { AdminSection } from "./AdminSection.js";
@@ -526,6 +526,12 @@ function BulkActions({
 }) {
 	const client = useQueryClient();
 	const resultRef = useRef<HTMLDivElement>(null);
+	const finished = useRef(false);
+	const isOpen = confirming !== null;
+	// A success from an earlier dialog must not redirect focus when this one is cancelled.
+	useEffect(() => {
+		if (isOpen) finished.current = false;
+	}, [isOpen]);
 	const [running, setRunning] = useState(false);
 	const [result, setResult] = useState<BulkResult | null>(null);
 
@@ -562,14 +568,14 @@ function BulkActions({
 				});
 			}
 		}
+		// The bar and the dialog are gone, so focus lands on the summary.
+		finished.current = true;
 		setRunning(false);
 		setConfirming(null);
 		setResult(outcome);
 		onDone();
 		// Refetch once for the whole run, not once per row.
 		void client.invalidateQueries({ queryKey: ["admin"] });
-		// The bar and the dialog are gone, so focus lands on the summary.
-		requestAnimationFrame(() => resultRef.current?.focus());
 	}
 
 	return (
@@ -633,6 +639,11 @@ function BulkActions({
 						}
 						confirmLabel={BULK[confirming.action].confirm}
 						pending={running}
+						returnFocusTo={() => {
+							if (!finished.current) return null;
+							finished.current = false;
+							return resultRef.current;
+						}}
 						onConfirm={() =>
 							void run(confirming.action, confirming.users, confirming.resetDocker)
 						}

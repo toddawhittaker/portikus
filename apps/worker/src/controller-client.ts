@@ -1,7 +1,9 @@
 import type {
+	AddedPackagesResponse,
 	ControllerErrorCode,
 	CreateInstanceRequest,
 	CreateInstanceResponse,
+	EgressApplyPolicy,
 	GrowVolumesRequest,
 	InstanceProcess,
 	InstanceUsage,
@@ -9,20 +11,26 @@ import type {
 	LogLevel,
 	RebuildInstanceRequest,
 	RebuildInstanceResponse,
+	ReplaceHomeResponse,
 	ResetDockerRequest,
+	SetInstanceLimitsRequest,
 	StartInstanceRequest,
 	StartInstanceResponse,
 	StopInstanceResponse,
 } from "@portikus/contracts";
 import {
+	AddedPackagesResponse as AddedPackagesResponseSchema,
 	ControllerError,
 	CreateInstanceResponse as CreateInstanceResponseSchema,
+	EgressApplyStatus,
 	GrowVolumesResponse,
 	HostSnapshot,
 	InstanceProcessesResponse,
 	InstanceUsageResponse,
+	KeptVolumesResponse,
 	ListInstancesResponse as ListInstancesResponseSchema,
 	RebuildInstanceResponse as RebuildInstanceResponseSchema,
+	ReplaceHomeResponse as ReplaceHomeResponseSchema,
 	StartInstanceResponse as StartInstanceResponseSchema,
 	StopInstanceResponse as StopInstanceResponseSchema,
 } from "@portikus/contracts";
@@ -31,6 +39,8 @@ import {
 const SHORT_BUDGET_MS = 30_000;
 const CREATE_BUDGET_MS = 300_000;
 const MAINTENANCE_BUDGET_MS = 15 * 60_000;
+/** The controller waits up to 30 s for the egress helper. */
+const EGRESS_BUDGET_MS = 45_000;
 
 /** A stop may take a graceful and a forced try, the controller's settle poll (up to 10 s), plus margin. */
 export function stopBudgetMs(timeoutSeconds: number): number {
@@ -74,6 +84,20 @@ export interface ControllerClient {
 	setCpuAllowance(name: string, allowance: string | null): Promise<void>;
 	/** The heaviest processes of a running instance, short names only (ADR 0037). */
 	processes(name: string, signal?: AbortSignal): Promise<InstanceProcess[]>;
+	/** Set or, with null, remove a workspace's own CPU, memory and process limits. */
+	setLimits(name: string, req: SetInstanceLimitsRequest): Promise<void>;
+	/** The packages the student added with apt; NOT_FOUND when there is no list. */
+	addedPackages(name: string): Promise<AddedPackagesResponse>;
+	/** Pre-change snapshots and kept homes. */
+	keptVolumes(): Promise<KeptVolumesResponse>;
+	/** Delete one `pre-*` snapshot of a workspace volume. */
+	deleteSnapshot(volume: string, snapshot: string): Promise<void>;
+	/** Delete one kept home. */
+	deleteKeptHome(volume: string): Promise<void>;
+	/** Swap the imported home in on a stopped instance; repeatable. */
+	replaceHome(name: string): Promise<ReplaceHomeResponse>;
+	/** Hand the expanded egress policy to the root helper and wait for it (ADR 0038). */
+	applyEgressPolicy(policy: EgressApplyPolicy): Promise<EgressApplyStatus>;
 }
 
 /**
@@ -251,5 +275,62 @@ export class HttpControllerClient implements ControllerClient {
 			signal,
 		);
 		return InstanceProcessesResponse.parse(res).processes;
+	}
+
+	async setLimits(name: string, req: SetInstanceLimitsRequest): Promise<void> {
+		await this.request(
+			"PUT",
+			`/instances/${encodeURIComponent(name)}/limits`,
+			req,
+			SHORT_BUDGET_MS,
+		);
+	}
+
+	async addedPackages(name: string): Promise<AddedPackagesResponse> {
+		const res = await this.request(
+			"GET",
+			`/instances/${encodeURIComponent(name)}/added-packages`,
+			undefined,
+			SHORT_BUDGET_MS,
+		);
+		return AddedPackagesResponseSchema.parse(res);
+	}
+
+	async keptVolumes(): Promise<KeptVolumesResponse> {
+		const res = await this.request("GET", "/volumes/kept", undefined, SHORT_BUDGET_MS);
+		return KeptVolumesResponse.parse(res);
+	}
+
+	async deleteSnapshot(volume: string, snapshot: string): Promise<void> {
+		await this.request(
+			"DELETE",
+			`/volumes/${encodeURIComponent(volume)}/snapshots/${encodeURIComponent(snapshot)}`,
+			undefined,
+			MAINTENANCE_BUDGET_MS,
+		);
+	}
+
+	async deleteKeptHome(volume: string): Promise<void> {
+		await this.request(
+			"DELETE",
+			`/volumes/${encodeURIComponent(volume)}`,
+			undefined,
+			MAINTENANCE_BUDGET_MS,
+		);
+	}
+
+	async replaceHome(name: string): Promise<ReplaceHomeResponse> {
+		const res = await this.request(
+			"POST",
+			`/instances/${encodeURIComponent(name)}/replace-home`,
+			undefined,
+			MAINTENANCE_BUDGET_MS,
+		);
+		return ReplaceHomeResponseSchema.parse(res);
+	}
+
+	async applyEgressPolicy(policy: EgressApplyPolicy): Promise<EgressApplyStatus> {
+		const res = await this.request("PUT", "/egress-policy", policy, EGRESS_BUDGET_MS);
+		return EgressApplyStatus.parse(res);
 	}
 }

@@ -45,6 +45,12 @@
       - ::1/128
       - fc00::/7
       - fe80::/10
+    # The workspace egress redirect targets on the bridge gateway (ADR 0038):
+    # Squid for plain HTTP and for HTTPS, and our DNS resolver.  The firewall
+    # and the network ACL open them only to redirected connections.
+    workspace_egress_http_port: 3129
+    workspace_egress_https_port: 3130
+    workspace_egress_dns_port: 5300
 
     # ── Node.js runtime ──────────────────────────────────────────
     # NodeSource GPG signing checksum, verified 2026-09-16.
@@ -362,5 +368,9 @@
       tags: dex
     - role: portikus
       tags: portikus
+    # After egress_proxy, whose Squid build it pins, and after portikus,
+    # which creates the controller's group.
+    - role: workspace_egress
+      tags: workspace_egress
     - role: backup
       tags: backup

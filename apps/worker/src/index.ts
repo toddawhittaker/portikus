@@ -3,11 +3,16 @@ import { createDb, type Database } from "@portikus/db";
 import { createLogger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { httpAgentFactory } from "./agent-client.js";
+import { startBackupVmLoop } from "./backups.js";
 import { HttpControllerClient } from "./controller-client.js";
+import { startEgressSync } from "./egress.js";
+import { startBlockedCounter } from "./egress-blocked.js";
 import { startGuard } from "./guard.js";
 import { startHealthSampling } from "./health.js";
+import { startLimitsSync } from "./limits.js";
 import { createLogLevelSync } from "./log-level.js";
 import { startNotificationPrune } from "./notifications.js";
+import { startPackageSurvey } from "./package-survey.js";
 import { startProcessSnapshots } from "./process-snapshots.js";
 import { startQuotaSync } from "./quota.js";
 import { reconcile, type SweepResult } from "./reconcile.js";
@@ -98,9 +103,18 @@ async function main(): Promise<void> {
 	// Host samples, quota grows and the resource guard each run on their own timer, off the sweep.
 	startHealthSampling({ db, controller, logger });
 	startQuotaSync({ db, controller, logger });
+	startLimitsSync({ db, controller, logger });
 	startGuard({ db, controller, logger });
 	startNotificationPrune({ db, logger });
 	startProcessSnapshots({ db, controller, logger });
+	startBackupVmLoop({ db, controller, logger });
+	startEgressSync({ db, controller, logger });
+	// Only the egress dnsmasq and the workspace Squid talk to this, on loopback (ADR 0038).
+	// If it cannot listen, unlisted names time out instead of NXDOMAIN: still refused.
+	startBlockedCounter({ db, logger }).catch((e: Error) =>
+		logger.error({ error: e.message }, "blocked-name counter failed to listen"),
+	);
+	startPackageSurvey({ db, controller, logger });
 
 	let lastRefreshAt: Date | null = null;
 	let controllerUnreachable = false;

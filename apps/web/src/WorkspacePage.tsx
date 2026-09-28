@@ -18,6 +18,11 @@ import { DisconnectNotice } from "./shell/DisconnectNotice.js";
 import { FilesPane } from "./shell/FilesPane.js";
 import { IdleNotice, idleMinutes, useIdleStopReason } from "./shell/IdleNotice.js";
 import { MemoryNotice, memoryAnnouncement } from "./shell/MemoryNotice.js";
+import {
+	ReinstallNotice,
+	reinstallAnnouncement,
+	useReinstallPackages,
+} from "./shell/ReinstallNotice.js";
 import { RightPaneContext, showMonitor, useRightPaneStore } from "./shell/rightPane.js";
 import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
 import { StatusBar } from "./shell/StatusBar.js";
@@ -89,6 +94,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const rightPaneApi = useRightPaneStore();
 	const memoryFlag = workspace?.memoryFlag ?? null;
 	const showMemoryNotice = memoryFlag !== null && memoryFlag.at !== dismissedMemoryAt;
+	const reinstallPackages = useReinstallPackages(workspaceId, running);
 	// The socket's list is the newer of the two, so it wins once it arrives
 	// (SPEC.md §18.2).
 	const firstListening = useListeningQuery(workspaceId, running);
@@ -186,6 +192,19 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 											}}
 										/>
 									)}
+									{/* Always mounted, so the reinstall list is announced (SPEC.md §25.8). */}
+									<span
+										role="status"
+										className="sr-only"
+										data-testid="reinstall-announce"
+									>
+										{running ? reinstallAnnouncement(reinstallPackages) : ""}
+									</span>
+									<ReinstallNotice
+										workspaceId={workspaceId}
+										running={running}
+										fallbackFocus={workRef}
+									/>
 									{workspace?.idleStopAt && (
 										<IdleNotice
 											deadline={workspace.idleStopAt}

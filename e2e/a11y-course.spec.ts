@@ -3,11 +3,11 @@
  * and both LTI fallback pages (docs/archive/epics/EPIC-13.md rulings 17 and 24).
  */
 import { expect, type Page, test } from "@playwright/test";
-import { settledAxe, WEB_ORIGIN } from "./helpers";
+import { settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
 import { launchAs, openCourseTab, startLaunch } from "./lti-helpers";
 
 async function expectNoViolations(page: Page, include?: string) {
-	let builder = (await settledAxe(page)).withTags(["wcag2a", "wcag2aa", "wcag21aa"]);
+	let builder = (await settledAxe(page)).withTags(WCAG_TAGS);
 	if (include) builder = builder.include(include);
 	const results = await builder.analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

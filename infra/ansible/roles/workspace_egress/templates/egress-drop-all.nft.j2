@@ -1,0 +1,42 @@
+# Managed by Ansible (workspace_egress role).  The egress helper's drop-all
+# table (ADR 0038), loaded without Node by /usr/lib/portikus/egress-guard.sh
+# when the helper left no table after an allow-list.  It must equal the
+# helper's renderDropAll(); render.test.ts compares them.
+table inet portikus_egress {
+	set names_v4 {
+		type ipv4_addr
+		size 65535
+	}
+	set ranges_v4 {
+		type ipv4_addr
+		flags interval
+	}
+	set ports {
+		type inet_service
+	}
+	set squid_conns {
+		type ipv4_addr
+		size 65535
+		flags dynamic
+	}
+	chain prerouting {
+		type nat hook prerouting priority dstnat - 1
+	}
+	chain output {
+		type nat hook output priority dstnat - 1
+	}
+	chain forward {
+		type filter hook forward priority filter - 1
+	}
+	chain input {
+		type filter hook input priority filter - 1
+	}
+}
+flush set inet portikus_egress names_v4
+flush set inet portikus_egress ranges_v4
+flush set inet portikus_egress ports
+flush chain inet portikus_egress prerouting
+flush chain inet portikus_egress output
+flush chain inet portikus_egress forward
+flush chain inet portikus_egress input
+add rule inet portikus_egress forward iifname "{{ workspace_egress_bridge }}" drop

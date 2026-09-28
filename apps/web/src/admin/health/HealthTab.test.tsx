@@ -256,6 +256,18 @@ test("a workspace with both a throttle and a flag gets a row for each", () => {
 	expect(guardRows([{ ...GUARDED, memoryFlag: null }])).toHaveLength(1);
 });
 
+test("a held throttle shows Held beside Throttled (SPEC.md §19.4)", () => {
+	const held = {
+		...GUARDED,
+		memoryFlag: null,
+		cpuThrottle: { ...GUARDED.cpuThrottle, held: { count: 3, hours: 24 } },
+	};
+	expect(guardRows([held]).map((row) => [row.which, row.held])).toEqual([
+		["Throttled", true],
+	]);
+	expect(guardRows([GUARDED]).map((row) => row.held)).toEqual([false, false]);
+});
+
 test("each guard row links to the owner's detail panel", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") {
@@ -301,9 +313,11 @@ test("states follow the Workspaces tab's order with zero counts, then newer ones
 	]);
 });
 
-test("the tab lays out Platform, the trends, then Failures and states", async () => {
+test("the tab lays out Platform, the trends, Failures and states, then packages", async () => {
 	stubFetch((url) => {
 		if (url === "/admin/health") return json(200, report());
+		if (url === "/admin/packages")
+			return json(200, { day: null, surveyed: 0, packages: [] });
 		if (url.startsWith("/admin/health/series")) return json(200, SERIES);
 		throw new Error(`unexpected request: ${url}`);
 	});
@@ -320,5 +334,6 @@ test("the tab lays out Platform, the trends, then Failures and states", async ()
 		"Trends",
 		"Failures",
 		"Workspaces by state",
+		"Packages students add",
 	]);
 });

@@ -220,7 +220,7 @@ export function AppHeader({
 							setNotificationsOpen(true);
 						}}
 					>
-						{badge}
+						<span className="pk-account-badge-pill">{badge}</span>
 					</button>
 				) : null}
 			</span>
@@ -230,16 +230,11 @@ export function AppHeader({
 			{settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
 			{notificationsOpen ? (
 				<NotificationsDialog
-					onClose={() => {
-						setNotificationsOpen(false);
-						// Once all is read the badge is gone; the account button always stays.
-						if (!badgeButton.current?.isConnected) {
-							requestAnimationFrame(() => {
-								if (!document.activeElement || document.activeElement === document.body)
-									accountButton.current?.focus();
-							});
-						}
-					}}
+					onClose={() => setNotificationsOpen(false)}
+					// Once all is read the badge is gone; the account button always stays.
+					returnFocusTo={() =>
+						badgeButton.current?.isConnected ? null : accountButton.current
+					}
 				/>
 			) : null}
 		</header>

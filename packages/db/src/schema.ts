@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift and 0024_process_snapshots
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots, 0025_egress, 0026_backups, 0028_throttle_hold, 0029_package_survey and 0030_egress_blocked_sites
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -30,6 +30,13 @@ export interface Database {
 	notifications: NotificationsTable;
 	workspace_process_snapshots: WorkspaceProcessSnapshotsTable;
 	api_request_samples: ApiRequestSamplesTable;
+	egress_entries: EgressEntriesTable;
+	egress_blocked_names: EgressBlockedNamesTable;
+	egress_blocked_entries: EgressBlockedEntriesTable;
+	backup_requests: BackupRequestsTable;
+	backup_status: BackupStatusTable;
+	package_survey_days: PackageSurveyDaysTable;
+	package_survey_counts: PackageSurveyCountsTable;
 }
 
 export interface UsersTable {
@@ -108,8 +115,14 @@ export interface WorkspacesTable {
 	disconnected_at: ColumnType<Date | null, string | null, string | null>;
 	agent_token: string | null;
 	agent_address: string | null;
-	/** "reset-docker", "rebuild" or "rebuild-reset-docker" (ADR 0021). */
+	/** "reset-docker", "rebuild", "rebuild-reset-docker" (ADR 0021) or "replace-home". */
 	pending_operation: string | null;
+	/** For "replace-home": `{ restoreRequestId }`. */
+	pending_operation_args: ColumnType<
+		unknown | null,
+		string | null | undefined,
+		string | null
+	>;
 	pending_operation_at: ColumnType<Date | null, string | null, string | null>;
 	/** The user id that asked for the operation. */
 	pending_operation_by: string | null;
@@ -142,10 +155,14 @@ export interface WorkspacesTable {
 			windowMinutes: number;
 			sharePercent: number;
 			allowance: string;
+			/** Set when this throttle was the Nth in the hold window (SPEC.md §19.4). */
+			held?: { count: number; hours: number };
 		} | null,
 		string | null | undefined,
 		string | null
 	>;
+	/** When each recent throttle began, trimmed to the hold window. */
+	cpu_throttle_recent: ColumnType<Date[], string[] | undefined, string[]>;
 	/** Set while the workspace is flagged for high memory. */
 	memory_flag: ColumnType<
 		{
@@ -157,9 +174,27 @@ export interface WorkspacesTable {
 		string | null | undefined,
 		string | null
 	>;
+	/** Per-workspace CPU, memory and process limits; a missing key uses the profile. */
+	limits_config: ColumnType<
+		{ cpu?: number; memoryMiB?: number; processes?: number } | null,
+		string | null | undefined,
+		string | null
+	>;
+	/** The limits the worker last set on the instance. */
+	limits_applied: ColumnType<
+		{ cpu?: number; memoryMiB?: number; processes?: number } | null,
+		string | null | undefined,
+		string | null
+	>;
 	last_activity_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	/** When the idle stop happens unless the student answers. */
 	idle_stop_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	/** The UTC day the package survey last read this workspace (ADR 0042). */
+	package_surveyed_on: ColumnType<
+		Date | null,
+		string | null | undefined,
+		string | null
+	>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 }
@@ -221,9 +256,20 @@ export interface SettingsTable {
 	cpu_idle_lift_minutes: Generated<number>;
 	/** CPU percent below which a throttled workspace counts as quiet; 0 turns lifting off. */
 	cpu_idle_lift_percent: Generated<number>;
+	/** Throttles within the hold hours that make one survive a restart; 0 turns it off. */
+	cpu_throttle_hold_after: Generated<number>;
+	cpu_throttle_hold_hours: Generated<number>;
 	/** Null means the built-in default statement. */
 	acceptable_use_text: string | null;
 	acceptable_use_version: Generated<number>;
+	/** Workspace egress policy (issue #284); the version rises with every write. */
+	egress_mode: Generated<string>;
+	egress_presets: Generated<string[]>;
+	egress_ports: Generated<number[]>;
+	egress_version: Generated<number>;
+	egress_applied_version: number | null;
+	egress_applied_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	egress_apply_error: string | null;
 	updated_at: ColumnType<Date, string | undefined, string>;
 	updated_by: string | null;
 }
@@ -392,4 +438,73 @@ export interface ApiRequestSamplesTable {
 	websocket_upgrades: number;
 	/** Counts per bound of API_LATENCY_BOUNDS_MS, plus one overflow bucket. */
 	latency_buckets: number[];
+}
+
+/** One administrator egress entry: a host name or an IPv4 range (issue #284). */
+export interface EgressEntriesTable {
+	id: Generated<string>;
+	kind: string;
+	value: string;
+	label: string;
+	created_by: string | null;
+	created_at: ColumnType<Date, string | undefined, never>;
+	updated_at: ColumnType<Date, string | undefined, string>;
+}
+
+/** One blocked site, refused in open mode only (ADR 0043). */
+export interface EgressBlockedEntriesTable {
+	id: Generated<string>;
+	value: string;
+	label: string;
+	created_by: string | null;
+	created_at: ColumnType<Date, string | undefined, never>;
+	updated_at: ColumnType<Date, string | undefined, string>;
+}
+
+/** Site-wide refused-name counts per day; never tied to a workspace or user. */
+export interface EgressBlockedNamesTable {
+	day: ColumnType<Date, string, string>;
+	name: string;
+	source: string;
+	count: number;
+}
+
+/** Backup work the admin page asked for (SPEC.md section 24.9, ADR 0024). */
+export interface BackupRequestsTable {
+	id: Generated<string>;
+	kind: string;
+	args: ColumnType<unknown, string | undefined, string>;
+	state: ColumnType<string, string | undefined, string>;
+	requested_by: string | null;
+	requested_at: ColumnType<Date, string | undefined, string>;
+	claimed_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	finished_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	error: ColumnType<string | null, string | null | undefined, string | null>;
+	workspace_id: ColumnType<string | null, string | null | undefined, string | null>;
+	result: ColumnType<unknown | null, string | null | undefined, string | null>;
+}
+
+/** One row: the host's last report and the worker's volume listing. */
+export interface BackupStatusTable {
+	id: ColumnType<number, number | undefined, never>;
+	host: ColumnType<unknown | null, string | null | undefined, string | null>;
+	host_reported_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	vm: ColumnType<unknown | null, string | null | undefined, string | null>;
+	vm_listed_at: ColumnType<Date | null, string | null | undefined, string | null>;
+}
+
+/** How many workspaces the package survey read on one UTC day (ADR 0042). */
+export interface PackageSurveyDaysTable {
+	day: ColumnType<Date, string, string>;
+	surveyed: number;
+}
+
+/**
+ * How many surveyed workspaces had added one package on one day. Counts
+ * only; no workspace or user is named (SPEC.md §20.1, ADR 0042).
+ */
+export interface PackageSurveyCountsTable {
+	day: ColumnType<Date, string, string>;
+	package: string;
+	workspaces: number;
 }

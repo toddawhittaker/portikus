@@ -59,14 +59,29 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	// The matrix workspace is neither throttled nor flagged.
 	"POST /admin/workspaces/:id/lift-throttle": 409,
 	"POST /admin/workspaces/:id/clear-memory-flag": 409,
+	// The matrix workspace is not in error.
+	"POST /admin/workspaces/:id/reprovision": 409,
 	// The matrix world records no notifications; each is its owner's alone.
 	"PATCH /me/notifications/:id": 404,
+	// The matrix world lists no egress entries.
+	"PUT /admin/egress/entries/:id": 404,
+	"DELETE /admin/egress/entries/:id": 404,
+	"PUT /admin/egress/blocked-sites/:id": 404,
+	"DELETE /admin/egress/blocked-sites/:id": 404,
 	"POST /me/password": 404,
 	// Tests have no journal (test-support.ts points JOURNALCTL_PATH nowhere).
 	"GET /admin/logs": 503,
 	"HEAD /admin/logs": 503,
 	"GET /admin/logs/counts": 503,
 	"HEAD /admin/logs/counts": 503,
+	// The matrix host never reported, so there is nothing to back up, delete or restore.
+	"POST /admin/backups/run": 409,
+	"DELETE /admin/backups/sets/:stamp": 400,
+	"DELETE /admin/backups/dumps/:file": 400,
+	"POST /admin/backups/restores": 404,
+	"POST /admin/backups/restores/:id/replace-home": 404,
+	"DELETE /admin/backups/snapshots/:volume/:snapshot": 400,
+	"DELETE /admin/backups/kept-homes/:volume": 400,
 };
 
 // The smallest PNG: one transparent pixel.
@@ -203,6 +218,8 @@ const QUERIES: Record<string, string> = {
 	"/__portikus/bootstrap": "?t=forged-ticket",
 	"/admin/health/series": "?range=1h",
 	"/admin/logs/counts": "?range=1h",
+	"/admin/egress/entries/:id": "?version=0",
+	"/admin/egress/blocked-sites/:id": "?version=0",
 };
 
 const PAYLOADS: Record<string, object> = {
@@ -235,7 +252,33 @@ const PAYLOADS: Record<string, object> = {
 	"POST /admin/workspaces/:id/processes/:pid/stop": { startTicks: 100 },
 	"PUT /admin/workspaces/:id/quota": { homeGiB: 100, dockerGiB: 100 },
 	"PUT /admin/workspaces/:id/guard": { idleStopMinutes: 0 },
+	"PUT /admin/workspaces/:id/limits": { cpu: null, memoryMiB: null, processes: null },
 	"POST /admin/workspaces/:id/rebuild": { resetDocker: false },
+	"PUT /admin/egress/mode": { version: 0, mode: "open" },
+	"PUT /admin/egress/presets": { version: 0, presets: [] },
+	"PUT /admin/egress/ports": { version: 0, ports: [22, 80, 443] },
+	"POST /admin/egress/entries": {
+		version: 0,
+		kind: "host",
+		value: "example.edu",
+		label: "",
+	},
+	"PUT /admin/egress/entries/:id": {
+		version: 0,
+		kind: "host",
+		value: "example.edu",
+		label: "",
+	},
+	"POST /admin/egress/blocked-sites": { version: 0, value: "example.edu", label: "" },
+	"PUT /admin/egress/blocked-sites/:id": {
+		version: 0,
+		value: "example.edu",
+		label: "",
+	},
+	"POST /admin/backups/restores": {
+		stamp: "20260924T023000Z",
+		workspaceId: "550e8400-e29b-41d4-a716-446655440000",
+	},
 };
 
 /**

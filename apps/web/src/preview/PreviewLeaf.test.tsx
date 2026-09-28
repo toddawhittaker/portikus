@@ -694,3 +694,14 @@ test("a port that stays quiet past the grace says nothing is listening", async (
 	expect(screen.queryByTestId("preview-frame")).toBeNull();
 	vi.useRealTimers();
 });
+
+// --- a port speaking HTTPS (issue #283, step 2) ---
+
+test("a port speaking HTTPS previews like any other", async () => {
+	stubFetch(() => json(200, GRANT));
+	show({ services: [{ ...service(5173), protocolHint: "https" }] });
+	expect((await screen.findByTestId("preview-frame")).getAttribute("src")).toBe(
+		GRANT.bootstrapUrl,
+	);
+	expect(screen.queryByTestId("preview-https")).toBeNull();
+});

@@ -600,6 +600,13 @@ describe("database migrations and schema", () => {
 					db: trx,
 					provider: { getMigrations: async () => migrations },
 				});
+				// Past 0030 and 0029 (Epic 24) first.
+				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+					"0030_egress_blocked_sites",
+				);
+				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+					"0029_package_survey",
+				);
 				const down = await migrator.migrateDown();
 				expect(down.error).toBeUndefined();
 				const down2 = await migrator.migrateDown();
@@ -648,6 +655,14 @@ describe("database migrations and schema", () => {
 				expect(down23.error).toBeUndefined();
 				const down24 = await migrator.migrateDown();
 				expect(down24.error).toBeUndefined();
+				const down26 = await migrator.migrateDown();
+				expect(down26.error).toBeUndefined();
+				const down28 = await migrator.migrateDown();
+				expect(down28.error).toBeUndefined();
+				const down27 = await migrator.migrateDown();
+				expect(down27.error).toBeUndefined();
+				const down25 = await migrator.migrateDown();
+				expect(down25.error).toBeUndefined();
 				const up = await migrator.migrateToLatest();
 				expect(up.error).toBeUndefined();
 				expect(up.results?.map((r) => r.migrationName)).toEqual([
@@ -675,6 +690,12 @@ describe("database migrations and schema", () => {
 					"0022_api_request_samples",
 					"0023_guard_idle_lift",
 					"0024_process_snapshots",
+					"0025_egress",
+					"0026_backups",
+					"0027_workspace_limits",
+					"0028_throttle_hold",
+					"0029_package_survey",
+					"0030_egress_blocked_sites",
 				]);
 				throw rollback;
 			}),
@@ -696,6 +717,25 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0028_throttle_hold",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0027_workspace_limits",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0026_backups",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0025_egress",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0024_process_snapshots",
 					);
@@ -792,7 +832,18 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0024, 0023 (Epic 21), 0022 (Epic 19), 0021 and 0020 first.
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					// Past 0028, 0027, 0026, 0025, 0024, 0023 (Epic 21), 0022 (Epic 19), 0021 and 0020 first.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -856,6 +907,25 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0028_throttle_hold",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0027_workspace_limits",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0026_backups",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0025_egress",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0024_process_snapshots",
 					);
@@ -1215,6 +1285,25 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0028_throttle_hold",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0027_workspace_limits",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0026_backups",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0025_egress",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0024_process_snapshots",
 					);
@@ -1284,6 +1373,17 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					await migrator.migrateDown();
+					await migrator.migrateDown();
+					await migrator.migrateDown();
+					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
 					await migrator.migrateDown();
@@ -1718,7 +1818,18 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Down past 0024 and 0023 (Epic 21), 0022 (Epic 19),
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					// Down past 0028, 0027, 0026, 0025, 0024 and 0023 (Epic 21), 0022 (Epic 19),
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					// 0021 and 0020 (Epic 14.3), 0019 (Epic 14.2), 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -1856,6 +1967,17 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const down = await migrator.migrateDown();
 					expect(down.error).toBeUndefined();
@@ -1883,6 +2005,25 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0028_throttle_hold",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0027_workspace_limits",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0026_backups",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0025_egress",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0024_process_snapshots",
 					);
@@ -2121,7 +2262,18 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 						allowUnorderedMigrations: true,
 					});
-					// Build a database that took 0020, 0021, 0022, 0023 and 0024 before 0019 existed.
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					// Build a database that took 0020 to 0028 before 0019 existed.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2134,10 +2286,22 @@ describe("resource guard migration", () => {
 						"0022_api_request_samples",
 						"0023_guard_idle_lift",
 						"0024_process_snapshots",
+						"0025_egress",
+						"0026_backups",
+						"0027_workspace_limits",
+						"0028_throttle_hold",
+						"0029_package_survey",
+						"0030_egress_blocked_sites",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0024, 0023, 0022, 0021, 0020 and 0018 (applied 0018, 0020, 0021, 0022, 0023, 0024, 0019).
+					// Undo 0019, 0030 down to 0020, and 0018 (applied 0018, 0020 to 0030, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2156,7 +2320,53 @@ describe("resource guard migration", () => {
 						"0022_api_request_samples",
 						"0023_guard_idle_lift",
 						"0024_process_snapshots",
+						"0025_egress",
+						"0026_backups",
+						"0027_workspace_limits",
+						"0028_throttle_hold",
+						"0029_package_survey",
+						"0030_egress_blocked_sites",
 					]);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+	test.skipIf(!hasTestDb())(
+		"0027 adds the nullable limits columns and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const columns = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.columns
+				where table_name = 'workspaces'
+				and column_name in ('limits_config', 'limits_applied')`;
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const owner = await insertTestUser(trx);
+					const ws = await trx
+						.insertInto("workspaces")
+						.values({ label: testLabel(), owner_user_id: owner, state: "stopped" })
+						.returning(["limits_config", "limits_applied"])
+						.executeTakeFirstOrThrow();
+					expect(ws).toEqual({ limits_config: null, limits_applied: null });
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(2);
+
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					// Past 0030, 0029 and 0028 first.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0027_workspace_limits");
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(0);
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(2);
 					throw rollback;
 				}),
 			).rejects.toBe(rollback);
@@ -2198,11 +2408,292 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const down = await migrator.migrateDown();
 					expect(down.results?.[0]?.migrationName).toBe("0024_process_snapshots");
 					expect((await table.execute(trx)).rows[0]?.n).toBe(0);
 					expect((await migrator.migrateToLatest()).error).toBeUndefined();
 					expect((await table.execute(trx)).rows[0]?.n).toBe(1);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+	test.skipIf(!hasTestDb())(
+		"0029 adds the package survey tables and the surveyed date, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const objects = sql<{ n: number }>`
+				select (select count(*) from information_schema.tables
+					where table_name in ('package_survey_days', 'package_survey_counts'))
+				+ (select count(*) from information_schema.columns
+					where table_name = 'workspaces' and column_name = 'package_surveyed_on')
+				as n`;
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					expect(Number((await objects.execute(trx)).rows[0]?.n)).toBe(3);
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0029_package_survey");
+					expect(Number((await objects.execute(trx)).rows[0]?.n)).toBe(0);
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					expect(Number((await objects.execute(trx)).rows[0]?.n)).toBe(3);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+	test.skipIf(!hasTestDb())(
+		"0030 adds an empty blocked sites table with unique names, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const table = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.tables
+				where table_name = 'egress_blocked_entries'`;
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0030_egress_blocked_sites");
+					expect((await table.execute(trx)).rows[0]?.n).toBe(0);
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					const rows = await trx
+						.selectFrom("egress_blocked_entries")
+						.select("value")
+						.execute();
+					// No seed: a non-empty list would put open mode behind Squid (ADR 0043).
+					expect(rows).toEqual([]);
+					await trx
+						.insertInto("egress_blocked_entries")
+						.values({ value: "dns.google", label: "" })
+						.execute();
+					await expect(
+						trx
+							.insertInto("egress_blocked_entries")
+							.values({ value: "dns.google", label: "" })
+							.execute(),
+					).rejects.toMatchObject({ code: "23505" });
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+});
+
+describe("backups migration", () => {
+	let t: TestDb;
+
+	beforeAll(async () => {
+		t = await createTestDb();
+	});
+
+	afterAll(async () => {
+		await t?.close();
+	});
+
+	test.skipIf(!hasTestDb())(
+		"0026 allows one waiting backup, one status row, replace-home, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const tables = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.tables
+				where table_name in ('backup_requests', 'backup_status')`;
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const status = await trx.selectFrom("backup_status").selectAll().execute();
+					expect(status.map((r) => r.id)).toEqual([1]);
+
+					await trx.insertInto("backup_requests").values({ kind: "backup" }).execute();
+					await trx
+						.insertInto("backup_requests")
+						.values({ kind: "delete_set", args: '{"stamp":"20260924T023000Z"}' })
+						.execute();
+					await expect(
+						trx.insertInto("backup_requests").values({ kind: "backup" }).execute(),
+					).rejects.toThrow(/backup_requests_one_backup_idx/);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					// A finished backup no longer blocks the next one.
+					await trx
+						.insertInto("backup_requests")
+						.values({ kind: "backup", state: "done" })
+						.execute();
+					await trx.insertInto("backup_requests").values({ kind: "backup" }).execute();
+					await expect(
+						sql`insert into backup_requests (kind) values ('rm')`.execute(trx),
+					).rejects.toThrow();
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const owner = await insertTestUser(trx);
+					const ws = await trx
+						.insertInto("workspaces")
+						.values({ label: testLabel(), owner_user_id: owner, state: "running" })
+						.returning("id")
+						.executeTakeFirstOrThrow();
+					await trx
+						.updateTable("workspaces")
+						.set({
+							pending_operation: "replace-home",
+							pending_operation_args: '{"restoreRequestId":"x"}',
+						})
+						.where("id", "=", ws.id)
+						.execute();
+
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0026_backups");
+					expect((await tables.execute(trx)).rows[0]?.n).toBe(0);
+					const after = await sql<{ pending_operation: string | null }>`
+						select pending_operation from workspaces where id = ${ws.id}`.execute(trx);
+					expect(after.rows[0]?.pending_operation).toBeNull();
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					expect((await tables.execute(trx)).rows[0]?.n).toBe(2);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+	test.skipIf(!hasTestDb())(
+		"0025 adds the egress policy with open defaults, checks its values, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const tables = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.tables
+				where table_name in ('egress_entries', 'egress_blocked_names')`;
+			const columns = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.columns
+				where table_name = 'settings' and column_name like 'egress_%'`;
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					await trx.deleteFrom("settings").execute();
+					await trx
+						.insertInto("settings")
+						.values({ id: 1, shutdown_grace_seconds: 600 })
+						.execute();
+					const row = await trx
+						.selectFrom("settings")
+						.select(["egress_mode", "egress_presets", "egress_ports", "egress_version"])
+						.executeTakeFirstOrThrow();
+					expect(row).toEqual({
+						egress_mode: "open",
+						egress_presets: [],
+						egress_ports: [22, 80, 443],
+						egress_version: 0,
+					});
+					await trx
+						.insertInto("egress_entries")
+						.values({ kind: "host", value: "example.edu", label: "" })
+						.execute();
+					// A value is listed once; a kind or mode outside the set is refused.
+					await sql`savepoint s`.execute(trx);
+					await expect(
+						trx
+							.insertInto("egress_entries")
+							.values({ kind: "host", value: "example.edu", label: "" })
+							.execute(),
+					).rejects.toThrow();
+					await sql`rollback to savepoint s`.execute(trx);
+					await expect(
+						sql`insert into egress_entries (kind, value) values ('url', 'x')`.execute(
+							trx,
+						),
+					).rejects.toThrow();
+					await sql`rollback to savepoint s`.execute(trx);
+					await expect(
+						sql`update settings set egress_mode = 'closed'`.execute(trx),
+					).rejects.toThrow();
+					await sql`rollback to savepoint s`.execute(trx);
+					// The blocked-name table has no workspace, user or address column.
+					const blockedColumns = await sql<{ column_name: string }>`
+						select column_name from information_schema.columns
+						where table_name = 'egress_blocked_names' order by column_name`.execute(
+						trx,
+					);
+					expect(blockedColumns.rows.map((r) => r.column_name)).toEqual([
+						"count",
+						"day",
+						"name",
+						"source",
+					]);
+
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0028_throttle_hold",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0027_workspace_limits",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0026_backups",
+					);
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0025_egress");
+					expect((await tables.execute(trx)).rows[0]?.n).toBe(0);
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(0);
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					expect((await tables.execute(trx)).rows[0]?.n).toBe(2);
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(7);
 					throw rollback;
 				}),
 			).rejects.toBe(rollback);
@@ -2247,7 +2738,18 @@ describe("api request samples migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0024 and 0023 (Epic 21) first.
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					// Past 0028, 0027, 0026, 0025, 0024 and 0023 (Epic 21) first.
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const down = await migrator.migrateDown();
@@ -2354,5 +2856,84 @@ describe("pool options", () => {
 			}
 		},
 		15_000,
+	);
+});
+
+describe("throttle hold migration", () => {
+	let t: TestDb;
+
+	beforeAll(async () => {
+		t = await createTestDb();
+	});
+
+	afterAll(async () => {
+		await t?.close();
+	});
+
+	test.skipIf(!hasTestDb())(
+		"0028 adds the hold settings with their defaults and bounds, the recent list, and rolls back",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			const columns = sql<{ n: number }>`
+				select count(*)::int as n from information_schema.columns
+				where (table_name = 'settings'
+					and column_name in ('cpu_throttle_hold_after', 'cpu_throttle_hold_hours'))
+				or (table_name = 'workspaces' and column_name = 'cpu_throttle_recent')`;
+
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					await trx
+						.insertInto("settings")
+						.values({ id: 1, shutdown_grace_seconds: 600 })
+						.execute();
+					const row = await trx
+						.selectFrom("settings")
+						.select(["cpu_throttle_hold_after", "cpu_throttle_hold_hours"])
+						.executeTakeFirstOrThrow();
+					expect(row).toEqual({
+						cpu_throttle_hold_after: 3,
+						cpu_throttle_hold_hours: 24,
+					});
+					for (const bad of [
+						sql`update settings set cpu_throttle_hold_after = 11`,
+						sql`update settings set cpu_throttle_hold_after = -1`,
+						sql`update settings set cpu_throttle_hold_hours = 0`,
+						sql`update settings set cpu_throttle_hold_hours = 169`,
+					]) {
+						await expect(
+							sql`savepoint bound`.execute(trx).then(() => bad.execute(trx)),
+						).rejects.toThrow(/cpu_throttle_hold/);
+						await sql`rollback to savepoint bound`.execute(trx);
+					}
+					const owner = await insertTestUser(trx);
+					const ws = await trx
+						.insertInto("workspaces")
+						.values({ label: testLabel(), owner_user_id: owner, state: "running" })
+						.returning("cpu_throttle_recent")
+						.executeTakeFirstOrThrow();
+					expect(ws.cpu_throttle_recent).toEqual([]);
+
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					// Past 0030 and 0029 (Epic 24) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0030_egress_blocked_sites",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0029_package_survey",
+					);
+					const down = await migrator.migrateDown();
+					expect(down.results?.[0]?.migrationName).toBe("0028_throttle_hold");
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(0);
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					expect((await columns.execute(trx)).rows[0]?.n).toBe(3);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
 	);
 });
