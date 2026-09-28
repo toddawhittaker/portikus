@@ -1,3 +1,4 @@
+import { PageIntro } from "@portikus/ui";
 import { type ReactNode, useId } from "react";
 
 /**
@@ -13,11 +14,17 @@ export function AdminSection({
 	title,
 	count,
 	actions,
+	intro,
 	children,
 }: {
 	title: string;
 	count?: ReactNode;
 	actions?: ReactNode;
+	/**
+	 * What the tab is for, under the heading. `id` names its remembered state
+	 * ("admin-users"); `helpAnchor` is the Help page section ("admin-users").
+	 */
+	intro?: { id: string; text: string; helpAnchor: string };
 	children: ReactNode;
 }) {
 	const headingId = useId();
@@ -41,6 +48,15 @@ export function AdminSection({
 					<div className="ml-auto flex items-center gap-2">{actions}</div>
 				) : null}
 			</div>
+			{intro ? (
+				<PageIntro
+					id={intro.id}
+					summary={`About ${title}`}
+					helpHref={`/help#${intro.helpAnchor}`}
+				>
+					{intro.text}
+				</PageIntro>
+			) : null}
 			{children}
 		</section>
 	);

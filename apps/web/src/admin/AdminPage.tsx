@@ -10,29 +10,22 @@ import { HealthTab } from "./health/HealthTab.js";
 import { LogsTab } from "./logs/LogsTab.js";
 import { NetworkTab } from "./network/NetworkTab.js";
 import { SettingsTab } from "./SettingsTab.js";
+import { ADMIN_TABS, type AdminTab } from "./tabs.js";
 import { WorkspacesTab } from "./WorkspacesTab.js";
-
-export const ADMIN_TABS = [
-	"workspaces",
-	"audit",
-	"logs",
-	"health",
-	"network",
-	"backups",
-	"settings",
-] as const;
-export type AdminTab = (typeof ADMIN_TABS)[number];
 
 const TAB_LABEL: Record<AdminTab, string> = {
 	// The address stays ?tab=workspaces so old links keep working (docs/archive/epics/EPIC-13-1.md ruling 24).
 	workspaces: "Users",
-	audit: "Audit",
-	logs: "Logs",
 	health: "Health",
+	logs: "Logs",
+	audit: "Audit",
 	network: "Network",
 	backups: "Backups",
 	settings: "Settings",
 };
+
+/** The first tab of each group after the first gets a thin gap before it. */
+const GROUP_START = new Set<AdminTab>(["health", "network"]);
 
 /** The administration screen. Students never get here (SPEC.md §5.2, §6.4). */
 export function AdminPage() {
@@ -86,6 +79,8 @@ export function AdminPage() {
 								data-testid={`admin-tab-${item}`}
 								aria-current={item === tab ? "page" : undefined}
 								className={`pk-focus-ring -mb-px rounded-t-sm border-b-2 px-3 py-2 font-semibold text-[13px] no-underline ${
+									GROUP_START.has(item) ? "ml-4" : ""
+								} ${
 									item === tab
 										? "border-accent text-ink"
 										: "border-transparent text-ink-muted hover:text-ink"
@@ -96,9 +91,9 @@ export function AdminPage() {
 						))}
 					</nav>
 					{tab === "workspaces" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
-					{tab === "audit" ? <AuditTab /> : null}
-					{tab === "logs" ? <LogsTab /> : null}
 					{tab === "health" ? <HealthTab /> : null}
+					{tab === "logs" ? <LogsTab /> : null}
+					{tab === "audit" ? <AuditTab /> : null}
 					{tab === "network" ? <NetworkTab /> : null}
 					{tab === "backups" ? <BackupsTab /> : null}
 					{tab === "settings" ? <SettingsTab /> : null}
