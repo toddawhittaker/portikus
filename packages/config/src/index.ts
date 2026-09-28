@@ -152,6 +152,11 @@ export const ApiConfigSchema = BaseConfig.extend({
 	PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES: positiveInt.default(30),
 	/** The journal reader behind the Logs tab (docs/adr/0036); e2e points it at a fake. */
 	JOURNALCTL_PATH: z.string().min(1).default("/usr/bin/journalctl"),
+	/** Where the API drops workspace image job requests (ADR 0030); unset turns the Workspace image section off. */
+	IMAGE_JOBS_DIR: z
+		.string()
+		.regex(/^\/./, "IMAGE_JOBS_DIR must be an absolute path")
+		.optional(),
 	/** Workspace start, stop and restart requests per user per minute (ADR 0034 ruling 16). */
 	WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: positiveInt.default(20),
 	/** File and project writes per user per minute (ADR 0034 ruling 16). */

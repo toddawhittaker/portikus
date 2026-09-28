@@ -153,7 +153,16 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 		within(nav)
 			.getAllByRole("link")
 			.map((link) => link.textContent),
-	).toEqual(["Users", "Health", "Logs", "Audit", "Network", "Backups", "Settings"]);
+	).toEqual([
+		"Users",
+		"Health",
+		"Logs",
+		"Audit",
+		"Network",
+		"Backups",
+		"Workspace image",
+		"Settings",
+	]);
 	expect(
 		await screen.findByRole("table", { name: /Accounts and their workspaces/ }),
 	).toBeDefined();

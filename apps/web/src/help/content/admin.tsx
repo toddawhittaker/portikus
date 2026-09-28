@@ -3,7 +3,7 @@ import type { HelpPart } from "./part.js";
 /**
  * For administrators. Each admin tab's intro links to one of these anchors
  * ("More in Help"), so keep the ids stable: admin-users, admin-health,
- * admin-logs, admin-audit, admin-network, admin-backups, admin-settings.
+ * admin-logs, admin-audit, admin-network, admin-backups, admin-image, admin-settings.
  */
 export const ADMIN_HELP: HelpPart = {
 	id: "admin",
@@ -172,6 +172,30 @@ export const ADMIN_HELP: HelpPart = {
 					<code className="pk-mono-body">workspace.</code> in{" "}
 					<strong>Action starts with</strong> to see every workspace action.
 				</p>
+			),
+		},
+		{
+			id: "admin-image",
+			title: "The workspace image",
+			body: (
+				<>
+					<p>
+						Every new workspace starts from the default <strong>workspace image</strong>
+						. <strong>Update to latest published</strong> downloads the newest image the
+						project has published and checks its signature.{" "}
+						<strong>Rebuild with latest packages</strong> builds a new image on this
+						host with today's Debian packages and the latest Claude Code and Codex, and
+						lets you pick Node 24 or 26 and whether to add Python 3.14. A rebuild takes
+						about 20 minutes. The page shows each step and the log while the job runs.
+					</p>
+					<p>
+						Each new image gets a health check, and you see what changed against the
+						default. Only an image that passed can be made the default. The old default
+						becomes the previous image, and <strong>Roll back</strong> swaps them again.
+						Existing workspaces keep the image they were made from until you rebuild
+						each one; the list shows how many workspaces run each image.
+					</p>
+				</>
 			),
 		},
 		{

@@ -82,6 +82,14 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/backups/restores/:id/replace-home": 404,
 	"DELETE /admin/backups/snapshots/:volume/:snapshot": 400,
 	"DELETE /admin/backups/kept-homes/:volume": 400,
+	// Tests set no IMAGE_JOBS_DIR, so the Workspace image section is off.
+	"GET /admin/image": 404,
+	"HEAD /admin/image": 404,
+	"GET /admin/image/diff": 404,
+	"HEAD /admin/image/diff": 404,
+	"POST /admin/image/jobs": 404,
+	"GET /admin/image/jobs/:id": 404,
+	"HEAD /admin/image/jobs/:id": 404,
 };
 
 // The smallest PNG: one transparent pixel.

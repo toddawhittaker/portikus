@@ -240,6 +240,14 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/backups/restores/:id/replace-home": { access: "admin" },
 	"DELETE /admin/backups/snapshots/:volume/:snapshot": { access: "admin" },
 	"DELETE /admin/backups/kept-homes/:volume": { access: "admin" },
+	// The Workspace image section (docs/EPIC-15.md rulings 22 to 28, ADR 0030).
+	"GET /admin/image": { access: "admin" },
+	"HEAD /admin/image": { access: "admin" },
+	"GET /admin/image/diff": { access: "admin" },
+	"HEAD /admin/image/diff": { access: "admin" },
+	"POST /admin/image/jobs": { access: "admin" },
+	"GET /admin/image/jobs/:id": { access: "admin" },
+	"HEAD /admin/image/jobs/:id": { access: "admin" },
 	// The package survey and the student's reinstall note (ADR 0042).
 	"GET /admin/packages": { access: "admin" },
 	"HEAD /admin/packages": { access: "admin" },

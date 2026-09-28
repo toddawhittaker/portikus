@@ -10,6 +10,7 @@ export const ADMIN_TABS = [
 	"audit",
 	"network",
 	"backups",
+	"image",
 	"settings",
 ] as const;
 export type AdminTab = (typeof ADMIN_TABS)[number];
