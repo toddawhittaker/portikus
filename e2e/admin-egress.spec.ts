@@ -57,9 +57,9 @@ test("the Network tab sits after Health and before Settings", async ({ page }) =
 	const nav = page.getByRole("navigation", { name: "Administration" });
 	await expect(nav.getByRole("link")).toHaveText([
 		"Users",
-		"Audit",
-		"Logs",
 		"Health",
+		"Logs",
+		"Audit",
 		"Network",
 		"Backups",
 		"Settings",
