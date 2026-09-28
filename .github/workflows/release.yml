@@ -1,10 +1,11 @@
 name: Release
 
 # A release is published when an epic or task branch merges into main, or by
-# running this workflow by hand from main for a hotfix.
+# running this workflow by hand from main for a hotfix. It runs on the push
+# to main, not on the pull request event, because the publish environment
+# admits only main and a pull request run's ref is refs/pull/N/merge.
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [main]
   workflow_dispatch:
 
@@ -18,16 +19,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  gate:
+    name: Decide whether this push is a release
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      release: ${{ steps.decide.outputs.release }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The pull request that put this commit on main, if any.
+          head="$(gh api "repos/$GH_REPO/commits/$SHA/pulls" \
+            --jq '[.[] | select(.base.ref == "main" and .merged_at != null) | .head.ref][0] // ""')"
+          echo "Merged from: ${head:-no pull request}"
+          case "$head" in
+            epic/*|task/*) echo "release=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "release=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
   build:
     name: Build the Debian package
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && (startsWith(github.event.pull_request.head.ref, 'epic/') || startsWith(github.event.pull_request.head.ref, 'task/')))
+    needs: gate
+    if: needs.gate.outputs.release == 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Build the merge commit on main, not the PR head, so the version
-          # counts main's commits and the tag points at main.
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           # The package version counts commits, so the full history is needed.
           fetch-depth: 0
           persist-credentials: false
@@ -68,7 +97,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           VERSION="$(cat dist/deb/VERSION)"
           if gh release view "v$VERSION" >/dev/null 2>&1; then
@@ -95,8 +124,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           persist-credentials: false
+      # A package must never name a workspace image that was not published.
+      - name: Check the workspace image is published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          image="image-$(cat infra/workspace-image/VERSION)"
+          gh release view "$image" >/dev/null || { echo "Release $image is not published; publish the image first." >&2; exit 1; }
       - name: Download the package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -104,15 +140,28 @@ jobs:
           path: dist/deb
       - name: Install apt-ftparchive
         run: command -v apt-ftparchive || { sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils; }
-      # The live Pages site is the only state this stateless job has: fetch
-      # the packages it lists, each checked against its published checksum.
+      # The live Pages site is the only state this stateless job has. Trust it
+      # only through InRelease signed by our key, and fail closed otherwise.
       - name: Download the published packages
         run: |
           mkdir -p site/apt
-          if ! curl -fsSL "$APT_URL/dists/trixie/main/binary-amd64/Packages" -o packages.txt; then
+          dist="$APT_URL/dists/trixie"
+          code="$(curl -sSL -o InRelease -w '%{http_code}' "$dist/InRelease")"
+          if [ "$code" = 404 ]; then
+            # The first release: nothing is published, so Packages must be missing too.
+            code="$(curl -sSL -o /dev/null -w '%{http_code}' "$dist/main/binary-amd64/Packages")"
+            [ "$code" = 404 ] || { echo "InRelease is missing but Packages answered $code" >&2; exit 1; }
             echo "No published repository yet; starting empty."
             exit 0
           fi
+          [ "$code" = 200 ] || { echo "InRelease answered $code" >&2; exit 1; }
+          gpg --dearmor < packaging/portikus-archive-keyring.asc > "$RUNNER_TEMP/archive.gpg"
+          gpgv --keyring "$RUNNER_TEMP/archive.gpg" --output Release InRelease
+          want="$(awk '/^SHA256:/{s=1; next} /^[^ ]/{s=0} s && $3 == "main/binary-amd64/Packages" {print $1}' Release)"
+          [ -n "$want" ] || { echo "the signed Release lists no Packages checksum" >&2; exit 1; }
+          code="$(curl -sSL -o packages.txt -w '%{http_code}' "$dist/main/binary-amd64/Packages")"
+          [ "$code" = 200 ] || { echo "Packages answered $code" >&2; exit 1; }
+          echo "$want  packages.txt" | sha256sum -c --quiet
           awk '/^Filename: /{f=$2} /^SHA256: /{print $2, f}' packages.txt | while read -r sum file; do
             [[ "$file" =~ ^pool/main/p/portikus/portikus_[A-Za-z0-9.+~-]+_amd64\.deb$ ]] || { echo "unexpected path $file" >&2; exit 1; }
             mkdir -p "site/apt/$(dirname "$file")"

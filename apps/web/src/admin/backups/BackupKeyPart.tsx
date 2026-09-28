@@ -163,7 +163,7 @@ function UploadDialog({
 						setMustReplace(true);
 						return;
 					}
-					setMustReplace(false);
+					// A failure on the replace step stays on it, so its error is read there.
 					setError(errorText(failure));
 				},
 			},
@@ -174,6 +174,8 @@ function UploadDialog({
 		<ConfirmDialogRoot open onOpenChange={(open) => (open ? undefined : onClose())}>
 			{mustReplace ? (
 				<ConfirmDialog
+					// Its own key, so the replace step mounts fresh and focus starts on Cancel.
+					key="replace"
 					id="backup-key-replace-dialog"
 					testId="backup-key-replace-dialog"
 					title="Replace this server's backup key?"
@@ -198,6 +200,7 @@ function UploadDialog({
 				</ConfirmDialog>
 			) : (
 				<ConfirmDialog
+					key="upload"
 					id="backup-key-upload-dialog"
 					testId="backup-key-upload-dialog"
 					destructive={false}
