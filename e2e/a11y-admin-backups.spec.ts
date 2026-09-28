@@ -132,6 +132,15 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await openTab(page, colorScheme);
 		await expect(page.getByTestId("backups-host-stale")).toBeVisible();
 		await expectNoViolations(page);
+		// The intro and an open toggletip, which Escape closes back onto its button.
+		await expect(page.getByTestId("intro-admin-backups")).toBeVisible();
+		const tip = page.getByRole("button", { name: "About the restore key" });
+		await tip.click();
+		await expect(page.getByRole("dialog", { name: "the restore key" })).toBeVisible();
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(page.getByRole("dialog", { name: "the restore key" })).toHaveCount(0);
+		await expect(tip).toBeFocused();
 	});
 
 	test(`the Backups tab with nothing listed has no automatic accessibility violations (${colorScheme})`, async ({

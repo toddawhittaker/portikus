@@ -82,6 +82,31 @@ test("the mode summary is stated as fact only once the policy is applied", async
 	);
 });
 
+test("the tab opens with its intro and explains each part in a toggletip", async () => {
+	stubEgress(egressView());
+	renderWithQuery(<NetworkTab />);
+	await shown();
+	const intro = screen.getByTestId("intro-admin-network");
+	expect(intro.textContent).toContain(
+		"Which internet sites workspaces can reach. Open mode allows every public site except the ones you block.",
+	);
+	expect(within(intro).getByRole("link").getAttribute("href")).toBe(
+		"/help#admin-network",
+	);
+	for (const name of [
+		"About open and allow-list modes",
+		"About apply status",
+		"About ranges",
+		"About refused names",
+	]) {
+		expect(screen.getByRole("button", { name })).toBeDefined();
+	}
+	fireEvent.click(screen.getByRole("button", { name: "About ranges" }));
+	expect((await screen.findByRole("dialog", { name: "ranges" })).textContent).toContain(
+		"It cannot overlap a private network",
+	);
+});
+
 test("a read failure is shown with a way to try again", async () => {
 	let fail = true;
 	stubFetch(() =>
@@ -185,7 +210,11 @@ test("adding an entry checks it with the contracts' rules first", async () => {
 	const calls = stubEgress(egressView({ entries: [] }));
 	renderWithQuery(<NetworkTab />);
 	await shown();
-	expect(screen.getByText("No hosts or ranges yet")).toBeDefined();
+	// One line of text, no table and no tall empty state.
+	expect(screen.getByTestId("egress-entries-empty").textContent).toMatch(
+		/^No hosts or ranges yet\. Add a host name such as api\.example\.edu/,
+	);
+	expect(screen.queryByTestId("egress-entries")).toBeNull();
 	fireEvent.click(screen.getByTestId("egress-add"));
 	const dialog = await screen.findByTestId("egress-entry-dialog");
 	fireEvent.click(within(dialog).getByTestId("egress-entry-save"));

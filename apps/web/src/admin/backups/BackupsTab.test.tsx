@@ -528,7 +528,7 @@ test("the page reads as Backups, Restores, Clean up, then Recent requests", asyn
 		.map((h) => `${h.tagName} ${h.textContent}`);
 	expect(outline).toEqual([
 		"H2 Backups",
-		"H3 Backups",
+		"H3 Status and sets",
 		"H4 Status",
 		"H4 Backup sets",
 		"H3 Restores",
@@ -540,9 +540,35 @@ test("the page reads as Backups, Restores, Clean up, then Recent requests", asyn
 	]);
 	// Back up now sits in the Backups group's heading row.
 	const group = screen
-		.getByRole("heading", { level: 3, name: "Backups" })
+		.getByRole("heading", { level: 3, name: "Status and sets" })
 		.closest("section") as HTMLElement;
 	expect(within(group).getByTestId("backup-run")).toBeTruthy();
+});
+
+test("the tab opens with its intro and each help button names what it explains", async () => {
+	stubBackups(backups());
+	renderApp("/admin?tab=backups");
+	await screen.findByTestId("backups-status");
+	const intro = screen.getByTestId("intro-admin-backups");
+	expect(intro.textContent).toContain("Docker data is not copied.");
+	expect(within(intro).getByRole("link").getAttribute("href")).toBe(
+		"/help#admin-backups",
+	);
+	for (const name of [
+		"About the restore key",
+		"About set times",
+		"About incomplete sets",
+		"About Replace home",
+		"About pre-change snapshots",
+		"About kept homes",
+		"About pre-change database dumps",
+	]) {
+		expect(screen.getByRole("button", { name })).toBeTruthy();
+	}
+	fireEvent.click(screen.getByRole("button", { name: "About set times" }));
+	expect((await screen.findByRole("dialog", { name: "set times" })).textContent).toBe(
+		"Set times are in UTC, because the restore folder is named with them.",
+	);
 });
 
 test("Clean up is open with counts when anything is there to delete", async () => {

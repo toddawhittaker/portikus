@@ -463,6 +463,13 @@ test("an unused empty block list collapses, and an unapplied mode is called the 
 		"Allow-list mode is on, so this list is not used until you switch to open mode.",
 	);
 	await expect(card.getByTestId("egress-block-add")).toBeVisible();
+	// The apply status explains itself by keyboard.
+	await page.getByRole("button", { name: "About apply status" }).focus();
+	await page.keyboard.press("Enter");
+	await expect(page.getByRole("dialog", { name: "apply status" })).toContainText(
+		"within seconds",
+	);
+	await page.keyboard.press("Escape");
 	// Short: the heading row and one line, not an empty state.
 	expect((await card.boundingBox())?.height ?? 999).toBeLessThan(160);
 });

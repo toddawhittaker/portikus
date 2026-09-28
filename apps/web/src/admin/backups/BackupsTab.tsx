@@ -4,7 +4,7 @@ import type {
 	BackupWorkspace,
 	HostBackupSet,
 } from "@portikus/contracts";
-import { Button, EmptyState, Skeleton, useToast } from "@portikus/ui";
+import { Button, EmptyState, Skeleton, Toggletip, useToast } from "@portikus/ui";
 import {
 	type FocusEvent,
 	type ReactNode,
@@ -45,6 +45,12 @@ import {
 	useRunBackup,
 } from "./queries.js";
 
+const INTRO = {
+	id: "admin-backups",
+	helpAnchor: "admin-backups",
+	text: "Nightly copies of the platform database and of every workspace's home and recovery points, taken by a separate backup host. Docker data is not copied. Restore one person's files into a folder beside their own, then replace their whole home if they need it.",
+};
+
 /** How many recent requests the page lists; the API keeps 50. */
 const RECENT_SHOWN = 10;
 
@@ -53,7 +59,7 @@ export function BackupsTab() {
 	const backups = useAdminBackups();
 	if (backups.isError) {
 		return (
-			<AdminSection title="Backups">
+			<AdminSection title="Backups" intro={INTRO}>
 				<p className="text-status-error" role="alert">
 					{errorText(backups.error)}
 				</p>
@@ -62,7 +68,7 @@ export function BackupsTab() {
 	}
 	if (!backups.data) {
 		return (
-			<AdminSection title="Backups">
+			<AdminSection title="Backups" intro={INTRO}>
 				<div className="grid gap-6" aria-busy="true" data-testid="backups-loading">
 					<Skeleton variant="block" height={200} />
 					<Skeleton variant="block" height={120} />
@@ -72,7 +78,7 @@ export function BackupsTab() {
 	}
 	if (!backups.data.host) {
 		return (
-			<AdminSection title="Backups">
+			<AdminSection title="Backups" intro={INTRO}>
 				<div className="pk-card" data-testid="backups-not-connected">
 					<EmptyState icon="info" title="Backups are not connected on this site">
 						No backup host has reported to this platform. Backups are taken by a
@@ -138,7 +144,7 @@ function BackupsView({ data, host }: { data: AdminBackups; host: Host }) {
 	}
 
 	return (
-		<AdminSection title="Backups">
+		<AdminSection title="Backups" intro={INTRO}>
 			{data.hostStale && data.hostReportedAt ? (
 				<div
 					className="pk-card border-status-warning bg-status-warning-soft p-4 text-status-warning"
@@ -152,8 +158,8 @@ function BackupsView({ data, host }: { data: AdminBackups; host: Host }) {
 			) : null}
 
 			<Group
-				id="backups-backups-title"
-				title="Backups"
+				id="backups-sets-group-title"
+				title="Status and sets"
 				actions={
 					<Button
 						variant="primary"
@@ -271,6 +277,7 @@ function useFocusCatch(heading: RefObject<HTMLElement | null>) {
 function Group({
 	id,
 	title,
+	help,
 	description,
 	actions,
 	children,
@@ -278,6 +285,7 @@ function Group({
 }: {
 	id: string;
 	title: string;
+	help?: ReactNode;
 	description?: string;
 	actions?: ReactNode;
 	children: ReactNode;
@@ -294,9 +302,12 @@ function Group({
 		>
 			<div className="flex flex-wrap items-start gap-x-4 gap-y-2">
 				<div className="min-w-0 flex-1">
-					<h3 className="pk-text-heading m-0" id={id} ref={heading} tabIndex={-1}>
-						{title}
-					</h3>
+					<div className="flex items-center gap-1">
+						<h3 className="pk-text-heading m-0" id={id} ref={heading} tabIndex={-1}>
+							{title}
+						</h3>
+						{help}
+					</div>
 					{description ? (
 						<p className="pk-muted mt-1 mb-0 text-[13px]">{description}</p>
 					) : null}
@@ -312,11 +323,13 @@ function Group({
 function Part({
 	id,
 	title,
+	help,
 	children,
 	testId,
 }: {
 	id: string;
 	title: string;
+	help?: ReactNode;
 	children: ReactNode;
 	testId?: string;
 }) {
@@ -329,14 +342,17 @@ function Part({
 			data-testid={testId}
 			onFocus={onFocus}
 		>
-			<h4
-				className="pk-text-compact m-0 font-semibold text-ink-muted"
-				id={id}
-				ref={heading}
-				tabIndex={-1}
-			>
-				{title}
-			</h4>
+			<div className="flex items-center gap-1">
+				<h4
+					className="pk-text-compact m-0 font-semibold text-ink-muted"
+					id={id}
+					ref={heading}
+					tabIndex={-1}
+				>
+					{title}
+				</h4>
+				{help}
+			</div>
 			{children}
 		</section>
 	);
@@ -373,7 +389,13 @@ function StatusPart({ data, host }: { data: AdminBackups; host: Host }) {
 						? `${longTime(host.lastFailure.at)}: ${host.lastFailure.reason}`
 						: "None"}
 				</dd>
-				<dt className="pk-muted">Restore key</dt>
+				<dt className="pk-muted flex items-center gap-1">
+					Restore key
+					<Toggletip label="the restore key">
+						The private key that unlocks backups, kept on the backup host. Without it,
+						backups still run, but nothing can be restored.
+					</Toggletip>
+				</dt>
 				<dd className="m-0" data-testid="backups-key">
 					{host.keyInstalled
 						? "Installed on the host"
@@ -394,7 +416,8 @@ function Table({
 }: {
 	testId: string;
 	caption: string;
-	headers: string[];
+	/** Column names; "" for the actions column, or a name with its toggletip. */
+	headers: (string | { name: string; help: ReactNode })[];
 	empty: string | null;
 	children: ReactNode;
 }) {
@@ -411,11 +434,20 @@ function Table({
 				<caption className="sr-only">{caption}</caption>
 				<thead>
 					<tr>
-						{headers.map((header) => (
-							<th key={header} scope="col">
-								{header || <span className="sr-only">Actions</span>}
-							</th>
-						))}
+						{headers.map((header) =>
+							typeof header === "string" ? (
+								<th key={header} scope="col">
+									{header || <span className="sr-only">Actions</span>}
+								</th>
+							) : (
+								<th key={header.name} scope="col">
+									<span className="inline-flex items-center gap-1">
+										{header.name}
+										{header.help}
+									</span>
+								</th>
+							),
+						)}
 					</tr>
 				</thead>
 				<tbody>{children}</tbody>
@@ -446,7 +478,28 @@ function SetsPart({
 			<Table
 				testId="backup-sets"
 				caption="Backup sets, newest first"
-				headers={["Taken", "Result", "Size", "Workspaces", ""]}
+				headers={[
+					{
+						name: "Taken",
+						help: (
+							<Toggletip label="set times">
+								Set times are in UTC, because the restore folder is named with them.
+							</Toggletip>
+						),
+					},
+					{
+						name: "Result",
+						help: (
+							<Toggletip label="incomplete sets">
+								Incomplete means some volumes failed to copy in that run. You can still
+								restore a workspace from it, but its copy may lack what failed.
+							</Toggletip>
+						),
+					},
+					"Size",
+					"Workspaces",
+					"",
+				]}
 				empty={host.sets.length === 0 ? "No backup sets yet." : null}
 			>
 				{host.sets.map((set) => {
@@ -579,6 +632,13 @@ function RestoresGroup({
 		<Group
 			id="backups-restores-title"
 			title="Restores"
+			help={
+				<Toggletip label="Replace home">
+					Replace home swaps the student's whole home folder for the one in the same
+					backup set. You confirm by typing the workspace label. Their current home is
+					kept, and listed under Clean up until you delete it.
+				</Toggletip>
+			}
 			description="Each restored copy sits next to the student's files. To swap their whole home folder for it, choose Replace home."
 			testId="backups-restores"
 		>
@@ -685,7 +745,17 @@ function VmParts({
 	const notListed = vm === null ? "Not listed yet." : null;
 	return (
 		<>
-			<Part id="backups-snapshots-title" title="Pre-change snapshots">
+			<Part
+				id="backups-snapshots-title"
+				title="Pre-change snapshots"
+				help={
+					<Toggletip label="pre-change snapshots">
+						Snapshots of workspace volumes, named pre-something, that the operator takes
+						before a risky change such as a rebuild on a new image. Nothing deletes them
+						on its own. Delete them once the change checks out.
+					</Toggletip>
+				}
+			>
 				<Table
 					testId="backup-snapshots"
 					caption="Pre-change snapshots of workspace volumes"
@@ -733,7 +803,16 @@ function VmParts({
 					})}
 				</Table>
 			</Part>
-			<Part id="backups-kept-title" title="Kept homes">
+			<Part
+				id="backups-kept-title"
+				title="Kept homes"
+				help={
+					<Toggletip label="kept homes">
+						A student's previous home folder, set aside when Replace home swapped it
+						out. Delete it once they confirm the restored home is right.
+					</Toggletip>
+				}
+			>
 				<Table
 					testId="backup-kept-homes"
 					caption="Home folders a replace took out of service"
@@ -793,7 +872,16 @@ function DumpsPart({
 	onDelete: (target: DeleteTarget) => void;
 }) {
 	return (
-		<Part id="backups-dumps-title" title="Pre-change database dumps">
+		<Part
+			id="backups-dumps-title"
+			title="Pre-change database dumps"
+			help={
+				<Toggletip label="pre-change database dumps">
+					Copies of the platform database that the operator saves on the backup host
+					before each deploy or other change. Delete them once the change has settled.
+				</Toggletip>
+			}
+		>
 			<Table
 				testId="backup-dumps"
 				caption="Pre-change database dumps on the host"
