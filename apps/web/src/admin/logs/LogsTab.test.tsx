@@ -305,6 +305,10 @@ test("rows show named fields as text, and a row expands to the whole line", asyn
 	expect(within(first).getByText("TERMINAL_LIMIT")).toBeDefined();
 	expect(within(first).getByText("Alice Example")).toBeDefined();
 	expect(within(first).getByText("409")).toBeDefined();
+	// The route reads whole, and may wrap only before a slash.
+	const route = within(first).getByTestId("log-route");
+	expect(route.textContent).toBe("/workspaces/:id/terminals");
+	expect(route.querySelectorAll("wbr")).toHaveLength(3);
 	// The line is text, never markup.
 	const message = within(first).getByTestId("log-message");
 	expect(message.textContent).toBe(

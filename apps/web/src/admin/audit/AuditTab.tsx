@@ -5,6 +5,7 @@ import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { UUID } from "../../links.js";
 import { AdminSection } from "../AdminSection.js";
+import { personLabel, personOptions, resolvePerson } from "../people.js";
 import { useAdminUsers } from "../queries.js";
 import { shortTime } from "../shortTime.js";
 import { type AuditFilters, useAuditPage } from "./queries.js";
@@ -20,52 +21,6 @@ export function filtersFromSearch(search: Record<string, unknown>): AuditFilters
 		user: text(search.user),
 		action: text(search.action),
 	};
-}
-
-/** The people the Person field can name; only the fields it matches on. */
-type Person = Pick<AdminUser, "id" | "displayName" | "email" | "preferredUsername">;
-
-/**
- * The user ID the Person field names: a display name, email or username
- * (any case), or a pasted user ID. Returns an error to show instead when the
- * text names nobody, or more than one person.
- */
-export function resolvePerson(
-	text: string,
-	people: Person[] | undefined,
-): { id: string } | { error: string } {
-	const typed = text.trim();
-	if (typed === "") return { id: "" };
-	if (UUID.test(typed)) return { id: typed.toLowerCase() };
-	if (!people) {
-		return { error: "The list of people is still loading. Try again in a moment." };
-	}
-	const wanted = typed.toLowerCase();
-	const found = people.filter((person) =>
-		[person.displayName, person.email, person.preferredUsername].some(
-			(value) => value?.toLowerCase() === wanted,
-		),
-	);
-	if (found.length === 1 && found[0]) return { id: found[0].id };
-	if (found.length > 1) {
-		return {
-			error: `More than one person matches "${typed}". Type their email instead.`,
-		};
-	}
-	return { error: `No one matches "${typed}". Choose a name from the list.` };
-}
-
-/**
- * The text a person's suggestion fills in: their name, or their email when
- * someone else has the same name, so every suggestion resolves to one person.
- */
-export function suggestionValue(person: Person, people: Person[]): string {
-	const shared = people.some(
-		(other) => other.id !== person.id && other.displayName === person.displayName,
-	);
-	return shared
-		? (person.email ?? person.preferredUsername ?? person.id)
-		: person.displayName;
 }
 
 /** "Alice Student" for a user, "Alice Student's workspace" for their workspace, else null. */
@@ -88,6 +43,7 @@ export function AuditTab() {
 	const key = JSON.stringify(filters);
 	const navigate = useNavigate();
 	const users = useAdminUsers().data?.users;
+	const people = personOptions(users ?? []);
 	// null until typed in, so the field shows the filtered person's name once the list loads.
 	const [personDraft, setPersonDraft] = useState<string | null>(null);
 	const [actionDraft, setActionDraft] = useState(filters.action);
@@ -101,10 +57,7 @@ export function AuditTab() {
 		setPersonError(null);
 	}
 	const personValue =
-		personDraft ??
-		(filters.user
-			? (users?.find((user) => user.id === filters.user)?.displayName ?? filters.user)
-			: "");
+		personDraft ?? (filters.user ? personLabel(people, filters.user) : "");
 
 	// Filters live in the URL so a filtered view can be linked.
 	function show(next: AuditFilters) {
@@ -161,10 +114,8 @@ export function AuditTab() {
 					onChange={(event) => setPersonDraft(event.target.value)}
 				/>
 				<datalist id="audit-people">
-					{(users ?? []).map((user) => (
-						<option key={user.id} value={suggestionValue(user, users ?? [])}>
-							{user.email ?? user.preferredUsername ?? ""}
-						</option>
+					{people.map((option) => (
+						<option key={option.id} value={option.label} />
 					))}
 				</datalist>
 				<TextField

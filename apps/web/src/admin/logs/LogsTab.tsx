@@ -18,10 +18,16 @@ import {
 } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { AdminSection, focusAdminHeading } from "../AdminSection.js";
 import { shortId } from "../audit/AuditTab.js";
+import {
+	personLabel,
+	personOptions,
+	resolvePerson,
+	workspaceLabel,
+} from "../people.js";
 import {
 	useAdminUsers,
 	usePlatformSettings,
@@ -41,7 +47,6 @@ import {
 	toLocalInput,
 	WINDOW_LABELS,
 } from "./filters.js";
-import { personLabel, personOptions, resolvePerson, workspaceLabel } from "./people.js";
 import { logPagesKey, useLogPages } from "./queries.js";
 
 const LEVEL_LABELS: Record<LogLevel, string> = {
@@ -167,7 +172,7 @@ export function LogsTab() {
 		const person =
 			draft.person === null
 				? { id: filters.user }
-				: resolvePerson(people, draft.person, userList);
+				: resolvePerson(draft.person, users.data?.users);
 		const since = draft.window === "custom" ? fromLocalInput(draft.from) : draft.window;
 		const until = draft.window === "custom" ? fromLocalInput(draft.to) : "";
 		const errors: Record<string, string> = {};
@@ -719,6 +724,21 @@ function IdText({ id }: { id: string }) {
 	);
 }
 
+/** A route that may break before each slash, and nowhere else. */
+function RouteText({ route }: { route: string }) {
+	return route.split("/").map((part, index) => (
+		// biome-ignore lint/suspicious/noArrayIndexKey: the segments of one fixed string never move.
+		<Fragment key={index}>
+			{index > 0 ? (
+				<>
+					<wbr />/
+				</>
+			) : null}
+			{part}
+		</Fragment>
+	));
+}
+
 function LogRow({ line }: { line: LogLine }) {
 	const [open, setOpen] = useState(false);
 	const body = line.line;
@@ -756,13 +776,14 @@ function LogRow({ line }: { line: LogLine }) {
 				</td>
 				<td>{SERVICE_LABELS[line.service]}</td>
 				<td className="pk-mono-small">{field(body, "code")}</td>
-				<td
-					className="max-w-[48ch] whitespace-normal break-words"
-					data-testid="log-message"
-				>
-					{messageOf(body)}
+				{/* The inner min width keeps a narrow table from squeezing the message to one
+				    word a line; the route wraps at its slashes instead (SPEC.md section 24.11). */}
+				<td className="whitespace-normal" data-testid="log-message">
+					<div className="min-w-[24ch] max-w-[48ch] break-words">{messageOf(body)}</div>
 				</td>
-				<td className="pk-mono-small">{field(body, "route")}</td>
+				<td className="pk-mono-small whitespace-normal" data-testid="log-route">
+					<RouteText route={field(body, "route")} />
+				</td>
 				<td className="pk-num">{status}</td>
 				<td>{line.userName ?? (userId ? <IdText id={userId} /> : "")}</td>
 				<td>{workspaceId ? <IdText id={workspaceId} /> : ""}</td>

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import { createStudent, loginAs, query, settledAxe } from "./helpers";
 
@@ -9,6 +10,8 @@ import { createStudent, loginAs, query, settledAxe } from "./helpers";
 test.describe.configure({ mode: "serial" });
 
 const GIB = 1024 ** 3;
+/** This worker's own audit rows, so another copy of this file never deletes them. */
+const TARGET = `e2e-activity-${randomUUID()}`;
 
 async function seedUsage(
 	workspaceId: string,
@@ -32,9 +35,40 @@ async function seedAudit(
 ): Promise<void> {
 	await query(
 		`insert into audit_events (actor, target, action, result, at)
-		 values ('e2e', 'e2e-activity', $1, $2, now() - make_interval(mins => $3))`,
-		[action, result, minutesAgo],
+		 values ('e2e', $4, $1, $2, now() - make_interval(mins => $3))`,
+		[action, result, minutesAgo, TARGET],
 	);
+}
+
+/**
+ * The guard-event totals the one-day chart should show: every row in the API's
+ * window (the current 15-minute bucket's end, back one day), ours and any
+ * other spec's, since guard specs lift throttles while this one runs.
+ */
+async function guardTotals(): Promise<string> {
+	const [row] = await query<{
+		throttles: number;
+		memory_flags: number;
+		idle_stops: number;
+		lifts: number;
+	}>(
+		`with w as (select to_timestamp((floor(extract(epoch from now()) / 900) + 1) * 900) as t)
+		 select
+		   count(*) filter (where action = 'workspace.cpu_throttled')::int as throttles,
+		   count(*) filter (where action = 'workspace.memory_flagged')::int as memory_flags,
+		   count(*) filter (where action = 'workspace.idle_stopped')::int as idle_stops,
+		   count(*) filter (where action in
+		     ('workspace.cpu_throttle_lifted', 'workspace.memory_flag_cleared'))::int as lifts
+		 from audit_events, w
+		 where at >= w.t - interval '1 day' and at < w.t`,
+	);
+	if (!row) throw new Error("no totals");
+	// Our own rows are always part of it.
+	expect(row.throttles).toBeGreaterThanOrEqual(2);
+	expect(row.memory_flags).toBeGreaterThanOrEqual(1);
+	expect(row.idle_stops).toBeGreaterThanOrEqual(1);
+	expect(row.lifts).toBeGreaterThanOrEqual(1);
+	return `Total in this range: throttles ${row.throttles}, memory flags ${row.memory_flags}, idle stops ${row.idle_stops}, lifts ${row.lifts}.`;
 }
 
 async function openHealth(page: Page, range: "1 hour" | "1 day"): Promise<void> {
@@ -50,11 +84,11 @@ async function openHealth(page: Page, range: "1 hour" | "1 day"): Promise<void> 
 
 test.describe("admin health activity", () => {
 	test.beforeEach(async () => {
-		await query("delete from audit_events where target = 'e2e-activity'");
+		await query("delete from audit_events where target = $1", [TARGET]);
 	});
 
 	test.afterAll(async () => {
-		await query("delete from audit_events where target = 'e2e-activity'");
+		await query("delete from audit_events where target = $1", [TARGET]);
 	});
 
 	test("the heat map reads each workspace, flags the threshold and links to the detail panel", async ({
@@ -111,6 +145,7 @@ test.describe("admin health activity", () => {
 	test("at one day the heat map says how long figures are kept, and the event charts total their counts", async ({
 		page,
 	}) => {
+		test.setTimeout(60_000);
 		await seedAudit("workspace.cpu_throttled", 30);
 		await seedAudit("workspace.cpu_throttled", 90);
 		await seedAudit("workspace.memory_flagged", 30);
@@ -119,13 +154,18 @@ test.describe("admin health activity", () => {
 		await seedAudit("workspace.start_requested", 30);
 		await seedAudit("workspace.stop_requested", 45);
 
-		await openHealth(page, "1 day");
+		// Guard specs running alongside add lifts, so the page is read again until it
+		// matches the database; our seeded rows are always part of the count.
+		await expect(async () => {
+			await openHealth(page, "1 day");
+			const summary = page.getByTestId("health-chart-guard-events-summary");
+			await expect(summary).toHaveText(/^Total in this range:/);
+			const shown = await summary.textContent();
+			expect(shown).toBe(await guardTotals());
+		}).toPass({ timeout: 40_000 });
 
 		await expect(page.getByTestId("health-heat-map-retention")).toHaveText(
 			"Per-workspace figures are kept for about 4 hours.",
-		);
-		await expect(page.getByTestId("health-chart-guard-events-summary")).toHaveText(
-			"Total in this range: throttles 2, memory flags 1, idle stops 1, lifts 1.",
 		);
 		const activity = page.getByTestId("health-chart-activity");
 		await expect(activity.locator("figcaption")).toHaveText(
@@ -139,6 +179,7 @@ test.describe("admin health activity", () => {
 		const plot = page.getByTestId("health-chart-guard-events-plot");
 		await plot.focus();
 		await page.keyboard.press("End");
+		// Only this spec writes throttles, and its rows are at least 30 minutes old.
 		await expect(page.getByTestId("health-chart-guard-events-readout")).toContainText(
 			"Throttles 0",
 		);

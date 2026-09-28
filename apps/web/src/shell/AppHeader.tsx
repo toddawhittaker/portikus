@@ -136,6 +136,11 @@ export function AppHeader({
 							className="pk-account"
 							data-testid="me"
 							ref={accountButton}
+							// Named in full here: a hidden span after the name gained a stray space
+							// before its comma, and the initials were read as a word.
+							aria-label={
+								badge ? `${user.displayName}, ${unreadLabel}` : user.displayName
+							}
 						>
 							{picture ? (
 								<img
@@ -147,9 +152,8 @@ export function AppHeader({
 							) : (
 								<span className="pk-initials">{initials(user.displayName)}</span>
 							)}
-							{/* The gap is only visual. This space is part of the button text. */}{" "}
+							{/* The gap is only visual. This space keeps the text readable when copied. */}{" "}
 							<span>{user.displayName}</span>
-							{badge ? <span className="sr-only">, {unreadLabel}</span> : null}
 							<Icon name="chevron-down" size="sm" />
 						</button>
 					</MenuTrigger>

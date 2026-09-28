@@ -551,7 +551,7 @@ export function PreviewLeaf({
 
 				{/* No Try again: the port will be refused every time. The
 				    sentence follows the API defaults (PREVIEW_PORT_MIN 1024,
-				    PREVIEW_DENIED_PORTS 22, 2375, 2376 and 5432). */}
+				    PREVIEW_DENIED_PORTS 22, 2375, 2376 and 5432, plus the agent's port). */}
 				{state.status === "port-refused" ? (
 					<div className="pk-preview-state">
 						<EmptyState
@@ -569,9 +569,9 @@ export function PreviewLeaf({
 							}
 						>
 							<span data-testid="preview-port-refused">
-								Ports below 1024, and ports kept for SSH, Docker and databases, cannot
-								be opened as a preview. Run your app on a port from 1024 up, such as
-								3000 or 5173.
+								Ports below 1024, and a few kept for services such as SSH, Docker and
+								PostgreSQL, cannot be opened as a preview. Run your app on a port from
+								1024 up, such as 3000 or 5173.
 							</span>
 						</EmptyState>
 					</div>

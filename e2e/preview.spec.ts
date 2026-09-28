@@ -360,7 +360,7 @@ test.describe("application preview", () => {
 			page.getByRole("heading", { name: "Port 80 cannot be previewed" }),
 		).toBeVisible({ timeout: 20_000 });
 		await expect(page.getByTestId("preview-port-refused")).toHaveText(
-			"Ports below 1024, and ports kept for SSH, Docker and databases, cannot be opened as a preview. Run your app on a port from 1024 up, such as 3000 or 5173.",
+			"Ports below 1024, and a few kept for services such as SSH, Docker and PostgreSQL, cannot be opened as a preview. Run your app on a port from 1024 up, such as 3000 or 5173.",
 		);
 		await expect(page.getByTestId("preview-retry")).toHaveCount(0);
 		await expect(page.getByTestId("preview-frame")).toHaveCount(0);
