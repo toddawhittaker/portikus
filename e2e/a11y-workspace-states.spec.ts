@@ -6,6 +6,7 @@
  */
 import { expect, type Page, test } from "@playwright/test";
 import {
+	createProject,
 	createStudent,
 	query,
 	seedStorage,
@@ -56,6 +57,56 @@ for (const scheme of ["light", "dark"] as const) {
 		await dialog.getByText("Technical details").click();
 		await expect(dialog.getByTestId("workspace-status-image")).toBeVisible();
 		await expectNoViolations(page);
+
+		// Each toggletip opens by keyboard, passes axe open, and Escape closes only the tip.
+		for (const label of ["Reset Docker", "Recovery storage"]) {
+			await dialog.getByRole("button", { name: `About ${label}` }).focus();
+			await page.keyboard.press("Enter");
+			await expect(page.getByRole("dialog", { name: label })).toBeVisible();
+			await expectNoViolations(page);
+			await page.keyboard.press("Escape");
+			await expect(page.getByRole("dialog", { name: label })).toHaveCount(0);
+			// Focus goes back to the tip's button, still inside the Workspace dialog.
+			await expect(
+				dialog.getByRole("button", { name: `About ${label}` }),
+			).toBeFocused();
+		}
+	});
+
+	test(`the running Workspace dialog's Restart toggletip and the Recovery points head have no automatic violations (${scheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Tips" });
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await expect(page.getByTestId("workspace-state")).toHaveText("Running", {
+			timeout: 15_000,
+		});
+
+		await page.getByTestId("workspace-status").click();
+		const dialog = page.getByTestId("dialog-workspace-status");
+		await dialog.getByRole("button", { name: "About Restart workspace" }).click();
+		await expect(page.getByRole("dialog", { name: "Restart workspace" })).toContainText(
+			"previews come back inactive",
+		);
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(dialog).toBeVisible();
+		await page.keyboard.press("Escape");
+		await expect(dialog).toHaveCount(0);
+
+		await page.getByTestId(`project-menu-${project.id}`).click();
+		await page.getByRole("menuitem", { name: "Recovery points…" }).click();
+		const points = page.getByTestId("dialog-recovery-points");
+		await points.getByRole("button", { name: "About Recovery points" }).click();
+		await expect(
+			page.getByRole("dialog", { name: "Recovery points", exact: true }),
+		).toContainText("commits included");
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(points).toBeVisible();
 	});
 
 	test(`the stopped screen and its side panes have no automatic violations (${scheme})`, async ({

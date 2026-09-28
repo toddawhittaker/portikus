@@ -292,6 +292,26 @@ test("in error the dialog shows the figures the agent still reports, with no sta
 	expect(screen.queryByTestId("storage-warning")).toBeNull();
 });
 
+test("the dialog's Restart, Reset Docker and Recovery storage each have a toggletip", async () => {
+	stubUsage({ home: percent(10), docker: percent(10), recovery: percent(1) });
+	renderBar();
+	openStatus();
+
+	const dialog = within(screen.getByTestId("dialog-workspace-status"));
+	await waitFor(() => expect(dialog.getByTestId("storage-meters")).toBeDefined());
+	for (const [label, phrase] of [
+		["Restart workspace", "previews come back inactive"],
+		["Reset Docker", "home folder and recovery points are kept"],
+		["Recovery storage", "copies of your projects"],
+	]) {
+		fireEvent.click(dialog.getByRole("button", { name: `About ${label}` }));
+		expect((await screen.findByRole("dialog", { name: label })).textContent).toContain(
+			phrase,
+		);
+		fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+	}
+});
+
 test("a class over 80% says nearly full in words, not only colour (Gate E)", async () => {
 	stubUsage({ home: percent(85), docker: percent(10), recovery: percent(1) });
 	renderBar();

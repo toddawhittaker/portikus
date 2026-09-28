@@ -14,7 +14,7 @@ Immediate over animated. Show a skeleton or an optimistic state within 100ms. Th
 
 Write in plain sentences, in sentence case, addressing the student as "you" and the workspace as "your workspace". Name things by what the person sees: projects, folders, terminals, previews, recovery points.
 
-Errors follow one order: user terms first, implementation second, actions last. "Your workspace could not start because its storage allocation is full. Docker is using 19.8 GB of your 20 GB Docker quota." followed by **Clean up Docker** and **View details**. Students read the sentence; administrators can expand the technical detail (`errorCode`, `errorMessage`) under View details.
+Errors follow one order: user terms first, implementation second, actions last. "Your workspace could not start because its storage allocation is full. Docker is using 19.8 GB of your 20 GB Docker quota." followed by **Reset Docker…** and **Workspace details**, with no **Try again** when starting again would fail the same way. Students read the sentence; administrators can expand the technical detail (`errorCode`, `errorMessage`) under Technical details.
 
 Buttons name their result ("Start workspace", "Reset Docker", "Open in new tab"). A menu item that opens a confirmation ends with an ellipsis. Numbers carry units and a limit ("4.1 GB of 5 GB"). Refusals are plain and final without blame: "You're signed in with your institution, but your account doesn't have access to Portikus."
 

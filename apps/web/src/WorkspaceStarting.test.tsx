@@ -304,7 +304,10 @@ test("the error screen shows the meters and Reset Docker as the main action when
 	);
 	// Primary, first, and no Try again: starting again would fail the same way.
 	expect(clean.className).toContain("bg-surface-inverse");
-	const names = screen.getAllByRole("button").map((button) => button.textContent);
+	const names = screen
+		.getAllByRole("button")
+		.filter((button) => !button.getAttribute("aria-label")?.startsWith("About "))
+		.map((button) => button.textContent);
 	expect(names).toEqual(["Reset Docker…", "Workspace details"]);
 	fireEvent.click(clean);
 	expect(screen.getByTestId("dialog-reset-docker")).toBeDefined();

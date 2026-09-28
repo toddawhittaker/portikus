@@ -112,7 +112,8 @@ sentence first, administrators can expand the technical detail.
 Error copy pattern (SPEC 28): user terms first, implementation second,
 then actions. Example: "Your workspace could not start because its
 storage allocation is full. Docker is using 19.8 GB of your 20 GB Docker
-quota. [Clean up Docker] [View details]".
+quota. [Reset Docker…] [Workspace details]". Try again appears only when
+starting again could succeed.
 
 After a full stop and restart (SPEC 6.8): file tabs reopen, layout is
 reconstructed, old terminals appear as ended sessions, previews come back

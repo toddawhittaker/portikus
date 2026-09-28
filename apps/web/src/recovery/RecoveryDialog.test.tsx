@@ -202,3 +202,15 @@ test("a leftover rollback copy is explained, not offered a skip", async () => {
 	await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(message));
 	expect(screen.queryByTestId("dialog-restore-without-safety")).toBeNull();
 });
+
+test("the head explains what a point holds, and says restoring rolls back commits", async () => {
+	render(() => json(200, LIST));
+	const dialog = screen.getByTestId("dialog-recovery-points");
+	// The old line claimed Git was never touched; a point holds .git (SPEC.md §15.10).
+	expect(dialog.textContent).not.toContain("Git is never touched");
+	expect(dialog.textContent).toContain("Portikus never makes Git commits for you.");
+	fireEvent.click(screen.getByRole("button", { name: "About Recovery points" }));
+	const tip = await screen.findByRole("dialog", { name: "Recovery points" });
+	expect(tip.textContent).toContain("its Git folder included");
+	expect(tip.textContent).toContain("commits included");
+});

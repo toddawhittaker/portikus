@@ -105,7 +105,7 @@ test("a STORAGE_FULL error with Docker full says so with figures and leads with 
 		"Its storage is full. Docker is using 99.0 GB of 100 GB. Reset Docker to free that space; your projects and home folder are kept.",
 	);
 	// Starting again would fail the same way, so there is no Try again.
-	await expect(progress.getByRole("button")).toHaveText([
+	await expect(progress.locator(".pk-actions").getByRole("button")).toHaveText([
 		"Reset Docker…",
 		"Workspace details",
 	]);

@@ -8,6 +8,7 @@ import {
 	Icon,
 	resolveWorkspaceState,
 	StateBadge,
+	Toggletip,
 	useToast,
 } from "@portikus/ui";
 import { useState } from "react";
@@ -144,15 +145,19 @@ export function WorkspaceDialog({
 							<h3 id="workspace-docker-title" className="pk-text-heading m-0">
 								Docker
 							</h3>
-							<p className="pk-text-small m-0 text-ink-muted">
-								Throws away images, containers and volumes; keeps your projects.
-							</p>
-							<ResetDocker
-								workspace={workspace}
-								confirming={confirming === "reset-docker"}
-								setConfirming={(open) => setConfirming(open ? "reset-docker" : null)}
-								reset={resetDocker}
-							/>
+							<div className="flex items-center gap-1">
+								<ResetDocker
+									workspace={workspace}
+									confirming={confirming === "reset-docker"}
+									setConfirming={(open) => setConfirming(open ? "reset-docker" : null)}
+									reset={resetDocker}
+								/>
+								<Toggletip label="Reset Docker">
+									Deletes your Docker images, containers, volumes and build cache to
+									free space. Your projects, home folder and recovery points are kept.
+									You pull or build images again afterwards.
+								</Toggletip>
+							</div>
 							<DialogError error={resetDocker.error} />
 						</section>
 						<section
@@ -270,6 +275,11 @@ function WorkspaceControls({
 					>
 						Restart workspace
 					</Button>
+					<Toggletip label="Restart workspace">
+						Stops and starts the machine behind this window. Your files are kept and
+						your file tabs reopen. Terminals and programs running now end, and previews
+						come back inactive.
+					</Toggletip>
 					<Button
 						aria-disabled={moving ? true : undefined}
 						data-testid="workspace-stop"
