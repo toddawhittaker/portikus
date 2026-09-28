@@ -75,17 +75,25 @@ with `Accept=yes`. Each connection starts one
 its standard input and output. It reads one verb line:
 
 - `status`: whether a key is installed, its public half, and the public
-  half last handed out or uploaded, with the time;
-- `export`: the key file, and a record that it was handed out;
+  half last downloaded, with the time;
+- `export`: the key file. It records nothing, because the download can
+  still fail on its way to the browser;
+- `mark-downloaded <public half>`: a record that the administrator now
+  holds the installed key. The API sends it only once the download's
+  reply has been sent in full, and the helper refuses it for any key but
+  the installed one;
 - `import` and `import-replace`: an uploaded file of at most 4 KiB,
   refused unless its only line that is not a comment or blank is an
   `AGE-SECRET-KEY-1…` identity that `age-keygen -y` accepts. The same key
   is accepted as unchanged and brings the recipients file back in line. A
   different key is refused with `exists` unless the verb is
   `import-replace`. A replace takes the backup lock, so it never lands in
-  the middle of a backup, writes the recipients file and then the key, each
-  by an atomic rename, and records the upload as a handout, since the
-  uploader holds that key.
+  the middle of a backup. It keeps the old key as
+  `age-key.txt.replaced-<unix time>`, root-only, by a hard link that
+  never overwrites an earlier one, then writes the recipients file and the
+  new key, each by an atomic rename. An upload is never recorded as a
+  download: nothing shows the uploader kept a copy, so the reminder stays
+  until a real download.
 
 The service unit has no capabilities, no network, a read-only file
 system except `/etc/portikus-backup` and the backup lock, and a 30-second
@@ -97,8 +105,9 @@ The API's three routes (`GET /admin/backups/key`, `POST
 administrator-only and CSRF-checked like every other admin write, and are
 404 when `BACKUP_KEY_SOCKET` is unset, as on the pilot, whose key its host
 holds. The download is audited as `backup.key_downloaded` before the key
-leaves the helper, and the upload as `backup.key_uploaded` with result
-`ok` or `refused`; both record only public halves. The key passes through
+leaves the API, and marked downloaded only after the reply has gone; the
+upload is audited as `backup.key_uploaded` with result `ok` or `refused`;
+both record only public halves. The key passes through
 the API's memory for one request and is never written to a file, a log
 line or the database. The "not yet downloaded" reminder is the helper's
 own record, compared with the key installed now, so it comes back if
@@ -114,6 +123,86 @@ restores (ADR 0040) work on any listed set, hand-copied ones included. A
 button that replaces the database the page itself runs on, and signs its
 own user out, was left out: rebuilding a server is an operator's job at a
 shell, and the rebuild guide already has them there.
+
+### Authenticated sets
+
+Encryption to a public key does not show who made a set: anyone who knows
+the recipient can encrypt one, and a whole-server restore runs the set's
+database dump through `pg_restore` as the database superuser. Each set is
+therefore signed.
+
+- **The scheme.** `backup.sh` writes `MANIFEST.mac` beside the set's
+  `MANIFEST.age`: the line `portikus-backup-mac 1 <hex>`, an HMAC-SHA256
+  of the bytes `portikus-backup-set 1\n` followed by `MANIFEST.age`. Its
+  key is SHA-256 of `portikus-backup-mac-v1\n` followed by the age
+  identity's `AGE-SECRET-KEY-1…` line. `infra/host/portikus-backup-mac`
+  does the work, in Python's standard library.
+- **What it covers.** The MANIFEST lists the size and SHA-256 of the
+  database dumps, of each volume and, from this change, of each volume's
+  index. So a verified MANIFEST vouches for every file the restores use.
+  The plain `FAILED`, `SKIPPED` and `REQUESTED` files are not covered;
+  they only change what the tab shows.
+- **Where it is checked.** `restore.sh`, `restore-copy.sh` and the
+  channel's listing check the MAC before they decrypt or read anything
+  else. Then the MANIFEST's line forms are still checked, as defence in
+  depth. `restore-copy.sh` now also checks the index and the streamed
+  volume against the MANIFEST, removing its copy or its import when they
+  differ. A decrypted MANIFEST over 4 MiB is refused, and `backup.sh`
+  never writes one; 4 MiB, not 1, because the contract allows 2,000
+  workspaces, whose lines can pass 1 MiB.
+- **Old sets.** A set made before this change has no MAC. The tab shows it
+  as not verified and the channel refuses it. Root can restore it with
+  `portikus restore --unverified` (or `restore.sh --unverified`), which
+  warns; a wrong MAC is refused even then. Whoever holds the key can also
+  sign an old set they trust.
+- **Where the key is.** On an apt-installed server `backup.sh --local`
+  runs as root and signs with the identity itself. On a separate host the
+  nightly backup runs as the operator, who does not hold the private key,
+  so `make backup-setup` and `make backup-install-key` derive the MAC key
+  into `~/.config/portikus/backup-mac-key.txt`, with the recipient it is
+  for. That file can sign sets but not decrypt them, and `backup.sh`
+  refuses to start when it is for another recipient than the one it
+  encrypts to.
+
+Why a MAC and not a signature: a separate signing key pair would be a
+second secret to generate, back up and restore with, and the ruling was
+that the one downloaded key file must be enough to rebuild. Deriving the
+MAC key from the age identity keeps that true. The cost is that anyone
+with the private key can also sign; they can already read every set.
+
+### What a compromised API or worker can and cannot do
+
+Both run as the unprivileged `portikus` account, and either can reach the
+key socket.
+
+It can:
+
+- download the backup key. Each export is a root-side journal line
+  naming the key's public half; a compromised API can skip its own audit
+  row but not that line. With the key it can read any copy of a set and
+  sign a set of its own;
+- replace the key with one it made, after which new sets are encrypted to
+  that key. The old key stays on the server as
+  `age-key.txt.replaced-<unix time>`, so the older sets can still be read
+  and restored by root;
+- ask for backups, deletions of old sets and per-workspace restores, all
+  within the channel's fixed kinds, patterns and retention floor (ADR
+  0039);
+- send `mark-downloaded` itself and so clear the reminder. The reminder
+  is a prompt for an honest administrator, not a control.
+
+It cannot:
+
+- read or write `/etc/portikus-backup` or `/var/backups/portikus`, so it
+  cannot plant a set on the server or read one there directly;
+- run a whole-server restore, which only root starts, at a shell;
+- restore a set without a valid MAC, or ask for `--unverified`;
+- delete the key or a replaced key.
+
+A set it signs with a stolen key would still need someone with root to
+copy it onto the server and restore it; the MAC protects sets from
+someone who holds only the public key, such as whoever can write to the
+off-site copy.
 
 ### Why a socket and not group read
 
@@ -151,8 +240,12 @@ the disk.
 - The worker shares the API's account, so it too could ask the socket for
   the key. A separate group for the API alone would not change that,
   because processes of one account can already reach each other.
-- Replacing the key makes every set encrypted to the old one unreadable
-  on this server unless a copy of the old key exists. The dialog says so.
+- Replacing the key keeps the old one on the server, root-only, so sets
+  encrypted to it can still be restored from a shell with
+  `PORTIKUS_BACKUP_IDENTITY` pointing at the kept file. The tab cannot use
+  it: its listing checks sets against the installed key only.
+- Every restore refuses a set without a valid MAC; sets from before MACs
+  need root's `--unverified`.
 - `restore-copy.sh`, the channel and the key helper each check the key's
   form in shell; `packaging/backup/backup-key` is covered by
   `infra/tests/backup-local-test.sh`, the routes by

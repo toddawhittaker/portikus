@@ -3344,6 +3344,56 @@ Dex accounts and a workspace's files came back.
 Gaps:
 
 - Nothing copies the sets off the server automatically (issue #753).
-- A set copied in by hand keeps its `REQUESTED` marker, so it counts
-  towards the three requested backups the channel allows in 14 days.
+- A set copied in by hand keeps its `REQUESTED` marker until `portikus
+  restore` removes it, so until then it counts towards the three requested
+  backups the channel allows in 14 days.
 - A whole-server restore is a shell command, not a button.
+
+## Epic 15 review fixes: security (server)
+
+Fixes from the Epic 15 security and code reviews (SPEC.md sections 24.7
+and 24.9, ADR 0044).
+
+- **Caddy's admin interface** was open on `localhost:2019` to every local
+  account, so a compromised API could have loaded a configuration without
+  the preview gateway's authorization step. It is now a Unix socket,
+  `/var/lib/caddy/admin.sock`, mode 0600, owned by caddy. `systemctl
+  reload caddy` uses it; the role restarts Caddy once where it still
+  listens on the old port. The smoke test checks that nothing listens on
+  2019 and that the `portikus` account and `nobody` cannot open the
+  socket.
+- **Authenticated sets.** Each set carries `MANIFEST.mac`, an HMAC-SHA256
+  under a key derived from the private backup key, and the MANIFEST now
+  lists each index's size and checksum. Every restore and the tab's
+  listing check it first; the tab shows a set without a valid MAC as
+  **Not verified** and offers no restore for it. Sets from before the
+  change restore only with root's `--unverified`. `restore-copy.sh` also
+  checks the streamed volume and the index against the MANIFEST. A
+  decrypted MANIFEST over 4 MiB is refused.
+- **The backup key.** A replace keeps the old key as
+  `age-key.txt.replaced-<unix time>`, root-only, and never overwrites one.
+  An upload no longer counts as a download, and a download is recorded
+  only after the reply has been sent in full (a new `mark-downloaded`
+  verb). ADR 0044 now says what a compromised API or worker can and cannot
+  do.
+- `portikus restore` removes the restored set's `REQUESTED` marker.
+- **SSH.** The firewall opens the ports `sshd -T` reports rather than
+  assuming 22, so setup cannot lock out an administrator whose sshd
+  listens elsewhere.
+
+Verified by `backup-local-test.sh`, `backup-scope-test.sh` and
+`backup-channel-test.sh` (forged, re-signed, changed and MAC-less sets,
+swapped volumes and indexes, the kept key, the download record), the
+Caddy render and live test, the firewall render test, route unit tests,
+the Backups tab's unit tests, and `make install-test`, which now also
+copies a forged set onto the rebuilt server and checks the tab lists it as
+not verified and `portikus restore` refuses it.
+
+Gaps:
+
+- The pilot's host still runs the old backup scripts until `make
+  backup-install-timer` is run after the VM is deployed; its existing sets
+  have no MAC and show as not verified until they are signed by hand
+  (docs/OPERATIONS.md, "Authenticated sets").
+- The `FAILED`, `SKIPPED` and `REQUESTED` files in a set are not covered
+  by the MAC; they only change what the tab shows.

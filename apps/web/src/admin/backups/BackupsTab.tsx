@@ -547,6 +547,11 @@ function SetsPart({
 					const deleting = waitingRequest(requests, "delete_set", { stamp: set.stamp });
 					const noteId = `backup-set-note-${set.stamp}`;
 					const emptyId = `backup-set-empty-${set.stamp}`;
+					const unverifiedId = `backup-set-unverified-${set.stamp}`;
+					// Absent from an older host, which does not check sets.
+					const unverified = set.verified === false;
+					const restoreOff =
+						!host.keyInstalled || unverified || set.instances.length === 0;
 					return (
 						<tr key={set.stamp} data-testid={`backup-set-${set.stamp}`}>
 							<th scope="row">{when}</th>
@@ -573,6 +578,16 @@ function SetsPart({
 										{set.skippedVolumes === 1 ? "" : "s"} of no workspace skipped
 									</span>
 								) : null}
+								{unverified && host.keyInstalled ? (
+									<>
+										{" "}
+										<span className="pk-tag pk-tag--warning">Not verified</span>.{" "}
+										<span id={unverifiedId} className="pk-muted">
+											Nothing shows this server's key made this set, so it cannot be
+											restored.
+										</span>
+									</>
+								) : null}
 								{set.instances.length === 0 ? (
 									<>
 										.{" "}
@@ -598,20 +613,18 @@ function SetsPart({
 										size="sm"
 										data-testid="backup-set-restore"
 										aria-label={`Restore a workspace from ${when}`}
-										aria-disabled={
-											!host.keyInstalled || set.instances.length === 0
-												? true
-												: undefined
-										}
+										aria-disabled={restoreOff ? true : undefined}
 										aria-describedby={
 											!host.keyInstalled
 												? "backups-key-note"
-												: set.instances.length === 0
-													? emptyId
-													: undefined
+												: unverified
+													? unverifiedId
+													: set.instances.length === 0
+														? emptyId
+														: undefined
 										}
 										onClick={() => {
-											if (host.keyInstalled && set.instances.length > 0) onRestore(set);
+											if (!restoreOff) onRestore(set);
 										}}
 									>
 										Restore…

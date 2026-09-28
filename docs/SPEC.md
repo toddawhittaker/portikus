@@ -2962,6 +2962,13 @@ seconds; past that the gateway answers 429 with a small "Too many
 requests" page and a `Retry-After` header, and logs one warning per session
 per window.
 
+Added by Epic 15: Caddy's admin interface can load any configuration,
+including one that drops the authorization step above, so it listens only
+on a Unix socket, `/var/lib/caddy/admin.sock`, that root and the caddy
+user can open. It is never on a loopback port every local account could
+reach; the smoke test checks that the `portikus` account and `nobody`
+cannot open it.
+
 ### 24.8 Secrets
 
 Sensitive credentials must not appear in:
@@ -3076,7 +3083,19 @@ itself up.
   `portikus-backup-key.txt`. An upload must be one age identity of at most
   4 KiB, and replacing a different key needs `replace: true`, which the
   tab sends only after a confirmation; a replace waits while a backup
-  runs.
+  runs, and keeps the replaced key root-only as
+  `age-key.txt.replaced-<unix time>`, never overwriting an earlier one.
+  The "not yet downloaded" reminder clears only after a download has been
+  sent in full; an upload never clears it.
+- **Sets are authenticated.** Each set carries an HMAC-SHA256 of its
+  encrypted MANIFEST under a key derived from the private backup key, and
+  the MANIFEST lists the size and SHA-256 of every other file, index files
+  included. Every restore and the tab's listing check the MAC before
+  trusting anything in the set, so someone who knows only the public key
+  cannot make a set that restores. A set without a valid MAC is shown as
+  not verified and cannot be restored from the tab; a set made before
+  MACs restores only with root's explicit `--unverified`. A decrypted
+  MANIFEST over 4 MiB is refused (ADR 0044, "Authenticated sets").
 - **Whole-server restore** is `sudo portikus restore <set>` on the
   server, with the same empty-target checks as `restore.sh`.
 - **Copies off the server are manual** and documented as the real backup

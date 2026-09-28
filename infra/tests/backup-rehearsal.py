@@ -12,7 +12,8 @@ left in /root/portikus-install-test/jar.  Steps:
                  file; the key must appear in no log
   upload-key     that file through the admin API onto a server with its own
                  key: refused without consent, then replaced
-  wait-set STAMP the Backups tab lists a set copied in by hand
+  wait-set STAMP the Backups tab lists a set copied in by hand, as verified
+                 (with --unverified, as not verified)
   check-restored after `portikus restore`: sign in with the old password,
                  and the student, the Dex account, the workspace and the
                  marker are all back
@@ -21,6 +22,7 @@ Never run it on a host with real users: it makes a throwaway student.
 """
 
 import argparse
+import glob
 import hashlib
 import json
 import os
@@ -214,6 +216,7 @@ def upload_key(args):
     uploaded = sh("age-keygen", "-y", KEY_FILE).strip()
     code, status = api.call("GET", "/admin/backups/key")
     must("the new server has a key of its own", code == 200 and status["installed"], f"{code} {status}")
+    own = status["recipient"]
     check("which is not the old server's", status["recipient"] != uploaded)
     check("and has not been downloaded", not status["downloaded"])
     key = open(KEY_FILE).read()
@@ -229,7 +232,12 @@ def upload_key(args):
           open("/etc/portikus-backup/recipients.txt").read().strip() == uploaded)
     st = os.stat("/etc/portikus-backup/age-key.txt")
     check("the installed key is root-only", st.st_uid == 0 and oct(st.st_mode & 0o777) == "0o600")
-    check("and counts as downloaded", data["key"]["downloaded"])
+    check("an upload is not a download: the reminder stays", not data["key"]["downloaded"], json.dumps(data["key"]))
+    kept = glob.glob("/etc/portikus-backup/age-key.txt.replaced-*")
+    must("the replaced key is kept beside it", len(kept) == 1, str(kept))
+    st = os.stat(kept[0])
+    check("root-only", st.st_uid == 0 and oct(st.st_mode & 0o777) == "0o600")
+    check("and it is the key this server made", sh("age-keygen", "-y", kept[0]).strip() == own)
     check("the key is in no journal line", not journal_has_key())
 
 
@@ -245,6 +253,10 @@ def wait_set(args):
         time.sleep(5)
     must("the tab lists the set copied in by hand", listed is not None)
     check("as complete, with the student's workspace", listed["complete"] and len(listed["instances"]) >= 1, json.dumps(listed))
+    if args.unverified:
+        check("and as not verified: no MAC shows this key made it", listed.get("verified") is False, json.dumps(listed))
+    else:
+        check("and as verified: its MAC shows this key made it", listed.get("verified") is True, json.dumps(listed))
 
 
 def signin(host, password_file):
@@ -295,6 +307,7 @@ def main():
     parser.add_argument("--stamp")
     parser.add_argument("--expect")
     parser.add_argument("--password-file")
+    parser.add_argument("--unverified", action="store_true", help="wait-set: expect the set not verified")
     args = parser.parse_args()
     {"seed": seed, "backup-now": backup_now, "download-key": download_key, "upload-key": upload_key,
      "wait-set": wait_set, "check-restored": check_restored}[args.step](args)

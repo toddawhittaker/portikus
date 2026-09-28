@@ -115,6 +115,12 @@ installed copy of the script, not the checkout. Epic 14 is such a change:
 until the timer is reinstalled, the nightly set has no `dex.dump`, so it
 cannot bring back Dex's accounts.
 
+Epic 15's signed sets ("Authenticated sets" below) are another: deploy the
+VM first, then run `make backup-install-timer`. A VM older than the
+change refuses the channel's report, which now says whether each set is
+verified. Sets made before the reinstall have no MAC, so the tab shows
+them as not verified until they are signed by hand.
+
 **Epic 14.2 must be deployed with `make configure-vm PORTIKUS_DEB=...`,
 not `make deploy-app` or a plain `apt upgrade`.** From this release the
 API checks that Dex's gRPC server certificate names `localhost`, and only
@@ -1085,18 +1091,58 @@ what is where.
   only through `portikus-backup-key.socket`, which starts a root helper
   for each request (`/usr/lib/portikus/backup/portikus-backup-key`). Each
   download and upload is in the audit log with the key's public half;
-  the key itself is in no log. An upload of a different key replaces it
-  only after a confirmation, and only while no backup runs. If the tab
+  the key itself is in no log. The "not yet downloaded" reminder clears
+  only once a download has been sent in full; an upload never clears it.
+  An upload of a different key replaces it only after a confirmation, and
+  only while no backup runs. The key it replaces is kept beside it as
+  `age-key.txt.replaced-<unix time>`, root-only, so sets made with it can
+  still be opened: restore one with `PORTIKUS_BACKUP_IDENTITY` pointing at
+  that file. Delete a kept key by hand once no set needs it. If the tab
   says the helper did not answer, check `systemctl status
   portikus-backup-key.socket`.
 - **Whole-server restore.** `sudo portikus restore --check <timestamp>`
   proves the key opens a set; `sudo portikus restore <timestamp>` restores
   it onto a server with no workspaces, projects or users besides the local
   administrator (`--start-check` also starts one workspace and checks it).
-  It pauses both timers while it runs.
+  It pauses both timers while it runs, and removes the set's `REQUESTED`
+  marker, so a set copied back in does not count against the limit on
+  requested backups.
 - **Off-server copies are the real backup.** Nothing copies the sets off
   the server automatically. docs/INSTALL.md shows rsync and object
   storage; the target never needs the key.
+
+### Authenticated sets
+
+Anyone who knows a key's public half can encrypt a set to it, so a set
+copied in from elsewhere could have been made by someone else, and a
+whole-server restore loads its database as the database superuser. Each
+set therefore carries `MANIFEST.mac`: an HMAC-SHA256 (a keyed checksum) of
+its encrypted MANIFEST, under a key derived from the private backup key
+(ADR 0044, "Authenticated sets"). The MANIFEST lists the size and SHA-256
+of every other file in the set, so the MAC covers them too. The public
+half alone cannot make one, and no second key needs keeping: the one
+private key opens and checks every set.
+
+- `restore.sh`, `restore-copy.sh` and the channel's listing check the MAC
+  before they read anything else in the set. The Backups tab shows a set
+  without a valid MAC as **Not verified**, and it cannot be restored from
+  the tab.
+- A set whose MAC is wrong is always refused. A set with no MAC, such as
+  one made before this change, is refused unless root asks for it:
+  `sudo portikus restore --unverified <timestamp>` on an apt-installed
+  server, or `sudo ... restore.sh --unverified` on a host. Only do that
+  for a set whose origin you know.
+- On a host, whoever holds the private key can sign an older set it
+  trusts, so it can be restored from the tab again:
+  `python3 infra/host/portikus-backup-mac sign <private key> <set dir>`.
+- On a host, the nightly backup runs as your account, which never holds
+  the private key. It signs with `~/.config/portikus/backup-mac-key.txt`,
+  which `make backup-setup` and `make backup-install-key` derive from the
+  private key. That file can sign sets but not read them, and it can
+  always be derived again. A backup whose signing key does not match the
+  recipients file stops before it starts.
+- `portikus-backup-mac verify <key> <set dir>` checks one set by hand: exit
+  0 is genuine, 3 means it has no MAC, 4 means the MAC is wrong.
 
 ### On a VM with a separate backup host
 
@@ -1124,16 +1170,17 @@ volume, each taken from a short-lived snapshot.
 - **The key.** `make backup-setup` (run by `make backup`) makes the age key
   pair once: the public half at `~/.config/portikus/backup-recipients.txt`
   and the private half at `~/.config/portikus/backup-age-key.txt`. Backing
-  up needs only the public half. Restoring from the admin page needs the
-  private half on the host, root-only (ADR 0039):
+  up needs only the public half and the signing key derived from the
+  private half ("Authenticated sets" above). Restoring from the admin page
+  needs the private half on the host, root-only (ADR 0039):
 
   ```
   make backup-install-key KEY=~/.config/portikus/backup-age-key.txt
   ```
 
-  This checks that the key matches the recipients file and installs it as
+  This checks that the key matches the recipients file, installs it as
   `/etc/portikus-backup/age-key.txt` (owner root, mode 0600, in a 0700
-  directory). **Keep your password-manager copy** as the recovery copy,
+  directory), and derives the signing key. **Keep your password-manager copy** as the recovery copy,
   and delete the one in your home directory afterwards. Accepted risk:
   **whoever takes the host can read every backup.** Without any copy of
   the key no backup can be read.

@@ -37,7 +37,7 @@ export class KeyHelperError extends Error {}
  */
 export function askKeyHelper(
 	socketPath: string,
-	verb: "status" | "export" | "import" | "import-replace",
+	verb: "status" | "export" | "import" | "import-replace" | `mark-downloaded ${string}`,
 	body = "",
 ): Promise<string> {
 	return new Promise((resolve, reject) => {
@@ -117,6 +117,9 @@ export function registerAdminBackupKeyRoutes(
 	{ db, config }: ServerDeps,
 ): void {
 	const socketPath = config.BACKUP_KEY_SOCKET;
+	// A status read waits for the last download's record, so the page that
+	// asks right after a download sees it.
+	let marking: Promise<void> = Promise.resolve();
 
 	function off(reply: FastifyReply): boolean {
 		if (socketPath) return false;
@@ -139,6 +142,7 @@ export function registerAdminBackupKeyRoutes(
 	}
 
 	async function readStatus(path: string): Promise<BackupKeyStatus> {
+		await marking;
 		const { words, rest } = splitAnswer(await askKeyHelper(path, "status"));
 		if (words[0] !== "ok") throw new KeyHelperError("the status was refused");
 		const parsed = HelperStatus.safeParse(JSON.parse(rest.trim()));
@@ -194,8 +198,27 @@ export function registerAdminBackupKeyRoutes(
 				new KeyHelperError("the key is not in the expected form"),
 			);
 		}
-		// Recorded before the key leaves; the key itself is never recorded.
+		// Audited before the key leaves; the key itself is never recorded.
 		await audit(admin.id, "backup.key_downloaded", "ok", { recipient: recipient.data });
+		// The reminder clears only once the whole file has gone out, so a
+		// download that fails on its way leaves it showing.
+		const held = recipient.data;
+		reply.raw.once("finish", () => {
+			marking = askKeyHelper(socketPath, `mark-downloaded ${held}`)
+				.then((answer) => {
+					if (!answer.startsWith("ok"))
+						throw new KeyHelperError("the record was refused");
+				})
+				.catch((error: unknown) => {
+					app.log.warn(
+						{
+							err:
+								error instanceof KeyHelperError ? error.message : "unexpected answer",
+						},
+						"backup key helper did not record the download",
+					);
+				});
+		});
 		return reply
 			.header("cache-control", "no-store")
 			.header("content-disposition", `attachment; filename="${BACKUP_KEY_FILE_NAME}"`)

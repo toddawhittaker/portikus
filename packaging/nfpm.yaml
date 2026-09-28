@@ -149,6 +149,9 @@ contents:
   - src: ./infra/host/portikus-backup-export
     dst: /usr/lib/portikus/backup/portikus-backup-export
     file_info: *backup_script
+  - src: ./infra/host/portikus-backup-mac
+    dst: /usr/lib/portikus/backup/portikus-backup-mac
+    file_info: *backup_script
   - src: ./infra/host/backup-channel.sh
     dst: /usr/lib/portikus/backup/portikus-backup-channel
     file_info: *backup_script

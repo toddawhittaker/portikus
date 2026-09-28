@@ -124,7 +124,8 @@ export function RestoreDialog({
 	const fromSet = set !== null;
 	const open = fromSet || (preset !== null && preset !== undefined);
 
-	// From a set: the workspaces it covers. From a workspace: the sets holding it, newest first.
+	// From a set: the workspaces it covers. From a workspace: the verified sets
+	// holding it, newest first, since the host refuses the others.
 	const covered = set
 		? workspaces.filter((w) => set.instances.includes(w.instance))
 		: [];
@@ -135,7 +136,10 @@ export function RestoreDialog({
 	const holding =
 		preset?.sets && presetWorkspace
 			? preset.sets
-					.filter((s) => s.instances.includes(presetWorkspace.instance))
+					.filter(
+						(s) =>
+							s.verified !== false && s.instances.includes(presetWorkspace.instance),
+					)
 					.sort((a, b) => b.stamp.localeCompare(a.stamp))
 			: [];
 	const loading = preset !== null && preset !== undefined && preset.sets === undefined;

@@ -210,6 +210,28 @@ describe.skipIf(skip)("status and download", () => {
 		await expectNoSecretOutsideTheDownload(SERVER_KEY.identity);
 	});
 
+	test("the download is marked only after the reply has gone, and only for the key sent", async () => {
+		const res = await send(carol, "POST", "/admin/backups/key/download");
+		expect(res.statusCode).toBe(200);
+		// The status read waits for the record, so it sees the download.
+		expect((await send(carol, "GET", "/admin/backups/key")).json().downloaded).toBe(
+			true,
+		);
+		expect(helper.verbs).toEqual([
+			"export",
+			`mark-downloaded ${SERVER_KEY.recipient}`,
+			"status",
+		]);
+	});
+
+	test("export alone never marks the key downloaded", async () => {
+		await askKeyHelper(helper.socketPath, "export");
+		expect(helper.state().handedOut).toBeNull();
+		expect((await send(carol, "GET", "/admin/backups/key")).json().downloaded).toBe(
+			false,
+		);
+	});
+
 	test("each download is audited", async () => {
 		await send(carol, "POST", "/admin/backups/key/download");
 		await send(carol, "POST", "/admin/backups/key/download");
@@ -256,7 +278,7 @@ describe.skipIf(skip)("status and download", () => {
 });
 
 describe.skipIf(skip)("upload", () => {
-	test("the same key is accepted as unchanged and ends the reminder", async () => {
+	test("the same key is accepted as unchanged, and an upload is not a download", async () => {
 		const res = await send(carol, "POST", "/admin/backups/key", {
 			key: SERVER_KEY.file,
 			replace: false,
@@ -265,8 +287,9 @@ describe.skipIf(skip)("upload", () => {
 		expect(res.json()).toMatchObject({
 			outcome: "unchanged",
 			replacedRecipient: null,
-			key: { installed: true, recipient: SERVER_KEY.recipient, downloaded: true },
+			key: { installed: true, recipient: SERVER_KEY.recipient, downloaded: false },
 		});
+		expect(helper.verbs).not.toContainEqual(expect.stringMatching(/^mark-downloaded/));
 		const rows = await audits("backup.key_uploaded");
 		expect(rows.map((r) => [r.result, r.metadata])).toEqual([
 			[
@@ -304,11 +327,12 @@ describe.skipIf(skip)("upload", () => {
 		expect(res.json()).toEqual({
 			outcome: "installed",
 			replacedRecipient: SERVER_KEY.recipient,
+			// The reminder stays: nothing shows the uploader kept a copy.
 			key: {
 				installed: true,
 				recipient: OFFSITE_KEY.recipient,
-				downloaded: true,
-				downloadedAt: expect.any(String),
+				downloaded: false,
+				downloadedAt: null,
 			},
 		});
 		expect(helper.state().identity).toBe(OFFSITE_KEY.identity);

@@ -326,6 +326,9 @@ unpublish-vm: ## Withdraw the host port forward to the VM
 PORTIKUS_BACKUP_DIR ?= /var/backups/portikus
 PORTIKUS_BACKUP_IDENTITY ?= $(HOME)/.config/portikus/backup-age-key.txt
 PORTIKUS_BACKUP_RECIPIENTS ?= $(HOME)/.config/portikus/backup-recipients.txt
+# Signs each set (ADR 0044).  Derived from the key, so it can always be made
+# again; it can sign sets but not read them.
+PORTIKUS_BACKUP_MAC_KEY ?= $(HOME)/.config/portikus/backup-mac-key.txt
 
 # Makes the age key pair and the set directory once.  Backing up needs only
 # the public half; the private half belongs in a password manager, and a
@@ -338,6 +341,15 @@ backup-setup:
 		echo "backup-setup: made the backup key $(PORTIKUS_BACKUP_IDENTITY). Store it in your password manager, install it for restores from the admin page with make backup-install-key KEY=$(PORTIKUS_BACKUP_IDENTITY), then delete it from your home directory."; \
 	fi
 	@test -s "$(PORTIKUS_BACKUP_RECIPIENTS)" || age-keygen -y "$(PORTIKUS_BACKUP_IDENTITY)" >"$(PORTIKUS_BACKUP_RECIPIENTS)"
+	@test -s "$(PORTIKUS_BACKUP_MAC_KEY)" || { \
+		if [ -r "$(PORTIKUS_BACKUP_IDENTITY)" ]; then from="$(PORTIKUS_BACKUP_IDENTITY)"; run=""; \
+		elif sudo -n test -s /etc/portikus-backup/age-key.txt 2>/dev/null; then from=/etc/portikus-backup/age-key.txt; run="sudo -n"; \
+		else echo "backup-setup: no backup key to derive the signing key from; run make backup-install-key KEY=<path to the private key>"; exit 1; fi; \
+		(umask 077 && $$run python3 infra/host/portikus-backup-mac derive "$$from" >"$(PORTIKUS_BACKUP_MAC_KEY).new") \
+			&& mv "$(PORTIKUS_BACKUP_MAC_KEY).new" "$(PORTIKUS_BACKUP_MAC_KEY)" \
+			&& echo "backup-setup: derived the signing key $(PORTIKUS_BACKUP_MAC_KEY) from $$from" \
+			|| { rm -f "$(PORTIKUS_BACKUP_MAC_KEY).new"; exit 1; }; \
+	}
 	@test -w "$(PORTIKUS_BACKUP_DIR)" || sudo install -d -m 0700 -o "$$(id -un)" -g "$$(id -gn)" "$(PORTIKUS_BACKUP_DIR)"
 
 # Only reads from the VM, so it is safe on the live pilot.
@@ -346,7 +358,7 @@ backup: backup-setup ## Pull an encrypted backup of the VM to the host (CHECK_ST
 	@test -n "$(TOFU_VM_NAME)" || { echo "backup: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
 	@echo "backup: reading from VM '$(TOFU_VM_NAME)' at $(VM_IP)"
 	PORTIKUS_BACKUP_DIR=$(PORTIKUS_BACKUP_DIR) PORTIKUS_BACKUP_RECIPIENTS=$(PORTIKUS_BACKUP_RECIPIENTS) \
-		bash infra/host/backup.sh $(if $(CHECK_STATE),--check-state,) --vm-name "$(TOFU_VM_NAME)" $(VM_IP)
+		PORTIKUS_BACKUP_MAC_KEY=$(PORTIKUS_BACKUP_MAC_KEY) bash infra/host/backup.sh $(if $(CHECK_STATE),--check-state,) --vm-name "$(TOFU_VM_NAME)" $(VM_IP)
 
 backup-install-timer: backup-setup ## Install the nightly 02:30 backup of the pilot as a host systemd timer (rerun after changing backup.sh)
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "backup-install-timer: the timer backs up the pilot only"; exit 1; }
@@ -354,8 +366,9 @@ backup-install-timer: backup-setup ## Install the nightly 02:30 backup of the pi
 	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-timer: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
 	sudo install -m 0755 infra/host/backup.sh /usr/local/sbin/portikus-backup
 	sudo install -m 0644 infra/host/portikus-backup-export /usr/local/sbin/portikus-backup-export
+	sudo install -m 0644 infra/host/portikus-backup-mac /usr/local/sbin/portikus-backup-mac
 	sed -e "s|@USER@|$$(id -un)|" -e "s|@BACKUP_DIR@|$(PORTIKUS_BACKUP_DIR)|" \
-		-e "s|@RECIPIENTS@|$(abspath $(PORTIKUS_BACKUP_RECIPIENTS))|" -e "s|@VM_IP@|$(VM_IP)|" -e "s|@VM_NAME@|$(TOFU_VM_NAME)|" \
+		-e "s|@RECIPIENTS@|$(abspath $(PORTIKUS_BACKUP_RECIPIENTS))|" -e "s|@MAC_KEY@|$(abspath $(PORTIKUS_BACKUP_MAC_KEY))|" -e "s|@VM_IP@|$(VM_IP)|" -e "s|@VM_NAME@|$(TOFU_VM_NAME)|" \
 		infra/host/systemd/portikus-backup.service | sudo tee /etc/systemd/system/portikus-backup.service >/dev/null
 	sudo install -m 0644 infra/host/systemd/portikus-backup.timer /etc/systemd/system/portikus-backup.timer
 	sudo systemctl daemon-reload
@@ -371,10 +384,11 @@ backup-install-channel: backup-setup ## Install the host timer that runs backup 
 	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-channel: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
 	sudo install -m 0755 infra/host/backup.sh /usr/local/sbin/portikus-backup
 	sudo install -m 0644 infra/host/portikus-backup-export /usr/local/sbin/portikus-backup-export
+	sudo install -m 0644 infra/host/portikus-backup-mac /usr/local/sbin/portikus-backup-mac
 	sudo install -m 0755 infra/host/backup-channel.sh /usr/local/sbin/portikus-backup-channel
 	sudo install -m 0755 infra/host/restore-copy.sh /usr/local/sbin/portikus-restore-copy
 	sed -e "s|@USER@|$$(id -un)|" -e "s|@BACKUP_DIR@|$(PORTIKUS_BACKUP_DIR)|" \
-		-e "s|@RECIPIENTS@|$(abspath $(PORTIKUS_BACKUP_RECIPIENTS))|" -e "s|@VM_IP@|$(VM_IP)|" -e "s|@VM_NAME@|$(TOFU_VM_NAME)|" \
+		-e "s|@RECIPIENTS@|$(abspath $(PORTIKUS_BACKUP_RECIPIENTS))|" -e "s|@MAC_KEY@|$(abspath $(PORTIKUS_BACKUP_MAC_KEY))|" -e "s|@VM_IP@|$(VM_IP)|" -e "s|@VM_NAME@|$(TOFU_VM_NAME)|" \
 		-e "s|@NIGHTLY@|$(if $(filter dev-libvirt,$(TOFU_ENV)),portikus-backup,)|" \
 		infra/host/systemd/portikus-backup-channel.service | sudo tee /etc/systemd/system/portikus-backup-channel.service >/dev/null
 	sudo install -m 0644 infra/host/systemd/portikus-backup-channel.timer /etc/systemd/system/portikus-backup-channel.timer
@@ -391,6 +405,7 @@ backup-install-key: ## Install the private backup key root-only at /etc/portikus
 		|| { echo "backup-install-key: $(KEY) is not the key backups are encrypted to ($(PORTIKUS_BACKUP_RECIPIENTS)); nothing installed"; exit 1; }
 	sudo install -d -m 0700 -o root -g root /etc/portikus-backup
 	sudo install -m 0600 -o root -g root "$(KEY)" /etc/portikus-backup/age-key.txt
+	(umask 077 && python3 infra/host/portikus-backup-mac derive "$(KEY)" >"$(PORTIKUS_BACKUP_MAC_KEY).new") && mv "$(PORTIKUS_BACKUP_MAC_KEY).new" "$(PORTIKUS_BACKUP_MAC_KEY)"
 	@echo "backup-install-key: installed /etc/portikus-backup/age-key.txt (root, 0600). Keep your password-manager copy and delete $(KEY) if it is in your home directory."
 
 # Replaces the target's database, so it refuses the pilot's environment, and

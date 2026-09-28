@@ -60,11 +60,13 @@ function answer(
 	}
 	if (verb === "export") {
 		if (!state.identity || !recipient) return ["error no-key\n", state];
+		return [`ok ${recipient}\n# public key: ${recipient}\n${state.identity}\n`, state];
+	}
+	if (verb.startsWith("mark-downloaded ")) {
+		const held = verb.slice("mark-downloaded ".length);
+		if (!recipient || held !== recipient) return ["error not-installed\n", state];
 		const now = Math.floor(Date.now() / 1000);
-		return [
-			`ok ${recipient}\n# public key: ${recipient}\n${state.identity}\n`,
-			{ ...state, handedOut: { recipient, at: now } },
-		];
+		return ["ok\n", { ...state, handedOut: { recipient, at: now } }];
 	}
 	if (verb === "import" || verb === "import-replace") {
 		if (Buffer.byteLength(body) > 4096) return ["error too-large\n", state];
@@ -77,12 +79,13 @@ function answer(
 			return ["error invalid\n", state];
 		}
 		const uploaded = recipientOf(identity);
-		const now = Math.floor(Date.now() / 1000);
-		const handedOut = { recipient: uploaded, at: now };
-		if (uploaded === recipient)
-			return [`ok unchanged ${uploaded}\n`, { identity, handedOut }];
+		// An upload is never a download (ADR 0044).
+		if (uploaded === recipient) return [`ok unchanged ${uploaded}\n`, state];
 		if (recipient && verb !== "import-replace") return ["error exists\n", state];
-		return [`ok installed ${uploaded} ${recipient ?? "-"}\n`, { identity, handedOut }];
+		return [
+			`ok installed ${uploaded} ${recipient ?? "-"}\n`,
+			{ identity, handedOut: state.handedOut },
+		];
 	}
 	return ["error unknown-verb\n", state];
 }

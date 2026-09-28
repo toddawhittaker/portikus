@@ -666,6 +666,17 @@ unauthorized_preview_is_refused() {
   [ "$(preview_status /)" != "200" ]
 }
 check "an unauthorized preview request is never served" unauthorized_preview_is_refused
+# Caddy's admin interface can load any configuration, so only root and the
+# caddy user may reach it: a socket, and no loopback port.
+CADDY_ADMIN="--max-time 5 -o /dev/null --unix-socket /var/lib/caddy/admin.sock http://localhost/config/"
+check "nothing listens on Caddy's old admin port 2019" \
+  ssh_cmd "! ss -Htln 'sport = :2019' | grep -q ."
+check "root reaches Caddy's admin socket (control)" \
+  ssh_cmd "sudo curl -sf ${CADDY_ADMIN}"
+check "the portikus account cannot open Caddy's admin socket" \
+  ssh_cmd "! sudo runuser -u portikus -- curl -s ${CADDY_ADMIN}"
+check "an unprivileged account cannot open Caddy's admin socket" \
+  ssh_cmd "! sudo runuser -u nobody -- curl -s ${CADDY_ADMIN}"
 echo ""
 
 # --- Epic 14: the egress proxy (ADR 0027) ----------------------------

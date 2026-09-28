@@ -24,7 +24,7 @@ Usage: portikus setup [--follow]
        portikus status
        portikus reset-admin [--email ADDRESS] [--if-missing]
        portikus backup-channel pull|report
-       portikus restore [--check] [--start-check] STAMP
+       portikus restore [--check] [--start-check] [--unverified] STAMP
 
 setup        Apply ${CONFIG_FILE} to this host with the shipped Ansible
              play, in the foreground.  Safe to run again.
@@ -58,6 +58,9 @@ restore STAMP  Restore the whole server from the backup set
                             file is whole; changes nothing
              --start-check  afterwards, start one restored workspace
                             and check its files from inside it
+             --unverified   accept a set with no MAC, as sets made
+                            before MACs have none; anyone who knows the
+                            public key could have made such a set
 EOF
 }
 
@@ -157,11 +160,12 @@ restore() {
     echo "portikus: restore must run as root: sudo portikus restore ..." >&2
     exit 1
   fi
-  check=no start=""
+  check=no start="" unverified=""
   while [ $# -gt 1 ]; do
     case "$1" in
       --check) check=yes ;;
       --start-check) start=--start-check ;;
+      --unverified) unverified=--unverified ;;
       *) usage >&2; exit 2 ;;
     esac
     shift
@@ -176,7 +180,7 @@ restore() {
     exit 1
   fi
   if [ "${check}" = yes ]; then
-    PORTIKUS_BACKUP_IDENTITY="${BACKUP_KEY}" exec "${RESTORE}" --check "${set_dir}"
+    PORTIKUS_BACKUP_IDENTITY="${BACKUP_KEY}" exec "${RESTORE}" --check ${unverified} "${set_dir}"
   fi
   # No backup or request may run while the database is replaced.
   timers=""
@@ -197,7 +201,7 @@ restore() {
     waited=$((waited + 2))
   done
   status=0
-  PORTIKUS_BACKUP_IDENTITY="${BACKUP_KEY}" "${RESTORE}" --local ${start} "${set_dir}" || status=$?
+  PORTIKUS_BACKUP_IDENTITY="${BACKUP_KEY}" "${RESTORE}" --local ${start} ${unverified} "${set_dir}" || status=$?
   exit "${status}"
 }
 
