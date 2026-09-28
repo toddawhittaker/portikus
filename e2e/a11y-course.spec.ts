@@ -34,6 +34,13 @@ for (const colorScheme of ["light", "dark"] as const) {
 				"data-density",
 				"compact",
 			);
+			await expect(course.getByTestId("intro-course")).toContainText(
+				"they come back if they open Portikus from the course again",
+			);
+			await course.getByRole("button", { name: "About Remove" }).click();
+			await expect(course.getByRole("dialog", { name: "Remove" })).toContainText(
+				"Instructors are changed in your learning system.",
+			);
 			await expectNoViolations(course);
 		} finally {
 			await context.close();

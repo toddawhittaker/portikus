@@ -444,3 +444,18 @@ test("a target with a known owner shows their name, with the short ID under it",
 	const short = row.getByText("22222222");
 	expect(short.getAttribute("aria-hidden")).toBe("true");
 });
+
+test("the tab explains itself, and the action filter and Result column have help", async () => {
+	stubAudit(() => json(200, { events: [event(1)], nextBefore: null }));
+
+	renderTab("/admin?tab=audit");
+
+	const table = await screen.findByTestId("audit-table");
+	const intro = screen.getByTestId("intro-admin-audit");
+	expect(intro.textContent).toContain("who made it");
+	expect(intro.querySelector("a")?.getAttribute("href")).toBe("/help#admin-audit");
+	expect(
+		screen.getByRole("button", { name: "About Action starts with" }),
+	).toBeDefined();
+	expect(within(table).getByRole("button", { name: "About Result" })).toBeDefined();
+});

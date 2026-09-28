@@ -230,8 +230,18 @@ test.describe("admin audit", () => {
 				"true",
 			);
 
+			await expect(page.getByTestId("intro-admin-audit")).toBeVisible();
+			// An open toggletip is checked too; it opens on click and closes on Escape.
+			const result = page.getByRole("button", { name: "About Result" });
+			await result.click();
+			const tip = page.getByRole("dialog", { name: "Result" });
+			await expect(tip).toContainText("denied means Portikus refused it");
+
 			const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 			expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+			await page.keyboard.press("Escape");
+			await expect(tip).toBeHidden();
+			await expect(result).toBeFocused();
 		});
 	}
 });

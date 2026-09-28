@@ -1,5 +1,5 @@
 import type { CourseMember } from "@portikus/contracts";
-import { Button, StateBadge } from "@portikus/ui";
+import { Button, PageIntro, StateBadge, Toggletip } from "@portikus/ui";
 import { Link, Navigate, useParams } from "@tanstack/react-router";
 import * as React from "react";
 import { ApiError } from "../api/request.js";
@@ -168,6 +168,17 @@ function CourseMembers() {
 			{data ? (
 				<p className="pk-muted mt-1 text-[13px]">{data.course.platformName}</p>
 			) : null}
+			<div className="mt-4">
+				<PageIntro
+					id="course"
+					summary="About the Course page"
+					helpHref="/help#instructor-course"
+				>
+					Everyone who has opened Portikus from this course. Remove takes a student off
+					this page. Their account, workspace and files stay, and they come back if they
+					open Portikus from the course again.
+				</PageIntro>
+			</div>
 			<Status>
 				{members.isError ? (
 					<span data-testid="course-error">
@@ -197,10 +208,25 @@ function CourseMembers() {
 							<tr>
 								<th scope="col">Name</th>
 								<th scope="col">Role</th>
-								<th scope="col">Last launch</th>
+								<th scope="col">
+									<span className="inline-flex items-center gap-1">
+										Last launch
+										<Toggletip label="Last launch">
+											When they last opened Portikus from this course in your learning
+											system.
+										</Toggletip>
+									</span>
+								</th>
 								<th scope="col">Workspace</th>
 								<th scope="col" className="pk-cell-actions">
-									<span className="sr-only">Actions</span>
+									<span className="inline-flex items-center gap-1">
+										<span className="sr-only">Actions</span>
+										<Toggletip label="Remove">
+											Remove takes a student off this page. Their account, workspace and
+											files stay, and they come back if they open Portikus from the
+											course again. Instructors are changed in your learning system.
+										</Toggletip>
+									</span>
 								</th>
 							</tr>
 						</thead>

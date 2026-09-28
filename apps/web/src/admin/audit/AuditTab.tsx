@@ -1,5 +1,5 @@
 import type { AdminUser, AuditEvent } from "@portikus/contracts";
-import { Button, TextField } from "@portikus/ui";
+import { Button, TextField, Toggletip } from "@portikus/ui";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
@@ -140,7 +140,14 @@ export function AuditTab() {
 	const targetName = filters.workspace ? targetLabel(filters.workspace, users) : null;
 
 	return (
-		<AdminSection title="Audit">
+		<AdminSection
+			title="Audit"
+			intro={{
+				id: "admin-audit",
+				text: "A record of every sign-in and every change to accounts, workspaces and settings, and who made it. Use it to find out who did something, and when.",
+				helpAnchor: "admin-audit",
+			}}
+		>
 			<form className="pk-actions items-start" onSubmit={apply}>
 				<TextField
 					id="audit-person"
@@ -163,6 +170,13 @@ export function AuditTab() {
 				<TextField
 					id="audit-action"
 					label="Action starts with"
+					help={
+						<Toggletip label="Action starts with">
+							Actions are named for their area and then the event, such as
+							workspace.start_requested or user.disabled. Type workspace. to see every
+							workspace action.
+						</Toggletip>
+					}
 					className="w-48"
 					placeholder="workspace."
 					data-testid="audit-filter-action"
@@ -245,7 +259,15 @@ function AuditResults({ filters }: { filters: AuditFilters }) {
 							<th scope="col">Actor</th>
 							<th scope="col">Action</th>
 							<th scope="col">Target</th>
-							<th scope="col">Result</th>
+							<th scope="col">
+								<span className="inline-flex items-center gap-1">
+									Result
+									<Toggletip label="Result">
+										ok and success mean it worked. denied means Portikus refused it, and
+										failed means it was tried and did not work.
+									</Toggletip>
+								</span>
+							</th>
 							<th scope="col">Details</th>
 						</tr>
 					</thead>

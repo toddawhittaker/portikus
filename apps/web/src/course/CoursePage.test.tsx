@@ -134,8 +134,9 @@ test("the members table shows name, role, last launch and workspace state", asyn
 	expect(rows[1]?.textContent).toContain("Student");
 	expect(rows[1]?.textContent).toContain("No workspace");
 	// Only the other person can be removed, and no cell is a live region.
+	const body = table.querySelector("tbody") as HTMLElement;
 	expect(
-		within(table)
+		within(body)
 			.getAllByRole("button")
 			.map((b) => b.textContent),
 	).toEqual(["Remove Sam Student from course"]);
@@ -163,7 +164,9 @@ test("another instructor has no Remove button, because the learning system manag
 
 	const table = await screen.findByTestId("course-members");
 	expect(within(table).getByRole("rowheader").textContent).toBe("Tia Teacher");
-	expect(within(table).queryByRole("button")).toBeNull();
+	expect(
+		within(table.querySelector("tbody") as HTMLElement).queryByRole("button"),
+	).toBeNull();
 });
 
 test("the members table uses the admin page's table and frame", async () => {
@@ -381,4 +384,25 @@ test("the next Remove button skips the caller's own row and falls back to the pr
 	const teacher = { ...member("t"), role: "instructor" as const };
 	expect(nextRemovable([member("a"), teacher, member("c")], "a", "me")).toBe("c");
 	expect(nextRemovable([member("a"), teacher], "a", "me")).toBeNull();
+});
+
+test("the page explains itself, and Last launch and Remove have help", async () => {
+	serve({
+		[`/courses/${CS101.id}/members`]: () =>
+			json(200, { course: CS101, members: [samMember()] }),
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	const table = await screen.findByTestId("course-members");
+	const intro = screen.getByTestId("intro-course");
+	expect(intro.textContent).toContain(
+		"they come back if they open Portikus from the course again",
+	);
+	expect(intro.querySelector("a")?.getAttribute("href")).toBe(
+		"/help#instructor-course",
+	);
+	expect(
+		within(table).getByRole("button", { name: "About Last launch" }),
+	).toBeDefined();
+	expect(within(table).getByRole("button", { name: "About Remove" })).toBeDefined();
 });
