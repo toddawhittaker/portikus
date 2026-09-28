@@ -727,3 +727,24 @@ test("the Account cell's second line carries the full contact as a title", async
 	expect(contact.getAttribute("title")).toBe(contact.textContent);
 	expect(contact.className).toContain("truncate");
 });
+
+test("each column with a rule behind it, the Image filter and Show archived have one help button", async () => {
+	stubUsers();
+	await openTable();
+	for (const label of [
+		"Account tags",
+		"Role",
+		"Older image",
+		"Activity",
+		"Image filter",
+		"Show archived",
+	]) {
+		expect(screen.getAllByRole("button", { name: `About ${label}` })).toHaveLength(1);
+	}
+	// Help sits beside the header text, so the header still reads as its name.
+	const table = screen.getByTestId("admin-accounts");
+	expect(within(table).getAllByRole("columnheader")[1]?.textContent).toBe("Account");
+	expect(screen.getByTestId("intro-admin-users").textContent).toContain(
+		"Everyone who has signed in, with their workspace.",
+	);
+});

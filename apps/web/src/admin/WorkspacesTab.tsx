@@ -10,11 +10,12 @@ import {
 	LABEL_CLASS,
 	StateBadge,
 	TextField,
+	Toggletip,
 	type WorkspaceState,
 } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ApiError, request } from "../api/request.js";
 import { AdminSection } from "./AdminSection.js";
@@ -323,6 +324,11 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	return (
 		<AdminSection
 			title="Users"
+			intro={{
+				id: "admin-users",
+				helpAnchor: "admin-users",
+				text: "Everyone who has signed in, with their workspace. Choose a name to start, stop or rebuild a workspace, change its storage or limits, or change the account's role.",
+			}}
 			count={
 				<span data-testid="admin-account-count">
 					{all.length} accounts · {running} running
@@ -403,9 +409,17 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					</select>
 				</div>
 				<div className={FIELD_CLASS}>
-					<label className={LABEL_CLASS} htmlFor="admin-filter-image">
-						Image
-					</label>
+					{/* The help button sits beside the label, never inside it. */}
+					{/* -my-1 keeps the 24 px button from pushing this label above its neighbours'. */}
+					<div className="-my-1 flex min-w-0 items-center gap-1">
+						<label className={LABEL_CLASS} htmlFor="admin-filter-image">
+							Image
+						</label>
+						<Toggletip label="Image filter">
+							Choose Older to see who needs a rebuild. A button then rebuilds them all
+							at once.
+						</Toggletip>
+					</div>
 					<select
 						id="admin-filter-image"
 						className={SELECT_CLASS}
@@ -419,12 +433,16 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					</select>
 				</div>
 				{/* Centred on the controls' row, not on the labelled fields. */}
-				<div className="flex h-[var(--pk-control)] items-center">
+				<div className="flex h-[var(--pk-control)] items-center gap-1">
 					<Checkbox
 						label="Show archived"
 						checked={filters.showArchived}
 						onChange={(event) => set({ showArchived: event.target.checked })}
 					/>
+					<Toggletip label="Show archived">
+						Archived workspaces are stopped and cannot start until you unarchive them.
+						Their files are kept.
+					</Toggletip>
 				</div>
 			</div>
 			<BulkActions
@@ -463,10 +481,43 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 										}
 									/>
 								</th>
-								<th scope="col">Account</th>
-								<th scope="col">Role</th>
-								<th scope="col">Workspace</th>
-								<th scope="col">Activity</th>
+								<th scope="col">
+									<HeaderWithHelp label="Account">
+										<Toggletip label="Account tags">
+											Stale means no sign-in for 30 days, or another account with the
+											same email signed in since. Linked is a course account joined to
+											an SSO account. Throttled, Held and High memory come from the
+											resource guard.
+										</Toggletip>
+									</HeaderWithHelp>
+								</th>
+								<th scope="col">
+									<HeaderWithHelp label="Role">
+										<Toggletip label="Role">
+											From SSO means the role comes from your sign-in provider's groups.
+											Granted means an administrator gave it here, and only a granted
+											role can be taken away here. Only SSO accounts can be granted a
+											role.
+										</Toggletip>
+									</HeaderWithHelp>
+								</th>
+								<th scope="col">
+									<HeaderWithHelp label="Workspace">
+										<Toggletip label="Older image">
+											Older image means the workspace runs an older base image. Rebuild
+											it to move to the current one. Projects and home stay.
+										</Toggletip>
+									</HeaderWithHelp>
+								</th>
+								<th scope="col">
+									<HeaderWithHelp label="Activity">
+										<Toggletip label="Activity">
+											Now means the workspace is open, with the number of pages and
+											terminals attached to it. Otherwise, how long ago someone last
+											opened it.
+										</Toggletip>
+									</HeaderWithHelp>
+								</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -504,6 +555,16 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				) : null}
 			</div>
 		</AdminSection>
+	);
+}
+
+/** A column header's text with its help button after it, outside the text. */
+function HeaderWithHelp({ label, children }: { label: string; children: ReactNode }) {
+	return (
+		<span className="flex items-center gap-1">
+			<span>{label}</span>
+			{children}
+		</span>
 	);
 }
 

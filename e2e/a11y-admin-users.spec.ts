@@ -92,6 +92,13 @@ for (const scheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("admin-row-count")).toHaveText(/^Showing 2 of \d+$/);
 		await expectNoViolations(page);
 
+		// The page intro is open, and a column's help is shown over the sticky header.
+		await expect(page.getByTestId("intro-admin-users")).toBeVisible();
+		await page.getByRole("button", { name: "About Account tags", exact: true }).click();
+		await expect(page.getByRole("dialog", { name: "Account tags" })).toBeVisible();
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+
 		await page.getByRole("checkbox", { name: `Select Axe ${tag} Disabled` }).check();
 		await page
 			.getByRole("button", { name: `Show details for Axe ${tag} Active` })

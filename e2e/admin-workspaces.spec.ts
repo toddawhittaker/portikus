@@ -403,7 +403,7 @@ test.describe("the Users table layout", () => {
 		expect(Math.abs(archived - control)).toBeLessThanOrEqual(1);
 
 		// The header stays in view after <main> scrolls.
-		const header = table.getByRole("columnheader", { name: "Account", exact: true });
+		const header = table.getByRole("columnheader", { name: /^Account/ });
 		await page.locator("main").evaluate((main) => {
 			main.scrollTop = main.scrollHeight;
 		});
@@ -572,8 +572,47 @@ test.describe("the Users table layout", () => {
 		expect(fit.table).toBeLessThanOrEqual(Math.ceil(fit.wrap));
 		for (const header of ["Account", "Role", "Workspace", "Activity"]) {
 			await expect(
-				table.getByRole("columnheader", { name: header, exact: true }),
+				table.getByRole("columnheader", { name: new RegExp(`^${header}`) }),
 			).toBeInViewport();
 		}
+	});
+
+	test("the intro and each help button explain the table, by click and by keyboard", async ({
+		page,
+	}) => {
+		await openAdmin(page);
+		const intro = page.getByTestId("intro-admin-users");
+		await expect(intro).toContainText(
+			"Everyone who has signed in, with their workspace.",
+		);
+		await expect(intro.getByRole("link", { name: /More in Help/ })).toHaveAttribute(
+			"href",
+			"/help#admin-users",
+		);
+
+		for (const [label, text] of [
+			["Account tags", "Stale means no sign-in for 30 days"],
+			["Role", "only a granted role can be taken away here"],
+			["Older image", "Rebuild it to move to the current one."],
+			["Activity", "Now means the workspace is open"],
+			["Image filter", "Choose Older to see who needs a rebuild."],
+			["Show archived", "cannot start until you unarchive them"],
+		] as const) {
+			const button = page.getByRole("button", { name: `About ${label}`, exact: true });
+			await button.click();
+			const tip = page.getByRole("dialog", { name: label, exact: true });
+			await expect(tip).toContainText(text);
+			await page.keyboard.press("Escape");
+			await expect(tip).toHaveCount(0);
+			await expect(button).toBeFocused();
+			// Enter opens it too; hovering never does.
+			await page.keyboard.press("Enter");
+			await expect(tip).toBeVisible();
+			await page.keyboard.press("Escape");
+		}
+		await page.getByRole("button", { name: "About Activity", exact: true }).hover();
+		await expect(
+			page.getByRole("dialog", { name: "Activity", exact: true }),
+		).toHaveCount(0);
 	});
 });
