@@ -291,6 +291,11 @@ export const ApiErrorCode = z.enum([
 	"EGRESS_VERSION_STALE",
 	"EGRESS_ENTRY_EXISTS",
 	"EGRESS_LIMIT_REACHED",
+	// The workspace image section (docs/EPIC-15.md rulings 26 to 28).
+	"IMAGE_JOB_BUSY",
+	"IMAGE_NOT_HEALTHY",
+	"IMAGE_ALREADY_DEFAULT",
+	"IMAGE_NO_PREVIOUS",
 	"INTERNAL",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;

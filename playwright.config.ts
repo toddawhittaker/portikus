@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+import { IMAGE_JOBS_DIR, IMAGES_DIR } from "./e2e/image-jobs";
 import {
 	API_ORIGIN,
 	API_PORT,
@@ -63,6 +64,10 @@ if (!existsSync(ltiToolKeyFile)) {
 // kept when present, so the config loading more than once changes nothing.
 const dexCertDir = join(tmpdir(), `portikus-e2e-dex-${FAKE_DEX_GRPC_PORT}`);
 const dexCerts = writeDexGrpcCerts(dexCertDir, "e2e");
+
+// The Workspace image section's job directory and image store (e2e/image-jobs.ts).
+mkdirSync(IMAGE_JOBS_DIR, { recursive: true });
+mkdirSync(IMAGES_DIR, { recursive: true });
 
 // The API's standard output, copied here, is the journal the fake journalctl
 // reads for the Logs tab (docs/adr/0036). `tee` empties it when the API starts.
@@ -173,6 +178,8 @@ export default defineConfig({
 				// from 127.0.0.1 (issue #540); unit tests keep the real limit.
 				SIGNIN_START_LIMIT_PER_MINUTE: "100000",
 				JOURNALCTL_PATH: fakeJournalctl,
+				// A fake image job directory the admin-image tests play the root job in.
+				IMAGE_JOBS_DIR,
 				// The suite starts, stops and writes files for a few users far
 				// faster than a person; unit tests keep the real limits.
 				WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: "100000",
