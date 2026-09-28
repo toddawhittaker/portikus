@@ -277,6 +277,32 @@ test("an upload onto a different key needs the replace step", async () => {
 	expect(screen.queryByTestId("backup-key-reminder")).toBeNull();
 });
 
+test("a failure on the replace step shows on the replace step", async () => {
+	stubSite(
+		() => json(200, status()),
+		(call) =>
+			(call.body as { replace: boolean }).replace
+				? json(500, { code: "INTERNAL", message: "The key could not be saved." })
+				: json(409, {
+						code: "BACKUP_KEY_EXISTS",
+						message: "This server already has a different backup key.",
+					}),
+	);
+	renderApp("/admin?tab=backups");
+	fireEvent.click(await screen.findByTestId("backup-key-upload"));
+	const dialog = await screen.findByTestId("backup-key-upload-dialog");
+	chooseFile(dialog, KEY_TEXT);
+	const confirm = within(dialog).getByTestId("dialog-confirm");
+	await waitFor(() => expect(confirm.getAttribute("aria-disabled")).toBeNull());
+	fireEvent.click(confirm);
+	const replace = await screen.findByTestId("backup-key-replace-dialog");
+	fireEvent.click(within(replace).getByTestId("dialog-confirm"));
+	expect((await within(replace).findByRole("alert")).textContent).toBe(
+		"The key could not be saved.",
+	);
+	expect(screen.queryByTestId("backup-key-upload-dialog")).toBeNull();
+});
+
 test("a file the server refuses shows why in the dialog", async () => {
 	stubSite(
 		() => json(200, status()),

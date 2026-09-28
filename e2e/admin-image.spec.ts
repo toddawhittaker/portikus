@@ -115,11 +115,13 @@ test("update to the latest published image: progress, log, diff, then Make defau
 		"Changed curl: 8.14.1-2 to 8.14.1-3",
 	);
 
-	await result.getByRole("button", { name: "Make default" }).click();
+	await result.getByRole("button", { name: `Make ${NEWEST} the default` }).click();
 	await expect(confirmDialog(page)).toContainText(`Make ${NEWEST} the default image?`);
 	await confirmDialog(page).getByRole("button", { name: "Make default" }).click();
 	const activate = await takeRequest();
 	expect(activate.request).toEqual({ kind: "activate", version: NEWEST });
+	// The pressed button is gone, so focus lands on the job heading, not the page body.
+	await expect(page.locator("#image-job-title")).toBeFocused();
 
 	// The root job moves the aliases; the page follows.
 	await setAliases(NEWEST, CURRENT);
@@ -197,7 +199,7 @@ test("an image that failed its health check cannot be made default", async ({
 	await open(page);
 	const row = page.getByTestId(`image-row-${BROKEN}`);
 	await expect(row.getByTestId(`image-health-${BROKEN}`)).toHaveText("Failed");
-	const make = row.getByRole("button", { name: "Make default" });
+	const make = row.getByRole("button", { name: `Make ${BROKEN} the default` });
 	await expect(make).toHaveAttribute("aria-disabled", "true");
 	await expect(make).toHaveAccessibleDescription("This image failed its health check.");
 	// aria-disabled keeps it focusable; a forced click must still do nothing.
