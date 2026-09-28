@@ -10,6 +10,8 @@ then **Help**; it opens in a new tab. Many screens also have a small **?**
 button beside a label. Choose it to read one or two sentences about that
 item, and press Escape to close it.
 
+![The Help page: topics on the left, and Getting started open on the right](images/help-page.png)
+
 ## Getting started
 
 Portikus gives you a workspace of your own: a Linux machine with a shell,
