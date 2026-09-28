@@ -252,4 +252,45 @@ describe("ConfirmDialog", () => {
 		fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
 		await waitFor(() => expect(document.activeElement?.id).toBe("after"));
 	});
+
+	it("takes the density around the menu that opened it (Epic 25 N1)", () => {
+		function MenuFixture() {
+			const [menuOpen, setMenuOpen] = React.useState(true);
+			const [open, setOpen] = React.useState(false);
+			return (
+				<>
+					<div data-density="compact">
+						<button type="button" id="row-menu">
+							Row actions
+						</button>
+					</div>
+					{/* A menu portals to the body, outside the compact area. */}
+					{menuOpen ? (
+						<div role="menu" aria-labelledby="row-menu">
+							<button
+								type="button"
+								role="menuitem"
+								onClick={() => {
+									setOpen(true);
+									setMenuOpen(false);
+								}}
+							>
+								Delete…
+							</button>
+						</div>
+					) : null}
+					<ConfirmDialogRoot open={open} onOpenChange={setOpen}>
+						<ConfirmDialog title="Delete app.ts?" confirmLabel="Delete" />
+					</ConfirmDialogRoot>
+				</>
+			);
+		}
+		render(<MenuFixture />);
+		const item = screen.getByRole("menuitem");
+		item.focus();
+		fireEvent.click(item);
+		expect(screen.getByRole("alertdialog").getAttribute("data-density")).toBe(
+			"compact",
+		);
+	});
 });

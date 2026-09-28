@@ -40,4 +40,20 @@ describe("Select", () => {
 		fireEvent.click(option);
 		expect(onValueChange).toHaveBeenCalledWith("5173");
 	});
+
+	it("puts a help button beside the label, not inside it", () => {
+		render(
+			<Select
+				id="level"
+				label="Service log level"
+				options={OPTIONS}
+				help={<button type="button">About Service log level</button>}
+			/>,
+		);
+		const label = document.getElementById("level-l");
+		const help = screen.getByRole("button", { name: "About Service log level" });
+		expect(label?.contains(help)).toBe(false);
+		expect(label?.parentElement?.contains(help)).toBe(true);
+		expect(screen.getByRole("combobox", { name: /Service log level/ })).toBeDefined();
+	});
 });
