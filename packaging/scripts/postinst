@@ -262,6 +262,14 @@ if [ -d /run/systemd/system ]; then
 	done
 fi
 
+# A running oneshot unit is "activating", which is-active reports as inactive.
+setup_running() {
+	case "$(systemctl show -P ActiveState portikus-setup.service)" in
+	active | activating | reloading) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
 # debconf owns stdout while it runs, so everything below goes to stderr.
 if [ "$configured" = false ]; then
 	echo "Portikus is not configured yet: run dpkg-reconfigure portikus" >&2
@@ -274,7 +282,7 @@ $missing
 Answer the questions with:  sudo dpkg-reconfigure portikus
 
 EOF
-elif [ -d /run/systemd/system ] && systemctl is-active --quiet portikus-setup.service; then
+elif [ -d /run/systemd/system ] && setup_running; then
 	# Starting an active unit does nothing, so this change is not applied yet.
 	cat >&2 <<EOF
 
