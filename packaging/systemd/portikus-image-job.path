@@ -1,0 +1,12 @@
+# Portikus workspace image job trigger (docs/EPIC-15.md ruling 28, ADR 0030).
+# The API writes request-<id>.json into the job directory; this starts the
+# root job, which takes every request before it exits.
+[Unit]
+Description=Portikus workspace image job requests
+
+[Path]
+PathExistsGlob=/var/lib/portikus/image-jobs/request-*.json
+Unit=portikus-image-job.service
+
+[Install]
+WantedBy=paths.target

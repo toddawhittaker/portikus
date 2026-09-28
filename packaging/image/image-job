@@ -1,0 +1,927 @@
+#!/usr/bin/python3
+"""The workspace image job, run as root by portikus-image-job.service.
+
+It takes the request files the API writes into the job directory and runs
+one fixed job per request: fetch, build, activate or rollback
+(docs/EPIC-15.md rulings 22 to 28, ADR 0030). The file contract is the
+comment at the top of packages/contracts/src/image.ts.
+
+Python rather than shell: strict JSON validation, atomic writes through
+directory file descriptors, a lock and argument-list subprocesses are all
+plain here and error-prone in shell. python3 is on every host through
+ansible-core; only the standard library is used (PyYAML, which ansible-core
+depends on, is imported only to read /etc/portikus/portikus.yaml).
+
+Usage:
+  image-job                 take and run pending requests (the unit)
+  image-job recover         mark a job the host lost as failed (ExecStopPost)
+  image-job manifest ...    print a schema 1 manifest for a built rootfs
+                            (also used by .github/workflows/workspace-image.yml)
+"""
+
+import argparse
+import datetime
+import fcntl
+import hashlib
+import json
+import os
+import re
+import secrets
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+JOBS_DIR = "/var/lib/portikus/image-jobs"
+IMAGES_DIR = "/var/lib/portikus/images"
+RECIPE_DIR = "/usr/share/portikus/workspace-image"
+KEYRING = "/usr/share/keyrings/portikus-archive-keyring.gpg"
+CONFIG_FILE = "/etc/portikus/portikus.yaml"
+LOCK_FILE = "/run/portikus-image-job.lock"
+
+# The Incus names site.yml gives every host (incus_project_name, portikus_incus_profile).
+PROJECT = "portikus"
+PROFILE = "workspace"
+ALIAS_DEFAULT = "portikus"
+ALIAS_PREVIOUS = "portikus-previous"
+
+DEFAULT_BASE_URL = "https://github.com/toddawhittaker/portikus/releases/download"
+DEFAULT_RELEASES_URL = "https://api.github.com/repos/toddawhittaker/portikus/releases?per_page=100"
+ASSETS = ("incus.tar.xz", "rootfs.squashfs", "manifest.json")
+
+# [0-9] and re.ASCII, because \d also matches other scripts' digits.
+VERSION_RE = re.compile(r"[0-9]{4}\.[0-9]{2}\.[0-9]+(-local\.[0-9]{12})?", re.ASCII)
+PUBLISHED_RE = re.compile(r"[0-9]{4}\.[0-9]{2}\.[0-9]+", re.ASCII)
+UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)
+DATETIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z", re.ASCII)
+REQUEST_NAME_RE = re.compile(r"request-(.*)\.json", re.ASCII | re.DOTALL)
+FINGERPRINT_RE = re.compile(r"[0-9a-f]{12,64}", re.ASCII)
+
+NODE_CHOICES = ("24", "26")
+PYTHON_CHOICES = ("debian", "uv-3.14")
+TOOLS = ("node", "npm", "python3", "git", "docker", "claude", "codex")
+MAX_REQUEST_BYTES = 64 * 1024
+
+# The only keys each kind may carry; "version" is optional for fetch alone.
+REQUEST_KEYS = {
+    "fetch": ({"kind"}, {"version"}),
+    "build": ({"kind", "node", "python"}, set()),
+    "activate": ({"kind", "version"}, set()),
+    "rollback": ({"kind"}, set()),
+}
+
+
+class Refused(Exception):
+    """A request the job will not run. `kind` is set once the kind is known good."""
+
+    def __init__(self, message, kind=None):
+        super().__init__(message)
+        self.kind = kind
+
+
+class JobFailed(Exception):
+    """A job that started and could not finish; the message is shown to the admin."""
+
+
+def now_iso():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def journal(message):
+    print(f"image-job: {message}", file=sys.stderr, flush=True)
+
+
+def version_key(version):
+    """Sort key: published 2026.09.12 before its local builds, then by build time."""
+    match = VERSION_RE.fullmatch(version)
+    year, month, rest = version.split(".", 2)
+    serial = rest.split("-", 1)[0]
+    stamp = int(match.group(1)[len("-local."):]) if match.group(1) else 0
+    return (int(year), int(month), int(serial), stamp)
+
+
+# ---- Validation ----
+
+def _no_duplicates(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError("duplicate key")
+        out[key] = value
+    return out
+
+
+def validate_request(raw, file_id):
+    """Return the request's `request` object, or raise Refused. Trusts nothing beyond the enums."""
+    try:
+        doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)
+    except (UnicodeDecodeError, ValueError):
+        raise Refused("the request is not valid JSON")
+    if not isinstance(doc, dict) or set(doc) != {"id", "requestedAt", "requestedBy", "request"}:
+        raise Refused("the request file has missing or extra fields")
+    if doc["id"] != file_id:
+        raise Refused("the request id does not match its file name")
+    if not isinstance(doc["requestedAt"], str) or not DATETIME_RE.fullmatch(doc["requestedAt"]):
+        raise Refused("requestedAt is not a time")
+    if not isinstance(doc["requestedBy"], str) or not UUID_RE.fullmatch(doc["requestedBy"]):
+        raise Refused("requestedBy is not a user id")
+    request = doc["request"]
+    if not isinstance(request, dict):
+        raise Refused("the request is not an object")
+    kind = request.get("kind")
+    if not isinstance(kind, str) or kind not in REQUEST_KEYS:
+        raise Refused("unknown kind")
+    required, optional = REQUEST_KEYS[kind]
+    keys = set(request)
+    if not required <= keys or not keys <= required | optional:
+        raise Refused(f"a {kind} request has missing or extra fields", kind)
+    if "version" in request:
+        version = request["version"]
+        if not isinstance(version, str) or not VERSION_RE.fullmatch(version):
+            raise Refused("malformed version", kind)
+    if kind == "build":
+        if not isinstance(request["node"], str) or request["node"] not in NODE_CHOICES:
+            raise Refused("unknown Node choice", kind)
+        if not isinstance(request["python"], str) or request["python"] not in PYTHON_CHOICES:
+            raise Refused("unknown Python choice", kind)
+    return doc
+
+
+# ---- Commands ----
+
+def run(argv, log=None, capture=False, timeout=None, env=None):
+    """Run argv without a shell. Returns (exit code, stdout when captured).
+
+    With `log` (a Job), the command line and its output go to log.txt.
+    A command that cannot start or times out returns 127 or 124.
+    """
+    if log is not None:
+        log.line("$ " + " ".join(argv))
+    try:
+        if capture:
+            done = subprocess.run(
+                argv, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                errors="replace", timeout=timeout, env=env,
+            )
+            if log is not None and done.stderr:
+                log.write(done.stderr)
+            return done.returncode, done.stdout
+        out = log.fd if log is not None else subprocess.DEVNULL
+        done = subprocess.run(
+            argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+            timeout=timeout, env=env,
+        )
+        return done.returncode, ""
+    except subprocess.TimeoutExpired as err:
+        if log is not None:
+            log.line(f"timed out after {timeout} seconds")
+        return 124, err.stdout if isinstance(err.stdout, str) else ""
+    except OSError as err:
+        if log is not None:
+            log.line(f"could not run {argv[0]}: {err.strerror}")
+        return 127, ""
+
+
+def incus(*args, log=None, capture=True, timeout=600):
+    return run(["incus", "--project", PROJECT, *args], log=log, capture=capture, timeout=timeout)
+
+
+def first_line(text):
+    for line in text.splitlines():
+        if line.strip():
+            return line.strip()[:500]
+    return ""
+
+
+# ---- Files ----
+
+def write_json_at(dir_fd, name, obj, mode, gid):
+    """Write name inside dir_fd atomically, never following a planted link."""
+    temp = f".{name}.tmp"
+    try:
+        os.unlink(temp, dir_fd=dir_fd)
+    except FileNotFoundError:
+        pass
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=dir_fd)
+    try:
+        os.fchown(fd, 0 if os.geteuid() == 0 else -1, gid)
+        os.fchmod(fd, mode)
+        os.write(fd, (json.dumps(obj, indent=2) + "\n").encode())
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.rename(temp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+
+
+def write_json(path, obj, mode=0o644):
+    """Write a file in the image store (root, 0755), atomically."""
+    fd = os.open(os.path.dirname(path), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        write_json_at(fd, os.path.basename(path), obj, mode, -1)
+    finally:
+        os.close(fd)
+
+
+def read_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def mounts_under(path):
+    """Mount points at or below path, deepest first."""
+    prefix = os.path.realpath(path)
+    found = []
+    try:
+        with open("/proc/self/mountinfo", encoding="utf-8") as f:
+            for line in f:
+                point = line.split()[4].replace("\\040", " ")
+                if point == prefix or point.startswith(prefix + "/"):
+                    found.append(point)
+    except OSError:
+        pass
+    return sorted(found, key=len, reverse=True)
+
+
+def safe_rmtree(path):
+    """Remove a work directory, but never through a mount such as a bound /dev."""
+    if not os.path.lexists(path):
+        return
+    for point in mounts_under(path):
+        run(["umount", "-l", point])
+    if mounts_under(path):
+        journal(f"left {path} in place: something is still mounted under it")
+        return
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def read_config():
+    """The download URLs from /etc/portikus/portikus.yaml, which rehearsals point at a local server."""
+    base, releases = DEFAULT_BASE_URL, DEFAULT_RELEASES_URL
+    if os.path.exists(CONFIG_FILE):
+        import yaml  # python3-yaml, a dependency of ansible-core
+
+        with open(CONFIG_FILE, encoding="utf-8") as f:
+            doc = yaml.safe_load(f) or {}
+        base = doc.get("portikus_image_base_url") or base
+        releases = doc.get("portikus_image_releases_url") or releases
+    for url in (base, releases):
+        if not isinstance(url, str) or not re.fullmatch(r"https?://[^\s]+", url):
+            raise JobFailed("portikus_image_base_url or portikus_image_releases_url is not an http(s) URL.")
+    return base.rstrip("/"), releases
+
+
+# ---- A job's directory, status and log ----
+
+class Job:
+    def __init__(self, jobs_fd, job_id, gid):
+        os.mkdir(job_id, 0o750, dir_fd=jobs_fd)
+        self.fd_dir = os.open(job_id, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=jobs_fd)
+        self.gid = gid
+        os.fchown(self.fd_dir, 0 if os.geteuid() == 0 else -1, gid)
+        os.fchmod(self.fd_dir, 0o750)
+        self.fd = os.open("log.txt", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_APPEND,
+                          0o640, dir_fd=self.fd_dir)
+        os.fchown(self.fd, 0 if os.geteuid() == 0 else -1, gid)
+        os.fchmod(self.fd, 0o640)
+        self.id = job_id
+        self.kind = None
+        self.version = None
+        self.started = now_iso()
+
+    def write(self, text):
+        os.write(self.fd, text.encode("utf-8", "replace"))
+
+    def line(self, text):
+        self.write(f"{now_iso()} {text}\n")
+
+    def save_request(self, doc):
+        write_json_at(self.fd_dir, "request.json", doc, 0o640, self.gid)
+
+    def status(self, state, step, message=None):
+        finished = None if state == "running" else now_iso()
+        write_json_at(self.fd_dir, "status.json", {
+            "id": self.id,
+            "kind": self.kind,
+            "state": state,
+            "step": step[:200],
+            "version": self.version,
+            "message": message[:1000] if message else None,
+            "startedAt": self.started,
+            "finishedAt": finished,
+        }, 0o640, self.gid)
+        if state == "running":
+            self.line(step)
+
+    def close(self):
+        os.close(self.fd)
+        os.close(self.fd_dir)
+
+
+# ---- Incus aliases and roles ----
+
+def alias_map():
+    code, out = incus("image", "alias", "list", "--format", "json")
+    if code != 0:
+        raise JobFailed("Could not list the Incus image aliases.")
+    return {a["name"]: a["target"] for a in json.loads(out or "[]")}
+
+
+def versions_in(aliases):
+    """version to fingerprint, for every alias portikus-<version>."""
+    out = {}
+    for name, target in aliases.items():
+        rest = name[len("portikus-"):]
+        if name.startswith("portikus-") and VERSION_RE.fullmatch(rest):
+            out[rest] = target
+    return out
+
+
+def roles(aliases):
+    """(default version, previous version) as the Incus aliases say."""
+    by_fp = {}
+    for version, fp in sorted(versions_in(aliases).items(), key=lambda kv: version_key(kv[0])):
+        by_fp[fp] = version
+    return by_fp.get(aliases.get(ALIAS_DEFAULT)), by_fp.get(aliases.get(ALIAS_PREVIOUS))
+
+
+def set_alias(name, fingerprint, aliases, job):
+    if name in aliases:
+        # One PUT moves the alias, so `portikus` never goes missing mid-move.
+        body = json.dumps({"target": fingerprint, "description": ""})
+        code, _ = run(["incus", "query", "-X", "PUT", "-d", body,
+                       f"/1.0/images/aliases/{name}?project={PROJECT}"], log=job, capture=True)
+    else:
+        code, _ = incus("image", "alias", "create", name, fingerprint, log=job)
+    if code != 0:
+        raise JobFailed(f"Could not move the alias {name}.")
+    aliases[name] = fingerprint
+
+
+def write_aliases(images_dir, aliases):
+    default, previous = roles(aliases)
+    write_json(os.path.join(images_dir, "aliases.json"), {"default": default, "previous": previous})
+    return default, previous
+
+
+def health_passed(images_dir, version):
+    health = read_json(os.path.join(images_dir, version, "health.json"))
+    return isinstance(health, dict) and health.get("result") == "passed"
+
+
+# ---- Health check (ruling 26) ----
+
+def health_checks(parameters):
+    node = parameters["node"]
+    checks = [
+        ("node --version", ["node", "--version"], lambda out: out.startswith(f"v{node}.")),
+        ("python3 --version", ["python3", "--version"], None),
+        ("git --version", ["git", "--version"], None),
+        ("docker info", ["docker", "info", "--format", "{{.ServerVersion}}"], None),
+        ("claude --version", ["claude", "--version"], None),
+        ("codex --version", ["codex", "--version"], None),
+    ]
+    if parameters["python"] == "uv-3.14":
+        checks.append(("python3.14 --version", ["python3.14", "--version"],
+                       lambda out: out.startswith("Python 3.14")))
+    return checks
+
+
+def remove_leftover_checks(job):
+    code, out = incus("list", "--format", "json", log=job)
+    if code != 0:
+        return
+    for inst in json.loads(out or "[]"):
+        name = inst.get("name", "")
+        if name.startswith("imgcheck-") and re.fullmatch(r"imgcheck-[0-9a-f]{8}", name):
+            incus("delete", "--force", name, log=job)
+
+
+def health_check(job, version, parameters, sleep=time.sleep):
+    """Start a throwaway container from the image with the workspace profile and run the checks."""
+    remove_leftover_checks(job)
+    name = f"imgcheck-{secrets.token_hex(4)}"
+    checks = []
+    try:
+        code, _ = incus("launch", f"portikus-{version}", name, "--profile", PROFILE,
+                        log=job, capture=False, timeout=600)
+        if code != 0:
+            checks.append({"name": "start a container", "ok": False, "output": f"incus launch exited {code}"})
+        else:
+            # Degraded is fine here; the checks below say what matters.
+            incus("exec", name, "--", "systemctl", "is-system-running", "--wait", log=job, timeout=300)
+            for check_name, argv, accept in health_checks(parameters):
+                attempts = 18 if argv[0] == "docker" else 1
+                for attempt in range(attempts):
+                    code, out = incus("exec", name, "--env", "HOME=/root", "--", *argv, log=job, timeout=120)
+                    if code == 0 or attempt == attempts - 1:
+                        break
+                    sleep(5)
+                output = first_line(out) or f"exited {code}"
+                ok = code == 0 and (accept is None or accept(output))
+                job.line(f"{check_name}: {'ok' if ok else 'FAILED'}: {output}")
+                checks.append({"name": check_name, "ok": ok, "output": output})
+    finally:
+        incus("delete", "--force", name, log=job)
+    return {
+        "result": "passed" if checks and all(c["ok"] for c in checks) else "failed",
+        "checkedAt": now_iso(),
+        "checks": checks,
+    }
+
+
+# ---- Manifest (ruling 24) ----
+
+def manifest_from_squashfs(squashfs, version, recipe_version, source, node, python, log=None):
+    """Unpack the image's root filesystem and read its packages and tool versions."""
+    work = tempfile.mkdtemp(prefix=".manifest-", dir=os.path.dirname(os.path.abspath(squashfs)))
+    root = os.path.join(work, "root")
+    try:
+        code, _ = run(["unsquashfs", "-no-progress", "-d", root, squashfs], log=log, timeout=1800)
+        if code != 0:
+            raise JobFailed("Could not unpack the image to read its manifest.")
+        code, out = run(["dpkg-query", f"--admindir={root}/var/lib/dpkg", "-W",
+                         "-f", "${binary:Package}\\t${Version}\\n"], log=log, capture=True)
+        if code != 0:
+            raise JobFailed("Could not list the image's packages.")
+        packages = {}
+        for line in out.splitlines():
+            name, _, pkg_version = line.partition("\t")
+            if name:
+                packages[name[:200]] = pkg_version[:200]
+        # A tmpfs /dev with four nodes, not the host's /dev, so nothing in the image reaches host devices.
+        mounted = []
+        tools = {}
+        try:
+            for sub in ("proc", "dev"):
+                if not os.path.isdir(os.path.join(root, sub)) or os.path.islink(os.path.join(root, sub)):
+                    raise JobFailed(f"The image has no /{sub} directory.")
+            for argv in (["mount", "-t", "proc", "proc", f"{root}/proc"],
+                         ["mount", "-t", "tmpfs", "-o", "mode=0755,size=1m", "tmpfs", f"{root}/dev"]):
+                if run(argv, log=log)[0] != 0:
+                    raise JobFailed("Could not prepare the image to read its tool versions.")
+                mounted.append(argv[-1])
+            for dev, major, minor in (("null", 1, 3), ("zero", 1, 5), ("random", 1, 8), ("urandom", 1, 9)):
+                run(["mknod", "-m", "666", f"{root}/dev/{dev}", "c", str(major), str(minor)], log=log)
+            for tool in TOOLS:
+                code, out = run(["chroot", root, "/usr/bin/env", "-i",
+                                 "PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/root", tool, "--version"],
+                                log=log, capture=True, timeout=120)
+                tools[tool] = first_line(out)[:200] if code == 0 and first_line(out) else None
+        finally:
+            for point in reversed(mounted):
+                run(["umount", "-l", point], log=log)
+    finally:
+        safe_rmtree(work)
+    return {
+        "schema": 1,
+        "version": version,
+        "recipeVersion": recipe_version,
+        "source": source,
+        "builtAt": now_iso(),
+        "fingerprint": None,
+        "parameters": {"node": node, "python": python},
+        "tools": tools,
+        "packages": packages,
+    }
+
+
+def check_manifest(manifest, version, source):
+    """The published manifest must be schema 1 and name this version."""
+    ok = (
+        isinstance(manifest, dict)
+        and manifest.get("schema") == 1
+        and manifest.get("version") == version
+        and manifest.get("source") == source
+        and isinstance(manifest.get("recipeVersion"), str)
+        and isinstance(manifest.get("builtAt"), str) and DATETIME_RE.fullmatch(manifest["builtAt"])
+        and isinstance(manifest.get("parameters"), dict)
+        and manifest["parameters"].get("node") in NODE_CHOICES
+        and manifest["parameters"].get("python") in PYTHON_CHOICES
+        and isinstance(manifest.get("tools"), dict)
+        and set(manifest["tools"]) == set(TOOLS)
+        and all(v is None or isinstance(v, str) for v in manifest["tools"].values())
+        and isinstance(manifest.get("packages"), dict)
+        and all(isinstance(k, str) and isinstance(v, str) for k, v in manifest["packages"].items())
+    )
+    if not ok:
+        raise JobFailed("The image's manifest is not a schema 1 manifest for this version.")
+
+
+# ---- The jobs ----
+
+class Runner:
+    def __init__(self, jobs_dir=JOBS_DIR, images_dir=IMAGES_DIR, recipe_dir=RECIPE_DIR,
+                 keyring=KEYRING, sleep=time.sleep):
+        self.jobs_dir = jobs_dir
+        self.images_dir = images_dir
+        self.recipe_dir = recipe_dir
+        self.keyring = keyring
+        self.sleep = sleep
+
+    # -- shared steps --
+
+    def work_dir(self, job):
+        path = os.path.join(self.images_dir, f".work-{job.id}")
+        os.mkdir(path, 0o700)
+        return path
+
+    def import_image(self, job, version, meta, rootfs):
+        aliases = alias_map()
+        name = f"portikus-{version}"
+        if name in aliases:
+            default, previous = roles(aliases)
+            if version in (default, previous):
+                raise JobFailed(f"Image {version} is already imported and in use.")
+            # A retry of an earlier fetch or build that never became the default.
+            incus("image", "delete", name, log=job)
+        job.status("running", "Importing into Incus")
+        code, _ = incus("image", "import", meta, rootfs, "--alias", name, log=job, capture=False, timeout=1800)
+        if code != 0:
+            raise JobFailed("Incus could not import the image.")
+        fingerprint = alias_map().get(name)
+        if not fingerprint or not FINGERPRINT_RE.fullmatch(fingerprint):
+            raise JobFailed("Incus did not report the imported image's fingerprint.")
+        return fingerprint
+
+    def finish_import(self, job, version, manifest, fingerprint):
+        """Write manifest and health for a new image, then prune if it passed."""
+        store = os.path.join(self.images_dir, version)
+        os.makedirs(store, mode=0o755, exist_ok=True)
+        manifest["fingerprint"] = fingerprint
+        write_json(os.path.join(store, "manifest.json"), manifest)
+        try:
+            os.unlink(os.path.join(store, "health.json"))
+        except FileNotFoundError:
+            pass
+        job.status("running", "Checking health")
+        health = health_check(job, version, manifest["parameters"], sleep=self.sleep)
+        write_json(os.path.join(store, "health.json"), health)
+        if health["result"] != "passed":
+            failed = ", ".join(c["name"] for c in health["checks"] if not c["ok"])
+            raise JobFailed(f"The health check failed ({failed}); the image cannot become the default.")
+        job.status("running", "Removing old images")
+        self.prune(job, keep=version)
+
+    def prune(self, job, keep):
+        """Keep the default, the previous, the two newest candidates and the one just made (ruling 27)."""
+        aliases = alias_map()
+        default, previous = roles(aliases)
+        known = versions_in(aliases)
+        on_disk = {n for n in os.listdir(self.images_dir) if VERSION_RE.fullmatch(n)}
+        protected = {aliases.get(ALIAS_DEFAULT), aliases.get(ALIAS_PREVIOUS)} - {None}
+        candidates = sorted((set(known) | on_disk) - {default, previous, keep}, key=version_key, reverse=True)
+        for version in candidates[2:]:
+            if version in known and known[version] not in protected:
+                job.line(f"removing image {version}")
+                incus("image", "delete", f"portikus-{version}", log=job)
+            elif version in known:
+                continue
+            safe_rmtree(os.path.join(self.images_dir, version))
+        write_aliases(self.images_dir, aliases)
+
+    # -- kinds --
+
+    def fetch(self, job, request):
+        base, releases = read_config()
+        version = request.get("version")
+        if version is None:
+            job.status("running", "Finding the newest published image")
+            version = self.newest(job, releases)
+        job.version = version
+        if version in roles(alias_map()):
+            raise JobFailed(f"Image {version} is already imported and in use.")
+        work = self.work_dir(job)
+        try:
+            job.status("running", "Downloading the checksums")
+            for asset in ("SHA256SUMS", "SHA256SUMS.asc"):
+                self.download(job, f"{base}/image-{version}/{asset}", os.path.join(work, asset))
+            job.status("running", "Verifying the signature")
+            code, _ = run(["gpgv", "--keyring", self.keyring,
+                           os.path.join(work, "SHA256SUMS.asc"), os.path.join(work, "SHA256SUMS")],
+                          log=job, capture=True)
+            if code != 0:
+                raise JobFailed("The image's signature does not verify; nothing was imported.")
+            sums = self.read_sums(os.path.join(work, "SHA256SUMS"))
+            job.status("running", "Downloading the image")
+            for asset in ASSETS:
+                self.download(job, f"{base}/image-{version}/{asset}", os.path.join(work, asset))
+            job.status("running", "Verifying the checksums")
+            for asset in ASSETS:
+                if sha256(os.path.join(work, asset)) != sums[asset]:
+                    raise JobFailed(f"The checksum of {asset} does not match; nothing was imported.")
+            manifest = read_json(os.path.join(work, "manifest.json"))
+            check_manifest(manifest, version, "published")
+            fingerprint = self.import_image(job, version, os.path.join(work, "incus.tar.xz"),
+                                            os.path.join(work, "rootfs.squashfs"))
+        finally:
+            safe_rmtree(work)
+        self.finish_import(job, version, manifest, fingerprint)
+
+    def newest(self, job, releases_url):
+        with tempfile.NamedTemporaryFile(dir=self.images_dir, prefix=".releases-") as f:
+            self.download(job, releases_url, f.name)
+            try:
+                with open(f.name, encoding="utf-8") as listing_file:
+                    listing = json.load(listing_file)
+            except ValueError:
+                raise JobFailed("The list of published images is not JSON.")
+        versions = []
+        for release in listing if isinstance(listing, list) else []:
+            tag = release.get("tag_name") if isinstance(release, dict) else None
+            if isinstance(tag, str) and tag.startswith("image-") and PUBLISHED_RE.fullmatch(tag[6:]):
+                versions.append(tag[6:])
+        if not versions:
+            raise JobFailed("No published image was found.")
+        return max(versions, key=version_key)
+
+    def download(self, job, url, dest):
+        code, _ = run(["curl", "--fail", "--silent", "--show-error", "--location", "--proto", "=https,http",
+                       "--retry", "3", "--max-time", "3600", "--output", dest, url], log=job, capture=True)
+        if code != 0:
+            raise JobFailed(f"The download failed: {url}")
+
+    def read_sums(self, path):
+        sums = {}
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                match = re.fullmatch(r"([0-9a-f]{64}) [ *](\S+)\n?", line)
+                if not match:
+                    raise JobFailed("SHA256SUMS is malformed.")
+                sums[match.group(2)] = match.group(1)
+        if set(sums) != set(ASSETS):
+            raise JobFailed("SHA256SUMS does not list exactly the image's three files.")
+        return sums
+
+    def build(self, job, request):
+        with open(os.path.join(self.recipe_dir, "VERSION"), encoding="utf-8") as f:
+            recipe_version = f.read().strip()
+        if not PUBLISHED_RE.fullmatch(recipe_version):
+            raise JobFailed("The shipped recipe's VERSION is malformed.")
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M")
+        version = f"{recipe_version}-local.{stamp}"
+        job.version = version
+        if os.path.lexists(os.path.join(self.images_dir, version)):
+            raise JobFailed(f"Image {version} already exists.")
+        work = self.work_dir(job)
+        try:
+            job.status("running", "Building the image (about 20 minutes)")
+            env = dict(os.environ,
+                       PORTIKUS_IMAGE_VERSION=version,
+                       PORTIKUS_NODE_MAJOR=request["node"],
+                       PORTIKUS_PYTHON=request["python"],
+                       # Ruling 23: this action alone takes the newest Claude Code and Codex.
+                       PORTIKUS_CLAUDE_VERSION="latest",
+                       PORTIKUS_CODEX_VERSION="latest")
+            out = os.path.join(work, "out")
+            code, _ = run(["distrobuilder", "build-incus", os.path.join(self.recipe_dir, "portikus.yaml"), out,
+                           "-o", f"image.serial={version}", "-o", "image.release=trixie"],
+                          log=job, timeout=150 * 60, env=env)
+            if code != 0:
+                raise JobFailed("The image build failed; the log says where.")
+            job.status("running", "Writing the manifest")
+            manifest = manifest_from_squashfs(os.path.join(out, "rootfs.squashfs"), version, recipe_version,
+                                              "local", request["node"], request["python"], log=job)
+            fingerprint = self.import_image(job, version, os.path.join(out, "incus.tar.xz"),
+                                            os.path.join(out, "rootfs.squashfs"))
+        finally:
+            safe_rmtree(work)
+        self.finish_import(job, version, manifest, fingerprint)
+
+    def activate(self, job, request):
+        version = request["version"]
+        job.version = version
+        # Checked here too, so a hand-written request cannot skip the API's check (ruling 26).
+        if not health_passed(self.images_dir, version):
+            raise Refused(f"Image {version} has not passed its health check.", "activate")
+        aliases = alias_map()
+        fingerprint = aliases.get(f"portikus-{version}")
+        if not fingerprint:
+            raise JobFailed(f"Image {version} is not imported.")
+        default, _ = roles(aliases)
+        if default == version or aliases.get(ALIAS_DEFAULT) == fingerprint:
+            raise Refused(f"Image {version} is already the default.", "activate")
+        job.status("running", "Making it the default")
+        old = aliases.get(ALIAS_DEFAULT)
+        if old:
+            set_alias(ALIAS_PREVIOUS, old, aliases, job)
+        set_alias(ALIAS_DEFAULT, fingerprint, aliases, job)
+        write_aliases(self.images_dir, aliases)
+
+    def rollback(self, job, request):
+        aliases = alias_map()
+        current, previous = aliases.get(ALIAS_DEFAULT), aliases.get(ALIAS_PREVIOUS)
+        if not current or not previous:
+            raise Refused("There is no previous image to roll back to.", "rollback")
+        job.version = roles(aliases)[1]
+        job.status("running", "Rolling back")
+        set_alias(ALIAS_DEFAULT, previous, aliases, job)
+        set_alias(ALIAS_PREVIOUS, current, aliases, job)
+        write_aliases(self.images_dir, aliases)
+
+    # -- the queue --
+
+    def pending(self, jobs_fd):
+        names = []
+        for name in os.listdir(jobs_fd):
+            if REQUEST_NAME_RE.fullmatch(name):
+                try:
+                    st = os.stat(name, dir_fd=jobs_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                # A directory by that name cannot be removed by unlink; leave it alone.
+                if stat.S_ISREG(st.st_mode) or stat.S_ISLNK(st.st_mode):
+                    names.append((st.st_mtime_ns, name))
+        return sorted(names)
+
+    def take(self, jobs_fd, name, gid, refuse_reason=None):
+        """Take one request file. Returns (job, doc) to run, or None when refused or dropped."""
+        file_id = REQUEST_NAME_RE.fullmatch(name).group(1)
+        raw = None
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=jobs_fd)
+            try:
+                if stat.S_ISREG(os.fstat(fd).st_mode):
+                    raw = os.read(fd, MAX_REQUEST_BYTES + 1)
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(name, dir_fd=jobs_fd)
+        except OSError:
+            pass
+        if not UUID_RE.fullmatch(file_id):
+            journal("dropped a request file whose name is not a job id")
+            return None
+        try:
+            job = Job(jobs_fd, file_id, gid)
+        except FileExistsError:
+            journal(f"dropped request {file_id}: its job directory already exists")
+            return None
+        try:
+            if raw is None:
+                raise Refused("the request is not a regular file")
+            if len(raw) > MAX_REQUEST_BYTES:
+                raise Refused("the request file is too large")
+            doc = validate_request(raw, file_id)
+            job.kind = doc["request"]["kind"]
+            job.save_request(doc)
+            if refuse_reason:
+                raise Refused(refuse_reason, job.kind)
+            return job, doc
+        except Refused as err:
+            job.kind = err.kind or job.kind
+            self.refuse(job, str(err))
+            job.close()
+            return None
+
+    def refuse(self, job, reason):
+        journal(f"refused request {job.id}: {reason}")
+        job.line(f"Refused: {reason}")
+        job.status("refused", "Refused", message=f"The request was refused: {reason}.")
+
+    def execute(self, job, doc):
+        request = doc["request"]
+        journal(f"running {job.kind} job {job.id} requested by {doc['requestedBy']}")
+        job.version = request.get("version")
+        try:
+            job.status("running", "Starting")
+            getattr(self, job.kind)(job, request)
+            job.status("succeeded", "Done")
+            journal(f"{job.kind} job {job.id} succeeded")
+        except Refused as err:
+            self.refuse(job, str(err))
+        except JobFailed as err:
+            job.line(f"Failed: {err}")
+            job.status("failed", "Failed", message=str(err))
+            journal(f"{job.kind} job {job.id} failed: {err}")
+        except Exception as err:  # noqa: BLE001  the page must never be left saying "running"
+            job.line(f"Failed: {type(err).__name__}: {err}")
+            job.status("failed", "Failed", message="The job stopped on an unexpected error; the log says where.")
+            journal(f"{job.kind} job {job.id} crashed: {type(err).__name__}")
+        finally:
+            job.close()
+
+    def recover(self, jobs_fd, gid):
+        """Mark a job that was running when the host or the unit stopped as failed."""
+        for name in os.listdir(jobs_fd):
+            if not UUID_RE.fullmatch(name):
+                continue
+            try:
+                dir_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=jobs_fd)
+            except OSError:
+                continue
+            try:
+                if os.fstat(dir_fd).st_uid != os.geteuid():
+                    continue
+                try:
+                    fd = os.open("status.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+                    with os.fdopen(fd, encoding="utf-8") as f:
+                        status = json.load(f)
+                except (OSError, ValueError):
+                    continue
+                if not isinstance(status, dict) or status.get("state") != "running":
+                    continue
+                status.update(state="failed", step="Failed", finishedAt=now_iso(),
+                              message="The job stopped before it finished (the host restarted or the job was stopped).")
+                write_json_at(dir_fd, "status.json", status, 0o640, gid)
+                journal(f"marked interrupted job {name} as failed")
+            finally:
+                os.close(dir_fd)
+        for name in os.listdir(self.images_dir):
+            if name.startswith(".work-") or name.startswith(".manifest-"):
+                safe_rmtree(os.path.join(self.images_dir, name))
+
+    def run_pending(self, lock_path=LOCK_FILE):
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                # The job holding the lock refuses or runs whatever waits when it finishes.
+                journal("another image job is running")
+                return 0
+            jobs_fd = os.open(self.jobs_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                gid = os.fstat(jobs_fd).st_gid
+                self.recover(jobs_fd, gid)
+                last_finish = 0
+                # A name is taken once, so a file that cannot be removed cannot loop.
+                taken_names = set()
+                while True:
+                    pending = [(mtime, n) for mtime, n in self.pending(jobs_fd) if n not in taken_names]
+                    if not pending:
+                        return 0
+                    # Anything written before the last job finished arrived while one ran.
+                    late = [n for mtime, n in pending if mtime < last_finish]
+                    for name in late:
+                        taken_names.add(name)
+                        self.take(jobs_fd, name, gid, refuse_reason="another image job was waiting or running")
+                    fresh = [n for mtime, n in pending if mtime >= last_finish]
+                    if not fresh:
+                        continue
+                    # The next pass refuses the rest, which waited while this one ran.
+                    taken_names.add(fresh[0])
+                    taken = self.take(jobs_fd, fresh[0], gid)
+                    if taken:
+                        self.execute(*taken)
+                        last_finish = time.time_ns()
+            finally:
+                os.close(jobs_fd)
+        finally:
+            os.close(lock_fd)
+
+    def run_recover(self, lock_path=LOCK_FILE):
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            jobs_fd = os.open(self.jobs_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                self.recover(jobs_fd, os.fstat(jobs_fd).st_gid)
+            finally:
+                os.close(jobs_fd)
+        finally:
+            os.close(lock_fd)
+        return 0
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def main(argv):
+    if argv[1:2] == ["manifest"]:
+        parser = argparse.ArgumentParser(prog="image-job manifest")
+        parser.add_argument("--squashfs", required=True)
+        parser.add_argument("--version", required=True)
+        parser.add_argument("--recipe-version", required=True)
+        parser.add_argument("--source", required=True, choices=("published", "local"))
+        parser.add_argument("--node", required=True, choices=NODE_CHOICES)
+        parser.add_argument("--python", required=True, choices=PYTHON_CHOICES)
+        args = parser.parse_args(argv[2:])
+        if not VERSION_RE.fullmatch(args.version):
+            parser.error("--version is not an image version")
+        manifest = manifest_from_squashfs(args.squashfs, args.version, args.recipe_version,
+                                          args.source, args.node, args.python)
+        json.dump(manifest, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 0
+    if argv[1:] == ["recover"]:
+        return Runner().run_recover()
+    if argv[1:] in ([], ["run"]):
+        return Runner().run_pending()
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
