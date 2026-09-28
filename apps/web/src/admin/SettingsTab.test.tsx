@@ -95,3 +95,30 @@ test("the grace period and idle stop sit side by side, each with its own Save", 
 	expect(within(stop).getAllByRole("button", { name: "Save" })).toHaveLength(2);
 	expect(within(stop).getByText("0 means never.")).toBeDefined();
 });
+
+test("every setting has a help button beside its label, and the page an intro", async () => {
+	stubSettings();
+	renderApp("/admin?tab=settings");
+
+	await screen.findByTestId("settings-sections");
+	for (const label of [
+		"Disconnect grace",
+		"Idle stop",
+		"CPU threshold (%)",
+		"Window (minutes)",
+		"Throttled share (%)",
+		"Quiet time to lift (minutes)",
+		"Quiet below (%)",
+		"Hold after throttles",
+		"Hold window (hours)",
+		"Memory threshold (%)",
+	]) {
+		expect(screen.getByRole("button", { name: `About ${label}` })).toBeDefined();
+	}
+	// The field keeps its own name; the help button is beside the label, not in it.
+	expect(screen.getByRole("textbox", { name: "Window (minutes)" })).toBeDefined();
+	expect(screen.getByText("About Settings")).toBeDefined();
+	expect(screen.getByRole("link", { name: /More in Help/ }).getAttribute("href")).toBe(
+		"/help#admin-settings",
+	);
+});

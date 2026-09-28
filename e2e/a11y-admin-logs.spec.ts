@@ -52,3 +52,24 @@ for (const colorScheme of ["light", "dark"] as const) {
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});
 }
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the Logs tab with its intro and a help tip open has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin?tab=logs&q=no-line-says-this-e2e");
+		await expect(page.getByTestId("logs-empty")).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId("intro-admin-logs")).toContainText(
+			"They never include students' files, commands or terminal output.",
+		);
+		await page.getByRole("button", { name: "About Service log level" }).click();
+		await expect(page.getByRole("dialog", { name: "Service log level" })).toContainText(
+			"Debug fills the journal quickly",
+		);
+
+		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+	});
+}

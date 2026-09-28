@@ -409,9 +409,10 @@ test("applying filters puts them in the URL and the request, the person as an ID
 	const requested = stubLogs(() => json(200, page([])));
 	const { router } = renderApp("/admin?tab=logs");
 	await screen.findByTestId("logs-empty");
-	expect(screen.getByTestId("logs-level-note").textContent).toContain(
-		"Debug lines exist only while the service log level is Debug.",
-	);
+	// The level note is a toggletip beside Levels now, not a line of its own.
+	expect(screen.queryByTestId("logs-level-note")).toBeNull();
+	expect(screen.getByRole("button", { name: "About Levels" })).toBeDefined();
+	expect(screen.getByRole("group", { name: "Levels" })).toBeDefined();
 	// The people list is there to pick from.
 	await waitFor(() =>
 		expect(document.querySelector("#logs-people option")?.getAttribute("value")).toBe(

@@ -12,6 +12,7 @@ import {
 	FIELD_CLASS,
 	LABEL_CLASS,
 	TextField,
+	Toggletip,
 	useToast,
 } from "@portikus/ui";
 import { type FormEvent, useState } from "react";
@@ -51,7 +52,14 @@ export function announced(error: string | null) {
  */
 export function SettingsTab() {
 	return (
-		<AdminSection title="Settings">
+		<AdminSection
+			title="Settings"
+			intro={{
+				id: "admin-settings",
+				helpAnchor: "admin-settings",
+				text: "Site-wide rules for when workspaces stop, how heavy use is slowed, and the statement everyone accepts. Most can be changed for one workspace from its panel on the Users tab.",
+			}}
+		>
 			<div className="flex max-w-[72ch] flex-col gap-6" data-testid="settings-sections">
 				<StopSection />
 				<ResourceGuardSection />
@@ -152,6 +160,25 @@ const GUARD_SETTING_FIELDS: GuardSettingField[] = [
 	},
 ];
 
+/** What each guard field means, checked against SPEC.md §19.4. */
+const GUARD_HELP: Record<GuardSettingKey, string> = {
+	cpuGuardThresholdPercent:
+		"The CPU use, as a share of the workspace's CPUs, that counts as heavy. 100 turns CPU slowing off.",
+	guardWindowMinutes:
+		"The period CPU and memory use are averaged over before a workspace is slowed or flagged. A short burst, such as a build, barely moves the average.",
+	cpuThrottleSharePercent:
+		"How much of its CPU a slowed workspace gets. 25 means a quarter. 100 means slowing changes nothing.",
+	cpuIdleLiftMinutes:
+		"How long a slowed workspace must stay quiet before it gets full speed back by itself. Stopping and starting it also gives full speed back, unless it is held.",
+	cpuIdleLiftPercent:
+		"Use under this share, and under half the throttled share, counts as quiet. 0 turns the automatic lift off.",
+	cpuThrottleHoldAfter:
+		"After this many slowdowns within the hold window, the workspace stays slowed even through a restart. It still gets full speed back when it goes quiet or you lift it. 0 turns this off.",
+	cpuThrottleHoldHours: "The period, in hours, the hold counts slowdowns over.",
+	memoryGuardThresholdPercent:
+		"Memory use, as a share of the workspace's limit, that flags it on the Health and Users tabs. Nothing is slowed. 100 turns this off.",
+};
+
 /** Reads one Resource guard field, or null when the entry is not allowed. */
 export function parseGuardSetting(key: GuardSettingKey, text: string): number | null {
 	const field = GUARD_SETTING_FIELDS.find((item) => item.key === key);
@@ -194,9 +221,16 @@ function IdleStopField() {
 	return (
 		<form className="flex flex-col gap-3" onSubmit={save} noValidate>
 			<TextField
-				className="w-48"
+				className="w-56"
 				id="idle-minutes"
 				label="Idle stop (minutes)"
+				help={
+					<Toggletip label="Idle stop">
+						With no key press, click, file save or preview visit for this long, the
+						student is asked "Still working?", and the workspace stops five minutes
+						later. This counts even while a browser is open.
+					</Toggletip>
+				}
 				inputMode="numeric"
 				data-testid="idle-input"
 				value={value}
@@ -323,7 +357,7 @@ function ResourceGuardSection() {
 							<p className="pk-text-compact pk-muted m-0" id={`${group.id}-line`}>
 								{group.line}
 							</p>
-							<div className="flex flex-wrap items-start gap-x-4 gap-y-3">
+							<div className="flex flex-wrap items-start gap-x-3 gap-y-3">
 								{group.keys.map((key) => {
 									const field = GUARD_FIELDS_SHOWN.find((item) => item.key === key);
 									if (!field) return null;
@@ -332,8 +366,11 @@ function ResourceGuardSection() {
 										<TextField
 											key={key}
 											id={`settings-${field.name}`}
-											className="w-48"
+											className="w-52"
 											label={field.label}
+											help={
+												<Toggletip label={field.label}>{GUARD_HELP[key]}</Toggletip>
+											}
 											inputMode="numeric"
 											data-testid={`settings-${field.name}`}
 											value={fieldValue(key)}
@@ -515,9 +552,16 @@ function GraceField() {
 	return (
 		<form className="flex flex-col gap-3" onSubmit={save} noValidate>
 			<TextField
-				className="w-48"
+				className="w-56"
 				id="grace-minutes"
 				label="Disconnect grace (minutes)"
+				help={
+					<Toggletip label="Disconnect grace">
+						How long a workspace keeps running after its last browser tab closes or
+						loses its connection. A student who reloads or briefly loses Wi-Fi comes
+						back to a running workspace. 0 keeps it running until stopped by hand.
+					</Toggletip>
+				}
 				inputMode="decimal"
 				data-testid="grace-input"
 				value={value}

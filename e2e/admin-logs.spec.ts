@@ -103,9 +103,13 @@ test.describe("admin logs", () => {
 		const warned = await causeTerminalLimit(browser);
 		await loginAs(page, "carol");
 		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "TERMINAL_LIMIT");
-		await expect(page.getByTestId("logs-level-note")).toContainText(
+		// The note on what each level needs is a toggletip beside Levels.
+		await page.getByRole("button", { name: "About Levels" }).click();
+		await expect(page.getByRole("dialog", { name: "Levels" })).toContainText(
 			"Debug lines exist only while the service log level is Debug.",
 		);
+		await page.keyboard.press("Escape");
+		await expect(page.getByRole("button", { name: "About Levels" })).toBeFocused();
 		await expect(logRows(page)).toHaveCount(1);
 
 		await page.getByRole("checkbox", { name: "Info" }).check();

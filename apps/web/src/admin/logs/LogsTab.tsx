@@ -13,6 +13,7 @@ import {
 	FIELD_CLASS,
 	LABEL_CLASS,
 	TextField,
+	Toggletip,
 	useToast,
 } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
@@ -217,16 +218,35 @@ export function LogsTab() {
 	}
 
 	return (
-		<AdminSection title="Logs">
+		<AdminSection
+			title="Logs"
+			intro={{
+				id: "admin-logs",
+				helpAnchor: "admin-logs",
+				text: "The platform's own error, warning, info and debug lines. They never include students' files, commands or terminal output.",
+			}}
+		>
 			<ServiceLogLevel />
 			<form ref={formRef} onSubmit={apply} data-testid="logs-filters" noValidate>
 				<fieldset className="m-0 flex min-w-0 flex-wrap items-end gap-x-6 gap-y-4 rounded-md border-0 bg-surface-sunken p-4">
 					<legend className="sr-only">Filters</legend>
 					<fieldset
 						className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0"
+						// Named by the word alone, not also by its help button.
+						aria-labelledby="logs-levels-label"
 						aria-describedby={invalid.levels ? "logs-levels-err" : undefined}
 					>
-						<legend className={`${LABEL_CLASS} mb-1.5 p-0`}>Levels</legend>
+						<legend className="mb-1.5 p-0">
+							<span className="flex items-center gap-1">
+								<span className={LABEL_CLASS} id="logs-levels-label">
+									Levels
+								</span>
+								<Toggletip label="Levels">
+									Debug lines exist only while the service log level is Debug. Info
+									lines exist unless it is Warn or Error.
+								</Toggletip>
+							</span>
+						</legend>
 						<div
 							className="flex h-[var(--pk-control)] flex-wrap items-center gap-4"
 							data-level-checks
@@ -254,8 +274,22 @@ export function LogsTab() {
 							</p>
 						) : null}
 					</fieldset>
-					<fieldset className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0">
-						<legend className={`${LABEL_CLASS} mb-1.5 p-0`}>Services</legend>
+					<fieldset
+						className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0"
+						aria-labelledby="logs-services-label"
+					>
+						<legend className="mb-1.5 p-0">
+							<span className="flex items-center gap-1">
+								<span className={LABEL_CLASS} id="logs-services-label">
+									Services
+								</span>
+								<Toggletip label="Services">
+									API answers the browser's requests. Worker runs the background jobs:
+									starting, stopping and rebuilding workspaces, the resource guard and
+									health samples. Controller talks to the host that runs the workspaces.
+								</Toggletip>
+							</span>
+						</legend>
 						<div className="flex h-[var(--pk-control)] flex-wrap items-center gap-4">
 							{LOG_SERVICES.map((service) => (
 								<Checkbox
@@ -367,13 +401,6 @@ export function LogsTab() {
 							Clear
 						</Button>
 					</div>
-					<p
-						className="pk-text-compact pk-muted m-0 basis-full"
-						data-testid="logs-level-note"
-					>
-						Debug lines exist only while the service log level is Debug. Info lines
-						exist unless it is Warn or Error.
-					</p>
 				</fieldset>
 			</form>
 			{/* Only the results re-key on new filters, so the focused form button stays. */}
@@ -424,9 +451,16 @@ function ServiceLogLevel() {
 			data-testid="log-level-form"
 		>
 			<div className="flex flex-wrap items-center gap-2">
-				<label className={LABEL_CLASS} htmlFor="log-level">
-					Services log at
-				</label>
+				<span className="flex items-center gap-1">
+					<label className={LABEL_CLASS} htmlFor="log-level">
+						Services log at
+					</label>
+					<Toggletip label="Service log level">
+						How much every service writes. Service default uses each service's own
+						setting. Debug fills the journal quickly, so turn it back down when you are
+						done.
+					</Toggletip>
+				</span>
 				<div className="w-48">
 					<select
 						id="log-level"

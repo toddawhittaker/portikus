@@ -57,10 +57,17 @@ for (const width of [1920, 1024]) {
 			page,
 		}) => {
 			await open(page);
-			const grace = await box(page.getByTestId("grace-input"));
-			const idle = await box(page.getByTestId("idle-input"));
-			expect(idle.y).toBe(grace.y);
-			expect(idle.x).toBeGreaterThan(grace.x + grace.width);
+			// Both read in one go, so nothing can move between the two.
+			const [grace, idle] = await page.evaluate(() =>
+				["grace-input", "idle-input"].map((id) => {
+					const rect = document
+						.querySelector(`[data-testid="${id}"]`)
+						?.getBoundingClientRect();
+					return { x: rect?.x ?? 0, y: rect?.y ?? 0, right: rect?.right ?? 0 };
+				}),
+			);
+			expect(idle?.y).toBe(grace?.y);
+			expect(idle?.x).toBeGreaterThan(grace?.right ?? 0);
 			const pairs: [string, string][] = [
 				["grace-input", "grace-save"],
 				["idle-input", "idle-save"],
@@ -96,7 +103,7 @@ test("the resource guard is four named groups with one line each and no long par
 		const group = guard.getByRole("group", { name });
 		await expect(group).toBeVisible();
 		for (const label of fields) {
-			await expect(group.getByLabel(label)).toBeVisible();
+			await expect(group.getByLabel(label, { exact: true })).toBeVisible();
 		}
 		const described = await group.getAttribute("aria-describedby");
 		await expect(page.locator(`[id="${described}"]`)).toHaveText(/\.$/);
@@ -106,7 +113,7 @@ test("the resource guard is four named groups with one line each and no long par
 		"memoryThresholdPercent",
 		"windowMinutes",
 	]) {
-		expect((await box(page.getByTestId(`settings-${key}`))).width).toBe(192);
+		expect((await box(page.getByTestId(`settings-${key}`))).width).toBe(208);
 	}
 	// No paragraph in the section runs past a couple of lines.
 	for (const text of await guard.locator("p").allTextContents()) {
@@ -158,6 +165,9 @@ test("the stop settings work from the keyboard alone", async ({ page }) => {
 		await page.getByTestId("grace-input").focus();
 		await page.keyboard.press("Tab");
 		await expect(page.getByTestId("grace-save")).toBeFocused();
+		// The help button beside the next label comes first, then its field.
+		await page.keyboard.press("Tab");
+		await expect(page.getByRole("button", { name: "About Idle stop" })).toBeFocused();
 		await page.keyboard.press("Tab");
 		await expect(page.getByTestId("idle-input")).toBeFocused();
 		await page.keyboard.press("ControlOrMeta+A");
@@ -182,9 +192,41 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme });
 		await open(page);
 		// With an error showing, so the error state is checked too.
-		await page.getByLabel("Window (minutes)").fill("1");
+		await page.getByLabel("Window (minutes)", { exact: true }).fill("1");
 		await page.getByTestId("guard-settings-save").click();
 		await expect(page.getByRole("alert")).toBeVisible();
+		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+	});
+}
+
+test("a setting's help opens on click, reads as a dialog, and Escape returns focus", async ({
+	page,
+}) => {
+	await open(page);
+	await expect(page.getByTestId("intro-admin-settings")).toContainText(
+		"Site-wide rules for when workspaces stop",
+	);
+	const button = page.getByRole("button", { name: "About Quiet below (%)" });
+	await button.click();
+	const tip = page.getByRole("dialog", { name: "Quiet below (%)" });
+	await expect(tip).toContainText("0 turns the automatic lift off.");
+	await page.keyboard.press("Escape");
+	await expect(tip).toHaveCount(0);
+	await expect(button).toBeFocused();
+	// From the keyboard too.
+	await page.keyboard.press("Enter");
+	await expect(tip).toBeVisible();
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the Settings tab with a help tip open has no automatic accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await open(page);
+		await page.getByRole("button", { name: "About Disconnect grace" }).click();
+		await expect(page.getByRole("dialog", { name: "Disconnect grace" })).toBeVisible();
 		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});
