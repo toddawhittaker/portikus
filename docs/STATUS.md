@@ -3304,3 +3304,46 @@ Gaps:
   in the row beside it.
 - The remembered-open `<details>` logic is copied in PageIntro and
   TrendsCard; it will be shared if a third copy appears.
+
+## Epic 15, task T7 — Backups on an apt-installed server
+
+A server installed with `apt install portikus` now backs itself up, and
+the Backups tab works on it (SPEC.md sections 20.1 and 24.9, ADR 0044).
+Before this, such a server took no nightly backup and a request from the
+tab waited forever, because backups were built for a VM on a separate
+host.
+
+- The four backup scripts take `--local`: the commands they sent over SSH
+  run on the server itself, as root. The package ships them in
+  `/usr/lib/portikus/backup/`, with root units for the nightly backup and
+  the tab's channel. Setup's `backup` role enables those timers only on
+  the server itself, installs `age`, and makes the key pair in
+  `/etc/portikus-backup/` when there is none. The pilot and the
+  development VM keep their host-pulled backups.
+- The key stays root-only. The tab's **Download backup key** and
+  **Upload backup key** reach it through `portikus-backup-key.socket`, a
+  root helper started per request. Downloads and uploads are
+  administrator-only, audited by the key's public half, and never logged;
+  the download is `no-store`; an upload must be one age identity, and
+  replacing a different key needs a confirmation. The tab reminds until
+  the key has been downloaded once.
+- Sets copied in by hand are listed and restored with the same checks,
+  and `restore.sh` now refuses a set that is or holds a symbolic link.
+- `sudo portikus restore [--check] [--start-check] <set>` restores a
+  whole server. docs/INSTALL.md explains copying the encrypted sets off
+  the server, which is the real backup, and rebuilding from such a copy.
+
+Verified by `infra/tests/backup-local-test.sh` (new), the existing
+backup-scope and backup-channel tests, unit tests for the routes and the
+authorization matrix, Playwright and axe tests for the key section, and
+`make install-test`, which now backs a rehearsal server up, downloads the
+key, copies a set off it, rebuilds the server from nothing, uploads the
+key, copies the set back and restores it, and checks that the users, the
+Dex accounts and a workspace's files came back.
+
+Gaps:
+
+- Nothing copies the sets off the server automatically (issue #753).
+- A set copied in by hand keeps its `REQUESTED` marker, so it counts
+  towards the three requested backups the channel allows in 14 days.
+- A whole-server restore is a shell command, not a button.

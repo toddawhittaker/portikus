@@ -1,6 +1,6 @@
 # 0039. Backup requests reach the host through a polling channel, and the host holds the restore key
 
-- **Status**: Accepted (Epic 24)
+- **Status**: Accepted (Epic 24); on an apt-installed server the channel runs on the server itself, and the key is handed out and replaced through a root socket (ADR 0044)
 - **Date**: 2026-09-27
 - **References**: SPEC.md sections 24.9 and 24.11; ADRs 0024, 0030, 0040; issue #730
 

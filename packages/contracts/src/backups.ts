@@ -282,3 +282,47 @@ export const BackupRestoreRequest = z
 	.object({ stamp: BackupStamp, workspaceId: z.string().uuid() })
 	.strict();
 export type BackupRestoreRequest = z.infer<typeof BackupRestoreRequest>;
+
+/**
+ * The backup key on an apt-installed server, where backups run on the server
+ * itself and its root helper holds the key (ADR 0044). The admin page can
+ * download it, to keep off the server, and upload one, to rebuild a server
+ * from an off-site copy. The routes are off (404) on a VM whose backups a
+ * separate host takes.
+ */
+export const BACKUP_KEY_FILE_NAME = "portikus-backup-key.txt";
+/** A real age identity file is under 200 bytes. */
+export const BACKUP_KEY_MAX_BYTES = 4096;
+/** An age recipient: the public half, safe to show and to audit. */
+export const BackupRecipient = z.string().regex(/^age1[0-9a-z]{58}$/);
+
+/** `GET /admin/backups/key`. */
+export const BackupKeyStatus = z
+	.object({
+		installed: z.boolean(),
+		recipient: BackupRecipient.nullable(),
+		/** Whether the installed key was downloaded or uploaded here: false shows the reminder. */
+		downloaded: z.boolean(),
+		downloadedAt: Timestamp.nullable(),
+	})
+	.strict();
+export type BackupKeyStatus = z.infer<typeof BackupKeyStatus>;
+
+/** `POST /admin/backups/key`: the file's text, and consent to replace a different key. */
+export const BackupKeyUpload = z
+	.object({
+		key: z.string().min(1).max(BACKUP_KEY_MAX_BYTES),
+		replace: z.boolean(),
+	})
+	.strict();
+export type BackupKeyUpload = z.infer<typeof BackupKeyUpload>;
+
+/** The upload's answer: the key now installed, and the one it replaced, if any. */
+export const BackupKeyUploadResult = z
+	.object({
+		outcome: z.enum(["installed", "unchanged"]),
+		replacedRecipient: BackupRecipient.nullable(),
+		key: BackupKeyStatus,
+	})
+	.strict();
+export type BackupKeyUploadResult = z.infer<typeof BackupKeyUploadResult>;

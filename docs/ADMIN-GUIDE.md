@@ -84,15 +84,24 @@ last 7 days, for the whole site, never per student.
 
 ## Backups and restores
 
-The backup host, the machine that runs the platform's virtual machine,
-copies the platform database and every workspace's home and recovery points
-each night, and encrypts them. Docker data is not backed up, because Reset
-Docker and Rebuild recreate it. Until a backup host reports to this
-platform, the tab says backups are not connected.
+Each night the platform database and every workspace's home and recovery
+points are copied and encrypted, either by the server itself (a server
+installed with apt) or by a separate backup host that runs the platform's
+virtual machine. Docker data is not backed up, because Reset Docker and
+Rebuild recreate it. Until backups report to this platform, the tab says
+backups are not connected.
 
 A restore needs the **restore key**, the private key that decrypts backups,
-installed on the backup host. The status at the top of the tab says whether
-it is.
+installed on the server or the backup host. The status at the top of the
+tab says whether it is.
+
+On a server that backs itself up, the **Backup key** section lets you
+download that key. It shows "Backup key not yet downloaded" until you do.
+Download it once, confirm, and keep the file off the server, for example in
+a password manager: copies of the backups kept elsewhere cannot be restored
+without it. **Upload backup key** is for rebuilding a lost server from such
+a copy; replacing a different key asks first, because that key is then
+gone. docs/INSTALL.md, "Rebuilding from an off-site backup", has the steps.
 
 ![The Backups tab: the host is reporting, the restore key is installed, and a week of complete sets](images/admin-backups.png)
 

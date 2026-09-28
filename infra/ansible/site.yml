@@ -91,6 +91,9 @@
     # A local run is `portikus setup`, which runs from the installed package;
     # only a run from a workstation installs one.
     portikus_install_package: "{{ ansible_connection | default('ssh') != 'local' }}"
+    # A local run backs the server up on itself (ADR 0044); a VM run from a
+    # workstation is backed up by the separate host (ADR 0024).
+    portikus_backup_local: "{{ ansible_connection | default('ssh') == 'local' }}"
     portikus_node_env: production
     portikus_api_port: 3000
     portikus_controller_port: 3001

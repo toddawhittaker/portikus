@@ -1,6 +1,6 @@
 # 0024. Backups are pulled to the host and encrypted there with age
 
-- **Status**: Accepted; the rule that the private key belongs offline is superseded by ADR 0039 (Epic 24)
+- **Status**: Accepted; the rule that the private key belongs offline is superseded by ADR 0039 (Epic 24); an apt-installed server backs itself up instead, with the same scripts in a local mode (ADR 0044)
 - **Date**: 2026-09-23
 - **References**: SPEC.md sections 17.3, 19, 24.9, 29 (Epic 12); STACK.md
   sections 20, 27 and 33; docs/archive/epics/EPIC-12B.md ("Part B decisions", task B3);

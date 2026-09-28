@@ -137,6 +137,49 @@ contents:
       owner: root
       group: root
       mode: 0755
+  # Backups on the server itself (ADR 0044): the same scripts a separate
+  # backup host runs, in local mode, and the root key helper.  Enabled by
+  # setup's backup role only on a local install.
+  - src: ./infra/host/backup.sh
+    dst: /usr/lib/portikus/backup/portikus-backup
+    file_info: &backup_script
+      owner: root
+      group: root
+      mode: 0755
+  - src: ./infra/host/portikus-backup-export
+    dst: /usr/lib/portikus/backup/portikus-backup-export
+    file_info: *backup_script
+  - src: ./infra/host/backup-channel.sh
+    dst: /usr/lib/portikus/backup/portikus-backup-channel
+    file_info: *backup_script
+  - src: ./infra/host/restore.sh
+    dst: /usr/lib/portikus/backup/portikus-restore
+    file_info: *backup_script
+  - src: ./infra/host/restore-copy.sh
+    dst: /usr/lib/portikus/backup/portikus-restore-copy
+    file_info: *backup_script
+  - src: ./packaging/backup/backup-key
+    dst: /usr/lib/portikus/backup/portikus-backup-key
+    file_info: *backup_script
+  - src: ./packaging/systemd/portikus-backup.service
+    dst: /usr/lib/systemd/system/portikus-backup.service
+    file_info: *unit_info
+  # The same schedules a separate backup host uses.
+  - src: ./infra/host/systemd/portikus-backup.timer
+    dst: /usr/lib/systemd/system/portikus-backup.timer
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-backup-channel.service
+    dst: /usr/lib/systemd/system/portikus-backup-channel.service
+    file_info: *unit_info
+  - src: ./infra/host/systemd/portikus-backup-channel.timer
+    dst: /usr/lib/systemd/system/portikus-backup-channel.timer
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-backup-key.socket
+    dst: /usr/lib/systemd/system/portikus-backup-key.socket
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-backup-key@.service
+    dst: /usr/lib/systemd/system/portikus-backup-key@.service
+    file_info: *unit_info
   # The recipe a "rebuild" job builds from (ruling 23).
   - src: ./infra/workspace-image/portikus.yaml
     dst: /usr/share/portikus/workspace-image/portikus.yaml

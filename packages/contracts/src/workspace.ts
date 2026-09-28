@@ -285,6 +285,10 @@ export const ApiErrorCode = z.enum([
 	"BACKUP_RUNNING",
 	"BACKUP_NEWEST_SET",
 	"RESTORE_NOT_FINISHED",
+	// The backup key on an apt-installed server (ADR 0044).
+	"BACKUP_KEY_INVALID",
+	"BACKUP_KEY_EXISTS",
+	"BACKUP_KEY_UNAVAILABLE",
 	// The database pool had no free connection in time (ADR 0034 ruling 14).
 	"SERVICE_BUSY",
 	// The workspace egress policy (issue #284).

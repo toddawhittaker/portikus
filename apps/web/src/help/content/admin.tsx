@@ -107,16 +107,25 @@ export const ADMIN_HELP: HelpPart = {
 			body: (
 				<>
 					<p>
-						The backup host, the machine that runs the platform's virtual machine,
-						copies the platform database and every workspace's home and recovery points
-						each night, and encrypts them. Docker data is not backed up, because Reset
-						Docker and Rebuild recreate it. Until a backup host reports to this
-						platform, the tab says backups are not connected.
+						Each night the platform database and every workspace's home and recovery
+						points are copied and encrypted, either by the server itself (a server
+						installed with apt) or by a separate backup host that runs the platform's
+						virtual machine. Docker data is not backed up, because Reset Docker and
+						Rebuild recreate it. Until backups report to this platform, the tab says
+						backups are not connected.
 					</p>
 					<p>
 						A restore needs the <strong>restore key</strong>, the private key that
-						decrypts backups, installed on the backup host. The status at the top of the
-						tab says whether it is.
+						decrypts backups, installed on the server or the backup host. The status at
+						the top of the tab says whether it is.
+					</p>
+					<p>
+						On a server that backs itself up, the <strong>Backup key</strong> section
+						lets you download that key. Do it once and keep the file off the server:
+						copies of the backups kept elsewhere cannot be restored without it. To
+						rebuild a lost server, install a new one, choose{" "}
+						<strong>Upload backup key</strong>, copy the backups onto it, and restore
+						them as the install guide describes.
 					</p>
 					<p>
 						To restore someone's files, choose <strong>Restore from backup</strong> in

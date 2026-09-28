@@ -1,10 +1,14 @@
 import {
 	AdminBackups,
+	BACKUP_KEY_FILE_NAME,
+	BackupKeyStatus,
+	type BackupKeyUpload,
+	BackupKeyUploadResult,
 	BackupRequestView,
 	type BackupRestoreRequest,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { request } from "../../api/request.js";
+import { request, toApiError } from "../../api/request.js";
 
 export const backupsKey = ["admin", "backups"] as const;
 
@@ -79,6 +83,65 @@ export function useDeleteSnapshot() {
 			del,
 		],
 	);
+}
+
+export const backupKeyKey = ["admin", "backups", "key"] as const;
+
+/**
+ * The server-held backup key (ADR 0044). Asked once, not polled: each ask
+ * starts a root helper on the server. A 404 means a separate host backs
+ * this site up and holds the key itself.
+ */
+export function useBackupKey() {
+	return useQuery({
+		queryKey: backupKeyKey,
+		queryFn: () => request(BackupKeyStatus, "/admin/backups/key"),
+		retry: false,
+		staleTime: Number.POSITIVE_INFINITY,
+		refetchOnWindowFocus: false,
+	});
+}
+
+/** Fetch the key and hand it to the browser as a file; nothing keeps a copy. */
+export function useDownloadBackupKey() {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: async () => {
+			const response = await fetch("/admin/backups/key/download", {
+				method: "POST",
+				credentials: "same-origin",
+				cache: "no-store",
+			});
+			if (!response.ok) throw await toApiError(response);
+			const url = URL.createObjectURL(await response.blob());
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = BACKUP_KEY_FILE_NAME;
+			document.body.append(link);
+			link.click();
+			link.remove();
+			// Revoked once the browser has started the download, not before.
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+		},
+		onSettled: () => {
+			void client.invalidateQueries({ queryKey: backupKeyKey });
+		},
+	});
+}
+
+export function useUploadBackupKey() {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: (body: BackupKeyUpload) =>
+			request(BackupKeyUploadResult, "/admin/backups/key", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+			}),
+		onSuccess: (result) => {
+			client.setQueryData(backupKeyKey, result.key);
+		},
+	});
 }
 
 export function useDeleteKeptHome() {

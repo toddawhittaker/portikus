@@ -13,6 +13,10 @@
 #   restore.sh --remove --target-name <vm-name> <vm-ip> <set-dir>
 #       after a rehearsal: delete the set's instances and volumes from the
 #       VM and leave it an empty database; refuses the pilot
+#   restore.sh --local [--start-check] <set-dir>
+#       the same restore onto the server this runs on, as root, with the
+#       key installed at /etc/portikus-backup/age-key.txt (`portikus
+#       restore`, an apt-installed host, ADR 0044)
 #   --target-name   the VM's hostname; the script refuses any other machine
 #   --start-check   afterwards, start one restored workspace and check its
 #                   files and Git HEADs from inside it, then stop it
@@ -21,10 +25,10 @@
 # form before it reaches a file name or a command.
 #
 # Environment:
-#   PORTIKUS_BACKUP_IDENTITY  age identity (default ~/.config/portikus/backup-age-key.txt)
+#   PORTIKUS_BACKUP_IDENTITY  age identity (default ~/.config/portikus/backup-age-key.txt,
+#                             or /etc/portikus-backup/age-key.txt with --local)
 set -euo pipefail
 
-IDENTITY="${PORTIKUS_BACKUP_IDENTITY:-${HOME}/.config/portikus/backup-age-key.txt}"
 POOL=workspace-data
 PROJECT=portikus
 PILOT_NAME=portikus
@@ -40,17 +44,25 @@ MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package
 info() { printf '[restore %s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf '[restore] FAIL: %s\n' "$*" >&2; exit 1; }
 
-mode=restore start_check=no target_name=""
+mode=restore start_check=no target_name="" local_mode=no
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) mode=check; shift ;;
     --remove) mode=remove; shift ;;
     --start-check) start_check=yes; shift ;;
     --target-name) target_name="${2:?--target-name needs a value}"; shift 2 ;;
+    --local) local_mode=yes; shift ;;
     *) break ;;
   esac
 done
-if [ "$mode" = check ]; then
+IDENTITY="${PORTIKUS_BACKUP_IDENTITY:-${HOME}/.config/portikus/backup-age-key.txt}"
+if [ "$local_mode" = yes ]; then
+  IDENTITY="${PORTIKUS_BACKUP_IDENTITY:-/etc/portikus-backup/age-key.txt}"
+  if [ "$mode" != restore ] || [ -n "$target_name" ]; then die "--local takes only --start-check"; fi
+  [ "$(id -u)" = 0 ] || die "--local must run as root"
+  SET="${1:?Usage: restore.sh --local [--start-check] <set-dir>}"
+  VM=127.0.0.1
+elif [ "$mode" = check ]; then
   SET="${1:?Usage: restore.sh --check <set-dir>}"
 else
   VM="${1:?Usage: restore.sh [--remove] --target-name <vm-name> <vm-ip> <set-dir>}"
@@ -60,6 +72,10 @@ fi
 
 [ -r "$IDENTITY" ] || die "no age identity at ${IDENTITY}; set PORTIKUS_BACKUP_IDENTITY"
 [ -f "${SET}/MANIFEST.age" ] || die "${SET} is not a backup set (no MANIFEST.age)"
+# A set may have been copied in by hand; nothing in it may lead elsewhere.
+if [ -L "$SET" ] || [ -n "$(find "$SET" -type l -print -quit)" ]; then
+  die "${SET} is or holds a symbolic link; refusing the set"
+fi
 scratch=$(mktemp -d)
 # Set once Dex is stopped, and once a restored workspace is held running.
 dex_stopped=no ws_held=no
@@ -151,10 +167,21 @@ fi
 # ── 2. The right VM ───────────────────────────────────────────────
 vm() { ssh -n -o BatchMode=yes -o ConnectTimeout=15 "deploy@${VM}" "$@"; }
 vm_in() { ssh -o BatchMode=yes -o ConnectTimeout=15 "deploy@${VM}" "$@"; }
+if [ "$local_mode" = yes ]; then
+  # The same commands as over SSH, run here; this is already root, so sudo is a no-op.
+  sudo() { "$@"; }
+  export -f sudo
+  vm() { bash -c "$*" </dev/null; }
+  vm_in() { bash -c "$*"; }
+fi
 psql_vm() { printf '%s\n' "$1" | vm_in "sudo runuser -u postgres -- psql -X -q -t -A -v ON_ERROR_STOP=1 -d portikus"; }
 
-actual_name=$(vm hostname)
-[ "$actual_name" = "$target_name" ] || die "${VM} is '${actual_name}', not '${target_name}'; nothing was changed"
+if [ "$local_mode" = yes ]; then
+  actual_name=$(hostname) target_name=$actual_name
+else
+  actual_name=$(vm hostname)
+  [ "$actual_name" = "$target_name" ] || die "${VM} is '${actual_name}', not '${target_name}'; nothing was changed"
+fi
 
 # Mock, Entra and Google sites run no Dex, so a set's Dex accounts have nowhere to go.
 dex_installed() { vm "if systemctl cat portikus-dex.service >/dev/null 2>&1; then echo yes; else echo no; fi"; }

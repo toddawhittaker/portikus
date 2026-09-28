@@ -11,13 +11,17 @@
 # volumes are still saved, and the run exits non-zero.
 #
 # Usage: backup.sh [--check-state] --vm-name <name> <vm-ip>
+#        backup.sh --local
 #   --check-state  compare workspaces, users and settings before and after,
 #                  with the security suite's snapshot helper (repository only)
 #   --vm-name      the VM's name in the OpenTofu state, such as portikus
+#   --local        back up the server this runs on, as root, into
+#                  <backup dir>/local (an apt-installed host, ADR 0044)
 #
 # Environment:
 #   PORTIKUS_BACKUP_DIR         holds one directory of sets per VM (default /var/backups/portikus)
-#   PORTIKUS_BACKUP_RECIPIENTS  age recipients file (default ~/.config/portikus/backup-recipients.txt)
+#   PORTIKUS_BACKUP_RECIPIENTS  age recipients file (default ~/.config/portikus/backup-recipients.txt,
+#                               or /etc/portikus-backup/recipients.txt with --local)
 #   PORTIKUS_BACKUP_KEEP        complete sets, and incomplete ones, kept per VM (default 14)
 #   PORTIKUS_BACKUP_MIN_AGE_DAYS   retention never removes a set younger than this (default 14)
 #   PORTIKUS_BACKUP_MIN_FREE_MB    a run needs this much free space at least (default 1024)
@@ -28,7 +32,6 @@ set -euo pipefail
 umask 077
 
 BACKUP_DIR="${PORTIKUS_BACKUP_DIR:-/var/backups/portikus}"
-RECIPIENTS="${PORTIKUS_BACKUP_RECIPIENTS:-${HOME}/.config/portikus/backup-recipients.txt}"
 KEEP="${PORTIKUS_BACKUP_KEEP:-14}"
 # The same retention floor as backup-channel.sh's delete (ADR 0039), so
 # repeated requested backups cannot prune recent sets either.
@@ -208,14 +211,25 @@ bounded() {
 
 check_state=no
 expected_name=
+local_mode=no
 while [ $# -gt 0 ]; do
   case "$1" in
     --check-state) check_state=yes; shift ;;
     --vm-name) expected_name="${2:?--vm-name needs a value}"; shift 2 ;;
+    --local) local_mode=yes; shift ;;
     *) break ;;
   esac
 done
-VM="${1:?Usage: backup.sh [--check-state] --vm-name <name> <vm-ip>}"
+if [ "$local_mode" = yes ]; then
+  if [ "$check_state" = yes ] || [ -n "$expected_name" ]; then die "--local takes no other option"; fi
+  RECIPIENTS="${PORTIKUS_BACKUP_RECIPIENTS:-/etc/portikus-backup/recipients.txt}"
+  # The MANIFEST's vm line keeps its address form.
+  VM=127.0.0.1
+  expected_name=local
+else
+  RECIPIENTS="${PORTIKUS_BACKUP_RECIPIENTS:-${HOME}/.config/portikus/backup-recipients.txt}"
+  VM="${1:?Usage: backup.sh [--check-state] --vm-name <name> <vm-ip>}"
+fi
 [ -n "$expected_name" ] || die "--vm-name is required, so one VM can never write into another's sets"
 [[ "$expected_name" =~ $HOSTNAME_PATTERN ]] || die "--vm-name '${expected_name}' is not a hostname"
 
@@ -228,13 +242,24 @@ if [ ! -d "$BACKUP_DIR" ] || [ ! -w "$BACKUP_DIR" ]; then
 fi
 
 vm() { ssh -n -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=4 "deploy@${VM}" "$@"; }
+if [ "$local_mode" = yes ]; then
+  [ "$(id -u)" = 0 ] || die "--local must run as root"
+  # The same commands as over SSH, run here; this is already root, so sudo is a no-op.
+  sudo() { "$@"; }
+  export -f sudo
+  vm() { bash -c "$*" </dev/null; }
+fi
 # Base64 keeps the script intact through the remote shell, whatever it is.
 export_b64=$(base64 -w0 "$EXPORT_SCRIPT")
 remote_export() { vm "sudo bash -c \"\$(echo ${export_b64} | base64 -d)\" portikus-backup-export $*"; }
 
-vm_name=$(bounded hostname 64 1 vm hostname)
-must "hostname" "$HOSTNAME_PATTERN" "$vm_name"
-[ "$vm_name" = "$expected_name" ] || die "${VM} calls itself '${vm_name}', not '${expected_name}'; nothing was kept"
+if [ "$local_mode" = yes ]; then
+  vm_name=local
+else
+  vm_name=$(bounded hostname 64 1 vm hostname)
+  must "hostname" "$HOSTNAME_PATTERN" "$vm_name"
+  [ "$vm_name" = "$expected_name" ] || die "${VM} calls itself '${vm_name}', not '${expected_name}'; nothing was kept"
+fi
 HOST_DIR="${BACKUP_DIR}/${expected_name}"
 install -d -m 0700 "$HOST_DIR"
 

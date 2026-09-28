@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	CookieJar,
 	loginAs,
@@ -8,6 +11,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
+import { type FakeBackupKey, fakeKey, startFakeBackupKey } from "../fake-backup-key.js";
 import {
 	buildMatrixWorld,
 	buildTestServer,
@@ -101,6 +105,10 @@ const PIXEL_PNG = Buffer.from(
 let testDb: TestDb;
 let mock: MockOidcProvider;
 let agent: FakeAgent;
+/** The root backup key helper of an apt-installed server (ADR 0044). */
+let keyHelper: FakeBackupKey;
+let keyDir: string;
+const MATRIX_KEY = fakeKey("matrix server");
 /** A recovery point of A's project, made fresh with each world. */
 let pointId: string;
 
@@ -111,6 +119,11 @@ beforeAll(async () => {
 		users: MATRIX_MOCK_USERS,
 	});
 	agent = await startFakeAgent(AGENT_TOKEN);
+	keyDir = mkdtempSync(join(tmpdir(), "authz-matrix-key-"));
+	keyHelper = await startFakeBackupKey(join(keyDir, "helper.sock"), {
+		identity: MATRIX_KEY.identity,
+		handedOut: null,
+	});
 });
 
 afterAll(async () => {
@@ -118,6 +131,8 @@ afterAll(async () => {
 	await testDb.close();
 	await mock.close();
 	await agent.close();
+	await keyHelper.close();
+	rmSync(keyDir, { recursive: true, force: true });
 });
 
 /**
@@ -153,7 +168,11 @@ async function withWorld(
 	run: (app: FastifyInstance, world: World) => Promise<void>,
 ): Promise<void> {
 	await testDb.truncate();
-	const app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
+	keyHelper.setState({ identity: MATRIX_KEY.identity, handedOut: null });
+	const app = buildTestServer(testDb.db, mock.issuer, {
+		AGENT_PORT: agent.port,
+		BACKUP_KEY_SOCKET: keyHelper.socketPath,
+	});
 	await app.ready();
 	try {
 		const matrix = await buildMatrixWorld(app, testDb.db, AGENT_TOKEN);
@@ -283,6 +302,7 @@ const PAYLOADS: Record<string, object> = {
 		value: "example.edu",
 		label: "",
 	},
+	"POST /admin/backups/key": { key: fakeKey("matrix upload").file, replace: true },
 	"POST /admin/backups/restores": {
 		stamp: "20260924T023000Z",
 		workspaceId: "550e8400-e29b-41d4-a716-446655440000",
@@ -486,7 +506,10 @@ function printedRoutes(app: FastifyInstance): string[] {
 // --- Done item 1: every route is classified, every class names a route ----
 
 test.skipIf(skip)("every registered route has an access class, and back", async () => {
-	const app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
+	const app = buildTestServer(testDb.db, mock.issuer, {
+		AGENT_PORT: agent.port,
+		BACKUP_KEY_SOCKET: keyHelper.socketPath,
+	});
 	const seen = new Map<string, boolean>();
 	app.addHook("onRoute", (route) => {
 		const methods = Array.isArray(route.method) ? route.method : [route.method];

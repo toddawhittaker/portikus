@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# The root side of the backup key on an apt-installed server, for the admin
+# page's Download and Upload buttons (docs/adr/0044-backups-on-the-server.md).
+# portikus-backup-key.socket starts one of these per connection, with the
+# connection on standard input and output.  The API writes one verb line:
+#
+#   status          answers "ok" and one JSON line: whether a key is
+#                   installed, its public half (the recipient), and the
+#                   recipient last handed out or uploaded, with the time
+#   export          answers "ok <recipient>", then the key file, and records
+#                   the handout
+#   import          reads an age identity from the rest of the input and
+#                   installs it with a matching recipients file; answers
+#                   "ok installed <recipient> <replaced recipient or ->",
+#                   "ok unchanged <recipient>", or "error exists" when a
+#                   different key is installed
+#   import-replace  the same, but replaces a different key
+#
+# Anything else answers "error <code>" and changes nothing.  The key only
+# ever goes to standard output; standard error is the journal.
+#
+# Environment (tests only): PORTIKUS_BACKUP_KEY_DIR, PORTIKUS_BACKUP_LOCK.
+set -euo pipefail
+umask 077
+
+DIR="${PORTIKUS_BACKUP_KEY_DIR:-/etc/portikus-backup}"
+# backup.sh holds this for its whole run, so a key swap never lands mid-backup.
+LOCK="${PORTIKUS_BACKUP_LOCK:-/var/backups/portikus/.lock}"
+KEY="${DIR}/age-key.txt"
+RECIPIENTS="${DIR}/recipients.txt"
+HANDED="${DIR}/handed-out"
+# A real identity file is under 200 bytes.
+MAX_BYTES=4096
+IDENTITY_PATTERN='^AGE-SECRET-KEY-1[0-9A-Z]{58}$'
+RECIPIENT_PATTERN='^age1[0-9a-z]{58}$'
+
+log() { printf 'portikus-backup-key: %s\n' "$*" >&2; }
+refuse() {
+  printf 'error %s\n' "$1"
+  log "refused a request: $1"
+  exit 0
+}
+
+tmp=""
+trap '[ -z "$tmp" ] || rm -f "$tmp"' EXIT
+
+installed() { [ -f "$KEY" ] && [ ! -L "$KEY" ] && [ -s "$KEY" ]; }
+
+# The recipient of the installed key, or nothing.
+current_recipient() {
+  local r
+  installed || return 0
+  r=$(age-keygen -y "$KEY" 2>/dev/null | head -1) || return 0
+  [[ "$r" =~ $RECIPIENT_PATTERN ]] && printf '%s' "$r"
+}
+
+# record_handout RECIPIENT -- the admin now holds this key.
+record_handout() {
+  printf '%s %s\n' "$(date +%s)" "$1" >"${HANDED}.new"
+  mv -f "${HANDED}.new" "$HANDED"
+}
+
+status() {
+  local r handed_at="" handed=""
+  r=$(current_recipient)
+  if [ -f "$HANDED" ] && [ ! -L "$HANDED" ]; then
+    read -r handed_at handed <"$HANDED" || true
+  fi
+  [[ "$handed_at" =~ ^[0-9]{1,12}$ && "$handed" =~ $RECIPIENT_PATTERN ]] || handed_at="" handed=""
+  printf 'ok\n'
+  printf '{"installed":%s,"recipient":%s,"handedOutRecipient":%s,"handedOutAt":%s}\n' \
+    "$([ -n "$r" ] && echo true || echo false)" \
+    "$([ -n "$r" ] && printf '"%s"' "$r" || echo null)" \
+    "$([ -n "$handed" ] && printf '"%s"' "$handed" || echo null)" \
+    "${handed_at:-null}"
+}
+
+export_key() {
+  local r
+  r=$(current_recipient)
+  [ -n "$r" ] || refuse "no-key"
+  printf 'ok %s\n' "$r"
+  cat "$KEY"
+  record_handout "$r"
+  log "handed the backup key for ${r} to the admin page"
+}
+
+import_key() {
+  local replace=$1 identity recipient current lines
+  tmp=$(mktemp "${DIR}/.upload.XXXXXX")
+  head -c $((MAX_BYTES + 1)) >"$tmp"
+  [ "$(stat -c %s "$tmp")" -le "$MAX_BYTES" ] || refuse "too-large"
+  # One identity line; anything else may only be a comment or blank, as age-keygen writes.
+  lines=$(tr -d '\r' <"$tmp" | LC_ALL=C grep -Evc '^(#.*)?$' || true)
+  identity=$(tr -d '\r' <"$tmp" | LC_ALL=C grep -E "$IDENTITY_PATTERN" || true)
+  if [ "$lines" != 1 ] || [ "$(printf '%s\n' "$identity" | wc -l)" != 1 ] || [ -z "$identity" ]; then
+    refuse "invalid"
+  fi
+  printf '%s\n' "$identity" >"$tmp"
+  recipient=$(age-keygen -y "$tmp" 2>/dev/null | head -1) || refuse "invalid"
+  [[ "$recipient" =~ $RECIPIENT_PATTERN ]] || refuse "invalid"
+
+  current=$(current_recipient)
+  if [ "$current" = "$recipient" ]; then
+    # Brings a missing or different recipients file back in line.
+    printf '%s\n' "$recipient" >"${RECIPIENTS}.new"
+    mv -f "${RECIPIENTS}.new" "$RECIPIENTS"
+    record_handout "$recipient"
+    printf 'ok unchanged %s\n' "$recipient"
+    log "an uploaded backup key matches the installed one (${recipient})"
+    return 0
+  fi
+  if { [ -n "$current" ] || installed; } && [ "$replace" != yes ]; then
+    refuse "exists"
+  fi
+  if [ -d "$(dirname "$LOCK")" ]; then
+    exec {lock}>>"$LOCK"
+    flock -n "$lock" || refuse "busy"
+  fi
+  { printf '# public key: %s\n' "$recipient"; printf '%s\n' "$identity"; } >"$tmp"
+  # Recipients first: a backup that starts in between is for the new key, which the uploader holds.
+  printf '%s\n' "$recipient" >"${RECIPIENTS}.new"
+  mv -f "${RECIPIENTS}.new" "$RECIPIENTS"
+  mv -f "$tmp" "$KEY"
+  tmp=""
+  record_handout "$recipient"
+  printf 'ok installed %s %s\n' "$recipient" "${current:--}"
+  log "installed an uploaded backup key for ${recipient}${current:+, replacing the key for ${current}}"
+}
+
+if [ ! -d "$DIR" ] || [ -L "$DIR" ]; then refuse "no-key-dir"; fi
+IFS= read -r -n 32 verb || true
+case "$verb" in
+  status) status ;;
+  export) export_key ;;
+  import) import_key no ;;
+  import-replace) import_key yes ;;
+  *) refuse "unknown-verb" ;;
+esac

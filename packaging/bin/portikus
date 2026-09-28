@@ -6,6 +6,9 @@ API_ENV=/etc/portikus/api.env
 WORKER_ENV=/etc/portikus/worker.env
 BACKUP_CHANNEL_MAIN=/usr/lib/portikus/worker/dist/backup-channel-main.js
 PASSWORD_FILE=/etc/portikus/admin-password
+BACKUP_SETS=/var/backups/portikus/local
+BACKUP_KEY=/etc/portikus-backup/age-key.txt
+RESTORE=/usr/lib/portikus/backup/portikus-restore
 RESET_ADMIN_MAIN=/usr/lib/portikus/api/node_modules/@portikus/auth/dist/reset-admin-main.js
 NODE=/usr/lib/portikus/node/bin/node
 ANSIBLE_DIR=/usr/share/portikus/ansible
@@ -21,6 +24,7 @@ Usage: portikus setup [--follow]
        portikus status
        portikus reset-admin [--email ADDRESS] [--if-missing]
        portikus backup-channel pull|report
+       portikus restore [--check] [--start-check] STAMP
 
 setup        Apply ${CONFIG_FILE} to this host with the shipped Ansible
              play, in the foreground.  Safe to run again.
@@ -44,6 +48,16 @@ backup-channel pull    Claim the oldest waiting backup request for the
 backup-channel report  Read the host's report, one JSON document, on
                        standard input and store it.  Exits 2 when the
                        document is refused.
+
+restore STAMP  Restore the whole server from the backup set
+             ${BACKUP_SETS}/STAMP, with the key in ${BACKUP_KEY}:
+             the database, Dex's accounts and every workspace's home.
+             Only onto a server with no workspaces, projects or users
+             but the local administrator, such as a fresh install.
+             --check        only prove the key opens the set and every
+                            file is whole; changes nothing
+             --start-check  afterwards, start one restored workspace
+                            and check its files from inside it
 EOF
 }
 
@@ -137,6 +151,56 @@ backup_channel() {
     "${NODE}" "${BACKUP_CHANNEL_MAIN}" "$1"
 }
 
+# A whole-server restore on an apt-installed host (docs/adr/0044).
+restore() {
+  if [ "$(id -u)" != 0 ]; then
+    echo "portikus: restore must run as root: sudo portikus restore ..." >&2
+    exit 1
+  fi
+  check=no start=""
+  while [ $# -gt 1 ]; do
+    case "$1" in
+      --check) check=yes ;;
+      --start-check) start=--start-check ;;
+      *) usage >&2; exit 2 ;;
+    esac
+    shift
+  done
+  if [ $# -ne 1 ] || ! printf '%s' "$1" | grep -Eqx '[0-9]{8}T[0-9]{6}Z'; then
+    echo "portikus: restore takes a set's name, such as 20260924T023000Z; the sets are in ${BACKUP_SETS}" >&2
+    exit 2
+  fi
+  set_dir="${BACKUP_SETS}/$1"
+  if [ ! -d "${set_dir}" ] || [ -L "${set_dir}" ]; then
+    echo "portikus: there is no set ${set_dir}" >&2
+    exit 1
+  fi
+  if [ "${check}" = yes ]; then
+    PORTIKUS_BACKUP_IDENTITY="${BACKUP_KEY}" exec "${RESTORE}" --check "${set_dir}"
+  fi
+  # No backup or request may run while the database is replaced.
+  timers=""
+  for timer in portikus-backup-channel.timer portikus-backup.timer; do
+    if systemctl is-active --quiet "${timer}"; then
+      timers="${timers} ${timer}"
+      systemctl stop "${timer}"
+    fi
+  done
+  trap '[ -z "${timers}" ] || systemctl start ${timers}' EXIT
+  waited=0
+  while systemctl is-active --quiet portikus-backup.service portikus-backup-channel.service; do
+    if [ "${waited}" -ge 120 ]; then
+      echo "portikus: a backup or a backup request is still running; try again when it ends" >&2
+      exit 1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+  status=0
+  PORTIKUS_BACKUP_IDENTITY="${BACKUP_KEY}" "${RESTORE}" --local ${start} "${set_dir}" || status=$?
+  exit "${status}"
+}
+
 reset_admin() {
   if [ "$(id -u)" != 0 ]; then
     echo "portikus: reset-admin must run as root: sudo portikus reset-admin" >&2
@@ -198,6 +262,10 @@ case "${1:-}" in
   backup-channel)
     shift
     backup_channel "$@"
+    ;;
+  restore)
+    shift
+    restore "$@"
     ;;
   -h | --help | help)
     usage

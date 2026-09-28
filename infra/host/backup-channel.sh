@@ -11,8 +11,12 @@
 # already trusts; only the restore steps read the private key, as root.
 #
 # Usage: backup-channel.sh --operator <user> --vm-name <name> <vm-ip>
+#        backup-channel.sh --local
 #   --operator  the account that runs the nightly backup and owns the sets
 #   --vm-name   the VM's name in the OpenTofu state; its sets are <dir>/<name>
+#   --local     serve the server this runs on, with no SSH: the requests come
+#               from its own unprivileged worker, still untrusted, and the
+#               sets are <dir>/local (an apt-installed host, ADR 0044)
 #
 # Environment:
 #   PORTIKUS_BACKUP_DIR            one directory of sets per VM (default /var/backups/portikus)
@@ -253,15 +257,21 @@ json.dump({"id": rid, "state": state, "error": error or None, "stamp": stamp or 
 info() { printf '[backup-channel] %s\n' "$*"; }
 die() { printf '[backup-channel] FAIL: %s\n' "$*" >&2; exit 1; }
 
-OPERATOR="" VM_NAME=""
+OPERATOR="" VM_NAME="" LOCAL=no
 while [ $# -gt 0 ]; do
   case "$1" in
     --operator) OPERATOR="${2:?--operator needs a value}"; shift 2 ;;
     --vm-name) VM_NAME="${2:?--vm-name needs a value}"; shift 2 ;;
+    --local) LOCAL=yes; shift ;;
     *) break ;;
   esac
 done
-VM="${1:?Usage: backup-channel.sh --operator <user> --vm-name <name> <vm-ip>}"
+if [ "$LOCAL" = yes ]; then
+  if [ -n "$OPERATOR$VM_NAME" ] || [ $# -gt 0 ]; then die "--local takes no other option"; fi
+  OPERATOR=root VM_NAME=local VM=127.0.0.1
+else
+  VM="${1:?Usage: backup-channel.sh --operator <user> --vm-name <name> <vm-ip>}"
+fi
 [[ "$OPERATOR" =~ $USER_PATTERN ]] || die "--operator '${OPERATOR}' is not a user name"
 [[ "$VM_NAME" =~ $HOSTNAME_PATTERN ]] || die "--vm-name '${VM_NAME}' is not a hostname"
 [[ "$VM" =~ $IP_PATTERN ]] || die "'${VM}' is not an IPv4 address"
@@ -283,6 +293,16 @@ trap cleanup EXIT
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 vm() { runuser -u "$OPERATOR" -- ssh -n "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
 vm_in() { runuser -u "$OPERATOR" -- ssh "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
+# as_operator CMD... -- CMD as the account that owns the sets: root on a local server.
+as_operator() { runuser -u "$OPERATOR" -- "$@"; }
+if [ "$LOCAL" = yes ]; then
+  # The same commands as over SSH, run here; this is already root, so sudo is a no-op.
+  sudo() { "$@"; }
+  export -f sudo
+  vm() { bash -c "$*" </dev/null; }
+  vm_in() { bash -c "$*"; }
+  as_operator() { "$@"; }
+fi
 
 # The key counts as installed only in the root-only form backup-install-key makes.
 key_installed() {
@@ -444,7 +464,9 @@ run_backup() {
   before=$(list_sets)
   start=$(date +%s)
   info "request ${id}: backup of ${VM_NAME}"
-  if runuser -u "$OPERATOR" -- env "${env[@]}" nice -n 10 ionice -c 3 "$BACKUP_CMD" --vm-name "$VM_NAME" "$VM" 2>"$err"; then
+  local target=(--vm-name "$VM_NAME" "$VM")
+  [ "$LOCAL" = no ] || target=(--local)
+  if as_operator env "${env[@]}" nice -n 10 ionice -c 3 "$BACKUP_CMD" "${target[@]}" 2>"$err"; then
     job_state="done"
   else
     job_fail "$(last_fail "$err")"
@@ -504,7 +526,9 @@ run_restore() {
     job_fail "refused by the host: not a restore folder name"
     return
   fi
-  if PORTIKUS_BACKUP_KEY="$KEY" "$RESTORE_COPY_CMD" --operator "$OPERATOR" --vm-name "$VM_NAME" \
+  local target=(--operator "$OPERATOR" --vm-name "$VM_NAME")
+  [ "$LOCAL" = no ] || target=(--local)
+  if PORTIKUS_BACKUP_KEY="$KEY" "$RESTORE_COPY_CMD" "${target[@]}" \
     "$mode" "$VM" "${HOST_DIR}/${stamp}" "$instance" ${dir:+"$dir"} 2>"$err"; then
     job_state="done"
   else

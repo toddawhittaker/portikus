@@ -157,6 +157,11 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "IMAGE_JOBS_DIR must be an absolute path")
 		.optional(),
+	/** The root backup key helper's socket on an apt-installed server (ADR 0044); unset turns the key routes off. */
+	BACKUP_KEY_SOCKET: z
+		.string()
+		.regex(/^\/./, "BACKUP_KEY_SOCKET must be an absolute path")
+		.optional(),
 	/** Workspace start, stop and restart requests per user per minute (ADR 0034 ruling 16). */
 	WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: positiveInt.default(20),
 	/** File and project writes per user per minute (ADR 0034 ruling 16). */
