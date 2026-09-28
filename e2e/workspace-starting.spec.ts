@@ -109,7 +109,7 @@ test("a STORAGE_FULL error with Docker full says so with figures and leads with 
 		"Reset Docker…",
 		"Workspace details",
 	]);
-	await progress.getByRole("button", { name: "Reset Docker…" }).click();
+	await progress.getByRole("button", { name: "Reset Docker…", exact: true }).click();
 	await expect(page.getByTestId("dialog-reset-docker")).toBeVisible();
 });
 

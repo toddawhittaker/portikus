@@ -158,7 +158,7 @@ test("secondary buttons in the workspace dialog show their border", async ({
 	await page.getByTestId("workspace-status").click();
 	const restart = page
 		.getByTestId("dialog-workspace-status")
-		.getByRole("button", { name: "Restart workspace" });
+		.getByRole("button", { name: "Restart workspace", exact: true });
 	await expect(restart).toBeVisible();
 	const border = await restart.evaluate((el) => getComputedStyle(el).borderTopColor);
 	expect(border).not.toBe("rgba(0, 0, 0, 0)");

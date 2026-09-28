@@ -44,7 +44,9 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.goto(workspacePath(student.workspaceId));
 
 		const progress = page.getByTestId("workspace-progress");
-		await expect(progress.getByRole("button", { name: "Reset Docker…" })).toBeVisible({
+		await expect(
+			progress.getByRole("button", { name: "Reset Docker…", exact: true }),
+		).toBeVisible({
 			timeout: 15_000,
 		});
 		await progress.getByText("Technical details").click();
@@ -60,15 +62,19 @@ for (const scheme of ["light", "dark"] as const) {
 
 		// Each toggletip opens by keyboard, passes axe open, and Escape closes only the tip.
 		for (const label of ["Reset Docker", "Recovery storage"]) {
-			await dialog.getByRole("button", { name: `About ${label}` }).focus();
+			await dialog.getByRole("button", { name: `About ${label}`, exact: true }).focus();
 			await page.keyboard.press("Enter");
-			await expect(page.getByRole("dialog", { name: label })).toBeVisible();
+			await expect(
+				page.getByRole("dialog", { name: label, exact: true }),
+			).toBeVisible();
 			await expectNoViolations(page);
 			await page.keyboard.press("Escape");
-			await expect(page.getByRole("dialog", { name: label })).toHaveCount(0);
+			await expect(page.getByRole("dialog", { name: label, exact: true })).toHaveCount(
+				0,
+			);
 			// Focus goes back to the tip's button, still inside the Workspace dialog.
 			await expect(
-				dialog.getByRole("button", { name: `About ${label}` }),
+				dialog.getByRole("button", { name: `About ${label}`, exact: true }),
 			).toBeFocused();
 		}
 	});
@@ -88,9 +94,9 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.getByTestId("workspace-status").click();
 		const dialog = page.getByTestId("dialog-workspace-status");
 		await dialog.getByRole("button", { name: "About Restart workspace" }).click();
-		await expect(page.getByRole("dialog", { name: "Restart workspace" })).toContainText(
-			"previews come back inactive",
-		);
+		await expect(
+			page.getByRole("dialog", { name: "Restart workspace", exact: true }),
+		).toContainText("previews come back inactive");
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 		await expect(dialog).toBeVisible();
