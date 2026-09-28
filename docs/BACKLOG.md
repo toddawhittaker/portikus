@@ -79,41 +79,6 @@ connector, and the local administrator is the way back from a mistake.
 
 **Source.** Todd, 2026-09-25.
 
-## A limit on throttle-then-restart cycles
-
-**What.** Bound how often one workspace can be throttled and then lift
-its own throttle by stopping and starting.
-
-**Why.** Stopping and starting a workspace lifts its throttle and starts
-a fresh usage window (SPEC.md section 19.4), so a student can run a
-heavy load for a full window, get throttled, restart, and repeat without
-end. Each cycle is audited in two rows, `workspace.cpu_throttled` and
-`workspace.cpu_throttle_lifted`, so an administrator can see it, but
-nothing stops it. This was accepted as a known limitation of Epic 14.3.
-
-**What it would take.** A count of recent throttles per workspace, and a
-rule that keeps the throttle through a restart, or flags the workspace
-for an administrator, after a set number within a set time.
-
-**Source.** Epic 14.3 review, 2026-09-25.
-
-Scheduled as Epic 24 (docs/EPIC-24.md).
-
-## Re-provision after a failed create
-
-**What.** An administrator action that retries a workspace stuck in `error`.
-
-**Why.** There is no re-provision path today: the row stays in `error` and
-an operator clears it by hand in SQL.
-
-**What it would take.** An admin route that resets the row to a state the
-worker will pick up again, an audit row recording who did it, and a button
-on the administration page. About a day.
-
-**Source.** `docs/SPEC.md` around line 2225, Epic 3 known gaps.
-
-Scheduled as Epic 24 (docs/EPIC-24.md).
-
 ## OpenAPI generation from the Zod contracts
 
 **What.** Generate an OpenAPI document from the schemas in
@@ -916,45 +881,8 @@ weekly (docs/OPERATIONS.md, "Backups").
 still encrypted, to a configured destination and reports its result on
 the admin Backups tab. About two days.
 
-**Source.** Issue #730; left out of Epic 24.
-
-## Per-workspace CPU, memory, and process limits
-
-**What.** Let an administrator set CPU, memory and process limits on one
-workspace, rather than every workspace sharing the limits in the one
-Incus profile that Ansible owns.
-
-**Why.** Epic 11's Health tab shows the profile's shared limits but does
-not let anyone change them per workspace; today a single misbehaving
-workspace is bounded only by the platform-wide profile.
-
-**What it would take.** A per-instance Incus limit override, a place to
-store the chosen values, and admin UI to set them. About two days.
-
-**Source.** `docs/archive/epics/EPIC-11.md`, "Out of this epic".
-
-Scheduled as Epic 24 (docs/EPIC-24.md).
-
-## Egress allow-list (issue #284)
-
-**What.** Let an administrator restrict which external hosts a
-workspace's outbound network traffic can reach, beyond the private-range
-and host deny list.
-
-**Why.** SPEC.md and issue #284 ask for administrator control over
-egress. PR #424 already added a deny list that keeps workspace traffic
-off private network ranges and the platform host itself, which closes
-one class of risk (a workspace reaching the platform's own internal
-services) but is not the allow-list itself.
-
-**What it would take.** A policy store, an enforcement point (likely
-nftables rules per workspace, alongside the existing deny list), and
-admin UI in the Settings tab, which Epic 11 left a place for. About two
-days.
-
-**Source.** Issue #284; `docs/archive/epics/EPIC-11.md`, "Settings tab" and task 7.
-
-Scheduled as Epic 24 (docs/EPIC-24.md).
+**Source.** Issue #730; left out of Epic 24. Tracked as issue #753,
+which would also make backups incremental and deduplicated (restic).
 
 ## Bulk admin actions
 

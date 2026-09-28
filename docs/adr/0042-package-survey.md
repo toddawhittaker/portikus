@@ -1,6 +1,6 @@
 # 0042. The package survey and the reinstall note
 
-- **Status**: Proposed
+- **Status**: Accepted (Epic 24)
 - **Date**: 2026-09-27
 - **References**: SPEC.md sections 20.1 and 22.3, issue #626
 

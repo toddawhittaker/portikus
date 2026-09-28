@@ -1,6 +1,6 @@
 # 0040. Restoring one workspace into a side copy, and replacing a home
 
-- **Status**: Proposed (Epic 24, task T8)
+- **Status**: Accepted (Epic 24)
 - **Date**: 2026-09-27
 - **References**: SPEC.md sections 17.2 and 24.9; ADRs 0021, 0024 and 0039; issue #730
 

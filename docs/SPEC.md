@@ -1568,6 +1568,19 @@ The preview proxy must support:
 - streaming responses;
 - hot-module-reload connections.
 
+HTTPS upstreams (Epic 24, issue #283, ADR 0041): a student server that
+speaks HTTPS on its port, such as `vite --https`, previews like any
+other. For each new student listener on port 1024 or above, once per
+listener, the workspace agent tries a TLS handshake with certificate
+checks off and a one-second timeout, at most four at a time; a completed
+handshake sets `protocolHint: "https"`. `/preview/authorize` then sends
+a second trusted header, `X-Portikus-Upstream-Scheme: https` (or `http`),
+taken only from the listening registry. Caddy strips any client-sent
+copy, and for `https` uses a TLS transport with certificate checks off
+for that hop only, WebSocket upgrades included. The API's framing probe
+speaks HTTPS to the same registry target. The browser still sees only
+the platform's certificate.
+
 ### 14.6 Preview tab
 
 The center pane must support an application Preview tab.
@@ -2085,12 +2098,16 @@ Added by Epic 14.3 (ADR 0032). The guard slows a workspace that keeps its CPUs b
 
 - A workspace whose CPU average is above the CPU threshold (default 80%) over the window (default 30 minutes) is throttled to the throttle share (default 25%) of its CPU limit. The throttle is Incus's `limits.cpu.allowance` written as a time slice, `<N>ms/100ms`, where N is the share times the CPU limit times 100 ms, rounded to a whole millisecond: 25% of a pilot workspace's 2 CPUs is `50ms/100ms`, half a CPU, which the cgroup shows as `cpu.max` `50000 100000`. It is never a percentage, which Incus treats as a soft weight that only applies when the host is busy.
 - The database is the source of truth. Throttling writes `workspaces.cpu_throttle` (when, the average, the threshold, the window, the share and the allowance) and the audit row `workspace.cpu_throttled` in one transaction, then asks the controller to set the allowance (`PUT /instances/:name/cpu-allowance`, which accepts only `^\d{1,6}ms/100ms$` or null). Every tick the worker compares each running workspace's allowance in Incus with its row and sets or removes it when they differ, so the throttle survives a restart of the worker or the controller and a lift reaches Incus even if the controller was down. A failed controller call is audited once as `workspace.cpu_throttle_failed` and retried next tick; the row stays throttled.
-- The throttle lifts on its own after a quiet spell (above), at the next stop, or when an administrator lifts it. An automatic lift clears `cpu_throttle`, deletes the samples taken at or before the throttle, and audits `workspace.cpu_throttle_lifted` with `{reason: "idle", averagePercent}` in one transaction; the same tick removes the allowance from Incus. The controller removes any allowance before every start. When the worker records a stop by any path it clears `cpu_throttle`, deletes the workspace's samples taken at or before the throttle, so the next run starts a fresh window, and audits `workspace.cpu_throttle_lifted` with `{reason: "stopped"}`. An administrator's lift clears the row, deletes all the workspace's samples, and audits the same event with `{reason: "administrator"}`; the worker removes the allowance on its next tick.
+- The throttle lifts on its own after a quiet spell (above), at the next stop, or when an administrator lifts it. An automatic lift clears `cpu_throttle`, deletes the samples taken at or before the throttle, and audits `workspace.cpu_throttle_lifted` with `{reason: "idle", averagePercent}` in one transaction; the same tick removes the allowance from Incus. The controller removes any allowance before every start, unless the worker passes a held throttle's allowance with the start (below). When the worker records a stop by any path it clears `cpu_throttle`, deletes the workspace's samples taken at or before the throttle, so the next run starts a fresh window, and audits `workspace.cpu_throttle_lifted` with `{reason: "stopped"}`. An administrator's lift clears the row, deletes all the workspace's samples, and audits the same event with `{reason: "administrator"}`; the worker removes the allowance on its next tick.
 - The student sees a warning notice at once, with the numbers from the row (the student's `cpuThrottle` also carries `idleLiftMinutes` and `idleLiftPercent` from the settings row, both null when automatic lifting is off): the workspace was slowed because it kept its CPUs busy, what share it now gets, and that stopping and starting restores full speed or an administrator can lift it. When lifting is on, the notice adds "It returns to full speed on its own after {minutes} minutes under {percent}% use." Its **See what's using CPU** button opens Monitor sorted by CPU. It is dismissible for the page's life. There is no warning before the throttle. When a throttle the open page was showing goes away while the workspace is running, the page shows the toast "Your workspace is back to full speed" (a stop or restart clears the throttle too, and gets no toast); the worker writes no notification.
 
 **Memory flag.** A workspace whose memory average is above the memory threshold (default 90%) is flagged: `workspaces.memory_flag` (when, the average, the threshold, the window) and `workspace.memory_flagged`. Nothing is slowed, because memory already has a hard limit. The owner's workspace view carries the flag as `memoryFlag` (when, the average, the threshold, the window). The student sees a warning notice, dismissible for the page's life per flag: "Your workspace has been near its memory limit", "For {window} minutes it used more than {threshold}% of its memory. If it runs out, the biggest program is stopped.", with a **See what's using memory** button that opens Monitor sorted by memory. The flag clears at the next stop (`workspace.memory_flag_cleared` with `{reason: "stopped"}`) or when an administrator clears it (`{reason: "administrator"}`, which also deletes the workspace's samples).
 
 **Settings and overrides.** The platform values are columns on the `settings` row, edited in the admin Settings tab: CPU threshold (1 to 100, default 80), memory threshold (1 to 100, default 90), window (5 to 240 minutes, default 30), throttle share (5 to 100, default 25; 100 means the throttle changes nothing), the automatic lift's quiet time (`cpu_idle_lift_minutes`, 1 to 60, default 5) and quiet percent (`cpu_idle_lift_percent`, 0 to 100, default 10; 0 turns automatic lifting off), and the idle time of section 6.4. The two lift settings have no per-workspace override. Each workspace may override any of the others in the nullable jsonb column `workspaces.guard_config`, with the keys `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes`; a missing key uses the platform value, as `quota_config` does. A change takes effect on the next tick.
+
+**Throttle hold (Epic 24).** Stopping and starting used to lift every throttle, so a student could run a heavy load, get throttled, restart and repeat. Two settings bound that: `cpu_throttle_hold_after` (0 turns holding off, otherwise 1 to 10, default 3) and `cpu_throttle_hold_hours` (1 to 168, default 24). The worker keeps each workspace's recent throttle times in `workspaces.cpu_throttle_recent`, trimmed to the window. When a throttle is the Nth within the window, the row's `cpu_throttle` gains `held: true`, the worker audits `workspace.cpu_throttle_held`, and every enabled administrator gets one warning notification. A held throttle is not cleared when the worker records a stop: the worker passes the allowance with the start request (`POST /instances/:name/start` with `{cpuAllowance}`), and the controller sets it before the instance runs, so there is no moment at full speed. The automatic idle lift and an administrator's lift still work. The student's notice adds "It stays slowed after a restart because it was slowed {n} times in the last {hours} hours." The Health tab and the Workspaces table show a **Held** tag beside **Throttled**. An administrator's lift does not clear `cpu_throttle_recent`, so a workspace lifted by hand can be held again sooner than one that started fresh.
+
+**Per-workspace limits (Epic 24).** An administrator can set one workspace's CPU count (1 to 64), memory (512 to 262,144 MiB) and process ceiling (500 to 32,768) in the nullable jsonb column `workspaces.limits_config`; a missing key uses the Incus profile. A worker sync, like the quota sync, applies the change and records it in `limits_applied`. The controller sets or removes `limits.cpu`, `limits.memory` and `limits.processes` on the instance, never on the profile, and Incus applies them live to a running workspace. The controller refuses more CPUs than the host has. Lowering memory below what the workspace uses makes the kernel stop its biggest process (section 19.3), and the dialog says so before Save. A CPU change while throttled rewrites the throttle's allowance from its share in the same transaction; clearing the CPU override recomputes it from the profile's CPU count (a CPU set such as `0-3` counts as four), or the host's when none is readable. A process ceiling above 1,700 does not raise the terminals unit's own `TasksMax` (section 19.3), and the dialog says so. The guard's averages use the instance's own CPU limit, so an override counts.
 
 ## 20. Administration
 
@@ -2122,7 +2139,8 @@ stops their workspace; an administrator cannot disable their own account.
 Archiving a workspace stops it and keeps its data; an archived workspace is
 never started until it is unarchived. Home and Docker quotas can only grow,
 up to 1024 GiB each, and the worker applies the change; CPU, memory, and
-process limits are shown but not edited. An account is marked stale after
+process limits are shown but not edited (Epic 24 made them editable per
+workspace; see below and section 19.4). An account is marked stale after
 30 days without a sign-in, or when another account with the same email
 signed in more recently; nothing is merged automatically. An administrator
 sees a workspace's aggregates (CPU, memory, disk, port numbers, short
@@ -2221,6 +2239,52 @@ right now. Your administrator has been told.", audits the first refusal
 as `workspace.provision_refused`, and tries again every sweep, so the
 workspace is created once space is freed. The student's starting screen
 shows that message. Start, stop and rebuild are never refused.
+
+Added by Epic 24 (issues #730, #626, #283 and #284): the admin page gains
+two tabs, **Network** and **Backups**, after Health and before Settings,
+built to the frame rules above.
+
+- **Network** edits the workspace egress policy of section 23.6: the
+  mode, one-click presets, the allowed ports, a labelled list of host
+  names and address ranges, and, in open mode, a list of blocked sites.
+  Switching mode is confirmed in a dialog that says what stops. The tab
+  shows whether the policy is applied, a "Test a host" box that explains
+  why a name would be allowed or refused, and the 20 names workspaces
+  were refused most over the last 7 days, site-wide, each with "Allow…".
+  The routes are `GET /admin/egress`, `PUT /admin/egress/mode`,
+  `/presets` and `/ports`, `POST`, `PUT` and `DELETE
+  /admin/egress/entries`, and `POST`, `PUT` and `DELETE
+  /admin/egress/blocked-sites`. Every write carries the `egress_version`
+  it was based on and answers 409 when that is stale.
+- **Backups** shows recent backup sets (when, complete or not, size, the
+  workspaces covered), the next scheduled run, the last failure, and
+  whether the host has reported in the last 3 minutes. **Back up now**
+  starts a run. Old sets, pre-change dumps, `pre-*` snapshots and kept
+  homes can be deleted. One workspace can be restored from a set into a
+  side copy in its home, and then, as a second step confirmed by typing
+  the account's name, the whole home can be replaced with it (section
+  24.9, ADRs 0039 and 0040). Each write answers 202 with the request, or
+  409. A site installed with `apt install portikus` on its own host has
+  no separate host to pull backups to, and the tab says "Backups are not
+  connected on this site".
+- The workspace detail panel gains **Limits…**, a dialog for the
+  workspace's CPU count, memory and process ceiling (section 19.4,
+  `PUT /admin/workspaces/:id/limits`, each key a number or null), and,
+  for a workspace in `error`, **Re-provision**
+  (`POST /admin/workspaces/:id/reprovision`). Re-provision answers 409
+  from any other state and otherwise sets the row back to `provisioning`
+  with its error cleared, in one conditional update. The worker's create
+  path then runs as for a new workspace; the controller adopts an
+  instance and volumes that already exist, so home data survives.
+- The Settings tab edits the two throttle-hold settings (section 19.4).
+- The Health tab gains "Packages students add": for the latest completed
+  UTC day that surveyed at least 3 workspaces, how many surveyed
+  workspaces added each package with `sudo apt install`, with first and
+  last seen, and a base-image candidate mark when at least 2 workspaces
+  and at least a third of those surveyed added it (`GET
+  /admin/packages`, section 22.3, ADR 0042). Figures are aggregates
+  only; no table or view pairs a package with a workspace or student. A
+  per-student view would need a spec change.
 
 ### 20.2 User impersonation
 
@@ -2440,6 +2504,39 @@ The supported upgrade path is:
 
 This may require a maintenance window.
 
+A rebuild replaces the system disk, so packages a student added with
+`sudo apt install` are lost while the home folder survives. Added by
+Epic 24 (issue #626, ADR 0042):
+
+- **The apt hook.** The workspace image saves its own package list as
+  `/usr/share/portikus/image-packages.txt` and installs an apt hook
+  (`DPkg::Post-Invoke`). After every apt run the hook writes the
+  packages the student asked for (`apt-mark showmanual` minus the
+  image's list) to `~/.portikus/apt-packages.txt`, with a header naming
+  the image version. It writes as the student (`runuser -u student`,
+  temporary file then `mv -fT`), so a symbolic link planted there gains
+  nothing. After a rebuild the hook keeps the old header and merges the
+  new list into the old one; only the student's dismissal moves the
+  header forward. The history log is not read.
+- **The reinstall note.** At start the workspace agent reads that file.
+  When its image version differs from the running image and some listed
+  packages are not installed now, `GET /workspaces/:id/reinstall-note`
+  (owner only, passed to the agent's `GET /packages/reinstall-note`)
+  returns them, and the student sees a dismissible notice: "Packages you
+  had installed with sudo apt were removed when your workspace was
+  rebuilt: … Reinstall them with:" and a copyable `sudo apt install …`
+  line. Dismiss rewrites the header to the current image through the
+  agent. The note empties once dpkg shows the packages installed. Every
+  name is checked against Debian's package-name form before it is shown
+  or put in the command line.
+- **The survey.** Once per UTC day for each running workspace, the worker
+  reads that file through the controller (`GET
+  /instances/:name/added-packages`: the Incus file API, a regular file of
+  at most 64 KiB, each line checked) and adds one to each package's count
+  for the day. Only the date a workspace was last surveyed is stored per
+  workspace. Counts are kept 90 days. A workspace on an image without
+  the hook counts as not surveyed. The admin view is in section 20.1.
+
 ## 23. Networking
 
 ### 23.1 Workspace egress
@@ -2452,6 +2549,11 @@ Student workspaces require broad Internet egress for:
 - documentation;
 - Docker registries;
 - external APIs used in coursework.
+
+Open mode, the default, keeps this broad egress. Since Epic 24 an
+administrator can instead restrict workspaces to an allow-list, or block
+a few sites while staying open (section 23.6). The private-range deny
+list of section 23.2 applies in every mode.
 
 ### 23.2 Management-network isolation
 
@@ -2486,6 +2588,168 @@ Inbound application access must traverse the authenticated preview gateway.
 Communication between the control plane and workspace agent must be mutually authenticated or otherwise protected by a strong per-workspace trust mechanism.
 
 A student must not be able to impersonate another workspace agent.
+
+### 23.6 Egress policy
+
+Added by Epic 24 (issue #284; ADRs 0038 and 0043). Egress is traffic a
+workspace starts toward the internet. There is one policy per site, with
+no per-user or per-course override, edited on the admin Network tab
+(section 20.1). The deny list of private ranges and the host (PR #424,
+`workspace_egress_denied_ranges` in `infra/ansible/site.yml`, enforced by
+the Incus ACL and the firewall's forward chain) stays in force in every
+mode, unchanged. The workspace network has no IPv6, so the policy is
+IPv4 only.
+
+**Modes.**
+
+- **Open mode** is the default. With an empty blocked-sites list it is
+  exactly the behaviour before Epic 24: no DNS redirect and no proxy.
+- **Open mode with blocked sites.** An administrator lists host names to
+  block, each with a label, at most 500. This is a list, not a third
+  mode, and the table starts empty: no sites are seeded, because a
+  non-empty list changes every workspace's network (QUIC is dropped,
+  non-TLS protocols on port 443 such as `ssh.github.com:443` stop, and
+  all DNS goes through our resolver). ADR 0043 names the public DNS over
+  HTTPS services as a suggestion an administrator may add. Allow-list
+  mode ignores the list.
+- **Allow-list mode** lets a workspace reach only listed names and
+  ranges, on the allowed TCP ports (default 22, 80 and 443; at most 20).
+  An entry is a host name (lower-case letters, digits, hyphens and dots,
+  at least one dot, at most 253 characters, no wildcard, URL or IP
+  address) or an IPv4 CIDR range that does not overlap a denied range,
+  each with a label of at most 80 characters; at most 500 names and 100
+  ranges. An entry covers itself and its subdomains (`github.com` covers
+  `api.github.com`, never `evilgithub.com`). Presets (npm and Node.js,
+  Python packages, Debian and the image's apt repositories, Docker Hub,
+  GitHub, GitLab, Claude, Codex) are stored by id and expanded from
+  `packages/contracts/src/egress.ts` when the policy is applied, so a
+  release that corrects a preset corrects every site. Rules are by name,
+  never by URL (that would need decryption) and never by address for
+  named services, because CDN addresses are shared and rotate.
+
+**Allow-list enforcement: DNS and TLS names.**
+
+- **DNS.** Workspace DNS to the bridge gateway (TCP and UDP 53) is
+  redirected to our own dnsmasq, `portikus-egress-dns.service`, on the
+  gateway's port 5300. Incus's own dnsmasq is not configured by us: it
+  keeps its AppArmor profile, DHCP and the `.incus` names. Setting
+  `raw.dnsmasq` on it was rejected because Incus then drops that profile
+  (ADR 0038). Our dnsmasq runs as `nobody` with only `CAP_NET_ADMIN`,
+  under a systemd sandbox. It sends each listed name to the upstream
+  (systemd-resolved at 127.0.0.53 by default, from configuration), and
+  every address it answers goes into the nftables set `names_v4` through
+  `nftset`. Every other name goes to the worker's counter on
+  127.0.0.1:5399, which answers NXDOMAIN. It sets `no-resolv` (a stopped
+  counter fails closed), `stop-dns-rebind` (a listed name cannot put a
+  private address in the set) and a 300-second cap on TTLs. DNS and DNS
+  over TLS (53 and 853) to anything else are dropped.
+- **The firewall.** A separate table, `inet portikus_egress`, that
+  Ansible's `/etc/nftables.conf` never flushes (a drop-in replaces
+  Debian's `flush ruleset` on stop). Its forward chain accepts TCP on the
+  allowed ports only to `names_v4` and to the administrator's ranges, and
+  drops everything else from the bridge, UDP and ICMP included. The
+  names set has no timeout, because dnsmasq's add never refreshes one; it
+  holds at most 65,535 addresses and fails closed when full. It is
+  flushed when a name is removed, the mode changes or the previous apply
+  failed; clients heal on their next lookup, within the 300-second cap.
+- **TLS and HTTP names.** Connections to a `names_v4` address on 443 and
+  80 are redirected to a second Squid for workspaces,
+  `portikus-workspace-proxy.service` (the `squid-openssl` build, as its
+  own user `portikus-wsproxy`), on the gateway's ports 3130 and 3129. It
+  reads the TLS SNI or the HTTP `Host`, splices only listed names, never
+  decrypts, refuses the rest, refuses denied destinations with
+  `ssl_bump terminate`, caches nothing and logs no client address. So an
+  address shared by a CDN cannot reach an unlisted site on it. A
+  redirect is rendered only for an allowed port. Squid's own lookups go
+  to our dnsmasq through a nat output rule matching its user, so it
+  cannot leak an unlisted name to the internet. The API's proxy (ADR
+  0027) is a separate instance, and Ansible pins the `squid`
+  alternatives link to the GnuTLS build so it never switches.
+- **The Incus ACL** carves the gateway out of every drop that covers it
+  and adds gateway-only drops for TCP except 3129, 3130 and 5300, UDP
+  except 5300, and ICMP. The host's input chain accepts those three ports
+  from the bridge only for redirected connections (`ct status dnat`), so
+  a workspace cannot use Squid or our dnsmasq directly.
+- SSH and other non-web ports keep only the address check.
+
+**Open mode with blocked sites.** Workspace DNS goes to our dnsmasq,
+which forwards every name upstream except blocked names and their
+subdomains, which get NXDOMAIN. TCP 80 and 443 to every public address
+are redirected to the workspace Squid, which refuses a blocked TLS name
+or `Host` and splices everything else, and lets a WebSocket upgrade
+through. Outside DNS on 53 and 853 and UDP 443 are dropped. Blocking is
+best effort against casual use: other DNS services, direct addresses,
+TLS with no name and tunnels on other ports get round it. Only
+allow-list mode stops a determined student, and the Network tab says so.
+
+**In every mode:** each workspace may hold at most 256 connections to
+the workspace Squid (`ct count` per source address), and the next is
+reset, so one workspace cannot exhaust the shared proxy.
+
+**Who changes the rules.** The database holds the policy; nobody types a
+rule. Every admin write raises `settings.egress_version`. The worker
+sees it ahead of the applied version, expands the presets, and calls the
+controller's `PUT /egress-policy`. The controller, which keeps
+`NoNewPrivileges` and no network capabilities, only writes a request
+file and waits up to 30 seconds for the answer. A root helper,
+`portikus-egress-apply`, started by a systemd path unit (ADR 0030's
+pattern), reads the request without following links, caps it at 256 KiB,
+and checks every field with the same schema, plus the denied ranges and
+bridge settings from its own root-owned `/etc/portikus/egress.env`. It
+then loads the table in one `nft -f` transaction, writes our dnsmasq's
+configuration and restarts or stops it, and writes Squid's name lists and
+reloads it. It controls only those two services, only with `reload`,
+`restart` and `stop`. It records `applied.json` only after every step
+worked. The worker records the applied version, or audits
+`egress.apply_failed` and retries.
+
+**Order and failure.** Every change fails closed. Going from plain open
+mode to open mode with blocks, dnsmasq and Squid are readied before the
+table loads; going from blocks to allow-list, Squid is reloaded before
+the table. A request the helper refuses, or a failed step, leaves the
+previous table and `applied.json`. When the blocked list changes, the
+helper deletes the conntrack entries of the workspace subnet's TCP
+connections to ports 80 and 443, so a connection that bypassed the proxy
+is judged again. A connection already going through Squid keeps working
+until it closes, because Squid is reloaded, not restarted; a restart
+would cut every workspace's proxied connections.
+
+**Boot.** The helper also runs at boot, after `nftables.service` and
+before `incus.service`, and loads the last applied policy. If an
+allow-list or blocked-sites policy cannot be loaded, or `applied.json`
+cannot be read, it loads a table that drops all forwarded workspace
+traffic. A site that never applied a policy loads nothing. If the helper
+cannot run at all, its unit's `ExecStopPost=` runs
+`/usr/lib/portikus/egress-guard.sh`, a short shell script that loads
+`/etc/portikus/egress-drop-all.nft` when the table is missing and
+`applied.json` does not plainly record open mode.
+
+**Refused names.** The worker's counter hears only dnsmasq (on
+127.0.0.1:5399) and Squid's name-only UDP lines (on 127.0.0.1:5398), so
+it never learns which workspace asked: counts are site-wide by
+construction. It stores (day, name, source `dns` or `tls`, count) in
+`egress_blocked_names`, at most 2,000 names a day (the rest count as
+"(other names)"), 30 days in all, counts only A queries, and never
+stores an address. dnsmasq's query log stays off.
+
+**What a student sees.** A refused name fails as "Could not resolve
+host" and a refused HTTPS connection as a reset, the tools' usual
+errors.
+
+**Rulings behind this design.** After the Epic 24 spike the orchestrator
+ruled (E1 to E10, recorded in ADR 0038): our own dnsmasq rather than
+`raw.dnsmasq` (E1); its exact configuration, with the upstream, gateway
+and bridge from configuration (E2); a names set with no timeout (E3); the
+table's DNS redirect and the apply order of table, dnsmasq, Squid (E4);
+the ACL carve-out and `ct status dnat` input rule (E5); the workspace
+Squid's configuration (E6); pinning `squid` to the GnuTLS build (E7); the
+file interface between the controller, the helper and Ansible (E8);
+ADR 0038 as the record (E9); and a check that the denied ranges in
+`packages/contracts/src/egress.ts` equal those in `site.yml` (E10). For
+blocked sites (ADR 0043): a list in open mode, not a third mode, with
+open mode unchanged while it is empty; no seeded list; and the design
+above, including the connection cap, the conntrack flush and reload
+rather than restart.
 
 ## 24. Security requirements
 
@@ -2615,6 +2879,69 @@ home and recovery volumes are pulled to the host nightly and encrypted there
 with age; Docker data and root filesystems are not backed up, because Reset
 Docker and Rebuild recreate them.
 
+Added by Epic 24 (issue #730, ADRs 0039 and 0040): backups are run and
+restored from the admin Backups tab (section 20.1).
+
+- **The request-row channel.** The VM never gets write access to the
+  host. The API records a row in `backup_requests`. A host timer,
+  `portikus-backup-channel.timer`, every 30 seconds asks the VM over SSH
+  (`sudo portikus backup-channel pull`) for at most one claimed request,
+  checks it, runs it, and sends the result and a fresh status back
+  (`sudo portikus backup-channel report`). Everything that talks to the
+  VM runs as the operator's account, so the VM trusts no new key. The
+  host treats every request as hostile: one of five kinds (`backup`,
+  `delete_set`, `delete_dump`, `restore_copy`, `import_home`), each
+  argument matched against a strict pattern, quoted in every command;
+  anything else is "refused by the host" and nothing runs. The VM checks
+  the status document with Zod and caps it at 256 KiB. A request left
+  claimed 15 minutes after the host last said it was running is marked
+  failed ("interrupted"). Deleting `pre-*` snapshots and kept homes is
+  VM work, done by the worker through the controller, which refuses any
+  other snapshot or volume name. Pre-change dumps live in
+  `/var/backups/portikus/<VM name>/dumps/`.
+- **Host-side bounds.** The host, not the request, sets every limit. It
+  never deletes a set younger than 14 days and always keeps the newest 3
+  complete sets, in the channel and in `backup.sh`'s own retention. It
+  refuses a requested backup within 60 minutes of the last one, and while
+  3 requested sets are younger than the minimum age. Every run needs free
+  space of at least the newest complete set plus a fifth, and at least
+  1 GiB, and then has a byte budget of the free space less that floor;
+  passing it stops the run and keeps nothing. Only the home and recovery
+  volumes of instances the VM listed are fetched. The per-file index,
+  path lengths, entry counts and every answer from the VM are capped. One
+  host-wide lock covers a run; the units have a 12-hour start timeout.
+- **The host holds the restore key.** The private age key is installed
+  root-only at `/etc/portikus-backup/age-key.txt` by `make
+  backup-install-key KEY=<path>`. Only the channel's restore steps read
+  it, as root; the operator's account never gets it. Whoever takes the
+  host can read every backup. Todd accepted that, and his
+  password-manager copy stays the recovery copy (ADR 0039 supersedes that
+  part of ADR 0024).
+- **Restore one workspace into a side copy.** The workspace must be
+  running (409 "Start the workspace first" otherwise), and a presence row
+  keeps the grace period from stopping it. The copy goes to
+  `/home/student/restored-<YYYY-MM-DD>-<HHMM>` (the set's UTC time). The
+  host decrypts the home volume as root and streams it into `incus exec
+  --user 1000 --group 1000 … tar -xz`, so the files are written by the
+  student's own account, bound by the student's permissions and quota;
+  nothing is written as root inside the workspace. An existing folder is
+  refused ("… already exists. Rename or delete it, then try again."), as
+  is a copy larger than the home's free space less 5%. Every remote call
+  runs under a host-side timeout. The student is notified.
+- **Then replace the home.** Offered only on a finished side copy and
+  confirmed by typing the account's name, `replace-home` is a pending
+  operation the worker runs like a rebuild (section 17.2, ADR 0021). It
+  makes a `before-replace-home` recovery point of each active project,
+  stops the workspace, has the host import the set's home volume as
+  `<instance>-home-import` with the backup's ID map, and has the
+  controller swap it in, keeping the old volume as
+  `<instance>-home-replaced-<unix seconds>` (a kept home). Each step can
+  be repeated, so a retry finishes a half-done swap. The workspace starts
+  again if it was running, and the student is notified. The kept home
+  stays until an administrator deletes it; putting it back is a runbook
+  step (OPERATIONS.md), not a button.
+- The weekly off-host copy stays a manual step (issue #753).
+
 ### 24.10 Transport security
 
 Production/pilot network access must use TLS for browser-facing interfaces.
@@ -2734,6 +3061,35 @@ process's command line to the student. This low-severity race is
 accepted because `/proc` is mounted without `hidepid` today, so the
 student can already read any command line; if `hidepid` is ever turned
 on, the agent must re-check the uid after the read.
+
+As built (Epic 24): every administrator action in the epic writes an
+audit row, and no row holds a secret, file contents, a command line, a
+workspace's network address, or a name a workspace looked up.
+
+- Egress (actor `user:<id>`): `egress.mode_changed`,
+  `egress.presets_changed`, `egress.ports_changed`, `egress.entry_added`,
+  `egress.entry_updated`, `egress.entry_removed`, `egress.block_added`,
+  `egress.block_updated` and `egress.block_removed`. The worker writes
+  `egress.applied` and `egress.apply_failed`.
+- Backups (actor `user:<id>` for the request): `backup.requested`,
+  `backup.set_delete_requested`, `backup.dump_delete_requested`,
+  `backup.restore_requested`, `backup.snapshot_delete_requested`,
+  `backup.kept_home_delete_requested` and
+  `workspace.home_replace_requested`. The outcomes are written with actor
+  `host` when the channel reports, or by the worker for VM work:
+  `backup.completed`, `backup.failed`, `backup.set_deleted`,
+  `backup.set_delete_failed`, `backup.dump_deleted`,
+  `backup.dump_delete_failed`, `backup.restore_copied`,
+  `backup.restore_failed`, `backup.home_imported`,
+  `backup.home_import_failed`, `backup.snapshot_deleted`,
+  `backup.snapshot_delete_failed`, `backup.kept_home_deleted`,
+  `backup.kept_home_delete_failed`, `workspace.home_replaced` and
+  `workspace.home_replace_failed`.
+- Workspaces: `workspace.limits_updated` (with the before and after
+  values), then the worker's `workspace.limits_applied` or
+  `workspace.limits_apply_failed`; `workspace.reprovision_requested`;
+  and the worker's `workspace.cpu_throttle_held`. The two throttle-hold
+  settings join `settings.resource_guard_updated`.
 
 ### 24.12 Dependency/security maintenance
 
@@ -2942,6 +3298,8 @@ Every Stop icon button (Running, Checks, Monitor and the admin Processes table) 
 
 The automated axe checks in the Playwright suite run the WCAG 2.0, 2.1 and 2.2 A and AA rules from one shared tag list, `WCAG_TAGS` in `e2e/helpers.ts`.
 
+Added by Epic 24: a dialog whose opener is gone after it closes (a removed row, a used "Allow…" button) passes `returnFocusTo` to `Dialog` or `ConfirmDialog` in `packages/ui`, and focus goes to that target, usually the card's heading, scrolled into view; otherwise focus returns to the opener. A control that is busy, such as a preset checkbox while its save runs or a Delete button reading "Deleting…", stays mounted and focusable with `aria-disabled`. A button that cannot act yet, such as "Restore copy", names its reason through `aria-describedby`. A message that appears later, such as the restore dialog's stopped-workspace warning or the reinstall notice, is announced through a status region that is always mounted. A ticking time ("3 minutes ago") is not announced.
+
 ### 25.9 Browser support
 
 P0 should support current versions of:
@@ -3064,6 +3422,15 @@ Migration `0021_notifications` (section 8.5, ADR 0033): a new table, `notificati
 Migration `0023_guard_idle_lift` (section 19.4, Epic 21): `settings` gains `cpu_idle_lift_minutes` (default 5, 1 to 60) and `cpu_idle_lift_percent` (default 10, 0 to 100), each range a check constraint.
 
 Migration `0024_process_snapshots` (section 20.1, Epic 21, ADR 0037): a new table, `workspace_process_snapshots`: `workspace_id` (primary key, cascades on delete), `requested_at`, `taken_at` (null until served), `processes` (jsonb rows with short names only, never command lines) and `error` (a code).
+
+### Added by Epic 24
+
+- `0025_egress` (section 23.6): `settings` gains `egress_mode` (`open` or `allow-list`, default `open`), `egress_presets`, `egress_ports` (default 22, 80, 443), `egress_version`, `egress_applied_version`, `egress_applied_at` and `egress_apply_error`. New tables `egress_entries` (`kind` `host` or `range`, unique `value`, `label`, `created_by`) and `egress_blocked_names` (day, name, source `dns` or `tls`, count), which has no workspace, user or address column.
+- `0026_backups` (section 24.9): `backup_requests` (kind, args, state `pending`, `claimed`, `done` or `failed`, who and when, error, result, and `workspace_id` for restores), with at most one pending or claimed `backup`; `backup_status`, one row holding the host's last report and the worker's list of snapshots and kept homes. `workspaces.pending_operation` accepts `replace-home`, with `pending_operation_args`, and recovery points accept the reason `before-replace-home`.
+- `0027_workspace_limits` (section 19.4): `workspaces.limits_config` and `limits_applied` (jsonb, nullable).
+- `0028_throttle_hold` (section 19.4): `settings.cpu_throttle_hold_after` (default 3, 0 to 10) and `cpu_throttle_hold_hours` (default 24, 1 to 168); `workspaces.cpu_throttle_recent`; `cpu_throttle` may carry `held`.
+- `0029_package_survey` (section 22.3): `package_survey_days` (day, workspaces surveyed) and `package_survey_counts` (day, package, workspaces); `workspaces.package_surveyed_on`. No table holds both a workspace and a package name.
+- `0030_egress_blocked_sites` (section 23.6): `egress_blocked_entries` (unique `value`, `label`, `created_by`), created empty.
 
 ## 27. API principles
 
@@ -3868,6 +4235,24 @@ Acceptance:
 - no log, audit row, snapshot or administrator view carries a command line;
 - a throttled workspace lifts only after a quiet spell measured against its full CPU limit, and a workspace busy at its throttled share never looks quiet;
 - the administrator's list shows a program the student hid from the agent, because nothing in it comes from the workspace but short names.
+
+### Epic 24 — Admin operations
+
+See sections 14.5, 19.4, 20.1, 22.3, 23.6, 24.9, 24.11 and 26, and ADRs 0038 to 0043; built on `epic/24-admin-operations` (issues #730, #626, #283 and #284). Migrations 0025 to 0030.
+
+Includes:
+
+- workspace egress control: open mode by default, an allow-list by host name enforced through our own resolver, a root-owned nftables table and a workspace Squid that reads TLS names without decrypting, and a blocked-sites list for open mode;
+- a Backups tab over a host-polled request channel, with Back up now, deletes, restoring one workspace into a side copy and then replacing its home, and the restore key held on the host;
+- re-provision of a workspace in `error`, per-workspace CPU, memory and process limits, and a throttle that holds through restarts after repeated throttles;
+- an apt hook in the image, an aggregate "Packages students add" survey and a reinstall note after a rebuild;
+- previews of student servers that speak HTTPS.
+
+Acceptance:
+
+- allow-list mode fails closed at every layer and after a reboot, and no table, log or audit row pairs a looked-up name with a workspace;
+- a lying VM makes the host refuse and run nothing, and the VM never reads the key or decrypted data except a copy into the named workspace as its student;
+- a client-sent upstream scheme header never reaches the proxy.
 
 ### Estimated total
 
