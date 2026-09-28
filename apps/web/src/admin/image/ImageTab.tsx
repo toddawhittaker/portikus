@@ -501,7 +501,7 @@ function MakeDefaultButton({
 			<Button
 				variant="primary"
 				data-testid={`image-make-default-${image.version}`}
-				aria-label={`Make ${image.version} the default`}
+				aria-label={`Make default: ${image.version}`}
 				aria-disabled={off ? true : undefined}
 				aria-describedby={off ? noteId : undefined}
 				onClick={() => (off ? undefined : onMakeDefault(image.version))}

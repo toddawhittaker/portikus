@@ -265,7 +265,7 @@ test("Make default from the table sends focus to the job heading, not the page",
 	await page.goto("/admin?tab=image");
 	const make = page
 		.getByTestId("image-row-2026.09.10")
-		.getByRole("button", { name: "Make 2026.09.10 the default" });
+		.getByRole("button", { name: "Make default: 2026.09.10" });
 	await make.focus();
 	await page.keyboard.press("Enter");
 	await page.getByTestId("image-confirm").getByTestId("dialog-confirm").focus();

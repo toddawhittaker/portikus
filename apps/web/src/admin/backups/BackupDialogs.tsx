@@ -142,6 +142,10 @@ export function RestoreDialog({
 					)
 					.sort((a, b) => b.stamp.localeCompare(a.stamp))
 			: [];
+	const onlyUnverified =
+		holding.length === 0 &&
+		presetWorkspace !== undefined &&
+		(preset?.sets ?? []).some((s) => s.instances.includes(presetWorkspace.instance));
 	const loading = preset !== null && preset !== undefined && preset.sets === undefined;
 
 	const picked = fromSet ? covered.find((w) => w.id === choice) : presetWorkspace;
@@ -215,7 +219,9 @@ export function RestoreDialog({
 								>
 									{fromSet
 										? "None of the workspaces in this set exist on the platform now."
-										: "No backup set holds this workspace yet."}
+										: onlyUnverified
+											? "Only unverified backup sets hold this workspace, and they cannot be restored."
+											: "No backup set holds this workspace yet."}
 								</p>
 							) : fromSet ? (
 								<Select

@@ -364,7 +364,7 @@ test("a set that lists no workspaces says why Restore is unavailable", async () 
 	const reason = document.getElementById(
 		restore.getAttribute("aria-describedby") ?? "",
 	);
-	expect(reason?.textContent).toBe("No workspaces to restore from this set.");
+	expect(reason?.textContent).toBe("No workspaces to restore from this set");
 });
 
 test("a set that is not verified is marked and cannot be restored", async () => {
@@ -380,7 +380,10 @@ test("a set that is not verified is marked and cannot be restored", async () => 
 	});
 	renderApp("/admin?tab=backups");
 	const row = await screen.findByTestId(`backup-set-${OLD}`);
-	expect(row.textContent).toContain("Not verified");
+	expect(row.textContent).toContain(
+		"Not verified. This server's key did not make this set, so it cannot be restored.",
+	);
+	expect(row.textContent).not.toContain("..");
 	const restore = within(row).getByTestId("backup-set-restore");
 	expect(restore.getAttribute("aria-disabled")).toBe("true");
 	const reason = document.getElementById(
@@ -731,6 +734,29 @@ describe("restore from a workspace's panel (preset workspace)", () => {
 		const confirm = within(dialog).getByTestId("backup-restore-confirm");
 		expect(confirm.getAttribute("aria-disabled")).toBe("true");
 		expect(confirm.getAttribute("aria-describedby")).toBe("backup-restore-none");
+	});
+
+	test("a workspace only unverified sets hold says they cannot be restored", async () => {
+		const data = backups();
+		stubBackups({
+			...data,
+			host: data.host && {
+				...data.host,
+				sets: data.host.sets.map((each) => ({ ...each, verified: false })),
+			},
+		});
+		renderWithQuery(
+			<RestoreFromBackupDialog workspaceId={ALICE_WS} onClose={() => {}} />,
+		);
+		const dialog = await screen.findByTestId("backup-restore-dialog");
+		expect((await within(dialog).findByTestId("backup-restore-none")).textContent).toBe(
+			"Only unverified backup sets hold this workspace, and they cannot be restored.",
+		);
+		expect(
+			within(dialog)
+				.getByTestId("backup-restore-confirm")
+				.getAttribute("aria-disabled"),
+		).toBe("true");
 	});
 
 	test("a site without a backup host says backups are not connected", async () => {

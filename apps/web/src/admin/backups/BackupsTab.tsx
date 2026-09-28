@@ -8,6 +8,7 @@ import type {
 import { Button, EmptyState, Skeleton, Toggletip, useToast } from "@portikus/ui";
 import {
 	type FocusEvent,
+	Fragment,
 	type ReactNode,
 	type RefObject,
 	useEffect,
@@ -552,6 +553,42 @@ function SetsPart({
 					const unverified = set.verified === false;
 					const restoreOff =
 						!host.keyInstalled || unverified || set.instances.length === 0;
+					// Joined with ". " so each part gets one stop when read aloud.
+					const notes: { key: string; node: ReactNode }[] = [];
+					if (unverified && host.keyInstalled) {
+						notes.push({
+							key: "tag",
+							node: <span className="pk-tag pk-tag--warning">Not verified</span>,
+						});
+						notes.push({
+							key: "unverified",
+							node: (
+								<span id={unverifiedId} className="pk-muted">
+									This server's key did not make this set, so it cannot be restored
+								</span>
+							),
+						});
+					}
+					if (set.instances.length === 0) {
+						notes.push({
+							key: "empty",
+							node: (
+								<span id={emptyId} className="pk-muted">
+									No workspaces to restore from this set
+								</span>
+							),
+						});
+					}
+					if (isNewest) {
+						notes.push({
+							key: "newest",
+							node: (
+								<span id={noteId} className="pk-muted">
+									The newest complete set is always kept
+								</span>
+							),
+						});
+					}
 					return (
 						<tr key={set.stamp} data-testid={`backup-set-${set.stamp}`}>
 							<th scope="row">{when}</th>
@@ -578,32 +615,13 @@ function SetsPart({
 										{set.skippedVolumes === 1 ? "" : "s"} of no workspace skipped
 									</span>
 								) : null}
-								{unverified && host.keyInstalled ? (
-									<>
-										{" "}
-										<span className="pk-tag pk-tag--warning">Not verified</span>.{" "}
-										<span id={unverifiedId} className="pk-muted">
-											Nothing shows this server's key made this set, so it cannot be
-											restored.
-										</span>
-									</>
-								) : null}
-								{set.instances.length === 0 ? (
-									<>
-										.{" "}
-										<span id={emptyId} className="pk-muted">
-											No workspaces to restore from this set.
-										</span>
-									</>
-								) : null}
-								{isNewest ? (
-									<>
-										.{" "}
-										<span id={noteId} className="pk-muted">
-											The newest complete set is always kept.
-										</span>
-									</>
-								) : null}
+								{notes.map((note) => (
+									<Fragment key={note.key}>
+										{". "}
+										{note.node}
+									</Fragment>
+								))}
+								{notes.length > 0 ? "." : null}
 							</td>
 							<td className="tabular-nums">{formatBytes(set.sizeBytes)}</td>
 							<td className="tabular-nums">{set.instances.length}</td>

@@ -40,6 +40,7 @@ const BACKUPS = {
 				sizeBytes: 1024 ** 3,
 				instances: [INSTANCE],
 				failedVolumes: [`${INSTANCE}-docker`],
+				verified: false,
 			},
 		],
 		dumps: [
