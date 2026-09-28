@@ -33,3 +33,32 @@ test("leaves out the count and actions when not given", () => {
 	expect(container.querySelectorAll("button")).toHaveLength(0);
 	expect(container.querySelector(".ml-auto")).toBeNull();
 });
+
+test("puts the intro under the heading, linked to its Help section", () => {
+	render(
+		<AdminSection
+			title="Users"
+			intro={{
+				id: "admin-users",
+				text: "Everyone who has signed in, with their workspace.",
+				helpAnchor: "admin-users",
+			}}
+		>
+			<p>Body</p>
+		</AdminSection>,
+	);
+
+	const intro = screen.getByTestId("intro-admin-users");
+	expect(intro.querySelector("summary")?.textContent).toBe("About Users");
+	expect(intro.textContent).toContain("Everyone who has signed in");
+	expect(intro.querySelector("a")?.getAttribute("href")).toBe("/help#admin-users");
+	// The intro sits between the heading row and the tab's content.
+	const heading = screen.getByRole("heading", { level: 2, name: "Users" });
+	expect(
+		heading.compareDocumentPosition(intro) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+	expect(
+		intro.compareDocumentPosition(screen.getByText("Body")) &
+			Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+});

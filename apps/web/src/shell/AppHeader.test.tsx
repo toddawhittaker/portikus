@@ -1,5 +1,5 @@
 import type { Workspace } from "@portikus/contracts";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
 	json,
@@ -181,7 +181,13 @@ test("on the admin page, Open my workspace sits in the account menu where Admini
 	openAccountMenu();
 
 	const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
-	expect(items).toEqual(["Open my workspace", "Notifications", "Settings", "Sign out"]);
+	expect(items).toEqual([
+		"Open my workspace",
+		"Notifications",
+		"Settings",
+		"Help (opens in a new tab)",
+		"Sign out",
+	]);
 	expect(screen.queryByTestId("admin-link")).toBeNull();
 });
 
@@ -255,4 +261,26 @@ test("closing the dialog the badge opened returns focus to the badge", async () 
 	await waitFor(() =>
 		expect(document.activeElement).toBe(screen.getByTestId("notifications-badge")),
 	);
+});
+
+test("every role gets Help after Settings, opening in a new tab (Epic 25)", () => {
+	for (const role of ["student", "instructor", "administrator"] as const) {
+		renderWithQuery(
+			<AppHeader
+				workspaceId={WORKSPACE.id}
+				user={{ ...USER, role }}
+				workspace={WORKSPACE}
+				project={undefined}
+			/>,
+		);
+		openAccountMenu();
+		const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
+		const settings = items.indexOf("Settings");
+		expect(items[settings + 1]).toBe("Help (opens in a new tab)");
+		const link = screen.getByTestId("help-link");
+		expect(link.getAttribute("href")).toBe("/help");
+		expect(link.getAttribute("target")).toBe("_blank");
+		expect(link.getAttribute("rel")).toBe("noopener");
+		cleanup();
+	}
 });
