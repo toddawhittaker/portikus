@@ -3281,6 +3281,10 @@ Delivered, by task pull request:
 - #784: review fixes: toggletip keyboard behaviour, tooltips that can be
   hovered, and focus on Help anchors.
 - This task folds the epic into SPEC.md and STATUS.md.
+- Toggletip screen-reader polish: the button no longer says it opens a
+  dialog, the visible tip is hidden from screen readers, and the live
+  region that reads it moved out of table headers; the Network tab's
+  accessibility spec no longer flakes in parallel runs.
 
 Verified by unit, Playwright and axe tests in each task, in both themes;
 by a design review with screenshots of each screen; by code and
@@ -3293,8 +3297,9 @@ Gaps:
 - `<summary>` elements that hold headings (PageIntro, the Trends groups,
   Clean up) are untested with VoiceOver.
 - The Course page scrolls sideways at narrow widths.
-- A toggletip in a table header adds to what a screen reader reads for
-  each cell; accepted as it is.
+- A toggletip in a table header adds its button's name ("About …") to the
+  header's name, which a screen reader may repeat for each cell; accepted
+  as it is. The tip's own text no longer joins it.
 - The `Checkbox` component has no help slot, so a checkbox's toggletip sits
   in the row beside it.
 - The remembered-open `<details>` logic is copied in PageIntro and
