@@ -7,11 +7,6 @@ export function graceText(seconds: number): string {
 	return graceLength(seconds);
 }
 
-/** The placeholder for a user with no override: "Default (10 minutes)". */
-export function defaultLabel(globalSeconds: number): string {
-	return `Default (${globalSeconds === 0 ? "indefinite" : graceLength(globalSeconds)})`;
-}
-
 /** A non-zero grace period as hours, minutes and seconds. */
 function graceLength(seconds: number): string {
 	const hours = Math.floor(seconds / 3600);

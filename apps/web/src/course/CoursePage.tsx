@@ -27,9 +27,10 @@ function CourseFrame({ children }: { children: React.ReactNode }) {
 		<div className="pk-root">
 			<AppHeader user={me.user} workspace={null} project={undefined} context="Course" />
 			{/* The admin page's frame (SPEC.md section 20.1): <main> scrolls, content
-			    at most 1440 px wide, compact density. */}
+			    at most 1440 px wide, compact density. scroll-pt-16 keeps a focused
+			    Remove clear of the sticky table header. */}
 			<main
-				className="flex-1 overflow-auto p-8"
+				className="flex-1 scroll-pt-16 overflow-auto p-8"
 				data-testid="page-course"
 				data-density="compact"
 				aria-labelledby="course-title"
@@ -219,14 +220,7 @@ function CourseMembers() {
 								</th>
 								<th scope="col">Workspace</th>
 								<th scope="col" className="pk-cell-actions">
-									<span className="inline-flex items-center gap-1">
-										<span className="sr-only">Actions</span>
-										<Toggletip label="Remove">
-											Remove takes a student off this page. Their account, workspace and
-											files stay, and they come back if they open Portikus from the
-											course again. Instructors are changed in your learning system.
-										</Toggletip>
-									</span>
+									<span className="sr-only">Actions</span>
 								</th>
 							</tr>
 						</thead>

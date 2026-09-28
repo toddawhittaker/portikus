@@ -408,19 +408,54 @@ test.each([
 	expect(lifecycleActions(state, desired)).toEqual({ actions, waiting });
 });
 
-test("while the workspace moves, its buttons stay focusable, off, and say why", async () => {
+test.each([
+	["starting", "running", "Stop", "stop", "starting"],
+	["stopped", "running", "Stop", "stop", "starting"],
+	["starting", "running", "Restart", "restart", "starting"],
+	["stopping", "stopped", "Start", "start", "stopping"],
+] as const)(
+	"a workspace %s wanting %s keeps %s on to rescue it, with the waiting note",
+	async (state, desiredState, label, action, waiting) => {
+		const writes = stubDetail(
+			detail({ workspace: { ...WORKSPACE, state, desiredState, archivedAt: null } }),
+		);
+		const panel = await openAlice();
+		const button = within(panel).getByRole("button", {
+			name: `${label} Alice Example's workspace`,
+		});
+		expect(button.getAttribute("aria-disabled")).toBeNull();
+		expect(button.getAttribute("aria-describedby")).toBeNull();
+		expect(within(panel).getByTestId("detail-lifecycle-note").textContent).toBe(
+			`Waiting for the workspace to finish ${waiting}.`,
+		);
+		fireEvent.click(button);
+		await waitFor(() => expect(writes).toHaveLength(1));
+		expect(writes[0]?.url).toBe(`/workspaces/${WORKSPACE.id}/${action}`);
+	},
+);
+
+test("an archived workspace that is stopping keeps Start off and says both why", async () => {
 	const writes = stubDetail(
-		detail({ workspace: { ...WORKSPACE, state: "starting", archivedAt: null } }),
+		detail({
+			workspace: {
+				...WORKSPACE,
+				state: "stopping",
+				desiredState: "stopped",
+				archivedAt: "2026-09-20T00:00:00.000Z",
+			},
+		}),
 	);
 	const panel = await openAlice();
-	const stop = within(panel).getByRole("button", {
-		name: "Stop Alice Example's workspace",
+	const start = within(panel).getByRole("button", {
+		name: "Start Alice Example's workspace",
 	});
-	expect(stop.getAttribute("aria-disabled")).toBe("true");
+	expect(start.getAttribute("aria-disabled")).toBe("true");
 	const note = within(panel).getByTestId("detail-lifecycle-note");
-	expect(note.textContent).toBe("Waiting for the workspace to finish starting.");
-	expect(stop.getAttribute("aria-describedby")).toBe(note.id);
-	fireEvent.click(stop);
+	expect(note.textContent).toBe(
+		"Waiting for the workspace to finish stopping. An archived workspace cannot start. Unarchive it first.",
+	);
+	expect(start.getAttribute("aria-describedby")).toBe(note.id);
+	fireEvent.click(start);
 	await new Promise((resolve) => setTimeout(resolve, 20));
 	expect(writes).toEqual([]);
 });
@@ -445,6 +480,23 @@ test("a stopped archived workspace offers Start, off, with the reason", async ()
 		"An archived workspace cannot start. Unarchive it first.",
 	);
 	expect(within(panel).queryByRole("button", { name: /^Stop / })).toBeNull();
+});
+
+test("the panel reads the site limits once and does not poll the health report", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	try {
+		stubDetail(detail());
+		const panel = await openAlice();
+		await within(panel).findByTestId("detail-limits-edit");
+		const healthCalls = () =>
+			vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/admin/health")
+				.length;
+		expect(healthCalls()).toBe(1);
+		await vi.advanceTimersByTimeAsync(5 * 60_000);
+		expect(healthCalls()).toBe(1);
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 test("each section's actions sit in one row after its content (S5)", async () => {

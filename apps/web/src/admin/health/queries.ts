@@ -11,6 +11,19 @@ export function useHealth() {
 	});
 }
 
+/**
+ * The same report for the site limits the workspace panel shows, without
+ * polling: every refresh asks each workspace agent, and limits rarely change.
+ */
+export function useSiteLimits() {
+	return useQuery({
+		queryKey: ["admin", "health"],
+		queryFn: () => request(HealthReport, "/admin/health"),
+		refetchInterval: false,
+		staleTime: 10 * 60_000,
+	});
+}
+
 /** Every chart's data for one range, refreshed at the sample rate. */
 export function useHealthSeries(range: HealthRange) {
 	return useQuery({

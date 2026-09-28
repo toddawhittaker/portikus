@@ -404,5 +404,6 @@ test("the page explains itself, and Last launch and Remove have help", async () 
 	expect(
 		within(table).getByRole("button", { name: "About Last launch" }),
 	).toBeDefined();
-	expect(within(table).getByRole("button", { name: "About Remove" })).toBeDefined();
+	// The intro explains Remove, so its column has no toggletip of its own.
+	expect(within(table).queryByRole("button", { name: "About Remove" })).toBeNull();
 });

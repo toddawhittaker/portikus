@@ -37,10 +37,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 			await expect(course.getByTestId("intro-course")).toContainText(
 				"they come back if they open Portikus from the course again",
 			);
-			await course.getByRole("button", { name: "About Remove" }).click();
-			await expect(course.getByRole("dialog", { name: "Remove" })).toContainText(
-				"Instructors are changed in your learning system.",
-			);
+			// The intro explains Remove, so its column has no toggletip of its own.
+			await expect(course.getByRole("button", { name: "About Remove" })).toHaveCount(0);
 			await expectNoViolations(course);
 		} finally {
 			await context.close();

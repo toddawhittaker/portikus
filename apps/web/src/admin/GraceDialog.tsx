@@ -1,10 +1,7 @@
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
-import { graceText } from "./graceText.js";
+import { graceMinutes, graceText, parseGraceMinutes } from "./graceText.js";
 import { announced } from "./SettingsTab.js";
-
-/** The API's upper bound, a Postgres integer of seconds. */
-const MAX_GRACE_SECONDS = 2147483647;
 
 export const GRACE_ERROR = "Enter a number of minutes, 0 or more, or leave it blank.";
 
@@ -13,17 +10,13 @@ export const GRACE_ERROR = "Enter a number of minutes, 0 or more, or leave it bl
  * setting), undefined when the entry is not a number of minutes.
  */
 export function graceSeconds(text: string): number | null | undefined {
-	const trimmed = text.trim();
-	if (trimmed === "") return null;
-	if (!/^\d+(\.\d+)?$/.test(trimmed)) return undefined;
-	const seconds = Math.round(Number(trimmed) * 60);
-	return seconds > MAX_GRACE_SECONDS ? undefined : seconds;
+	if (text.trim() === "") return null;
+	return parseGraceMinutes(text) ?? undefined;
 }
 
 /** The draft an override opens with: whole minutes, or up to two decimals. */
 export function graceDraft(seconds: number | null): string {
-	if (seconds === null) return "";
-	return String(Math.round((seconds / 60) * 100) / 100);
+	return seconds === null ? "" : graceMinutes(seconds);
 }
 
 /** One grace period in words: "10 minutes", or that it never stops on disconnect. */

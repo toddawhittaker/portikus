@@ -32,7 +32,7 @@ import { ConfirmByLabelDialog } from "./ConfirmByLabelDialog.js";
 import { DexUserActions } from "./DexUserDialogs.js";
 import { GraceDialog, graceValueText } from "./GraceDialog.js";
 import { GuardDialog } from "./GuardDialog.js";
-import { useHealth } from "./health/queries.js";
+import { useSiteLimits } from "./health/queries.js";
 import {
 	type LimitKey,
 	LimitsDialog,
@@ -267,7 +267,8 @@ export type LifecycleAction = "start" | "stop" | "restart";
 
 /**
  * The lifecycle buttons that make sense now, and, during a transition, the
- * word for what the workspace is doing ("starting"), which turns them off.
+ * word for what the workspace is doing ("starting"). A transition keeps the
+ * opposite action, so an admin can rescue a stuck workspace.
  */
 export function lifecycleActions(
 	state: string,
@@ -309,13 +310,15 @@ function HeadState({
 	);
 	const archived = workspace.archivedAt !== null;
 	const noteId = `lifecycle-note-${workspace.id}`;
-	const note = waiting
-		? `Waiting for the workspace to finish ${waiting}.`
-		: archived && actions.includes("start")
+	const archivedNote =
+		archived && actions.includes("start")
 			? "An archived workspace cannot start. Unarchive it first."
 			: null;
-	const off = (action: LifecycleAction) =>
-		waiting !== null || (archived && action === "start");
+	const note =
+		[waiting ? `Waiting for the workspace to finish ${waiting}.` : null, archivedNote]
+			.filter(Boolean)
+			.join(" ") || null;
+	const off = (action: LifecycleAction) => archived && action === "start";
 
 	function runLifecycle(action: LifecycleAction) {
 		if (lifecycle.isPending || off(action)) return;
@@ -858,7 +861,7 @@ function ResourcesSection({
 	const limits = useUpdateLimits();
 	const grace = useUpdateUserSettings();
 	const settings = usePlatformSettings();
-	const health = useHealth();
+	const health = useSiteLimits();
 	const [dialog, setDialog] = useState<ResourceDialog | null>(null);
 	const ownerName = user.displayName;
 	const site = siteLimits(health.data?.host);
