@@ -102,8 +102,8 @@ test("appearance is chosen in Settings and stays in this browser", async ({
 		dialog.getByRole("switch", { name: "Light terminal" }),
 	).not.toBeChecked();
 
-	// It applied before Save, and Cancel does not take it back.
-	await page.getByRole("button", { name: "Cancel" }).click();
+	// It applied at once, and closing keeps it.
+	await page.getByTestId("settings-close").click();
 	await expect(dialog).toHaveCount(0);
 	await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 

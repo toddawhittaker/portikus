@@ -1,8 +1,8 @@
 import type { HealthSeries } from "@portikus/contracts";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
-import type { ChartFrame } from "./charts/scales.js";
-import { countTicks, EventCharts, totalsSummary } from "./EventCharts.js";
+import { type ChartFrame, countTicks } from "./charts/scales.js";
+import { EventCharts, totalsSummary } from "./EventCharts.js";
 
 const FRAME: ChartFrame = {
 	range: "1d",

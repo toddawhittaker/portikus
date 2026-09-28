@@ -34,6 +34,10 @@
 	user-select: none;
 	outline: none;
 }
+/* Once a menu has a check item, items without an icon keep the check's gutter. */
+.pk-menu:has(.pk-menu-check) .pk-menu-item:not(:has(> svg, > .pk-menu-check)) {
+	padding-inline-start: calc(var(--space-2) * 2 + var(--size-icon-sm));
+}
 .pk-menu-item[data-highlighted] {
 	background: var(--surface-hover);
 	outline: var(--ring-width) solid var(--focus);

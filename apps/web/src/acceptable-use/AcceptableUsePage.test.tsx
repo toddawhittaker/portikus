@@ -17,6 +17,38 @@ test("blank lines separate paragraphs; single line breaks do not", () => {
 	]);
 });
 
+// Epic 25 S14: the opening paragraph introduces, and the rules after it are a list.
+test("the first paragraph leads and the rest read as a list of rules", async () => {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, UNACCEPTED);
+		if (url === "/me/acceptable-use")
+			return json(200, {
+				text: "For coursework.\n\nNo mining.\n\nNo tunnels.",
+				version: 1,
+			});
+		return json(403, { code: "ACCEPTABLE_USE_REQUIRED", message: "no" });
+	});
+	renderApp("/acceptable-use");
+	const intro = await screen.findByText("For coursework.");
+	expect(intro.tagName).toBe("P");
+	const list = screen.getByTestId("acceptable-use-text").querySelector("ul");
+	expect(
+		Array.from(list?.querySelectorAll("li") ?? []).map((item) => item.textContent),
+	).toEqual(["No mining.", "No tunnels."]);
+});
+
+test("a one-paragraph statement has no list", async () => {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, UNACCEPTED);
+		if (url === "/me/acceptable-use")
+			return json(200, { text: "Be kind.", version: 1 });
+		return json(403, { code: "ACCEPTABLE_USE_REQUIRED", message: "no" });
+	});
+	renderApp("/acceptable-use");
+	expect(await screen.findByText("Be kind.")).toBeTruthy();
+	expect(screen.getByTestId("acceptable-use-text").querySelector("ul")).toBeNull();
+});
+
 test("an account that has not accepted is sent to the statement from any page", async () => {
 	const fetch = stubFetch((url) => {
 		// A student, so /admin's own "not for you" redirect must not fight the gate.
@@ -51,7 +83,7 @@ test("the password gate comes before the acceptable-use gate", async () => {
 	await waitFor(() => expect(router.state.location.pathname).toBe("/change-password"));
 });
 
-test("I accept sends the version shown and lands on the workspace", async () => {
+test("Accept and continue sends the version shown and lands on the workspace", async () => {
 	let accepted = false;
 	const fetch = stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, { ...USER, mustAcceptUse: !accepted });
@@ -65,7 +97,7 @@ test("I accept sends the version shown and lands on the workspace", async () => 
 	});
 	const { router } = renderApp("/acceptable-use");
 	await screen.findByText("First rule.");
-	fireEvent.click(screen.getByRole("button", { name: "I accept" }));
+	fireEvent.click(screen.getByRole("button", { name: "Accept and continue" }));
 
 	await waitFor(() =>
 		expect(router.state.location.pathname).toBe(`/workspaces/${WORKSPACE.id}`),
@@ -89,7 +121,7 @@ test("a statement changed meanwhile is shown again, not accepted", async () => {
 	});
 	const { router } = renderApp("/acceptable-use");
 	await screen.findByText("First rule.");
-	fireEvent.click(screen.getByRole("button", { name: "I accept" }));
+	fireEvent.click(screen.getByRole("button", { name: "Accept and continue" }));
 
 	expect(await screen.findByText("A newer rule.")).toBeTruthy();
 	expect((await screen.findByRole("alert")).textContent).toMatch(/has just changed/);

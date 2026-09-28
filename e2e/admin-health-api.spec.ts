@@ -36,17 +36,17 @@ test.describe("admin health API charts", () => {
 		const requests = page.getByTestId("health-chart-api-requests");
 		await expect(
 			requests.getByRole("img", {
-				name: /^API requests: Now [\d,.]+\/min, highest 60,\d{3}\/min\. 1,\d{3} WebSocket upgrades in this range\.$/,
+				name: /^API requests per minute: Now [\d,.]+\/min, highest 60,\d{3}\/min\. 1,\d{3} WebSocket upgrades in this range\.$/,
 			}),
 		).toBeVisible();
 		await expect(
 			page.getByTestId("health-chart-api-errors").getByRole("img", {
-				name: /^API error rate: 4xx: .* 5xx: Now [\d.]+%, highest (49|50)%\.$/,
+				name: /^API error rate, % of requests: 4xx: .* 5xx: Now [\d.]+%, highest (49|50)%\.$/,
 			}),
 		).toBeVisible();
 		await expect(
 			page.getByTestId("health-chart-api-latency").getByRole("img", {
-				name: /^API response time: Median: .*highest 10,000 ms\. 95th percentile: .*highest 10,000 ms\.$/,
+				name: /^API response time, ms: Median: .*highest 10,000 ms\. 95th percentile: .*highest 10,000 ms\.$/,
 			}),
 		).toBeVisible();
 	});

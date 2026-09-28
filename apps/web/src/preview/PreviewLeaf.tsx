@@ -7,7 +7,6 @@
  * the application is rewritten, stripped or proxied here.
  */
 import {
-	Button,
 	ConfirmDialog,
 	ConfirmDialogRoot,
 	EmptyState,
@@ -19,6 +18,7 @@ import {
 	MenuRoot,
 	MenuSeparator,
 	MenuTrigger,
+	Toggletip,
 	useToast,
 } from "@portikus/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -78,6 +78,8 @@ type State =
 			refusedHost: string;
 			server: RefusedServer;
 	  }
+	/** The preview policy does not allow this port (PREVIEW_PORT_NOT_ALLOWED). */
+	| { status: "port-refused" }
 	| { status: "error"; message: string };
 
 /** The development servers whose refusal the control plane recognises. */
@@ -137,6 +139,8 @@ function announcement(state: State, port: number): string {
 			return `Nothing is running on port ${port}`;
 		case "unauthorized":
 			return "You cannot preview this workspace";
+		case "port-refused":
+			return `Port ${port} cannot be previewed`;
 		case "error":
 			return "That preview did not open";
 		case "host-refused":
@@ -152,6 +156,8 @@ export interface PreviewLeafProps {
 	visible: boolean;
 	/** Bring the Running surface into view (BROWSER-HANDLING.md §12). */
 	onShowRunning: () => void;
+	/** Open the port picker in place of this tab, for a port that is refused. */
+	onChoosePort: () => void;
 }
 
 export function PreviewLeaf({
@@ -159,6 +165,7 @@ export function PreviewLeaf({
 	port,
 	visible,
 	onShowRunning,
+	onChoosePort,
 }: PreviewLeafProps) {
 	const toast = useToast();
 	const listening = useListening();
@@ -246,12 +253,12 @@ export function PreviewLeaf({
 			});
 		} catch (error) {
 			// A refused port is about the port, not about the student, so it
-			// keeps the API's sentence instead of the sign-in wording.
-			if (
-				error instanceof ApiError &&
-				error.status === 403 &&
-				error.code !== "PREVIEW_PORT_NOT_ALLOWED"
-			) {
+			// gets its own state instead of the sign-in wording.
+			if (error instanceof ApiError && error.code === "PREVIEW_PORT_NOT_ALLOWED") {
+				setState({ status: "port-refused" });
+				return;
+			}
+			if (error instanceof ApiError && error.status === 403) {
 				setState({ status: "unauthorized" });
 				return;
 			}
@@ -278,6 +285,8 @@ export function PreviewLeaf({
 	// stopped listening while the workspace was away (SPEC.md §14.8).
 	useEffect(() => {
 		if (!listening.loaded) return;
+		// A refused port stays refused whether or not it is listening.
+		if (statusRef.current === "port-refused") return;
 		const showing =
 			statusRef.current === "available" ||
 			statusRef.current === "blocked" ||
@@ -410,29 +419,36 @@ export function PreviewLeaf({
 			hidden={!visible}
 		>
 			<div className="pk-preview-bar">
-				<span className="pk-preview-host" data-testid="preview-host" title={host}>
-					{host}
+				<span className="pk-preview-where">
+					<span className="pk-preview-host" data-testid="preview-host" title={host}>
+						{host}
+					</span>
+					{/* Grants go only to the workspace owner (routes/preview.ts). */}
+					{showingGrant ? (
+						<Toggletip label="the preview address">
+							Your preview's own address. Only you can open it, after signing in to
+							Portikus. It does not work for anyone else.
+						</Toggletip>
+					) : null}
 				</span>
 				{/* Always enabled: the frame is cross-origin, so whether it has
 				    somewhere to go back to cannot be read (issue #271). A press
 				    with nothing behind it does nothing and says so. */}
-				<Button
-					variant="quiet"
+				<IconButton
+					icon="arrow-left"
+					label="Back"
 					size="sm"
 					data-testid="preview-back"
 					title={backHint}
 					onClick={goBack}
-				>
-					Back
-				</Button>
-				<Button
-					variant="quiet"
+				/>
+				<IconButton
+					icon="arrow-right"
+					label="Forward"
 					size="sm"
 					data-testid="preview-forward"
 					onClick={goForward}
-				>
-					Forward
-				</Button>
+				/>
 				<IconButton
 					icon="restart"
 					label="Reload preview"
@@ -528,6 +544,34 @@ export function PreviewLeaf({
 						<EmptyState icon="lock" title="You cannot preview this workspace">
 							<span data-testid="preview-unauthorized">
 								Ask your instructor if you think you should have access.
+							</span>
+						</EmptyState>
+					</div>
+				) : null}
+
+				{/* No Try again: the port will be refused every time. The
+				    sentence follows the API defaults (PREVIEW_PORT_MIN 1024,
+				    PREVIEW_DENIED_PORTS 22, 2375, 2376 and 5432). */}
+				{state.status === "port-refused" ? (
+					<div className="pk-preview-state">
+						<EmptyState
+							icon="alert"
+							title={`Port ${port} cannot be previewed`}
+							actions={
+								<button
+									type="button"
+									className="pk-preview-action"
+									data-testid="preview-choose-port"
+									onClick={onChoosePort}
+								>
+									Choose another port…
+								</button>
+							}
+						>
+							<span data-testid="preview-port-refused">
+								Ports below 1024, and ports kept for SSH, Docker and databases, cannot
+								be opened as a preview. Run your app on a port from 1024 up, such as
+								3000 or 5173.
 							</span>
 						</EmptyState>
 					</div>

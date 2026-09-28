@@ -126,6 +126,10 @@
 	}
 }
 
+/* A tooltip only names its button; clicks pass through to what lies under it. */
+.pk-tooltip {
+	pointer-events: none;
+}
 /* Keycaps inside a tooltip sit on the inverse surface. */
 .pk-tooltip .pk-kbd {
 	background: transparent;

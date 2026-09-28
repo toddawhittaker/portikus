@@ -94,6 +94,8 @@ export function DiffViewer({
 				// Stay side by side at every width; the change marks
 				// in the gutter and the minimap still show where the edits are.
 				renderSideBySide: true,
+				// The columns stay equal so the side labels above them line up.
+				enableSplitViewResizing: false,
 				useInlineViewWhenSpaceIsLimited: false,
 				renderOverviewRuler: false,
 				accessibilitySupport: accessibilitySupport(screenReaderRef.current),

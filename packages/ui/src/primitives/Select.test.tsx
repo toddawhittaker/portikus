@@ -56,4 +56,24 @@ describe("Select", () => {
 		expect(label?.parentElement?.contains(help)).toBe(true);
 		expect(screen.getByRole("combobox", { name: /Service log level/ })).toBeDefined();
 	});
+	// Epic 25: a label row with help keeps the plain label's 18px line, so fields
+	// with and without help line up in one row; the 24px button overflows it.
+	it("keeps the label row as tall as a plain label when it has help", () => {
+		render(
+			<>
+				<Select
+					id="a"
+					label="With help"
+					options={OPTIONS}
+					help={<button type="button">About</button>}
+				/>
+				<Select id="b" label="Without help" options={OPTIONS} />
+			</>,
+		);
+		const withHelp = document.getElementById("a-l");
+		const plain = document.getElementById("b-l");
+		expect(plain?.className).toContain("leading-[18px]");
+		expect(withHelp?.parentElement?.className).toContain("h-[18px]");
+		expect(withHelp?.parentElement?.className).toContain("items-center");
+	});
 });

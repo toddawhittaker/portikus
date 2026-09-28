@@ -367,7 +367,7 @@ for (const { name, button, dialogId, confirmLabel, done, operation, action } of 
 test.describe("the Users table layout", () => {
 	test.use({ viewport: { width: 1280, height: 600 } });
 
-	test("seven columns, a sticky header, centred filter extras, no sideways scroll", async ({
+	test("five columns, a sticky header, a centred checkbox, no sideways scroll", async ({
 		page,
 	}) => {
 		const tag = crypto.randomUUID().slice(0, 8);
@@ -387,12 +387,10 @@ test.describe("the Users table layout", () => {
 			"Account",
 			"Role",
 			"Workspace",
-			"Last activity",
-			"Image",
-			"Connections",
+			"Activity",
 		]);
 
-		// The checkbox and the count sit on the middle of the select controls.
+		// The checkbox sits on the middle of the select controls.
 		const middle = async (box: { y: number; height: number } | null) =>
 			box ? box.y + box.height / 2 : Number.NaN;
 		const control = await middle(
@@ -402,12 +400,10 @@ test.describe("the Users table layout", () => {
 			// The input is a 1 px hidden box; the drawn label is what the eye sees.
 			await page.locator("label.pk-check", { hasText: "Show archived" }).boundingBox(),
 		);
-		const count = await middle(await page.getByTestId("admin-row-count").boundingBox());
 		expect(Math.abs(archived - control)).toBeLessThanOrEqual(1);
-		expect(Math.abs(count - control)).toBeLessThanOrEqual(1);
 
 		// The header stays in view after <main> scrolls.
-		const header = table.getByRole("columnheader", { name: "Account", exact: true });
+		const header = table.getByRole("columnheader", { name: /^Account/ });
 		await page.locator("main").evaluate((main) => {
 			main.scrollTop = main.scrollHeight;
 		});
@@ -438,5 +434,185 @@ test.describe("the Users table layout", () => {
 		});
 		expect(overflow.table).toBeLessThanOrEqual(overflow.wrap);
 		expect(overflow.page).toBeLessThanOrEqual(overflow.view);
+	});
+
+	test("ticking the first row does not move the table, and the count shows only when filtered", async ({
+		page,
+	}) => {
+		const tag = crypto.randomUUID().slice(0, 8);
+		await insertUser(`shift-${tag}-1@example.edu`, `Shift ${tag} 1`, 0);
+		await insertUser(`shift-${tag}-2@example.edu`, `Shift ${tag} 2`, 0);
+		await openAdmin(page);
+		// Nothing hidden and nothing filtered: the heading already counts everyone.
+		const [{ archived }] = await query<{ archived: string }>(
+			"select count(*) as archived from workspaces where archived_at is not null",
+		);
+		if (Number(archived) === 0) {
+			await expect(page.getByTestId("admin-row-count")).toHaveText("");
+		}
+		await filterTo(page, `Shift ${tag}`);
+		await expect(page.locator("[data-testid^=account-row-]")).toHaveCount(2);
+		await expect(page.getByTestId("admin-row-count")).toHaveText(/^Showing 2 of \d+$/);
+
+		const table = page.getByTestId("admin-accounts");
+		const before = await table.boundingBox();
+		await page.getByRole("checkbox", { name: `Select Shift ${tag} 1` }).check();
+		await expect(page.getByTestId("bulk-actions")).toContainText("1 selected");
+		await expect(page.getByTestId("admin-row-count")).toHaveText("");
+		const after = await table.boundingBox();
+		expect(after?.y).toBe(before?.y);
+		await page.getByRole("checkbox", { name: `Select Shift ${tag} 1` }).uncheck();
+		await expect(page.getByTestId("bulk-actions")).toHaveCount(0);
+		expect((await table.boundingBox())?.y).toBe(before?.y);
+	});
+
+	test("at 1024 px with the panel open, every column shows and nothing is clipped", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1024, height: 768 });
+		const tag = crypto.randomUUID().slice(0, 8);
+		const longName = `Wide ${tag} Maximiliana Alexandrovna Oyelaran-Featherstonehaugh`;
+		const long = await insertUser(
+			`maximiliana.alexandrovna.oyelaran-featherstonehaugh-${tag}@students.example.edu`,
+			longName,
+			40,
+		);
+		const short = await insertUser(`wide-${tag}@example.edu`, `Wide ${tag} Ada`, 0);
+		// A name with no break in it must not push the table wider either.
+		await insertUser(`unbroken-${tag}@example.edu`, `Wide${tag}${"W".repeat(60)}`, 0);
+		for (const id of [long, short]) {
+			const workspace = crypto.randomUUID();
+			await query(
+				`insert into workspaces (id, owner_user_id, label, incus_instance_name, state, desired_state)
+				 values ($1, $2, $3, $4, 'running', 'running')`,
+				[
+					workspace,
+					id,
+					`ws-${workspace.slice(0, 8)}`,
+					`ws-${workspace.replace(/-/g, "").slice(0, 24)}`,
+				],
+			);
+		}
+		// Every tag and the Older image tag at once, on the longest row.
+		await page.route("**/admin/users", async (route) => {
+			const response = await route.fetch();
+			const body = await response.json();
+			for (const user of body.users) {
+				if (user.id !== long || !user.workspace) continue;
+				user.markers = {
+					...user.markers,
+					stale: true,
+					linked: true,
+					duplicateEmail: true,
+				};
+				user.workspace.image = {
+					label: "2026.09.1",
+					fingerprint: "old",
+					current: false,
+				};
+				user.workspace.activeConnections = 12;
+				const at = new Date().toISOString();
+				user.workspace.cpuThrottle = {
+					at,
+					thresholdPercent: 80,
+					windowMinutes: 10,
+					sharePercent: 25,
+					held: { count: 3, hours: 24 },
+					averagePercent: 97,
+					allowance: "25ms/100ms",
+				};
+				user.workspace.memoryFlag = {
+					at,
+					averagePercent: 93,
+					thresholdPercent: 90,
+					windowMinutes: 10,
+				};
+			}
+			await route.fulfill({ response, json: body });
+		});
+		await openAdmin(page);
+		await filterTo(page, tag);
+		await expect(page.locator("[data-testid^=account-row-]")).toHaveCount(3);
+		await expect(page.getByTestId(`account-image-${long}`)).toHaveText("Older image");
+		await expect(page.getByTestId(`account-activity-${long}`)).toHaveText(
+			"Now, 12 connections",
+		);
+
+		await page
+			.getByRole("button", { name: `Show details for Wide ${tag} Ada` })
+			.click();
+		await expect(page.getByRole("region", { name: `Wide ${tag} Ada` })).toBeVisible();
+
+		const table = page.getByTestId("admin-accounts");
+		const fit = await table.evaluate((t) => {
+			const wrap = (t.parentElement as HTMLElement).getBoundingClientRect();
+			const outside = [...t.querySelectorAll("th, td")].filter((cell) => {
+				const box = cell.getBoundingClientRect();
+				return box.left < wrap.left - 0.5 || box.right > wrap.right + 0.5;
+			});
+			// A cell whose content is wider than the cell is clipped or spills.
+			const spilling = [...t.querySelectorAll("th, td")]
+				.filter((cell) => cell.scrollWidth > cell.clientWidth + 1)
+				.map((cell) => cell.textContent);
+			const tags = [...t.querySelectorAll(".pk-tag")].filter(
+				(tag) => tag.getBoundingClientRect().height > 20,
+			);
+			return {
+				outside: outside.length,
+				spilling,
+				wrappedTags: tags.map((tag) => tag.textContent),
+				table: t.scrollWidth,
+				wrap: wrap.width,
+			};
+		});
+		expect(fit.outside).toBe(0);
+		expect(fit.spilling).toEqual([]);
+		// A tag never breaks inside itself ("High memory" stays on one line).
+		expect(fit.wrappedTags).toEqual([]);
+		expect(fit.table).toBeLessThanOrEqual(Math.ceil(fit.wrap));
+		for (const header of ["Account", "Role", "Workspace", "Activity"]) {
+			await expect(
+				table.getByRole("columnheader", { name: new RegExp(`^${header}`) }),
+			).toBeInViewport();
+		}
+	});
+
+	test("the intro and each help button explain the table, by click and by keyboard", async ({
+		page,
+	}) => {
+		await openAdmin(page);
+		const intro = page.getByTestId("intro-admin-users");
+		await expect(intro).toContainText(
+			"Everyone who has signed in, with their workspace.",
+		);
+		await expect(intro.getByRole("link", { name: /More in Help/ })).toHaveAttribute(
+			"href",
+			"/help#admin-users",
+		);
+
+		for (const [label, text] of [
+			["Account tags", "Stale means no sign-in for 30 days"],
+			["Role", "only a granted role can be taken away here"],
+			["Older image", "Rebuild it to move to the current one."],
+			["Activity", "Now means the workspace is open"],
+			["Image filter", "Choose Older to see who needs a rebuild."],
+			["Show archived", "cannot start until you unarchive them"],
+		] as const) {
+			const button = page.getByRole("button", { name: `About ${label}`, exact: true });
+			await button.click();
+			const tip = page.getByRole("dialog", { name: label, exact: true });
+			await expect(tip).toContainText(text);
+			await page.keyboard.press("Escape");
+			await expect(tip).toHaveCount(0);
+			await expect(button).toBeFocused();
+			// Enter opens it too; hovering never does.
+			await page.keyboard.press("Enter");
+			await expect(tip).toBeVisible();
+			await page.keyboard.press("Escape");
+		}
+		await page.getByRole("button", { name: "About Activity", exact: true }).hover();
+		await expect(
+			page.getByRole("dialog", { name: "Activity", exact: true }),
+		).toHaveCount(0);
 	});
 });

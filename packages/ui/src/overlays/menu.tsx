@@ -1,6 +1,7 @@
 import * as RadixContextMenu from "@radix-ui/react-context-menu";
 import * as RadixDropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as React from "react";
+import { skipTooltipOnReturnedFocus } from "../primitives/IconButton.js";
 import { Icon, type IconName, type Key, ShortcutHint } from "../primitives/index.js";
 
 /** Which Radix family the items below render into. */
@@ -63,7 +64,11 @@ export function Menu({
 			sideOffset={kind === "dropdown" ? 4 : undefined}
 			// Keep the menu off the window edge (Epic 25 N2).
 			collisionPadding={8}
-			onCloseAutoFocus={onCloseAutoFocus}
+			onCloseAutoFocus={(event) => {
+				onCloseAutoFocus?.(event);
+				// Radix focuses the trigger next; its tooltip would cover a neighbour.
+				if (!event.defaultPrevented) skipTooltipOnReturnedFocus();
+			}}
 		>
 			{children}
 		</P.Content>
@@ -161,7 +166,7 @@ export function MenuCheckboxItem({
 			onCheckedChange={(value) => onCheckedChange(value === true)}
 			data-testid={testId}
 		>
-			<span className="grid size-[var(--size-icon-sm)] place-items-center">
+			<span className="pk-menu-check grid size-[var(--size-icon-sm)] place-items-center">
 				<P.ItemIndicator>
 					<Icon name="check" size="sm" />
 				</P.ItemIndicator>

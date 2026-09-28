@@ -86,3 +86,30 @@ test("a failed load is announced", async () => {
 	renderWithQuery(<PackagesSection />);
 	expect((await screen.findByRole("alert")).textContent).toBe("Broken.");
 });
+
+test("the candidate rule sits behind a help button in the Package header", () => {
+	render(
+		<PackagesTable
+			survey={{
+				day: "2026-09-26",
+				surveyed: 9,
+				packages: [
+					{
+						package: "htop",
+						workspaces: 3,
+						firstSeen: "2026-09-26",
+						lastSeen: "2026-09-26",
+						candidate: true,
+					},
+				],
+			}}
+		/>,
+	);
+	const header = screen.getByRole("columnheader", { name: /Package/ });
+	expect(
+		within(header).getByRole("button", { name: "About Base-image candidate" }),
+	).toBeDefined();
+	expect(screen.getByRole("table").querySelector("caption")?.textContent).not.toContain(
+		"candidate",
+	);
+});

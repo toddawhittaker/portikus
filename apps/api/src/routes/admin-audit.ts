@@ -9,10 +9,18 @@ import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import type { ServerDeps } from "../server.js";
 
+const UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
+// Cast only text that holds a UUID, so a target such as "settings" never fails
+// the cast, and the joins look names up by primary key.
+const actorUuid = sql`case when a.actor ~* ${`^user:${UUID_PATTERN}$`} then substr(a.actor, 6)::uuid end`;
+const targetUuid = sql`case when a.target ~* ${`^${UUID_PATTERN}$`} then a.target::uuid end`;
+
 /**
  * `GET /admin/audit` (SPEC.md §24.11, §26): newest first, keyset paged by id.
  * Audit rows name workspaces and users by bare id as the target, and users
- * as `user:<id>` when they are the actor.
+ * as `user:<id>` when they are the actor. Each page resolves both to display
+ * names, a workspace target to its owner's name.
  */
 export function registerAdminAuditRoutes(
 	app: FastifyInstance,
@@ -32,9 +40,10 @@ export function registerAdminAuditRoutes(
 
 			let select = db
 				.selectFrom("audit_events as a")
-				.leftJoin("users as u", (join) =>
-					join.on(sql`a.actor`, "=", sql`'user:' || u.id::text`),
-				)
+				.leftJoin("users as u", (join) => join.on(sql`u.id`, "=", actorUuid))
+				.leftJoin("users as tu", (join) => join.on(sql`tu.id`, "=", targetUuid))
+				.leftJoin("workspaces as tw", (join) => join.on(sql`tw.id`, "=", targetUuid))
+				.leftJoin("users as owner", "owner.id", "tw.owner_user_id")
 				.select([
 					"a.id",
 					"a.at",
@@ -44,6 +53,9 @@ export function registerAdminAuditRoutes(
 					"a.result",
 					"a.metadata",
 					"u.display_name as actor_name",
+					sql<string | null>`coalesce(tu.display_name, owner.display_name)`.as(
+						"target_name",
+					),
 				])
 				.orderBy("a.id", "desc")
 				// One extra row says whether another page follows.
@@ -52,7 +64,18 @@ export function registerAdminAuditRoutes(
 			if (query.user) {
 				const user = query.user;
 				select = select.where((eb) =>
-					eb.or([eb("a.target", "=", user), eb("a.actor", "=", `user:${user}`)]),
+					eb.or([
+						eb("a.target", "=", user),
+						eb("a.actor", "=", `user:${user}`),
+						eb(
+							"a.target",
+							"in",
+							eb
+								.selectFrom("workspaces")
+								.select(sql<string>`id::text`.as("id"))
+								.where("owner_user_id", "=", user),
+						),
+					]),
 				);
 			}
 			if (query.action) {
@@ -69,6 +92,7 @@ export function registerAdminAuditRoutes(
 				actorName: row.actor_name ?? null,
 				action: row.action,
 				target: row.target,
+				targetName: row.target_name ?? null,
 				result: row.result,
 				metadata: row.metadata,
 			}));

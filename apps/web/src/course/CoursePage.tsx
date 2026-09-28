@@ -1,5 +1,5 @@
 import type { CourseMember } from "@portikus/contracts";
-import { Button, StateBadge } from "@portikus/ui";
+import { Button, PageIntro, StateBadge, Toggletip } from "@portikus/ui";
 import { Link, Navigate, useParams } from "@tanstack/react-router";
 import * as React from "react";
 import { ApiError } from "../api/request.js";
@@ -26,12 +26,15 @@ function CourseFrame({ children }: { children: React.ReactNode }) {
 	return (
 		<div className="pk-root">
 			<AppHeader user={me.user} workspace={null} project={undefined} context="Course" />
+			{/* The admin page's frame (SPEC.md section 20.1): <main> scrolls, content
+			    at most 1440 px wide, compact density. */}
 			<main
 				className="flex-1 overflow-auto p-8"
 				data-testid="page-course"
+				data-density="compact"
 				aria-labelledby="course-title"
 			>
-				{children}
+				<div className="mx-auto w-full max-w-[1440px]">{children}</div>
 			</main>
 		</div>
 	);
@@ -113,6 +116,11 @@ function launchText(iso: string): string {
 	return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+/** Only students can be removed; instructors are the learning system's to change. */
+function canRemove(member: CourseMember, myId: string | null): boolean {
+	return member.role === "student" && member.userId !== myId;
+}
+
 /** The member whose Remove button takes focus after one is removed: the next, else the previous. */
 export function nextRemovable(
 	members: CourseMember[],
@@ -121,7 +129,7 @@ export function nextRemovable(
 ): string | null {
 	const index = members.findIndex((member) => member.userId === removedId);
 	const others = (list: CourseMember[]) =>
-		list.find((member) => member.userId !== myId)?.userId ?? null;
+		list.find((member) => canRemove(member, myId))?.userId ?? null;
 	return (
 		others(members.slice(index + 1)) ??
 		others(members.slice(0, index).reverse()) ??
@@ -160,6 +168,17 @@ function CourseMembers() {
 			{data ? (
 				<p className="pk-muted mt-1 text-[13px]">{data.course.platformName}</p>
 			) : null}
+			<div className="mt-4">
+				<PageIntro
+					id="course"
+					summary="About the Course page"
+					helpHref="/help#instructor-course"
+				>
+					Everyone who has opened Portikus from this course. Remove takes a student off
+					this page. Their account, workspace and files stay, and they come back if they
+					open Portikus from the course again.
+				</PageIntro>
+			</div>
 			<Status>
 				{members.isError ? (
 					<span data-testid="course-error">
@@ -179,66 +198,79 @@ function CourseMembers() {
 				{removedText}
 			</span>
 			{data && data.members.length > 0 ? (
-				<table
-					className="mt-4 w-full text-left text-[13px]"
-					data-testid="course-members"
-				>
-					<caption className="sr-only">
-						People who have opened Portikus from this course
-					</caption>
-					<thead>
-						<tr className="pk-text-label text-ink-muted">
-							<th scope="col" className="py-2 pr-4 font-medium">
-								Name
-							</th>
-							<th scope="col" className="py-2 pr-4 font-medium">
-								Role
-							</th>
-							<th scope="col" className="py-2 pr-4 font-medium">
-								Last launch
-							</th>
-							<th scope="col" className="py-2 pr-4 font-medium">
-								Workspace
-							</th>
-							<th scope="col" className="py-2 font-medium">
-								<span className="sr-only">Actions</span>
-							</th>
-						</tr>
-					</thead>
-					<tbody>
-						{data.members.map((member) => (
-							<tr key={member.userId} className="border-line border-t">
-								<th scope="row" className="py-2 pr-4 font-normal">
-									{member.displayName}
+				// overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main>.
+				<div className="pk-table-wrap mt-4 overflow-clip">
+					<table className="pk-table pk-table--page" data-testid="course-members">
+						<caption className="sr-only">
+							People who have opened Portikus from this course
+						</caption>
+						<thead>
+							<tr>
+								<th scope="col">Name</th>
+								<th scope="col">Role</th>
+								<th scope="col">
+									<span className="inline-flex items-center gap-1">
+										Last launch
+										<Toggletip label="Last launch">
+											When they last opened Portikus from this course in your learning
+											system.
+										</Toggletip>
+									</span>
 								</th>
-								<td className="py-2 pr-4">{ROLE_LABEL[member.role]}</td>
-								<td className="py-2 pr-4">{launchText(member.lastLaunchAt)}</td>
-								<td className="py-2 pr-4">
-									{member.workspaceState ? (
-										<StateBadge state={member.workspaceState} statusRole={false} />
-									) : (
-										"No workspace"
-									)}
-								</td>
-								<td className="py-2">
-									{member.userId === myId ? null : (
-										<Button
-											size="sm"
-											data-remove-id={member.userId}
-											onClick={() => {
-												removedNext.current = null;
-												setRemoving(member);
-											}}
-										>
-											Remove{" "}
-											<span className="sr-only">{member.displayName} from course</span>
-										</Button>
-									)}
-								</td>
+								<th scope="col">Workspace</th>
+								<th scope="col" className="pk-cell-actions">
+									<span className="inline-flex items-center gap-1">
+										<span className="sr-only">Actions</span>
+										<Toggletip label="Remove">
+											Remove takes a student off this page. Their account, workspace and
+											files stay, and they come back if they open Portikus from the
+											course again. Instructors are changed in your learning system.
+										</Toggletip>
+									</span>
+								</th>
 							</tr>
-						))}
-					</tbody>
-				</table>
+						</thead>
+						<tbody>
+							{data.members.map((member) => (
+								<tr key={member.userId}>
+									<th scope="row" className="font-semibold">
+										{member.displayName}
+									</th>
+									<td>{ROLE_LABEL[member.role]}</td>
+									<td>
+										<time dateTime={member.lastLaunchAt}>
+											{launchText(member.lastLaunchAt)}
+										</time>
+									</td>
+									<td>
+										{member.workspaceState ? (
+											<StateBadge state={member.workspaceState} statusRole={false} />
+										) : (
+											<span className="pk-cell-muted">No workspace</span>
+										)}
+									</td>
+									<td className="pk-cell-actions">
+										{!canRemove(member, myId) ? null : (
+											<Button
+												size="sm"
+												data-remove-id={member.userId}
+												onClick={() => {
+													removedNext.current = null;
+													setRemoving(member);
+												}}
+											>
+												Remove{" "}
+												<span className="sr-only">
+													{member.displayName} from course
+												</span>
+											</Button>
+										)}
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
 			) : null}
 			{data && removing ? (
 				<RemoveMemberConfirm

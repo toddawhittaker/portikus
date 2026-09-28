@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { IconButton } from "../primitives/IconButton.js";
 import {
 	ContextMenu,
 	ContextMenuTrigger,
@@ -130,5 +131,42 @@ describe("Menu", () => {
 
 		const item = screen.getByRole("menuitemcheckbox", { name: "Word wrap" });
 		expect(item.getAttribute("aria-checked")).toBe("true");
+	});
+
+	// Epic 25 M4: the trigger takes focus back, but its tooltip stays shut.
+	it("returns focus to an icon trigger without opening its tooltip", async () => {
+		render(
+			<MenuRoot>
+				<MenuTrigger asChild>
+					<IconButton icon="more" label="Project actions" />
+				</MenuTrigger>
+				<Menu label="Project actions">
+					<MenuItem>Rename</MenuItem>
+				</Menu>
+			</MenuRoot>,
+		);
+		const trigger = screen.getByRole("button", { name: "Project actions" });
+		fireEvent.keyDown(trigger, { key: "Enter" });
+		fireEvent.keyDown(await screen.findByRole("menu"), { key: "Escape" });
+		await waitFor(() => expect(document.activeElement).toBe(trigger));
+		expect(screen.queryByRole("menu")).toBeNull();
+		expect(screen.queryByRole("tooltip")).toBeNull();
+	});
+
+	it("marks the check gutter so plain items can line up with it", () => {
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="View">
+					<MenuCheckboxItem checked={false} onCheckedChange={vi.fn()}>
+						Light terminal
+					</MenuCheckboxItem>
+					<MenuItem>Rename</MenuItem>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
+		const check = screen.getByRole("menuitemcheckbox", { name: "Light terminal" });
+		expect(check.firstElementChild?.classList.contains("pk-menu-check")).toBe(true);
 	});
 });

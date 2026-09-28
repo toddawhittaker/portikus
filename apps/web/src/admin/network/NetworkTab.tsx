@@ -11,6 +11,12 @@ import { PresetsCard } from "./PresetsCard.js";
 import { egressErrorText, useEgress } from "./queries.js";
 import { TestHostCard } from "./TestHostCard.js";
 
+const INTRO = {
+	id: "admin-network",
+	helpAnchor: "admin-network",
+	text: "Which internet sites workspaces can reach. Open mode allows every public site except the ones you block. Allow-list mode allows only the presets, hosts and ranges you list.",
+};
+
 /** The admin Network tab: the workspace egress allow-list (issue #284, SPEC.md section 20.1). */
 export function NetworkTab() {
 	const egress = useEgress();
@@ -56,7 +62,7 @@ export function NetworkTab() {
 	};
 
 	return (
-		<AdminSection title="Network">
+		<AdminSection title="Network" intro={INTRO}>
 			<div className="grid gap-6" data-testid="egress-tab">
 				<ModeCard view={view} />
 				{view.mode === "open" ? (
