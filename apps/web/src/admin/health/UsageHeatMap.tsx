@@ -78,7 +78,7 @@ export function UsageHeatMap({
 
 	return (
 		<figure
-			className="m-0 min-w-0 min-[1280px]:col-span-2"
+			className="col-span-full m-0 min-w-0"
 			data-testid="health-heat-map"
 			aria-labelledby={captionId}
 		>

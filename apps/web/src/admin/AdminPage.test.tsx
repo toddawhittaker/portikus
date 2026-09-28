@@ -180,13 +180,13 @@ test("an unknown tab falls back to Users", async () => {
 	expect(await screen.findByTestId("admin-accounts")).toBeDefined();
 });
 
-test("the Settings tab shows the global grace period", async () => {
+test("the Settings tab shows the global grace period in minutes", async () => {
 	stubAdmin(5400);
 
 	renderApp("/admin?tab=settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("5400"));
+	await waitFor(() => expect(input.value).toBe("90"));
 	expect(screen.getAllByText("1 hour 30 minutes").length).toBe(1);
 });
 
@@ -209,7 +209,7 @@ test("saving the global value sends the seconds as a number", async () => {
 	renderApp("/admin?tab=settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("600"));
+	await waitFor(() => expect(input.value).toBe("10"));
 	fireEvent.change(input, { target: { value: "0" } });
 	fireEvent.click(screen.getByTestId("grace-save"));
 
@@ -242,12 +242,12 @@ test("a value beyond the integer limit is refused before any request", async () 
 	renderApp("/admin?tab=settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("600"));
-	fireEvent.change(input, { target: { value: "2147483648" } });
+	await waitFor(() => expect(input.value).toBe("10"));
+	fireEvent.change(input, { target: { value: "35791395" } });
 	fireEvent.click(screen.getByTestId("grace-save"));
 
 	expect(
-		await screen.findByText("Enter a whole number of seconds, 0 or more."),
+		await screen.findByText("Enter a number of minutes, 0 or more."),
 	).toBeDefined();
 	expect(writes.length).toBe(0);
 });
@@ -263,48 +263,18 @@ test("a student sent to /admin lands on the not-authorized page", async () => {
 	await waitFor(() => expect(router.state.location.pathname).toBe("/not-authorized"));
 });
 
-test("the log level select starts on the service default", async () => {
-	stubAdmin(600);
-
-	renderApp("/admin?tab=settings");
-
-	const select = (await screen.findByTestId("log-level-select")) as HTMLSelectElement;
-	await waitFor(() => expect(select.disabled).toBe(false));
-	expect(select.value).toBe("default");
-	expect(within(select).getByText("Use service default")).toBeDefined();
-});
-
-test("choosing a level sends only the log level, and the default sends null", async () => {
-	const writes: { url: string; body: unknown }[] = [];
-	stubAdmin(600, (url, body) => writes.push({ url, body }));
-
-	renderApp("/admin?tab=settings");
-
-	const select = (await screen.findByTestId("log-level-select")) as HTMLSelectElement;
-	await waitFor(() => expect(select.disabled).toBe(false));
-	fireEvent.change(select, { target: { value: "debug" } });
-	fireEvent.click(screen.getByTestId("log-level-save"));
-
-	await waitFor(() => expect(writes.length).toBe(1));
-	expect(writes[0]).toEqual({ url: "/admin/settings", body: { logLevel: "debug" } });
-	expect(await screen.findByText("Log level saved")).toBeDefined();
-
-	fireEvent.change(select, { target: { value: "default" } });
-	fireEvent.click(screen.getByTestId("log-level-save"));
-
-	await waitFor(() => expect(writes.length).toBe(2));
-	expect(writes[1]?.body).toEqual({ logLevel: null });
-});
-
-test("the grace form still sends only the seconds", async () => {
+test("the grace form takes minutes and still sends only the seconds", async () => {
 	const writes: { url: string; body: unknown }[] = [];
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
 
 	renderApp("/admin?tab=settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("600"));
-	fireEvent.change(input, { target: { value: "900" } });
+	await waitFor(() => expect(input.value).toBe("10"));
+	expect(input).toBe(
+		screen.getByRole("textbox", { name: "Disconnect grace (minutes)" }),
+	);
+	fireEvent.change(input, { target: { value: "15" } });
 	fireEvent.click(screen.getByTestId("grace-save"));
 
 	await waitFor(() => expect(writes.length).toBe(1));
@@ -369,41 +339,12 @@ test("grace-period errors are announced as alerts (issue #363)", async () => {
 	renderApp("/admin?tab=settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
-	await waitFor(() => expect(input.value).toBe("600"));
+	await waitFor(() => expect(input.value).toBe("10"));
 	fireEvent.change(input, { target: { value: "soon" } });
 	fireEvent.click(screen.getByTestId("grace-save"));
 	expect((await screen.findByRole("alert")).textContent).toBe(
-		"Enter a whole number of seconds, 0 or more.",
+		"Enter a number of minutes, 0 or more.",
 	);
-});
-
-test("a failed log-level save is an alert tied to the select (issue #363)", async () => {
-	stubFetch((url, init) => {
-		if (url === "/auth/me") return json(200, ADMIN);
-		if (url === "/admin/settings" && init?.method === "PUT") {
-			return json(500, { error: "internal", message: "Something broke" });
-		}
-		if (url === "/admin/settings") {
-			return json(200, {
-				...GUARD_SETTINGS,
-				shutdownGraceSeconds: 600,
-				logLevel: null,
-				updatedAt: null,
-			});
-		}
-		throw new Error(`unexpected request: ${url}`);
-	});
-
-	renderApp("/admin?tab=settings");
-
-	const select = (await screen.findByTestId("log-level-select")) as HTMLSelectElement;
-	await waitFor(() => expect(select.disabled).toBe(false));
-	fireEvent.change(select, { target: { value: "debug" } });
-	fireEvent.click(screen.getByTestId("log-level-save"));
-
-	const error = await screen.findByRole("alert");
-	expect(select.getAttribute("aria-invalid")).toBe("true");
-	expect(select.getAttribute("aria-describedby")).toBe(error.id);
 });
 
 test("the Audit tab's filters survive in the address, and bad values are dropped", async () => {

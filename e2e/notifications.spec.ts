@@ -242,3 +242,58 @@ test("keyboard only: reach Notifications from the account menu and mark one read
 	await expect(dialog).toHaveCount(0);
 	await expect(page.getByTestId("me")).toBeFocused();
 });
+
+// Epic 25 S8, S9, N6: the count sits after the name in the accent and never
+// covers the picture; the menu names the count after "Notifications"; a long
+// address does not widen the menu; an unread item's dot is the accent.
+test("the badge sits after the account button, and the menu stays narrow", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const email = `${"a-long-address-part-".repeat(6)}${student.userId.slice(0, 8)}@students.example.edu`;
+	await query("update users set email = $2 where id = $1", [student.userId, email]);
+	await record(page, "Disk nearly full");
+	await page.goto(workspacePath(student.workspaceId));
+
+	const badge = page.getByTestId("notifications-badge");
+	await expect(badge).toHaveText("1");
+	const account = await page.getByTestId("me").boundingBox();
+	const pill = await badge.boundingBox();
+	expect(account && pill).toBeTruthy();
+	if (!account || !pill) return;
+	expect(pill.x).toBeGreaterThanOrEqual(account.x + account.width);
+	expect(pill.height).toBeGreaterThanOrEqual(24);
+	expect(pill.width).toBeGreaterThanOrEqual(24);
+	const colors = await page.evaluate(() => {
+		const style = getComputedStyle(document.documentElement);
+		const probe = document.createElement("span");
+		probe.style.background = style.getPropertyValue("--accent");
+		document.body.append(probe);
+		const accent = getComputedStyle(probe).backgroundColor;
+		probe.remove();
+		const pillEl = document.querySelector(".pk-account-badge-pill");
+		return { accent, pill: pillEl ? getComputedStyle(pillEl).backgroundColor : "" };
+	});
+	expect(colors.pill).toBe(colors.accent);
+
+	await page.getByTestId("me").click();
+	const menu = page.getByRole("menu");
+	await expect(
+		menu.getByRole("menuitem", { name: "Notifications, 1 unread" }),
+	).toBeVisible();
+	const address = menu.getByTitle(email);
+	await expect(address).toBeVisible();
+	const menuBox = await menu.boundingBox();
+	// 18rem for the address plus the menu's own padding.
+	expect(menuBox?.width ?? 0).toBeLessThanOrEqual(18 * 16 + 40);
+	expect(await address.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+	await page.keyboard.press("Escape");
+
+	await badge.click();
+	const dot = page.locator(".pk-notification-dot").first();
+	await expect(dot).toBeVisible();
+	expect(await dot.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
+		colors.accent,
+	);
+});

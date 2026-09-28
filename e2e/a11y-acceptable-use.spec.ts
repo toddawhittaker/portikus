@@ -20,7 +20,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.goto("/");
 		await expect(page).toHaveURL(/\/acceptable-use$/, { timeout: 15_000 });
 		await expect(page.getByTestId("acceptable-use-text")).toBeVisible();
-		await expect(page.getByRole("button", { name: "I accept" })).toBeEnabled();
+		await expect(
+			page.getByRole("button", { name: "Accept and continue" }),
+		).toBeEnabled();
 
 		const results = await (await settledAxe(page))
 			.withTags(WCAG_TAGS)
@@ -39,7 +41,7 @@ test("the keyboard alone accepts the statement", async ({ page, context }) => {
 	await expect(page).toHaveURL(/\/acceptable-use$/, { timeout: 15_000 });
 	// Focus starts on the heading, so a screen reader announces the page.
 	await expect(page.getByRole("heading", { name: "Acceptable use" })).toBeFocused();
-	const accept = page.getByRole("button", { name: "I accept" });
+	const accept = page.getByRole("button", { name: "Accept and continue" });
 	await expect(accept).toBeEnabled();
 	for (let i = 0; i < 5; i++) {
 		if (await accept.evaluate((el) => el === document.activeElement)) break;
@@ -52,7 +54,7 @@ test("the keyboard alone accepts the statement", async ({ page, context }) => {
 	});
 });
 
-test("I accept keeps focus when the statement changed meanwhile", async ({
+test("Accept and continue keeps focus when the statement changed meanwhile", async ({
 	page,
 	context,
 }) => {
@@ -77,7 +79,7 @@ test("I accept keeps focus when the statement changed meanwhile", async ({
 	});
 	await page.goto("/");
 	await expect(page).toHaveURL(/\/acceptable-use$/, { timeout: 15_000 });
-	const accept = page.getByRole("button", { name: "I accept" });
+	const accept = page.getByRole("button", { name: "Accept and continue" });
 	await expect(accept).toBeEnabled();
 	await accept.focus();
 	await page.keyboard.press("Enter");

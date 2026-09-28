@@ -1,5 +1,5 @@
 import type { CheckRun, CheckState, Project } from "@portikus/contracts";
-import { Button, EmptyState, IconButton, StateBadge } from "@portikus/ui";
+import { Button, EmptyState, IconButton, StateBadge, Toggletip } from "@portikus/ui";
 import { useState } from "react";
 import { CheckOutput } from "./CheckOutput.js";
 import "./checks.css";
@@ -45,6 +45,11 @@ export function ChecksPane({
 		(checks.data?.runs ?? []).map((item) => [item.checkId, item]),
 	);
 	const shown = selected ?? definitions[0]?.id ?? null;
+	const shownCheck = definitions.find((check) => check.id === shown);
+	// A check with no run has no output to connect to. One that just started
+	// counts as run while the list catches up.
+	const hasRun =
+		shown !== null && (runs.has(shown) || (run.variables === shown && run.isSuccess));
 
 	function start(checkId: string) {
 		setSelected(checkId);
@@ -55,22 +60,42 @@ export function ChecksPane({
 
 	const output =
 		shown === null ? null : (
-			<div className="pk-check-panel">
-				<div className="pk-check-panel-head">Output</div>
-				<CheckOutput
-					key={`${shown}:${runKey}`}
-					workspaceId={workspaceId}
-					projectId={projectId}
-					checkId={shown}
-					onFinished={() => void checks.refetch()}
-				/>
-			</div>
+			<section className="pk-check-panel" aria-labelledby="check-output-title">
+				<h3 className="pk-check-panel-head" id="check-output-title">
+					Output{" "}
+					{shownCheck ? (
+						<span className="pk-check-panel-name" data-testid="check-output-name">
+							{shownCheck.name}
+						</span>
+					) : null}
+				</h3>
+				{hasRun ? (
+					<CheckOutput
+						key={`${shown}:${runKey}`}
+						workspaceId={workspaceId}
+						projectId={projectId}
+						checkId={shown}
+						name={shownCheck?.name ?? ""}
+						onFinished={() => void checks.refetch()}
+					/>
+				) : (
+					<p className="pk-check-empty" data-testid="check-output-empty">
+						Run a check to see its output here.
+					</p>
+				)}
+			</section>
 		);
 
 	return (
 		<>
 			<div className="pk-pane-head pk-pane-head--actions">
 				<h2 className="sr-only">Checks</h2>
+				<span className="pk-pane-head-about">
+					<Toggletip label="Checks">
+						Checks are commands your project defines in .portikus/checks.json, such as
+						tests or a linter. Run shows their real output here.
+					</Toggletip>
+				</span>
 				<IconButton
 					icon="more"
 					label="Edit checks"
@@ -79,7 +104,6 @@ export function ChecksPane({
 					onClick={() => setEditing(true)}
 				/>
 			</div>
-			<div className="pk-pane-sub">~/projects/{project.slug}</div>
 
 			{definitions.length === 0 ? (
 				<div className="pk-pane-body">

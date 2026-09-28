@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { BarChart, seriesAt } from "./BarChart.js";
 import { LineChart, linePath } from "./LineChart.js";
-import { moveCursor } from "./readout.js";
+import { DEFAULT_WIDTH, moveCursor, plotOf, timeLabelPositions } from "./readout.js";
 import type { ChartFrame } from "./scales.js";
 
 const FRAME: ChartFrame = {
@@ -24,10 +24,11 @@ test("arrows move one bucket, Home and End jump to the ends", () => {
 });
 
 test("a gap starts a new line segment, and a lone point is a dot", () => {
-	const path = linePath(FRAME, [10, 20, null, 30], 100);
+	const plot = plotOf(DEFAULT_WIDTH, ["100"]);
+	const path = linePath(FRAME, [10, 20, null, 30], 100, plot);
 	expect(path.match(/M/g)).toHaveLength(2);
 	expect(path).toMatch(/ l0 0$/);
-	expect(linePath(FRAME, [null, null, null, null], 100)).toBe("");
+	expect(linePath(FRAME, [null, null, null, null], 100, plot)).toBe("");
 });
 
 function line() {
@@ -53,8 +54,65 @@ test("a line chart names its plot, reads the summary and has Y ticks", () => {
 		name: "Memory used, use the left and right arrow keys to read values",
 	});
 	expect(plot.getAttribute("tabindex")).toBe("0");
-	expect(screen.getByText("100%")).toBeDefined();
-	expect(screen.getByText("0%")).toBeDefined();
+	// Bare numbers: the unit belongs in the title.
+	expect(screen.getByText("100")).toBeDefined();
+	expect(screen.getByText("0")).toBeDefined();
+});
+
+test("a line chart with no values draws no axis, only its summary", () => {
+	render(
+		<LineChart
+			testId="empty"
+			label="API response time, ms"
+			frame={FRAME}
+			series={[{ name: "Median", values: [null, null, null, null] }]}
+			ticks={[0, 1]}
+			format={String}
+			summary="No requests in this range."
+		/>,
+	);
+	expect(screen.queryByRole("application")).toBeNull();
+	expect(screen.queryByRole("img")).toBeNull();
+	const summary = screen.getByTestId("empty-summary");
+	expect(summary.textContent).toBe("No requests in this range.");
+	expect(summary.getAttribute("aria-hidden")).toBeNull();
+});
+
+test("the Y gutter grows with the longest tick label", () => {
+	expect(plotOf(560, ["0", "60K"]).left).toBeLessThan(plotOf(560, ["0", "1,500"]).left);
+	const plot = plotOf(560, ["0", "1,500"]);
+	// Five characters at 12 px, plus the 6 px gap to the plot.
+	expect(plot.left).toBeGreaterThanOrEqual(5 * 7 + 6);
+	expect(plot.plotWidth).toBe(560 - plot.left - 12);
+});
+
+test("time labels never overlap or pass either edge, however narrow the chart", () => {
+	const day: ChartFrame = {
+		range: "1d",
+		from: new Date(2026, 8, 26, 0, 0).getTime(),
+		bucketSeconds: 900,
+		count: 96,
+	};
+	for (const width of [240, 400, 1200]) {
+		const plot = plotOf(width, ["100"]);
+		const labels = timeLabelPositions(day, plot);
+		expect(labels.length).toBeGreaterThan(0);
+		for (let i = 1; i < labels.length; i++) {
+			const before = labels[i - 1];
+			const label = labels[i];
+			if (!before || !label) continue;
+			const gap =
+				label.x -
+				(label.text.length * 7.5) / 2 -
+				(before.x + (before.text.length * 7.5) / 2);
+			expect(gap).toBeGreaterThanOrEqual(12);
+		}
+		const first = labels[0];
+		if (first)
+			expect(first.x - (first.text.length * 7.5) / 2).toBeGreaterThanOrEqual(0);
+		const last = labels.at(-1);
+		if (last) expect(last.x + (last.text.length * 7.5) / 2).toBeLessThanOrEqual(width);
+	}
 });
 
 test("the keyboard readout announces each bucket, gaps as no data", () => {

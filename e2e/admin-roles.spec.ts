@@ -99,7 +99,7 @@ test("search finds an account by name, username and source", async ({ page }) =>
 	await expect(page.getByTestId(`account-row-${course}`)).toBeVisible();
 
 	await page.getByTestId("admin-filter-text").fill(`Find ${tag}`);
-	await page.getByLabel("Role").selectOption("administrator");
+	await page.getByLabel("Role", { exact: true }).selectOption("administrator");
 	await expect(rows).toHaveCount(0);
 });
 

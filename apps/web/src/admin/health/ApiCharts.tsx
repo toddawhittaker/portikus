@@ -50,16 +50,20 @@ export function ApiCharts({
 		<>
 			<LineChart
 				testId="health-chart-api-requests"
-				label="API requests"
+				label="API requests per minute"
 				frame={frame}
 				series={[{ name: "Requests", values: rate }]}
 				ticks={yTicks(Math.max(1, ...present(rate)))}
 				format={formatRate}
-				summary={`${lineSummary(rate, formatRate)} ${upgrades.toLocaleString("en-US")} WebSocket upgrade${upgrades === 1 ? "" : "s"} in this range.`}
+				summary={
+					present(rate).length === 0
+						? "No requests in this range."
+						: `${lineSummary(rate, formatRate)} ${upgrades.toLocaleString("en-US")} WebSocket upgrade${upgrades === 1 ? "" : "s"} in this range.`
+				}
 			/>
 			<LineChart
 				testId="health-chart-api-errors"
-				label="API error rate"
+				label="API error rate, % of requests"
 				frame={frame}
 				series={[
 					{ name: "4xx", values: clientErrors },
@@ -75,7 +79,7 @@ export function ApiCharts({
 			/>
 			<LineChart
 				testId="health-chart-api-latency"
-				label="API response time"
+				label="API response time, ms"
 				frame={frame}
 				series={[
 					{ name: "Median", values: median },

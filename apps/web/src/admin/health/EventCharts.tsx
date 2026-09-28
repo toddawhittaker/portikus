@@ -1,6 +1,6 @@
 import type { HealthSeries } from "@portikus/contracts";
 import { LineChart } from "./charts/LineChart.js";
-import { bucketPhrase, type ChartFrame, dense, niceNumber } from "./charts/scales.js";
+import { bucketPhrase, type ChartFrame, countTicks, dense } from "./charts/scales.js";
 
 type EventPoint = HealthSeries["events"][number];
 type Measure = { name: string; pick: (point: EventPoint) => number };
@@ -20,13 +20,6 @@ const ACTIVITY: readonly Measure[] = [
 
 function formatCount(value: number): string {
 	return String(Math.round(value));
-}
-
-/** Whole-number Y ticks from 0 to at least `max`, three to five of them. */
-export function countTicks(max: number): number[] {
-	const step = Math.max(1, Math.ceil(niceNumber(max / 4)));
-	const steps = Math.max(2, Math.ceil(max / step));
-	return Array.from({ length: steps + 1 }, (_, i) => i * step);
 }
 
 /** "Total in this range: throttles 3, memory flags 0." */

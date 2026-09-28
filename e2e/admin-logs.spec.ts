@@ -68,7 +68,8 @@ test.describe("admin logs", () => {
 		await loginAs(page, "carol");
 		await openUntil(page, "/admin?tab=logs", "TERMINAL_LIMIT");
 
-		await page.getByLabel("User ID").fill(warned.userId);
+		// The person is chosen by name; the URL and the request carry the ID.
+		await page.getByRole("combobox", { name: "Person" }).fill(warned.name);
 		await page.getByRole("button", { name: "Apply filters" }).click();
 		await expect(page).toHaveURL(new RegExp(`user=${warned.userId}`));
 		await expect(logRows(page)).toHaveCount(1);
@@ -90,16 +91,25 @@ test.describe("admin logs", () => {
 		await page.getByRole("checkbox", { name: "Warn" }).uncheck();
 		await page.getByRole("button", { name: "Apply filters" }).click();
 		await expect(page).toHaveURL(/level=error(&|$)/);
-		await expect(page.getByTestId("logs-empty")).toBeVisible();
+		// Said once, with what to widen, and no empty table or "0 lines".
+		await expect(page.getByTestId("logs-empty")).toHaveText(
+			"No lines in the last day at Error match the other filters. Try a longer time, or include Warn.",
+		);
+		await expect(page.getByTestId("logs-table")).toHaveCount(0);
+		await expect(page.getByTestId("logs-count")).toHaveText("");
 	});
 
 	test("Info and Debug switch on and off", async ({ page, browser }) => {
 		const warned = await causeTerminalLimit(browser);
 		await loginAs(page, "carol");
 		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "TERMINAL_LIMIT");
-		await expect(page.getByTestId("logs-level-note")).toContainText(
-			"Debug lines exist only while the log level on the Settings tab is Debug.",
+		// The note on what each level needs is a toggletip beside Levels.
+		await page.getByRole("button", { name: "About Levels" }).click();
+		await expect(page.getByRole("dialog", { name: "Levels" })).toContainText(
+			"Debug lines exist only while the service log level is Debug.",
 		);
+		await page.keyboard.press("Escape");
+		await expect(page.getByRole("button", { name: "About Levels" })).toBeFocused();
 		await expect(logRows(page)).toHaveCount(1);
 
 		await page.getByRole("checkbox", { name: "Info" }).check();
@@ -141,7 +151,9 @@ test.describe("admin logs", () => {
 		await userLogs.focus();
 		await page.keyboard.press("Enter");
 		await expect(page).toHaveURL(new RegExp(`tab=logs.*user=${warned.userId}`));
-		await expect(page.getByLabel("User ID")).toHaveValue(warned.userId);
+		await expect(page.getByRole("combobox", { name: "Person" })).toHaveValue(
+			warned.name,
+		);
 		await expect(logRows(page).first()).toContainText("TERMINAL_LIMIT");
 		// Focus lands on the Logs heading, not the top of the page.
 		await expect(page.getByRole("heading", { level: 2, name: "Logs" })).toBeFocused();
@@ -151,12 +163,24 @@ test.describe("admin logs", () => {
 		await page.getByRole("button", { name: `Show details for ${warned.name}` }).click();
 		const panel = page.getByRole("region", { name: warned.name });
 		await expect(panel.getByText(/journalctl/)).toHaveCount(0);
-		await panel.getByRole("link", { name: "View logs" }).click();
+		// The workspace's logs link sits in the panel's Recent audit section (Epic 25, R2).
+		await panel
+			.getByRole("region", { name: "Recent audit events" })
+			.getByRole("link", { name: "Logs for this workspace" })
+			.click();
 		await expect(page).toHaveURL(
 			new RegExp(`tab=logs.*workspace=${warned.workspaceId}.*since=1h`),
 		);
-		await expect(page.getByLabel("Workspace ID")).toHaveValue(warned.workspaceId);
+		const only = page.getByRole("checkbox", {
+			name: `Only ${warned.name}'s workspace`,
+		});
+		await expect(only).toBeChecked();
 		await expect(logRows(page).first()).toContainText("TERMINAL_LIMIT");
+		// Unticked and applied, the workspace filter leaves the URL.
+		await only.uncheck();
+		await page.getByRole("button", { name: "Apply filters" }).click();
+		await expect(page).not.toHaveURL(/workspace=/);
+		await expect(only).toHaveCount(0);
 	});
 
 	test("a bar of the errors chart on Health opens a filtered Logs tab", async ({
@@ -217,11 +241,13 @@ test.describe("admin logs", () => {
 		await page.getByRole("checkbox", { name: "Error" }).focus();
 		await page.keyboard.press("Space");
 		await expect(page.getByRole("checkbox", { name: "Error" })).toBeChecked();
+		// Time is a native select (the chart link set a custom range): Home picks Last hour.
 		await page.getByRole("combobox", { name: "Time" }).focus();
-		await page.keyboard.press("Enter");
-		await page.getByRole("option", { name: "Last hour" }).press("Enter");
-		await page.getByLabel("User ID").focus();
-		await page.keyboard.type(warned.userId);
+		await page.keyboard.press("Home");
+		await expect(page.getByRole("combobox", { name: "Time" })).toHaveValue("1h");
+		await page.getByRole("combobox", { name: "Person" }).focus();
+		await page.keyboard.press("ControlOrMeta+A");
+		await page.keyboard.type(warned.name);
 		await page.keyboard.press("Enter");
 		await expect(page).toHaveURL(new RegExp(`since=1h.*user=${warned.userId}`));
 		await expect(logRows(page)).toHaveCount(1);
@@ -236,6 +262,35 @@ test.describe("admin logs", () => {
 		await expect(page.getByTestId("log-row-detail")).toContainText("TERMINAL_LIMIT");
 		await page.keyboard.press("Enter");
 		await expect(toggle).toHaveAttribute("aria-expanded", "false");
+	});
+
+	test("the service log level sits above the filters, which are one grouped block", async ({
+		page,
+	}) => {
+		await loginAs(page, "carol");
+		await page.goto("/admin?tab=logs");
+		const level = page.getByRole("combobox", { name: "Services log at" });
+		await expect(level).toBeEnabled({ timeout: 15_000 });
+		await expect(level).toHaveValue("default");
+		const filters = page.getByRole("group", { name: "Filters" });
+		const levelBox = await level.boundingBox();
+		const filtersBox = await filters.boundingBox();
+		if (!levelBox || !filtersBox) throw new Error("not visible");
+		expect(levelBox.y + levelBox.height).toBeLessThanOrEqual(filtersBox.y);
+		// On the sunken surface, with Apply and Clear inside it.
+		await expect(filters).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+		await expect(filters.getByRole("button", { name: "Apply filters" })).toBeVisible();
+		await expect(filters.getByRole("button", { name: "Clear" })).toBeVisible();
+		await expect(page.getByLabel("User ID")).toHaveCount(0);
+		await expect(page.getByLabel("Workspace ID")).toHaveCount(0);
+
+		// A name nobody has is refused in the form, and nothing is sent.
+		const person = page.getByRole("combobox", { name: "Person" });
+		await person.fill("Nobody By This Name");
+		await page.getByRole("button", { name: "Apply filters" }).click();
+		await expect(person).toHaveAttribute("aria-invalid", "true");
+		await expect(person).toHaveAccessibleDescription("Choose a person from the list.");
+		await expect(page).not.toHaveURL(/user=/);
 	});
 
 	test("Load older lines pages back within the time window (issue #703)", async ({

@@ -44,12 +44,12 @@ export function ChangePasswordPage() {
 				<p className="pk-text-body">
 					Choose your own password before you continue. Only you will know it.
 				</p>
-				<p className="pk-text-body">
-					For Current password, enter the one-time password you were given. Then choose
-					your own.
-				</p>
 			</div>
-			<ChangePasswordForm idPrefix="change-password" onChanged={changed} />
+			<ChangePasswordForm
+				idPrefix="change-password"
+				oneTime={true}
+				onChanged={changed}
+			/>
 			<hr className="pk-divider" />
 			<div className="pk-actions">
 				<Button

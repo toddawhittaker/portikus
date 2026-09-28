@@ -8,9 +8,9 @@ import {
 	bucketPhrase,
 	bucketStart,
 	type ChartFrame,
+	countTicks,
 	frameOf,
 	RANGE_LABELS,
-	yTicks,
 } from "./charts/scales.js";
 
 /**
@@ -111,7 +111,7 @@ export function LogCharts({ range }: { range: HealthRange }) {
 				{ name: "Errors", tone: "error", values: errors },
 				{ name: "Warnings", tone: "warning", values: warnings },
 			]}
-			ticks={yTicks(Math.max(1, ...stacked))}
+			ticks={countTicks(Math.max(1, ...stacked))}
 			format={(value) => String(Math.round(value))}
 			summary={countSummary(errors, warnings, range, data.complete)}
 			onOpen={open}

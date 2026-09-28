@@ -56,9 +56,10 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expectNoViolations(page, "[data-testid=page-change-password]");
 
 		await page.getByRole("button", { name: "Change password" }).click();
-		await expect(page.getByLabel("Current password")).toBeFocused();
-		await expect(page.getByLabel("Current password")).toHaveAccessibleDescription(
-			"Enter your current password.",
+		const current = page.getByLabel("Current or one-time password");
+		await expect(current).toBeFocused();
+		await expect(current).toHaveAccessibleDescription(
+			"If an administrator gave you a one-time password, enter it here. Enter your current or one-time password.",
 		);
 		await expectNoViolations(page, "[data-testid=page-change-password]");
 	});

@@ -115,3 +115,16 @@ test("the 15-character minimum counts characters, not UTF-16 units", () => {
 	const fifteen = "\u{1F600}".repeat(15);
 	expect(checkPasswords("old", fifteen, fifteen)).toEqual({});
 });
+
+// Epic 25 S15: on the forced page the field names the one-time password.
+test("the one-time form labels the current field for both and asks for either", async () => {
+	stubFetch(() => new Response(null, { status: 204 }));
+	renderWithQuery(
+		<ChangePasswordForm idPrefix="t" oneTime={true} onChanged={vi.fn()} />,
+	);
+	const current = screen.getByLabelText("Current or one-time password");
+	expect(screen.queryByLabelText("Current password")).toBeNull();
+	fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+	await waitFor(() => expect(current.getAttribute("aria-invalid")).toBe("true"));
+	expect(screen.getByText("Enter your current or one-time password.")).toBeTruthy();
+});

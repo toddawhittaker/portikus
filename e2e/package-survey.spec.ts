@@ -70,8 +70,13 @@ test.describe("package survey", () => {
 		// Not added by anyone on the latest day: 0, with the day it was last seen.
 		await expect(rows.filter({ hasText: "cowsay" })).toContainText("0 of 9");
 
+		await table.getByRole("button", { name: "About Base-image candidate" }).click();
+		await expect(
+			page.getByRole("dialog", { name: "Base-image candidate" }),
+		).toContainText("on the latest survey day");
 		const results = await (await settledAxe(page))
 			.include('[aria-labelledby="health-packages-title"]')
+			.include(".pk-toggletip-content")
 			.withTags(WCAG_TAGS)
 			.analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
