@@ -1613,3 +1613,30 @@ and decide how a read shared by two callers treats one caller's abort.
 Half a day.
 
 **Source.** Epic 21 security confirmation review.
+
+## Course page at narrow widths
+
+**What.** A Course page that fits a narrow window without scrolling
+sideways.
+
+**Why.** Instructors may open it on a laptop beside the learning system;
+today the members table scrolls sideways below about 1024 px.
+
+**What it would take.** Let the table drop or stack less important
+columns in a container query, as the right pane does. Half a day with
+Playwright checks.
+
+**Source.** Epic 25 design review.
+
+## Check summary headings with VoiceOver
+
+**What.** A pass with VoiceOver on macOS over the `<summary>` elements that
+hold headings (PageIntro, the Health Trends groups, Backups Clean up).
+
+**Why.** Axe passes, but VoiceOver is known to read headings inside
+`<summary>` inconsistently, and nobody has listened to them.
+
+**What it would take.** An hour on a Mac; if they read badly, move the
+heading out of the summary.
+
+**Source.** Epic 25 accessibility review.
