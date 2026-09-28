@@ -77,9 +77,17 @@ p private_vm "$(tcp "$vm" 22)"
 p private_metadata "$(tcp 169.254.169.254 80)"
 p direct_proxy_ports "$(tcp "$gw" 3129)/$(tcp "$gw" 3130)/$(tcp "$gw" 5300)/$(udp_dns "$gw" 5300)"
 p direct_forward_proxy "$(code --proxy "http://${gw}:3129" http://github.com/)"
-p ws_upgrade_forwarded "$(curl -s --max-time 10 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
-  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' http://httpbin.org/headers \
-  | grep -q '"Upgrade": "websocket"' && echo yes || echo no)"
+# The first public WebSocket echo service on plain HTTP that answers at all.
+ws_upgrade() {
+  local u c
+  for u in http://websocket-echo.com/ http://echo.websocket.in/ http://ws.vi-server.org/mirror; do
+    c=$(code -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+      -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "$u")
+    [ "$c" != 000 ] && { echo "$c"; return; }
+  done
+  echo 000
+}
+p ws_upgrade "$(ws_upgrade)"
 p gateway_other_ports "$(for port in 22 80 443 3000 3001 3128 3199 5398 5399 8443; do tcp "$gw" "$port"; done | sort -u | paste -sd,)"
 EOF
 }
@@ -178,7 +186,7 @@ we_check_open() {
 WE_BLOCKED=(example.com cloudflare-dns.com dns.google)
 
 we_check_open_blocked() {
-  local r before
+  local r before ws
   check "open mode with blocked sites: the egress DNS runs" sec_ssh "systemctl is-active --quiet portikus-egress-dns"
   check "open mode with blocked sites: the workspace proxy runs" sec_ssh "systemctl is-active --quiet portikus-workspace-proxy"
   check "open mode with blocked sites: Squid's open switch is on" sec_ssh "grep -qx '[.]' /var/lib/portikus/egress-state/open.txt"
@@ -209,8 +217,14 @@ we_check_open_blocked() {
   we_expect "blocked, a" "$r" direct_proxy_ports "closed/closed/closed/silent" "the redirect targets cannot be used directly"
   we_expect "blocked, a" "$r" direct_forward_proxy 000 "the proxy cannot be used as a forward proxy"
   we_expect "blocked, a" "$r" gateway_other_ports closed "the gateway is closed on every other port probed"
-  we_expect "blocked, a" "$r" ws_upgrade_forwarded yes "a WebSocket upgrade on port 80 reaches the site"
-  we_expect "blocked, a" "$(we_squid_cap)" squid_cap "256+/44-" "one workspace holds at most 256 connections to the proxy; the rest are reset"
+  # Public echo services come and go: none answering is not a failure of ours.
+  ws=$(printf '%s\n' "$r" | awk '$1 == "ws_upgrade" { print $2; exit }')
+  if [ "$ws" = 000 ]; then
+    sec_na "blocked, a: a WebSocket upgrade on port 80 gets 101" "no public WebSocket echo service answered"
+  else
+    we_expect "blocked, a" "$r" ws_upgrade 101 "a WebSocket upgrade on port 80 gets 101"
+  fi
+  we_expect "blocked, a" "$(we_squid_cap)" squid_cap "256/44" "one workspace holds at most 256 connections to the proxy; the rest are reset"
 
   r=$(we_run_docker)
   printf '%s\n' "$r" | sed 's/^/    /'
@@ -244,7 +258,7 @@ for _ in range(300):
         held.append(s)
     except OSError:
         refused += 1
-print(\"squid_cap %s%s/%s%s\" % (len(held), \"+\" if len(held) == 256 else \"\", refused, \"-\" if refused == 44 else \"\"))
+print(\"squid_cap %s/%s\" % (len(held), refused))
 "' 2>/dev/null
 }
 

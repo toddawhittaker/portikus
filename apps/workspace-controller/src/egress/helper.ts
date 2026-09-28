@@ -313,9 +313,11 @@ async function writeSquidLists(
  * services are only queued: our dnsmasq starts after Incus, which waits for
  * this run, so waiting for it would hang until the start timeout.
  *
- * Going from plain open mode to open mode with blocked sites, the services
- * come first (ADR 0043): nothing reaches them until the table redirects, and
- * a Squid still on the empty lists would refuse, and count, every name.
+ * Two changes of mode run a service first (ADR 0043). From plain open mode
+ * to blocked sites, dnsmasq and Squid are ready before the table redirects
+ * to them, or Squid would refuse, and count, every name meanwhile. From
+ * blocked sites to allow-list, Squid drops its open switch before the table
+ * changes, so it never splices an unlisted name on a listed address.
  */
 async function applyPolicy(
 	deps: HelperDeps,
@@ -327,20 +329,32 @@ async function applyPolicy(
 	// A failed earlier request may have loaded names applied.json does not know; flush then too.
 	const flush =
 		namesRemoved(previous?.policy, policy) || !(await readLastStatusOk(deps));
-	const servicesFirst =
-		policy.mode === "open" &&
-		policy.blocked.length > 0 &&
-		!(previous && usesOurResolver(previous.policy));
-	if (!servicesFirst) await loadTable(deps, renderTable(policy, env, flush));
+	const blocksBefore =
+		previous?.policy.mode === "open" && previous.policy.blocked.length > 0;
+	const blocksAfter = policy.mode === "open" && policy.blocked.length > 0;
+	// Plain open mode to blocks: nothing reaches dnsmasq or Squid until the table redirects.
+	const servicesFirst = blocksAfter && !(previous && usesOurResolver(previous.policy));
+	// Blocks to allow-list: a Squid stricter than the old table fails closed.
+	// dnsmasq still waits for the table, whose flush would drop what it learned.
+	const squidFirst = servicesFirst || (blocksBefore && policy.mode === "allow-list");
 
-	await writeState(deps, STATE_FILES.dnsmasq, renderDnsmasq(policy, env));
-	if (usesOurResolver(policy)) await systemctl(deps, "restart", EGRESS_DNS_UNIT, boot);
-	else await systemctl(deps, "stop", EGRESS_DNS_UNIT, boot);
+	const dns = async (): Promise<void> => {
+		await writeState(deps, STATE_FILES.dnsmasq, renderDnsmasq(policy, env));
+		if (usesOurResolver(policy))
+			await systemctl(deps, "restart", EGRESS_DNS_UNIT, boot);
+		else await systemctl(deps, "stop", EGRESS_DNS_UNIT, boot);
+	};
+	const squid = async (): Promise<void> => {
+		await writeSquidLists(deps, policy);
+		await systemctl(deps, "reload", WORKSPACE_PROXY_UNIT, boot);
+	};
 
-	await writeSquidLists(deps, policy);
-	await systemctl(deps, "reload", WORKSPACE_PROXY_UNIT, boot);
+	if (servicesFirst) await dns();
+	if (squidFirst) await squid();
+	await loadTable(deps, renderTable(policy, env, flush));
+	if (!servicesFirst) await dns();
+	if (!squidFirst) await squid();
 
-	if (servicesFirst) await loadTable(deps, renderTable(policy, env, flush));
 	// NAT is decided when a connection starts; forget open ones so a new block covers them too.
 	if (blockedChanged(previous?.policy, policy)) await forgetConnections(deps, env);
 

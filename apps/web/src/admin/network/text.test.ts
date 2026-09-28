@@ -140,11 +140,7 @@ test("the apply status names an error, a pending change, the last apply, or noth
 		version: 0,
 		apply: { appliedVersion: null, appliedAt: null, error: null },
 	};
-	// The seeded blocked sites wait for the first change, and the page says so.
-	expect(applyState(egressView(never), now).text).toContain(
-		"the blocked sites apply after your first change",
-	);
-	expect(applyState(egressView({ ...never, blockedSites: [] }), now).text).toBe(
+	expect(applyState(egressView(never), now).text).toBe(
 		"Nothing has been changed yet. Workspaces use open mode.",
 	);
 });

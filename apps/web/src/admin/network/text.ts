@@ -131,10 +131,7 @@ export function applyState(view: AdminEgressView, now: number): ApplyState {
 	}
 	return {
 		tone: "none",
-		text:
-			view.blockedSites.length > 0
-				? "Nothing has been changed yet. Workspaces use open mode, and the blocked sites apply after your first change."
-				: "Nothing has been changed yet. Workspaces use open mode.",
+		text: "Nothing has been changed yet. Workspaces use open mode.",
 	};
 }
 

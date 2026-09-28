@@ -246,6 +246,38 @@ describe("a request (ADR 0038)", () => {
 		expect(calls.map((c) => `${c.file} ${c.args[0]}`)[1]).toBe("/usr/sbin/nft -f");
 	});
 
+	test("from blocked sites to allow-list, Squid drops its open switch before the table changes", async () => {
+		writeRequest(policy({ mode: "open", names: [], blocked: ["games.com"] }));
+		expect(await runHelper(deps)).toBe(0);
+		calls = [];
+		seenAtCall = [];
+		writeRequest(policy({ version: 4 }), "r2");
+		expect(await runHelper(deps)).toBe(0);
+		expect(calls.map((c) => `${c.file} ${c.args[0]}`)).toEqual([
+			"/usr/sbin/nft list",
+			"/usr/bin/systemctl reload",
+			"/usr/sbin/nft -f",
+			"/usr/bin/systemctl restart",
+			"/usr/sbin/conntrack -D",
+			"/usr/sbin/conntrack -D",
+		]);
+		// Squid's reload already saw the allow-list's files; dnsmasq waits for the table's flush.
+		expect(seenAtCall[0]?.names).toBe(".github.com\n.npmjs.org\n");
+		expect(read("open.txt")).toBe("");
+		expect(loads()[0]).toMatch(/flush set inet portikus_egress names_v4/);
+	});
+
+	test("from blocked sites to allow-list, a Squid that fails to reload leaves the old table", async () => {
+		writeRequest(policy({ mode: "open", names: [], blocked: ["games.com"] }));
+		expect(await runHelper(deps)).toBe(0);
+		calls = [];
+		answers.set("systemctl reload", { code: 1, stderr: "bad config" });
+		writeRequest(policy({ version: 4 }), "r2");
+		expect(await runHelper(deps)).toBe(1);
+		expect(loads()).toEqual([]);
+		expect(JSON.parse(read("applied.json") ?? "").policy.mode).toBe("open");
+	});
+
 	test("a Squid that fails to reload leaves plain open mode's table alone", async () => {
 		answers.set("systemctl reload", { code: 1, stderr: "bad config" });
 		writeRequest(policy({ mode: "open", names: [], blocked: ["games.com"] }));
