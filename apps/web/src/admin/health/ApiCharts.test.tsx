@@ -53,34 +53,30 @@ test("the three charts average the rate per minute and show error shares and per
 	);
 	expect(
 		screen.getByRole("img", {
-			name: "API requests: Now 10/min, highest 20/min. 3 WebSocket upgrades in this range.",
+			name: "API requests per minute: Now 10/min, highest 20/min. 3 WebSocket upgrades in this range.",
 		}),
 	).toBeTruthy();
 	expect(
 		screen.getByRole("img", {
-			name: "API error rate: 4xx: Now 2%, highest 10%. 5xx: Now 4%, highest 4%.",
+			name: "API error rate, % of requests: 4xx: Now 2%, highest 10%. 5xx: Now 4%, highest 4%.",
 		}),
 	).toBeTruthy();
 	expect(
 		screen.getByRole("img", {
-			name: "API response time: Median: Now 12 ms, highest 20 ms. 95th percentile: Now 90 ms, highest 400 ms.",
+			name: "API response time, ms: Median: Now 12 ms, highest 20 ms. 95th percentile: Now 90 ms, highest 400 ms.",
 		}),
 	).toBeTruthy();
 });
 
-test("with no requests the charts say so", () => {
+test("with no requests the charts say so in one line each, with no axis", () => {
 	render(<ApiCharts frame={FRAME} series={series([])} />);
-	expect(
-		screen.getByRole("img", {
-			name: "API requests: No samples in this range. 0 WebSocket upgrades in this range.",
-		}),
-	).toBeTruthy();
-	expect(
-		screen.getByRole("img", { name: "API error rate: No requests in this range." }),
-	).toBeTruthy();
-	expect(
-		screen.getByRole("img", { name: "API response time: No requests in this range." }),
-	).toBeTruthy();
+	expect(screen.queryAllByRole("img")).toHaveLength(0);
+	expect(screen.queryAllByRole("application")).toHaveLength(0);
+	for (const id of ["requests", "errors", "latency"]) {
+		expect(screen.getByTestId(`health-chart-api-${id}-summary`).textContent).toBe(
+			"No requests in this range.",
+		);
+	}
 });
 
 test("a bucket with only WebSocket upgrades has a rate of zero and no error share", () => {
@@ -102,10 +98,10 @@ test("a bucket with only WebSocket upgrades has a rate of zero and no error shar
 	);
 	expect(
 		screen.getByRole("img", {
-			name: "API requests: Now 0/min, highest 0/min. 1 WebSocket upgrade in this range.",
+			name: "API requests per minute: Now 0/min, highest 0/min. 1 WebSocket upgrade in this range.",
 		}),
 	).toBeTruthy();
-	expect(
-		screen.getByRole("img", { name: "API error rate: No requests in this range." }),
-	).toBeTruthy();
+	expect(screen.getByTestId("health-chart-api-errors-summary").textContent).toBe(
+		"No requests in this range.",
+	);
 });

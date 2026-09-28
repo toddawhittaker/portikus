@@ -3,7 +3,7 @@ import {
 	BOX,
 	ChartShell,
 	PLOT_HEIGHT,
-	PLOT_WIDTH,
+	type Plot,
 	type SeriesStyle,
 	valueY,
 } from "./readout.js";
@@ -70,8 +70,6 @@ export function BarChart({
 }) {
 	const [picked, setPicked] = useState(0);
 	const top = ticks[ticks.length - 1] ?? 1;
-	const slot = PLOT_WIDTH / frame.count;
-	const width = Math.max(1, slot * 0.7);
 
 	function valueText(bar: BarSeries | undefined, index: number): string {
 		const value = bar?.values[index];
@@ -136,8 +134,8 @@ export function BarChart({
 			label={label}
 			frame={frame}
 			yTicks={ticks}
-			formatTick={format}
 			summary={summary}
+			empty={series.every((bar) => bar.values.every((value) => value === null))}
 			describe={describe}
 			onKey={onKey}
 			keysHint={keysHint}
@@ -147,85 +145,89 @@ export function BarChart({
 				swatch: "box",
 			}))}
 		>
-			{() => (
-				<>
-					<defs>
-						<pattern
-							id={WARNING_PATTERN}
-							width="4"
-							height="4"
-							patternUnits="userSpaceOnUse"
-							patternTransform="rotate(45)"
-						>
-							<rect width="4" height="4" className="fill-status-warning" />
-							<line
-								x1="1"
-								y1="0"
-								x2="1"
-								y2="4"
-								strokeWidth="1.5"
-								className="stroke-surface-raised"
-							/>
-						</pattern>
-					</defs>
-					{Array.from({ length: frame.count }, (_, index) => {
-						const x = BOX.left + index * slot + (slot - width) / 2;
-						// No data for this bucket: a dotted baseline, so the gap shows.
-						if (series.every((bar) => bar.values[index] === null)) {
-							return (
+			{(_, plot: Plot) => {
+				const slot = plot.plotWidth / frame.count;
+				const width = Math.max(1, slot * 0.7);
+				return (
+					<>
+						<defs>
+							<pattern
+								id={WARNING_PATTERN}
+								width="4"
+								height="4"
+								patternUnits="userSpaceOnUse"
+								patternTransform="rotate(45)"
+							>
+								<rect width="4" height="4" className="fill-status-warning" />
 								<line
-									key={`gap-${bucketStart(frame, index)}`}
-									x1={BOX.left + index * slot}
-									x2={BOX.left + (index + 1) * slot}
-									y1={BOX.top + PLOT_HEIGHT - 1}
-									y2={BOX.top + PLOT_HEIGHT - 1}
-									strokeWidth="2"
-									strokeDasharray="1 2"
-									className="stroke-ink-muted"
-									data-gap="true"
+									x1="1"
+									y1="0"
+									x2="1"
+									y2="4"
+									strokeWidth="1.5"
+									className="stroke-surface-raised"
 								/>
-							);
-						}
-						let base = 0;
-						return series.map((bar, seriesIndex) => {
-							const value = bar.values[index] ?? 0;
-							if (value <= 0) return null;
-							const y = valueY(base + value, top);
-							let height = valueY(base, top) - y;
-							// A 1px gap from the segment below, so the two never merge.
-							if (base > 0 && height > 1) height -= 1;
-							base += value;
-							return (
-								<rect
-									key={`${bar.name}-${bucketStart(frame, index)}`}
-									x={x}
-									y={y}
-									width={width}
-									height={height}
-									className={TONES[bar.tone].className}
-									data-series={seriesIndex}
-								/>
-							);
-						});
-					})}
-					{onOpen
-						? Array.from({ length: frame.count }, (_, index) => (
-								// biome-ignore lint/a11y/noStaticElementInteractions: the keyboard opens a bar through the plot
-								<rect
-									key={`hit-${bucketStart(frame, index)}`}
-									x={BOX.left + index * slot}
-									y={BOX.top}
-									width={slot}
-									height={PLOT_HEIGHT}
-									className="fill-transparent"
-									style={{ cursor: "pointer" }}
-									data-hit={index}
-									onClick={(event) => onColumnClick(event, index)}
-								/>
-							))
-						: null}
-				</>
-			)}
+							</pattern>
+						</defs>
+						{Array.from({ length: frame.count }, (_, index) => {
+							const x = plot.left + index * slot + (slot - width) / 2;
+							// No data for this bucket: a dotted baseline, so the gap shows.
+							if (series.every((bar) => bar.values[index] === null)) {
+								return (
+									<line
+										key={`gap-${bucketStart(frame, index)}`}
+										x1={plot.left + index * slot}
+										x2={plot.left + (index + 1) * slot}
+										y1={BOX.top + PLOT_HEIGHT - 1}
+										y2={BOX.top + PLOT_HEIGHT - 1}
+										strokeWidth="2"
+										strokeDasharray="1 2"
+										className="stroke-ink-muted"
+										data-gap="true"
+									/>
+								);
+							}
+							let base = 0;
+							return series.map((bar, seriesIndex) => {
+								const value = bar.values[index] ?? 0;
+								if (value <= 0) return null;
+								const y = valueY(base + value, top);
+								let height = valueY(base, top) - y;
+								// A 1px gap from the segment below, so the two never merge.
+								if (base > 0 && height > 1) height -= 1;
+								base += value;
+								return (
+									<rect
+										key={`${bar.name}-${bucketStart(frame, index)}`}
+										x={x}
+										y={y}
+										width={width}
+										height={height}
+										className={TONES[bar.tone].className}
+										data-series={seriesIndex}
+									/>
+								);
+							});
+						})}
+						{onOpen
+							? Array.from({ length: frame.count }, (_, index) => (
+									// biome-ignore lint/a11y/noStaticElementInteractions: the keyboard opens a bar through the plot
+									<rect
+										key={`hit-${bucketStart(frame, index)}`}
+										x={plot.left + index * slot}
+										y={BOX.top}
+										width={slot}
+										height={PLOT_HEIGHT}
+										className="fill-transparent"
+										style={{ cursor: "pointer" }}
+										data-hit={index}
+										onClick={(event) => onColumnClick(event, index)}
+									/>
+								))
+							: null}
+					</>
+				);
+			}}
 		</ChartShell>
 	);
 }

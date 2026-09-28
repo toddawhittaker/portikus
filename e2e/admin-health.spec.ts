@@ -148,12 +148,14 @@ test.describe("admin health", () => {
 			/pk-tag pk-tag--warning/,
 		);
 		await expect(
-			page.getByRole("img", { name: /^Storage pool used: Now 85%, highest 85%\.$/ }),
+			page.getByRole("img", { name: /^Storage pool used, %: Now 85%, highest 85%\.$/ }),
 		).toBeVisible();
 	});
 
 	for (const width of [1280, 1920]) {
-		test(`the tab has three rows at ${width} px`, async ({ page }) => {
+		test(`four cards sit in one row at a glance, above the trends, at ${width} px`, async ({
+			page,
+		}) => {
 			await page.setViewportSize({ width, height: 1000 });
 			await seedSample(50, 0);
 			await openHealth(page);
@@ -165,23 +167,101 @@ test.describe("admin health", () => {
 				if (!found) throw new Error(`${name} has no box`);
 				return found;
 			};
-			const platform = await box("platform");
-			const guard = await box("guard");
+			const cards = await Promise.all(
+				["platform", "guard", "counts", "states"].map((name) => box(name)),
+			);
+			for (const card of cards) expect(card.y).toBe(cards[0]?.y);
+			for (let i = 1; i < cards.length; i++)
+				expect(cards[i]?.x).toBeGreaterThan(cards[i - 1]?.x ?? 0);
+			const tallest = Math.max(...cards.map((card) => card.y + card.height));
 			const trends = await box("trends");
-			const failures = await box("counts");
-			const states = await box("states");
-			expect(guard.y).toBe(platform.y);
-			expect(guard.x).toBeGreaterThan(platform.x);
-			expect(trends.y).toBeGreaterThan(platform.y + platform.height - 1);
-			expect(trends.width).toBeGreaterThan(platform.width * 1.8);
-			expect(failures.y).toBeGreaterThan(trends.y + trends.height - 1);
-			expect(states.y).toBe(failures.y);
-			// Two charts per row inside the Trends card.
+			expect(trends.y).toBeGreaterThan(tallest - 1);
+			const packages = await box("packages");
+			expect(packages.y).toBeGreaterThan(trends.y + trends.height - 1);
+			// At least two charts per row inside the Trends card.
 			const pool = await poolChart(page).boundingBox();
 			const memory = await page.getByTestId("health-chart-memory").boundingBox();
 			expect(memory?.y).toBe(pool?.y);
 		});
 	}
+
+	test("at 1024 px nothing overflows, and the axis text is 12 px and inside the chart", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1024, height: 900 });
+		await seedPlatformSample(1, true);
+		await seedPlatformSample(0, true);
+		await openHealth(page);
+
+		for (const name of ["platform", "guard", "counts", "states"]) {
+			const card = page.locator(`section[aria-labelledby="health-${name}-title"]`);
+			const fits = await card.evaluate((el) => el.scrollWidth <= el.clientWidth);
+			expect(fits, `${name} fits its card`).toBe(true);
+		}
+		const network = page.getByTestId("health-chart-network");
+		await expect(network.locator("figcaption")).toHaveText(
+			"Network on the default interface, MB/s",
+		);
+		const labels = await network.locator('svg text[data-axis="y"]').allTextContents();
+		expect(labels).toEqual(["0", "0.5", "1", "1.5", "2"]);
+		const inside = await network.locator("svg[role=img]").evaluate((svg) => {
+			const frame = svg.getBoundingClientRect();
+			return [...svg.querySelectorAll("text")].every((text) => {
+				const box = text.getBoundingClientRect();
+				const size = Number.parseFloat(getComputedStyle(text).fontSize);
+				return (
+					box.left >= frame.left - 0.5 && box.right <= frame.right + 0.5 && size >= 12
+				);
+			});
+		});
+		expect(inside).toBe(true);
+		// Drawn at its real width, so 12 px text stays 12 px on screen.
+		const scale = await network.locator("svg[role=img]").evaluate((svg) => {
+			const view = (svg as SVGSVGElement).viewBox.baseVal.width;
+			return svg.getBoundingClientRect().width / view;
+		});
+		expect(scale).toBeCloseTo(1, 1);
+	});
+
+	test("a chart with no samples shows one line and no axis", async ({ page }) => {
+		// A sample without Epic 19's host rates: CPU, network and disk have none.
+		await seedSample(50, 0);
+		await openHealth(page);
+
+		const cpu = page.getByTestId("health-chart-cpu");
+		await expect(cpu.getByTestId("health-chart-cpu-summary")).toHaveText(
+			"No samples in this range.",
+		);
+		await expect(cpu.locator("svg")).toHaveCount(0);
+		await expect(page.getByTestId("health-chart-cpu-plot")).toHaveCount(0);
+	});
+
+	test("the trend groups start open, and a closed group stays closed after a reload", async ({
+		page,
+	}) => {
+		await seedSample(50, 0);
+		await openHealth(page);
+
+		const groups = ["Host", "Workspaces", "API", "Events"];
+		for (const name of groups) {
+			const heading = page.getByRole("heading", { level: 4, name, exact: true });
+			await expect(heading).toBeVisible();
+		}
+		const host = page.getByTestId("health-group-host");
+		await expect(host).toHaveAttribute("open", "");
+		await host.locator("summary").focus();
+		await page.keyboard.press("Enter");
+		await expect(host).not.toHaveAttribute("open");
+		await expect(poolChart(page)).toHaveCount(0);
+
+		await page.reload();
+		await expect(page.getByTestId("health-trends")).toBeVisible({ timeout: 15_000 });
+		await expect(page.getByTestId("health-group-host")).not.toHaveAttribute("open");
+		await expect(page.getByTestId("health-group-api")).toHaveAttribute("open", "");
+
+		await page.getByTestId("health-group-host").locator("summary").click();
+		await expect(poolChart(page)).toBeVisible();
+	});
 
 	test("switching the range changes the axis and the summary, and is remembered", async ({
 		page,
@@ -241,7 +321,7 @@ test.describe("admin health", () => {
 		).toContainText([/:/]);
 
 		const plot = page.getByRole("application", {
-			name: "Storage pool used, use the left and right arrow keys to read values",
+			name: "Storage pool used, %, use the left and right arrow keys to read values",
 		});
 		await plot.focus();
 		await page.keyboard.press("End");
@@ -315,11 +395,21 @@ test.describe("admin health", () => {
 			"Read: Now 512 KB/s, highest 512 KB/s. Write: Now 256 KB/s, highest 256 KB/s.",
 		);
 		await expect(
-			page.getByTestId("health-chart-network").locator("svg text"),
-		).toContainText(["0 MB/s"]);
+			page.getByTestId("health-chart-network").locator("figcaption"),
+		).toHaveText("Network on the default interface, MB/s");
+		// A missing sample is a quiet dot; red is kept for the controller being down.
+		await expect(strip.locator("[data-part=gap]").first()).toBeVisible();
+		await expect(strip.locator("#health-strip-gap circle")).toHaveClass(
+			"fill-ink-faint",
+		);
+		const [gapFill, outageFill] = await strip.evaluate((el) => [
+			getComputedStyle(el.querySelector("#health-strip-gap circle") as Element).fill,
+			getComputedStyle(el.querySelector("#health-strip-outage rect") as Element).fill,
+		]);
+		expect(gapFill).not.toBe(outageFill);
 
 		const cpu = page.getByRole("application", {
-			name: "Host CPU used, use the left and right arrow keys to read values",
+			name: "Host CPU used, %, use the left and right arrow keys to read values",
 		});
 		await cpu.focus();
 		await page.keyboard.press("End");
@@ -328,7 +418,7 @@ test.describe("admin health", () => {
 
 		await page
 			.getByRole("application", {
-				name: "Sampling and controller availability, use the left and right arrow keys to read values",
+				name: "Sampling and controller availability, % of minutes, use the left and right arrow keys to read values",
 			})
 			.focus();
 		await page.keyboard.press("End");

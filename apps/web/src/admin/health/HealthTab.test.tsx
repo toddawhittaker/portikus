@@ -313,27 +313,37 @@ test("states follow the Workspaces tab's order with zero counts, then newer ones
 	]);
 });
 
-test("the tab lays out Platform, the trends, Failures and states, then packages", async () => {
+test("the tab puts four cards at a glance, then the trends in four groups, then packages", async () => {
 	stubFetch((url) => {
 		if (url === "/admin/health") return json(200, report());
 		if (url === "/admin/packages")
 			return json(200, { day: null, surveyed: 0, packages: [] });
 		if (url.startsWith("/admin/health/series")) return json(200, SERIES);
+		if (url.startsWith("/admin/logs/counts"))
+			return json(503, { code: "LOGS_UNAVAILABLE", message: "No journal." });
 		throw new Error(`unexpected request: ${url}`);
 	});
 
 	renderWithQuery(<HealthTab />);
 
 	await screen.findByTestId("health-trends");
-	const headings = screen
-		.getAllByRole("heading", { level: 3 })
-		.map((h) => h.textContent);
-	expect(headings).toEqual([
-		"Platform",
-		"Resource guard",
-		"Trends",
-		"Failures",
-		"Workspaces by state",
-		"Packages students add",
+	const outline = screen
+		.getAllByRole("heading")
+		.map((h) => `${h.tagName} ${h.textContent}`);
+	expect(outline).toEqual([
+		"H2 Health",
+		"H3 At a glance",
+		"H4 Platform",
+		"H4 Resource guard",
+		"H4 Failures, last 24 hours",
+		"H4 Workspaces by state",
+		"H3 Trends",
+		"H4 Host",
+		"H4 Workspaces",
+		"H4 API",
+		"H4 Events",
+		"H3 Packages students add",
 	]);
+	const glance = screen.getByTestId("health-glance");
+	expect(glance.querySelectorAll(":scope > section.pk-card")).toHaveLength(4);
 });
