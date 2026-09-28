@@ -114,32 +114,30 @@ sudo apt update
 sudo apt install -y curl gpg
 ```
 
-Then fetch the repository's signing key and tell apt where the repository
-is. The first command downloads the key; the second adds the repository
-and says that only this key may sign it.
+Then fetch the repository's signing key and check that it is the real
+one before trusting it:
 
 ```
 sudo curl -fsSL -o /usr/share/keyrings/portikus-archive-keyring.gpg https://toddawhittaker.github.io/portikus/apt/portikus-archive-keyring.gpg
+test "$(gpg --show-keys --with-colons /usr/share/keyrings/portikus-archive-keyring.gpg | awk -F: '$1=="fpr"{print $10}')" = 9F6FD4CD5CC5C43AB5125705015D38802EF8D0F4 && echo "Key OK"
+```
+
+The check prints `Key OK` only when the file holds exactly one key and
+its fingerprint is `9F6F D4CD 5CC5 C43A B512 5705 015D 3880 2EF8 D0F4`.
+A file with an extra key fails it too. If it does not print `Key OK`,
+stop, delete the file with
+`sudo rm /usr/share/keyrings/portikus-archive-keyring.gpg`, and report
+it: someone may be tampering with your download.
+
+Only after the check passes, tell apt where the repository is and that
+only this key may sign it:
+
+```
 echo "deb [signed-by=/usr/share/keyrings/portikus-archive-keyring.gpg] https://toddawhittaker.github.io/portikus/apt trixie main" | sudo tee /etc/apt/sources.list.d/portikus.list
 ```
 
-Check that the key is the real one before trusting it:
-
-```
-gpg --show-keys /usr/share/keyrings/portikus-archive-keyring.gpg
-```
-
-The fingerprint it prints must be exactly:
-
-```
-9F6FD4CD5CC5C43AB5125705015D38802EF8D0F4
-```
-
-(Written in groups: `9F6F D4CD 5CC5 C43A B512 5705 015D 3880 2EF8 D0F4`.)
-If it differs, stop, delete the file and the list, and report it: someone
-may be tampering with your download. The package installs the same key
-at the same path and writes it again on every upgrade, so apt keeps
-trusting it across upgrades.
+The package installs the same key at the same path and writes it again
+on every upgrade, so apt keeps trusting it across upgrades.
 
 ## Installing
 
@@ -444,7 +442,11 @@ provider's own command, for example `rclone copy ~/portikus-backups
 remote:portikus-backups`. Copy whole set folders (the ones named like
 `20260924T023000Z`). A set with a `FAILED` file is incomplete; keep it,
 but restore from a complete one. Without `--delete`, the copy keeps sets
-the server has since pruned; remove old ones there when you choose.
+the server has since pruned; remove old ones there when you choose. The copy's
+target never needs your backup key, but make it write-protected or
+versioned (for example object storage with versioning or object lock),
+so that nobody can silently replace a set. Restore refuses a set that
+was not made with your key.
 
 ## Rebuilding from an off-site backup
 
@@ -464,8 +466,11 @@ When the server is lost, or you move to a new one:
    `/var/backups/portikus/local/`:
 
    ```
-   rsync -a --rsync-path="sudo rsync" ~/portikus-backups/ you@portikus.example.edu:/var/backups/portikus/local/
+   rsync -a --exclude REQUESTED --rsync-path="sudo rsync" ~/portikus-backups/ you@portikus.example.edu:/var/backups/portikus/local/
    ```
+
+   The `--exclude REQUESTED` keeps copied sets from counting toward the
+   limit of 3 requested backups in 14 days.
 
    Within a minute the Backups tab lists them.
 6. Pick the newest complete set, and first prove the key opens it:

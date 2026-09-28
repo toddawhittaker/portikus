@@ -145,7 +145,8 @@ jobs:
     name: Sign and publish the image
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name != 'pull_request' && needs.build.outputs.exists == 'false'
+    # Only main may sign, as a second guard behind the environment's branch policy.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.build.outputs.exists == 'false'
     # Signing happens here, away from the root build, and only this job can
     # read APT_SIGNING_KEY.
     environment: publish
