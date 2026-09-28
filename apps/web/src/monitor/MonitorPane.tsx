@@ -26,9 +26,11 @@ export function MonitorPane({ workspaceId }: { workspaceId: string }) {
 	const usage = query.data;
 	return (
 		<>
-			<h2 className="sr-only" data-testid="monitor-title">
-				Monitor
-			</h2>
+			<div className="pk-pane-head pk-pane-head--actions">
+				<h2 className="sr-only" data-testid="monitor-title">
+					Monitor
+				</h2>
+			</div>
 			<div className="pk-pane-body pk-monitor" data-testid="monitor">
 				{usage ? (
 					<Figures workspaceId={workspaceId} usage={usage} />
@@ -173,11 +175,13 @@ function Figures({
 				<dd data-testid="monitor-cpu">{formatCpu(usage.cpuPercent)}</dd>
 				<dt>Memory</dt>
 				<dd data-testid="monitor-memory">
-					{formatBytes(usage.memory.usedBytes)} / {formatBytes(usage.memory.totalBytes)}
+					<span>{formatBytes(usage.memory.usedBytes)}</span> /{" "}
+					<span>{formatBytes(usage.memory.totalBytes)}</span>
 				</dd>
 				<dt>Disk</dt>
 				<dd data-testid="monitor-disk">
-					{formatBytes(usage.disk.usedBytes)} / {formatBytes(usage.disk.totalBytes)}
+					<span>{formatBytes(usage.disk.usedBytes)}</span> /{" "}
+					<span>{formatBytes(usage.disk.totalBytes)}</span>
 				</dd>
 				<dt>Receive</dt>
 				<dd data-testid="monitor-receive">
@@ -203,9 +207,21 @@ function Figures({
 			<table className="pk-monitor-procs" data-testid="monitor-processes">
 				<thead>
 					<tr>
-						<SortHeader column="pid" label="PID" sort={sort} onSort={setSort} />
+						<SortHeader
+							column="pid"
+							label="PID"
+							sort={sort}
+							onSort={setSort}
+							className="pk-monitor-pid"
+						/>
 						<SortHeader column="cpu" label="CPU" sort={sort} onSort={setSort} />
-						<SortHeader column="memory" label="Memory" sort={sort} onSort={setSort} />
+						<SortHeader
+							column="memory"
+							label="Memory"
+							sort={sort}
+							onSort={setSort}
+							className="pk-monitor-mem"
+						/>
 						<SortHeader column="command" label="Command" sort={sort} onSort={setSort} />
 						<th>
 							<span className="sr-only">Actions</span>
@@ -296,9 +312,9 @@ function ProcessRow({
 				data-testid={`monitor-process-${process.pid}`}
 				data-key={`${process.pid}:${process.startTicks}`}
 			>
-				<td>{process.pid}</td>
+				<td className="pk-monitor-pid">{process.pid}</td>
 				<td>{formatCpu(process.cpuPercent)}</td>
-				<td>{formatBytes(process.residentBytes)}</td>
+				<td className="pk-monitor-mem">{formatBytes(process.residentBytes)}</td>
 				<td className="pk-monitor-command" title={process.command}>
 					{process.command}
 				</td>
@@ -347,15 +363,18 @@ function SortHeader({
 	label,
 	sort,
 	onSort,
+	className,
 }: {
 	column: ProcessColumn;
 	label: string;
 	sort: ProcessSort;
 	onSort: (next: ProcessSort) => void;
+	className?: string;
 }) {
 	const active = sort.column === column;
 	return (
 		<th
+			className={className}
 			aria-sort={
 				active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"
 			}

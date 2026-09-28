@@ -13,6 +13,7 @@
 import type { ListeningService, WorkspaceUsage } from "@portikus/contracts";
 import {
 	Button,
+	Checkbox,
 	ConfirmDialog,
 	ConfirmDialogRoot,
 	EmptyState,
@@ -224,25 +225,11 @@ export function RunningPane({
 				);
 			})}
 
-			{systemCount > 0 || showSystem ? (
-				<label className="pk-running-toggle" data-testid="running-system-toggle">
-					<input
-						type="checkbox"
-						checked={showSystem}
-						onChange={(event) => {
-							setShowSystem(event.target.checked);
-							writeShowSystem(event.target.checked);
-						}}
-					/>
-					Show system services
-				</label>
-			) : null}
-
 			{stopping ? (
 				<ConfirmDialogRoot open onOpenChange={(open) => !open && setStopping(null)}>
 					<ConfirmDialog
 						testId="dialog-stop-listener"
-						title={`Stop ${serviceCommand(stopping)} on port ${stopping.port}?`}
+						title={stopTitle(stopping)}
 						description={
 							isDocker(stopping)
 								? "The Docker container publishing this port is stopped."
@@ -257,17 +244,42 @@ export function RunningPane({
 		</div>
 	);
 
-	return selected ? (
-		<PaneSplit
-			storageKey="pk-running-details"
-			label="Resize details"
-			panel={<RunningDetails service={selected} usage={usage.data} />}
-		>
-			{list}
-		</PaneSplit>
-	) : (
-		list
+	return (
+		<>
+			<div className="pk-pane-head pk-pane-head--actions">
+				<h2 className="sr-only">Running</h2>
+				{systemCount > 0 || showSystem ? (
+					<span className="pk-running-toggle" data-testid="running-system-toggle">
+						<Checkbox
+							label="Show system"
+							checked={showSystem}
+							onChange={(event) => {
+								setShowSystem(event.target.checked);
+								writeShowSystem(event.target.checked);
+							}}
+						/>
+					</span>
+				) : null}
+			</div>
+			{selected ? (
+				<PaneSplit
+					storageKey="pk-running-details"
+					label="Resize details"
+					panel={<RunningDetails service={selected} usage={usage.data} />}
+				>
+					{list}
+				</PaneSplit>
+			) : (
+				list
+			)}
+		</>
 	);
+}
+
+/** The Stop dialog's question, naming the program when it is known. */
+function stopTitle(service: ListeningService): string {
+	const name = service.container?.name ?? service.process?.command;
+	return name ? `Stop ${name} on port ${service.port}?` : `Stop port ${service.port}?`;
 }
 
 /** What is holding the selected port, including CPU and memory (issues #326, #338). */
@@ -279,7 +291,7 @@ function RunningDetails({
 	usage: WorkspaceUsage | undefined;
 }) {
 	const addresses =
-		service.addresses.length > 0 ? service.addresses.join(", ") : "unknown";
+		service.addresses.length > 0 ? service.addresses.join(", ") : "Not known";
 	const pid = service.process?.pid;
 	const process =
 		pid === undefined ? undefined : usage?.processes.find((row) => row.pid === pid);
@@ -299,11 +311,11 @@ function RunningDetails({
 				<dt>Addresses</dt>
 				<dd>{addresses}</dd>
 				<dt>PID</dt>
-				<dd>{pid ?? "unknown"}</dd>
+				<dd>{pid ?? "Not known"}</dd>
 				<dt>Command</dt>
-				<dd>{service.process?.command ?? "unknown"}</dd>
+				<dd>{service.process?.command ?? "Not known"}</dd>
 				<dt>Command line</dt>
-				<dd>{service.process?.commandLine ?? "unknown"}</dd>
+				<dd>{service.process?.commandLine ?? "Not known"}</dd>
 				{gone ? (
 					<>
 						<dt>Process</dt>

@@ -62,7 +62,7 @@ export function isPreviewable(service: ListeningService): boolean {
 
 /** How the Running surface names what is using a port (SPEC.md §18.2). */
 export function serviceCommand(service: ListeningService): string {
-	return service.container?.name ?? service.process?.command ?? "unknown";
+	return service.container?.name ?? service.process?.command ?? "Program not known";
 }
 
 /** True when the port belongs to an inner Docker container (SPEC.md §18.2). */
@@ -72,12 +72,13 @@ export function isDocker(service: ListeningService): boolean {
 
 /**
  * Why a row offers no actions, or null when it does (issues #265, #272).
- * A reserved port is one the preview policy refuses; a system service is one
+ * A port that can't be previewed is one the preview policy refuses (SPEC.md
+ * §14.7); a system service is one
  * the agent attributes to the platform or a system account.
  */
 export function serviceReason(service: ListeningService): string | null {
 	if (service.system) return "system service";
-	if (service.previewReachability === "denied") return "reserved port";
+	if (service.previewReachability === "denied") return "Can't be previewed";
 	return null;
 }
 
@@ -88,7 +89,7 @@ export async function stopListener(workspaceId: string, port: number): Promise<v
 	});
 }
 
-/** Where the "Show system services" choice is remembered (issue #265). */
+/** Where the "Show system" choice is remembered (issue #265). */
 const SHOW_SYSTEM_KEY = "pk-running-show-system";
 
 export function readShowSystem(): boolean {

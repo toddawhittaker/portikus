@@ -147,3 +147,10 @@ test("typing a hidden system port still opens it", () => {
 	fireEvent.click(screen.getByTestId("preview-open-port"));
 	expect(onOpen).toHaveBeenCalledWith(5355);
 });
+
+test("a port whose program is not known says so in words", () => {
+	show([service({ port: 8000, process: undefined })], vi.fn());
+	expect(screen.getByTestId("preview-port-8000").textContent).toContain(
+		"Program not known",
+	);
+});

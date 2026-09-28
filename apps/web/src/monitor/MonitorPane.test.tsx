@@ -163,6 +163,8 @@ test("the Monitor heading is for screen readers only; the tab names the pane", (
 	renderPane();
 	const heading = screen.getByRole("heading", { level: 2, name: "Monitor" });
 	expect(heading.className).toBe("sr-only");
+	// In a pane head like the other surfaces, so their bodies start level.
+	expect(heading.parentElement?.className).toContain("pk-pane-head");
 });
 
 const OWN = {

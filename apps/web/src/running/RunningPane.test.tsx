@@ -198,7 +198,9 @@ test("a port policy denies says why instead of offering a preview", () => {
 	// the pane does not keep a copy of the rules.
 	show([service({ port: 5432, previewReachability: "denied" })]);
 	expect(screen.queryByTestId("running-open-5432")).toBeNull();
-	expect(screen.getByTestId("running-reason-5432").textContent).toBe("reserved port");
+	expect(screen.getByTestId("running-reason-5432").textContent).toBe(
+		"Can't be previewed",
+	);
 	// It is still the student's process, so it can still be stopped.
 	expect(screen.getByTestId("running-stop-5432")).toBeTruthy();
 });
@@ -303,11 +305,28 @@ test("clicking a row shows the port, addresses, pid, command and command line", 
 	expect(screen.getByTestId("running-row-3000").className).toContain("is-selected");
 });
 
-test("a process with no command line says it is unknown", () => {
+test("a process with no command line says it is not known", () => {
 	show([service({ port: 3000 })]);
 	selectRow(3000);
 	expect(screen.getByTestId("running-details").textContent).toContain("Command line");
-	expect(screen.getByTestId("running-details").textContent).toContain("unknown");
+	expect(screen.getByTestId("running-details").textContent).toContain("Not known");
+});
+
+test("a port whose program is not known says so in words", () => {
+	show([service({ port: 5432, process: undefined })]);
+	expect(screen.getByTestId("running-row-5432").textContent).toContain(
+		"Program not known",
+	);
+	fireEvent.click(screen.getByTestId("running-stop-5432"));
+	expect(screen.getByRole("alertdialog", { name: "Stop port 5432?" })).toBeTruthy();
+});
+
+test("the system toggle sits in the pane head, above the list", () => {
+	show([service({ port: 5173 }), service({ port: 5355, system: true })]);
+	const toggle = screen.getByTestId("running-system-toggle");
+	expect(toggle.closest(".pk-pane-head")).toBeTruthy();
+	expect(screen.getByRole("heading", { level: 2, name: "Running" })).toBeTruthy();
+	expect(screen.getByRole("checkbox", { name: "Show system" })).toBeTruthy();
 });
 
 test("selecting another row replaces the details", () => {
