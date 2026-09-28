@@ -227,30 +227,15 @@ export function ProcessesSection({
 			className="pk-detail-section"
 			data-testid="detail-processes"
 		>
-			<div className="flex items-center gap-2">
-				<h4
-					id="detail-processes"
-					ref={headingRef}
-					tabIndex={-1}
-					className="pk-text-label m-0 outline-none"
-				>
-					Processes
-				</h4>
-				{running ? (
-					<Button
-						size="sm"
-						className="ml-auto"
-						aria-label={`Refresh processes in ${ownerName}'s workspace`}
-						loading={reading.phase === "waiting"}
-						onClick={() => {
-							if (reading.phase !== "waiting") void refresh();
-						}}
-						data-testid="processes-refresh"
-					>
-						Refresh
-					</Button>
-				) : null}
-			</div>
+			<h4
+				id="detail-processes"
+				ref={headingRef}
+				tabIndex={-1}
+				// The panel's section heading style (WorkspaceDetail SECTION_HEADING).
+				className="pk-text-compact m-0 font-semibold text-ink-muted outline-none"
+			>
+				Processes
+			</h4>
 			{/* Always mounted, so each outcome is announced (SPEC.md §25.8). */}
 			<span role="status" className="sr-only" data-testid="processes-announce">
 				{announcement}
@@ -277,7 +262,10 @@ export function ProcessesSection({
 					<p className="pk-text-compact pk-muted m-0" data-testid="processes-time">
 						Read at {readTime(reading.snapshot.takenAt ?? "")}
 					</p>
-					<table className="w-full text-left text-[13px]" data-testid="processes-table">
+					<table
+						className="pk-text-compact w-full text-left"
+						data-testid="processes-table"
+					>
 						<caption className="sr-only">
 							Processes, highest {sort === "cpu" ? "CPU" : "memory"} first
 						</caption>
@@ -353,6 +341,21 @@ export function ProcessesSection({
 					</table>
 				</>
 			)}
+			{running ? (
+				<div className="pk-actions">
+					<Button
+						size="sm"
+						aria-label={`Refresh processes in ${ownerName}'s workspace`}
+						loading={reading.phase === "waiting"}
+						onClick={() => {
+							if (reading.phase !== "waiting") void refresh();
+						}}
+						data-testid="processes-refresh"
+					>
+						Refresh
+					</Button>
+				</div>
+			) : null}
 			{stopping ? (
 				<ConfirmDialogRoot open onOpenChange={(open) => !open && close()}>
 					<ConfirmDialog

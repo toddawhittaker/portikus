@@ -1,6 +1,14 @@
 import * as crypto from "node:crypto";
-import { expect, test } from "@playwright/test";
-import { createStudent, loginAs, MOCK_ISSUER, query } from "./helpers";
+import { expect, type Page, test } from "@playwright/test";
+import {
+	createStudent,
+	loginAs,
+	MOCK_ISSUER,
+	query,
+	settledAxe,
+	toast,
+	WCAG_TAGS,
+} from "./helpers";
 
 /**
  * The workspace detail panel's layout (SPEC.md section 20.1,
@@ -10,15 +18,46 @@ import { createStudent, loginAs, MOCK_ISSUER, query } from "./helpers";
 test.use({ viewport: { width: 1920, height: 1080 } });
 
 const SECTIONS = [
-	"Account",
 	"Workspace",
-	"Storage",
+	"Resources",
 	"Resource guard",
 	"Processes",
 	"Ports and connections",
-	"Logs",
+	"Account",
 	"Recent audit events",
 ];
+
+async function expectNoViolations(page: Page) {
+	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+}
+
+/** A student renamed with a tag, so the Users filter finds only them. */
+async function namedStudent(
+	browser: import("@playwright/test").Browser,
+	prefix: string,
+): Promise<{ userId: string; workspaceId: string; name: string }> {
+	const context = await browser.newContext();
+	const student = await createStudent(context);
+	await context.close();
+	const name = `${prefix} ${crypto.randomUUID().slice(0, 8)} Student`;
+	await query("update users set display_name = $2 where id = $1", [
+		student.userId,
+		name,
+	]);
+	return { ...student, name };
+}
+
+async function openPanel(page: Page, name: string) {
+	await loginAs(page, "carol");
+	await page.goto("/admin");
+	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
+	await page.getByTestId("admin-filter-text").fill(name);
+	await page.getByRole("button", { name: `Show details for ${name}` }).click();
+	const panel = page.getByRole("region", { name });
+	await expect(panel.getByTestId("detail-quota")).toBeVisible({ timeout: 15_000 });
+	return panel;
+}
 
 test("the panel shows its actions at once, keeps its sections in order, and stays in view", async ({
 	page,
@@ -54,12 +93,15 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 	await expect(heading).toBeFocused();
 	await expect(panel.getByTestId("detail-quota")).toBeVisible({ timeout: 15_000 });
 
-	// Start, Stop and Restart are in view without scrolling the panel.
-	for (const action of ["Start", "Stop", "Restart"]) {
+	// A running workspace offers Stop and Restart, in view without scrolling the panel.
+	for (const action of ["Stop", "Restart"]) {
 		await expect(
 			panel.getByRole("button", { name: `${action} ${name}'s workspace`, exact: true }),
 		).toBeInViewport();
 	}
+	await expect(
+		panel.getByRole("button", { name: `Start ${name}'s workspace`, exact: true }),
+	).toHaveCount(0);
 
 	for (const section of SECTIONS) {
 		await expect(panel.getByRole("heading", { level: 4, name: section })).toHaveCount(
@@ -77,10 +119,6 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 	// Tab runs from the heading through the head's actions, then into the sections.
 	await page.keyboard.press("Tab");
 	await expect(
-		panel.getByRole("button", { name: `Start ${name}'s workspace`, exact: true }),
-	).toBeFocused();
-	await page.keyboard.press("Tab");
-	await expect(
 		panel.getByRole("button", { name: `Stop ${name}'s workspace` }),
 	).toBeFocused();
 	await page.keyboard.press("Tab");
@@ -91,14 +129,10 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 	await expect(
 		panel.getByRole("button", { name: `Close details for ${name}` }),
 	).toBeFocused();
-	// The Account section's link to this user's logs comes before its buttons.
+	// The Workspace section comes first; Rebuild stays focusable while it cannot act.
 	await page.keyboard.press("Tab");
 	await expect(
-		panel.getByRole("link", { name: "View this user's logs" }),
-	).toBeFocused();
-	await page.keyboard.press("Tab");
-	await expect(
-		panel.getByRole("button", { name: `Disable account for ${name}` }),
+		panel.getByRole("button", { name: `Rebuild workspace for ${name}` }),
 	).toBeFocused();
 
 	// Scroll the page to the bottom of the long table; the panel stays in view.
@@ -118,10 +152,7 @@ test("the panel shows its actions at once, keeps its sections in order, and stay
 test.describe("at 1280 px", () => {
 	test.use({ viewport: { width: 1280, height: 800 } });
 
-	test("a full row fits beside the open panel, and the grace Save lines up with its input", async ({
-		page,
-		browser,
-	}) => {
+	test("a full row fits beside the open panel", async ({ page, browser }) => {
 		const tag = crypto.randomUUID().slice(0, 8);
 		const context = await browser.newContext();
 		const student = await createStudent(context);
@@ -139,15 +170,6 @@ test.describe("at 1280 px", () => {
 			 values ($1, $2, $3, $4, 'student', now())`,
 			[MOCK_ISSUER, `e2e-${tag}-dup`, email, `Fit ${tag} Twin`],
 		);
-		// Image currency needs the worker's host sample, which e2e has none of.
-		await page.route("**/admin/users", async (route) => {
-			const response = await route.fetch();
-			const body = await response.json();
-			for (const user of body.users) {
-				if (user.workspace) user.workspace.image.current = false;
-			}
-			await route.fulfill({ response, json: body });
-		});
 
 		await loginAs(page, "carol");
 		await page.goto("/admin");
@@ -155,9 +177,6 @@ test.describe("at 1280 px", () => {
 		await expect(table).toBeVisible({ timeout: 15_000 });
 		await page.getByTestId("admin-filter-text").fill(`Fit ${tag}`);
 		await expect(page.locator("[data-testid^=account-row-]")).toHaveCount(2);
-		await expect(page.getByTestId(`account-image-${student.userId}`)).toHaveText(
-			"Older image",
-		);
 
 		await page.getByRole("button", { name: `Show details for ${name}` }).click();
 		const panel = page.getByRole("region", { name });
@@ -176,29 +195,190 @@ test.describe("at 1280 px", () => {
 					headings.filter((heading) => !heading.closest(".pk-detail-section")).length,
 			);
 		expect(bare).toBe(0);
-
-		const input = panel.getByTestId(`user-grace-input-${student.userId}`);
-		const save = panel.getByTestId(`user-grace-save-${student.userId}`);
-		async function expectAligned() {
-			const inputBox = await input.boundingBox();
-			const saveBox = await save.boundingBox();
-			if (!inputBox || !saveBox) throw new Error("grace controls have no box");
-			expect(
-				Math.abs(inputBox.y + inputBox.height - (saveBox.y + saveBox.height)),
-			).toBeLessThanOrEqual(1);
-			// Same row as the input (issue #699), not centred on the label and hint.
-			expect(Math.abs(inputBox.y - saveBox.y)).toBeLessThanOrEqual(1);
-			expect(saveBox.x).toBeGreaterThan(inputBox.x + inputBox.width);
-		}
-		await input.scrollIntoViewIfNeeded();
-		await expectAligned();
-		await input.fill("soon");
-		await save.click();
-		await expect(panel.getByText("Enter a whole number of seconds")).toBeVisible();
-		await expectAligned();
-		// The panel at its narrowest still keeps Save beside the input.
-		await page.setViewportSize({ width: 800, height: 900 });
-		await input.scrollIntoViewIfNeeded();
-		await expectAligned();
 	});
 });
+
+test.describe("at 1024 px", () => {
+	test.use({ viewport: { width: 1024, height: 768 } });
+
+	test("the panel keeps its content inside its 400 px, with long names and a throttle", async ({
+		page,
+		browser,
+	}) => {
+		const student = await namedStudent(browser, "Narrow");
+		const long = `${student.name} Bartholomew-Featherstonehaugh-Cholmondeley`;
+		await query("update users set display_name = $2 where id = $1", [
+			student.userId,
+			long,
+		]);
+		await query(
+			`update workspaces set cpu_throttle = $2, limits_config = $3::jsonb where id = $1`,
+			[
+				student.workspaceId,
+				JSON.stringify({
+					at: new Date().toISOString(),
+					averagePercent: 97,
+					thresholdPercent: 80,
+					windowMinutes: 30,
+					sharePercent: 25,
+					allowance: "25ms/100ms",
+				}),
+				JSON.stringify({ memoryMiB: 6144 }),
+			],
+		);
+		const panel = await openPanel(page, long);
+		await expect(panel.getByTestId("detail-lift-throttle")).toBeVisible();
+		// The throttle says what it means, without the kernel's allowance (S7).
+		await expect(panel.getByTestId("detail-guard-cpu")).not.toContainText("ms/");
+		await expect(panel.getByTestId("detail-limits")).toContainText("6 GiB memory");
+		const box = await panel.boundingBox();
+		expect(Math.round(box?.width ?? 0)).toBe(400);
+		// Nothing inside the panel is wider than the panel.
+		const overflow = await panel.evaluate(
+			(element) => element.scrollWidth - element.clientWidth,
+		);
+		expect(overflow).toBeLessThanOrEqual(0);
+	});
+});
+
+test("while a workspace moves, its lifecycle buttons stay focusable, off, and say why", async ({
+	page,
+	browser,
+}) => {
+	const student = await namedStudent(browser, "Moving");
+	await query("update workspaces set state = 'starting' where id = $1", [
+		student.workspaceId,
+	]);
+	const panel = await openPanel(page, student.name);
+	const stop = panel.getByRole("button", {
+		name: `Stop ${student.name}'s workspace`,
+		exact: true,
+	});
+	await expect(stop).toHaveAttribute("aria-disabled", "true");
+	await expect(stop).toHaveAccessibleDescription(
+		"Waiting for the workspace to finish starting.",
+	);
+	// Playwright will not click an aria-disabled button, so press it as a keyboard user would.
+	await stop.focus();
+	await page.keyboard.press("Enter");
+	await expect(stop).toBeFocused();
+	const [row] = await query<{ desired_state: string }>(
+		"select desired_state from workspaces where id = $1",
+		[student.workspaceId],
+	);
+	expect(row?.desired_state).toBe("running");
+
+	// Once it settles as stopped, Start is the only lifecycle action.
+	await query(
+		"update workspaces set state = 'stopped', desired_state = 'stopped', updated_at = now() where id = $1",
+		[student.workspaceId],
+	);
+	const start = panel.getByRole("button", {
+		name: `Start ${student.name}'s workspace`,
+		exact: true,
+	});
+	await expect(start).toBeVisible({ timeout: 15_000 });
+	await expect(start).not.toHaveAttribute("aria-disabled");
+	await expect(stop).toHaveCount(0);
+});
+
+test("the disconnect grace is edited in minutes and saved as seconds", async ({
+	page,
+	browser,
+}) => {
+	const student = await namedStudent(browser, "Grace");
+	const panel = await openPanel(page, student.name);
+	const grace = panel.getByTestId("detail-grace");
+	await expect(grace).toContainText("(site setting)");
+
+	const edit = panel.getByRole("button", {
+		name: `Edit disconnect grace for ${student.name}`,
+	});
+	await edit.click();
+	const dialog = page.getByRole("dialog", {
+		name: `Disconnect grace for ${student.name}`,
+	});
+	const minutes = dialog.getByRole("textbox", { name: "Disconnect grace (minutes)" });
+	await minutes.fill("soon");
+	await dialog.getByRole("button", { name: "Save" }).click();
+	await expect(dialog.getByRole("alert")).toHaveText(
+		"Enter a number of minutes, 0 or more, or leave it blank.",
+	);
+	await minutes.fill("45");
+	await minutes.press("Enter");
+	await expect(toast(page, "Disconnect grace saved")).toBeVisible();
+	await expect(dialog).toHaveCount(0);
+	await expect(edit).toBeFocused();
+	await expect(grace).toHaveText("45 minutes");
+	await expect
+		.poll(async () => {
+			const [row] = await query<{ shutdown_grace_seconds: number | null }>(
+				"select shutdown_grace_seconds from users where id = $1",
+				[student.userId],
+			);
+			return row?.shutdown_grace_seconds ?? null;
+		})
+		.toBe(2700);
+
+	// Blank goes back to the site setting.
+	await edit.click();
+	await expect(minutes).toHaveValue("45");
+	await minutes.fill("");
+	await dialog.getByRole("button", { name: "Save" }).click();
+	await expect(grace).toContainText("(site setting)");
+});
+
+test("promote and make instructor are confirmed without the danger colour; demote keeps it", async ({
+	page,
+	browser,
+}) => {
+	const student = await namedStudent(browser, "Confirm");
+	const panel = await openPanel(page, student.name);
+	await panel
+		.getByRole("button", { name: `Promote ${student.name} to administrator` })
+		.click();
+	const promote = page.getByTestId("promote-dialog");
+	await expect(promote.locator(".pk-dialog-status--neutral")).toHaveCount(1);
+	await promote.getByRole("button", { name: "Cancel" }).click();
+
+	await panel.getByRole("button", { name: `Make instructor: ${student.name}` }).click();
+	const make = page.getByTestId("make-instructor-dialog");
+	await expect(make.locator(".pk-dialog-status--neutral")).toHaveCount(1);
+	await make.getByRole("button", { name: "Cancel" }).click();
+
+	await panel
+		.getByRole("button", { name: `Disable account for ${student.name}` })
+		.click();
+	const disable = page.getByTestId("disable-dialog");
+	await expect(disable.locator(".pk-dialog-status--neutral")).toHaveCount(0);
+	await disable.getByRole("button", { name: "Cancel" }).click();
+});
+
+for (const scheme of ["light", "dark"] as const) {
+	test(`the panel and its grace and limits dialogs have no automatic violations (${scheme})`, async ({
+		page,
+		browser,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		const student = await namedStudent(browser, `A11y panel ${scheme}`);
+		await query(
+			"update workspaces set state = 'stopping', desired_state = 'stopped' where id = $1",
+			[student.workspaceId],
+		);
+		const panel = await openPanel(page, student.name);
+		await expect(panel.getByTestId("detail-lifecycle-note")).toBeVisible();
+		await expectNoViolations(page);
+
+		await panel.getByTestId("detail-grace-edit").click();
+		const grace = page.getByTestId("grace-dialog");
+		await grace.getByRole("textbox").fill("x");
+		await grace.getByRole("button", { name: "Save" }).click();
+		await expect(grace.getByRole("alert")).toBeVisible();
+		await expectNoViolations(page);
+		await grace.getByRole("button", { name: "Cancel" }).click();
+
+		await panel.getByTestId("detail-limits-edit").click();
+		await expect(page.getByTestId("limits-dialog")).toBeVisible();
+		await expectNoViolations(page);
+	});
+}

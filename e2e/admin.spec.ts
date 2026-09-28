@@ -98,9 +98,14 @@ test.describe("administration", () => {
 		await openAdmin(page, "workspaces");
 		await openAliceDetail(page);
 
-		const input = page.getByTestId(`user-grace-input-${alice}`);
-		await input.fill("30");
-		await page.getByTestId(`user-grace-save-${alice}`).click();
+		// The panel edits the override in minutes; the API stores seconds.
+		const grace = page.getByTestId("detail-grace");
+		const edit = page.getByTestId("detail-grace-edit");
+		const dialog = page.getByTestId("grace-dialog");
+		const minutes = dialog.getByLabel("Disconnect grace (minutes)");
+		await edit.click();
+		await minutes.fill("30");
+		await page.getByTestId("grace-dialog-save").click();
 
 		await expect
 			.poll(async () => {
@@ -110,13 +115,15 @@ test.describe("administration", () => {
 				);
 				return rows[0]?.shutdown_grace_seconds ?? null;
 			})
-			.toBe(30);
+			.toBe(1800);
 		await page.reload();
 		await openAliceDetail(page);
-		await expect(page.getByTestId(`user-grace-input-${alice}`)).toHaveValue("30");
+		await expect(grace).toHaveText("30 minutes");
+		await edit.click();
+		await expect(minutes).toHaveValue("30");
 
-		await page.getByTestId(`user-grace-input-${alice}`).fill("");
-		await page.getByTestId(`user-grace-save-${alice}`).click();
+		await minutes.fill("");
+		await page.getByTestId("grace-dialog-save").click();
 
 		await expect
 			.poll(async () => {
@@ -129,7 +136,7 @@ test.describe("administration", () => {
 			.toBe(null);
 		await page.reload();
 		await openAliceDetail(page);
-		await expect(page.getByTestId(`user-grace-input-${alice}`)).toHaveValue("");
+		await expect(grace).toContainText("(site setting)");
 	});
 
 	test("an administrator overrides and clears the log level", async ({ page }) => {
