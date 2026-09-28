@@ -20,8 +20,14 @@ import type {
 } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+
+// A pass-through spy, so a test can see the order the route reads files in.
+vi.mock("node:fs/promises", async (importOriginal) => {
+	const fs = await importOriginal<typeof import("node:fs/promises")>();
+	return { ...fs, readFile: vi.fn(fs.readFile) };
+});
 
 const skip = !hasTestDb();
 
@@ -288,6 +294,17 @@ describe.skipIf(skip)("GET /admin/image, jobs the root job wrote", () => {
 		expect(res.json().job).toMatchObject({ id, kind: "rollback", state: "queued" });
 		const busy = await send(carol, "POST", "/admin/image/jobs", { kind: "fetch" });
 		expect(busy.statusCode).toBe(409);
+	});
+	test("reads the jobs before the aliases, so a finished job never shows the old default", async () => {
+		await putJob(jobStatus({ state: "succeeded", step: "Done" }));
+		const spy = vi.mocked(readFile);
+		spy.mockClear();
+		await send(carol, "GET", "/admin/image");
+		const paths = spy.mock.calls.map(([path]) => String(path));
+		const status = paths.findIndex((p) => p.endsWith("status.json"));
+		const aliases = paths.findIndex((p) => p.endsWith("aliases.json"));
+		expect(status).toBeGreaterThanOrEqual(0);
+		expect(aliases).toBeGreaterThan(status);
 	});
 });
 

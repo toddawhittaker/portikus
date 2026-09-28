@@ -213,6 +213,9 @@ export function registerAdminImageRoutes(
 
 	app.get("/admin/image", adminOnly, async (_request, reply) => {
 		if (off(reply) || !jobsDir || !imagesDir) return;
+		// Jobs first: the root job moves the aliases before it writes "succeeded",
+		// so a finished job is never paired with the aliases from before it.
+		const job = currentOf(await allJobs(jobsDir));
 		const { aliases, images } = await readStore(imagesDir);
 		const counts = await db
 			.selectFrom("workspaces")
@@ -248,7 +251,6 @@ export function registerAdminImageRoutes(
 				b.version.localeCompare(a.version, "en", { numeric: true }),
 		);
 		const total = [...byFingerprint.values()].reduce((sum, n) => sum + n, 0);
-		const job = currentOf(await allJobs(jobsDir));
 		if (job) await noteFinished(job);
 		const out: AdminImage = {
 			default: aliases.default,
