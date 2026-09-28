@@ -1,5 +1,5 @@
 import type { Workspace } from "@portikus/contracts";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
 	json,
@@ -243,10 +243,24 @@ test("the badge and the menu item both open the Notifications dialog", async () 
 	await waitFor(() => expect(screen.queryByTestId("dialog-notifications")).toBeNull());
 
 	openAccountMenu();
-	fireEvent.click(
-		screen.getByRole("menuitem", { name: "Notifications (2 unread notifications)" }),
-	);
+	fireEvent.click(screen.getByRole("menuitem", { name: "Notifications, 2 unread" }));
 	expect(await screen.findByTestId("dialog-notifications")).toBeDefined();
+});
+
+// Epic 25 S9: the count is a trailing caption, and a long address cannot widen the menu.
+test("the menu item shows the unread count after its name, and the address is cut", async () => {
+	stubUnread(4);
+	const email = `${"a-very-long-local-part".repeat(4)}@students.example.edu`;
+	renderHeader(WORKSPACE, { ...USER, email });
+	await screen.findByTestId("notifications-badge");
+	openAccountMenu();
+
+	const item = screen.getByRole("menuitem", { name: "Notifications, 4 unread" });
+	expect(item.getAttribute("data-testid")).toBe("notifications-item");
+	expect(within(item).getByText("4 unread").getAttribute("aria-hidden")).toBe("true");
+	const address = screen.getByTitle(email);
+	expect(address.textContent).toBe(email);
+	expect(address.className).toContain("pk-account-email");
 });
 
 // Closed without reading, the badge still exists and takes focus back; the

@@ -46,7 +46,7 @@ test("after a good change the administrator lands on the admin page", async () =
 		return json(200, {});
 	});
 	const { router } = renderApp("/change-password");
-	fireEvent.change(await screen.findByLabelText("Current password"), {
+	fireEvent.change(await screen.findByLabelText("Current or one-time password"), {
 		target: { value: "one-time-password-x" },
 	});
 	fireEvent.change(screen.getByLabelText("New password"), {
@@ -63,12 +63,16 @@ test("after a good change the administrator lands on the admin page", async () =
 	).toBeTruthy();
 });
 
-test("the forced change page says Current password is the one-time password", async () => {
+// Epic 25 S15: the field itself says it takes the one-time password.
+test("the forced change page labels the field for the one-time password, with a hint", async () => {
 	stubFetch((url) => (url === "/auth/me" ? json(200, FLAGGED) : json(200, {})));
 	renderApp("/change-password");
-	expect(
-		await screen.findByText(/enter the one-time password you were given/),
-	).toBeTruthy();
+	const field = await screen.findByLabelText("Current or one-time password");
+	const hint = screen.getByText(
+		"If an administrator gave you a one-time password, enter it here.",
+	);
+	expect(field.getAttribute("aria-describedby")).toContain(hint.id);
+	expect(screen.queryByText(/For Current password/)).toBeNull();
 });
 
 test("the setup page is gone: an unknown address shows a not-found page with a way home", async () => {

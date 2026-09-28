@@ -17,6 +17,29 @@ export function paragraphs(text: string): string[] {
 }
 
 /**
+ * The first paragraph introduces; the rest are the rules, read as a list
+ * (Epic 25 S14). The statement is static, so a paragraph's place is its key.
+ */
+function Statement({ text }: { text: string }) {
+	const [intro, ...rules] = paragraphs(text);
+	return (
+		<div className="flex flex-col gap-3" data-testid="acceptable-use-text">
+			{intro ? <p className="pk-text-body m-0 whitespace-pre-line">{intro}</p> : null}
+			{rules.length > 0 ? (
+				<ul className="pk-aup-rules">
+					{rules.map((rule, index) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: paragraphs never reorder
+						<li key={index} className="pk-text-body whitespace-pre-line">
+							{rule}
+						</li>
+					))}
+				</ul>
+			) : null}
+		</div>
+	);
+}
+
+/**
  * The acceptable-use statement every account accepts before anything else
  * (SPEC.md section 5.1); the router sends every page here.
  */
@@ -69,15 +92,7 @@ export function AcceptableUsePage() {
 				</p>
 			</div>
 			{statement.data ? (
-				<div className="flex flex-col gap-3" data-testid="acceptable-use-text">
-					{paragraphs(statement.data.text).map((part, index) => (
-						// The statement is static text, so its order is its identity.
-						// biome-ignore lint/suspicious/noArrayIndexKey: paragraphs never reorder
-						<p key={index} className="pk-text-body m-0 whitespace-pre-line">
-							{part}
-						</p>
-					))}
-				</div>
+				<Statement text={statement.data.text} />
 			) : statement.isError ? (
 				<p role="alert" className="pk-text-body m-0 text-status-error">
 					The statement could not be loaded. Reload the page to try again.
@@ -110,7 +125,7 @@ export function AcceptableUsePage() {
 						if (statement.data) accept.mutate(statement.data.version);
 					}}
 				>
-					I accept
+					Accept and continue
 				</Button>
 			</div>
 			<form ref={signOutForm} method="post" action="/auth/logout" className="hidden" />

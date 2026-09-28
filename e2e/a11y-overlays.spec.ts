@@ -132,4 +132,70 @@ test.describe("accessible overlays", () => {
 			page.getByRole("region", { name: /F8/, includeHidden: true }),
 		).toBeAttached();
 	});
+
+	/**
+	 * Epic 25 M4: a menu hands focus back to its button as it closes. That
+	 * focus must not open the button's tooltip, and a tooltip never takes a
+	 * click, so the control beside it answers the very next click.
+	 */
+	test("after a menu closes, the next click reaches the neighbouring control", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const first = await createProject(student.workspaceId, { name: "Aa Neighbour" });
+		const second = await createProject(student.workspaceId, { name: "Ab Neighbour" });
+		await page.goto(workspacePath(student.workspaceId));
+		const upper = page.getByTestId(`project-menu-${first.id}`);
+		const lower = page.getByTestId(`project-menu-${second.id}`);
+		await expect(lower).toBeVisible({ timeout: 15_000 });
+		// The two buttons sit one above the other, where a tooltip would cover.
+		const [a, b] = [await upper.boundingBox(), await lower.boundingBox()];
+		expect((a?.y ?? 0) < (b?.y ?? 0)).toBe(true);
+
+		await lower.click();
+		await expect(
+			page.getByRole("menu", { name: "Actions for Ab Neighbour" }),
+		).toBeVisible();
+		await page.keyboard.press("Escape");
+		await expect(lower).toBeFocused();
+		await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+		await upper.click({ timeout: 2_000 });
+		await expect(
+			page.getByRole("menu", { name: "Actions for Aa Neighbour" }),
+		).toBeVisible();
+		await page.keyboard.press("Escape");
+
+		// Hovering still names the button, and the name lets clicks through.
+		await page.mouse.move(0, 0);
+		await lower.hover();
+		const tooltip = page.locator(".pk-tooltip");
+		await expect(tooltip).toBeVisible();
+		expect(await tooltip.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe(
+			"none",
+		);
+	});
+
+	/** Once a menu has a check item, plain items line up with the check's text. */
+	test("a menu with a check item lines every label up in one column", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await createProject(student.workspaceId, { name: "Gutter" });
+		await page.goto(workspacePath(student.workspaceId, project.id));
+		await page.getByTestId("files-more").click();
+		const menu = page.getByRole("menu", { name: "More file actions" });
+		await expect(menu).toBeVisible({ timeout: 15_000 });
+		const left = (name: string | RegExp, role: "menuitem" | "menuitemcheckbox") =>
+			menu
+				.getByRole(role, { name })
+				.locator(".pk-menu-item-label")
+				.evaluate((el) => el.getBoundingClientRect().left);
+		const check = await left("Show hidden and generated files", "menuitemcheckbox");
+		expect(await left("Upload files…", "menuitem")).toBe(check);
+		expect(await left("Download project", "menuitem")).toBe(check);
+		expect(await left(/^New file/, "menuitem")).toBe(check);
+	});
 });

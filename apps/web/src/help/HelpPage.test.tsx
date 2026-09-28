@@ -88,6 +88,52 @@ test("every admin tab's intro has a Help anchor to land on", () => {
 	expect(new Set(ids).size).toBe(ids.length);
 });
 
+// Epic 25: Settings links to #student-keyboard, and each student topic has its own anchor.
+test("the student part has one anchored topic per section, keyboard included", () => {
+	const [student] = helpParts("student", false);
+	const ids = student?.topics.map((topic) => topic.id) ?? [];
+	expect(ids).toEqual([
+		"student-getting-started",
+		"student-layout",
+		"student-terminals",
+		"student-files",
+		"student-previews",
+		"student-checks",
+		"student-settings",
+		"student-keyboard",
+		"student-trouble",
+	]);
+});
+
+test("the keyboard topic lists each key beside what it does", async () => {
+	stub("student");
+	renderApp("/help");
+	const heading = await screen.findByRole("heading", {
+		level: 3,
+		name: "Keyboard and screen readers",
+	});
+	expect(heading.id).toBe("student-keyboard");
+	const section = heading.closest("section") as HTMLElement;
+	const terms = Array.from(section.querySelectorAll("dl dt")).map(
+		(dt) => dt.textContent,
+	);
+	expect(terms).toEqual([
+		"Alt+Shift+Q",
+		"Ctrl+M",
+		"Alt+F1",
+		"Alt+Shift+Left Arrow, Alt+Shift+Right Arrow",
+		"Shift+F10",
+		"F8",
+	]);
+	expect(section.querySelector("dt + dd")?.textContent).toMatch(/^Leave a terminal\./);
+	expect(
+		within(section).getByRole("heading", {
+			level: 4,
+			name: "What the terminal and editor cannot do",
+		}),
+	).toBeDefined();
+});
+
 test("signed out, Help sends you to sign in", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(401, { code: "UNAUTHORIZED", message: "no" });
