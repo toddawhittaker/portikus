@@ -254,11 +254,42 @@ test("the dialog lists the three storage classes, and a missing one says so", as
 		expect(screen.getByTestId("storage-home").textContent).toContain("of"),
 	);
 	const meters = within(screen.getByTestId("storage-meters"));
-	expect(meters.getByText("Projects & home")).toBeDefined();
+	expect(meters.getByText("Projects and home")).toBeDefined();
 	expect(meters.getByText("Docker")).toBeDefined();
 	expect(meters.getByText("Recovery")).toBeDefined();
 	expect(screen.getByTestId("storage-docker").textContent).toBe("Not available");
 	expect(screen.getByTestId("storage-home").textContent).not.toContain("nearly full");
+});
+
+test("the dialog's sections each have a heading, and the details use the system chevron", () => {
+	stubUsage({ home: percent(10), docker: percent(10), recovery: percent(1) });
+	renderBar();
+	openStatus();
+
+	const dialog = within(screen.getByTestId("dialog-workspace-status"));
+	const headings = dialog
+		.getAllByRole("heading", { level: 3 })
+		.map((h) => h.textContent);
+	expect(headings).toEqual(["Storage", "Docker", "Rebuilds"]);
+	const rebuilds = dialog.getByRole("region", { name: "Rebuilds" });
+	expect(within(rebuilds).getByTestId("rebuild-note")).toBeDefined();
+	const summary = screen
+		.getByTestId("workspace-status-details")
+		.querySelector("summary") as HTMLElement;
+	expect(summary.textContent).toBe("Technical details");
+	expect(summary.querySelector("svg")).not.toBeNull();
+});
+
+test("in error the dialog shows the figures the agent still reports, with no status-bar warning", async () => {
+	stubUsage({ home: percent(10), docker: percent(99), recovery: percent(1) });
+	renderBar({ ...WORKSPACE, state: "error", errorCode: "STORAGE_FULL" });
+	openStatus();
+
+	await waitFor(() =>
+		expect(screen.getByTestId("storage-docker").textContent).toContain("nearly full"),
+	);
+	expect(screen.queryByTestId("storage-unavailable")).toBeNull();
+	expect(screen.queryByTestId("storage-warning")).toBeNull();
 });
 
 test("a class over 80% says nearly full in words, not only colour (Gate E)", async () => {
@@ -544,7 +575,7 @@ test("the disk meter shows the home volume, warns at 85%, and opens the workspac
 	);
 	// The storage warning keeps its own wording beside it.
 	expect(screen.getByTestId("storage-warning").textContent).toBe(
-		"Projects & home storage is 88% full",
+		"Projects and home storage is 88% full",
 	);
 	fireEvent.click(disk);
 	expect(screen.getByTestId("dialog-workspace-status")).toBeDefined();

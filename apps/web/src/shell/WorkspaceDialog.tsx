@@ -5,6 +5,7 @@ import {
 	ConfirmDialogRoot,
 	Dialog,
 	DialogRoot,
+	Icon,
 	resolveWorkspaceState,
 	StateBadge,
 	useToast,
@@ -154,12 +155,23 @@ export function WorkspaceDialog({
 							/>
 							<DialogError error={resetDocker.error} />
 						</section>
-						<p className="pk-text-small m-0 text-ink-muted" data-testid="rebuild-note">
-							An administrator can rebuild the workspace system. Your home folder and
-							projects are kept; programs installed with sudo apt are not.
-						</p>
-						<details data-testid="workspace-status-details">
-							<summary className="pk-text-body pk-summary">Technical details</summary>
+						<section
+							className="flex flex-col gap-2"
+							aria-labelledby="workspace-rebuild-title"
+						>
+							<h3 id="workspace-rebuild-title" className="pk-text-heading m-0">
+								Rebuilds
+							</h3>
+							<p
+								className="pk-text-small m-0 text-ink-muted"
+								data-testid="rebuild-note"
+							>
+								An administrator can rebuild the workspace system. Your home folder and
+								projects are kept; programs installed with sudo apt are not.
+							</p>
+						</section>
+						<details className="group" data-testid="workspace-status-details">
+							<TechnicalSummary />
 							<dl className="pk-techdetail mt-2 grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1">
 								<dt className="text-ink-muted">Desired state</dt>
 								<dd className="m-0">{workspace?.desiredState ?? "running"}</dd>
@@ -317,13 +329,13 @@ export function ResetDocker({
 	workspace,
 	confirming,
 	setConfirming,
-	label = "Reset Docker…",
+	primary = false,
 	testId = "workspace-reset-docker",
 	reset,
 }: {
 	workspace: Workspace | null;
-	/** "Clean up Docker…" on the error screen opens the same confirmation. */
-	label?: string;
+	/** The error screen makes it the main action when Docker filled the storage. */
+	primary?: boolean;
 	testId?: string;
 	confirming: boolean;
 	setConfirming: (open: boolean) => void;
@@ -335,12 +347,13 @@ export function ResetDocker({
 	return (
 		<div className="contents">
 			<Button
+				variant={primary ? "primary" : "secondary"}
 				loading={reset.isPending}
 				aria-disabled={busy ? true : undefined}
 				data-testid={testId}
 				onClick={() => (busy ? undefined : setConfirming(true))}
 			>
-				{label}
+				Reset Docker…
 			</Button>
 			<ConfirmDialogRoot
 				open={confirming}
@@ -371,5 +384,15 @@ export function ResetDocker({
 				) : null}
 			</ConfirmDialogRoot>
 		</div>
+	);
+}
+
+/** A summary with the system's chevron instead of the browser's triangle. */
+export function TechnicalSummary() {
+	return (
+		<summary className="pk-text-body pk-summary inline-flex cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden">
+			<Icon name="chevron-right" size="md" className="group-open:rotate-90" />
+			Technical details
+		</summary>
 	);
 }
