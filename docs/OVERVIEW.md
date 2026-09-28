@@ -3,7 +3,8 @@
 A one-page orientation for humans and agents. The authoritative sources are
 `docs/VISION.md` (product intent), `docs/SPEC.md` (implementation
 requirements), and `docs/STACK.md` (technology choices). This page
-summarizes them so a reader knows where to look.
+summarizes them so a reader knows where to look. To install Portikus on a
+server, follow `docs/INSTALL.md`.
 
 ## Current state
 
