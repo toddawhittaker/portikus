@@ -3,7 +3,7 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
-# OOMScoreAdjust applies only to a newly started process.
+# OOMScoreAdjust and the environment file apply only to a newly started process.
 - name: Restart caddy
   ansible.builtin.systemd:
     name: caddy
@@ -13,3 +13,13 @@
   ansible.builtin.systemd:
     name: caddy
     state: reloaded
+
+# NODE_EXTRA_CA_CERTS is read at start.  On a fresh host the API is not
+# installed or not started yet, and the portikus role starts it later.
+- name: Restart a running API for the new trust
+  ansible.builtin.shell:
+    cmd: |
+      if systemctl cat portikus-api.service >/dev/null 2>&1; then
+        systemctl try-restart portikus-api.service
+      fi
+  changed_when: true

@@ -75,7 +75,7 @@ done
 
 # ── The thin pool, reported only (Epic 12a risk 3) ───────────────
 
-lim_pool=$(sec_ssh "sudo lvs --noheadings --nosuffix --units g --separator , -o lv_name,lv_size,pool_lv,data_percent portikus-data" | tr -d ' ')
+lim_pool=$(sec_ssh "sudo lvs --noheadings --nosuffix --units g --separator , -o lv_name,lv_size,pool_lv,data_percent ${SEC_VG:-none}" | tr -d ' ')
 lim_pool_size=$(awk -F, '$1 == "thinpool" { print $2 }' <<<"$lim_pool")
 lim_pool_used=$(awk -F, '$1 == "thinpool" { print $4 }' <<<"$lim_pool")
 lim_virtual=$(awk -F, '$3 == "thinpool" { s += $2 } END { printf "%.0f", s }' <<<"$lim_pool")
@@ -409,7 +409,7 @@ setTimeout(() => process.exit(1), 60000);'
     lim_b_tid=$(jq -r '.id // empty' "$SEC_LAST_BODY" 2>/dev/null)
   fi
   lim_echo() {
-    sec_ssh_stdin "NODE_EXTRA_CA_CERTS=${SEC_CA} node ${SEC_REMOTE_DIR}/echo.mjs \
+    sec_ssh_stdin "NODE_EXTRA_CA_CERTS=${SEC_CA} ${SEC_NODE} ${SEC_REMOTE_DIR}/echo.mjs \
       '${SEC_API/https/wss}/workspaces/$(sec_ws_id b)/terminals/${lim_b_tid}/ws' '${SEC_API}' 10" \
       <"${SEC_LOCAL_DIR}/b.cookie" 2>/dev/null
   }

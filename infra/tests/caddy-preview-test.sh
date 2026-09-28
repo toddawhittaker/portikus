@@ -60,8 +60,8 @@ command -v ansible >/dev/null || {
   exit 1
 }
 
-# render IDP DEST — the template as site.yml would render it for that
-# sign-in provider (dex or mock).
+# render IDP DEST [ARGS...] — the template as site.yml would render it for
+# that sign-in provider (dex or mock), with any further -e settings.
 render() {
   ansible localhost -c local -m ansible.builtin.template \
     -a "src=${TEMPLATE} dest=${2} mode=0644" \
@@ -71,7 +71,7 @@ render() {
     -e "portikus_api_port=${API_PORT}" \
     -e "portikus_idp=${1}" \
     -e "dex_port=5556" \
-    -e "portikus_mock_idp_port=3002" >"${work}/render.log" 2>&1 || {
+    -e "portikus_mock_idp_port=3002" "${@:3}" >"${work}/render.log" 2>&1 || {
     echo "error: rendering ${TEMPLATE} for ${1} failed" >&2
     cat "${work}/render.log" >&2
     exit 1
@@ -392,6 +392,31 @@ echo "--- The API is told which suffix Caddy serves ---"
 has "PREVIEW_SUFFIX is written beside PUBLIC_URL" \
   '^PREVIEW_SUFFIX=\{\{ portikus_preview_suffix \}\}$' \
   "${REPO_ROOT}/infra/ansible/roles/portikus/templates/api.env.j2"
+
+echo ""
+echo "--- The TLS choice (docs/EPIC-15.md ruling 9) ---"
+
+render dex "${work}/Caddyfile.letsencrypt" -e portikus_tls=letsencrypt \
+  -e portikus_acme_email=ops@example.edu -e portikus_acme_ca=https://acme-v02.api.letsencrypt.org/directory
+render dex "${work}/Caddyfile.files" -e portikus_tls=files -e caddy_tls_dir=/etc/caddy/portikus-tls
+if [ "$(grep -cE '^[[:space:]]+tls internal$' "${rendered}")" = "2" ]; then
+  ok "internal: both sites use Caddy's own authority"
+else
+  no "internal: both sites use Caddy's own authority"
+fi
+if [ "$(grep -cE '^[[:space:]]+dns cloudflare \{env\.CLOUDFLARE_API_TOKEN\}$' "${work}/Caddyfile.letsencrypt")" = "2" ]; then
+  ok "letsencrypt: both sites, the preview wildcard included, use the DNS-01 challenge"
+else
+  no "letsencrypt: both sites, the preview wildcard included, use the DNS-01 challenge"
+fi
+has "letsencrypt: the account email and the CA are set" \
+  '^[[:space:]]+tls ops@example\.edu \{$' "${work}/Caddyfile.letsencrypt"
+lacks "letsencrypt: no site uses the internal authority" 'tls internal' "${work}/Caddyfile.letsencrypt"
+if [ "$(grep -cE '^[[:space:]]+tls /etc/caddy/portikus-tls/site\.crt /etc/caddy/portikus-tls/site\.key$' "${work}/Caddyfile.files")" = "2" ]; then
+  ok "files: both sites use the copied certificate and key"
+else
+  no "files: both sites use the copied certificate and key"
+fi
 
 if [ -z "${caddy_bin}" ]; then
   echo ""

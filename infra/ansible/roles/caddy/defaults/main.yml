@@ -1,0 +1,3 @@
+---
+# Where a files site's certificate and key are copied for the caddy user.
+caddy_tls_dir: /etc/caddy/portikus-tls

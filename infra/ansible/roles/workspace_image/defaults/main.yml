@@ -1,0 +1,9 @@
+---
+# The files of an image release (docs/EPIC-15.md ruling 19): SHA256SUMS is
+# signed with the repository key, and lists the three image files.
+workspace_image_signature: SHA256SUMS.asc
+workspace_image_files:
+  - incus.tar.xz
+  - rootfs.squashfs
+  - manifest.json
+workspace_image_store: /var/lib/portikus/images

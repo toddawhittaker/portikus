@@ -48,7 +48,7 @@
     owner: root
     group: portikus
     mode: "0640"
-    validate: "/usr/bin/node {{ portikus_lti_platforms_check_script }} %s"
+    validate: "{{ portikus_node }} {{ portikus_lti_platforms_check_script }} %s"
   when: portikus_lti_platforms is not none
   notify: Restart portikus-api
 
