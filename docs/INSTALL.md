@@ -326,7 +326,7 @@ and rerun it with `sudo portikus setup`. Pressing Ctrl-C only stops the
 watching, not setup.
 
 In rehearsal on a fresh Debian 13 machine with 12 processor cores, setup
-took about six minutes; allow up to fifteen on a slower machine or network
+took six to seven minutes; allow up to fifteen on a slower machine or network
 (docs/OPERATIONS.md, "The rehearsal VM"). It uses
 the Ansible roles shipped in the package to set up, on this server: the
 nftables firewall, the student storage pool, Incus (the container system

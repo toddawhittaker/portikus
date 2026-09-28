@@ -302,11 +302,8 @@ add_repository() {
 install_package() {
   # Keys debconf does not own, as an operator's hand edit (docs/INSTALL.md,
   # "Changing your answers"): the local image server, and the SSH account
-  # the smoke test uses.  portikus_public_host is here too only because the
-  # config script fails on a file that holds no key it owns (a known bug in
-  # packaging/debian/config, import_config_file, being fixed separately).
+  # the smoke test uses.
   vm_stdin "sudo install -d -m 0755 /etc/portikus && sudo tee /etc/portikus/portikus.yaml >/dev/null" <<EOF
-portikus_public_host: ${PUBLIC_HOST}
 portikus_operator_user: deploy
 portikus_image_base_url: http://${HOST_IP}:${PORT}/images
 portikus_image_releases_url: http://${HOST_IP}:${PORT}/images/releases.json
