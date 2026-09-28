@@ -347,3 +347,35 @@ test("the tab puts four cards at a glance, then the trends in four groups, then 
 	const glance = screen.getByTestId("health-glance");
 	expect(glance.querySelectorAll(":scope > section.pk-card")).toHaveLength(4);
 });
+
+test("the tab has an intro and help beside the figures that need it", async () => {
+	stubFetch((url) => {
+		if (url === "/admin/health") return json(200, report());
+		if (url === "/admin/packages")
+			return json(200, { day: null, surveyed: 0, packages: [] });
+		if (url.startsWith("/admin/health/series")) return json(200, SERIES);
+		if (url.startsWith("/admin/logs/counts"))
+			return json(503, { code: "LOGS_UNAVAILABLE", message: "No journal." });
+		throw new Error(`unexpected request: ${url}`);
+	});
+
+	renderWithQuery(<HealthTab />);
+
+	await screen.findByTestId("health-trends");
+	const intro = screen.getByTestId("intro-admin-health");
+	expect(intro.textContent).toContain("Look here first when students report slow");
+	expect(
+		within(intro)
+			.getByRole("link", { name: /More in Help/ })
+			.getAttribute("href"),
+	).toBe("/help#admin-health");
+	for (const label of [
+		"Agents answering",
+		"Load average",
+		"Storage pool",
+		"Pool metadata",
+		"Workspace limits",
+	]) {
+		expect(screen.getByRole("button", { name: `About ${label}` })).toBeDefined();
+	}
+});

@@ -1,9 +1,10 @@
 import {
 	type HealthReport,
+	POOL_FULL_PERCENT,
 	POOL_WARN_PERCENT,
 	poolFillPercent,
 } from "@portikus/contracts";
-import { Skeleton } from "@portikus/ui";
+import { Skeleton, Toggletip } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ApiError } from "../../api/request.js";
@@ -35,6 +36,23 @@ export function sampleAge(sampledAt: string, now: number): string {
 	return `${hours} hour${hours === 1 ? "" : "s"} ago`;
 }
 
+/** The Health tab's intro under its heading (Epic 25). */
+export const HEALTH_INTRO = {
+	id: "admin-health",
+	helpAnchor: "admin-health",
+	text: "How the platform is doing right now and over time. Look here first when students report slow or failing workspaces.",
+};
+
+/** A figure's name with its help button; the negative margin keeps the 24 px button from growing the row. */
+function Term({ label, help }: { label: string; help: string }) {
+	return (
+		<span className="-my-1 inline-flex items-center gap-1">
+			{label}
+			<Toggletip label={label}>{help}</Toggletip>
+		</span>
+	);
+}
+
 const COUNT_LABELS: Record<keyof HealthReport["last24h"], string> = {
 	startFailures: "Start failures",
 	stopFailures: "Stop failures",
@@ -51,7 +69,7 @@ export function HealthTab() {
 
 	if (health.isError) {
 		return (
-			<AdminSection title="Health">
+			<AdminSection title="Health" intro={HEALTH_INTRO}>
 				<p className="pk-error text-status-error" role="alert">
 					{health.error instanceof ApiError
 						? health.error.message
@@ -61,7 +79,7 @@ export function HealthTab() {
 		);
 	}
 	return (
-		<AdminSection title="Health">
+		<AdminSection title="Health" intro={HEALTH_INTRO}>
 			{health.data ? (
 				<HealthView
 					report={health.data}
@@ -161,13 +179,23 @@ export function HealthView({
 							<dd>
 								{report.sampledAt ? sampleAge(report.sampledAt, now) : "None yet"}
 							</dd>
-							<dt>Agents answering</dt>
+							<dt>
+								<Term
+									label="Agents answering"
+									help="Each running workspace has a small agent that serves its files and terminals. Fewer answering than running means some workspaces cannot be reached."
+								/>
+							</dt>
 							<dd data-testid="health-agents">
 								{report.agents.answering} of {report.agents.running} running
 							</dd>
 							{host ? (
 								<>
-									<dt>Load average</dt>
+									<dt>
+										<Term
+											label="Load average"
+											help="How many processes wanted a CPU, averaged over 1, 5 and 15 minutes. Above the CPU count means work is waiting."
+										/>
+									</dt>
 									<dd>
 										{host.loadAverage.map((load) => load.toFixed(2)).join(", ")} across{" "}
 										{host.cpuCount} CPU{host.cpuCount === 1 ? "" : "s"}
@@ -185,7 +213,12 @@ export function HealthView({
 											}
 										/>
 									</dd>
-									<dt>Storage pool</dt>
+									<dt>
+										<Term
+											label="Storage pool"
+											help={`The disk space every workspace shares. This tab warns at ${POOL_WARN_PERCENT}% full, and at ${POOL_FULL_PERCENT}% new workspaces are refused until space is freed.`}
+										/>
+									</dt>
 									<dd>
 										<Usage
 											testId="health-pool"
@@ -194,13 +227,23 @@ export function HealthView({
 											warning={poolWarning(host.pool)}
 										/>
 									</dd>
-									<dt>Pool metadata</dt>
+									<dt>
+										<Term
+											label="Pool metadata"
+											help="Bookkeeping space in the same pool. It can fill before the data does, with the same effect."
+										/>
+									</dt>
 									<dd data-testid="health-pool-metadata">
 										{host.pool.metadataPercent === null
 											? "Not reported"
 											: `${Math.round(host.pool.metadataPercent)}% used`}
 									</dd>
-									<dt>Workspace limits</dt>
+									<dt>
+										<Term
+											label="Workspace limits"
+											help="The site values every workspace gets unless its panel on the Users tab sets its own."
+										/>
+									</dt>
 									<dd>
 										CPU {host.profileLimits.cpu ?? "not set"}, memory{" "}
 										{host.profileLimits.memory ?? "not set"}, processes{" "}

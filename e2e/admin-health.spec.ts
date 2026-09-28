@@ -343,7 +343,53 @@ test.describe("admin health", () => {
 			const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 			expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 		});
+
+		test(`the intro and an open help tip have no automatic violations (${colorScheme})`, async ({
+			page,
+		}) => {
+			await page.emulateMedia({ colorScheme });
+			await seedSample(85, 0);
+			await openHealth(page);
+			await expect(page.getByTestId("intro-admin-health")).toBeVisible();
+			await page.getByRole("button", { name: "About Storage pool" }).click();
+			await expect(page.getByRole("dialog", { name: "Storage pool" })).toBeVisible();
+			const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+			expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+		});
 	}
+
+	test("the intro links to Help, and each help tip opens from the keyboard", async ({
+		page,
+	}) => {
+		await seedSample(50, 0);
+		await openHealth(page);
+
+		const intro = page.getByTestId("intro-admin-health");
+		await expect(intro).toContainText(
+			"How the platform is doing right now and over time.",
+		);
+		await expect(intro.getByRole("link", { name: /More in Help/ })).toHaveAttribute(
+			"href",
+			"/help#admin-health",
+		);
+
+		const tips: [string, RegExp][] = [
+			["Agents answering", /Fewer answering than running/],
+			["Load average", /Above the CPU count means work is waiting/],
+			["Storage pool", /warns at 70% full, and at 90% new workspaces are refused/],
+			["Pool metadata", /It can fill before the data does/],
+			["Workspace limits", /unless its panel on the Users tab sets its own/],
+		];
+		for (const [label, text] of tips) {
+			const button = page.getByRole("button", { name: `About ${label}` });
+			await button.focus();
+			await page.keyboard.press("Enter");
+			await expect(page.getByRole("dialog", { name: label })).toContainText(text);
+			await page.keyboard.press("Escape");
+			await expect(page.getByRole("dialog", { name: label })).toHaveCount(0);
+			await expect(button).toBeFocused();
+		}
+	});
 
 	test("a sample 3 minutes old shows Worker not reporting", async ({ page }) => {
 		await seedSample(50, 3);
