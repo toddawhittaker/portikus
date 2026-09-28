@@ -1,6 +1,6 @@
 # 0041. HTTPS upstreams in the preview gateway
 
-- **Status**: Proposed (Epic 24, task T16; T17 builds the Caddy half)
+- **Status**: Accepted (Epic 24)
 - **Date**: 2026-09-27
 - **References**: SPEC.md sections 14.5 and 24.7; BROWSER-HANDLING.md sections 10, 11.1 and 16.3; ADR 0018; issue #283
 

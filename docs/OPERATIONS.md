@@ -17,7 +17,10 @@ Names used throughout:
   reads the VM's address from the OpenTofu state, so never pass `VM_IP` by
   hand for the pilot.
 - **The rehearsal VM** is `portikus-rehearsal`, a second VM on the same
-  host for exercises that must not touch the pilot (`TOFU_ENV=rehearsal-libvirt`).
+  host (`TOFU_ENV=rehearsal-libvirt`). It is for rebuilding a whole
+  machine or a disaster-recovery drill, a from-scratch bootstrap, and
+  load tests bigger than the pilot. Everything else, including an epic's
+  verification, is done on the pilot, which is the development VM.
 - **Out of class hours** means no student is working. Every change to the
   pilot happens then.
 
@@ -1403,8 +1406,7 @@ The journal is capped at 2 GB. On the host, the nightly backup logs to
 - Check for new Dex releases. An upgrade is a pull request that bumps
   `dex_version` and `dex_commit` in `infra/ansible/site.yml` together,
   after reading the release notes. CI's Dex sign-in job tests it, then
-  the rehearsal VM runs `configure-vm` and the smoke test before the
-  pilot does. To roll back, revert the pin.
+  the pilot runs `configure-vm` and the smoke test. To roll back, revert the pin.
 - Check that unattended upgrades are applying Debian security updates on
   the VM (`sudo journalctl -u unattended-upgrades`), which the `base` role
   sets up.

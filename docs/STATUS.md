@@ -3175,3 +3175,66 @@ Gaps:
   disclosure chevron.
 - The grace period label may wrap at 200% text size.
 - The narrow Running pane truncates even short names.
+
+## Epic 24 — Admin operations
+
+Built on `epic/24-admin-operations`. Task PRs #731 to #761 (#761 added
+the ui-designer agent) and this closing task;
+issues #730, #626, #283 and #284, and three BACKLOG entries (re-provision
+after a failed create, per-workspace limits, and a limit on
+throttle-then-restart cycles). The rules are in SPEC.md sections 14.5,
+19.4, 20.1, 22.3, 23.6, 24.9, 24.11, 25.8 and 26, STACK.md section 29,
+BROWSER-HANDLING.md section 11.1, and ADRs 0038 to 0043. Migrations 0025
+to 0030.
+
+Delivered:
+
+- **Workspace egress.** A Network tab switches the site between open
+  mode (the default, unchanged) and an allow-list with presets, ports,
+  host names and ranges, "Test a host", and the most-refused names
+  site-wide. Enforcement is our own dnsmasq, a root-owned nftables table
+  applied by a root helper, and a second Squid that reads TLS names and
+  HTTP hosts without decrypting. Open mode can also block a few sites;
+  the list starts empty. Everything fails closed, including after a
+  reboot and when the helper cannot run.
+- **Backups from the admin page.** A Backups tab over a request channel
+  the host polls: Back up now, delete old sets, dumps, `pre-*` snapshots
+  and kept homes, restore one workspace into a side copy written as the
+  student, then replace its home with a kept copy of the old one. The
+  restore key is held root-only on the host. Every limit (retention
+  floor, gap between requested runs, disk floor, byte budget, answer
+  caps) is set on the host.
+- **Workspaces.** Re-provision for a workspace in `error`; a Limits
+  dialog for one workspace's CPU, memory and processes, applied live;
+  and a throttle hold after three throttles in 24 hours by default.
+- **Packages.** An apt hook in the image (2026.09.12) records what a
+  student adds; the Health tab shows aggregate counts with base-image
+  candidates; a rebuilt workspace shows a reinstall note.
+- **HTTPS previews.** A student server speaking HTTPS on its port
+  previews like any other.
+
+Verified by unit, Playwright and axe tests in each task; by the infra
+security suite `infra/tests/security/workspace-egress.sh` and the lying-VM
+test `infra/tests/backup-channel-test.sh`, run on the rehearsal VM; and by
+code, security and accessibility reviews over the epic head, each followed
+by confirmation reviews. The separate end-to-end rehearsal (task T18) was
+dropped by Todd on 2026-09-27: Epic 24 is verified on the pilot, Todd's
+development VM, after the deploy.
+
+Gaps:
+
+- A connection to a newly blocked site that already goes through Squid
+  keeps working until it closes, because Squid is reloaded, not
+  restarted; a restart would cut every workspace's proxied connections.
+- An administrator's lift keeps `cpu_throttle_recent`, so a workspace
+  lifted by hand can be held again sooner than one that started fresh.
+- A student can pause their own `tar` (SIGSTOP) during a side-copy
+  restore; the host-side timeout bounds how long that holds the job.
+- A VM that trickles data slowly can hold the host-wide backup lock for
+  up to 12 hours, the units' start timeout.
+- While `nftables.service` is stopped, the host's input chain is gone and
+  only the Incus ACL protects the gateway, which does not cover IP
+  protocols other than TCP, UDP and ICMP (ADR 0038).
+- Blocking sites in open mode is best effort against casual use; only
+  allow-list mode stops a determined student (ADR 0043).
+- The weekly off-host backup copy is still manual (issue #753).

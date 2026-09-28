@@ -1,6 +1,6 @@
 # 0043. Blocked sites in open mode
 
-- **Status**: Proposed
+- **Status**: Accepted (Epic 24)
 - **Date**: 2026-09-27
 - **References**: SPEC.md sections 20.1, 23.1 and 24.9, issue #284, ADR 0038
 

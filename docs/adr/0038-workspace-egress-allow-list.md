@@ -1,6 +1,6 @@
 # 0038. Workspace egress allow-list: our own resolver, a root-owned table, and Squid by name
 
-- **Status**: Proposed (Epic 24, task T4; T5 adds the infrastructure facts)
+- **Status**: Accepted (Epic 24)
 - **Date**: 2026-09-27
 - **References**: SPEC.md sections 20.1, 23 and 24; ADRs 0027, 0030; issue #284
 

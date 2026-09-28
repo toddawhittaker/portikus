@@ -1391,7 +1391,7 @@ Internet
   → Caddy ports only
 
 student LXC
-  → Internet egress allowed
+  → Internet egress allowed (open mode), or only listed names (allow-list mode)
   → management networks denied
   → peer workspaces denied by default
 
@@ -1403,6 +1403,8 @@ workspace-controller
 ```
 
 No firewall rule should exist solely because an administrator once typed it manually.
+
+Workspace egress rules are the one set that changes at runtime (Epic 24, SPEC.md section 23.6, ADR 0038). They still come from a record, not a person: the policy lives in PostgreSQL, edited on the admin Network tab and audited, and a root helper, `portikus-egress-apply`, renders it into its own nftables table, `inet portikus_egress`, and the configuration of our egress dnsmasq and the workspace Squid. Ansible owns everything static around it (the units, `/etc/portikus/egress.env`, the Incus ACL carve-out, the input rules and the drop-all fallback) and never flushes that table. Nobody edits those rules by hand.
 
 ## 30. CI/CD
 

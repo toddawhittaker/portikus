@@ -1,6 +1,6 @@
 # 0039. Backup requests reach the host through a polling channel, and the host holds the restore key
 
-- **Status**: Proposed (Epic 24, task T9)
+- **Status**: Accepted (Epic 24)
 - **Date**: 2026-09-27
 - **References**: SPEC.md sections 24.9 and 24.11; ADRs 0024, 0030, 0040; issue #730
 

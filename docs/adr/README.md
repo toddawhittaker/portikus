@@ -65,3 +65,9 @@ has four sections:
 | [0035](0035-terminals-in-their-own-unit.md) | Terminals run in their own systemd unit, and the agent's negative OOM score was dropped (accepted, Epic 16) |
 | [0036](0036-admin-log-viewer-reads-the-journal.md) | The admin Logs tab reads the journal through `journalctl` with fixed arguments, limits and redaction (accepted, Epic 19) |
 | [0037](0037-admin-process-list-through-incus.md) | The administrator reads processes from the host through the worker and stops them through the agent (accepted, Epic 21) |
+| [0038](0038-workspace-egress-allow-list.md) | Workspace egress allow-list: our own resolver, a root-owned table, and Squid by name (accepted, Epic 24) |
+| [0039](0039-backup-channel-and-host-held-key.md) | Backup requests reach the host through a polling channel, and the host holds the restore key (accepted, Epic 24) |
+| [0040](0040-restore-one-workspace-and-replace-home.md) | Restoring one workspace into a side copy, and replacing a home (accepted, Epic 24) |
+| [0041](0041-https-upstreams-in-the-preview-gateway.md) | HTTPS upstreams in the preview gateway (accepted, Epic 24) |
+| [0042](0042-package-survey.md) | The package survey and the reinstall note (accepted, Epic 24) |
+| [0043](0043-blocked-sites-in-open-mode.md) | Blocked sites in open mode (accepted, Epic 24) |
