@@ -13,8 +13,15 @@ vendor: Portikus
 homepage: https://github.com/toddawhittaker/portikus
 license: MIT
 
+# Debian-archive packages only; setup installs the rest (docs/EPIC-15.md, ruling 12).
 depends:
-  - nodejs (>= 24)
+  - ansible-core
+  - python3-apt
+  - debconf
+  - whiptail | dialog
+  - ca-certificates
+  - gpg
+  - curl
 
 # The tree file modes come from the build: scripts/build-deb.sh chmods them,
 # because nfpm would apply a file_info mode to the directories as well.
@@ -54,6 +61,28 @@ contents:
       owner: root
       group: root
 
+  # Node, bundled so the package needs nothing outside Debian (ruling 11).
+  - src: ./dist/deploy/node
+    dst: /usr/lib/portikus/node
+    type: tree
+    file_info:
+      owner: root
+      group: root
+  # The play that `portikus setup` runs on this host (ruling 8, ADR 0029).
+  - src: ./dist/deploy/ansible
+    dst: /usr/share/portikus/ansible
+    type: tree
+    file_info:
+      owner: root
+      group: root
+  # The apt repository's public key (ruling 17), dearmored by build-deb.sh.
+  - src: ./dist/deploy/portikus-archive-keyring.gpg
+    dst: /usr/share/keyrings/portikus-archive-keyring.gpg
+    file_info:
+      owner: root
+      group: root
+      mode: 0644
+
   - src: ./packaging/systemd/portikus-api.service
     dst: /usr/lib/systemd/system/portikus-api.service
     file_info: &unit_info
@@ -86,6 +115,25 @@ contents:
     dst: /usr/lib/systemd/system/portikus-mock-idp.service
     file_info: *unit_info
 
+  # Started by postinst without waiting (ruling 10); never enabled.
+  - src: ./packaging/systemd/portikus-setup.service
+    dst: /usr/lib/systemd/system/portikus-setup.service
+    file_info: *unit_info
+  # TODO(Epic 15 T6): uncomment when packaging/systemd/portikus-image-job.{path,service}
+  # and packaging/image/image-job exist (ruling 28, ADR 0030).
+  # - src: ./packaging/systemd/portikus-image-job.path
+  #   dst: /usr/lib/systemd/system/portikus-image-job.path
+  #   file_info: *unit_info
+  # - src: ./packaging/systemd/portikus-image-job.service
+  #   dst: /usr/lib/systemd/system/portikus-image-job.service
+  #   file_info: *unit_info
+  # - src: ./packaging/image/image-job
+  #   dst: /usr/lib/portikus/image-job
+  #   file_info:
+  #     owner: root
+  #     group: root
+  #     mode: 0755
+
   # The host command, run by root (SPEC.md section 5.1).
   - src: ./packaging/bin/portikus
     dst: /usr/bin/portikus
@@ -107,6 +155,12 @@ contents:
       mode: 0755
       owner: root
       group: root
+
+# TODO(Epic 15 T2): uncomment when packaging/debian/templates and config exist.
+# deb:
+#   scripts:
+#     templates: ./packaging/debian/templates
+#     config: ./packaging/debian/config
 
 scripts:
   postinstall: ./packaging/scripts/postinst
