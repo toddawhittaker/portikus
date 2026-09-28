@@ -355,11 +355,22 @@ test.describe("application preview", () => {
 		await page.getByTestId("launcher-preview").click();
 		await page.getByLabel("Port").fill("80");
 		await page.getByTestId("preview-open-port").click();
-		await expect(page.getByTestId("preview-error")).toHaveText(
-			"Port 80 cannot be previewed",
-			{ timeout: 20_000 },
+		// The state says what to do instead and offers no retry (review S6).
+		await expect(
+			page.getByRole("heading", { name: "Port 80 cannot be previewed" }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(page.getByTestId("preview-port-refused")).toHaveText(
+			"Ports below 1024, and ports kept for SSH, Docker and databases, cannot be opened as a preview. Run your app on a port from 1024 up, such as 3000 or 5173.",
 		);
+		await expect(page.getByTestId("preview-retry")).toHaveCount(0);
 		await expect(page.getByTestId("preview-frame")).toHaveCount(0);
+
+		// Choosing another port replaces the refused tab with the new one.
+		await page.getByRole("button", { name: "Choose another port…" }).click();
+		await page.getByLabel("Port").fill("3000");
+		await page.getByTestId("preview-open-port").click();
+		await expect(page.getByTestId("tab-preview:3000")).toBeVisible();
+		await expect(page.getByTestId("tab-preview:80")).toHaveCount(0);
 	});
 
 	test("a port policy denies is listed but offers no preview", async ({
@@ -431,10 +442,10 @@ test.describe("application preview", () => {
 		const project = await createProject(student.workspaceId, { name: "denied" });
 		await savePreviewTab(project.id, 5432);
 		await page.goto(workspacePath(student.workspaceId, project.id));
-		await expect(page.getByTestId("preview-error")).toHaveText(
-			"Port 5432 cannot be previewed",
-			{ timeout: 20_000 },
-		);
+		await expect(
+			page.getByRole("heading", { name: "Port 5432 cannot be previewed" }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(page.getByTestId("preview-choose-port")).toBeVisible();
 	});
 
 	test("the preview route a terminal link uses opens a preview tab", async ({

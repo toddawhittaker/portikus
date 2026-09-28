@@ -15,6 +15,17 @@ test("a GFM table renders as a table", () => {
 	expect(screen.getByRole("cell", { name: "3000" })).toBeTruthy();
 });
 
+test("a task list item carries a named, read-only checkbox and the task-list class", () => {
+	const { container } = render(
+		<MarkdownPreview text={"- [ ] Write tests\n- [x] Read spec\n"} />,
+	);
+	const boxes = screen.getAllByRole("checkbox", { name: "Task" });
+	expect(boxes.map((box) => (box as HTMLInputElement).checked)).toEqual([false, true]);
+	expect(boxes.every((box) => (box as HTMLInputElement).disabled)).toBe(true);
+	// markdown.css hangs the box in the bullet's place through this class.
+	expect(container.querySelectorAll("li.task-list-item")).toHaveLength(2);
+});
+
 test("raw HTML shows as text instead of being run", () => {
 	const { container } = render(
 		<MarkdownPreview text={"# Title\n\n<script>alert(1)</script>\n"} />,

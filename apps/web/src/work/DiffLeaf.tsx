@@ -7,7 +7,7 @@
 import { EmptyState } from "@portikus/ui";
 import { lazy, type ReactNode, Suspense, useEffect } from "react";
 import { DownloadFileButton } from "../files/DownloadFileButton.js";
-import { DIFF_KIND, LETTER, WORD } from "../files/gitStatus.js";
+import { DIFF_KIND, WORD } from "../files/gitStatus.js";
 import { useGitDiff } from "../files/useGitDiff.js";
 
 // Monaco is large, so it is its own chunk and is only fetched when a diff tab
@@ -109,16 +109,23 @@ export function DiffLeaf({
 			);
 		}
 		return (
-			<Suspense fallback={<p className="pk-file-note">Loading diff…</p>}>
-				<DiffViewer
-					path={path}
-					original={data.before ?? ""}
-					modified={data.after ?? ""}
-					// Every answer from the server is a new version, so a refresh
-					// replaces the text and a re-render does not.
-					version={String(diff.dataUpdatedAt)}
-				/>
-			</Suspense>
+			<>
+				{/* Monaco's two columns carry no names, so say which side is which. */}
+				<div className="pk-diff-sides" data-testid="diff-sides">
+					<span>{baseline ? "Session start" : "Last commit"}</span>
+					<span>Your changes</span>
+				</div>
+				<Suspense fallback={<p className="pk-file-note">Loading diff…</p>}>
+					<DiffViewer
+						path={path}
+						original={data.before ?? ""}
+						modified={data.after ?? ""}
+						// Every answer from the server is a new version, so a refresh
+						// replaces the text and a re-render does not.
+						version={String(diff.dataUpdatedAt)}
+					/>
+				</Suspense>
+			</>
 		);
 	}
 
@@ -137,23 +144,24 @@ export function DiffLeaf({
 	return (
 		<div className="pk-doc-leaf pk-file-leaf" data-testid={`diff-pane-${path}`}>
 			<div className="pk-file-header">
-				<span className="pk-file-path">
-					{baseline
-						? `Diff since session baseline · ${path}`
-						: data?.status === "R" && data.oldPath
-							? `Diff · ${data.oldPath} → ${path}`
-							: `Diff · ${path}`}
-				</span>
-				{kind !== null ? (
-					<span
-						className="pk-diff-status"
-						data-testid={`diff-status-${path}`}
-						data-git={kind}
-						title={WORD[kind]}
-					>
-						{LETTER[kind]}
+				<span className="pk-diff-title">
+					<span className="pk-file-path">
+						{baseline
+							? `Diff since session baseline · ${path}`
+							: data?.status === "R" && data.oldPath
+								? `Diff · ${data.oldPath} → ${path}`
+								: `Diff · ${path}`}
 					</span>
-				) : null}
+					{kind !== null ? (
+						<span
+							className="pk-diff-status"
+							data-testid={`diff-status-${path}`}
+							data-git={kind}
+						>
+							{WORD[kind]}
+						</span>
+					) : null}
+				</span>
 				{toolbar}
 			</div>
 			{diff.error && data ? (

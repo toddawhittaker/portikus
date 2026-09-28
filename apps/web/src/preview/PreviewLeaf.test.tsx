@@ -53,6 +53,7 @@ function show(options: {
 					port={port}
 					visible={true}
 					onShowRunning={() => {}}
+					onChoosePort={() => {}}
 				/>
 			</ListeningContext.Provider>
 		</ToastProvider>,
@@ -140,6 +141,7 @@ test("the preview reconnects when the port starts listening again", async () => 
 					port={5173}
 					visible={true}
 					onShowRunning={() => {}}
+					onChoosePort={() => {}}
 				/>
 			</ListeningContext.Provider>
 		</ToastProvider>,
@@ -153,6 +155,7 @@ test("the preview reconnects when the port starts listening again", async () => 
 					port={5173}
 					visible={true}
 					onShowRunning={() => {}}
+					onChoosePort={() => {}}
 				/>
 			</ListeningContext.Provider>
 		</ToastProvider>,
@@ -184,18 +187,41 @@ test("a grant the gateway could not open shows its message", async () => {
 	);
 });
 
-test("a port policy refuses keeps the sentence about the port", async () => {
+/** Review S6: a refused port says what to do instead, and offers no retry. */
+test("a port the policy refuses explains the rule and offers another port", async () => {
 	stubFetch(() =>
 		json(403, {
 			code: "PREVIEW_PORT_NOT_ALLOWED",
 			message: "Port 5432 cannot be previewed",
 		}),
 	);
-	show({});
-	expect((await screen.findByTestId("preview-error")).textContent).toBe(
+	const onChoosePort = vi.fn();
+	render(
+		<ToastProvider>
+			<ListeningContext.Provider value={{ services: [service(5432)], loaded: true }}>
+				<PreviewLeaf
+					workspaceId={WORKSPACE}
+					port={5432}
+					visible={true}
+					onShowRunning={() => {}}
+					onChoosePort={onChoosePort}
+				/>
+			</ListeningContext.Provider>
+		</ToastProvider>,
+	);
+	expect(
+		await screen.findByRole("heading", { name: "Port 5432 cannot be previewed" }),
+	).toBeDefined();
+	expect(screen.getByTestId("preview-port-refused").textContent).toBe(
+		"Ports below 1024, and ports kept for SSH, Docker and databases, cannot be opened as a preview. Run your app on a port from 1024 up, such as 3000 or 5173.",
+	);
+	expect(screen.getByTestId("preview-status").textContent).toBe(
 		"Port 5432 cannot be previewed",
 	);
+	expect(screen.queryByTestId("preview-retry")).toBeNull();
 	expect(screen.queryByTestId("preview-unauthorized")).toBeNull();
+	fireEvent.click(screen.getByRole("button", { name: "Choose another port…" }));
+	expect(onChoosePort).toHaveBeenCalledTimes(1);
 });
 
 test("a server failure falls back to a plain sentence", async () => {
@@ -535,6 +561,7 @@ test("Show in Running calls back to the shell", async () => {
 					port={5173}
 					visible
 					onShowRunning={onShowRunning}
+					onChoosePort={() => {}}
 				/>
 			</ListeningContext.Provider>
 		</ToastProvider>,
@@ -606,6 +633,7 @@ function tab(services: ListeningService[]) {
 					port={5173}
 					visible={true}
 					onShowRunning={() => {}}
+					onChoosePort={() => {}}
 				/>
 			</ListeningContext.Provider>
 		</ToastProvider>
