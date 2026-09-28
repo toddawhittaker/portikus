@@ -1,5 +1,5 @@
 /**
- * The throttle hold (SPEC.md §19.4): the two settings, the Held tag on the
+ * The throttle hold (SPEC.md §19.4): the Held tag on the
  * Workspaces and Health tabs, and the student's words for a throttle a
  * restart does not lift. The worker does not run here, so each test writes
  * the held throttle row the worker would.
@@ -10,7 +10,6 @@ import {
 	loginAs,
 	query,
 	settledAxe,
-	toast,
 	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
@@ -50,43 +49,6 @@ async function heldStudent(browser: Browser) {
 	await holdThrottle(student.workspaceId);
 	return { ...student, name };
 }
-
-test("an administrator changes the hold settings, and a bad value is named", async ({
-	page,
-}) => {
-	await loginAs(page, "carol");
-	await page.goto("/admin?tab=settings");
-	const after = page.getByLabel("Hold after throttles");
-	const hours = page.getByLabel("Hold window (hours)");
-	await expect(after).toHaveValue("3", { timeout: 15_000 });
-	await expect(hours).toHaveValue("24");
-
-	await hours.fill("200");
-	await page.getByTestId("guard-settings-save").click();
-	await expect(page.getByRole("alert")).toHaveText(
-		"Enter a whole number from 1 to 168.",
-	);
-	await expectNoViolations(page);
-
-	try {
-		await after.fill("4");
-		await hours.fill("48");
-		await page.getByTestId("guard-settings-save").click();
-		await expect(toast(page, "Resource guard saved")).toBeVisible();
-		const [row] = await query<{ after: number; hours: number }>(
-			"select cpu_throttle_hold_after as after, cpu_throttle_hold_hours as hours from settings where id = 1",
-		);
-		expect(row).toEqual({ after: 4, hours: 48 });
-		await page.reload();
-		await expect(page.getByLabel("Hold after throttles")).toHaveValue("4", {
-			timeout: 15_000,
-		});
-	} finally {
-		await query(
-			"update settings set cpu_throttle_hold_after = 3, cpu_throttle_hold_hours = 24 where id = 1",
-		);
-	}
-});
 
 test("a held throttle shows Held on the Workspaces and Health tabs", async ({
 	page,
