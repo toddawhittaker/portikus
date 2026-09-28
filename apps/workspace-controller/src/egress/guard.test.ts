@@ -39,9 +39,16 @@ function run(tableLoaded: boolean): { code: number; nft: string[] } {
 }
 
 /** What the helper writes, one line of JSON. */
-function helperWrites(mode: "open" | "allow-list"): string {
+function helperWrites(mode: "open" | "allow-list", blocked: string[] = []): string {
 	return `${JSON.stringify({
-		policy: { version: 3, mode, names: ["github.com"], ranges: [], ports: [443] },
+		policy: {
+			version: 3,
+			mode,
+			names: ["github.com"],
+			ranges: [],
+			ports: [443],
+			blocked,
+		},
 		appliedAt: "2026-09-27T12:00:00.000Z",
 		bridge: "portikus-ws",
 		gateway: "10.200.0.1",
@@ -77,6 +84,30 @@ describe("the egress guard", () => {
 	test("does nothing when the last policy was open mode", () => {
 		writeFileSync(applied, helperWrites("open"));
 		expect(run(false).nft).not.toContain(DROP);
+	});
+
+	test("does nothing after open mode written before blocked sites existed", () => {
+		writeFileSync(applied, helperWrites("open").replace(',"blocked":[]', ""));
+		expect(run(false).nft).not.toContain(DROP);
+	});
+
+	test("drops forwarding when the last policy was open mode with blocked sites (ADR 0043)", () => {
+		writeFileSync(applied, helperWrites("open", ["games.com"]));
+		expect(run(false)).toEqual({
+			code: 0,
+			nft: ["list table inet portikus_egress", DROP],
+		});
+	});
+
+	test("drops forwarding when the blocked list is named twice", () => {
+		writeFileSync(
+			applied,
+			helperWrites("open").replace(
+				'"blocked":[]',
+				'"blocked":[],"x":{"blocked":["a.com"]}',
+			),
+		);
+		expect(run(false).nft).toContain(DROP);
 	});
 
 	test("drops forwarding when the last policy was an allow-list", () => {

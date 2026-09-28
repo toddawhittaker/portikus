@@ -12,6 +12,7 @@
       - squid-openssl
       - dnsmasq-base
       - openssl
+      - conntrack
     state: present
     update_cache: true
     cache_valid_time: 3600
@@ -57,16 +58,20 @@
     group: root
     mode: "0755"
 
-# Squid will not start without its list file; empty lists nothing.  The
-# helper owns its content.
-- name: Create an empty name list if the helper has not written one
+# Squid will not start without its list files; empty lists nothing.  The
+# helper owns their content.
+- name: Create empty proxy lists if the helper has not written them
   ansible.builtin.copy:
-    dest: /var/lib/portikus/egress-state/names.txt
+    dest: "/var/lib/portikus/egress-state/{{ item }}"
     content: ""
     force: false
     owner: root
     group: root
     mode: "0644"
+  loop:
+    - names.txt
+    - blocked.txt
+    - open.txt
 
 # Its own user, not Debian's proxy: the helper's table sends this user's DNS
 # to our dnsmasq, and nothing else runs as it.

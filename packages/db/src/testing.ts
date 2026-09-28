@@ -160,6 +160,7 @@ export async function createTestDb(): Promise<TestDb> {
 		await db.deleteFrom("backup_requests").execute();
 		await db.deleteFrom("egress_entries").execute();
 		await db.deleteFrom("egress_blocked_names").execute();
+		await db.deleteFrom("egress_blocked_entries").execute();
 		await db
 			.updateTable("backup_status")
 			.set({ host: null, host_reported_at: null, vm: null, vm_listed_at: null })

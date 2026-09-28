@@ -83,6 +83,10 @@ export function createEgressSync(options: EgressSyncOptions): () => Promise<void
 				.selectFrom("egress_entries")
 				.select(["kind", "value", "label"])
 				.execute();
+			const blockedSites = await db
+				.selectFrom("egress_blocked_entries")
+				.select(["value", "label"])
+				.execute();
 			const expanded = expandEgressPolicy({
 				mode: s.egress_mode as EgressMode,
 				presets: s.egress_presets.filter(
@@ -90,6 +94,7 @@ export function createEgressSync(options: EgressSyncOptions): () => Promise<void
 				),
 				ports: s.egress_ports,
 				entries: entries.map((e) => ({ ...e, kind: e.kind as EgressEntryKind })),
+				blockedSites,
 			});
 			await applyOne(version, expanded);
 		} catch (e) {
@@ -112,6 +117,7 @@ export function createEgressSync(options: EgressSyncOptions): () => Promise<void
 			names: expanded.names.length,
 			ranges: expanded.ranges.length,
 			ports: expanded.ports,
+			blocked: expanded.blocked.length,
 		};
 		try {
 			await controller.applyEgressPolicy({ version, ...expanded });

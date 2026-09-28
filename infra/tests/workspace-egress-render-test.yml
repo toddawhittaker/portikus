@@ -153,18 +153,30 @@
           - "'negative_dns_ttl 1 second' in squid_rules"
           - "'cache deny all' in squid_rules"
           - "'debug_options ALL,0' in squid_rules"
+          - "'http_upgrade_request_protocols websocket allow all' in squid_rules"
           - squid_rules | select('match', '^acl denied_dst dst 0\.0\.0\.0/8 10\.0\.0\.0/8 ') | list | length == 1
           - "'acl listed_sni ssl::server_name \"/var/lib/portikus/egress-state/names.txt\"' in squid_rules"
           - "'acl listed_host dstdomain -n \"/var/lib/portikus/egress-state/names.txt\"' in squid_rules"
-          # A private destination is closed before anything is peeked, never bumped.
+          # Blocked sites and the open-mode switch (ADR 0043).
+          - "'acl blocked_sni ssl::server_name \"/var/lib/portikus/egress-state/blocked.txt\"' in squid_rules"
+          - "'acl blocked_host dstdomain -n \"/var/lib/portikus/egress-state/blocked.txt\"' in squid_rules"
+          - "'acl open_sni ssl::server_name_regex \"/var/lib/portikus/egress-state/open.txt\"' in squid_rules"
+          - "'acl open_host dstdom_regex -n \"/var/lib/portikus/egress-state/open.txt\"' in squid_rules"
+          # A private destination is closed before anything is peeked, never
+          # bumped; a blocked site is closed before open mode splices the rest.
           - bump == ['ssl_bump terminate denied_dst', 'ssl_bump peek step1',
-                     'ssl_bump splice listed_sni', 'ssl_bump terminate all']
+                     'ssl_bump terminate blocked_sni', 'ssl_bump splice listed_sni',
+                     'ssl_bump splice open_sni', 'ssl_bump terminate all']
+          # A blocked Host is refused before open mode allows the rest.
           - access == ['http_access deny forward_port', 'http_access allow intercepted_tls',
-                       'http_access deny denied_dst', 'http_access allow intercepted_http listed_host',
-                       'http_access deny all']
-          # Only refused names go to the counter; no file access log is written.
-          - logs == ['access_log udp://127.0.0.1:5398 logformat=portikus_name_tls buffer-size=0KB intercepted_tls !listed_sni',
-                     'access_log udp://127.0.0.1:5398 logformat=portikus_name_http buffer-size=0KB intercepted_http !listed_host']
+                       'http_access deny denied_dst', 'http_access deny intercepted_http blocked_host',
+                       'http_access allow intercepted_http listed_host',
+                       'http_access allow intercepted_http open_host', 'http_access deny all']
+          # Only refused names go to the counter, never a site open mode lets through; no file access log is written.
+          - logs == ['access_log udp://127.0.0.1:5398 logformat=portikus_name_tls buffer-size=0KB intercepted_tls !listed_sni !open_sni',
+                     'access_log udp://127.0.0.1:5398 logformat=portikus_name_tls buffer-size=0KB intercepted_tls blocked_sni',
+                     'access_log udp://127.0.0.1:5398 logformat=portikus_name_http buffer-size=0KB intercepted_http !listed_host !open_host',
+                     'access_log udp://127.0.0.1:5398 logformat=portikus_name_http buffer-size=0KB intercepted_http blocked_host']
           - "'logformat portikus_name_tls %ssl::>sni' in squid_rules"
           - "'logformat portikus_name_http %>rd' in squid_rules"
 
@@ -181,7 +193,7 @@
         that:
           - >-
             egress_env == {
-              'EGRESS_BRIDGE': 'portikus-ws', 'EGRESS_GATEWAY': '10.200.0.1', 'EGRESS_UPSTREAM': '127.0.0.53',
+              'EGRESS_BRIDGE': 'portikus-ws', 'EGRESS_GATEWAY': '10.200.0.1', 'EGRESS_SUBNET': '10.200.0.0/24', 'EGRESS_UPSTREAM': '127.0.0.53',
               'EGRESS_COUNTER_DNS_PORT': '5399', 'EGRESS_PROXY_UID': '998',
               'EGRESS_DENIED_RANGES': contracts_denied | join(',') }
 

@@ -22,8 +22,11 @@ import {
 import {
 	renderDnsmasq,
 	renderDropAll,
+	renderSquidBlocked,
 	renderSquidNames,
+	renderSquidOpen,
 	renderTable,
+	usesOurResolver,
 } from "./render.js";
 
 /**
@@ -76,6 +79,7 @@ export interface AppliedFile {
 
 const NFT = "/usr/sbin/nft";
 const SYSTEMCTL = "/usr/bin/systemctl";
+const CONNTRACK = "/usr/sbin/conntrack";
 /** The bridge the Incus network role creates; the fallback when applied.json cannot say. */
 const DEFAULT_BRIDGE = "portikus-ws";
 
@@ -267,12 +271,53 @@ function namesRemoved(
 	return before.names.some((n) => !kept.has(n));
 }
 
+function blockedChanged(
+	before: EgressApplyPolicy | undefined,
+	after: EgressApplyPolicy,
+): boolean {
+	return (before?.blocked ?? []).join("\n") !== after.blocked.join("\n");
+}
+
+/** Delete the conntrack entries of web connections from the workspace subnet, the ones the table redirects. */
+async function forgetConnections(deps: HelperDeps, env: EgressEnv): Promise<void> {
+	for (const port of ["80", "443"]) {
+		const r = await deps.run(CONNTRACK, [
+			"-D",
+			"-s",
+			env.subnet,
+			"-p",
+			"tcp",
+			"--dport",
+			port,
+		]);
+		// It exits 1 when nothing matched; its summary line says whether it ran.
+		if (r.code !== 0 && !/flow entries have been deleted/.test(r.stderr)) {
+			throw new Error(`conntrack failed: ${r.stderr.trim()}`);
+		}
+	}
+}
+
+async function writeSquidLists(
+	deps: HelperDeps,
+	policy: EgressApplyPolicy,
+): Promise<void> {
+	await writeState(deps, STATE_FILES.names, renderSquidNames(policy));
+	await writeState(deps, STATE_FILES.blocked, renderSquidBlocked(policy));
+	await writeState(deps, STATE_FILES.open, renderSquidOpen(policy));
+}
+
 /**
  * Apply a checked policy in the order that fails closed (ADR 0038): the
  * table, then dnsmasq, then Squid's list. A step that fails stops the rest
  * and leaves applied.json as it was, so the worker retries. At boot the
  * services are only queued: our dnsmasq starts after Incus, which waits for
  * this run, so waiting for it would hang until the start timeout.
+ *
+ * Two changes of mode run a service first (ADR 0043). From plain open mode
+ * to blocked sites, dnsmasq and Squid are ready before the table redirects
+ * to them, or Squid would refuse, and count, every name meanwhile. From
+ * blocked sites to allow-list, Squid drops its open switch before the table
+ * changes, so it never splices an unlisted name on a listed address.
  */
 async function applyPolicy(
 	deps: HelperDeps,
@@ -284,15 +329,34 @@ async function applyPolicy(
 	// A failed earlier request may have loaded names applied.json does not know; flush then too.
 	const flush =
 		namesRemoved(previous?.policy, policy) || !(await readLastStatusOk(deps));
+	const blocksBefore =
+		previous?.policy.mode === "open" && previous.policy.blocked.length > 0;
+	const blocksAfter = policy.mode === "open" && policy.blocked.length > 0;
+	// Plain open mode to blocks: nothing reaches dnsmasq or Squid until the table redirects.
+	const servicesFirst = blocksAfter && !(previous && usesOurResolver(previous.policy));
+	// Blocks to allow-list: a Squid stricter than the old table fails closed.
+	// dnsmasq still waits for the table, whose flush would drop what it learned.
+	const squidFirst = servicesFirst || (blocksBefore && policy.mode === "allow-list");
+
+	const dns = async (): Promise<void> => {
+		await writeState(deps, STATE_FILES.dnsmasq, renderDnsmasq(policy, env));
+		if (usesOurResolver(policy))
+			await systemctl(deps, "restart", EGRESS_DNS_UNIT, boot);
+		else await systemctl(deps, "stop", EGRESS_DNS_UNIT, boot);
+	};
+	const squid = async (): Promise<void> => {
+		await writeSquidLists(deps, policy);
+		await systemctl(deps, "reload", WORKSPACE_PROXY_UNIT, boot);
+	};
+
+	if (servicesFirst) await dns();
+	if (squidFirst) await squid();
 	await loadTable(deps, renderTable(policy, env, flush));
+	if (!servicesFirst) await dns();
+	if (!squidFirst) await squid();
 
-	await writeState(deps, STATE_FILES.dnsmasq, renderDnsmasq(policy, env));
-	if (policy.mode === "allow-list")
-		await systemctl(deps, "restart", EGRESS_DNS_UNIT, boot);
-	else await systemctl(deps, "stop", EGRESS_DNS_UNIT, boot);
-
-	await writeState(deps, STATE_FILES.names, renderSquidNames(policy));
-	await systemctl(deps, "reload", WORKSPACE_PROXY_UNIT, boot);
+	// NAT is decided when a connection starts; forget open ones so a new block covers them too.
+	if (blockedChanged(previous?.policy, policy)) await forgetConnections(deps, env);
 
 	const applied: AppliedFile = {
 		policy,
@@ -323,7 +387,7 @@ async function restoreAtBoot(deps: HelperDeps, env: EgressEnv): Promise<void> {
 	try {
 		await loadTable(deps, renderTable(policy, env, true));
 	} catch (e) {
-		if (policy.mode === "allow-list") {
+		if (usesOurResolver(policy)) {
 			await loadTable(deps, renderDropAll(env));
 			throw new Error(
 				`${(e as Error).message}; workspace forwarding is dropped until a policy applies`,
@@ -332,8 +396,8 @@ async function restoreAtBoot(deps: HelperDeps, env: EgressEnv): Promise<void> {
 		throw e;
 	}
 	await writeState(deps, STATE_FILES.dnsmasq, renderDnsmasq(policy, env));
-	await writeState(deps, STATE_FILES.names, renderSquidNames(policy));
-	if (policy.mode === "allow-list") {
+	await writeSquidLists(deps, policy);
+	if (usesOurResolver(policy)) {
 		await systemctl(deps, "restart", EGRESS_DNS_UNIT, true);
 	}
 }
@@ -353,7 +417,7 @@ async function dropWithoutEnv(deps: HelperDeps): Promise<string | null> {
 	} catch {
 		unreadable = true;
 	}
-	if (!unreadable && applied?.policy.mode !== "allow-list") return null;
+	if (!unreadable && !(applied && usesOurResolver(applied.policy))) return null;
 	const recorded = applied?.bridge;
 	const bridge =
 		recorded !== undefined && BRIDGE_RE.test(recorded) ? recorded : DEFAULT_BRIDGE;

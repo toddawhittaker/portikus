@@ -26,6 +26,7 @@ async function reset(mode: "open" | "allow-list" = "open"): Promise<void> {
 		RANGES,
 	]);
 	await query("delete from egress_blocked_names where name like $1", [`%${SUFFIX}`]);
+	await query("delete from egress_blocked_entries where value like $1", [`%${SUFFIX}`]);
 }
 
 /** What the worker records once the controller has applied the policy. */
@@ -339,5 +340,96 @@ test("a refused name is allowed from the blocked list", async ({ page }) => {
 			.filter({ hasText: `cdn.${SUFFIX}` })
 			.getByRole("button"),
 	).toBeVisible();
+	await reset();
+});
+
+test("blocked sites are added, edited and removed, and Test a host explains them (ADR 0043)", async ({
+	page,
+}) => {
+	await reset("open");
+	await open(page);
+	const card = page.getByRole("region", { name: "Blocked sites" });
+	const rows = card.getByTestId("egress-block-row");
+	// Nothing is seeded: open mode stays as it was until a site is blocked.
+	await expect(rows).toHaveCount(0);
+	await expect(card.getByTestId("egress-block-note")).toContainText(
+		"Nothing is blocked",
+	);
+
+	const dialog = page.getByTestId("egress-block-dialog");
+	const value = dialog.getByTestId("egress-block-value");
+	await card.getByTestId("egress-block-add").click();
+	await dialog.getByTestId("egress-block-save").click();
+	await expect(dialog.getByRole("alert")).toHaveText("Enter a host name.");
+	await value.fill(`https://games.${SUFFIX}/play`);
+	await expect(dialog.getByRole("alert")).toContainText(
+		"Enter a host name such as github.com",
+	);
+	await value.fill(`Games.${SUFFIX}`);
+	await dialog.getByTestId("egress-block-label").fill("Games");
+	await dialog.getByTestId("egress-block-label").press("Enter");
+	await expect(dialog).toBeHidden();
+	await expect(card.getByTestId("egress-block-add")).toBeFocused();
+	const games = rows.filter({ hasText: `games.${SUFFIX}` });
+	await expect(games).toContainText("Games");
+	expect(await testHost(page, `https://www.games.${SUFFIX}/x`)).toBe("blocked");
+	await expect(page.getByTestId("egress-test-result")).toContainText(
+		`Blocked by your list: games.${SUFFIX} (Games).`,
+	);
+	expect(await testHost(page, `notgames.${SUFFIX}`)).toBe("open");
+
+	// A duplicate is refused by the API, inside the dialog.
+	await card.getByTestId("egress-block-add").click();
+	await value.fill(`games.${SUFFIX}`);
+	await dialog.getByTestId("egress-block-save").click();
+	await expect(dialog.getByTestId("egress-block-error")).toHaveText(
+		"That site is already blocked",
+	);
+	await dialog.getByRole("button", { name: "Cancel" }).click();
+
+	await card.getByRole("button", { name: `Edit games.${SUFFIX}` }).click();
+	await expect(value).toHaveValue(`games.${SUFFIX}`);
+	await dialog.getByTestId("egress-block-label").fill("Games site");
+	await dialog.getByTestId("egress-block-save").click();
+	await expect(dialog).toBeHidden();
+	await expect(
+		card.getByRole("button", { name: `Edit games.${SUFFIX}` }),
+	).toBeFocused();
+	await expect(games).toContainText("Games site");
+
+	await expect(card.getByTestId("egress-block-note")).toContainText("QUIC is dropped");
+
+	// Removing asks first; focus lands on the card heading.
+	await card.getByRole("button", { name: `Remove games.${SUFFIX}` }).click();
+	const confirm = page.getByTestId("egress-block-remove-dialog");
+	await expect(confirm).toContainText("Workspaces can reach it again");
+	await confirm.getByRole("button", { name: "Remove" }).click();
+	await expect(games).toHaveCount(0);
+	await expect(
+		page.getByRole("heading", { name: "Blocked sites", exact: true }),
+	).toBeFocused();
+	expect(await testHost(page, `games.${SUFFIX}`)).toBe("open");
+
+	const audit = await query<{ action: string }>(
+		`select action from audit_events where action like 'egress.block_%'
+		 and at > now() - interval '5 minutes' order by id`,
+	);
+	expect(audit.map((a) => a.action)).toEqual(
+		expect.arrayContaining([
+			"egress.block_added",
+			"egress.block_updated",
+			"egress.block_removed",
+		]),
+	);
+
+	// Allow-list mode keeps the list but does not use it, and says so.
+	await query("update settings set egress_mode = 'allow-list' where id = 1");
+	await page.reload();
+	await expect(
+		page
+			.getByRole("region", { name: "Blocked sites" })
+			.getByTestId("egress-block-note"),
+	).toContainText("Allow-list mode is on, so this list is not used");
+	expect(await testHost(page, `games.${SUFFIX}`)).toBe("not-listed");
 	await reset();
 });

@@ -37,6 +37,17 @@ test("every explanation reads as one plain sentence", () => {
 	expect(say("example.org")).toContain('"Could not resolve host"');
 	expect(say("not a host")).toContain("not a host name");
 	expect(say("example.org", egressView({ mode: "open" }))).toContain("Open mode is on");
+	const open = egressView({ mode: "open" });
+	expect(say("x.games.example.com", open)).toBe(
+		'Blocked by your list: games.example.com (Games). Workspaces get "Could not resolve host" for x.games.example.com.',
+	);
+	const seed = {
+		...open.blockedSites[0],
+		label: "",
+	} as AdminEgressView["blockedSites"][number];
+	expect(say("dns.google", egressView({ mode: "open", blockedSites: [seed] }))).toBe(
+		'Blocked by your list: dns.google. Workspaces get "Could not resolve host" for dns.google.',
+	);
 	const labelled = egressView({
 		entries: [
 			{ ...view.entries[1], label: "Lab" } as AdminEgressView["entries"][number],
@@ -125,6 +136,13 @@ test("the apply status names an error, a pending change, the last apply, or noth
 			now,
 		).tone,
 	).toBe("none");
+	const never = {
+		version: 0,
+		apply: { appliedVersion: null, appliedAt: null, error: null },
+	};
+	expect(applyState(egressView(never), now).text).toBe(
+		"Nothing has been changed yet. Workspaces use open mode.",
+	);
 });
 
 test("the announcement names the state and never the age", () => {

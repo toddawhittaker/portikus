@@ -3,7 +3,8 @@
 # If the helper died before loading any table (a crash, a failed import,
 # the memory cap, the start timeout), the missing table would leave the last
 # allow-list open.  Then drop all workspace forwarding, unless applied.json
-# is absent (a site that never applied a policy) or plainly records open mode.
+# is absent (a site that never applied a policy) or plainly records open mode
+# with no blocked site (ADR 0043).
 # The arguments exist for the tests.
 set -u
 applied=${1:-/var/lib/portikus/egress-state/applied.json}
@@ -19,7 +20,10 @@ if [ -f "$applied" ] && [ -r "$applied" ] &&
   [ "$(wc -l <"$applied")" -eq 1 ] &&
   grep -q '^{.*}$' "$applied" &&
   [ "$(grep -o '"mode":' "$applied" | wc -l)" -eq 1 ] &&
-  grep -q '"mode":"open"[,}]' "$applied"; then
+  grep -q '"mode":"open"[,}]' "$applied" &&
+  { [ "$(grep -o '"blocked":' "$applied" | wc -l)" -eq 0 ] ||
+    { [ "$(grep -o '"blocked":' "$applied" | wc -l)" -eq 1 ] &&
+      grep -q '"blocked":\[\][,}]' "$applied"; }; }; then
   exit 0
 fi
 echo "egress helper left no table after an allow-list; dropping workspace forwarding" >&2

@@ -13,13 +13,21 @@ import type { EgressEnv } from "./env.js";
 import {
 	renderDnsmasq,
 	renderDropAll,
+	renderSquidBlocked,
 	renderSquidNames,
+	renderSquidOpen,
 	renderTable,
+	SQUID_CONNECTIONS_PER_WORKSPACE,
+	usesOurResolver,
 } from "./render.js";
+
+const CAP =
+	'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 3129, 3130 } ct state new add @squid_conns { ip saddr ct count over 256 } reject with tcp reset';
 
 const env: EgressEnv = {
 	bridge: "portikus-ws",
 	gateway: "10.200.0.1",
+	subnet: "10.200.0.0/24",
 	upstream: "127.0.0.53",
 	counterDnsPort: 5399,
 	deniedRanges: ["10.0.0.0/8"],
@@ -34,6 +42,7 @@ const policy: EgressPolicy = {
 		{ kind: "host", value: "api.example.edu", label: "Course API" },
 		{ kind: "range", value: "203.0.113.0/24", label: "Lab" },
 	],
+	blockedSites: [{ value: "games.example.com", label: "Games" }],
 };
 
 function applied(p: EgressPolicy): EgressApplyPolicy {
@@ -126,17 +135,64 @@ describe("renderers agree with explainHost (issue #284, ADR 0038)", () => {
 		expect(dnsmasqRoute(conf, "ws-1.incus")).toBe("10.200.0.1");
 	});
 
+	test("open mode with blocked sites: dnsmasq and Squid refuse exactly what explainHost refuses", () => {
+		const openPolicy: EgressPolicy = {
+			...policy,
+			mode: "open",
+			blockedSites: [
+				{ value: "github.com", label: "" },
+				{ value: "api.example.edu", label: "" },
+			],
+		};
+		const p = applied(openPolicy);
+		const conf = renderDnsmasq(p, env);
+		const blocked = renderSquidBlocked(p);
+		expect(nftsetCovers(conf, "github.com")).toBe(false);
+		expect(renderSquidNames(p)).toBe("");
+		expect(renderSquidOpen(p)).toBe(".\n");
+		for (const host of PROBES) {
+			const e = explainHost(openPolicy, host);
+			if (e.reason === "invalid") continue;
+			const route = dnsmasqRoute(conf, host);
+			expect({ host, upstream: route === env.upstream }).toEqual({
+				host,
+				upstream: e.allowed,
+			});
+			if (!e.allowed) {
+				expect(e.reason).toBe("blocked");
+				expect(route).toBe("127.0.0.1#5399");
+			}
+			expect({ host, squid: squidCovers(blocked, host) }).toEqual({
+				host,
+				squid: !e.allowed,
+			});
+		}
+		expect(dnsmasqRoute(conf, "ws-1.incus")).toBe("10.200.0.1");
+	});
+
+	test("allow-list mode ignores the blocked sites", () => {
+		const p = applied(policy);
+		expect(p.blocked).toEqual([]);
+		expect(renderSquidBlocked(p)).toBe("");
+		expect(renderSquidOpen(p)).toBe("");
+		expect(explainHost(policy, "games.example.com").reason).toBe("not-listed");
+	});
+
 	test("open mode: no names in dnsmasq or Squid, empty chains", () => {
-		const open = applied({ ...policy, mode: "open" });
+		const open = applied({ ...policy, mode: "open", blockedSites: [] });
+		expect(usesOurResolver(open)).toBe(false);
+		expect(renderSquidBlocked(open)).toBe("");
+		expect(renderSquidOpen(open)).toBe("");
 		expect(renderSquidNames(open)).toBe("");
 		const conf = renderDnsmasq(open, env);
 		expect(conf).not.toMatch(/github/);
-		expect(dnsmasqRoute(conf, "github.com")).toBe("127.0.0.1#5399");
+		// The helper stops our dnsmasq here; the file would only forward everything.
+		expect(dnsmasqRoute(conf, "github.com")).toBe(env.upstream);
 		const table = renderTable(open, env, true);
 		expect(table).not.toMatch(/^add rule/m);
 		expect(table).not.toMatch(/^add element/m);
 		for (const host of PROBES) {
-			const e = explainHost({ ...policy, mode: "open" }, host);
+			const e = explainHost({ ...policy, mode: "open", blockedSites: [] }, host);
 			if (e.reason !== "invalid") expect(e.allowed).toBe(true);
 		}
 	});
@@ -145,7 +201,7 @@ describe("renderers agree with explainHost (issue #284, ADR 0038)", () => {
 describe("renderDnsmasq", () => {
 	test("is the fixed base file, then one server and nftset line per listed name", () => {
 		const conf = renderDnsmasq(
-			{ mode: "allow-list", names: ["github.com"] },
+			{ mode: "allow-list", names: ["github.com"], blocked: [] },
 			{ ...env, gateway: "10.9.0.1", bridge: "br-x", upstream: "10.9.0.53" },
 		);
 		expect(conf).toBe(
@@ -181,7 +237,13 @@ describe("renderDnsmasq", () => {
 		"https://evil.com",
 		"1.2.3.4",
 	])("refuses to render %j", (bad) => {
-		expect(() => renderDnsmasq({ mode: "allow-list", names: [bad] }, env)).toThrow();
+		expect(() =>
+			renderDnsmasq({ mode: "allow-list", names: [bad], blocked: [] }, env),
+		).toThrow();
+		expect(() =>
+			renderDnsmasq({ mode: "open", names: [], blocked: [bad] }, env),
+		).toThrow();
+		expect(() => renderSquidBlocked({ mode: "open", blocked: [bad] })).toThrow();
 		expect(() => renderSquidNames({ mode: "allow-list", names: [bad] })).toThrow();
 	});
 });
@@ -193,6 +255,7 @@ describe("renderTable", () => {
 		expect(rules).toEqual([
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 redirect to :5300',
 			"add rule inet portikus_egress output meta skuid 999 ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 dnat ip to 10.200.0.1:5300",
+			CAP,
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @ranges_v4 return',
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @names_v4 tcp dport 443 redirect to :3130',
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @names_v4 tcp dport 80 redirect to :3129',
@@ -208,6 +271,53 @@ describe("renderTable", () => {
 		// The names set has no timeout and a size bound (ADR 0038).
 		expect(t).toMatch(/set names_v4 \{\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t\}/);
 		expect(t).not.toMatch(/timeout/);
+	});
+
+	test("open mode with blocked sites: both DNS rules, every public web port to Squid, outside DNS dropped", () => {
+		const t = renderTable(applied({ ...policy, mode: "open" }), env, true);
+		expect(t.split("\n").filter((l) => l.startsWith("add rule"))).toEqual([
+			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 redirect to :5300',
+			"add rule inet portikus_egress output meta skuid 999 ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 dnat ip to 10.200.0.1:5300",
+			CAP,
+			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr != { 10.0.0.0/8 } tcp dport 443 redirect to :3130',
+			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr != { 10.0.0.0/8 } tcp dport 80 redirect to :3129',
+			'add rule inet portikus_egress forward iifname "portikus-ws" meta l4proto { tcp, udp } th dport { 53, 853 } drop',
+			'add rule inet portikus_egress forward iifname "portikus-ws" udp dport 443 drop',
+		]);
+		// Nothing else is dropped: open mode stays open apart from the blocked names.
+		expect(t).not.toMatch(/forward iifname "portikus-ws" drop/);
+		expect(t).not.toMatch(/^add element/m);
+	});
+
+	test("open mode with blocked sites refuses a malformed denied range from egress.env", () => {
+		expect(() =>
+			renderTable(
+				applied({ ...policy, mode: "open" }),
+				{ ...env, deniedRanges: ["10.0.0.0/8 } accept"] },
+				true,
+			),
+		).toThrow();
+	});
+
+	// One workspace must not exhaust the Squid every workspace shares.
+	test("caps each workspace's connections to Squid whenever Squid is in the path", () => {
+		const open = applied({ ...policy, mode: "open" });
+		for (const p of [applied(policy), open]) {
+			const t = renderTable(p, env, false);
+			expect(
+				t
+					.split("\n")
+					.filter((l) => l.startsWith("add rule inet portikus_egress input")),
+			).toEqual([CAP]);
+			expect(t).toMatch(/^flush chain inet portikus_egress input$/m);
+		}
+		const plain = renderTable(
+			applied({ ...policy, mode: "open", blockedSites: [] }),
+			env,
+			false,
+		);
+		expect(plain).not.toContain("ct count");
+		expect(SQUID_CONNECTIONS_PER_WORKSPACE).toBe(256);
 	});
 
 	// Squid looks up the Host a workspace sent; through Incus's resolver any
@@ -226,8 +336,12 @@ describe("renderTable", () => {
 		expect(t).toMatch(/^flush chain inet portikus_egress output$/m);
 	});
 
-	test("open mode sends no DNS to our dnsmasq, and redirects nothing", () => {
-		const t = renderTable(applied({ ...policy, mode: "open" }), env, true);
+	test("open mode with no blocked site sends no DNS to our dnsmasq, and redirects nothing", () => {
+		const t = renderTable(
+			applied({ ...policy, mode: "open", blockedSites: [] }),
+			env,
+			true,
+		);
 		expect(t).not.toMatch(/add rule/);
 		expect(t).toMatch(/^flush chain inet portikus_egress output$/m);
 	});
@@ -302,7 +416,20 @@ describe.skipIf(!nftAvailable())("the real nft accepts every rendering", () => {
 	test.each([
 		["allow-list", () => renderTable(applied(policy), env, true)],
 		["allow-list, keep names", () => renderTable(applied(policy), env, false)],
-		["open", () => renderTable(applied({ ...policy, mode: "open" }), env, true)],
+		[
+			"open",
+			() =>
+				renderTable(applied({ ...policy, mode: "open", blockedSites: [] }), env, true),
+		],
+		[
+			"open with blocked sites",
+			() =>
+				renderTable(
+					applied({ ...policy, mode: "open" }),
+					{ ...env, deniedRanges: ["10.0.0.0/8", "192.168.0.0/16", "224.0.0.0/4"] },
+					true,
+				),
+		],
 		["drop-all", () => renderDropAll(env)],
 	])("%s", (_name, render) => {
 		const dir = mkdtempSync(join(tmpdir(), "egress-nft-"));
@@ -339,6 +466,15 @@ describe.skipIf(!dnsmasqAvailable())("the real dnsmasq accepts the rendering", (
 		const file = join(dir, "dnsmasq.conf");
 		writeFileSync(file, renderDnsmasq(applied(policy), env));
 		// Throws on a non-zero exit, which is a syntax error.
+		execFileSync("/usr/sbin/dnsmasq", ["--test", `--conf-file=${file}`], {
+			stdio: "pipe",
+		});
+	});
+
+	test("dnsmasq --test, open mode with blocked sites", () => {
+		const dir = mkdtempSync(join(tmpdir(), "egress-dnsmasq-"));
+		const file = join(dir, "dnsmasq.conf");
+		writeFileSync(file, renderDnsmasq(applied({ ...policy, mode: "open" }), env));
 		execFileSync("/usr/sbin/dnsmasq", ["--test", `--conf-file=${file}`], {
 			stdio: "pipe",
 		});

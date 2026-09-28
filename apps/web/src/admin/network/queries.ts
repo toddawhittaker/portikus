@@ -1,5 +1,6 @@
 import {
 	AdminEgressView,
+	type EgressBlockedSiteRequest,
 	type EgressEntryRequest,
 	type EgressMode,
 	type EgressPresetId,
@@ -55,7 +56,10 @@ export type EgressWrite =
 	| { kind: "ports"; version: number; ports: number[] }
 	| { kind: "add"; entry: EgressEntryRequest }
 	| { kind: "edit"; id: string; entry: EgressEntryRequest }
-	| { kind: "remove"; version: number; id: string };
+	| { kind: "remove"; version: number; id: string }
+	| { kind: "block-add"; site: EgressBlockedSiteRequest }
+	| { kind: "block-edit"; id: string; site: EgressBlockedSiteRequest }
+	| { kind: "block-remove"; version: number; id: string };
 
 function perform(write: EgressWrite): Promise<AdminEgressView> {
 	switch (write.kind) {
@@ -82,6 +86,15 @@ function perform(write: EgressWrite): Promise<AdminEgressView> {
 			return send(
 				"DELETE",
 				`/admin/egress/entries/${write.id}?version=${write.version}`,
+			);
+		case "block-add":
+			return send("POST", "/admin/egress/blocked-sites", write.site);
+		case "block-edit":
+			return send("PUT", `/admin/egress/blocked-sites/${write.id}`, write.site);
+		case "block-remove":
+			return send(
+				"DELETE",
+				`/admin/egress/blocked-sites/${write.id}?version=${write.version}`,
 			);
 	}
 }
