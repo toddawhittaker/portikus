@@ -2,12 +2,17 @@ import type { PendingOperation, Workspace, WorkspaceUsage } from "@portikus/cont
 import { Button, Icon, Skeleton, useToast } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { useWorkspaceAction } from "./api/workspace.js";
+import { formatBytes } from "./monitor/format.js";
 import { STORAGE_POLL_MS, useWorkspaceUsage } from "./monitor/usage.js";
 import { DialogError } from "./projects/DialogError.js";
 import { useResetDocker } from "./recovery/queries.js";
-import { storageLevel } from "./recovery/storage.js";
+import {
+	STORAGE_CLASSES,
+	type StorageClass,
+	storageLevel,
+} from "./recovery/storage.js";
 import { StorageMeters } from "./shell/StorageMeters.js";
-import { ResetDocker } from "./shell/WorkspaceDialog.js";
+import { ResetDocker, TechnicalSummary } from "./shell/WorkspaceDialog.js";
 
 export type StartingPhase =
 	| "connecting"
@@ -108,6 +113,48 @@ export function offerDockerCleanup(
 	);
 }
 
+/** Errors that starting again cannot fix until someone frees space or steps in (SPEC.md §28). */
+const NOT_RETRYABLE = new Set(["STORAGE_FULL", "IMAGE_NOT_FOUND", "INSTANCE_MISSING"]);
+
+/** Whether Try again can help. */
+export function canRetry(errorCode: string | null | undefined): boolean {
+	return !errorCode || !NOT_RETRYABLE.has(errorCode);
+}
+
+const USING: Record<StorageClass, string> = {
+	home: "Your projects and home folder are using",
+	docker: "Docker is using",
+	recovery: "Recovery points are using",
+};
+
+/**
+ * The storage-full sentence: which storage filled up, with its figures, and
+ * the next step (SPEC.md §28). Docker comes first because a reset frees it.
+ */
+export function storageFullText(
+	storage: WorkspaceUsage["storage"] | undefined,
+): string {
+	const full: StorageClass | undefined = offerDockerCleanup("STORAGE_FULL", storage)
+		? "docker"
+		: STORAGE_CLASSES.find(
+				(storageClass) => storageLevel(storage?.[storageClass] ?? null) === "critical",
+			);
+	const figure = full ? storage?.[full] : null;
+	if (!full || !figure)
+		return "Its storage is full. Ask your administrator for more space. Your files are kept.";
+	const using = `${USING[full]} ${formatBytes(figure.usedBytes)} of ${formatBytes(figure.totalBytes)}.`;
+	return full === "docker"
+		? `Its storage is full. ${using} Reset Docker to free that space; your projects and home folder are kept.`
+		: `Its storage is full. ${using} Ask your administrator for more space. Your files are kept.`;
+}
+
+/** The sentence under the heading for an error that is not about storage. */
+function errorText(errorCode: string | null | undefined): string {
+	return canRetry(errorCode)
+		? COPY.error[1]
+		: "Portikus could not start the machine behind this window. Nothing you did caused this. Ask your administrator for help.";
+}
+
 /**
  * The center of the shell while the workspace is not running yet
  * (SPEC.md §6.3): what is happening, in order.
@@ -159,7 +206,9 @@ export function WorkspaceStarting({
 			headingRef.current?.focus();
 		}
 	}, [phase, pending]);
-	const storageFull = phase === "error" && workspace?.errorCode === "STORAGE_FULL";
+	const errorCode = workspace?.errorCode;
+	const storageFull = phase === "error" && errorCode === "STORAGE_FULL";
+	const cleanDocker = phase === "error" && offerDockerCleanup(errorCode, storage);
 
 	return (
 		<>
@@ -204,9 +253,11 @@ export function WorkspaceStarting({
 									{heading}
 								</h1>
 								<p className="pk-text-body pk-muted" data-testid="progress-sub">
-									{storageFull && !pending
-										? "Portikus could not start the machine behind this window. Your storage is full."
-										: sub}
+									{pending || phase !== "error"
+										? sub
+										: storageFull
+											? storageFullText(storage)
+											: errorText(errorCode)}
 								</p>
 							</div>
 							{workspace?.state === "provisioning" && workspace.errorMessage && (
@@ -262,9 +313,21 @@ export function WorkspaceStarting({
 						<>
 							{storage && hasFigures(storage) && <StorageMeters storage={storage} />}
 							<div className="pk-actions">
-								<StartButton workspaceId={workspaceId} testId="workspace-retry">
-									Try again
-								</StartButton>
+								{cleanDocker && (
+									<ResetDocker
+										workspace={workspace}
+										primary
+										testId="workspace-clean-docker"
+										confirming={cleaning}
+										setConfirming={setCleaning}
+										reset={reset}
+									/>
+								)}
+								{canRetry(errorCode) && (
+									<StartButton workspaceId={workspaceId} testId="workspace-retry">
+										Try again
+									</StartButton>
+								)}
 								<Button
 									aria-haspopup="dialog"
 									data-testid="workspace-details"
@@ -272,23 +335,11 @@ export function WorkspaceStarting({
 								>
 									Workspace details
 								</Button>
-								{offerDockerCleanup(workspace?.errorCode, storage) && (
-									<ResetDocker
-										workspace={workspace}
-										label="Clean up Docker…"
-										testId="workspace-clean-docker"
-										confirming={cleaning}
-										setConfirming={setCleaning}
-										reset={reset}
-									/>
-								)}
 							</div>
 							<DialogError error={reset.error} />
 							{(workspace?.errorMessage || workspace?.errorCode) && (
-								<details data-testid="workspace-error-details">
-									<summary className="pk-text-body pk-summary">
-										Technical details
-									</summary>
+								<details className="group" data-testid="workspace-error-details">
+									<TechnicalSummary />
 									<div className="pk-techdetail mt-2 flex flex-col gap-1">
 										{workspace.errorMessage && (
 											<p className="m-0">{workspace.errorMessage}</p>

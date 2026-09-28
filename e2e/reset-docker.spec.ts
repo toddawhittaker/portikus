@@ -24,7 +24,7 @@ test("Reset Docker lists what is lost and kept, then shows the pending label", a
 	await page.getByTestId("workspace-status").click();
 	const status = page.getByTestId("dialog-workspace-status");
 	await expect(status).toBeVisible();
-	await status.getByRole("button", { name: "Reset Docker…" }).click();
+	await status.getByRole("button", { name: "Reset Docker…", exact: true }).click();
 
 	const confirm = page.getByTestId("dialog-reset-docker");
 	for (const lost of ["Docker images", "containers", "volumes", "build cache"]) {
@@ -41,7 +41,9 @@ test("Reset Docker lists what is lost and kept, then shows the pending label", a
 	await expect(page.getByTestId("workspace-state")).toHaveText("Resetting Docker…", {
 		timeout: 15_000,
 	});
-	await expect(status.getByRole("button", { name: "Reset Docker…" })).toBeDisabled();
+	await expect(
+		status.getByRole("button", { name: "Reset Docker…", exact: true }),
+	).toBeDisabled();
 });
 
 test("the workspace dialog explains rebuild and offers a student no rebuild action", async ({
@@ -78,7 +80,7 @@ test("Reset Docker works from the keyboard and returns focus to its button", asy
 	await page.keyboard.press("Enter");
 	const status = page.getByTestId("dialog-workspace-status");
 	await expect(status).toBeVisible();
-	const reset = status.getByRole("button", { name: "Reset Docker…" });
+	const reset = status.getByRole("button", { name: "Reset Docker…", exact: true });
 	// It stays disabled until the presence socket has reported the workspace.
 	await expect(reset).toBeEnabled({ timeout: 15_000 });
 	for (let step = 0; step < 10; step += 1) {

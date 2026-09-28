@@ -87,7 +87,14 @@ export function StatusBar({
 	const setStatusOpen = (open: boolean) => onDialogChange(open ? "open" : "closed");
 	const resolved = resolveStatus(workspace);
 	const running = workspace?.state === "running";
-	const usage = useWorkspaceUsage(workspaceId, running, STORAGE_POLL_MS);
+	// The agent may still answer in error, and the error screen shows its figures (SPEC.md §28).
+	const errored = workspace?.state === "error";
+	const usage = useWorkspaceUsage(
+		workspaceId,
+		running || errored,
+		STORAGE_POLL_MS,
+		errored,
+	);
 	const storage = running ? usage.data?.storage : undefined;
 	const warning = storageWarning(storage);
 	const memoryWarned = useRef(false);
@@ -177,7 +184,7 @@ export function StatusBar({
 				workspace={workspace}
 				dialog={dialog}
 				onDialogChange={onDialogChange}
-				storage={storage}
+				storage={running || errored ? usage.data?.storage : undefined}
 				warningDetail={warning?.detail ?? null}
 			/>
 		</footer>

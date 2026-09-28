@@ -143,5 +143,9 @@ test("side panes show skeletons while starting and a static message once stopped
 	).toBeNull();
 	expect(screen.getByText("Start your workspace to see your projects")).toBeDefined();
 	expect(screen.getByText("Start your workspace to see its files")).toBeDefined();
+	// Plain muted text: the pane heading stays the only heading in the pane.
+	expect(screen.getByText("Start your workspace to see your projects").tagName).toBe(
+		"P",
+	);
 	expect(document.querySelector("[aria-busy='true']")).toBeNull();
 });

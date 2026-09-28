@@ -1,5 +1,5 @@
 import type { Project, RecoveryPoint, RecoveryReason } from "@portikus/contracts";
-import { Button, Dialog, DialogRoot } from "@portikus/ui";
+import { Button, Dialog, DialogRoot, Toggletip } from "@portikus/ui";
 import { useState } from "react";
 import { formatBytes } from "../monitor/format.js";
 import { DialogError } from "../projects/DialogError.js";
@@ -51,7 +51,17 @@ export function RecoveryDialog({
 				testId="dialog-recovery-points"
 				size="lg"
 				title={`Recovery points for ${project.name}`}
-				description="Copies of this project that Portikus keeps outside the folder. Git is never touched."
+				description={
+					<>
+						Copies of this project that Portikus keeps outside the folder. Portikus
+						never makes Git commits for you.{" "}
+						<Toggletip label="Recovery points">
+							Each point copies the whole project, its Git folder included, except
+							folders such as node_modules. Restoring one puts the project back as it
+							was then, commits included, after saving the current state as a new point.
+						</Toggletip>
+					</>
+				}
 				onClose={onClose}
 			>
 				<div className="flex flex-wrap items-center gap-3">
