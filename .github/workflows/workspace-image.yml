@@ -85,7 +85,8 @@ jobs:
         if: steps.version.outputs.build == 'true' && steps.cache.outputs.cache-hit != 'true'
         with:
           go-version-file: ${{ runner.temp }}/distrobuilder/go.mod
-          cache-dependency-path: ${{ runner.temp }}/distrobuilder/go.sum
+          # The built binary is cached instead, keyed by commit.
+          cache: false
       - name: Build distrobuilder
         if: steps.version.outputs.build == 'true' && steps.cache.outputs.cache-hit != 'true'
         run: |
