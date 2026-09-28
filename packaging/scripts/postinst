@@ -29,6 +29,17 @@ ldap_user_filter ldap_group_base_dn ldap_root_ca student_group
 instructor_group admin_group storage storage_confirm storage_size"
 SECRETS="cloudflare_api_token client_secret ldap_bind_password"
 
+# Write nothing from pure defaults: with no settings file yet, the answers
+# count only if someone gave them. A person answering or debconf-set-selections
+# marks public_host seen; a non-interactive install with no preseed does not,
+# as with `make deploy-app` onto a host the workstation Ansible manages.
+configured=true
+if [ ! -e /etc/portikus/portikus.yaml ]; then
+	db_fget portikus/public_host seen
+	[ "$RET" = true ] || configured=false
+fi
+missing=""
+if [ "$configured" = true ]; then
 for question in $QUESTIONS $SECRETS; do
 	db_get "portikus/$question"
 	# The values reach python3 through its environment, never its arguments.
@@ -201,6 +212,7 @@ db_get portikus/public_host
 public_host=$RET
 db_get portikus/admin_email
 admin_email=$RET
+fi
 db_stop
 
 for user in portikus portikus-controller; do
@@ -244,7 +256,9 @@ if [ -d /run/systemd/system ]; then
 fi
 
 # debconf owns stdout while it runs, so everything below goes to stderr.
-if [ -n "$missing" ]; then
+if [ "$configured" = false ]; then
+	echo "Portikus is not configured yet: run dpkg-reconfigure portikus" >&2
+elif [ -n "$missing" ]; then
 	cat >&2 <<EOF
 
 Portikus is installed, but setup has not started. It still needs:

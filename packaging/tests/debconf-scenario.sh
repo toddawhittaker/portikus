@@ -247,6 +247,15 @@ EOF
 	expect "$CONFIG" portikus_public_port 8443
 	expect "$SECRETS" portikus_dex_upstream_client_secret null
 	;;
+unanswered)
+	# A non-interactive install with no preseed, as `make deploy-app` does.
+	install_with </dev/null
+	[ ! -e "$CONFIG" ] || { cat /tmp/install.log; fail "portikus.yaml was written from defaults"; }
+	[ ! -e "$SECRETS" ] || fail "secrets.yaml was written from defaults"
+	! setup_started || fail "setup was started with no answers"
+	grep -qF 'Portikus is not configured yet: run dpkg-reconfigure portikus' /tmp/install.log ||
+		fail "the not-configured line was not printed"
+	;;
 *)
 	fail "unknown scenario"
 	;;
