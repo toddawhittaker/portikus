@@ -156,11 +156,11 @@ contents:
       owner: root
       group: root
 
-# TODO(Epic 15 T2): uncomment when packaging/debian/templates and config exist.
-# deb:
-#   scripts:
-#     templates: ./packaging/debian/templates
-#     config: ./packaging/debian/config
+# The install questions (docs/EPIC-15.md, rulings 2 to 6).
+deb:
+  scripts:
+    templates: ./packaging/debian/templates
+    config: ./packaging/debian/config
 
 scripts:
   postinstall: ./packaging/scripts/postinst
