@@ -7,12 +7,25 @@ WORKER_ENV=/etc/portikus/worker.env
 BACKUP_CHANNEL_MAIN=/usr/lib/portikus/worker/dist/backup-channel-main.js
 PASSWORD_FILE=/etc/portikus/admin-password
 RESET_ADMIN_MAIN=/usr/lib/portikus/api/node_modules/@portikus/auth/dist/reset-admin-main.js
+NODE=/usr/lib/portikus/node/bin/node
+ANSIBLE_DIR=/usr/share/portikus/ansible
+CONFIG_FILE=/etc/portikus/portikus.yaml
+SECRETS_FILE=/etc/portikus/secrets.yaml
+SETUP_UNIT=portikus-setup.service
+UNITS="portikus-setup portikus-api portikus-worker portikus-controller portikus-egress-apply.path"
 READ_LINE="Read the local administrator's one-time password with: sudo cat ${PASSWORD_FILE}"
 
 usage() {
   cat <<EOF
-Usage: portikus reset-admin [--email ADDRESS] [--if-missing]
+Usage: portikus setup [--follow]
+       portikus status
+       portikus reset-admin [--email ADDRESS] [--if-missing]
        portikus backup-channel pull|report
+
+setup        Apply ${CONFIG_FILE} to this host with the shipped Ansible
+             play, in the foreground.  Safe to run again.
+             --follow  follow the journal of ${SETUP_UNIT} instead
+status       Show the package version and the state of each unit.
 
 reset-admin  Give the local administrator a new one-time password, the
              administrator role, and a working account, and end its
@@ -32,6 +45,44 @@ backup-channel report  Read the host's report, one JSON document, on
 EOF
 }
 
+# Runs the play against this host (docs/EPIC-15.md, ruling 8, ADR 0029).
+setup() {
+  case "${1:-}" in
+    --follow)
+      exec journalctl --unit="${SETUP_UNIT}" --follow --no-pager
+      ;;
+    "") ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+  if [ "$(id -u)" != 0 ]; then
+    echo "portikus: setup must run as root: sudo portikus setup" >&2
+    exit 1
+  fi
+  if [ ! -r "${CONFIG_FILE}" ]; then
+    echo "portikus: ${CONFIG_FILE} is missing; run: sudo dpkg-reconfigure portikus" >&2
+    exit 1
+  fi
+  set -- -e "@${CONFIG_FILE}"
+  if [ -r "${SECRETS_FILE}" ]; then
+    set -- "$@" -e "@${SECRETS_FILE}"
+  fi
+  # ansible.cfg is read from the working directory.
+  cd "${ANSIBLE_DIR}"
+  ANSIBLE_COLLECTIONS_PATH="${ANSIBLE_DIR}/collections" \
+    exec ansible-playbook -i "${ANSIBLE_DIR}/inventory-local.ini" "$@" site.yml
+}
+
+status() {
+  echo "portikus $(dpkg-query -W -f '${Version}' portikus 2>/dev/null || echo unknown)"
+  echo "node $("${NODE}" --version 2>/dev/null || echo missing)"
+  for unit in ${UNITS}; do
+    printf '%-28s %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
+  done
+}
+
 # The host's backup timer calls this over SSH (SPEC.md section 24.9, ADR 0040).
 backup_channel() {
   if [ "$(id -u)" != 0 ]; then
@@ -48,7 +99,7 @@ backup_channel() {
   # The worker's own settings, parsed as systemd parses them for the worker.
   exec systemd-run --wait --pipe --quiet --collect --uid=portikus \
     -p EnvironmentFile="${WORKER_ENV}" \
-    /usr/bin/node "${BACKUP_CHANNEL_MAIN}" "$1"
+    "${NODE}" "${BACKUP_CHANNEL_MAIN}" "$1"
 }
 
 reset_admin() {
@@ -70,7 +121,7 @@ reset_admin() {
   status=0
   systemd-run --wait --pipe --quiet --collect --uid=portikus \
     -p EnvironmentFile="${API_ENV}" \
-    /usr/bin/node "${RESET_ADMIN_MAIN}" "$@" >"${tmp}" || status=$?
+    "${NODE}" "${RESET_ADMIN_MAIN}" "$@" >"${tmp}" || status=$?
 
   case "${status}" in
     0)
@@ -97,6 +148,13 @@ reset_admin() {
 }
 
 case "${1:-}" in
+  setup)
+    shift
+    setup "$@"
+    ;;
+  status)
+    status
+    ;;
   reset-admin)
     shift
     reset_admin "$@"

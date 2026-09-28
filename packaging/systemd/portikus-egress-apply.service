@@ -13,7 +13,7 @@ Before=incus.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/node /usr/lib/portikus/controller/dist/egress-apply-main.js
+ExecStart=/usr/lib/portikus/node/bin/node /usr/lib/portikus/controller/dist/egress-apply-main.js
 # Runs after the helper however it ended, even killed: if it left no table
 # after an allow-list, this loads the drop-all table Ansible rendered.
 ExecStopPost=/usr/lib/portikus/egress-guard.sh

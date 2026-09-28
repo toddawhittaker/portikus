@@ -36,6 +36,50 @@ find_nfpm() {
 
 nfpm_bin="$(find_nfpm)"
 
+# The Node the units run, bundled so the package needs nothing outside Debian
+# (docs/EPIC-15.md, ruling 11). Keep the major in step with .nvmrc.
+NODE_VERSION="24.21.0"
+NODE_SHA256="fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6"
+
+if [ "${NODE_VERSION%%.*}" != "$(tr -d '[:space:]v' < .nvmrc)" ]; then
+	echo "NODE_VERSION ${NODE_VERSION} does not match .nvmrc" >&2
+	exit 1
+fi
+
+fetch_node() {
+	local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/portikus/node"
+	local tarball="node-v${NODE_VERSION}-linux-x64.tar.xz"
+	local archive="$cache_dir/$tarball"
+	if ! echo "${NODE_SHA256}  $archive" | sha256sum -c --status - 2>/dev/null; then
+		echo "Downloading Node ${NODE_VERSION}..." >&2
+		mkdir -p "$cache_dir"
+		rm -f "$archive"
+		curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/${tarball}" -o "$archive"
+		echo "${NODE_SHA256}  $archive" | sha256sum -c - >&2
+	fi
+	echo "$archive"
+}
+
+# The collections setup needs, downloaded at build time so the host never
+# fetches them (ruling 8). Cached by the requirements file's hash.
+fetch_collections() {
+	local key
+	key="$(sha256sum infra/ansible/requirements.yml | cut -c1-16)"
+	local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/portikus/collections/$key"
+	if [ ! -f "$cache_dir/.complete" ]; then
+		echo "Downloading Ansible collections..." >&2
+		rm -rf "$cache_dir"
+		mkdir -p "$cache_dir"
+		ansible-galaxy collection install -r infra/ansible/requirements.yml \
+			-p "$cache_dir" </dev/null >&2
+		touch "$cache_dir/.complete"
+	fi
+	echo "$cache_dir"
+}
+
+node_archive="$(fetch_node)"
+collections_dir="$(fetch_collections)"
+
 pnpm install --frozen-lockfile
 pnpm exec tsc -b
 
@@ -91,6 +135,22 @@ cat > dist/deploy/workspace-agent/bin/workspace-agent <<'SHIM'
 exec /usr/bin/node /opt/portikus/workspace-agent/dist/index.js
 SHIM
 chmod 0755 dist/deploy/workspace-agent/bin dist/deploy/workspace-agent/bin/workspace-agent
+
+mkdir -p dist/deploy/node
+tar -xJf "$node_archive" -C dist/deploy/node --strip-components=1
+chmod -R u=rwX,go=rX dist/deploy/node
+
+# The play, its roles and collections, run by `portikus setup` (ADR 0029).
+mkdir -p dist/deploy/ansible
+cp -r infra/ansible/site.yml infra/ansible/ansible.cfg infra/ansible/inventory-local.ini \
+	infra/ansible/roles dist/deploy/ansible/
+cp -r "$collections_dir" dist/deploy/ansible/collections
+rm -f dist/deploy/ansible/collections/.complete
+# The collections' own test suites are never run on the host.
+rm -rf dist/deploy/ansible/collections/ansible_collections/*/*/tests
+chmod -R u=rwX,go=rX dist/deploy/ansible
+
+gpg --dearmor < packaging/portikus-archive-keyring.asc > dist/deploy/portikus-archive-keyring.gpg
 
 mkdir -p dist/deb
 echo "$version" > dist/deb/VERSION
