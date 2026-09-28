@@ -28,6 +28,13 @@ export interface TextFieldProps
 	help?: React.ReactNode;
 }
 
+/**
+ * The label row with a help button beside the label. The row keeps the label's
+ * 18px line and the 24px button overflows it evenly, so a field with help lines
+ * up with one without (the target stays 24px, WCAG 2.5.8).
+ */
+export const LABEL_ROW_CLASS = "flex h-[18px] min-w-0 items-center gap-1";
+
 /** The label row: the label, then a help button beside it when there is one. */
 export function FieldLabel({
 	help,
@@ -38,7 +45,7 @@ export function FieldLabel({
 }): React.ReactElement {
 	if (!help) return children;
 	return (
-		<div className="flex min-w-0 items-center gap-1">
+		<div className={LABEL_ROW_CLASS}>
 			{children}
 			{help}
 		</div>

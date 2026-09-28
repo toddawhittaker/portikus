@@ -139,3 +139,56 @@ for (const colorScheme of ["light", "dark"] as const) {
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});
 }
+
+/** Settings links here for keys and screen-reader limits (Epic 25 S4). */
+test("a student lands on the keyboard topic from its anchor", async ({ browser }) => {
+	const page = await pageAs(browser, "student");
+	await page.goto("/help#student-keyboard");
+	const heading = page.getByRole("heading", {
+		level: 3,
+		name: "Keyboard and screen readers",
+	});
+	await expect(heading).toBeInViewport({ timeout: 15_000 });
+	const topic = page.locator("section", { has: heading });
+	await expect(topic.locator("dl dt")).toHaveText([
+		"Alt+Shift+Q",
+		"Ctrl+M",
+		"Alt+F1",
+		"Alt+Shift+Left Arrow, Alt+Shift+Right Arrow",
+		"Shift+F10",
+		"F8",
+	]);
+	await expect(topic.locator("dl dd").first()).toHaveText(
+		"Leave a terminal. While a terminal has the keyboard, Tab goes to the shell. Each terminal's three-dots menu also has Leave terminal.",
+	);
+	const contents = page.getByRole("navigation", { name: "Help contents" });
+	await expect(contents.getByRole("link")).toHaveText([
+		"Using your workspace",
+		"Getting started",
+		"The workspace layout",
+		"Terminals",
+		"Files and the editor",
+		"Previews",
+		"Checks",
+		"Settings",
+		"Keyboard and screen readers",
+		"When something goes wrong",
+	]);
+	await page.context().close();
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`a student's Help page passes axe at the narrowest window (${colorScheme})`, async ({
+		browser,
+	}) => {
+		const page = await pageAs(browser, "student");
+		// The product's narrowest window (.pk-root min-width).
+		await page.setViewportSize({ width: 1024, height: 800 });
+		await page.emulateMedia({ colorScheme });
+		await page.goto("/help");
+		expect(await partHeadings(page)).toEqual(PARTS.student);
+		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+		await page.context().close();
+	});
+}

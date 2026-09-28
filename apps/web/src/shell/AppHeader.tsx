@@ -154,7 +154,12 @@ export function AppHeader({
 						</button>
 					</MenuTrigger>
 					<Menu label="Account">
-						<MenuLabel>{user.email ?? user.displayName}</MenuLabel>
+						<MenuLabel>
+							{/* A long address is cut, not allowed to widen the menu (Epic 25 S9). */}
+							<span className="pk-account-email" title={user.email ?? user.displayName}>
+								{user.email ?? user.displayName}
+							</span>
+						</MenuLabel>
 						<MenuSeparator />
 						{user.role === "administrator" && workspaceId ? (
 							<>
@@ -188,7 +193,20 @@ export function AppHeader({
 							onSelect={() => setNotificationsOpen(true)}
 							testId="notifications-item"
 						>
-							{badge ? `Notifications (${unreadLabel})` : "Notifications"}
+							<span className="flex items-baseline justify-between gap-4">
+								{unread > 0 ? (
+									<>
+										{/* One spoken name: browsers put spaces around a hidden comma. */}
+										<span className="sr-only">Notifications, {unread} unread</span>
+										<span aria-hidden="true">Notifications</span>
+										<span aria-hidden="true" className="text-xs text-ink-muted">
+											{unread} unread
+										</span>
+									</>
+								) : (
+									"Notifications"
+								)}
+							</span>
 						</MenuItem>
 						<MenuItem onSelect={() => setSettingsOpen(true)}>
 							<span data-testid="editor-settings">Settings</span>
@@ -216,7 +234,7 @@ export function AppHeader({
 						</MenuItem>
 					</Menu>
 				</MenuRoot>
-				{/* Its own button over the picture's corner, so a click opens the history directly. */}
+				{/* Its own button beside the account button, so a click opens the history directly. */}
 				{badge ? (
 					<button
 						type="button"
