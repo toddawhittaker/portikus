@@ -433,3 +433,43 @@ test("blocked sites are added, edited and removed, and Test a host explains them
 	expect(await testHost(page, `games.${SUFFIX}`)).toBe("not-listed");
 	await reset();
 });
+
+test("an unused empty block list collapses, and an unapplied mode is called the saved setting", async ({
+	page,
+}) => {
+	// Served over the real view, since the a11y spec may block a site meanwhile.
+	await page.route("**/admin/egress", async (route) => {
+		if (route.request().method() !== "GET") return route.continue();
+		const response = await route.fetch();
+		const view = await response.json();
+		await route.fulfill({
+			response,
+			json: {
+				...view,
+				mode: "allow-list",
+				blockedSites: [],
+				apply: { appliedVersion: view.version - 1, appliedAt: null, error: null },
+			},
+		});
+	});
+	await open(page);
+	await expect(page.getByTestId("egress-mode-summary")).toHaveText(
+		/^Saved setting: Workspaces can reach only/,
+	);
+	const card = page.getByRole("region", { name: "Blocked sites" });
+	await expect(card.getByRole("table")).toHaveCount(0);
+	await expect(card.getByText(/of \d+ used/)).toHaveCount(0);
+	await expect(card.getByTestId("egress-block-note")).toHaveText(
+		"Allow-list mode is on, so this list is not used until you switch to open mode.",
+	);
+	await expect(card.getByTestId("egress-block-add")).toBeVisible();
+	// The apply status explains itself by keyboard.
+	await page.getByRole("button", { name: "About apply status" }).focus();
+	await page.keyboard.press("Enter");
+	await expect(page.getByRole("dialog", { name: "apply status" })).toContainText(
+		"within seconds",
+	);
+	await page.keyboard.press("Escape");
+	// Short: the heading row and one line, not an empty state.
+	expect((await card.boundingBox())?.height ?? 999).toBeLessThan(160);
+});

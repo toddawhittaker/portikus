@@ -53,6 +53,60 @@ test("shows a skeleton, then the policy and its applied status", async () => {
 	expect(screen.queryByTestId("egress-open-note")).toBeNull();
 });
 
+test("the mode summary is stated as fact only once the policy is applied", async () => {
+	stubEgress(egressView());
+	renderWithQuery(<NetworkTab />);
+	await shown();
+	expect(screen.getByTestId("egress-mode-summary").textContent).toMatch(
+		/^Workspaces can reach only/,
+	);
+	cleanup();
+	stubEgress(
+		egressView({ apply: { appliedVersion: 2, appliedAt: null, error: null } }),
+	);
+	renderWithQuery(<NetworkTab />);
+	await shown();
+	expect(screen.getByTestId("egress-mode-summary").textContent).toMatch(
+		/^Saved setting: Workspaces can reach only/,
+	);
+	cleanup();
+	stubEgress(
+		egressView({
+			apply: { appliedVersion: 2, appliedAt: null, error: "the gateway refused it" },
+		}),
+	);
+	renderWithQuery(<NetworkTab />);
+	await shown();
+	expect(screen.getByTestId("egress-mode-summary").textContent).toMatch(
+		/^Saved setting: /,
+	);
+});
+
+test("the tab opens with its intro and explains each part in a toggletip", async () => {
+	stubEgress(egressView());
+	renderWithQuery(<NetworkTab />);
+	await shown();
+	const intro = screen.getByTestId("intro-admin-network");
+	expect(intro.textContent).toContain(
+		"Which internet sites workspaces can reach. Open mode allows every public site except the ones you block.",
+	);
+	expect(within(intro).getByRole("link").getAttribute("href")).toBe(
+		"/help#admin-network",
+	);
+	for (const name of [
+		"About open and allow-list modes",
+		"About apply status",
+		"About ranges",
+		"About refused names",
+	]) {
+		expect(screen.getByRole("button", { name })).toBeDefined();
+	}
+	fireEvent.click(screen.getByRole("button", { name: "About ranges" }));
+	expect((await screen.findByRole("dialog", { name: "ranges" })).textContent).toContain(
+		"It cannot overlap a private network",
+	);
+});
+
 test("a read failure is shown with a way to try again", async () => {
 	let fail = true;
 	stubFetch(() =>
@@ -156,7 +210,11 @@ test("adding an entry checks it with the contracts' rules first", async () => {
 	const calls = stubEgress(egressView({ entries: [] }));
 	renderWithQuery(<NetworkTab />);
 	await shown();
-	expect(screen.getByText("No hosts or ranges yet")).toBeDefined();
+	// One line of text, no table and no tall empty state.
+	expect(screen.getByTestId("egress-entries-empty").textContent).toMatch(
+		/^No hosts or ranges yet\. Add a host name such as api\.example\.edu/,
+	);
+	expect(screen.queryByTestId("egress-entries")).toBeNull();
 	fireEvent.click(screen.getByTestId("egress-add"));
 	const dialog = await screen.findByTestId("egress-entry-dialog");
 	fireEvent.click(within(dialog).getByTestId("egress-entry-save"));
@@ -387,14 +445,29 @@ describe("blocked sites (ADR 0043)", () => {
 		);
 	});
 
-	test("an empty list shows an empty state", async () => {
+	test("an empty list in open mode is one line of text with an example, not a table", async () => {
 		stubEgress(egressView({ mode: "open", blockedSites: [] }));
 		renderWithQuery(<NetworkTab />);
 		await shown();
-		expect(screen.getByText("No blocked sites")).toBeDefined();
+		const card = screen.getByRole("region", { name: "Blocked sites" });
+		expect(within(card).queryByRole("table")).toBeNull();
 		expect(screen.getByTestId("egress-block-note").textContent).toContain(
-			"Nothing is blocked",
+			"Nothing is blocked, so workspaces reach every public site. Blocking a site, such as games.example.com",
 		);
+		expect(within(card).getByText(/0 of 500 used/)).toBeDefined();
+	});
+
+	test("an empty list in allow-list mode collapses to its heading, one note and Block", async () => {
+		stubEgress(egressView({ blockedSites: [] }));
+		renderWithQuery(<NetworkTab />);
+		await shown();
+		const card = screen.getByRole("region", { name: "Blocked sites" });
+		expect(within(card).queryByRole("table")).toBeNull();
+		expect(within(card).queryByText(/of 500 used/)).toBeNull();
+		expect(within(card).getByTestId("egress-block-note").textContent).toBe(
+			"Allow-list mode is on, so this list is not used until you switch to open mode.",
+		);
+		expect(within(card).getByRole("button", { name: "Block…" })).toBeDefined();
 	});
 
 	test("blocking a site checks it first, then posts it with its label", async () => {
