@@ -56,7 +56,8 @@ test("a student can change the workspace timezone and a new terminal uses it", a
 
 	await page.getByLabel("Workspace timezone").click();
 	await page.getByRole("option", { name: "Los Angeles", exact: true }).click();
-	await page.getByTestId("editor-settings-save").click();
+	await expect(page.getByTestId("settings-saved")).toHaveText("Saved");
+	await page.getByTestId("settings-close").click();
 	await expect(page.getByTestId("dialog-editor-settings")).toHaveCount(0);
 
 	// A terminal opened after the change runs in the new zone.

@@ -79,7 +79,11 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 			},
 			{
 				title: "Accessibility",
-				controls: [{ id: "screen-reader-mode", label: "Screen reader mode" }],
+				controls: [
+					{ id: "screen-reader-mode", label: "Screen reader mode" },
+					// A pointer to Help, kept here so search still finds it.
+					{ id: "keyboard-help", label: "Keyboard and screen readers" },
+				],
 			},
 			{
 				title: "Workspace",
@@ -97,12 +101,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 				controls: [{ id: "change-password", label: "Change password" }],
 			},
 		],
-	},
-	// Help text only, no controls; search finds it by its title (issue #359).
-	{
-		id: "keyboard",
-		title: "Keyboard and screen readers",
-		groups: [],
 	},
 ];
 

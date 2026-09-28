@@ -184,7 +184,8 @@ test("it shows the settings the server holds", async () => {
 	).toBe(true);
 });
 
-test("saving sends every setting and closes the dialog", async () => {
+/** Review M5: a preference is saved the moment it changes, one field per request. */
+test("a changed preference is saved at once and Saved is announced", async () => {
 	const writes = stubSettings();
 	const onClose = vi.fn();
 	renderWithQuery(<SettingsDialog onClose={onClose} />);
@@ -193,24 +194,84 @@ test("saving sends every setting and closes the dialog", async () => {
 			(screen.getByTestId("editor-settings-delay") as HTMLInputElement).value,
 		).toBe("5"),
 	);
+	// The live region is there, empty, before anything changes.
+	const status = screen.getByRole("status");
+	expect(status.getAttribute("data-testid")).toBe("settings-saved");
+	expect(status.textContent).toBe("");
 
 	fireEvent.click(checkbox(/Word wrap/));
-	fireEvent.change(screen.getByTestId("editor-settings-delay"), {
-		target: { value: "8" },
-	});
-	fireEvent.click(screen.getByTestId("editor-settings-save"));
 
 	await waitFor(() => expect(writes).toHaveLength(1));
-	expect(writes[0]?.body).toEqual({
-		autoSave: true,
-		autoSaveDelaySeconds: 8,
-		// The box starts ticked now (issue #270), so the click clears it.
-		wordWrap: false,
-		terminalTheme: "dark",
-		timezone: "America/New_York",
-		screenReaderMode: EDITOR_SETTINGS_DEFAULTS.screenReaderMode,
+	// The box starts ticked (issue #270), so the click clears it.
+	expect(writes[0]?.body).toEqual({ wordWrap: false });
+	await waitFor(() => expect(status.textContent).toBe("Saved"));
+	expect(onClose).not.toHaveBeenCalled();
+
+	// It speaks for Preferences only; Profile has its own status lines. The
+	// shared pane starts Profile at its top, not where Preferences was scrolled.
+	const pane = screen.getByRole("heading", { name: "Preferences" }).parentElement
+		?.parentElement as HTMLElement;
+	pane.scrollTop = 300;
+	expect(pane.scrollTop).toBe(300);
+	fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+	expect(pane.scrollTop).toBe(0);
+	expect(screen.getByTestId("settings-saved")).toBe(status);
+	expect(status.textContent).toBe("");
+});
+
+test("changes made quickly are saved one at a time, in order", async () => {
+	const sent: unknown[] = [];
+	let current = { ...EDITOR_SETTINGS_DEFAULTS, timezones: SERVER_ZONES };
+	let release: () => void = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
 	});
-	await waitFor(() => expect(onClose).toHaveBeenCalled());
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			if ((init?.method ?? "GET") !== "GET") {
+				const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+				sent.push(body);
+				// The first answer is slow; the second must wait for it.
+				if (sent.length === 1) await held;
+				current = { ...current, ...body };
+			}
+			return json(200, current);
+		}),
+	);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const wrap = (await screen.findByRole("checkbox", {
+		name: /Word wrap/,
+	})) as HTMLInputElement;
+	await waitFor(() => expect(wrap.checked).toBe(true));
+
+	fireEvent.click(wrap);
+	fireEvent.click(screen.getByRole("switch", { name: "Light terminal" }));
+	await waitFor(() => expect(sent).toHaveLength(1));
+	expect(screen.getByRole("status").textContent).toBe("Saving…");
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	expect(sent).toHaveLength(1);
+
+	release();
+	await waitFor(() =>
+		expect(sent).toEqual([{ wordWrap: false }, { terminalTheme: "light" }]),
+	);
+	await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Saved"));
+});
+
+test("the footer is a single Close button and it does not undo a change", async () => {
+	const writes = stubSettings();
+	const onClose = vi.fn();
+	renderWithQuery(<SettingsDialog onClose={onClose} />);
+	await screen.findByRole("region", { name: "Editor" });
+
+	expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+	fireEvent.click(checkbox(/Word wrap/));
+	fireEvent.click(screen.getByTestId("settings-close"));
+
+	expect(onClose).toHaveBeenCalledTimes(1);
+	await waitFor(() => expect(writes).toHaveLength(1));
 });
 
 test("turning auto-save off is saved and the delay field is disabled", async () => {
@@ -227,9 +288,61 @@ test("turning auto-save off is saved and the delay field is disabled", async () 
 		(screen.getByTestId("editor-settings-delay") as HTMLInputElement).disabled,
 	).toBe(true);
 
-	fireEvent.click(screen.getByTestId("editor-settings-save"));
 	await waitFor(() => expect(writes).toHaveLength(1));
-	expect(writes[0]?.body).toMatchObject({ autoSave: false });
+	expect(writes[0]?.body).toEqual({ autoSave: false });
+});
+
+test("a typed delay is saved when the field is left, not on each keystroke", async () => {
+	const writes = stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const field = (await screen.findByTestId(
+		"editor-settings-delay",
+	)) as HTMLInputElement;
+	await waitFor(() => expect(field.value).toBe("5"));
+
+	fireEvent.change(field, { target: { value: "1" } });
+	fireEvent.change(field, { target: { value: "18" } });
+	expect(writes).toHaveLength(0);
+	fireEvent.blur(field);
+
+	await waitFor(() => expect(writes).toHaveLength(1));
+	expect(writes[0]?.body).toEqual({ autoSaveDelaySeconds: 18 });
+	// Leaving it again with the same value sends nothing more.
+	fireEvent.blur(field);
+	await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Saved"));
+	expect(writes).toHaveLength(1);
+});
+
+test("Enter saves the typed delay", async () => {
+	const writes = stubSettings();
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	const field = (await screen.findByTestId(
+		"editor-settings-delay",
+	)) as HTMLInputElement;
+	await waitFor(() => expect(field.value).toBe("5"));
+
+	fireEvent.change(field, { target: { value: "9" } });
+	fireEvent.keyDown(field, { key: "Enter" });
+
+	await waitFor(() => expect(writes).toHaveLength(1));
+	expect(writes[0]?.body).toEqual({ autoSaveDelaySeconds: 9 });
+});
+
+test("closing the dialog saves a delay still being typed", async () => {
+	const writes = stubSettings();
+	const onClose = vi.fn();
+	renderWithQuery(<SettingsDialog onClose={onClose} />);
+	const field = (await screen.findByTestId(
+		"editor-settings-delay",
+	)) as HTMLInputElement;
+	await waitFor(() => expect(field.value).toBe("5"));
+
+	fireEvent.change(field, { target: { value: "12" } });
+	fireEvent.keyDown(field, { key: "Escape" });
+
+	expect(onClose).toHaveBeenCalled();
+	await waitFor(() => expect(writes).toHaveLength(1));
+	expect(writes[0]?.body).toEqual({ autoSaveDelaySeconds: 12 });
 });
 
 test("a delay outside 1 to 60 seconds is refused before anything is sent", async () => {
@@ -245,7 +358,8 @@ test("a delay outside 1 to 60 seconds is refused before anything is sent", async
 		target: { value: "90" },
 	});
 	expect(screen.getByText(/between 1 and 60/)).not.toBeNull();
-	fireEvent.click(screen.getByTestId("editor-settings-save"));
+	fireEvent.blur(screen.getByTestId("editor-settings-delay"));
+	fireEvent.click(screen.getByTestId("settings-close"));
 	expect(writes).toHaveLength(0);
 });
 
@@ -289,24 +403,13 @@ test("choosing an appearance applies at once, is cached, and is saved", async ()
 	expect(localStorage.getItem("pk-theme")).toBe("system");
 	await waitFor(() => expect(writes).toHaveLength(2));
 	expect(writes[1]?.body).toEqual({ appearance: "system" });
-
-	fireEvent.click(screen.getByTestId("editor-settings-save"));
-	await waitFor(() => expect(writes).toHaveLength(3));
-	expect(writes[2]?.body).toEqual({
-		autoSave: true,
-		autoSaveDelaySeconds: 5,
-		wordWrap: true,
-		terminalTheme: "dark",
-		timezone: "America/New_York",
-		screenReaderMode: EDITOR_SETTINGS_DEFAULTS.screenReaderMode,
-	});
 });
 
 /**
- * Issue #239: the dialog shows the stored terminal theme and sends it back
- * with everything else.
+ * Issue #239: the dialog shows the stored terminal theme, and switching it
+ * saves only that.
  */
-test("the stored terminal theme is shown and sent back", async () => {
+test("the stored terminal theme is shown and a switch saves it", async () => {
 	const writes = stubSettings({
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
@@ -329,20 +432,17 @@ test("the stored terminal theme is shown and sent back", async () => {
 	);
 	fireEvent.click(within(terminal()).getByRole("switch", { name: "Light terminal" }));
 
-	fireEvent.click(checkbox(/Word wrap/));
-	fireEvent.click(screen.getByTestId("editor-settings-save"));
-
 	await waitFor(() => expect(writes).toHaveLength(1));
-	expect(writes[0]?.body).toMatchObject({ terminalTheme: "dark", wordWrap: true });
+	expect(writes[0]?.body).toEqual({ terminalTheme: "dark" });
 });
 
 /**
- * Issue #287: the dialog shows the stored zone and sends it back with the
- * rest. Choosing a different zone from the Radix list needs a real browser,
- * so that is covered in e2e/timezone.spec.ts.
+ * Issue #287: the dialog shows the stored zone. Choosing a different zone
+ * from the Radix list needs a real browser, so that is covered in
+ * e2e/timezone.spec.ts.
  */
-test("the stored timezone is shown and sent back", async () => {
-	const writes = stubSettings({
+test("the stored timezone is shown", async () => {
+	stubSettings({
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
 		wordWrap: false,
@@ -357,12 +457,6 @@ test("the stored timezone is shown and sent back", async () => {
 			"Europe/Berlin",
 		),
 	);
-
-	fireEvent.click(checkbox(/Word wrap/));
-	fireEvent.click(screen.getByTestId("editor-settings-save"));
-
-	await waitFor(() => expect(writes).toHaveLength(1));
-	expect(writes[0]?.body).toMatchObject({ timezone: "Europe/Berlin" });
 });
 
 /**
@@ -518,19 +612,28 @@ test("Profile shows the institution sign-in, read-only", async () => {
 
 	expect(screen.getByText(/come from the institution sign-in/)).toBeTruthy();
 	expect(screen.getByTestId("account-initials").textContent).toBe("AE");
-	const displayName = screen.getByLabelText("Display name") as HTMLInputElement;
-	expect(displayName.value).toBe("Alice Example");
-	expect(displayName.readOnly).toBe(true);
-	expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe(
-		PROFILE.email,
-	);
-	expect((screen.getByLabelText("Sign-in name") as HTMLInputElement).value).toBe(
-		"university-alice",
-	);
-	const label = screen.getByLabelText("Workspace label") as HTMLInputElement;
-	expect(label.value).toBe("alice");
-	expect(label.readOnly).toBe(true);
+	// Label and value pairs, not form fields (review S1).
+	const list = screen.getByTestId("profile-signin");
+	expect(list.tagName).toBe("DL");
+	const pairs = within(list)
+		.getAllByRole("term")
+		.map((term) => [term.textContent, term.nextElementSibling?.textContent]);
+	expect(pairs).toEqual([
+		["Display name", "Alice Example"],
+		["Email", PROFILE.email],
+		["Sign-in name", "university-alice"],
+		["Workspace label", "alice"],
+	]);
+	expect(within(list).queryByRole("textbox")).toBeNull();
 });
+
+/** The value beside a sign-in label, read from the description list. */
+function signInValue(label: string): string | null | undefined {
+	const term = within(screen.getByTestId("profile-signin"))
+		.getAllByRole("term")
+		.find((item) => item.textContent === label);
+	return term?.nextElementSibling?.textContent;
+}
 
 test("a missing email is shown as not provided", async () => {
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
@@ -542,9 +645,7 @@ test("a missing email is shown as not provided", async () => {
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await openProfile();
 
-	expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe(
-		"Not provided",
-	);
+	expect(signInValue("Email")).toBe("Not provided");
 });
 
 test("choosing the sign-in name hit opens Profile on that field", async () => {
@@ -555,9 +656,8 @@ test("choosing the sign-in name hit opens Profile on that field", async () => {
 	fireEvent.change(screen.getByLabelText("Search"), { target: { value: "sign-in" } });
 	fireEvent.click(buttonNamed("Sign-in name"));
 
-	expect(
-		((await screen.findByLabelText("Sign-in name")) as HTMLInputElement).value,
-	).toBe("university-alice");
+	await screen.findByTestId("profile-signin");
+	expect(signInValue("Sign-in name")).toBe("university-alice");
 	expect(
 		document
 			.getElementById("settings-control-sign-in-name")
@@ -582,11 +682,14 @@ test("a failed account request explains that the details are missing", async () 
 	);
 });
 
-test("valid links are saved with the rest and shown as plain anchors", async () => {
+test("Save links saves only the links and shows them as plain anchors", async () => {
 	const writes = stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	const onClose = vi.fn();
 	renderWithQuery(<SettingsDialog onClose={onClose} />);
 	await openProfile();
+	const save = screen.getByRole("button", { name: "Save links" }) as HTMLButtonElement;
+	// Nothing typed, nothing to save.
+	expect(save.disabled).toBe(true);
 
 	fireEvent.change(screen.getByLabelText("GitHub"), {
 		target: { value: " alice-ex " },
@@ -594,13 +697,17 @@ test("valid links are saved with the rest and shown as plain anchors", async () 
 	fireEvent.change(screen.getByLabelText("Personal site"), {
 		target: { value: "https://alice.example.edu/" },
 	});
-	fireEvent.click(screen.getByTestId("editor-settings-save"));
+	expect(save.disabled).toBe(false);
+	fireEvent.click(save);
 
-	await waitFor(() => expect(onClose).toHaveBeenCalled());
+	await waitFor(() =>
+		expect(screen.getByTestId("profile-links-saved").textContent).toBe("Links saved"),
+	);
 	expect(profileWrites.map((write) => write.body)).toEqual([
 		{ github: "alice-ex", website: "https://alice.example.edu/" },
 	]);
-	expect(writes).toHaveLength(1);
+	expect(writes).toHaveLength(0);
+	expect(onClose).not.toHaveBeenCalled();
 
 	const github = screen.getByTestId("profile-github-link");
 	expect(github.tagName).toBe("A");
@@ -609,6 +716,20 @@ test("valid links are saved with the rest and shown as plain anchors", async () 
 	const site = screen.getByTestId("profile-website-link");
 	expect(site.getAttribute("href")).toBe("https://alice.example.edu/");
 	expect(site.getAttribute("rel")).toBe("noopener");
+});
+
+test("Enter in a link field saves the links", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await openProfile();
+
+	const field = screen.getByLabelText("GitHub");
+	fireEvent.change(field, { target: { value: "alice-ex" } });
+	fireEvent.submit(field.closest("form") as HTMLFormElement);
+
+	await waitFor(() =>
+		expect(profileWrites.map((write) => write.body)).toEqual([{ github: "alice-ex" }]),
+	);
 });
 
 test("an invalid link is refused before anything is sent", async () => {
@@ -625,11 +746,26 @@ test("an invalid link is refused before anything is sent", async () => {
 	});
 	expect(screen.getByText("Give a GitHub username or an https:// link")).toBeTruthy();
 
-	const save = screen.getByTestId("editor-settings-save") as HTMLButtonElement;
+	const save = screen.getByRole("button", { name: "Save links" }) as HTMLButtonElement;
 	expect(save.disabled).toBe(true);
-	fireEvent.click(save);
+	fireEvent.submit(save.closest("form") as HTMLFormElement);
 	expect(profileWrites).toHaveLength(0);
 	expect(writes).toHaveLength(0);
+});
+
+/** Review S3: a labelled button opens the file picker; the native input is hidden. */
+test("Choose picture opens the hidden file input", async () => {
+	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
+	renderWithQuery(<SettingsDialog onClose={() => {}} />);
+	await openProfile();
+
+	const input = screen.getByTestId("profile-picture-input") as HTMLInputElement;
+	expect(input.hidden).toBe(true);
+	const opened = vi.spyOn(input, "click");
+	fireEvent.click(screen.getByRole("button", { name: "Choose picture…" }));
+	expect(opened).toHaveBeenCalled();
+	// No picture yet, so there is nothing to remove.
+	expect(screen.queryByRole("button", { name: "Remove picture" })).toBeNull();
 });
 
 test("a refused picture upload shows the server's reason", async () => {
@@ -666,7 +802,7 @@ test("a picture over the cap is refused before it is sent", async () => {
 	expect(vi.mocked(fetch).mock.calls.length).toBe(sent);
 });
 
-/** Issue #357: screen-reader mode is a per-user setting, saved with the rest. */
+/** Issue #357: screen-reader mode is a per-user setting. */
 test("screen reader mode shows what is stored and is saved when turned on", async () => {
 	const writes = stubSettings({ ...EDITOR_SETTINGS_DEFAULTS, screenReaderMode: false });
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
@@ -677,10 +813,9 @@ test("screen reader mode shows what is stored and is saved when turned on", asyn
 	await waitFor(() => expect(box.checked).toBe(false));
 
 	fireEvent.click(box);
-	fireEvent.click(screen.getByTestId("editor-settings-save"));
 
 	await waitFor(() => expect(writes).toHaveLength(1));
-	expect(writes[0]?.body).toMatchObject({ screenReaderMode: true });
+	expect(writes[0]?.body).toEqual({ screenReaderMode: true });
 });
 
 /** Issue #373: the switch is named for what "on" means, whatever it shows. */
@@ -693,41 +828,40 @@ test("the terminal colours switch is named Light terminal", async () => {
 	expect(within(terminal).getByRole("switch", { name: "Light terminal" })).toBe(toggle);
 });
 
-/** Issue #359: the hard-to-find keys and the library limits are written down. */
-test("the keyboard section lists the keys and the terminal and editor limits", async () => {
+/** Review S4: the keys and the library limits live on the Help page. */
+test("Accessibility points to the keys on the Help page, in a new tab", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	fireEvent.click(
-		await screen.findByRole("button", { name: "Keyboard and screen readers" }),
-	);
+	const region = await screen.findByRole("region", { name: "Accessibility" });
 
-	const section = screen.getByRole("region", { name: "Keyboard and screen readers" });
-	for (const keys of [
-		"Alt+Shift+Q",
-		"Ctrl+M",
-		"Alt+F1",
-		"Alt+Shift+Left Arrow",
-		"Shift+F10",
-		"F8",
-	]) {
-		expect(section.textContent).toContain(keys);
-	}
-	const limits = within(section).getByRole("region", {
-		name: "What the terminal and editor cannot do",
+	const link = within(region).getByRole("link", {
+		name: /^Help ?\(opens in a new tab\)$/,
 	});
-	expect(limits.textContent).toContain("Screen reader mode");
+	expect(link.getAttribute("href")).toBe("/help#student-keyboard");
+	expect(link.getAttribute("target")).toBe("_blank");
+	expect(link.getAttribute("rel")).toBe("noopener");
+	expect(link.closest("p")?.textContent).toBe(
+		"Keys and screen-reader limits are in Help (opens in a new tab).",
+	);
+	expect(
+		screen.queryByRole("button", { name: "Keyboard and screen readers" }),
+	).toBeNull();
 });
 
-/** Issue #359: search finds the help section by its title. */
-test("searching for keyboard finds the help section", async () => {
+/** Issue #359: search still finds the pointer, now under Accessibility. */
+test("searching for keyboard finds the pointer to Help", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	fireEvent.change(await screen.findByLabelText("Search"), {
 		target: { value: "keyboard" },
 	});
-	expect(
-		screen.getByRole("button", { name: "Keyboard and screen readers" }),
-	).toBeTruthy();
+	fireEvent.click(buttonNamed("Keyboard and screen readers"));
+
+	const frame = document.getElementById("settings-control-keyboard-help");
+	expect(frame?.getAttribute("data-highlighted")).toBe("true");
+	expect(frame?.querySelector("a")?.getAttribute("href")).toBe(
+		"/help#student-keyboard",
+	);
 });
 
 /** docs/archive/epics/EPIC-13-1.md, "The flow" steps 1, 2 and 7. */
@@ -1015,8 +1149,8 @@ test("focus moves only after the refetch has removed the unlinked row (review C2
 	await waitFor(() => expect(rowPresentAtFocus).toEqual([false]));
 });
 
-/** Issue #363: a failed save is announced, not only shown. */
-test("a failed save is shown as an alert", async () => {
+/** Issue #363: a failed save is announced, not only shown, and the control goes back. */
+test("a failed save is shown as an alert and the control shows what the server holds", async () => {
 	stubFetch((url, init) => {
 		if ((init?.method ?? "GET") !== "GET") {
 			return json(500, { code: "INTERNAL", message: "The settings were not saved." });
@@ -1028,10 +1162,14 @@ test("a failed save is shown as an alert", async () => {
 	});
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await screen.findByRole("region", { name: "Editor" });
-	fireEvent.click(screen.getByTestId("editor-settings-save"));
+	const wrap = checkbox(/Word wrap/) as HTMLInputElement;
+	await waitFor(() => expect(wrap.checked).toBe(true));
+	fireEvent.click(wrap);
 
 	const alert = await screen.findByRole("alert");
 	expect(alert.getAttribute("data-testid")).toBe("editor-settings-error");
+	expect(alert.textContent).toContain("Your change was not saved.");
+	expect((checkbox(/Word wrap/) as HTMLInputElement).checked).toBe(true);
 });
 
 test("Password is offered to a Dex local password and not to an SSO account (SPEC.md section 5.3)", async () => {
