@@ -12,6 +12,7 @@ on:
     branches: [main, "epic/**"]
     paths:
       - infra/workspace-image/**
+      - packaging/image/image-job
       - .github/workflows/workspace-image.yml
   workflow_dispatch:
 
@@ -105,21 +106,18 @@ jobs:
             -o image.serial="$VERSION" \
             -o image.release=trixie
           sudo chown -R "$(id -u):$(id -g)" out
-      # T6 extends this with packages and tool versions (ruling 24).
+      # The schema 1 manifest a local build writes too (ruling 24): the rootfs's
+      # packages and tool versions, and the recipe's default parameters.
       - name: Write the manifest and checksums
         if: steps.version.outputs.build == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          DISTROBUILDER_COMMIT: ${{ steps.distrobuilder.outputs.commit }}
         run: |
-          jq -n \
-            --arg version "$VERSION" \
-            --arg recipe_version "$VERSION" \
-            --arg commit "$GITHUB_SHA" \
-            --arg distrobuilder "$DISTROBUILDER_COMMIT" \
-            --arg built_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{version: $version, source: "published", recipe_version: $recipe_version, commit: $commit, distrobuilder_commit: $distrobuilder, built_at: $built_at}' \
-            > out/manifest.json
+          set -o pipefail
+          sudo python3 packaging/image/image-job manifest --squashfs out/rootfs.squashfs \
+            --version "$VERSION" --recipe-version "$VERSION" --source published \
+            --node 24 --python debian | tee out/manifest.json >/dev/null
+          jq -e '.schema == 1 and (.packages | length > 100) and .tools.node != null' out/manifest.json >/dev/null
           cd out
           for f in incus.tar.xz rootfs.squashfs manifest.json; do
             size="$(stat -c %s "$f")"
