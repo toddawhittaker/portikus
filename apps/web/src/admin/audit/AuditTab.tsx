@@ -42,7 +42,7 @@ export function AuditTab() {
 	const filters = filtersFromSearch(search);
 	const key = JSON.stringify(filters);
 	const navigate = useNavigate();
-	const users = useAdminUsers().data?.users;
+	const users = useAdminUsers({ poll: false }).data?.users;
 	const people = personOptions(users ?? []);
 	// null until typed in, so the field shows the filtered person's name once the list loads.
 	const [personDraft, setPersonDraft] = useState<string | null>(null);
@@ -78,6 +78,10 @@ export function AuditTab() {
 			personDraft === null ? { id: filters.user } : resolvePerson(personDraft, users);
 		if ("error" in person) {
 			setPersonError(person.error);
+			// Focus the field so a screen reader hears its error; refocusing says nothing, so leave first.
+			const field = document.getElementById("audit-person");
+			if (field && field === document.activeElement) field.blur();
+			field?.focus();
 			return;
 		}
 		setPersonError(null);
@@ -86,6 +90,7 @@ export function AuditTab() {
 
 	function clear() {
 		setPersonDraft("");
+		setActionDraft("");
 		setPersonError(null);
 		show({ workspace: "", user: "", action: "" });
 	}

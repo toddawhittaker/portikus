@@ -258,6 +258,8 @@ test("a name that matches nobody is refused at the field, before any request", a
 		field.getAttribute("aria-describedby") ?? "",
 	);
 	expect(described?.textContent).toContain("Choose a person from the list.");
+	// Focus moves to the field, so a screen reader hears the error.
+	expect(document.activeElement).toBe(field);
 	expect(auditCalls(fetch)).toEqual(["/admin/audit"]);
 
 	// A name from the list clears the error on the next Apply.
@@ -269,6 +271,18 @@ test("a name that matches nobody is refused at the field, before any request", a
 	);
 	// Once applied, the field shows the person's name from the address.
 	expect((field as HTMLInputElement).value).toBe("Alice Student");
+});
+
+test("Clear empties an action typed but not yet applied", async () => {
+	stubAudit(() => json(200, { events: [], nextBefore: null }));
+	renderTab("/admin?tab=audit");
+	await screen.findByText("No audit events match.");
+	const action = screen.getByRole("textbox", {
+		name: "Action starts with",
+	}) as HTMLInputElement;
+	fireEvent.change(action, { target: { value: "backup." } });
+	fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+	await waitFor(() => expect(action.value).toBe(""));
 });
 
 test("a target is named as a person or as their workspace", () => {

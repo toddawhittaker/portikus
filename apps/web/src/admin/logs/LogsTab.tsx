@@ -146,7 +146,7 @@ export function LogsTab() {
 	const filters = filtersFromSearch(search);
 	const key = JSON.stringify(filters);
 	const navigate = useNavigate();
-	const users = useAdminUsers();
+	const users = useAdminUsers({ poll: false });
 	const userList = users.data?.users ?? [];
 	const people = personOptions(userList);
 	const [draft, setDraft] = useState(() => draftOf(filters));

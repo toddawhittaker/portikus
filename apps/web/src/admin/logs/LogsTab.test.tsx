@@ -485,6 +485,29 @@ test("a workspace link is a checkbox naming its owner, and unticking it drops th
 	expect(screen.queryByRole("checkbox", { name: /workspace$/ })).toBeNull();
 });
 
+test("a name typed before the people list loads asks to wait, not to choose again", async () => {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
+		if (url.startsWith("/admin/logs?")) return json(200, page([]));
+		// The people list never arrives.
+		if (url === "/admin/users")
+			return new Promise<Response>(() => {}) as unknown as Response;
+		if (url === "/admin/settings") return json(200, SETTINGS);
+		return json(200, {});
+	});
+	renderApp("/admin?tab=logs");
+	await screen.findByTestId("logs-empty");
+	const person = screen.getByRole("combobox", { name: "Person" });
+	fireEvent.change(person, { target: { value: "Alice Example" } });
+	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+	expect(
+		await screen.findByText(
+			"The list of people is still loading. Try again in a moment.",
+		),
+	).toBeDefined();
+	expect(screen.queryByText("Choose a person from the list.")).toBeNull();
+});
+
 test("an unknown person or no level is refused in the form", async () => {
 	stubLogs(() => json(200, page([])));
 	const { router } = renderApp("/admin?tab=logs");
