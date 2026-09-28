@@ -121,6 +121,22 @@ resource "terraform_data" "data_disk_size" {
   }
 }
 
+# Makes both disks compat 1.1 before the domain first boots, so the discard
+# setting in disk-as-file.xslt frees space on the host.  Runs again only when
+# a disk is replaced.
+resource "terraform_data" "disk_compat" {
+  triggers_replace = [libvirt_volume.os_disk.id, libvirt_volume.data_disk.id]
+
+  provisioner "local-exec" {
+    command = "bash ${path.module}/qcow2-compat.sh"
+    environment = {
+      LIBVIRT_URI = var.libvirt_uri
+      DOMAIN      = var.vm_name
+      DISKS       = "${libvirt_volume.os_disk.id} ${libvirt_volume.data_disk.id}"
+    }
+  }
+}
+
 # ── cloud-init ISO ──────────────────────────────────────────────
 
 resource "libvirt_cloudinit_disk" "init" {
@@ -138,6 +154,8 @@ resource "libvirt_domain" "vm" {
   memory = var.memory_mb
 
   cloudinit = libvirt_cloudinit_disk.init.id
+
+  depends_on = [terraform_data.disk_compat]
 
   # A replaced OS disk keeps the same path, so nothing in the domain's own
   # arguments changes and the running VM would silently keep using the
