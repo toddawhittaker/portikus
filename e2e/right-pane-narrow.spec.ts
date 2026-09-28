@@ -9,6 +9,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	openToggletip,
 	query,
 	seedFile,
 	seedListening,
@@ -147,7 +148,7 @@ async function tip(
 ): Promise<void> {
 	const button = page.getByRole("button", { name: `About ${label}`, exact: true });
 	await button.click();
-	const note = page.getByRole("dialog", { name: label });
+	const note = openToggletip(page);
 	await expect(note).toContainText(text);
 	const shown = await box(note);
 	const viewport = page.viewportSize();

@@ -2,6 +2,7 @@ import { type Browser, expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
 	loginAs,
+	openToggletip,
 	query,
 	settledAxe,
 	type TestStudent,
@@ -62,7 +63,7 @@ test("Re-provision sends a workspace in error back to provisioning, audited", as
 	const error = panel.getByRole("region", { name: "Error" });
 	// What Re-provision does is one click away, in its toggletip.
 	await error.getByRole("button", { name: "About Re-provision" }).click();
-	await expect(page.getByRole("dialog", { name: "Re-provision" })).toContainText(
+	await expect(openToggletip(page)).toContainText(
 		"Its home folder and files are kept.",
 	);
 	await page.keyboard.press("Escape");

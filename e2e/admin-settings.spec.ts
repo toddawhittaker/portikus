@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { loginAs, query, settledAxe, toast, WCAG_TAGS } from "./helpers";
+import { loginAs, openToggletip, query, settledAxe, toast, WCAG_TAGS } from "./helpers";
 
 /**
  * The Settings tab layout (SPEC.md section 20.1, Epic 25 findings M4 and
@@ -235,7 +235,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 	});
 }
 
-test("a setting's help opens on click, reads as a dialog, and Escape returns focus", async ({
+test("a setting's help opens on click, shows its text, and Escape returns focus", async ({
 	page,
 }) => {
 	await open(page);
@@ -244,7 +244,7 @@ test("a setting's help opens on click, reads as a dialog, and Escape returns foc
 	);
 	const button = page.getByRole("button", { name: "About Quiet below (%)" });
 	await button.click();
-	const tip = page.getByRole("dialog", { name: "Quiet below (%)" });
+	const tip = openToggletip(page);
 	await expect(tip).toContainText("0 turns the automatic lift off.");
 	await page.keyboard.press("Escape");
 	await expect(tip).toHaveCount(0);
@@ -263,21 +263,25 @@ test("a help tip keeps focus on its button, and Tab or Shift+Tab moves on and cl
 }) => {
 	await open(page);
 	const button = page.getByRole("button", { name: "About Idle stop" });
-	const tip = page.getByRole("dialog", { name: "Idle stop" });
+	const tip = openToggletip(page);
 
 	await button.focus();
 	await page.keyboard.press("Enter");
 	await expect(tip).toBeVisible();
 	await expect(button).toBeFocused();
 	await expect(button).toHaveAttribute("aria-expanded", "true");
-	// Screen readers hear the text from the live region beside the button.
-	const status = button.locator("xpath=following-sibling::*[@aria-live='polite'][1]");
-	await expect(status).toHaveText(await tip.innerText());
+	// The tip itself is hidden from screen readers; they hear its text from a
+	// live region kept outside the button's label or header.
+	await expect(tip).toHaveAttribute("aria-hidden", "true");
+	await expect(button).not.toHaveAttribute("aria-haspopup");
+	const text = await tip.innerText();
+	const status = page.locator("body > [aria-live='polite']").filter({ hasText: text });
+	await expect(status).toHaveCount(1);
 
 	await page.keyboard.press("Tab");
 	await expect(tip).toHaveCount(0);
 	await expect(page.getByTestId("idle-input")).toBeFocused();
-	await expect(status).toHaveText("");
+	await expect(status).toHaveCount(0);
 
 	await page.keyboard.press("Shift+Tab");
 	await expect(button).toBeFocused();
@@ -301,7 +305,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme });
 		await open(page);
 		await page.getByRole("button", { name: "About Disconnect grace" }).click();
-		await expect(page.getByRole("dialog", { name: "Disconnect grace" })).toBeVisible();
+		await expect(openToggletip(page)).toBeVisible();
 		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});

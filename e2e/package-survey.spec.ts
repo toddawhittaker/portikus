@@ -1,5 +1,12 @@
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, loginAs, query, settledAxe, WCAG_TAGS } from "./helpers";
+import {
+	createStudent,
+	loginAs,
+	openToggletip,
+	query,
+	settledAxe,
+	WCAG_TAGS,
+} from "./helpers";
 
 /**
  * "Packages students add" on the Health tab (SPEC.md §20.1, ADR 0042). No
@@ -71,9 +78,7 @@ test.describe("package survey", () => {
 		await expect(rows.filter({ hasText: "cowsay" })).toContainText("0 of 9");
 
 		await table.getByRole("button", { name: "About Base-image candidate" }).click();
-		await expect(
-			page.getByRole("dialog", { name: "Base-image candidate" }),
-		).toContainText("on the latest survey day");
+		await expect(openToggletip(page)).toContainText("on the latest survey day");
 		const results = await (await settledAxe(page))
 			.include('[aria-labelledby="health-packages-title"]')
 			.include(".pk-toggletip-content")

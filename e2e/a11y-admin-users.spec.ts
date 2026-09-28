@@ -6,7 +6,14 @@
  */
 import * as crypto from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, MOCK_ISSUER, query, settledAxe, WCAG_TAGS } from "./helpers";
+import {
+	loginAs,
+	MOCK_ISSUER,
+	openToggletip,
+	query,
+	settledAxe,
+	WCAG_TAGS,
+} from "./helpers";
 
 async function expectNoViolations(page: Page) {
 	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
@@ -94,8 +101,18 @@ for (const scheme of ["light", "dark"] as const) {
 
 		// The page intro is open, and a column's help is shown over the sticky header.
 		await expect(page.getByTestId("intro-admin-users")).toBeVisible();
-		await page.getByRole("button", { name: "About Account tags", exact: true }).click();
-		await expect(page.getByRole("dialog", { name: "Account tags" })).toBeVisible();
+		const about = page.getByRole("button", { name: "About Account tags", exact: true });
+		await about.click();
+		await expect(openToggletip(page)).toBeVisible();
+		// The tip's text is read out elsewhere, so it never joins the header's name.
+		const tipText = (await openToggletip(page).innerText()).trim();
+		const header = page.getByRole("columnheader").filter({ has: about });
+		await expect(header).toHaveAccessibleName(/Account tags/);
+		const opening = tipText.slice(0, 24).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		await expect(header).not.toHaveAccessibleName(new RegExp(opening));
+		await expect(
+			page.locator("body > [aria-live='polite']").filter({ hasText: tipText }),
+		).toHaveCount(1);
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 

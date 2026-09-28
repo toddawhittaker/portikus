@@ -5,7 +5,7 @@
 import type { Project } from "@portikus/contracts";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { renderWithQuery } from "../test-utils.js";
+import { openToggletip, renderWithQuery } from "../test-utils.js";
 import { ChecksPane } from "./ChecksPane.js";
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
@@ -355,5 +355,5 @@ test("the Checks head explains where checks come from", async () => {
 	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
 
 	fireEvent.click(await screen.findByRole("button", { name: "About Checks" }));
-	expect(screen.getByRole("dialog").textContent).toContain(".portikus/checks.json");
+	expect(openToggletip().textContent).toContain(".portikus/checks.json");
 });

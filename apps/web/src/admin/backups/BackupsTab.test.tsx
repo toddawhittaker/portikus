@@ -1,7 +1,14 @@
 import type { AdminBackups, BackupRequestView } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { json, renderApp, renderWithQuery, stubFetch, USER } from "../../test-utils.js";
+import {
+	json,
+	openToggletip,
+	renderApp,
+	renderWithQuery,
+	stubFetch,
+	USER,
+} from "../../test-utils.js";
 import { RestoreFromBackupDialog } from "./BackupDialogs.js";
 import {
 	newestCompleteStamp,
@@ -566,7 +573,7 @@ test("the tab opens with its intro and each help button names what it explains",
 		expect(screen.getByRole("button", { name })).toBeTruthy();
 	}
 	fireEvent.click(screen.getByRole("button", { name: "About set times" }));
-	expect((await screen.findByRole("dialog", { name: "set times" })).textContent).toBe(
+	expect(openToggletip().textContent).toBe(
 		"Set times are in UTC, because the restore folder is named with them.",
 	);
 });

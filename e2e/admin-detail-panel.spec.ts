@@ -5,6 +5,7 @@ import {
 	createStudent,
 	loginAs,
 	MOCK_ISSUER,
+	openToggletip,
 	query,
 	settledAxe,
 	toast,
@@ -483,7 +484,7 @@ test("a toggletip opens from the keyboard, explains, and gives focus back on Esc
 	const about = panel.getByRole("button", { name: "About Last input" });
 	await about.focus();
 	await page.keyboard.press("Enter");
-	const tip = page.getByRole("dialog", { name: "Last input" });
+	const tip = openToggletip(page);
 	await expect(tip).toContainText("Idle stop counts from here.");
 	await page.keyboard.press("Escape");
 	await expect(tip).toHaveCount(0);
@@ -499,7 +500,7 @@ for (const scheme of ["light", "dark"] as const) {
 		const student = await namedStudent(browser, `A11y tip ${scheme}`);
 		const panel = await openPanel(page, student.name);
 		await panel.getByRole("button", { name: "About Rebuild workspace" }).click();
-		await expect(page.getByRole("dialog", { name: "Rebuild workspace" })).toBeVisible();
+		await expect(openToggletip(page)).toBeVisible();
 		await expectNoViolations(page);
 	});
 }

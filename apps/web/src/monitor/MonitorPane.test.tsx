@@ -14,6 +14,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { RightPaneContext } from "../shell/rightPane.js";
+import { openToggletip } from "../test-utils.js";
 import { MonitorPane } from "./MonitorPane.js";
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
@@ -473,5 +474,5 @@ test("Processes explains what Stop may end", async () => {
 	// Beside the heading, not inside it, so the heading's name stays "Processes".
 	expect(screen.getByRole("heading", { level: 3, name: "Processes" })).toBeTruthy();
 	fireEvent.click(tip);
-	expect(screen.getByRole("dialog").textContent).toContain("busiest first");
+	expect(openToggletip().textContent).toContain("busiest first");
 });

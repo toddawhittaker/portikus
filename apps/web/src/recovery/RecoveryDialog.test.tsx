@@ -1,6 +1,13 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { json, project, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
+import {
+	json,
+	openToggletip,
+	project,
+	renderWithQuery,
+	stubFetch,
+	WORKSPACE,
+} from "../test-utils.js";
 import { REASON_LABEL, RecoveryDialog } from "./RecoveryDialog.js";
 import { pointTime } from "./RestoreConfirm.js";
 
@@ -218,7 +225,7 @@ test("the head explains what a point holds, and says restoring rolls back commit
 	);
 	expect(described?.querySelector("button")).toBeNull();
 	fireEvent.click(screen.getByRole("button", { name: "About Recovery points" }));
-	const tip = await screen.findByRole("dialog", { name: "Recovery points" });
+	const tip = openToggletip();
 	expect(tip.textContent).toContain("its Git folder included");
 	expect(tip.textContent).toContain("commits included");
 });

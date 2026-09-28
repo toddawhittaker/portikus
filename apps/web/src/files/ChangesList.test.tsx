@@ -9,7 +9,14 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createLayoutStore, LayoutStoreContext } from "../layout/store.js";
-import { json, project, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
+import {
+	json,
+	openToggletip,
+	project,
+	renderWithQuery,
+	stubFetch,
+	WORKSPACE,
+} from "../test-utils.js";
 import { ChangesList } from "./ChangesList.js";
 import { sessionReviewLabel } from "./sessionReview.js";
 
@@ -119,7 +126,7 @@ test("Review session changes has a toggletip saying what it compares", async () 
 		</ToastProvider>,
 	);
 	fireEvent.click(screen.getByRole("button", { name: "About Review session changes" }));
-	expect((await screen.findByRole("dialog")).textContent).toBe(
+	expect(openToggletip().textContent).toBe(
 		"Shows only what changed since this agent session started, not everything since your last commit. Files Git ignores are left out, except .env files at the project root.",
 	);
 });

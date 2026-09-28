@@ -4,6 +4,7 @@ import {
 	createStudent,
 	loginAs,
 	MOCK_ISSUER,
+	openToggletip,
 	query,
 	type TestStudent,
 	toast,
@@ -617,7 +618,7 @@ test.describe("the Users table layout", () => {
 		] as const) {
 			const button = page.getByRole("button", { name: `About ${label}`, exact: true });
 			await button.click();
-			const tip = page.getByRole("dialog", { name: label, exact: true });
+			const tip = openToggletip(page);
 			await expect(tip).toContainText(text);
 			await page.keyboard.press("Escape");
 			await expect(tip).toHaveCount(0);
@@ -628,8 +629,6 @@ test.describe("the Users table layout", () => {
 			await page.keyboard.press("Escape");
 		}
 		await page.getByRole("button", { name: "About Activity", exact: true }).hover();
-		await expect(
-			page.getByRole("dialog", { name: "Activity", exact: true }),
-		).toHaveCount(0);
+		await expect(openToggletip(page)).toHaveCount(0);
 	});
 });

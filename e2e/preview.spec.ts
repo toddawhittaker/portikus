@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	openToggletip,
 	query,
 	seedListening,
 	settledAxe,
@@ -609,9 +610,7 @@ test.describe("application preview", () => {
 			const tip = page.getByRole("button", { name: "About the preview address" });
 			await tip.focus();
 			await page.keyboard.press("Enter");
-			await expect(
-				page.getByRole("dialog", { name: "the preview address" }),
-			).toHaveText(
+			await expect(openToggletip(page)).toHaveText(
 				"Your preview's own address. Only you can open it, after signing in to Portikus. It does not work for anyone else.",
 			);
 			for (const selector of [".pk-preview-bar", ".pk-toggletip-content"]) {

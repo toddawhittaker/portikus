@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import {
 	createStudent,
 	loginAs,
+	openToggletip,
 	query,
 	settledAxe,
 	WCAG_TAGS,
@@ -247,7 +248,7 @@ test.describe("admin audit", () => {
 			// An open toggletip is checked too; it opens on click and closes on Escape.
 			const result = page.getByRole("button", { name: "About Result" });
 			await result.click();
-			const tip = page.getByRole("dialog", { name: "Result" });
+			const tip = openToggletip(page);
 			await expect(tip).toContainText("denied means Portikus refused it");
 
 			const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();

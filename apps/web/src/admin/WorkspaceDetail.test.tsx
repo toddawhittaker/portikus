@@ -1,7 +1,14 @@
 import type { AdminUser, AdminWorkspaceDetail } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { json, renderApp, stubFetch, USER, WORKSPACE } from "../test-utils.js";
+import {
+	json,
+	openToggletip,
+	renderApp,
+	stubFetch,
+	USER,
+	WORKSPACE,
+} from "../test-utils.js";
 import {
 	GRACE_ERROR,
 	graceDraft,
@@ -1676,7 +1683,7 @@ test("the panel's toggletips are named after what they explain and open on click
 		"About Disable account",
 	]);
 	fireEvent.click(within(panel).getByRole("button", { name: "About Last input" }));
-	const tip = await screen.findByRole("dialog", { name: "Last input" });
+	const tip = openToggletip();
 	expect(tip.textContent).toBe(PANEL_HELP.lastInput);
 });
 

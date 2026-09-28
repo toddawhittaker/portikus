@@ -606,3 +606,11 @@ export async function settledAxe(page: Page): Promise<AxeBuilder> {
 	);
 	return new AxeBuilder({ page });
 }
+
+/**
+ * The open toggletip's visible panel. It is hidden from assistive technology
+ * by design (a live region reads the text), so it has no role to find it by.
+ */
+export function openToggletip(page: Page): Locator {
+	return page.locator(".pk-toggletip-content[data-state='open']");
+}
