@@ -74,6 +74,22 @@ Motion is functional only. Colour changes take `duration-fast` (120ms); menus, d
 
 Icons are outlined on a 24px grid at a 1.75 stroke, drawn by the `Icon` component in `currentColor` at `size-icon-sm` (14px), `size-icon-md` (16px) or `size-icon-lg` (20px). The set is small and stroke-matched to Lucide; engineers may use `lucide-react` icons of the same names at the same stroke. Claude Code and Codex tabs share the neutral `agent` icon and are told apart by their labels; no vendor logos appear in the product chrome. No emoji anywhere.
 
+The product adds names to the set as screens need them; each one is Lucide's shape at the same stroke. `help` (Lucide `circle-help`) marks a Toggletip button and the Help item in the account menu, and nothing else.
+
+## Help in the product
+
+Two components explain the product where it is used. Both hold plain sentences only, in the voice above.
+
+**PageIntro** is one or two sentences under a page's heading on what the page is for, in a native `details` whose summary reads "About {page}". It is open until the person closes it, and the browser remembers that per page. It has no card, fill or border: body text in `ink-muted`, at most 72 characters wide, with an optional "More in Help" link that opens the matching Help section in a new tab. The parent spaces it with `gap`; it sets no margin. Use it once per page, directly under the h2, and only where the page's purpose is not obvious from its heading.
+
+**Toggletip** is a quiet 24px button with the `help` icon, named "About {subject}", that shows one to three sentences in a small raised panel when it is clicked or pressed with Enter or Space. It never opens on hover, so it works the same by touch, mouse and keyboard. Escape, a click outside, or tabbing on closes it, and Escape returns focus to the button. Place it beside a field's label (the `help` slot of TextField and Select, outside the `label` element), after the text in a table header cell, beside a section heading in the same row (never inside the heading element), or beside a button in the same actions row. Never put one inside a sentence, never put a link or control inside one, never give a control more than one, and leave it out where visible text already explains. A Tooltip is still right for naming an icon-only button; a Toggletip is for explaining.
+
+## Filter bars and dense forms
+
+Dense filter bars on administrator screens (the Users filters, the Logs time filter) keep the native `select`. It is faster to scan, needs no portal, and matches its neighbours' height at compact density. Everywhere else a choice uses the `Select` component.
+
+A dialog follows the density of whatever opened it: one opened from a compact administrator screen is compact too, although it renders outside that screen's container.
+
 ## The mark
 
 The Portikus mark is a portico seen straight on: a lintel, two columns with capitals and bases, and a base line, framing a small terminal with three code lines and a cursor. The entrance is the product; the terminal inside is the destination. Render it with the `NameMark` component inside the product, where the stone follows the text colour and the terminal keeps `terminal-bg`, `mark-code` and `terminal-cursor` in both themes. Below 24px use the compact variant. Elsewhere use the SVGs in the Logos group: `-ink` on light grounds, `-paper` on dark grounds, `-mono` where only one colour is possible. Never place the mark in a container, add effects, or recolour its terminal.
@@ -82,7 +98,7 @@ The Portikus mark is a portico seen straight on: a lintel, two columns with capi
 
 Tokens become the Tailwind theme in `apps/web`. Expose each colour token as `--color-<name>` inside `@theme` pointing at its CSS variable (`--color-surface-raised: var(--surface-raised)`), so utilities read `bg-surface-raised`, `text-ink-muted`, `border-line-strong`, `outline-focus`. Set `--spacing: 4px` so Tailwind's numeric steps equal the `space-*` tokens. Map `radius-*` to `--radius-*`, `shadow-*` to `--shadow-*`, and the two families to `--font-sans` and `--font-mono`. Theme switching stays on `data-theme`; density on `data-density`.
 
-Each component is an export of `packages/ui` with the same name. Overlay and form behaviour always comes from Radix: `Menu` wraps `DropdownMenu` and `ContextMenu`, `Dialog` wraps `Dialog`, `ConfirmDialog` wraps `AlertDialog`, `Tabs` wraps `Tabs` with dnd-kit sortable, `Toast` wraps `Toast`, `Select` and `Checkbox` wrap their Radix namesakes, `IconButton` uses `Tooltip`. `PaneHandle` wraps the resizable-panel library's handle. Radix's `data-state`, `data-highlighted` and `data-disabled` attributes are the styling hooks in `bundle.css`; keep them.
+Each component is an export of `packages/ui` with the same name. Overlay and form behaviour always comes from Radix: `Menu` wraps `DropdownMenu` and `ContextMenu`, `Dialog` wraps `Dialog`, `ConfirmDialog` wraps `AlertDialog`, `Tabs` wraps `Tabs` with dnd-kit sortable, `Toast` wraps `Toast`, `Select` and `Checkbox` wrap their Radix namesakes, `IconButton` uses `Tooltip`, `Toggletip` wraps `Popover`. `PaneHandle` wraps the resizable-panel library's handle. Radix's `data-state`, `data-highlighted` and `data-disabled` attributes are the styling hooks in `bundle.css`; keep them.
 
 ## Out of scope
 

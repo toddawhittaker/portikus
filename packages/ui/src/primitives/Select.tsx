@@ -2,7 +2,13 @@ import * as RadixSelect from "@radix-ui/react-select";
 import type * as React from "react";
 import { cx } from "./cx.js";
 import { Icon } from "./Icon.js";
-import { CONTROL_CLASS, FIELD_CLASS, HINT_CLASS, LABEL_CLASS } from "./TextField.js";
+import {
+	CONTROL_CLASS,
+	FIELD_CLASS,
+	FieldLabel,
+	HINT_CLASS,
+	LABEL_CLASS,
+} from "./TextField.js";
 
 export interface SelectOption {
 	value: string;
@@ -24,6 +30,8 @@ export interface SelectProps {
 	value?: string;
 	placeholder?: string;
 	hint?: React.ReactNode;
+	/** A Toggletip, shown beside the label and never inside it. */
+	help?: React.ReactNode;
 	/** Render the list open; used by previews and tests. */
 	open?: boolean;
 	/** Show the value but take no choice, while the options are still coming. */
@@ -50,15 +58,18 @@ export function Select({
 	value,
 	placeholder,
 	hint,
+	help,
 	open,
 	disabled,
 	onValueChange,
 }: SelectProps): React.ReactElement {
 	return (
 		<div className={FIELD_CLASS}>
-			<label className={LABEL_CLASS} id={`${id}-l`} htmlFor={id}>
-				{label}
-			</label>
+			<FieldLabel help={help}>
+				<label className={LABEL_CLASS} id={`${id}-l`} htmlFor={id}>
+					{label}
+				</label>
+			</FieldLabel>
 			<RadixSelect.Root
 				value={value}
 				open={open || undefined}
