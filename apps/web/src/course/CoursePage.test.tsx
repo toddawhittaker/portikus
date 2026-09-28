@@ -143,6 +143,29 @@ test("the members table shows name, role, last launch and workspace state", asyn
 	expect(document.title).toBe(`${CS101.title}, Portikus`);
 });
 
+test("another instructor has no Remove button, because the learning system manages them", async () => {
+	serve({
+		[`/courses/${CS101.id}/members`]: () =>
+			json(200, {
+				course: CS101,
+				members: [
+					{
+						userId: SAM_ID,
+						displayName: "Tia Teacher",
+						role: "instructor",
+						lastLaunchAt: "2026-09-22T09:00:00.000Z",
+						workspaceState: null,
+					},
+				],
+			}),
+	});
+	renderApp(`/course/${CS101.id}`);
+
+	const table = await screen.findByTestId("course-members");
+	expect(within(table).getByRole("rowheader").textContent).toBe("Tia Teacher");
+	expect(within(table).queryByRole("button")).toBeNull();
+});
+
 test("the members table uses the admin page's table and frame", async () => {
 	serve({
 		[`/courses/${CS101.id}/members`]: () =>
@@ -354,4 +377,8 @@ test("the next Remove button skips the caller's own row and falls back to the pr
 	expect(nextRemovable(list, "b", "me")).toBe("c");
 	expect(nextRemovable(list, "c", "me")).toBe("b");
 	expect(nextRemovable([member("a"), member("me")], "a", "me")).toBeNull();
+	// Instructors have no Remove button, so focus skips them too.
+	const teacher = { ...member("t"), role: "instructor" as const };
+	expect(nextRemovable([member("a"), teacher, member("c")], "a", "me")).toBe("c");
+	expect(nextRemovable([member("a"), teacher], "a", "me")).toBeNull();
 });

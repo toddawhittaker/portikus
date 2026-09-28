@@ -116,6 +116,11 @@ function launchText(iso: string): string {
 	return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+/** Only students can be removed; instructors are the learning system's to change. */
+function canRemove(member: CourseMember, myId: string | null): boolean {
+	return member.role === "student" && member.userId !== myId;
+}
+
 /** The member whose Remove button takes focus after one is removed: the next, else the previous. */
 export function nextRemovable(
 	members: CourseMember[],
@@ -124,7 +129,7 @@ export function nextRemovable(
 ): string | null {
 	const index = members.findIndex((member) => member.userId === removedId);
 	const others = (list: CourseMember[]) =>
-		list.find((member) => member.userId !== myId)?.userId ?? null;
+		list.find((member) => canRemove(member, myId))?.userId ?? null;
 	return (
 		others(members.slice(index + 1)) ??
 		others(members.slice(0, index).reverse()) ??
@@ -219,7 +224,7 @@ function CourseMembers() {
 										)}
 									</td>
 									<td className="pk-cell-actions">
-										{member.userId === myId ? null : (
+										{!canRemove(member, myId) ? null : (
 											<Button
 												size="sm"
 												data-remove-id={member.userId}
