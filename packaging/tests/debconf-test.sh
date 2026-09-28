@@ -5,11 +5,12 @@
 #
 # Usage: packaging/tests/debconf-test.sh [path/to/portikus.deb]
 # With no .deb it builds a small one from the same templates, config and
-# postinst, which is all this test exercises.
+# postinst, which is all this test exercises. The ui-* scenarios drive the
+# whiptail screens in tmux, as a person would.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-image="${DEBCONF_TEST_IMAGE:-portikus-debconf-test}"
+image="${DEBCONF_TEST_IMAGE:-portikus-debconf-test:2}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -25,7 +26,7 @@ Package: portikus
 Version: 0.0.0+debconf-test
 Architecture: all
 Maintainer: Portikus <portikus@example.invalid>
-Depends: debconf, python3-yaml, whiptail | dialog
+Depends: debconf, python3-yaml, whiptail | dialog, openssl
 Description: Portikus debconf test package
 EOF
 	chmod 0755 "$pkg/DEBIAN/config" "$pkg/DEBIAN/postinst"
@@ -37,15 +38,19 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
 FROM debian:trixie
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      debconf whiptail python3-yaml util-linux adduser \
+      debconf whiptail python3-yaml util-linux adduser openssl tmux \
  && rm -rf /var/lib/apt/lists/*
 EOF
 fi
 
 cp "$repo_root/packaging/tests/debconf-scenario.sh" "$work/"
 failed=0
-for scenario in dex-file entra-vg google-disk ldap-unconfirmed oidc-missing-secret reconfigure no-debconf-keys unanswered; do
-	if docker run --rm -v "$work:/t:ro" "$image" bash /t/debconf-scenario.sh "$scenario"; then
+for scenario in dex-file entra-vg google-disk ldap-unconfirmed oidc-missing-secret reconfigure no-debconf-keys unanswered \
+	ui-storage-default ui-host-short ui-host-full ui-summary-no ui-cert; do
+	# The container's host name is what the web address question suggests.
+	hostname=portikus
+	[ "$scenario" != ui-host-full ] || hostname=lab.example.edu
+	if docker run --rm --hostname "$hostname" -v "$work:/t:ro" "$image" bash /t/debconf-scenario.sh "$scenario"; then
 		echo "PASS $scenario"
 	else
 		echo "FAIL $scenario"

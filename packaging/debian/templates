@@ -10,7 +10,7 @@ Description: Welcome to Portikus
  keep student files. Each one suggests an answer.
  .
  Nothing on this server changes until you confirm on the last screen.
- Setup then runs in the background and takes about fifteen minutes.
+ Setup then runs in the background and takes about ten minutes.
 
 Template: portikus/error
 Type: note
@@ -41,8 +41,8 @@ Description: HTTPS certificate:
  Portikus is served only over HTTPS. Choose where its certificate comes
  from.
  .
- Let's Encrypt: a free certificate every browser trusts. It needs a public
- DNS name, and a Cloudflare API token for the student preview names.
+ Let's Encrypt: needs your domain's DNS at Cloudflare and a Cloudflare API
+ token. A free certificate every browser trusts.
  .
  Certificate files: a certificate and key you already have. They must
  cover this name and *.preview.<this name>.
@@ -59,13 +59,15 @@ Description: Email for Let's Encrypt:
 Template: portikus/cloudflare_api_token
 Type: password
 Description: Cloudflare API token:
+ Paste a Cloudflare API token with the "Edit zone DNS" permission for this
+ domain.
+ .
  Student previews need a wildcard certificate, which Let's Encrypt issues
  only after a DNS check. Portikus makes that check through Cloudflare, so
  your domain's DNS must be hosted there.
  .
- In Cloudflare, create a token with the "Edit zone DNS" permission for
- this domain. It is stored only in /etc/portikus/secrets.yaml, which only
- root can read. ${keep}
+ The token is stored only in /etc/portikus/secrets.yaml, which only root
+ can read. ${keep}
 
 Template: portikus/tls_cert
 Type: string
@@ -127,8 +129,10 @@ Description: Client ID:
 Template: portikus/client_secret
 Type: password
 Description: Client secret:
- The client secret of that registration. It is stored only in
- /etc/portikus/secrets.yaml, which only root can read. ${keep}
+ Paste the client secret of that registration.
+ .
+ It is stored only in /etc/portikus/secrets.yaml, which only root can
+ read. ${keep}
 
 Template: portikus/oidc_groups_claim
 Type: string
@@ -169,6 +173,8 @@ Description: Service account:
 Template: portikus/ldap_bind_password
 Type: password
 Description: Service account password:
+ Type the password of the service account.
+ .
  It is stored only in /etc/portikus/secrets.yaml, which only root can
  read. ${keep}
 
@@ -181,9 +187,10 @@ Description: Where people are:
 Template: portikus/ldap_user_filter
 Type: string
 Description: Who may sign in:
- An LDAP filter, in parentheses, naming who may sign in. Without a narrow
- filter every account in the directory could, so name a group, such as
- (memberOf=cn=portikus-users,ou=Groups,dc=example,dc=edu).
+ An LDAP filter, in parentheses, naming who may sign in at all. Without a
+ narrow filter every account in the directory could, so name a group, such
+ as (memberOf=cn=portikus-users,ou=Groups,dc=example,dc=edu). The group
+ questions later only decide each person's role.
 
 Template: portikus/ldap_group_base_dn
 Type: string
@@ -203,20 +210,21 @@ Template: portikus/student_group
 Type: string
 Default: portikus-students
 Description: Students' group:
- The group whose members sign in as students. Only members of one of the
- three groups asked for here may sign in.
+ The group whose members sign in as students. ${hint}
+ .
+ ${rule}
 
 Template: portikus/instructor_group
 Type: string
 Default: portikus-instructors
 Description: Instructors' group:
- The group whose members sign in as instructors.
+ The group whose members sign in as instructors. ${hint}
 
 Template: portikus/admin_group
 Type: string
 Default: portikus-administrators
 Description: Administrators' group:
- The group whose members sign in as administrators.
+ The group whose members sign in as administrators. ${hint}
 
 Template: portikus/storage
 Type: select

@@ -278,7 +278,8 @@ Portikus setup is running in the background. It takes about ten minutes.
   1. Follow it with:  sudo portikus setup --follow
   2. When it finishes, read the administrator's one-time password with:
        sudo cat /etc/portikus/admin-password
-  3. Sign in at https://$public_host as $admin_email and choose a new password.
+  3. Sign in at https://$public_host
+     as $admin_email and choose a new password.
 
 EOF
 	else

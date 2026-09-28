@@ -130,13 +130,9 @@ prepare_storage() {
 		labels="${labels:+$labels, }$2"
 	}
 	found=0
-	count=0
-	only=""
 	while read -r dev size; do
 		[ -n "$dev" ] || continue
 		add "$dev" "$dev - an empty disk of $size GiB (erased)"
-		count=$((count + 1))
-		only=$dev
 		[ "$dev" != "$current" ] || found=1
 	done <<EOF
 $disks
@@ -155,12 +151,26 @@ EOF
 	fi
 	db_subst portikus/storage values "$values"
 	db_subst portikus/storage labels "$labels"
-	if [ -z "$current" ]; then
-		if [ "$count" = 1 ]; then
-			db_set portikus/storage "$only"
-		else
-			db_set portikus/storage file
-		fi
+	# Erasing a disk is never the suggestion, even when it is the only one.
+	[ -n "$current" ] || db_set portikus/storage file
+}
+
+# The group screens: what kind of name to give, and how the groups and the
+# sign-in filter combine. Dex matches LDAP groups by their cn, and under Dex
+# someone with none of the three groups is a student.
+prepare_group() {
+	case "$1" in
+	student_group) example=portikus-students ;;
+	instructor_group) example=portikus-instructors ;;
+	admin_group) example=portikus-administrators ;;
+	esac
+	db_get portikus/provider
+	if [ "$RET" = ldap ]; then
+		db_subst "portikus/$1" hint "Give the group's short name (its cn), such as $example, not its full distinguished name (DN)."
+		db_subst "portikus/$1" rule "The filter on the \"Who may sign in\" screen decides who may sign in at all. These three groups only decide the role: someone the filter lets in who is in none of them signs in as a student."
+	else
+		db_subst "portikus/$1" hint "Give the name as your provider sends it in the groups claim, such as $example."
+		db_subst "portikus/$1" rule "Only members of one of the three groups asked for here may sign in."
 	fi
 }
 
@@ -223,7 +233,10 @@ prepare() {
 	public_host)
 		db_get portikus/public_host
 		if [ -z "$RET" ]; then
-			db_set portikus/public_host "$(hostname -f 2>/dev/null || hostname)"
+			suggestion=$(hostname -f 2>/dev/null || hostname)
+			suggestion=$(echo "$suggestion" | tr '[:upper:]' '[:lower:]')
+			is_hostname "$suggestion" || suggestion=""
+			db_set portikus/public_host "$suggestion"
 		fi
 		;;
 	admin_email)
@@ -241,11 +254,18 @@ prepare() {
 		fi
 		;;
 	cloudflare_api_token | client_secret | ldap_bind_password)
-		if has_secret "$(secret_key "$1")"; then
-			db_subst "portikus/$1" keep "A secret is already stored: leave this blank to keep it."
+		# debconf keeps a password answered blank, but cannot show it.
+		db_get "portikus/$1"
+		if [ -n "$RET" ]; then
+			db_subst "portikus/$1" keep "Leave blank to keep the value you entered."
+		elif has_secret "$(secret_key "$1")"; then
+			db_subst "portikus/$1" keep "A secret is already stored: leave blank to keep it."
 		else
 			db_subst "portikus/$1" keep ""
 		fi
+		;;
+	student_group | instructor_group | admin_group)
+		prepare_group "$1"
 		;;
 	client_id)
 		db_get portikus/public_host
@@ -288,7 +308,7 @@ secret_key() {
 summary() {
 	out=""
 	line() {
-		out="$out$1\\n"
+		out="${out:+$out\\n}$1"
 	}
 	db_get portikus/public_host
 	line "Web address: https://$RET"
@@ -346,6 +366,31 @@ summary() {
 	SUMMARY=$out
 }
 
+# Checks that a certificate or key file parses and that the key matches the
+# certificate. On a first install the config script can run before openssl
+# is unpacked; then only the file checks above apply.
+check_pem() {
+	command -v openssl >/dev/null 2>&1 || return 0
+	if [ "$1" != tls_key ]; then
+		openssl x509 -noout -in "$2" >/dev/null 2>&1 || {
+			PROBLEM="$2 is not a PEM certificate that openssl can read."
+			return 1
+		}
+		return 0
+	fi
+	openssl pkey -noout -passin pass: -in "$2" >/dev/null 2>&1 || {
+		PROBLEM="$2 is not a PEM private key that openssl can read. It must not have a passphrase."
+		return 1
+	}
+	db_get portikus/tls_cert
+	cert_pub=$(openssl x509 -noout -pubkey -in "$RET" 2>/dev/null) || cert_pub=""
+	key_pub=$(openssl pkey -pubout -passin pass: -in "$2" 2>/dev/null) || key_pub=""
+	if [ -z "$cert_pub" ] || [ "$cert_pub" != "$key_pub" ]; then
+		PROBLEM="The key in $2 does not match the certificate in $RET."
+		return 1
+	fi
+}
+
 is_hostname() {
 	echo "$1" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
 }
@@ -360,6 +405,10 @@ check() {
 	value=$RET
 	case "$1" in
 	public_host)
+		[ -n "$value" ] || {
+			PROBLEM="Give this server's web address, such as portikus.example.edu."
+			return 1
+		}
 		lower=$(echo "$value" | tr '[:upper:]' '[:lower:]')
 		[ "$lower" = "$value" ] || db_set portikus/public_host "$lower"
 		is_hostname "$lower" || {
@@ -384,6 +433,7 @@ check() {
 			PROBLEM="There is no readable file at $value on this server."
 			return 1
 		fi
+		check_pem "$1" "$value" || return 1
 		;;
 	cloudflare_api_token | ldap_bind_password | client_secret)
 		if [ -z "$value" ]; then
@@ -506,12 +556,18 @@ while [ "$STATE" -ge 1 ] && [ "$STATE" -le "$LAST" ]; do
 	fi
 	go=0
 	db_go || go=$?
-	# No on the summary means go back and change something.
+	# No on the summary starts the questions again, with every answer kept
+	# as its default; a blank password keeps the value entered before.
 	if [ "$go" = 0 ] && [ "$name" = summary ]; then
 		db_get portikus/summary
 		if [ "$RET" = false ]; then
 			db_set portikus/summary true
-			go=30
+			for step in $STEPS; do
+				[ "$step" = welcome ] || db_fset "portikus/$step" seen false
+			done
+			STATE=2
+			DIR=1
+			continue
 		fi
 	fi
 	if [ "$go" = 0 ]; then

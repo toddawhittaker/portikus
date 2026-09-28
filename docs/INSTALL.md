@@ -156,7 +156,9 @@ you say Yes on the last screen.
 
 The questions appear as grey dialogs on a blue screen. Move with the arrow
 keys and Tab, choose with Enter. **Cancel** goes back one screen. A
-screen appears only when your earlier answers make it relevant. If an
+screen appears only when your earlier answers make it relevant. A hidden
+field, such as a token or password, always looks empty when you come back
+to it; leave it blank to keep the value you entered. If an
 answer is not valid, a "Please check that answer" note says why, and the
 question comes back:
 
@@ -179,8 +181,9 @@ Says what Portikus is and what will be asked. Choose Ok.
 
 The DNS name from "DNS records", such as `portikus.example.edu`. The
 suggestion is the server's own full host name, which on a rented server is
-usually the provider's name for it, so replace it. Use lower-case letters,
-digits, hyphens and dots.
+usually the provider's name for it, so replace it. When the server's host
+name has no dot, the field starts empty. Use lower-case letters, digits,
+hyphens and dots.
 
 ### 3. Email of the Portikus administrator
 
@@ -190,8 +193,8 @@ suggestion is `admin@<web address>`, which is fine.
 
 ### 4. HTTPS certificate
 
-- **Let's Encrypt** (the default): choose it if your domain's DNS is at
-  Cloudflare. Two more screens follow:
+- **Let's Encrypt** (the default): needs your domain's DNS at Cloudflare
+  and a Cloudflare API token. Two more screens follow:
   - **Email for Let's Encrypt**: where Let's Encrypt writes if a
     certificate has a problem. The suggestion is the administrator's
     email; use a mailbox someone reads.
@@ -205,7 +208,9 @@ suggestion is `admin@<web address>`, which is fine.
 - **Certificate files I already have**: two more screens ask for the full
   paths of the certificate (PEM format, intermediates after it) and its
   private key. The files must already be on the server and must cover
-  both the web address and `*.preview.<web address>`.
+  both the web address and `*.preview.<web address>`. The screens check
+  that openssl can read the certificate and the key, that the key has no
+  passphrase, and that the key matches the certificate.
 - **Portikus's own certificate authority (testing)**: no more screens.
   Browsers will warn until each one trusts the root certificate (see
   "After setup").
@@ -225,10 +230,16 @@ screen adds your institution's accounts on top:
   directory, the directory servers' addresses, the service account and
   its password, where people are, a filter naming who may sign in, and
   optionally where groups are and the directory's CA certificate. With a
-  group location it also asks the three group names below.
+  group location it also asks the three group names. The filter decides
+  who may sign in at all; the groups only decide the role, and someone
+  the filter lets in who is in none of the groups signs in as a student.
+  Give each group's short name (its cn), such as `portikus-students`, not
+  its full distinguished name (DN).
 - **Another OpenID Connect provider** (such as Okta, Keycloak or
   Shibboleth): asks the issuer URL, the client ID and secret, the groups
-  claim, and the students', instructors' and administrators' group names.
+  claim, and the students', instructors' and administrators' group names,
+  as the provider sends them in the groups claim. Only members of one of
+  the three groups may sign in.
 
 For Entra, Google and other OpenID Connect providers, register Portikus
 with the provider first. The client ID screen shows the redirect address
@@ -239,8 +250,8 @@ ready, choose Local accounts only now and add the provider later.
 ### 6. Where to keep student files
 
 Lists what this server has: each empty disk, each LVM volume group with
-free space, and a file on the main disk. The suggestion is the empty disk
-when there is exactly one, and otherwise the file.
+free space, and a file on the main disk. The suggestion is always the
+file, because choosing a disk erases it.
 
 ```
    ┌───────────────────────┤  Configuring portikus ├────────────────────────┐
@@ -288,7 +299,6 @@ A summary of every answer except secrets:
   │ Sign-in: local accounts only                                             │
   │ Student files: /dev/sdb, NOT confirmed, so setup will not start          │
   │                                                                          │
-  │                                                                          │
   │ Yes saves them in /etc/portikus/portikus.yaml, with secrets in           │
   │ /etc/portikus/secrets.yaml, and starts setup in the background. No goes  │
   │ back to change an answer.                                                │
@@ -300,7 +310,10 @@ A summary of every answer except secrets:
   └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-Yes saves the answers and starts setup. No goes back.
+Yes saves the answers and starts setup. No returns to the web address
+question with every answer kept, so you can press Enter through the
+screens and change only what you need. Leave hidden fields blank to keep
+their values.
 
 ## Setup
 
@@ -312,7 +325,8 @@ Portikus setup is running in the background. It takes about ten minutes.
   1. Follow it with:  sudo portikus setup --follow
   2. When it finishes, read the administrator's one-time password with:
        sudo cat /etc/portikus/admin-password
-  3. Sign in at https://portikus.example.edu as admin@portikus.example.edu and choose a new password.
+  3. Sign in at https://portikus.example.edu
+     as admin@portikus.example.edu and choose a new password.
 ```
 
 If instead it says "Portikus is installed, but setup has not started", it
