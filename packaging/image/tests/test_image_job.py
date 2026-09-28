@@ -731,5 +731,24 @@ class ManifestTest(Base):
         self.assertFalse([c for c in self.host.calls if c[0] in ("mount", "chroot")])
 
 
+class UnitFileTest(unittest.TestCase):
+    """Settings of portikus-image-job.service that the rehearsal VM showed matter."""
+
+    def setUp(self):
+        unit = (_PATH.parents[1] / "systemd" / "portikus-image-job.service").read_text()
+        self.settings = dict(line.split("=", 1) for line in unit.splitlines()
+                             if "=" in line and not line.lstrip().startswith("#"))
+
+    def test_the_sandbox_lets_distrobuilder_set_its_build_hostname(self):
+        # ProtectHostname's filter refuses sethostname(), and distrobuilder then stops
+        # with "Failed to set hostname: Operation not permitted".
+        self.assertNotIn("ProtectHostname", self.settings)
+
+    def test_a_burst_of_requests_cannot_hit_the_start_limit(self):
+        # With the default limit, six quick requests failed the path unit, and no
+        # later request ran until it was restarted by hand.
+        self.assertEqual(self.settings.get("StartLimitIntervalSec"), "0")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -605,34 +605,33 @@ host that was not built here.
 
 ### Limits today
 
-- The account name `deploy` is fixed in `infra/ansible/inventory.ini`, in
-  the SSH commands in the Makefile, and in `infra/tests/smoke-test.sh`.
-  `infra/ansible/roles/image_builder/tasks/main.yml` also creates three
-  directories owned by `deploy`.
-- The site name is derived from the address: it defaults to
-  `portikus.<ip>.nip.io` (`infra/ansible/site.yml`, lines 86 to 88), and
-  nip.io is a public service that resolves any name of that shape back to
-  the address inside it. A real DNS name works, but only because you pass
-  it in `PORTIKUS_PUBLIC_HOST`; nothing here manages DNS, and Caddy still
-  issues its own certificate rather than a publicly trusted one.
+- The account Ansible and the tests SSH in as is `SSH_USER` (default
+  `deploy`, the account cloud-init makes). It needs passwordless sudo.
+  The backup and restore scripts under `infra/host/`,
+  `infra/tests/rebuild-exercise.sh` and `infra/tests/load-test.sh` still
+  assume `deploy`, because they serve only this checkout's libvirt VMs.
+- A host given with `VM_IP=` is named `portikus.<its address>.nip.io`
+  unless you pass `PORTIKUS_PUBLIC_HOST`. nip.io is a public service that
+  resolves any name of that shape back to the address inside it. Nothing
+  here manages DNS, and the workstation run serves Caddy's own certificate
+  authority (`portikus_tls: internal`); the Let's Encrypt and certificate
+  file modes are set through the package's questions (docs/INSTALL.md).
+- A host given with `VM_IP=` must name its own storage in
+  `PORTIKUS_STORAGE` (a device, a volume group or `file`), with
+  `PORTIKUS_STORAGE_CONFIRM=true` for a device. Only this checkout's
+  libvirt VMs default to their empty `/dev/vdb`.
 - The port is a single variable, `PORTIKUS_PUBLIC_PORT`. It has to match
-  in three places at once: Caddy's site address, the URLs the API builds,
-  and the host's port forward. Setting it on `configure-vm` covers the
-  first two; the forward in `infra/host/publish-vm.sh` is fixed at 8443.
-- `PORTIKUS_PUBLIC_HOST` must be set explicitly when going through Make.
-  The Makefile builds a default from your workstation's own LAN address,
-  which is the wrong address for a host you did not create locally.
-- The smoke test checks `/dev/vdb` directly in two places
-  (`infra/tests/smoke-test.sh`, lines 133 and 218), so those two checks
-  fail if your data disk has another name, even when the playbook
-  succeeded with `-e data_disk_device`.
-- `make configure-vm`, `make infra-plan`, `make infra-apply`,
-  `make destroy-pilot`, `make rebuild-pilot`, and `make publish-vm` are
-  libvirt-only. Everything else takes `VM_IP=`.
-- The management network is a CIDR you assert, not something the playbook
-  can discover. If the host shares a subnet with anything you care about,
-  say so in `PORTIKUS_MANAGEMENT_CIDR` or workspaces will be able to reach
-  it.
+  Caddy's site address, the URLs the API builds, and the host's port
+  forward. Setting it on `configure-vm` covers the first two; the forward
+  in `infra/host/publish-vm.sh` is fixed at 8443.
+- `make infra-plan`, `make infra-apply`, `make destroy-pilot`,
+  `make rebuild-pilot`, `make publish-vm`, the `rehearsal-*` targets and
+  `make install-test` are libvirt-only, and the backup and restore targets
+  need the VM name from the OpenTofu state. Everything else takes
+  `VM_IP=`.
+- The management network is guessed from the subnet of the host's default
+  route. If the host shares a wider network with anything workspaces must
+  not reach, name it in `PORTIKUS_MANAGEMENT_CIDR`.
 
 ## Destroy and recreate
 
