@@ -46,8 +46,8 @@ test("an administrator saves the quiet time and percent, and they show after a r
 	await loginAs(page, "carol");
 	await page.goto("/admin?tab=settings");
 	const guard = page.getByRole("region", { name: "Resource guard" });
-	const minutes = guard.getByLabel("Quiet time to lift (minutes)");
-	const percent = guard.getByLabel("Quiet below (%)");
+	const minutes = guard.getByLabel("Quiet time to lift (minutes)", { exact: true });
+	const percent = guard.getByLabel("Quiet below (%)", { exact: true });
 	await expect(minutes).toHaveValue(String(saved.cpu_idle_lift_minutes), {
 		timeout: 15_000,
 	});
@@ -73,8 +73,8 @@ test("out-of-range values are refused with an error tied to each field", async (
 	await loginAs(page, "carol");
 	await page.goto("/admin?tab=settings");
 	const guard = page.getByRole("region", { name: "Resource guard" });
-	const minutes = guard.getByLabel("Quiet time to lift (minutes)");
-	const percent = guard.getByLabel("Quiet below (%)");
+	const minutes = guard.getByLabel("Quiet time to lift (minutes)", { exact: true });
+	const percent = guard.getByLabel("Quiet below (%)", { exact: true });
 	await expect(minutes).not.toHaveValue("", { timeout: 15_000 });
 	const before = await liftSettings();
 
@@ -97,8 +97,8 @@ test("an administrator changes the hold settings, and a bad value is named", asy
 }) => {
 	await loginAs(page, "carol");
 	await page.goto("/admin?tab=settings");
-	const after = page.getByLabel("Hold after throttles");
-	const hours = page.getByLabel("Hold window (hours)");
+	const after = page.getByLabel("Hold after throttles", { exact: true });
+	const hours = page.getByLabel("Hold window (hours)", { exact: true });
 	await expect(after).toHaveValue("3", { timeout: 15_000 });
 	await expect(hours).toHaveValue("24");
 
@@ -119,9 +119,12 @@ test("an administrator changes the hold settings, and a bad value is named", asy
 		);
 		expect(row).toEqual({ after: 4, hours: 48 });
 		await page.reload();
-		await expect(page.getByLabel("Hold after throttles")).toHaveValue("4", {
-			timeout: 15_000,
-		});
+		await expect(page.getByLabel("Hold after throttles", { exact: true })).toHaveValue(
+			"4",
+			{
+				timeout: 15_000,
+			},
+		);
 	} finally {
 		await query(
 			"update settings set cpu_throttle_hold_after = 3, cpu_throttle_hold_hours = 24 where id = 1",

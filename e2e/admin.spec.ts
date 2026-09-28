@@ -14,7 +14,7 @@ import { loginAs, query, toast, WEB_ORIGIN } from "./helpers";
 test.describe.configure({ mode: "serial" });
 
 test.describe("administration", () => {
-	/** The grace period and log level live on the Settings tab (Epic 11). */
+	/** The grace period lives on the Settings tab, the log level on Logs (Epic 25). */
 	async function openAdmin(page: Page, tab = "settings"): Promise<void> {
 		await loginAs(page, "carol");
 		await page.goto(`/admin?tab=${tab}`);
@@ -79,12 +79,16 @@ test.describe("administration", () => {
 		await page.reload();
 		await expect(page.getByTestId("grace-input")).toHaveValue("0");
 
-		// Put it back through the page itself, so the saved value is checked twice.
-		await page.getByTestId("grace-input").fill("600");
+		// Put it back through the page itself, in minutes, so the saved value is checked twice.
+		await page.getByTestId("grace-input").fill("10");
 		await page.getByTestId("grace-save").click();
 		await expect(toast(page, "Grace period saved")).toBeVisible();
+		const [row] = await query<{ seconds: number }>(
+			"select shutdown_grace_seconds as seconds from settings where id = 1",
+		);
+		expect(row?.seconds).toBe(600);
 		await page.reload();
-		await expect(page.getByTestId("grace-input")).toHaveValue("600");
+		await expect(page.getByTestId("grace-input")).toHaveValue("10");
 		await expect(page.getByText("10 minutes").first()).toBeVisible();
 	});
 
@@ -133,7 +137,7 @@ test.describe("administration", () => {
 	});
 
 	test("an administrator overrides and clears the log level", async ({ page }) => {
-		await openAdmin(page);
+		await openAdmin(page, "logs");
 
 		const select = page.getByTestId("log-level-select");
 		await expect(select).toHaveValue("default");
