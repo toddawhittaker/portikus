@@ -6,6 +6,7 @@ import {
 	frameOf,
 	lineSummary,
 	niceNumber,
+	tickText,
 	timeLabel,
 	timeTickIndexes,
 	yTicks,
@@ -110,4 +111,15 @@ test("the summary names the newest and highest values", () => {
 	const percent = (value: number) => `${Math.round(value)}%`;
 	expect(lineSummary([10, 18, null, 16, null], percent)).toBe("Now 16%, highest 18%.");
 	expect(lineSummary([null, null], percent)).toBe("No samples in this range.");
+});
+
+test("ticks are bare numbers that never repeat, compact when large", () => {
+	expect(tickText(0.25)).toBe("0.25");
+	expect(tickText(1500)).toBe("1,500");
+	expect(tickText(60_000)).toBe("60K");
+	expect(tickText(2_500_000)).toBe("2.5M");
+	for (const max of [0.1, 1, 3, 7, 1.5, 60_000]) {
+		const labels = yTicks(max).map(tickText);
+		expect(new Set(labels).size).toBe(labels.length);
+	}
 });

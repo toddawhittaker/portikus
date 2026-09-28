@@ -16,7 +16,7 @@ export function formatLoad(value: number): string {
 	return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
-/** Storage pool, memory and load over the range (SPEC.md §25.6, #598 item 1). */
+/** Storage pool, memory and load over the range (SPEC.md §25.6, #598 item 1). Ticks are bare numbers; the titles carry the unit. */
 export function HostCharts({
 	series,
 	frame,
@@ -41,7 +41,7 @@ export function HostCharts({
 		<>
 			<LineChart
 				testId="health-chart-pool"
-				label="Storage pool used"
+				label="Storage pool used, %"
 				frame={frame}
 				series={[{ name: "Pool", values: pool }]}
 				ticks={PERCENT_TICKS}
@@ -51,7 +51,7 @@ export function HostCharts({
 			/>
 			<LineChart
 				testId="health-chart-memory"
-				label="Memory used"
+				label="Memory used, %"
 				frame={frame}
 				series={[{ name: "Memory", values: memory }]}
 				ticks={PERCENT_TICKS}
@@ -71,7 +71,7 @@ export function HostCharts({
 				ticks={yTicks(Math.max(cpus ?? 1, ...loads))}
 				format={formatLoad}
 				summary={`${lineSummary(load1, (value) => value.toFixed(2))}${
-					cpus ? ` ${cpus} CPU${cpus === 1 ? "" : "s"}.` : ""
+					cpus && loads.length > 0 ? ` ${cpus} CPU${cpus === 1 ? "" : "s"}.` : ""
 				}`}
 				references={
 					cpus ? [{ value: cpus, label: `${cpus} CPU${cpus === 1 ? "" : "s"}` }] : []

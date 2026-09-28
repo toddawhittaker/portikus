@@ -1,8 +1,10 @@
 import {
 	type HealthReport,
+	POOL_FULL_PERCENT,
 	POOL_WARN_PERCENT,
 	poolFillPercent,
 } from "@portikus/contracts";
+import { Skeleton, Toggletip } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ApiError } from "../../api/request.js";
@@ -34,6 +36,23 @@ export function sampleAge(sampledAt: string, now: number): string {
 	return `${hours} hour${hours === 1 ? "" : "s"} ago`;
 }
 
+/** The Health tab's intro under its heading (Epic 25). */
+export const HEALTH_INTRO = {
+	id: "admin-health",
+	helpAnchor: "admin-health",
+	text: "How the platform is doing right now and over time. Look here first when students report slow or failing workspaces.",
+};
+
+/** A figure's name with its help button; the negative margin keeps the 24 px button from growing the row. */
+function Term({ label, help }: { label: string; help: string }) {
+	return (
+		<span className="-my-1 inline-flex items-center gap-1">
+			{label}
+			<Toggletip label={label}>{help}</Toggletip>
+		</span>
+	);
+}
+
 const COUNT_LABELS: Record<keyof HealthReport["last24h"], string> = {
 	startFailures: "Start failures",
 	stopFailures: "Stop failures",
@@ -50,7 +69,7 @@ export function HealthTab() {
 
 	if (health.isError) {
 		return (
-			<AdminSection title="Health">
+			<AdminSection title="Health" intro={HEALTH_INTRO}>
 				<p className="pk-error text-status-error" role="alert">
 					{health.error instanceof ApiError
 						? health.error.message
@@ -60,7 +79,7 @@ export function HealthTab() {
 		);
 	}
 	return (
-		<AdminSection title="Health">
+		<AdminSection title="Health" intro={HEALTH_INTRO}>
 			{health.data ? (
 				<HealthView
 					report={health.data}
@@ -68,7 +87,9 @@ export function HealthTab() {
 					trends={<TrendsCard warnPercent={Math.round(WARN_RATIO * 100)} />}
 				/>
 			) : (
-				<div aria-busy="true" data-testid="health-loading" />
+				<div aria-busy="true" data-testid="health-loading">
+					<Skeleton variant="block" height={280} />
+				</div>
 			)}
 			<PackagesSection />
 		</AdminSection>
@@ -84,9 +105,34 @@ export function stateRows(byState: HealthReport["workspacesByState"]) {
 	}));
 }
 
+/** A card in the At a glance row: an h4 title, then its figures. */
+function GlanceCard({
+	id,
+	title,
+	children,
+}: {
+	id: string;
+	title: string;
+	children: ReactNode;
+}) {
+	return (
+		<section
+			className="pk-card flex min-w-0 flex-col gap-3 p-5"
+			aria-labelledby={`health-${id}-title`}
+		>
+			<h4 className="pk-text-compact m-0 font-semibold" id={`health-${id}-title`}>
+				{title}
+			</h4>
+			{children}
+		</section>
+	);
+}
+
 /**
- * Three rows (SPEC.md section 25.6): Platform and Resource guard, then
- * the Trends card in full width, then Failures and Workspaces by state.
+ * Top to bottom (SPEC.md section 25.6): the worker-stale banner; At a
+ * glance, four cards that sit side by side when there is room (Platform,
+ * Resource guard, Failures in the last 24 hours, Workspaces by state);
+ * then the Trends card.
  */
 export function HealthView({
 	report,
@@ -113,136 +159,159 @@ export function HealthView({
 				</div>
 			) : null}
 
-			<div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
-				<section className="pk-card p-6" aria-labelledby="health-platform-title">
-					<h3 className="pk-text-heading m-0" id="health-platform-title">
-						Platform
-					</h3>
-					<dl className="mt-4 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-[13px]">
-						<dt className="pk-muted">Controller</dt>
-						<dd className="m-0" data-testid="health-controller">
-							{report.controller.reachable
-								? "Reachable"
-								: `Not reachable${report.controller.errorCode ? ` (${report.controller.errorCode})` : ""}`}
-						</dd>
-						<dt className="pk-muted">Last sample</dt>
-						<dd className="m-0">
-							{report.sampledAt ? sampleAge(report.sampledAt, now) : "None yet"}
-						</dd>
-						<dt className="pk-muted">Agents answering</dt>
-						<dd className="m-0" data-testid="health-agents">
-							{report.agents.answering} of {report.agents.running} running
-						</dd>
-						{host ? (
-							<>
-								<dt className="pk-muted">Load average</dt>
-								<dd className="m-0">
-									{host.loadAverage.map((load) => load.toFixed(2)).join(", ")} across{" "}
-									{host.cpuCount} CPU{host.cpuCount === 1 ? "" : "s"}
-								</dd>
-								<dt className="pk-muted">Memory</dt>
-								<dd className="m-0">
-									<Usage
-										testId="health-memory"
-										used={host.memory.usedBytes}
-										total={host.memory.totalBytes}
-										warning={
-											isNearlyFull(host.memory.usedBytes, host.memory.totalBytes)
-												? "Memory is over 80% full"
-												: null
-										}
-									/>
-								</dd>
-								<dt className="pk-muted">Storage pool</dt>
-								<dd className="m-0">
-									<Usage
-										testId="health-pool"
-										used={host.pool.usedBytes}
-										total={host.pool.totalBytes}
-										warning={poolWarning(host.pool)}
-									/>
-								</dd>
-								<dt className="pk-muted">Pool metadata</dt>
-								<dd className="m-0" data-testid="health-pool-metadata">
-									{host.pool.metadataPercent === null
-										? "Not reported"
-										: `${Math.round(host.pool.metadataPercent)}% used`}
-								</dd>
-								<dt className="pk-muted">Workspace limits</dt>
-								<dd className="m-0">
-									CPU {host.profileLimits.cpu ?? "not set"}, memory{" "}
-									{host.profileLimits.memory ?? "not set"}, processes{" "}
-									{host.profileLimits.processes ?? "not set"}
-								</dd>
-								<dt className="pk-muted">Current image</dt>
-								<dd className="m-0" data-testid="health-image">
-									{host.image.serial ?? "No version"}
-									{host.image.fingerprint ? (
-										<span className="pk-muted font-mono">
-											{" "}
-											({host.image.fingerprint.slice(0, 12)})
-										</span>
-									) : null}
-								</dd>
-							</>
-						) : (
-							<>
-								<dt className="pk-muted">Host</dt>
-								<dd className="m-0">No host figures in the newest sample.</dd>
-							</>
-						)}
-					</dl>
-				</section>
+			<section className="flex flex-col gap-3" aria-labelledby="health-glance-title">
+				<h3 className="pk-text-heading m-0" id="health-glance-title">
+					At a glance
+				</h3>
+				<div
+					className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] items-start gap-4"
+					data-testid="health-glance"
+				>
+					<GlanceCard id="platform" title="Platform">
+						<dl className="pk-dl">
+							<dt>Controller</dt>
+							<dd data-testid="health-controller">
+								{report.controller.reachable
+									? "Reachable"
+									: `Not reachable${report.controller.errorCode ? ` (${report.controller.errorCode})` : ""}`}
+							</dd>
+							<dt>Last sample</dt>
+							<dd>
+								{report.sampledAt ? sampleAge(report.sampledAt, now) : "None yet"}
+							</dd>
+							<dt>
+								<Term
+									label="Agents answering"
+									help="Each running workspace has a small agent that serves its files and terminals. Fewer answering than running means some workspaces cannot be reached."
+								/>
+							</dt>
+							<dd data-testid="health-agents">
+								{report.agents.answering} of {report.agents.running} running
+							</dd>
+							{host ? (
+								<>
+									<dt>
+										<Term
+											label="Load average"
+											help="How many processes wanted a CPU, averaged over 1, 5 and 15 minutes. Above the CPU count means work is waiting."
+										/>
+									</dt>
+									<dd>
+										{host.loadAverage.map((load) => load.toFixed(2)).join(", ")} across{" "}
+										{host.cpuCount} CPU{host.cpuCount === 1 ? "" : "s"}
+									</dd>
+									<dt>Memory</dt>
+									<dd>
+										<Usage
+											testId="health-memory"
+											used={host.memory.usedBytes}
+											total={host.memory.totalBytes}
+											warning={
+												isNearlyFull(host.memory.usedBytes, host.memory.totalBytes)
+													? "Memory is over 80% full"
+													: null
+											}
+										/>
+									</dd>
+									<dt>
+										<Term
+											label="Storage pool"
+											help={`The disk space every workspace shares. This tab warns at ${POOL_WARN_PERCENT}% full, and at ${POOL_FULL_PERCENT}% new workspaces are refused until space is freed.`}
+										/>
+									</dt>
+									<dd>
+										<Usage
+											testId="health-pool"
+											used={host.pool.usedBytes}
+											total={host.pool.totalBytes}
+											warning={poolWarning(host.pool)}
+										/>
+									</dd>
+									<dt>
+										<Term
+											label="Pool metadata"
+											help="Bookkeeping space in the same pool. It can fill before the data does, with the same effect."
+										/>
+									</dt>
+									<dd data-testid="health-pool-metadata">
+										{host.pool.metadataPercent === null
+											? "Not reported"
+											: `${Math.round(host.pool.metadataPercent)}% used`}
+									</dd>
+									<dt>
+										<Term
+											label="Workspace limits"
+											help="The site values every workspace gets unless its panel on the Users tab sets its own."
+										/>
+									</dt>
+									<dd>
+										CPU {host.profileLimits.cpu ?? "not set"}, memory{" "}
+										{host.profileLimits.memory ?? "not set"}, processes{" "}
+										{host.profileLimits.processes ?? "not set"}
+									</dd>
+									<dt>Current image</dt>
+									<dd className="min-w-0 break-words" data-testid="health-image">
+										{host.image.serial ?? "No version"}
+										{host.image.fingerprint ? (
+											<span className="pk-muted font-mono">
+												{" "}
+												({host.image.fingerprint.slice(0, 12)})
+											</span>
+										) : null}
+									</dd>
+								</>
+							) : (
+								<>
+									<dt>Host</dt>
+									<dd>No host figures in the newest sample.</dd>
+								</>
+							)}
+						</dl>
+					</GlanceCard>
 
-				<GuardList guard={report.guard} />
-			</div>
+					<GuardList guard={report.guard} />
+
+					<GlanceCard id="counts" title="Failures, last 24 hours">
+						<table className="pk-table" data-testid="health-counts">
+							<caption className="sr-only">Failures in the last 24 hours</caption>
+							<tbody>
+								{Object.entries(COUNT_LABELS).map(([key, label]) => (
+									<tr key={key}>
+										<th scope="row" className="whitespace-normal">
+											{label}
+										</th>
+										<td className="pk-num">
+											{report.last24h[key as keyof HealthReport["last24h"]]}
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</GlanceCard>
+
+					<GlanceCard id="states" title="Workspaces by state">
+						<table className="pk-table" data-testid="health-states">
+							<caption className="sr-only">Workspaces by state</caption>
+							<tbody>
+								{stateRows(report.workspacesByState).map(({ state, count }) => (
+									<tr key={state}>
+										<th scope="row">
+											<WorkspaceStateBadge
+												state={state}
+												desiredState={state}
+												statusRole={false}
+											/>
+										</th>
+										<td className="pk-num">{count}</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</GlanceCard>
+				</div>
+			</section>
 
 			{trends}
-
-			<div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
-				<section className="pk-card p-6" aria-labelledby="health-counts-title">
-					<h3 className="pk-text-heading m-0" id="health-counts-title">
-						Failures
-					</h3>
-					<table className="pk-table mt-4" data-testid="health-counts">
-						<caption className="pk-text-label pk-muted text-left">
-							Failures in the last 24 hours
-						</caption>
-						<tbody>
-							{Object.entries(COUNT_LABELS).map(([key, label]) => (
-								<tr key={key}>
-									<th scope="row">{label}</th>
-									<td className="pk-num">
-										{report.last24h[key as keyof HealthReport["last24h"]]}
-									</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-				</section>
-				<section className="pk-card p-6" aria-labelledby="health-states-title">
-					<h3 className="pk-text-heading m-0" id="health-states-title">
-						Workspaces by state
-					</h3>
-					<table className="pk-table mt-4" data-testid="health-states">
-						<caption className="sr-only">Workspaces by state</caption>
-						<tbody>
-							{stateRows(report.workspacesByState).map(({ state, count }) => (
-								<tr key={state}>
-									<th scope="row">
-										<WorkspaceStateBadge
-											state={state}
-											desiredState={state}
-											statusRole={false}
-										/>
-									</th>
-									<td className="pk-num">{count}</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-				</section>
-			</div>
 		</div>
 	);
 }
@@ -277,59 +346,61 @@ export function guardRows(guard: HealthReport["guard"]) {
 	]);
 }
 
-/** Throttled and memory-flagged workspaces, each linking to its detail panel (ADR 0032). */
+/**
+ * Throttled and memory-flagged workspaces, each linking to its detail panel
+ * (ADR 0032). Two columns, so the list fits a quarter-width card.
+ */
 function GuardList({ guard }: { guard: HealthReport["guard"] }) {
 	const rows = guardRows(guard);
 	return (
-		<section className="pk-card p-6" aria-labelledby="health-guard-title">
-			<h3 className="pk-text-heading m-0" id="health-guard-title">
-				Resource guard
-			</h3>
+		<GlanceCard id="guard" title="Resource guard">
 			{rows.length === 0 ? (
-				<p className="pk-muted m-0 mt-4 text-[13px]" data-testid="health-guard-empty">
+				<p className="pk-muted m-0 text-[13px]" data-testid="health-guard-empty">
 					No workspace is throttled or flagged.
 				</p>
 			) : (
-				<div className="pk-table-wrap mt-4">
+				<div className="pk-table-wrap">
 					<table className="pk-table" data-testid="health-guard">
 						<caption className="sr-only">Throttled and flagged workspaces</caption>
 						<thead>
 							<tr>
 								<th scope="col">Owner</th>
 								<th scope="col">State</th>
-								<th scope="col">Since</th>
-								<th scope="col">Average that set it</th>
 							</tr>
 						</thead>
 						<tbody>
 							{rows.map((row) => (
 								<tr key={row.key}>
-									<td>
+									<td className="whitespace-normal py-1.5 align-top">
 										<Link
 											to="/admin"
 											search={{ tab: "workspaces", user: row.owner.id }}
-											className="pk-link"
+											className="pk-link break-words"
 										>
 											{row.owner.displayName}
 										</Link>
 									</td>
-									<td>
-										<span className="pk-tag pk-tag--warning">{row.which}</span>
-										{row.held ? (
-											<span className="pk-tag pk-tag--warning ml-1">Held</span>
-										) : null}
+									<td className="whitespace-normal py-1.5">
+										<div className="pk-cell-stack gap-1">
+											<span className="flex flex-wrap gap-1">
+												<span className="pk-tag pk-tag--warning">{row.which}</span>
+												{row.held ? (
+													<span className="pk-tag pk-tag--warning">Held</span>
+												) : null}
+											</span>
+											<span className="pk-muted text-[12px]">
+												{row.average}, since{" "}
+												<time dateTime={row.at}>{shortTime(row.at)}</time>
+											</span>
+										</div>
 									</td>
-									<td>
-										<time dateTime={row.at}>{shortTime(row.at)}</time>
-									</td>
-									<td>{row.average}</td>
 								</tr>
 							))}
 						</tbody>
 					</table>
 				</div>
 			)}
-		</section>
+		</GlanceCard>
 	);
 }
 
@@ -346,10 +417,12 @@ function Usage({
 	warning: string | null;
 }) {
 	return (
-		<span data-testid={testId}>
-			{formatBytes(used)} of {formatBytes(total)} ({usedPercent(used, total)}%)
+		<span className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid={testId}>
+			<span>
+				{formatBytes(used)} of {formatBytes(total)} ({usedPercent(used, total)}%)
+			</span>
 			{warning ? (
-				<span className="pk-tag pk-tag--warning ml-2" data-testid={`${testId}-warning`}>
+				<span className="pk-tag pk-tag--warning" data-testid={`${testId}-warning`}>
 					{warning}
 				</span>
 			) : null}
