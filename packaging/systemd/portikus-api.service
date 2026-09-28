@@ -30,6 +30,9 @@ MemoryLow=256M
 # Hardening (SPEC section 24)
 NoNewPrivileges=yes
 ProtectSystem=strict
+# Its one write outside its own state: image job requests (ADR 0030). The
+# leading "-" lets the API start on a host where the directory is not made yet.
+ReadWritePaths=-/var/lib/portikus/image-jobs
 ProtectHome=yes
 PrivateTmp=yes
 # Loopback includes the egress proxy on 127.0.0.1:3128, the API's only way
