@@ -4,7 +4,6 @@ import {
 	CpuThrottleHoldAfter,
 	CpuThrottleHoldHours,
 	DEFAULT_ACCEPTABLE_USE_TEXT,
-	LogLevel,
 	MAX_ACCEPTABLE_USE_LENGTH,
 } from "@portikus/contracts";
 import {
@@ -15,11 +14,11 @@ import {
 	TextField,
 	useToast,
 } from "@portikus/ui";
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 import type { z } from "zod";
 import { ApiError } from "../api/request.js";
 import { AdminSection } from "./AdminSection.js";
-import { graceText } from "./graceText.js";
+import { graceMinutes, graceText, parseGraceMinutes } from "./graceText.js";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./guardFields.js";
 import { usePlatformSettings, useUpdatePlatformSettings } from "./queries.js";
 
@@ -46,23 +45,42 @@ export function announced(error: string | null) {
 }
 
 /**
- * The platform-wide settings: grace period, idle stop, resource guard,
- * acceptable use and log level (SPEC.md §6.4, ADR 0032).
+ * The platform-wide settings: when workspaces stop, the resource guard and
+ * the acceptable-use statement (SPEC.md §6.4, §19.4, ADR 0032). One column
+ * of sections split by hairlines; the log level lives on the Logs tab.
  */
 export function SettingsTab() {
 	return (
 		<AdminSection title="Settings">
-			<div
-				className="grid grid-cols-[repeat(auto-fill,minmax(420px,1fr))] items-start gap-6"
-				data-testid="settings-grid"
-			>
-				<GraceSection />
-				<IdleStopSection />
+			<div className="flex max-w-[72ch] flex-col gap-6" data-testid="settings-sections">
+				<StopSection />
 				<ResourceGuardSection />
 				<AcceptableUseSection />
-				<LogLevelSection />
 			</div>
 		</AdminSection>
+	);
+}
+
+/** Sections after the first get a hairline above them. */
+const SECTION_CLASS =
+	"flex flex-col gap-4 border-line border-t pt-6 first:border-t-0 first:pt-0";
+
+function StopSection() {
+	return (
+		<section className={SECTION_CLASS} aria-labelledby="stop-title">
+			<div>
+				<h3 className="pk-text-heading m-0" id="stop-title">
+					When workspaces stop
+				</h3>
+				<p className="pk-text-body pk-muted m-0 mt-1">
+					A running workspace stops when either time runs out, whichever comes first.
+				</p>
+			</div>
+			<div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] items-start gap-6">
+				<GraceField />
+				<IdleStopField />
+			</div>
+		</section>
 	);
 }
 
@@ -143,7 +161,7 @@ export function parseGuardSetting(key: GuardSettingKey, text: string): number | 
 	return parsed.success ? parsed.data : null;
 }
 
-function IdleStopSection() {
+function IdleStopField() {
 	const settings = usePlatformSettings();
 	const update = useUpdatePlatformSettings();
 	const toast = useToast();
@@ -153,7 +171,8 @@ function IdleStopSection() {
 	const current = settings.data?.idleStopMinutes;
 	const value = draft ?? (current === undefined ? "" : String(current));
 
-	function save() {
+	function save(event: FormEvent) {
+		event.preventDefault();
 		const minutes = parseGuardValue("idleStopMinutes", value);
 		if (minutes === null) {
 			setError("Enter 0 for never, or a whole number from 10 to 1440.");
@@ -173,41 +192,75 @@ function IdleStopSection() {
 	}
 
 	return (
-		<section className="pk-card p-6" aria-labelledby="idle-title">
-			<h3 className="pk-text-heading m-0" id="idle-title">
-				Idle stop
-			</h3>
-			<p className="pk-text-body pk-muted mt-1">
-				How long a running workspace may go without a key press, click, file save or
-				preview visit before the student is asked "Still working?". It stops five
-				minutes later unless they answer. 0 means never. Each workspace can override
-				this.
-			</p>
+		<form className="flex flex-col gap-3" onSubmit={save} noValidate>
 			<TextField
-				className="mt-4 w-48"
+				className="w-48"
 				id="idle-minutes"
-				label="Minutes"
+				label="Idle stop (minutes)"
 				inputMode="numeric"
 				data-testid="idle-input"
 				value={value}
-				// A read failure is shown once, in the grace section above.
+				hint="0 means never."
+				// A read failure is shown once, in the grace field beside this one.
 				error={announced(error)}
 				disabled={settings.isLoading}
 				onChange={(event) => setDraft(event.target.value)}
 			/>
-			<div className="pk-actions mt-4">
+			<div className="pk-actions">
 				<Button
 					variant="primary"
+					type="submit"
 					data-testid="idle-save"
 					loading={update.isPending}
-					onClick={save}
 				>
 					Save
 				</Button>
 			</div>
-		</section>
+		</form>
 	);
 }
+
+/** The four groups of guard fields, each with the one line that explains it. */
+const GUARD_GROUPS: {
+	id: string;
+	legend: string;
+	line: string;
+	keys: GuardSettingKey[];
+}[] = [
+	{
+		id: "guard-cpu",
+		legend: "Slow down heavy CPU use",
+		line: "A workspace whose CPU use averages above the threshold for the whole window is slowed to the throttled share.",
+		keys: ["cpuGuardThresholdPercent", "guardWindowMinutes", "cpuThrottleSharePercent"],
+	},
+	{
+		id: "guard-lift",
+		legend: "Give full speed back",
+		line: "A slowed workspace gets full speed back by itself once it stays quiet for the quiet time.",
+		keys: ["cpuIdleLiftMinutes", "cpuIdleLiftPercent"],
+	},
+	{
+		id: "guard-hold",
+		legend: "Keep repeat cases slowed",
+		line: "A workspace slowed this many times within the hold window stays slowed through a restart.",
+		keys: ["cpuThrottleHoldAfter", "cpuThrottleHoldHours"],
+	},
+	{
+		id: "guard-memory",
+		legend: "Flag high memory",
+		line: "A workspace whose memory use averages above the threshold for the window is flagged. Nothing is slowed.",
+		keys: ["memoryGuardThresholdPercent"],
+	},
+];
+
+/** The guard fields in the order the groups show them, so the first error is the first seen. */
+const GUARD_FIELDS_SHOWN: GuardSettingField[] = GUARD_GROUPS.flatMap((group) =>
+	group.keys.map((key) => {
+		const field = GUARD_SETTING_FIELDS.find((item) => item.key === key);
+		if (!field) throw new Error(`no guard field ${key}`);
+		return field;
+	}),
+);
 
 function ResourceGuardSection() {
 	const settings = usePlatformSettings();
@@ -216,18 +269,18 @@ function ResourceGuardSection() {
 	const [drafts, setDrafts] = useState<Partial<Record<GuardSettingKey, string>>>({});
 	const [errors, setErrors] = useState<Partial<Record<GuardSettingKey, string>>>({});
 	const [serverError, setServerError] = useState<string | null>(null);
-	const fields = GUARD_SETTING_FIELDS;
-	const firstError = fields.find((field) => errors[field.key])?.key;
+	const firstError = GUARD_FIELDS_SHOWN.find((field) => errors[field.key])?.key;
 
 	function fieldValue(key: GuardSettingKey): string {
 		const saved = settings.data?.[key];
 		return drafts[key] ?? (saved === undefined ? "" : String(saved));
 	}
 
-	function save() {
+	function save(event: FormEvent) {
+		event.preventDefault();
 		const body: Record<string, number> = {};
 		const found: Partial<Record<GuardSettingKey, string>> = {};
-		for (const field of fields) {
+		for (const field of GUARD_FIELDS_SHOWN) {
 			const value = parseGuardSetting(field.key, fieldValue(field.key));
 			if (value === null) found[field.key] = field.rangeText;
 			else body[field.key] = value;
@@ -245,59 +298,74 @@ function ResourceGuardSection() {
 	}
 
 	return (
-		<section className="pk-card p-6" aria-labelledby="guard-title">
-			<h3 className="pk-text-heading m-0" id="guard-title">
-				Resource guard
-			</h3>
-			<p className="pk-text-body pk-muted mt-1">
-				A workspace whose CPU average stays above the CPU threshold for the window is
-				slowed to the throttled share of its CPU. It gets full speed back once its CPU
-				average stays below the quiet percent for the quiet time, when it is stopped and
-				started, or when an administrator lifts it. One above the memory threshold is
-				flagged; nothing is slowed. A threshold of 100 turns that check off, and a quiet
-				percent of 0 turns the automatic lift off. A workspace throttled as many times
-				as the hold setting within the hold window stays slowed through a stop and start
-				until it goes quiet or an administrator lifts it; 0 turns the hold off. Each
-				workspace can override all but the quiet and hold settings.
-			</p>
-			<div className="mt-4 grid grid-cols-[repeat(2,max-content)] gap-x-4 gap-y-3">
-				{fields.map((field) => {
-					const key = field.key;
-					const error = errors[key] ?? null;
-					return (
-						<TextField
-							key={key}
-							id={`settings-${field.name}`}
-							className="w-48"
-							label={field.label}
-							inputMode="numeric"
-							data-testid={`settings-${field.name}`}
-							value={fieldValue(key)}
-							// Only the first problem is announced, so a reader hears one alert.
-							error={key === firstError ? announced(error) : error}
-							disabled={settings.isLoading}
-							onChange={(event) =>
-								setDrafts((now) => ({ ...now, [key]: event.target.value }))
-							}
-						/>
-					);
-				})}
-			</div>
-			{serverError ? (
-				<p className="m-0 mt-3 text-[13px] text-status-error" role="alert">
-					{serverError}
+		<section className={SECTION_CLASS} aria-labelledby="guard-title">
+			<div>
+				<h3 className="pk-text-heading m-0" id="guard-title">
+					Resource guard
+				</h3>
+				<p className="pk-text-body pk-muted m-0 mt-1">
+					Slows a workspace that keeps its CPUs busy for a long time, and flags one that
+					stays near its memory limit.
 				</p>
-			) : null}
-			<div className="pk-actions mt-4">
-				<Button
-					variant="primary"
-					data-testid="guard-settings-save"
-					loading={update.isPending}
-					onClick={save}
-				>
-					Save
-				</Button>
 			</div>
+			<form className="flex flex-col gap-5" onSubmit={save} noValidate>
+				{GUARD_GROUPS.map((group) => (
+					<fieldset
+						key={group.id}
+						className="m-0 min-w-0 border-0 p-0"
+						aria-describedby={`${group.id}-line`}
+						data-testid={group.id}
+					>
+						<legend className="pk-text-body m-0 p-0 font-semibold">
+							{group.legend}
+						</legend>
+						<div className="flex flex-col gap-3">
+							<p className="pk-text-compact pk-muted m-0" id={`${group.id}-line`}>
+								{group.line}
+							</p>
+							<div className="flex flex-wrap items-start gap-x-4 gap-y-3">
+								{group.keys.map((key) => {
+									const field = GUARD_FIELDS_SHOWN.find((item) => item.key === key);
+									if (!field) return null;
+									const error = errors[key] ?? null;
+									return (
+										<TextField
+											key={key}
+											id={`settings-${field.name}`}
+											className="w-48"
+											label={field.label}
+											inputMode="numeric"
+											data-testid={`settings-${field.name}`}
+											value={fieldValue(key)}
+											// Only the first problem is announced, so a reader hears one alert.
+											error={key === firstError ? announced(error) : error}
+											disabled={settings.isLoading}
+											onChange={(event) =>
+												setDrafts((now) => ({ ...now, [key]: event.target.value }))
+											}
+										/>
+									);
+								})}
+							</div>
+						</div>
+					</fieldset>
+				))}
+				{serverError ? (
+					<p className="m-0 text-[13px] text-status-error" role="alert">
+						{serverError}
+					</p>
+				) : null}
+				<div className="pk-actions">
+					<Button
+						variant="primary"
+						type="submit"
+						data-testid="guard-settings-save"
+						loading={update.isPending}
+					>
+						Save
+					</Button>
+				</div>
+			</form>
 		</section>
 	);
 }
@@ -346,16 +414,18 @@ function AcceptableUseSection() {
 	}
 
 	return (
-		<section className="pk-card p-6" aria-labelledby="aup-title">
-			<h3 className="pk-text-heading m-0" id="aup-title">
-				Acceptable use
-			</h3>
-			<p className="pk-text-body pk-muted mt-1">
-				The statement everyone accepts before using Portikus. Plain text; a blank line
-				starts a new paragraph.
-				{version === undefined ? null : ` This is version ${version}.`}
-			</p>
-			<div className={`${FIELD_CLASS} mt-4`}>
+		<section className={SECTION_CLASS} aria-labelledby="aup-title">
+			<div>
+				<h3 className="pk-text-heading m-0" id="aup-title">
+					Acceptable use
+				</h3>
+				<p className="pk-text-body pk-muted m-0 mt-1">
+					The statement everyone accepts before using Portikus. Plain text; a blank line
+					starts a new paragraph.
+					{version === undefined ? null : ` This is version ${version}.`}
+				</p>
+			</div>
+			<div className={FIELD_CLASS}>
 				<label className={LABEL_CLASS} htmlFor="aup-text">
 					Statement
 				</label>
@@ -384,7 +454,7 @@ function AcceptableUseSection() {
 					</p>
 				) : null}
 			</div>
-			<div className="pk-actions mt-4 items-center">
+			<div className="pk-actions items-center">
 				<Button
 					variant="primary"
 					data-testid="aup-save"
@@ -411,20 +481,22 @@ function AcceptableUseSection() {
 	);
 }
 
-function GraceSection() {
+function GraceField() {
 	const settings = usePlatformSettings();
 	const update = useUpdatePlatformSettings();
 	const toast = useToast();
 	const [draft, setDraft] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
+	// Shown in minutes; the API keeps seconds (SPEC.md section 6.4).
 	const current = settings.data?.shutdownGraceSeconds;
-	const value = draft ?? (current === undefined ? "" : String(current));
-	const seconds = parseSeconds(value);
+	const value = draft ?? (current === undefined ? "" : graceMinutes(current));
+	const seconds = parseGraceMinutes(value);
 
-	function save() {
+	function save(event: FormEvent) {
+		event.preventDefault();
 		if (seconds === null) {
-			setError("Enter a whole number of seconds, 0 or more.");
+			setError("Enter a number of minutes, 0 or more.");
 			return;
 		}
 		setError(null);
@@ -441,18 +513,12 @@ function GraceSection() {
 	}
 
 	return (
-		<section className="pk-card p-6" aria-labelledby="grace-title">
-			<h3 className="pk-text-heading m-0" id="grace-title">
-				Disconnect grace period
-			</h3>
-			<p className="pk-text-body pk-muted mt-1">
-				How long a workspace keeps running after the last browser disconnects.
-			</p>
+		<form className="flex flex-col gap-3" onSubmit={save} noValidate>
 			<TextField
-				className="mt-4 w-48"
-				id="grace-seconds"
-				label="Seconds"
-				inputMode="numeric"
+				className="w-48"
+				id="grace-minutes"
+				label="Disconnect grace (minutes)"
+				inputMode="decimal"
 				data-testid="grace-input"
 				value={value}
 				hint={seconds === null ? undefined : graceText(seconds)}
@@ -462,102 +528,16 @@ function GraceSection() {
 				disabled={settings.isLoading}
 				onChange={(event) => setDraft(event.target.value)}
 			/>
-			<div className="pk-actions mt-4">
+			<div className="pk-actions">
 				<Button
 					variant="primary"
+					type="submit"
 					data-testid="grace-save"
 					loading={update.isPending}
-					onClick={save}
 				>
 					Save
 				</Button>
 			</div>
-		</section>
-	);
-}
-
-/** The value the select uses for "no override"; the API takes null. */
-const SERVICE_DEFAULT = "default";
-
-/**
- * The runtime log level every service follows (ADR 0012). "Use service
- * default" clears the override, so each service falls back to its own
- * LOG_LEVEL from the environment.
- */
-function LogLevelSection() {
-	const settings = usePlatformSettings();
-	const update = useUpdatePlatformSettings();
-	const toast = useToast();
-	const [draft, setDraft] = useState<string | null>(null);
-	const [error, setError] = useState<string | null>(null);
-
-	const saved = settings.data?.logLevel ?? null;
-	const value = draft ?? (saved === null ? SERVICE_DEFAULT : saved);
-
-	function save() {
-		setError(null);
-		const parsed = LogLevel.safeParse(value);
-		update.mutate(
-			{ logLevel: parsed.success ? parsed.data : null },
-			{
-				onSuccess: () => {
-					setDraft(null);
-					toast.show({ tone: "success", title: "Log level saved" });
-				},
-				onError: (failure) => setError(errorText(failure)),
-			},
-		);
-	}
-
-	return (
-		<section className="pk-card p-6" aria-labelledby="log-level-title">
-			<h3 className="pk-text-heading m-0" id="log-level-title">
-				Log level
-			</h3>
-			<p className="pk-text-body pk-muted mt-1">
-				How much every service logs. Takes effect within a few seconds.
-			</p>
-			<div className={`${FIELD_CLASS} mt-4 w-48`}>
-				<label className={LABEL_CLASS} htmlFor="log-level">
-					Level
-				</label>
-				<select
-					id="log-level"
-					className={`${CONTROL_CLASS} cursor-pointer disabled:border-line disabled:bg-surface-sunken disabled:text-ink-faint`}
-					data-testid="log-level-select"
-					value={value}
-					disabled={settings.isLoading}
-					aria-invalid={error ? true : undefined}
-					aria-describedby={error ? "log-level-err" : undefined}
-					onChange={(event) => setDraft(event.target.value)}
-				>
-					<option value={SERVICE_DEFAULT}>Use service default</option>
-					{LogLevel.options.map((level) => (
-						<option key={level} value={level}>
-							{level}
-						</option>
-					))}
-				</select>
-				{error ? (
-					<p
-						className="pk-error m-0 text-[12px] leading-4 text-status-error"
-						id="log-level-err"
-						role="alert"
-					>
-						{error}
-					</p>
-				) : null}
-			</div>
-			<div className="pk-actions mt-4">
-				<Button
-					variant="primary"
-					data-testid="log-level-save"
-					loading={update.isPending}
-					onClick={save}
-				>
-					Save
-				</Button>
-			</div>
-		</section>
+		</form>
 	);
 }
