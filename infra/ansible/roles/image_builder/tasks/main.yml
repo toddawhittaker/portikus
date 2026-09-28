@@ -98,22 +98,25 @@
     group: "{{ portikus_operator_user or 'root' }}"
     mode: "0755"
 
-- name: Create workspace script directory
-  ansible.builtin.file:
-    path: /var/lib/portikus/incus
-    state: directory
-    owner: "{{ portikus_operator_user or 'root' }}"
-    group: "{{ portikus_operator_user or 'root' }}"
-    mode: "0755"
-
 # Every converge from a checkout brings the VM's copy in step with the
 # repository, so a rebuilt or long-lived VM never runs a stale workspace.sh
-# (Epic 12b B1).  The package ships no copy, so a packaged run skips it.
-- name: Sync the Incus helper scripts
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../incus/"
-    dest: /var/lib/portikus/incus/
-    owner: "{{ portikus_operator_user or 'root' }}"
-    group: "{{ portikus_operator_user or 'root' }}"
-    mode: "0755"
+# (Epic 12b B1).  The package ships no copy, so a packaged run has neither
+# the directory nor the scripts, and the smoke test brings its own.
+- name: Keep the Incus helper scripts in step with the checkout
   when: (playbook_dir ~ '/../incus') is directory
+  block:
+    - name: Create workspace script directory
+      ansible.builtin.file:
+        path: /var/lib/portikus/incus
+        state: directory
+        owner: "{{ portikus_operator_user or 'root' }}"
+        group: "{{ portikus_operator_user or 'root' }}"
+        mode: "0755"
+
+    - name: Sync the Incus helper scripts
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../incus/"
+        dest: /var/lib/portikus/incus/
+        owner: "{{ portikus_operator_user or 'root' }}"
+        group: "{{ portikus_operator_user or 'root' }}"
+        mode: "0755"
