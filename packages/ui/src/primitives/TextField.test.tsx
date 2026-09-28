@@ -63,4 +63,20 @@ describe("TextField", () => {
 		expect(input.getAttribute("data-warning")).toBeNull();
 		expect(screen.queryByText("Taken.")).toBeNull();
 	});
+
+	it("puts a help button beside the label, not inside it", () => {
+		render(
+			<TextField
+				id="idle"
+				label="Idle stop"
+				help={<button type="button">About Idle stop</button>}
+			/>,
+		);
+		const input = screen.getByLabelText("Idle stop");
+		const label = document.querySelector("label[for=idle]");
+		const help = screen.getByRole("button", { name: "About Idle stop" });
+		expect(label?.contains(help)).toBe(false);
+		expect(label?.parentElement?.contains(help)).toBe(true);
+		expect(input.getAttribute("aria-describedby")).toBeNull();
+	});
 });
