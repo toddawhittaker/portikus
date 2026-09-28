@@ -2,6 +2,7 @@ import type { AdminUser } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import {
 	PERSON_AMBIGUOUS_TEXT,
+	PERSON_LOADING_TEXT,
 	PERSON_UNKNOWN_TEXT,
 	personLabel,
 	personOptions,
@@ -63,27 +64,43 @@ test("a unique name is offered as itself; a shared one gains the email or a shor
 });
 
 test("a chosen or typed name, label or email becomes the user's ID", () => {
-	expect(resolvePerson(OPTIONS, "Ada Lovelace", USERS)).toEqual({ id: ADA.id });
-	expect(resolvePerson(OPTIONS, "  ada lovelace ", USERS)).toEqual({ id: ADA.id });
-	expect(resolvePerson(OPTIONS, "ADA@example.edu", USERS)).toEqual({ id: ADA.id });
-	expect(resolvePerson(OPTIONS, "Sam Lee (sam.a@example.edu)", USERS)).toEqual({
+	expect(resolvePerson("Ada Lovelace", USERS)).toEqual({ id: ADA.id });
+	expect(resolvePerson("  ada lovelace ", USERS)).toEqual({ id: ADA.id });
+	expect(resolvePerson("ADA@example.edu", USERS)).toEqual({ id: ADA.id });
+	expect(resolvePerson("Sam Lee (sam.a@example.edu)", USERS)).toEqual({
 		id: SAM_A.id,
 	});
-	expect(resolvePerson(OPTIONS, "", USERS)).toEqual({ id: "" });
+	expect(resolvePerson("", USERS)).toEqual({ id: "" });
 });
 
 test("a shared name alone, or no match, asks for a choice from the list", () => {
-	expect(resolvePerson(OPTIONS, "Sam Lee", USERS)).toEqual({
+	expect(resolvePerson("Sam Lee", USERS)).toEqual({
 		error: PERSON_AMBIGUOUS_TEXT,
 	});
-	expect(resolvePerson(OPTIONS, "Grace", USERS)).toEqual({
+	expect(resolvePerson("Grace", USERS)).toEqual({
 		error: PERSON_UNKNOWN_TEXT,
 	});
 });
 
-test("a full ID still works, for a pasted link", () => {
+test("a full ID in any case still works, for a pasted link", () => {
 	const other = "44444444-4444-4444-8444-444444444444";
-	expect(resolvePerson(OPTIONS, other, USERS)).toEqual({ id: other });
+	expect(resolvePerson(other, USERS)).toEqual({ id: other });
+	expect(resolvePerson(other.toUpperCase(), undefined)).toEqual({ id: other });
+});
+
+test("a username matches too", () => {
+	const carol = {
+		...user("55555555-5555-4555-8555-555555555555", "Carol Admin", null),
+		preferredUsername: "carol",
+	};
+	expect(resolvePerson("CAROL", [...USERS, carol])).toEqual({ id: carol.id });
+});
+
+test("a name typed before the list loads asks to wait, not that no one matches", () => {
+	expect(resolvePerson("Ada Lovelace", undefined)).toEqual({
+		error: PERSON_LOADING_TEXT,
+	});
+	expect(resolvePerson(" ", undefined)).toEqual({ id: "" });
 });
 
 test("an ID from the URL shows as the person's label, or as itself when unknown", () => {

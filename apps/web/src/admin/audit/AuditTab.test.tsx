@@ -12,10 +12,8 @@ import { shortTime } from "../shortTime.js";
 import {
 	AuditTab,
 	filtersFromSearch,
-	resolvePerson,
 	resultTagClass,
 	shortId,
-	suggestionValue,
 	targetLabel,
 } from "./AuditTab.js";
 import { auditQueryString } from "./queries.js";
@@ -259,7 +257,9 @@ test("a name that matches nobody is refused at the field, before any request", a
 	const described = document.getElementById(
 		field.getAttribute("aria-describedby") ?? "",
 	);
-	expect(described?.textContent).toContain('No one matches "Bob"');
+	expect(described?.textContent).toContain("Choose a person from the list.");
+	// Focus moves to the field, so a screen reader hears the error.
+	expect(document.activeElement).toBe(field);
 	expect(auditCalls(fetch)).toEqual(["/admin/audit"]);
 
 	// A name from the list clears the error on the next Apply.
@@ -273,42 +273,16 @@ test("a name that matches nobody is refused at the field, before any request", a
 	expect((field as HTMLInputElement).value).toBe("Alice Student");
 });
 
-test("a person is found by name, email or username in any case, or by a pasted ID", () => {
-	const people = [
-		{ ...PEOPLE[0], preferredUsername: "carol" },
-		PEOPLE[1],
-	] as AdminUser[];
-	expect(resolvePerson("", people)).toEqual({ id: "" });
-	expect(resolvePerson("  ALICE student ", people)).toEqual({ id: ALICE_ID });
-	expect(resolvePerson("carol@example.edu", people)).toEqual({ id: USER_ID });
-	expect(resolvePerson("Carol", people)).toEqual({ id: USER_ID });
-	expect(resolvePerson(WORKSPACE_ID.toUpperCase(), people)).toEqual({
-		id: WORKSPACE_ID,
-	});
-	expect(resolvePerson("Bob", people)).toEqual({
-		error: 'No one matches "Bob". Choose a name from the list.',
-	});
-	expect(resolvePerson("Alice", undefined)).toEqual({
-		error: "The list of people is still loading. Try again in a moment.",
-	});
-	const twins = [
-		...people,
-		person(OTHER_ALICE_ID, "Alice Student", "alice2@example.edu"),
-	] as AdminUser[];
-	expect(resolvePerson("Alice Student", twins)).toEqual({
-		error: 'More than one person matches "Alice Student". Type their email instead.',
-	});
-	expect(resolvePerson("alice2@example.edu", twins)).toEqual({ id: OTHER_ALICE_ID });
-});
-
-test("a shared name is suggested as the email, so each suggestion names one person", () => {
-	const twins = [
-		...PEOPLE,
-		person(OTHER_ALICE_ID, "Alice Student", null),
-	] as AdminUser[];
-	expect(suggestionValue(twins[0] as AdminUser, twins)).toBe("Carol Admin");
-	expect(suggestionValue(twins[1] as AdminUser, twins)).toBe("alice@example.edu");
-	expect(suggestionValue(twins[2] as AdminUser, twins)).toBe(OTHER_ALICE_ID);
+test("Clear empties an action typed but not yet applied", async () => {
+	stubAudit(() => json(200, { events: [], nextBefore: null }));
+	renderTab("/admin?tab=audit");
+	await screen.findByText("No audit events match.");
+	const action = screen.getByRole("textbox", {
+		name: "Action starts with",
+	}) as HTMLInputElement;
+	fireEvent.change(action, { target: { value: "backup." } });
+	fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+	await waitFor(() => expect(action.value).toBe(""));
 });
 
 test("a target is named as a person or as their workspace", () => {

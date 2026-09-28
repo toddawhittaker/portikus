@@ -123,10 +123,10 @@ test.describe("admin audit", () => {
 		await person.fill(`Nobody ${tag}`);
 		await apply.click();
 		await expect(person).toHaveAttribute("aria-invalid", "true");
-		await expect(page.getByText(`No one matches "Nobody ${tag}"`)).toBeVisible();
+		await expect(person).toHaveAccessibleDescription("Choose a person from the list.");
 	});
 
-	test("the filter buttons line up with the inputs, with and without an error", async ({
+	test("the filter inputs and buttons line up, with and without help or an error", async ({
 		page,
 	}) => {
 		await loginAs(page, "carol");
@@ -143,6 +143,19 @@ test.describe("admin audit", () => {
 			).toBeLessThanOrEqual(1);
 		}
 		await expectAligned();
+		// Action starts with has a help button beside its label; Person has none.
+		// Both inputs still start and end on the same lines.
+		const action = page.getByRole("textbox", { name: "Action starts with" });
+		await expect(
+			page.getByRole("button", { name: "About Action starts with" }),
+		).toBeVisible();
+		const [personBox, actionBox] = await Promise.all([
+			input.boundingBox(),
+			action.boundingBox(),
+		]);
+		if (!personBox || !actionBox) throw new Error("filter inputs have no box");
+		expect(Math.abs(personBox.y - actionBox.y)).toBeLessThanOrEqual(0.5);
+		expect(Math.abs(personBox.height - actionBox.height)).toBeLessThanOrEqual(0.5);
 		await input.fill(`nobody-${randomUUID()}`);
 		await apply.click();
 		await expect(input).toHaveAttribute("aria-invalid", "true");

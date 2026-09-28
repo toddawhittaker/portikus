@@ -16,7 +16,8 @@ export const INSTRUCTOR_HELP: HelpPart = {
 					Portikus from the course, with their role, last launch and workspace state.{" "}
 					<strong>Remove</strong> takes a student off the page. Their account, workspace
 					and files stay, and they come back if they open Portikus from the course
-					again.
+					again. Only students can be removed; instructors are changed in your learning
+					system.
 				</p>
 			),
 		},

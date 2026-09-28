@@ -55,8 +55,8 @@ export const ADMIN_HELP: HelpPart = {
 			body: (
 				<p>
 					<strong>Edit quotas</strong> grows the home or Docker allocation. Sizes can
-					only grow. <strong>Limits</strong> sets the most CPU, memory and processes one
-					workspace may use; a blank field uses the site value.
+					only grow. <strong>Edit limits</strong> sets the most CPU, memory and
+					processes one workspace may use; a blank field uses the site value.
 				</p>
 			),
 		},
@@ -93,10 +93,11 @@ export const ADMIN_HELP: HelpPart = {
 				<p>
 					<strong>Network</strong> chooses open mode, which allows every public site
 					except the ones you block, or allow-list mode, which allows only the presets,
-					hosts and ranges you list. Private networks are always blocked. Use{" "}
-					<strong>Test a host</strong> to see why a name would be allowed or refused.{" "}
-					<strong>Refused names</strong> shows what workspaces tried and failed to reach
-					over the last 7 days, for the whole site, never per student.
+					hosts and ranges you list. Private networks are always blocked, so a range you
+					add cannot overlap one. Use <strong>Test a host</strong> to see why a name
+					would be allowed or refused. <strong>Refused names</strong> shows what
+					workspaces tried and failed to reach over the last 7 days, for the whole site,
+					never per student.
 				</p>
 			),
 		},
@@ -106,19 +107,35 @@ export const ADMIN_HELP: HelpPart = {
 			body: (
 				<>
 					<p>
-						The backup host copies the platform database and every workspace's home and
-						recovery points each night. Docker data is not backed up, because Reset
-						Docker and Rebuild recreate it. A site installed on one machine with no
-						separate backup host has no backups, and the tab says so.
+						The backup host, the machine that runs the platform's virtual machine,
+						copies the platform database and every workspace's home and recovery points
+						each night, and encrypts them. Docker data is not backed up, because Reset
+						Docker and Rebuild recreate it. Until a backup host reports to this
+						platform, the tab says backups are not connected.
+					</p>
+					<p>
+						A restore needs the <strong>restore key</strong>, the private key that
+						decrypts backups, installed on the backup host. The status at the top of the
+						tab says whether it is.
 					</p>
 					<p>
 						To restore someone's files, choose <strong>Restore from backup</strong> in
 						their panel, or <strong>Restore</strong> beside a set on{" "}
-						<strong>Backups</strong>. The files arrive in a new folder in their home,
-						next to their current files; nothing is overwritten. If they need their
-						whole home back, choose <strong>Replace home</strong> on the restored copy
-						and type their workspace label to confirm. Their current home is kept, under
-						Kept homes, until you delete it.
+						<strong>Backups</strong>. Their workspace must be running. The files arrive
+						in a new folder in their home, next to their current files; nothing is
+						overwritten. If they need their whole home back, choose{" "}
+						<strong>Replace home</strong> beside that restored copy. It swaps their
+						whole home folder for the one in the same backup set, and you confirm by
+						typing their workspace label. The workspace stops during the swap and starts
+						again afterwards. Their previous home is kept, and listed under{" "}
+						<strong>Clean up</strong> until you delete it.
+					</p>
+					<p>
+						<strong>Clean up</strong> also lists pre-change snapshots, which the
+						operator takes by hand before a risky change such as a rebuild on a new
+						image, and pre-change database dumps, which the operator saves on the backup
+						host before each deploy. Nothing deletes them on its own; delete them once
+						the change checks out.
 					</p>
 				</>
 			),
@@ -149,7 +166,11 @@ export const ADMIN_HELP: HelpPart = {
 			body: (
 				<p>
 					<strong>Audit</strong> records every sign-in and every change to accounts,
-					workspaces and settings, and who made it.
+					workspaces and settings, and who made it. Each action is named for its area
+					and then the event, such as{" "}
+					<code className="pk-mono-body">workspace.start_requested</code>. Type{" "}
+					<code className="pk-mono-body">workspace.</code> in{" "}
+					<strong>Action starts with</strong> to see every workspace action.
 				</p>
 			),
 		},
@@ -172,10 +193,10 @@ export const ADMIN_HELP: HelpPart = {
 				<p>
 					Administrators and instructors come from your sign-in provider's groups, or
 					are granted here with <strong>Promote</strong> and{" "}
-					<strong>Make instructor</strong>. Only SSO accounts can be granted a role,
-					never course accounts. You can take away only a role that was granted here,
-					and you cannot demote yourself. Instructors see a <strong>Course</strong> page
-					for the courses they teach.
+					<strong>Make instructor</strong>. Only SSO accounts can be granted a role
+					here; course accounts get theirs from the learning system. You can take away
+					only a role that was granted here, and you cannot demote yourself. Instructors
+					see a <strong>Course</strong> page for the courses they teach.
 				</p>
 			),
 		},

@@ -7,29 +7,32 @@ import { loginAs, query, settledAxe, WCAG_TAGS } from "./helpers";
  * as it stands: admin-egress.spec.ts may change the mode meanwhile, so these
  * checks never write the policy.
  */
-const SUFFIX = "a11y-egress.test";
-
-test.beforeAll(async () => {
+/**
+ * Each test seeds and removes its own rows, named for its theme. The tests
+ * run in parallel workers, and a shared afterAll in one worker used to delete
+ * the rows another worker's test was still clicking, so it timed out.
+ */
+async function seed(suffix: string): Promise<void> {
 	await query(
 		"insert into egress_entries (kind, value, label) values ('host', $1, 'Course API') on conflict (value) do nothing",
-		[`api.${SUFFIX}`],
+		[`api.${suffix}`],
 	);
 	await query(
 		`insert into egress_blocked_names (day, name, source, count)
 		 values (current_date, $1, 'dns', 12) on conflict do nothing`,
-		[`registry.${SUFFIX}`],
+		[`registry.${suffix}`],
 	);
 	await query(
 		"insert into egress_blocked_entries (value, label) values ($1, 'Games') on conflict (value) do nothing",
-		[`games.${SUFFIX}`],
+		[`games.${suffix}`],
 	);
-});
+}
 
-test.afterAll(async () => {
-	await query("delete from egress_entries where value like $1", [`%${SUFFIX}`]);
-	await query("delete from egress_blocked_names where name like $1", [`%${SUFFIX}`]);
-	await query("delete from egress_blocked_entries where value like $1", [`%${SUFFIX}`]);
-});
+async function unseed(suffix: string): Promise<void> {
+	await query("delete from egress_entries where value like $1", [`%${suffix}`]);
+	await query("delete from egress_blocked_names where name like $1", [`%${suffix}`]);
+	await query("delete from egress_blocked_entries where value like $1", [`%${suffix}`]);
+}
 
 async function expectNoViolations(page: Page): Promise<void> {
 	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
@@ -40,6 +43,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 	test(`the Network tab and its dialogs have no automatic accessibility violations (${colorScheme})`, async ({
 		page,
 	}) => {
+		const suffix = `a11y-egress-${colorScheme}.test`;
+		await seed(suffix);
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
 		await page.goto("/admin?tab=network");
@@ -47,7 +52,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 
 		// The tab with a preset's sites open and a test answer showing.
 		await page.getByTestId("egress-preset-github").getByText("3 sites").click();
-		await page.getByTestId("egress-test-input").fill(`docs.${SUFFIX}`);
+		await page.getByTestId("egress-test-input").fill(`docs.${suffix}`);
 		await page.getByTestId("egress-test-run").click();
 		await expect(page.getByTestId("egress-test-result")).toBeVisible();
 		await expectNoViolations(page);
@@ -82,9 +87,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(dialog).toBeHidden();
 
 		// "Allow…" from the refused names opens the same dialog, filled in.
-		await page.getByRole("button", { name: `Allow registry.${SUFFIX}…` }).click();
+		await page.getByRole("button", { name: `Allow registry.${suffix}…` }).click();
 		await expect(dialog.getByTestId("egress-entry-value")).toHaveValue(
-			`registry.${SUFFIX}`,
+			`registry.${suffix}`,
 		);
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
@@ -97,17 +102,18 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 		await expect(block).toBeHidden();
-		await page.getByRole("button", { name: `Remove games.${SUFFIX}` }).click();
+		await page.getByRole("button", { name: `Remove games.${suffix}` }).click();
 		await expect(page.getByTestId("egress-block-remove-dialog")).toBeVisible();
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("egress-block-remove-dialog")).toBeHidden();
 
-		await page.getByRole("button", { name: `Remove api.${SUFFIX}` }).click();
+		await page.getByRole("button", { name: `Remove api.${suffix}` }).click();
 		await expect(page.getByTestId("egress-remove-dialog")).toBeVisible();
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("egress-remove-dialog")).toBeHidden();
+		await unseed(suffix);
 	});
 }
 
@@ -139,5 +145,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 			},
 		);
 		await expectNoViolations(page);
+		// The tab keeps polling; a poll still in the handler when the page closes
+		// would fail the test with "Response has been disposed".
+		await page.unrouteAll({ behavior: "ignoreErrors" });
 	});
 }

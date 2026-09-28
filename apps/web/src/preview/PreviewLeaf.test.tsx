@@ -233,7 +233,7 @@ test("a port the policy refuses explains the rule and offers another port", asyn
 		await screen.findByRole("heading", { name: "Port 5432 cannot be previewed" }),
 	).toBeDefined();
 	expect(screen.getByTestId("preview-port-refused").textContent).toBe(
-		"Ports below 1024, and ports kept for SSH, Docker and databases, cannot be opened as a preview. Run your app on a port from 1024 up, such as 3000 or 5173.",
+		"Ports below 1024, and a few kept for services such as SSH, Docker and PostgreSQL, cannot be opened as a preview. Run your app on a port from 1024 up, such as 3000 or 5173.",
 	);
 	expect(screen.getByTestId("preview-status").textContent).toBe(
 		"Port 5432 cannot be previewed",

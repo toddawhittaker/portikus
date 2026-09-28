@@ -674,9 +674,18 @@ describe("restore from a workspace's panel (preset workspace)", () => {
 			<RestoreFromBackupDialog workspaceId={ALICE_WS} onClose={() => {}} />,
 		);
 		const dialog = await screen.findByTestId("backup-restore-dialog");
-		expect((await within(dialog).findByRole("alert")).textContent).toBe(
+		// Only that one line: no "no set holds this workspace", no folder, no running rule.
+		expect((await within(dialog).findByTestId("backup-restore-none")).textContent).toBe(
 			"Backups are not connected on this site.",
 		);
+		expect(
+			within(dialog).queryByText("No backup set holds this workspace yet."),
+		).toBeNull();
+		expect(within(dialog).queryByTestId("backup-restore-folder")).toBeNull();
+		expect(within(dialog).queryByRole("combobox")).toBeNull();
+		const confirm = within(dialog).getByTestId("backup-restore-confirm");
+		expect(confirm.getAttribute("aria-disabled")).toBe("true");
+		expect(confirm.getAttribute("aria-describedby")).toBe("backup-restore-none");
 	});
 
 	test("renders and fetches nothing while no workspace is given", () => {

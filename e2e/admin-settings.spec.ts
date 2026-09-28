@@ -121,6 +121,41 @@ test("the resource guard is four named groups with one line each and no long par
 	}
 });
 
+test("a field with a help button lines its input up with one without (Epic 25 S-C)", async ({
+	page,
+}) => {
+	await open(page);
+	// From the top of each field to the top of its control: the label row plus the gap.
+	const offsets = await page.evaluate(() =>
+		[...document.querySelectorAll<HTMLElement>(".pk-field")].flatMap((field) => {
+			const control = field.querySelector("input, textarea, select");
+			if (!control) return [];
+			return [
+				{
+					id: control.id,
+					help: field.querySelector(".pk-toggletip") !== null,
+					offset:
+						control.getBoundingClientRect().top - field.getBoundingClientRect().top,
+				},
+			];
+		}),
+	);
+	const withHelp = offsets.filter((entry) => entry.help);
+	const without = offsets.filter((entry) => !entry.help);
+	// The guard fields, grace and idle stop have help; the statement has none.
+	expect(withHelp.length).toBeGreaterThanOrEqual(10);
+	expect(without.map((entry) => entry.id)).toContain("aup-text");
+	const reference = without[0]?.offset ?? -1;
+	for (const entry of offsets) {
+		expect(Math.abs(entry.offset - reference), entry.id).toBeLessThanOrEqual(0.5);
+	}
+	// Side by side, grace (help) and idle stop (help) start on one line.
+	const [grace, idle] = await Promise.all(
+		["grace-input", "idle-input"].map((id) => box(page.getByTestId(id))),
+	);
+	expect(Math.abs((grace?.y ?? 0) - (idle?.y ?? 1))).toBeLessThanOrEqual(0.5);
+});
+
 test("the grace period is shown and saved in minutes, stored in seconds", async ({
 	page,
 }) => {

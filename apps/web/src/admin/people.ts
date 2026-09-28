@@ -1,7 +1,7 @@
 import type { AdminUser } from "@portikus/contracts";
-import { UUID } from "../../links.js";
+import { UUID } from "../links.js";
 
-/** One person the Logs tab's Person field offers (SPEC.md section 24.11). */
+/** One person the Logs and Audit Person fields offer (SPEC.md section 24.11). */
 export interface PersonOption {
 	id: string;
 	/** What the list shows and the field holds: the name, with the email when two share it. */
@@ -37,29 +37,35 @@ export function personLabel(options: readonly PersonOption[], id: string): strin
 export const PERSON_UNKNOWN_TEXT = "Choose a person from the list.";
 export const PERSON_AMBIGUOUS_TEXT =
 	"More than one person has that name. Choose one from the list.";
+export const PERSON_LOADING_TEXT =
+	"The list of people is still loading. Try again in a moment.";
 
 /**
- * The user ID a Person entry means: "" for blank, else the listed person
- * whose label, name or email it matches. A full ID still works, for a link
- * pasted from elsewhere.
+ * The user ID a Person entry means: "" for blank, a pasted full ID as itself,
+ * else the one listed person whose label, name, email or username it matches
+ * in any case. `users` is undefined while the list loads.
  */
 export function resolvePerson(
-	options: readonly PersonOption[],
 	text: string,
-	users: readonly AdminUser[],
+	users: readonly AdminUser[] | undefined,
 ): { id: string } | { error: string } {
-	const wanted = text.trim().toLowerCase();
-	if (wanted === "") return { id: "" };
-	const byLabel = options.find((option) => option.label.toLowerCase() === wanted);
-	if (byLabel) return { id: byLabel.id };
-	const byName = users.filter(
-		(user) =>
-			user.displayName.toLowerCase() === wanted || user.email?.toLowerCase() === wanted,
+	const typed = text.trim();
+	if (typed === "") return { id: "" };
+	if (UUID.test(typed)) return { id: typed.toLowerCase() };
+	if (!users) return { error: PERSON_LOADING_TEXT };
+	const wanted = typed.toLowerCase();
+	const byLabel = personOptions(users).find(
+		(option) => option.label.toLowerCase() === wanted,
 	);
-	const [only] = byName;
-	if (byName.length === 1 && only) return { id: only.id };
-	if (byName.length > 1) return { error: PERSON_AMBIGUOUS_TEXT };
-	if (UUID.test(text.trim())) return { id: text.trim().toLowerCase() };
+	if (byLabel) return { id: byLabel.id };
+	const found = users.filter((user) =>
+		[user.displayName, user.email, user.preferredUsername].some(
+			(value) => value?.toLowerCase() === wanted,
+		),
+	);
+	const [only] = found;
+	if (found.length === 1 && only) return { id: only.id };
+	if (found.length > 1) return { error: PERSON_AMBIGUOUS_TEXT };
 	return { error: PERSON_UNKNOWN_TEXT };
 }
 

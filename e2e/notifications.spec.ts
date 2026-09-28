@@ -68,7 +68,9 @@ test("a toast times out, is recorded, and the history follows the user to a seco
 
 	const badge = page.getByTestId("notifications-badge");
 	await expect(badge).toHaveText("1");
-	await expect(page.getByTestId("me")).toHaveAccessibleName(/1 unread notification$/);
+	await expect(page.getByTestId("me")).toHaveAccessibleName(
+		/\S, 1 unread notification$/,
+	);
 
 	await badge.click();
 	const dialog = page.getByTestId("dialog-notifications");
@@ -142,7 +144,9 @@ test("the badge reads 9+ above nine and Clear all empties the history", async ({
 	for (let i = 0; i < 10; i += 1) await record(page, `Message ${i}`);
 	await page.goto(workspacePath(student.workspaceId));
 	await expect(page.getByTestId("notifications-badge")).toHaveText("9+");
-	await expect(page.getByTestId("me")).toHaveAccessibleName(/10 unread notifications$/);
+	await expect(page.getByTestId("me")).toHaveAccessibleName(
+		/\S, 10 unread notifications$/,
+	);
 
 	await page.getByTestId("notifications-badge").click();
 	const dialog = page.getByTestId("dialog-notifications");

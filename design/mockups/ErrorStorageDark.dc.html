@@ -60,10 +60,10 @@
     </div>
     <div style="display: flex; flex-direction: column; gap: 8px; padding-left: 52px;">
       <div class="pk-actions">
-        <x-import component-from-global-scope="Portikus.Button" variant="primary" icon-start="storage" class-name="is-focus-demo">Clean up Docker</x-import>
+        <x-import component-from-global-scope="Portikus.Button" variant="primary" icon-start="storage" class-name="is-focus-demo">Reset Docker…</x-import>
         <x-import component-from-global-scope="Portikus.Button" variant="secondary" icon-end="{{detailsIcon}}" aria-expanded="{{details}}" aria-controls="err-details">View details</x-import>
       </div>
-      <p class="pk-text-caption pk-muted">Clean up Docker removes stopped containers, unused images and build cache. It doesn't touch your projects.</p>
+      <p class="pk-text-caption pk-muted">Reset Docker deletes your Docker images, containers, volumes and build cache. Your projects and home folder are kept.</p>
     </div>
     <sc-if value="{{details}}" hint-placeholder-val="{{yes}}">
       <div id="err-details" style="display: flex; flex-direction: column; gap: 8px; padding-left: 52px;">

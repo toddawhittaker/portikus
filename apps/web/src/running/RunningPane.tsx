@@ -177,7 +177,7 @@ export function RunningPane({
 							{service.previewReachability === "denied" && !service.system ? (
 								<Toggletip label={`Can't be previewed, port ${service.port}`}>
 									Ports below 1024, and a few kept for services such as SSH, Docker and
-									databases, cannot be opened as a preview. Run your web app on a port
+									PostgreSQL, cannot be opened as a preview. Run your web app on a port
 									from 1024 up, such as 3000 or 5173.
 								</Toggletip>
 							) : null}

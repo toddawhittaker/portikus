@@ -639,7 +639,7 @@ function RestoresGroup({
 					kept, and listed under Clean up until you delete it.
 				</Toggletip>
 			}
-			description="Each restored copy sits next to the student's files. To swap their whole home folder for it, choose Replace home."
+			description="Each restored copy sits next to the student's files. To swap their whole home folder for the one in the same backup set, choose Replace home."
 			testId="backups-restores"
 		>
 			<Table

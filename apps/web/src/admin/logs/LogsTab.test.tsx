@@ -305,6 +305,10 @@ test("rows show named fields as text, and a row expands to the whole line", asyn
 	expect(within(first).getByText("TERMINAL_LIMIT")).toBeDefined();
 	expect(within(first).getByText("Alice Example")).toBeDefined();
 	expect(within(first).getByText("409")).toBeDefined();
+	// The route reads whole, and may wrap only before a slash.
+	const route = within(first).getByTestId("log-route");
+	expect(route.textContent).toBe("/workspaces/:id/terminals");
+	expect(route.querySelectorAll("wbr")).toHaveLength(3);
 	// The line is text, never markup.
 	const message = within(first).getByTestId("log-message");
 	expect(message.textContent).toBe(
@@ -479,6 +483,29 @@ test("a workspace link is a checkbox naming its owner, and unticking it drops th
 		expect(router.state.location.search).toEqual({ tab: "logs", since: "1h" }),
 	);
 	expect(screen.queryByRole("checkbox", { name: /workspace$/ })).toBeNull();
+});
+
+test("a name typed before the people list loads asks to wait, not to choose again", async () => {
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
+		if (url.startsWith("/admin/logs?")) return json(200, page([]));
+		// The people list never arrives.
+		if (url === "/admin/users")
+			return new Promise<Response>(() => {}) as unknown as Response;
+		if (url === "/admin/settings") return json(200, SETTINGS);
+		return json(200, {});
+	});
+	renderApp("/admin?tab=logs");
+	await screen.findByTestId("logs-empty");
+	const person = screen.getByRole("combobox", { name: "Person" });
+	fireEvent.change(person, { target: { value: "Alice Example" } });
+	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+	expect(
+		await screen.findByText(
+			"The list of people is still loading. Try again in a moment.",
+		),
+	).toBeDefined();
+	expect(screen.queryByText("Choose a person from the list.")).toBeNull();
 });
 
 test("an unknown person or no level is refused in the form", async () => {

@@ -215,7 +215,10 @@ test("the account button names the unread count and the badge shows it", async (
 	expect(badge.getAttribute("aria-label")).toBe(
 		"Notifications, 3 unread notifications",
 	);
-	expect(screen.getByTestId("me").textContent).toContain(", 3 unread notifications");
+	// The name reads "Alice Example, 3 unread notifications", with no space before the comma.
+	expect(screen.getByTestId("me").getAttribute("aria-label")).toBe(
+		"Alice Example, 3 unread notifications",
+	);
 });
 
 test("the badge reads 9+ above nine and is hidden at zero", async () => {
