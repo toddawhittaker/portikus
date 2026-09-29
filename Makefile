@@ -4,7 +4,7 @@
 .PHONY: help install check typecheck lint format test test-coverage build test-e2e dev clean \
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy install-test \
-       build-deb deploy-app build-workspace-image workspace-create workspace-destroy \
+       build-deb install-screens deploy-app build-workspace-image workspace-create workspace-destroy \
        backup-setup backup backup-install-timer backup-install-channel backup-install-key restore \
        mock-lms lti-mock-register lti-mock-unregister
 
@@ -425,6 +425,9 @@ restore: ## Restore a backup set onto the rehearsal VM (TOFU_ENV=rehearsal-libvi
 
 build-deb: ## Build the control-plane Debian package into dist/deb
 	pnpm build:deb
+
+install-screens: ## Capture the install screens in docs/INSTALL.md as PNGs under docs/images/install (needs Docker, Pillow, optipng)
+	packaging/tests/capture-install-screens.sh
 
 # Installing the package restarts the services and runs the migrations from the
 # API unit's ExecStartPre (ADR 0007).

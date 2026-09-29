@@ -82,10 +82,10 @@ change must respect.
 
 ## Status
 
-Every epic through Epic 25 has landed. Epic 15 makes `apt install
-portikus` the default install (docs/INSTALL.md, SPEC.md section 21.12);
-the pilot VM still runs the workstation-driven setup until it is
-reinstalled that way.
+Every epic through Epic 25 has landed, including Epic 15, which makes `apt
+install portikus` the way to install (docs/INSTALL.md, SPEC.md section
+21.12). The pilot at https://pilot.portikus.thewhittakers.org runs from
+that apt install.
 
 `docs/STATUS.md` records what each epic delivered and the gaps it left.
 
@@ -125,10 +125,34 @@ pre-commit hook, and the tools `make infra-check` needs.
 ## Installing
 
 To run Portikus for a class, get a Debian 13 x86-64 server (bare metal or
-a full virtual machine, from any provider or your own hardware), add the Portikus
-package repository and run `apt install portikus`; a few text screens
-set it up. [docs/INSTALL.md](docs/INSTALL.md) walks through every step,
-and [docs/HOSTING.md](docs/HOSTING.md) says what size of server suits a class.
+a full virtual machine, from any provider or your own hardware).
+[docs/HOSTING.md](docs/HOSTING.md) says what size of server suits a class.
+
+Add the signing key, check it, and add the package repository:
+
+```
+sudo apt update
+sudo apt install -y curl gpg
+sudo curl -fsSL -o /usr/share/keyrings/portikus-archive-keyring.gpg https://toddawhittaker.github.io/portikus/apt/portikus-archive-keyring.gpg
+test "$(gpg --show-keys --with-colons /usr/share/keyrings/portikus-archive-keyring.gpg | awk -F: '$1=="fpr"{print $10}')" = 9F6FD4CD5CC5C43AB5125705015D38802EF8D0F4 && echo "Key OK"
+```
+
+Continue only if it printed `Key OK`. Then:
+
+```
+echo "deb [signed-by=/usr/share/keyrings/portikus-archive-keyring.gpg] https://toddawhittaker.github.io/portikus/apt trixie main" | sudo tee /etc/apt/sources.list.d/portikus.list
+sudo apt update
+sudo apt install portikus
+```
+
+A few text screens ask for the web address, the administrator's email, the
+HTTPS certificate, how people sign in, and where to keep student files:
+
+![The install screen asking where the HTTPS certificate comes from](docs/images/install/04-https-certificate.png)
+
+When apt finishes, setup runs in the background for about ten minutes and
+then you sign in as the administrator at your web address.
+[docs/INSTALL.md](docs/INSTALL.md) walks through every step.
 
 ## Deploying for development
 
