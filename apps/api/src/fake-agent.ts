@@ -24,6 +24,7 @@ import {
 	MAX_EDITOR_FILE_BYTES,
 	MAX_UPLOAD_BYTES,
 	ProjectPath,
+	projectNameFromRepository,
 	type SearchMatch,
 	SearchQuery,
 } from "@portikus/contracts";
@@ -826,6 +827,29 @@ export async function startFakeAgent(
 		}
 		const isGitRepo = body.source === "new" ? body.gitInit : true;
 		here.set(body.slug, { isGitRepo, directoryId: nextDirectoryId() });
+		const tree = fsOf(request);
+		if (body.source === "clone") {
+			// A url the test marks with "readme" clones a repository that names
+			// itself in its README heading, as the real agent reads it (#846).
+			if (!(body.url ?? "").includes("readme")) {
+				return reply.status(201).send({ slug: body.slug, isGitRepo });
+			}
+			const readme = "# The **Fixture** Repository\n\nHello.\n";
+			tree.set(nodeKey(body.slug, "README.md"), {
+				type: "file",
+				content: Buffer.from(readme),
+			});
+			const suggestedName = projectNameFromRepository({ readme });
+			return reply.status(201).send({ slug: body.slug, isGitRepo, suggestedName });
+		}
+		// A repository the fake creates starts on main, as the real one does
+		// (#847). Its files are not seeded, because tests rely on a new
+		// project being empty; the agent's own tests cover those files.
+		if (isGitRepo) {
+			gitAnswers.set(answerKey(keyOf(request), body.slug), {
+				status: { ...emptyStatus(), repo: true, branch: "main" },
+			});
+		}
 		return reply.status(201).send({ slug: body.slug, isGitRepo });
 	});
 

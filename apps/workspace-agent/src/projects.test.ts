@@ -141,7 +141,7 @@ test.skipIf(!haveGit)("a new project is created with and without git", async () 
 
 	const without = await create({ slug: "beta", source: "new", gitInit: false });
 	expect(without.json()).toEqual({ slug: "beta", isGitRepo: false });
-	expect(await readdir(join(projectsRoot, "beta"))).toEqual([]);
+	expect(await readdir(join(projectsRoot, "beta"))).toEqual([".portikus"]); // Only the README folder (#857).
 
 	const again = await create({ slug: "alpha", source: "new", gitInit: true });
 	expect(again.statusCode).toBe(409);
@@ -155,9 +155,9 @@ test.skipIf(!haveGit)("initializing Git writes a default .gitignore", async () =
 		expect(created).toContain(entry);
 	}
 
-	// A project made without Git gets nothing written for it.
+	// A project made without Git gets no .gitignore, only the .portikus README (#857).
 	await create({ slug: "beta", source: "new", gitInit: false });
-	expect(await readdir(join(projectsRoot, "beta"))).toEqual([]);
+	expect(await readdir(join(projectsRoot, "beta"))).toEqual([".portikus"]);
 
 	// Initialize Git on that same project writes the file.
 	await app.inject({

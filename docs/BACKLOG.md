@@ -1361,16 +1361,6 @@ set in the image. About a day with a rehearsal.
 
 **Source.** Left out of Epic 16.
 
-## `INTERNAL` instead of `TMUX_FAILED` for other project route errors
-
-**What.** Project routes report errors other than a full disk as
-`TMUX_FAILED`, which is the wrong code for them.
-
-**What it would take.** Change the fallback in the agent's project routes
-and their tests. Under a day.
-
-**Source.** Left out of Epic 16.
-
 ## Explain an agent restart on images before 2026.09.11
 
 **What.** On older images an agent restart still closes every terminal

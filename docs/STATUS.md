@@ -3577,3 +3577,14 @@ Delivered:
   "Extracting" notice and the files appearing in the tree, not a
   percentage, and a zip whose headers lie about its size is bounded by
   the per-file limit and the home volume's quota, not by the 1 GiB total.
+Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot fixes".
+
+- Project setup (T5, #846, #847, #856, #857): a clone takes the name its
+  README heading or package file gives it; repositories Portikus creates
+  start on `main`; `.portikus/` working files are ignored except
+  `checks.json` and `README.md`, through `.gitignore` for new projects and
+  `.git/info/exclude` otherwise; new projects get `.portikus/README.md`
+  explaining checks. Unexpected project route errors are now `INTERNAL`.
+  Gap: the exclude lines and the README are not yet added on the first
+  file write under `.portikus/` in an older project, because that write
+  goes through the file routes.
