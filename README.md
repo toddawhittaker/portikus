@@ -196,4 +196,10 @@ checks) is in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 | [docs/STATUS.md](docs/STATUS.md) | What has landed and what gaps remain |
 | [docs/adr/](docs/adr) | Decision records |
 
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and
+[SECURITY.md](SECURITY.md) to report a vulnerability privately. Everyone
+taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 Licensed under the [MIT License](LICENSE).
