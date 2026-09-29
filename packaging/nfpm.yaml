@@ -138,6 +138,13 @@ contents:
   - src: ./packaging/systemd/portikus-image-job.service
     dst: /usr/lib/systemd/system/portikus-image-job.service
     file_info: *unit_info
+  # The daily read-only release check (issue #861), also enabled by Ansible.
+  - src: ./packaging/systemd/portikus-image-check.service
+    dst: /usr/lib/systemd/system/portikus-image-check.service
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-image-check.timer
+    dst: /usr/lib/systemd/system/portikus-image-check.timer
+    file_info: *unit_info
   - src: ./packaging/image/image-job
     dst: /usr/lib/portikus/image-job
     file_info:

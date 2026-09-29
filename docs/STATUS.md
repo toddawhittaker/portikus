@@ -3553,6 +3553,79 @@ Gaps:
 
 ## Epic 15.2 — Pilot fixes
 
+Built on `epic/15-2-pilot-fixes`.
+
+Delivered:
+
+- Claude Code login in a workspace offers the paste-code URL again (#848).
+  Because `BROWSER` was set, Claude Code also opened a second login URL
+  whose callback is localhost in the workspace. The image now sets
+  `BROWSER` to empty for Claude Code only, through
+  `/etc/claude-code/managed-settings.json` (BROWSER-HANDLING.md 19.2). The
+  image job's health check, the smoke test and
+  `infra/tests/claude-login-test.sh` fail if login opens a browser. It
+  reaches the pilot with the next workspace image.
+- "Extract here" on a zip in the Files pane (#817). The agent reads the
+  zip's central directory first and refuses the whole zip for an entry
+  with `..`, an absolute or drive-letter path, a path beneath a
+  symbolic-link entry, a password, or zip64. It caps the declared size at
+  1 GiB and the entries at 10,000, and checks free space. unzip runs
+  under a 1 GiB per-file limit, and a symbolic link that points out of
+  the new folder removes the folder. A taken folder name gets `-2`, `-3`
+  and so on; nothing is merged. The zip-slip tests from the backlog now
+  cover this extractor and the recovery restore. Known gap: progress is an
+  "Extracting" notice and the files appearing in the tree, not a
+  percentage, and a zip whose headers lie about its size is bounded by
+  the per-file limit and the home volume's quota, not by the 1 GiB total.
+Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot fixes".
+
+- Project setup (T5, #846, #847, #856, #857): a clone takes the name its
+  README heading or package file gives it; repositories Portikus creates
+  start on `main`; `.portikus/` working files are ignored except
+  `checks.json` and `README.md`, through `.gitignore` for new projects and
+  `.git/info/exclude` otherwise; new projects get `.portikus/README.md`
+  explaining checks. Unexpected project route errors are now `INTERNAL`.
+  Gap: the exclude lines and the README are not yet added on the first
+  file write under `.portikus/` in an older project, because that write
+  goes through the file routes.
+### File viewer shows images and PDFs (#816)
+
+A PNG, JPEG, GIF or WebP file opens in its tab fit to the pane, with its
+dimensions and size and a Download button, instead of the "Not a text
+file" panel. An SVG opens as its picture, drawn from the tab's own text,
+with View, Edit and Diff buttons. A PDF opens in the browser's built-in
+viewer. Other binary files, and DOCX, XLSX and PPTX, keep the download
+panel. A relative image in a Markdown preview now resolves against the
+Markdown file's own folder and loads through the file route; a leading
+slash means the project root, and any other address keeps
+react-markdown's own check.
+
+Security (SPEC.md §24.3): the file route gained `inline=1`, which serves
+only those extensions, with the type taken from the file name, never
+sniffed or relayed from the agent, plus `X-Content-Type-Options: nosniff`
+and `Content-Security-Policy: sandbox; default-src 'none'; …`. An image,
+SVG included, is only ever drawn through `img`, where its script cannot
+run. The PDF is fetched and handed to its frame as an in-page copy with
+the type `application/pdf`, because Chrome's PDF viewer refuses a frame
+with the `sandbox` attribute and the production proxy serves the web app
+to any document request under `/workspaces`.
+
+Gaps:
+
+- A PDF over 50 MB is offered as a download rather than shown, because
+  the in-page copy is held in memory.
+- An image or PDF over the 2 MiB editor limit has no version to put in
+  its address, so a change on disk shows only after the tab is reopened.
+- CSV as a table, optional in #816, was left out.
+- T8 (#860, #861): the Users view calls a workspace on a non-default
+  image "Old image" and keeps "Stale" for accounts only, and refetches
+  the list when a rebuild finishes. A daily root timer,
+  `portikus-image-check.timer`, records the newest published image and
+  any newer `portikus` package. The Workspace image tab and the Health
+  tab show a notice, and each administrator gets one notification per
+  version (SPEC.md sections 20.1 and 22.4). No migration. Gap: the timer
+  and the check have unit tests only; they have not yet run on a real
+  host from bootstrap through the smoke test.
 Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot
 fixes". In progress.
 

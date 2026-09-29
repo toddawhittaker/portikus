@@ -52,6 +52,9 @@ const AGENT_DUPLICATE_PROJECT_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
 /** Archiving or restoring a project walks the whole tree, as a copy does. */
 export const AGENT_RECOVERY_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
 
+/** Extracting a zip writes up to a gigabyte, as a copy does (issue #817). */
+export const AGENT_EXTRACT_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
+
 /** Most bytes the API will buffer from an agent JSON body. */
 const AGENT_JSON_LIMIT_BYTES = 1024 * 1024;
 

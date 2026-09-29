@@ -3,6 +3,7 @@ import { ApiConfigSchema, loadConfig } from "@portikus/config";
 import { createDb } from "@portikus/db";
 import { createLogger } from "@portikus/observability";
 import { toAuthOptions } from "./auth-options.js";
+import { imagesDirOf, startReleaseNotices } from "./image/release-notices.js";
 import { startLogLevelSync } from "./log-level.js";
 import { loadLtiDeps } from "./routes/lti.js";
 import { buildServer } from "./server.js";
@@ -39,8 +40,12 @@ const levelSync = startLogLevelSync({
 	envLevel: config.LOG_LEVEL,
 	agentPort: config.AGENT_PORT,
 });
+const stopReleaseNotices = config.IMAGE_JOBS_DIR
+	? startReleaseNotices({ db, logger, imagesDir: imagesDirOf(config.IMAGE_JOBS_DIR) })
+	: () => {};
 app.addHook("onClose", async () => {
 	levelSync.stop();
+	stopReleaseNotices();
 	dex?.close();
 });
 closeOnSigterm(app);

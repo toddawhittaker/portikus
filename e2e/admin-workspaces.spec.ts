@@ -400,6 +400,59 @@ for (const { name, button, dialogId, confirmLabel, done, operation, action } of 
 	});
 }
 
+test("a workspace on an old image says Old image, not Stale, and loses it when its rebuild finishes (issue #860)", async ({
+	page,
+	browser,
+}) => {
+	const student = await studentIn(browser);
+	const label = await workspaceLabel(student.workspaceId);
+	// Image currency comes from the worker's host sample, which e2e has none of,
+	// so the list answer says the image is old until the fake rebuild finishes.
+	let rebuilt = false;
+	await page.route("**/admin/users", async (route) => {
+		const response = await route.fetch();
+		const body = await response.json();
+		for (const user of body.users) {
+			if (user.id !== student.userId || !user.workspace) continue;
+			user.workspace.image = {
+				label: rebuilt ? "2026.09.13" : "2026.09.12",
+				fingerprint: rebuilt ? "new" : "old",
+				current: rebuilt,
+			};
+		}
+		await route.fulfill({ response, json: body });
+	});
+	await openAdmin(page);
+	const panel = await openDetail(page, student.name);
+	const row = page.getByTestId(`account-row-${student.userId}`);
+	await expect(page.getByTestId(`account-image-${student.userId}`)).toHaveText(
+		"Old image",
+	);
+	// A student who signed in today is not stale, whatever image the workspace runs.
+	await expect(row).not.toHaveAttribute("data-markers", /Stale/);
+
+	await panel
+		.getByRole("button", { name: `Rebuild workspace for ${student.name}` })
+		.click();
+	const dialog = page.getByTestId("rebuild-dialog");
+	await dialog.getByRole("textbox").fill(label);
+	await dialog.getByTestId("dialog-confirm").click();
+	await expect(panel.getByTestId("pending-operation")).toBeVisible();
+
+	// Play the worker: the rebuild finishes and the workspace is on the default image.
+	rebuilt = true;
+	await query(
+		"update workspaces set pending_operation = null, pending_operation_at = null, pending_operation_by = null where id = $1",
+		[student.workspaceId],
+	);
+	await expect(panel.getByTestId("pending-operation")).toHaveCount(0, {
+		timeout: 15_000,
+	});
+	await expect(page.getByTestId(`account-image-${student.userId}`)).toHaveCount(0, {
+		timeout: 15_000,
+	});
+});
+
 /** The Users table of SPEC.md section 20.1. */
 test.describe("the Users table layout", () => {
 	test.use({ viewport: { width: 1280, height: 600 } });
@@ -530,7 +583,7 @@ test.describe("the Users table layout", () => {
 				],
 			);
 		}
-		// Every tag and the Older image tag at once, on the longest row.
+		// Every tag and the Old image tag at once, on the longest row.
 		await page.route("**/admin/users", async (route) => {
 			const response = await route.fetch();
 			const body = await response.json();
@@ -570,7 +623,7 @@ test.describe("the Users table layout", () => {
 		await openAdmin(page);
 		await filterTo(page, tag);
 		await expect(page.locator("[data-testid^=account-row-]")).toHaveCount(3);
-		await expect(page.getByTestId(`account-image-${long}`)).toHaveText("Older image");
+		await expect(page.getByTestId(`account-image-${long}`)).toHaveText("Old image");
 		await expect(page.getByTestId(`account-activity-${long}`)).toHaveText(
 			"Now, 12 connections",
 		);
@@ -628,9 +681,9 @@ test.describe("the Users table layout", () => {
 		);
 
 		for (const [label, text] of [
-			["Account tags", "Stale means no sign-in for 30 days"],
+			["Account tags", "Stale is about the account, never the workspace"],
 			["Role", "only a granted role can be taken away here"],
-			["Older image", "Rebuild it to move to the current one."],
+			["Old image", "Rebuild it to move it to the default image."],
 			["Activity", "Now means the workspace is open"],
 			["Image filter", "Choose Older to see who needs a rebuild."],
 			["Show archived", "cannot start until you unarchive them"],

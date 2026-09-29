@@ -34,6 +34,7 @@ function report(overrides: Partial<HealthReport> = {}): HealthReport {
 	return {
 		sampledAt: "2026-09-22T11:59:30.000Z",
 		workerStale: false,
+		packageUpdate: null,
 		controller: { reachable: true, errorCode: null },
 		host: {
 			loadAverage: [0.5, 0.4, 0.3],
@@ -77,6 +78,7 @@ test("a healthy report shows the figures and no warnings", () => {
 
 	expect(screen.queryByTestId("health-worker-stale")).toBeNull();
 	expect(screen.queryByTestId("health-pool-warning")).toBeNull();
+	expect(screen.queryByTestId("health-package-update")).toBeNull();
 	expect(screen.getByTestId("health-pool").textContent).toContain(
 		"50.0 GB of 100 GB (50%)",
 	);
@@ -91,6 +93,21 @@ test("a healthy report shows the figures and no warnings", () => {
 	expect(counts.getByRole("row", { name: "Start failures 3" })).toBeDefined();
 	const states = within(screen.getByRole("table", { name: "Workspaces by state" }));
 	expect(states.getByRole("row", { name: /stopped 5$/i })).toBeDefined();
+});
+
+test("a newer package names both versions and the apt command (issue #861)", () => {
+	render(
+		<HealthView
+			report={report({ packageUpdate: { installed: "0.1.695", available: "0.1.700" } })}
+			now={NOW}
+		/>,
+	);
+	const notice = screen.getByTestId("health-package-update");
+	expect(notice.textContent).toContain("Portikus 0.1.700 is available");
+	expect(notice.textContent).toContain("This server runs 0.1.695");
+	expect(notice.querySelector("code")?.textContent).toBe(
+		"sudo apt update && sudo apt upgrade",
+	);
 });
 
 test("the pool at 70 percent or more and memory at 80 or more are flagged", () => {

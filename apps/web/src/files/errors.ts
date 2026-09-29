@@ -4,7 +4,12 @@
  * message is never shown, because it is written for an administrator and can
  * carry paths the student has no use for (SPEC.md §24.6).
  */
-import { MAX_DOWNLOAD_BYTES, MAX_UPLOAD_BYTES } from "@portikus/contracts";
+import {
+	MAX_DOWNLOAD_BYTES,
+	MAX_EXTRACT_BYTES,
+	MAX_EXTRACT_ENTRIES,
+	MAX_UPLOAD_BYTES,
+} from "@portikus/contracts";
 import type { ToastProps } from "@portikus/ui";
 import { ApiError } from "../api/request.js";
 
@@ -45,6 +50,28 @@ export function downloadErrorToast(error: unknown): ToastProps {
 		};
 	}
 	return fileErrorToast(error);
+}
+
+/** Why "Extract here" failed, in words a beginner can act on (issue #817). */
+export function extractErrorToast(zipName: string, error: unknown): ToastProps {
+	const title = `${zipName} was not extracted`;
+	if (error instanceof ApiError && error.code === "ARCHIVE_INVALID") {
+		return {
+			tone: "danger",
+			title,
+			children:
+				"The zip is damaged, password-protected, or has files that would land outside its folder.",
+		};
+	}
+	if (error instanceof ApiError && error.code === "FILE_TOO_LARGE") {
+		const gb = Math.floor(MAX_EXTRACT_BYTES / (1024 * 1024 * 1024));
+		return {
+			tone: "danger",
+			title,
+			children: `A zip can unpack to at most ${gb} GB and ${MAX_EXTRACT_ENTRIES.toLocaleString("en")} files here. Use unzip in a terminal for a bigger one.`,
+		};
+	}
+	return { ...fileErrorToast(error), title };
 }
 
 /** The sentence for each error code the file routes return. */

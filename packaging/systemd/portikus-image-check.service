@@ -1,0 +1,29 @@
+# Portikus daily release check (docs/SPEC.md section 22.4, issue #861).
+# Started by portikus-image-check.timer. It reads the list of published
+# workspace images and apt's cache for the portikus package, and writes
+# /var/lib/portikus/images/published.json. It never downloads an image,
+# changes the default, or upgrades a package.
+[Unit]
+Description=Portikus check for a newer workspace image or package
+After=network-online.target
+Wants=network-online.target
+ConditionPathIsDirectory=/var/lib/portikus/images
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/portikus/image-job check
+TimeoutStartSec=10min
+UMask=0022
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/portikus/images
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native

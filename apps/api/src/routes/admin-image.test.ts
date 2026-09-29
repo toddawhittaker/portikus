@@ -252,6 +252,56 @@ describe.skipIf(skip)("GET /admin/image", () => {
 	});
 });
 
+describe.skipIf(skip)("GET /admin/image, a newer published image (issue #861)", () => {
+	async function putPublished(image: string | null) {
+		await writeFile(
+			join(imagesDir, "published.json"),
+			JSON.stringify({ checkedAt: "2026-09-29T04:00:00.000Z", image, package: null }),
+		);
+	}
+
+	async function adminNotifications() {
+		return testDb.db
+			.selectFrom("notifications")
+			.innerJoin("users", "users.id", "notifications.user_id")
+			.select(["users.role", "notifications.title", "notifications.tone"])
+			.execute();
+	}
+
+	test("names a published image newer than every image on the server, and notifies once", async () => {
+		await putPublished("2026.09.13");
+		const res = await send(carol, "GET", "/admin/image");
+		expect(res.json().newerPublished).toBe("2026.09.13");
+		await send(carol, "GET", "/admin/image");
+		const sent = await adminNotifications();
+		expect(sent).toEqual([
+			{
+				role: "administrator",
+				title: "Workspace image 2026.09.13 is published",
+				tone: "neutral",
+			},
+		]);
+		expect(await audits("image.release_noticed")).toHaveLength(1);
+	});
+
+	test("says nothing once that version is on the server", async () => {
+		await putPublished("2026.09.13");
+		await putImage("2026.09.13", manifest("2026.09.13"), null);
+		const res = await send(carol, "GET", "/admin/image");
+		expect(res.json().newerPublished).toBeNull();
+		expect(await adminNotifications()).toEqual([]);
+	});
+
+	test("says nothing when the published image is older, or the check never ran", async () => {
+		expect((await send(carol, "GET", "/admin/image")).json().newerPublished).toBeNull();
+		await putPublished(CURRENT);
+		expect((await send(carol, "GET", "/admin/image")).json().newerPublished).toBeNull();
+		await writeFile(join(imagesDir, "published.json"), "not json");
+		expect((await send(carol, "GET", "/admin/image")).json().newerPublished).toBeNull();
+		expect(await adminNotifications()).toEqual([]);
+	});
+});
+
 describe.skipIf(skip)("GET /admin/image, jobs the root job wrote", () => {
 	test("shows a request refused before its kind was known", async () => {
 		await putJob(
