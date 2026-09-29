@@ -598,6 +598,9 @@ jobs:
       - name: Clipboard shim
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/clipboard-shim-test.sh
+      - name: Claude Code login settings
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/claude-login-test.sh
       # Under a second; incus, curl, gpgv and distrobuilder are stubbed.
       - name: Workspace image job
         if: needs.changes.outputs.infra == 'true'
