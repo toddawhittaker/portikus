@@ -235,7 +235,7 @@
     src: worker.env.j2
     dest: /etc/portikus/worker.env
     owner: root
-    group: portikus
+    group: portikus-worker
     mode: "0640"
   notify: Restart portikus-worker
 

@@ -214,7 +214,9 @@ clear_secrets
 trap - EXIT
 db_stop
 
-for user in portikus portikus-controller; do
+# The worker has its own account so it cannot reach what only the API may,
+# such as the backup key socket (docs/adr/0044-backups-on-the-server.md).
+for user in portikus portikus-worker portikus-controller; do
 	if ! getent passwd "$user" >/dev/null; then
 		adduser --system --group --no-create-home --home /nonexistent \
 			--shell /usr/sbin/nologin "$user"
@@ -224,6 +226,31 @@ done
 # The controller needs the Incus socket; the group exists only once Incus does.
 if getent group incus-admin >/dev/null; then
 	adduser portikus-controller incus-admin
+fi
+
+# An upgrade from a release whose worker ran as portikus: the unit below now
+# starts it as portikus-worker, which peer authentication admits only as its
+# own database role.  Setup does the same, but may run minutes later.
+WORKER_ENV=/etc/portikus/worker.env
+OLD_WORKER_URL='DATABASE_URL=postgresql://portikus@'
+if [ -f "$WORKER_ENV" ] && grep -q "^$OLD_WORKER_URL" "$WORKER_ENV"; then
+	if getent passwd postgres >/dev/null && command -v psql >/dev/null &&
+		(cd / && runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -d postgres >/dev/null 2>&1) <<'SQL'
+DO $$ BEGIN
+	IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'portikus-worker') THEN
+		CREATE ROLE "portikus-worker" LOGIN;
+	END IF;
+END $$;
+GRANT portikus TO "portikus-worker";
+SQL
+	then
+		sed -i "s|^$OLD_WORKER_URL|DATABASE_URL=postgresql://portikus-worker@|" "$WORKER_ENV"
+	else
+		echo "portikus: could not add the portikus-worker database role; the worker waits for setup" >&2
+	fi
+fi
+if [ -f "$WORKER_ENV" ]; then
+	chgrp portikus-worker "$WORKER_ENV"
 fi
 
 # Nothing to drive when systemd is not running, as in a container or chroot.

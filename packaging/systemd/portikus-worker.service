@@ -7,8 +7,9 @@ ConditionPathExists=/etc/portikus/worker.env
 
 [Service]
 Type=simple
-User=portikus
-Group=portikus
+# Its own account: the API's group opens the backup key socket (ADR 0044).
+User=portikus-worker
+Group=portikus-worker
 EnvironmentFile=/etc/portikus/worker.env
 EnvironmentFile=-/etc/portikus/worker.override.env
 ExecStart=/usr/lib/portikus/node/bin/node /usr/lib/portikus/worker/dist/index.js

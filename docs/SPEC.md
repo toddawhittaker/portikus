@@ -3247,7 +3247,9 @@ itself up.
   `--local`: no SSH, no `deploy` account. Setup enables
   `portikus-backup.timer` and `portikus-backup-channel.timer` only on the
   server itself. The channel takes requests from the local worker, which
-  is unprivileged, so every check above still applies. Sets go to
+  is unprivileged, so every check above still applies. The worker runs
+  as its own `portikus-worker` account, so it cannot open the key socket
+  below, which admits only the API's `portikus` group. Sets go to
   `/var/backups/portikus/local/`; sets copied in by hand are listed and
   checked the same way, and a link or a badly named folder is ignored.
 - **The key stays on the server**, root-only in `/etc/portikus-backup/`,

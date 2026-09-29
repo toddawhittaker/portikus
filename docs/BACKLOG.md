@@ -1596,21 +1596,6 @@ heading out of the summary.
 
 **Source.** Epic 25 accessibility review.
 
-## Worker and API on separate system accounts
-
-**What.** Run the worker under its own system account instead of the
-API's `portikus` account.
-
-**Why.** The backup-key helper socket admits the `portikus` group, so the
-worker can reach it too. ADR 0044 discloses this; the helper still
-confirms nothing and logs every use, but the worker has no need for it.
-
-**What it would take.** A new account and group, unit and file ownership
-changes, and a check of every path the two share (the image-jobs and
-backup channel directories). Two to three days with an install test.
-
-**Source.** Epic 15 security review; ADR 0044.
-
 ## Whiptail's top padding on yes/no screens
 
 **What.** The install screens' yes/no dialogs, such as the summary, show
