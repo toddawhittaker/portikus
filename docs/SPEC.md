@@ -2695,7 +2695,9 @@ Added by Epic 15.
 - The apt repository is a static directory on GitHub Pages
   (`https://toddawhittaker.github.io/portikus/apt`, suite `trixie`,
   component `main`), built with `apt-ftparchive` and signed with `gpg`.
-  It keeps the ten newest packages. Reprepro and aptly were rejected
+  It keeps the ten newest packages of the current major.minor line and
+  the newest package of each earlier line, so every old line stays
+  installable. Reprepro and aptly were rejected
   because they keep a database a stateless CI job would have to carry.
 - The signing key does not expire. Its revocation certificate is kept
   offline (docs/OPERATIONS.md, "The package signing key"). The private
