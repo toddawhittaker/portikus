@@ -9,6 +9,7 @@ import {
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { inflateRawSync } from "node:zlib";
 import websocket, { type WebSocket } from "@fastify/websocket";
 import {
 	type AgentListeningService,
@@ -254,6 +255,37 @@ export function oneFileZip(name: string, contents: string): Buffer {
 	return Buffer.concat([local, nameBytes, data, central, nameBytes, end]);
 }
 
+/**
+ * The files of a stored or deflated zip, read from its central directory, so
+ * the fake can extract what a test uploads (issue #817). Directory entries
+ * are skipped; addParents makes them.
+ */
+export function readZipFiles(zip: Buffer): { name: string; data: Buffer }[] {
+	const eocd = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+	if (eocd < 0) throw new FakeFileError("ARCHIVE_INVALID", "not a zip file");
+	const count = zip.readUInt16LE(eocd + 10);
+	let at = zip.readUInt32LE(eocd + 16);
+	const files: { name: string; data: Buffer }[] = [];
+	for (let index = 0; index < count; index++) {
+		const method = zip.readUInt16LE(at + 10);
+		const compressed = zip.readUInt32LE(at + 20);
+		const nameLength = zip.readUInt16LE(at + 28);
+		const skip = zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32);
+		const local = zip.readUInt32LE(at + 42);
+		const name = zip.toString("utf8", at + 46, at + 46 + nameLength);
+		at += 46 + nameLength + skip;
+		if (name.startsWith("/") || name.split("/").includes("..")) {
+			throw new FakeFileError("ARCHIVE_INVALID", "the zip holds an unsafe path");
+		}
+		if (name.endsWith("/")) continue;
+		const start =
+			local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+		const raw = zip.subarray(start, start + compressed);
+		files.push({ name, data: method === 8 ? inflateRawSync(raw) : Buffer.from(raw) });
+	}
+	return files;
+}
+
 /** The workspace interface address a loopback forward listens on. */
 const FORWARD_ADDRESS = "10.0.0.2";
 
@@ -267,6 +299,7 @@ const FILE_ERROR_STATUS: Record<string, number> = {
 	FILE_EXISTS: 409,
 	FILE_CHANGED: 412,
 	FILE_TOO_LARGE: 413,
+	ARCHIVE_INVALID: 422,
 };
 
 /** A file operation the fake refuses, mirroring the agent's AgentFailure. */
@@ -612,6 +645,7 @@ export async function startFakeAgent(
 		"PUT /projects/:slug/file",
 		"POST /projects/:slug/mkdir",
 		"POST /projects/:slug/move",
+		"POST /projects/:slug/extract",
 		"POST /projects",
 	]);
 	app.addHook("onRequest", async (request, reply) => {
@@ -1085,6 +1119,39 @@ export async function startFakeAgent(
 			fsOf(request).set(nodeKey(slug, path), { type: "dir" });
 			noteFsChange(keyOf(request), slug, [path]);
 			return reply.status(201).send({ ok: true });
+		} catch (error) {
+			return fileError(reply, error as FakeFileError);
+		}
+	});
+
+	app.post("/projects/:slug/extract", async (request, reply) => {
+		const slug = (request.params as { slug: string }).slug;
+		const path = (request.body as { path?: string }).path ?? "";
+		try {
+			checkPath(path);
+			const node = nodeAt(request, slug, path);
+			if (!node) throw new FakeFileError("FILE_NOT_FOUND", "no such file");
+			if (node.type !== "file" || !/\.zip$/i.test(path)) {
+				throw new FakeFileError("ARCHIVE_INVALID", "only .zip files can be extracted");
+			}
+			const files = readZipFiles(node.content);
+			const slash = path.lastIndexOf("/");
+			const parent = slash < 0 ? "" : path.slice(0, slash);
+			const stem = path.slice(slash + 1).replace(/\.zip$/i, "") || "archive";
+			let folder = "";
+			for (let n = 1; folder === "" || nodeAt(request, slug, folder); n++) {
+				const name = n === 1 ? stem : `${stem}-${n}`;
+				folder = parent === "" ? name : `${parent}/${name}`;
+			}
+			const tree = fsOf(request);
+			tree.set(nodeKey(slug, folder), { type: "dir" });
+			for (const file of files) {
+				const inner = `${folder}/${file.name}`;
+				addParents(tree, slug, inner);
+				tree.set(nodeKey(slug, inner), { type: "file", content: file.data });
+			}
+			noteFsChange(keyOf(request), slug, [folder]);
+			return reply.status(201).send({ path: folder });
 		} catch (error) {
 			return fileError(reply, error as FakeFileError);
 		}

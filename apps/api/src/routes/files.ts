@@ -2,6 +2,8 @@ import { basename } from "node:path";
 import { pipeline, Readable, Transform } from "node:stream";
 import {
 	contentDisposition,
+	ExtractRequest,
+	ExtractResponse,
 	MAX_DOWNLOAD_BYTES,
 	MAX_UPLOAD_BYTES,
 	MkdirRequest,
@@ -13,10 +15,22 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { recordActivity } from "../activity.js";
-import { AGENT_TIMEOUT_MS, readAgentError, readJson } from "../agent-client.js";
+import {
+	AGENT_EXTRACT_TIMEOUT_MS,
+	AGENT_TIMEOUT_MS,
+	readAgentError,
+	readJson,
+} from "../agent-client.js";
 import type { UserLimit } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
-import { agentUrl, scopedProject, sendAgentError, sendError } from "./project-scope.js";
+import {
+	agentUrl,
+	claimLongOperation,
+	releaseLongOperation,
+	scopedProject,
+	sendAgentError,
+	sendError,
+} from "./project-scope.js";
 
 /**
  * A budget for the agent's response headers alone. Once headers are back the
@@ -384,6 +398,48 @@ export function registerFileRoutes(
 			if (!response.ok) return relayFailure(reply, response);
 			await response.body?.cancel();
 			return reply.status(204).send();
+		});
+
+		// POST extract -- "Extract here" on a zip (issue #817). One at a time
+		// per workspace, because a large zip holds the request for minutes.
+		instance.post("/workspaces/:id/projects/:pid/extract", async (request, reply) => {
+			const scope = await scopedProject(db, config, request, reply);
+			if (!scope) return;
+			await recordActivity(db, scope.workspaceId);
+			const body = ExtractRequest.safeParse(request.body ?? {});
+			if (!body.success) {
+				return sendError(reply, 400, "VALIDATION_FAILED", "that path is not valid");
+			}
+			if (!claimLongOperation(scope.workspaceId, reply)) return;
+			try {
+				let response: Response;
+				try {
+					response = await scope.agent.fetchRaw(
+						"POST",
+						agentUrl(scope.slug, "extract"),
+						{
+							headers: { "content-type": "application/json" },
+							body: Buffer.from(JSON.stringify(body.data)),
+							signal: AbortSignal.timeout(AGENT_EXTRACT_TIMEOUT_MS),
+						},
+					);
+				} catch (error) {
+					return sendAgentError(reply, error);
+				}
+				if (!response.ok) return relayFailure(reply, response);
+				const parsed = ExtractResponse.safeParse(await readJson(response));
+				if (!parsed.success) {
+					return sendError(
+						reply,
+						503,
+						"AGENT_UNAVAILABLE",
+						"The workspace agent sent an answer we could not read.",
+					);
+				}
+				return reply.status(201).send(parsed.data);
+			} finally {
+				releaseLongOperation(scope.workspaceId);
+			}
 		});
 	});
 }

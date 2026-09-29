@@ -3553,6 +3553,30 @@ Gaps:
 
 ## Epic 15.2 — Pilot fixes
 
+Built on `epic/15-2-pilot-fixes`.
+
+Delivered:
+
+- Claude Code login in a workspace offers the paste-code URL again (#848).
+  Because `BROWSER` was set, Claude Code also opened a second login URL
+  whose callback is localhost in the workspace. The image now sets
+  `BROWSER` to empty for Claude Code only, through
+  `/etc/claude-code/managed-settings.json` (BROWSER-HANDLING.md 19.2). The
+  image job's health check, the smoke test and
+  `infra/tests/claude-login-test.sh` fail if login opens a browser. It
+  reaches the pilot with the next workspace image.
+- "Extract here" on a zip in the Files pane (#817). The agent reads the
+  zip's central directory first and refuses the whole zip for an entry
+  with `..`, an absolute or drive-letter path, a path beneath a
+  symbolic-link entry, a password, or zip64. It caps the declared size at
+  1 GiB and the entries at 10,000, and checks free space. unzip runs
+  under a 1 GiB per-file limit, and a symbolic link that points out of
+  the new folder removes the folder. A taken folder name gets `-2`, `-3`
+  and so on; nothing is merged. The zip-slip tests from the backlog now
+  cover this extractor and the recovery restore. Known gap: progress is an
+  "Extracting" notice and the files appearing in the tree, not a
+  percentage, and a zip whose headers lie about its size is bounded by
+  the per-file limit and the home volume's quota, not by the 1 GiB total.
 Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot fixes".
 
 - Project setup (T5, #846, #847, #856, #857): a clone takes the name its

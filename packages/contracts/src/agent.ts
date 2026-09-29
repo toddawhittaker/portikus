@@ -190,6 +190,8 @@ export const AgentErrorCode = z.enum([
 	"RECOVERY_POINT_INVALID",
 	"RESTORE_INCOMPLETE",
 	"ROLLBACK_COPY_EXISTS",
+	// A zip that is damaged, locked, or unsafe to extract (issue #817).
+	"ARCHIVE_INVALID",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 

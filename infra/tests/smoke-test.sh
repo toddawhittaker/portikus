@@ -315,6 +315,15 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check "xdg-open wrapper is executable"        ws_exec "test -x /usr/local/bin/xdg-open"
   check_output "BROWSER is portikus-open in a login shell" \
     "BROWSER=/usr/local/bin/portikus-open" ws_student 'env | grep ^BROWSER='
+  # Claude Code login must open nothing and offer the paste-code URL, even
+  # with BROWSER set; this catches a new Claude Code that drifts (issue #848,
+  # BROWSER-HANDLING.md 19.2). It stops at the prompt and never logs in.
+  # shellcheck disable=SC2016 # the workspace shell expands it
+  claude_login_flow() {
+    ws_student 'd=$(mktemp -d); echo "#!/bin/sh" > $d/o; echo "touch $d/opened" >> $d/o; chmod +x $d/o; BROWSER=$d/o CLAUDE_CONFIG_DIR=$d timeout 15 claude auth login </dev/null >$d/out 2>&1; if [ ! -e $d/opened ] && grep -q oauth%2Fcode%2Fcallback $d/out; then echo paste-code; fi; rm -rf $d'
+  }
+  check_output "Claude Code login offers the paste-code flow and opens no browser" \
+    "paste-code" claude_login_flow
   # The student cannot mkdir under /run. systemd must create the broker
   # socket directory before the agent starts (BROWSER-HANDLING.md 18).
   check_output "workspace agent unit sets RuntimeDirectory=portikus" \

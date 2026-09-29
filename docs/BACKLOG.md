@@ -622,23 +622,6 @@ of research, then a day to build.
 
 **Source.** Epic 8 security review; `docs/STATUS.md`, Epic 8 known gaps.
 
-## Zip-slip tests for archive extraction
-
-**What.** Traversal tests for any code path that extracts an archive a
-student provides, checking that an entry named like `../../etc/passwd`
-or an absolute path cannot write outside the intended directory.
-
-**Why.** Epic 12a's filesystem escape suite covers every path a student
-can name directly. Epic 10's recovery restore now extracts an archive,
-and its tests cover symlinks, but no test yet feeds it an archive with a
-hostile entry name. Epic 12b did not add one.
-
-**What it would take.** Add traversal and absolute-path entries to the
-tests of `apps/workspace-agent/src/recovery.ts`, following the pattern in
-`apps/workspace-agent/src/security/path-escape.test.ts`. Half a day.
-
-**Source.** `docs/archive/epics/EPIC-12A.md`, decisions; `docs/STATUS.md`, Epic 12a.
-
 ## Optional content-length on downloads
 
 **What.** Send a `Content-Length` header on a project, folder, or file
