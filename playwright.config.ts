@@ -189,6 +189,8 @@ export default defineConfig({
 				// faster than a person; unit tests keep the real limits.
 				WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: "100000",
 				FILE_WRITE_LIMIT_PER_MINUTE: "100000",
+				// admin-image.spec.ts waits for the timer's release notices.
+				RELEASE_NOTICE_SECONDS: "2",
 			},
 			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,
