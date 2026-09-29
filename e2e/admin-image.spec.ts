@@ -1,9 +1,10 @@
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { createStudent, loginAs, query, WEB_ORIGIN } from "./helpers";
 import {
 	IMAGE_JOBS_DIR,
+	IMAGES_DIR,
 	putImage,
 	resetImageStore,
 	setAliases,
@@ -285,4 +286,64 @@ test("a second request while one waits is refused", async ({ page }) => {
 		"aria-disabled",
 		"true",
 	);
+});
+
+/** What the daily `image-job check` would write, a newer image and package (issue #861). */
+async function putPublished(
+	image: string,
+	pkg: { installed: string; available: string },
+) {
+	await writeFile(
+		join(IMAGES_DIR, "published.json"),
+		JSON.stringify({ checkedAt: new Date().toISOString(), image, package: pkg }),
+	);
+}
+
+async function openNotifications(page: Page) {
+	await page.getByTestId("me").click();
+	await page.getByRole("menuitem", { name: "Notifications" }).click();
+	return page.getByTestId("dialog-notifications");
+}
+
+test("a newer published image shows a notice and notifies the administrator once, until it is on the server", async ({
+	page,
+}) => {
+	await putPublished(NEWEST, { installed: "0.1.695", available: "0.1.700" });
+	await open(page);
+	const notice = page.getByTestId("image-newer-published");
+	await expect(notice).toContainText(`Image ${NEWEST} is published`);
+	await notice.getByRole("button", { name: `Update to ${NEWEST}` }).click();
+	await expect(confirmDialog(page)).toContainText(
+		"Update to the latest published image?",
+	);
+	await confirmDialog(page).getByRole("button", { name: "Cancel" }).click();
+
+	await page.reload();
+	await expect(notice).toBeVisible({ timeout: 15_000 });
+	const dialog = await openNotifications(page);
+	await expect(
+		dialog
+			.getByTestId("notification")
+			.filter({ hasText: `Workspace image ${NEWEST} is published` }),
+	).toHaveCount(1);
+	await expect(
+		dialog
+			.getByTestId("notification")
+			.filter({ hasText: "Portikus 0.1.700 is available" }),
+	).toHaveCount(1);
+	await page.keyboard.press("Escape");
+
+	// The Health tab names the package and the command; the platform never upgrades itself.
+	await page.goto("/admin?tab=health");
+	const pkg = page.getByTestId("health-package-update");
+	await expect(pkg).toContainText("Portikus 0.1.700 is available", { timeout: 15_000 });
+	await expect(pkg.locator("code")).toHaveText("sudo apt update && sudo apt upgrade");
+
+	// Once that version is on the server, the notice goes.
+	await putImage({ version: NEWEST, fingerprint: fingerprint(), health: "passed" });
+	await page.goto("/admin?tab=image");
+	await expect(page.getByTestId("image-default")).toHaveText(CURRENT, {
+		timeout: 15_000,
+	});
+	await expect(notice).toHaveCount(0);
 });

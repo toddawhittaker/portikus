@@ -13,6 +13,7 @@ import {
 	type UpdatePlatformSettingsRequest,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { z } from "zod";
 import { request } from "../api/request.js";
 
@@ -59,6 +60,21 @@ export function useAdminWorkspace(id: string | null) {
 		enabled: id !== null,
 		refetchInterval: ADMIN_REFRESH_MS,
 	});
+}
+
+/**
+ * Refetch the Users list the moment the detail panel sees a rebuild or
+ * reset finish, so its Old image tag goes without waiting a poll (issue #860).
+ */
+export function useRefreshUsersWhenDone(pendingOperation: string | null) {
+	const client = useQueryClient();
+	const previous = useRef(pendingOperation);
+	useEffect(() => {
+		if (previous.current !== null && pendingOperation === null) {
+			void client.invalidateQueries({ queryKey: adminKeys.users });
+		}
+		previous.current = pendingOperation;
+	}, [client, pendingOperation]);
 }
 
 export function useUpdatePlatformSettings() {

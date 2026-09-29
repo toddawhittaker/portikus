@@ -53,6 +53,57 @@ test("an ordinary link opens in a new tab safely", () => {
 	expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
 });
 
+/** Stands in for the file route, so the test reads the project path it was given. */
+const imageUrl = (projectPath: string) =>
+	`/file?path=${encodeURIComponent(projectPath)}`;
+
+test("a relative image resolves against the file's folder through the file route", () => {
+	render(
+		<MarkdownPreview
+			text={"![Diagram](./diagram.png)\n\n![Up](../shared/logo.svg)\n"}
+			path="docs/guide/README.md"
+			imageUrl={imageUrl}
+		/>,
+	);
+	expect(screen.getByRole("img", { name: "Diagram" }).getAttribute("src")).toBe(
+		"/file?path=docs%2Fguide%2Fdiagram.png",
+	);
+	expect(screen.getByRole("img", { name: "Up" }).getAttribute("src")).toBe(
+		"/file?path=docs%2Fshared%2Flogo.svg",
+	);
+});
+
+test("an image outside the project keeps react-markdown's own rules", () => {
+	render(
+		<MarkdownPreview
+			text={
+				"![Web](https://example.invalid/a.png)\n\n![Bad](javascript:alert(1))\n\n![Out](../../a.png)\n"
+			}
+			path="docs/README.md"
+			imageUrl={imageUrl}
+		/>,
+	);
+	expect(screen.getByRole("img", { name: "Web" }).getAttribute("src")).toBe(
+		"https://example.invalid/a.png",
+	);
+	expect(screen.getByRole("img", { name: "Bad" }).getAttribute("src")).toBeFalsy();
+	// Above the project root is not the project, so it is left as written.
+	expect(screen.getByRole("img", { name: "Out" }).getAttribute("src")).toBe(
+		"../../a.png",
+	);
+});
+
+test("a link is not rewritten to the file route, only an image", () => {
+	const { container } = render(
+		<MarkdownPreview
+			text={"[notes](./notes.md)\n"}
+			path="README.md"
+			imageUrl={imageUrl}
+		/>,
+	);
+	expect(container.querySelector("a")?.getAttribute("href")).toBe("./notes.md");
+});
+
 test("frontmatter is a collapsed block of raw text, not Markdown", () => {
 	const { container } = render(
 		<MarkdownPreview text={"---\n# title: Notes\n---\n\nBody text.\n"} />,

@@ -290,6 +290,19 @@
     enabled: true
   when: portikus_image_job_units.results[1].stat.exists
 
+# The daily release check (issue #861); a package from before it has no timer.
+- name: Look for the release check's timer
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/portikus-image-check.timer
+  register: portikus_image_check_timer
+
+- name: Enable and start the release check's timer
+  ansible.builtin.systemd_service:
+    name: portikus-image-check.timer
+    enabled: true
+    state: started
+  when: portikus_image_check_timer.stat.exists
+
 # ── Start the services ───────────────────────────────────────────
 # The package enables the units, but ConditionPathExists keeps them from
 # starting until the environment files above exist.

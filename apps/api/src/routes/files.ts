@@ -85,6 +85,37 @@ function pinnedType(value: string | null): string {
 }
 
 /**
+ * The types the file viewer shows in the page, by file extension (#816).
+ * Nothing else is ever served inline, and never as HTML.
+ */
+const INLINE_TYPES: Record<string, string> = {
+	png: "image/png",
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	gif: "image/gif",
+	webp: "image/webp",
+	svg: "image/svg+xml",
+	pdf: "application/pdf",
+};
+
+/** The inline content type for `path`, or null when the viewer does not show it. */
+export function inlineType(path: string): string | null {
+	const name = basename(path);
+	const dot = name.lastIndexOf(".");
+	if (dot <= 0) return null;
+	return INLINE_TYPES[name.slice(dot + 1).toLowerCase()] ?? null;
+}
+
+/**
+ * The policy on an inline file. `sandbox` gives a document an opaque origin
+ * with no script, so an SVG opened on its own cannot reach the session or
+ * the page; the rest stops it loading anything but its own inline styles
+ * and data images (SPEC.md §24.3, #816).
+ */
+export const INLINE_CSP =
+	"sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'";
+
+/**
  * The project-relative path from the query. Every path is checked here as
  * well as in the agent, so a traversal attempt never leaves the control
  * plane (SPEC.md §11.1, §24.6). The tree of the project root is the one
@@ -180,7 +211,19 @@ export function registerFileRoutes(
 			if (!scope) return;
 			const path = queryPath(request, reply, { allowRoot: false });
 			if (path === null) return;
-			const download = (request.query as { download?: string }).download === "1";
+			const query = request.query as { download?: string; inline?: string };
+			const download = query.download === "1";
+			// The viewer's mode: the real type of an image or PDF, never a guess.
+			const wantsInline = !download && query.inline === "1";
+			const inline = wantsInline ? inlineType(path) : null;
+			if (wantsInline && inline === null) {
+				return sendError(
+					reply,
+					415,
+					"VALIDATION_FAILED",
+					"Only images and PDF files can be shown here. Download the file to open it.",
+				);
+			}
 
 			// One file streams straight through and races with nothing, so it
 			// takes no long-operation slot; the zip download still does.
@@ -189,7 +232,13 @@ export function registerFileRoutes(
 			try {
 				response = await scope.agent.fetchRaw(
 					"GET",
-					agentUrl(scope.slug, "file", download ? { path, download: "1" } : { path }),
+					// An inline file streams like a download, so a large PDF is not
+					// held to the editor's 2 MiB cap.
+					agentUrl(
+						scope.slug,
+						"file",
+						download || inline ? { path, download: "1" } : { path },
+					),
 					{ signal: deadline.signal },
 				);
 			} catch (error) {
@@ -233,7 +282,13 @@ export function registerFileRoutes(
 				// escaped here rather than anywhere near a shell.
 				reply.header("content-disposition", contentDisposition(basename(path)));
 			}
-			reply.type(pinnedType(response.headers.get("content-type")));
+			if (inline) {
+				reply.header("x-content-type-options", "nosniff");
+				reply.header("content-security-policy", INLINE_CSP);
+				reply.type(inline);
+			} else {
+				reply.type(pinnedType(response.headers.get("content-type")));
+			}
 			return reply.send(cappedDownload(response.body));
 		});
 

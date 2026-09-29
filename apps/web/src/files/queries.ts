@@ -54,6 +54,20 @@ export function fileDownloadUrl(
 }
 
 /**
+ * The same file as an image or PDF the page can show (#816). `version`, the
+ * file's etag, makes a changed file a new address, so the browser reloads it.
+ */
+export function fileInlineUrl(
+	workspaceId: string,
+	projectId: string,
+	path: string,
+	version?: string,
+): string {
+	const inline = `${fileUrl(workspaceId, projectId, path)}&inline=1`;
+	return version ? `${inline}&v=${encodeURIComponent(version)}` : inline;
+}
+
+/**
  * Start a download once the API says it is under the size cap. The check
  * adds up file sizes without zipping, so a refusal is explained in the page
  * rather than shown as a failed download (#399). `checkUrl` is a download

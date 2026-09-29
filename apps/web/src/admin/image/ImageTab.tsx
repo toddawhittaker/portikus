@@ -133,6 +133,27 @@ function ImageSections({ data }: { data: AdminImage }) {
 
 	return (
 		<AdminSection title="Workspace image" intro={INTRO}>
+			{data.newerPublished ? (
+				// The daily check found it; it clears once that version is on the server (issue #861).
+				<div
+					className="pk-card flex flex-wrap items-center gap-3 p-4"
+					data-testid="image-newer-published"
+				>
+					<p className="m-0 flex-1">
+						Image <strong>{data.newerPublished}</strong> is published and not yet on
+						this server.
+					</p>
+					<Button
+						variant="primary"
+						data-testid="image-newer-fetch"
+						aria-disabled={busy ? true : undefined}
+						aria-describedby={busy ? "image-busy-note" : undefined}
+						onClick={() => (busy ? undefined : setConfirming({ kind: "fetch" }))}
+					>
+						Update to {data.newerPublished}
+					</Button>
+				</div>
+			) : null}
 			<Group
 				id="image-current-title"
 				title="Current image"

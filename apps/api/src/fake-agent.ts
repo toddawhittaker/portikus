@@ -1600,6 +1600,8 @@ export async function startFakeAgent(
 			key?: string;
 			path: string;
 			content: string;
+			/** "base64" seeds binary content, such as an image. */
+			encoding?: "base64";
 			apparentSize?: number;
 		};
 		const tree = filesForKey(body.key ?? "");
@@ -1612,7 +1614,7 @@ export async function startFakeAgent(
 		addParents(tree, slug, rest.join("/"));
 		tree.set(body.path, {
 			type: "file",
-			content: Buffer.from(body.content, "utf8"),
+			content: Buffer.from(body.content, body.encoding ?? "utf8"),
 			...(body.apparentSize === undefined ? {} : { apparentSize: body.apparentSize }),
 		});
 		noteFsChange(body.key ?? "", slug, [rest.join("/")]);

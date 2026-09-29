@@ -51,6 +51,7 @@ test("buckets before the journal's oldest line are gaps, later empty ones are ze
 const REPORT = {
 	sampledAt: "2026-09-26T09:59:30.000Z",
 	workerStale: false,
+	packageUpdate: null,
 	controller: { reachable: true, errorCode: null },
 	host: null,
 	workspacesByState: {},

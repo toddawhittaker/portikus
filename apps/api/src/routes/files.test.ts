@@ -15,6 +15,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { type FakeAgent, oneFileZip, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { INLINE_CSP, inlineType } from "./files.js";
 
 /**
  * File routes (SPEC.md §11.1, §11.2, §13.5). The control plane brokers every
@@ -491,6 +492,65 @@ test.skipIf(skip)("a file download is named after its basename", async () => {
 		`attachment; filename="report.txt"; filename*=UTF-8''report.txt`,
 	);
 	expect(downloaded.body).toBe("content\n");
+});
+
+test.skipIf(skip)(
+	"an inline image is served with its real type and a sandbox policy (#816)",
+	async () => {
+		seed(
+			"lab",
+			"img/logo.svg",
+			'<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>',
+		);
+		const shown = await get(alice, "file", "?path=img/logo.svg&inline=1&v=abc");
+		expect(shown.statusCode).toBe(200);
+		expect(shown.headers["content-type"]).toBe("image/svg+xml");
+		expect(shown.headers["x-content-type-options"]).toBe("nosniff");
+		expect(shown.headers["content-security-policy"]).toBe(INLINE_CSP);
+		expect(String(shown.headers["content-security-policy"])).toMatch(/^sandbox;/);
+		// Shown in the page, so never an attachment.
+		expect(shown.headers["content-disposition"]).toBeUndefined();
+		expect(shown.body).toContain("<svg");
+	},
+);
+
+test.skipIf(skip)(
+	"an inline PDF past the editor limit still streams (#816)",
+	async () => {
+		seed("lab", "brief.pdf", `%PDF-1.4\n${"x".repeat(MAX_EDITOR_FILE_BYTES + 1)}`);
+		const shown = await get(alice, "file", "?path=brief.pdf&inline=1");
+		expect(shown.statusCode).toBe(200);
+		expect(shown.headers["content-type"]).toBe("application/pdf");
+		expect(shown.headers["content-security-policy"]).toBe(INLINE_CSP);
+	},
+);
+
+test.skipIf(skip)(
+	"only images and PDFs are served inline, never HTML (#816)",
+	async () => {
+		seed("lab", "page.html", "<script>alert(1)</script>");
+		const refused = await get(alice, "file", "?path=page.html&inline=1");
+		expect(refused.statusCode).toBe(415);
+		expect(refused.headers["content-type"]).toMatch(/^application\/json/);
+		// The ordinary read of the same file is still plain text.
+		const read = await get(alice, "file", "?path=page.html");
+		expect(read.headers["content-type"]).toBe("text/plain; charset=utf-8");
+		expect(read.headers["content-security-policy"]).toBeUndefined();
+	},
+);
+
+test("the inline type comes from the file name, and only for known types", () => {
+	expect(inlineType("a/b/Shot.PNG")).toBe("image/png");
+	expect(inlineType("x.jpg")).toBe("image/jpeg");
+	expect(inlineType("x.jpeg")).toBe("image/jpeg");
+	expect(inlineType("x.gif")).toBe("image/gif");
+	expect(inlineType("x.webp")).toBe("image/webp");
+	expect(inlineType("x.svg")).toBe("image/svg+xml");
+	expect(inlineType("x.pdf")).toBe("application/pdf");
+	expect(inlineType("x.html")).toBeNull();
+	expect(inlineType("x.svgz")).toBeNull();
+	expect(inlineType(".png")).toBeNull();
+	expect(inlineType("dir.png/file")).toBeNull();
 });
 
 test.skipIf(skip)("a non-ASCII filename also gets an RFC 5987 name", async () => {

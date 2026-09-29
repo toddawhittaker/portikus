@@ -219,20 +219,20 @@ test.describe("file editor", () => {
 			.toContain("// mine");
 	});
 
-	test("a binary file offers a download instead of the editor", async ({
+	test("an unknown binary file offers a download instead of the editor", async ({
 		page,
 		context,
 	}) => {
 		const student = await createStudent(context);
-		const path = "assets/logo.png";
+		const path = "assets/data.bin";
 		await openFileTab(page, student, "Binary", path, "\u0000\u0001PNG\u0000");
 
 		await expect(page.getByTestId("file-download")).toBeVisible({ timeout: 15_000 });
 		await expect(page.getByTestId(`editor-${path}`)).toHaveCount(0);
 		const downloadPromise = page.waitForEvent("download");
-		await page.getByRole("button", { name: "Download logo.png" }).press("Enter");
+		await page.getByRole("button", { name: "Download data.bin" }).press("Enter");
 		const download = await downloadPromise;
-		expect(download.suggestedFilename()).toBe("logo.png");
+		expect(download.suggestedFilename()).toBe("data.bin");
 		expect(download.url()).toContain("download=1");
 	});
 

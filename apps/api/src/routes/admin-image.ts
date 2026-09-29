@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { open, readdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminImage,
@@ -16,10 +16,16 @@ import {
 	ImageManifest,
 	ImageVersion,
 	type ImageView,
+	newerPublishedImage,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodType } from "zod";
 import { diffManifests } from "../image/manifest-diff.js";
+import {
+	imagesDirOf,
+	noticeReleases,
+	readPublished,
+} from "../image/release-notices.js";
 import type { ServerDeps } from "../server.js";
 import { sendError } from "./project-scope.js";
 
@@ -110,8 +116,7 @@ export function registerAdminImageRoutes(
 	{ db, config }: ServerDeps,
 ): void {
 	const jobsDir = config.IMAGE_JOBS_DIR;
-	// The store sits beside the job directory: /var/lib/portikus/images.
-	const imagesDir = jobsDir ? join(dirname(jobsDir), "images") : null;
+	const imagesDir = jobsDir ? imagesDirOf(jobsDir) : null;
 	// One API process: this closes the gap between checking and writing.
 	let writing = false;
 
@@ -258,12 +263,19 @@ export function registerAdminImageRoutes(
 		);
 		const total = [...byFingerprint.values()].reduce((sum, n) => sum + n, 0);
 		if (job) await noteFinished(job);
+		// The hourly timer notifies too; a page load just gets there sooner.
+		await noticeReleases(db, imagesDir);
+		const published = await readPublished(imagesDir);
 		const out: AdminImage = {
 			default: aliases.default,
 			previous: aliases.previous,
 			images: views,
 			otherWorkspaces: total - counted,
 			job,
+			newerPublished: newerPublishedImage(
+				published?.image ?? null,
+				images.map((image) => image.version),
+			),
 		};
 		return reply.header("cache-control", "no-store").send(out);
 	});

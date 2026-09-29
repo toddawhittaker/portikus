@@ -221,6 +221,7 @@ describe("admin contracts", () => {
 		const report = {
 			sampledAt: now,
 			workerStale: false,
+			packageUpdate: null,
 			controller: { reachable: true, errorCode: null },
 			host: {
 				loadAverage: [0.5, 0.4, 0.3],
