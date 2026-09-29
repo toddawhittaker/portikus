@@ -1,0 +1,34 @@
+# The install settings: each debconf question, the key postinst writes for
+# it, and whether that key goes to portikus.yaml (setting) or secrets.yaml
+# (secret). Every key is a play variable in infra/ansible/site.yml.
+# packaging/tests/settings-keys-test.sh checks all three places against
+# this list (docs/SPEC.md section 21.12).
+public_host        portikus_public_host                 setting
+admin_email        portikus_admin_email                 setting
+tls                portikus_tls                         setting
+acme_email         portikus_acme_email                  setting
+tls_cert           portikus_tls_cert                    setting
+tls_key           portikus_tls_key                     setting
+provider           portikus_dex_upstream                setting
+entra_tenant_id    portikus_entra_tenant_id             setting
+google_domains     portikus_google_domains              setting
+oidc_issuer        portikus_dex_upstream_issuer         setting
+client_id          portikus_dex_upstream_client_id      setting
+oidc_groups_claim  portikus_oidc_upstream_groups_claim  setting
+ldap_host          portikus_ldap_host                   setting
+ldap_schema        portikus_ldap_schema                 setting
+ldap_ip_allow      portikus_ldap_ip_allow               setting
+ldap_bind_dn       portikus_ldap_bind_dn                setting
+ldap_user_base_dn  portikus_ldap_user_base_dn           setting
+ldap_user_filter   portikus_ldap_user_filter            setting
+ldap_group_base_dn portikus_ldap_group_base_dn          setting
+ldap_root_ca       portikus_ldap_root_ca                setting
+student_group      portikus_oidc_student_group          setting
+instructor_group   portikus_oidc_instructor_group       setting
+admin_group        portikus_oidc_admin_group            setting
+storage            portikus_storage                     setting
+storage_confirm    portikus_storage_confirm             setting
+storage_size       portikus_storage_size                setting
+cloudflare_api_token portikus_cloudflare_api_token      secret
+client_secret      portikus_dex_upstream_client_secret  secret
+ldap_bind_password portikus_ldap_bind_password          secret
