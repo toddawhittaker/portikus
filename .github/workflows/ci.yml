@@ -563,6 +563,9 @@ jobs:
       - name: TLS and storage settings guards
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/setup-settings-test.yml
+      - name: Apt refresh failure decision
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: ansible-playbook infra/tests/apt-failures-test.yml
       - name: Workspace image first-install decision
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/workspace-image-test.yml

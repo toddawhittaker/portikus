@@ -118,6 +118,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Only for the version; the package itself is served by the apt repository.
       - name: Download the package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -134,14 +135,10 @@ jobs:
             echo "Release v$VERSION already exists; nothing to publish."
             exit 0
           fi
-          # Ansible reads the checksum from this file instead of a pin in the repo.
-          (cd dist/deb && sha256sum portikus_*.deb > SHA256SUMS)
           gh release create "v$VERSION" \
             --target "$TARGET_SHA" \
             --title "portikus $VERSION" \
-            --notes "Control-plane package built from $TARGET_SHA" \
-            dist/deb/portikus_*.deb \
-            dist/deb/SHA256SUMS
+            --notes "Control-plane package built from $TARGET_SHA. Install it from the apt repository: sudo apt install portikus=$VERSION"
 
   apt-repo:
     name: Sign the apt repository

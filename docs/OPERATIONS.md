@@ -68,9 +68,12 @@ Do not take whole-VM libvirt snapshots for a routine deploy. They pin old
 blocks inside the VM's disk file, so it only grows ("VM disk files on the
 host").
 
-To undo a bad change, install the previous package
-(`make configure-vm PORTIKUS_VERSION=<old version>`) and, only if the
-database itself is wrong, load the dump with `pg_restore --clean`.
+To undo a bad change, install the previous package from the apt
+repository (`make configure-vm PORTIKUS_VERSION=<old version>` from the
+workstation, or `sudo apt install --allow-downgrades portikus=<old version>`
+on the server) and, only if the database itself is wrong, load the dump
+with `pg_restore --clean`. `apt-cache madison portikus` lists the versions
+the repository still holds; it keeps the ten newest.
 
 ## Deploying
 
@@ -93,9 +96,10 @@ make smoke-test
 
 - `make build-deb` builds the control-plane Debian package into `dist/deb`.
 - `make configure-vm` runs the whole Ansible play. With `PORTIKUS_DEB` it
-  installs that local package. Without it, it installs the newest
-  published release, and `PORTIKUS_VERSION=<version>` installs an older
-  one, which is how a rollback works.
+  installs that local package. Without it, it adds the signed apt
+  repository and installs the newest package there, and
+  `PORTIKUS_VERSION=<version>` installs an older one, which is how a
+  rollback works.
 - Run `configure-vm` when no workspace is being created. A controller
   restart in the middle of a create used to leave the workspace in
   `error`. The worker now retries the create, but it is still better not
@@ -1380,8 +1384,9 @@ release (docs/SPEC.md section 21.13). Its fingerprint is
    `APT_SIGNING_KEY`, and commit the new public key as
    `packaging/portikus-archive-keyring.asc`.
 4. Cut a release. The release job signs the whole repository again with
-   the new key. Sign each image release still in use again too: sign its
-   `SHA256SUMS` with the new key (`gpg --armor --detach-sign`) and replace
+   the new key, which covers every package, since packages are published
+   only there. Sign each workspace image release still in use again too:
+   sign its `SHA256SUMS` with the new key (`gpg --armor --detach-sign`) and replace
    `SHA256SUMS.asc` with `gh release upload <tag> SHA256SUMS.asc --clobber`.
 5. Publish the revoked old key beside the new one, and announce both, with
    the new fingerprint, on the project's GitHub page.

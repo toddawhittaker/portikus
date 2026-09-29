@@ -1,14 +1,28 @@
 ---
 # Base OS configuration for the Debian platform VM.
 # The one refresh every run makes; a role that adds a repository refreshes again.
+# Setup installs nothing from the Portikus repository, so only its failure is a warning.
 - name: Update apt cache
-  ansible.builtin.apt:
-    update_cache: true
-    cache_valid_time: 3600
-  register: base_apt_refresh
-  retries: 3
-  delay: 10
-  until: base_apt_refresh is succeeded
+  block:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      register: base_apt_refresh
+      retries: 3
+      delay: 10
+      until: base_apt_refresh is succeeded
+  rescue:
+    # The apt module stops at the first failed source; apt-get names each one.
+    - name: Refresh again to learn which repositories failed  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: apt-get update
+      register: base_apt_update
+      changed_when: false
+      failed_when: false
+
+    - name: Fail unless only the Portikus repository failed
+      ansible.builtin.include_tasks: apt_failures.yml
 
 - name: Install base packages
   ansible.builtin.apt:

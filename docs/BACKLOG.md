@@ -1685,18 +1685,3 @@ rehearse it on a fork with its own `publish` environment first. Half a
 day.
 
 **Source.** Epic 15 review fixes (#807, #810).
-
-## Setup when the Portikus repository is unreachable
-
-**What.** Setup's one apt index refresh (the `base` role) retries three
-times, 10 seconds apart, and then fails the whole run if any configured
-repository, the Portikus one included, cannot be reached.
-
-**Why.** A short outage of GitHub Pages stops a `portikus setup` that
-would otherwise change nothing about packages.
-
-**What it would take.** Let that refresh succeed when only the Portikus
-repository failed, since setup never installs from it, and warn instead.
-About half a day with a test.
-
-**Source.** Epic 15 code review; #808 added the retries.

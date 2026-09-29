@@ -3363,8 +3363,9 @@ Gaps:
   accepted.
 - The worker shares the API's account, so it can reach the backup-key
   helper (ADR 0044; BACKLOG).
-- Setup fails when any apt repository stays unreachable after three
-  retries (BACKLOG).
+- Setup failed when any apt repository stayed unreachable after three
+  retries. Closed by Epic 15.1 (#825): it now warns and goes on when only
+  the Portikus repository failed, and still fails for Debian's.
 - The install settings keys are named in three places (BACKLOG).
 
 ## Epic 15, task T7 — Backups on an apt-installed server

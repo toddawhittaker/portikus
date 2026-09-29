@@ -336,11 +336,11 @@ shallow checkout since they only need the working tree.
 
 `.github/workflows/release.yml` publishes a release when an `epic/` or
 `task/` branch merges into `main`, or when the workflow is run by hand from `main` for a
-hotfix. It builds the merge commit on `main` and builds the same package and publishes a GitHub release with two
-assets: the `.deb` and a `SHA256SUMS` file. The version is
-`0.1.<commit count>+g<short sha>` and the tag is `v<version>`. Ansible
-installs the newest release by default and verifies it against that
-release's `SHA256SUMS`; `make configure-vm PORTIKUS_VERSION=<ver>` installs
+hotfix. It builds the package from the merge commit on `main`, adds it to
+the signed apt repository, and creates a tagged GitHub release with notes
+and no files. The version is `0.1.<commit count>+g<short sha>` and the tag
+is `v<version>`. Ansible installs the newest package from the apt
+repository by default; `make configure-vm PORTIKUS_VERSION=<ver>` installs
 an older one for a rollback. Task branches publish too, so a change that
 lands outside an epic still gives the VM a release to install.
 

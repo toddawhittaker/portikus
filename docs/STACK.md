@@ -1146,12 +1146,12 @@ Ansible configures:
 - logging/monitoring;
 - security hardening.
 
-The `portikus` role installs the newest release by default: it asks the
-GitHub API for the latest release, verifies the `.deb` against the checksum
-in that release's `SHA256SUMS` asset, installs it with apt, and renders only
+The `portikus` role installs the newest release by default: it adds the
+signed apt repository with the committed key, the same way docs/INSTALL.md
+does, installs the newest version found there with apt, and renders only
 the controller token and the three environment files. Rolling back is
-`make configure-vm PORTIKUS_VERSION=<previous>`, which installs that release
-with `--allow-downgrades`. For local development,
+`make configure-vm PORTIKUS_VERSION=<previous>`, which installs that version
+from the repository with `--allow-downgrades`. For local development,
 `make deploy-app` builds the package on the developer's machine, copies it
 to the VM, and installs it the same way; `make build-deb` builds it without
 deploying.
@@ -1427,9 +1427,9 @@ pnpm test:e2e
 (ADR 0007) on every pull request and keeps it as a build artifact for seven
 days. A separate `release.yml` publishes a release when an epic branch merges
 into `main`, or when the workflow is run by hand from `main` for a hotfix.
-It builds the same package from the merge commit on `main` and publishes it
-as a GitHub release with two assets: the `.deb` and a `SHA256SUMS` file
-Ansible reads the checksum from.
+It builds the same package from the merge commit on `main`, adds it to the
+signed apt repository, and creates a tagged GitHub release with notes and
+no files.
 
 Infrastructure checks:
 
