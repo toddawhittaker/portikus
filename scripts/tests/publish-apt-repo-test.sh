@@ -47,6 +47,36 @@ for f in dists/trixie/Release dists/trixie/InRelease dists/trixie/Release.gpg po
 done
 echo "ok: pruned to ten versions, signatures and keys written"
 
+# Valid-Until 30 days after Date, so a mirror cannot serve a stale index forever.
+release_date="$(sed -n 's/^Date: //p' "$WORK/repo/dists/trixie/Release")"
+valid_until="$(sed -n 's/^Valid-Until: //p' "$WORK/repo/dists/trixie/Release")"
+[[ -n "$valid_until" ]] || { echo "FAIL: Release has no Valid-Until" >&2; exit 1; }
+days=$(( ($(date -d "$valid_until" +%s) - $(date -d "$release_date" +%s)) / 86400 ))
+[[ "$days" == 30 ]] || { echo "FAIL: Valid-Until is $days days after Date, not 30" >&2; exit 1; }
+echo "ok: Valid-Until is 30 days after Date"
+
+# fetch-published-deb.sh takes the highest version, not the first or last
+# entry in Packages, and checks the signature and both hashes.
+fetch() { # REPO -- prints the version it fetched
+  PORTIKUS_APT_BASE="file://$1" PORTIKUS_ARCHIVE_KEY="$1/portikus-archive-keyring.asc" \
+    "$ROOT/packaging/tests/fetch-published-deb.sh" "$WORK/fetched.deb" 2>/dev/null
+}
+got="$(fetch "$WORK/repo")"
+[[ "$got" == 0.1.20 ]] || { echo "FAIL: fetched '$got' from 0.1.11 to 0.1.20, not 0.1.20" >&2; exit 1; }
+[[ "$(dpkg-deb -f "$WORK/fetched.deb" Version)" == 0.1.20 ]] || { echo "FAIL: fetched .deb is not 0.1.20" >&2; exit 1; }
+mkdir -p "$WORK/nine-ten/pool/main/p/portikus"
+cp "$WORK/portikus_0.1.9_amd64.deb" "$WORK/portikus_0.1.10_amd64.deb" "$WORK/nine-ten/pool/main/p/portikus/"
+"$ROOT/scripts/publish-apt-repo.sh" "$WORK/nine-ten" >/dev/null
+got="$(fetch "$WORK/nine-ten")"
+[[ "$got" == 0.1.10 ]] || { echo "FAIL: fetched '$got' from 0.1.9 and 0.1.10, not 0.1.10" >&2; exit 1; }
+cp -r "$WORK/nine-ten" "$WORK/bad-deb"
+printf 'x' >>"$WORK/bad-deb/pool/main/p/portikus/portikus_0.1.10_amd64.deb"
+if fetch "$WORK/bad-deb" >/dev/null; then echo "FAIL: a .deb with the wrong hash was fetched" >&2; exit 1; fi
+cp -r "$WORK/nine-ten" "$WORK/bad-sig"
+sed -i 's/^Label: Portikus/Label: Evil/' "$WORK/bad-sig/dists/trixie/InRelease"
+if fetch "$WORK/bad-sig" >/dev/null; then echo "FAIL: a tampered InRelease was accepted" >&2; exit 1; fi
+echo "ok: fetch-published-deb.sh takes the newest version and checks what it downloads"
+
 # Retention cases, each in a fresh repository seeded straight into the pool.
 retention_case() {
   local name="$1" expected="$2"

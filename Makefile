@@ -99,7 +99,7 @@ TOFU_BANNER = @echo "$@: OpenTofu environment $(TOFU_ENV), state $(TOFU_STATE), 
 rehearsal-up: ## Create or update the rehearsal VM beside the pilot and wait for it (REHEARSAL_VCPUS, REHEARSAL_MEMORY_MB, REHEARSAL_DATA_DISK_GB size it)
 	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt rehearsal-preflight infra-apply wait-vm
 
-rehearsal-destroy: ## Destroy the rehearsal VM, its disks, network and pool (never the pilot)
+rehearsal-destroy: ## Destroy the rehearsal VM, its disks, network and pool (never the pilot), and forget its SSH host key in ~/.ssh/known_hosts
 	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt TOFU_DESTROY_CALLER=rehearsal-destroy tofu-destroy
 
 # The script fixes TOFU_ENV=rehearsal-libvirt and ignores VM_IP, so it cannot reach the pilot.
@@ -123,10 +123,13 @@ rehearsal-preflight:
 
 # Only rehearsal-destroy and destroy-pilot call this; each fixes TOFU_ENV
 # and sets the private TOFU_DESTROY_CALLER so a direct call is refused.
+# A recreated VM keeps its address (fixed MAC) but gets a new SSH host key,
+# so the old one is forgotten; VM_IP is expanded before the destroy runs.
 tofu-destroy:
 	@test -n "$(TOFU_DESTROY_CALLER)" || { echo "tofu-destroy: use make destroy-pilot or make rehearsal-destroy"; exit 1; }
 	$(TOFU_BANNER)
 	cd $(TOFU_DIR) && tofu init -input=false $(TOFU_INIT_ARGS) && tofu destroy
+	@ip='$(VM_IP)'; if [ -n "$$ip" ]; then ssh-keygen -R "$$ip" >/dev/null 2>&1 || true; echo "tofu-destroy: forgot $$ip's SSH host key in ~/.ssh/known_hosts"; fi
 
 # Mirrors the "Infrastructure checks" job in .github/workflows/ci.yml.
 infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansible-lint, shellcheck
@@ -311,7 +314,7 @@ security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an ear
 		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
 		bash infra/tests/security-test.sh $(VM_IP) $(if $(SWEEP),--sweep,)
 
-destroy-pilot: ## Destroy the pilot VM (irreversible)
+destroy-pilot: ## Destroy the pilot VM (irreversible), and forget its SSH host key in ~/.ssh/known_hosts
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "destroy-pilot: acts on the pilot only; use make rehearsal-destroy for the rehearsal VM"; exit 1; }
 	@$(MAKE) --no-print-directory TOFU_ENV=dev-libvirt TOFU_DESTROY_CALLER=destroy-pilot tofu-destroy
 

@@ -11,17 +11,14 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out="$repo_root/docs/images/install"
 image="${DEBCONF_TEST_IMAGE:-portikus-debconf-test:2}"
-apt_repo=https://toddawhittaker.github.io/portikus/apt
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 if [ $# -gt 0 ]; then
 	cp "$1" "$work/portikus.deb"
 else
-	file=$(curl -fsSL "$apt_repo/dists/trixie/main/binary-amd64/Packages" |
-		awk '/^Filename:/ {f = $2} END {print f}')
-	echo "Downloading $file"
-	curl -fsSL -o "$work/portikus.deb" "$apt_repo/$file"
+	version=$(bash "$repo_root/packaging/tests/fetch-published-deb.sh" "$work/portikus.deb")
+	echo "Using the published $version"
 fi
 (cd "$work" && dpkg-scanpackages . /dev/null >Packages 2>/dev/null)
 # apt reads the repository as its unprivileged _apt user.

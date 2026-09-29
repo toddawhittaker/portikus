@@ -176,8 +176,13 @@ with the private key can also sign; they can already read every set.
 The API runs as the unprivileged `portikus` account, the only one the key
 socket admits. The worker runs as its own `portikus-worker` account, so
 it cannot reach the socket at all (Epic 15.1, issue #828). Its database
-role is a member of `portikus`, so in the database it can do what the API
-can, which includes the channel requests below.
+role is not a member of `portikus`. It holds only the table privileges
+its queries use, listed in
+`infra/ansible/roles/portikus/files/worker-grants.sql`: nothing on
+`sessions`, the preview, LTI or account-link tables, and only reading on
+`users`. So it cannot write a session or promote an account, and cannot
+reach the key through the API by signing in as an administrator. It can
+still write the channel requests below.
 
 A compromised API can:
 
@@ -247,6 +252,10 @@ the disk.
   account; on an upgrade from a release whose worker ran as `portikus`,
   postinst adds the worker's database role and points `worker.env` at it
   before the worker restarts, and setup does the same on every run.
+  Both then run `worker-grants.sql` after the migrations. It revokes the
+  role's membership in `portikus` and every table privilege, then grants
+  the listed ones, in one transaction. A new worker query needs a line
+  there; a worker unit test fails until it has one.
 - Replacing the key keeps the old one on the server, root-only, so sets
   encrypted to it can still be restored from a shell with
   `PORTIKUS_BACKUP_IDENTITY` pointing at the kept file. The tab cannot use

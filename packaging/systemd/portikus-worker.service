@@ -26,7 +26,9 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-IPAddressAllow=127.0.0.0/8
+# The controller and the blocked-name counter's listeners are on 127.0.0.1;
+# PostgreSQL is reached over its Unix socket.
+IPAddressAllow=127.0.0.1
 # The workspace bridge: the agent inside each container (SPEC.md 23.5).
 IPAddressAllow=10.200.0.0/24
 IPAddressDeny=any

@@ -3476,9 +3476,12 @@ Gaps:
 - The worker runs under its own system account, `portikus-worker` (#828),
   so it can no longer open the backup key socket, which admits only the
   API's `portikus` group (ADR 0044). Its database role of the same name is
-  a member of `portikus`, and `worker.env` is `root:portikus-worker` 0640.
-  On an upgrade, postinst adds the role and moves `worker.env` before the
-  worker restarts; setup does the same. `make install-test` checks the
+  not a member of `portikus` and holds only the table privileges its
+  queries use (`worker-grants.sql`, no write on sessions or users), and
+  `worker.env` is `root:portikus-worker` 0640. On an upgrade, postinst
+  adds the role, moves `worker.env` and applies the grants after the
+  migrations, before the worker restarts; setup does the same. The unit
+  may reach only 127.0.0.1 and the workspace bridge. `make install-test` checks the
   worker's account and the refusal, and `UPGRADE_FROM_PUBLISHED=1` makes
   it upgrade from the newest published release.
 - A recreated VM keeps its address (#834). The pilot's and the rehearsal

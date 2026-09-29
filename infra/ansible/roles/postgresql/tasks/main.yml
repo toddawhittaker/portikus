@@ -96,19 +96,12 @@
   become_user: postgres
 
 # The worker runs as its own system user, so peer authentication needs a
-# role of that name; membership gives it the tables portikus owns.
+# role of that name.  Its table grants follow the migrations, in the
+# portikus role (worker-grants.sql).
 - name: Create the worker's database role
   community.postgresql.postgresql_user:
     name: portikus-worker
     role_attr_flags: NOSUPERUSER,NOCREATEROLE,NOCREATEDB
-  become: true
-  become_user: postgres
-
-- name: Make the worker's role a member of portikus
-  community.postgresql.postgresql_membership:
-    groups: [portikus]
-    target_roles: [portikus-worker]
-    state: present
   become: true
   become_user: postgres
 

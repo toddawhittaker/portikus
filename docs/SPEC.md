@@ -2712,6 +2712,11 @@ Added by Epic 15.
 - The release workflow runs on a push to `main`, checks the live
   repository's signature before adding to it, and waits for the matching
   image release before publishing.
+- The signed index carries `Valid-Until` 30 days after it is made, so a
+  mirror or a man in the middle cannot keep serving an old index that
+  hides a fix. The release workflow signs it again every week, even
+  when nothing is released.
+- Setup installs an older package only when `PORTIKUS_VERSION` names it.
 - CI builds the workspace image when `infra/workspace-image/**` changes on
   `main`, or by hand, and publishes a release `image-<VERSION>` with
   `incus.tar.xz`, `rootfs.squashfs`, `manifest.json` and a `SHA256SUMS`
@@ -3261,7 +3266,12 @@ itself up.
   server itself. The channel takes requests from the local worker, which
   is unprivileged, so every check above still applies. The worker runs
   as its own `portikus-worker` account, so it cannot open the key socket
-  below, which admits only the API's `portikus` group. Sets go to
+  below, which admits only the API's `portikus` group. Its database role
+  is not a member of `portikus` and holds only the table privileges its
+  queries use: nothing on sessions or the other sign-in tables and no
+  write on users, so it cannot sign in as an administrator to reach the
+  key through the API. Setup and the package's upgrade apply those
+  grants after the migrations. Sets go to
   `/var/backups/portikus/local/`; sets copied in by hand are listed and
   checked the same way, and a link or a badly named folder is ignored.
 - **The key stays on the server**, root-only in `/etc/portikus-backup/`,

@@ -708,6 +708,11 @@ api_ip_allow() {
 }
 check_output "the API unit may reach loopback and the workspace bridge only" \
   "10.200.0.0/24 127.0.0.0/8" api_ip_allow
+worker_ip_allow() {
+  ssh_cmd "systemctl show portikus-worker -p IPAddressAllow --value" | tr ' ' '\n' | sed -e '/^$/d' -e 's|/32$||' | LC_ALL=C sort | paste -sd' '
+}
+check_output "the worker unit may reach 127.0.0.1 and the workspace bridge only" \
+  "10.200.0.0/24 127.0.0.1" worker_ip_allow
 # proxy_connect URL -- the status of the proxy's answer to CONNECT for URL.
 proxy_connect() {
   ssh_cmd "${CURL} -o /dev/null -w '%{http_connect}' -x http://127.0.0.1:3128 '$1'"

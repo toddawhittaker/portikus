@@ -8,6 +8,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # The signed index expires 30 days after it is made (Valid-Until), so it
+  # is signed again weekly even when nothing is released.
+  schedule:
+    - cron: "23 5 * * 1"
 
 permissions:
   contents: read
@@ -28,6 +32,7 @@ jobs:
       pull-requests: read
     outputs:
       release: ${{ steps.decide.outputs.release }}
+      resign: ${{ steps.decide.outputs.resign }}
     steps:
       - id: decide
         env:
@@ -38,6 +43,11 @@ jobs:
         run: |
           if [ "$EVENT" = workflow_dispatch ]; then
             echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT" = schedule ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "resign=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # The pull request that put this commit on main. GitHub can list it a
@@ -143,7 +153,11 @@ jobs:
   apt-repo:
     name: Sign the apt repository
     runs-on: ubuntu-latest
-    needs: build
+    needs: [gate, build]
+    # After a release build, or alone for the weekly re-sign.
+    if: >-
+      !cancelled() && needs.gate.result == 'success'
+      && (needs.build.result == 'success' || needs.gate.outputs.resign == 'true')
     # The only job that can read APT_SIGNING_KEY (docs/SPEC.md section 21.13).
     environment: publish
     env:
@@ -153,6 +167,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Download the package
+        if: needs.build.result == 'success'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: portikus-deb
@@ -190,7 +205,15 @@ jobs:
       - name: Build and sign the repository
         env:
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
-        run: scripts/publish-apt-repo.sh site/apt dist/deb/portikus_*.deb
+        # A weekly re-sign has no new package, and must not start an empty repository.
+        run: |
+          shopt -s nullglob
+          debs=(dist/deb/portikus_*.deb)
+          if [ ${#debs[@]} = 0 ] && [ ! -d site/apt/pool ]; then
+            echo "Nothing is published yet, so there is nothing to sign again." >&2
+            exit 1
+          fi
+          scripts/publish-apt-repo.sh site/apt "${debs[@]}"
       - name: Upload the Pages site
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
@@ -200,6 +223,8 @@ jobs:
     name: Deploy the apt repository to Pages
     runs-on: ubuntu-latest
     needs: apt-repo
+    # The default success() would also require the build, skipped by a re-sign.
+    if: ${{ !cancelled() && needs.apt-repo.result == 'success' }}
     permissions:
       pages: write
       id-token: write

@@ -23,6 +23,9 @@ else
 		"$repo_root/packaging/scripts/postinst" "$pkg/DEBIAN/"
 	mkdir -p "$pkg/usr/share/portikus"
 	cp "$repo_root/packaging/debian/settings-keys" "$pkg/usr/share/portikus/"
+	mkdir -p "$pkg/usr/share/portikus/ansible/roles/portikus/files"
+	cp "$repo_root/infra/ansible/roles/portikus/files/worker-grants.sql" \
+		"$pkg/usr/share/portikus/ansible/roles/portikus/files/"
 	cat >"$pkg/DEBIAN/control" <<EOF
 Package: portikus
 Version: 0.0.0+debconf-test

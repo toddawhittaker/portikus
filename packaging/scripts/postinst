@@ -24,10 +24,10 @@ esac
 # Every answer postinst reads and the key it writes, from the one list
 # shared with the tests; the secrets are the three password questions.
 KEYS_FILE=/usr/share/portikus/settings-keys
-QUESTIONS=$(awk '$3 == "setting" { print $1 }' "$KEYS_FILE")
-SECRETS=$(awk '$3 == "secret" { print $1 }' "$KEYS_FILE")
-PK_OWNED=$(awk '$3 == "setting" { print $2 }' "$KEYS_FILE")
-PK_SECRET_KEYS=$(awk '$3 == "secret" { print $2 }' "$KEYS_FILE")
+QUESTIONS=$(awk '!/^#/ && $3 == "setting" { print $1 }' "$KEYS_FILE")
+SECRETS=$(awk '!/^#/ && $3 == "secret" { print $1 }' "$KEYS_FILE")
+PK_OWNED=$(awk '!/^#/ && $3 == "setting" { print $2 }' "$KEYS_FILE")
+PK_SECRET_KEYS=$(awk '!/^#/ && $3 == "secret" { print $2 }' "$KEYS_FILE")
 export PK_OWNED PK_SECRET_KEYS
 
 # Each secret may live only in secrets.yaml (ruling 5), so clear them from
@@ -241,7 +241,6 @@ DO $$ BEGIN
 		CREATE ROLE "portikus-worker" LOGIN;
 	END IF;
 END $$;
-GRANT portikus TO "portikus-worker";
 SQL
 	then
 		sed -i "s|^$OLD_WORKER_URL|DATABASE_URL=postgresql://portikus-worker@|" "$WORKER_ENV"
@@ -252,6 +251,21 @@ fi
 if [ -f "$WORKER_ENV" ]; then
 	chgrp portikus-worker "$WORKER_ENV"
 fi
+
+# The worker's role gets only the tables it needs, and is no longer a member
+# of portikus as releases up to 0.1.676 made it (SPEC.md section 24.9).  Run
+# after the migrations; setup runs the same file and stops if it fails.
+WORKER_GRANTS=/usr/share/portikus/ansible/roles/portikus/files/worker-grants.sql
+apply_worker_grants() {
+	[ -f "$WORKER_GRANTS" ] && getent passwd postgres >/dev/null && command -v psql >/dev/null || return 0
+	role=$(cd / && runuser -u postgres -- psql -X -At -d postgres \
+		-c "SELECT 1 FROM pg_roles WHERE rolname = 'portikus-worker'" </dev/null 2>/dev/null) || return 0
+	[ "$role" = 1 ] || return 0
+	if ! (cd / && runuser -u postgres -- psql -X -q -1 -v ON_ERROR_STOP=1 -d portikus \
+		<"$WORKER_GRANTS" >/dev/null); then
+		echo "portikus: could not set the worker's database privileges; setup sets them" >&2
+	fi
+}
 
 # Nothing to drive when systemd is not running, as in a container or chroot.
 if [ -d /run/systemd/system ]; then
@@ -274,11 +288,19 @@ if [ -d /run/systemd/system ]; then
 
 	# The mock provider first so the API can reach its issuer, then the api,
 	# which runs the database migrations in ExecStartPre.
-	for unit in portikus-mock-idp.service portikus-api.service portikus-controller.service portikus-worker.service; do
+	for unit in portikus-mock-idp.service portikus-api.service portikus-controller.service; do
 		case " $running " in
 			*" $unit "*) systemctl restart "$unit" || true ;;
 		esac
 	done
+fi
+
+apply_worker_grants
+
+if [ -d /run/systemd/system ]; then
+	case " $running " in
+		*" portikus-worker.service "*) systemctl restart portikus-worker.service || true ;;
+	esac
 fi
 
 # A running oneshot unit is "activating", which is-active reports as inactive.
