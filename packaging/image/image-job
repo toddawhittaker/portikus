@@ -388,7 +388,9 @@ def health_checks(parameters):
         ("node --version", ["node", "--version"], lambda out: out.startswith(f"v{node}.")),
         ("python3 --version", ["python3", "--version"], None),
         ("git --version", ["git", "--version"], None),
-        ("docker info", ["docker", "info", "--format", "{{.ServerVersion}}"], None),
+        # overlay2 under /var/lib/docker keeps images on the workspace's Docker volume, not the root disk.
+        ("docker info", ["docker", "info", "--format", "{{.ServerVersion}} {{.Driver}} {{.DockerRootDir}}"],
+         lambda out: out.split()[1:] == ["overlay2", "/var/lib/docker"]),
         ("claude --version", ["claude", "--version"], None),
         ("codex --version", ["codex", "--version"], None),
     ]
