@@ -3354,11 +3354,9 @@ and a rebuild from an off-site backup that also refused a forged set).
 
 Gaps:
 
-- Nothing has been published yet. The release workflow's gate and its
-  wait for the image release run only on a push to `main` (BACKLOG, "Test
-  the release workflow before it matters").
-- The pilot still runs from the workstation roles; it is to be reinstalled
-  through apt after the merge.
+- The first real release, 0.1.676, published cleanly, and the pilot was
+  then reinstalled through apt. Pinning between two published versions
+  with `apt install --allow-downgrades` has not been tried yet.
 - A set's MAC does not check its `vm` line, which differs after a rebuild;
   accepted.
 - The worker shares the API's account, so it can reach the backup-key

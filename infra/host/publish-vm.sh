@@ -17,7 +17,6 @@ UNIT_PATH="/etc/systemd/system/${UNIT}"
 STATE_DIR=/etc/portikus-host
 STATE_FILE="${STATE_DIR}/vm-ip"
 INSTALLED=/usr/local/sbin/portikus-publish-vm
-CADDY_ROOT=/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
 
 info() { printf '\033[1;34m[info]\033[0m  %s\n' "$1"; }
 ok()   { printf '\033[1;32m[ok]\033[0m    %s\n' "$1"; }
@@ -94,19 +93,6 @@ EOF
   ok "installed ${UNIT} so the rules come back after a reboot"
 }
 
-# An embedded preview cannot show a certificate warning, so the browser has to
-# trust Caddy's internal root before any Preview tab works.
-cert_hint() {
-  local vm_ip=$1
-  info "trust the VM's certificate authority in the browser (repeat after a VM rebuild):"
-  cat <<EOF
-    ssh deploy@${vm_ip} sudo cat ${CADDY_ROOT} > /tmp/portikus-caddy-root.crt
-    certutil -d sql:\$HOME/.pki/nssdb -D -n portikus-caddy-root 2>/dev/null
-    certutil -d sql:\$HOME/.pki/nssdb -A -t C,, -n portikus-caddy-root -i /tmp/portikus-caddy-root.crt
-EOF
-  info "that trusts the pilot's authority for every site in that browser profile, and its private key lives on the VM that runs student workspaces, so use a throwaway browser profile for the pilot rather than your everyday one"
-}
-
 main() {
   local source
   source=$(readlink -f "$0")
@@ -152,7 +138,6 @@ main() {
 
   install_unit "$vm_ip" "$source"
   ok "the VM answers on port ${PORT} at ${lan_ip}, from the LAN and from this host"
-  cert_hint "$vm_ip"
 }
 
 main "$@"

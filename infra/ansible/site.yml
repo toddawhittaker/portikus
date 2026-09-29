@@ -13,8 +13,8 @@
       lock_timeout: 900
 
   vars:
-    # The account that runs incus and owns the development image-build
-    # directories: the SSH user Ansible connects as, none on a local run.
+    # The account that runs incus and owns the development workspace script
+    # directory: the SSH user Ansible connects as, none on a local run.
     portikus_operator_user: >-
       {{ '' if ansible_connection | default('ssh') == 'local' or ansible_user | default('root') == 'root'
          else ansible_user }}

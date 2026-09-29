@@ -84,8 +84,9 @@ change must respect.
 
 Every epic through Epic 25 has landed, including Epic 15, which makes `apt
 install portikus` the way to install (docs/INSTALL.md, SPEC.md section
-21.12). The pilot at https://pilot.portikus.thewhittakers.org runs from
-that apt install.
+21.12). The project's pilot, at
+https://pilot.portikus.thewhittakers.org:8443 on the maintainer's LAN, is
+installed and upgraded with apt like any other server.
 
 `docs/STATUS.md` records what each epic delivered and the gaps it left.
 
@@ -156,11 +157,13 @@ then you sign in as the administrator at your web address.
 
 ## Deploying for development
 
-The project's own pilot and rehearsal machines are a reproducible VM built from `infra/`: host bootstrap,
-OpenTofu on libvirt, cloud-init, and Ansible roles for the firewall, storage,
-Incus, network, PostgreSQL, Caddy, and the application. The control plane
-ships as one versioned Debian package, so an upgrade is a package install and
-a rollback is installing the previous version.
+The project's own VMs are built from `infra/`: host bootstrap, OpenTofu on
+libvirt, and cloud-init. The rehearsal VM and unreleased builds are then
+configured from a workstation with the same Ansible roles the package runs
+on a server. The pilot's VM is installed with apt instead, like any other
+server. The control plane ships as one versioned Debian package, so an
+upgrade is a package install and a rollback is installing the previous
+version.
 
 `make help` lists the targets. See
 [infra/README.md](infra/README.md) and [docs/WORKFLOW.md](docs/WORKFLOW.md).
@@ -192,7 +195,13 @@ checks) is in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 | [docs/SPEC.md](docs/SPEC.md) | Requirements; wins on implementation detail |
 | [docs/STACK.md](docs/STACK.md) | Technology choices and why, plus what was rejected |
 | [docs/DESIGN.md](docs/DESIGN.md) | The visual design, mirrored under `design/` |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | The operator's runbook for the pilot and the rehearsal VM |
+| [docs/HOSTING.md](docs/HOSTING.md) | Choosing a server to rent |
+| [docs/CAPACITY.md](docs/CAPACITY.md) | Load test results and sizing |
+| [docs/BROWSER-HANDLING.md](docs/BROWSER-HANDLING.md) | Application preview and CLI browser requests |
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | Branching, review, CI, secret scanning |
+| [docs/HOW-WE-WORK.md](docs/HOW-WE-WORK.md) | A plain-English guide to working with AI agents here |
+| [docs/BACKLOG.md](docs/BACKLOG.md) | Wanted work that is not yet planned |
 | [docs/STATUS.md](docs/STATUS.md) | What has landed and what gaps remain |
 | [docs/adr/](docs/adr) | Decision records |
 

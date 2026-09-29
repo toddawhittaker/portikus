@@ -1149,9 +1149,11 @@ Ansible configures:
 The `portikus` role installs the newest release by default: it adds the
 signed apt repository with the committed key, the same way docs/INSTALL.md
 does, installs the newest version found there with apt, and renders only
-the controller token and the three environment files. Rolling back is
-`make configure-vm PORTIKUS_VERSION=<previous>`, which installs that version
-from the repository with `--allow-downgrades`. For local development,
+the controller token and the three environment files. On a VM configured
+this way, rolling back is `make configure-vm PORTIKUS_VERSION=<previous>`,
+which installs that version from the repository with `--allow-downgrades`.
+An apt-installed server, the pilot included, rolls back with
+`sudo apt install --allow-downgrades portikus=<previous>`. For local development,
 `make deploy-app` builds the package on the developer's machine, copies it
 to the VM, and installs it the same way; `make build-deb` builds it without
 deploying.
@@ -1459,13 +1461,9 @@ Security checks may include:
 
 For the initial pilot, CI should validate infrastructure but should **not automatically control the developer's Pop!_OS host**.
 
-Preferred pilot deployment:
-
-```text
-administrator
-    ↓
-make deploy-app
-```
+The pilot is installed and upgraded with apt, like any real install
+(docs/OPERATIONS.md, "The pilot"). `make configure-vm` and
+`make deploy-app` serve the rehearsal VM and unreleased builds.
 
 A later institutional deployment may move to controlled automated deployment if appropriate.
 
