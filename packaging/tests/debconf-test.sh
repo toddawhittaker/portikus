@@ -21,6 +21,8 @@ else
 	mkdir -p "$pkg/DEBIAN"
 	cp "$repo_root/packaging/debian/templates" "$repo_root/packaging/debian/config" \
 		"$repo_root/packaging/scripts/postinst" "$pkg/DEBIAN/"
+	mkdir -p "$pkg/usr/share/portikus"
+	cp "$repo_root/packaging/debian/settings-keys" "$pkg/usr/share/portikus/"
 	cat >"$pkg/DEBIAN/control" <<EOF
 Package: portikus
 Version: 0.0.0+debconf-test

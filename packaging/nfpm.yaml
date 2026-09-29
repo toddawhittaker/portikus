@@ -77,6 +77,13 @@ contents:
     file_info:
       owner: root
       group: root
+  # The install settings keys postinst reads (docs/SPEC.md section 21.12).
+  - src: ./packaging/debian/settings-keys
+    dst: /usr/share/portikus/settings-keys
+    file_info:
+      owner: root
+      group: root
+      mode: 0644
   - src: ./packaging/debian/preseed.example
     dst: /usr/share/doc/portikus/preseed.example
   # The apt repository's public key (ruling 17), dearmored by build-deb.sh.

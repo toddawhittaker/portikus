@@ -3460,3 +3460,18 @@ Gaps:
   (docs/OPERATIONS.md, "Authenticated sets").
 - The `FAILED`, `SKIPPED` and `REQUESTED` files in a set are not covered
   by the MAC; they only change what the tab shows.
+
+## Epic 15.1 — Install fixes and docs
+
+- One source for the install settings keys (#826).
+  `packaging/debian/settings-keys` lists each debconf question, the key
+  postinst writes for it, and whether it is a setting or a secret. The
+  package installs it at `/usr/share/portikus/settings-keys`, and postinst
+  reads its question and key lists from there.
+  `packaging/tests/settings-keys-test.sh`, run by `make infra-check` and
+  the CI debconf job, fails when a key is missing from the debconf
+  templates or config steps, the config read-back map, postinst, or the
+  play variables in `infra/ansible/site.yml`. Gap: the debconf config
+  script still keeps its own read-back map, checked by the test rather
+  than read from the list, because config can run before the package's
+  files are unpacked.

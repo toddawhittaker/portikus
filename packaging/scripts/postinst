@@ -21,13 +21,14 @@ esac
 # shellcheck source=/dev/null
 . /usr/share/debconf/confmodule
 
-# Every answer postinst reads; the secrets are the three password questions.
-QUESTIONS="public_host admin_email tls acme_email tls_cert tls_key provider
-entra_tenant_id google_domains oidc_issuer client_id oidc_groups_claim
-ldap_host ldap_schema ldap_ip_allow ldap_bind_dn ldap_user_base_dn
-ldap_user_filter ldap_group_base_dn ldap_root_ca student_group
-instructor_group admin_group storage storage_confirm storage_size"
-SECRETS="cloudflare_api_token client_secret ldap_bind_password"
+# Every answer postinst reads and the key it writes, from the one list
+# shared with the tests; the secrets are the three password questions.
+KEYS_FILE=/usr/share/portikus/settings-keys
+QUESTIONS=$(awk '$3 == "setting" { print $1 }' "$KEYS_FILE")
+SECRETS=$(awk '$3 == "secret" { print $1 }' "$KEYS_FILE")
+PK_OWNED=$(awk '$3 == "setting" { print $2 }' "$KEYS_FILE")
+PK_SECRET_KEYS=$(awk '$3 == "secret" { print $2 }' "$KEYS_FILE")
+export PK_OWNED PK_SECRET_KEYS
 
 # Each secret may live only in secrets.yaml (ruling 5), so clear them from
 # debconf on every way out, a failure under set -e included.
@@ -127,19 +128,7 @@ if storage == "file" and answer("storage_size").isdigit():
 
 # Keys that follow from the answers; a key here that no longer applies is
 # removed, so switching providers leaves no stale settings behind.
-owned = [
-    "portikus_public_host", "portikus_admin_email", "portikus_tls",
-    "portikus_acme_email", "portikus_tls_cert", "portikus_tls_key",
-    "portikus_dex_upstream", "portikus_dex_upstream_client_id",
-    "portikus_entra_tenant_id", "portikus_google_domains",
-    "portikus_dex_upstream_issuer", "portikus_oidc_upstream_groups_claim",
-    "portikus_ldap_host", "portikus_ldap_schema", "portikus_ldap_bind_dn",
-    "portikus_ldap_user_base_dn", "portikus_ldap_user_filter",
-    "portikus_ldap_group_base_dn", "portikus_ldap_root_ca",
-    "portikus_ldap_ip_allow", "portikus_oidc_student_group",
-    "portikus_oidc_instructor_group", "portikus_oidc_admin_group",
-    "portikus_storage", "portikus_storage_confirm", "portikus_storage_size",
-]
+owned = os.environ["PK_OWNED"].split()
 config = load(CONFIG)
 for key in owned:
     config.pop(key, None)
@@ -154,9 +143,8 @@ if provider in ("entra", "google", "oidc"):
     wanted["portikus_dex_upstream_client_secret"] = answer("client_secret")
 if provider == "ldap":
     wanted["portikus_ldap_bind_password"] = answer("ldap_bind_password")
-secrets = {k: v for k, v in current.items() if k not in (
-    "portikus_cloudflare_api_token", "portikus_dex_upstream_client_secret",
-    "portikus_ldap_bind_password")}
+secret_keys = os.environ["PK_SECRET_KEYS"].split()
+secrets = {k: v for k, v in current.items() if k not in secret_keys}
 for key, value in wanted.items():
     if value:
         secrets[key] = value
