@@ -1,5 +1,10 @@
 # Portikus Pilot Infrastructure
 
+**This directory's workstation tooling is for development: the project's
+pilot and rehearsal VMs.** To install Portikus on a server for a class,
+follow docs/INSTALL.md (`apt install portikus`) instead; nothing here is
+needed for that.
+
 End-to-end steps to create the platform VM from a fresh Pop!_OS host.
 See STACK.md sections 16 through 24 and 27 through 33 for design rationale.
 Running the pilot once it exists (deploys, users, the Dex cutover, backups,
@@ -588,116 +593,45 @@ change. Users created by mock launches stay in the database.
 
 ## Bring your own Debian host
 
-Steps 1 to 4 exist only to produce a Debian 13 machine with a deploy
-account and a spare disk. Everything after that is Ansible plus one
-Debian package, so a Debian 13 host you already have — another VM, or
-real hardware — can be configured the same way. Skip steps 1 to 4, do the
-short list below by hand, and run the playbook.
+To put Portikus on a Debian 13 machine of your own, rented or not, follow
+docs/INSTALL.md: add the package repository, run `apt install portikus`,
+and answer the install screens. The package ships these same Ansible roles
+and runs them on the machine itself, so no workstation, `deploy` account
+or SSH-driven playbook run is involved. The steps above are only for
+building the development VMs.
 
-### What the host must already have
-
-- Debian 13 (trixie), 64-bit. See "Other distributions" below.
-- A user named `deploy` with passwordless sudo, and your SSH public key in
-  its `~/.ssh/authorized_keys`. The name is not configurable: it is fixed
-  in `infra/ansible/inventory.ini` (line 6) and in every Make target and
-  the smoke test that reach the host over SSH.
-- `python3` and `python3-apt` installed, so Ansible can run and manage apt.
-- An empty second block device for workspace storage. Ansible puts an LVM
-  volume group on the whole device, destroying anything on it. The device
-  path is the `data_disk_device` variable, which defaults to `/dev/vdb`
-  (`infra/ansible/site.yml`, line 10); pass `-e data_disk_device=/dev/sdb`
-  if yours is named differently.
-- Nothing to do about the network interface name: the firewall takes it
-  from the host's own default route at run time.
-- An IP address you can reach on port 22, and that browsers can reach on
-  the site's port (8443 by default; pass `PORTIKUS_PUBLIC_PORT=443` to
-  serve the usual one). There is no port forward to set up, so `make
-  publish-vm` is not needed.
-- Hardware virtualisation is not required. Workspaces are containers, and
-  the host is the container host.
-
-### What to run
-
-`make configure-vm` first waits for cloud-init to report finished, which a
-host that was not built from a cloud image cannot do, so call the playbook
-directly. `PORTIKUS_MANAGEMENT_CIDR` is the subnet the host itself sits
-on; the firewall and the workspace network ACL use it to keep workspaces
-away from that network, and it defaults to the libvirt subnet
-`10.100.0.0/24`, which is wrong on your own host. Both also deny every
-range in `workspace_egress_denied_ranges` (`infra/ansible/site.yml`), the
-private and special address ranges; add your own infrastructure ranges to
-that list.
-
-```
-cd infra/ansible
-ansible-galaxy collection install -r requirements.yml
-export PORTIKUS_VM_IP=192.0.2.10
-export PORTIKUS_MANAGEMENT_CIDR=192.0.2.0/24
-export PORTIKUS_PUBLIC_HOST=portikus.192.0.2.10.nip.io
-ansible-playbook site.yml
-```
-
-Then build the workspace image, deploy a development build of the control
-plane, and verify, from the repository root. These targets only need the
-address, so `VM_IP=` is enough:
-
-```
-make build-workspace-image VM_IP=192.0.2.10
-make deploy-app VM_IP=192.0.2.10
-make smoke-test VM_IP=192.0.2.10 \
-  PORTIKUS_PUBLIC_HOST=portikus.192.0.2.10.nip.io PORTIKUS_PUBLIC_PORT=443
-```
-
-The playbook already installed the newest published release, so `make
-deploy-app` is only for testing a local build. Trust Caddy's certificate
-as described under "Browser access", and sign in as the local
-administrator with the one-time password the playbook says how to read
-(see "Identity provider").
+The limits below apply to running the workstation playbook against a
+host that was not built here.
 
 ### Limits today
 
-- The account name `deploy` is fixed in `infra/ansible/inventory.ini`, in
-  the SSH commands in the Makefile, and in `infra/tests/smoke-test.sh`.
-  `infra/ansible/roles/image_builder/tasks/main.yml` also creates three
-  directories owned by `deploy`.
-- The site name is derived from the address: it defaults to
-  `portikus.<ip>.nip.io` (`infra/ansible/site.yml`, lines 86 to 88), and
-  nip.io is a public service that resolves any name of that shape back to
-  the address inside it. A real DNS name works, but only because you pass
-  it in `PORTIKUS_PUBLIC_HOST`; nothing here manages DNS, and Caddy still
-  issues its own certificate rather than a publicly trusted one.
+- The account Ansible and the tests SSH in as is `SSH_USER` (default
+  `deploy`, the account cloud-init makes). It needs passwordless sudo.
+  The backup and restore scripts under `infra/host/`,
+  `infra/tests/rebuild-exercise.sh` and `infra/tests/load-test.sh` still
+  assume `deploy`, because they serve only this checkout's libvirt VMs.
+- A host given with `VM_IP=` is named `portikus.<its address>.nip.io`
+  unless you pass `PORTIKUS_PUBLIC_HOST`. nip.io is a public service that
+  resolves any name of that shape back to the address inside it. Nothing
+  here manages DNS, and the workstation run serves Caddy's own certificate
+  authority (`portikus_tls: internal`); the Let's Encrypt and certificate
+  file modes are set through the package's questions (docs/INSTALL.md).
+- A host given with `VM_IP=` must name its own storage in
+  `PORTIKUS_STORAGE` (a device, a volume group or `file`), with
+  `PORTIKUS_STORAGE_CONFIRM=true` for a device. Only this checkout's
+  libvirt VMs default to their empty `/dev/vdb`.
 - The port is a single variable, `PORTIKUS_PUBLIC_PORT`. It has to match
-  in three places at once: Caddy's site address, the URLs the API builds,
-  and the host's port forward. Setting it on `configure-vm` covers the
-  first two; the forward in `infra/host/publish-vm.sh` is fixed at 8443.
-- `PORTIKUS_PUBLIC_HOST` must be set explicitly when going through Make.
-  The Makefile builds a default from your workstation's own LAN address,
-  which is the wrong address for a host you did not create locally.
-- The smoke test checks `/dev/vdb` directly in two places
-  (`infra/tests/smoke-test.sh`, lines 133 and 218), so those two checks
-  fail if your data disk has another name, even when the playbook
-  succeeded with `-e data_disk_device`.
-- `make configure-vm`, `make infra-plan`, `make infra-apply`,
-  `make destroy-pilot`, `make rebuild-pilot`, and `make publish-vm` are
-  libvirt-only. Everything else takes `VM_IP=`.
-- The management network is a CIDR you assert, not something the playbook
-  can discover. If the host shares a subnet with anything you care about,
-  say so in `PORTIKUS_MANAGEMENT_CIDR` or workspaces will be able to reach
-  it.
-
-### Other distributions
-
-Only Debian 13 is tested. The third-party repositories would all work
-elsewhere: Incus comes from Zabbly for the host's own release codename,
-Node.js 24 from NodeSource's release-independent `nodistro` suite, and
-Caddy from Cloudsmith's `any-version` suite. Two things are Debian 13
-specific. PostgreSQL is installed as the plain `postgresql` package, which
-on Debian 13 is version 17; Ubuntu 24.04 would give 16 instead, which is
-probably fine but has never been run. The image builder compiles
-distrobuilder with the distribution's Go, and that path was worked out
-against the Go in Debian 13 (docs/adr/0004). The control-plane package
-itself only requires `nodejs (>= 24)`, so it installs on any Debian-based
-system.
+  Caddy's site address, the URLs the API builds, and the host's port
+  forward. Setting it on `configure-vm` covers the first two; the forward
+  in `infra/host/publish-vm.sh` is fixed at 8443.
+- `make infra-plan`, `make infra-apply`, `make destroy-pilot`,
+  `make rebuild-pilot`, `make publish-vm`, the `rehearsal-*` targets and
+  `make install-test` are libvirt-only, and the backup and restore targets
+  need the VM name from the OpenTofu state. Everything else takes
+  `VM_IP=`.
+- The management network is guessed from the subnet of the host's default
+  route. If the host shares a wider network with anything workspaces must
+  not reach, name it in `PORTIKUS_MANAGEMENT_CIDR`.
 
 ## Destroy and recreate
 

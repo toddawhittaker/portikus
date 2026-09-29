@@ -740,3 +740,17 @@ test("JOURNALCTL_PATH defaults to the system journalctl and can be overridden", 
 			.JOURNALCTL_PATH,
 	).toBe("/opt/fake-journalctl");
 });
+
+test("IMAGE_JOBS_DIR is off when unset and must be an absolute path", () => {
+	const base = { DATABASE_URL: "postgres://localhost/portikus" };
+	expect(loadConfig(ApiConfigSchema, base).IMAGE_JOBS_DIR).toBeUndefined();
+	expect(
+		loadConfig(ApiConfigSchema, {
+			...base,
+			IMAGE_JOBS_DIR: "/var/lib/portikus/image-jobs",
+		}).IMAGE_JOBS_DIR,
+	).toBe("/var/lib/portikus/image-jobs");
+	expect(() =>
+		loadConfig(ApiConfigSchema, { ...base, IMAGE_JOBS_DIR: "image-jobs" }),
+	).toThrow(ConfigError);
+});

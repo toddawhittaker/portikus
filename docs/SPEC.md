@@ -2317,9 +2317,14 @@ built to the frame rules above.
   side copy in its home, and then, as a second step confirmed by typing
   the account's name, the whole home can be replaced with it (section
   24.9, ADRs 0039 and 0040). Each write answers 202 with the request, or
-  409. A site installed with `apt install portikus` on its own host has
-  no separate host to pull backups to, and the tab says "Backups are not
-  connected on this site".
+  409. A site installed with `apt install portikus` backs itself up on
+  the server (section 24.9, ADR 0044), and its tab also has **Download
+  backup key**, confirmed in a dialog that says what the key unlocks and
+  to store it off the server, with a "Backup key not yet downloaded"
+  reminder until the first download, and **Upload backup key**, which
+  asks before replacing a different key. The routes are `GET
+  /admin/backups/key`, `POST /admin/backups/key/download` and `POST
+  /admin/backups/key`; they are 404 on a VM whose host holds the key.
 - The workspace detail panel gains **Limits…**, a dialog for the
   workspace's CPU count, memory and process ceiling (section 19.4,
   `PUT /admin/workspaces/:id/limits`, each key a number or null), and,
@@ -2330,6 +2335,8 @@ built to the frame rules above.
   path then runs as for a new workspace; the controller adopts an
   instance and volumes that already exist, so home data survives.
 - The Settings tab edits the two throttle-hold settings (section 19.4).
+- **Workspace image** (Epic 15) shows, updates, rebuilds, activates and
+  rolls back the workspace image (section 22.4).
 - The Health tab gains "Packages students add": for the latest completed
   UTC day that surveyed at least 3 workspaces, how many surveyed
   workspaces added each package with `sudo apt install`, with first and
@@ -2539,6 +2546,12 @@ The platform must record which image version a workspace was created/rebuilt fro
 
 The system must allow a new image to be built and validated without immediately replacing all existing student workspaces.
 
+Added by Epic 15 (ADR 0030): an image version is `YYYY.MM.N`, or
+`<recipe VERSION>-local.<YYYYMMDDHHMM>` for one built on the server. Every
+image has a manifest (section 22.4). Incus keeps the default as alias
+`portikus`, the one before it as `portikus-previous`, and each image as
+`portikus-<version>`.
+
 ### 21.9 No manual snowflakes
 
 Routine changes must be captured in code.
@@ -2583,6 +2596,120 @@ Before pilot launch, the team must prove that it can:
 8. open a proxied application preview.
 
 This is an acceptance criterion, not merely documentation.
+
+### 21.12 Install on a rented Debian 13 server
+
+Added by Epic 15 (ADR 0029). `apt install portikus` is the default way to
+install Portikus. The workstation Ansible and libvirt tooling under
+`infra/` is for development only; the pilot and the rehearsal VM keep
+using it. docs/INSTALL.md is the operator's guide.
+
+- **Target.** A rented bare-metal or full virtual server, x86-64, Debian
+  13 only. Other distributions, Debian's own Incus and an `.rpm` are out.
+- **Questions.** The package asks its questions through debconf, Debian's
+  install-question system, in the `whiptail` text interface, and asks
+  only what cannot be guessed. Each question shows only when the one
+  before makes it relevant: the public host name (default: the host's
+  fully qualified name, when it passes the host-name check), the local
+  administrator's email (default `admin@<public_host>`), TLS
+  (`letsencrypt`, `files` or `internal`, with that choice's fields), the
+  sign-in provider (`dex`, `entra`, `google`, `ldap` or `oidc`; each but
+  `dex` fills one Dex connector, section 5.1) with only that provider's
+  fields, and storage. Every client secret, the LDAP bind password and
+  the Cloudflare token are password questions. A summary screen ends the
+  questions; No goes back with every answer kept. Guessed and never asked,
+  but preseedable and editable in the file: the public port (443), the
+  management network (the subnet of the default route's interface), the
+  preview suffix (`preview.<public_host>`), and the grace period and
+  sizes.
+- **Storage.** `portikus/storage` is a whole empty block device, an
+  existing LVM volume group, or a file on the root filesystem. **The
+  default choice is the file**, because many rented servers mirror their
+  disks and have no empty one. The file asks its size (default half the
+  free space on `/`, in GiB) and becomes a loop-backed volume group under
+  `/var/lib/portikus-storage`, attached by a small unit before Incus
+  starts; from there it is the same thin pool as a disk, and a larger size
+  later grows it. A device needs `portikus/storage_confirm`, default No;
+  setup changes no disk without it, and refuses a device with a mounted
+  filesystem.
+- **Files.** The answers go to `/etc/portikus/portikus.yaml` (root, 0644)
+  as Ansible variable names, passed to the play with `-e @`, so there is
+  no second schema. Secrets go only to `/etc/portikus/secrets.yaml`
+  (root, 0600); postinst clears each one from the debconf database on
+  every path, and a blank password on reconfigure keeps the stored one.
+  postinst keeps every key it does not own, and the questions read the
+  file back first, so a hand edit survives `dpkg-reconfigure`.
+- **Setup runs outside apt.** When the answers are complete, postinst
+  starts `portikus-setup.service`, a root oneshot, without waiting, and
+  prints how to follow it. Setup cannot run inside postinst: it installs
+  packages with apt while the outer apt holds the dpkg lock, and a long
+  run tied to an SSH session dies with it. Every apt task waits up to 15
+  minutes for the lock. `dpkg-reconfigure portikus` and an upgrade start
+  it the same way. Setup is the Ansible roles shipped in
+  `/usr/share/portikus/ansible` with their pinned collections, run
+  against the local host with Debian's `ansible-core`; it is safe to run
+  again and changes only what differs. On a first install it ends by
+  creating the local administrator and printing only `sudo cat
+  /etc/portikus/admin-password` (section 5.1). An upgrade prints only how
+  to follow setup.
+- **TLS.** `internal` is Caddy's own authority, for sites with no public
+  DNS. `files` serves a given certificate and key, which must parse and
+  match. `letsencrypt` gets both the site's certificate and the
+  `*.<preview suffix>` wildcard by a DNS-01 challenge through Cloudflare,
+  with a Caddy built by `xcaddy` with the `caddy-dns/cloudflare` plugin;
+  port 80 is not needed. Per-host preview certificates were rejected
+  because of Let's Encrypt's weekly limit. The token reaches Caddy only
+  through a root-only environment file.
+- **Node is bundled** at `/usr/lib/portikus/node`, the exact version in
+  `.nvmrc`, checked against nodejs.org's SHA-256 at build time. The host
+  has no NodeSource Node. A Node security fix therefore needs a Portikus
+  release.
+- **Dependencies** are Debian-archive packages only. Setup adds Incus
+  from Zabbly and Caddy from Cloudsmith, and builds Dex and distrobuilder
+  from their pinned commits, so the first run needs the internet.
+- **The `portikus` command** has `setup` (in the foreground), `setup
+  --follow` (follows the current or last run and exits 0 or 1),
+  `status`, `reset-admin` and `restore` (section 24.9).
+- **Unattended install.** `debconf-set-selections` with a preseed file,
+  then a noninteractive install. The package ships
+  `/usr/share/doc/portikus/preseed.example`, which lists every question.
+- **The first workspace image.** When the host has no `portikus` default
+  alias, setup runs the image job's `first-install` (section 22.4): a
+  fetch of the version named by `portikus_image_version` (default: the
+  recipe VERSION the package was built from), its health check, and an
+  activate. A host that already has a default is left alone, so setup
+  never overrides an administrator's choice. A failed first install fails
+  setup unless a default exists by then.
+- **The install test.** `make install-test` builds a signed repository
+  from the checkout on this host, installs it on a throwaway rehearsal VM
+  (never the pilot), signs in as the local administrator, runs the smoke
+  test, upgrades, and with `IMAGE_JOBS=1` rehearses the image jobs and a
+  rebuild from an off-site backup.
+
+### 21.13 Signed apt repository and image releases
+
+Added by Epic 15.
+
+- The apt repository is a static directory on GitHub Pages
+  (`https://toddawhittaker.github.io/portikus/apt`, suite `trixie`,
+  component `main`), built with `apt-ftparchive` and signed with `gpg`.
+  It keeps the ten newest packages. Reprepro and aptly were rejected
+  because they keep a database a stateless CI job would have to carry.
+- The signing key does not expire. Its revocation certificate is kept
+  offline (docs/OPERATIONS.md, "The package signing key"). The private
+  key is the secret `APT_SIGNING_KEY` in the GitHub environment
+  `publish`, which admits only branch `main` and has no required
+  reviewer. The public key is committed as
+  `packaging/portikus-archive-keyring.asc` and shipped to
+  `/usr/share/keyrings/`.
+- The release workflow runs on a push to `main`, checks the live
+  repository's signature before adding to it, and waits for the matching
+  image release before publishing.
+- CI builds the workspace image when `infra/workspace-image/**` changes on
+  `main`, or by hand, and publishes a release `image-<VERSION>` with
+  `incus.tar.xz`, `rootfs.squashfs`, `manifest.json` and a `SHA256SUMS`
+  signed with the same key. No file may reach 2 GiB. Nothing imports an
+  image whose signature or checksum fails.
 
 ## 22. Workspace image updates
 
@@ -2642,6 +2769,58 @@ Epic 24 (issue #626, ADR 0042):
   for the day. Only the date a workspace was last surveyed is stored per
   workspace. Counts are kept 90 days. A workspace on an image without
   the hook counts as not surveyed. The admin view is in section 20.1.
+
+### 22.4 The Workspace image section
+
+Added by Epic 15 (ADR 0030). The admin page's **Workspace image** tab
+shows the default and previous images, candidates with their health and
+manifest summary, and how many workspaces run each version. New
+workspaces use the default; existing ones keep their root until rebuilt
+(sections 17.2 and 22.3). Per-course or per-project tool versions are
+out; they belong with the BACKLOG item "Course profiles and a
+language-aware editor".
+
+- **Update to the latest published image** fetches, verifies, imports
+  and health-checks it. When the newest is already the default or the
+  previous image, the job ends with "Already up to date".
+- **Rebuild with latest packages** builds the shipped recipe on the
+  server with current Debian and vendor packages and the latest Claude
+  Code and Codex; the committed recipe stays pinned. The only choices are
+  two dropdowns, never free text: Node major 24 or 26, and Python
+  "Debian's 3.13" or "Debian's plus 3.14 from uv" (in `/opt/python`,
+  linked as `python3.14` and `python`; `/usr/bin/python3` stays Debian's).
+- **Manifest and diff.** Every image has a manifest: the `dpkg-query`
+  list, the versions of node, npm, python3, git, docker, claude and
+  codex, the build choices, the source (`published` or `local`) and the
+  recipe VERSION. The page shows added, removed and changed packages and
+  tools against the default.
+- **Health check.** A throwaway `imgcheck-<hex>` container with the
+  workspace profile must run `node`, `python3`, `git`, `docker info`,
+  `claude` and `codex` (and `python3.14` for the uv choice). The root job
+  writes the result where the API cannot. An image that did not pass
+  cannot be made the default, even by a hand-written request.
+- **Make default** moves the `portikus` alias in one step and keeps the
+  old default as `portikus-previous`; **Roll back** swaps them. After a
+  fetch or build, images other than the default, the previous and the two
+  newest candidates are deleted.
+- **The boundary.** The API writes one request file into
+  `/var/lib/portikus/image-jobs/` (`root:portikus`, 0770), and a
+  path-activated root oneshot, `portikus-image-job.service`, runs it.
+  Kinds are `fetch`, `build`, `activate` and `rollback`, plus
+  `first-install`, which only setup runs. The job refuses an unknown
+  kind, choice or extra field, and a version not matching
+  `^\d{4}\.\d{2}\.\d+(-local\.\d{12})?$`, and never puts a request value
+  in a shell command. One job runs at a time; the API refuses a request
+  while one is queued or running. A job lost to a reboot is marked
+  failed. Sudo and polkit were rejected (ADR 0030).
+- **Routes.** `GET /admin/image`, `GET /admin/image/diff?from=&to=`,
+  `POST /admin/image/jobs` with `{kind, version?, node?, python?}`, and
+  `GET /admin/image/jobs/:id` (status and the last 500 log lines, read
+  from at most the last 256 KiB). All are administrator-only and
+  CSRF-checked, and audited as `image.job_requested` and
+  `image.job_finished`. The page polls a running job every two seconds.
+  With `IMAGE_JOBS_DIR` unset the routes answer 404 and the tab says
+  image management is off.
 
 ## 23. Networking
 
@@ -2957,6 +3136,13 @@ seconds; past that the gateway answers 429 with a small "Too many
 requests" page and a `Retry-After` header, and logs one warning per session
 per window.
 
+Added by Epic 15: Caddy's admin interface can load any configuration,
+including one that drops the authorization step above, so it listens only
+on a Unix socket, `/var/lib/caddy/admin.sock`, that root and the caddy
+user can open. It is never on a loopback port every local account could
+reach; the smoke test checks that the `portikus` account and `nobody`
+cannot open it.
+
 ### 24.8 Secrets
 
 Sensitive credentials must not appear in:
@@ -2968,6 +3154,12 @@ Sensitive credentials must not appear in:
 - project metadata.
 
 Recovery data may contain `.env` and must therefore be treated as sensitive user data.
+
+Added by Epic 15: an apt-installed server keeps its install secrets (the
+client secrets, the LDAP bind password and the Cloudflare token) only in
+`/etc/portikus/secrets.yaml` (root, 0600). They are never in
+`portikus.yaml`, the debconf database after postinst, a log line, the
+play's output or `ps` output.
 
 ### 24.9 Storage security
 
@@ -3047,6 +3239,53 @@ restored from the admin Backups tab (section 20.1).
   stays until an administrator deletes it; putting it back is a runbook
   step (OPERATIONS.md), not a button.
 - The weekly off-host copy stays a manual step (issue #753).
+
+Added by Epic 15, task T7 (ADR 0044): an apt-installed server backs
+itself up.
+
+- **Local mode.** The same scripts run on the server as root with
+  `--local`: no SSH, no `deploy` account. Setup enables
+  `portikus-backup.timer` and `portikus-backup-channel.timer` only on the
+  server itself. The channel takes requests from the local worker, which
+  is unprivileged, so every check above still applies. Sets go to
+  `/var/backups/portikus/local/`; sets copied in by hand are listed and
+  checked the same way, and a link or a badly named folder is ignored.
+- **The key stays on the server**, root-only in `/etc/portikus-backup/`,
+  made by setup when there is none, so one-click restore works. Whoever
+  controls the server can already read the live workspaces; the
+  encryption protects copies kept elsewhere.
+- **Download and upload go through a root socket**,
+  `portikus-backup-key.socket`, never a file the API can read or write.
+  Both are administrator-only, CSRF-checked and audited
+  (`backup.key_downloaded`, `backup.key_uploaded` with `ok` or
+  `refused`), recording only the key's public half; the key is in no log.
+  The download is `Cache-Control: no-store`, named
+  `portikus-backup-key.txt`. An upload must be one age identity of at most
+  4 KiB, and replacing a different key needs `replace: true`, which the
+  tab sends only after a confirmation; a replace waits while a backup
+  runs, and keeps the replaced key root-only as
+  `age-key.txt.replaced-<unix time>`, never overwriting an earlier one.
+  The "not yet downloaded" reminder clears only after a download has been
+  sent in full; an upload never clears it.
+- **Sets are authenticated.** Each set carries an HMAC-SHA256 of its
+  encrypted MANIFEST under a key derived from the private backup key, and
+  the MANIFEST lists the size and SHA-256 of every other file, index files
+  included. Every restore and the tab's listing check the MAC before
+  trusting anything in the set, so someone who knows only the public key
+  cannot make a set that restores. A set without a valid MAC is shown as
+  not verified and cannot be restored from the tab; a set made before
+  MACs restores only with root's explicit `--unverified`. A decrypted
+  MANIFEST over 4 MiB is refused (ADR 0044, "Authenticated sets").
+- **Whole-server restore** is `sudo portikus restore <set>` on the
+  server, with the same empty-target checks as `restore.sh`.
+- **The MAC checks the set's name.** A set's MANIFEST must name its own
+  folder (`created` equals the folder name), so a genuine set renamed to
+  another time is refused. The `vm` line is not checked, because it
+  differs after a rebuild from an off-site copy; this is accepted. The
+  4 MiB cap on the decrypted MANIFEST is sized for 2,000 workspaces.
+- **Copies off the server are manual** and documented as the real backup
+  (docs/INSTALL.md); the copy's target never needs the key. Sets come back
+  onto a server with rsync or scp, never by upload in the browser.
 
 ### 24.10 Transport security
 
@@ -3749,7 +3988,7 @@ Deferred:
 - an `.rpm` build, until a non-Debian host is supported. `nfpm` can emit one
   from the same configuration;
 - an apt repository. Ansible downloads the release asset from GitHub
-  instead, which is enough for one platform VM.
+  instead, which is enough for one platform VM. (Delivered by Epic 15.)
 
 ### Epic 4 — Authentication and authorization
 **Estimate:** 2–3 engineer-days
@@ -4257,6 +4496,40 @@ Acceptance:
 - no sample, audit row or response carries a process name, command line or file name;
 - an administrator's actions and the workspace agent never count as a student's activity, and an unattended coding agent is stopped by idle stop;
 - while a gate is unmet, every route but that gate's answers 403 with its code, and the password gate comes first.
+
+### Epic 15 — `apt install portikus`
+
+See sections 20.1, 21.8, 21.12, 21.13, 22.4, 24.7, 24.8 and 24.9, and
+ADRs 0029, 0030 and 0044; built on `epic/15-apt-install` (task PRs #790
+to #812). No migrations. Delivered.
+
+Includes:
+
+- `apt install portikus` as the default install: debconf questions,
+  preseeding, `dpkg-reconfigure`, and setup run by a root unit from the
+  Ansible roles shipped in the package;
+- storage on an empty disk, a volume group or, by default, a file;
+- TLS by Caddy's authority, given files, or Let's Encrypt with a DNS-01
+  wildcard through Cloudflare;
+- Node bundled in the package;
+- a signed apt repository on GitHub Pages and signed image releases;
+- the admin Workspace image section, with a root job for fetch, build,
+  health check, activate and rollback, which setup also uses for the
+  first image;
+- backups on the server itself, with the key downloaded and uploaded in
+  the Backups tab.
+
+Acceptance:
+
+- `make install-test IMAGE_JOBS=1` goes from nothing to a signed-in local
+  administrator, a green smoke test, an upgrade, the image rehearsal and
+  a rebuild from an off-site backup, on a throwaway VM;
+- no secret is in `portikus.yaml`, debconf, a log or `ps`;
+- an unconfirmed device changes no disk;
+- apt refuses the repository without the key, and nothing imports an
+  image whose signature fails;
+- an image that failed its health check cannot be made the default;
+- a forged or renamed backup set does not restore.
 
 ### Epic 18 — Admin interface polish
 

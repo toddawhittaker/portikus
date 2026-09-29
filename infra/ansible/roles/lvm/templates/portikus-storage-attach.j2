@@ -1,0 +1,11 @@
+#!/bin/sh
+# Managed by Ansible (lvm role).  Attaches the workspace storage file to a
+# loop device, once, and activates its volume group, before Incus starts.
+set -eu
+file={{ lvm_storage_file }}
+if [ -z "$(losetup --noheadings --output NAME --associated "$file")" ]; then
+  losetup --find "$file"
+fi
+if vgs {{ lvm_vg_name }} >/dev/null 2>&1; then
+  vgchange --activate ay {{ lvm_vg_name }} >/dev/null
+fi

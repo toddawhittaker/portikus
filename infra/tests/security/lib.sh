@@ -157,11 +157,11 @@ sec_check_idp() {
 
 # -n keeps the remote command off this script's standard input.
 sec_ssh() {
-  ssh -n -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "deploy@${SEC_VM}" "$@"
+  ssh -n -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${PORTIKUS_SSH_USER:-deploy}@${SEC_VM}" "$@"
 }
 
 sec_ssh_stdin() {
-  ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "deploy@${SEC_VM}" "$@"
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${PORTIKUS_SSH_USER:-deploy}@${SEC_VM}" "$@"
 }
 
 # SQL goes on standard input, so tokens never show in a process list.
@@ -237,7 +237,11 @@ sec_preflight() {
     echo "preflight: not enough memory for two more workspaces; nothing was created." >&2
     return 1
   fi
-  pool=$(sec_ssh "sudo lvs --noheadings --nosuffix --units g -o lv_size,data_percent,metadata_percent portikus-data/thinpool")
+  # The storage volume group is whichever the play was given, and the
+  # package bundles its Node (docs/SPEC.md section 21.12).
+  SEC_VG=$(sec_ssh "incus storage get workspace-data source" 2>/dev/null)
+  SEC_NODE=$(sec_ssh 'test -x /usr/lib/portikus/node/bin/node && echo /usr/lib/portikus/node/bin/node || echo node')
+  pool=$(sec_ssh "sudo lvs --noheadings --nosuffix --units g -o lv_size,data_percent,metadata_percent ${SEC_VG:-none}/thinpool")
   read -r size data meta <<<"$pool"
   free_gib=$(awk -v s="$size" -v d="$data" 'BEGIN { printf "%d", s * (100 - d) / 100 }')
   echo "Thin pool: ${free_gib} GiB free, metadata ${meta}% (need ${SEC_MIN_POOL_FREE_GIB} GiB, under ${SEC_MAX_POOL_META_PERCENT}%)"
@@ -417,7 +421,7 @@ sec_hold_presence() {
   if ! sec_ssh test -f "${SEC_REMOTE_DIR}/presence.mjs"; then
     printf '%s\n' "$SEC_PRESENCE_JS" | sec_ssh_stdin "cat > ${SEC_REMOTE_DIR}/presence.mjs"
   fi
-  sec_ssh_stdin "NODE_EXTRA_CA_CERTS=${SEC_CA} node ${SEC_REMOTE_DIR}/presence.mjs \
+  sec_ssh_stdin "NODE_EXTRA_CA_CERTS=${SEC_CA} ${SEC_NODE} ${SEC_REMOTE_DIR}/presence.mjs \
     '${SEC_API/https/wss}/workspaces/${ws_id}/ws' '${SEC_API}' '${SEC_REMOTE_DIR}/stop-all'" \
     <"${SEC_LOCAL_DIR}/${key}.cookie" >/dev/null 2>&1 &
   sec_presence_pids+=("$!")

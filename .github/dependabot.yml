@@ -3,15 +3,20 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       actions:
         patterns: ["*"]
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # The runtime is Node 24 (.nvmrc and the bundled Node), so the types
+      # stay on 24.x until we move to the next LTS by hand.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 5

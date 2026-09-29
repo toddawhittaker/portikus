@@ -3,7 +3,8 @@
 A one-page orientation for humans and agents. The authoritative sources are
 `docs/VISION.md` (product intent), `docs/SPEC.md` (implementation
 requirements), and `docs/STACK.md` (technology choices). This page
-summarizes them so a reader knows where to look.
+summarizes them so a reader knows where to look. To install Portikus on a
+server, follow `docs/INSTALL.md`.
 
 ## Current state
 
@@ -23,8 +24,8 @@ an institution's provider (Microsoft Entra ID, Google Workspace, LDAP or
 Active Directory, or any other OpenID Connect provider) is one Dex
 connector, and every install has a local administrator with a one-time
 password, recovered with `sudo portikus reset-admin` on the host
-(SPEC.md section 5.1). Epic 15 (`docs/EPIC-15.md`)
-packages the platform for `apt install portikus` next. Epic 24 added
+(SPEC.md section 5.1). Epic 15 packages the platform
+for `apt install portikus` (SPEC.md sections 21.12, 21.13 and 22.4). Epic 24 added
 administrator control of workspace internet access (an allow-list, or
 blocked sites in open mode), backups and single-workspace restores from
 the admin page, per-workspace limits, and HTTPS previews (SPEC.md

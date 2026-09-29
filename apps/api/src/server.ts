@@ -17,10 +17,12 @@ import { registerRequestMetrics } from "./request-metrics.js";
 import { registerAcceptableUseRoutes } from "./routes/acceptable-use.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
+import { registerAdminBackupKeyRoutes } from "./routes/admin-backup-key.js";
 import { registerAdminBackupRoutes } from "./routes/admin-backups.js";
 import { registerAdminDexUserRoutes } from "./routes/admin-dex-users.js";
 import { registerAdminEgressRoutes } from "./routes/admin-egress.js";
 import { registerAdminHealthRoutes } from "./routes/admin-health.js";
+import { registerAdminImageRoutes } from "./routes/admin-image.js";
 import { registerAdminLogRoutes } from "./routes/admin-logs.js";
 import { registerAdminPackageRoutes } from "./routes/admin-packages.js";
 import { registerAdminProcessRoutes } from "./routes/admin-processes.js";
@@ -244,7 +246,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerAdminLogRoutes(instance, deps);
 		registerAdminHealthRoutes(instance, routeDeps);
 		registerAdminBackupRoutes(instance, deps);
+		registerAdminBackupKeyRoutes(instance, deps);
 		registerAdminPackageRoutes(instance, deps);
+		registerAdminImageRoutes(instance, deps);
 		registerReinstallNoteRoutes(instance, deps);
 	});
 

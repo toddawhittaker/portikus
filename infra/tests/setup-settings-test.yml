@@ -1,0 +1,61 @@
+---
+# The TLS and storage settings checks that site.yml runs before any role
+# (docs/SPEC.md section 21.12), tried with no VM: each case is
+# accepted or refused as expected.  The unconfirmed-device refusal needs a
+# real disk, so the rehearsal VM checks that one.  `make infra-check` runs it.
+- name: Check the TLS and storage settings guards
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    lvm_vg_name: portikus-settings-test-no-such-group
+    # A made-up token, whose form alone is checked.
+    setup_test_token: not-a-real-cloudflare-token
+    setup_test_cases:
+      - { name: internal TLS, role: caddy, accept: true, vars: { portikus_tls: internal } }
+      - { name: an unknown TLS choice, role: caddy, accept: false, vars: { portikus_tls: acme } }
+      - name: letsencrypt with an email and a token
+        role: caddy
+        accept: true
+        vars: { portikus_tls: letsencrypt, portikus_acme_email: ops@example.edu, portikus_cloudflare_api_token: "{{ setup_test_token }}" }
+      - name: letsencrypt without an email
+        role: caddy
+        accept: false
+        vars: { portikus_tls: letsencrypt, portikus_acme_email: "", portikus_cloudflare_api_token: "{{ setup_test_token }}" }
+      - name: letsencrypt without a token
+        role: caddy
+        accept: false
+        vars: { portikus_tls: letsencrypt, portikus_acme_email: ops@example.edu, portikus_cloudflare_api_token: "" }
+      - name: letsencrypt with a token holding a newline
+        role: caddy
+        accept: false
+        vars: { portikus_tls: letsencrypt, portikus_acme_email: ops@example.edu, portikus_cloudflare_api_token: "abc\nEVIL=1" }
+      - name: files that exist
+        role: caddy
+        accept: true
+        vars: { portikus_tls: files, portikus_tls_cert: "{{ playbook_dir }}/setup-settings-test.yml", portikus_tls_key: "{{ playbook_dir }}/setup-settings-test.yml" }
+      - name: files that are missing
+        role: caddy
+        accept: false
+        vars: { portikus_tls: files, portikus_tls_cert: /nonexistent/site.crt, portikus_tls_key: /nonexistent/site.key }
+      - name: files given as relative paths
+        role: caddy
+        accept: false
+        vars: { portikus_tls: files, portikus_tls_cert: site.crt, portikus_tls_key: site.key }
+      - { name: no storage on a host without a volume group, role: lvm, accept: false, vars: { portikus_storage: "" } }
+      - { name: a volume group that does not exist, role: lvm, accept: false, vars: { portikus_storage: no-such-group } }
+      - { name: a device that is not a block device, role: lvm, accept: false, vars: { portikus_storage: /dev/null } }
+      - { name: a device that does not exist, role: lvm, accept: false, vars: { portikus_storage: /dev/no-such-disk } }
+      - { name: a file of 20 GiB, role: lvm, accept: true, vars: { portikus_storage: file, portikus_storage_size: 20 } }
+      - { name: a file of half the free space, role: lvm, accept: true, vars: { portikus_storage: file, portikus_storage_size: 0 } }
+      - { name: a file of no whole size, role: lvm, accept: false, vars: { portikus_storage: file, portikus_storage_size: "1.5" } }
+
+  tasks:
+    - name: Try each case
+      ansible.builtin.include_tasks: setup-settings-case.yml
+      loop: "{{ setup_test_cases }}"
+      loop_control:
+        loop_var: setup_case
+        label: "{{ setup_case.name }}"

@@ -4,121 +4,12 @@
 # The package owns the service users, /etc/portikus, /var/lib/portikus, and
 # the three systemd units, so nothing here creates them.
 
-# ── Remove the Epic 3 interim deployment ──────────────────────────
-# A VM configured before ADR 0007 has hand-written units, an rsynced app
-# directory, and a global pnpm.  The package owns those names now, so an
-# existing VM has to be cleaned before the package is installed.
-
-- name: Remove Epic 3 systemd units
-  ansible.builtin.file:
-    path: "/etc/systemd/system/{{ item }}"
-    state: absent
-  loop:
-    - portikus-api.service
-    - portikus-worker.service
-    - portikus-controller.service
-  register: portikus_legacy_units
-
-# Not a handler: this has to run before the package install, not at the end of the play.
-- name: Reload systemd after removing the Epic 3 units  # noqa: no-handler
-  ansible.builtin.systemd:
-    daemon_reload: true
-  when: portikus_legacy_units is changed
-
-- name: Remove the Epic 3 application directory
-  ansible.builtin.file:
-    path: /var/lib/portikus/app
-    state: absent
-
-- name: Remove the globally installed pnpm
-  community.general.npm:
-    name: pnpm
-    global: true
-    state: absent
-
-# ── Debian package ────────────────────────────────────────────────
-
-- name: Create package cache directory
-  ansible.builtin.file:
-    path: /var/cache/portikus
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-
-# Three ways to choose the package, in order: a locally built .deb named by
-# PORTIKUS_DEB (for testing a branch), the release named by PORTIKUS_VERSION
-# (for a rollback), or the newest GitHub release.
-- name: Use a locally built package
-  ansible.builtin.copy:
-    src: "{{ portikus_deb }}"
-    dest: "/var/cache/portikus/{{ portikus_deb | basename }}"
-    owner: root
-    group: root
-    mode: "0644"
-  when: portikus_deb | default('', true) | length > 0
-
-- name: Set the local package file name
-  ansible.builtin.set_fact:
-    portikus_deb_filename: "{{ portikus_deb | basename }}"
-  when: portikus_deb | default('', true) | length > 0
-
-- name: Look up the newest release
-  ansible.builtin.uri:
-    url: https://api.github.com/repos/toddawhittaker/portikus/releases/latest
-    return_content: true
-  register: portikus_latest_release
-  when:
-    - portikus_deb | default('', true) | length == 0
-    - portikus_version | default('', true) | length == 0
-
-- name: Resolve the release package
-  when: portikus_deb | default('', true) | length == 0
-  block:
-    - name: Resolve the package version
-      ansible.builtin.set_fact:
-        portikus_resolved_version: >-
-          {{ portikus_version if (portikus_version | default('', true) | length > 0)
-             else (portikus_latest_release.json.tag_name | regex_replace('^v', '')) }}
-
-    - name: Set the release package file name
-      ansible.builtin.set_fact:
-        portikus_deb_filename: "portikus_{{ portikus_resolved_version }}_amd64.deb"
-
-    - name: Download the release checksums
-      ansible.builtin.get_url:
-        url: "https://github.com/toddawhittaker/portikus/releases/download/v{{ portikus_resolved_version }}/SHA256SUMS"
-        dest: "/var/cache/portikus/{{ portikus_deb_filename }}.SHA256SUMS"
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Read the release checksums
-      ansible.builtin.slurp:
-        src: "/var/cache/portikus/{{ portikus_deb_filename }}.SHA256SUMS"
-      register: portikus_release_checksums
-
-    - name: Take this package's checksum from the release checksums
-      ansible.builtin.set_fact:
-        portikus_deb_checksum: >-
-          {{ (portikus_release_checksums.content | b64decode)
-             | regex_search('([0-9a-f]{64})\s+\*?' ~ (portikus_deb_filename | regex_escape) ~ '\s*$',
-                            '\1', multiline=True) | first }}
-
-    - name: Download the portikus package
-      ansible.builtin.get_url:
-        url: "https://github.com/toddawhittaker/portikus/releases/download/v{{ portikus_resolved_version }}/{{ portikus_deb_filename }}"
-        dest: "/var/cache/portikus/{{ portikus_deb_filename }}"
-        checksum: "sha256:{{ portikus_deb_checksum }}"
-        owner: root
-        group: root
-        mode: "0644"
-
-- name: Install the portikus package
-  ansible.builtin.apt:
-    deb: "/var/cache/portikus/{{ portikus_deb_filename }}"
-    # So that setting PORTIKUS_VERSION or PORTIKUS_DEB to an older build rolls back.
-    allow_downgrade: true
+# From a workstation the play installs the package.  `portikus setup` runs
+# from the installed package itself, which apt manages (docs/SPEC.md
+# section 21.12), so a local run must never replace it.
+- name: Install the package
+  ansible.builtin.include_tasks: package.yml
+  when: portikus_install_package | bool
 
 # Release 0.1.40 shipped this directory owned by the portikus service user and
 # dpkg keeps the ownership of a directory that already exists, so hosts that
@@ -283,7 +174,7 @@
 # same migration on every start, so this changes nothing else.
 - name: Bring the database schema up to date
   ansible.builtin.command:
-    argv: [runuser, -u, portikus, --, /usr/bin/node, /usr/lib/portikus/api/node_modules/@portikus/db/dist/migrate.js]
+    argv: [runuser, -u, portikus, --, "{{ portikus_node }}", /usr/lib/portikus/api/node_modules/@portikus/db/dist/migrate.js]
   environment:
     DATABASE_URL: "{{ portikus_database_url }}"
   register: portikus_migrate
@@ -357,6 +248,48 @@
     mode: "0640"
   notify: Restart portikus-controller
 
+# ── Workspace image jobs (docs/SPEC.md section 22.4, ADR 0030) ──
+# The API writes a request here, and a root job started by a path unit
+# reads it.  Setup and the job keep the images in /var/lib/portikus/images.
+- name: Create the image job directory
+  ansible.builtin.file:
+    path: "{{ portikus_image_jobs_dir }}"
+    state: directory
+    owner: root
+    group: portikus
+    mode: "0770"
+
+- name: Create the image store
+  ansible.builtin.file:
+    path: /var/lib/portikus/images
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# A package from before the image job has neither unit.  The service is
+# enabled too, so it runs once at boot to recover a job a reboot cut short.
+- name: Look for the image job's units
+  ansible.builtin.stat:
+    path: "/usr/lib/systemd/system/{{ item }}"
+  loop:
+    - portikus-image-job.path
+    - portikus-image-job.service
+  register: portikus_image_job_units
+
+- name: Enable and start the image job's path unit
+  ansible.builtin.systemd_service:
+    name: portikus-image-job.path
+    enabled: true
+    state: started
+  when: portikus_image_job_units.results[0].stat.exists
+
+- name: Enable the image job's service for boot
+  ansible.builtin.systemd_service:
+    name: portikus-image-job.service
+    enabled: true
+  when: portikus_image_job_units.results[1].stat.exists
+
 # ── Start the services ───────────────────────────────────────────
 # The package enables the units, but ConditionPathExists keeps them from
 # starting until the environment files above exist.
@@ -369,48 +302,3 @@
     - portikus-api
     - portikus-worker
     - portikus-controller
-
-# ── The local administrator (ADR 0031, SPEC.md section 5.1) ──
-# Made on the first run.  After that --if-missing leaves the account alone,
-# even one an administrator removed, and its exit status says whether the
-# one-time password is still unchanged (10) or spent (11).  The command
-# writes the password only to a root-only file and prints where it is.
-- name: Look for the portikus command
-  ansible.builtin.stat:
-    path: /usr/bin/portikus
-  register: portikus_command
-  when: portikus_idp == 'dex'
-
-- name: Require the portikus command
-  ansible.builtin.assert:
-    that:
-      - portikus_command.stat.exists
-    fail_msg: >-
-      /usr/bin/portikus is missing, so the local administrator cannot be
-      made.  The installed package is older than this play; install the
-      current Portikus package and run the play again.
-  when: portikus_idp == 'dex'
-
-- name: Make the local administrator
-  when: portikus_idp == 'dex'
-  block:
-    - name: Make the local administrator if there is none
-      ansible.builtin.command:
-        argv: [/usr/bin/portikus, reset-admin, --if-missing, --email, "{{ portikus_admin_email }}"]
-      register: portikus_local_admin
-      changed_when: portikus_local_admin.rc == 0
-      failed_when: portikus_local_admin.rc not in [0, 10, 11]
-
-    - name: Say where the one-time password is
-      ansible.builtin.debug:
-        msg: >-
-          {{ ('Made the local administrator, ' ~ portikus_admin_email ~ '.  ') if portikus_local_admin.rc == 0 else '' }}{{
-             portikus_local_admin.stdout_lines | join('  ') }}
-      when: portikus_local_admin.rc in [0, 10]
-
-    # It holds a password that no longer works (ruling 15).
-    - name: Remove the spent one-time password
-      ansible.builtin.file:
-        path: /etc/portikus/admin-password
-        state: absent
-      when: portikus_local_admin.rc == 11

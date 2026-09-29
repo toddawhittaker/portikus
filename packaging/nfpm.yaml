@@ -13,8 +13,17 @@ vendor: Portikus
 homepage: https://github.com/toddawhittaker/portikus
 license: MIT
 
+# Debian-archive packages only; setup installs the rest (docs/SPEC.md section 21.12).
 depends:
-  - nodejs (>= 24)
+  - ansible-core
+  - python3-apt
+  - debconf
+  - whiptail | dialog
+  - ca-certificates
+  - gpg
+  - curl
+  # The install questions check certificate and key files with it.
+  - openssl
 
 # The tree file modes come from the build: scripts/build-deb.sh chmods them,
 # because nfpm would apply a file_info mode to the directories as well.
@@ -54,6 +63,30 @@ contents:
       owner: root
       group: root
 
+  # Node, bundled so the package needs nothing outside Debian (ruling 11).
+  - src: ./dist/deploy/node
+    dst: /usr/lib/portikus/node
+    type: tree
+    file_info:
+      owner: root
+      group: root
+  # The play that `portikus setup` runs on this host (ruling 8, ADR 0029).
+  - src: ./dist/deploy/ansible
+    dst: /usr/share/portikus/ansible
+    type: tree
+    file_info:
+      owner: root
+      group: root
+  - src: ./packaging/debian/preseed.example
+    dst: /usr/share/doc/portikus/preseed.example
+  # The apt repository's public key (ruling 17), dearmored by build-deb.sh.
+  - src: ./dist/deploy/portikus-archive-keyring.gpg
+    dst: /usr/share/keyrings/portikus-archive-keyring.gpg
+    file_info:
+      owner: root
+      group: root
+      mode: 0644
+
   - src: ./packaging/systemd/portikus-api.service
     dst: /usr/lib/systemd/system/portikus-api.service
     file_info: &unit_info
@@ -86,6 +119,81 @@ contents:
     dst: /usr/lib/systemd/system/portikus-mock-idp.service
     file_info: *unit_info
 
+  # Started by postinst without waiting (ruling 10); never enabled.
+  - src: ./packaging/systemd/portikus-setup.service
+    dst: /usr/lib/systemd/system/portikus-setup.service
+    file_info: *unit_info
+  # The root workspace image job and its trigger (ruling 28, ADR 0030).
+  # Enabled by Ansible, which creates the directories they need.
+  - src: ./packaging/systemd/portikus-image-job.path
+    dst: /usr/lib/systemd/system/portikus-image-job.path
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-image-job.service
+    dst: /usr/lib/systemd/system/portikus-image-job.service
+    file_info: *unit_info
+  - src: ./packaging/image/image-job
+    dst: /usr/lib/portikus/image-job
+    file_info:
+      owner: root
+      group: root
+      mode: 0755
+  # Backups on the server itself (ADR 0044): the same scripts a separate
+  # backup host runs, in local mode, and the root key helper.  Enabled by
+  # setup's backup role only on a local install.
+  - src: ./infra/host/backup.sh
+    dst: /usr/lib/portikus/backup/portikus-backup
+    file_info: &backup_script
+      owner: root
+      group: root
+      mode: 0755
+  - src: ./infra/host/portikus-backup-export
+    dst: /usr/lib/portikus/backup/portikus-backup-export
+    file_info: *backup_script
+  - src: ./infra/host/portikus-backup-mac
+    dst: /usr/lib/portikus/backup/portikus-backup-mac
+    file_info: *backup_script
+  - src: ./infra/host/backup-channel.sh
+    dst: /usr/lib/portikus/backup/portikus-backup-channel
+    file_info: *backup_script
+  - src: ./infra/host/restore.sh
+    dst: /usr/lib/portikus/backup/portikus-restore
+    file_info: *backup_script
+  - src: ./infra/host/restore-copy.sh
+    dst: /usr/lib/portikus/backup/portikus-restore-copy
+    file_info: *backup_script
+  - src: ./packaging/backup/backup-key
+    dst: /usr/lib/portikus/backup/portikus-backup-key
+    file_info: *backup_script
+  - src: ./packaging/systemd/portikus-backup.service
+    dst: /usr/lib/systemd/system/portikus-backup.service
+    file_info: *unit_info
+  # The same schedules a separate backup host uses.
+  - src: ./infra/host/systemd/portikus-backup.timer
+    dst: /usr/lib/systemd/system/portikus-backup.timer
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-backup-channel.service
+    dst: /usr/lib/systemd/system/portikus-backup-channel.service
+    file_info: *unit_info
+  - src: ./infra/host/systemd/portikus-backup-channel.timer
+    dst: /usr/lib/systemd/system/portikus-backup-channel.timer
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-backup-key.socket
+    dst: /usr/lib/systemd/system/portikus-backup-key.socket
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-backup-key@.service
+    dst: /usr/lib/systemd/system/portikus-backup-key@.service
+    file_info: *unit_info
+  # The recipe a "rebuild" job builds from (ruling 23).
+  - src: ./infra/workspace-image/portikus.yaml
+    dst: /usr/share/portikus/workspace-image/portikus.yaml
+    file_info: &recipe_info
+      owner: root
+      group: root
+      mode: 0644
+  - src: ./infra/workspace-image/VERSION
+    dst: /usr/share/portikus/workspace-image/VERSION
+    file_info: *recipe_info
+
   # The host command, run by root (SPEC.md section 5.1).
   - src: ./packaging/bin/portikus
     dst: /usr/bin/portikus
@@ -107,6 +215,12 @@ contents:
       mode: 0755
       owner: root
       group: root
+
+# The install questions (docs/SPEC.md section 21.12).
+deb:
+  scripts:
+    templates: ./packaging/debian/templates
+    config: ./packaging/debian/config
 
 scripts:
   postinstall: ./packaging/scripts/postinst

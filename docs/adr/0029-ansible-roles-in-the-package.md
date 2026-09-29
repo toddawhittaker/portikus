@@ -1,9 +1,9 @@
 # 0029. `apt install portikus` ships the Ansible roles and runs them locally
 
-- **Status**: Proposed
+- **Status**: Accepted (2026-09-28); verified by `make install-test` (infra/tests/install-test.sh)
 - **Date**: 2026-09-24
 - **References**: STACK.md sections 22, 30 and 31; SPEC.md section 21;
-  docs/EPIC-15.md rulings 5 to 13; ADR 0007
+  SPEC.md section 21.12; ADR 0007
 
 ## Context
 

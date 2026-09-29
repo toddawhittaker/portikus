@@ -1,0 +1,120 @@
+---
+# The storage choice, checked before any role runs so a refused setting
+# changes nothing on the host (docs/SPEC.md section 21.12).  Sets lvm_storage_kind
+# (device, vg, file, or empty for a host that already has its volume group)
+# and, for a device, lvm_storage_device, the real device path.
+
+- name: Work out the kind of storage
+  ansible.builtin.set_fact:
+    lvm_storage_kind: >-
+      {{ 'file' if portikus_storage == 'file'
+         else 'device' if portikus_storage.startswith('/dev/')
+         else 'vg' if portikus_storage | length > 0
+         else '' }}
+
+- name: Look for the volume group
+  ansible.builtin.command:
+    argv: [vgs, --noheadings, -o, vg_name, "{{ lvm_vg_name }}"]
+  register: lvm_vg_present
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Require a storage choice on a host without one
+  ansible.builtin.assert:
+    that:
+      - lvm_storage_kind | length > 0 or lvm_vg_present.rc == 0
+    fail_msg: >-
+      Set portikus_storage to an empty disk (such as /dev/nvme1n1), the name
+      of an existing LVM volume group, or file.  Nothing was changed.
+
+- name: Require an existing volume group
+  ansible.builtin.assert:
+    that:
+      - portikus_storage is match('^[A-Za-z0-9+_.][A-Za-z0-9+_.-]*$')
+      - lvm_vg_present.rc == 0
+    fail_msg: >-
+      portikus_storage names the volume group {{ portikus_storage }}, which
+      does not exist on this host.  Nothing was changed.
+  when: lvm_storage_kind == 'vg'
+
+- name: Require a whole number of GiB for the storage file
+  ansible.builtin.assert:
+    that:
+      - portikus_storage_size | string is match('^[0-9]+$')
+    fail_msg: "portikus_storage_size must be a whole number of GiB, or 0 for half the free space."
+  when: lvm_storage_kind == 'file'
+
+- name: Check the storage device
+  when: lvm_storage_kind == 'device'
+  block:
+    # A /dev/disk/by-id path is a link; LVM reports the device it points at.
+    - name: Resolve the storage device
+      ansible.builtin.stat:
+        path: "{{ portikus_storage }}"
+        follow: true
+      register: lvm_device_stat
+
+    - name: Require a block device
+      ansible.builtin.assert:
+        that:
+          - lvm_device_stat.stat.exists
+          - lvm_device_stat.stat.isblk
+        fail_msg: "{{ portikus_storage }} is not a block device on this host.  Nothing was changed."
+
+    - name: Read the device's real path
+      ansible.builtin.command:
+        argv: [readlink, -f, "{{ portikus_storage }}"]
+      register: lvm_device_real
+      changed_when: false
+      check_mode: false
+
+    - name: Set the storage device
+      ansible.builtin.set_fact:
+        lvm_storage_device: "{{ lvm_device_real.stdout }}"
+
+    - name: Read the volume group's physical volumes
+      ansible.builtin.command:
+        argv: [pvs, --noheadings, -o, pv_name, --select, "vg_name={{ lvm_vg_name }}"]
+      register: lvm_vg_pvs
+      changed_when: false
+      check_mode: false
+      when: lvm_vg_present.rc == 0
+
+    - name: Refuse a volume group on another device
+      ansible.builtin.assert:
+        that:
+          - lvm_vg_pvs.stdout_lines | map('trim') | list == [lvm_storage_device]
+        fail_msg: >-
+          The volume group {{ lvm_vg_name }} already exists on
+          {{ lvm_vg_pvs.stdout_lines | map('trim') | join(', ') }}, not on
+          {{ lvm_storage_device }}.  Nothing was changed.
+      when: lvm_vg_present.rc == 0
+
+    # Everything below erases the device, so it needs the operator's yes.
+    - name: Check the device can be erased
+      when: lvm_vg_present.rc != 0
+      block:
+        - name: Require the operator's confirmation
+          ansible.builtin.assert:
+            that:
+              - portikus_storage_confirm | bool
+            fail_msg: >-
+              Everything on {{ lvm_storage_device }} will be erased.  Set
+              portikus_storage_confirm to true to allow it.  Nothing was changed.
+
+        - name: Read what uses the device
+          ansible.builtin.command:
+            argv: [lsblk, --noheadings, --list, -o, MOUNTPOINTS, "{{ lvm_storage_device }}"]
+          register: lvm_device_mounts
+          changed_when: false
+          check_mode: false
+
+        - name: Refuse a device with a mounted filesystem
+          ansible.builtin.assert:
+            that:
+              - lvm_device_mounts.stdout | trim | length == 0
+            fail_msg: >-
+              {{ lvm_storage_device }} holds a mounted filesystem
+              ({{ lvm_device_mounts.stdout_lines | select | join(', ') }}), so it is
+              not an empty disk.  Nothing was changed.

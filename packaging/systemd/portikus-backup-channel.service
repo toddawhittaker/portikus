@@ -1,0 +1,31 @@
+# Runs the admin page's backup requests on an apt-installed server
+# (docs/adr/0044-backups-on-the-server.md).  Started every 30 seconds by
+# portikus-backup-channel.timer; enabled by setup's backup role only on a
+# local install.  The requests come from the unprivileged worker and are
+# checked as strictly as a VM's (ADR 0039).
+[Unit]
+Description=Run backup requests from the Portikus admin page
+After=postgresql.service incus.service
+
+[Service]
+Type=oneshot
+Environment=PORTIKUS_BACKUP_DIR=/var/backups/portikus
+Environment=PORTIKUS_BACKUP_NIGHTLY=portikus-backup
+# The retention floor the worker cannot lower (ADR 0039).
+Environment=PORTIKUS_BACKUP_MIN_AGE_DAYS=14
+Environment=PORTIKUS_BACKUP_MIN_FREE_MB=1024
+Environment=PORTIKUS_BACKUP_MAX_INDEX_ENTRIES=1000000
+Environment=PORTIKUS_BACKUP_KEEP_COMPLETE=3
+Environment=PORTIKUS_BACKUP_MIN_GAP_MINUTES=60
+Environment=PORTIKUS_BACKUP_MAX_REQUESTED=3
+StateDirectory=portikus-backup-channel
+StateDirectoryMode=0700
+ExecStart=/usr/lib/portikus/backup/portikus-backup-channel --local
+# The incus command keeps its client settings here, since the home directories are hidden.
+Environment=INCUS_CONF=/var/lib/portikus-backup-channel/incus
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=yes
+MemoryMax=1G
+# A restore of a large home can take hours.
+TimeoutStartSec=12h

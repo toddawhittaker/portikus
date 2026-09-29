@@ -1,0 +1,45 @@
+# Portikus workspace image job (docs/SPEC.md section 22.4, ADR 0030).
+# Started by portikus-image-job.path for each request the API writes, and
+# once at boot to mark a job the host lost as failed, so the admin page is
+# never left waiting on it. It fetches, builds, activates or rolls back the
+# workspace image.
+[Unit]
+Description=Portikus workspace image job
+After=incus.service network-online.target
+Wants=network-online.target
+ConditionPathIsDirectory=/var/lib/portikus/image-jobs
+# The path unit starts this once per request. systemd's default start limit
+# (5 in 10 seconds) would fail the path unit after a burst of requests and
+# stop every later job; the path unit's own trigger limit still stops a loop.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/portikus/image-job
+# Runs however the job ended, even when killed at the timeout.
+ExecStopPost=/usr/lib/portikus/image-job recover
+# A build runs distrobuilder, about 20 minutes, longer on a slow mirror.
+TimeoutStartSec=3h
+# Student workspaces keep the CPU and disk while an image builds.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+# distrobuilder needs root with mounts, chroot and device nodes, and the
+# health check needs the Incus socket, so the sandbox stops at what those
+# allow. The request itself is only ever read as fixed kinds and choices.
+# No ProtectHostname: distrobuilder names its build's own UTS namespace, and
+# that filter refuses sethostname() ("Failed to set hostname").
+UMask=0022
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=read-only
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

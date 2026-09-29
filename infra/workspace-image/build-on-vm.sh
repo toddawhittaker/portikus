@@ -31,8 +31,8 @@ ALIAS_LATEST="portikus"
 
 echo "Building workspace image version ${VERSION}"
 
-# Create the output directory.
-mkdir -p "${OUTPUT_DIR}"
+# Create the output directory; its parent is root's (docs/SPEC.md section 22.4).
+sudo mkdir -p "${OUTPUT_DIR}"
 
 # Build the image with distrobuilder.
 sudo PORTIKUS_IMAGE_VERSION="${VERSION}" distrobuilder build-incus \

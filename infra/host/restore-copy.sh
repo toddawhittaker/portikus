@@ -11,6 +11,8 @@
 #   restore-copy.sh --operator <user> --vm-name <name> import <vm-ip> <set-dir> <instance>
 #       import the home volume as <instance>-home-import with the backup's
 #       ID map, for the controller's replace-home swap
+#   --local in place of --operator and --vm-name: the workspace is on this
+#       server, and every command runs here as root (ADR 0044)
 #
 # "~" in messages is literal: they are shown to an administrator.
 # shellcheck disable=SC2088
@@ -36,19 +38,27 @@ HOSTNAME_PATTERN='^[a-z0-9][a-z0-9-]{0,62}$'
 USER_PATTERN='^[a-z_][a-z0-9_-]{0,31}$'
 IP_PATTERN='^[0-9]{1,3}(\.[0-9]{1,3}){3}$'
 # Every line backup.sh writes, as restore.sh checks them.
-MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|failed ws-[0-9a-f]{24}-(home|recovery)|skipped [0-9]{1,7}|seconds [0-9]+)$'
+MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package [0-9A-Za-z.+~:-]+|counts users [0-9]+ workspaces [0-9]+ projects [0-9]+|workspace [0-9a-f-]{36} (ws-[0-9a-f]{24}|-)|file (db\.dump|dex\.dump|users\.json) [0-9]+ [0-9a-f]{64}|volume ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64} (-|\[[][{}":,A-Za-z0-9]*\])|index ws-[0-9a-f]{24}-(home|recovery) [0-9]+ [0-9a-f]{64}|failed ws-[0-9a-f]{24}-(home|recovery)|skipped [0-9]{1,7}|seconds [0-9]+)$'
+# backup.sh never writes a larger one.
+MANIFEST_MAX=4194304
+MAC_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-mac"
 
 die() { printf '[restore-copy] FAIL: %s\n' "$*" >&2; exit 1; }
 info() { printf '[restore-copy] %s\n' "$*"; }
 
-OPERATOR="" VM_NAME=""
+OPERATOR="" VM_NAME="" LOCAL=no
 while [ $# -gt 0 ]; do
   case "$1" in
     --operator) OPERATOR="${2:?--operator needs a value}"; shift 2 ;;
     --vm-name) VM_NAME="${2:?--vm-name needs a value}"; shift 2 ;;
+    --local) LOCAL=yes; shift ;;
     *) break ;;
   esac
 done
+if [ "$LOCAL" = yes ]; then
+  [ -z "$OPERATOR$VM_NAME" ] || die "--local takes no --operator or --vm-name"
+  OPERATOR=root VM_NAME=local
+fi
 MODE="${1:-}"
 VM="${2:-}"
 SET="${3:-}"
@@ -78,11 +88,13 @@ if [ "$(stat -c '%u %a' "$KEY")" != "$(id -u) 600" ] || [ "$(stat -c '%u %a' "$k
 fi
 
 scratch=$(mktemp -d)
+held=""
 created=no
 cleanup() {
   # Only a folder this run made is removed, so a retry does not see a collision.
   [ "$created" = no ] || in_ws rm -rf --one-file-system "${HOME_DIR}/${DIR}" || true
   rm -rf "$scratch"
+  [ -z "$held" ] || rm -rf "$held"
 }
 trap cleanup EXIT
 
@@ -93,25 +105,73 @@ regular() {
 }
 decrypt() { age -d -i "$KEY" "${SET}/$1.age"; }
 
+# "<bytes> <sha256>" of standard input, as backup.sh records it; with a file
+# argument, standard input also goes on to standard output and the sum to it.
+size_sum() {
+  python3 -c 'import hashlib, sys
+h, n = hashlib.sha256(), 0
+out = sys.stdout.buffer if len(sys.argv) > 1 else None
+for b in iter(lambda: sys.stdin.buffer.read(1 << 20), b""):
+    h.update(b); n += len(b)
+    if out: out.write(b)
+line = f"{n} {h.hexdigest()}\n"
+if out:
+    out.flush()
+    open(sys.argv[1], "w").write(line)
+else:
+    sys.stdout.write(line)' "$@"
+}
+
 VOL="${INSTANCE}-home"
 regular MANIFEST.age || die "refused by the host: the set has no MANIFEST"
-decrypt MANIFEST >"${scratch}/MANIFEST" || die "The restore key cannot open this set's MANIFEST."
+# Only a set made with this key is restored (ADR 0044), and nothing in it is read before this.
+mac_rc=0
+python3 "$MAC_SCRIPT" verify "$KEY" "$SET" || mac_rc=$?
+case "$mac_rc" in
+  0) ;;
+  3) die "Set ${STAMP} is not verified: it has no MAC, so nothing shows this server's key made it. Nothing was restored." ;;
+  4) die "Set ${STAMP} failed verification: it was not made with this server's key, or it was changed. Nothing was restored." ;;
+  5) die "Set ${STAMP} is named for another time than it was made. Nothing was restored." ;;
+  *) die "could not check set ${STAMP}'s MAC; nothing was restored" ;;
+esac
+set +o pipefail
+decrypt MANIFEST | head -c $((MANIFEST_MAX + 1)) >"${scratch}/MANIFEST"
+decrypt_rc=${PIPESTATUS[0]}
+set -o pipefail
+[ "$(stat -c %s "${scratch}/MANIFEST")" -le "$MANIFEST_MAX" ] || die "refused by the host: the set's MANIFEST is larger than 4 MiB"
+[ "$decrypt_rc" = 0 ] || die "The restore key cannot open this set's MANIFEST."
 while IFS= read -r line; do
   [[ "$line" =~ $MANIFEST_LINE ]] || die "refused by the host: the set's MANIFEST is not in the expected form"
 done <"${scratch}/MANIFEST"
 head -1 "${scratch}/MANIFEST" | grep -qx 'portikus-backup 1' || die "refused by the host: unknown MANIFEST format"
 idmap=$(awk -v v="$VOL" '$1 == "volume" && $2 == v { print $5 }' "${scratch}/MANIFEST")
 [ -n "$idmap" ] || die "refused by the host: set ${STAMP} does not hold ${VOL}"
+# The MAC covers the MANIFEST, and the MANIFEST these, so the files are checked against them.
+vol_sum=$(awk -v v="$VOL" '$1 == "volume" && $2 == v { print $3, $4 }' "${scratch}/MANIFEST")
+index_sum=$(awk -v v="$VOL" '$1 == "index" && $2 == v { print $3, $4 }' "${scratch}/MANIFEST")
 regular "${VOL}.age" || die "refused by the host: set ${STAMP} does not hold ${VOL}"
+# The volume is checked before any of it is used, in a root-only copy the
+# set cannot change afterwards.  Beside the set, since /tmp may be too small.
+held=$(mktemp -d -p "$(dirname "$SET")" .restore-copy.XXXXXX)
+cp --reflink=auto "${SET}/${VOL}.age" "${held}/volume.age" || die "could not copy ${VOL} from set ${STAMP} to check it"
+[ "$(age -d -i "$KEY" "${held}/volume.age" | size_sum)" = "$vol_sum" ] \
+  || die "refused by the host: ${VOL} in set ${STAMP} is not the one its MANIFEST lists; nothing was restored"
 
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 vm() { timeout -k 5 "$CALL_TIMEOUT" runuser -u "$OPERATOR" -- ssh -n "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
 # vm_in SECONDS CMD -- a stream from standard input, with its own time limit.
 vm_in() { local t=$1; shift; timeout -k 5 "$t" runuser -u "$OPERATOR" -- ssh "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
+if [ "$LOCAL" = yes ]; then
+  # The same commands as over SSH, run here; this is already root, so sudo is a no-op.
+  sudo() { "$@"; }
+  export -f sudo
+  vm() { timeout -k 5 "$CALL_TIMEOUT" bash -c "$*" </dev/null; }
+  vm_in() { local t=$1; shift; timeout -k 5 "$t" bash -c "$*"; }
+fi
 # The stream's limit: 10 minutes plus 1 second per 5 MB of the encrypted volume, at most 6 hours.
 stream_seconds() {
   local size t
-  size=$(stat -c %s "${SET}/${VOL}.age")
+  size=$(stat -c %s "${held}/volume.age")
   t=$((600 + size / 5000000))
   [ "$t" -le 21600 ] || t=21600
   echo "$t"
@@ -123,13 +183,15 @@ in_ws() {
 }
 
 # Decrypted data goes only to the VM the state names.
-actual=$(vm hostname) || die "could not reach ${VM}"
-[ "$actual" = "$VM_NAME" ] || die "refused by the host: ${VM} calls itself something other than ${VM_NAME}"
+if [ "$LOCAL" = no ]; then
+  actual=$(vm hostname) || die "could not reach ${VM}"
+  [ "$actual" = "$VM_NAME" ] || die "refused by the host: ${VM} calls itself something other than ${VM_NAME}"
+fi
 
 if [ "$MODE" = copy ]; then
   regular "${VOL}.index.age" || die "refused by the host: set ${STAMP} has no index for ${VOL}"
   # The copy's size is the sum of the index's file sizes.
-  need=$(decrypt "${VOL}.index" | python3 -c '
+  need=$(decrypt "${VOL}.index" | size_sum "${scratch}/index.sum" | python3 -c '
 import json, sys
 total = 0
 for n, line in enumerate(sys.stdin, 1):
@@ -141,6 +203,10 @@ for n, line in enumerate(sys.stdin, 1):
     elif "git" not in r:
         sys.exit(f"index line {n} is not in the expected form")
 print(total)') || die "refused by the host: the set's index for ${VOL} is not in the expected form"
+  # A set made before index lines has none to compare.
+  if [ -n "$index_sum" ] && [ "$(cat "${scratch}/index.sum")" != "$index_sum" ]; then
+    die "refused by the host: the index for ${VOL} in set ${STAMP} is not the one its MANIFEST lists"
+  fi
 
   state=$(vm "sudo incus list $(q "$INSTANCE") --project ${PROJECT} --format csv --columns ns") || die "could not ask ${VM} about ${INSTANCE}"
   grep -qx "${INSTANCE},RUNNING" <<<"$state" || die "The workspace is not running. Start it, then try again."
@@ -163,7 +229,7 @@ print(total)') || die "refused by the host: the set's index for ${VOL} is not in
   in_ws mkdir "${HOME_DIR}/${DIR}" || die "~/${DIR} could not be made. Rename or delete anything by that name, then try again."
   created=yes
   info "copying ${VOL} from set ${STAMP} into ~/${DIR} (${need} bytes)"
-  decrypt "$VOL" | vm_in "$(stream_seconds)" "sudo incus exec $(q "$INSTANCE") --project ${PROJECT} --user 1000 --group 1000 --cwd ${HOME_DIR} --env HOME=${HOME_DIR} -- tar -xz --strip-components=2 -C $(q "${HOME_DIR}/${DIR}") backup/volume" \
+  age -d -i "$KEY" "${held}/volume.age" | vm_in "$(stream_seconds)" "sudo incus exec $(q "$INSTANCE") --project ${PROJECT} --user 1000 --group 1000 --cwd ${HOME_DIR} --env HOME=${HOME_DIR} -- tar -xz --strip-components=2 -C $(q "${HOME_DIR}/${DIR}") backup/volume" \
     || die "The copy into ~/${DIR} failed part way; nothing was kept."
   created=no
   info "copied ${VOL} from set ${STAMP} into ~/${DIR}"
@@ -177,7 +243,7 @@ if vm "sudo incus storage volume show ${POOL} $(q "$IMPORT") --project ${PROJECT
     || die "${IMPORT} already exists and could not be removed"
 fi
 info "importing ${VOL} from set ${STAMP} as ${IMPORT}"
-decrypt "$VOL" | vm_in "$(stream_seconds)" "sudo incus storage volume import ${POOL} /dev/stdin $(q "$IMPORT") --project ${PROJECT} -q" \
+age -d -i "$KEY" "${held}/volume.age" | vm_in "$(stream_seconds)" "sudo incus storage volume import ${POOL} /dev/stdin $(q "$IMPORT") --project ${PROJECT} -q" \
   || die "The import of the backed-up home failed."
 if [ "$idmap" != "-" ]; then
   vm "sudo incus storage volume set ${POOL} $(q "$IMPORT") --project ${PROJECT} volatile.idmap.last=$(q "$idmap")" \

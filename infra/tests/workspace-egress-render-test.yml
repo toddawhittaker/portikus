@@ -120,6 +120,12 @@
       vars:
         portikus_public_port: 8443
         ansible_default_ipv4: {interface: enp1s0}
+        firewall_ssh_ports: [22, 2222]
+
+    - name: Check SSH is open on every port sshd listens on, and never from the bridge
+      ansible.builtin.assert:
+        that:
+          - firewall_lines | select('search', 'tcp dport [{] 22') | list == ['iifname != "portikus-ws" tcp dport { 22, 2222 } accept']
 
     - name: Check the firewall leaves the egress table alone and opens the redirect targets only to redirects
       vars:

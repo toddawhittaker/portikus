@@ -32,14 +32,23 @@ test.describe("admin layout", () => {
 		}
 	});
 
-	test("tabs read Users, then Health, Logs, Audit, then Network, Backups, Settings (Epic 25 R1)", async ({
+	test("tabs read Users, then Health, Logs, Audit, then Network, Backups, Workspace image, Settings (Epic 25 R1)", async ({
 		page,
 	}) => {
 		await loginAs(page, "carol");
 		await page.goto("/admin");
 		const nav = page.getByRole("navigation", { name: "Administration" });
 		await expect(nav.getByRole("link")).toHaveText(
-			["Users", "Health", "Logs", "Audit", "Network", "Backups", "Settings"],
+			[
+				"Users",
+				"Health",
+				"Logs",
+				"Audit",
+				"Network",
+				"Backups",
+				"Workspace image",
+				"Settings",
+			],
 			{ timeout: 15_000 },
 		);
 		// A wider gap before each group than between neighbours in a group.

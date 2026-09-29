@@ -1,6 +1,6 @@
 # Epic 14: Sign-in providers
 
-This is the working brief for Epic 14. It is the requirement an agent implements against. Where it is silent, `docs/SPEC.md` wins on behaviour and `docs/STACK.md` on technology. It builds on Epic 13 (`docs/archive/epics/EPIC-13.md`, ADR 0025) and Epic 13.1 (`docs/archive/epics/EPIC-13-1.md`, ADR 0026), whose role rule it uses unchanged. ADR 0027 (the egress proxy) and ADR 0028 (Dex user storage and the first administrator) record the decisions made here. Epic 15 (`docs/EPIC-15.md`) packages the result for `apt install portikus` and is built after this one.
+This is the working brief for Epic 14. It is the requirement an agent implements against. Where it is silent, `docs/SPEC.md` wins on behaviour and `docs/STACK.md` on technology. It builds on Epic 13 (`docs/archive/epics/EPIC-13.md`, ADR 0025) and Epic 13.1 (`docs/archive/epics/EPIC-13-1.md`, ADR 0026), whose role rule it uses unchanged. ADR 0027 (the egress proxy) and ADR 0028 (Dex user storage and the first administrator) record the decisions made here. Epic 15 (SPEC.md sections 21.12 and 29) packages the result for `apt install portikus` and is built after this one.
 
 - **Base commit:** `epic/14-sign-in-providers` once Epic 13.1 has merged to `main`. Builders reset to `origin/epic/14-sign-in-providers` and branch `task/14-<name>` from it.
 - **Migration number:** `0017_setup_codes` is reserved for T2. No other task adds a migration.

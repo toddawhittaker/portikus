@@ -1,0 +1,52 @@
+---
+# The first install's workspace image (docs/SPEC.md section 21.12,
+# ADR 0030).  On a host with no default image, the package's image job
+# fetches the release named by portikus_image_version, checks its signature
+# and health, and makes it the default.  Once a default exists the admin
+# page owns the image, and setup never touches it again.
+# `make build-workspace-image` still builds one on the host for development.
+
+- name: Read the image aliases
+  ansible.builtin.command:
+    argv: [incus, image, alias, list, --project, "{{ incus_project_name }}", --format, json]
+  register: workspace_image_aliases
+  changed_when: false
+  check_mode: false
+  when: portikus_image_version != 'none'
+
+- name: Install the first workspace image
+  when: >-
+    portikus_image_version != 'none'
+    and portikus_incus_image_alias not in (workspace_image_aliases.stdout | from_json | map(attribute='name'))
+  block:
+    # Also refuses under its own lock when a default appeared meanwhile.
+    - name: Fetch, check and activate the image with the image job
+      ansible.builtin.command:
+        argv: ["{{ workspace_image_job }}", first-install, "{{ portikus_image_version }}"]
+      register: workspace_image_install
+      changed_when: workspace_image_install.stdout == 'changed'
+
+  rescue:
+    - name: Look for a default image after the failure
+      ansible.builtin.command:
+        argv: [incus, image, alias, list, --project, "{{ incus_project_name }}", --format, json]
+      register: workspace_image_aliases_after
+      changed_when: false
+
+    - name: Warn that the image was not installed, since a default exists
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: workspace image {{ portikus_image_version }} was not
+          installed ({{ workspace_image_install.stderr | default('') }}).  The
+          host has a default image, so setup goes on; the admin page can
+          fetch another.
+      when: portikus_incus_image_alias in (workspace_image_aliases_after.stdout | from_json | map(attribute='name'))
+
+    - name: Refuse to go on without a workspace image
+      ansible.builtin.fail:
+        msg: >-
+          Workspace image {{ portikus_image_version }} was not installed, and
+          the host has no default image.  The image job said:
+          {{ workspace_image_install.stderr | default(ansible_failed_result.msg | default('')) }}
+          Fix the cause and run setup again.
+      when: portikus_incus_image_alias not in (workspace_image_aliases_after.stdout | from_json | map(attribute='name'))

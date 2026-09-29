@@ -6,13 +6,32 @@ API_ENV=/etc/portikus/api.env
 WORKER_ENV=/etc/portikus/worker.env
 BACKUP_CHANNEL_MAIN=/usr/lib/portikus/worker/dist/backup-channel-main.js
 PASSWORD_FILE=/etc/portikus/admin-password
+BACKUP_SETS=/var/backups/portikus/local
+BACKUP_KEY=/etc/portikus-backup/age-key.txt
+RESTORE=/usr/lib/portikus/backup/portikus-restore
 RESET_ADMIN_MAIN=/usr/lib/portikus/api/node_modules/@portikus/auth/dist/reset-admin-main.js
+NODE=/usr/lib/portikus/node/bin/node
+ANSIBLE_DIR=/usr/share/portikus/ansible
+CONFIG_FILE=/etc/portikus/portikus.yaml
+SECRETS_FILE=/etc/portikus/secrets.yaml
+SETUP_UNIT=portikus-setup.service
+UNITS="portikus-setup portikus-api portikus-worker portikus-controller portikus-egress-apply.path"
 READ_LINE="Read the local administrator's one-time password with: sudo cat ${PASSWORD_FILE}"
 
 usage() {
   cat <<EOF
-Usage: portikus reset-admin [--email ADDRESS] [--if-missing]
+Usage: portikus setup [--follow]
+       portikus status
+       portikus reset-admin [--email ADDRESS] [--if-missing]
        portikus backup-channel pull|report
+       portikus restore [--check] [--start-check] [--unverified] [--key FILE] STAMP
+
+setup        Apply ${CONFIG_FILE} to this host with the shipped Ansible
+             play, in the foreground.  Safe to run again.
+             --follow  show the log of the current or last run of
+                       ${SETUP_UNIT} until it ends; exit 0 if it
+                       succeeded, 1 otherwise
+status       Show the package version and the state of each unit.
 
 reset-admin  Give the local administrator a new one-time password, the
              administrator role, and a working account, and end its
@@ -29,7 +48,93 @@ backup-channel pull    Claim the oldest waiting backup request for the
 backup-channel report  Read the host's report, one JSON document, on
                        standard input and store it.  Exits 2 when the
                        document is refused.
+
+restore STAMP  Restore the whole server from the backup set
+             ${BACKUP_SETS}/STAMP, with the key in ${BACKUP_KEY}:
+             the database, Dex's accounts and every workspace's home.
+             Only onto a server with no workspaces, projects or users
+             but the local administrator, such as a fresh install.
+             --check        only prove the key opens the set and every
+                            file is whole; changes nothing
+             --start-check  afterwards, start one restored workspace
+                            and check its files from inside it
+             --unverified   accept a set with no MAC, as sets made
+                            before MACs have none; anyone who knows the
+                            public key could have made such a set
+             --key FILE     open the set with a key an upload replaced,
+                            ${BACKUP_KEY}.replaced-<time>
 EOF
+}
+
+# Shows the current or last setup run's log, then exits with its result.
+follow_setup() {
+  invocation="$(systemctl show --property=InvocationID --value "${SETUP_UNIT}")"
+  if [ -z "${invocation}" ]; then
+    # systemd forgets a finished run's ID when it unloads the unit; the journal keeps it.
+    invocation="$(journalctl --no-pager -u "${SETUP_UNIT}" -o export -n 20 2>/dev/null \
+      | sed -n 's/^INVOCATION_ID=//p; s/^_SYSTEMD_INVOCATION_ID=//p' | tail -n 1)"
+  fi
+  if [ -z "${invocation}" ]; then
+    echo "portikus: ${SETUP_UNIT} is not running and has not run since boot; start it with: sudo portikus setup" >&2
+    exit 1
+  fi
+  journalctl --no-pager --follow "_SYSTEMD_INVOCATION_ID=${invocation}" &
+  follower=$!
+  trap 'kill "${follower}" 2>/dev/null || true' EXIT INT TERM
+  while :; do
+    case "$(systemctl show --property=ActiveState --value "${SETUP_UNIT}")" in
+      active | activating | reloading | deactivating) sleep 2 ;;
+      *) break ;;
+    esac
+  done
+  # Give the journal a moment to deliver the run's last lines.
+  sleep 1
+  kill "${follower}" 2>/dev/null || true
+  wait "${follower}" 2>/dev/null || true
+  trap - EXIT INT TERM
+  if [ "$(systemctl show --property=Result --value "${SETUP_UNIT}")" = success ]; then
+    exit 0
+  fi
+  echo "portikus: setup failed; read its log with: sudo journalctl -u ${SETUP_UNIT}, then rerun: sudo portikus setup" >&2
+  exit 1
+}
+
+# Runs the play against this host (docs/SPEC.md section 21.12, ADR 0029).
+setup() {
+  case "${1:-}" in
+    --follow)
+      follow_setup
+      ;;
+    "") ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+  if [ "$(id -u)" != 0 ]; then
+    echo "portikus: setup must run as root: sudo portikus setup" >&2
+    exit 1
+  fi
+  if [ ! -r "${CONFIG_FILE}" ]; then
+    echo "portikus: ${CONFIG_FILE} is missing; run: sudo dpkg-reconfigure portikus" >&2
+    exit 1
+  fi
+  set -- -e "@${CONFIG_FILE}"
+  if [ -r "${SECRETS_FILE}" ]; then
+    set -- "$@" -e "@${SECRETS_FILE}"
+  fi
+  # ansible.cfg is read from the working directory.
+  cd "${ANSIBLE_DIR}"
+  ANSIBLE_COLLECTIONS_PATH="${ANSIBLE_DIR}/collections" \
+    exec ansible-playbook -i "${ANSIBLE_DIR}/inventory-local.ini" "$@" site.yml
+}
+
+status() {
+  echo "portikus $(dpkg-query -W -f '${Version}' portikus 2>/dev/null || echo unknown)"
+  echo "node $("${NODE}" --version 2>/dev/null || echo missing)"
+  for unit in ${UNITS}; do
+    printf '%-28s %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
+  done
 }
 
 # The host's backup timer calls this over SSH (SPEC.md section 24.9, ADR 0040).
@@ -48,7 +153,67 @@ backup_channel() {
   # The worker's own settings, parsed as systemd parses them for the worker.
   exec systemd-run --wait --pipe --quiet --collect --uid=portikus \
     -p EnvironmentFile="${WORKER_ENV}" \
-    /usr/bin/node "${BACKUP_CHANNEL_MAIN}" "$1"
+    "${NODE}" "${BACKUP_CHANNEL_MAIN}" "$1"
+}
+
+# A whole-server restore on an apt-installed host (docs/adr/0044).
+restore() {
+  if [ "$(id -u)" != 0 ]; then
+    echo "portikus: restore must run as root: sudo portikus restore ..." >&2
+    exit 1
+  fi
+  check=no start="" unverified="" key="${BACKUP_KEY}"
+  while [ $# -gt 1 ]; do
+    case "$1" in
+      --check) check=yes ;;
+      --start-check) start=--start-check ;;
+      --unverified) unverified=--unverified ;;
+      --key) key="$2"; shift ;;
+      *) usage >&2; exit 2 ;;
+    esac
+    shift
+  done
+  # Only a key the upload helper set aside, so --key names no other file.
+  if [ "${key}" != "${BACKUP_KEY}" ]; then
+    kept="${key#"${BACKUP_KEY}".replaced-}"
+    if [ "${kept}" = "${key}" ] || ! printf '%s' "${kept}" | grep -Eqx '[0-9]+' || [ -L "${key}" ] || [ ! -f "${key}" ]; then
+      echo "portikus: --key takes a replaced key, ${BACKUP_KEY}.replaced-<time>; see: ls ${BACKUP_KEY}.replaced-*" >&2
+      exit 2
+    fi
+  fi
+  if [ $# -ne 1 ] || ! printf '%s' "$1" | grep -Eqx '[0-9]{8}T[0-9]{6}Z'; then
+    echo "portikus: restore takes a set's name, such as 20260924T023000Z; the sets are in ${BACKUP_SETS}" >&2
+    exit 2
+  fi
+  set_dir="${BACKUP_SETS}/$1"
+  if [ ! -d "${set_dir}" ] || [ -L "${set_dir}" ]; then
+    echo "portikus: there is no set ${set_dir}" >&2
+    exit 1
+  fi
+  if [ "${check}" = yes ]; then
+    PORTIKUS_BACKUP_IDENTITY="${key}" exec "${RESTORE}" --check ${unverified} "${set_dir}"
+  fi
+  # No backup or request may run while the database is replaced.
+  timers=""
+  for timer in portikus-backup-channel.timer portikus-backup.timer; do
+    if systemctl is-active --quiet "${timer}"; then
+      timers="${timers} ${timer}"
+      systemctl stop "${timer}"
+    fi
+  done
+  trap '[ -z "${timers}" ] || systemctl start ${timers}' EXIT
+  waited=0
+  while systemctl is-active --quiet portikus-backup.service portikus-backup-channel.service; do
+    if [ "${waited}" -ge 120 ]; then
+      echo "portikus: a backup or a backup request is still running; try again when it ends" >&2
+      exit 1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+  status=0
+  PORTIKUS_BACKUP_IDENTITY="${key}" "${RESTORE}" --local ${start} ${unverified} "${set_dir}" || status=$?
+  exit "${status}"
 }
 
 reset_admin() {
@@ -57,7 +222,8 @@ reset_admin() {
     exit 1
   fi
   if ! grep -q '^DEX_GRPC_ADDR=' "${API_ENV}" 2>/dev/null; then
-    echo "portikus: ${API_ENV} names no DEX_GRPC_ADDR, so this site has no Dex local passwords" >&2
+    # setup writes DEX_GRPC_ADDR into api.env; without it setup has not finished.
+    echo "portikus: setup has not finished; follow it with: sudo portikus setup --follow, or rerun: sudo portikus setup" >&2
     exit 2
   fi
 
@@ -70,7 +236,7 @@ reset_admin() {
   status=0
   systemd-run --wait --pipe --quiet --collect --uid=portikus \
     -p EnvironmentFile="${API_ENV}" \
-    /usr/bin/node "${RESET_ADMIN_MAIN}" "$@" >"${tmp}" || status=$?
+    "${NODE}" "${RESET_ADMIN_MAIN}" "$@" >"${tmp}" || status=$?
 
   case "${status}" in
     0)
@@ -97,6 +263,13 @@ reset_admin() {
 }
 
 case "${1:-}" in
+  setup)
+    shift
+    setup "$@"
+    ;;
+  status)
+    status
+    ;;
   reset-admin)
     shift
     reset_admin "$@"
@@ -104,6 +277,10 @@ case "${1:-}" in
   backup-channel)
     shift
     backup_channel "$@"
+    ;;
+  restore)
+    shift
+    restore "$@"
     ;;
   -h | --help | help)
     usage

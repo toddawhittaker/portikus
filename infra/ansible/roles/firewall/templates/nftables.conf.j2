@@ -23,8 +23,11 @@ table inet filter {
     # Established / related
     ct state established,related accept
 
-    # SSH (management) — reject from workspace bridge (defense in depth if ACL absent)
-    iifname != "{{ incus_network_name }}" tcp dport 22 accept
+    # SSH (management), on the ports `sshd -T` reports — reject from
+    # workspace bridge (defense in depth if ACL absent)
+{% if firewall_ssh_ports | length > 0 %}
+    iifname != "{{ incus_network_name }}" tcp dport { {{ firewall_ssh_ports | join(', ') }} } accept
+{% endif %}
 
     # HTTP/HTTPS — Caddy listens here.  Workspaces must not reach the
     # control-plane site from inside the bridge, so drop those first.

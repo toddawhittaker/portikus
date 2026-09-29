@@ -1,0 +1,38 @@
+# One backup key request from the admin page, started by
+# portikus-backup-key.socket (docs/adr/0044-backups-on-the-server.md).
+# It reads and writes only /etc/portikus-backup, and takes the backup lock
+# while it swaps a key.
+[Unit]
+Description=Portikus backup key request
+CollectMode=inactive-or-failed
+
+[Service]
+ExecStart=/usr/lib/portikus/backup/portikus-backup-key
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+RuntimeMaxSec=30
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ReadWritePaths=/etc/portikus-backup
+ReadWritePaths=-/var/backups/portikus
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service

@@ -153,7 +153,7 @@ make_set() {
     echo "counts users 2 workspaces 1 projects 1"
     echo "workspace 11111111-2222-3333-4444-555555555555 ${INST}"
     echo "file db.dump 10 $(printf '0%.0s' {1..64})"
-    echo "volume ${INST}-home 100 $(printf 'a%.0s' {1..64}) [{\"Isuid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":65536}]"
+    echo "volume ${INST}-home $(stat -c %s "${work}/home.tar.gz") $(sha256sum <"${work}/home.tar.gz" | cut -d' ' -f1) [{\"Isuid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":65536}]"
     echo "volume ${INST}-recovery 100 $(printf 'b%.0s' {1..64}) -"
     [ -z "${SET_SKIPPED:-}" ] || echo "skipped ${SET_SKIPPED}"
     echo "seconds 5"
@@ -163,6 +163,7 @@ make_set() {
   echo x | enc - "${d}/${INST}-recovery.age"
   echo x | enc - "${d}/db.dump.age"
   [ -z "${2:-}" ] || echo "${OTHER}-home" >"${d}/FAILED"
+  python3 "${repo}/infra/host/portikus-backup-mac" sign "$key" "$d"
 }
 
 reset() {
@@ -221,8 +222,9 @@ assert s["nextRunAt"] is None or ts.fullmatch(s["nextRunAt"])
 assert isinstance(s["keyInstalled"], bool)
 assert len(s["sets"]) <= 60 and len(s["dumps"]) <= 200
 for x in s["sets"]:
-    assert set(x) == {"stamp", "complete", "sizeBytes", "instances", "failedVolumes", "skippedVolumes"}
+    assert set(x) == {"stamp", "complete", "sizeBytes", "instances", "failedVolumes", "skippedVolumes", "verified"}
     assert isinstance(x["skippedVolumes"], int) and x["skippedVolumes"] >= 0
+    assert isinstance(x["verified"], bool)
     assert re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", x["stamp"]) and isinstance(x["complete"], bool)
     assert isinstance(x["sizeBytes"], int) and x["sizeBytes"] >= 0
     assert all(re.fullmatch(r"ws-[0-9a-f]{24}", i) for i in x["instances"])
@@ -539,6 +541,20 @@ reset
 pull "$import_req"
 FAKE_IMPORT_EXISTS=1 run_channel
 expect "a leftover import is replaced, by its exact name" "vm_commands | grep -qx 'ssh sudo incus storage volume delete workspace-data ${INST}-home-import --project portikus'"
+# A genuine MAC and MANIFEST beside a home that is not the one it lists (ADR 0044).
+reset
+echo "not the home" | enc - "${sets}/${GOOD}/${INST}-home.age"
+pull "$import_req"
+run_channel
+expect "an import of a home its MANIFEST does not list is refused before anything is imported" \
+  "refused && field \"r['request']['error']\" | grep -q 'not the one its MANIFEST lists' && ! vm_commands | grep -q 'volume import' && [ ! -s '${fakes}/stream' ] && ! vm_commands | grep -q 'volatile.idmap.last'"
+expect "and its checked copy is gone" "[ -z \"\$(find '${sets}' -name '.restore-copy.*')\" ]"
+reset
+rm "${sets}/${GOOD}/MANIFEST.mac"
+pull "$import_req"
+run_channel
+expect "an import from a set with no MAC is refused before the VM is asked anything" \
+  "field \"r['request']['error']\" | grep -q 'not verified' && [ -z \"\$(vm_commands)\" ]"
 
 echo "--- a result the VM did not take ---"
 reset

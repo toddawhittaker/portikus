@@ -1,44 +1,109 @@
 name: Release
 
 # A release is published when an epic or task branch merges into main, or by
-# running this workflow by hand from main for a hotfix.
+# running this workflow by hand from main for a hotfix. It runs on the push
+# to main, not on the pull request event, because the publish environment
+# admits only main and a pull request run's ref is refs/pull/N/merge.
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# The apt job reads the published repository and redeploys it, so two
+# releases must not overlap or one would drop the other's package.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  gate:
+    name: Decide whether this push is a release
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      release: ${{ steps.decide.outputs.release }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The pull request that put this commit on main. GitHub can list it a
+          # few seconds late, and main changes only by pull request, so an empty
+          # answer after the retries is an error, not a skip.
+          head=""
+          for attempt in 1 2 3 4 5; do
+            head="$(gh api "repos/$GH_REPO/commits/$SHA/pulls" \
+              --jq '[.[] | select(.base.ref == "main" and .merged_at != null) | .head.ref][0] // ""')"
+            [ -z "$head" ] || break
+            [ "$attempt" = 5 ] || sleep 10
+          done
+          if [ -z "$head" ]; then
+            echo "No merged pull request found for $SHA after 5 tries; rerun Release once GitHub lists it." >&2
+            exit 1
+          fi
+          echo "Merged from: $head"
+          case "$head" in
+            epic/*|task/*) echo "release=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "release=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
   build:
     name: Build the Debian package
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && (startsWith(github.event.pull_request.head.ref, 'epic/') || startsWith(github.event.pull_request.head.ref, 'task/')))
+    needs: gate
+    if: needs.gate.outputs.release == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Build the merge commit on main, not the PR head, so the version
-          # counts main's commits and the tag points at main.
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           # The package version counts commits, so the full history is needed.
           fetch-depth: 0
           persist-credentials: false
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      # A package must never name a workspace image that was not published.
+      # A version bump builds the image in workspace-image.yml on the same push,
+      # so wait for it before creating any release.
+      - name: Wait for the workspace image release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          image="image-$(cat infra/workspace-image/VERSION)"
+          for minute in $(seq 1 75); do
+            if gh release view "$image" >/dev/null 2>&1; then
+              echo "Release $image is published."
+              exit 0
+            fi
+            echo "Release $image is not published yet (minute $minute of 75)."
+            sleep 60
+          done
+          echo "Release $image was not published within 75 minutes. Check the Workspace image workflow, then rerun Release." >&2
+          exit 1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - name: Cache nfpm
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/portikus/nfpm
           key: nfpm-${{ runner.os }}-${{ hashFiles('scripts/build-deb.sh') }}
       - name: Build Debian package
         run: pnpm build:deb
       - name: Upload the package
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: portikus-deb
           path: |
@@ -50,12 +115,11 @@ jobs:
     name: Publish the GitHub release
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && (startsWith(github.event.pull_request.head.ref, 'epic/') || startsWith(github.event.pull_request.head.ref, 'task/')))
     permissions:
       contents: write
     steps:
       - name: Download the package
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: portikus-deb
           path: dist/deb
@@ -63,7 +127,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           VERSION="$(cat dist/deb/VERSION)"
           if gh release view "v$VERSION" >/dev/null 2>&1; then
@@ -78,3 +142,73 @@ jobs:
             --notes "Control-plane package built from $TARGET_SHA" \
             dist/deb/portikus_*.deb \
             dist/deb/SHA256SUMS
+
+  apt-repo:
+    name: Sign the apt repository
+    runs-on: ubuntu-latest
+    needs: build
+    # The only job that can read APT_SIGNING_KEY (docs/SPEC.md section 21.13).
+    environment: publish
+    env:
+      APT_URL: https://toddawhittaker.github.io/portikus/apt
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Download the package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portikus-deb
+          path: dist/deb
+      - name: Install apt-ftparchive
+        run: command -v apt-ftparchive || { sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils; }
+      # The live Pages site is the only state this stateless job has. Trust it
+      # only through InRelease signed by our key, and fail closed otherwise.
+      - name: Download the published packages
+        run: |
+          mkdir -p site/apt
+          dist="$APT_URL/dists/trixie"
+          code="$(curl -sSL -o InRelease -w '%{http_code}' "$dist/InRelease")"
+          if [ "$code" = 404 ]; then
+            # The first release: nothing is published, so Packages must be missing too.
+            code="$(curl -sSL -o /dev/null -w '%{http_code}' "$dist/main/binary-amd64/Packages")"
+            [ "$code" = 404 ] || { echo "InRelease is missing but Packages answered $code" >&2; exit 1; }
+            echo "No published repository yet; starting empty."
+            exit 0
+          fi
+          [ "$code" = 200 ] || { echo "InRelease answered $code" >&2; exit 1; }
+          gpg --dearmor < packaging/portikus-archive-keyring.asc > "$RUNNER_TEMP/archive.gpg"
+          gpgv --keyring "$RUNNER_TEMP/archive.gpg" --output Release InRelease
+          want="$(awk '/^SHA256:/{s=1; next} /^[^ ]/{s=0} s && $3 == "main/binary-amd64/Packages" {print $1}' Release)"
+          [ -n "$want" ] || { echo "the signed Release lists no Packages checksum" >&2; exit 1; }
+          code="$(curl -sSL -o packages.txt -w '%{http_code}' "$dist/main/binary-amd64/Packages")"
+          [ "$code" = 200 ] || { echo "Packages answered $code" >&2; exit 1; }
+          echo "$want  packages.txt" | sha256sum -c --quiet
+          awk '/^Filename: /{f=$2} /^SHA256: /{print $2, f}' packages.txt | while read -r sum file; do
+            [[ "$file" =~ ^pool/main/p/portikus/portikus_[A-Za-z0-9.+~-]+_amd64\.deb$ ]] || { echo "unexpected path $file" >&2; exit 1; }
+            mkdir -p "site/apt/$(dirname "$file")"
+            curl -fsSL "$APT_URL/$file" -o "site/apt/$file"
+            echo "$sum  site/apt/$file" | sha256sum -c --quiet
+          done
+      - name: Build and sign the repository
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: scripts/publish-apt-repo.sh site/apt dist/deb/portikus_*.deb
+      - name: Upload the Pages site
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  pages:
+    name: Deploy the apt repository to Pages
+    runs-on: ubuntu-latest
+    needs: apt-repo
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}apt/
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

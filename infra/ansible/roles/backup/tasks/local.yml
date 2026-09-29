@@ -1,0 +1,67 @@
+---
+# Backups on an apt-installed server (docs/adr/0044-backups-on-the-server.md):
+# the nightly timer and the admin page's channel run here as root, and the
+# key stays here, root-only.  Encrypted sets are safe to copy elsewhere.
+
+- name: Install age
+  ansible.builtin.apt:
+    name: age
+    state: present
+
+- name: Create the backup key directory
+  ansible.builtin.file:
+    path: /etc/portikus-backup
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+# Only when there is none: a key made again would lock out every older set.
+- name: Make the backup key
+  ansible.builtin.shell:
+    cmd: umask 077 && age-keygen -o /etc/portikus-backup/age-key.txt 2>/dev/null
+    creates: /etc/portikus-backup/age-key.txt
+  no_log: true
+
+- name: Keep the backup key root-only
+  ansible.builtin.file:
+    path: /etc/portikus-backup/age-key.txt
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Read the backup key's public half
+  ansible.builtin.command:
+    cmd: age-keygen -y /etc/portikus-backup/age-key.txt
+  register: backup_recipient
+  changed_when: false
+
+- name: Write the recipients file backups are encrypted to
+  ansible.builtin.copy:
+    content: "{{ backup_recipient.stdout | trim }}\n"
+    dest: /etc/portikus-backup/recipients.txt
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Create the backup directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - /var/backups/portikus
+    - /var/backups/portikus/local
+
+- name: Enable the nightly backup, the admin page's channel and the key socket
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - portikus-backup.timer
+    - portikus-backup-channel.timer
+    - portikus-backup-key.socket

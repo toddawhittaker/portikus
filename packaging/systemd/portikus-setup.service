@@ -1,0 +1,14 @@
+# Portikus setup: runs the shipped Ansible play against this host
+# (docs/SPEC.md section 21.12). postinst starts it with --no-block.
+# Follow it with: portikus setup --follow
+[Unit]
+Description=Portikus setup
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/portikus/portikus.yaml
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/portikus setup
+# The first run builds Dex and imports the workspace image.
+TimeoutStartSec=90min

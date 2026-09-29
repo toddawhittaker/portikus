@@ -6,9 +6,34 @@
   hosts: platform
   become: true
 
+  # Setup starts from postinst, whose outer apt still holds the dpkg lock
+  # until it finishes (docs/SPEC.md section 21.12).
+  module_defaults:
+    ansible.builtin.apt:
+      lock_timeout: 900
+
   vars:
-    data_disk_device: /dev/vdb
-    lvm_vg_name: portikus-data
+    # The account that runs incus and owns the development image-build
+    # directories: the SSH user Ansible connects as, none on a local run.
+    portikus_operator_user: >-
+      {{ '' if ansible_connection | default('ssh') == 'local' or ansible_user | default('root') == 'root'
+         else ansible_user }}
+
+    # ── Workspace storage (docs/SPEC.md section 21.12) ──────────────
+    # A whole empty block device (a path under /dev), the name of an
+    # existing LVM volume group, or `file` for a loop-backed file on the
+    # root filesystem.  Empty keeps a host that already has the
+    # portikus-data volume group as it is.
+    portikus_storage: "{{ lookup('env', 'PORTIKUS_STORAGE') }}"
+    # A device is erased only when this is true.
+    portikus_storage_confirm: "{{ lookup('env', 'PORTIKUS_STORAGE_CONFIRM') | default(false, true) | bool }}"
+    # The file's size in GiB; 0 means half the root filesystem's free space
+    # when the file is made.  A larger size later grows it; it never shrinks.
+    portikus_storage_size: 0
+    lvm_vg_name: >-
+      {{ portikus_storage
+         if (portikus_storage | length > 0 and portikus_storage != 'file' and not portikus_storage.startswith('/dev/'))
+         else 'portikus-data' }}
     lvm_thinpool_name: thinpool
     # The thin pool's share of the data disk, metadata and its spare included.
     # The rest stays free so the metadata can grow (docs/CAPACITY.md).
@@ -28,7 +53,11 @@
     workspace_network_limit: 200Mbit
     # distrobuilder is built from source at this upstream commit (docs/adr/0004).
     image_builder_distrobuilder_commit: "86713967673400934b605a0a24f45ceb5c371082"
-    management_cidr: "{{ lookup('env', 'PORTIKUS_MANAGEMENT_CIDR') | default('10.100.0.0/24', true) }}"
+    # The network the host itself sits on, which workspaces must not reach.
+    # Guessed from the default route's interface unless given.
+    management_cidr: >-
+      {{ lookup('env', 'PORTIKUS_MANAGEMENT_CIDR')
+         | default((ansible_default_ipv4.network ~ '/' ~ ansible_default_ipv4.netmask) | ansible.utils.ipaddr('net'), true) }}
     # Private and special ranges no workspace may reach (SPEC.md 23.2).  The
     # firewall and the workspace network ACL both deny them.  A deployment
     # adds its own infrastructure ranges by overriding this list.
@@ -53,8 +82,9 @@
     workspace_egress_dns_port: 5300
 
     # ── Node.js runtime ──────────────────────────────────────────
-    # NodeSource GPG signing checksum, verified 2026-09-16.
-    nodesource_gpg_checksum: "b42e0321dabdc24e892115da705cf061167eac12a317f23d329862d0aa0a271d"
+    # The Node the package bundles (docs/SPEC.md section 21.12), which the
+    # play's own calls into the API's scripts use.
+    portikus_node: /usr/lib/portikus/node/bin/node
 
     # ── Portikus control-plane services ───────────────────────────
     # Empty means install the newest GitHub release.  Set
@@ -64,6 +94,12 @@
     # A path on the Ansible host to a locally built .deb, for testing a
     # branch on a fresh VM without publishing a release.  Empty means none.
     portikus_deb: "{{ lookup('env', 'PORTIKUS_DEB') }}"
+    # A local run is `portikus setup`, which runs from the installed package;
+    # only a run from a workstation installs one.
+    portikus_install_package: "{{ ansible_connection | default('ssh') != 'local' }}"
+    # A local run backs the server up on itself (ADR 0044); a VM run from a
+    # workstation is backed up by the separate host (ADR 0024).
+    portikus_backup_local: "{{ ansible_connection | default('ssh') == 'local' }}"
     portikus_node_env: production
     portikus_api_port: 3000
     portikus_controller_port: 3001
@@ -238,7 +274,37 @@
     caddy_gpg_checksum: "783dfee04b19e851a928cd87b34710213ebbe7628f98d9f34595ab83be578c00"
     # Caddy's internal certificate authority root, written on first start.
     caddy_root_cert: /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+    # What the site's certificate chains to, for the API and the tests:
+    # Caddy's root under internal, else the system's authorities (plus the
+    # given certificate under files, so a self-signed one is trusted too).
     portikus_caddy_root_cert: /etc/portikus/caddy-root.crt
+
+    # ── TLS (docs/SPEC.md section 21.12) ────────────────────────────
+    # internal: Caddy's own authority, which browsers must be told to trust.
+    # letsencrypt: Let's Encrypt, the site's name and a wildcard for the
+    #   preview suffix, both by a DNS-01 challenge through Cloudflare.
+    # files: a certificate and key already on the host, which must cover
+    #   the site's name and *.<preview suffix>.
+    portikus_tls: internal
+    portikus_acme_email: ""
+    portikus_acme_ca: https://acme-v02.api.letsencrypt.org/directory
+    # Only ever from the root-only secrets file; never logged.
+    portikus_cloudflare_api_token: ""
+    portikus_tls_cert: ""
+    portikus_tls_key: ""
+    # Caddy with the Cloudflare DNS plugin, built with xcaddy for letsencrypt.
+    caddy_version: v2.11.4
+    caddy_xcaddy_version: v0.4.7
+    caddy_dns_cloudflare_version: v0.2.4
+
+    # ── Workspace image (docs/SPEC.md section 21.12) ───────────────
+    # The signed release a first install fetches with the image job, which
+    # reads portikus_image_base_url from portikus.yaml.  Default: the recipe
+    # VERSION shipped beside the play.  none downloads nothing, for a host
+    # that builds its own with make build-workspace-image.
+    portikus_image_version: >-
+      {{ lookup('env', 'PORTIKUS_IMAGE_VERSION')
+         or (lookup('ansible.builtin.file', playbook_dir ~ '/../workspace-image/VERSION', errors='ignore') | default('', true)) }}
 
   # Checked before any role runs, so bad identity-provider settings change
   # nothing on the VM.  The guards are tagged always, so a run limited with
@@ -319,6 +385,33 @@
           portikus_preview_suffix }} must not match that host.
       tags: always
 
+    - name: Check the TLS settings
+      ansible.builtin.include_role:
+        name: caddy
+        tasks_from: settings
+        apply:
+          tags: always
+      tags: always
+
+    # Before anything else, so an unconfirmed device changes no disk.
+    - name: Check the storage settings
+      ansible.builtin.include_role:
+        name: lvm
+        tasks_from: settings
+        apply:
+          tags: always
+      tags: always
+
+    - name: Require a workspace image version of the form YYYY.MM.N, or none
+      ansible.builtin.assert:
+        that:
+          - portikus_image_version is match('^(none|[0-9]{4}\.[0-9]{2}\.[0-9]+)$')
+        fail_msg: >-
+          portikus_image_version ({{ portikus_image_version }}) must be a
+          published image version such as 2026.09.12, or none to download no
+          image.
+      tags: always
+
   # Each role carries its own name as a tag, so a single part of the VM
   # can be converged on its own with --tags <role>.
   roles:
@@ -338,8 +431,6 @@
       tags: image_builder
     - role: postgresql
       tags: postgresql
-    - role: node
-      tags: node
     - role: caddy
       tags: caddy
     # After caddy, which pins the site's name to loopback.  Tagged lti too,
@@ -372,5 +463,21 @@
     # which creates the controller's group.
     - role: workspace_egress
       tags: workspace_egress
+    # After portikus, whose package ships the image job and its keyring, and
+    # after workspace_egress, so the health check's container starts on a
+    # workspace network set up as the admin page's jobs see it.
+    - role: workspace_image
+      tags: workspace_image
     - role: backup
       tags: backup
+
+  # Last, so the play ends by saying how to read the one-time password
+  # (ADR 0031, SPEC.md section 5.1).
+  post_tasks:
+    - name: Make the local administrator
+      ansible.builtin.include_role:
+        name: portikus
+        tasks_from: admin
+        apply:
+          tags: portikus
+      tags: portikus

@@ -23,6 +23,9 @@
 #                               restored workspaces.  Refused on the pilot.
 #   PORTIKUS_BACKUP_IDENTITY    the age key that opens that set
 #                               (default ~/.config/portikus/backup-age-key.txt).
+#   PORTIKUS_SSH_USER           the account to SSH in as (default deploy).  It
+#                               needs passwordless sudo and the incus-admin
+#                               group (the play's portikus_operator_user).
 #
 # When the VM has a mock LMS registration (make lti-mock-register), the LTI
 # block launches through it, and starts it on this host first if it is not
@@ -30,6 +33,7 @@
 set -uo pipefail
 
 VM="${1:?Usage: smoke-test.sh <vm-ip>}"
+SSH_USER="${PORTIKUS_SSH_USER:-deploy}"
 
 if [ -n "${PORTIKUS_MOCK_IDP:-}" ]; then
   echo "smoke-test: PORTIKUS_MOCK_IDP was renamed: use PORTIKUS_IDP=mock" >&2
@@ -74,13 +78,13 @@ fail=0
 # it, ssh forwards our terminal as a pipe that never ends, and a remote incus
 # command waits forever for a YAML config on it.
 ssh_cmd() {
-  ssh -n -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "deploy@${VM}" "$@"
+  ssh -n -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${SSH_USER}@${VM}" "$@"
 }
 
 # Same connection, but for the two places that deliberately feed the remote
 # command on standard input.
 ssh_cmd_stdin() {
-  ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "deploy@${VM}" "$@"
+  ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${SSH_USER}@${VM}" "$@"
 }
 
 check() {
@@ -168,11 +172,16 @@ check "SSH to platform VM"                    ssh_cmd true
 # 2. Incus is running
 check "Incus daemon is active"                ssh_cmd systemctl is-active incus
 
+# The volume group is whichever the play was given (docs/SPEC.md section
+# 21.12), so it is read from the Incus pool, and its disk from LVM.
+STORAGE_VG=$(ssh_cmd incus storage get workspace-data source 2>/dev/null || true)
+STORAGE_PVS=$(ssh_cmd sudo pvs --noheadings -o pv_name --select "vg_name=${STORAGE_VG:-none}" 2>/dev/null | tr -d ' ' || true)
+
 # 3. LVM volume group exists
-check "LVM volume group portikus-data"        ssh_cmd sudo vgs portikus-data
+check "LVM volume group ${STORAGE_VG:-(none)}"  ssh_cmd sudo vgs "${STORAGE_VG:-none}"
 
 # 4. LVM thin pool exists
-check "LVM thin pool thinpool"                ssh_cmd sudo lvs portikus-data/thinpool
+check "LVM thin pool thinpool"                ssh_cmd sudo lvs "${STORAGE_VG:-none}/thinpool"
 
 # 5. Incus storage pool exists
 check "Incus storage pool workspace-data"     ssh_cmd incus storage show workspace-data
@@ -193,19 +202,27 @@ check "nftables is active"                    ssh_cmd systemctl is-active nftabl
 # shellcheck disable=SC2016  # expansion is intentionally remote-side
 check "IPv4 forwarding"                       ssh_cmd 'test "$(/usr/sbin/sysctl -n net.ipv4.ip_forward)" = 1'
 
-# 11. Data disk is a PV
-check "Data disk is an LVM PV"               ssh_cmd sudo pvs /dev/vdb
+# 11. The storage volume group sits on a disk or a loop-backed file
+check "the storage volume group has a physical volume" test -n "${STORAGE_PVS}"
 
 # 12. configure-vm keeps the VM's Incus script in step with the repository
-#     (docs/archive/epics/EPIC-12B.md, item 17).
+#     (docs/archive/epics/EPIC-12B.md, item 17).  A host set up from the
+#     package has no copy, so this run brings its own and removes it at exit.
+WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
 repo_script_sum=$(sha256sum "$(dirname "$0")/../incus/workspace.sh" | cut -d' ' -f1)
-vm_script_sum=$(ssh_cmd "sha256sum /var/lib/portikus/incus/workspace.sh" 2>/dev/null | cut -d' ' -f1)
-if [ -n "$repo_script_sum" ] && [ "$vm_script_sum" = "$repo_script_sum" ]; then
-  printf '\033[1;32mPASS\033[0m  %s\n' "the VM's workspace.sh matches this checkout's"
-  pass=$((pass + 1))
+if ssh_cmd test -d /var/lib/portikus/incus; then
+  vm_script_sum=$(ssh_cmd "sha256sum ${WORKSPACE_SCRIPT}" 2>/dev/null | cut -d' ' -f1)
+  if [ -n "$repo_script_sum" ] && [ "$vm_script_sum" = "$repo_script_sum" ]; then
+    printf '\033[1;32mPASS\033[0m  %s\n' "the VM's workspace.sh matches this checkout's"
+    pass=$((pass + 1))
+  else
+    printf '\033[1;31mFAIL\033[0m  %s\n' "the VM's workspace.sh (${vm_script_sum:-missing}) differs from this checkout's; run make configure-vm from this checkout"
+    fail=$((fail + 1))
+  fi
 else
-  printf '\033[1;31mFAIL\033[0m  %s\n' "the VM's workspace.sh (${vm_script_sum:-missing}) differs from this checkout's; run make configure-vm from this checkout"
-  fail=$((fail + 1))
+  WORKSPACE_SCRIPT="/tmp/portikus-smoke-workspace.sh"
+  ssh_cmd_stdin "cat >${WORKSPACE_SCRIPT}" <"$(dirname "$0")/../incus/workspace.sh"
+  echo "SKIP  the VM's workspace.sh (a packaged host has none; this run uses ${WORKSPACE_SCRIPT})"
 fi
 
 echo ""
@@ -220,7 +237,6 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
 
   WS_NAME="smoke-ws"
   PROJECT="portikus"
-  WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
 
   # Clean up on exit regardless of success or failure.  The cleanup
   # function is extended by the Epic 3 block if it runs, so that a
@@ -229,6 +245,7 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
     echo ""
     echo "Destroying ${WS_NAME}..."
     ssh_cmd bash "${WORKSPACE_SCRIPT}" destroy "${WS_NAME}" >/dev/null 2>&1 || true
+    ssh_cmd rm -f /tmp/portikus-smoke-workspace.sh >/dev/null 2>&1 || true
   }
   trap cleanup_all EXIT
 
@@ -417,7 +434,9 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
 
   # 18. Security: no Incus API socket, no host data disk
   check "/dev/incus absent"                     ws_exec test ! -e /dev/incus
-  check "/dev/vdb absent"                       ws_exec test ! -e /dev/vdb
+  for storage_pv in ${STORAGE_PVS}; do
+    check "${storage_pv} absent"                ws_exec test ! -e "${storage_pv}"
+  done
 
   # 19. Management network is unreachable from workspace.  The VM's default
   # gateway is the host on the management network, whichever one this VM is on.
@@ -647,6 +666,17 @@ unauthorized_preview_is_refused() {
   [ "$(preview_status /)" != "200" ]
 }
 check "an unauthorized preview request is never served" unauthorized_preview_is_refused
+# Caddy's admin interface can load any configuration, so only root and the
+# caddy user may reach it: a socket, and no loopback port.
+CADDY_ADMIN="--max-time 5 -o /dev/null --unix-socket /var/lib/caddy/admin.sock http://localhost/config/"
+check "nothing listens on Caddy's old admin port 2019" \
+  ssh_cmd "! ss -Htln 'sport = :2019' | grep -q ."
+check "root reaches Caddy's admin socket (control)" \
+  ssh_cmd "sudo curl -sf ${CADDY_ADMIN}"
+check "the portikus account cannot open Caddy's admin socket" \
+  ssh_cmd "! sudo runuser -u portikus -- curl -s ${CADDY_ADMIN}"
+check "an unprivileged account cannot open Caddy's admin socket" \
+  ssh_cmd "! sudo runuser -u nobody -- curl -s ${CADDY_ADMIN}"
 echo ""
 
 # --- Epic 14: the egress proxy (ADR 0027) ----------------------------
@@ -739,7 +769,7 @@ check_output "PostgreSQL's slice has 256M of memory protection" "268435456" unit
 check_output "PostgreSQL has 256M of memory protection" "268435456" unit_memory_low postgresql@17-main
 check_output "the API has 256M of memory protection" "268435456" unit_memory_low portikus-api
 check_output "the thin pool fails writes when full" "error" \
-  ssh_cmd "sudo lvs --noheadings -o lv_when_full portikus-data/thinpool | tr -d ' '"
+  ssh_cmd "sudo lvs --noheadings -o lv_when_full ${STORAGE_VG:-none}/thinpool | tr -d ' '"
 check "the thin pool status timer is active" ssh_cmd systemctl is-active portikus-thinpool-status.timer
 check_output "the thin pool status file is world-readable" "644" \
   ssh_cmd "stat -c %a /run/portikus-thinpool.json"
@@ -1066,7 +1096,9 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
   epic3_fail_start=$fail
 
   PROJECT="portikus"
-  WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
+  # The package's bundled Node (docs/SPEC.md section 21.12); older packages
+  # used the system's.
+  VM_NODE=$(ssh_cmd 'test -x /usr/lib/portikus/node/bin/node && echo /usr/lib/portikus/node/bin/node || echo node')
   WS_PROBE="/tmp/portikus-ws-probe.mjs"
   WS_STOP="/tmp/portikus-ws-stop"
   TERM_PROBE="/tmp/portikus-term-probe.mjs"
@@ -1242,6 +1274,7 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
       echo "Destroying ${WS_NAME}..."
       ssh_cmd bash "${WORKSPACE_SCRIPT}" destroy "${WS_NAME}" >/dev/null 2>&1 || true
     fi
+    ssh_cmd rm -f /tmp/portikus-smoke-workspace.sh >/dev/null 2>&1 || true
   }
   trap cleanup_all EXIT
 
@@ -1469,7 +1502,7 @@ PROBE
     open_socket() {
       ssh_cmd "rm -f ${WS_STOP}"
       printf '%s=%s' "${SESSION_COOKIE_NAME}" "${alice_cookie}" \
-        | ssh_cmd_stdin "NODE_EXTRA_CA_CERTS=/etc/portikus/caddy-root.crt node ${WS_PROBE} \
+        | ssh_cmd_stdin "NODE_EXTRA_CA_CERTS=/etc/portikus/caddy-root.crt ${VM_NODE} ${WS_PROBE} \
         'wss://${PUBLIC_AUTHORITY}/workspaces/${ws_id}/ws' '${API}' '${WS_STOP}'" >"$probe_log" 2>&1 &
       probe_pid=$!
       sleep 3
@@ -1676,7 +1709,7 @@ TERMPROBE
     # term_probe TERMINAL_ID INPUT MARKER STOP_FILE TIMEOUT_MS
     term_probe() {
       printf '%s=%s' "${SESSION_COOKIE_NAME}" "${alice_cookie}" \
-        | ssh_cmd_stdin "NODE_EXTRA_CA_CERTS=/etc/portikus/caddy-root.crt node ${TERM_PROBE} \
+        | ssh_cmd_stdin "NODE_EXTRA_CA_CERTS=/etc/portikus/caddy-root.crt ${VM_NODE} ${TERM_PROBE} \
           'wss://${PUBLIC_AUTHORITY}/workspaces/${ws_id}/terminals/${1}/ws' '${API}' \
           '${2}' '${3}' '${4}' '${5}'"
     }

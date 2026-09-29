@@ -1,0 +1,30 @@
+# Nightly backup of an apt-installed server, on the server itself
+# (docs/adr/0044-backups-on-the-server.md).  Started by portikus-backup.timer;
+# enabled by setup's backup role only on a local install.  A VM backed up
+# from a separate host uses that host's own unit instead (ADR 0024).
+[Unit]
+Description=Portikus backup of this server
+After=postgresql.service incus.service
+ConditionPathExists=/etc/portikus-backup/recipients.txt
+
+[Service]
+Type=oneshot
+Environment=PORTIKUS_BACKUP_DIR=/var/backups/portikus
+# The retention floor, the same as the channel unit (ADR 0039).
+Environment=PORTIKUS_BACKUP_MIN_AGE_DAYS=14
+Environment=PORTIKUS_BACKUP_MIN_FREE_MB=1024
+Environment=PORTIKUS_BACKUP_MAX_INDEX_ENTRIES=1000000
+Environment=PORTIKUS_BACKUP_KEEP_COMPLETE=3
+ExecStart=/usr/lib/portikus/backup/portikus-backup --local
+# The incus command keeps its client settings here, since the home directories are hidden.
+StateDirectory=portikus-backup
+StateDirectoryMode=0700
+Environment=INCUS_CONF=/var/lib/portikus-backup/incus
+Nice=10
+IOSchedulingClass=idle
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=yes
+# Bounds the indexer and tarfile (ADR 0039).
+MemoryMax=1G
+TimeoutStartSec=12h

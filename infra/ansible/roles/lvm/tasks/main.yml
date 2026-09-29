@@ -1,6 +1,8 @@
 ---
-# LVM thin provisioning on the dedicated data disk (STACK.md section 23).
-# The data disk is the second virtual disk attached by OpenTofu.
+# LVM thin provisioning for workspace storage (STACK.md section 23,
+# docs/SPEC.md section 21.12): on a whole empty disk, in an existing volume
+# group, or on a file attached to a loop device.  settings.yml, run from
+# site.yml's pre_tasks, has already checked the choice.
 
 - name: Install LVM packages
   ansible.builtin.apt:
@@ -8,6 +10,11 @@
       - lvm2
       - thin-provisioning-tools
     state: present
+
+# The file looks like a disk from here on: lvm_storage_device is its loop device.
+- name: Attach the storage file
+  ansible.builtin.include_tasks: file.yml
+  when: lvm_storage_kind == 'file'
 
 - name: Check if volume group already exists
   ansible.builtin.command:
@@ -17,16 +24,17 @@
   failed_when: false
   check_mode: false
 
-- name: Create physical volume on data disk
+# --yes clears old signatures, which the confirmation allowed.
+- name: Create physical volume on the storage device
   ansible.builtin.command:
-    cmd: "pvcreate {{ data_disk_device }}"
-  when: lvm_vg_check.rc != 0
+    argv: [pvcreate, --yes, "{{ lvm_storage_device }}"]
+  when: lvm_vg_check.rc != 0 and lvm_storage_kind in ['device', 'file']
   changed_when: true
 
 - name: Create volume group
   ansible.builtin.command:
-    cmd: "vgcreate {{ lvm_vg_name }} {{ data_disk_device }}"
-  when: lvm_vg_check.rc != 0
+    argv: [vgcreate, "{{ lvm_vg_name }}", "{{ lvm_storage_device }}"]
+  when: lvm_vg_check.rc != 0 and lvm_storage_kind in ['device', 'file']
   changed_when: true
 
 - name: Check if thin pool already exists
@@ -47,12 +55,14 @@
   when: lvm_tp_check.rc != 0
   changed_when: true
 
-# ── Grow onto a bigger data disk (docs/CAPACITY.md) ─────────────
-# OpenTofu grows the disk in place.  These tasks then grow the physical
-# volume and the thin pool, never shrink them, and stop on anything they do
-# not expect.  A pool created in this run already fills the disk.
+# ── Grow onto a bigger data disk or file (docs/CAPACITY.md) ─────
+# OpenTofu grows the disk in place, and a larger portikus_storage_size grows
+# the file.  These tasks then grow the physical volume and the thin pool,
+# never shrink them, and stop on anything they do not expect.  A pool
+# created in this run already fills the disk.  A volume group the operator
+# named is shared, so it is left as it is.
 - name: Grow the physical volume and thin pool to fill the data disk
-  when: lvm_vg_check.rc == 0 and lvm_tp_check.rc == 0
+  when: lvm_vg_check.rc == 0 and lvm_tp_check.rc == 0 and lvm_storage_kind != 'vg'
   block:
     - name: Read the volume group's physical volumes
       ansible.builtin.command:
@@ -70,21 +80,22 @@
           {{ dict(['name', 'size', 'dev_size', 'pe_start', 'extent']
                   | zip(lvm_pvs.stdout | trim | split(','))) }}
 
-    - name: Refuse to grow anything but a single physical volume on the data disk
+    - name: Refuse to grow anything but a single physical volume on the storage device
       ansible.builtin.assert:
         that:
           - lvm_pvs.stdout_lines | length == 1
-          - lvm_pv.name == data_disk_device
+          - lvm_storage_kind == '' or lvm_pv.name == lvm_storage_device
           - lvm_pv.dev_size | int >= lvm_pv.size | int + lvm_pv.pe_start | int
         fail_msg: >-
-          The volume group {{ lvm_vg_name }} should sit on {{ data_disk_device }}
-          alone, on a disk at least as big as the volume.  Found:
+          The volume group {{ lvm_vg_name }} should sit on
+          {{ lvm_storage_device | default('one device') }} alone, on a disk at
+          least as big as the volume.  Found:
           {{ lvm_pvs.stdout_lines | join('; ') }}.  Nothing was changed.
 
     # pvresize without a size grows to the whole device.
     - name: Grow the physical volume to the disk
       ansible.builtin.command:
-        cmd: "pvresize {{ data_disk_device }}"
+        argv: [pvresize, "{{ lvm_pv.name }}"]
       when: >-
         (lvm_pv.dev_size | int - lvm_pv.pe_start | int) // lvm_pv.extent | int * lvm_pv.extent | int
         > lvm_pv.size | int

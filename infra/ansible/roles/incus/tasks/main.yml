@@ -18,6 +18,7 @@
     owner: root
     group: root
     mode: "0644"
+  register: incus_repo_key
 
 - name: Add Incus stable repository
   ansible.builtin.deb822_repository:
@@ -28,12 +29,28 @@
     components: main
     signed_by: /etc/apt/keyrings/zabbly-incus.asc
     state: present
+  register: incus_repo
+
+# Base's refresh can be an hour old, so a rerun after a failed first
+# refresh would not see the repository's packages.
+- name: Read the installed packages
+  ansible.builtin.package_facts:
+    manager: apt
+
+# When the repository is new, or its package is not installed yet.
+- name: Refresh the apt index for the Incus repository
+  ansible.builtin.apt:
+    update_cache: true
+  register: incus_apt_refresh
+  retries: 3
+  delay: 10
+  until: incus_apt_refresh is succeeded
+  when: incus_repo is changed or incus_repo_key is changed or 'incus' not in ansible_facts.packages
 
 - name: Install Incus
   ansible.builtin.apt:
     name: incus
     state: present
-    update_cache: true
 
 - name: Enable and start Incus
   ansible.builtin.systemd:
@@ -41,12 +58,14 @@
     enabled: true
     state: started
 
-# The operator account runs incus without sudo (smoke test, day-to-day admin).
-- name: Add the deploy user to the incus-admin group
+# The account Ansible connects as runs incus without sudo (smoke test,
+# day-to-day admin).  A local run as root, as `portikus setup` does, has none.
+- name: Add the operator account to the incus-admin group
   ansible.builtin.user:
-    name: "{{ ansible_user }}"
+    name: "{{ portikus_operator_user }}"
     groups: incus-admin
     append: true
+  when: portikus_operator_user | length > 0
 
 - name: Check if Incus storage pool exists
   ansible.builtin.command:

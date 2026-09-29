@@ -24,10 +24,10 @@ does belong under `docs/`, cited by file and section, never here.
 - `docs/WORKFLOW.md`: local development, branching, pull requests, CI,
   secret scanning, and the pre-commit hook.
 - `docs/DESIGN.md`: the visual design, mirrored under `design/`.
+- `docs/INSTALL.md`: the operator's install guide (`apt install portikus`).
 - `docs/BROWSER-HANDLING.md`: application preview, the URL broker for
   CLI browser requests, and the remote-browser fallback (Epics 8 and 9).
-- `docs/adr/`: decision records. Add one for any choice a later reader
-  would ask "why" about.
+- `docs/adr/`: decision records, one for any choice a reader asks "why" of.
 
 Before implementing any subsystem, read the SPEC.md and STACK.md sections
 that cover it. Cite sections by number in prompts, commits, and reports.

@@ -74,6 +74,15 @@ database itself is wrong, load the dump with `pg_restore --clean`.
 
 ## Deploying
 
+**A server installed with apt** (docs/INSTALL.md) is upgraded with
+`sudo apt update && sudo apt upgrade`, which installs the new release and
+reruns setup on its own. `sudo dpkg-reconfigure portikus` changes the
+install answers, and `sudo portikus setup` reapplies them. That is the
+normal path, and the rest of this section does not apply to it.
+
+**The development pilot and the rehearsal VM** are built and deployed
+from a workstation with Ansible, as follows.
+
 ```
 git fetch origin && git checkout origin/main
 nvm use
@@ -105,6 +114,12 @@ anyone.
 installed copy of the script, not the checkout. Epic 14 is such a change:
 until the timer is reinstalled, the nightly set has no `dex.dump`, so it
 cannot bring back Dex's accounts.
+
+Epic 15's signed sets ("Authenticated sets" below) are another: deploy the
+VM first, then run `make backup-install-timer`. A VM older than the
+change refuses the channel's report, which now says whether each set is
+verified. Sets made before the reinstall have no MAC, so the tab shows
+them as not verified until they are signed by hand.
 
 **Epic 14.2 must be deployed with `make configure-vm PORTIKUS_DEB=...`,
 not `make deploy-app` or a plain `apt upgrade`.** From this release the
@@ -1044,6 +1059,94 @@ and the OIDC provider are configured.
 
 ## Backups
 
+There are two ways backups run. A server installed with `apt install
+portikus` backs itself up, which the next part covers. The pilot and the
+development VM are backed up by the separate host that runs them, which
+the rest of this section covers.
+
+### On an apt-installed server
+
+The same backup scripts run on the server itself, as root, in a local
+mode (ADR 0044). docs/INSTALL.md, "Backups: copying them off the server"
+and "Rebuilding from an off-site backup", is the operator's guide; this is
+what is where.
+
+- **Timers.** `portikus-backup.timer` runs `portikus-backup.service` at
+  02:30. `portikus-backup-channel.timer` runs
+  `portikus-backup-channel.service` every 30 seconds, which takes the
+  Backups tab's requests from the local worker, checks them as strictly as
+  a VM's (ADR 0039), and runs them. Setup's `backup` role enables both
+  only on the server itself, never on a VM configured from a workstation.
+  Check them with `systemctl status portikus-backup.service
+  portikus-backup-channel.service` and `journalctl -u
+  portikus-backup.service`.
+- **Sets.** `/var/backups/portikus/local/<timestamp>`, root-only, the same
+  form as a host's. Sets an administrator copies in by hand, with rsync or
+  scp, are listed on the tab within 30 seconds and get the same checks: a
+  symbolic link or a badly named folder is not listed, and a restore
+  checks every file of the set before using it.
+- **The key.** `/etc/portikus-backup/age-key.txt` and `recipients.txt`
+  (root, 0600, in a 0700 directory), made by setup when there is no key.
+  The tab's **Download backup key** and **Upload backup key** reach it
+  only through `portikus-backup-key.socket`, which starts a root helper
+  for each request (`/usr/lib/portikus/backup/portikus-backup-key`). Each
+  download and upload is in the audit log with the key's public half;
+  the key itself is in no log. The "not yet downloaded" reminder clears
+  only once a download has been sent in full; an upload never clears it.
+  An upload of a different key replaces it only after a confirmation, and
+  only while no backup runs. The key it replaces is kept beside it as
+  `age-key.txt.replaced-<unix time>`, root-only, so sets made with it can
+  still be opened: restore one with `sudo portikus restore --key
+  /etc/portikus-backup/age-key.txt.replaced-<unix time> <timestamp>`
+  (add `--check` first to prove the key opens the set). Delete a kept key by hand once no set needs it. If the tab
+  says the helper did not answer, check `systemctl status
+  portikus-backup-key.socket`.
+- **Whole-server restore.** `sudo portikus restore --check <timestamp>`
+  proves the key opens a set; `sudo portikus restore <timestamp>` restores
+  it onto a server with no workspaces, projects or users besides the local
+  administrator (`--start-check` also starts one workspace and checks it).
+  It pauses both timers while it runs, and removes the set's `REQUESTED`
+  marker, so a set copied back in does not count against the limit on
+  requested backups.
+- **Off-server copies are the real backup.** Nothing copies the sets off
+  the server automatically. docs/INSTALL.md shows rsync and object
+  storage; the target never needs the key.
+
+### Authenticated sets
+
+Anyone who knows a key's public half can encrypt a set to it, so a set
+copied in from elsewhere could have been made by someone else, and a
+whole-server restore loads its database as the database superuser. Each
+set therefore carries `MANIFEST.mac`: an HMAC-SHA256 (a keyed checksum) of
+its encrypted MANIFEST, under a key derived from the private backup key
+(ADR 0044, "Authenticated sets"). The MANIFEST lists the size and SHA-256
+of every other file in the set, so the MAC covers them too. The public
+half alone cannot make one, and no second key needs keeping: the one
+private key opens and checks every set.
+
+- `restore.sh`, `restore-copy.sh` and the channel's listing check the MAC
+  before they read anything else in the set. The Backups tab shows a set
+  without a valid MAC as **Not verified**, and it cannot be restored from
+  the tab.
+- A set whose MAC is wrong is always refused. A set with no MAC, such as
+  one made before this change, is refused unless root asks for it:
+  `sudo portikus restore --unverified <timestamp>` on an apt-installed
+  server, or `sudo ... restore.sh --unverified` on a host. Only do that
+  for a set whose origin you know.
+- On a host, whoever holds the private key can sign an older set it
+  trusts, so it can be restored from the tab again:
+  `python3 infra/host/portikus-backup-mac sign <private key> <set dir>`.
+- On a host, the nightly backup runs as your account, which never holds
+  the private key. It signs with `~/.config/portikus/backup-mac-key.txt`,
+  which `make backup-setup` and `make backup-install-key` derive from the
+  private key. That file can sign sets but not read them, and it can
+  always be derived again. A backup whose signing key does not match the
+  recipients file stops before it starts.
+- `portikus-backup-mac verify <key> <set dir>` checks one set by hand: exit
+  0 is genuine, 3 means it has no MAC, 4 means the MAC is wrong.
+
+### On a VM with a separate backup host
+
 A backup is pulled from the VM to the host and encrypted there with age, a
 small file-encryption tool (ADR 0024). It only reads from the VM: a
 `pg_dump` of the platform database and of Dex's `dex` database, and an
@@ -1068,16 +1171,17 @@ volume, each taken from a short-lived snapshot.
 - **The key.** `make backup-setup` (run by `make backup`) makes the age key
   pair once: the public half at `~/.config/portikus/backup-recipients.txt`
   and the private half at `~/.config/portikus/backup-age-key.txt`. Backing
-  up needs only the public half. Restoring from the admin page needs the
-  private half on the host, root-only (ADR 0039):
+  up needs only the public half and the signing key derived from the
+  private half ("Authenticated sets" above). Restoring from the admin page
+  needs the private half on the host, root-only (ADR 0039):
 
   ```
   make backup-install-key KEY=~/.config/portikus/backup-age-key.txt
   ```
 
-  This checks that the key matches the recipients file and installs it as
+  This checks that the key matches the recipients file, installs it as
   `/etc/portikus-backup/age-key.txt` (owner root, mode 0600, in a 0700
-  directory). **Keep your password-manager copy** as the recovery copy,
+  directory), and derives the signing key. **Keep your password-manager copy** as the recovery copy,
   and delete the one in your home directory afterwards. Accepted risk:
   **whoever takes the host can read every backup.** Without any copy of
   the key no backup can be read.
@@ -1225,6 +1329,68 @@ shares nothing with the pilot.
   8443 belongs to the pilot.
 - **Destroy it after every exercise** with `make rehearsal-destroy`,
   because it holds restored student data.
+- **`make install-test`** rehearses the operator's install
+  (docs/INSTALL.md) on a fresh rehearsal VM and destroys it at the end
+  (`infra/tests/install-test.sh`). It makes a throwaway signing key,
+  builds the package from the checkout so that it trusts that key, serves
+  a local signed apt repository and signed workspace image releases from
+  this host, preseeds a Dex-only install with Caddy's own certificate
+  authority, runs `apt install portikus` and follows setup, signs in with
+  `/etc/portikus/admin-password` and changes the password, runs the smoke
+  test, and then upgrades to a second version from the same repository.
+  `IMAGE_JOBS=1` adds the workspace image rehearsal
+  (`infra/tests/image-job-rehearsal.py`, about 90 minutes more), and
+  `KEEP_VM=1` leaves the VM for debugging. It refuses to start when a
+  rehearsal VM already exists. The image comes from the newest CI build
+  of `infra/workspace-image/`, downloaded once into
+  `~/.cache/portikus/rehearsal-image/`; CI keeps that build for one day,
+  so after the cache is lost, give `REHEARSAL_IMAGE_DIR=<dir>` holding
+  `incus.tar.xz`, `rootfs.squashfs` and `manifest.json`.
+
+## The package signing key
+
+One OpenPGP key signs the apt repository and every workspace image
+release (docs/SPEC.md section 21.13). Its fingerprint is
+`9F6FD4CD5CC5C43AB5125705015D38802EF8D0F4`, and it does not expire.
+
+- **The public half** is committed as `packaging/portikus-archive-keyring.asc`.
+  The package installs it as
+  `/usr/share/keyrings/portikus-archive-keyring.gpg`, and the repository
+  publishes it beside itself. That file is an ordinary package file, not
+  a configuration file, so every upgrade writes it again (measured by
+  `make install-test`: the file's time and inode change on upgrade).
+- **The private half** exists only as the GitHub Actions secret
+  `APT_SIGNING_KEY` in the `publish` environment, which only the release
+  and image publish jobs can read, and in the maintainer's offline copy,
+  kept with the key's **revocation certificate**. Neither is on this host's
+  checkout or on any server.
+- **Rehearsals never use it.** `make install-test` makes a throwaway key
+  and builds a package that trusts it instead
+  (`PORTIKUS_ARCHIVE_KEYRING=<public key file> scripts/build-deb.sh`).
+  Such a package must never be published.
+
+**If the key is stolen or the secret leaks:**
+
+1. Delete the `APT_SIGNING_KEY` secret, so no workflow signs with it.
+2. On an offline machine, import the public key and the revocation
+   certificate (`gpg --import portikus-archive-keyring.asc
+   revocation-certificate.asc`), then export the revoked public key.
+3. Make a new key pair that does not expire, and its revocation
+   certificate, on the same offline machine. Put the new private key in
+   `APT_SIGNING_KEY`, and commit the new public key as
+   `packaging/portikus-archive-keyring.asc`.
+4. Cut a release. The release job signs the whole repository again with
+   the new key. Sign each image release still in use again too: sign its
+   `SHA256SUMS` with the new key (`gpg --armor --detach-sign`) and replace
+   `SHA256SUMS.asc` with `gh release upload <tag> SHA256SUMS.asc --clobber`.
+5. Publish the revoked old key beside the new one, and announce both, with
+   the new fingerprint, on the project's GitHub page.
+
+Operators then move to the new key by hand, as docs/INSTALL.md, "If the
+signing key is ever compromised", says. That is deliberate. Servers trust
+only the key file they hold, and a release signed with the stolen key
+could replace that file on upgrade, so a new key must come from the
+announcement, checked by its fingerprint, not from a package.
 
 ## VM disk files on the host
 

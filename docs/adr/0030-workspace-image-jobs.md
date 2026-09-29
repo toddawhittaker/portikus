@@ -3,7 +3,7 @@
 - **Status**: Proposed
 - **Date**: 2026-09-24
 - **References**: SPEC.md sections 21.7, 21.8, 22 and 24.1;
-  docs/EPIC-15.md rulings 22 to 29
+  SPEC.md section 22.4
 
 ## Context
 
@@ -28,6 +28,10 @@ has passed; the previous default is kept for a one-step rollback.
 
 - The most a compromised API can do is ask for one of a few fixed jobs.
 - One job at a time; progress is polled from files, not streamed.
+- Setup's first install runs the same fetch and activate, through
+  `image-job first-install <version>` under the same lock, so the first
+  image passes the same checks and has a health result. Once the host has
+  a default image, setup leaves it to the admin page.
 - Rejected: sudo from the API (blocked by `NoNewPrivileges`, and a wider
   door); a polkit rule letting the API start the unit over D-Bus (one
   more daemon on a minimal host); free-text versions or package lists

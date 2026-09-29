@@ -215,6 +215,9 @@ chmod +x "${work}/bin/df"
 
 age-keygen -o "${work}/key.txt" 2>/dev/null
 age-keygen -y "${work}/key.txt" >"${work}/recipients.txt"
+# The host's backup account signs with the derived MAC key, never the identity.
+python3 "${repo}/infra/host/portikus-backup-mac" derive "${work}/key.txt" >"${work}/mac-key.txt"
+export PORTIKUS_BACKUP_MAC_KEY="${work}/mac-key.txt"
 sets="${work}/sets"
 mine="${sets}/portikus-rehearsal"
 mkdir -m 0700 "$sets" "$mine" "${sets}/portikus"
@@ -658,8 +661,13 @@ refused_run "a run waits for another VM's run on this host, then gives up" "anot
 kill "$holder" 2>/dev/null
 wait "$holder" 2>/dev/null
 
-# doctored NAME -- a copy of the good set, for one test to spoil.
-doctored() { rm -rf "${work:?}/$1"; cp -r "$newest" "${work}/$1"; printf '%s' "${work}/$1"; }
+# doctored NAME -- a copy of the good set under its own name, for one test to spoil.
+doctored() {
+  rm -rf "${work:?}/$1"
+  mkdir "${work}/$1"
+  cp -r "$newest" "${work}/$1/"
+  printf '%s' "${work}/$1/$(basename "$newest")"
+}
 # The refusal has to be the form check, not some other failure.
 refuse_set() { # LABEL SET
   if run_restore --check "$2" >"${work}/refusal" 2>&1; then
@@ -671,27 +679,75 @@ refuse_set() { # LABEL SET
   fi
 }
 age -d -i "${work}/key.txt" "${newest}/MANIFEST.age" >"${work}/manifest.txt"
+# The form checks stay behind the MAC: these sets are spoiled by someone
+# holding the key, who can sign them, so the checks are what must refuse.
+signed() { python3 "${repo}/infra/host/portikus-backup-mac" sign "${work}/key.txt" "$1"; }
+# with_manifest DIR -- encrypt standard input as DIR's MANIFEST and sign it.
+with_manifest() { age -R "${work}/recipients.txt" -o "${1}/MANIFEST.age" && signed "$1"; }
+# with_index DIR -- standard input becomes the home volume's index, listed in the MANIFEST.
+with_index() {
+  cat >"${work}/new-index"
+  age -R "${work}/recipients.txt" -o "${1}/${HOME_VOL}.index.age" "${work}/new-index"
+  sed "s|^index ${HOME_VOL} .*|index ${HOME_VOL} $(stat -c %s "${work}/new-index") $(sha256sum <"${work}/new-index" | cut -d' ' -f1)|" \
+    "${work}/manifest.txt" | with_manifest "$1"
+}
 d=$(doctored m1)
-{ cat "${work}/manifest.txt"; echo "file ../../evil 1 $(printf x | sha256sum | cut -d' ' -f1)"; } \
-  | age -R "${work}/recipients.txt" -o "${d}/MANIFEST.age"
+{ cat "${work}/manifest.txt"; echo "file ../../evil 1 $(printf x | sha256sum | cut -d' ' -f1)"; } | with_manifest "$d"
 refuse_set "restore refuses a MANIFEST that names a file outside the set" "$d"
 d=$(doctored m2)
-sed "s|^volume ${HOME_VOL} \([0-9]*\) \([0-9a-f]*\) .*|volume ${HOME_VOL} \1 \2 x';touch evil'|" "${work}/manifest.txt" \
-  | age -R "${work}/recipients.txt" -o "${d}/MANIFEST.age"
+sed "s|^volume ${HOME_VOL} \([0-9]*\) \([0-9a-f]*\) .*|volume ${HOME_VOL} \1 \2 x';touch evil'|" "${work}/manifest.txt" | with_manifest "$d"
 refuse_set "restore refuses an ID map with shell characters" "$d"
 d=$(doctored m3)
-{ cat "${work}/manifest.txt"; echo "workspace 11111111-2222-3333-4444-555555555555 ws-x;reboot"; } \
-  | age -R "${work}/recipients.txt" -o "${d}/MANIFEST.age"
+{ cat "${work}/manifest.txt"; echo "workspace 11111111-2222-3333-4444-555555555555 ws-x;reboot"; } | with_manifest "$d"
 refuse_set "restore refuses an instance name that is not one" "$d"
 d=$(doctored m4)
-printf '%s\n' '{"f": "../../etc/shadow", "size": 1, "sha256": "'"$(printf x | sha256sum | cut -d' ' -f1)"'"}' \
-  | age -R "${work}/recipients.txt" -o "${d}/${HOME_VOL}.index.age"
+printf '%s\n' '{"f": "../../etc/shadow", "size": 1, "sha256": "'"$(printf x | sha256sum | cut -d' ' -f1)"'"}' | with_index "$d"
 refuse_set "restore refuses an index path that climbs out of the volume" "$d"
 d=$(doctored m5)
 # shellcheck disable=SC2016  # the command substitution is the attack
-printf '%s\n' '{"git": "projects/x", "ref": null, "head": "$(reboot)"}' \
-  | age -R "${work}/recipients.txt" -o "${d}/${HOME_VOL}.index.age"
+printf '%s\n' '{"git": "projects/x", "ref": null, "head": "$(reboot)"}' | with_index "$d"
 refuse_set "restore refuses a Git HEAD that is not a commit id" "$d"
+
+echo "--- authenticated sets (ADR 0044) ---"
+# refuse_forged LABEL SET PATTERN -- refused by PATTERN, before anything on the VM changes.
+refuse_forged() {
+  : >"$log"
+  if run_restore --target-name portikus-rehearsal 10.101.0.210 "$2" >"${work}/refusal" 2>&1; then
+    bad "$1"
+  elif grep -q "$3" "${work}/refusal" && ! grep -qE 'systemctl|pg_restore|import' "$log"; then
+    ok "$1"
+  else
+    bad "${1} (refused for another reason: $(tail -1 "${work}/refusal"))"
+  fi
+}
+expect "a host backup signs its set with the MAC key derived from the identity" \
+  "python3 '${repo}/infra/host/portikus-backup-mac' verify '${work}/key.txt' '$newest'"
+d=$(doctored f1)
+# What anyone with the public recipient can do: a MANIFEST of their own.
+sed 's/^counts .*/counts users 1 workspaces 1 projects 1/' "${work}/manifest.txt" \
+  | age -R "${work}/recipients.txt" -o "${d}/MANIFEST.age"
+refuse_forged "a restore refuses a set whose MANIFEST someone without the key changed" "$d" 'failed verification'
+d=$(doctored f2)
+age-keygen -o "${work}/attacker.txt" 2>/dev/null
+age -R "${work}/recipients.txt" -o "${d}/MANIFEST.age" "${work}/manifest.txt"
+python3 "${repo}/infra/host/portikus-backup-mac" sign "${work}/attacker.txt" "$d"
+refuse_forged "a restore refuses a forged set signed with another key" "$d" 'failed verification'
+d=$(doctored f3)
+rm "${d}/MANIFEST.mac"
+refuse_forged "a restore refuses a set with no MAC" "$d" 'has no MAC'
+d=$(doctored f4)
+age -R "${work}/recipients.txt" -o "${d}/${HOME_VOL}.index.age" <<<'{"f": "a", "size": 1, "sha256": "'"$(printf x | sha256sum | cut -d' ' -f1)"'"}'
+refuse_forged "a restore refuses a genuine MANIFEST beside an index it does not list" "$d" 'the MANIFEST says'
+# A genuine set, untouched, renamed to look like a newer night's.
+d=$(doctored f5)
+mv "$d" "$(dirname "$d")/20991231T023000Z"
+refuse_forged "a restore refuses a genuine set renamed to another time" "$(dirname "$d")/20991231T023000Z" 'named for another time'
+# The signing key must be for the recipients, or no set would verify.
+age-keygen -o "${work}/other.txt" 2>/dev/null
+python3 "${repo}/infra/host/portikus-backup-mac" derive "${work}/other.txt" >"${work}/other-mac.txt"
+: >"$log"
+no_set "a backup refuses a signing key for other recipients, before any work" PORTIKUS_BACKUP_MAC_KEY="${work}/other-mac.txt"
+expect "and says why, having asked the VM nothing" "grep -q 'not for the recipients' '${work}/refusal' && [ ! -s '$log' ]"
 
 echo "--- restore --remove ---"
 : >"$log"

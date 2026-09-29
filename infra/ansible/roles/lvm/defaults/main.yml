@@ -1,0 +1,3 @@
+---
+# The loop-backed storage file, when portikus_storage is `file`.
+lvm_storage_file: /var/lib/portikus-storage/workspace-data.img

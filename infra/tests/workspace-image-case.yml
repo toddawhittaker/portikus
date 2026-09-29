@@ -1,0 +1,49 @@
+---
+# One case of workspace-image-test.yml.
+- name: Set up the case's aliases and job ({{ wi_case.name }})
+  ansible.builtin.copy:
+    dest: "{{ wi_dir }}/{{ item.file }}"
+    mode: "0644"
+    content: "{{ item.content }}\n"
+  loop:
+    - { file: aliases.json, content: "{{ wi_case.before }}" }
+    - { file: job, content: "{{ wi_case.job }}" }
+
+- name: Forget the last case's call
+  ansible.builtin.file:
+    path: "{{ wi_dir }}/called"
+    state: absent
+
+- name: Run the role ({{ wi_case.name }})
+  block:
+    - name: Include the workspace_image role's tasks
+      ansible.builtin.include_tasks: ../ansible/roles/workspace_image/tasks/main.yml
+      vars:
+        portikus_image_version: "{{ wi_case.version }}"
+        incus_project_name: portikus
+        portikus_incus_image_alias: portikus
+        workspace_image_job: "{{ wi_dir }}/bin/image-job"
+
+    - name: Note that the role finished
+      ansible.builtin.set_fact:
+        wi_accepted: true
+  rescue:
+    - name: Note that the role failed
+      ansible.builtin.set_fact:
+        wi_accepted: false
+
+- name: Look for the job's call
+  ansible.builtin.stat:
+    path: "{{ wi_dir }}/called"
+  register: wi_called
+
+- name: Check the outcome ({{ wi_case.name }})
+  ansible.builtin.assert:
+    that:
+      - wi_accepted == wi_case.accept
+      - wi_called.stat.exists == wi_case.called
+    fail_msg: >-
+      {{ wi_case.name }}: expected {{ 'success' if wi_case.accept else 'failure' }} with the job
+      {{ 'called' if wi_case.called else 'not called' }}, got {{ 'success' if wi_accepted else 'failure' }}
+      with the job {{ 'called' if wi_called.stat.exists else 'not called' }}.
+    success_msg: "{{ wi_case.name }}: as expected"

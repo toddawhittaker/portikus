@@ -203,6 +203,35 @@ test("empty lists are one line each, and Clean up stays closed until there is so
 	expect(running?.x).toBeGreaterThan((host?.x ?? 0) + (host?.width ?? 0));
 });
 
+test("a set the host could not verify is marked and cannot be restored", async ({
+	page,
+}) => {
+	const instance = `ws-${"a".repeat(24)}`;
+	hostReport(
+		hostStatus({
+			sets: [
+				backupSet(NEW, [instance], { verified: false }),
+				backupSet(OLD, [instance], { verified: true }),
+			],
+		}),
+	);
+	await openTab(page);
+	const forged = page.getByTestId(`backup-set-${NEW}`);
+	await expect(forged).toContainText(
+		"Not verified. This server's key did not make this set, so it cannot be restored.",
+	);
+	const restore = forged.getByTestId("backup-set-restore");
+	await expect(restore).toHaveAttribute("aria-disabled", "true");
+	await expect(restore).toHaveAccessibleDescription(/cannot be restored/);
+	await restore.dispatchEvent("click");
+	await expect(page.getByTestId("backup-restore-dialog")).toHaveCount(0);
+	const genuine = page.getByTestId(`backup-set-${OLD}`);
+	await expect(genuine).not.toContainText("Not verified");
+	await expect(genuine.getByTestId("backup-set-restore")).not.toHaveAttribute(
+		"aria-disabled",
+	);
+});
+
 test("a refusal from the host is shown with its reason", async ({ page }) => {
 	hostReport(
 		hostStatus({

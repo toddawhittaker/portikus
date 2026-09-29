@@ -11,6 +11,8 @@ Type=oneshot
 User=@USER@
 Environment=PORTIKUS_BACKUP_DIR=@BACKUP_DIR@
 Environment=PORTIKUS_BACKUP_RECIPIENTS=@RECIPIENTS@
+# Signs each set; it cannot read them (ADR 0044).
+Environment=PORTIKUS_BACKUP_MAC_KEY=@MAC_KEY@
 # The retention floor, the same as the channel unit (ADR 0039).
 Environment=PORTIKUS_BACKUP_MIN_AGE_DAYS=14
 Environment=PORTIKUS_BACKUP_MIN_FREE_MB=1024

@@ -499,6 +499,33 @@ jobs:
             echo "::endgroup::"
           done
 
+  # The install questions and what postinst writes, in Debian 13 containers
+  # (docs/SPEC.md section 21.12). Uses a small package built from the same
+  # templates, config and postinst, so it needs no application build.
+  debconf:
+    name: Package install questions
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - name: Cache the test image
+        id: image
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/portikus/debconf-test-image.tar
+          key: debconf-test-image-${{ hashFiles('packaging/tests/debconf-test.sh') }}
+      - name: Load the test image
+        if: steps.image.outputs.cache-hit == 'true'
+        run: docker load -i ~/.cache/portikus/debconf-test-image.tar
+      - name: shellcheck
+        run: shellcheck packaging/debian/config packaging/scripts/postinst packaging/tests/*.sh
+      - name: Install with a preseed for each provider and storage kind
+        run: bash packaging/tests/debconf-test.sh
+      - name: Save the test image
+        if: steps.image.outputs.cache-hit != 'true'
+        run: mkdir -p ~/.cache/portikus && docker save -o ~/.cache/portikus/debconf-test-image.tar portikus-debconf-test:2
+
   infra:
     name: Infrastructure checks
     runs-on: ubuntu-latest
@@ -533,10 +560,21 @@ jobs:
         run: ansible-galaxy collection install -r infra/ansible/requirements.yml
       - if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: pipx install ansible-lint && ansible-lint infra/ansible
+      - name: TLS and storage settings guards
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: ansible-playbook infra/tests/setup-settings-test.yml
+      - name: Workspace image first-install decision
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: ansible-playbook infra/tests/workspace-image-test.yml
+      - name: Dex theme font matches the app font
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: |
+          cmp packages/ui/src/fonts/PublicSans-Variable.woff2 infra/ansible/roles/dex/files/theme/PublicSans-Variable.woff2 \
+            || { echo "Dex's theme font differs from packages/ui/src/fonts; copy it over"; exit 1; }
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         # age is for the backup scope test below.
-        run: sudo apt-get install -y shellcheck age && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* packaging/bin/portikus infra/host/portikus-backup-export
+        run: sudo apt-get install -y shellcheck age && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* packaging/bin/portikus packaging/backup/backup-key infra/host/portikus-backup-export
       - name: Smoke test cleanup scope
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/cleanup-scope-test.sh
@@ -546,6 +584,10 @@ jobs:
       - name: Clipboard shim
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/clipboard-shim-test.sh
+      # Under a second; incus, curl, gpgv and distrobuilder are stubbed.
+      - name: Workspace image job
+        if: needs.changes.outputs.infra == 'true'
+        run: python3 -B -m unittest discover -s packaging/image/tests
       # The pilot's Caddy version, so the live preview checks run what the pilot runs.
       - name: Cache Caddy
         id: caddy
@@ -576,3 +618,18 @@ jobs:
       - name: Backup channel against a lying VM
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/backup-channel-test.sh
+      - name: Backups on the server itself
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/backup-local-test.sh
+
+  apt-repo:
+    name: Signed apt repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install apt-ftparchive
+        run: command -v apt-ftparchive || { sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils; }
+      - name: Test publish-apt-repo.sh in a Debian 13 container
+        run: scripts/tests/publish-apt-repo-test.sh
