@@ -3617,3 +3617,12 @@ Gaps:
 - An image or PDF over the 2 MiB editor limit has no version to put in
   its address, so a change on disk shows only after the tab is reopened.
 - CSV as a table, optional in #816, was left out.
+- T8 (#860, #861): the Users view calls a workspace on a non-default
+  image "Old image" and keeps "Stale" for accounts only, and refetches
+  the list when a rebuild finishes. A daily root timer,
+  `portikus-image-check.timer`, records the newest published image and
+  any newer `portikus` package. The Workspace image tab and the Health
+  tab show a notice, and each administrator gets one notification per
+  version (SPEC.md sections 20.1 and 22.4). No migration. Gap: the timer
+  and the check have unit tests only; they have not yet run on a real
+  host from bootstrap through the smoke test.

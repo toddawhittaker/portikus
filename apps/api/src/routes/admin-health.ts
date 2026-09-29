@@ -14,6 +14,7 @@ import { hostSeries, newestCpuCount } from "../health-series/host.js";
 import { platformSeries } from "../health-series/platform.js";
 import { seriesWindow } from "../health-series/range.js";
 import { usageSeries } from "../health-series/usage.js";
+import { imagesDirOf, readPublished } from "../image/release-notices.js";
 import type { ServerDeps } from "../server.js";
 
 /** The worker samples every minute; older than this means it stopped. */
@@ -126,7 +127,12 @@ export function registerAdminHealthRoutes(
 				.execute();
 
 			const host = sampled?.host ?? null;
+			// The daily check writes this beside the images (issue #861).
+			const published = config.IMAGE_JOBS_DIR
+				? await readPublished(imagesDirOf(config.IMAGE_JOBS_DIR))
+				: null;
 			const body: HealthReport = {
+				packageUpdate: published?.package ?? null,
 				sampledAt: sampledAt ? sampledAt.toISOString() : null,
 				workerStale:
 					sampledAt === null ||

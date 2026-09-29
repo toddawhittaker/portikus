@@ -2397,8 +2397,15 @@ Changed by Epic 25 (UI polish and help):
   toggletips on its fields and headers (section 8.6).
 - **Users table.** Five columns: selection; Account (the name with its
   tags, then email or username); Role; Workspace (label, state, and an
-  "Older image" tag when out of date); and Activity ("Now" with the
-  connection count, or the time since a browser last connected). A
+  "Old image" tag when out of date); and Activity ("Now" with the
+  connection count, or the time since a browser last connected). Since
+  Epic 15.2 (issue #860) the tags keep two causes apart. Stale is only
+  about the account: no sign-in for 30 days, or a newer sign-in by another
+  account with the same email (`apps/api/src/admin/markers.ts`). Old image
+  is only about the workspace: its image fingerprint differs from the
+  default image in the newest host sample, and rebuilding moves it to the
+  default. When the detail panel sees a rebuild or Docker reset finish, it
+  refetches the Users list at once instead of waiting for its next poll. A
   toolbar row is always there: "Showing N of M" when the view hides rows
   (archived workspaces are hidden by default), or "N selected" with the
   bulk actions. Bulk Enable and Unarchive confirm in the neutral style.
@@ -2881,6 +2888,30 @@ language-aware editor".
   `image.job_finished`. The page polls a running job every two seconds.
   With `IMAGE_JOBS_DIR` unset the routes answer 404 and the tab says
   image management is off.
+- **Release notices** (Epic 15.2, issue #861). The platform never
+  upgrades itself, so it tells administrators when something newer is
+  out. `portikus-image-check.timer` runs `image-job check` as root once
+  a day (and 15 minutes after boot). It reads the same release list that
+  **Update to the latest published image** reads, and apt's cache for
+  the `portikus` package as apt's own daily refresh left it. It writes
+  `images/published.json` (`PublishedReleasesFile`): the newest
+  published image, and the installed and available package versions
+  only when apt's candidate is newer (`dpkg --compare-versions`). It
+  downloads no image, changes no default and upgrades no package. The
+  API compares that image with every image in the store. When it is
+  newer than all of them, `GET /admin/image` returns it as
+  `newerPublished`, and the tab shows a notice at the top naming the
+  version, with an **Update to** button that asks for the same fetch.
+  The notice goes once that version is in the store. `GET /admin/health`
+  returns the package pair as `packageUpdate`, and the Health tab shows
+  it with the command `sudo apt update && sudo apt upgrade`. Every
+  enabled administrator gets one neutral notification per image version
+  and one per package version. The audit rows `image.release_noticed`
+  and `package.release_noticed` (target: the version) record that it was
+  sent. The API checks every hour and on each load of the image tab,
+  under a PostgreSQL advisory lock so two checks cannot both send. A
+  release list that cannot be read writes a null image, and then no
+  notice shows.
 
 ## 23. Networking
 

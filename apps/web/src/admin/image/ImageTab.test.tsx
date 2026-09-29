@@ -66,6 +66,7 @@ function data(over: Partial<AdminImage> = {}): AdminImage {
 		],
 		otherWorkspaces: 2,
 		job: null,
+		newerPublished: null,
 		...over,
 	};
 }
@@ -119,6 +120,36 @@ test("a running job turns the actions off and shows its step and log", async () 
 	await waitFor(() =>
 		expect(screen.getByTestId("image-job-log").textContent).toContain("verifying"),
 	);
+});
+
+test("a newer published image shows a notice whose button asks for the update (issue #861)", async () => {
+	const fetch = stubFetch((url, init) =>
+		init?.method === "POST"
+			? json(202, job({ state: "queued" }))
+			: url.startsWith("/admin/image/jobs/")
+				? json(200, { job: job(), log: [] })
+				: json(200, data({ newerPublished: "2026.09.13" })),
+	);
+	renderWithQuery(<ImageTab />);
+	const notice = await screen.findByTestId("image-newer-published");
+	expect(notice.textContent).toContain("Image 2026.09.13 is published");
+	fireEvent.click(within(notice).getByRole("button", { name: "Update to 2026.09.13" }));
+	fireEvent.click(
+		within(await screen.findByTestId("image-confirm")).getByRole("button", {
+			name: "Update",
+		}),
+	);
+	await waitFor(() => {
+		const post = fetch.mock.calls.find(([, init]) => init?.method === "POST");
+		expect(JSON.parse(String(post?.[1]?.body))).toEqual({ kind: "fetch" });
+	});
+});
+
+test("no notice when nothing newer is published", async () => {
+	stubFetch(() => json(200, data()));
+	renderWithQuery(<ImageTab />);
+	await screen.findByTestId("image-default");
+	expect(screen.queryByTestId("image-newer-published")).toBeNull();
 });
 
 test("Rebuild posts the chosen Node and Python", async () => {

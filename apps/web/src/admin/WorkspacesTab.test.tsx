@@ -318,11 +318,11 @@ test("the Account cell is the name, then the email or else the username", async 
 	).toBeDefined();
 });
 
-test("only an out-of-date image shows the Older image tag, in the Workspace cell", async () => {
+test("only an out-of-date image shows the Old image tag, in the Workspace cell", async () => {
 	stubUsers();
 	await openTable();
 	const older = screen.getByTestId(`account-image-${uuid(2)}`);
-	expect(older.textContent).toBe("Older image");
+	expect(older.textContent).toBe("Old image");
 	expect(older.className).toBe("pk-tag pk-tag--warning");
 	expect(older.title).toBe("2026.09.8 · older");
 	// Under the state badge, in the same cell as the workspace label.
@@ -735,7 +735,7 @@ test("each column with a rule behind it, the Image filter and Show archived have
 	for (const label of [
 		"Account tags",
 		"Role",
-		"Older image",
+		"Old image",
 		"Activity",
 		"Image filter",
 		"Show archived",
