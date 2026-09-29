@@ -371,7 +371,7 @@ backup: backup-setup ## Pull an encrypted backup of the VM to the host (CHECK_ST
 	PORTIKUS_BACKUP_DIR=$(PORTIKUS_BACKUP_DIR) PORTIKUS_BACKUP_RECIPIENTS=$(PORTIKUS_BACKUP_RECIPIENTS) \
 		PORTIKUS_BACKUP_MAC_KEY=$(PORTIKUS_BACKUP_MAC_KEY) bash infra/host/backup.sh $(if $(CHECK_STATE),--check-state,) --vm-name "$(TOFU_VM_NAME)" $(VM_IP)
 
-backup-install-timer: backup-setup ## Install the nightly 02:30 backup of the pilot as a host systemd timer (rerun after changing backup.sh)
+backup-install-timer: backup-setup ## Install the nightly 02:30 host backup timer for a workstation-deployed VM in dev-libvirt; off for the apt-installed pilot, which backs itself up
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "backup-install-timer: the timer backs up the pilot only"; exit 1; }
 	@test -n "$(VM_IP)" || { echo "backup-install-timer: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-timer: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
@@ -388,9 +388,9 @@ backup-install-timer: backup-setup ## Install the nightly 02:30 backup of the pi
 	$(MAKE) --no-print-directory backup-install-channel
 
 # The admin page's requests (docs/adr/0039-backup-channel-and-host-held-key.md).
-# One channel per host: installing it for the rehearsal VM repoints it there,
-# and make backup-install-timer points it back at the pilot.
-backup-install-channel: backup-setup ## Install the host timer that runs backup requests from the admin page, for the VM in TOFU_ENV
+# One channel per host, for workstation-deployed VMs only; the apt-installed
+# pilot runs its own channel. Installing it for the rehearsal VM repoints it there.
+backup-install-channel: backup-setup ## Install the host timer that runs backup requests from the admin page, for a workstation-deployed VM in TOFU_ENV (not the apt-installed pilot)
 	@test -n "$(VM_IP)" || { echo "backup-install-channel: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-channel: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
 	sudo install -m 0755 infra/host/backup.sh /usr/local/sbin/portikus-backup

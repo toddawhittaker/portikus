@@ -143,9 +143,10 @@ use it on a VM others can reach, because anyone could sign in as anyone.
 On an apt-installed server the same choices are install answers
 (docs/INSTALL.md, "5. How people sign in").
 
-**After a change to `infra/host/backup.sh`, run
-`make backup-install-timer` on the host.** The nightly timer runs an
-installed copy of the script, not the checkout.
+**After a change to `infra/host/backup.sh`, rerun
+`make backup-install-timer` on the host if a workstation-deployed VM uses
+the host timers.** The timer runs an installed copy of the script, not
+the checkout. The pilot does not use them ("Backups").
 
 ## Sign-in providers
 
@@ -1177,6 +1178,12 @@ private key opens and checks every set.
 
 ### On a VM with a separate backup host
 
+These host timers are for VMs deployed from a workstation with
+`make configure-vm` only. They were turned off for the pilot on
+2026-09-29, when it moved to its own timers as an apt-installed server
+("On an apt-installed server", above). Do not reinstall them for the
+pilot.
+
 A backup is pulled from the VM to the host and encrypted there with age, a
 small file-encryption tool (ADR 0024). It only reads from the VM: a
 `pg_dump` of the platform database and of Dex's `dex` database, and an
@@ -1225,8 +1232,7 @@ volume, each taken from a short-lived snapshot.
   nothing it does not recognise. `make backup-install-timer` installs it
   with the nightly timer; `make backup-install-channel` installs it alone.
   There is one channel per host: `make backup-install-channel
-  TOFU_ENV=rehearsal-libvirt` points it at the rehearsal VM, and
-  `make backup-install-timer` points it back at the pilot afterwards.
+  TOFU_ENV=rehearsal-libvirt` points it at the rehearsal VM.
   Check it with `systemctl status portikus-backup-channel.service` and
   `journalctl -u portikus-backup-channel.service`. When the page says
   the host has not reported for more than 3 minutes, look there first.
@@ -1600,7 +1606,7 @@ The platform never logs secrets, prompts, source code or terminal bytes
 sudo journalctl -u portikus-api -u portikus-worker -u portikus-controller -o cat --since -1h
 ```
 
-The journal is capped at 2 GB. On the host, the nightly backup logs to
+The journal is capped at 2 GB. The nightly backup logs to
 `journalctl -u portikus-backup.service`.
 
 ## Routine checks
@@ -1610,8 +1616,8 @@ The journal is capped at 2 GB. On the host, the nightly backup logs to
 - The admin page's Health tab shows no "Worker not reporting", and the
   storage pool and memory are under 80 percent.
 - Last night's backup finished:
-  `systemctl status portikus-backup.service` on the host, and the newest
-  set under `/var/backups/portikus/portikus/` has no `FAILED` file.
+  `systemctl status portikus-backup.service` on the pilot, and the newest
+  set under `/var/backups/portikus/local/` has no `FAILED` file.
 
 **Weekly:**
 
