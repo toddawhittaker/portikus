@@ -90,8 +90,6 @@ endif
 # Read straight from the state file, so no `tofu init` is needed to learn it.
 tofu_output = $(shell python3 -c 'import json, sys; v = json.load(open(sys.argv[1]))["outputs"][sys.argv[2]]["value"]; print(v[0] if isinstance(v, list) else v)' '$(TOFU_STATE)' $(1) 2>/dev/null)
 TOFU_VM_NAME = $(call tofu_attr,libvirt_domain,vm,name)
-# A replaced VM keeps its MAC address, which its network configuration matches.
-export TF_VAR_mac_address = $(call tofu_attr,libvirt_domain,vm,network_interface.0.mac)
 
 # First recipe line of every OpenTofu target: name the VM, and never let a
 # non-pilot environment act on a state file that holds the pilot.
@@ -139,6 +137,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	for env in dev-libvirt rehearsal-libvirt; do \
 		(cd infra/tofu/environments/$$env && tofu init -backend=false -input=false >/dev/null && tofu validate) || exit 1; \
 	done
+	bash infra/tests/vm-mac-test.sh
 	ansible-galaxy collection install --force -r infra/ansible/requirements.yml
 	ansible-lint infra/ansible
 	cmp packages/ui/src/fonts/PublicSans-Variable.woff2 infra/ansible/roles/dex/files/theme/PublicSans-Variable.woff2 \
@@ -372,10 +371,19 @@ backup: backup-setup ## Pull an encrypted backup of the VM to the host (CHECK_ST
 	PORTIKUS_BACKUP_DIR=$(PORTIKUS_BACKUP_DIR) PORTIKUS_BACKUP_RECIPIENTS=$(PORTIKUS_BACKUP_RECIPIENTS) \
 		PORTIKUS_BACKUP_MAC_KEY=$(PORTIKUS_BACKUP_MAC_KEY) bash infra/host/backup.sh $(if $(CHECK_STATE),--check-state,) --vm-name "$(TOFU_VM_NAME)" $(VM_IP)
 
-backup-install-timer: backup-setup ## Install the nightly 02:30 host backup timer for a workstation-deployed VM in dev-libvirt; off for the apt-installed pilot, which backs itself up
+# Host backup timers are for a VM set up with configure-vm. An apt-installed
+# server, the pilot included, enables its own timer and would be backed up twice.
+REFUSE_SELF_BACKUP = @rc=0; ssh -n -o BatchMode=yes -o ConnectTimeout=5 $(SSH_USER)@$(VM_IP) systemctl is-enabled --quiet portikus-backup.timer 2>/dev/null || rc=$$?; \
+	case $$rc in \
+	0) echo "$@: VM '$(TOFU_VM_NAME)' backs itself up: portikus-backup.timer is enabled on it, as on every apt-installed server, the pilot included. Host backup timers are only for a VM set up with make configure-vm (docs/OPERATIONS.md, \"Backups\"). Nothing was installed."; exit 1 ;; \
+	255) echo "$@: cannot reach $(SSH_USER)@$(VM_IP) over SSH to check whether it backs itself up; nothing was installed"; exit 1 ;; \
+	esac
+
+backup-install-timer: backup-setup ## Install the nightly 02:30 host backup timer for a VM in dev-libvirt set up with configure-vm; refuses an apt-installed server such as the pilot, which backs itself up
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "backup-install-timer: the timer backs up the pilot only"; exit 1; }
 	@test -n "$(VM_IP)" || { echo "backup-install-timer: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-timer: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
+	$(REFUSE_SELF_BACKUP)
 	sudo install -m 0755 infra/host/backup.sh /usr/local/sbin/portikus-backup
 	sudo install -m 0644 infra/host/portikus-backup-export /usr/local/sbin/portikus-backup-export
 	sudo install -m 0644 infra/host/portikus-backup-mac /usr/local/sbin/portikus-backup-mac
@@ -391,9 +399,10 @@ backup-install-timer: backup-setup ## Install the nightly 02:30 host backup time
 # The admin page's requests (docs/adr/0039-backup-channel-and-host-held-key.md).
 # One channel per host, for workstation-deployed VMs only; the apt-installed
 # pilot runs its own channel. Installing it for the rehearsal VM repoints it there.
-backup-install-channel: backup-setup ## Install the host timer that runs backup requests from the admin page, for a workstation-deployed VM in TOFU_ENV (not the apt-installed pilot)
+backup-install-channel: backup-setup ## Install the host timer that runs backup requests from the admin page, for a VM in TOFU_ENV set up with configure-vm; refuses an apt-installed server such as the pilot
 	@test -n "$(VM_IP)" || { echo "backup-install-channel: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-channel: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
+	$(REFUSE_SELF_BACKUP)
 	sudo install -m 0755 infra/host/backup.sh /usr/local/sbin/portikus-backup
 	sudo install -m 0644 infra/host/portikus-backup-export /usr/local/sbin/portikus-backup-export
 	sudo install -m 0644 infra/host/portikus-backup-mac /usr/local/sbin/portikus-backup-mac

@@ -59,9 +59,14 @@ variable "base_image_sha512" {
 }
 
 variable "mac_address" {
-  description = "MAC address of the VM's network interface. make passes the one in the state, so a replaced VM keeps it; empty on a new VM."
+  description = "MAC address of the VM's network interface. Fixed, so a destroyed and recreated VM gets the same DHCP address."
   type        = string
-  default     = ""
+  default     = "52:54:00:f6:44:35"
+
+  validation {
+    condition     = can(regex("^52:54:00(:[0-9a-f]{2}){3}$", var.mac_address))
+    error_message = "mac_address must be a libvirt MAC address such as 52:54:00:12:34:56."
+  }
 }
 
 variable "network_name" {
