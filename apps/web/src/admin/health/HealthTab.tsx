@@ -158,6 +158,19 @@ export function HealthView({
 						: "No health sample has been taken yet."}
 				</div>
 			) : null}
+			{report.packageUpdate ? (
+				// The platform never upgrades itself (issue #861).
+				<div className="pk-card p-4" data-testid="health-package-update">
+					<p className="m-0">
+						Portikus <strong>{report.packageUpdate.available}</strong> is available.
+						This server runs {report.packageUpdate.installed}. To install it, run{" "}
+						<code className="pk-mono-small">
+							sudo apt update &amp;&amp; sudo apt upgrade
+						</code>{" "}
+						on the server.
+					</p>
+				</div>
+			) : null}
 
 			<section className="flex flex-col gap-3" aria-labelledby="health-glance-title">
 				<h3 className="pk-text-heading m-0" id="health-glance-title">

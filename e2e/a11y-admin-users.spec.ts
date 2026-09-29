@@ -1,6 +1,6 @@
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Users table
- * (SPEC.md section 20.1): tags, the Older image tag, the toolbar with a
+ * (SPEC.md section 20.1): tags, the Old image tag, the toolbar with a
  * selection, the detail panel beside the table at 1024 px, and the bulk
  * Enable confirmation, in the light and dark themes.
  */

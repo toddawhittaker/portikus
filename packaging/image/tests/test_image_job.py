@@ -59,6 +59,8 @@ class FakeHost:
         self.distrobuilder_rc = 0
         self.chroot_rc = 0
         self.dev_link = False
+        self.installed = "0.1.695"
+        self.candidate = "0.1.695"
 
     def publish(self, version, corrupt=None, manifest=None):
         base = f"{ij.DEFAULT_BASE_URL}/image-{version}"
@@ -110,8 +112,15 @@ class FakeHost:
             else:
                 (root / "dev").mkdir()
             return 0, ""
+        if tool == "dpkg-query" and argv[-1] == "portikus":
+            return (0, self.installed) if self.installed else (1, "")
         if tool == "dpkg-query":
             return 0, "curl\t8.14.1-2\nlibc6:amd64\t2.41-12\n"
+        if tool == "apt-cache":
+            return 0, f"portikus:\n  Installed: {self.installed}\n  Candidate: {self.candidate}\n"
+        if tool == "dpkg" and argv[1] == "--compare-versions":
+            newer = [int(p) for p in argv[2].split(".")] > [int(p) for p in argv[4].split(".")]
+            return (0 if newer else 1), ""
         if tool in ("mount", "umount", "mknod"):
             return 0, ""
         if tool == "chroot":
@@ -901,6 +910,50 @@ class UnitFileTest(unittest.TestCase):
         # With the default limit, six quick requests failed the path unit, and no
         # later request ran until it was restarted by hand.
         self.assertEqual(self.settings.get("StartLimitIntervalSec"), "0")
+
+
+class CheckTest(Base):
+    """image-job check, the daily read-only look at what is published (issue #861)."""
+
+    def published(self):
+        return json.loads((self.images / "published.json").read_text())
+
+    def test_names_the_newest_published_image_and_downloads_nothing_else(self):
+        self.host.urls[ij.DEFAULT_RELEASES_URL] = json.dumps([
+            {"tag_name": "v0.1.700"}, {"tag_name": "image-2026.09.12"}, {"tag_name": "image-2026.09.13"},
+        ]).encode()
+        self.assertEqual(self.runner.run_check(), 0)
+        doc = self.published()
+        self.assertEqual(doc["image"], "2026.09.13")
+        self.assertIsNone(doc["package"])
+        self.assertRegex(doc["checkedAt"], ij.DATETIME_RE)
+        self.assertEqual([c[-1] for c in self.host.ran("curl")], [ij.DEFAULT_RELEASES_URL])
+        self.assertEqual(self.host.ran("incus"), [])
+
+    def test_an_unreadable_release_list_writes_no_image(self):
+        self.assertEqual(self.runner.run_check(), 0)
+        self.assertIsNone(self.published()["image"])
+
+    def test_names_a_newer_package_only_when_apt_has_one(self):
+        self.host.candidate = "0.1.700"
+        self.runner.run_check()
+        self.assertEqual(self.published()["package"], {"installed": "0.1.695", "available": "0.1.700"})
+        self.host.candidate = "0.1.690"
+        self.runner.run_check()
+        self.assertIsNone(self.published()["package"])
+
+    def test_no_package_facts_off_an_apt_install(self):
+        self.host.installed = ""
+        self.host.candidate = "(none)"
+        self.runner.run_check()
+        self.assertIsNone(self.published()["package"])
+
+    def test_the_check_unit_runs_the_check_once_a_day(self):
+        units = Path(__file__).resolve().parents[2] / "systemd"
+        service = (units / "portikus-image-check.service").read_text()
+        timer = (units / "portikus-image-check.timer").read_text()
+        self.assertIn("ExecStart=/usr/lib/portikus/image-job check\n", service)
+        self.assertIn("OnCalendar=daily\n", timer)
 
 
 if __name__ == "__main__":

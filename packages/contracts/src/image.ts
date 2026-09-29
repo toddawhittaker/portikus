@@ -188,6 +188,53 @@ export const ImageHealth = z.object({
 });
 export type ImageHealth = z.infer<typeof ImageHealth>;
 
+/**
+ * `images/published.json`, rewritten once a day by `image-job check`
+ * (portikus-image-check.timer, issue #861). The check only reads the
+ * release list and apt's cache; it never downloads an image or upgrades.
+ */
+export const PublishedReleasesFile = z.object({
+	checkedAt: z.string().datetime(),
+	/** The newest published image; null when the release list could not be read. */
+	image: ImageVersion.nullable(),
+	/** Set only when apt's candidate for the portikus package is newer than the installed one. */
+	package: z
+		.object({
+			installed: z.string().min(1).max(100),
+			available: z.string().min(1).max(100),
+		})
+		.nullable(),
+});
+export type PublishedReleasesFile = z.infer<typeof PublishedReleasesFile>;
+
+function versionKey(version: ImageVersion): number[] {
+	const match = /^(\d{4})\.(\d{2})\.(\d+)(?:-local\.(\d{12}))?$/.exec(version);
+	if (!match) throw new Error(`not an image version: ${version}`);
+	return match.slice(1).map((part) => Number(part ?? 0));
+}
+
+/** Negative, zero or positive, ordered as the image job orders them: 2026.09.12 before its local builds. */
+export function compareImageVersions(a: ImageVersion, b: ImageVersion): number {
+	const left = versionKey(a);
+	const right = versionKey(b);
+	for (let i = 0; i < left.length; i++) {
+		const diff = (left[i] ?? 0) - (right[i] ?? 0);
+		if (diff !== 0) return diff;
+	}
+	return 0;
+}
+
+/** The published version when it is newer than every image on the server, else null. */
+export function newerPublishedImage(
+	published: ImageVersion | null,
+	onServer: readonly ImageVersion[],
+): ImageVersion | null {
+	if (published === null) return null;
+	return onServer.every((version) => compareImageVersions(published, version) > 0)
+		? published
+		: null;
+}
+
 // ---- API responses ----
 
 export const ImageJobView = z.object({
@@ -230,6 +277,8 @@ export const AdminImage = z.object({
 	otherWorkspaces: z.number().int().nonnegative(),
 	/** The queued or running job, else the most recent one. */
 	job: ImageJobView.nullable(),
+	/** A published image newer than every image on the server (issue #861). */
+	newerPublished: ImageVersion.nullable(),
 });
 export type AdminImage = z.infer<typeof AdminImage>;
 

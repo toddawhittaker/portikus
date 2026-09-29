@@ -47,7 +47,7 @@ export const ERROR_STATUS: Record<AgentErrorCode, number> = {
 
 /**
  * Turn a failure into a response body that never carries internal detail. An
- * unexpected error from a file route is INTERNAL rather than TMUX_FAILED,
+ * unexpected error from a file or project route is INTERNAL, not TMUX_FAILED,
  * which belongs to the terminal paths (SPEC.md §27).
  */
 export function sendError(
