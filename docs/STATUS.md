@@ -3503,8 +3503,9 @@ Delivered:
 - apt retention keeps the ten newest packages of the current major.minor
   line and the newest of each older line (PR #841). The signed index
   carries `Valid-Until` 30 days out, and a weekly scheduled run signs it
-  again unless it was signed less than 6 days before (PR #852). Clients
-  trust only the signed Release file (PR #853).
+  again unless it was signed less than 6 days before (PR #852). The test
+  and screenshot download helper, `packaging/tests/fetch-published-deb.sh`,
+  reads checksums only from gpgv's verified output (PR #853).
 - Docker is pinned to the overlay2 store on the workspace's Docker
   volume, and the image health check refuses an image without it (#840,
   PR #843).
@@ -3542,3 +3543,10 @@ Gaps:
   (BACKLOG.md).
 - The pin between two published versions is untested until the second
   release (BACKLOG.md).
+- After an apt upgrade from a release before 15.1, postinst restarts
+  the worker as `portikus-worker` before `portikus setup` loads the new
+  firewall rule, so until setup finishes the worker can reach ports 3000
+  and 5556 on loopback. This is no new exposure: the old worker ran as
+  `portikus`.
+- The loopback refusal tests probe only 127.0.0.1, not ::1 or the VM's
+  own address (BACKLOG.md).

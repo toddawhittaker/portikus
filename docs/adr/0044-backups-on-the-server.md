@@ -182,8 +182,8 @@ its queries use, listed in
 `sessions`, the preview, LTI or account-link tables, and only reading on
 `users`. So it cannot write a session or promote an account. The host
 firewall lets its account open loopback connections only to the
-controller, so it cannot reach the API or Dex except through Caddy, whose
-sign-in rate limit then applies to it like anyone else. It can still
+controller, and its unit denies every other address, so it cannot reach
+the API, Dex or Caddy at all. It can still
 write the channel requests below.
 
 A compromised API can:

@@ -1674,3 +1674,15 @@ it.
 to the previous published version.
 
 **Source.** Epic 15.1.
+
+## Probe the worker's refusals on every local address
+
+**What.** The install-test and smoke checks that the worker cannot reach
+the API or Dex probe only 127.0.0.1, not ::1 or the VM's own address.
+
+**Why.** A rule that holds on one address can have a gap on another.
+
+**What it would take.** Repeat the same probes against ::1 and the host's
+own address.
+
+**Source.** Epic 15.1 confirmation review.
