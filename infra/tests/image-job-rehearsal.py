@@ -261,17 +261,17 @@ def steps(args):
     heading("2. Fetch the newest published image")
     code, data = api.job({"kind": "fetch"})
     check("POST fetch returns 202", code == 202, f"{code} {data}")
-    busy, busy_body = api.job({"kind": "fetch", "version": "2026.09.16"})
+    busy, busy_body = api.job({"kind": "fetch", "version": "2099.09.16"})
     check("a second request while one waits or runs is refused (409)", busy == 409, f"{busy} {busy_body}")
     fetched, _ = api.wait(data["id"], 1800)
     print(f"      fetch -> {fetched['state']} {fetched['version']}: {fetched.get('message') or ''}")
     check("the fetch succeeded", fetched["state"] == "succeeded", fetched.get("message"), stop=True)
-    check("it took the newest in releases.json, 2026.09.13", fetched["version"] == "2026.09.13", fetched["version"])
-    check("2026.09.13 passed its health check", (health("2026.09.13") or {}).get("result") == "passed")
+    check("it took the newest in releases.json, 2099.09.13", fetched["version"] == "2099.09.13", fetched["version"])
+    check("2099.09.13 passed its health check", (health("2099.09.13") or {}).get("result") == "passed")
     check("the fetch did not change the default", api.image()["default"] == first)
 
     heading("3. A tampered download is refused")
-    for version, why in (("2026.09.14", "signature"), ("2026.09.15", "checksum")):
+    for version, why in (("2099.09.14", "signature"), ("2099.09.15", "checksum")):
         before = set(aliases())
         job = run_job(api, {"kind": "fetch", "version": version})
         check(f"{version} ({why} tampered) fails", job["state"] == "failed", job["state"])
@@ -370,7 +370,7 @@ def steps(args):
         ("an unknown kind", {"kind": "reboot"}, None),
         ("a Node choice off the list", {"kind": "build", "node": "18", "python": "debian"}, None),
         ("a Python choice off the list", {"kind": "build", "node": "24", "python": "3.12"}, None),
-        ("a version with shell in it", {"kind": "fetch", "version": "2026.09.13; touch /tmp/pwned"}, None),
+        ("a version with shell in it", {"kind": "fetch", "version": "2099.09.13; touch /tmp/pwned"}, None),
         ("a malformed version", {"kind": "activate", "version": "latest"}, None),
         ("an extra field", {"kind": "rollback", "command": "id"}, None),
         ("a file that is not JSON", None, "{not json"),
@@ -398,7 +398,7 @@ def steps(args):
     heading("10. The path unit stopped, and a job stopped mid-run")
     sh("systemctl", "stop", "portikus-image-job.path")
     try:
-        code, data = api.job({"kind": "fetch", "version": "2026.09.16"})
+        code, data = api.job({"kind": "fetch", "version": "2099.09.16"})
         check("with the path unit stopped the API still takes a request (202)", code == 202, f"{code} {data}")
         time.sleep(20)
         code, waiting = api.call("GET", f"/admin/image/jobs/{data['id']}")
@@ -409,8 +409,8 @@ def steps(args):
     view, _ = api.wait(data["id"], 1800)
     check("started again, the path unit runs the waiting fetch", view["state"] == "succeeded", view)
 
-    code, data = api.job({"kind": "fetch", "version": "2026.09.17"})
-    check("fetch 2026.09.17 is accepted", code == 202, f"{code} {data}", stop=True)
+    code, data = api.job({"kind": "fetch", "version": "2099.09.17"})
+    check("fetch 2099.09.17 is accepted", code == 202, f"{code} {data}", stop=True)
     api.wait(data["id"], 300, until=("running",))
     time.sleep(3)
     sh("systemctl", "stop", "portikus-image-job.service")
@@ -419,14 +419,14 @@ def steps(args):
           view["state"] == "failed" and "stopped before it finished" in (view.get("message") or ""), view)
     check("no work directory is left after the stop",
           not [n for n in os.listdir(IMAGES) if n.startswith(".work-")])
-    retry = run_job(api, {"kind": "fetch", "version": "2026.09.17"})
+    retry = run_job(api, {"kind": "fetch", "version": "2099.09.17"})
     check("a retry of the stopped fetch succeeds", retry["state"] == "succeeded", retry.get("message"))
 
     heading("11. Prune")
     known = {n[len("portikus-"):] for n in aliases() if n.startswith("portikus-") and n != "portikus-previous"}
     on_disk = {n for n in os.listdir(IMAGES) if n[:1].isdigit()}
     print(f"      images now: {sorted(known)}; store: {sorted(on_disk)}")
-    keep = {first, local, "2026.09.13", "2026.09.16", "2026.09.17"}
+    keep = {first, local, "2099.09.13", "2099.09.16", "2099.09.17"}
     check(f"the broken build {bad} was pruned from Incus", bad not in known)
     check("and from the image store", bad not in on_disk)
     check("the default, the previous, the two newest candidates and the new one are kept",

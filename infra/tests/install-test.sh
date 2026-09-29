@@ -273,15 +273,20 @@ make_releases() {
   fetch_image || return
   rm -rf "${SERVE}/images"
   release "$RECIPE_VERSION"
+  # A published first package may name an older image, which then stays the
+  # default through the upgrade; serve it under that version too.
+  dpkg-deb --fsys-tarfile "${LOGS}/v1.deb" | tar -xO ./usr/share/portikus/workspace-image/VERSION >"${LOGS}/first-image.version"
+  [ "$(cat "${LOGS}/first-image.version")" = "$RECIPE_VERSION" ] || release "$(cat "${LOGS}/first-image.version")"
   # Two published releases the newest-fetch sees, then ones the image
-  # rehearsal fetches by version: two tampered, and two for pruning.
-  release 2026.09.13
-  release 2026.09.14 bad-signature
-  release 2026.09.15 bad-checksum
-  release 2026.09.16
-  release 2026.09.17
+  # rehearsal fetches by version: two tampered, and two for pruning.  Year
+  # 2099 keeps them newer than, and never equal to, the recipe's version.
+  release 2099.09.13
+  release 2099.09.14 bad-signature
+  release 2099.09.15 bad-checksum
+  release 2099.09.16
+  release 2099.09.17
   # The shape of GitHub's releases API, which the image job reads.
-  printf '[{"tag_name":"v0.1.1"},{"tag_name":"image-2026.09.13"},{"tag_name":"image-%s"}]\n' "$RECIPE_VERSION" \
+  printf '[{"tag_name":"v0.1.1"},{"tag_name":"image-2099.09.13"},{"tag_name":"image-%s"}]\n' "$RECIPE_VERSION" \
     >"${SERVE}/images/releases.json"
   local d
   for d in "${SERVE}"/images/image-*; do
@@ -583,7 +588,7 @@ EOF
 
 image_jobs() {
   scp -q -o BatchMode=yes "${ROOT}/infra/tests/image-job-rehearsal.py" "deploy@${IP}:/tmp/image-job-rehearsal.py"
-  vm "sudo python3 /tmp/image-job-rehearsal.py --public-host ${PUBLIC_HOST} --recipe-version ${RECIPE_VERSION}"
+  vm "sudo python3 /tmp/image-job-rehearsal.py --public-host ${PUBLIC_HOST} --recipe-version $(cat "${LOGS}/first-image.version")"
 }
 
 # ── 10 and 11: backups on the server, and a rebuild from them ─────
