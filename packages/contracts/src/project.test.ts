@@ -14,6 +14,7 @@ import {
 	ProjectTemplate,
 	ProjectTemplateList,
 	parseProjectTemplates,
+	projectNameFromRepository,
 	SplitNode,
 	slugify,
 	UpdateProjectRequest,
@@ -452,4 +453,67 @@ test("displayNameFromDirectory falls back to the directory name and fits the fie
 	expect(displayNameFromDirectory("")).toBe("");
 	const long = displayNameFromDirectory(`${"a".repeat(62)}-b`);
 	expect(long.length).toBeLessThanOrEqual(MAX_PROJECT_NAME_LENGTH);
+});
+
+test("a clone's name comes from the README's first heading, formatting removed (#846)", () => {
+	expect(
+		projectNameFromRepository({
+			readme:
+				"Intro line\n\n```\n# not a heading\n```\n\n## **IPEDS** [Oracle](https://x.y) ##\n",
+		}),
+	).toBe("IPEDS Oracle");
+	expect(projectNameFromRepository({ readme: "# `todo` _app_ <img src=x>\n" })).toBe(
+		"todo app",
+	);
+});
+
+test("without a README heading the name falls back to package.json, then pyproject.toml", () => {
+	expect(
+		projectNameFromRepository({
+			readme: "no heading\n",
+			packageJson: JSON.stringify({ name: "todo-api", displayName: "Todo API" }),
+		}),
+	).toBe("Todo API");
+	expect(projectNameFromRepository({ packageJson: '{"name":"@me/todo-api"}' })).toBe(
+		"Todo Api",
+	);
+	expect(
+		projectNameFromRepository({
+			packageJson: "not json",
+			pyproject: '[build-system]\nname = "no"\n[project]\nname = "grade_book"\n',
+		}),
+	).toBe("Grade Book");
+	expect(
+		projectNameFromRepository({ pyproject: '[tool.poetry]\nname = "calc"\n' }),
+	).toBe("Calc");
+	expect(
+		projectNameFromRepository({ readme: "#\n", packageJson: "[]" }),
+	).toBeUndefined();
+	expect(projectNameFromRepository({})).toBeUndefined();
+});
+
+test("a very long heading is trimmed to the name limit at a word break", () => {
+	const name = projectNameFromRepository({ readme: `# ${"word ".repeat(40)}\n` });
+	expect(name?.length).toBeLessThanOrEqual(MAX_PROJECT_NAME_LENGTH);
+	expect(name?.endsWith("word")).toBe(true);
+	const solid = projectNameFromRepository({ readme: `# ${"x".repeat(200)}\n` });
+	expect(solid).toBe("x".repeat(MAX_PROJECT_NAME_LENGTH));
+});
+
+test("CreateProjectRequest allows nameFromRepository only for a clone", () => {
+	expect(
+		CreateProjectRequest.safeParse({
+			name: "Demo",
+			source: "clone",
+			url: "https://github.com/a/b.git",
+			nameFromRepository: true,
+		}).success,
+	).toBe(true);
+	expect(
+		CreateProjectRequest.safeParse({
+			name: "Demo",
+			source: "new",
+			nameFromRepository: true,
+		}).success,
+	).toBe(false);
 });

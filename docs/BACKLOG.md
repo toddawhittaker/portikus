@@ -233,20 +233,6 @@ message. Half a day.
 
 **Source.** `docs/STATUS.md`, Epic 7.
 
-## Markdown relative images through the file route
-
-**What.** Render an image a Markdown file refers to by a relative path.
-
-**Why.** A README that shows a screenshot from the repository renders a
-broken image today, because the browser resolves the path against the app's
-origin rather than the project.
-
-**What it would take.** Rewrite relative image sources in the preview to the
-existing file download route for that project, and refuse anything that is
-not a relative path. Half a day.
-
-**Source.** `docs/STATUS.md`, Epic 7.
-
 ## Compare against a recovery point or another ref
 
 **What.** Diff the working tree against a recovery point (SPEC.md section
@@ -432,25 +418,6 @@ including tests.
 
 **Source.** `docs/STATUS.md`, Epic 7.1.
 
-## Relative Markdown image paths resolve against the workspace, not the app origin
-
-**What.** A relative image path in a Markdown file (for example
-`![diagram](./diagram.png)`) should resolve against that file's location
-in the project, the way a browser resolves a relative link on a normal
-page, instead of against the web app's own origin.
-
-**Why.** The rich Markdown view now renders images from an allowlisted
-address, but a relative path is handed to the browser unchanged, so it
-resolves against `https://<app host>/...` rather than the file's own
-folder, and the image shows as broken.
-
-**What it would take.** Rewrite a relative image address to the
-workspace's file-read route for that project and path before handing it
-to the renderer, the way the file tree already builds download links.
-About half a day, including tests for a nested-folder Markdown file.
-
-**Source.** `docs/STATUS.md`, Epic 7.1.
-
 ## Remote browser for loopback OAuth callbacks
 
 **What.** A browser that Portikus runs on the server, sharing only the
@@ -621,23 +588,6 @@ fetch metadata at all once every supported browser sends it. Half a day
 of research, then a day to build.
 
 **Source.** Epic 8 security review; `docs/STATUS.md`, Epic 8 known gaps.
-
-## Zip-slip tests for archive extraction
-
-**What.** Traversal tests for any code path that extracts an archive a
-student provides, checking that an entry named like `../../etc/passwd`
-or an absolute path cannot write outside the intended directory.
-
-**Why.** Epic 12a's filesystem escape suite covers every path a student
-can name directly. Epic 10's recovery restore now extracts an archive,
-and its tests cover symlinks, but no test yet feeds it an archive with a
-hostile entry name. Epic 12b did not add one.
-
-**What it would take.** Add traversal and absolute-path entries to the
-tests of `apps/workspace-agent/src/recovery.ts`, following the pattern in
-`apps/workspace-agent/src/security/path-escape.test.ts`. Half a day.
-
-**Source.** `docs/archive/epics/EPIC-12A.md`, decisions; `docs/STATUS.md`, Epic 12a.
 
 ## Optional content-length on downloads
 
@@ -1375,16 +1325,6 @@ agent; the terminals unit's cap does not cover them.
 
 **What it would take.** A pids limit for the Docker daemon's containers,
 set in the image. About a day with a rehearsal.
-
-**Source.** Left out of Epic 16.
-
-## `INTERNAL` instead of `TMUX_FAILED` for other project route errors
-
-**What.** Project routes report errors other than a full disk as
-`TMUX_FAILED`, which is the wrong code for them.
-
-**What it would take.** Change the fallback in the agent's project routes
-and their tests. Under a day.
 
 **Source.** Left out of Epic 16.
 

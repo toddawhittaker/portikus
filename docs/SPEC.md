@@ -592,6 +592,37 @@ For a new project, `git init` should be the default behavior because source cont
 
 If Portikus opens an existing project that is not a Git repository, the UI must identify that state clearly and offer an **Initialize Git** action. Initialization must invoke real Git and must not create hidden commits. A new project initialised with Git starts with a default `.gitignore` covering secrets, dependency directories, build output and local databases; it is left untracked, and a project that already has one keeps it.
 
+Every repository Portikus initializes starts on branch `main`
+(`git init --initial-branch=main`); a clone keeps the branches it has.
+Choosing the initial branch name is part of creating the repository, so it
+does not conflict with §12.5.
+
+Portikus keeps working files, such as pasted images, under `.portikus/` in
+the project. Git ignores them with these lines, which keep
+`.portikus/checks.json` and `.portikus/README.md` as project content:
+
+```gitignore
+.portikus/*
+!.portikus/checks.json
+!.portikus/README.md
+```
+
+A new project's default `.gitignore` carries them. A repository that
+already has its own `.gitignore` (a clone, a template that ships one, or a
+folder given Initialize Git) gets them in `.git/info/exclude` instead,
+because the platform never edits a student's tracked files. A new project
+and a new project from a template also get `.portikus/README.md`, which
+explains checks (§18.1) to the student and to coding agents; an existing
+README there is never overwritten.
+
+When a repository is cloned, the dialog first suggests the folder name read
+as a title (`ipeds-oracle` reads "Ipeds Oracle"). Unless the student types
+their own name, the project then takes the name the repository gives
+itself: the README's first Markdown heading with its formatting removed,
+else `displayName` or `name` in `package.json`, else `name` in
+`pyproject.toml`, trimmed to the name limit. The folder keeps the slug of
+the name the dialog sent, so only the displayed name changes.
+
 ### 7.3 Project operations
 
 P0:
@@ -1953,6 +1984,10 @@ Requirements:
 - command output must remain visible to the student, preferably in an ordinary terminal or a terminal-backed check surface;
 - Portikus must present an understandable running/pass/fail result without hiding the actual command or output;
 - templates may provide check definitions;
+- checks live in `.portikus/checks.json`, which Git tracks (§7.2); a new
+  project gets a `.portikus/README.md` that explains the format with an
+  example that must stay a valid checks file, and no check is written for
+  it;
 - projects without configured checks must remain usable;
 - an agent may run the same commands directly, and resulting state should be reflected when practical;
 - test execution must obey ordinary workspace resource limits.

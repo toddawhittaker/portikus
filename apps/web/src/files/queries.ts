@@ -6,7 +6,7 @@
  * the etag the browser last read so stale content cannot overwrite a newer
  * file on disk.
  */
-import { TreeResponse, WriteFileResponse } from "@portikus/contracts";
+import { ExtractResponse, TreeResponse, WriteFileResponse } from "@portikus/contracts";
 import {
 	type UseMutationResult,
 	useMutation,
@@ -51,6 +51,20 @@ export function fileDownloadUrl(
 	path: string,
 ): string {
 	return `${fileUrl(workspaceId, projectId, path)}&download=1`;
+}
+
+/**
+ * The same file as an image or PDF the page can show (#816). `version`, the
+ * file's etag, makes a changed file a new address, so the browser reloads it.
+ */
+export function fileInlineUrl(
+	workspaceId: string,
+	projectId: string,
+	path: string,
+	version?: string,
+): string {
+	const inline = `${fileUrl(workspaceId, projectId, path)}&inline=1`;
+	return version ? `${inline}&v=${encodeURIComponent(version)}` : inline;
 }
 
 /**
@@ -114,6 +128,8 @@ export interface FileMutations {
 		Error,
 		{ path: string; file: File; replace?: boolean }
 	>;
+	/** "Extract here" on a zip; resolves to the new folder (issue #817). */
+	extract: UseMutationResult<ExtractResponse, Error, string>;
 	pending: boolean;
 }
 
@@ -252,12 +268,26 @@ export function useFileMutations(
 		onSuccess: (_data, { path }) => invalidate(parentOf(path)),
 	});
 
+	// Left out of `pending`: a large zip takes minutes, and the tree's
+	// dialogs need not wait for it.
+	const extract = useMutation({
+		mutationKey,
+		mutationFn: (path: string) =>
+			request(ExtractResponse, `${base(workspaceId, projectId)}/extract`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ path }),
+			}),
+		onSuccess: (_data, path) => invalidate(parentOf(path)),
+	});
+
 	return {
 		createFile,
 		createDirectory,
 		move,
 		remove,
 		upload,
+		extract,
 		pending:
 			createFile.isPending ||
 			createDirectory.isPending ||
