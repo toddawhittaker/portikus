@@ -3550,3 +3550,17 @@ Gaps:
   `portikus`.
 - The loopback refusal tests probe only 127.0.0.1, not ::1 or the VM's
   own address (BACKLOG.md).
+
+## Epic 15.2 — Pilot fixes
+
+Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot fixes".
+
+- Project setup (T5, #846, #847, #856, #857): a clone takes the name its
+  README heading or package file gives it; repositories Portikus creates
+  start on `main`; `.portikus/` working files are ignored except
+  `checks.json` and `README.md`, through `.gitignore` for new projects and
+  `.git/info/exclude` otherwise; new projects get `.portikus/README.md`
+  explaining checks. Unexpected project route errors are now `INTERNAL`.
+  Gap: the exclude lines and the README are not yet added on the first
+  file write under `.portikus/` in an older project, because that write
+  goes through the file routes.

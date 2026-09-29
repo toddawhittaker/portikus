@@ -7,6 +7,7 @@ import {
 	mkdir,
 	mkdtemp,
 	readdir,
+	readFile,
 	realpath,
 	rename,
 	rm,
@@ -22,7 +23,13 @@ import {
 	CloneUrl,
 	MAX_DOWNLOAD_BYTES,
 	PROJECT_SLUG_PATTERN,
+	projectNameFromRepository,
 } from "@portikus/contracts";
+import {
+	excludePortikusFiles,
+	PORTIKUS_IGNORE_LINES,
+	writePortikusReadme,
+} from "./project-files.js";
 import { AgentFailure } from "./tmux.js";
 
 const run = promisify(execFile);
@@ -235,18 +242,56 @@ htmlcov/
 
 # Local Docker overrides
 docker-compose.override.yml
+
+# Portikus working files; checks.json and README.md belong to the project
+${PORTIKUS_IGNORE_LINES.join("\n")}
 `;
 
-/** Write the default .gitignore, unless the project already has one. */
+/**
+ * Write the default .gitignore, unless the project already has one. Then
+ * the Portikus ignore lines go to .git/info/exclude instead, so the
+ * project's own file is never edited (#856).
+ */
 async function writeDefaultGitignore(path: string): Promise<void> {
 	const file = join(path, ".gitignore");
 	try {
 		await access(file);
-		return;
 	} catch {
-		// No .gitignore yet, so the default is welcome.
+		await writeFile(file, DEFAULT_GITIGNORE);
+		return;
 	}
-	await writeFile(file, DEFAULT_GITIGNORE);
+	await excludePortikusFiles(path);
+}
+
+/** Start a repository on main, never master (#847). No commit is made. */
+async function gitInit(path: string): Promise<void> {
+	await git(["init", "--initial-branch=main"], path);
+}
+
+/** The largest file read to find a cloned repository's name. */
+const NAME_FILE_LIMIT = 64 * 1024;
+
+/** A regular file's text, or undefined; symlinks are never followed. */
+async function readSmallFile(path: string): Promise<string | undefined> {
+	try {
+		const info = await lstat(path);
+		if (!info.isFile() || info.size > NAME_FILE_LIMIT) return undefined;
+		return await readFile(path, "utf8");
+	} catch {
+		return undefined;
+	}
+}
+
+/** The name a freshly cloned repository gives itself (#846). */
+async function suggestName(dir: string): Promise<string | undefined> {
+	const readme = (await readdir(dir)).find((name) =>
+		/^readme(\.(md|markdown))?$/i.test(name),
+	);
+	return projectNameFromRepository({
+		readme: readme === undefined ? undefined : await readSmallFile(join(dir, readme)),
+		packageJson: await readSmallFile(join(dir, "package.json")),
+		pyproject: await readSmallFile(join(dir, "pyproject.toml")),
+	});
 }
 
 export interface CreateProjectInput {
@@ -270,9 +315,10 @@ export async function createProject(
 	if (input.source === "new") {
 		await mkdir(target.path);
 		if (input.gitInit) {
-			await git(["init"], target.path);
+			await gitInit(target.path);
 			await writeDefaultGitignore(target.path);
 		}
+		await writePortikusReadme(target.path);
 		return { slug: input.slug, isGitRepo: input.gitInit };
 	}
 
@@ -282,21 +328,31 @@ export async function createProject(
 	}
 
 	const temporary = join(root, `${TEMPORARY_PREFIX}${randomBytes(8).toString("hex")}`);
+	let suggestedName: string | undefined;
 	try {
 		await git(["clone", "--", input.url, temporary], root, CLONE_TIMEOUT_MS);
 		if (input.source === "template") {
 			// A template becomes a fresh project with no upstream history.
 			await rm(join(temporary, ".git"), { recursive: true, force: true });
-			await git(["init"], temporary);
+			await gitInit(temporary);
 			// A template that ships its own .gitignore keeps it.
 			await writeDefaultGitignore(temporary);
+			await writePortikusReadme(temporary);
+		} else {
+			// A clone's tracked files are the student's; only .git/info changes.
+			await excludePortikusFiles(temporary);
+			suggestedName = await suggestName(temporary);
 		}
 		await rename(temporary, target.path);
 	} catch (error) {
 		await rm(temporary, { recursive: true, force: true });
 		throw error;
 	}
-	return { slug: input.slug, isGitRepo: true };
+	return {
+		slug: input.slug,
+		isGitRepo: true,
+		...(suggestedName === undefined ? {} : { suggestedName }),
+	};
 }
 
 /**
@@ -386,7 +442,7 @@ export async function gitInitProject(
 		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
 	}
 	if (!(await isGitRepo(target.path))) {
-		await git(["init"], target.path);
+		await gitInit(target.path);
 		await writeDefaultGitignore(target.path);
 	}
 	return { slug, isGitRepo: true };

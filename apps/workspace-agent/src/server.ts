@@ -390,7 +390,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			try {
 				return { projects: await listProjects(options.homeDir) };
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 		});
 
@@ -399,7 +399,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			try {
 				return await getProject(slug, options.homeDir);
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 		});
 
@@ -421,7 +421,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				);
 				return reply.code(201).send(project);
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 		});
 
@@ -430,7 +430,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			try {
 				await deleteProject(slug, options.homeDir);
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 			request.log.info({ slug, operation: "delete" }, "project deleted");
 			return reply.code(204).send();
@@ -452,7 +452,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				);
 				return project;
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 		});
 
@@ -472,7 +472,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				);
 				return project;
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 		});
 
@@ -483,7 +483,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				request.log.debug({ slug, operation: "git-init" }, "project operation");
 				return project;
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "INTERNAL");
 			}
 		});
 

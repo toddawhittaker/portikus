@@ -194,7 +194,8 @@ test.describe("projects", () => {
 		await startCreate(page, "Clone repository");
 		await page.getByTestId("field-url").fill("https://github.com/user/todo-api");
 
-		await expect(page.getByTestId("field-name")).toHaveValue("todo-api");
+		// The folder name read as a title, while the folder stays todo-api (#846).
+		await expect(page.getByTestId("field-name")).toHaveValue("Todo Api");
 		await expect(page.getByTestId("slug-preview")).toHaveText("~/projects/todo-api");
 
 		// The known hosts get the .git suffix added before the request is sent.
@@ -206,6 +207,66 @@ test.describe("projects", () => {
 		expect(JSON.parse((await request).postData() ?? "{}").url).toBe(
 			"https://github.com/user/todo-api.git",
 		);
+	});
+
+	test("a clone takes the name its README heading gives it", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await page.goto(workspacePath(student.workspaceId));
+
+		await startCreate(page, "Clone repository");
+		// The fake agent's clone of a url with "readme" in it has the README
+		// heading "# The **Fixture** Repository".
+		await page.getByTestId("field-url").fill("https://example.com/readme-repo.git");
+		await expect(page.getByTestId("field-name")).toHaveValue("Readme Repo");
+		await page.getByTestId("dialog-confirm").click();
+
+		const [projectId] = await waitForProjectIds(student.workspaceId, 1);
+		if (!projectId) throw new Error("no project row was created");
+		await expect(page.getByTestId(`project-item-${projectId}`)).toContainText(
+			"The Fixture Repository",
+		);
+		const [row] = await query<{ slug: string; name: string }>(
+			"select slug, name from projects where id = $1",
+			[projectId],
+		);
+		expect(row).toEqual({ slug: "readme-repo", name: "The Fixture Repository" });
+	});
+
+	test("a clone keeps a name the student typed", async ({ page, context }) => {
+		const student = await createStudent(context);
+		await page.goto(workspacePath(student.workspaceId));
+
+		await startCreate(page, "Clone repository");
+		await page.getByTestId("field-url").fill("https://example.com/readme-repo.git");
+		await page.getByTestId("field-name").fill("My Own Name");
+		await page.getByTestId("dialog-confirm").click();
+
+		const [projectId] = await waitForProjectIds(student.workspaceId, 1);
+		if (!projectId) throw new Error("no project row was created");
+		await expect(page.getByTestId(`project-item-${projectId}`)).toContainText(
+			"My Own Name",
+		);
+	});
+
+	test("a new project starts on main", async ({ page, context }) => {
+		const student = await createStudent(context);
+		await page.goto(workspacePath(student.workspaceId));
+
+		await startCreate(page, "New project");
+		await page.getByTestId("field-name").fill("Branch Check");
+		await page.getByTestId("dialog-confirm").click();
+		const [projectId] = await waitForProjectIds(student.workspaceId, 1);
+		if (!projectId) throw new Error("no project row was created");
+
+		await page.goto(workspacePath(student.workspaceId, projectId));
+		// #847: main, never master. The files a new project gets are covered by
+		// the agent's tests against real Git; the fake agent does not write them.
+		await expect(page.getByTestId("git-status")).toContainText("main", {
+			timeout: 15_000,
+		});
 	});
 
 	test("a clone that fails explains itself and leaves no project", async ({
