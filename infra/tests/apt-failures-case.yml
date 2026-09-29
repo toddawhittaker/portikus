@@ -1,0 +1,29 @@
+---
+# One case of apt-failures-test.yml: the base role's decision on the case's
+# apt-get output, accepted or refused as expected.
+- name: Try {{ apt_case.name }}
+  block:
+    - name: Decide on the apt output for {{ apt_case.name }}
+      ansible.builtin.include_tasks: ../ansible/roles/base/tasks/apt_failures.yml
+      vars:
+        base_apt_update:
+          rc: "{{ apt_case.rc }}"
+          stdout: "{{ apt_case.stdout }}"
+          stderr: "{{ apt_case.stderr }}"
+          stdout_lines: "{{ apt_case.stdout.splitlines() }}"
+          stderr_lines: "{{ apt_case.stderr.splitlines() }}"
+
+    - name: Note that it was accepted, for {{ apt_case.name }}
+      ansible.builtin.set_fact:
+        apt_case_accepted: true
+  rescue:
+    - name: Note that it was refused, for {{ apt_case.name }}
+      ansible.builtin.set_fact:
+        apt_case_accepted: false
+
+- name: Require the expected answer for {{ apt_case.name }}
+  ansible.builtin.assert:
+    that:
+      - apt_case_accepted == apt_case.accept
+    fail_msg: "{{ apt_case.name }} was {{ 'accepted' if apt_case_accepted else 'refused' }}."
+    success_msg: "{{ apt_case.name }}: {{ 'accepted' if apt_case_accepted else 'refused' }}, as expected."

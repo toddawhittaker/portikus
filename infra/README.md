@@ -186,11 +186,12 @@ separate build step on the VM, and the VM has no build toolchain.
 
 **How a release is produced.** A release is published when an epic branch
 merges into `main`, or by running the Release workflow by hand from `main`.
-It builds the package and publishes it as a GitHub release with two
-assets: the package and a `SHA256SUMS` file holding its checksum.
+It builds the package, adds it to the signed apt repository at
+`https://toddawhittaker.github.io/portikus/apt` (docs/SPEC.md section
+21.13), and creates a tagged GitHub release with notes but no files.
 The version is derived from the repository and looks like `0.1.123+gabc1234`:
-the release number, the commit count, and the short commit hash. The package
-asset is named `portikus_<version>_amd64.deb`.
+the release number, the commit count, and the short commit hash. The
+repository keeps the ten newest packages.
 
 **How a version is deployed.** Run:
 
@@ -198,12 +199,13 @@ asset is named `portikus_<version>_amd64.deb`.
 make configure-vm
 ```
 
-Ansible asks GitHub for the newest release, downloads that release's
-`SHA256SUMS` file and its `.deb` asset to `/var/cache/portikus`, checks the
-package against the checksum from `SHA256SUMS`, and installs it. Nothing in
-the repository has to be edited to deploy a new release. The checksum is
-what makes the install reproducible: a version string only names an asset,
-while the checksum guarantees the bytes that get installed.
+Ansible adds the Portikus apt repository to the VM exactly as
+docs/INSTALL.md tells an administrator to, with the committed key
+`packaging/portikus-archive-keyring.asc` as the only key that may sign it.
+It then installs the newest version the repository offers, by its exact
+version. apt checks the repository's signature and the package's checksum,
+so the bytes installed are the ones the release job signed. Nothing in the
+repository has to be edited to deploy a new release.
 
 **How to roll back.** Run:
 
@@ -211,20 +213,21 @@ while the checksum guarantees the bytes that get installed.
 make configure-vm PORTIKUS_VERSION=<previous-version>
 ```
 
-That installs exactly that release instead of the newest one, with its own
-checksum from the same release. The install task allows downgrades, so this
-replaces the running version with the older one. The override is not
-recorded anywhere, so the next plain `make configure-vm` rolls forward
-again; revert or fix the bad commit rather than leaving a host pinned by
-hand.
+That installs exactly that version instead of the newest one. The install
+task allows downgrades, so this replaces the running version with the older
+one. The override is not recorded anywhere, so the next plain
+`make configure-vm` rolls forward again; revert or fix the bad commit rather
+than leaving a host pinned by hand.
 
 If the control plane is broken badly enough that you cannot run Ansible,
 install the older package on the VM by hand:
 
 ```
-gh release download v<previous-version> -p '*.deb'
-sudo apt-get install -y --allow-downgrades ./portikus_<previous-version>_amd64.deb
+sudo apt-get update
+sudo apt-get install -y --allow-downgrades portikus=<previous-version>
 ```
+
+`apt-cache madison portikus` lists the versions the repository still holds.
 
 **Testing a branch on a fresh VM.** A branch has no published release, so
 build the package and hand Ansible the file:

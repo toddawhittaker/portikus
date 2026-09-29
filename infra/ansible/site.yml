@@ -87,8 +87,10 @@
     portikus_node: /usr/lib/portikus/node/bin/node
 
     # ── Portikus control-plane services ───────────────────────────
-    # Empty means install the newest GitHub release.  Set
-    # PORTIKUS_VERSION=<ver> to roll back to an older release.
+    # The signed apt repository (docs/SPEC.md section 21.13).
+    portikus_apt_url: https://toddawhittaker.github.io/portikus/apt
+    # Empty means install the newest package in the apt repository.  Set
+    # PORTIKUS_VERSION=<ver> to roll back to an older one.
     # See "Release and rollback" in infra/README.md.
     portikus_version: "{{ lookup('env', 'PORTIKUS_VERSION') }}"
     # A path on the Ansible host to a locally built .deb, for testing a

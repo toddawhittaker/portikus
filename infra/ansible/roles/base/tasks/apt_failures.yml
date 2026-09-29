@@ -1,0 +1,23 @@
+---
+# Decides from base_apt_update, an `apt-get update` result, whether the run
+# can go on.  infra/tests/apt-failures-test.yml tries it with recorded output.
+- name: Collect the repositories apt could not refresh
+  ansible.builtin.set_fact:
+    base_apt_failures: >-
+      {{ (base_apt_update.stdout_lines + base_apt_update.stderr_lines)
+         | select('match', '^(Err:|E:|Error:|W: Failed to fetch|Warning: Failed to fetch)') | list }}
+
+- name: Fail when a repository other than Portikus failed
+  ansible.builtin.fail:
+    msg: "apt could not refresh its package index: {{ (base_apt_failures | join(' ')) or base_apt_update.stderr }}"
+  when: >-
+    (base_apt_failures | reject('search', portikus_apt_url | regex_escape) | list | length > 0)
+    or (base_apt_update.rc != 0 and base_apt_failures | length == 0)
+
+- name: Warn that the Portikus repository could not be refreshed
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: the Portikus apt repository ({{ portikus_apt_url }}) could not be
+      refreshed, so apt will not see new Portikus releases until it can.
+      Setup goes on, since it installs nothing from it.
+  when: base_apt_failures | length > 0
