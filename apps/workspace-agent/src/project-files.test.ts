@@ -283,3 +283,83 @@ test("an unexpected project route error is INTERNAL, not TMUX_FAILED", async () 
 	expect(response.json().error.code).toBe("INTERNAL");
 	await rm(projectsRoot, { force: true });
 });
+
+function put(slug: string, path: string, body: string) {
+	return app.inject({
+		method: "PUT",
+		url: `/projects/${slug}/file?path=${encodeURIComponent(path)}`,
+		headers: {
+			authorization: `Bearer ${TOKEN}`,
+			"if-none-match": "*",
+			"content-type": "text/plain",
+		},
+		payload: body,
+	});
+}
+
+/** A project made before #868: a repository with its own .gitignore and no exclude lines. */
+async function olderRepo(slug: string): Promise<string> {
+	const dir = join(projectsRoot, slug);
+	await mkdir(dir, { recursive: true });
+	await run("git", ["init", "-q"], { cwd: dir, env: GIT_ENV });
+	await writeFile(join(dir, ".gitignore"), "node_modules/\n");
+	await rm(join(dir, ".git", "info", "exclude"), { force: true });
+	return dir;
+}
+
+test.skipIf(!haveGit)(
+	"an older repository gets the exclude lines on its first write under .portikus",
+	async () => {
+		const dir = await olderRepo("older");
+		for (const path of [".portikus", ".portikus/pastes"]) {
+			expect((await post("/projects/older/mkdir", { path })).statusCode).toBe(201);
+		}
+		expect((await put("older", ".portikus/pastes/one.png", "png")).statusCode).toBe(
+			200,
+		);
+		expect((await put("older", ".portikus/checks.json", "{}")).statusCode).toBe(200);
+
+		const { stdout } = await run(
+			"git",
+			["status", "--porcelain", "--untracked-files=all"],
+			{
+				cwd: dir,
+			},
+		);
+		expect(stdout).toContain(".portikus/checks.json");
+		expect(stdout).not.toContain("pastes");
+		expect(await ignored(dir, PORTIKUS_PATHS)).toEqual([".portikus/pastes/one.png"]);
+		expect(await readFile(join(dir, ".gitignore"), "utf8")).toBe("node_modules/\n");
+
+		const exclude = await readFile(join(dir, ".git", "info", "exclude"), "utf8");
+		expect(exclude.split("\n").filter((line) => line === ".portikus/*")).toHaveLength(
+			1,
+		);
+		// No README on these writes; that is for new projects only (#857).
+		await expect(readFile(join(dir, ".portikus", "README.md"))).rejects.toThrow();
+	},
+);
+
+test.skipIf(!haveGit)(
+	"a write outside .portikus leaves the exclude file alone",
+	async () => {
+		const dir = await olderRepo("plainwrite");
+		expect((await put("plainwrite", "notes.txt", "hi")).statusCode).toBe(200);
+		await expect(readFile(join(dir, ".git", "info", "exclude"))).rejects.toThrow();
+	},
+);
+
+test("a project that is not a Git repository is left alone", async () => {
+	const dir = join(projectsRoot, "nogit");
+	await mkdir(join(dir, ".portikus"), { recursive: true });
+	expect((await put("nogit", ".portikus/checks.json", "{}")).statusCode).toBe(200);
+	await expect(readFile(join(dir, ".git"))).rejects.toThrow();
+});
+
+test.skipIf(!haveGit)("a failed exclude update does not fail the write", async () => {
+	const dir = await olderRepo("broken");
+	await rm(join(dir, ".git", "info"), { recursive: true, force: true });
+	await writeFile(join(dir, ".git", "info"), "not a directory");
+	await mkdir(join(dir, ".portikus"));
+	expect((await put("broken", ".portikus/checks.json", "{}")).statusCode).toBe(200);
+});

@@ -616,7 +616,9 @@ the project. Git ignores them with these lines, which keep
 A new project's default `.gitignore` carries them. A repository that
 already has its own `.gitignore` (a clone, a template that ships one, or a
 folder given Initialize Git) gets them in `.git/info/exclude` instead,
-because the platform never edits a student's tracked files. A new project
+because the platform never edits a student's tracked files. A project
+made before these lines existed gets them in `.git/info/exclude` the
+first time the platform writes anything under `.portikus/`. A new project
 and a new project from a template also get `.portikus/README.md`, which
 explains checks (§18.1) to the student and to coding agents; an existing
 README there is never overwritten.

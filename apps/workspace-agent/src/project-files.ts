@@ -88,6 +88,24 @@ export async function excludePortikusFiles(projectPath: string): Promise<void> {
 }
 
 /**
+ * Called after a write at `relPath`: an older Git project gets the exclude
+ * lines the first time Portikus writes under `.portikus/` (#856). A project
+ * without a `.git` directory is left alone.
+ */
+export async function excludeOnPortikusWrite(
+	projectPath: string,
+	relPath: string,
+): Promise<void> {
+	if (relPath !== ".portikus" && !relPath.startsWith(".portikus/")) return;
+	try {
+		if (!(await lstat(join(projectPath, ".git"))).isDirectory()) return;
+	} catch {
+		return;
+	}
+	await excludePortikusFiles(projectPath);
+}
+
+/**
  * Write `.portikus/README.md` unless something is already there. A
  * `.portikus` that is not a real directory (a symlink from a template, say)
  * is left alone, so the write can never land outside the project.

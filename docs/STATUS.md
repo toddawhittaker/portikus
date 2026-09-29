@@ -3635,3 +3635,7 @@ fixes". In progress.
   `~/.codex/AGENTS.md` and writes `~/.claude/CLAUDE.md` once as an import
   of it; it never overwrites either (#858, T6). A workspace on an older
   image gets neither file until it is rebuilt onto the new image.
+- Older projects (T5b, #856): the first file write, new folder or move
+  under `.portikus/` in an existing repository adds the exclude lines to
+  `.git/info/exclude`, once. A failure there is logged and never fails
+  the write. The README stays for new projects only.
