@@ -1,7 +1,7 @@
 name: Workspace image
 
 # Builds the workspace image and publishes it as the release image-<VERSION>
-# with a signed SHA256SUMS (docs/EPIC-15.md, ruling 19).
+# with a signed SHA256SUMS (docs/SPEC.md section 21.13).
 on:
   push:
     branches: [main]

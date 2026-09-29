@@ -1,4 +1,4 @@
-# Portikus workspace image job (docs/EPIC-15.md rulings 22 to 28, ADR 0030).
+# Portikus workspace image job (docs/SPEC.md section 22.4, ADR 0030).
 # Started by portikus-image-job.path for each request the API writes, and
 # once at boot to mark a job the host lost as failed, so the admin page is
 # never left waiting on it. It fetches, builds, activates or rolls back the

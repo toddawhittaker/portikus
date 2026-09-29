@@ -13,8 +13,8 @@ import {
 } from "./image-jobs";
 
 /**
- * The Workspace image section (docs/EPIC-15.md rulings 22 to 28, flows 5
- * and 6; ADR 0030). The tests play the root job against a fake job directory:
+ * The Workspace image section (docs/SPEC.md section 22.4;
+ * ADR 0030). The tests play the root job against a fake job directory:
  * they take each request file the API writes and answer with the status,
  * log, manifest and health the real job would write.
  */

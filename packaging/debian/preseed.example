@@ -1,4 +1,4 @@
-# Answers for an unattended `apt install portikus` (docs/EPIC-15.md, flow 2).
+# Answers for an unattended `apt install portikus` (docs/SPEC.md section 21.12).
 #
 #   sudo debconf-set-selections preseed.txt
 #   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y portikus

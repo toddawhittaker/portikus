@@ -147,7 +147,7 @@ jobs:
     name: Sign the apt repository
     runs-on: ubuntu-latest
     needs: build
-    # The only job that can read APT_SIGNING_KEY (docs/EPIC-15.md, ruling 17).
+    # The only job that can read APT_SIGNING_KEY (docs/SPEC.md section 21.13).
     environment: publish
     env:
       APT_URL: https://toddawhittaker.github.io/portikus/apt

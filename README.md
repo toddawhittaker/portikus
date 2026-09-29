@@ -82,9 +82,10 @@ change must respect.
 
 ## Status
 
-Every epic through Epic 24 has landed and runs on the pilot VM, except Epic
-15, installing from an APT repository, which is planned in
-`docs/EPIC-15.md`. Epic 25 polishes the interface and adds in-app help.
+Every epic through Epic 25 has landed. Epic 15 makes `apt install
+portikus` the default install (docs/INSTALL.md, SPEC.md section 21.12);
+the pilot VM still runs the workstation-driven setup until it is
+reinstalled that way.
 
 `docs/STATUS.md` records what each epic delivered and the gaps it left.
 

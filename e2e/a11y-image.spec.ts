@@ -3,7 +3,7 @@ import { loginAs, openToggletip, settledAxe, WCAG_TAGS } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Workspace
- * image tab and its dialogs, in both themes (docs/EPIC-15.md, T6). The page
+ * image tab and its dialogs, in both themes (docs/SPEC.md section 22.4). The page
  * is served fixed answers in the browser, because admin-image.spec.ts owns
  * the fake job directory and runs its tests in order against it.
  */

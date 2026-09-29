@@ -500,7 +500,7 @@ jobs:
           done
 
   # The install questions and what postinst writes, in Debian 13 containers
-  # (docs/EPIC-15.md, T2). Uses a small package built from the same
+  # (docs/SPEC.md section 21.12). Uses a small package built from the same
   # templates, config and postinst, so it needs no application build.
   debconf:
     name: Package install questions

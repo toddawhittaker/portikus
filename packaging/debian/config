@@ -1,6 +1,6 @@
 #!/bin/sh
-# portikus debconf config: ask the install questions (docs/EPIC-15.md,
-# rulings 2 to 6 and 9). Answers are written to /etc/portikus by postinst.
+# portikus debconf config: ask the install questions (docs/SPEC.md section
+# 21.12). Answers are written to /etc/portikus by postinst.
 set -e
 
 # shellcheck source=/dev/null

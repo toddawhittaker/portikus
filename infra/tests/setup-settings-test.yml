@@ -1,6 +1,6 @@
 ---
 # The TLS and storage settings checks that site.yml runs before any role
-# (docs/EPIC-15.md rulings 3 and 9), tried with no VM: each case is
+# (docs/SPEC.md section 21.12), tried with no VM: each case is
 # accepted or refused as expected.  The unconfirmed-device refusal needs a
 # real disk, so the rehearsal VM checks that one.  `make infra-check` runs it.
 - name: Check the TLS and storage settings guards

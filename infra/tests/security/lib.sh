@@ -238,7 +238,7 @@ sec_preflight() {
     return 1
   fi
   # The storage volume group is whichever the play was given, and the
-  # package bundles its Node (docs/EPIC-15.md rulings 3 and 11).
+  # package bundles its Node (docs/SPEC.md section 21.12).
   SEC_VG=$(sec_ssh "incus storage get workspace-data source" 2>/dev/null)
   SEC_NODE=$(sec_ssh 'test -x /usr/lib/portikus/node/bin/node && echo /usr/lib/portikus/node/bin/node || echo node')
   pool=$(sec_ssh "sudo lvs --noheadings --nosuffix --units g -o lv_size,data_percent,metadata_percent ${SEC_VG:-none}/thinpool")

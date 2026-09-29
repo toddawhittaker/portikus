@@ -1,6 +1,6 @@
 ---
-# The workspace_image role's first-install decision (docs/EPIC-15.md
-# ruling 19, ADR 0030), tried with no VM: stand-ins for incus and the
+# The workspace_image role's first-install decision (docs/SPEC.md section 21.12,
+# ADR 0030), tried with no VM: stand-ins for incus and the
 # image job show when setup calls the job, and when a failed first install
 # fails setup or only warns.  `make infra-check` runs it.
 - name: Check when setup installs the first workspace image

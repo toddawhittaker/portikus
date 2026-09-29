@@ -11,7 +11,7 @@ import { request } from "../../api/request.js";
 
 export const imageKey = ["admin", "image"] as const;
 
-/** The page polls a queued or running job every two seconds (docs/EPIC-15.md ruling 28). */
+/** The page polls a queued or running job every two seconds (docs/SPEC.md section 22.4). */
 export const IMAGE_POLL_MS = 2000;
 
 export function isActive(state: ImageJobState | undefined): boolean {

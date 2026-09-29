@@ -5,8 +5,8 @@
 # the three systemd units, so nothing here creates them.
 
 # From a workstation the play installs the package.  `portikus setup` runs
-# from the installed package itself, which apt manages (docs/EPIC-15.md
-# ruling 8), so a local run must never replace it.
+# from the installed package itself, which apt manages (docs/SPEC.md
+# section 21.12), so a local run must never replace it.
 - name: Install the package
   ansible.builtin.include_tasks: package.yml
   when: portikus_install_package | bool
@@ -248,7 +248,7 @@
     mode: "0640"
   notify: Restart portikus-controller
 
-# ── Workspace image jobs (docs/EPIC-15.md ruling 28, ADR 0030) ──
+# ── Workspace image jobs (docs/SPEC.md section 22.4, ADR 0030) ──
 # The API writes a request here, and a root job started by a path unit
 # reads it.  Setup and the job keep the images in /var/lib/portikus/images.
 - name: Create the image job directory

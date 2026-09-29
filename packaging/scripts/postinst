@@ -1,7 +1,7 @@
 #!/bin/sh
 # portikus postinst: own the service users and the units, write the install
-# answers to /etc/portikus, and start setup (docs/EPIC-15.md, rulings 5,
-# 6 and 10).
+# answers to /etc/portikus, and start setup (docs/SPEC.md section
+# 21.12).
 set -e
 
 # Units the package owns. The mock identity provider is included in the

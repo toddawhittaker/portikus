@@ -101,7 +101,7 @@ function isFinished(job: ImageJobView): boolean {
 }
 
 /**
- * The Workspace image section (docs/EPIC-15.md rulings 22 to 28; ADR 0030).
+ * The Workspace image section (docs/SPEC.md section 22.4; ADR 0030).
  * The API reads what the root job writes and writes nothing but one request
  * file into IMAGE_JOBS_DIR. With IMAGE_JOBS_DIR unset every route is 404.
  */

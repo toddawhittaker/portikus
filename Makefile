@@ -194,7 +194,7 @@ PORTIKUS_PUBLIC_HOST ?= portikus.$(if $(FOREIGN_HOST),$(VM_IP),$(HOST_IP)).nip.i
 # that port straight through.
 PORTIKUS_PUBLIC_PORT ?= 8443
 
-# Workspace storage (docs/EPIC-15.md ruling 3). OpenTofu gives each libvirt VM
+# Workspace storage (docs/SPEC.md section 21.12). OpenTofu gives each libvirt VM
 # an empty second disk for it, so erasing that disk is confirmed here.  Any
 # other host must name its own.
 PORTIKUS_STORAGE ?= $(if $(FOREIGN_HOST),,/dev/vdb)
