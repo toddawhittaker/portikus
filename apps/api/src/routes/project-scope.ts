@@ -73,6 +73,7 @@ export const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>>
 	STORAGE_FULL: [507, "STORAGE_FULL"],
 	RECOVERY_POINT_INVALID: [422, "VALIDATION_FAILED"],
 	RESTORE_INCOMPLETE: [500, "INTERNAL"],
+	INTERNAL: [500, "INTERNAL"],
 	ROLLBACK_COPY_EXISTS: [409, "BUSY"],
 	// The agent answers these with a 500 of its own, so the control plane is
 	// reporting a failure upstream of it rather than one of its own.

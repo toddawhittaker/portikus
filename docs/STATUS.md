@@ -3577,6 +3577,11 @@ Delivered:
   "Extracting" notice and the files appearing in the tree, not a
   percentage, and a zip whose headers lie about its size is bounded by
   the per-file limit and the home volume's quota, not by the 1 GiB total.
+- Review fixes to the extractor: every symbolic link, any `.git` path part
+  and a mismatched Unicode path field are refused; a free-space watch now
+  enforces the 1 GiB total even when headers lie, closing the gap above;
+  an aborted request stops unzip. An agent `INTERNAL` error now reads as
+  a 500, and loading the image tab no longer sends release notices.
 Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot fixes".
 
 - Project setup (T5, #846, #847, #856, #857): a clone takes the name its
