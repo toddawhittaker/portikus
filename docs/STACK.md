@@ -1292,6 +1292,12 @@ Existing student workspaces do not automatically rebase onto a new image.
 
 Upgrades occur through an intentional workspace rebuild operation.
 
+The package's image job is the one way an image reaches a host: setup's
+first install fetches a published release, the admin page fetches or
+builds one, and `make build-workspace-image` asks the job on a
+development VM to build the shipped recipe and make it the default
+(SPEC.md section 22.4).
+
 ## 26. Why not Packer initially?
 
 Do not introduce Packer for the pilot unless VM convergence time becomes a real problem.

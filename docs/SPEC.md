@@ -2807,7 +2807,9 @@ language-aware editor".
   `/var/lib/portikus/image-jobs/` (`root:portikus`, 0770), and a
   path-activated root oneshot, `portikus-image-job.service`, runs it.
   Kinds are `fetch`, `build`, `activate` and `rollback`, plus
-  `first-install`, which only setup runs. The job refuses an unknown
+  `first-install`, which only setup runs, and `local-build` (a build
+  then an activate), which only `make build-workspace-image` runs on a
+  development VM. The job refuses an unknown
   kind, choice or extra field, and a version not matching
   `^\d{4}\.\d{2}\.\d+(-local\.\d{12})?$`, and never puts a request value
   in a shell command. One job runs at a time; the API refuses a request

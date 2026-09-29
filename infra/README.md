@@ -90,16 +90,22 @@ When the data disk has grown, it also grows the thin pool onto it
 
 ## 6. Build the workspace image
 
-Build the distrobuilder-based workspace image on the VM and import it into
-Incus. The recipe lives in `infra/workspace-image/`.
+Build the workspace image on the VM and make it the default. The recipe
+lives in `infra/workspace-image/`.
 
 ```
 make build-workspace-image
 ```
 
-This rsyncs the image definition to the VM, runs distrobuilder, and imports
-the result into the `portikus` Incus project. Re-runs replace the previous
-image.
+This runs the package's image job on the VM (`image-job local-build`),
+the same job the admin page's Workspace image tab runs (docs/SPEC.md
+section 22.4). It builds the recipe the installed package ships, with
+Node 24 and Debian's Python, health-checks the result, and makes it the
+default, keeping the old default as the previous image. The build takes
+about 20 minutes, and its log is in `/var/lib/portikus/image-jobs/<id>/`.
+The job builds the package's copy of the recipe, so the target refuses to
+start when that copy differs from the checkout; run `make deploy-app`
+first after changing the recipe.
 
 ## 7. Verify
 
@@ -262,8 +268,8 @@ to write under `/var/lib/portikus` should be granted a `ReadWritePaths`
 entry for the directory it needs, not a weaker `ProtectSystem`.
 
 `/var/lib/portikus` is a shared parent directory. The package creates it
-but never removes it, even on purge, because the image builder
-(`image-build`, `images`) and the workspace script (`incus`) keep their
+but never removes it, even on purge, because the image job
+(`image-jobs`, `images`) and the workspace script (`incus`) keep their
 own state under it. Purging the package removes `/etc/portikus` only.
 
 Service configuration lives in `/etc/portikus/*.env`. To override a
