@@ -3585,6 +3585,7 @@ Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot fixes".
   `checks.json` and `README.md`, through `.gitignore` for new projects and
   `.git/info/exclude` otherwise; new projects get `.portikus/README.md`
   explaining checks. Unexpected project route errors are now `INTERNAL`.
-  Gap: the exclude lines and the README are not yet added on the first
-  file write under `.portikus/` in an older project, because that write
-  goes through the file routes.
+- Older projects (T5b, #856): the first file write, new folder or move
+  under `.portikus/` in an existing repository adds the exclude lines to
+  `.git/info/exclude`, once. A failure there is logged and never fails
+  the write. The README stays for new projects only.

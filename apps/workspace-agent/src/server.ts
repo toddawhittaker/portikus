@@ -55,6 +55,7 @@ import { listeningRoutes } from "./listening-route.js";
 import { type PackagesRouteOptions, packagesRoutes } from "./packages-route.js";
 import { tmuxPidSource } from "./processes.js";
 import { processesRoutes } from "./processes-route.js";
+import { excludeOnPortikusWrite } from "./project-files.js";
 import {
 	archiveDir,
 	archiveProject,
@@ -66,6 +67,7 @@ import {
 	gitInitProject,
 	listProjects,
 	renameProject,
+	resolveProject,
 } from "./projects.js";
 import { registerRecoveryRoutes } from "./recovery-routes.js";
 import { registerSearchRoutes } from "./search-routes.js";
@@ -489,6 +491,20 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 		});
 
+		// A failed exclude update must never fail the student's write (#856).
+		async function noteWrite(
+			request: FastifyRequest,
+			slug: string,
+			path: string,
+		): Promise<void> {
+			try {
+				const project = await resolveProject(slug, options.homeDir);
+				await excludeOnPortikusWrite(project.path, path);
+			} catch (error) {
+				request.log.warn({ slug, err: error }, "could not update the exclude file");
+			}
+		}
+
 		registerSearchRoutes(instance, options.homeDir);
 		// The file routes. Paths are logged at debug only and file contents
 		// never (STACK.md §15, ADR 0012).
@@ -551,6 +567,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 						ifNoneMatch: ifNoneMatch === "*",
 						upload: upload || contentType.startsWith("application/octet-stream"),
 					});
+					await noteWrite(request, slug, path);
 					reply.header("etag", result.etag);
 					return reply.code(200).send(result);
 				} catch (error) {
@@ -591,6 +608,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					throw new AgentFailure("PATH_INVALID", "invalid path");
 				}
 				await mkdir(options.homeDir, slug, parsed.data.path);
+				await noteWrite(request, slug, parsed.data.path);
 				return reply.code(201).send({ ok: true });
 			} catch (error) {
 				return sendError(request, reply, error, "INTERNAL");
@@ -619,6 +637,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					throw new AgentFailure("PATH_INVALID", "invalid path");
 				}
 				await move(options.homeDir, slug, parsed.data.from, parsed.data.to);
+				await noteWrite(request, slug, parsed.data.to);
 				return reply.code(204).send();
 			} catch (error) {
 				return sendError(request, reply, error, "INTERNAL");
