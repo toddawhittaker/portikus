@@ -3459,47 +3459,86 @@ Gaps:
 - The `FAILED`, `SKIPPED` and `REQUESTED` files in a set are not covered
   by the MAC; they only change what the tab shows.
 
-## Epic 15.1 — Install fixes and docs
+## Epic 15.1 — Install docs and release polish
 
-- One source for the install settings keys (#826).
+Built on `epic/15-1-docs-release` from the milestone "Epic 15.1: install
+docs and release polish" (issues #821 to #834, #840 and #842; task PRs
+#830 to #853). The rules now live in SPEC.md sections 16.2, 20.1, 21.12,
+21.13, 22.4 and 24.9. No migrations.
+
+Delivered:
+
+- GitHub community files: SECURITY, CONTRIBUTING, issue templates and
+  repository topics (#829, PR #830).
+- Install screenshots in INSTALL.md and a current README quick start,
+  Installing and Status sections (#821, #822, PR #831).
+- The install message includes a hand-set port in the sign-in address
+  (PR #832), and OPERATIONS.md explains registering an LMS on an
+  apt-installed server (PR #833).
+- The Ansible role installs Portikus from the signed apt repository, and
+  releases no longer attach the `.deb` (#823, PR #835). The pilot is
+  updated only by `apt upgrade`. Setup installs an older package only
+  when `PORTIKUS_VERSION` names it (`allow_downgrade`), and warns and goes
+  on when only the Portikus repository is unreachable (#825).
+- One source for the install settings keys (#826, PR #836).
   `packaging/debian/settings-keys` lists each debconf question, the key
-  postinst writes for it, and whether it is a setting or a secret. The
-  package installs it at `/usr/share/portikus/settings-keys`, and postinst
-  reads its question and key lists from there.
+  postinst writes for it, and whether it is a setting or a secret; the
+  package installs it at `/usr/share/portikus/settings-keys`.
   `packaging/tests/settings-keys-test.sh`, run by `make infra-check` and
-  the CI debconf job, fails when a key is missing from the debconf
-  templates or config steps, the config read-back map, postinst, or the
-  play variables in `infra/ansible/site.yml`. Gap: the debconf config
-  script still keeps its own read-back map, checked by the test rather
-  than read from the list, because config can run before the package's
-  files are unpacked.
-- The worker runs under its own system account, `portikus-worker` (#828),
-  so it can no longer open the backup key socket, which admits only the
-  API's `portikus` group (ADR 0044). Its database role of the same name is
-  not a member of `portikus` and holds only the table privileges its
-  queries use (`worker-grants.sql`, no write on sessions or users), and
-  `worker.env` is `root:portikus-worker` 0640. On an upgrade, postinst
-  adds the role, moves `worker.env` and applies the grants after the
-  migrations, before the worker restarts; setup does the same. The grants
-  file drops the old membership in `portikus` first, on its own, so it is
-  gone even if a grant then fails. The unit may reach only 127.0.0.1 and
-  the workspace bridge, and the host firewall lets the `portikus-worker`
-  account open loopback connections only to the controller's port 3001.
-  So it cannot reach the API on 3000 or Dex on 5556 directly, around
-  Caddy's sign-in rate limit. Replies from the worker's own listeners
-  still pass. `make install-test` checks the worker's account, the key
-  socket's refusal, the loopback refusals and that its health samples
-  still reach the controller; the smoke test checks the loopback rule.
-  `UPGRADE_FROM_PUBLISHED=1` makes install-test upgrade from the newest
-  published release.
-- A recreated VM keeps its address (#834). The pilot's and the rehearsal
-  VM's MAC addresses are fixed in their environments' `variables.tf`, so
-  `make destroy-pilot`, `make rebuild-pilot` and `make rehearsal-destroy`
-  followed by a create give the VM the same DHCP address. The Makefile no
-  longer reads the MAC address from the state, which is empty after a
-  destroy. `infra/tests/vm-mac-test.sh`, run by `make infra-check` and CI,
-  checks both addresses and that an empty one is refused.
-- `make backup-install-timer` and `make backup-install-channel` refuse a
-  VM that backs itself up, such as the apt-installed pilot. They stay for
-  VMs set up with `make configure-vm`, which SPEC.md section 24.9 and
-  OPERATIONS.md ("Backups") still describe.
+  the CI debconf job, fails when a key is missing from the templates,
+  config, postinst or `infra/ansible/site.yml`.
+- The development VM's workspace image is built by the image job, and the
+  old role-based image path is gone (#827, PR #837).
+- The worker runs under its own system account, `portikus-worker` (#828,
+  PR #838, review fixes PR #852 and PR #853). It cannot open the backup
+  key socket. Its database role of the same name is not a member of
+  `portikus` and holds only the privileges its queries use
+  (`worker-grants.sql`: nothing on sessions and no write on users); the
+  grants file drops the old membership first, on its own. `worker.env` is
+  `root:portikus-worker` 0640. The host firewall lets the account open
+  loopback connections only to the controller's port 3001, so it cannot
+  reach the API on 3000 or Dex on 5556 around Caddy's sign-in rate limit.
+- A docs pass after Epic 15 and a Markdown link check in CI (#824,
+  PR #839).
+- apt retention keeps the ten newest packages of the current major.minor
+  line and the newest of each older line (PR #841). The signed index
+  carries `Valid-Until` 30 days out, and a weekly scheduled run signs it
+  again unless it was signed less than 6 days before (PR #852). Clients
+  trust only the signed Release file (PR #853).
+- Docker is pinned to the overlay2 store on the workspace's Docker
+  volume, and the image health check refuses an image without it (#840,
+  PR #843).
+- A just-created account is not marked stale; the Users view shows "Not
+  signed in yet" (#842, PR #844).
+- A recreated VM keeps its address (#834, PR #850). The pilot's and the
+  rehearsal VM's MAC addresses are fixed in their `variables.tf`, and
+  `infra/tests/vm-mac-test.sh` checks them. `make backup-install-timer`
+  and `make backup-install-channel` refuse a VM that backs itself up, such
+  as the apt-installed pilot; they stay for `make configure-vm` VMs.
+- Review fixes for web, contracts and docs (PR #851).
+
+Verified:
+
+- `make install-test UPGRADE_FROM_PUBLISHED=1 IMAGE_JOBS=1` is green on
+  the final fixes: smoke test 304 passed and 0 failed, image rehearsal 73
+  passed and 0 failed, the worker refused on the API's port 3000 and
+  Dex's port 5556, the worker's database role refused on sessions and
+  users, and the rebuild from a backup passes.
+- The pilot was reinstalled from the apt repository at 0.1.676 and passed
+  the smoke test, 313 of 313.
+- The rehearsal VM kept its MAC and IP address across a destroy and
+  create.
+
+Gaps:
+
+- The debconf config script keeps its own read-back map of settings
+  keys, checked by the test rather than read from the list, because
+  config can run before the package's files are unpacked.
+- The image job's lock and jobs-directory setup is written three times
+  (BACKLOG.md).
+- A scheduled weekly re-sign can still cancel a release queued behind
+  another run (BACKLOG.md).
+- The host backup targets are untested on a `make configure-vm` VM
+  (BACKLOG.md).
+- The pin between two published versions is untested until the second
+  release (BACKLOG.md).

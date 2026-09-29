@@ -1621,3 +1621,56 @@ it.
 slow wait and fix it.
 
 **Source.** Epic 15, T6 (#792).
+
+## Share the image job's lock and jobs-directory setup
+
+**What.** `packaging/image/image-job` takes its lock and sets up the
+jobs directory three times, in `run_first_install`, `run_local_build`
+and `run_recover`. Share it in one context manager.
+
+**Why.** Three copies drift; a fix to one is easily missed in the others.
+
+**What it would take.** A small context manager used by all three, with
+the existing unit tests kept green.
+
+**Source.** Epic 15.1 review.
+
+## A weekly re-sign can cancel a queued release
+
+**What.** The scheduled weekly re-sign of the apt index can still cancel
+a release run queued behind another one.
+
+**Why.** GitHub's concurrency groups cancel pending runs before any job
+starts, so no check inside a job can save the queued release.
+WORKFLOW.md tells operators to rerun it for now.
+
+**What it would take.** Restructuring the release workflow so the
+re-sign and the release no longer share one pending slot.
+
+**Source.** Epic 15.1 review.
+
+## Test the host backup targets on a configure-vm VM
+
+**What.** `make backup-install-timer` and `make backup-install-channel`
+now refuse self-backing VMs and remain for VMs set up with `make
+configure-vm`, but they have not been run against such a VM since.
+
+**Why.** Untested operator paths break quietly.
+
+**What it would take.** Run both targets against a rehearsal VM set up
+with `make configure-vm`, then take and restore one set.
+
+**Source.** Epic 15.1 (#834).
+
+## Test the pin between two published versions
+
+**What.** Setup's `PORTIKUS_VERSION` pin to an older published package
+cannot be tested until a second release exists in the repository.
+
+**Why.** A downgrade path nobody has run may fail when an operator needs
+it.
+
+**What it would take.** After the next release, run install-test pinned
+to the previous published version.
+
+**Source.** Epic 15.1.

@@ -319,8 +319,9 @@ The site is on 8443 rather than 443 because another service on the pilot
 host already owns 80 and 443, so the pilot's public address is
 `https://pilot.portikus.thewhittakers.org:8443`. A oneshot systemd unit, `portikus-publish-vm.service`, puts the rules back
 after a reboot, reading the VM address from `/etc/portikus-host/vm-ip`.
-The VM address changes when the VM is rebuilt, so run `make publish-vm`
-again after `make rebuild-pilot` (that target already calls it).
+The VM keeps its address across a rebuild, because its MAC address is
+fixed in `variables.tf`; `make rebuild-pilot` runs `make publish-vm`
+again anyway.
 
 **A throwaway VM without a DNS name.** When a libvirt VM other than the
 pilot is configured from the workstation, `make configure-vm` names the
