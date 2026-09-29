@@ -244,7 +244,7 @@ A second `configure-vm` changed nothing. The shrink refusal and both `lvm` refus
 
 1. Pick a time when no student is working, and take a backup.
 2. In `terraform.tfvars`, set `memory_mb = 16384` and `vcpus = 8`. Check that the host has 16 GiB available: `free -m`.
-3. Run `make infra-plan`. OpenTofu cannot resize a running VM, so the plan replaces `module.platform_vm.libvirt_domain.vm` with `memory` and `vcpu` marked as forcing it. Nothing else may be replaced, and the network interface's MAC address must stay the same. The Makefile passes the MAC address from the state, because the VM's network configuration and its DHCP address both match it. Without it, the new VM would come up with no network.
+3. Run `make infra-plan`. OpenTofu cannot resize a running VM, so the plan replaces `module.platform_vm.libvirt_domain.vm` with `memory` and `vcpu` marked as forcing it. Nothing else may be replaced, and the network interface's MAC address must stay the same. The MAC address is fixed in the environment's committed `variables.tf`, because the VM's network configuration and its DHCP address both match it, so a replaced or recreated VM keeps its address.
 4. Shut the VM down cleanly, so that PostgreSQL and the thin pool are closed properly rather than cut off: `ssh deploy@10.100.0.120 sudo systemctl poweroff`, then wait until `virsh -c qemu:///system domstate portikus` says `shut off`.
 5. Run `make infra-apply`. It creates the new VM on the same disks and waits for its address, which stays 10.100.0.120.
 6. Run `make smoke-test`. The port forward from `make publish-vm` still points at the same address.

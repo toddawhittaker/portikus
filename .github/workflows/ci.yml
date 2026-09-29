@@ -558,6 +558,7 @@ jobs:
           for env in dev-libvirt rehearsal-libvirt; do
             (cd "infra/tofu/environments/$env" && tofu init -backend=false && tofu validate)
           done
+          bash infra/tests/vm-mac-test.sh
       - name: Cache Ansible collections
         id: collections
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
