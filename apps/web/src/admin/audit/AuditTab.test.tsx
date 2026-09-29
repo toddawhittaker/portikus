@@ -44,6 +44,7 @@ function person(id: string, displayName: string, email: string | null) {
 			archived: false,
 			duplicateEmail: false,
 			stale: false,
+			notSignedInYet: false,
 			linked: false,
 		},
 		workspace: null,

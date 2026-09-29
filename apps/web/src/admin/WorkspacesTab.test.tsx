@@ -22,6 +22,7 @@ const NONE = {
 	archived: false,
 	duplicateEmail: false,
 	stale: false,
+	notSignedInYet: false,
 	linked: false,
 };
 

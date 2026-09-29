@@ -17,6 +17,7 @@ const NONE = {
 	archived: false,
 	duplicateEmail: false,
 	stale: false,
+	notSignedInYet: false,
 	linked: false,
 };
 
@@ -53,6 +54,7 @@ test("marker labels come in a fixed order and only when set", () => {
 			archived: true,
 			duplicateEmail: true,
 			stale: true,
+			notSignedInYet: false,
 			linked: true,
 		}),
 	).toEqual(["Disabled", "Archived", "Linked", "Duplicate email", "Stale"]);
