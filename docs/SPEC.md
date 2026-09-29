@@ -1833,6 +1833,11 @@ The host Docker socket, if any, must not be mounted into student workspaces.
 
 Docker data should survive ordinary workspace stop/start.
 
+The workspace image pins Docker to the classic overlay2 store, so images
+land on the workspace's Docker volume rather than in Docker 29's default
+containerd image store on the root disk. The image health check refuses
+an image that does not (section 22.4; issue #840).
+
 ### 16.3 Restart behavior
 
 The platform does not need to guarantee that inner containers resume after the outer workspace starts.
@@ -2607,7 +2612,9 @@ install Portikus. The workstation Ansible and libvirt tooling under
 `infra/` is for development only: it creates the libvirt VMs, and it
 configures the rehearsal VM and unreleased builds. The pilot's VM is
 created by it but installed with apt and upgraded with `apt upgrade`,
-like any real install. docs/INSTALL.md is the operator's guide.
+like any real install. The pilot's and the rehearsal VM's MAC addresses
+are fixed in their environments' `variables.tf`, so a destroyed and
+recreated VM gets the same DHCP address. docs/INSTALL.md is the operator's guide.
 
 - **Target.** A rented bare-metal or full virtual server, x86-64, Debian
   13 only. Other distributions, Debian's own Incus and an `.rpm` are out.
@@ -2715,7 +2722,8 @@ Added by Epic 15.
 - The signed index carries `Valid-Until` 30 days after it is made, so a
   mirror or a man in the middle cannot keep serving an old index that
   hides a fix. The release workflow signs it again every week, even
-  when nothing is released.
+  when nothing is released; the weekly run skips the re-sign when the
+  live index was signed less than 6 days before.
 - Setup installs an older package only when `PORTIKUS_VERSION` names it.
 - CI builds the workspace image when `infra/workspace-image/**` changes on
   `main`, or by hand, and publishes a release `image-<VERSION>` with
@@ -4557,6 +4565,40 @@ Acceptance:
   image whose signature fails;
 - an image that failed its health check cannot be made the default;
 - a forged or renamed backup set does not restore.
+
+### Epic 15.1 — Install docs and release polish
+
+See sections 16.2, 20.1, 21.12, 21.13, 22.4 and 24.9; built on
+`epic/15-1-docs-release` (issues #821 to #834, #840 and #842; task PRs
+#830 to #853). No migrations. Delivered.
+
+Includes:
+
+- the Ansible role installs Portikus from the signed apt repository, and
+  releases no longer attach the `.deb`; the pilot is updated only by
+  `apt upgrade`;
+- apt retention that keeps the ten newest packages of the current
+  major.minor line and the newest of each older line, a `Valid-Until` of
+  30 days, and a weekly re-sign;
+- setup installs an older package only when `PORTIKUS_VERSION` names it,
+  and goes on when only the Portikus repository is unreachable;
+- the worker under its own `portikus-worker` account and least-privilege
+  database role, with a firewall rule that lets it reach only the
+  controller on loopback (section 24.9);
+- Docker pinned to overlay2 on the workspace's Docker volume, checked by
+  the image health check;
+- fixed VM MAC addresses, so a rebuilt pilot or rehearsal VM keeps its
+  address;
+- a just-created account shows "Not signed in yet" rather than stale;
+- one source for the install settings keys, the development VM's image
+  built by the image job, community files, install screenshots, a docs
+  pass and a Markdown link check.
+
+Acceptance:
+
+- `make install-test UPGRADE_FROM_PUBLISHED=1 IMAGE_JOBS=1` is green,
+  including the worker's refusals on the API, Dex and the sign-in tables;
+- the pilot reinstalls from the apt repository and passes the smoke test.
 
 ### Epic 18 — Admin interface polish
 
