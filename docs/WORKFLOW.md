@@ -315,7 +315,8 @@ shallow checkout since they only need the working tree.
 `.github/workflows/release.yml` publishes a release when an `epic/` or
 `task/` branch merges into `main`, or when the workflow is run by hand from `main` for a
 hotfix. It builds the package from the merge commit on `main` and adds it
-to the signed apt repository, which keeps the ten newest. It also creates a
+to the signed apt repository, which keeps the ten newest of the current
+major.minor line and the newest of each earlier line. It also creates a
 tagged GitHub release with notes and no files. Workspace images are
 published as GitHub releases of their own, `image-<version>`, with the
 image files as assets. The version is

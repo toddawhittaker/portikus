@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Prove that scripts/publish-apt-repo.sh builds a repository apt trusts with
 # the published key, that apt refuses it without the key or once Release is
-# tampered with, and that only the newest ten versions are kept.
+# tampered with, and that retention keeps the ten newest versions of the
+# current major.minor line plus the newest version of each earlier line.
 # Uses a throwaway key generated here; needs gpg, apt-ftparchive and docker.
 set -euo pipefail
 
@@ -45,6 +46,33 @@ for f in dists/trixie/Release dists/trixie/InRelease dists/trixie/Release.gpg po
   [[ -s "$WORK/repo/$f" ]] || { echo "FAIL: $f missing" >&2; exit 1; }
 done
 echo "ok: pruned to ten versions, signatures and keys written"
+
+# Retention cases, each in a fresh repository seeded straight into the pool.
+retention_case() {
+  local name="$1" expected="$2"
+  shift 2
+  local repo="$WORK/retention-$name" pool v kept
+  pool="$repo/pool/main/p/portikus"
+  mkdir -p "$pool"
+  for v in "$@"; do
+    [[ -e "$WORK/portikus_${v}_amd64.deb" ]] || make_deb "$v"
+    cp "$WORK/portikus_${v}_amd64.deb" "$pool/"
+  done
+  "$ROOT/scripts/publish-apt-repo.sh" "$repo" >/dev/null
+  kept="$(find "$pool" -name '*.deb' -printf '%f\n' | sed 's/^portikus_//; s/_amd64\.deb$//' | sort -V | tr '\n' ' ')"
+  [[ "$kept" == "$expected " ]] || { echo "FAIL: $name kept '$kept', expected '$expected'" >&2; exit 1; }
+  echo "ok: retention $name"
+}
+retention_case fewer-than-ten "0.1.1 0.1.2 0.1.3" 0.1.3 0.1.1 0.1.2
+retention_case two-lines \
+  "0.1.12 0.2.3 0.2.4 0.2.5 0.2.6 0.2.7 0.2.8 0.2.9 0.2.10 0.2.11 0.2.12" \
+  0.1.9 0.1.10 0.1.11 0.1.12 0.2.1 0.2.2 0.2.3 0.2.4 0.2.5 0.2.6 0.2.7 0.2.8 0.2.9 0.2.10 0.2.11 0.2.12
+retention_case three-lines \
+  "0.1.12 0.2.12 1.0.1 1.0.2 1.0.3" \
+  0.1.11 0.1.12 0.2.11 0.2.12 1.0.1 1.0.2 1.0.3
+retention_case build-suffix \
+  "0.1.676+g83ee824 0.2.1+gaaaaaaa" \
+  0.1.675+g1111111 0.1.676+g83ee824 0.2.1+gaaaaaaa
 
 cp -r "$WORK/repo" "$WORK/tampered"
 sed -i 's/^Label: Portikus/Label: Evil/' "$WORK/tampered/dists/trixie/Release" "$WORK/tampered/dists/trixie/InRelease"
