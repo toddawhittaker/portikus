@@ -105,9 +105,9 @@ screen() {
 	tmux capture-pane -p -t ui | sed 's/^ *x //; s/ *x *$//' | tr -s ' \n' '  '
 }
 
-# wait_for TEXT -- fails when TEXT is not on the screen within 20 seconds.
+# wait_for TEXT [SECONDS] -- fails when TEXT is not on the screen in time (default 20 seconds).
 wait_for() {
-	for _ in $(seq 100); do
+	for _ in $(seq $((${2:-20} * 5))); do
 		screen | grep -qF -- "$1" && return 0
 		sleep 0.2
 	done
@@ -538,6 +538,66 @@ ui-cert)
 	ui_done
 	expect "$CONFIG" portikus_tls_cert '"/root/cert.pem"'
 	expect "$CONFIG" portikus_tls_key '"/root/key.pem"'
+	;;
+capture)
+	# Walks the default install story in an 80 by 25 terminal and saves each
+	# screen with its colours to /out, for docs/images/install (capture-install-screens.sh).
+	fake_one_disk
+	# The container has no syslog; keep adduser's complaints off the last screen.
+	ln -sf /bin/true /usr/bin/logger
+	shot() {
+		sleep 0.5
+		tmux capture-pane -e -p -t ui >"/out/$1.ans"
+	}
+	# Installed from a repository, as docs/INSTALL.md does, so apt's output is the real one.
+	echo "deb [trusted=yes] file:/t ./" >/etc/apt/sources.list.d/portikus.list
+	apt-get update -qq
+	tmux new-session -d -s ui -x 80 -y 25 \
+		"clear; apt install portikus; touch /tmp/ui-done; sleep 600"
+	wait_for "Continue? [Y/n]" 120
+	keys Enter
+	wait_for "Welcome to Portikus" 300
+	shot 01-welcome
+	keys Enter
+	wait_for "portikus.example.edu"
+	shot 02-web-address
+	keys Enter
+	wait_for "Email of the Portikus administrator"
+	shot 03-admin-email
+	keys Enter
+	# In 80 by 25 whiptail shows a long description on its own screen first.
+	wait_for "Portikus is served only over HTTPS"
+	keys Enter
+	wait_for "HTTPS certificate"
+	shot 04-https-certificate
+	keys Enter
+	wait_for "Email for Let's Encrypt"
+	keys Enter
+	wait_for "Cloudflare API token"
+	typed CF-TOKEN-example-0123456789abcdef
+	shot 05-cloudflare-token
+	keys Enter
+	wait_for "Portikus always has local accounts"
+	keys Enter
+	wait_for "How people sign in"
+	shot 06-sign-in
+	keys Enter
+	wait_for "Where to keep student files"
+	shot 07-storage
+	keys Enter
+	wait_for "Size of the storage file"
+	shot 08-storage-size
+	keys Enter
+	wait_for "Save these answers and start setup?"
+	shot 09-summary
+	keys Enter
+	wait_for "choose a new password" 300
+	# apt configures the remaining packages after portikus; wait until it exits.
+	for _ in $(seq 300); do
+		[ ! -e /tmp/ui-done ] || break
+		sleep 1
+	done
+	shot 10-finished
 	;;
 *)
 	fail "unknown scenario"

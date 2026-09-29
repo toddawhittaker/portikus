@@ -938,6 +938,20 @@ and checks it with the API's own parser before installing it, so a bad
 file stops the run with the problem named. To turn LTI off, delete the
 file and run `make configure-vm` again.
 
+**On a server installed with apt** (docs/INSTALL.md), setup runs on the
+server itself, so the file lives there. Put it somewhere other than
+`/etc/portikus/lti-platforms.json`, which setup writes, for example
+`/etc/portikus/lti-platforms.source.json`. Name it in
+`/etc/portikus/portikus.yaml`:
+
+```
+portikus_lti_platforms_file: /etc/portikus/lti-platforms.source.json
+```
+
+Then run `sudo portikus setup`. Setup checks and installs the file the
+same way. To turn LTI off, delete the file and run setup again. The pilot
+was set up this way on 2026-09-29.
+
 ### Egress to the LMS
 
 Portikus fetches each platform's keyset to check a launch's signature. It

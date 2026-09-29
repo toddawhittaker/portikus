@@ -156,7 +156,9 @@ The questions appear as grey dialogs on a blue screen. Move with the arrow
 keys and Tab, choose with Enter. **Cancel** goes back one screen. A
 screen appears only when your earlier answers make it relevant. A hidden
 field, such as a token or password, always looks empty when you come back
-to it; leave it blank to keep the value you entered. If an
+to it; leave it blank to keep the value you entered. In a small terminal,
+such as an 80 by 25 console, a question with a long explanation shows the
+explanation on its own screen first; choose Ok to reach the question. If an
 answer is not valid, a "Please check that answer" note says why, and the
 question comes back:
 
@@ -173,9 +175,13 @@ question comes back:
 
 ### 1. Welcome
 
+![The welcome screen: what Portikus is, what the next screens ask, and that nothing changes until the last screen](images/install/01-welcome.png)
+
 Says what Portikus is and what will be asked. Choose Ok.
 
 ### 2. Web address of this server
+
+![The web address screen, asking for this server's DNS name, filled in with portikus.example.edu](images/install/02-web-address.png)
 
 The DNS name from "DNS records", such as `portikus.example.edu`. The
 suggestion is the server's own full host name, which on a rented server is
@@ -185,11 +191,15 @@ hyphens and dots.
 
 ### 3. Email of the Portikus administrator
 
+![The administrator email screen, suggesting admin@portikus.example.edu](images/install/03-admin-email.png)
+
 Setup creates one local administrator account with this email. It is the
 name you sign in with, and it does not need to receive mail. The
 suggestion is `admin@<web address>`, which is fine.
 
 ### 4. HTTPS certificate
+
+![The HTTPS certificate screen, offering Let's Encrypt, certificate files, or Portikus's own certificate authority](images/install/04-https-certificate.png)
 
 - **Let's Encrypt** (the default): needs your domain's DNS at Cloudflare
   and a Cloudflare API token. Two more screens follow:
@@ -203,6 +213,8 @@ suggestion is `admin@<web address>`, which is fine.
     and use the "Edit zone DNS" template limited to your domain. Paste the
     token here. It is stored only in `/etc/portikus/secrets.yaml`, which
     only root can read.
+
+    ![The Cloudflare API token screen, a hidden field asking for a token with the Edit zone DNS permission](images/install/05-cloudflare-token.png)
 - **Certificate files I already have**: two more screens ask for the full
   paths of the certificate (PEM format, intermediates after it) and its
   private key. The files must already be on the server and must cover
@@ -214,6 +226,8 @@ suggestion is `admin@<web address>`, which is fine.
   "After setup").
 
 ### 5. How people sign in
+
+![The sign-in screen, offering local accounts only, Microsoft Entra ID, Google Workspace, LDAP or Active Directory, or another OpenID Connect provider](images/install/06-sign-in.png)
 
 Portikus always has local accounts, which the administrator creates. This
 screen adds your institution's accounts on top:
@@ -251,26 +265,7 @@ Lists what this server has: each empty disk, each LVM volume group with
 free space, and a file on the main disk. The suggestion is always the
 file, because choosing a disk erases it.
 
-```
-   ┌───────────────────────┤  Configuring portikus ├────────────────────────┐
-   │ Student files, containers and Docker data live in one storage pool.   │
-   │                                                                       │
-   │ An empty disk is fastest; setup erases it. An LVM volume group gives  │
-   │ its free space and leaves existing volumes alone. A file on the main  │
-   │ disk needs no spare disk, but is slower and shares space with the     │
-   │ system.                                                               │
-   │                                                                       │
-   │ Where to keep student files:                                          │
-   │                                                                       │
-   │          /dev/sdb - an empty disk of 931 GiB (erased)                 │
-   │          LVM volume group data - 200 GiB free                         │
-   │          A file on the main disk - 582 GiB free and slower            │
-   │                                                                       │
-   │                                                                       │
-   │                  <Ok>                      <Cancel>                   │
-   │                                                                       │
-   └───────────────────────────────────────────────────────────────────────┘
-```
+![The storage screen, listing an empty 500 GiB disk and a file on the main disk, with the file selected](images/install/07-storage.png)
 
 If you left a spare disk empty, choose that disk. If the disks are
 mirrored or there is only one, choose the file.
@@ -284,29 +279,13 @@ mirrored or there is only one, choose the file.
   system. About 1,000 GiB suits a class of about 24 (docs/OPERATIONS.md,
   "Host hardware for a class of about 24").
 
+![The storage file size screen, asking for the size in GiB and suggesting half the free space](images/install/08-storage-size.png)
+
 ### 7. Save these answers and start setup?
 
 A summary of every answer except secrets:
 
-```
-  ┌─────────────────────────┤  Configuring portikus ├─────────────────────────┐
-  │                                                                          │
-  │ Web address: https://portikus.example.edu                                │
-  │ Administrator: admin@portikus.example.edu                                │
-  │ Certificate: Let's Encrypt, notices to admin@portikus.example.edu        │
-  │ Sign-in: local accounts only                                             │
-  │ Student files: /dev/sdb, NOT confirmed, so setup will not start          │
-  │                                                                          │
-  │ Yes saves them in /etc/portikus/portikus.yaml, with secrets in           │
-  │ /etc/portikus/secrets.yaml, and starts setup in the background. No goes  │
-  │ back to change an answer.                                                │
-  │                                                                          │
-  │ Save these answers and start setup?                                      │
-  │                                                                          │
-  │                    <Yes>                       <No>                      │
-  │                                                                          │
-  └──────────────────────────────────────────────────────────────────────────┘
-```
+![The summary screen listing the web address, administrator, certificate, sign-in and storage answers, and asking Save these answers and start setup?](images/install/09-summary.png)
 
 Yes saves the answers and starts setup. No returns to the web address
 question with every answer kept, so you can press Enter through the
@@ -326,6 +305,8 @@ Portikus setup is running in the background. It takes about ten minutes.
   3. Sign in at https://portikus.example.edu
      as admin@portikus.example.edu and choose a new password.
 ```
+
+![The terminal after apt finishes: setup is running in the background, with the three steps to follow it, read the one-time password, and sign in](images/install/10-finished.png)
 
 If instead it says "Portikus is installed, but setup has not started", it
 lists what is missing; run `sudo dpkg-reconfigure portikus` to answer it.

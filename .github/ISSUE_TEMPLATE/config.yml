@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/toddawhittaker/portikus/security/policy
+    about: Please report security problems privately, as described in SECURITY.md.
+  - name: Questions and how-to
+    url: https://github.com/toddawhittaker/portikus/tree/main/docs
+    about: The install, admin, and student guides answer most questions.
