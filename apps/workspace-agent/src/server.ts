@@ -7,6 +7,7 @@ import {
 	AgentDuplicateProjectRequest,
 	AgentRenameProjectRequest,
 	contentDisposition,
+	ExtractRequest,
 	MAX_TERMINALS_PER_WORKSPACE,
 	MkdirRequest,
 	MoveRequest,
@@ -32,6 +33,7 @@ import { startUrlBroker } from "./broker.js";
 import { checksRoute } from "./checks-route.js";
 import { ERROR_STATUS, sendError } from "./errors.js";
 import { eventsRoute } from "./events-route.js";
+import { extractZip } from "./extract.js";
 import {
 	listDir,
 	mkdir,
@@ -590,6 +592,20 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				}
 				await mkdir(options.homeDir, slug, parsed.data.path);
 				return reply.code(201).send({ ok: true });
+			} catch (error) {
+				return sendError(request, reply, error, "INTERNAL");
+			}
+		});
+
+		instance.post("/projects/:slug/extract", async (request, reply) => {
+			const { slug } = request.params as { slug: string };
+			try {
+				const parsed = ExtractRequest.safeParse(request.body);
+				if (!parsed.success) {
+					throw new AgentFailure("PATH_INVALID", "invalid path");
+				}
+				const path = await extractZip(options.homeDir, slug, parsed.data.path);
+				return reply.code(201).send({ path });
 			} catch (error) {
 				return sendError(request, reply, error, "INTERNAL");
 			}

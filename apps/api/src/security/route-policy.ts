@@ -144,6 +144,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"DELETE /workspaces/:id/projects/:pid/file": owner,
 	"POST /workspaces/:id/projects/:pid/mkdir": owner,
 	"POST /workspaces/:id/projects/:pid/move": owner,
+	"POST /workspaces/:id/projects/:pid/extract": owner,
 
 	"GET /workspaces/:id/projects/:pid/git/status": owner,
 	"HEAD /workspaces/:id/projects/:pid/git/status": owner,

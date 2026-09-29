@@ -3550,3 +3550,22 @@ Gaps:
   `portikus`.
 - The loopback refusal tests probe only 127.0.0.1, not ::1 or the VM's
   own address (BACKLOG.md).
+
+## Epic 15.2 — Pilot fixes
+
+Built on `epic/15-2-pilot-fixes`.
+
+Delivered:
+
+- "Extract here" on a zip in the Files pane (#817). The agent reads the
+  zip's central directory first and refuses the whole zip for an entry
+  with `..`, an absolute or drive-letter path, a path beneath a
+  symbolic-link entry, a password, or zip64. It caps the declared size at
+  1 GiB and the entries at 10,000, and checks free space. unzip runs
+  under a 1 GiB per-file limit, and a symbolic link that points out of
+  the new folder removes the folder. A taken folder name gets `-2`, `-3`
+  and so on; nothing is merged. The zip-slip tests from the backlog now
+  cover this extractor and the recovery restore. Known gap: progress is an
+  "Extracting" notice and the files appearing in the tree, not a
+  percentage, and a zip whose headers lie about its size is bounded by
+  the per-file limit and the home volume's quota, not by the 1 GiB total.
