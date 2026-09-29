@@ -9,9 +9,6 @@ import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 
-/** How often the API looks at what the daily check last wrote. */
-export const RELEASE_NOTICE_SECONDS = 60 * 60;
-
 /** The image store sits beside the job directory: /var/lib/portikus/images. */
 export function imagesDirOf(jobsDir: string): string {
 	return join(dirname(jobsDir), "images");
@@ -129,13 +126,14 @@ export async function noticeReleases(
 	}
 }
 
-/** Check now and every hour; errors are logged, never thrown. */
+/** Check now and every interval (an hour by default); errors are logged, never thrown. */
 export function startReleaseNotices(options: {
 	db: Kysely<Database>;
 	logger: Logger;
 	imagesDir: string;
+	intervalSeconds: number;
 }): () => void {
-	const { db, logger, imagesDir } = options;
+	const { db, logger, imagesDir, intervalSeconds } = options;
 	const tick = async (): Promise<void> => {
 		try {
 			await noticeReleases(db, imagesDir);
@@ -146,7 +144,7 @@ export function startReleaseNotices(options: {
 			);
 		}
 	};
-	const timer = setInterval(() => void tick(), RELEASE_NOTICE_SECONDS * 1000);
+	const timer = setInterval(() => void tick(), intervalSeconds * 1000);
 	timer.unref();
 	void tick();
 	return () => clearInterval(timer);

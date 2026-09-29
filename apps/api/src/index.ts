@@ -41,7 +41,12 @@ const levelSync = startLogLevelSync({
 	agentPort: config.AGENT_PORT,
 });
 const stopReleaseNotices = config.IMAGE_JOBS_DIR
-	? startReleaseNotices({ db, logger, imagesDir: imagesDirOf(config.IMAGE_JOBS_DIR) })
+	? startReleaseNotices({
+			db,
+			logger,
+			imagesDir: imagesDirOf(config.IMAGE_JOBS_DIR),
+			intervalSeconds: config.RELEASE_NOTICE_SECONDS,
+		})
 	: () => {};
 app.addHook("onClose", async () => {
 	levelSync.stop();

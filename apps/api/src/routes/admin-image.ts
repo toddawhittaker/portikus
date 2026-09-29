@@ -21,11 +21,7 @@ import {
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodType } from "zod";
 import { diffManifests } from "../image/manifest-diff.js";
-import {
-	imagesDirOf,
-	noticeReleases,
-	readPublished,
-} from "../image/release-notices.js";
+import { imagesDirOf, readPublished } from "../image/release-notices.js";
 import type { ServerDeps } from "../server.js";
 import { sendError } from "./project-scope.js";
 
@@ -263,8 +259,6 @@ export function registerAdminImageRoutes(
 		);
 		const total = [...byFingerprint.values()].reduce((sum, n) => sum + n, 0);
 		if (job) await noteFinished(job);
-		// The hourly timer notifies too; a page load just gets there sooner.
-		await noticeReleases(db, imagesDir);
 		const published = await readPublished(imagesDir);
 		const out: AdminImage = {
 			default: aliases.default,

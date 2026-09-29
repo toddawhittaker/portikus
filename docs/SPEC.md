@@ -2918,8 +2918,7 @@ language-aware editor".
   enabled administrator gets one neutral notification per image version
   and one per package version. The audit rows `image.release_noticed`
   and `package.release_noticed` (target: the version) record that it was
-  sent. The API checks every hour and on each load of the image tab,
-  under a PostgreSQL advisory lock so two checks cannot both send. A
+  sent. The API checks every hour, under a PostgreSQL advisory lock so two checks cannot both send. A
   release list that cannot be read writes a null image, and then no
   notice shows.
 
