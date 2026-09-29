@@ -73,6 +73,20 @@ export type MkdirRequest = z.infer<typeof MkdirRequest>;
 export const MoveRequest = z.object({ from: ProjectPath, to: ProjectPath }).strict();
 export type MoveRequest = z.infer<typeof MoveRequest>;
 
+/** Request body for "Extract here" on a zip file (issue #817). */
+export const ExtractRequest = z.object({ path: ProjectPath }).strict();
+export type ExtractRequest = z.infer<typeof ExtractRequest>;
+
+/** The folder a zip was extracted into, project-relative. */
+export const ExtractResponse = z.object({ path: ProjectPath });
+export type ExtractResponse = z.infer<typeof ExtractResponse>;
+
+/** Most bytes a zip may unpack to, the same cap as a download. */
+export const MAX_EXTRACT_BYTES = 1024 * 1024 * 1024;
+
+/** Most entries a zip may hold and still be extracted. */
+export const MAX_EXTRACT_ENTRIES = 10_000;
+
 /** Most entries one directory listing returns before it is truncated. */
 export const MAX_TREE_ENTRIES = 2000;
 
