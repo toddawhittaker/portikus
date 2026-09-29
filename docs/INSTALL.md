@@ -544,6 +544,14 @@ sudo portikus setup
 
 This runs setup in the foreground and is safe to run at any time.
 
+A few settings have no screen and are set only in this file. One is
+`portikus_public_port`, the port browsers use, which is 443 unless you
+add, for example, `portikus_public_port: 8443` for a server whose port
+443 belongs to another service. Browsers then need the port in the
+address, such as `https://portikus.example.edu:8443`. To set it before
+the first setup runs, write the line to `/etc/portikus/portikus.yaml`
+before `apt install portikus`.
+
 ## Upgrades
 
 ```
