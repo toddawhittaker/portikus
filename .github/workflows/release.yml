@@ -40,6 +40,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
           SHA: ${{ github.sha }}
+          APT_URL: https://toddawhittaker.github.io/portikus/apt
         run: |
           if [ "$EVENT" = workflow_dispatch ]; then
             echo "release=true" >> "$GITHUB_OUTPUT"
@@ -47,7 +48,15 @@ jobs:
           fi
           if [ "$EVENT" = schedule ]; then
             echo "release=false" >> "$GITHUB_OUTPUT"
-            echo "resign=true" >> "$GITHUB_OUTPUT"
+            # A release in the last 6 days signed it already. Anything unreadable signs again.
+            published="$(curl -fsSL "$APT_URL/dists/trixie/InRelease" | sed -n 's/^Date: //p' | head -n 1)" || published=""
+            if [ -n "$published" ] && signed="$(date -d "$published" +%s)" \
+              && [ $(( $(date +%s) - signed )) -lt $(( 6 * 86400 )) ]; then
+              echo "The apt index was signed on $published, less than 6 days ago; not signing it again."
+              echo "resign=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "resign=true" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
           # The pull request that put this commit on main. GitHub can list it a

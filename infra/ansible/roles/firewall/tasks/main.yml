@@ -31,6 +31,22 @@
           + (firewall_sshd_config.stdout_lines | default([]) | select('match', '^listenaddress .*:[0-9]+$') | map('regex_replace', '^.*:', '') | list))
          | map('int') | unique | sort }}
 
+# The ruleset names the worker's account, so it must exist before the package
+# that normally adds it; postinst then keeps it as it is.
+- name: Create the worker's group
+  ansible.builtin.group:
+    name: portikus-worker
+    system: true
+
+- name: Create the worker's account
+  ansible.builtin.user:
+    name: portikus-worker
+    group: portikus-worker
+    system: true
+    shell: /usr/sbin/nologin
+    home: /nonexistent
+    create_home: false
+
 - name: Deploy nftables ruleset
   ansible.builtin.template:
     src: nftables.conf.j2

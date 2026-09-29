@@ -339,6 +339,21 @@ either check fails, fix the cause (for example, let the image workflow
 finish or rerun it), then rerun the failed Release run from the Actions tab
 with "Re-run all jobs". No release was created, so the rerun starts clean.
 
+The signed apt index expires 30 days after it is signed (its
+`Valid-Until` line), after which `apt update` refuses it. The same
+workflow therefore runs every Monday and signs the index again with no new
+package, unless a release signed it less than 6 days earlier. If that
+weekly run fails, fix the cause and rerun it from the Actions tab with
+"Re-run all jobs"; its gate checks the index's date again, so the rerun
+signs it. There are about three more Mondays before the index expires.
+
+Runs of this workflow never overlap, and GitHub keeps only one waiting run.
+When a new run is queued while one is running and another is waiting, the
+waiting one is cancelled, before its gate runs. A release cancelled by a
+later merge needs nothing, because the later release has its commits. A
+release cancelled by the Monday run publishes nothing: rerun it with
+"Re-run all jobs".
+
 ## Secret scanning
 
 Remote: the CI secret-scan job, plus GitHub secret scanning and push

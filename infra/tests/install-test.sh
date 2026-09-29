@@ -273,15 +273,20 @@ make_releases() {
   fetch_image || return
   rm -rf "${SERVE}/images"
   release "$RECIPE_VERSION"
+  # A published first package may name an older image, which then stays the
+  # default through the upgrade; serve it under that version too.
+  dpkg-deb --fsys-tarfile "${LOGS}/v1.deb" | tar -xO ./usr/share/portikus/workspace-image/VERSION >"${LOGS}/first-image.version"
+  [ "$(cat "${LOGS}/first-image.version")" = "$RECIPE_VERSION" ] || release "$(cat "${LOGS}/first-image.version")"
   # Two published releases the newest-fetch sees, then ones the image
-  # rehearsal fetches by version: two tampered, and two for pruning.
-  release 2026.09.13
-  release 2026.09.14 bad-signature
-  release 2026.09.15 bad-checksum
-  release 2026.09.16
-  release 2026.09.17
+  # rehearsal fetches by version: two tampered, and two for pruning.  Year
+  # 2099 keeps them newer than, and never equal to, the recipe's version.
+  release 2099.09.13
+  release 2099.09.14 bad-signature
+  release 2099.09.15 bad-checksum
+  release 2099.09.16
+  release 2099.09.17
   # The shape of GitHub's releases API, which the image job reads.
-  printf '[{"tag_name":"v0.1.1"},{"tag_name":"image-2026.09.13"},{"tag_name":"image-%s"}]\n' "$RECIPE_VERSION" \
+  printf '[{"tag_name":"v0.1.1"},{"tag_name":"image-2099.09.13"},{"tag_name":"image-%s"}]\n' "$RECIPE_VERSION" \
     >"${SERVE}/images/releases.json"
   local d
   for d in "${SERVE}"/images/image-*; do
@@ -496,6 +501,18 @@ s.sendall(b"status\n")
 s.shutdown(socket.SHUT_WR)
 print("answered" if s.recv(4096) else "empty")'
 
+# Prints "open" or "refused" for each loopback port, in order.
+LOOPBACK_PROBE='import socket, sys
+for port in sys.argv[1:]:
+    s = socket.socket()
+    s.settimeout(5)
+    try:
+        s.connect(("127.0.0.1", int(port)))
+        print("open")
+    except ConnectionRefusedError:
+        print("refused")
+    s.close()'
+
 worker_account() {
   local pid
   pid=$(vm "systemctl show -P MainPID portikus-worker")
@@ -507,6 +524,12 @@ worker_account() {
     || { echo "the worker's account reached the backup key socket"; return 1; }
   [ "$(vm "sudo runuser -u portikus -- python3 -c '${KEY_SOCKET_PROBE}'")" = answered ] \
     || { echo "the API's account got no answer from the backup key socket"; return 1; }
+  # The worker may open loopback connections only to the controller, so it
+  # cannot reach the API or Dex around Caddy's rate limit (SPEC.md 24.9).
+  [ "$(vm "sudo runuser -u portikus-worker -- python3 -c '${LOOPBACK_PROBE}' 3000 5556 3001" | paste -sd' ')" = "refused refused open" ] \
+    || { echo "the worker's account reached the API or Dex, or not the controller"; return 1; }
+  [ "$(vm "sudo runuser -u portikus -- python3 -c '${LOOPBACK_PROBE}' 3000 5556" | paste -sd' ')" = "open open" ] \
+    || { echo "the API and Dex are not listening, so the refusals above prove nothing"; return 1; }
   # The worker's half of the backup channel, as the channel's timer runs it.
   vm "sudo portikus backup-channel pull"
 }
@@ -548,6 +571,9 @@ for _ in $(seq 1 45); do
   sleep 2
 done
 [ "$fresh" -gt 0 ] || { echo "no health sample since the worker started at ${started}"; exit 1; }
+# The firewall still lets the worker reach the controller (SPEC.md 24.9).
+reached=$(as_postgres "SELECT count(*) FROM health_samples WHERE observed_at > to_timestamp(${since}) AND (sample->'controller'->>'reachable')::boolean")
+[ "$reached" -gt 0 ] || { echo "the worker's health samples since ${started} show no controller"; exit 1; }
 echo "health samples since the worker started: ${fresh}"
 if journalctl -u portikus-worker --since "@${since}" --no-pager | grep -i "permission denied"; then
   echo "the worker hit a permission error"
@@ -562,7 +588,7 @@ EOF
 
 image_jobs() {
   scp -q -o BatchMode=yes "${ROOT}/infra/tests/image-job-rehearsal.py" "deploy@${IP}:/tmp/image-job-rehearsal.py"
-  vm "sudo python3 /tmp/image-job-rehearsal.py --public-host ${PUBLIC_HOST} --recipe-version ${RECIPE_VERSION}"
+  vm "sudo python3 /tmp/image-job-rehearsal.py --public-host ${PUBLIC_HOST} --recipe-version $(cat "${LOGS}/first-image.version")"
 }
 
 # ── 10 and 11: backups on the server, and a rebuild from them ─────

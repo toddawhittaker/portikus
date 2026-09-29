@@ -1,6 +1,7 @@
 -- The worker's database privileges, and nothing more (SPEC.md section 24.9,
 -- docs/adr/0044-backups-on-the-server.md).  Run as postgres after the
--- migrations, in one transaction, by setup and by the package's postinst.
+-- migrations by setup, the package's postinst and restore, with psql and
+-- ON_ERROR_STOP but without --single-transaction: the file has its own.
 -- It revokes everything first, so the grants below are the whole list.
 -- A worker query on a new table or with a new verb needs a line here;
 -- apps/worker/src/grants.test.ts fails until it has one.
@@ -8,11 +9,20 @@
 -- lti_ and account_link tables, or write on users: with those a worker
 -- could sign itself in as an administrator.
 
+-- Releases up to 0.1.676 made the worker a member of portikus.  This runs
+-- on its own, before the transaction, so it holds even if a grant fails.
 DO $$ BEGIN
-	IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'portikus') THEN
+	IF EXISTS (
+		SELECT FROM pg_auth_members m
+		JOIN pg_roles g ON g.oid = m.roleid
+		JOIN pg_roles w ON w.oid = m.member
+		WHERE g.rolname = 'portikus' AND w.rolname = 'portikus-worker'
+	) THEN
 		REVOKE portikus FROM "portikus-worker";
 	END IF;
 END $$;
+
+BEGIN;
 
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM "portikus-worker";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM "portikus-worker";
@@ -39,3 +49,5 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON workspace_connections, health_samples,
 
 GRANT USAGE ON SEQUENCE audit_events_id_seq, health_samples_id_seq,
 	workspace_usage_samples_id_seq TO "portikus-worker";
+
+COMMIT;

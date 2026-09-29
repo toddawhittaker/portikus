@@ -713,6 +713,21 @@ worker_ip_allow() {
 }
 check_output "the worker unit may reach 127.0.0.1 and the workspace bridge only" \
   "10.200.0.0/24 127.0.0.1" worker_ip_allow
+# The firewall lets the worker's account open loopback connections only to
+# the controller, so it cannot reach the API or Dex (SPEC.md 24.9).
+worker_loopback() { # USER -- "open" or "refused" for the API, then the controller.
+  ssh_cmd "sudo runuser -u $1 -- python3 -c 'import socket
+for port in (3000, 3001):
+    try:
+        socket.create_connection((\"127.0.0.1\", port), timeout=5).close()
+        print(\"open\")
+    except ConnectionRefusedError:
+        print(\"refused\")'" | paste -sd' '
+}
+check_output "the worker's account reaches the controller on loopback but not the API" \
+  "refused open" worker_loopback portikus-worker
+check_output "the API's account reaches both, so that refusal is the firewall's" \
+  "open open" worker_loopback portikus
 # proxy_connect URL -- the status of the proxy's answer to CONNECT for URL.
 proxy_connect() {
   ssh_cmd "${CURL} -o /dev/null -w '%{http_connect}' -x http://127.0.0.1:3128 '$1'"

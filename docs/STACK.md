@@ -1408,6 +1408,9 @@ control plane
 
 workspace-controller
   → Incus administrative interface permitted
+
+worker
+  → loopback: the controller only (not the API or Dex; SPEC.md 24.9)
 ```
 
 No firewall rule should exist solely because an administrator once typed it manually.

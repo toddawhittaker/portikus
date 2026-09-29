@@ -3480,10 +3480,18 @@ Gaps:
   queries use (`worker-grants.sql`, no write on sessions or users), and
   `worker.env` is `root:portikus-worker` 0640. On an upgrade, postinst
   adds the role, moves `worker.env` and applies the grants after the
-  migrations, before the worker restarts; setup does the same. The unit
-  may reach only 127.0.0.1 and the workspace bridge. `make install-test` checks the
-  worker's account and the refusal, and `UPGRADE_FROM_PUBLISHED=1` makes
-  it upgrade from the newest published release.
+  migrations, before the worker restarts; setup does the same. The grants
+  file drops the old membership in `portikus` first, on its own, so it is
+  gone even if a grant then fails. The unit may reach only 127.0.0.1 and
+  the workspace bridge, and the host firewall lets the `portikus-worker`
+  account open loopback connections only to the controller's port 3001.
+  So it cannot reach the API on 3000 or Dex on 5556 directly, around
+  Caddy's sign-in rate limit. Replies from the worker's own listeners
+  still pass. `make install-test` checks the worker's account, the key
+  socket's refusal, the loopback refusals and that its health samples
+  still reach the controller; the smoke test checks the loopback rule.
+  `UPGRADE_FROM_PUBLISHED=1` makes install-test upgrade from the newest
+  published release.
 - A recreated VM keeps its address (#834). The pilot's and the rehearsal
   VM's MAC addresses are fixed in their environments' `variables.tf`, so
   `make destroy-pilot`, `make rebuild-pilot` and `make rehearsal-destroy`

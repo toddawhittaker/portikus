@@ -36,18 +36,49 @@ const grantsSql = readFileSync(GRANTS_FILE, "utf8");
 
 type Verb = "SELECT" | "INSERT" | "UPDATE" | "DELETE";
 
-/** Table to the verbs the file grants, column grants included. */
-function granted(): Map<string, Set<Verb>> {
-	const out = new Map<string, Set<Verb>>();
+/** Table to verb to the granted columns, or null when the whole table is granted. */
+function grantedColumns(): Map<string, Map<Verb, Set<string> | null>> {
+	const out = new Map<string, Map<Verb, Set<string> | null>>();
 	const body = grantsSql.replace(/--.*$/gm, "").replace(/\s+/g, " ");
 	for (const m of body.matchAll(
-		/GRANT ([A-Z, ]+?)(?: \([^)]*\))? ON (?!SEQUENCE)([a-z_, ]+?) TO /g,
+		/GRANT ([A-Z, ]+?)(?: \(([^)]*)\))? ON (?!SEQUENCE)([a-z_, ]+?) TO /g,
 	)) {
 		const verbs = (m[1] ?? "").split(",").map((v) => v.trim() as Verb);
-		for (const table of (m[2] ?? "").split(",").map((t) => t.trim())) {
-			const set = out.get(table) ?? new Set<Verb>();
-			for (const v of verbs) set.add(v);
-			out.set(table, set);
+		const columns = m[2] === undefined ? null : m[2].split(",").map((c) => c.trim());
+		for (const table of (m[3] ?? "").split(",").map((t) => t.trim())) {
+			const byVerb = out.get(table) ?? new Map<Verb, Set<string> | null>();
+			for (const v of verbs) {
+				const had = byVerb.get(v);
+				if (columns === null || had === null) byVerb.set(v, null);
+				else byVerb.set(v, new Set([...(had ?? []), ...columns]));
+			}
+			out.set(table, byVerb);
+		}
+	}
+	return out;
+}
+
+/** Table to the verbs the file grants, column grants included. */
+function granted(): Map<string, Set<Verb>> {
+	return new Map(
+		[...grantedColumns()].map(([table, byVerb]) => [table, new Set(byVerb.keys())]),
+	);
+}
+
+/** Every column the worker writes, as "VERB table.column", from .values({...}) and .set({...}). */
+function writtenColumns(): string[] {
+	const out: string[] = [];
+	const files = readdirSync(import.meta.dirname).filter(
+		(f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "fake-controller.ts",
+	);
+	for (const file of files) {
+		const text = readFileSync(join(import.meta.dirname, file), "utf8");
+		const write =
+			/(insertInto|updateTable)\("([a-z_]+)"\)[^;]*?\.(?:values|set)\(\{([^}]*)\}/g;
+		for (const [, call, table, object] of text.matchAll(write)) {
+			const verb = call === "insertInto" ? "INSERT" : "UPDATE";
+			for (const [, column] of (object ?? "").matchAll(/([a-z_]+)\s*:/g))
+				out.push(`${verb} ${table}.${column}`);
 		}
 	}
 	return out;
@@ -132,6 +163,28 @@ describe("worker-grants.sql", () => {
 		expect(grantsSql).toMatch(/REVOKE portikus FROM "portikus-worker"/);
 	});
 
+	test("writes only the columns a column grant names", () => {
+		const have = grantedColumns();
+		const writes = writtenColumns();
+		// The worker seeds settings and records the egress outcome there.
+		expect(writes).toContain("UPDATE settings.egress_applied_version");
+		const outside = writes.filter((w) => {
+			const [verb, target] = w.split(" ") as [Verb, string];
+			const [table, column] = target.split(".") as [string, string];
+			const columns = have.get(table)?.get(verb);
+			return columns !== null && !columns?.has(column);
+		});
+		expect(outside).toEqual([]);
+	});
+
+	test("drops the membership in portikus before, not inside, its transaction", () => {
+		const [before, after] = grantsSql.split(/^BEGIN;$/m);
+		expect(before).toMatch(/REVOKE portikus FROM "portikus-worker"/);
+		expect(before).toMatch(/pg_auth_members/);
+		expect(after).not.toMatch(/REVOKE portikus/);
+		expect(after?.trimEnd()).toMatch(/COMMIT;$/);
+	});
+
 	test("names only tables that exist", () => {
 		for (const table of granted().keys())
 			expect(knownTables.has(table), table).toBe(true);
@@ -140,6 +193,18 @@ describe("worker-grants.sql", () => {
 
 const skip = !hasTestDb();
 const role = `pk_worker_test_${process.pid}`;
+const owner = `pk_owner_test_${process.pid}`;
+
+/** The grants file for this test's roles, in psql's two steps. */
+function grantsFor(worker: string, member: string): [string, string] {
+	const text = grantsSql
+		.replaceAll('"portikus-worker"', `"${worker}"`)
+		.replaceAll("'portikus-worker'", `'${worker}'`)
+		.replaceAll("'portikus'", `'${member}'`)
+		.replaceAll("REVOKE portikus FROM", `REVOKE "${member}" FROM`);
+	const [before, after] = text.split(/^BEGIN;$/m);
+	return [before ?? "", `BEGIN;${after ?? ""}`];
+}
 let tdb: TestDb;
 let worker: Kysely<Database>;
 
@@ -150,7 +215,7 @@ beforeAll(async () => {
 	await sql
 		.raw(`DROP ROLE IF EXISTS "${role}"; CREATE ROLE "${role}" NOLOGIN`)
 		.execute(tdb.db);
-	await sql.raw(grantsSql.replaceAll('"portikus-worker"', `"${role}"`)).execute(tdb.db);
+	for (const part of grantsFor(role, owner)) await sql.raw(part).execute(tdb.db);
 	// A startup option makes every connection act as the role, as peer auth does.
 	const url = new URL(process.env.TEST_DATABASE_URL ?? "");
 	url.searchParams.set("options", `-c role=${role}`);
@@ -163,7 +228,9 @@ afterAll(async () => {
 	// close() points TEST_DATABASE_URL back at the shared database.
 	await tdb.close();
 	const server = createDb(process.env.TEST_DATABASE_URL ?? "", 1);
-	await sql.raw(`DROP ROLE IF EXISTS "${role}"`).execute(server);
+	await sql
+		.raw(`DROP ROLE IF EXISTS "${role}"; DROP ROLE IF EXISTS "${owner}"`)
+		.execute(server);
 	await server.destroy();
 });
 
@@ -262,5 +329,28 @@ describe.skipIf(skip)("the worker's role", () => {
 			worker.updateTable("settings").set({ egress_mode: "open" }).execute(),
 		).rejects.toThrow(denied);
 		await expect(worker.deleteFrom("audit_events").execute()).rejects.toThrow(denied);
+	});
+
+	test("loses its membership in portikus even when a grant then fails", async () => {
+		await sql
+			.raw(`CREATE ROLE "${owner}" NOLOGIN; GRANT "${owner}" TO "${role}"`)
+			.execute(tdb.db);
+		const [before, after] = grantsFor(role, owner);
+		await sql.raw(before).execute(tdb.db);
+		await tdb.db.connection().execute(async (conn) => {
+			const failing = after.replace(
+				"COMMIT;",
+				"GRANT SELECT ON no_such_table TO x; COMMIT;",
+			);
+			await expect(sql.raw(failing).execute(conn)).rejects.toThrow(/no_such_table/);
+			await sql`ROLLBACK`.execute(conn);
+		});
+		const member = await sql<{ n: number }>`
+			select count(*)::int as n from pg_auth_members m
+			join pg_roles g on g.oid = m.roleid join pg_roles w on w.oid = m.member
+			where g.rolname = ${owner} and w.rolname = ${role}`.execute(tdb.db);
+		expect(member.rows[0]?.n).toBe(0);
+		// Run again with no membership left: nothing to revoke, and no error.
+		await sql.raw(before).execute(tdb.db);
 	});
 });

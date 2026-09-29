@@ -422,7 +422,7 @@ EOF
 	cat >/usr/bin/psql <<'EOF'
 #!/bin/sh
 for a; do [ "$a" = -c ] && { echo 1; exit 0; }; done
-{ id -un; cat; } >>/tmp/psql.log
+{ id -un; echo "args: $*"; cat; } >>/tmp/psql.log
 EOF
 	chmod 0755 /usr/bin/psql
 	chown root:portikus /etc/portikus/worker.env
@@ -431,6 +431,9 @@ EOF
 	grep -qF 'CREATE ROLE "portikus-worker" LOGIN;' /tmp/psql.log || fail "the worker's role was not made"
 	! grep -qF 'GRANT portikus TO' /tmp/psql.log || fail "the worker's role was made a member of portikus"
 	grep -qF 'REVOKE portikus FROM "portikus-worker";' /tmp/psql.log || fail "the worker's grants were not applied"
+	# The file has its own transaction; one around it all would keep the
+	# membership whenever a grant failed.
+	! grep -qE '^args: (.* )?(-1|--single-transaction)( |$)' /tmp/psql.log || fail "psql ran the grants in a single transaction"
 	grep -qxF 'DATABASE_URL=postgresql://portikus-worker@/portikus?host=/var/run/postgresql' /etc/portikus/worker.env ||
 		fail "worker.env does not name the portikus-worker role"
 	grep -qxF 'NODE_ENV=production' /etc/portikus/worker.env || fail "worker.env lost its other lines"

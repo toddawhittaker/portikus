@@ -300,11 +300,12 @@
     name: portikus-api
     state: started
 
-# Revokes and grants in one transaction, so the worker never holds more
-# than the file lists (SPEC.md section 24.9).
+# The file drops the old membership in portikus, then revokes and grants in
+# its own transaction, so the worker never holds more than it lists (SPEC.md
+# section 24.9).  No --single-transaction, which would undo the first step.
 - name: Give the worker's database role only the privileges it needs
   ansible.builtin.command:
-    cmd: psql -X -q -1 -v ON_ERROR_STOP=1 -d portikus
+    cmd: psql -X -q -v ON_ERROR_STOP=1 -d portikus
     stdin: "{{ lookup('ansible.builtin.file', 'worker-grants.sql') }}"
     chdir: /
   become: true

@@ -75,6 +75,17 @@ if fetch "$WORK/bad-deb" >/dev/null; then echo "FAIL: a .deb with the wrong hash
 cp -r "$WORK/nine-ten" "$WORK/bad-sig"
 sed -i 's/^Label: Portikus/Label: Evil/' "$WORK/bad-sig/dists/trixie/InRelease"
 if fetch "$WORK/bad-sig" >/dev/null; then echo "FAIL: a tampered InRelease was accepted" >&2; exit 1; fi
+# Unsigned text before the signed block names a forged Packages; only the
+# signed Release may be trusted.
+cp -r "$WORK/nine-ten" "$WORK/prepended"
+dist="$WORK/prepended/dists/trixie"
+printf 'x' >>"$WORK/prepended/pool/main/p/portikus/portikus_0.1.10_amd64.deb"
+forged_deb="$(sha256sum "$WORK/prepended/pool/main/p/portikus/portikus_0.1.10_amd64.deb" | cut -d' ' -f1)"
+sed -i "/^Filename: .*portikus_0.1.10_amd64.deb/,/^\$/ s/^SHA256: .*/SHA256: $forged_deb/" "$dist/main/binary-amd64/Packages"
+forged_packages="$(sha256sum "$dist/main/binary-amd64/Packages" | cut -d' ' -f1)"
+{ printf 'SHA256:\n %s 1 main/binary-amd64/Packages\n\n' "$forged_packages"; cat "$dist/InRelease"; } >"$WORK/InRelease.new"
+mv "$WORK/InRelease.new" "$dist/InRelease"
+if fetch "$WORK/prepended" >/dev/null; then echo "FAIL: unsigned text before InRelease was trusted" >&2; exit 1; fi
 echo "ok: fetch-published-deb.sh takes the newest version and checks what it downloads"
 
 # Retention cases, each in a fresh repository seeded straight into the pool.
