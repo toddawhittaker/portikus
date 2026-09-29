@@ -1609,22 +1609,6 @@ accepted unless a later debconf release adds a way.
 
 **Source.** Epic 15 installer polish (#803).
 
-## Remove the old role-based image path
-
-**What.** Delete what is left of the image build and import done by
-Ansible before the image job existed: `build-on-vm.sh`, which `make
-build-workspace-image` runs over SSH on the development VM, and any part
-of the `image_builder` role only it uses. Do it once the development VM
-gets its image through the image job too.
-
-**Why.** Two ways to put an image on a host drift apart; setup now uses
-only the image job's `first-install` (SPEC.md section 21.12).
-
-**What it would take.** Moving `make build-workspace-image` for the
-development VM onto the job, then deleting the unused tasks. About a day.
-
-**Source.** Epic 15 final pass (#812).
-
 ## Watch a possibly flaky Users dialog test
 
 **What.** `DexUserDialogs.test.tsx`, "Show details for dana", timed out
@@ -1637,19 +1621,3 @@ it.
 slow wait and fix it.
 
 **Source.** Epic 15, T6 (#792).
-
-## Test the release workflow before it matters
-
-**What.** `release.yml`'s gate, which finds the merged pull request from
-the pushed commit, and its wait of up to 75 minutes for the matching
-image release, have never run, because they run only on a push to
-`main`.
-
-**Why.** The first merge to `main` after Epic 15 is also the first real
-release; a fault there blocks publishing.
-
-**What it would take.** Watch the first run and fix what breaks, or
-rehearse it on a fork with its own `publish` environment first. Half a
-day.
-
-**Source.** Epic 15 review fixes (#807, #810).

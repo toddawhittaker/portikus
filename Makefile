@@ -1,7 +1,7 @@
 # Documented operator entry point (STACK.md section 31).
 # Every target is a thin wrapper over a tool that stays usable on its own.
 
-.PHONY: help install check typecheck lint format test test-coverage build test-e2e dev clean \
+.PHONY: help install check docs-check typecheck lint format test test-coverage build test-e2e dev clean \
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy install-test \
        build-deb install-screens deploy-app build-workspace-image workspace-create workspace-destroy \
@@ -15,7 +15,10 @@ help: ## Show the available targets
 install: ## Install workspace dependencies from the lockfile
 	pnpm install --frozen-lockfile
 
-check: typecheck lint test-coverage build infra-check ## Run every repository check, including the infrastructure checks CI runs
+check: typecheck lint docs-check test-coverage build infra-check ## Run every repository check, including the infrastructure checks CI runs
+
+docs-check: ## Fail on Markdown links and images that point at missing files
+	python3 scripts/check-docs-links.py
 
 typecheck: ## Type-check every package and app
 	pnpm typecheck
@@ -102,7 +105,7 @@ rehearsal-destroy: ## Destroy the rehearsal VM, its disks, network and pool (nev
 	@$(MAKE) --no-print-directory TOFU_ENV=rehearsal-libvirt TOFU_DESTROY_CALLER=rehearsal-destroy tofu-destroy
 
 # The script fixes TOFU_ENV=rehearsal-libvirt and ignores VM_IP, so it cannot reach the pilot.
-install-test: ## apt install portikus on a fresh rehearsal VM from a local signed repository, claim the administrator, smoke test, upgrade, destroy it (IMAGE_JOBS=1 adds the image job rehearsal; KEEP_VM=1 keeps the VM)
+install-test: ## apt install portikus on a fresh rehearsal VM from a local signed repository, claim the administrator, smoke test, upgrade, destroy it (IMAGE_JOBS=1 adds the image job rehearsal; UPGRADE_FROM_PUBLISHED=1 upgrades from the published release instead; KEEP_VM=1 keeps the VM)
 	IMAGE_JOBS=$(IMAGE_JOBS) KEEP_VM=$(KEEP_VM) bash infra/tests/install-test.sh
 
 # Refuses to start the VM when the host lacks its memory; a running VM is fine.
@@ -155,6 +158,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	ansible-playbook infra/tests/workspace-image-test.yml
 	bash infra/tests/backup-scope-test.sh
 	bash infra/tests/backup-channel-test.sh
+	bash scripts/tests/publish-apt-repo-test.sh
 	bash infra/tests/backup-local-test.sh
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
@@ -185,11 +189,13 @@ SSH_USER ?= deploy
 # Non-empty when VM_IP names a host other than this state's libvirt VM.
 FOREIGN_HOST = $(and $(filter command line environment,$(origin VM_IP)),$(filter-out $(call tofu_output,vm_ip),$(VM_IP)))
 
-# The site name the VM's Caddy serves. A libvirt VM from this state has to be
-# named after the host's address, not the VM's, because LAN browsers reach it
-# through the host port forward.  Any other host is named after its own
-# address, as the play itself would name it.
-PORTIKUS_PUBLIC_HOST ?= portikus.$(if $(FOREIGN_HOST),$(VM_IP),$(HOST_IP)).nip.io
+# The site name the VM's Caddy serves. The pilot has a real DNS name on the
+# LAN resolver.  Other libvirt VMs from a state here are named after the
+# host's address through nip.io, because LAN browsers reach them through the
+# host port forward.  Any other host is named after its own address, as the
+# play itself would name it.
+PILOT_PUBLIC_HOST := pilot.portikus.thewhittakers.org
+PORTIKUS_PUBLIC_HOST ?= $(if $(FOREIGN_HOST),portikus.$(VM_IP).nip.io,$(if $(filter dev-libvirt,$(TOFU_ENV)),$(PILOT_PUBLIC_HOST),portikus.$(HOST_IP).nip.io))
 
 # The port browsers connect to. The host keeps 80 and 443 for another
 # service, so Caddy on the VM serves the site on 8443 and the host forwards
@@ -312,11 +318,12 @@ destroy-pilot: ## Destroy the pilot VM (irreversible)
 
 # Sub-makes, not prerequisites, so make -j cannot destroy the VM while the
 # apply is still running.
-rebuild-pilot: ## Destroy and recreate the platform VM
+# The pilot is apt-installed now, so the rest of a rebuild is manual.
+rebuild-pilot: ## Destroy and recreate the pilot VM, then install it by hand from docs/INSTALL.md (docs/OPERATIONS.md, "The pilot")
 	@$(MAKE) --no-print-directory destroy-pilot
 	@$(MAKE) --no-print-directory infra-apply
-	@$(MAKE) --no-print-directory configure-vm
 	@$(MAKE) --no-print-directory publish-vm
+	@echo "rebuild-pilot: the VM is empty; install Portikus on it with apt as docs/INSTALL.md describes"
 
 publish-vm: ## Forward port 8443 from the host's LAN address to the VM (rerun after a rebuild)
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "publish-vm: only the pilot is published; port 8443 belongs to it, not to $(TOFU_ENV)"; exit 1; }
@@ -365,7 +372,7 @@ backup: backup-setup ## Pull an encrypted backup of the VM to the host (CHECK_ST
 	PORTIKUS_BACKUP_DIR=$(PORTIKUS_BACKUP_DIR) PORTIKUS_BACKUP_RECIPIENTS=$(PORTIKUS_BACKUP_RECIPIENTS) \
 		PORTIKUS_BACKUP_MAC_KEY=$(PORTIKUS_BACKUP_MAC_KEY) bash infra/host/backup.sh $(if $(CHECK_STATE),--check-state,) --vm-name "$(TOFU_VM_NAME)" $(VM_IP)
 
-backup-install-timer: backup-setup ## Install the nightly 02:30 backup of the pilot as a host systemd timer (rerun after changing backup.sh)
+backup-install-timer: backup-setup ## Install the nightly 02:30 host backup timer for a workstation-deployed VM in dev-libvirt; off for the apt-installed pilot, which backs itself up
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "backup-install-timer: the timer backs up the pilot only"; exit 1; }
 	@test -n "$(VM_IP)" || { echo "backup-install-timer: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-timer: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
@@ -382,9 +389,9 @@ backup-install-timer: backup-setup ## Install the nightly 02:30 backup of the pi
 	$(MAKE) --no-print-directory backup-install-channel
 
 # The admin page's requests (docs/adr/0039-backup-channel-and-host-held-key.md).
-# One channel per host: installing it for the rehearsal VM repoints it there,
-# and make backup-install-timer points it back at the pilot.
-backup-install-channel: backup-setup ## Install the host timer that runs backup requests from the admin page, for the VM in TOFU_ENV
+# One channel per host, for workstation-deployed VMs only; the apt-installed
+# pilot runs its own channel. Installing it for the rehearsal VM repoints it there.
+backup-install-channel: backup-setup ## Install the host timer that runs backup requests from the admin page, for a workstation-deployed VM in TOFU_ENV (not the apt-installed pilot)
 	@test -n "$(VM_IP)" || { echo "backup-install-channel: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
 	@test -n "$(TOFU_VM_NAME)" || { echo "backup-install-channel: no VM name in $(TOFU_STATE); run make infra-apply first"; exit 1; }
 	sudo install -m 0755 infra/host/backup.sh /usr/local/sbin/portikus-backup
@@ -445,11 +452,15 @@ deploy-app: ## Build the Debian package and install it on the VM
 
 # ── Workspace image and lifecycle targets ─────────────────────────
 
-build-workspace-image: ## Build the workspace image on the VM with distrobuilder
+# The image job builds the recipe the installed package ships, so a recipe
+# that differs from the checkout's is refused rather than built stale.
+build-workspace-image: ## Build the workspace image on the VM with the image job and make it the default (after make deploy-app)
 	@test -n "$(VM_IP)" || { echo "build-workspace-image: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	rsync -av --delete infra/workspace-image/ $(SSH_USER)@$(VM_IP):/var/lib/portikus/image-build/
+	@here="$$(cd infra/workspace-image && sha256sum portikus.yaml VERSION)"; \
+	there="$$(ssh -n $(SSH_USER)@$(VM_IP) 'cd /usr/share/portikus/workspace-image && sha256sum portikus.yaml VERSION')"; \
+	test "$$here" = "$$there" || { echo "build-workspace-image: the package on $(VM_IP) ships a different image recipe from this checkout; run make deploy-app first"; exit 1; }
 	rsync -av --delete infra/incus/ $(SSH_USER)@$(VM_IP):/var/lib/portikus/incus/
-	ssh -n $(SSH_USER)@$(VM_IP) bash /var/lib/portikus/image-build/build-on-vm.sh
+	ssh -n $(SSH_USER)@$(VM_IP) sudo /usr/lib/portikus/image-job local-build
 
 workspace-create: ## Create a test workspace (NAME=<name>)
 	@test -n "$(NAME)" || { echo "workspace-create: NAME is required, e.g. make workspace-create NAME=alice"; exit 1; }

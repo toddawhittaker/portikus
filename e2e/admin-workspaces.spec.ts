@@ -114,6 +114,25 @@ test("an account with no sign-in for 31 days is marked Stale", async ({ page }) 
 	await expect(panel.getByTestId("detail-last-sign-in")).toHaveText("31 days ago");
 });
 
+test("a just-created account is not Stale and says Not signed in yet", async ({
+	page,
+}) => {
+	const tag = crypto.randomUUID().slice(0, 8);
+	const [row] = await query<{ id: string }>(
+		`insert into users (oidc_issuer, oidc_subject, email, display_name, role)
+		 values ($1, $2, $3, $4, 'student') returning id`,
+		[MOCK_ISSUER, `e2e-${crypto.randomUUID()}`, `new-${tag}@example.edu`, `New ${tag}`],
+	);
+	if (!row) throw new Error("could not create the user");
+
+	await openAdmin(page);
+	await filterTo(page, `New ${tag}`);
+
+	const account = page.getByTestId(`account-row-${row.id}`);
+	await expect(account.getByText("Not signed in yet", { exact: true })).toBeVisible();
+	await expect(account.getByText("Stale", { exact: true })).toHaveCount(0);
+});
+
 test("an administrator stops another user's workspace, and it is audited", async ({
 	page,
 	browser,

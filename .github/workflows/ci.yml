@@ -21,6 +21,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  docs:
+    name: Docs links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check Markdown links and images
+        run: python3 scripts/check-docs-links.py
+
   changes:
     name: Detect changed files
     runs-on: ubuntu-latest

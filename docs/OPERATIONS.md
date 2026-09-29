@@ -12,26 +12,49 @@ Names used throughout:
 - **The host** is the Pop!_OS machine that runs libvirt, the virtual
   machine manager. Every `make` command runs here, from a checkout of the
   repository.
-- **The pilot** is the platform VM `portikus`, at `10.100.0.120`. Its
-  OpenTofu environment is `dev-libvirt`, the default `TOFU_ENV`. `make`
-  reads the VM's address from the OpenTofu state, so never pass `VM_IP` by
-  hand for the pilot.
+- **The pilot** is the platform VM `portikus`, at `10.100.0.120`, served
+  at https://pilot.portikus.thewhittakers.org:8443 ("The pilot", below).
+  Its OpenTofu environment is `dev-libvirt`, the default `TOFU_ENV`.
+  `make` reads the VM's address from the OpenTofu state, so never pass
+  `VM_IP` by hand for the pilot.
 - **The rehearsal VM** is `portikus-rehearsal`, a second VM on the same
-  host (`TOFU_ENV=rehearsal-libvirt`). It is for rebuilding a whole
-  machine or a disaster-recovery drill, a from-scratch bootstrap, and
-  load tests bigger than the pilot. Everything else, including an epic's
-  verification, is done on the pilot, which is the development VM.
+  host (`TOFU_ENV=rehearsal-libvirt`). It is for testing unreleased
+  builds, rebuilding a whole machine or a disaster-recovery drill, a
+  from-scratch install, and load tests bigger than the pilot.
   No real students use the pilot. Every account and workspace on it is a
   test account, so it can be changed at any time.
 
+## The pilot
+
+The pilot is installed with apt exactly as docs/INSTALL.md describes, and
+it is upgraded the same way as any real install ("Deploying", below).
+Nothing from the workstation deploys to it: `make configure-vm` and
+`make deploy-app` are for the rehearsal VM and for testing unreleased
+builds, never for the pilot.
+
+- **Its address** is https://pilot.portikus.thewhittakers.org:8443. The
+  name resolves only on the LAN's own DNS server. Port 8443 is used
+  because another service on the host owns port 443. `make publish-vm`
+  forwards 8443 from the host's LAN address to the VM, and the install
+  answers set `portikus_public_port: 8443` (docs/INSTALL.md, "Changing
+  your answers").
+- **Its certificate** comes from Let's Encrypt, so browsers trust it
+  with no extra step.
+- **The Make targets aimed at it**, such as `smoke-test` and
+  `security-test`, default `PORTIKUS_PUBLIC_HOST` to that name and
+  `PORTIKUS_PUBLIC_PORT` to 8443.
+- **To rebuild it**, run `make rebuild-pilot`. It destroys the VM, creates
+  an empty one and publishes it. Then install Portikus on it by hand as
+  docs/INSTALL.md describes, and restore a backup if needed ("Restore").
+
 ## Rules that hold for every pilot change
 
-1. Fetch first: `git fetch origin` and check out `origin/main`. The pilot
-   never runs a package that has not been merged to `main`.
+1. The pilot runs only published releases, which are built from `main`.
 2. Record `ssh deploy@10.100.0.120 dpkg -s portikus | grep Version` before
    and after the change.
 3. Take a database dump first (next section).
-4. Change the pilot only through a Make target or Ansible, never by hand.
+4. Change the pilot only through apt, `dpkg-reconfigure portikus`,
+   `portikus setup` or a Make target, never by hand.
 5. Rebuilds, restores, resets and restarts of workspaces, the smoke
    test's lifecycle block, and `make security-test` (heavy tests too) may
    all run on the pilot. Load tests go to the rehearsal VM, because the
@@ -69,73 +92,63 @@ blocks inside the VM's disk file, so it only grows ("VM disk files on the
 host").
 
 To undo a bad change, install the previous package from the apt
-repository (`make configure-vm PORTIKUS_VERSION=<old version>` from the
-workstation, or `sudo apt install --allow-downgrades portikus=<old version>`
-on the server) and, only if the database itself is wrong, load the dump
-with `pg_restore --clean`. `apt-cache madison portikus` lists the versions
-the repository still holds; it keeps the ten newest.
+repository on the server with
+`sudo apt install --allow-downgrades portikus=<old version>`. Only if the
+database itself is wrong, load the dump with `pg_restore --clean`.
+`apt-cache madison portikus` lists the versions the repository holds; it
+keeps the ten newest of the current major.minor line and the newest
+of each earlier line.
 
 ## Deploying
 
-**A server installed with apt** (docs/INSTALL.md) is upgraded with
-`sudo apt update && sudo apt upgrade`, which installs the new release and
-reruns setup on its own. `sudo dpkg-reconfigure portikus` changes the
-install answers, and `sudo portikus setup` reapplies them. That is the
-normal path, and the rest of this section does not apply to it.
+**A server installed with apt** (docs/INSTALL.md), the pilot included, is
+upgraded with `sudo apt update && sudo apt upgrade`, which installs the
+new release and reruns setup on its own. `sudo dpkg-reconfigure portikus`
+changes the install answers, and `sudo portikus setup` reapplies them.
+Follow an upgrade of the pilot with `make smoke-test` from the host.
 
-**The development pilot and the rehearsal VM** are built and deployed
-from a workstation with Ansible, as follows.
+**Releases.** The signed apt repository (SPEC.md section 21.13) carries
+the ten newest versions of the current major.minor line and the newest
+version of each earlier line. A GitHub release carries the tag and the release
+notes, with no `.deb` file. Workspace images are GitHub releases of their
+own, named `image-<version>`, with the image files as assets.
+
+**The rehearsal VM and unreleased builds** are deployed from a
+workstation with Ansible:
 
 ```
 git fetch origin && git checkout origin/main
 nvm use
 make build-deb
-make configure-vm PORTIKUS_DEB=dist/deb/portikus_<version>_amd64.deb
-make smoke-test
+make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_DEB=dist/deb/portikus_<version>_amd64.deb
+make smoke-test TOFU_ENV=rehearsal-libvirt
 ```
 
 - `make build-deb` builds the control-plane Debian package into `dist/deb`.
 - `make configure-vm` runs the whole Ansible play. With `PORTIKUS_DEB` it
   installs that local package. Without it, it adds the signed apt
   repository and installs the newest package there, and
-  `PORTIKUS_VERSION=<version>` installs an older one, which is how a
-  rollback works.
+  `PORTIKUS_VERSION=<version>` installs an older one.
 - Run `configure-vm` when no workspace is being created. A controller
   restart in the middle of a create used to leave the workspace in
   `error`. The worker now retries the create, but it is still better not
   to race it (docs/CAPACITY.md, "Limits observed").
+- `make deploy-app` builds and installs the package without Ansible. It
+  is quicker for a small application fix, but it skips everything else.
 
-Every site signs in through Dex. `PORTIKUS_DEX_UPSTREAM` connects an
-institution's provider to it: `none` (the default, and what the pilot
-uses), `entra`, `google`, `ldap` or `oidc`. "Sign-in providers", below,
-says how to set up each one. Pass the same connector settings on every
-`configure-vm`. `PORTIKUS_IDP=mock` replaces Dex with the in-repo test
-provider; never use it on a VM others can reach: anyone could sign in as
-anyone.
+On such a VM, every site signs in through Dex. `PORTIKUS_DEX_UPSTREAM`
+connects an institution's provider to it: `none` (the default), `entra`,
+`google`, `ldap` or `oidc`. "Sign-in providers", below, says how to set
+up each one. Pass the same connector settings on every `configure-vm`.
+`PORTIKUS_IDP=mock` replaces Dex with the in-repo test provider. Never
+use it on a VM others can reach, because anyone could sign in as anyone.
+On an apt-installed server the same choices are install answers
+(docs/INSTALL.md, "5. How people sign in").
 
-**After a deploy that changes `infra/host/backup.sh`, run
-`make backup-install-timer` on the host.** The nightly timer runs an
-installed copy of the script, not the checkout. Epic 14 is such a change:
-until the timer is reinstalled, the nightly set has no `dex.dump`, so it
-cannot bring back Dex's accounts.
-
-Epic 15's signed sets ("Authenticated sets" below) are another: deploy the
-VM first, then run `make backup-install-timer`. A VM older than the
-change refuses the channel's report, which now says whether each set is
-verified. Sets made before the reinstall have no MAC, so the tab shows
-them as not verified until they are signed by hand.
-
-**Epic 14.2 must be deployed with `make configure-vm PORTIKUS_DEB=...`,
-not `make deploy-app` or a plain `apt upgrade`.** From this release the
-API checks that Dex's gRPC server certificate names `localhost`, and only
-the play reissues that certificate. The API also refuses to start while
-api.env still holds the retired direct-provider settings
-(`OIDC_PROVIDER`, `OIDC_ALLOWED_TENANT`, `OIDC_ALLOWED_DOMAINS`), which
-only the play removes. A package-only install leaves sign-in broken.
-
-`make deploy-app` builds and installs the package without Ansible. It is
-quicker for a small application fix, but it skips everything else, so
-prefer `configure-vm`.
+**After a change to `infra/host/backup.sh`, rerun
+`make backup-install-timer` on the host if a workstation-deployed VM uses
+the host timers.** The timer runs an installed copy of the script, not
+the checkout. The pilot does not use them ("Backups").
 
 ## Sign-in providers
 
@@ -597,13 +610,14 @@ A move like these follows the same steps:
 3. Rehearse on the rehearsal VM with the pilot's newest backup restored
    ("Restore"), and check with SQL that every account still owns its
    workspace.
-4. Run `make configure-vm` on the pilot with the usual settings.
+4. Upgrade the pilot (`sudo apt upgrade`, or `sudo portikus setup` for a
+   settings change).
 5. Check the same SQL on the pilot. Run `make smoke-test` and `make
    security-test`, and have people sign in.
 6. Record `dpkg -s portikus` again.
-7. If anything fails, install the previous package with its own play
-   (check out the matching commit, then `make configure-vm
-   PORTIKUS_DEB=<previous package>`), and load the `pg_dump`.
+7. If anything fails, install the previous package
+   (`sudo apt install --allow-downgrades portikus=<previous version>`),
+   and load the `pg_dump`.
 
 **Signing out of Portikus does not end a Dex session, and none is needed.**
 Dex's password login keeps no browser session, so the next sign-in always
@@ -846,7 +860,7 @@ answers 404.
 ### What Portikus tells the LMS
 
 Use the public URL of the site, shown here as `https://<site>`, for the
-pilot `https://portikus.192.168.10.48.nip.io:8443`.
+pilot `https://pilot.portikus.thewhittakers.org:8443`.
 
 | What the LMS asks for | Value |
 |---|---|
@@ -1029,7 +1043,7 @@ as anyone, so it is trusted only while it is registered.
    make lti-mock-register
    ```
 
-3. Open `http://<HOST_IP>:8765` (for the pilot, http://192.168.10.48:8765). Pick a person, a course and
+3. Open `http://<HOST_IP>:8765` (the host's LAN address). Pick a person, a course and
    whether to launch inside a frame, then launch. Launch as Sam Student,
    then as Ivy Instructor, and open the Course page.
 4. When done, stop trusting it, then stop `make mock-lms` with Ctrl-C:
@@ -1078,9 +1092,10 @@ and the OIDC provider are configured.
 ## Backups
 
 There are two ways backups run. A server installed with `apt install
-portikus` backs itself up, which the next part covers. The pilot and the
-development VM are backed up by the separate host that runs them, which
-the rest of this section covers.
+portikus`, the pilot included, backs itself up, which the next part
+covers. A VM configured from a workstation with `make configure-vm` is
+backed up by the separate host that runs it, which the rest of this
+section covers.
 
 ### On an apt-installed server
 
@@ -1165,6 +1180,12 @@ private key opens and checks every set.
 
 ### On a VM with a separate backup host
 
+These host timers are for VMs deployed from a workstation with
+`make configure-vm` only. They were turned off for the pilot on
+2026-09-29, when it moved to its own timers as an apt-installed server
+("On an apt-installed server", above). Do not reinstall them for the
+pilot.
+
 A backup is pulled from the VM to the host and encrypted there with age, a
 small file-encryption tool (ADR 0024). It only reads from the VM: a
 `pg_dump` of the platform database and of Dex's `dex` database, and an
@@ -1213,8 +1234,7 @@ volume, each taken from a short-lived snapshot.
   nothing it does not recognise. `make backup-install-timer` installs it
   with the nightly timer; `make backup-install-channel` installs it alone.
   There is one channel per host: `make backup-install-channel
-  TOFU_ENV=rehearsal-libvirt` points it at the rehearsal VM, and
-  `make backup-install-timer` points it back at the pilot afterwards.
+  TOFU_ENV=rehearsal-libvirt` points it at the rehearsal VM.
   Check it with `systemctl status portikus-backup-channel.service` and
   `journalctl -u portikus-backup-channel.service`. When the page says
   the host has not reported for more than 3 minutes, look there first.
@@ -1299,34 +1319,10 @@ stops it. When the exercise is over, run
 `make restore TOFU_ENV=rehearsal-libvirt BACKUP=<same set> REMOVE=1` and
 then `make rehearsal-destroy`.
 
-**Onto an empty VM, for a real disaster recovery.** If the pilot is lost:
-
-1. Rebuild it from code (`make infra-apply`, `make configure-vm` with the
-   usual provider settings, and `make build-workspace-image`). It comes
-   up with no workspace volumes and a database whose only user is the
-   local administrator. Ignore its one-time password; the restore
-   replaces that account with the backup's.
-2. Check the set with `restore.sh --check` as above.
-3. Run `restore.sh` directly, since `make restore` refuses the pilot:
-
-   ```
-   PORTIKUS_BACKUP_IDENTITY=<key> bash infra/host/restore.sh --start-check \
-     --target-name portikus 10.100.0.120 /var/backups/portikus/portikus/<timestamp>
-   ```
-
-   With a `dex.dump` in the set, the restore also loads Dex's accounts,
-   with Dex stopped, so everyone keeps their password. Without one, Dex
-   keeps the rebuilt VM's accounts, including the local administrator's
-   one-time password, so the restore sets the restored local
-   administrator's must-change-password flag: that password works once
-   more, and only to choose a new one.
-4. Run `make configure-vm` again, which makes a local administrator if
-   the backup had none, then `make smoke-test` and `make security-test`,
-   and sign in as an administrator to check that the workspaces are
-   listed.
-5. Tell the students their workspaces are back. They start them as usual.
-
-The rebuilt pilot keeps the same public host name and port, so the
+**Onto an empty VM, for a real disaster recovery.** If the pilot is lost,
+run `make rebuild-pilot`, then follow docs/INSTALL.md, "Rebuilding from an
+off-site backup", on the new VM with the same web address and port. The
+rebuilt pilot keeps the same public host name and port, so the
 database's recorded Dex issuer still matches.
 
 ## The rehearsal VM
@@ -1356,6 +1352,8 @@ shares nothing with the pilot.
   authority, runs `apt install portikus` and follows setup, signs in with
   `/etc/portikus/admin-password` and changes the password, runs the smoke
   test, and then upgrades to a second version from the same repository.
+  `UPGRADE_FROM_PUBLISHED=1` installs the newest published release first
+  and upgrades from it to the local build instead.
   `IMAGE_JOBS=1` adds the workspace image rehearsal
   (`infra/tests/image-job-rehearsal.py`, about 90 minutes more), and
   `KEEP_VM=1` leaves the VM for debugging. It refuses to start when a
@@ -1610,7 +1608,7 @@ The platform never logs secrets, prompts, source code or terminal bytes
 sudo journalctl -u portikus-api -u portikus-worker -u portikus-controller -o cat --since -1h
 ```
 
-The journal is capped at 2 GB. On the host, the nightly backup logs to
+The journal is capped at 2 GB. The nightly backup logs to
 `journalctl -u portikus-backup.service`.
 
 ## Routine checks
@@ -1620,8 +1618,8 @@ The journal is capped at 2 GB. On the host, the nightly backup logs to
 - The admin page's Health tab shows no "Worker not reporting", and the
   storage pool and memory are under 80 percent.
 - Last night's backup finished:
-  `systemctl status portikus-backup.service` on the host, and the newest
-  set under `/var/backups/portikus/portikus/` has no `FAILED` file.
+  `systemctl status portikus-backup.service` on the pilot, and the newest
+  set under `/var/backups/portikus/local/` has no `FAILED` file.
 
 **Weekly:**
 
@@ -1635,7 +1633,7 @@ The journal is capped at 2 GB. On the host, the nightly backup logs to
 - Check for new Dex releases. An upgrade is a pull request that bumps
   `dex_version` and `dex_commit` in `infra/ansible/site.yml` together,
   after reading the release notes. CI's Dex sign-in job tests it, then
-  the pilot runs `configure-vm` and the smoke test. To roll back, revert the pin.
+  a release carries it to the pilot, followed by the smoke test. To roll back, revert the pin.
 - Check that unattended upgrades are applying Debian security updates on
   the VM (`sudo journalctl -u unattended-upgrades`), which the `base` role
   sets up.

@@ -21,7 +21,7 @@ Then:
 git config core.hooksPath .githooks   # once per clone
 pnpm install --frozen-lockfile
 cp .env.example .env                  # .env is git-ignored; never commit it
-make check                            # typecheck, lint, test with coverage, build, infra-check
+make check                            # typecheck, lint, docs links, test with coverage, build, infra-check
 pnpm test:e2e                         # Playwright browser tests
 pnpm dev                              # every app in watch mode
 ```
@@ -146,71 +146,45 @@ holds any workspace. Even so, do not run it against a VM someone is using: it
 stops and starts workspaces and, on a VM with none, it shortens the
 platform-wide disconnect grace period for the length of the run. Set `PORTIKUS_PUBLIC_HOST` to the
 name Caddy serves on that VM, and `PORTIKUS_PUBLIC_PORT` to the port it
-serves on (8443 on the pilot); without the name the HTTPS checks fall back
-to `portikus.<vm-ip>.nip.io` and the script prints a warning.
+serves on (8443 on the pilot). For the pilot, `make` sets both for you
+(`pilot.portikus.thewhittakers.org` and 8443). Without a name, the script's
+HTTPS checks fall back to `portikus.<vm-ip>.nip.io` and it prints a
+warning.
 
 ### Using the pilot from the host that runs it
 
-Two things have to be set up on the machine you browse from. Both are
-per-VM: redo them after `make rebuild-pilot`.
-
-First, publish the VM:
+The pilot is served at https://pilot.portikus.thewhittakers.org:8443
+(docs/OPERATIONS.md, "The pilot"). The name resolves on the LAN's own DNS
+server, and the site and its preview names use a Let's Encrypt
+certificate, so a browser needs no hosts entry and no extra certificate
+authority. One step is needed on the host, and again after
+`make rebuild-pilot`, which already runs it:
 
 ```sh
 make publish-vm
 ```
 
-That forwards port 8443 on the host's LAN address to the VM for traffic
-arriving from the LAN and for connections the host itself makes. The local
-half matters because every preview hostname
-(`ws-<id>-<port>.preview.portikus.<lan-ip>.nip.io`) resolves through nip.io
-to the LAN address, and there can be one per port. With the forward in
-place, nothing needs adding to `/etc/hosts`, for the site or for any
-preview name. If you added hosts lines before, remove them; a line pointing
-the site name straight at the VM address works for the site but does
-nothing for preview names.
+That forwards port 8443 on the host's LAN address to the VM, for traffic
+arriving from the LAN and for connections the host itself makes.
 
-Second, trust the certificate authority the VM's Caddy created for itself.
-An embedded preview is an iframe, and an iframe cannot show a certificate
-warning, so without this every Preview tab fails silently with the
-browser's "site might be temporarily down" page, even though opening the
-same address in a top-level tab only shows an interstitial you can click
-through. `make publish-vm` prints these commands with the VM address filled
-in:
-
-```sh
-ssh deploy@<vm-ip> sudo cat /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt \
-  > /tmp/portikus-caddy-root.crt
-certutil -d sql:$HOME/.pki/nssdb -D -n portikus-caddy-root 2>/dev/null
-certutil -d sql:$HOME/.pki/nssdb -A -t C,, -n portikus-caddy-root \
-  -i /tmp/portikus-caddy-root.crt
-```
-
-That is the Chromium trust store on Linux; `certutil` comes from the
-`libnss3-tools` package. The delete on the middle line removes an earlier
-copy, so the three lines are safe to repeat. Restart the browser
-afterwards. Firefox keeps its own store: Settings, Privacy & Security, View
-Certificates, Authorities, Import, and tick "Trust this CA to identify
-websites".
-
-Rebuilding the VM makes a new authority, so the old root stops matching and
-previews break again until you reimport. The same certificate is also
-copied to `/etc/portikus/caddy-root.crt` on the VM, which is what the smoke
-test uses.
-
-To check both steps from the host, with no hosts entries:
+To check the forward from the host:
 
 ```sh
 curl -s -o /dev/null -w '%{http_code}\n' \
-  https://portikus.<lan-ip>.nip.io:8443/            # 200
+  https://pilot.portikus.thewhittakers.org:8443/            # 200
 curl -s -o /dev/null -w '%{http_code}\n' \
-  https://ws-<id>-<port>.preview.portikus.<lan-ip>.nip.io:8443/   # 401
+  https://ws-<id>-<port>.preview.pilot.portikus.thewhittakers.org:8443/   # 401
 ```
 
 A 401 from a preview name is the right answer: the request reached the
 gateway, which turned it away because the curl call carries no session. A
-connection error instead means the forward is missing, and a certificate
-error means the root is not imported.
+connection error instead means the forward is missing.
+
+A throwaway VM without a DNS name is served at `portikus.<lan-ip>.nip.io`
+instead. nip.io is a public service that answers any such name with the
+address inside it. Such a VM uses Caddy's own certificate authority, which
+the browser must trust before an embedded preview works, because an iframe
+cannot show a certificate warning (infra/README.md, "Browser access").
 
 ## Branches
 
@@ -285,6 +259,10 @@ task pull requests without asking each time.
 `.github/workflows/ci.yml` runs on every pull request and on pushes to main:
 
 - **Secret scan**: gitleaks over the full history of the branch.
+- **Docs links**: `scripts/check-docs-links.py` fails when a relative link
+  or image in a tracked Markdown file points at a file that does not
+  exist. It skips `docs/archive/`, web links and in-page anchors, and
+  runs on every change. `make docs-check` runs it locally.
 - **Application checks**: `pnpm install --frozen-lockfile`, typecheck, lint,
   tests with coverage (`pnpm test:coverage`), build. Skipped until
   `pnpm-workspace.yaml` exists. The run fails if coverage drops below the
@@ -336,13 +314,17 @@ shallow checkout since they only need the working tree.
 
 `.github/workflows/release.yml` publishes a release when an `epic/` or
 `task/` branch merges into `main`, or when the workflow is run by hand from `main` for a
-hotfix. It builds the package from the merge commit on `main`, adds it to
-the signed apt repository, and creates a tagged GitHub release with notes
-and no files. The version is `0.1.<commit count>+g<short sha>` and the tag
-is `v<version>`. Ansible installs the newest package from the apt
-repository by default; `make configure-vm PORTIKUS_VERSION=<ver>` installs
-an older one for a rollback. Task branches publish too, so a change that
-lands outside an epic still gives the VM a release to install.
+hotfix. It builds the package from the merge commit on `main` and adds it
+to the signed apt repository, which keeps the ten newest of the current
+major.minor line and the newest of each earlier line. It also creates a
+tagged GitHub release with notes and no files. Workspace images are
+published as GitHub releases of their own, `image-<version>`, with the
+image files as assets. The version is
+`0.1.<commit count>+g<short sha>` and the tag is `v<version>`. A server
+gets the release with `apt upgrade` and rolls back with
+`sudo apt install --allow-downgrades portikus=<version>`. Task branches
+publish too, so a change that lands outside an epic still gives servers a
+release to install.
 
 Two checks run before anything is published. First, the gate looks up the
 pull request that produced the push. GitHub can take a few seconds to list

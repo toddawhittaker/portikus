@@ -2196,8 +2196,11 @@ never started until it is unarchived. Home and Docker quotas can only grow,
 up to 1024 GiB each, and the worker applies the change; CPU, memory, and
 process limits are shown but not edited (Epic 24 made them editable per
 workspace; see below and section 19.4). An account is marked stale after
-30 days without a sign-in, or when another account with the same email
-signed in more recently; nothing is merged automatically. An administrator
+30 days without a sign-in (counted from its creation when it has never
+signed in), or when another account with the same email signed in more
+recently; nothing is merged automatically. An account that has never
+signed in and is not stale shows a neutral "Not signed in yet" note
+instead (issue #842). An administrator
 sees a workspace's aggregates (CPU, memory, disk, port numbers, short
 process names) but never its files, terminals, or process command lines.
 Logs stay in journald; since Epic 19 (ADR 0036) the admin page's Logs
@@ -2601,8 +2604,10 @@ This is an acceptance criterion, not merely documentation.
 
 Added by Epic 15 (ADR 0029). `apt install portikus` is the default way to
 install Portikus. The workstation Ansible and libvirt tooling under
-`infra/` is for development only; the pilot and the rehearsal VM keep
-using it. docs/INSTALL.md is the operator's guide.
+`infra/` is for development only: it creates the libvirt VMs, and it
+configures the rehearsal VM and unreleased builds. The pilot's VM is
+created by it but installed with apt and upgraded with `apt upgrade`,
+like any real install. docs/INSTALL.md is the operator's guide.
 
 - **Target.** A rented bare-metal or full virtual server, x86-64, Debian
   13 only. Other distributions, Debian's own Incus and an `.rpm` are out.
@@ -2693,7 +2698,9 @@ Added by Epic 15.
 - The apt repository is a static directory on GitHub Pages
   (`https://toddawhittaker.github.io/portikus/apt`, suite `trixie`,
   component `main`), built with `apt-ftparchive` and signed with `gpg`.
-  It keeps the ten newest packages. Reprepro and aptly were rejected
+  It keeps the ten newest packages of the current major.minor line and
+  the newest package of each earlier line, so every old line stays
+  installable. Reprepro and aptly were rejected
   because they keep a database a stateless CI job would have to carry.
 - The signing key does not expire. Its revocation certificate is kept
   offline (docs/OPERATIONS.md, "The package signing key"). The private
@@ -2807,7 +2814,9 @@ language-aware editor".
   `/var/lib/portikus/image-jobs/` (`root:portikus`, 0770), and a
   path-activated root oneshot, `portikus-image-job.service`, runs it.
   Kinds are `fetch`, `build`, `activate` and `rollback`, plus
-  `first-install`, which only setup runs. The job refuses an unknown
+  `first-install`, which only setup runs, and `local-build` (a build
+  then an activate), which only `make build-workspace-image` runs on a
+  development VM. The job refuses an unknown
   kind, choice or extra field, and a version not matching
   `^\d{4}\.\d{2}\.\d+(-local\.\d{12})?$`, and never puts a request value
   in a shell command. One job runs at a time; the API refuses a request

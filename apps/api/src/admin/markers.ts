@@ -6,11 +6,14 @@ export interface MarkerInput {
 	email: string | null;
 	/** The last sign-in, or null when none was ever recorded. */
 	lastLoginAt: Date | null;
+	createdAt: Date;
 }
 
 export interface AccountFlags {
 	duplicateEmail: boolean;
 	stale: boolean;
+	/** Never signed in, but too new to call stale (issue #842). */
+	notSignedInYet: boolean;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -23,8 +26,9 @@ function emailKey(email: string | null): string | null {
 
 /**
  * Duplicate and stale flags for every account, keyed by id. An account is
- * stale when it has not signed in for STALE_AFTER_DAYS days, or when another
- * account with the same email signed in more recently.
+ * stale when it has not signed in for STALE_AFTER_DAYS days (counted from its
+ * creation when it never signed in), or when another account with the same
+ * email signed in more recently.
  */
 export function accountFlags(
 	users: readonly MarkerInput[],
@@ -49,9 +53,12 @@ export function accountFlags(
 				other.lastLoginAt !== null &&
 				(mine === null || other.lastLoginAt.getTime() > mine),
 		);
+		const lastSeen = mine ?? user.createdAt.getTime();
+		const stale = lastSeen < cutoff || newerTwin;
 		flags.set(user.id, {
 			duplicateEmail: group.length > 1,
-			stale: mine === null || mine < cutoff || newerTwin,
+			stale,
+			notSignedInYet: mine === null && !stale,
 		});
 	}
 	return flags;

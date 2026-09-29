@@ -220,13 +220,18 @@ export async function listAdminUsers({
 			id: user.id,
 			email: user.email,
 			lastLoginAt: user.last_login_at ? new Date(user.last_login_at) : null,
+			createdAt: new Date(user.created_at),
 		})),
 		new Date(),
 	);
 
 	return groupByEmail(users).map((user) => {
 		const workspace = byOwner.get(user.id);
-		const flag = flags.get(user.id) ?? { duplicateEmail: false, stale: false };
+		const flag = flags.get(user.id) ?? {
+			duplicateEmail: false,
+			stale: false,
+			notSignedInYet: false,
+		};
 		return {
 			...toAdminUser(user),
 			markers: {
