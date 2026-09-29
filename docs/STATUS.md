@@ -3626,3 +3626,12 @@ Gaps:
   version (SPEC.md sections 20.1 and 22.4). No migration. Gap: the timer
   and the check have unit tests only; they have not yet run on a real
   host from bootstrap through the smoke test.
+Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot
+fixes". In progress.
+
+- Workspace image 2026.09.14 ships a coding-agent instructions template at
+  `/usr/share/portikus/AGENTS.md` and sets `init.defaultBranch main` in
+  `/etc/gitconfig`. The workspace agent copies the template once to
+  `~/.codex/AGENTS.md` and writes `~/.claude/CLAUDE.md` once as an import
+  of it; it never overwrites either (#858, T6). A workspace on an older
+  image gets neither file until it is rebuilt onto the new image.

@@ -427,6 +427,21 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check_output "Claude Code auto-update off in a login shell" \
     "DISABLE_AUTOUPDATER=1" ws_student 'env | grep DISABLE_AUTOUPDATER'
 
+  # 17aa. A student's own git init starts on main, and the workspace agent
+  # seeds the coding agents' instructions from the image's template once.
+  check_output "system git init.defaultBranch is main" "main" \
+    ws_exec "git config --system init.defaultBranch"
+  # shellcheck disable=SC2016  # expanded by the shell in the workspace
+  check_output "a new repository starts on main" "main" \
+    ws_student 'd=$(mktemp -d) && git -C "$d" init -q && git -C "$d" symbolic-ref --short HEAD; rm -rf "$d"'
+  check "the agent instructions template is in the image" \
+    ws_exec "test -s /usr/share/portikus/AGENTS.md"
+  # shellcheck disable=SC2016  # expanded by the shell in the workspace
+  check "the Codex AGENTS.md in the home is the template" \
+    ws_student 'for i in $(seq 1 30); do test -e ~/.claude/CLAUDE.md && break; sleep 1; done; cmp -s ~/.codex/AGENTS.md /usr/share/portikus/AGENTS.md'
+  check_output "the Claude CLAUDE.md in the home imports it" "@~/.codex/AGENTS.md" \
+    ws_student 'cat ~/.claude/CLAUDE.md'
+
   # 17ab. The clipboard shim turns a copy into an OSC 52 escape, because
   # a workspace has no X display (issue #125).  There is no terminal here,
   # so the shim falls back to stdout and we read the escape from there.
@@ -475,12 +490,17 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
     printf '\033[1;31mFAIL\033[0m  write persistence marker\n'
     fail=$((fail + 1))
   fi
+  ws_student "echo smoke-own-rule >> ~/.codex/AGENTS.md" >/dev/null 2>&1 || true
   ssh_cmd "incus stop ${WS_NAME} --project ${PROJECT}" >/dev/null 2>&1 || true
   ssh_cmd "incus start ${WS_NAME} --project ${PROJECT}" >/dev/null 2>&1 || true
   sleep 5
 
   check "projects marker survives restart"      ws_student "cat ~/projects/.smoke-marker"
   check "Docker images survive restart"         ws_student "docker images -q"
+  # Wait until the agent listens, which is after it seeds the files.
+  # shellcheck disable=SC2016  # expanded by the shell in the workspace
+  check "an edited AGENTS.md is not overwritten on restart" \
+    ws_student 'for i in $(seq 1 30); do ss -Hltn "sport = :7400" | grep -q . && break; sleep 1; done; grep -qx smoke-own-rule ~/.codex/AGENTS.md'
   # /run is cleared on stop, so an old exit record cannot explain anything.
   check "no exit record after the workspace restarts" \
     ws_exec "test -d /run/portikus-terminals && test ! -e /run/portikus-terminals/last-exit"

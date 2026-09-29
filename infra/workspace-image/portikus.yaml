@@ -1475,6 +1475,78 @@ files:
     # The image owns the Codex version, same as Claude Code's updater.
     check_for_update_on_startup = false
 
+# Template for the coding agents' global instructions.  The workspace agent
+# copies it once to ~/.codex/AGENTS.md and never overwrites it (SPEC.md 4.4).
+- path: /usr/share/portikus/AGENTS.md
+  generator: dump
+  mode: "0644"
+  content: |-
+    # Working in a Portikus workspace
+
+    You are running inside a student's Portikus workspace: a Linux container
+    the student reaches through a web browser. The student is learning to
+    build software with coding agents. They see your terminal output, the
+    project's files, a Changes view, a Checks pane, a Running pane and a
+    Preview tab. Explain what you do in plain words, and prefer changes the
+    student can follow and check for themselves.
+
+    ## Projects and Git
+    - Projects live in ~/projects/<name>, one folder each.
+    - Never commit, branch, tag, push, stash or rewrite history on the
+      student's behalf unless they ask you to. Leave changes in the working
+      tree; the student reviews them in the Changes view.
+    - New repositories start on the branch main.
+
+    ## Checks
+    - A project's checks live in .portikus/checks.json, and the student runs
+      them from the Checks pane. The format is:
+      {"checks": [{"id": "test", "name": "Tests", "command": "npm test"}]}
+      An id is lowercase letters, digits and hyphens. Each command runs in
+      the project folder and must exit non-zero on failure.
+    - When you add tests, a linter, a type checker or a build step, add or
+      update a check so the student can rerun it. Keep one command per check.
+    - Other files in .portikus/ belong to Portikus; do not edit them.
+
+    ## Running and previewing apps
+    - A server listening on a port appears in the Running pane. The student
+      opens it in the Preview tab from there, or by clicking a localhost URL
+      printed in the terminal. Listening on localhost or 0.0.0.0 both work.
+    - Do not set up public tunnels such as ngrok or cloudflared; the Preview
+      tab is how the student views a running app.
+    - Previews are served under host names ending in the value of
+      $PORTIKUS_PREVIEW_HOST_SUFFIX, which every terminal sets. Development
+      servers that check the Host header must allow it. For Vite:
+      server: { allowedHosts: ["." + process.env.PORTIKUS_PREVIEW_HOST_SUFFIX] }
+      For webpack-dev-server the same list goes in devServer.allowedHosts.
+
+    ## The machine
+    - There is no desktop browser here. Links opened through $BROWSER open
+      in the student's own browser. For sign-in flows, prefer device-code or
+      paste-a-code options over ones that wait for a localhost callback.
+    - Docker works and is private to this workspace. Ports that containers
+      publish appear in the Running pane too.
+    - sudo apt install works, but a rebuild replaces the system disk. Only
+      the home folder is kept, and Portikus tells the student which packages
+      to reinstall. Put anything that must last in the home folder.
+    - CPU, memory and disk are limited, and heavy use is slowed down. No
+      crypto mining, no attacks on other systems, no hosting for the public.
+    - Images the student pastes into the terminal are saved in
+      .portikus/pastes/ inside the project, and the terminal receives the
+      file's path; read the image from that path.
+
+    ## These instructions
+    This file is ~/.codex/AGENTS.md, and ~/.claude/CLAUDE.md imports it, so
+    Codex and Claude Code both read it. Portikus created it once and never
+    changes it. The student, or you when they ask, may add rules here.
+
+# A student's own git init starts on main, like the platform's.
+- path: /etc/gitconfig
+  generator: dump
+  mode: "0644"
+  content: |-
+    [init]
+        defaultBranch = main
+
 # One http(s) URL in, one JSON line to the workspace agent, one JSON line
 # back.  The URL is never printed (BROWSER-HANDLING.md 18 and 25.2).
 - path: /usr/local/bin/portikus-open
