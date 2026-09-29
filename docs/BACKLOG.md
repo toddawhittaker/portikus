@@ -1596,23 +1596,6 @@ heading out of the summary.
 
 **Source.** Epic 25 accessibility review.
 
-## One source for the install settings keys
-
-**What.** The install settings keys (`portikus_public_host` and the
-rest) are named in three places: the debconf questions
-(`packaging/debian/config` and `templates`), postinst, which writes
-`portikus.yaml`, and the Ansible play's defaults. Keep one list that the
-other two read or are checked against.
-
-**Why.** A key added or renamed in one place and missed in another is
-silently ignored.
-
-**What it would take.** A small key list in `packaging/debian/` read by
-postinst, and a test that every key in it is a play variable. About a
-day.
-
-**Source.** Epic 15 code review.
-
 ## Worker and API on separate system accounts
 
 **What.** Run the worker under its own system account instead of the

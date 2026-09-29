@@ -522,6 +522,8 @@ jobs:
         run: shellcheck packaging/debian/config packaging/scripts/postinst packaging/tests/*.sh
       - name: Install with a preseed for each provider and storage kind
         run: bash packaging/tests/debconf-test.sh
+      - name: Settings keys agree
+        run: bash packaging/tests/settings-keys-test.sh
       - name: Save the test image
         if: steps.image.outputs.cache-hit != 'true'
         run: mkdir -p ~/.cache/portikus && docker save -o ~/.cache/portikus/debconf-test-image.tar portikus-debconf-test:2
