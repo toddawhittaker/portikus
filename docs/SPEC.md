@@ -2196,8 +2196,11 @@ never started until it is unarchived. Home and Docker quotas can only grow,
 up to 1024 GiB each, and the worker applies the change; CPU, memory, and
 process limits are shown but not edited (Epic 24 made them editable per
 workspace; see below and section 19.4). An account is marked stale after
-30 days without a sign-in, or when another account with the same email
-signed in more recently; nothing is merged automatically. An administrator
+30 days without a sign-in (counted from its creation when it has never
+signed in), or when another account with the same email signed in more
+recently; nothing is merged automatically. An account that has never
+signed in and is not stale shows a neutral "Not signed in yet" note
+instead (issue #842). An administrator
 sees a workspace's aggregates (CPU, memory, disk, port numbers, short
 process names) but never its files, terminals, or process command lines.
 Logs stay in journald; since Epic 19 (ADR 0036) the admin page's Logs
