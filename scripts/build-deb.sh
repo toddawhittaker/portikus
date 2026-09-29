@@ -39,7 +39,7 @@ find_nfpm() {
 nfpm_bin="$(find_nfpm)"
 
 # The Node the units run, bundled so the package needs nothing outside Debian
-# (docs/EPIC-15.md, ruling 11). Keep the major in step with .nvmrc.
+# (docs/SPEC.md section 21.12). Keep the major in step with .nvmrc.
 NODE_VERSION="24.21.0"
 NODE_SHA256="fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6"
 

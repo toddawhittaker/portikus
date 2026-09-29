@@ -22,7 +22,7 @@ function diffMaps(
 
 /**
  * What `to` adds, removes and changes against `from`, for packages and for
- * the named tools (docs/EPIC-15.md ruling 24). Names come out sorted.
+ * the named tools (docs/SPEC.md section 22.4). Names come out sorted.
  */
 export function diffManifests(from: ImageManifest, to: ImageManifest): ImageDiff {
 	return {

@@ -172,8 +172,8 @@ check "SSH to platform VM"                    ssh_cmd true
 # 2. Incus is running
 check "Incus daemon is active"                ssh_cmd systemctl is-active incus
 
-# The volume group is whichever the play was given (docs/EPIC-15.md ruling
-# 3), so it is read from the Incus pool, and its disk from LVM.
+# The volume group is whichever the play was given (docs/SPEC.md section
+# 21.12), so it is read from the Incus pool, and its disk from LVM.
 STORAGE_VG=$(ssh_cmd incus storage get workspace-data source 2>/dev/null || true)
 STORAGE_PVS=$(ssh_cmd sudo pvs --noheadings -o pv_name --select "vg_name=${STORAGE_VG:-none}" 2>/dev/null | tr -d ' ' || true)
 
@@ -1096,7 +1096,7 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
   epic3_fail_start=$fail
 
   PROJECT="portikus"
-  # The package's bundled Node (docs/EPIC-15.md ruling 11); older packages
+  # The package's bundled Node (docs/SPEC.md section 21.12); older packages
   # used the system's.
   VM_NODE=$(ssh_cmd 'test -x /usr/lib/portikus/node/bin/node && echo /usr/lib/portikus/node/bin/node || echo node')
   WS_PROBE="/tmp/portikus-ws-probe.mjs"

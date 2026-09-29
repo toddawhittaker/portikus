@@ -7,8 +7,8 @@
 #   @openai/codex              0.154.0
 #   uv                         0.12.19 (checked 2026-09-28, used only for Python 3.14)
 #
-# Build parameters, read from the environment (docs/EPIC-15.md rulings 23
-# and 25). Unset, they give the pinned defaults CI publishes; the admin
+# Build parameters, read from the environment (docs/SPEC.md section
+# 22.4). Unset, they give the pinned defaults CI publishes; the admin
 # "rebuild" job sets them from its dropdowns:
 #   PORTIKUS_NODE_MAJOR      24 (default) or 26, the NodeSource major
 #   PORTIKUS_PYTHON          debian (default), or uv-3.14: Debian's Python plus

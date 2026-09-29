@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""The workspace image job rehearsal (docs/EPIC-15.md task T6, ADR 0030).
+"""The workspace image job rehearsal (docs/SPEC.md section 22.4, ADR 0030).
 
 Runs as root on a rehearsal VM that install-test.sh has just installed,
 with the administrator's session jar that its first sign-in left in

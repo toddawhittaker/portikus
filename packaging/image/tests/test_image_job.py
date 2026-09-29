@@ -1,4 +1,4 @@
-"""Unit tests for packaging/image/image-job (docs/EPIC-15.md rulings 24 to 28, ADR 0030).
+"""Unit tests for packaging/image/image-job (docs/SPEC.md section 22.4, ADR 0030).
 
 incus, curl, gpgv, distrobuilder and the rootfs tools are replaced by FakeHost,
 which records every command, so no test touches the host.

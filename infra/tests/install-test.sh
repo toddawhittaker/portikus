@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The install test (docs/EPIC-15.md ruling 20 and task T5), on the rehearsal
+# The install test (docs/SPEC.md section 21.12), on the rehearsal
 # VM only.  It installs Portikus the way docs/INSTALL.md tells an operator
 # to, from nothing to a claimed administrator and a green smoke test:
 #
@@ -21,7 +21,7 @@
 #   8. publish the second version, apt upgrade, follow setup again, and
 #      check the keyring, the services and a sign-in;
 #   9. with IMAGE_JOBS=1, the workspace image rehearsal
-#      (image-job-rehearsal.py, docs/EPIC-15.md task T6);
+#      (image-job-rehearsal.py, docs/SPEC.md section 22.4);
 #  10. backups on the server (ADR 0044, backup-rehearsal.py): a student
 #      with a workspace, the nightly backup run on the server, Back up now
 #      from the Backups tab, the key downloaded from the tab, and the newest

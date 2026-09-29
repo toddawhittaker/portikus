@@ -1350,7 +1350,7 @@ shares nothing with the pilot.
 ## The package signing key
 
 One OpenPGP key signs the apt repository and every workspace image
-release (docs/EPIC-15.md, ruling 17). Its fingerprint is
+release (docs/SPEC.md section 21.13). Its fingerprint is
 `9F6FD4CD5CC5C43AB5125705015D38802EF8D0F4`, and it does not expire.
 
 - **The public half** is committed as `packaging/portikus-archive-keyring.asc`.

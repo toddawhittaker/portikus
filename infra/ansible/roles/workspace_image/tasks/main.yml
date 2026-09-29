@@ -1,5 +1,5 @@
 ---
-# The first install's workspace image (docs/EPIC-15.md rulings 19 and 26,
+# The first install's workspace image (docs/SPEC.md section 21.12,
 # ADR 0030).  On a host with no default image, the package's image job
 # fetches the release named by portikus_image_version, checks its signature
 # and health, and makes it the default.  Once a default exists the admin

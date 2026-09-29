@@ -6,54 +6,6 @@ by landed work stay in `docs/STATUS.md`; move one here when it becomes
 something we intend to build. Remove an entry when its work lands or when
 it is rejected, and record the rejection in `docs/STACK.md` section 35.
 
-## `apt install portikus` on a bring-your-own Debian 13 host
-
-**Scheduled as Epic 15.** `docs/EPIC-15.md` is now the plan, after Epic 14
-(`docs/archive/epics/EPIC-14.md`); it keeps this entry's shape (Debian 13 only, the
-Ansible roles shipped in the package, a signed apt repository, the image
-as a release asset, a fresh-install test) and adds debconf questions and
-an admin Workspace image section. Remove this entry when Epic 15 lands.
-The text below is the original proposal.
-
-**What.** An operator with their own Debian 13 machine, virtual or bare
-metal, runs one `apt install portikus`, edits a config file, and runs one
-`portikus configure` command to get a working platform. Today the control
-plane is one package but the host setup is nine Ansible roles driven from
-a workstation, and the documented path starts from a libvirt VM
-(`infra/README.md`, "Bring your own Debian host").
-
-**Why.** The pilot runs in a VM we build, but the design is already
-"Debian 13 host plus Ansible plus one package". Dedicated hardware is the
-better fit for more than a handful of students, and nested virtualization
-is only needed because the pilot puts containers inside a VM.
-
-**What it would take** (about a week, in this order):
-
-1. A variable audit of the roles (half a day, can be its own PR): the
-   `deploy` account name, the two `/dev/vdb` checks in the smoke test, and
-   the Makefile's `PORTIKUS_PUBLIC_HOST` default, all listed under "Limits
-   today" in `infra/README.md`.
-2. A signed apt repository published by CI from each release, with the
-   signing key kept out of the repository. One day.
-3. A `portikus configure` command that reads `/etc/portikus/portikus.yaml`
-   (public URL, OIDC issuer and client id, administrator group, data block
-   device, grace period, log level) plus a mode-0600 secrets file, and
-   applies the existing roles against localhost by shipping them in the
-   package with `ansible-core` as a dependency. Two to three days. Rewriting
-   the roles in shell would be cleaner for operators but is a multi-week
-   job; not worth it until a second deployment exists.
-4. Package dependencies: `incus`, `postgresql-17`, `caddy`, `nftables`,
-   `lvm2`, `zip`, and Node 24, which Debian 13 does not ship, so either
-   bundle a runtime or depend on NodeSource. The workspace image becomes a
-   release asset that `configure` downloads and imports by version. One day.
-5. A fresh-Debian install test on this host. One day.
-
-Commit to Debian 13 only. Ubuntu 24.04 lacks Incus in its archive and ships
-PostgreSQL 16, so supporting it means external repositories for both.
-
-**Source.** Todd, 2026-09-17, during the structured logging task. Schedule
-after Epic 7; the pilot does not need it.
-
 ## Sign-in setup in the admin area
 
 **What.** An administrator sets up the site's SSO provider from the admin
@@ -882,7 +834,10 @@ still encrypted, to a configured destination and reports its result on
 the admin Backups tab. About two days.
 
 **Source.** Issue #730; left out of Epic 24. Tracked as issue #753,
-which would also make backups incremental and deduplicated (restic).
+which would also make backups incremental and deduplicated (restic). Epic 15
+left the same gap on an apt-installed server: its sets stay in
+`/var/backups/portikus/local/` until the operator copies them off
+(docs/INSTALL.md), so the push should work in local mode too.
 
 ## Bulk admin actions
 
@@ -1002,7 +957,7 @@ today.
 **Related.** Per-course or per-project tool versions (a version manager
 such as mise, so one course gets a different Node or Python) belong here
 too. Epic 15's Workspace image section only picks one Node and Python
-for the whole site (docs/EPIC-15.md, ruling 29).
+for the whole site (SPEC.md section 22.4).
 
 **Source.** Todd and a colleague, after a demo, 2026-09-23.
 
@@ -1640,3 +1595,108 @@ hold headings (PageIntro, the Health Trends groups, Backups Clean up).
 heading out of the summary.
 
 **Source.** Epic 25 accessibility review.
+
+## One source for the install settings keys
+
+**What.** The install settings keys (`portikus_public_host` and the
+rest) are named in three places: the debconf questions
+(`packaging/debian/config` and `templates`), postinst, which writes
+`portikus.yaml`, and the Ansible play's defaults. Keep one list that the
+other two read or are checked against.
+
+**Why.** A key added or renamed in one place and missed in another is
+silently ignored.
+
+**What it would take.** A small key list in `packaging/debian/` read by
+postinst, and a test that every key in it is a play variable. About a
+day.
+
+**Source.** Epic 15 code review.
+
+## Worker and API on separate system accounts
+
+**What.** Run the worker under its own system account instead of the
+API's `portikus` account.
+
+**Why.** The backup-key helper socket admits the `portikus` group, so the
+worker can reach it too. ADR 0044 discloses this; the helper still
+confirms nothing and logs every use, but the worker has no need for it.
+
+**What it would take.** A new account and group, unit and file ownership
+changes, and a check of every path the two share (the image-jobs and
+backup channel directories). Two to three days with an install test.
+
+**Source.** Epic 15 security review; ADR 0044.
+
+## Whiptail's top padding on yes/no screens
+
+**What.** The install screens' yes/no dialogs, such as the summary, show
+a blank line above the text.
+
+**Why.** It looks like a layout slip. It is whiptail's own padding and
+debconf gives no way to remove it.
+
+**What it would take.** Nothing short of replacing debconf's front end;
+accepted unless a later debconf release adds a way.
+
+**Source.** Epic 15 installer polish (#803).
+
+## Remove the old role-based image path
+
+**What.** Delete what is left of the image build and import done by
+Ansible before the image job existed: `build-on-vm.sh`, which `make
+build-workspace-image` runs over SSH on the development VM, and any part
+of the `image_builder` role only it uses. Do it once the development VM
+gets its image through the image job too.
+
+**Why.** Two ways to put an image on a host drift apart; setup now uses
+only the image job's `first-install` (SPEC.md section 21.12).
+
+**What it would take.** Moving `make build-workspace-image` for the
+development VM onto the job, then deleting the unused tasks. About a day.
+
+**Source.** Epic 15 final pass (#812).
+
+## Watch a possibly flaky Users dialog test
+
+**What.** `DexUserDialogs.test.tsx`, "Show details for dana", timed out
+once under heavy machine load and passes alone.
+
+**Why.** A flaky unit test trains people to rerun CI instead of reading
+it.
+
+**What it would take.** Nothing yet. If it fails again in CI, find the
+slow wait and fix it.
+
+**Source.** Epic 15, T6 (#792).
+
+## Test the release workflow before it matters
+
+**What.** `release.yml`'s gate, which finds the merged pull request from
+the pushed commit, and its wait of up to 75 minutes for the matching
+image release, have never run, because they run only on a push to
+`main`.
+
+**Why.** The first merge to `main` after Epic 15 is also the first real
+release; a fault there blocks publishing.
+
+**What it would take.** Watch the first run and fix what breaks, or
+rehearse it on a fork with its own `publish` environment first. Half a
+day.
+
+**Source.** Epic 15 review fixes (#807, #810).
+
+## Setup when the Portikus repository is unreachable
+
+**What.** Setup's one apt index refresh (the `base` role) retries three
+times, 10 seconds apart, and then fails the whole run if any configured
+repository, the Portikus one included, cannot be reached.
+
+**Why.** A short outage of GitHub Pages stops a `portikus setup` that
+would otherwise change nothing about packages.
+
+**What it would take.** Let that refresh succeed when only the Portikus
+repository failed, since setup never installs from it, and warn instead.
+About half a day with a test.
+
+**Source.** Epic 15 code review; #808 added the retries.

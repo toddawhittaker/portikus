@@ -1,6 +1,6 @@
 ---
 # LVM thin provisioning for workspace storage (STACK.md section 23,
-# docs/EPIC-15.md ruling 3): on a whole empty disk, in an existing volume
+# docs/SPEC.md section 21.12): on a whole empty disk, in an existing volume
 # group, or on a file attached to a loop device.  settings.yml, run from
 # site.yml's pre_tasks, has already checked the choice.
 

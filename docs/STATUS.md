@@ -3305,6 +3305,68 @@ Gaps:
 - The remembered-open `<details>` logic is copied in PageIntro and
   TrendsCard; it will be shared if a third copy appears.
 
+## Epic 15 — `apt install portikus`
+
+Built on `epic/15-apt-install`. An operator now installs Portikus on a
+rented Debian 13 server with `apt install portikus`, answers a few
+questions in a text interface, and setup does the rest. The rules are in
+SPEC.md sections 20.1, 21.8, 21.12, 21.13, 22.4, 24.7, 24.8 and 24.9, and
+ADRs 0029, 0030 and 0044. No migrations.
+
+Delivered, by task pull request:
+
+- #790 (T1): the package bundles Node, the Ansible roles with their
+  collections, the archive keyring, `portikus-setup.service` and the
+  `portikus` command; its dependencies come from Debian alone.
+- #791 (T4): a signed apt repository on GitHub Pages and a workflow that
+  publishes signed workspace image releases.
+- #792 and #794 (T6): the admin Workspace image tab and the root image
+  job behind it: fetch, build with a chosen Node and Python, manifest
+  diff, health check, make default and roll back.
+- #793 (T2): the debconf install questions, preseeding, reconfigure, and
+  a container test for every provider and storage kind.
+- #795 and #796: the install guide (docs/INSTALL.md), `setup --follow`
+  that exits, the preseed example in the package, and an image-job race
+  fix.
+- #797 (T3) and #800: the roles run on the local host; storage on a disk,
+  a volume group or a file; TLS by Caddy's authority, given files, or a
+  Let's Encrypt wildcard through Cloudflare; the first image; the `node`
+  role removed.
+- #798: a debconf import fix and the setup-settings test in CI.
+- #801 (T5) and #802: `make install-test` on a throwaway rehearsal VM,
+  with the image job rehearsal, and fixes it found.
+- #803: installer screen polish.
+- #805 (T7): backups on the server, with key download and upload in the
+  Backups tab (entry below).
+- #806 to #811: review and confirmation fixes for security, setup's image
+  handling, apt robustness, postinst, prerm, the release workflow and
+  accessibility (the server security fixes have their own entry below).
+- #812: final leftovers, and set MANIFESTs that must name their own
+  folder.
+- This task folds the epic plan into SPEC.md, STATUS.md and BACKLOG.md.
+
+Verified by unit, Playwright and axe tests in each task, the debconf
+container tests, `make infra-check`, code, security and accessibility
+reviews with confirmation rounds, and a full `make install-test
+IMAGE_JOBS=1` on the combined epic head: green in 2301 seconds (setup 400
+seconds, the smoke test with no failures, the image rehearsal 73 of 73,
+and a rebuild from an off-site backup that also refused a forged set).
+
+Gaps:
+
+- Nothing has been published yet. The release workflow's gate and its
+  wait for the image release run only on a push to `main` (BACKLOG, "Test
+  the release workflow before it matters").
+- The pilot still runs from the workstation roles; it is to be reinstalled
+  through apt after the merge.
+- A set's MAC does not check its `vm` line, which differs after a rebuild;
+  accepted.
+- The worker shares the API's account, so it can reach the backup-key
+  helper (ADR 0044; BACKLOG).
+- Setup fails when any apt repository stays unreachable after three
+  retries (BACKLOG).
+- The install settings keys are named in three places (BACKLOG).
+
 ## Epic 15, task T7 — Backups on an apt-installed server
 
 A server installed with `apt install portikus` now backs itself up, and

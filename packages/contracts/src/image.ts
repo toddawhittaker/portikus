@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 /**
- * The workspace image section and its root job (docs/EPIC-15.md rulings 22
- * to 29; ADR 0030). This comment is the contract the root job
+ * The workspace image section and its root job (docs/SPEC.md section 22.4;
+ * ADR 0030). This comment is the contract the root job
  * (`packaging/image/image-job`) implements; the API side only reads what
  * the job writes, and writes nothing but one request file.
  *

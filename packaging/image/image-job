@@ -3,7 +3,7 @@
 
 It takes the request files the API writes into the job directory and runs
 one fixed job per request: fetch, build, activate or rollback
-(docs/EPIC-15.md rulings 22 to 28, ADR 0030). The file contract is the
+(docs/SPEC.md section 22.4, ADR 0030). The file contract is the
 comment at the top of packages/contracts/src/image.ts.
 
 Python rather than shell: strict JSON validation, atomic writes through

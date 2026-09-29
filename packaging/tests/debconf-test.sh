@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installs the package in Debian 13 containers with a preseed for each sign-in
-# provider and storage kind, and checks what postinst writes (docs/EPIC-15.md,
-# rulings 2 to 6 and 10, and the security invariants).
+# provider and storage kind, and checks what postinst writes (docs/SPEC.md section 21.12,
+# including its secrets rules).
 #
 # Usage: packaging/tests/debconf-test.sh [path/to/portikus.deb]
 # With no .deb it builds a small one from the same templates, config and

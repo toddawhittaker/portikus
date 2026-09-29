@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build a signed static apt repository (suite trixie, component main, amd64)
-# for GitHub Pages or a local rehearsal (docs/EPIC-15.md, rulings 16 and 17).
+# for GitHub Pages or a local rehearsal (docs/SPEC.md section 21.13).
 #
 # Usage: APT_SIGNING_KEY="<ASCII-armored private key>" \
 #          scripts/publish-apt-repo.sh <repo-dir> [new.deb ...]
