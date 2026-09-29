@@ -105,9 +105,9 @@ screen() {
 	tmux capture-pane -p -t ui | sed 's/^ *x //; s/ *x *$//' | tr -s ' \n' '  '
 }
 
-# wait_for TEXT -- fails when TEXT is not on the screen within 20 seconds.
+# wait_for TEXT [SECONDS] -- fails when TEXT is not on the screen in time (default 20 seconds).
 wait_for() {
-	for _ in $(seq 100); do
+	for _ in $(seq $((${2:-20} * 5))); do
 		screen | grep -qF -- "$1" && return 0
 		sleep 0.2
 	done
@@ -192,7 +192,8 @@ EOF
 	[ "$(python3 -c 'import yaml; print(yaml.safe_load(open("/etc/portikus/secrets.yaml")))')" = "{}" ] ||
 		fail "secrets.yaml is not empty for a local-accounts site"
 	check_started
-	grep -qF 'Sign in at https://portikus.example.edu' /tmp/install.log || fail "sign-in line missing"
+	# apt runs postinst on a pseudo-terminal, so each line ends in a carriage return.
+	grep -qE $'^  3\\. Sign in at https://portikus\\.example\\.edu\r?$' /tmp/install.log || fail "sign-in line missing"
 	grep -qF 'as root@example.edu' /tmp/install.log || fail "sign-in email missing"
 	# The closing message fits an 80-column terminal.
 	long=$(sed -n '/Portikus setup is running/,$p' /tmp/install.log | awk 'length > 78')
@@ -355,6 +356,8 @@ EOF
 	expect "$CONFIG" portikus_public_port 8443
 	expect "$CONFIG" portikus_public_host '"portikus.example.edu"'
 	check_started
+	grep -qE $'^  3\\. Sign in at https://portikus\\.example\\.edu:8443\r?$' /tmp/install.log ||
+		fail "the sign-in address lacks the hand-set port"
 	;;
 unanswered)
 	# A non-interactive install with no preseed, as `make deploy-app` does.
@@ -389,6 +392,58 @@ EOF
 	grep -qF 'Setup is already running with the earlier answers; when it ends, run: sudo portikus setup' /tmp/install.log ||
 		fail "the already-running line was not printed"
 	! grep -qF 'is running in the background' /tmp/install.log || fail "postinst claimed the change is being applied"
+	;;
+worker-account)
+	# The worker has its own account, outside the portikus group that opens
+	# the backup key socket (ADR 0044).
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.example.edu
+portikus portikus/tls select internal
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	[ "$(getent passwd portikus-worker | cut -d: -f7)" = /usr/sbin/nologin ] || fail "no portikus-worker system account"
+	[ "$(id -nG portikus-worker)" = portikus-worker ] || fail "portikus-worker is in groups: $(id -nG portikus-worker)"
+	# An upgrade from a release whose worker ran as portikus.
+	old_url='DATABASE_URL=postgresql://portikus@/portikus?host=/var/run/postgresql'
+	printf 'NODE_ENV=production\n%s\n' "$old_url" >/etc/portikus/worker.env
+	chown root:portikus /etc/portikus/worker.env
+	chmod 0640 /etc/portikus/worker.env
+	# With no PostgreSQL yet the settings stay as they were, and it says so.
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "reconfigure failed"
+	grep -qxF "$old_url" /etc/portikus/worker.env || fail "worker.env changed with no database role"
+	grep -qF 'could not add the portikus-worker database role' /tmp/install.log || fail "no warning without PostgreSQL"
+	[ "$(stat -c '%a %U %G' /etc/portikus/worker.env)" = "640 root portikus-worker" ] ||
+		fail "worker.env is $(stat -c '%a %U %G' /etc/portikus/worker.env)"
+	# With PostgreSQL, the role is made first, then the settings name it, and
+	# it gets only the worker's grants.  A query (-c) finds the role.
+	adduser --system --group --no-create-home postgres >/dev/null
+	cat >/usr/bin/psql <<'EOF'
+#!/bin/sh
+for a; do [ "$a" = -c ] && { echo 1; exit 0; }; done
+{ id -un; echo "args: $*"; cat; } >>/tmp/psql.log
+EOF
+	chmod 0755 /usr/bin/psql
+	chown root:portikus /etc/portikus/worker.env
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "second reconfigure failed"
+	grep -qx postgres /tmp/psql.log || fail "psql did not run as postgres"
+	grep -qF 'CREATE ROLE "portikus-worker" LOGIN;' /tmp/psql.log || fail "the worker's role was not made"
+	! grep -qF 'GRANT portikus TO' /tmp/psql.log || fail "the worker's role was made a member of portikus"
+	grep -qF 'REVOKE portikus FROM "portikus-worker";' /tmp/psql.log || fail "the worker's grants were not applied"
+	# The file has its own transaction; one around it all would keep the
+	# membership whenever a grant failed.
+	! grep -qE '^args: (.* )?(-1|--single-transaction)( |$)' /tmp/psql.log || fail "psql ran the grants in a single transaction"
+	grep -qxF 'DATABASE_URL=postgresql://portikus-worker@/portikus?host=/var/run/postgresql' /etc/portikus/worker.env ||
+		fail "worker.env does not name the portikus-worker role"
+	grep -qxF 'NODE_ENV=production' /etc/portikus/worker.env || fail "worker.env lost its other lines"
+	[ "$(stat -c '%a %U %G' /etc/portikus/worker.env)" = "640 root portikus-worker" ] ||
+		fail "worker.env is $(stat -c '%a %U %G' /etc/portikus/worker.env)"
+	# The move is done once; the grants are applied on every configure.
+	rm -f /tmp/psql.log
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "third reconfigure failed"
+	! grep -qF 'CREATE ROLE' /tmp/psql.log || fail "the role was made again after the move"
+	grep -qF 'REVOKE portikus FROM "portikus-worker";' /tmp/psql.log || fail "the grants were not applied again"
 	;;
 ui-storage-default)
 	# With exactly one empty disk the suggestion is still the file, and the
@@ -535,6 +590,66 @@ ui-cert)
 	ui_done
 	expect "$CONFIG" portikus_tls_cert '"/root/cert.pem"'
 	expect "$CONFIG" portikus_tls_key '"/root/key.pem"'
+	;;
+capture)
+	# Walks the default install story in an 80 by 25 terminal and saves each
+	# screen with its colours to /out, for docs/images/install (capture-install-screens.sh).
+	fake_one_disk
+	# The container has no syslog; keep adduser's complaints off the last screen.
+	ln -sf /bin/true /usr/bin/logger
+	shot() {
+		sleep 0.5
+		tmux capture-pane -e -p -t ui >"/out/$1.ans"
+	}
+	# Installed from a repository, as docs/INSTALL.md does, so apt's output is the real one.
+	echo "deb [trusted=yes] file:/t ./" >/etc/apt/sources.list.d/portikus.list
+	apt-get update -qq
+	tmux new-session -d -s ui -x 80 -y 25 \
+		"clear; apt install portikus; touch /tmp/ui-done; sleep 600"
+	wait_for "Continue? [Y/n]" 120
+	keys Enter
+	wait_for "Welcome to Portikus" 300
+	shot 01-welcome
+	keys Enter
+	wait_for "portikus.example.edu"
+	shot 02-web-address
+	keys Enter
+	wait_for "Email of the Portikus administrator"
+	shot 03-admin-email
+	keys Enter
+	# In 80 by 25 whiptail shows a long description on its own screen first.
+	wait_for "Portikus is served only over HTTPS"
+	keys Enter
+	wait_for "HTTPS certificate"
+	shot 04-https-certificate
+	keys Enter
+	wait_for "Email for Let's Encrypt"
+	keys Enter
+	wait_for "Cloudflare API token"
+	typed CF-TOKEN-example-0123456789abcdef
+	shot 05-cloudflare-token
+	keys Enter
+	wait_for "Portikus always has local accounts"
+	keys Enter
+	wait_for "How people sign in"
+	shot 06-sign-in
+	keys Enter
+	wait_for "Where to keep student files"
+	shot 07-storage
+	keys Enter
+	wait_for "Size of the storage file"
+	shot 08-storage-size
+	keys Enter
+	wait_for "Save these answers and start setup?"
+	shot 09-summary
+	keys Enter
+	wait_for "choose a new password" 300
+	# apt configures the remaining packages after portikus; wait until it exits.
+	for _ in $(seq 300); do
+		[ ! -e /tmp/ui-done ] || break
+		sleep 1
+	done
+	shot 10-finished
 	;;
 *)
 	fail "unknown scenario"

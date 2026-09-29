@@ -13,8 +13,8 @@
       lock_timeout: 900
 
   vars:
-    # The account that runs incus and owns the development image-build
-    # directories: the SSH user Ansible connects as, none on a local run.
+    # The account that runs incus and owns the development workspace script
+    # directory: the SSH user Ansible connects as, none on a local run.
     portikus_operator_user: >-
       {{ '' if ansible_connection | default('ssh') == 'local' or ansible_user | default('root') == 'root'
          else ansible_user }}
@@ -87,8 +87,10 @@
     portikus_node: /usr/lib/portikus/node/bin/node
 
     # ── Portikus control-plane services ───────────────────────────
-    # Empty means install the newest GitHub release.  Set
-    # PORTIKUS_VERSION=<ver> to roll back to an older release.
+    # The signed apt repository (docs/SPEC.md section 21.13).
+    portikus_apt_url: https://toddawhittaker.github.io/portikus/apt
+    # Empty means install the newest package in the apt repository.  Set
+    # PORTIKUS_VERSION=<ver> to roll back to an older one.
     # See "Release and rollback" in infra/README.md.
     portikus_version: "{{ lookup('env', 'PORTIKUS_VERSION') }}"
     # A path on the Ansible host to a locally built .deb, for testing a
@@ -104,6 +106,8 @@
     portikus_api_port: 3000
     portikus_controller_port: 3001
     portikus_database_url: "postgresql://portikus@/portikus?host=/var/run/postgresql"
+    # The worker's own role, a member of portikus (the postgresql role).
+    portikus_worker_database_url: "postgresql://portikus-worker@/portikus?host=/var/run/postgresql"
     portikus_controller_url: "http://127.0.0.1:3001"
     # Seeds the grace period on the worker's first start; the /admin page
     # owns it afterwards, so changing this later has no effect (ADR 0011).

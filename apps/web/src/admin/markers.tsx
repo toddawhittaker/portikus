@@ -12,6 +12,7 @@ const MARKER_LABEL: Record<keyof AccountMarkers, string> = {
 	linked: "Linked",
 	duplicateEmail: "Duplicate email",
 	stale: "Stale",
+	notSignedInYet: "Not signed in yet",
 };
 
 const MARKER_ORDER: (keyof AccountMarkers)[] = [
@@ -20,7 +21,12 @@ const MARKER_ORDER: (keyof AccountMarkers)[] = [
 	"linked",
 	"duplicateEmail",
 	"stale",
+	"notSignedInYet",
 ];
+
+// Plain tags: facts, not warnings. Keyed on the marker so a label rename keeps its style.
+const NEUTRAL_KEYS: (keyof AccountMarkers)[] = ["disabled", "notSignedInYet"];
+const NEUTRAL = new Set(NEUTRAL_KEYS.map((key) => MARKER_LABEL[key]));
 
 type GuardState = Pick<AdminWorkspaceSummary, "cpuThrottle" | "memoryFlag">;
 
@@ -58,7 +64,7 @@ export function Markers({
 			{labels.map((label) => (
 				<span
 					key={label}
-					className={label === "Disabled" ? "pk-tag" : "pk-tag pk-tag--warning"}
+					className={NEUTRAL.has(label) ? "pk-tag" : "pk-tag pk-tag--warning"}
 				>
 					{label}
 				</span>

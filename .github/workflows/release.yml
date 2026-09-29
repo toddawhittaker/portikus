@@ -8,6 +8,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # The signed index expires 30 days after it is made (Valid-Until), so it
+  # is signed again weekly even when nothing is released.
+  schedule:
+    - cron: "23 5 * * 1"
 
 permissions:
   contents: read
@@ -28,6 +32,7 @@ jobs:
       pull-requests: read
     outputs:
       release: ${{ steps.decide.outputs.release }}
+      resign: ${{ steps.decide.outputs.resign }}
     steps:
       - id: decide
         env:
@@ -35,9 +40,23 @@ jobs:
           GH_REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
           SHA: ${{ github.sha }}
+          APT_URL: https://toddawhittaker.github.io/portikus/apt
         run: |
           if [ "$EVENT" = workflow_dispatch ]; then
             echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT" = schedule ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            # A release in the last 6 days signed it already. Anything unreadable signs again.
+            published="$(curl -fsSL "$APT_URL/dists/trixie/InRelease" | sed -n 's/^Date: //p' | head -n 1)" || published=""
+            if [ -n "$published" ] && signed="$(date -d "$published" +%s)" \
+              && [ $(( $(date +%s) - signed )) -lt $(( 6 * 86400 )) ]; then
+              echo "The apt index was signed on $published, less than 6 days ago; not signing it again."
+              echo "resign=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "resign=true" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
           # The pull request that put this commit on main. GitHub can list it a
@@ -118,6 +137,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Only for the version; the package itself is served by the apt repository.
       - name: Download the package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -134,19 +154,19 @@ jobs:
             echo "Release v$VERSION already exists; nothing to publish."
             exit 0
           fi
-          # Ansible reads the checksum from this file instead of a pin in the repo.
-          (cd dist/deb && sha256sum portikus_*.deb > SHA256SUMS)
           gh release create "v$VERSION" \
             --target "$TARGET_SHA" \
             --title "portikus $VERSION" \
-            --notes "Control-plane package built from $TARGET_SHA" \
-            dist/deb/portikus_*.deb \
-            dist/deb/SHA256SUMS
+            --notes "Control-plane package built from $TARGET_SHA. Install it from the apt repository: sudo apt install portikus=$VERSION"
 
   apt-repo:
     name: Sign the apt repository
     runs-on: ubuntu-latest
-    needs: build
+    needs: [gate, build]
+    # After a release build, or alone for the weekly re-sign.
+    if: >-
+      !cancelled() && needs.gate.result == 'success'
+      && (needs.build.result == 'success' || needs.gate.outputs.resign == 'true')
     # The only job that can read APT_SIGNING_KEY (docs/SPEC.md section 21.13).
     environment: publish
     env:
@@ -156,6 +176,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Download the package
+        if: needs.build.result == 'success'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: portikus-deb
@@ -193,7 +214,15 @@ jobs:
       - name: Build and sign the repository
         env:
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
-        run: scripts/publish-apt-repo.sh site/apt dist/deb/portikus_*.deb
+        # A weekly re-sign has no new package, and must not start an empty repository.
+        run: |
+          shopt -s nullglob
+          debs=(dist/deb/portikus_*.deb)
+          if [ ${#debs[@]} = 0 ] && [ ! -d site/apt/pool ]; then
+            echo "Nothing is published yet, so there is nothing to sign again." >&2
+            exit 1
+          fi
+          scripts/publish-apt-repo.sh site/apt "${debs[@]}"
       - name: Upload the Pages site
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
@@ -203,6 +232,8 @@ jobs:
     name: Deploy the apt repository to Pages
     runs-on: ubuntu-latest
     needs: apt-repo
+    # The default success() would also require the build, skipped by a re-sign.
+    if: ${{ !cancelled() && needs.apt-repo.result == 'success' }}
     permissions:
       pages: write
       id-token: write

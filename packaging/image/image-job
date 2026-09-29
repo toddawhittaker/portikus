@@ -18,6 +18,8 @@ Usage:
   image-job first-install VERSION
                             setup's first install: fetch VERSION and make it
                             the default, unless the host has a default already
+  image-job local-build     build the shipped recipe and make it the default
+                            (make build-workspace-image on a development VM)
   image-job manifest ...    print a schema 1 manifest for a built rootfs
                             (also used by .github/workflows/workspace-image.yml)
 """
@@ -386,7 +388,9 @@ def health_checks(parameters):
         ("node --version", ["node", "--version"], lambda out: out.startswith(f"v{node}.")),
         ("python3 --version", ["python3", "--version"], None),
         ("git --version", ["git", "--version"], None),
-        ("docker info", ["docker", "info", "--format", "{{.ServerVersion}}"], None),
+        # overlay2 under /var/lib/docker keeps images on the workspace's Docker volume, not the root disk.
+        ("docker info", ["docker", "info", "--format", "{{.ServerVersion}} {{.Driver}} {{.DockerRootDir}}"],
+         lambda out: out.split()[1:] == ["overlay2", "/var/lib/docker"]),
         ("claude --version", ["claude", "--version"], None),
         ("codex --version", ["codex", "--version"], None),
     ]
@@ -905,6 +909,16 @@ class Runner:
         finally:
             os.close(lock_fd)
 
+    def command_line_job(self, jobs_fd, gid, request, who):
+        """Run one job, listed on the admin page, from the command line. Returns its version, or None on failure."""
+        job = Job(jobs_fd, str(uuid.uuid4()), gid)
+        job.kind = request["kind"]
+        journal(f"running {who}'s {job.kind} job {job.id}; its log is "
+                f"{os.path.join(self.jobs_dir, job.id, 'log.txt')}")
+        if self.perform(job, request) != "succeeded":
+            return None
+        return job.version
+
     def run_first_install(self, version, lock_path=LOCK_FILE):
         """Setup's first install: fetch version and activate it, as two jobs the admin page lists.
 
@@ -927,13 +941,34 @@ class Runner:
                     print("unchanged")
                     return 0
                 for kind in ("fetch", "activate"):
-                    job = Job(jobs_fd, str(uuid.uuid4()), gid)
-                    job.kind = kind
-                    journal(f"running setup's {kind} job {job.id} for image {version}")
-                    if self.perform(job, {"kind": kind, "version": version}) != "succeeded":
-                        journal(f"the job's log is {os.path.join(self.jobs_dir, job.id, 'log.txt')}")
+                    if self.command_line_job(jobs_fd, gid, {"kind": kind, "version": version}, "setup") is None:
                         return 1
                 print("changed")
+                return 0
+            finally:
+                os.close(jobs_fd)
+        finally:
+            os.close(lock_fd)
+
+    def run_local_build(self, lock_path=LOCK_FILE):
+        """make build-workspace-image: build the shipped recipe and make it the default, as two jobs.
+
+        Uses the recipe's own defaults, Node 24 and Debian's Python. Prints the new version.
+        """
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            jobs_fd = os.open(self.jobs_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                gid = os.fstat(jobs_fd).st_gid
+                build = {"kind": "build", "node": "24", "python": "debian"}
+                version = self.command_line_job(jobs_fd, gid, build, "local-build")
+                if version is None:
+                    return 1
+                if self.command_line_job(jobs_fd, gid, {"kind": "activate", "version": version},
+                                         "local-build") is None:
+                    return 1
+                print(version)
                 return 0
             finally:
                 os.close(jobs_fd)
@@ -983,6 +1018,8 @@ def main(argv):
         return Runner().run_recover()
     if argv[1:2] == ["first-install"] and len(argv) == 3 and PUBLISHED_RE.fullmatch(argv[2]):
         return Runner().run_first_install(argv[2])
+    if argv[1:] == ["local-build"]:
+        return Runner().run_local_build()
     if argv[1:] in ([], ["run"]):
         return Runner().run_pending()
     print(__doc__, file=sys.stderr)

@@ -3354,17 +3354,16 @@ and a rebuild from an off-site backup that also refused a forged set).
 
 Gaps:
 
-- Nothing has been published yet. The release workflow's gate and its
-  wait for the image release run only on a push to `main` (BACKLOG, "Test
-  the release workflow before it matters").
-- The pilot still runs from the workstation roles; it is to be reinstalled
-  through apt after the merge.
+- The first real release, 0.1.676, published cleanly, and the pilot was
+  then reinstalled through apt. Pinning between two published versions
+  with `apt install --allow-downgrades` has not been tried yet.
 - A set's MAC does not check its `vm` line, which differs after a rebuild;
   accepted.
 - The worker shares the API's account, so it can reach the backup-key
   helper (ADR 0044; BACKLOG).
-- Setup fails when any apt repository stays unreachable after three
-  retries (BACKLOG).
+- Setup failed when any apt repository stayed unreachable after three
+  retries. Closed by Epic 15.1 (#825): it now warns and goes on when only
+  the Portikus repository failed, and still fails for Debian's.
 - The install settings keys are named in three places (BACKLOG).
 
 ## Epic 15, task T7 — Backups on an apt-installed server
@@ -3459,3 +3458,95 @@ Gaps:
   (docs/OPERATIONS.md, "Authenticated sets").
 - The `FAILED`, `SKIPPED` and `REQUESTED` files in a set are not covered
   by the MAC; they only change what the tab shows.
+
+## Epic 15.1 — Install docs and release polish
+
+Built on `epic/15-1-docs-release` from the milestone "Epic 15.1: install
+docs and release polish" (issues #821 to #834, #840 and #842; task PRs
+#830 to #853). The rules now live in SPEC.md sections 16.2, 20.1, 21.12,
+21.13, 22.4 and 24.9. No migrations.
+
+Delivered:
+
+- GitHub community files: SECURITY, CONTRIBUTING, issue templates and
+  repository topics (#829, PR #830).
+- Install screenshots in INSTALL.md and a current README quick start,
+  Installing and Status sections (#821, #822, PR #831).
+- The install message includes a hand-set port in the sign-in address
+  (PR #832), and OPERATIONS.md explains registering an LMS on an
+  apt-installed server (PR #833).
+- The Ansible role installs Portikus from the signed apt repository, and
+  releases no longer attach the `.deb` (#823, PR #835). The pilot is
+  updated only by `apt upgrade`. Setup installs an older package only
+  when `PORTIKUS_VERSION` names it (`allow_downgrade`), and warns and goes
+  on when only the Portikus repository is unreachable (#825).
+- One source for the install settings keys (#826, PR #836).
+  `packaging/debian/settings-keys` lists each debconf question, the key
+  postinst writes for it, and whether it is a setting or a secret; the
+  package installs it at `/usr/share/portikus/settings-keys`.
+  `packaging/tests/settings-keys-test.sh`, run by `make infra-check` and
+  the CI debconf job, fails when a key is missing from the templates,
+  config, postinst or `infra/ansible/site.yml`.
+- The development VM's workspace image is built by the image job, and the
+  old role-based image path is gone (#827, PR #837).
+- The worker runs under its own system account, `portikus-worker` (#828,
+  PR #838, review fixes PR #852 and PR #853). It cannot open the backup
+  key socket. Its database role of the same name is not a member of
+  `portikus` and holds only the privileges its queries use
+  (`worker-grants.sql`: nothing on sessions and no write on users); the
+  grants file drops the old membership first, on its own. `worker.env` is
+  `root:portikus-worker` 0640. The host firewall lets the account open
+  loopback connections only to the controller's port 3001, so it cannot
+  reach the API on 3000 or Dex on 5556 around Caddy's sign-in rate limit.
+- A docs pass after Epic 15 and a Markdown link check in CI (#824,
+  PR #839).
+- apt retention keeps the ten newest packages of the current major.minor
+  line and the newest of each older line (PR #841). The signed index
+  carries `Valid-Until` 30 days out, and a weekly scheduled run signs it
+  again unless it was signed less than 6 days before (PR #852). The test
+  and screenshot download helper, `packaging/tests/fetch-published-deb.sh`,
+  reads checksums only from gpgv's verified output (PR #853).
+- Docker is pinned to the overlay2 store on the workspace's Docker
+  volume, and the image health check refuses an image without it (#840,
+  PR #843).
+- A just-created account is not marked stale; the Users view shows "Not
+  signed in yet" (#842, PR #844).
+- A recreated VM keeps its address (#834, PR #850). The pilot's and the
+  rehearsal VM's MAC addresses are fixed in their `variables.tf`, and
+  `infra/tests/vm-mac-test.sh` checks them. `make backup-install-timer`
+  and `make backup-install-channel` refuse a VM that backs itself up, such
+  as the apt-installed pilot; they stay for `make configure-vm` VMs.
+- Review fixes for web, contracts and docs (PR #851).
+
+Verified:
+
+- `make install-test UPGRADE_FROM_PUBLISHED=1 IMAGE_JOBS=1` is green on
+  the final fixes: smoke test 304 passed and 0 failed, image rehearsal 73
+  passed and 0 failed, the worker refused on the API's port 3000 and
+  Dex's port 5556, the worker's database role refused on sessions and
+  users, and the rebuild from a backup passes.
+- The pilot was reinstalled from the apt repository at 0.1.676 and passed
+  the smoke test, 313 of 313.
+- The rehearsal VM kept its MAC and IP address across a destroy and
+  create.
+
+Gaps:
+
+- The debconf config script keeps its own read-back map of settings
+  keys, checked by the test rather than read from the list, because
+  config can run before the package's files are unpacked.
+- The image job's lock and jobs-directory setup is written three times
+  (BACKLOG.md).
+- A scheduled weekly re-sign can still cancel a release queued behind
+  another run (BACKLOG.md).
+- The host backup targets are untested on a `make configure-vm` VM
+  (BACKLOG.md).
+- The pin between two published versions is untested until the second
+  release (BACKLOG.md).
+- After an apt upgrade from a release before 15.1, postinst restarts
+  the worker as `portikus-worker` before `portikus setup` loads the new
+  firewall rule, so until setup finishes the worker can reach ports 3000
+  and 5556 on loopback. This is no new exposure: the old worker ran as
+  `portikus`.
+- The loopback refusal tests probe only 127.0.0.1, not ::1 or the VM's
+  own address (BACKLOG.md).

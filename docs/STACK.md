@@ -1146,12 +1146,14 @@ Ansible configures:
 - logging/monitoring;
 - security hardening.
 
-The `portikus` role installs the newest release by default: it asks the
-GitHub API for the latest release, verifies the `.deb` against the checksum
-in that release's `SHA256SUMS` asset, installs it with apt, and renders only
-the controller token and the three environment files. Rolling back is
-`make configure-vm PORTIKUS_VERSION=<previous>`, which installs that release
-with `--allow-downgrades`. For local development,
+The `portikus` role installs the newest release by default: it adds the
+signed apt repository with the committed key, the same way docs/INSTALL.md
+does, installs the newest version found there with apt, and renders only
+the controller token and the three environment files. On a VM configured
+this way, rolling back is `make configure-vm PORTIKUS_VERSION=<previous>`,
+which installs that version from the repository with `--allow-downgrades`.
+An apt-installed server, the pilot included, rolls back with
+`sudo apt install --allow-downgrades portikus=<previous>`. For local development,
 `make deploy-app` builds the package on the developer's machine, copies it
 to the VM, and installs it the same way; `make build-deb` builds it without
 deploying.
@@ -1292,6 +1294,12 @@ Existing student workspaces do not automatically rebase onto a new image.
 
 Upgrades occur through an intentional workspace rebuild operation.
 
+The package's image job is the one way an image reaches a host: setup's
+first install fetches a published release, the admin page fetches or
+builds one, and `make build-workspace-image` asks the job on a
+development VM to build the shipped recipe and make it the default
+(SPEC.md section 22.4).
+
 ## 26. Why not Packer initially?
 
 Do not introduce Packer for the pilot unless VM convergence time becomes a real problem.
@@ -1400,6 +1408,9 @@ control plane
 
 workspace-controller
   → Incus administrative interface permitted
+
+worker
+  → loopback: the controller only (not the API or Dex; SPEC.md 24.9)
 ```
 
 No firewall rule should exist solely because an administrator once typed it manually.
@@ -1427,9 +1438,9 @@ pnpm test:e2e
 (ADR 0007) on every pull request and keeps it as a build artifact for seven
 days. A separate `release.yml` publishes a release when an epic branch merges
 into `main`, or when the workflow is run by hand from `main` for a hotfix.
-It builds the same package from the merge commit on `main` and publishes it
-as a GitHub release with two assets: the `.deb` and a `SHA256SUMS` file
-Ansible reads the checksum from.
+It builds the same package from the merge commit on `main`, adds it to the
+signed apt repository, and creates a tagged GitHub release with notes and
+no files.
 
 Infrastructure checks:
 
@@ -1453,13 +1464,9 @@ Security checks may include:
 
 For the initial pilot, CI should validate infrastructure but should **not automatically control the developer's Pop!_OS host**.
 
-Preferred pilot deployment:
-
-```text
-administrator
-    ↓
-make deploy-app
-```
+The pilot is installed and upgraded with apt, like any real install
+(docs/OPERATIONS.md, "The pilot"). `make configure-vm` and
+`make deploy-app` serve the rehearsal VM and unreleased builds.
 
 A later institutional deployment may move to controlled automated deployment if appropriate.
 

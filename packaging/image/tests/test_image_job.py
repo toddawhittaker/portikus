@@ -150,7 +150,8 @@ class FakeHost:
             cmd = args[args.index("--") + 1:]
             if cmd[0] == "systemctl":
                 return 0, "running\n"
-            default = {"node": "v24.8.0\n", "python3.14": "Python 3.14.7\n"}.get(cmd[0], f"{cmd[0]} ok\n")
+            default = {"node": "v24.8.0\n", "python3.14": "Python 3.14.7\n",
+                       "docker": "29.8.0 overlay2 /var/lib/docker\n"}.get(cmd[0], f"{cmd[0]} ok\n")
             return self.exec_results.get(cmd[0], (0, default))
         raise AssertionError(f"unexpected incus {args}")
 
@@ -470,6 +471,15 @@ class FetchTest(Base):
         self.go()
         health = json.loads((self.images / "2026.09.12" / "health.json").read_text())
         self.assertFalse(health["checks"][0]["ok"])
+
+    def test_docker_on_the_containerd_image_store_fails_health(self):
+        # The containerd store keeps images on the root disk, outside the Docker volume.
+        self.host.publish("2026.09.12")
+        self.host.exec_results["docker"] = (0, "29.8.0 overlayfs /var/lib/docker\n")
+        self.request({"kind": "fetch", "version": "2026.09.12"})
+        self.go()
+        self.assertEqual(self.status()["state"], "failed")
+        self.assertIn("docker info", self.status()["message"])
 
     def test_the_default_image_is_never_refetched(self):
         self.put_image("2026.09.12")
@@ -794,6 +804,50 @@ class FirstInstallTest(Base):
             for argv in (["first-install"], ["first-install", "../x"],
                          ["first-install", "2026.09.12-local.202609281200"], ["first-install", "2026.09.12", "x"]):
                 self.assertEqual(ij.main(["image-job", *argv]), 2)
+
+
+class LocalBuildTest(Base):
+    def build(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = self.runner.run_local_build(str(self.lock))
+        return code, out.getvalue().strip()
+
+    def states(self):
+        found = {}
+        for d in self.jobs.iterdir():
+            status = json.loads((d / "status.json").read_text())
+            found[status["kind"]] = status["state"]
+        return found
+
+    def test_builds_the_recipe_and_makes_it_the_default_keeping_the_old_one(self):
+        self.put_image("2026.09.12")
+        self.set_default("2026.09.12")
+        code, version = self.build()
+        self.assertEqual(code, 0)
+        self.assertRegex(version, r"^2026\.09\.12-local\.[0-9]{12}$")
+        self.assertEqual((self.host.env["PORTIKUS_NODE_MAJOR"], self.host.env["PORTIKUS_PYTHON"]), ("24", "debian"))
+        self.assertEqual(self.host.aliases["portikus"], self.host.aliases[f"portikus-{version}"])
+        self.assertEqual(self.host.aliases["portikus-previous"], FP["2026.09.12"])
+        self.assertEqual(self.aliases_file(), {"default": version, "previous": "2026.09.12"})
+        self.assertEqual(self.states(), {"build": "succeeded", "activate": "succeeded"})
+
+    def test_a_failed_build_changes_no_default(self):
+        self.put_image("2026.09.12")
+        self.set_default("2026.09.12")
+        self.host.distrobuilder_rc = 1
+        self.assertEqual(self.build(), (1, ""))
+        self.assertEqual(self.host.aliases["portikus"], FP["2026.09.12"])
+        self.assertEqual(self.states(), {"build": "failed"})
+
+    def test_an_unhealthy_build_is_not_made_the_default(self):
+        self.host.exec_results["codex"] = (127, "")
+        self.assertEqual(self.build()[0], 1)
+        self.assertNotIn("portikus", self.host.aliases)
+
+    def test_the_command_line_takes_no_arguments(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(ij.main(["image-job", "local-build", "26"]), 2)
 
 
 class ManifestTest(Base):

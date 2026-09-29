@@ -21,13 +21,14 @@ esac
 # shellcheck source=/dev/null
 . /usr/share/debconf/confmodule
 
-# Every answer postinst reads; the secrets are the three password questions.
-QUESTIONS="public_host admin_email tls acme_email tls_cert tls_key provider
-entra_tenant_id google_domains oidc_issuer client_id oidc_groups_claim
-ldap_host ldap_schema ldap_ip_allow ldap_bind_dn ldap_user_base_dn
-ldap_user_filter ldap_group_base_dn ldap_root_ca student_group
-instructor_group admin_group storage storage_confirm storage_size"
-SECRETS="cloudflare_api_token client_secret ldap_bind_password"
+# Every answer postinst reads and the key it writes, from the one list
+# shared with the tests; the secrets are the three password questions.
+KEYS_FILE=/usr/share/portikus/settings-keys
+QUESTIONS=$(awk '!/^#/ && $3 == "setting" { print $1 }' "$KEYS_FILE")
+SECRETS=$(awk '!/^#/ && $3 == "secret" { print $1 }' "$KEYS_FILE")
+PK_OWNED=$(awk '!/^#/ && $3 == "setting" { print $2 }' "$KEYS_FILE")
+PK_SECRET_KEYS=$(awk '!/^#/ && $3 == "secret" { print $2 }' "$KEYS_FILE")
+export PK_OWNED PK_SECRET_KEYS
 
 # Each secret may live only in secrets.yaml (ruling 5), so clear them from
 # debconf on every way out, a failure under set -e included.
@@ -127,19 +128,7 @@ if storage == "file" and answer("storage_size").isdigit():
 
 # Keys that follow from the answers; a key here that no longer applies is
 # removed, so switching providers leaves no stale settings behind.
-owned = [
-    "portikus_public_host", "portikus_admin_email", "portikus_tls",
-    "portikus_acme_email", "portikus_tls_cert", "portikus_tls_key",
-    "portikus_dex_upstream", "portikus_dex_upstream_client_id",
-    "portikus_entra_tenant_id", "portikus_google_domains",
-    "portikus_dex_upstream_issuer", "portikus_oidc_upstream_groups_claim",
-    "portikus_ldap_host", "portikus_ldap_schema", "portikus_ldap_bind_dn",
-    "portikus_ldap_user_base_dn", "portikus_ldap_user_filter",
-    "portikus_ldap_group_base_dn", "portikus_ldap_root_ca",
-    "portikus_ldap_ip_allow", "portikus_oidc_student_group",
-    "portikus_oidc_instructor_group", "portikus_oidc_admin_group",
-    "portikus_storage", "portikus_storage_confirm", "portikus_storage_size",
-]
+owned = os.environ["PK_OWNED"].split()
 config = load(CONFIG)
 for key in owned:
     config.pop(key, None)
@@ -154,9 +143,8 @@ if provider in ("entra", "google", "oidc"):
     wanted["portikus_dex_upstream_client_secret"] = answer("client_secret")
 if provider == "ldap":
     wanted["portikus_ldap_bind_password"] = answer("ldap_bind_password")
-secrets = {k: v for k, v in current.items() if k not in (
-    "portikus_cloudflare_api_token", "portikus_dex_upstream_client_secret",
-    "portikus_ldap_bind_password")}
+secret_keys = os.environ["PK_SECRET_KEYS"].split()
+secrets = {k: v for k, v in current.items() if k not in secret_keys}
 for key, value in wanted.items():
     if value:
         secrets[key] = value
@@ -217,12 +205,18 @@ db_get portikus/public_host
 public_host=$RET
 db_get portikus/admin_email
 admin_email=$RET
+# A port set by hand in portikus.yaml belongs in the address too.
+public_port=$(python3 -c 'import yaml; d = yaml.safe_load(open("/etc/portikus/portikus.yaml")); print(d.get("portikus_public_port", 443) if isinstance(d, dict) else 443)' 2>/dev/null || echo 443)
+site_url="https://$public_host"
+[ "$public_port" = 443 ] || site_url="$site_url:$public_port"
 fi
 clear_secrets
 trap - EXIT
 db_stop
 
-for user in portikus portikus-controller; do
+# The worker has its own account so it cannot reach what only the API may,
+# such as the backup key socket (docs/adr/0044-backups-on-the-server.md).
+for user in portikus portikus-worker portikus-controller; do
 	if ! getent passwd "$user" >/dev/null; then
 		adduser --system --group --no-create-home --home /nonexistent \
 			--shell /usr/sbin/nologin "$user"
@@ -233,6 +227,45 @@ done
 if getent group incus-admin >/dev/null; then
 	adduser portikus-controller incus-admin
 fi
+
+# An upgrade from a release whose worker ran as portikus: the unit below now
+# starts it as portikus-worker, which peer authentication admits only as its
+# own database role.  Setup does the same, but may run minutes later.
+WORKER_ENV=/etc/portikus/worker.env
+OLD_WORKER_URL='DATABASE_URL=postgresql://portikus@'
+if [ -f "$WORKER_ENV" ] && grep -q "^$OLD_WORKER_URL" "$WORKER_ENV"; then
+	if getent passwd postgres >/dev/null && command -v psql >/dev/null &&
+		(cd / && runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -d postgres >/dev/null 2>&1) <<'SQL'
+DO $$ BEGIN
+	IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'portikus-worker') THEN
+		CREATE ROLE "portikus-worker" LOGIN;
+	END IF;
+END $$;
+SQL
+	then
+		sed -i "s|^$OLD_WORKER_URL|DATABASE_URL=postgresql://portikus-worker@|" "$WORKER_ENV"
+	else
+		echo "portikus: could not add the portikus-worker database role; the worker waits for setup" >&2
+	fi
+fi
+if [ -f "$WORKER_ENV" ]; then
+	chgrp portikus-worker "$WORKER_ENV"
+fi
+
+# The worker's role gets only the tables it needs, and is no longer a member
+# of portikus as releases up to 0.1.676 made it (SPEC.md section 24.9).  Run
+# after the migrations; setup runs the same file and stops if it fails.
+WORKER_GRANTS=/usr/share/portikus/ansible/roles/portikus/files/worker-grants.sql
+apply_worker_grants() {
+	[ -f "$WORKER_GRANTS" ] && getent passwd postgres >/dev/null && command -v psql >/dev/null || return 0
+	role=$(cd / && runuser -u postgres -- psql -X -At -d postgres \
+		-c "SELECT 1 FROM pg_roles WHERE rolname = 'portikus-worker'" </dev/null 2>/dev/null) || return 0
+	[ "$role" = 1 ] || return 0
+	if ! (cd / && runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -d portikus \
+		<"$WORKER_GRANTS" >/dev/null); then
+		echo "portikus: could not set the worker's database privileges; setup sets them" >&2
+	fi
+}
 
 # Nothing to drive when systemd is not running, as in a container or chroot.
 if [ -d /run/systemd/system ]; then
@@ -255,11 +288,19 @@ if [ -d /run/systemd/system ]; then
 
 	# The mock provider first so the API can reach its issuer, then the api,
 	# which runs the database migrations in ExecStartPre.
-	for unit in portikus-mock-idp.service portikus-api.service portikus-controller.service portikus-worker.service; do
+	for unit in portikus-mock-idp.service portikus-api.service portikus-controller.service; do
 		case " $running " in
 			*" $unit "*) systemctl restart "$unit" || true ;;
 		esac
 	done
+fi
+
+apply_worker_grants
+
+if [ -d /run/systemd/system ]; then
+	case " $running " in
+		*" portikus-worker.service "*) systemctl restart portikus-worker.service || true ;;
+	esac
 fi
 
 # A running oneshot unit is "activating", which is-active reports as inactive.
@@ -300,7 +341,7 @@ Portikus setup is running in the background. It takes about ten minutes.
   1. Follow it with:  sudo portikus setup --follow
   2. When it finishes, read the administrator's one-time password with:
        sudo cat /etc/portikus/admin-password
-  3. Sign in at https://$public_host
+  3. Sign in at $site_url
      as $admin_email and choose a new password.
 
 EOF

@@ -95,6 +95,16 @@
   become: true
   become_user: postgres
 
+# The worker runs as its own system user, so peer authentication needs a
+# role of that name.  Its table grants follow the migrations, in the
+# portikus role (worker-grants.sql).
+- name: Create the worker's database role
+  community.postgresql.postgresql_user:
+    name: portikus-worker
+    role_attr_flags: NOSUPERUSER,NOCREATEROLE,NOCREATEDB
+  become: true
+  become_user: postgres
+
 # Dex's own accounts (docs/archive/epics/EPIC-14.md ruling 19).  The role matches Dex's
 # system user, so peer authentication lets only Dex in.  Kept when the site
 # moves off Dex, like any other data.

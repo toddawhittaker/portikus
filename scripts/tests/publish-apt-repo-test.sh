@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Prove that scripts/publish-apt-repo.sh builds a repository apt trusts with
 # the published key, that apt refuses it without the key or once Release is
-# tampered with, and that only the newest ten versions are kept.
+# tampered with, and that retention keeps the ten newest versions of the
+# current major.minor line plus the newest version of each earlier line.
 # Uses a throwaway key generated here; needs gpg, apt-ftparchive and docker.
 set -euo pipefail
 
@@ -45,6 +46,74 @@ for f in dists/trixie/Release dists/trixie/InRelease dists/trixie/Release.gpg po
   [[ -s "$WORK/repo/$f" ]] || { echo "FAIL: $f missing" >&2; exit 1; }
 done
 echo "ok: pruned to ten versions, signatures and keys written"
+
+# Valid-Until 30 days after Date, so a mirror cannot serve a stale index forever.
+release_date="$(sed -n 's/^Date: //p' "$WORK/repo/dists/trixie/Release")"
+valid_until="$(sed -n 's/^Valid-Until: //p' "$WORK/repo/dists/trixie/Release")"
+[[ -n "$valid_until" ]] || { echo "FAIL: Release has no Valid-Until" >&2; exit 1; }
+days=$(( ($(date -d "$valid_until" +%s) - $(date -d "$release_date" +%s)) / 86400 ))
+[[ "$days" == 30 ]] || { echo "FAIL: Valid-Until is $days days after Date, not 30" >&2; exit 1; }
+echo "ok: Valid-Until is 30 days after Date"
+
+# fetch-published-deb.sh takes the highest version, not the first or last
+# entry in Packages, and checks the signature and both hashes.
+fetch() { # REPO -- prints the version it fetched
+  PORTIKUS_APT_BASE="file://$1" PORTIKUS_ARCHIVE_KEY="$1/portikus-archive-keyring.asc" \
+    "$ROOT/packaging/tests/fetch-published-deb.sh" "$WORK/fetched.deb" 2>/dev/null
+}
+got="$(fetch "$WORK/repo")"
+[[ "$got" == 0.1.20 ]] || { echo "FAIL: fetched '$got' from 0.1.11 to 0.1.20, not 0.1.20" >&2; exit 1; }
+[[ "$(dpkg-deb -f "$WORK/fetched.deb" Version)" == 0.1.20 ]] || { echo "FAIL: fetched .deb is not 0.1.20" >&2; exit 1; }
+mkdir -p "$WORK/nine-ten/pool/main/p/portikus"
+cp "$WORK/portikus_0.1.9_amd64.deb" "$WORK/portikus_0.1.10_amd64.deb" "$WORK/nine-ten/pool/main/p/portikus/"
+"$ROOT/scripts/publish-apt-repo.sh" "$WORK/nine-ten" >/dev/null
+got="$(fetch "$WORK/nine-ten")"
+[[ "$got" == 0.1.10 ]] || { echo "FAIL: fetched '$got' from 0.1.9 and 0.1.10, not 0.1.10" >&2; exit 1; }
+cp -r "$WORK/nine-ten" "$WORK/bad-deb"
+printf 'x' >>"$WORK/bad-deb/pool/main/p/portikus/portikus_0.1.10_amd64.deb"
+if fetch "$WORK/bad-deb" >/dev/null; then echo "FAIL: a .deb with the wrong hash was fetched" >&2; exit 1; fi
+cp -r "$WORK/nine-ten" "$WORK/bad-sig"
+sed -i 's/^Label: Portikus/Label: Evil/' "$WORK/bad-sig/dists/trixie/InRelease"
+if fetch "$WORK/bad-sig" >/dev/null; then echo "FAIL: a tampered InRelease was accepted" >&2; exit 1; fi
+# Unsigned text before the signed block names a forged Packages; only the
+# signed Release may be trusted.
+cp -r "$WORK/nine-ten" "$WORK/prepended"
+dist="$WORK/prepended/dists/trixie"
+printf 'x' >>"$WORK/prepended/pool/main/p/portikus/portikus_0.1.10_amd64.deb"
+forged_deb="$(sha256sum "$WORK/prepended/pool/main/p/portikus/portikus_0.1.10_amd64.deb" | cut -d' ' -f1)"
+sed -i "/^Filename: .*portikus_0.1.10_amd64.deb/,/^\$/ s/^SHA256: .*/SHA256: $forged_deb/" "$dist/main/binary-amd64/Packages"
+forged_packages="$(sha256sum "$dist/main/binary-amd64/Packages" | cut -d' ' -f1)"
+{ printf 'SHA256:\n %s 1 main/binary-amd64/Packages\n\n' "$forged_packages"; cat "$dist/InRelease"; } >"$WORK/InRelease.new"
+mv "$WORK/InRelease.new" "$dist/InRelease"
+if fetch "$WORK/prepended" >/dev/null; then echo "FAIL: unsigned text before InRelease was trusted" >&2; exit 1; fi
+echo "ok: fetch-published-deb.sh takes the newest version and checks what it downloads"
+
+# Retention cases, each in a fresh repository seeded straight into the pool.
+retention_case() {
+  local name="$1" expected="$2"
+  shift 2
+  local repo="$WORK/retention-$name" pool v kept
+  pool="$repo/pool/main/p/portikus"
+  mkdir -p "$pool"
+  for v in "$@"; do
+    [[ -e "$WORK/portikus_${v}_amd64.deb" ]] || make_deb "$v"
+    cp "$WORK/portikus_${v}_amd64.deb" "$pool/"
+  done
+  "$ROOT/scripts/publish-apt-repo.sh" "$repo" >/dev/null
+  kept="$(find "$pool" -name '*.deb' -printf '%f\n' | sed 's/^portikus_//; s/_amd64\.deb$//' | sort -V | tr '\n' ' ')"
+  [[ "$kept" == "$expected " ]] || { echo "FAIL: $name kept '$kept', expected '$expected'" >&2; exit 1; }
+  echo "ok: retention $name"
+}
+retention_case fewer-than-ten "0.1.1 0.1.2 0.1.3" 0.1.3 0.1.1 0.1.2
+retention_case two-lines \
+  "0.1.12 0.2.3 0.2.4 0.2.5 0.2.6 0.2.7 0.2.8 0.2.9 0.2.10 0.2.11 0.2.12" \
+  0.1.9 0.1.10 0.1.11 0.1.12 0.2.1 0.2.2 0.2.3 0.2.4 0.2.5 0.2.6 0.2.7 0.2.8 0.2.9 0.2.10 0.2.11 0.2.12
+retention_case three-lines \
+  "0.1.12 0.2.12 1.0.1 1.0.2 1.0.3" \
+  0.1.11 0.1.12 0.2.11 0.2.12 1.0.1 1.0.2 1.0.3
+retention_case build-suffix \
+  "0.1.676+g83ee824 0.2.1+gaaaaaaa" \
+  0.1.675+g1111111 0.1.676+g83ee824 0.2.1+gaaaaaaa
 
 cp -r "$WORK/repo" "$WORK/tampered"
 sed -i 's/^Label: Portikus/Label: Evil/' "$WORK/tampered/dists/trixie/Release" "$WORK/tampered/dists/trixie/InRelease"

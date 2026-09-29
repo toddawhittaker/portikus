@@ -1596,38 +1596,6 @@ heading out of the summary.
 
 **Source.** Epic 25 accessibility review.
 
-## One source for the install settings keys
-
-**What.** The install settings keys (`portikus_public_host` and the
-rest) are named in three places: the debconf questions
-(`packaging/debian/config` and `templates`), postinst, which writes
-`portikus.yaml`, and the Ansible play's defaults. Keep one list that the
-other two read or are checked against.
-
-**Why.** A key added or renamed in one place and missed in another is
-silently ignored.
-
-**What it would take.** A small key list in `packaging/debian/` read by
-postinst, and a test that every key in it is a play variable. About a
-day.
-
-**Source.** Epic 15 code review.
-
-## Worker and API on separate system accounts
-
-**What.** Run the worker under its own system account instead of the
-API's `portikus` account.
-
-**Why.** The backup-key helper socket admits the `portikus` group, so the
-worker can reach it too. ADR 0044 discloses this; the helper still
-confirms nothing and logs every use, but the worker has no need for it.
-
-**What it would take.** A new account and group, unit and file ownership
-changes, and a check of every path the two share (the image-jobs and
-backup channel directories). Two to three days with an install test.
-
-**Source.** Epic 15 security review; ADR 0044.
-
 ## Whiptail's top padding on yes/no screens
 
 **What.** The install screens' yes/no dialogs, such as the summary, show
@@ -1640,22 +1608,6 @@ debconf gives no way to remove it.
 accepted unless a later debconf release adds a way.
 
 **Source.** Epic 15 installer polish (#803).
-
-## Remove the old role-based image path
-
-**What.** Delete what is left of the image build and import done by
-Ansible before the image job existed: `build-on-vm.sh`, which `make
-build-workspace-image` runs over SSH on the development VM, and any part
-of the `image_builder` role only it uses. Do it once the development VM
-gets its image through the image job too.
-
-**Why.** Two ways to put an image on a host drift apart; setup now uses
-only the image job's `first-install` (SPEC.md section 21.12).
-
-**What it would take.** Moving `make build-workspace-image` for the
-development VM onto the job, then deleting the unused tasks. About a day.
-
-**Source.** Epic 15 final pass (#812).
 
 ## Watch a possibly flaky Users dialog test
 
@@ -1670,33 +1622,67 @@ slow wait and fix it.
 
 **Source.** Epic 15, T6 (#792).
 
-## Test the release workflow before it matters
+## Share the image job's lock and jobs-directory setup
 
-**What.** `release.yml`'s gate, which finds the merged pull request from
-the pushed commit, and its wait of up to 75 minutes for the matching
-image release, have never run, because they run only on a push to
-`main`.
+**What.** `packaging/image/image-job` takes its lock and sets up the
+jobs directory three times, in `run_first_install`, `run_local_build`
+and `run_recover`. Share it in one context manager.
 
-**Why.** The first merge to `main` after Epic 15 is also the first real
-release; a fault there blocks publishing.
+**Why.** Three copies drift; a fix to one is easily missed in the others.
 
-**What it would take.** Watch the first run and fix what breaks, or
-rehearse it on a fork with its own `publish` environment first. Half a
-day.
+**What it would take.** A small context manager used by all three, with
+the existing unit tests kept green.
 
-**Source.** Epic 15 review fixes (#807, #810).
+**Source.** Epic 15.1 review.
 
-## Setup when the Portikus repository is unreachable
+## A weekly re-sign can cancel a queued release
 
-**What.** Setup's one apt index refresh (the `base` role) retries three
-times, 10 seconds apart, and then fails the whole run if any configured
-repository, the Portikus one included, cannot be reached.
+**What.** The scheduled weekly re-sign of the apt index can still cancel
+a release run queued behind another one.
 
-**Why.** A short outage of GitHub Pages stops a `portikus setup` that
-would otherwise change nothing about packages.
+**Why.** GitHub's concurrency groups cancel pending runs before any job
+starts, so no check inside a job can save the queued release.
+WORKFLOW.md tells operators to rerun it for now.
 
-**What it would take.** Let that refresh succeed when only the Portikus
-repository failed, since setup never installs from it, and warn instead.
-About half a day with a test.
+**What it would take.** Restructuring the release workflow so the
+re-sign and the release no longer share one pending slot.
 
-**Source.** Epic 15 code review; #808 added the retries.
+**Source.** Epic 15.1 review.
+
+## Test the host backup targets on a configure-vm VM
+
+**What.** `make backup-install-timer` and `make backup-install-channel`
+now refuse self-backing VMs and remain for VMs set up with `make
+configure-vm`, but they have not been run against such a VM since.
+
+**Why.** Untested operator paths break quietly.
+
+**What it would take.** Run both targets against a rehearsal VM set up
+with `make configure-vm`, then take and restore one set.
+
+**Source.** Epic 15.1 (#834).
+
+## Test the pin between two published versions
+
+**What.** Setup's `PORTIKUS_VERSION` pin to an older published package
+cannot be tested until a second release exists in the repository.
+
+**Why.** A downgrade path nobody has run may fail when an operator needs
+it.
+
+**What it would take.** After the next release, run install-test pinned
+to the previous published version.
+
+**Source.** Epic 15.1.
+
+## Probe the worker's refusals on every local address
+
+**What.** The install-test and smoke checks that the worker cannot reach
+the API or Dex probe only 127.0.0.1, not ::1 or the VM's own address.
+
+**Why.** A rule that holds on one address can have a gap on another.
+
+**What it would take.** Repeat the same probes against ::1 and the host's
+own address.
+
+**Source.** Epic 15.1 confirmation review.

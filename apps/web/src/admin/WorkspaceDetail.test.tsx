@@ -46,6 +46,7 @@ const NONE = {
 	archived: false,
 	duplicateEmail: false,
 	stale: false,
+	notSignedInYet: false,
 	linked: false,
 };
 const IMAGE = { label: "2026.09.9", fingerprint: "abc", current: true };

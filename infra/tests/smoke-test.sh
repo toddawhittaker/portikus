@@ -299,6 +299,13 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   }
   check_gt "Docker UID base is not 0" 0        uid_map_second_field
 
+  # 16b. Images land on the Docker volume, not the containerd store on the root disk (SPEC.md 16.2)
+  check_output "docker uses overlay2 in /var/lib/docker" "overlay2 /var/lib/docker" \
+    ws_student "docker info --format '{{.Driver}} {{.DockerRootDir}}'"
+  # The classic store still caches small manifests there; alpine's layer (about 3.8 MB) must not be.
+  check_zero_lines "no image layers under /var/lib/containerd" \
+    ws_exec "find /var/lib/containerd -path '*content.v1.content/blobs/*' -type f -size +1M"
+
   # 17. CLI tools are installed
   check "codex --version"                       ws_student "codex --version"
   check "claude --version"                      ws_student "claude --version"
@@ -701,6 +708,26 @@ api_ip_allow() {
 }
 check_output "the API unit may reach loopback and the workspace bridge only" \
   "10.200.0.0/24 127.0.0.0/8" api_ip_allow
+worker_ip_allow() {
+  ssh_cmd "systemctl show portikus-worker -p IPAddressAllow --value" | tr ' ' '\n' | sed -e '/^$/d' -e 's|/32$||' | LC_ALL=C sort | paste -sd' '
+}
+check_output "the worker unit may reach 127.0.0.1 and the workspace bridge only" \
+  "10.200.0.0/24 127.0.0.1" worker_ip_allow
+# The firewall lets the worker's account open loopback connections only to
+# the controller, so it cannot reach the API or Dex (SPEC.md 24.9).
+worker_loopback() { # USER -- "open" or "refused" for the API, then the controller.
+  ssh_cmd "sudo runuser -u $1 -- python3 -c 'import socket
+for port in (3000, 3001):
+    try:
+        socket.create_connection((\"127.0.0.1\", port), timeout=5).close()
+        print(\"open\")
+    except ConnectionRefusedError:
+        print(\"refused\")'" | paste -sd' '
+}
+check_output "the worker's account reaches the controller on loopback but not the API" \
+  "refused open" worker_loopback portikus-worker
+check_output "the API's account reaches both, so that refusal is the firewall's" \
+  "open open" worker_loopback portikus
 # proxy_connect URL -- the status of the proxy's answer to CONNECT for URL.
 proxy_connect() {
   ssh_cmd "${CURL} -o /dev/null -w '%{http_connect}' -x http://127.0.0.1:3128 '$1'"

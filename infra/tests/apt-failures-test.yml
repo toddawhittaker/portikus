@@ -1,0 +1,162 @@
+---
+# The base role's decision after a failed apt index refresh (#825), tried
+# with apt-get output recorded from Debian 13's apt 3.0: a Portikus
+# repository that cannot be reached or verified is a warning, and any
+# failure of another repository stops the run.  `make infra-check` runs it.
+- name: Check the apt refresh failure decision
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    portikus_apt_url: https://toddawhittaker.github.io/portikus/apt
+    apt_test_debian_ok: |-
+      Hit:1 http://deb.debian.org/debian trixie InRelease
+      Hit:2 http://security.debian.org/debian-security trixie-security InRelease
+    apt_test_cases:
+      - name: every repository refreshed
+        accept: true
+        rc: 0
+        stdout: |-
+          {{ apt_test_debian_ok }}
+          Hit:3 https://toddawhittaker.github.io/portikus/apt trixie InRelease
+          Reading package lists...
+        stderr: ""
+      - name: the Portikus repository unreachable
+        accept: true
+        rc: 0
+        stdout: |-
+          {{ apt_test_debian_ok }}
+          Ign:3 https://toddawhittaker.github.io/portikus/apt trixie InRelease
+          Err:3 https://toddawhittaker.github.io/portikus/apt trixie InRelease
+            Could not resolve 'toddawhittaker.github.io'
+          Reading package lists...
+        stderr: |-
+          W: Failed to fetch https://toddawhittaker.github.io/portikus/apt/dists/trixie/InRelease  Could not resolve 'toddawhittaker.github.io'
+          W: Some index files failed to download. They have been ignored, or old ones used instead.
+      - name: the Portikus repository signed by an unknown key
+        accept: true
+        rc: 100
+        stdout: |-
+          {{ apt_test_debian_ok }}
+          Get:3 https://toddawhittaker.github.io/portikus/apt trixie InRelease [1960 B]
+          Err:3 https://toddawhittaker.github.io/portikus/apt trixie InRelease
+            Sub-process /usr/bin/sqv returned an error code (1), error message is: Missing key 9F6FD4CD5CC5C43AB5125705015D38802EF8D0F4
+          Reading package lists...
+        stderr: |-
+          W: OpenPGP signature verification failed: https://toddawhittaker.github.io/portikus/apt trixie InRelease: Sub-process /usr/bin/sqv failed
+          E: The repository 'https://toddawhittaker.github.io/portikus/apt trixie InRelease' is not signed.
+      # apt closes a failed index download with a summary that names no
+      # repository; it must not count as a failure of another one.
+      - name: the Portikus index with the wrong size
+        accept: true
+        rc: 100
+        stdout: |-
+          {{ apt_test_debian_ok }}
+          Get:3 https://toddawhittaker.github.io/portikus/apt trixie InRelease [1960 B]
+          Get:4 https://toddawhittaker.github.io/portikus/apt trixie/main amd64 Packages [1843 B]
+          Err:4 https://toddawhittaker.github.io/portikus/apt trixie/main amd64 Packages
+            File has unexpected size (1843 != 1790). Mirror sync in progress? [IP: 185.199.108.153 443]
+            Hashes of expected file:
+             - Filesize:1790 [weak]
+             - SHA256:3f1c9a0d2b7e4c65a8d9f0e1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e
+            Release file created at: Mon, 28 Sep 2026 14:02:11 +0000
+          Reading package lists...
+        stderr: |-
+          E: Failed to fetch https://toddawhittaker.github.io/portikus/apt/dists/trixie/main/binary-amd64/Packages.gz  File has unexpected size (1843 != 1790). Mirror sync in progress? [IP: 185.199.108.153 443]
+             Hashes of expected file:
+              - Filesize:1790 [weak]
+              - SHA256:3f1c9a0d2b7e4c65a8d9f0e1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e
+             Release file created at: Mon, 28 Sep 2026 14:02:11 +0000
+          E: Some index files failed to download. They have been ignored, or old ones used instead.
+      - name: the Portikus index with a hash sum mismatch
+        accept: true
+        rc: 100
+        stdout: |-
+          {{ apt_test_debian_ok }}
+          Get:3 https://toddawhittaker.github.io/portikus/apt trixie InRelease [1960 B]
+          Get:4 https://toddawhittaker.github.io/portikus/apt trixie/main amd64 Packages [1790 B]
+          Err:4 https://toddawhittaker.github.io/portikus/apt trixie/main amd64 Packages
+            Hash Sum mismatch
+            Hashes of expected file:
+             - SHA256:3f1c9a0d2b7e4c65a8d9f0e1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e
+            Hashes of received file:
+             - SHA256:9a8b7c6d5e4f30211f2e3d4c5b6a79880f1e2d3c4b5a69788796a5b4c3d2e1f0
+          Reading package lists...
+        stderr: |-
+          E: Failed to fetch https://toddawhittaker.github.io/portikus/apt/dists/trixie/main/binary-amd64/Packages.gz  Hash Sum mismatch
+          E: Some index files failed to download. They have been ignored, or old ones used instead.
+      - name: the Portikus index not found
+        accept: true
+        rc: 100
+        stdout: |-
+          {{ apt_test_debian_ok }}
+          Get:3 https://toddawhittaker.github.io/portikus/apt trixie InRelease [1960 B]
+          Err:4 https://toddawhittaker.github.io/portikus/apt trixie/main amd64 Packages
+            404  Not Found [IP: 185.199.108.153 443]
+          Reading package lists...
+        stderr: |-
+          E: Failed to fetch https://toddawhittaker.github.io/portikus/apt/dists/trixie/main/binary-amd64/Packages  404  Not Found [IP: 185.199.108.153 443]
+          E: Some index files failed to download. They have been ignored, or old ones used instead.
+      - name: the Debian index with a hash sum mismatch
+        accept: false
+        rc: 100
+        stdout: |-
+          Get:1 http://deb.debian.org/debian trixie InRelease [140 kB]
+          Err:5 http://deb.debian.org/debian trixie/main amd64 Packages
+            Hash Sum mismatch
+          Hit:3 https://toddawhittaker.github.io/portikus/apt trixie InRelease
+          Reading package lists...
+        stderr: |-
+          E: Failed to fetch http://deb.debian.org/debian/dists/trixie/main/binary-amd64/Packages.xz  Hash Sum mismatch
+          E: Some index files failed to download. They have been ignored, or old ones used instead.
+      - name: the Debian mirror unreachable
+        accept: false
+        rc: 0
+        stdout: |-
+          Ign:1 http://deb.debian.org/debian trixie InRelease
+          Err:1 http://deb.debian.org/debian trixie InRelease
+            Could not resolve 'deb.debian.org'
+          Hit:2 https://toddawhittaker.github.io/portikus/apt trixie InRelease
+          Reading package lists...
+        stderr: |-
+          W: Failed to fetch http://deb.debian.org/debian/dists/trixie/InRelease  Could not resolve 'deb.debian.org'
+          W: Some index files failed to download. They have been ignored, or old ones used instead.
+      - name: both repositories unreachable
+        accept: false
+        rc: 0
+        stdout: |-
+          Err:1 http://deb.debian.org/debian trixie InRelease
+            Could not resolve 'deb.debian.org'
+          Err:3 https://toddawhittaker.github.io/portikus/apt trixie InRelease
+            Could not resolve 'toddawhittaker.github.io'
+          Reading package lists...
+        stderr: |-
+          W: Failed to fetch http://deb.debian.org/debian/dists/trixie/InRelease  Could not resolve 'deb.debian.org'
+          W: Failed to fetch https://toddawhittaker.github.io/portikus/apt/dists/trixie/InRelease  Could not resolve 'toddawhittaker.github.io'
+      - name: a failure apt does not explain
+        accept: false
+        rc: 100
+        stdout: ""
+        stderr: ""
+      - name: the apt lock held by another process
+        accept: false
+        rc: 100
+        stdout: "Reading package lists..."
+        stderr: "E: Could not get lock /var/lib/apt/lists/lock. It is held by process 1234 (apt-get)"
+      - name: a Debian repository that is not signed
+        accept: false
+        rc: 100
+        stdout: |-
+          Get:1 http://deb.debian.org/debian trixie InRelease [140 kB]
+          Reading package lists...
+        stderr: "E: The repository 'http://deb.debian.org/debian trixie InRelease' is not signed."
+
+  tasks:
+    - name: Try each case
+      ansible.builtin.include_tasks: apt-failures-case.yml
+      loop: "{{ apt_test_cases }}"
+      loop_control:
+        loop_var: apt_case
+        label: "{{ apt_case.name }}"

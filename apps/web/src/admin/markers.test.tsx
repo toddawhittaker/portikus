@@ -17,6 +17,7 @@ const NONE = {
 	archived: false,
 	duplicateEmail: false,
 	stale: false,
+	notSignedInYet: false,
 	linked: false,
 };
 
@@ -53,6 +54,7 @@ test("marker labels come in a fixed order and only when set", () => {
 			archived: true,
 			duplicateEmail: true,
 			stale: true,
+			notSignedInYet: false,
 			linked: true,
 		}),
 	).toEqual(["Disabled", "Archived", "Linked", "Duplicate email", "Stale"]);
@@ -152,7 +154,7 @@ test("role labels say where an administrator's role came from", () => {
 	expect(roleText({ role: "student", grantedRole: null })).toBe("Student");
 });
 
-test("the tags wrap as a group, with no outer margin, and only Disabled is neutral", () => {
+test("the tags wrap as a group, with no outer margin, and Disabled is neutral", () => {
 	const { container } = render(
 		<Markers
 			markers={{ ...NONE, disabled: true, stale: true }}
@@ -180,4 +182,12 @@ test("the tags wrap as a group, with no outer margin, and only Disabled is neutr
 test("an account with no tags renders nothing", () => {
 	const { container } = render(<Markers markers={NONE} workspace={null} />);
 	expect(container.innerHTML).toBe("");
+});
+
+test("an account that has not signed in yet shows a neutral note, not Stale", () => {
+	const { container } = render(<Markers markers={{ ...NONE, notSignedInYet: true }} />);
+	const group = container.firstElementChild as HTMLElement;
+	expect([...group.children].map((tag) => [tag.textContent, tag.className])).toEqual([
+		["Not signed in yet", "pk-tag"],
+	]);
 });

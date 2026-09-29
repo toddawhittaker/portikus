@@ -32,7 +32,7 @@ image:
   description: Portikus student workspace
   name: portikus-workspace
   # The serial is set at build time via: distrobuilder build-incus -o image.serial=VALUE
-  # build-on-vm.sh reads the VERSION file and passes it.
+  # The image job and the image workflow pass the VERSION it builds.
 
 source:
   downloader: debootstrap
@@ -1758,12 +1758,16 @@ files:
     fi
     printf '\033]52;c;%s\a' "$encoded"
 
-# Docker daemon configuration (overlay2 storage driver)
+# Docker daemon configuration.  Docker 29 defaults fresh installs to the
+# containerd image store, which keeps images in /var/lib/containerd on the
+# root disk; the classic overlay2 store keeps them in the per-workspace
+# /var/lib/docker volume and its quota (SPEC.md 16.2, 19).  Setting the
+# storage driver already opts out today; the feature flag says so outright.
 - path: /etc/docker/daemon.json
   generator: dump
   mode: "0644"
   content: |-
-    {"storage-driver": "overlay2"}
+    {"storage-driver": "overlay2", "features": {"containerd-snapshotter": false}}
 
 # First-boot initialiser for the persistent home volume (SPEC.md 4.4).
 - path: /usr/local/sbin/portikus-home-init
@@ -2265,7 +2269,7 @@ actions:
     apt-mark showmanual | LC_ALL=C sort -u > /usr/share/portikus/image-packages.txt
 
 # Write image version file.
-# build-on-vm.sh must export PORTIKUS_IMAGE_VERSION before invoking
+# The builder must export PORTIKUS_IMAGE_VERSION before invoking
 # distrobuilder. distrobuilder does not expose image.serial to action
 # scripts, so we read the environment variable instead.
 - trigger: post-packages

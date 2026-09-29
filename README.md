@@ -82,10 +82,11 @@ change must respect.
 
 ## Status
 
-Every epic through Epic 25 has landed. Epic 15 makes `apt install
-portikus` the default install (docs/INSTALL.md, SPEC.md section 21.12);
-the pilot VM still runs the workstation-driven setup until it is
-reinstalled that way.
+Every epic through Epic 25 has landed, including Epic 15, which makes `apt
+install portikus` the way to install (docs/INSTALL.md, SPEC.md section
+21.12). The project's pilot, at
+https://pilot.portikus.thewhittakers.org:8443 on the maintainer's LAN, is
+installed and upgraded with apt like any other server.
 
 `docs/STATUS.md` records what each epic delivered and the gaps it left.
 
@@ -125,18 +126,44 @@ pre-commit hook, and the tools `make infra-check` needs.
 ## Installing
 
 To run Portikus for a class, get a Debian 13 x86-64 server (bare metal or
-a full virtual machine, from any provider or your own hardware), add the Portikus
-package repository and run `apt install portikus`; a few text screens
-set it up. [docs/INSTALL.md](docs/INSTALL.md) walks through every step,
-and [docs/HOSTING.md](docs/HOSTING.md) says what size of server suits a class.
+a full virtual machine, from any provider or your own hardware).
+[docs/HOSTING.md](docs/HOSTING.md) says what size of server suits a class.
+
+Add the signing key, check it, and add the package repository:
+
+```
+sudo apt update
+sudo apt install -y curl gpg
+sudo curl -fsSL -o /usr/share/keyrings/portikus-archive-keyring.gpg https://toddawhittaker.github.io/portikus/apt/portikus-archive-keyring.gpg
+test "$(gpg --show-keys --with-colons /usr/share/keyrings/portikus-archive-keyring.gpg | awk -F: '$1=="fpr"{print $10}')" = 9F6FD4CD5CC5C43AB5125705015D38802EF8D0F4 && echo "Key OK"
+```
+
+Continue only if it printed `Key OK`. Then:
+
+```
+echo "deb [signed-by=/usr/share/keyrings/portikus-archive-keyring.gpg] https://toddawhittaker.github.io/portikus/apt trixie main" | sudo tee /etc/apt/sources.list.d/portikus.list
+sudo apt update
+sudo apt install portikus
+```
+
+A few text screens ask for the web address, the administrator's email, the
+HTTPS certificate, how people sign in, and where to keep student files:
+
+![The install screen asking where the HTTPS certificate comes from](docs/images/install/04-https-certificate.png)
+
+When apt finishes, setup runs in the background for about ten minutes and
+then you sign in as the administrator at your web address.
+[docs/INSTALL.md](docs/INSTALL.md) walks through every step.
 
 ## Deploying for development
 
-The project's own pilot and rehearsal machines are a reproducible VM built from `infra/`: host bootstrap,
-OpenTofu on libvirt, cloud-init, and Ansible roles for the firewall, storage,
-Incus, network, PostgreSQL, Caddy, and the application. The control plane
-ships as one versioned Debian package, so an upgrade is a package install and
-a rollback is installing the previous version.
+The project's own VMs are built from `infra/`: host bootstrap, OpenTofu on
+libvirt, and cloud-init. The rehearsal VM and unreleased builds are then
+configured from a workstation with the same Ansible roles the package runs
+on a server. The pilot's VM is installed with apt instead, like any other
+server. The control plane ships as one versioned Debian package, so an
+upgrade is a package install and a rollback is installing the previous
+version.
 
 `make help` lists the targets. See
 [infra/README.md](infra/README.md) and [docs/WORKFLOW.md](docs/WORKFLOW.md).
@@ -168,8 +195,20 @@ checks) is in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 | [docs/SPEC.md](docs/SPEC.md) | Requirements; wins on implementation detail |
 | [docs/STACK.md](docs/STACK.md) | Technology choices and why, plus what was rejected |
 | [docs/DESIGN.md](docs/DESIGN.md) | The visual design, mirrored under `design/` |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | The operator's runbook for the pilot and the rehearsal VM |
+| [docs/HOSTING.md](docs/HOSTING.md) | Choosing a server to rent |
+| [docs/CAPACITY.md](docs/CAPACITY.md) | Load test results and sizing |
+| [docs/BROWSER-HANDLING.md](docs/BROWSER-HANDLING.md) | Application preview and CLI browser requests |
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | Branching, review, CI, secret scanning |
+| [docs/HOW-WE-WORK.md](docs/HOW-WE-WORK.md) | A plain-English guide to working with AI agents here |
+| [docs/BACKLOG.md](docs/BACKLOG.md) | Wanted work that is not yet planned |
 | [docs/STATUS.md](docs/STATUS.md) | What has landed and what gaps remain |
 | [docs/adr/](docs/adr) | Decision records |
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and
+[SECURITY.md](SECURITY.md) to report a vulnerability privately. Everyone
+taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 Licensed under the [MIT License](LICENSE).

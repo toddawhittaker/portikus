@@ -27,14 +27,24 @@
     path: /var/lib/portikus/app
     state: absent
 
+# A fresh VM has no system npm, since the package bundles its own Node.
+- name: Look for the system npm
+  ansible.builtin.stat:
+    path: /usr/bin/npm
+  register: portikus_system_npm
+
 - name: Remove the globally installed pnpm
   community.general.npm:
     name: pnpm
     global: true
     state: absent
+  when: portikus_system_npm.stat.exists
 
 # ── Debian package ────────────────────────────────────────────────
 
+# Two ways to choose the package: a locally built .deb named by PORTIKUS_DEB
+# (for testing a branch), or the signed apt repository, at the version named
+# by PORTIKUS_VERSION (for a rollback) or its newest.
 - name: Create package cache directory
   ansible.builtin.file:
     path: /var/cache/portikus
@@ -43,76 +53,85 @@
     group: root
     mode: "0755"
 
-# Three ways to choose the package, in order: a locally built .deb named by
-# PORTIKUS_DEB (for testing a branch), the release named by PORTIKUS_VERSION
-# (for a rollback), or the newest GitHub release.
-- name: Use a locally built package
-  ansible.builtin.copy:
-    src: "{{ portikus_deb }}"
-    dest: "/var/cache/portikus/{{ portikus_deb | basename }}"
-    owner: root
-    group: root
-    mode: "0644"
+- name: Install a locally built package
   when: portikus_deb | default('', true) | length > 0
+  block:
+    - name: Copy the local package
+      ansible.builtin.copy:
+        src: "{{ portikus_deb }}"
+        dest: "/var/cache/portikus/{{ portikus_deb | basename }}"
+        owner: root
+        group: root
+        mode: "0644"
 
-- name: Set the local package file name
-  ansible.builtin.set_fact:
-    portikus_deb_filename: "{{ portikus_deb | basename }}"
-  when: portikus_deb | default('', true) | length > 0
+    - name: Install the local package
+      ansible.builtin.apt:
+        deb: "/var/cache/portikus/{{ portikus_deb | basename }}"
+        # So that an older local build replaces a newer installed one.
+        allow_downgrade: true
 
-- name: Look up the newest release
-  ansible.builtin.uri:
-    url: https://api.github.com/repos/toddawhittaker/portikus/releases/latest
-    return_content: true
-  register: portikus_latest_release
-  when:
-    - portikus_deb | default('', true) | length == 0
-    - portikus_version | default('', true) | length == 0
-
-- name: Resolve the release package
+# The same key file and source line docs/INSTALL.md gives an administrator,
+# so a later `apt upgrade` on this server behaves as on an apt install.
+- name: Install from the Portikus apt repository
   when: portikus_deb | default('', true) | length == 0
   block:
+    - name: Copy the archive signing key
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../packaging/portikus-archive-keyring.asc"
+        dest: /var/cache/portikus/portikus-archive-keyring.asc
+        owner: root
+        group: root
+        mode: "0644"
+      register: portikus_archive_key
+
+    - name: Check the archive keyring
+      ansible.builtin.stat:
+        path: /usr/share/keyrings/portikus-archive-keyring.gpg
+      register: portikus_archive_keyring
+
+    # apt reads a binary keyring at a .gpg path; gnupg comes from the base role.
+    - name: Dearmor the archive signing key
+      ansible.builtin.command:
+        cmd: >-
+          gpg --batch --yes --dearmor
+          --output /usr/share/keyrings/portikus-archive-keyring.gpg
+          /var/cache/portikus/portikus-archive-keyring.asc
+      changed_when: true
+      when: portikus_archive_key is changed or not portikus_archive_keyring.stat.exists
+
+    - name: Add the Portikus apt repository
+      ansible.builtin.copy:
+        content: >
+          deb [signed-by=/usr/share/keyrings/portikus-archive-keyring.gpg]
+          {{ portikus_apt_url }} trixie main
+        dest: /etc/apt/sources.list.d/portikus.list
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Update the package index
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: List the versions the repository offers
+      ansible.builtin.command:
+        cmd: apt-cache madison portikus
+      register: portikus_madison
+      changed_when: false
+
+    # madison lists newest first.  A newer local build is not listed, and
+    # replacing it with the newest release is a downgrade, which needs
+    # PORTIKUS_VERSION like any other.
     - name: Resolve the package version
       ansible.builtin.set_fact:
         portikus_resolved_version: >-
           {{ portikus_version if (portikus_version | default('', true) | length > 0)
-             else (portikus_latest_release.json.tag_name | regex_replace('^v', '')) }}
+             else (portikus_madison.stdout_lines | select('search', portikus_apt_url)
+                   | map('split', '|') | map(attribute=1) | map('trim') | first) }}
 
-    - name: Set the release package file name
-      ansible.builtin.set_fact:
-        portikus_deb_filename: "portikus_{{ portikus_resolved_version }}_amd64.deb"
-
-    - name: Download the release checksums
-      ansible.builtin.get_url:
-        url: "https://github.com/toddawhittaker/portikus/releases/download/v{{ portikus_resolved_version }}/SHA256SUMS"
-        dest: "/var/cache/portikus/{{ portikus_deb_filename }}.SHA256SUMS"
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Read the release checksums
-      ansible.builtin.slurp:
-        src: "/var/cache/portikus/{{ portikus_deb_filename }}.SHA256SUMS"
-      register: portikus_release_checksums
-
-    - name: Take this package's checksum from the release checksums
-      ansible.builtin.set_fact:
-        portikus_deb_checksum: >-
-          {{ (portikus_release_checksums.content | b64decode)
-             | regex_search('([0-9a-f]{64})\s+\*?' ~ (portikus_deb_filename | regex_escape) ~ '\s*$',
-                            '\1', multiline=True) | first }}
-
-    - name: Download the portikus package
-      ansible.builtin.get_url:
-        url: "https://github.com/toddawhittaker/portikus/releases/download/v{{ portikus_resolved_version }}/{{ portikus_deb_filename }}"
-        dest: "/var/cache/portikus/{{ portikus_deb_filename }}"
-        checksum: "sha256:{{ portikus_deb_checksum }}"
-        owner: root
-        group: root
-        mode: "0644"
-
-- name: Install the portikus package
-  ansible.builtin.apt:
-    deb: "/var/cache/portikus/{{ portikus_deb_filename }}"
-    # So that setting PORTIKUS_VERSION or PORTIKUS_DEB to an older build rolls back.
-    allow_downgrade: true
+    - name: Install the portikus package
+      ansible.builtin.apt:
+        name: "portikus={{ portikus_resolved_version }}"
+        # Only a named PORTIKUS_VERSION may roll back, so a stale mirror
+        # cannot move the server to an older release.
+        allow_downgrade: "{{ portikus_version | default('', true) | length > 0 }}"

@@ -6,7 +6,8 @@
 #          scripts/publish-apt-repo.sh <repo-dir> [new.deb ...]
 #
 # <repo-dir> may already hold pool/main/p/portikus/*.deb from earlier runs;
-# the new packages are added, only the newest ten versions are kept, and the
+# the new packages are added, the ten newest versions of the current
+# major.minor line and the newest version of each earlier line are kept, and the
 # indexes, Release, InRelease, Release.gpg and the public key are rewritten.
 # The key comes from the environment, never the command line, and is imported
 # into a throwaway GNUPGHOME that is removed on exit.
@@ -16,6 +17,9 @@ KEEP=10
 SUITE=trixie
 COMPONENT=main
 ARCH=amd64
+# Valid-Until, 30 days: apt refuses an older index, so a mirror cannot hold
+# back updates.  The release workflow re-signs weekly to stay inside it.
+VALID_SECONDS=$((30 * 86400))
 
 if [[ $# -lt 1 ]]; then
   echo "usage: APT_SIGNING_KEY=... $0 <repo-dir> [new.deb ...]" >&2
@@ -40,15 +44,31 @@ for deb in "$@"; do
   cp "$deb" "$POOL/"
 done
 
-# Keep the newest $KEEP versions, ordered the way dpkg orders them.
+# Keep the newest $KEEP versions of the newest major.minor line and the newest
+# version of every earlier line, ordered the way dpkg orders them.
 mapfile -t debs < <(find "$POOL" -maxdepth 1 -name '*.deb' -printf '%p\n')
 mapfile -t ordered < <(
   for deb in "${debs[@]}"; do
     printf '%s %s\n' "$(dpkg-deb -f "$deb" Version)" "$deb"
   done | sort -k1,1 -V -r
 )
-for ((i = KEEP; i < ${#ordered[@]}; i++)); do
-  old="${ordered[$i]#* }"
+current=""
+kept_current=0
+declare -A seen_line=()
+for entry in "${ordered[@]}"; do
+  version="${entry%% *}"
+  old="${entry#* }"
+  line="$(cut -d. -f1,2 <<<"$version")"
+  [[ -n "$current" ]] || current="$line"
+  if [[ "$line" == "$current" ]]; then
+    if ((kept_current < KEEP)); then
+      kept_current=$((kept_current + 1))
+      continue
+    fi
+  elif [[ -z "${seen_line[$line]:-}" ]]; then
+    seen_line[$line]=1
+    continue
+  fi
   echo "pruning $(basename "$old")"
   rm -f "$old"
 done
@@ -71,6 +91,7 @@ FPR="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { pri
     -o "APT::FTPArchive::Release::Codename=$SUITE" \
     -o "APT::FTPArchive::Release::Components=$COMPONENT" \
     -o "APT::FTPArchive::Release::Architectures=$ARCH" \
+    -o "APT::FTPArchive::Release::ValidTime=$VALID_SECONDS" \
     release "dists/$SUITE" > "dists/$SUITE/Release.tmp"
   mv "dists/$SUITE/Release.tmp" "dists/$SUITE/Release"
 )
