@@ -4,12 +4,16 @@
  * Library cleanup, plus the browser APIs Radix, dnd-kit,
  * react-resizable-panels and xterm.js reach for but jsdom does not have.
  */
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
 
 // Vitest runs without globals here, so React Testing Library cannot register its
 // own automatic cleanup. Unmount between tests so queries see one render at a time.
 afterEach(cleanup);
+
+// The first render of a lazy route (the admin page) imports it cold, which
+// takes over the default one second when the worker is busy (CI on #864).
+configure({ asyncUtilTimeout: 5_000 });
 
 if (!globalThis.ResizeObserver) {
 	globalThis.ResizeObserver = class {

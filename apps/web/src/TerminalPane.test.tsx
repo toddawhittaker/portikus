@@ -18,6 +18,7 @@ import {
 	pastedImageType,
 	pastedPathInput,
 	pastePath,
+	RESIZE_SETTLE_MS,
 	SCROLLBACK_LINES,
 	sanitizePaste,
 	TerminalPane,
@@ -231,6 +232,64 @@ test("the first output frame makes the pane say its size again", async () => {
 		socket.onmessage?.({ data: new ArrayBuffer(4) });
 	});
 	expect(socket.sent.filter((raw) => raw.includes("resize"))).toHaveLength(1);
+});
+
+test("a drag of the pane edge sends one settled size, not every step (#849)", async () => {
+	stubBrowserApis();
+	vi.stubGlobal("WebSocket", FakeWebSocket);
+	let observed: (() => void) | undefined;
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			constructor(callback: () => void) {
+				observed = callback;
+			}
+			observe() {}
+			unobserve() {}
+			disconnect() {}
+		},
+	);
+	const client = createQueryClient(() => {});
+	vi.useFakeTimers();
+	try {
+		const view = render(
+			<QueryClientProvider client={client}>
+				<ToastProvider>
+					<TerminalPane
+						workspaceId={WORKSPACE}
+						projectId={PROJECT}
+						terminal={terminal}
+						visible
+						focusOnMount={false}
+						onExited={vi.fn()}
+						onSessionEnded={vi.fn()}
+						onCwd={vi.fn()}
+						onFocus={vi.fn()}
+						onLeave={vi.fn()}
+					/>
+				</ToastProvider>
+			</QueryClientProvider>,
+		);
+		const socket = sockets[0];
+		if (!socket || !observed) throw new Error("pane did not mount");
+		const surface = view.container.querySelector(".pk-terminal-surface");
+		if (!surface) throw new Error("no surface");
+		Object.defineProperty(surface, "clientWidth", { value: 800 });
+		Object.defineProperty(surface, "clientHeight", { value: 400 });
+
+		// Each transient size is a SIGWINCH that makes tmux reflow and a
+		// full-screen app redraw, so a drag must not send them all.
+		const resizes = () => socket.sent.filter((raw) => raw.includes('"resize"'));
+		for (let step = 0; step < 10; step++) {
+			observed();
+			vi.advanceTimersByTime(20);
+		}
+		expect(resizes()).toHaveLength(0);
+		vi.advanceTimersByTime(RESIZE_SETTLE_MS);
+		expect(resizes()).toHaveLength(1);
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 test("a close before any exit is retried, not reported as an exit", async () => {

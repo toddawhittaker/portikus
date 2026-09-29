@@ -3639,3 +3639,11 @@ fixes". In progress.
   under `.portikus/` in an existing repository adds the exclude lines to
   `.git/info/exclude`, once. A failure there is logged and never fails
   the write. The README stays for new projects only.
+- A terminal tells tmux its size only once the pane has stopped changing
+  size for 100 ms, so a window or split drag sends one settled size
+  instead of one per step (#849). Each size made tmux reflow and Claude
+  Code redraw, and redraws for sizes already gone overlapped on screen.
+  Claude Code redraws its inline output by moving the cursor up the rows
+  it drew at the old width, so a single real resize can still leave
+  overlapping lines; that part is Claude Code's renderer, and neither
+  tmux nor xterm.js can turn reflow off.
