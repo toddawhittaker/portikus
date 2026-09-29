@@ -661,8 +661,13 @@ refused_run "a run waits for another VM's run on this host, then gives up" "anot
 kill "$holder" 2>/dev/null
 wait "$holder" 2>/dev/null
 
-# doctored NAME -- a copy of the good set, for one test to spoil.
-doctored() { rm -rf "${work:?}/$1"; cp -r "$newest" "${work}/$1"; printf '%s' "${work}/$1"; }
+# doctored NAME -- a copy of the good set under its own name, for one test to spoil.
+doctored() {
+  rm -rf "${work:?}/$1"
+  mkdir "${work}/$1"
+  cp -r "$newest" "${work}/$1/"
+  printf '%s' "${work}/$1/$(basename "$newest")"
+}
 # The refusal has to be the form check, not some other failure.
 refuse_set() { # LABEL SET
   if run_restore --check "$2" >"${work}/refusal" 2>&1; then
@@ -733,6 +738,10 @@ refuse_forged "a restore refuses a set with no MAC" "$d" 'has no MAC'
 d=$(doctored f4)
 age -R "${work}/recipients.txt" -o "${d}/${HOME_VOL}.index.age" <<<'{"f": "a", "size": 1, "sha256": "'"$(printf x | sha256sum | cut -d' ' -f1)"'"}'
 refuse_forged "a restore refuses a genuine MANIFEST beside an index it does not list" "$d" 'the MANIFEST says'
+# A genuine set, untouched, renamed to look like a newer night's.
+d=$(doctored f5)
+mv "$d" "$(dirname "$d")/20991231T023000Z"
+refuse_forged "a restore refuses a genuine set renamed to another time" "$(dirname "$d")/20991231T023000Z" 'named for another time'
 # The signing key must be for the recipients, or no set would verify.
 age-keygen -o "${work}/other.txt" 2>/dev/null
 python3 "${repo}/infra/host/portikus-backup-mac" derive "${work}/other.txt" >"${work}/other-mac.txt"

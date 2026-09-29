@@ -546,8 +546,9 @@ reset
 echo "not the home" | enc - "${sets}/${GOOD}/${INST}-home.age"
 pull "$import_req"
 run_channel
-expect "an import of a home its MANIFEST does not list fails, and the import is removed" \
-  "refused && field \"r['request']['error']\" | grep -q 'not the one its MANIFEST lists' && vm_commands | grep -qx 'ssh sudo incus storage volume delete workspace-data ${INST}-home-import --project portikus' && ! vm_commands | grep -q 'volatile.idmap.last'"
+expect "an import of a home its MANIFEST does not list is refused before anything is imported" \
+  "refused && field \"r['request']['error']\" | grep -q 'not the one its MANIFEST lists' && ! vm_commands | grep -q 'volume import' && [ ! -s '${fakes}/stream' ] && ! vm_commands | grep -q 'volatile.idmap.last'"
+expect "and its checked copy is gone" "[ -z \"\$(find '${sets}' -name '.restore-copy.*')\" ]"
 reset
 rm "${sets}/${GOOD}/MANIFEST.mac"
 pull "$import_req"

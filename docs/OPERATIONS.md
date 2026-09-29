@@ -1096,8 +1096,9 @@ what is where.
   An upload of a different key replaces it only after a confirmation, and
   only while no backup runs. The key it replaces is kept beside it as
   `age-key.txt.replaced-<unix time>`, root-only, so sets made with it can
-  still be opened: restore one with `PORTIKUS_BACKUP_IDENTITY` pointing at
-  that file. Delete a kept key by hand once no set needs it. If the tab
+  still be opened: restore one with `sudo portikus restore --key
+  /etc/portikus-backup/age-key.txt.replaced-<unix time> <timestamp>`
+  (add `--check` first to prove the key opens the set). Delete a kept key by hand once no set needs it. If the tab
   says the helper did not answer, check `systemctl status
   portikus-backup-key.socket`.
 - **Whole-server restore.** `sudo portikus restore --check <timestamp>`

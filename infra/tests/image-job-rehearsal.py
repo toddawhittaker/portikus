@@ -9,7 +9,8 @@ serves (portikus_image_base_url and portikus_image_releases_url in
 the Workspace image page does, and writes request files by hand only where
 the point is that the root job refuses them.  The steps:
 
-   1. the served releases: releases.json and the image setup imported;
+   1. the served releases: releases.json and the image setup installed,
+      through the fetch and activate jobs setup ran itself;
    2. fetch the newest published image, and a second request is refused
       while it runs;
    3. a tampered download is refused: a SHA256SUMS changed after signing,
@@ -181,6 +182,18 @@ def hand_status(file_id, timeout=120):
     return None
 
 
+def setup_jobs():
+    """The jobs that ran before the rehearsal, oldest first: setup's own first install."""
+    jobs = []
+    for name in os.listdir(JOBS):
+        try:
+            uuid.UUID(name)
+            jobs.append(json.load(open(os.path.join(JOBS, name, "status.json"))) | {"id": name})
+        except (ValueError, OSError):
+            continue
+    return sorted(jobs, key=lambda j: j.get("startedAt") or "")
+
+
 def mint_student(host, name):
     """A student row and a one-hour session, with its cookie jar; as the smoke test does."""
     token = secrets.token_urlsafe(32)
@@ -233,6 +246,17 @@ def steps(args):
     check("the image store has the default's manifest", os.path.exists(os.path.join(IMAGES, first, "manifest.json")))
     check("portikus-image-job.path is active",
           sh("systemctl", "is-active", "portikus-image-job.path", check_rc=False).strip() == "active")
+    before = setup_jobs()
+    shape = [(j.get("kind"), j.get("version"), j.get("state")) for j in before]
+    check(f"setup ran two jobs, a fetch then an activate of {first}, and both succeeded",
+          shape == [("fetch", first, "succeeded"), ("activate", first, "succeeded")], shape)
+    for job in before:
+        code, data = api.call("GET", f"/admin/image/jobs/{job['id']}")
+        check(f"the admin API shows setup's {job.get('kind')} job as succeeded",
+              code == 200 and data["job"]["state"] == "succeeded", f"{code} {data}")
+    current = view.get("job") or {}
+    check("the page's current job is setup's activate",
+          bool(before) and current.get("id") == before[-1]["id"] and current.get("state") == "succeeded", current)
 
     heading("2. Fetch the newest published image")
     code, data = api.job({"kind": "fetch"})

@@ -256,7 +256,9 @@ test("an upload onto a different key needs the replace step", async () => {
 	fireEvent.click(confirm);
 
 	const replace = await screen.findByTestId("backup-key-replace-dialog");
-	expect(replace.textContent).toContain("deletes that key from the server for good");
+	expect(replace.textContent).toContain(
+		"The current key is set aside on the server, readable only by root",
+	);
 	expect(calls).toEqual([
 		{
 			method: "POST",

@@ -88,11 +88,13 @@ if [ "$(stat -c '%u %a' "$KEY")" != "$(id -u) 600" ] || [ "$(stat -c '%u %a' "$k
 fi
 
 scratch=$(mktemp -d)
+held=""
 created=no
 cleanup() {
   # Only a folder this run made is removed, so a retry does not see a collision.
   [ "$created" = no ] || in_ws rm -rf --one-file-system "${HOME_DIR}/${DIR}" || true
   rm -rf "$scratch"
+  [ -z "$held" ] || rm -rf "$held"
 }
 trap cleanup EXIT
 
@@ -129,6 +131,7 @@ case "$mac_rc" in
   0) ;;
   3) die "Set ${STAMP} is not verified: it has no MAC, so nothing shows this server's key made it. Nothing was restored." ;;
   4) die "Set ${STAMP} failed verification: it was not made with this server's key, or it was changed. Nothing was restored." ;;
+  5) die "Set ${STAMP} is named for another time than it was made. Nothing was restored." ;;
   *) die "could not check set ${STAMP}'s MAC; nothing was restored" ;;
 esac
 set +o pipefail
@@ -146,9 +149,13 @@ idmap=$(awk -v v="$VOL" '$1 == "volume" && $2 == v { print $5 }' "${scratch}/MAN
 # The MAC covers the MANIFEST, and the MANIFEST these, so the files are checked against them.
 vol_sum=$(awk -v v="$VOL" '$1 == "volume" && $2 == v { print $3, $4 }' "${scratch}/MANIFEST")
 index_sum=$(awk -v v="$VOL" '$1 == "index" && $2 == v { print $3, $4 }' "${scratch}/MANIFEST")
-# streamed_whole -- was the volume just decrypted the one the MANIFEST lists?
-streamed_whole() { [ "$(cat "${scratch}/stream.sum" 2>/dev/null)" = "$vol_sum" ]; }
 regular "${VOL}.age" || die "refused by the host: set ${STAMP} does not hold ${VOL}"
+# The volume is checked before any of it is used, in a root-only copy the
+# set cannot change afterwards.  Beside the set, since /tmp may be too small.
+held=$(mktemp -d -p "$(dirname "$SET")" .restore-copy.XXXXXX)
+cp --reflink=auto "${SET}/${VOL}.age" "${held}/volume.age" || die "could not copy ${VOL} from set ${STAMP} to check it"
+[ "$(age -d -i "$KEY" "${held}/volume.age" | size_sum)" = "$vol_sum" ] \
+  || die "refused by the host: ${VOL} in set ${STAMP} is not the one its MANIFEST lists; nothing was restored"
 
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 vm() { timeout -k 5 "$CALL_TIMEOUT" runuser -u "$OPERATOR" -- ssh -n "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
@@ -164,7 +171,7 @@ fi
 # The stream's limit: 10 minutes plus 1 second per 5 MB of the encrypted volume, at most 6 hours.
 stream_seconds() {
   local size t
-  size=$(stat -c %s "${SET}/${VOL}.age")
+  size=$(stat -c %s "${held}/volume.age")
   t=$((600 + size / 5000000))
   [ "$t" -le 21600 ] || t=21600
   echo "$t"
@@ -222,10 +229,8 @@ print(total)') || die "refused by the host: the set's index for ${VOL} is not in
   in_ws mkdir "${HOME_DIR}/${DIR}" || die "~/${DIR} could not be made. Rename or delete anything by that name, then try again."
   created=yes
   info "copying ${VOL} from set ${STAMP} into ~/${DIR} (${need} bytes)"
-  decrypt "$VOL" | size_sum "${scratch}/stream.sum" | vm_in "$(stream_seconds)" "sudo incus exec $(q "$INSTANCE") --project ${PROJECT} --user 1000 --group 1000 --cwd ${HOME_DIR} --env HOME=${HOME_DIR} -- tar -xz --strip-components=2 -C $(q "${HOME_DIR}/${DIR}") backup/volume" \
+  age -d -i "$KEY" "${held}/volume.age" | vm_in "$(stream_seconds)" "sudo incus exec $(q "$INSTANCE") --project ${PROJECT} --user 1000 --group 1000 --cwd ${HOME_DIR} --env HOME=${HOME_DIR} -- tar -xz --strip-components=2 -C $(q "${HOME_DIR}/${DIR}") backup/volume" \
     || die "The copy into ~/${DIR} failed part way; nothing was kept."
-  # The folder is still ours to remove, so a changed volume leaves nothing behind.
-  streamed_whole || die "refused by the host: ${VOL} in set ${STAMP} is not the one its MANIFEST lists; nothing was kept"
   created=no
   info "copied ${VOL} from set ${STAMP} into ~/${DIR}"
   exit 0
@@ -238,12 +243,8 @@ if vm "sudo incus storage volume show ${POOL} $(q "$IMPORT") --project ${PROJECT
     || die "${IMPORT} already exists and could not be removed"
 fi
 info "importing ${VOL} from set ${STAMP} as ${IMPORT}"
-decrypt "$VOL" | size_sum "${scratch}/stream.sum" | vm_in "$(stream_seconds)" "sudo incus storage volume import ${POOL} /dev/stdin $(q "$IMPORT") --project ${PROJECT} -q" \
+age -d -i "$KEY" "${held}/volume.age" | vm_in "$(stream_seconds)" "sudo incus storage volume import ${POOL} /dev/stdin $(q "$IMPORT") --project ${PROJECT} -q" \
   || die "The import of the backed-up home failed."
-if ! streamed_whole; then
-  vm "sudo incus storage volume delete ${POOL} $(q "$IMPORT") --project ${PROJECT}" || true
-  die "refused by the host: ${VOL} in set ${STAMP} is not the one its MANIFEST lists; the import was removed"
-fi
 if [ "$idmap" != "-" ]; then
   vm "sudo incus storage volume set ${POOL} $(q "$IMPORT") --project ${PROJECT} volatile.idmap.last=$(q "$idmap")" \
     || die "could not record the backup's ID map on ${IMPORT}"
