@@ -10,19 +10,19 @@ import {
 	lstat,
 	mkdir,
 	mkdtemp,
+	open,
 	readdir,
 	readFile,
-	readlink,
 	rm,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { crc32 } from "node:zlib";
+import { crc32, deflateRawSync } from "node:zlib";
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_ENTRIES } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	checkEntries,
 	extractZip,
@@ -31,6 +31,13 @@ import {
 	safeEntryName,
 } from "./extract.js";
 import { buildServer } from "./server.js";
+
+// A small cap, so a zip that unpacks past it (plus the agent's margin)
+// stays quick to build and to write.
+vi.mock("@portikus/contracts", async (original) => ({
+	...(await original<typeof import("@portikus/contracts")>()),
+	MAX_EXTRACT_BYTES: 4 * 1024 * 1024,
+}));
 
 const run = promisify(execFile);
 const TOKEN = "e".repeat(64);
@@ -43,6 +50,12 @@ interface Member {
 	/** A size to claim in the central directory instead of the real one. */
 	declaredSize?: number;
 	flags?: number;
+	/** The made-by host; defaults to Unix (3) when a mode is set, else DOS. */
+	host?: number;
+	/** Raw extra-field bytes for the central directory entry. */
+	extra?: Buffer;
+	/** Real bytes of zeros to deflate instead of `data`. */
+	zeros?: number;
 }
 
 /** A stored (uncompressed) zip holding exactly the given members. */
@@ -52,31 +65,43 @@ function makeZip(members: Member[]): Buffer {
 	let offset = 0;
 	for (const member of members) {
 		const name = Buffer.from(member.name, "utf8");
-		const data = Buffer.from(member.data ?? "", "utf8");
-		const sum = crc32(data);
+		const plain =
+			member.zeros === undefined
+				? Buffer.from(member.data ?? "", "utf8")
+				: Buffer.alloc(member.zeros);
+		const method = member.zeros === undefined ? 0 : 8;
+		const data = method === 8 ? deflateRawSync(plain) : plain;
+		const sum = crc32(plain);
+		const size = member.declaredSize ?? plain.length;
+		const extra = member.extra ?? Buffer.alloc(0);
+		const host = member.host ?? (member.mode === undefined ? 0 : 3);
 		const local = Buffer.alloc(30);
 		local.writeUInt32LE(0x04034b50, 0);
 		local.writeUInt16LE(20, 4);
 		local.writeUInt16LE(member.flags ?? 0, 6);
+		local.writeUInt16LE(method, 8);
 		local.writeUInt32LE(sum, 14);
 		local.writeUInt32LE(data.length, 18);
-		local.writeUInt32LE(data.length, 22);
+		local.writeUInt32LE(size, 22);
 		local.writeUInt16LE(name.length, 26);
-		locals.push(local, name, data);
+		local.writeUInt16LE(extra.length, 28);
+		locals.push(local, name, extra, data);
 
 		const central = Buffer.alloc(46);
 		central.writeUInt32LE(0x02014b50, 0);
-		central.writeUInt16LE(member.mode === undefined ? 20 : (3 << 8) | 20, 4);
+		central.writeUInt16LE((host << 8) | 20, 4);
 		central.writeUInt16LE(20, 6);
 		central.writeUInt16LE(member.flags ?? 0, 8);
+		central.writeUInt16LE(method, 10);
 		central.writeUInt32LE(sum, 16);
 		central.writeUInt32LE(data.length, 20);
-		central.writeUInt32LE(member.declaredSize ?? data.length, 24);
+		central.writeUInt32LE(size, 24);
 		central.writeUInt16LE(name.length, 28);
+		central.writeUInt16LE(extra.length, 30);
 		central.writeUInt32LE(((member.mode ?? 0) << 16) >>> 0, 38);
 		central.writeUInt32LE(offset, 42);
-		centrals.push(central, name);
-		offset += local.length + name.length + data.length;
+		centrals.push(central, name, extra);
+		offset += local.length + name.length + extra.length + data.length;
 	}
 	const centralBytes = Buffer.concat(centrals);
 	const end = Buffer.alloc(22);
@@ -146,13 +171,15 @@ describe("extracting a zip", () => {
 		expect(await readFile(join(project, "starter-2", "new.txt"), "utf8")).toBe("new");
 	});
 
-	test("keeps a link that stays inside the folder", async () => {
+	test("refuses even a link that stays inside the folder", async () => {
 		await place("ok.zip", [
 			{ name: "a.txt", data: "a", mode: FILE },
 			{ name: "b", data: "a.txt", mode: LINK },
 		]);
-		await extractZip(homeDir, "alpha", "ok.zip");
-		expect(await readlink(join(project, "ok", "b"))).toBe("a.txt");
+		await expect(extractZip(homeDir, "alpha", "ok.zip")).rejects.toMatchObject({
+			code: "ARCHIVE_INVALID",
+		});
+		await expectUntouched("ok");
 	});
 
 	test("refuses something that is not a zip, and leaves no folder", async () => {
@@ -193,6 +220,34 @@ describe("zip-slip: hostile entries never write outside the new folder", () => {
 		["a backslash traversal", () => [{ name: "..\\..\\outside\\x", data: "x" }]],
 		["an absolute path", () => [{ name: ABSOLUTE, data: "x" }]],
 		["a drive-letter path", () => [{ name: "C:/outside/x", data: "x" }]],
+		[
+			"a chain of links that each look inside but end outside",
+			() => [
+				{ name: "s", data: ".", mode: LINK },
+				{ name: "t", data: "s/..", mode: LINK },
+				{ name: "u", data: "t/..", mode: LINK },
+				{ name: "v", data: "u/..", mode: LINK },
+			],
+		],
+		...[2, 5, 16, 30].map((host): [string, () => Member[]] => [
+			`a link from made-by host ${host}`,
+			() => [{ name: "in", data: "fine.txt", mode: LINK, host }],
+		]),
+		[
+			"a Unicode path extra field naming something else",
+			() => {
+				const other = Buffer.from("other.txt", "utf8");
+				const extra = Buffer.alloc(9 + other.length);
+				extra.writeUInt16LE(0x7075, 0);
+				extra.writeUInt16LE(5 + other.length, 2);
+				extra.writeUInt8(1, 4);
+				extra.writeUInt32LE(crc32(Buffer.from("plain.txt")), 5);
+				other.copy(extra, 9);
+				return [{ name: "plain.txt", data: "x", extra }];
+			},
+		],
+		["a .git/config entry", () => [{ name: ".git/config", data: "[core]\n" }]],
+		["a .GIT entry in any case", () => [{ name: "src/.GIT/x", data: "x" }]],
 		[
 			"a file written through its own link",
 			() => [
@@ -249,6 +304,21 @@ describe("zip bombs", () => {
 		await expectUntouched("bomb");
 	});
 
+	test("stops a zip whose headers lie about sizes once it passes the cap", async () => {
+		// 48 MB of real bytes, each entry claiming one byte; the slack keeps
+		// other tests freeing space from hiding the drop.
+		const members = Array.from({ length: 48 }, (_, index) => ({
+			name: `z${index}.bin`,
+			zeros: 1_000_000,
+			declaredSize: 1,
+		}));
+		await place("liar.zip", members);
+		await expect(extractZip(homeDir, "alpha", "liar.zip")).rejects.toMatchObject({
+			code: "FILE_TOO_LARGE",
+		});
+		await expectUntouched("liar");
+	});
+
 	test("refuses a zip with more entries than the cap", async () => {
 		const members = Array.from({ length: MAX_EXTRACT_ENTRIES + 1 }, (_, index) => ({
 			name: `f${index}`,
@@ -258,6 +328,17 @@ describe("zip bombs", () => {
 			code: "FILE_TOO_LARGE",
 		});
 		await expectUntouched("many");
+	});
+});
+
+describe("an aborted request", () => {
+	test("stops unzip and leaves no folder", async () => {
+		await place("slow.zip", [{ name: "a.bin", zeros: 1_000_000 }]);
+		const aborted = new AbortController();
+		const pending = extractZip(homeDir, "alpha", "slow.zip", aborted.signal);
+		aborted.abort();
+		await expect(pending).rejects.toMatchObject({ code: "INTERNAL" });
+		await expectUntouched("slow");
 	});
 });
 
@@ -278,7 +359,9 @@ describe("the pure checks", () => {
 
 	test("checkEntries passes a plain zip and readZipEntries reads names", async () => {
 		await place("plain.zip", [{ name: "a\\b.txt", data: "x" }]);
-		const entries = await readZipEntries(join(project, "plain.zip"));
+		const handle = await open(join(project, "plain.zip"));
+		const entries = await readZipEntries(handle);
+		await handle.close();
 		expect(entries.map((entry) => entry.name)).toEqual(["a/b.txt"]);
 		expect(() => checkEntries(entries)).not.toThrow();
 	});

@@ -2837,8 +2837,10 @@ Epic 24 (issue #626, ADR 0042):
   /instances/:name/added-packages`: the Incus file API, a regular file of
   at most 64 KiB, each line checked) and adds one to each package's count
   for the day. Only the date a workspace was last surveyed is stored per
-  workspace. Counts are kept 90 days. A workspace on an image without
-  the hook counts as not surveyed. The admin view is in section 20.1.
+  workspace. Counts are kept 90 days. A workspace with no list, on an
+  image without the hook or before its first apt run, gets an empty
+  answer (no image, no packages) rather than a 404, and counts as not
+  surveyed. The admin view is in section 20.1.
 
 ### 22.4 The Workspace image section
 
@@ -2916,8 +2918,7 @@ language-aware editor".
   enabled administrator gets one neutral notification per image version
   and one per package version. The audit rows `image.release_noticed`
   and `package.release_noticed` (target: the version) record that it was
-  sent. The API checks every hour and on each load of the image tab,
-  under a PostgreSQL advisory lock so two checks cannot both send. A
+  sent. The API checks every hour, under a PostgreSQL advisory lock so two checks cannot both send. A
   release list that cannot be read writes a null image, and then no
   notice shows.
 
@@ -3724,9 +3725,10 @@ API prunes rows older than 7 days at most once an hour. The Trends card
 charts the request rate, the 4xx and 5xx share, and the median and 95th
 percentile response time, interpolated inside the histogram bucket.
 
-Request lines are logged at warn for 4xx answers, except an unmatched
-path (404) at debug and a 401 without a session at info, so a signed-out
-browser polling `/me` does not fill the Warn view or the errors chart.
+Request lines are logged at error for 5xx answers and at info for 4xx
+answers, which are the API refusing as meant, except a 429 at warn and an
+unmatched path (404) at debug, so smoke runs and routine refusals do not
+fill the Warn view or the errors chart.
 
 ### 25.7 Maintainability
 

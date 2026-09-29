@@ -318,14 +318,19 @@ test("a newer published image shows a notice and notifies the administrator once
 	);
 	await confirmDialog(page).getByRole("button", { name: "Cancel" }).click();
 
-	await page.reload();
-	await expect(notice).toBeVisible({ timeout: 15_000 });
-	const dialog = await openNotifications(page);
-	await expect(
-		dialog
-			.getByTestId("notification")
-			.filter({ hasText: `Workspace image ${NEWEST} is published` }),
-	).toHaveCount(1);
+	// The API's release-notice timer, not the page load, sends the notices,
+	// so reload until its next tick has run.
+	let dialog = page.getByTestId("dialog-notifications");
+	await expect(async () => {
+		await page.reload();
+		await expect(notice).toBeVisible();
+		dialog = await openNotifications(page);
+		await expect(
+			dialog
+				.getByTestId("notification")
+				.filter({ hasText: `Workspace image ${NEWEST} is published` }),
+		).toHaveCount(1, { timeout: 1_000 });
+	}).toPass({ timeout: 20_000 });
 	await expect(
 		dialog
 			.getByTestId("notification")

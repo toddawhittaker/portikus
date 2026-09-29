@@ -268,20 +268,13 @@ describe.skipIf(skip)("GET /admin/image, a newer published image (issue #861)", 
 			.execute();
 	}
 
-	test("names a published image newer than every image on the server, and notifies once", async () => {
+	test("names a published image newer than every image on the server, and writes nothing", async () => {
 		await putPublished("2026.09.13");
 		const res = await send(carol, "GET", "/admin/image");
 		expect(res.json().newerPublished).toBe("2026.09.13");
-		await send(carol, "GET", "/admin/image");
-		const sent = await adminNotifications();
-		expect(sent).toEqual([
-			{
-				role: "administrator",
-				title: "Workspace image 2026.09.13 is published",
-				tone: "neutral",
-			},
-		]);
-		expect(await audits("image.release_noticed")).toHaveLength(1);
+		// A read-only page load leaves notices to the hourly timer.
+		expect(await adminNotifications()).toEqual([]);
+		expect(await audits("image.release_noticed")).toHaveLength(0);
 	});
 
 	test("says nothing once that version is on the server", async () => {

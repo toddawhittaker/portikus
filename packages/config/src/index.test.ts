@@ -493,6 +493,7 @@ test("the preview settings have development defaults", () => {
 	expect(config.PREVIEW_PORT_MIN).toBe(1024);
 	expect(config.PREVIEW_PORT_MAX).toBe(65535);
 	expect(config.PREVIEW_TICKET_TTL_SECONDS).toBe(30);
+	expect(config.RELEASE_NOTICE_SECONDS).toBe(3600);
 });
 
 test("the denied preview ports always include the workspace agent port", () => {

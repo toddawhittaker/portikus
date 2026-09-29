@@ -86,7 +86,7 @@ export interface ControllerClient {
 	processes(name: string, signal?: AbortSignal): Promise<InstanceProcess[]>;
 	/** Set or, with null, remove a workspace's own CPU, memory and process limits. */
 	setLimits(name: string, req: SetInstanceLimitsRequest): Promise<void>;
-	/** The packages the student added with apt; NOT_FOUND when there is no list. */
+	/** The packages the student added with apt; an empty list with no image when there is none yet. */
 	addedPackages(name: string): Promise<AddedPackagesResponse>;
 	/** Pre-change snapshots and kept homes. */
 	keptVolumes(): Promise<KeptVolumesResponse>;

@@ -3577,6 +3577,11 @@ Delivered:
   "Extracting" notice and the files appearing in the tree, not a
   percentage, and a zip whose headers lie about its size is bounded by
   the per-file limit and the home volume's quota, not by the 1 GiB total.
+- Review fixes to the extractor: every symbolic link, any `.git` path part
+  and a mismatched Unicode path field are refused; a free-space watch now
+  enforces the 1 GiB total even when headers lie, closing the gap above;
+  an aborted request stops unzip. An agent `INTERNAL` error now reads as
+  a 500, and loading the image tab no longer sends release notices.
 Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot fixes".
 
 - Project setup (T5, #846, #847, #856, #857): a clone takes the name its
@@ -3647,6 +3652,14 @@ fixes". In progress.
   it drew at the old width, so a single real resize can still leave
   overlapping lines; that part is Claude Code's renderer, and neither
   tmux nor xterm.js can turn reflow off.
+- Log noise (#859). A 4xx answer is logged at info, except a 429 at
+  warn. The controller answers "no added-packages list yet" with an
+  empty list, not a 404. A recovery point for a vanished project is
+  logged at info. A toast shown behind a session gate is not recorded.
+  `portikus backup-channel` exits quietly before setup writes the
+  worker's settings, and `portikus reset-admin` reports its exit codes
+  10 and 11 without a failed transient unit. Setup starts and restarts
+  the controller before the worker, and masks `systemd-ssh-generator`.
 - Review fixes for the web app (F3): the "Extracting" toast stays until
   the zip is done; a checkerboard shows through transparent images; only
   an image's facts name its figure; a PDF with no stated size is offered

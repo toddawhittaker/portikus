@@ -1,16 +1,26 @@
 /**
  * "Extract here" for a zip in the Files pane (issue #817). The central
  * directory is read and checked before anything is written: every entry
- * must stay inside the new folder (SPEC.md §11.1, §24.6), and the entry
- * count and declared size are capped so a zip bomb is refused up front.
- * Info-ZIP unzip, already in the workspace image, does the extraction
- * under a per-file size limit, and a walk afterwards refuses any symbolic
- * link that points out of the folder. On any failure the folder is removed.
+ * must stay inside the new folder (SPEC.md §11.1, §24.6), no entry may be
+ * a symbolic link or touch `.git`, and the entry count and declared size
+ * are capped so a zip bomb is refused up front. Info-ZIP unzip, already in
+ * the workspace image, does the extraction under a per-file size limit
+ * while free space is watched, since headers can lie about sizes. A walk
+ * afterwards refuses any link that got through anyway. On any failure the
+ * folder is removed.
  */
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, readlink, rm, statfs } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+	type FileHandle,
+	lstat,
+	mkdir,
+	open,
+	readdir,
+	rm,
+	statfs,
+} from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_ENTRIES } from "@portikus/contracts";
 import { resolveInProject } from "./files.js";
 import { resolveProject } from "./projects.js";
@@ -31,7 +41,10 @@ const EOCD_BYTES = 22;
 const MAX_COMMENT_BYTES = 0xffff;
 /** Far more than 10,000 entries need; refuses a lying directory size. */
 const MAX_CENTRAL_BYTES = 64 * 1024 * 1024;
-const UNIX_HOST = 3;
+const UNICODE_PATH_EXTRA = 0x7075;
+/** How far past the cap free space may fall before unzip is stopped. */
+const SPACE_MARGIN_BYTES = 16 * 1024 * 1024;
+const SPACE_POLL_MS = 1000;
 const S_IFMT = 0o170000;
 const S_IFLNK = 0o120000;
 
@@ -40,12 +53,28 @@ function invalid(message: string): AgentFailure {
 }
 
 /**
- * Read the zip's central directory. Zip64 archives are refused: their
- * sizes would not fit the caps anyway, and the plain format is all a
- * starter zip needs.
+ * True when an extra-field block holds a Unicode path (0x7075) that names
+ * something other than the header name, which unzip would use instead.
  */
-export async function readZipEntries(file: string): Promise<ZipEntry[]> {
-	const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+function unicodePathDiffers(extra: Buffer, headerName: Buffer): boolean {
+	let at = 0;
+	while (at + 4 <= extra.length) {
+		const tag = extra.readUInt16LE(at);
+		const size = extra.readUInt16LE(at + 2);
+		const body = extra.subarray(at + 4, at + 4 + size);
+		// Version (1 byte) and a CRC of the header name (4) come first.
+		if (tag === UNICODE_PATH_EXTRA && !body.subarray(5).equals(headerName)) return true;
+		at += 4 + size;
+	}
+	return false;
+}
+
+/**
+ * Read the zip's central directory from an open handle. Zip64 archives
+ * are refused: their sizes would not fit the caps anyway, and the plain
+ * format is all a starter zip needs.
+ */
+export async function readZipEntries(handle: FileHandle): Promise<ZipEntry[]> {
 	try {
 		const { size } = await handle.stat();
 		const tailBytes = Math.min(size, EOCD_BYTES + MAX_COMMENT_BYTES);
@@ -84,7 +113,6 @@ export async function readZipEntries(file: string): Promise<ZipEntry[]> {
 			if (at + 46 > central.length || central.readUInt32LE(at) !== CENTRAL_SIGNATURE) {
 				throw invalid("the zip is damaged");
 			}
-			const host = central.readUInt8(at + 5);
 			const flags = central.readUInt16LE(at + 8);
 			const entrySize = central.readUInt32LE(at + 24);
 			const nameLength = central.readUInt16LE(at + 28);
@@ -92,7 +120,11 @@ export async function readZipEntries(file: string): Promise<ZipEntry[]> {
 			const commentLength = central.readUInt16LE(at + 32);
 			const external = central.readUInt32LE(at + 38);
 			const end = at + 46 + nameLength;
-			if (end > central.length) throw invalid("the zip is damaged");
+			if (end + extraLength > central.length) throw invalid("the zip is damaged");
+			const extra = central.subarray(end, end + extraLength);
+			if (unicodePathDiffers(extra, central.subarray(at + 46, end))) {
+				throw invalid("the zip holds a second, different name for an entry");
+			}
 			// Only ASCII bytes matter to the checks, so latin1 reads them all.
 			const name = central.toString("latin1", at + 46, end).replaceAll("\\", "/");
 			if (entrySize === 0xffffffff) throw invalid("zip64 archives are not supported");
@@ -100,7 +132,8 @@ export async function readZipEntries(file: string): Promise<ZipEntry[]> {
 				name,
 				size: entrySize,
 				isDir: name.endsWith("/"),
-				isSymlink: host === UNIX_HOST && ((external >>> 16) & S_IFMT) === S_IFLNK,
+				// unzip makes links for several made-by hosts, so the host is ignored.
+				isSymlink: ((external >>> 16) & S_IFMT) === S_IFLNK,
 				encrypted: (flags & 1) === 1,
 			});
 			at = end + extraLength + commentLength;
@@ -109,8 +142,6 @@ export async function readZipEntries(file: string): Promise<ZipEntry[]> {
 	} catch (error) {
 		if (error instanceof AgentFailure) throw error;
 		throw invalid("the zip could not be read");
-	} finally {
-		await handle.close();
 	}
 }
 
@@ -123,31 +154,25 @@ export function safeEntryName(name: string): boolean {
 
 /**
  * Refuse the whole zip unless every entry is safe and it fits the caps.
- * An entry beneath a symbolic-link entry is refused too, since writing it
- * would go wherever the link points.
+ * Starter zips need no links, so every symbolic link is refused, and so is
+ * any `.git` path part (Git's own rule), which could plant a hook or config.
  */
 export function checkEntries(entries: readonly ZipEntry[]): void {
 	if (entries.length > MAX_EXTRACT_ENTRIES) {
 		throw new AgentFailure("FILE_TOO_LARGE", "the zip holds too many entries");
 	}
 	let total = 0;
-	const links = new Set<string>();
 	for (const entry of entries) {
 		if (!safeEntryName(entry.name)) throw invalid("the zip holds an unsafe path");
 		if (entry.encrypted) throw invalid("the zip is password-protected");
-		if (entry.isSymlink) links.add(entry.name.replace(/\/+$/, ""));
+		if (entry.isSymlink) throw invalid("the zip holds a symbolic link");
+		if (entry.name.split("/").some((part) => part.toLowerCase() === ".git")) {
+			throw invalid("the zip writes into a .git folder");
+		}
 		total += entry.size;
 	}
 	if (total > MAX_EXTRACT_BYTES) {
-		throw new AgentFailure("FILE_TOO_LARGE", "the zip unpacks to more than the cap");
-	}
-	for (const entry of entries) {
-		const parts = entry.name.split("/");
-		for (let depth = 1; depth < parts.length; depth++) {
-			if (links.has(parts.slice(0, depth).join("/"))) {
-				throw invalid("the zip writes through a symbolic link");
-			}
-		}
+		throw tooLarge();
 	}
 }
 
@@ -155,6 +180,10 @@ export function checkEntries(entries: readonly ZipEntry[]): void {
 export function folderNameFor(zipName: string): string {
 	const stem = zipName.replace(/\.zip$/i, "");
 	return stem === "" ? "archive" : stem;
+}
+
+function tooLarge(): AgentFailure {
+	return new AgentFailure("FILE_TOO_LARGE", "the zip unpacks to more than the cap");
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -187,51 +216,87 @@ async function claimFolder(parent: string, stem: string): Promise<string> {
 	throw new AgentFailure("FILE_EXISTS", "every folder name for this zip is taken");
 }
 
-/** Refuse any symbolic link in the folder whose target lies outside it. */
-async function checkLinks(root: string, dir: string): Promise<void> {
+/**
+ * Refuse any symbolic link at all in the extracted folder, and return the
+ * bytes it holds. The exact total catches a fast unzip that finished
+ * between free-space polls.
+ */
+async function checkExtracted(dir: string): Promise<number> {
+	let total = 0;
 	for (const dirent of await readdir(dir, { withFileTypes: true })) {
 		const path = join(dir, dirent.name);
-		if (dirent.isSymbolicLink()) {
-			const target = await readlink(path);
-			const lands = resolve(dirname(path), target);
-			const rel = relative(root, lands);
-			if (isAbsolute(target) || rel === ".." || rel.startsWith("../")) {
-				throw invalid("the zip holds a symbolic link that leaves its folder");
-			}
-		} else if (dirent.isDirectory()) {
-			await checkLinks(root, path);
-		}
+		if (dirent.isSymbolicLink()) throw invalid("the zip holds a symbolic link");
+		if (dirent.isDirectory()) total += await checkExtracted(path);
+		else total += (await lstat(path)).size;
 	}
+	return total;
 }
 
 /**
  * Run unzip on the already-open zip, inside `dest`. The zip is passed as
  * /proc/self/fd/3 so a name with wildcard characters is never matched as a
- * pattern and a swapped file is never read. prlimit caps each written file.
+ * pattern and a swapped file is never read. prlimit caps each written file;
+ * a free-space watch caps the total, since sizes in headers can lie. unzip
+ * runs in its own process group so a kill stops it whole.
  */
-function runUnzip(fd: number, dest: string): Promise<void> {
+async function runUnzip(fd: number, dest: string, signal?: AbortSignal): Promise<void> {
+	const startFree = await freeBytes(dest);
 	return new Promise((resolvePromise, reject) => {
 		const child = spawn(
 			"prlimit",
 			[`--fsize=${MAX_EXTRACT_BYTES}`, "--", "unzip", "-qq", "-n", "/proc/self/fd/3"],
 			{
 				cwd: dest,
+				detached: true,
 				stdio: ["ignore", "ignore", "pipe", fd],
 				env: { ...process.env, LC_ALL: "C" },
 			},
 		);
+		let stopped: AgentFailure | null = null;
+		const stop = (failure: AgentFailure) => {
+			if (stopped) return;
+			stopped = failure;
+			try {
+				if (child.pid) process.kill(-child.pid, "SIGKILL");
+			} catch {
+				// Already gone.
+			}
+		};
+		const timer = setInterval(() => {
+			void freeBytes(dest).then(
+				(free) => {
+					if (startFree - free > MAX_EXTRACT_BYTES + SPACE_MARGIN_BYTES) {
+						stop(tooLarge());
+					}
+				},
+				() => {},
+			);
+		}, SPACE_POLL_MS);
+		const onAbort = () => stop(new AgentFailure("INTERNAL", "the request was aborted"));
+		signal?.addEventListener("abort", onAbort, { once: true });
+		if (signal?.aborted) onAbort();
+
 		let stderr = "";
 		child.stderr?.setEncoding("utf8");
 		child.stderr?.on("data", (chunk: string) => {
 			// Only searched for the no-space message and never logged.
 			stderr = (stderr + chunk).slice(-4096);
 		});
+		const finish = () => {
+			clearInterval(timer);
+			signal?.removeEventListener("abort", onAbort);
+		};
 		child.once("error", (error) => {
+			finish();
 			reject(new AgentFailure("INTERNAL", `could not start unzip: ${error.message}`));
 		});
-		child.once("close", (code, signal) => {
-			if (code === 0) return resolvePromise();
-			if (signal === "SIGXFSZ") {
+		child.once("close", (code, exitSignal) => {
+			finish();
+			if (stopped) {
+				reject(stopped);
+			} else if (code === 0) {
+				resolvePromise();
+			} else if (exitSignal === "SIGXFSZ") {
 				reject(new AgentFailure("FILE_TOO_LARGE", "a file in the zip is over the cap"));
 			} else if (
 				/No space left on device|Disk quota exceeded|write error/i.test(stderr)
@@ -244,46 +309,57 @@ function runUnzip(fd: number, dest: string): Promise<void> {
 	});
 }
 
+async function freeBytes(path: string): Promise<number> {
+	const space = await statfs(path);
+	return space.bavail * space.bsize;
+}
+
 /**
  * Extract a project's zip into a new folder beside it and return that
- * folder's project-relative path.
+ * folder's project-relative path. Aborting `signal` stops unzip.
  */
 export async function extractZip(
 	homeDir: string,
 	slug: string,
 	relPath: string,
+	signal?: AbortSignal,
 ): Promise<string> {
 	const target = await resolveInProject(homeDir, slug, relPath, {
 		mustExist: true,
 		refuseSymlink: true,
 	});
 	if (!/\.zip$/i.test(target.path)) throw invalid("only .zip files can be extracted");
-	const info = await lstat(target.path);
-	if (!info.isFile()) throw invalid("only .zip files can be extracted");
-
-	const entries = await readZipEntries(target.path);
-	checkEntries(entries);
-	const declared = entries.reduce((sum, entry) => sum + entry.size, 0);
-
-	const parent = dirname(target.path);
-	const space = await statfs(parent);
-	if (space.bavail * space.bsize < declared) {
-		throw new AgentFailure("STORAGE_FULL", "no space left in the home folder");
-	}
-
 	const project = await resolveProject(slug, homeDir);
-	const name = await claimFolder(
-		parent,
-		folderNameFor(target.path.split("/").pop() ?? ""),
+	// One handle for the checks and for unzip, so the bytes checked are the
+	// bytes extracted.
+	// O_NONBLOCK keeps a FIFO named .zip from hanging the open.
+	const handle = await open(
+		target.path,
+		constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
 	);
-	const dest = join(parent, name);
-	const handle = await open(target.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+	let dest: string | null = null;
 	try {
-		await runUnzip(handle.fd, dest);
-		await checkLinks(dest, dest);
+		if (!(await handle.stat()).isFile()) {
+			throw invalid("only .zip files can be extracted");
+		}
+		const entries = await readZipEntries(handle);
+		checkEntries(entries);
+		const declared = entries.reduce((sum, entry) => sum + entry.size, 0);
+		const parent = dirname(target.path);
+		if ((await freeBytes(parent)) < declared) {
+			throw new AgentFailure("STORAGE_FULL", "no space left in the home folder");
+		}
+		const name = await claimFolder(
+			parent,
+			folderNameFor(target.path.split("/").pop() ?? ""),
+		);
+		dest = join(parent, name);
+		await runUnzip(handle.fd, dest, signal);
+		if ((await checkExtracted(dest)) > MAX_EXTRACT_BYTES) throw tooLarge();
+		return relative(project.path, dest);
 	} catch (error) {
 		// rm never follows a link, so a bad one is removed, not its target.
-		await rm(dest, { recursive: true, force: true });
+		if (dest) await rm(dest, { recursive: true, force: true });
 		if (isNoSpace(error)) {
 			throw new AgentFailure("STORAGE_FULL", "no space left in the home folder");
 		}
@@ -291,5 +367,4 @@ export async function extractZip(
 	} finally {
 		await handle.close();
 	}
-	return relative(project.path, dest);
 }

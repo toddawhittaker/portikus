@@ -1185,15 +1185,22 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	async addedPackages(name: string): Promise<AddedPackagesResponse> {
 		validateName(name);
-		const file = await this.client.readFile(
-			name,
-			ADDED_PACKAGES_PATH,
-			ADDED_PACKAGES_MAX_BYTES,
-		);
-		// A symbolic link or directory there is not the hook's list.
-		if (file.type !== "file") {
-			throw new IncusError("NOT_FOUND", "no added-packages list");
+		let file: Awaited<ReturnType<IncusClient["readFile"]>>;
+		try {
+			file = await this.client.readFile(
+				name,
+				ADDED_PACKAGES_PATH,
+				ADDED_PACKAGES_MAX_BYTES,
+			);
+		} catch (err) {
+			// No list before the student's first apt run is normal, not an error.
+			if (err instanceof IncusError && err.code === "NOT_FOUND") {
+				return { image: null, packages: [] };
+			}
+			throw err;
 		}
+		// A symbolic link or directory there is not the hook's list.
+		if (file.type !== "file") return { image: null, packages: [] };
 		if (file.tooLarge) {
 			throw new IncusError("BAD_REQUEST", "the added-packages list is over 64 KiB");
 		}

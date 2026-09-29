@@ -497,6 +497,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			slug: string,
 			path: string,
 		): Promise<void> {
+			if (path !== ".portikus" && !path.startsWith(".portikus/")) return;
 			try {
 				const project = await resolveProject(slug, options.homeDir);
 				await excludeOnPortikusWrite(project.path, path);
@@ -622,7 +623,17 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				if (!parsed.success) {
 					throw new AgentFailure("PATH_INVALID", "invalid path");
 				}
-				const path = await extractZip(options.homeDir, slug, parsed.data.path);
+				// An API timeout closes the connection; unzip must not outlive it.
+				const aborted = new AbortController();
+				reply.raw.once("close", () => {
+					if (!reply.raw.writableEnded) aborted.abort();
+				});
+				const path = await extractZip(
+					options.homeDir,
+					slug,
+					parsed.data.path,
+					aborted.signal,
+				);
 				return reply.code(201).send({ path });
 			} catch (error) {
 				return sendError(request, reply, error, "INTERNAL");
