@@ -273,6 +273,7 @@ const sampleAdminUser = {
 		archived: false,
 		duplicateEmail: false,
 		stale: false,
+		notSignedInYet: false,
 		linked: false,
 	},
 	workspace: null,

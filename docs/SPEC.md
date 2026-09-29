@@ -2196,8 +2196,11 @@ never started until it is unarchived. Home and Docker quotas can only grow,
 up to 1024 GiB each, and the worker applies the change; CPU, memory, and
 process limits are shown but not edited (Epic 24 made them editable per
 workspace; see below and section 19.4). An account is marked stale after
-30 days without a sign-in, or when another account with the same email
-signed in more recently; nothing is merged automatically. An administrator
+30 days without a sign-in (counted from its creation when it has never
+signed in), or when another account with the same email signed in more
+recently; nothing is merged automatically. An account that has never
+signed in and is not stale shows a neutral "Not signed in yet" note
+instead (issue #842). An administrator
 sees a workspace's aggregates (CPU, memory, disk, port numbers, short
 process names) but never its files, terminals, or process command lines.
 Logs stay in journald; since Epic 19 (ADR 0036) the admin page's Logs
@@ -2695,7 +2698,9 @@ Added by Epic 15.
 - The apt repository is a static directory on GitHub Pages
   (`https://toddawhittaker.github.io/portikus/apt`, suite `trixie`,
   component `main`), built with `apt-ftparchive` and signed with `gpg`.
-  It keeps the ten newest packages. Reprepro and aptly were rejected
+  It keeps the ten newest packages of the current major.minor line and
+  the newest package of each earlier line, so every old line stays
+  installable. Reprepro and aptly were rejected
   because they keep a database a stateless CI job would have to carry.
 - The signing key does not expire. Its revocation certificate is kept
   offline (docs/OPERATIONS.md, "The package signing key"). The private
@@ -3254,7 +3259,9 @@ itself up.
   `--local`: no SSH, no `deploy` account. Setup enables
   `portikus-backup.timer` and `portikus-backup-channel.timer` only on the
   server itself. The channel takes requests from the local worker, which
-  is unprivileged, so every check above still applies. Sets go to
+  is unprivileged, so every check above still applies. The worker runs
+  as its own `portikus-worker` account, so it cannot open the key socket
+  below, which admits only the API's `portikus` group. Sets go to
   `/var/backups/portikus/local/`; sets copied in by hand are listed and
   checked the same way, and a link or a badly named folder is ignored.
 - **The key stays on the server**, root-only in `/etc/portikus-backup/`,

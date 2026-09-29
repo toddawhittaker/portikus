@@ -511,6 +511,7 @@ test.skipIf(skip)(
 			archived: false,
 			duplicateEmail: true,
 			stale: false,
+			notSignedInYet: false,
 			linked: false,
 		});
 		expect(byName.get("Zed Bob Old")?.markers).toMatchObject({

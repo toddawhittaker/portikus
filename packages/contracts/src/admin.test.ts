@@ -143,6 +143,7 @@ describe("admin contracts", () => {
 				archived: false,
 				duplicateEmail: true,
 				stale: false,
+				notSignedInYet: false,
 				linked: false,
 			},
 			workspace: {

@@ -487,7 +487,8 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 											Stale means no sign-in for 30 days, or another account with the
 											same email signed in since. Linked is a course account joined to
 											an SSO account. Throttled, Held and High memory come from the
-											resource guard.
+											resource guard. Not signed in yet is an account made less than 30
+											days ago that has never signed in.
 										</Toggletip>
 									</HeaderWithHelp>
 								</th>

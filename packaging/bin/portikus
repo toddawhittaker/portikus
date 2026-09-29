@@ -150,8 +150,8 @@ backup_channel() {
       exit 2
       ;;
   esac
-  # The worker's own settings, parsed as systemd parses them for the worker.
-  exec systemd-run --wait --pipe --quiet --collect --uid=portikus \
+  # The worker's own account and settings, as systemd runs the worker.
+  exec systemd-run --wait --pipe --quiet --collect --uid=portikus-worker \
     -p EnvironmentFile="${WORKER_ENV}" \
     "${NODE}" "${BACKUP_CHANNEL_MAIN}" "$1"
 }

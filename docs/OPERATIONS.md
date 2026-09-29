@@ -96,7 +96,8 @@ repository on the server with
 `sudo apt install --allow-downgrades portikus=<old version>`. Only if the
 database itself is wrong, load the dump with `pg_restore --clean`.
 `apt-cache madison portikus` lists the versions the repository holds; it
-keeps the ten newest.
+keeps the ten newest of the current major.minor line and the newest
+of each earlier line.
 
 ## Deploying
 
@@ -107,7 +108,8 @@ changes the install answers, and `sudo portikus setup` reapplies them.
 Follow an upgrade of the pilot with `make smoke-test` from the host.
 
 **Releases.** The signed apt repository (SPEC.md section 21.13) carries
-the ten newest versions. A GitHub release carries the tag and the release
+the ten newest versions of the current major.minor line and the newest
+version of each earlier line. A GitHub release carries the tag and the release
 notes, with no `.deb` file. Workspace images are GitHub releases of their
 own, named `image-<version>`, with the image files as assets.
 
@@ -1181,8 +1183,10 @@ private key opens and checks every set.
 These host timers are for VMs deployed from a workstation with
 `make configure-vm` only. They were turned off for the pilot on
 2026-09-29, when it moved to its own timers as an apt-installed server
-("On an apt-installed server", above). Do not reinstall them for the
-pilot.
+("On an apt-installed server", above). `make backup-install-timer` and
+`make backup-install-channel` refuse any VM whose own
+`portikus-backup.timer` is enabled, as it is on every apt-installed
+server, so they cannot be reinstalled for the pilot by mistake.
 
 A backup is pulled from the VM to the host and encrypted there with age, a
 small file-encryption tool (ADR 0024). It only reads from the VM: a

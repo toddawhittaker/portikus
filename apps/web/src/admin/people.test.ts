@@ -30,6 +30,7 @@ function user(id: string, displayName: string, email: string | null): AdminUser 
 			archived: false,
 			duplicateEmail: false,
 			stale: false,
+			notSignedInYet: false,
 			linked: false,
 		},
 		workspace: null,

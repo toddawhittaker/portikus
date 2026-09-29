@@ -18,7 +18,8 @@ undo it.
 
 **The VM half of the channel.** `sudo portikus backup-channel pull` and
 `sudo portikus backup-channel report` run `backup-channel-main.js` from the
-worker's package as the `portikus` user with the worker's settings, as
+worker's package as the worker's own user (`portikus-worker` since
+Epic 15.1; `portikus` before it) with the worker's settings, as
 `reset-admin` does for the API. `pull` first fails any host request claimed
 more than 15 minutes ago that the host's last status does not name as
 running ("interrupted"), then claims the oldest pending host request and

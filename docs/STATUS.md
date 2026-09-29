@@ -3473,3 +3473,22 @@ Gaps:
   script still keeps its own read-back map, checked by the test rather
   than read from the list, because config can run before the package's
   files are unpacked.
+- The worker runs under its own system account, `portikus-worker` (#828),
+  so it can no longer open the backup key socket, which admits only the
+  API's `portikus` group (ADR 0044). Its database role of the same name is
+  a member of `portikus`, and `worker.env` is `root:portikus-worker` 0640.
+  On an upgrade, postinst adds the role and moves `worker.env` before the
+  worker restarts; setup does the same. `make install-test` checks the
+  worker's account and the refusal, and `UPGRADE_FROM_PUBLISHED=1` makes
+  it upgrade from the newest published release.
+- A recreated VM keeps its address (#834). The pilot's and the rehearsal
+  VM's MAC addresses are fixed in their environments' `variables.tf`, so
+  `make destroy-pilot`, `make rebuild-pilot` and `make rehearsal-destroy`
+  followed by a create give the VM the same DHCP address. The Makefile no
+  longer reads the MAC address from the state, which is empty after a
+  destroy. `infra/tests/vm-mac-test.sh`, run by `make infra-check` and CI,
+  checks both addresses and that an empty one is refused.
+- `make backup-install-timer` and `make backup-install-channel` refuse a
+  VM that backs itself up, such as the apt-installed pilot. They stay for
+  VMs set up with `make configure-vm`, which SPEC.md section 24.9 and
+  OPERATIONS.md ("Backups") still describe.

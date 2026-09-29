@@ -181,7 +181,7 @@ Says what Portikus is and what will be asked. Choose Ok.
 
 ### 2. Web address of this server
 
-![The web address screen, asking for this server's DNS name, filled in with portikus.example.edu](images/install/02-web-address.png)
+![The web address screen, asking for the Web address of this server, filled in with portikus.example.edu](images/install/02-web-address.png)
 
 The DNS name from "DNS records", such as `portikus.example.edu`. The
 suggestion is the server's own full host name, which on a rented server is

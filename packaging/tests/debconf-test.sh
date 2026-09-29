@@ -47,7 +47,7 @@ fi
 
 cp "$repo_root/packaging/tests/debconf-scenario.sh" "$work/"
 failed=0
-for scenario in dex-file entra-vg google-disk ldap-unconfirmed oidc-missing-secret reconfigure no-debconf-keys unanswered unconfigured-secret setup-running \
+for scenario in dex-file entra-vg google-disk ldap-unconfirmed oidc-missing-secret reconfigure no-debconf-keys unanswered unconfigured-secret setup-running worker-account \
 	ui-storage-default ui-host-short ui-host-full ui-summary-no ui-cert; do
 	# The container's host name is what the web address question suggests.
 	hostname=portikus
