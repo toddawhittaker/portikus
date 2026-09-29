@@ -60,6 +60,7 @@ const ALICE_ROW = {
 		archived: false,
 		duplicateEmail: false,
 		stale: false,
+		notSignedInYet: false,
 		linked: false,
 	},
 	workspace: {

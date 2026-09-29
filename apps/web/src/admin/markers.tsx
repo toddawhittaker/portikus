@@ -24,8 +24,9 @@ const MARKER_ORDER: (keyof AccountMarkers)[] = [
 	"notSignedInYet",
 ];
 
-// Plain tags: facts, not warnings.
-const NEUTRAL = new Set(["Disabled", "Not signed in yet"]);
+// Plain tags: facts, not warnings. Keyed on the marker so a label rename keeps its style.
+const NEUTRAL_KEYS: (keyof AccountMarkers)[] = ["disabled", "notSignedInYet"];
+const NEUTRAL = new Set(NEUTRAL_KEYS.map((key) => MARKER_LABEL[key]));
 
 type GuardState = Pick<AdminWorkspaceSummary, "cpuThrottle" | "memoryFlag">;
 
