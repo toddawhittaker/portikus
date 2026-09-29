@@ -12,7 +12,7 @@ test("at 1024 px the message keeps a readable width and every column fits", asyn
 	page,
 	browser,
 }) => {
-	// A stopped workspace refuses a terminal, which the API logs as a warning.
+	// A stopped workspace refuses a terminal, a refusal the API logs at info.
 	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
 	const student = await createStudent(context, { state: "stopped" });
 	const refused = await context.request.post(
@@ -24,7 +24,9 @@ test("at 1024 px the message keeps a readable width and every column fits", asyn
 
 	await loginAs(page, "carol");
 	await expect(async () => {
-		await page.goto(`/admin?tab=logs&user=${student.userId}`);
+		await page.goto(
+			`/admin?tab=logs&level=info&q=AGENT_UNAVAILABLE&user=${student.userId}`,
+		);
 		await expect(page.getByTestId("log-row").first()).toBeVisible({ timeout: 2_000 });
 	}).toPass({ timeout: 20_000 });
 

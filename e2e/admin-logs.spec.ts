@@ -10,14 +10,22 @@ import { createStudent, loginAs, openToggletip, query, WEB_ORIGIN } from "./help
  */
 test.describe.configure({ mode: "serial" });
 
+/** The API's per-user limit on recorded notifications (apps/api/src/routes/notifications.ts). */
+const NOTIFICATION_RECORDS_PER_MINUTE = 30;
+
 interface Warned {
 	userId: string;
 	workspaceId: string;
 	name: string;
 }
 
-/** A student who hits the 20-terminal limit, which the API logs as a warning. */
-async function causeTerminalLimit(browser: Browser): Promise<Warned> {
+/**
+ * A student who records notifications past the per-minute limit, whose 429
+ * the API logs as a warning. The student also hits the 20-terminal limit,
+ * a refusal logged at info with the workspace on it, and reads the
+ * workspace, also at info.
+ */
+async function causeWarning(browser: Browser): Promise<Warned> {
 	const context = await browser.newContext({ baseURL: WEB_ORIGIN });
 	try {
 		const student = await createStudent(context);
@@ -36,6 +44,18 @@ async function causeTerminalLimit(browser: Browser): Promise<Warned> {
 			{ headers: { origin: WEB_ORIGIN }, data: {} },
 		);
 		expect(refused.status()).toBe(409);
+		for (let i = 0; i < NOTIFICATION_RECORDS_PER_MINUTE; i++) {
+			const recorded = await context.request.post("/me/notifications", {
+				headers: { origin: WEB_ORIGIN },
+				data: { tone: "neutral", title: "e2e" },
+			});
+			expect(recorded.status()).toBe(201);
+		}
+		const limited = await context.request.post("/me/notifications", {
+			headers: { origin: WEB_ORIGIN },
+			data: { tone: "neutral", title: "e2e" },
+		});
+		expect(limited.status()).toBe(429);
 		// A successful read by the same student, logged at info.
 		const read = await context.request.get(`/workspaces/${student.workspaceId}`);
 		expect(read.status()).toBe(200);
@@ -64,9 +84,9 @@ test.describe("admin logs", () => {
 		page,
 		browser,
 	}) => {
-		const warned = await causeTerminalLimit(browser);
+		const warned = await causeWarning(browser);
 		await loginAs(page, "carol");
-		await openUntil(page, "/admin?tab=logs", "TERMINAL_LIMIT");
+		await openUntil(page, "/admin?tab=logs", "RATE_LIMITED");
 
 		// The person is chosen by name; the URL and the request carry the ID.
 		await page.getByRole("combobox", { name: "Person" }).fill(warned.name);
@@ -75,16 +95,16 @@ test.describe("admin logs", () => {
 		await expect(logRows(page)).toHaveCount(1);
 		const row = logRows(page).first();
 		await expect(row.getByTestId("log-level")).toHaveText("Warn");
-		await expect(row).toContainText("TERMINAL_LIMIT");
+		await expect(row).toContainText("RATE_LIMITED");
 		await expect(row).toContainText(warned.name);
-		await expect(row).toContainText("409");
+		await expect(row).toContainText("429");
 
 		// The full line opens under the row, redacted JSON as text.
 		const toggle = row.getByRole("button", { name: /^Full line/ });
 		await toggle.click();
 		await expect(toggle).toHaveAttribute("aria-expanded", "true");
 		await expect(page.getByTestId("log-row-detail")).toContainText(
-			`"workspaceId": "${warned.workspaceId}"`,
+			`"userId": "${warned.userId}"`,
 		);
 
 		// Error only: the warning goes.
@@ -100,9 +120,9 @@ test.describe("admin logs", () => {
 	});
 
 	test("Info and Debug switch on and off", async ({ page, browser }) => {
-		const warned = await causeTerminalLimit(browser);
+		const warned = await causeWarning(browser);
 		await loginAs(page, "carol");
-		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "TERMINAL_LIMIT");
+		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "RATE_LIMITED");
 		// The note on what each level needs is a toggletip beside Levels.
 		await page.getByRole("button", { name: "About Levels" }).click();
 		await expect(openToggletip(page)).toContainText(
@@ -135,10 +155,10 @@ test.describe("admin logs", () => {
 		page,
 		browser,
 	}) => {
-		const warned = await causeTerminalLimit(browser);
+		const warned = await causeWarning(browser);
 		await loginAs(page, "carol");
 		// Wait for the line to reach the journal before following the links.
-		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "TERMINAL_LIMIT");
+		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "RATE_LIMITED");
 
 		// The Users table keeps its seven columns; the user's logs link is in the panel.
 		await page.goto("/admin");
@@ -154,7 +174,7 @@ test.describe("admin logs", () => {
 		await expect(page.getByRole("combobox", { name: "Person" })).toHaveValue(
 			warned.name,
 		);
-		await expect(logRows(page).first()).toContainText("TERMINAL_LIMIT");
+		await expect(logRows(page).first()).toContainText("RATE_LIMITED");
 		// Focus lands on the Logs heading, not the top of the page.
 		await expect(page.getByRole("heading", { level: 2, name: "Logs" })).toBeFocused();
 
@@ -175,7 +195,13 @@ test.describe("admin logs", () => {
 			name: `Only ${warned.name}'s workspace`,
 		});
 		await expect(only).toBeChecked();
-		await expect(logRows(page).first()).toContainText("TERMINAL_LIMIT");
+		// The workspace's own line, the terminal limit, is a refusal logged at info.
+		await page.getByRole("checkbox", { name: "Info" }).check();
+		await page.getByRole("button", { name: "Apply filters" }).click();
+		await expect(page).toHaveURL(new RegExp(`workspace=${warned.workspaceId}`));
+		await expect(
+			logRows(page).filter({ hasText: "TERMINAL_LIMIT" }).first(),
+		).toBeVisible();
 		// Unticked and applied, the workspace filter leaves the URL.
 		await only.uncheck();
 		await page.getByRole("button", { name: "Apply filters" }).click();
@@ -187,9 +213,9 @@ test.describe("admin logs", () => {
 		page,
 		browser,
 	}) => {
-		const warned = await causeTerminalLimit(browser);
+		const warned = await causeWarning(browser);
 		await loginAs(page, "carol");
-		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "TERMINAL_LIMIT");
+		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "RATE_LIMITED");
 		await page.evaluate(() => localStorage.setItem("portikus.admin.healthRange", "1h"));
 
 		await expect(async () => {
@@ -218,9 +244,9 @@ test.describe("admin logs", () => {
 	});
 
 	test("the whole flow works from the keyboard alone", async ({ page, browser }) => {
-		const warned = await causeTerminalLimit(browser);
+		const warned = await causeWarning(browser);
 		await loginAs(page, "carol");
-		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "TERMINAL_LIMIT");
+		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "RATE_LIMITED");
 
 		// Health: the errors chart's bar opens Logs with Enter.
 		await page.evaluate(() => localStorage.setItem("portikus.admin.healthRange", "1h"));
@@ -259,7 +285,7 @@ test.describe("admin logs", () => {
 		await toggle.focus();
 		await page.keyboard.press("Enter");
 		await expect(toggle).toHaveAttribute("aria-expanded", "true");
-		await expect(page.getByTestId("log-row-detail")).toContainText("TERMINAL_LIMIT");
+		await expect(page.getByTestId("log-row-detail")).toContainText("RATE_LIMITED");
 		await page.keyboard.press("Enter");
 		await expect(toggle).toHaveAttribute("aria-expanded", "false");
 	});
