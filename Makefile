@@ -445,11 +445,15 @@ deploy-app: ## Build the Debian package and install it on the VM
 
 # ── Workspace image and lifecycle targets ─────────────────────────
 
-build-workspace-image: ## Build the workspace image on the VM with distrobuilder
+# The image job builds the recipe the installed package ships, so a recipe
+# that differs from the checkout's is refused rather than built stale.
+build-workspace-image: ## Build the workspace image on the VM with the image job and make it the default (after make deploy-app)
 	@test -n "$(VM_IP)" || { echo "build-workspace-image: no VM address; run make infra-apply first or pass VM_IP=<ip>"; exit 1; }
-	rsync -av --delete infra/workspace-image/ $(SSH_USER)@$(VM_IP):/var/lib/portikus/image-build/
+	@here="$$(cd infra/workspace-image && sha256sum portikus.yaml VERSION)"; \
+	there="$$(ssh -n $(SSH_USER)@$(VM_IP) 'cd /usr/share/portikus/workspace-image && sha256sum portikus.yaml VERSION')"; \
+	test "$$here" = "$$there" || { echo "build-workspace-image: the package on $(VM_IP) ships a different image recipe from this checkout; run make deploy-app first"; exit 1; }
 	rsync -av --delete infra/incus/ $(SSH_USER)@$(VM_IP):/var/lib/portikus/incus/
-	ssh -n $(SSH_USER)@$(VM_IP) bash /var/lib/portikus/image-build/build-on-vm.sh
+	ssh -n $(SSH_USER)@$(VM_IP) sudo /usr/lib/portikus/image-job local-build
 
 workspace-create: ## Create a test workspace (NAME=<name>)
 	@test -n "$(NAME)" || { echo "workspace-create: NAME is required, e.g. make workspace-create NAME=alice"; exit 1; }

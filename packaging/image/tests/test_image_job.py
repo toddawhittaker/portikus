@@ -796,6 +796,50 @@ class FirstInstallTest(Base):
                 self.assertEqual(ij.main(["image-job", *argv]), 2)
 
 
+class LocalBuildTest(Base):
+    def build(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = self.runner.run_local_build(str(self.lock))
+        return code, out.getvalue().strip()
+
+    def states(self):
+        found = {}
+        for d in self.jobs.iterdir():
+            status = json.loads((d / "status.json").read_text())
+            found[status["kind"]] = status["state"]
+        return found
+
+    def test_builds_the_recipe_and_makes_it_the_default_keeping_the_old_one(self):
+        self.put_image("2026.09.12")
+        self.set_default("2026.09.12")
+        code, version = self.build()
+        self.assertEqual(code, 0)
+        self.assertRegex(version, r"^2026\.09\.12-local\.[0-9]{12}$")
+        self.assertEqual((self.host.env["PORTIKUS_NODE_MAJOR"], self.host.env["PORTIKUS_PYTHON"]), ("24", "debian"))
+        self.assertEqual(self.host.aliases["portikus"], self.host.aliases[f"portikus-{version}"])
+        self.assertEqual(self.host.aliases["portikus-previous"], FP["2026.09.12"])
+        self.assertEqual(self.aliases_file(), {"default": version, "previous": "2026.09.12"})
+        self.assertEqual(self.states(), {"build": "succeeded", "activate": "succeeded"})
+
+    def test_a_failed_build_changes_no_default(self):
+        self.put_image("2026.09.12")
+        self.set_default("2026.09.12")
+        self.host.distrobuilder_rc = 1
+        self.assertEqual(self.build(), (1, ""))
+        self.assertEqual(self.host.aliases["portikus"], FP["2026.09.12"])
+        self.assertEqual(self.states(), {"build": "failed"})
+
+    def test_an_unhealthy_build_is_not_made_the_default(self):
+        self.host.exec_results["codex"] = (127, "")
+        self.assertEqual(self.build()[0], 1)
+        self.assertNotIn("portikus", self.host.aliases)
+
+    def test_the_command_line_takes_no_arguments(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(ij.main(["image-job", "local-build", "26"]), 2)
+
+
 class ManifestTest(Base):
     def test_manifest_shape_and_missing_tools(self):
         squash = self.images / "rootfs.squashfs"

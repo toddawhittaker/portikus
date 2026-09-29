@@ -4,7 +4,7 @@
 # fetches the release named by portikus_image_version, checks its signature
 # and health, and makes it the default.  Once a default exists the admin
 # page owns the image, and setup never touches it again.
-# `make build-workspace-image` still builds one on the host for development.
+# `make build-workspace-image` builds one with the image job for development.
 
 - name: Read the image aliases
   ansible.builtin.command:
