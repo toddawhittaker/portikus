@@ -150,7 +150,8 @@ class FakeHost:
             cmd = args[args.index("--") + 1:]
             if cmd[0] == "systemctl":
                 return 0, "running\n"
-            default = {"node": "v24.8.0\n", "python3.14": "Python 3.14.7\n"}.get(cmd[0], f"{cmd[0]} ok\n")
+            default = {"node": "v24.8.0\n", "python3.14": "Python 3.14.7\n",
+                       "docker": "29.8.0 overlay2 /var/lib/docker\n"}.get(cmd[0], f"{cmd[0]} ok\n")
             return self.exec_results.get(cmd[0], (0, default))
         raise AssertionError(f"unexpected incus {args}")
 
@@ -470,6 +471,15 @@ class FetchTest(Base):
         self.go()
         health = json.loads((self.images / "2026.09.12" / "health.json").read_text())
         self.assertFalse(health["checks"][0]["ok"])
+
+    def test_docker_on_the_containerd_image_store_fails_health(self):
+        # The containerd store keeps images on the root disk, outside the Docker volume.
+        self.host.publish("2026.09.12")
+        self.host.exec_results["docker"] = (0, "29.8.0 overlayfs /var/lib/docker\n")
+        self.request({"kind": "fetch", "version": "2026.09.12"})
+        self.go()
+        self.assertEqual(self.status()["state"], "failed")
+        self.assertIn("docker info", self.status()["message"])
 
     def test_the_default_image_is_never_refetched(self):
         self.put_image("2026.09.12")

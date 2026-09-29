@@ -299,6 +299,13 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   }
   check_gt "Docker UID base is not 0" 0        uid_map_second_field
 
+  # 16b. Images land on the Docker volume, not the containerd store on the root disk (SPEC.md 16.2)
+  check_output "docker uses overlay2 in /var/lib/docker" "overlay2 /var/lib/docker" \
+    ws_student "docker info --format '{{.Driver}} {{.DockerRootDir}}'"
+  # The classic store still caches small manifests there; alpine's layer (about 3.8 MB) must not be.
+  check_zero_lines "no image layers under /var/lib/containerd" \
+    ws_exec "find /var/lib/containerd -path '*content.v1.content/blobs/*' -type f -size +1M"
+
   # 17. CLI tools are installed
   check "codex --version"                       ws_student "codex --version"
   check "claude --version"                      ws_student "claude --version"

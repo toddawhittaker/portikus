@@ -2798,7 +2798,10 @@ language-aware editor".
   tools against the default.
 - **Health check.** A throwaway `imgcheck-<hex>` container with the
   workspace profile must run `node`, `python3`, `git`, `docker info`,
-  `claude` and `codex` (and `python3.14` for the uv choice). The root job
+  `claude` and `codex` (and `python3.14` for the uv choice). `docker info`
+  must report the overlay2 driver in `/var/lib/docker`, so images land on
+  the workspace's Docker volume rather than in Docker 29's default
+  containerd image store on the root disk. The root job
   writes the result where the API cannot. An image that did not pass
   cannot be made the default, even by a hand-written request.
 - **Make default** moves the `portikus` alias in one step and keeps the
