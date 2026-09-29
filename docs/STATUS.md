@@ -3550,3 +3550,22 @@ Gaps:
   `portikus`.
 - The loopback refusal tests probe only 127.0.0.1, not ::1 or the VM's
   own address (BACKLOG.md).
+
+## Epic 15.2 — Pilot fixes
+
+Built on `epic/15-2-pilot-fixes`.
+
+Delivered:
+
+- T8 (#860, #861): the Users view calls a workspace on a non-default
+  image "Old image" and keeps "Stale" for accounts only, and refetches
+  the list when a rebuild finishes. A daily root timer,
+  `portikus-image-check.timer`, records the newest published image and
+  any newer `portikus` package. The Workspace image tab and the Health
+  tab show a notice, and each administrator gets one notification per
+  version (SPEC.md sections 20.1 and 22.4). No migration.
+
+Gaps:
+
+- T8: the new timer and the check have unit tests only. They have not
+  yet run on a real host from bootstrap through the smoke test.

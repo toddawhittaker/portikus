@@ -49,6 +49,7 @@ import {
 	useLifecycleAction,
 	usePlatformSettings,
 	useRebuild,
+	useRefreshUsersWhenDone,
 	useReprovision,
 	useResetDocker,
 	useSetArchived,
@@ -1099,6 +1100,7 @@ function WorkspaceActions({
 	const archived = workspace.archivedAt !== null;
 	// A second request would only answer 409 OPERATION_PENDING (ADR 0021).
 	const operationPending = workspace.pendingOperation !== null;
+	useRefreshUsersWhenDone(workspace.pendingOperation);
 	const note = capabilityNote(capabilities);
 	const noteId = `capability-note-${workspace.id}`;
 

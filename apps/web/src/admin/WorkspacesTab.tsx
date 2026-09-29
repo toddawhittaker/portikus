@@ -484,11 +484,12 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 								<th scope="col">
 									<HeaderWithHelp label="Account">
 										<Toggletip label="Account tags">
-											Stale means no sign-in for 30 days, or another account with the
-											same email signed in since. Linked is a course account joined to
-											an SSO account. Throttled, Held and High memory come from the
-											resource guard. Not signed in yet is an account made less than 30
-											days ago that has never signed in.
+											Stale is about the account, never the workspace: no sign-in for 30
+											days, or another account with the same email signed in since.
+											Linked is a course account joined to an SSO account. Throttled,
+											Held and High memory come from the resource guard. Not signed in
+											yet is an account made less than 30 days ago that has never signed
+											in.
 										</Toggletip>
 									</HeaderWithHelp>
 								</th>
@@ -504,9 +505,10 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 								</th>
 								<th scope="col">
 									<HeaderWithHelp label="Workspace">
-										<Toggletip label="Older image">
-											Older image means the workspace runs an older base image. Rebuild
-											it to move to the current one. Projects and home stay.
+										<Toggletip label="Old image">
+											Old image means the workspace runs an image other than the
+											default. Rebuild it to move it to the default image. Projects and
+											home stay.
 										</Toggletip>
 									</HeaderWithHelp>
 								</th>
@@ -919,7 +921,7 @@ function AccountRow({
 								title={imageText(workspace.image)}
 								data-testid={`account-image-${user.id}`}
 							>
-								Older image
+								Old image
 							</span>
 						) : null}
 					</div>

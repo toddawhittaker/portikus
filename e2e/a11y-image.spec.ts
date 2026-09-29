@@ -67,6 +67,8 @@ const IMAGE = {
 	],
 	otherWorkspaces: 2,
 	job: JOB,
+	// The notice at the top is checked with the rest of the page (issue #861).
+	newerPublished: "2026.09.11",
 };
 
 const DIFF = {
