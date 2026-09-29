@@ -1,5 +1,6 @@
 import { AgentConfigSchema, loadConfig } from "@portikus/config";
 import { createLogger } from "@portikus/observability";
+import { seedAgentInstructions } from "./agent-instructions.js";
 import { removeStaleTemporaries } from "./projects.js";
 import { removeRestoreLeftovers } from "./recovery.js";
 import { buildServer } from "./server.js";
@@ -21,6 +22,18 @@ for (const name of await removeStaleTemporaries(config.HOME_DIR)) {
 const leftovers = await removeRestoreLeftovers(config.HOME_DIR);
 if (leftovers > 0) {
 	logger.info({ count: leftovers }, "removed leftover restore directories");
+}
+
+// Missing instruction files must never stop the agent from serving.
+try {
+	for (const file of await seedAgentInstructions(config.HOME_DIR)) {
+		logger.info({ file }, "created a coding-agent instructions file");
+	}
+} catch (error) {
+	logger.warn(
+		{ error: (error as Error).message },
+		"could not create the coding-agent instructions files",
+	);
 }
 
 const workspaceFromEnv = process.env.PORTIKUS_WORKSPACE_ID ?? "";

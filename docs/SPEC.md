@@ -271,6 +271,12 @@ Normal workspace stop/start must preserve all three.
 
 A deliberate workspace rebuild may replace the root filesystem while retaining the user's home/projects volume. Docker state may be retained or reset according to the selected administrative action.
 
+Added by Epic 15.2: the home folder gets the coding agents' global instructions once.
+
+- The workspace image ships a template, `/usr/share/portikus/AGENTS.md`, written for the agents in plain English: what the workspace is, projects and checks, previews and the host suffix, never committing on the student's behalf unless asked. It holds no issue, pull request, SPEC or ADR references.
+- Every time the workspace agent starts, it copies the template to `~/.codex/AGENTS.md` (Codex's global instructions) and writes `~/.claude/CLAUDE.md` holding the single import line `@~/.codex/AGENTS.md` (Claude Code's user memory), each only when nothing is at that path. It runs as the student, never follows or replaces a symbolic link, and creates a missing `~/.codex` or `~/.claude` with mode 0700. It never overwrites either file, so edits by the student or an agent survive restarts and rebuilds; a later template change does not reach an existing home, and a deleted file comes back at the next start. An image without the template gets neither file.
+- The image also sets `init.defaultBranch main` in `/etc/gitconfig`, so a student's own `git init` starts on `main`.
+
 ## 5. Identity and access
 
 ### 5.1 Authentication
