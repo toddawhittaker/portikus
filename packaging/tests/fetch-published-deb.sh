@@ -17,9 +17,11 @@ trap 'rm -rf "$work"' EXIT
 
 gpg --dearmor <"$key" >"$work/archive.gpg"
 curl -fsS -o "$work/InRelease" "$base/dists/trixie/InRelease"
-gpgv --keyring "$work/archive.gpg" "$work/InRelease"
+# Only the signed part counts: text around it is not covered by the signature.
+gpgv --keyring "$work/archive.gpg" --output "$work/Release" "$work/InRelease"
 curl -fsS -o "$work/Packages" "$base/dists/trixie/main/binary-amd64/Packages"
-sum=$(awk '$3 == "main/binary-amd64/Packages" && length($1) == 64 { print $1; exit }' "$work/InRelease")
+sum=$(awk '/^SHA256:/ { s = 1; next } /^[^ ]/ { s = 0 } s && $3 == "main/binary-amd64/Packages" { print $1; exit }' "$work/Release")
+[ -n "$sum" ] || { echo "the signed Release lists no Packages checksum" >&2; exit 1; }
 echo "$sum  $work/Packages" | sha256sum -c --quiet >&2
 
 # One line per portikus entry: version, file name, SHA-256.  The file lists

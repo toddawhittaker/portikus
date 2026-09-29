@@ -180,9 +180,11 @@ role is not a member of `portikus`. It holds only the table privileges
 its queries use, listed in
 `infra/ansible/roles/portikus/files/worker-grants.sql`: nothing on
 `sessions`, the preview, LTI or account-link tables, and only reading on
-`users`. So it cannot write a session or promote an account, and cannot
-reach the key through the API by signing in as an administrator. It can
-still write the channel requests below.
+`users`. So it cannot write a session or promote an account. The host
+firewall lets its account open loopback connections only to the
+controller, so it cannot reach the API or Dex except through Caddy, whose
+sign-in rate limit then applies to it like anyone else. It can still
+write the channel requests below.
 
 A compromised API can:
 
@@ -252,10 +254,17 @@ the disk.
   account; on an upgrade from a release whose worker ran as `portikus`,
   postinst adds the worker's database role and points `worker.env` at it
   before the worker restarts, and setup does the same on every run.
-  Both then run `worker-grants.sql` after the migrations. It revokes the
-  role's membership in `portikus` and every table privilege, then grants
-  the listed ones, in one transaction. A new worker query needs a line
-  there; a worker unit test fails until it has one.
+  Both then run `worker-grants.sql` after the migrations. It first
+  revokes the role's membership in `portikus`, on its own so that it
+  holds even if a grant fails, then revokes every table privilege and
+  grants the listed ones in one transaction. A new worker query needs a
+  line there; a worker unit test fails until it has one.
+- The host firewall lets the `portikus-worker` account open loopback
+  connections only to the controller (port 3001). Without that, a
+  compromised worker could reach the API and Dex on loopback directly,
+  skipping Caddy's sign-in rate limit, and guess a local administrator's
+  password to download the key. Replies from the worker's own loopback
+  listeners, the blocked-name counter, still pass.
 - Replacing the key keeps the old one on the server, root-only, so sets
   encrypted to it can still be restored from a shell with
   `PORTIKUS_BACKUP_IDENTITY` pointing at the kept file. The tab cannot use

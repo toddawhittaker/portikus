@@ -83,6 +83,13 @@ table inet filter {
 
   chain output {
     type filter hook output priority 0; policy accept;
+
+    # The worker may open loopback connections only to the controller, so it
+    # cannot reach the API or Dex around Caddy's sign-in rate limit (SPEC.md
+    # 24.9).  Replies from its own listeners are established and pass.
+    oif "lo" meta skuid "portikus-worker" ct state new tcp dport {{ portikus_controller_port }} accept
+    oif "lo" meta skuid "portikus-worker" ct state new meta l4proto tcp reject with tcp reset
+    oif "lo" meta skuid "portikus-worker" ct state new reject
   }
 }
 

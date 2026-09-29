@@ -3271,7 +3271,10 @@ itself up.
   queries use: nothing on sessions or the other sign-in tables and no
   write on users, so it cannot sign in as an administrator to reach the
   key through the API. Setup and the package's upgrade apply those
-  grants after the migrations. Sets go to
+  grants after the migrations, dropping the membership first and on its
+  own so that a failed grant cannot leave it. The host firewall lets the
+  worker's account open loopback connections only to the controller, so
+  it cannot reach the API or Dex around Caddy's sign-in rate limit. Sets go to
   `/var/backups/portikus/local/`; sets copied in by hand are listed and
   checked the same way, and a link or a badly named folder is ignored.
 - **The key stays on the server**, root-only in `/etc/portikus-backup/`,

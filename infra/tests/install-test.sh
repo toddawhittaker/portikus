@@ -496,6 +496,18 @@ s.sendall(b"status\n")
 s.shutdown(socket.SHUT_WR)
 print("answered" if s.recv(4096) else "empty")'
 
+# Prints "open" or "refused" for each loopback port, in order.
+LOOPBACK_PROBE='import socket, sys
+for port in sys.argv[1:]:
+    s = socket.socket()
+    s.settimeout(5)
+    try:
+        s.connect(("127.0.0.1", int(port)))
+        print("open")
+    except ConnectionRefusedError:
+        print("refused")
+    s.close()'
+
 worker_account() {
   local pid
   pid=$(vm "systemctl show -P MainPID portikus-worker")
@@ -507,6 +519,12 @@ worker_account() {
     || { echo "the worker's account reached the backup key socket"; return 1; }
   [ "$(vm "sudo runuser -u portikus -- python3 -c '${KEY_SOCKET_PROBE}'")" = answered ] \
     || { echo "the API's account got no answer from the backup key socket"; return 1; }
+  # The worker may open loopback connections only to the controller, so it
+  # cannot reach the API or Dex around Caddy's rate limit (SPEC.md 24.9).
+  [ "$(vm "sudo runuser -u portikus-worker -- python3 -c '${LOOPBACK_PROBE}' 3000 5556 3001" | paste -sd' ')" = "refused refused open" ] \
+    || { echo "the worker's account reached the API or Dex, or not the controller"; return 1; }
+  [ "$(vm "sudo runuser -u portikus -- python3 -c '${LOOPBACK_PROBE}' 3000 5556" | paste -sd' ')" = "open open" ] \
+    || { echo "the API and Dex are not listening, so the refusals above prove nothing"; return 1; }
   # The worker's half of the backup channel, as the channel's timer runs it.
   vm "sudo portikus backup-channel pull"
 }
@@ -548,6 +566,9 @@ for _ in $(seq 1 45); do
   sleep 2
 done
 [ "$fresh" -gt 0 ] || { echo "no health sample since the worker started at ${started}"; exit 1; }
+# The firewall still lets the worker reach the controller (SPEC.md 24.9).
+reached=$(as_postgres "SELECT count(*) FROM health_samples WHERE observed_at > to_timestamp(${since}) AND (sample->'controller'->>'reachable')::boolean")
+[ "$reached" -gt 0 ] || { echo "the worker's health samples since ${started} show no controller"; exit 1; }
 echo "health samples since the worker started: ${fresh}"
 if journalctl -u portikus-worker --since "@${since}" --no-pager | grep -i "permission denied"; then
   echo "the worker hit a permission error"

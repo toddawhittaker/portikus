@@ -20,6 +20,7 @@
     workspace_egress_dns_port: "{{ site_vars.workspace_egress_dns_port }}"
     incus_network_name: "{{ site_vars.incus_network_name }}"
     incus_network_cidr: "{{ site_vars.incus_network_cidr }}"
+    portikus_controller_port: "{{ site_vars.portikus_controller_port }}"
     management_cidr: 10.100.0.0/24
     portikus_agent_port: 7400
     portikus_preview_port_min: 1024
@@ -136,6 +137,15 @@
           - firewall_lines | select('match', '^flush ') | list == ['flush table inet filter', 'flush table inet nat']
           - egress_ports | length == 2
           - egress_ports | reject('search', '^iifname "portikus-ws" .* ct status dnat accept$') | list | length == 0
+
+    - name: Check the worker may open loopback connections only to the controller
+      ansible.builtin.assert:
+        that:
+          - >-
+            firewall_lines | select('search', 'portikus-worker') | list == [
+              'oif "lo" meta skuid "portikus-worker" ct state new tcp dport 3001 accept',
+              'oif "lo" meta skuid "portikus-worker" ct state new meta l4proto tcp reject with tcp reset',
+              'oif "lo" meta skuid "portikus-worker" ct state new reject']
 
     # ── The workspace proxy ───────────────────────────────────────
 
