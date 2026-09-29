@@ -1183,8 +1183,10 @@ private key opens and checks every set.
 These host timers are for VMs deployed from a workstation with
 `make configure-vm` only. They were turned off for the pilot on
 2026-09-29, when it moved to its own timers as an apt-installed server
-("On an apt-installed server", above). Do not reinstall them for the
-pilot.
+("On an apt-installed server", above). `make backup-install-timer` and
+`make backup-install-channel` refuse any VM whose own
+`portikus-backup.timer` is enabled, as it is on every apt-installed
+server, so they cannot be reinstalled for the pilot by mistake.
 
 A backup is pulled from the VM to the host and encrypted there with age, a
 small file-encryption tool (ADR 0024). It only reads from the VM: a
