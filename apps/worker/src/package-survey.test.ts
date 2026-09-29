@@ -179,16 +179,18 @@ test.skipIf(skip)(
 		const b = await insertWorkspace();
 		const at = { now: new Date("2026-09-27T10:00:00Z") };
 		const { controller, tick, reads } = build(at);
-		controller.lists.set(a.instance, new ControllerClientError("NOT_FOUND", "no file"));
+		const c = await insertWorkspace();
+		controller.lists.set(a.instance, { image: null, packages: [] });
 		controller.lists.set(
 			b.instance,
 			new ControllerClientError("BAD_REQUEST", "too big"),
 		);
+		controller.lists.set(c.instance, new ControllerClientError("NOT_FOUND", "gone"));
 
 		await tick();
 		await tick();
 
-		expect(reads()).toHaveLength(2);
+		expect(reads()).toHaveLength(3);
 		expect(await days()).toEqual([]);
 	},
 );

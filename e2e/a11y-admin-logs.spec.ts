@@ -18,7 +18,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		page,
 		browser,
 	}) => {
-		// A student whose workspace is stopped: asking for a terminal is refused and logged.
+		// A student whose workspace is stopped: asking for a terminal is refused and logged at info.
 		const context = await browser.newContext({ baseURL: WEB_ORIGIN });
 		const student = await createStudent(context, { state: "stopped" });
 		const refused = await context.request.post(
@@ -31,7 +31,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
 		await expect(async () => {
-			await page.goto(`/admin?tab=logs&user=${student.userId}`);
+			await page.goto(
+				`/admin?tab=logs&level=info&q=AGENT_UNAVAILABLE&user=${student.userId}`,
+			);
 			await expect(page.getByTestId("log-row").first()).toBeVisible({ timeout: 2_000 });
 		}).toPass({ timeout: 20_000 });
 		await page.getByTestId("log-row-toggle").first().click();

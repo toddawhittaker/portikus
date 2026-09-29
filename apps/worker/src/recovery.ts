@@ -226,16 +226,15 @@ async function makePoint(
 			);
 		}
 	} catch (e) {
-		if ((e as { code?: string }).code === "AGENT_UNAVAILABLE") outcome = "unreachable";
-		log.warn(
-			{
-				workspaceId,
-				projectId: project.id,
-				reason,
-				errorCode: (e as { code?: string }).code ?? "UNKNOWN",
-			},
-			"recovery point failed",
-		);
+		const errorCode = (e as { code?: string }).code ?? "UNKNOWN";
+		if (errorCode === "AGENT_UNAVAILABLE") outcome = "unreachable";
+		const fields = { workspaceId, projectId: project.id, reason, errorCode };
+		// The student removed the folder since the last sync; nothing is wrong.
+		if (errorCode === "PROJECT_NOT_FOUND") {
+			log.info(fields, "recovery point skipped: project folder is gone");
+		} else {
+			log.warn(fields, "recovery point failed");
+		}
 	}
 	await markChecked(db, [project.id], now);
 	return outcome;

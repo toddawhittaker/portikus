@@ -9,14 +9,16 @@
     name: portikus-api
     state: restarted
 
-- name: Restart portikus-worker
-  ansible.builtin.systemd:
-    name: portikus-worker
-    state: restarted
-
+# Handlers run in the order listed: the controller before the worker, whose
+# first sweep calls it.
 - name: Restart portikus-controller
   ansible.builtin.systemd:
     name: portikus-controller
+    state: restarted
+
+- name: Restart portikus-worker
+  ansible.builtin.systemd:
+    name: portikus-worker
     state: restarted
 
 - name: Restart portikus-mock-idp

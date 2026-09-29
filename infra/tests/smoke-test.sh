@@ -1455,10 +1455,11 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
   check_output "a student is refused the admin settings" "403" \
     http_status bob "${API}/admin/settings"
   # The Logs tab reads that refusal back from the journal (docs/adr/0036):
-  # a warn line from the API with the 403 and the path.
+  # an info line from the API with the 403 and the path, since a 4xx is not
+  # a warning (issue #859).
   logs_show_bob_403() {
     for _ in $(seq 1 5); do
-      if vm_get carol "${API}/admin/logs?level=warn&service=api" | python3 -c '
+      if vm_get carol "${API}/admin/logs?level=info&service=api" | python3 -c '
 import json, sys
 lines = json.load(sys.stdin)["lines"]
 sys.exit(0 if any(l["line"].get("status") == 403 and l["line"].get("path") == "/admin/settings" for l in lines) else 1)
@@ -1467,7 +1468,7 @@ sys.exit(0 if any(l["line"].get("status") == 403 and l["line"].get("path") == "/
     done
     return 1
   }
-  check "the Logs tab shows the student's refused request as a warn line" logs_show_bob_403
+  check "the Logs tab shows the student's refused request as an info line" logs_show_bob_403
   if [ "$skip_lifecycle" = "no" ]; then
     orig_grace=$(admin_grace)
     check "read the platform grace period as carol" test -n "$orig_grace"

@@ -64,6 +64,8 @@ export function createPackageSurvey(
 				let list: AddedPackagesResponse | null;
 				try {
 					list = await controller.addedPackages(row.incus_instance_name);
+					// No image header and no packages: the workspace has no list yet.
+					if (list.image === null && list.packages.length === 0) list = null;
 				} catch (e) {
 					if (
 						e instanceof ControllerClientError &&

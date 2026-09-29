@@ -3647,3 +3647,11 @@ fixes". In progress.
   it drew at the old width, so a single real resize can still leave
   overlapping lines; that part is Claude Code's renderer, and neither
   tmux nor xterm.js can turn reflow off.
+- Log noise (#859). A 4xx answer is logged at info, except a 429 at
+  warn. The controller answers "no added-packages list yet" with an
+  empty list, not a 404. A recovery point for a vanished project is
+  logged at info. A toast shown behind a session gate is not recorded.
+  `portikus backup-channel` exits quietly before setup writes the
+  worker's settings, and `portikus reset-admin` reports its exit codes
+  10 and 11 without a failed transient unit. Setup starts and restarts
+  the controller before the worker, and masks `systemd-ssh-generator`.
