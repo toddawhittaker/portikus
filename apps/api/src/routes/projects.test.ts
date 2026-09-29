@@ -161,6 +161,32 @@ test.skipIf(skip)("a clone that fails leaves no project row", async () => {
 	expect(rows).toHaveLength(0);
 });
 
+test.skipIf(skip)(
+	"a clone takes the repository's own name only when asked, and keeps its folder",
+	async () => {
+		// The fake agent's clone of a "readme" url suggests "The Fixture Repository".
+		const asked = await createProject(alice, workspaceId, {
+			name: "Readme Repo",
+			source: "clone",
+			url: "https://example.com/readme-repo.git",
+			nameFromRepository: true,
+		});
+		expect(asked.statusCode).toBe(201);
+		expect(asked.json()).toMatchObject({
+			slug: "readme-repo",
+			name: "The Fixture Repository",
+		});
+
+		const typed = await createProject(alice, workspaceId, {
+			name: "Typed Name",
+			source: "clone",
+			url: "https://example.com/readme-other.git",
+			nameFromRepository: false,
+		});
+		expect(typed.json()).toMatchObject({ slug: "typed-name", name: "Typed Name" });
+	},
+);
+
 test.skipIf(skip)("templates are listed and instantiated by name", async () => {
 	const templates = await app.inject({
 		method: "GET",

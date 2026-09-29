@@ -13,7 +13,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
-import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
+import { type FakeAgent, oneFileZip, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 import { INLINE_CSP, inlineType } from "./files.js";
 
@@ -441,6 +441,48 @@ test.skipIf(skip)("delete, mkdir and move work on the project tree", async () =>
 	expect(agent.files.has("lab/docs")).toBe(false);
 	expect(agent.files.has("lab/docs/new.md")).toBe(false);
 });
+
+test.skipIf(skip)(
+	"extract unpacks a zip into a new folder and relays a refusal",
+	async () => {
+		agent.files.set("lab/starter.zip", {
+			type: "file",
+			content: oneFileZip("src/app.js", "console.log(1);\n"),
+		});
+		agent.files.set("lab/starter", { type: "dir" });
+		const extracted = await app.inject({
+			method: "POST",
+			url: url("extract"),
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { path: "starter.zip" },
+		});
+		expect(extracted.statusCode).toBe(201);
+		// The taken name gets a number rather than a merge (issue #817).
+		expect(extracted.json()).toEqual({ path: "starter-2" });
+		expect(agent.files.get("lab/starter-2/src/app.js")).toEqual({
+			type: "file",
+			content: Buffer.from("console.log(1);\n"),
+		});
+
+		agent.files.set("lab/evil.zip", { type: "file", content: oneFileZip("../x", "x") });
+		const refused = await app.inject({
+			method: "POST",
+			url: url("extract"),
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { path: "evil.zip" },
+		});
+		expect(refused.statusCode).toBe(422);
+		expect(refused.json().code).toBe("ARCHIVE_INVALID");
+
+		const invalid = await app.inject({
+			method: "POST",
+			url: url("extract"),
+			headers: csrfHeaders(alice, PUBLIC_URL),
+			payload: { path: "../outside.zip" },
+		});
+		expect(invalid.statusCode).toBe(400);
+	},
+);
 
 test.skipIf(skip)("a file download is named after its basename", async () => {
 	seed("lab", "docs/report.txt", "content\n");
