@@ -47,6 +47,95 @@ export function displayNameFromDirectory(directory: string): string {
 	return name === "" ? directory : name;
 }
 
+/** Cut a name to the length limit, at a word break when there is one. */
+function trimName(name: string): string {
+	if (name.length <= MAX_PROJECT_NAME_LENGTH) return name;
+	const cut = name.slice(0, MAX_PROJECT_NAME_LENGTH + 1);
+	const space = cut.lastIndexOf(" ");
+	return (
+		space > 0 ? cut.slice(0, space) : cut.slice(0, MAX_PROJECT_NAME_LENGTH)
+	).trim();
+}
+
+/** The first Markdown heading's text, with its formatting removed. */
+function readmeHeading(markdown: string): string | undefined {
+	let fenced = false;
+	for (const line of markdown.split(/\r?\n/)) {
+		if (/^\s{0,3}(```|~~~)/.test(line)) {
+			fenced = !fenced;
+			continue;
+		}
+		if (fenced) continue;
+		const match = /^\s{0,3}#{1,6}\s+(.*)$/.exec(line);
+		if (!match) continue;
+		const text = (match[1] ?? "")
+			.replace(/\s+#+\s*$/, "")
+			.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+			.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+			.replace(/<[^>]*>/g, "")
+			.replace(/[*_`~]+/g, "")
+			.replace(/\s+/g, " ")
+			.trim();
+		if (text !== "") return text;
+	}
+	return undefined;
+}
+
+/** `displayName`, else a readable `name`, from package.json text. */
+function packageJsonName(text: string): string | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+	if (typeof parsed !== "object" || parsed === null) return undefined;
+	const { displayName, name } = parsed as { displayName?: unknown; name?: unknown };
+	if (typeof displayName === "string" && displayName.trim() !== "") {
+		return displayName.trim();
+	}
+	if (typeof name === "string" && name.trim() !== "") {
+		// A scoped npm name keeps only its package part.
+		return displayNameFromDirectory(name.trim().replace(/^@[^/]+\//, ""));
+	}
+	return undefined;
+}
+
+/** The `name` under `[project]` or `[tool.poetry]` in pyproject.toml text. */
+function pyprojectName(text: string): string | undefined {
+	let section = "";
+	for (const line of text.split(/\r?\n/)) {
+		const header = /^\s*\[([^\]]+)\]\s*$/.exec(line);
+		if (header) {
+			section = (header[1] ?? "").trim();
+			continue;
+		}
+		if (section !== "project" && section !== "tool.poetry") continue;
+		const value = /^\s*name\s*=\s*["']([^"']+)["']/.exec(line);
+		if (value?.[1]) return displayNameFromDirectory(value[1].trim());
+	}
+	return undefined;
+}
+
+/**
+ * The name a cloned repository gives itself (issue #846): the README's first
+ * heading, else package.json, else pyproject.toml. Undefined when none of
+ * them names it, so the caller falls back to the folder name.
+ */
+export function projectNameFromRepository(files: {
+	readme?: string;
+	packageJson?: string;
+	pyproject?: string;
+}): string | undefined {
+	const name =
+		(files.readme === undefined ? undefined : readmeHeading(files.readme)) ??
+		(files.packageJson === undefined
+			? undefined
+			: packageJsonName(files.packageJson)) ??
+		(files.pyproject === undefined ? undefined : pyprojectName(files.pyproject));
+	return name === undefined ? undefined : trimName(name);
+}
+
 /** Active or archived (SPEC.md §7.4). */
 export const ProjectState = z.enum(["active", "archived"]);
 export type ProjectState = z.infer<typeof ProjectState>;
@@ -176,9 +265,18 @@ export const CreateProjectRequest = z
 		url: CloneUrl.optional(),
 		template: z.string().min(1).optional(),
 		gitInit: z.boolean().default(true),
+		/** Clone only: store the name the repository gives itself, if any (#846). */
+		nameFromRepository: z.boolean().optional(),
 	})
 	.strict()
 	.superRefine((value, ctx) => {
+		if (value.nameFromRepository !== undefined && value.source !== "clone") {
+			ctx.addIssue({
+				code: "custom",
+				path: ["nameFromRepository"],
+				message: "nameFromRepository is only allowed when source is clone",
+			});
+		}
 		if (value.source === "clone" && value.url === undefined) {
 			ctx.addIssue({
 				code: "custom",

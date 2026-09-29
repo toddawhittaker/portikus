@@ -1,4 +1,4 @@
-import { type Project, slugify } from "@portikus/contracts";
+import { displayNameFromDirectory, type Project, slugify } from "@portikus/contracts";
 import { Button, Checkbox, Dialog, DialogRoot, Select, TextField } from "@portikus/ui";
 import { useState } from "react";
 import { ApiError } from "../api/request.js";
@@ -67,7 +67,9 @@ export function CreateProjectDialog({
 				name,
 				source: mode,
 				gitInit: mode === "new" ? gitInit : true,
-				...(mode === "clone" ? { url: cloneUrlForRequest(url) } : {}),
+				...(mode === "clone"
+					? { url: cloneUrlForRequest(url), nameFromRepository: !nameEdited }
+					: {}),
 				...(mode === "template" ? { template } : {}),
 			},
 			{ onSuccess: onCreated },
@@ -151,8 +153,9 @@ export function CreateProjectDialog({
 							onChange={(event) => {
 								setUrl(event.target.value);
 								if (nameEdited) return;
-								const derived = projectNameFromCloneUrl(event.target.value);
-								setName(derived);
+								// The folder read as a title; the clone may replace it (#846).
+								const folder = projectNameFromCloneUrl(event.target.value);
+								setName(folder === "" ? "" : displayNameFromDirectory(folder));
 							}}
 							hint="An https, ssh or user@host:path Git URL."
 						/>

@@ -8,8 +8,10 @@ if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
 		portikus-backup.timer portikus-backup-channel.timer portikus-backup-key.socket \
 		portikus-image-job.path portikus-egress-apply.path portikus-setup.service \
 		portikus-image-job.service portikus-egress-apply.service \
-		portikus-backup.service portikus-backup-channel.service || true
+		portikus-backup.service portikus-backup-channel.service \
+		portikus-image-check.timer portikus-image-check.service || true
 	systemctl disable portikus-image-job.path portikus-egress-apply.path \
+		portikus-image-check.timer \
 		portikus-setup.service >/dev/null 2>&1 || true
 fi
 

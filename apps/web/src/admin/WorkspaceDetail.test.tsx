@@ -174,6 +174,7 @@ const SETTINGS = {
 const HEALTH = {
 	sampledAt: "2026-09-22T11:59:30.000Z",
 	workerStale: false,
+	packageUpdate: null,
 	controller: { reachable: true, errorCode: null },
 	host: {
 		loadAverage: [0.5, 0.4, 0.3],

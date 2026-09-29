@@ -413,7 +413,7 @@ export function registerProjectRoutes(
 			const slow = body.data.source !== "new";
 			if (slow && !claimLongOperation(scope.workspaceId, reply)) return;
 
-			let created: { isGitRepo: boolean };
+			let created: { isGitRepo: boolean; suggestedName?: string };
 			try {
 				created = await agent.createProject({
 					slug,
@@ -432,7 +432,11 @@ export function registerProjectRoutes(
 				.values({
 					workspace_id: scope.workspaceId,
 					slug,
-					name: body.data.name,
+					// The folder keeps the typed name's slug; only the display name
+					// takes the one the repository gives itself (#846).
+					name:
+						(body.data.nameFromRepository ? created.suggestedName : undefined) ??
+						body.data.name,
 					path: projectPath(slug),
 					source: body.data.source,
 				})

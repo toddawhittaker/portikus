@@ -25,6 +25,7 @@ const GIB = 1024 ** 3;
 const HEALTH = {
 	sampledAt: new Date().toISOString(),
 	workerStale: false,
+	packageUpdate: null,
 	controller: { reachable: true, errorCode: null },
 	host: {
 		loadAverage: [0.5, 0.4, 0.3],

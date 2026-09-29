@@ -52,6 +52,9 @@ const FATAL_CLOSE_CODES = new Set([1008, 1009, 1011]);
  */
 export const SCROLLBACK_LINES = 5_000;
 
+/** Quiet time after the pane's last size change before the size is sent. */
+export const RESIZE_SETTLE_MS = 100;
+
 /**
  * The two terminal colour schemes (issue #239). They match the
  * `--terminal-*` and `--ansi-*` tokens in packages/ui/src/theme.css, which
@@ -768,9 +771,17 @@ export function TerminalPane({
 
 		const input = term.onData((data) => send({ type: "input", data }));
 
+		// Wait for the box to settle: every size sent makes tmux reflow and a
+		// full-screen app like Claude Code redraw, and redraws for sizes already
+		// gone land on the wrong rows (#849).
+		let settle: ReturnType<typeof setTimeout> | undefined;
 		const observer = new ResizeObserver(() => {
-			if (container.clientWidth === 0 || container.clientHeight === 0) return;
-			sendSize();
+			if (settle !== undefined) clearTimeout(settle);
+			settle = setTimeout(() => {
+				settle = undefined;
+				if (container.clientWidth === 0 || container.clientHeight === 0) return;
+				sendSize();
+			}, RESIZE_SETTLE_MS);
 		});
 		observer.observe(container);
 
@@ -779,6 +790,7 @@ export function TerminalPane({
 		return () => {
 			stopped = true;
 			if (retry !== undefined) clearTimeout(retry);
+			if (settle !== undefined) clearTimeout(settle);
 			observer.disconnect();
 			container.removeEventListener("wheel", onWheel, { capture: true });
 			container.removeEventListener("contextmenu", onContextMenu);

@@ -88,6 +88,34 @@ async function openWithTerminal(page: Page, workspaceId: string): Promise<string
 	return id;
 }
 
+test("a window dragged through many widths sends the terminal one settled size", async ({
+	page,
+	context,
+}) => {
+	// Every size sent makes tmux reflow and Claude Code redraw; redraws for
+	// sizes already gone overlap on screen (#849).
+	const resizes: { cols: number; rows: number }[] = [];
+	page.on("websocket", (socket) => {
+		socket.on("framesent", ({ payload }) => {
+			if (typeof payload !== "string" || !payload.includes('"resize"')) return;
+			resizes.push(JSON.parse(payload) as { cols: number; rows: number });
+		});
+	});
+	await page.setViewportSize({ width: 1280, height: 800 });
+	const student = await createStudent(context);
+	await openWithTerminal(page, student.workspaceId);
+	await page.waitForTimeout(1000);
+	const before = resizes.length;
+
+	for (let width = 1250; width >= 950; width -= 30) {
+		await page.setViewportSize({ width, height: 800 });
+	}
+	await expect.poll(() => resizes.length).toBeGreaterThan(before);
+	await page.waitForTimeout(1000);
+	expect(resizes.length - before).toBe(1);
+	expect(resizes.at(-1)?.cols).toBeGreaterThan(0);
+});
+
 test("a new terminal echoes what is typed into it", async ({ page, context }) => {
 	const student = await createStudent(context);
 	const terminalId = await openWithTerminal(page, student.workspaceId);

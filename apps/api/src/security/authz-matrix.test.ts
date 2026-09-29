@@ -273,6 +273,7 @@ const PAYLOADS: Record<string, object> = {
 	},
 	"POST /workspaces/:id/projects/:pid/mkdir": { path: "made" },
 	"POST /workspaces/:id/projects/:pid/move": { from: "notes.txt", to: "moved.txt" },
+	"POST /workspaces/:id/projects/:pid/extract": { path: "starter.zip" },
 	"POST /workspaces/:id/preview-grants": { port: 5173, presentation: "embedded" },
 	// The fake agent's own node process.
 	"POST /workspaces/:id/processes/:pid/stop": { startTicks: 100 },
