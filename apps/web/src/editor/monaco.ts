@@ -17,6 +17,7 @@ import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import JsonWorker from "monaco-editor/language/json/json.worker.js?worker";
 import { loadEditorFeatures } from "./features.js";
 import { detectLanguage } from "./language.js";
+import { DARK_TOKENS, LIGHT_TOKENS } from "./tokenColours.js";
 import { BASE_FONT_SIZE } from "./zoom.js";
 
 const environment: Monaco.Environment = {
@@ -96,11 +97,15 @@ export function accessibilitySupport(screenReaderMode: boolean): "on" | "off" {
 export const LIGHT_THEME = "portikus-light";
 export const DARK_THEME = "portikus-dark";
 
+function tokenRules(colours: Record<string, string>): Monaco.editor.ITokenThemeRule[] {
+	return Object.entries(colours).map(([token, foreground]) => ({ token, foreground }));
+}
+
 function defineThemes(monaco: typeof Monaco): void {
 	monaco.editor.defineTheme(LIGHT_THEME, {
 		base: "vs",
 		inherit: true,
-		rules: [],
+		rules: tokenRules(LIGHT_TOKENS),
 		colors: {
 			"editor.background": "#f6f4ef",
 			"editor.foreground": "#23211d",
@@ -122,7 +127,7 @@ function defineThemes(monaco: typeof Monaco): void {
 	monaco.editor.defineTheme(DARK_THEME, {
 		base: "vs-dark",
 		inherit: true,
-		rules: [],
+		rules: tokenRules(DARK_TOKENS),
 		colors: {
 			"editor.background": "#171614",
 			"editor.foreground": "#ece8df",

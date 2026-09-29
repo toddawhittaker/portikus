@@ -456,17 +456,25 @@ export function FileTreePane({
 	const extract = useCallback(
 		(node: FileNode) => {
 			const name = displayName(node.name);
-			toast.show({ title: `Extracting ${name}…` });
+			// A large zip takes minutes, so the progress toast stays until the request settles.
+			const dismissProgress = toast.show({
+				title: `Extracting ${name}…`,
+				persistent: true,
+			});
 			mutationsRef.current.extract
 				.mutateAsync(node.path)
 				.then(({ path }) => {
+					dismissProgress();
 					setExpandedIn(project.id, path, true);
 					toast.show({
 						tone: "success",
 						title: `Extracted ${name} into ${baseName(path)}`,
 					});
 				})
-				.catch((error: unknown) => toast.show(extractErrorToast(name, error)));
+				.catch((error: unknown) => {
+					dismissProgress();
+					toast.show(extractErrorToast(name, error));
+				});
 		},
 		[project.id, setExpandedIn, toast],
 	);

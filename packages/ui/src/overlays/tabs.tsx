@@ -139,24 +139,15 @@ function TabTrigger({
 					<span className="pk-visually-hidden">Unsaved changes</span>
 				</span>
 			) : null}
-			{/* The tab itself is a button, so this cannot be one: nested
-			    buttons are invalid HTML. */}
-			{/* biome-ignore lint/a11y/useSemanticElements: nested button */}
+			{/* Pointer only: nested buttons are invalid HTML, and the keyboard
+			    closes a tab with Delete (aria-keyshortcuts on the tab). */}
 			<span
 				className="pk-tab-close"
-				role="button"
-				tabIndex={-1}
-				aria-label={`Close ${tab.label}`}
+				aria-hidden="true"
 				data-testid={tab.testId ? `${tab.testId}-close` : undefined}
 				onClick={(event) => {
 					event.stopPropagation();
 					onClose?.(tab.id);
-				}}
-				onKeyDown={(event) => {
-					if (event.key === "Enter" || event.key === " ") {
-						event.stopPropagation();
-						onClose?.(tab.id);
-					}
 				}}
 			>
 				<Icon name="x" size="sm" />

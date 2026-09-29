@@ -43,7 +43,10 @@ export function ImageView({ src, path, size, download, fallback }: ImageViewProp
 	// Measurements belong to the address they were taken from.
 	const dims = loaded?.src === src ? loaded : null;
 	return (
-		<figure className="pk-file-viewer" data-testid={`file-image-${path}`}>
+		<figure
+			className="pk-file-viewer pk-file-viewer--image"
+			data-testid={`file-image-${path}`}
+		>
 			<div className="pk-file-viewer-stage">
 				<img
 					src={src}
@@ -58,7 +61,9 @@ export function ImageView({ src, path, size, download, fallback }: ImageViewProp
 					onError={() => setFailed(src)}
 				/>
 			</div>
-			<figcaption className="pk-file-viewer-bar">
+			{/* Download sits beside the caption, not in it, so only the facts name the figure. */}
+			<div className="pk-file-viewer-bar pk-file-viewer-action">{download}</div>
+			<figcaption className="pk-file-viewer-bar pk-file-viewer-caption">
 				<dl className="pk-file-viewer-facts">
 					{dims !== null && dims.width > 0 ? (
 						<div>
@@ -75,7 +80,6 @@ export function ImageView({ src, path, size, download, fallback }: ImageViewProp
 						</div>
 					) : null}
 				</dl>
-				{download}
 			</figcaption>
 		</figure>
 	);
@@ -85,6 +89,7 @@ type PdfState =
 	| { status: "loading" }
 	| { status: "ready"; src: string }
 	| { status: "large" }
+	| { status: "unsized" }
 	| { status: "failed" };
 
 export interface PdfViewProps {
@@ -105,8 +110,10 @@ export function PdfView({ url, path, download, fallback }: PdfViewProps) {
 		fetch(url, { credentials: "same-origin", signal: controller.signal })
 			.then(async (response) => {
 				if (!response.ok) throw new Error(String(response.status));
-				if (Number(response.headers.get("content-length")) > MAX_PDF_VIEW_BYTES) {
-					setState({ status: "large" });
+				// An unknown size could be any size, so it is not buffered in the page either.
+				const length = response.headers.get("content-length");
+				if (length === null || !(Number(length) <= MAX_PDF_VIEW_BYTES)) {
+					setState({ status: length === null ? "unsized" : "large" });
 					controller.abort();
 					return;
 				}
@@ -128,6 +135,9 @@ export function PdfView({ url, path, download, fallback }: PdfViewProps) {
 	}, [url]);
 
 	if (state.status === "large") return fallback("This PDF is too large to show here");
+	if (state.status === "unsized") {
+		return fallback("This PDF's size is unknown, so it is not shown here");
+	}
 	if (state.status === "failed") return fallback("This PDF could not be shown");
 	return (
 		<div className="pk-file-viewer" data-testid={`file-pdf-${path}`}>

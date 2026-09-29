@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { type TabItem, Tabs, tabDomId, tabPanelDomId } from "./tabs";
 
 const TABS: TabItem[] = [
-	{ id: "t1", kind: "terminal", label: "zsh — todo-api" },
+	{ id: "t1", kind: "terminal", label: "zsh — todo-api", testId: "tab-t1" },
 	{ id: "t2", kind: "file", label: "app.ts" },
 	{ id: "t3", kind: "terminal", label: "zsh — old", ended: true },
 ];
@@ -86,8 +86,22 @@ describe("Tabs", () => {
 		});
 		expect(props.onClose).toHaveBeenCalledWith("t1");
 
-		fireEvent.click(screen.getByRole("button", { name: "Close zsh — todo-api" }));
+		fireEvent.click(screen.getByTestId("tab-t1-close"));
 		expect(props.onClose).toHaveBeenLastCalledWith("t1");
+	});
+
+	it("keeps the close control out of the accessibility tree and the tab order", () => {
+		renderTabs();
+
+		expect(screen.queryByRole("button", { name: /^Close / })).toBeNull();
+		const close = screen.getByTestId("tab-t1-close");
+		expect(close.getAttribute("aria-hidden")).toBe("true");
+		expect(close.hasAttribute("tabindex")).toBe(false);
+		expect(
+			screen
+				.getByRole("tab", { name: /zsh — todo-api/ })
+				.getAttribute("aria-keyshortcuts"),
+		).toContain("Delete");
 	});
 
 	it("sets the test ids a caller asks for", () => {

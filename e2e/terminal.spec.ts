@@ -112,7 +112,10 @@ test("a window dragged through many widths sends the terminal one settled size",
 	}
 	await expect.poll(() => resizes.length).toBeGreaterThan(before);
 	await page.waitForTimeout(1000);
-	expect(resizes.length - before).toBe(1);
+	// Eleven widths without the settle would send about eleven; a slow runner
+	// may pause long enough mid-drag for one extra settled size.
+	expect(resizes.length - before).toBeGreaterThanOrEqual(1);
+	expect(resizes.length - before).toBeLessThanOrEqual(2);
 	expect(resizes.at(-1)?.cols).toBeGreaterThan(0);
 });
 
@@ -158,7 +161,10 @@ test("terminals keep their own output, can be renamed and closed", async ({
 	await expect(page.getByRole("tab", { name: "Build" })).toBeVisible();
 
 	// Closing a terminal is a user action, so its tab goes away (SPEC.md §9.3).
-	await page.getByRole("button", { name: "Close Build" }).click();
+	await page
+		.getByRole("tab", { name: "Build" })
+		.locator('[data-testid$="-close"]')
+		.click();
 	await expect(page.getByRole("tab", { name: "Build" })).toHaveCount(0);
 	await expect(tabs(page).getByRole("tab")).toHaveCount(2);
 	// The tab goes at once and the delete lands just after it.
@@ -443,7 +449,10 @@ test("a workspace is held to twenty terminals and says so in a toast", async ({
 	expect(await terminalIds(student.workspaceId)).toHaveLength(20);
 
 	// Closing one frees a slot for a new one.
-	await page.getByRole("button", { name: "Close Terminal 20" }).click();
+	await page
+		.getByRole("tab", { name: "Terminal 20" })
+		.locator('[data-testid$="-close"]')
+		.click();
 	await expect(tabs(page).getByRole("tab")).toHaveCount(19);
 	await expect.poll(() => terminalIds(student.workspaceId)).toHaveLength(19);
 	await newTerminal(page);

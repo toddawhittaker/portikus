@@ -9,6 +9,7 @@ import { formatSize, ImageView, MAX_PDF_VIEW_BYTES, PdfView } from "./FileViewer
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
 });
 
 const fallback = (title: string) => <p>{title}</p>;
@@ -32,8 +33,13 @@ test("an image shows its dimensions once loaded, and its size", () => {
 		"640 × 480 pixels",
 	);
 	expect(screen.getByText("2 KB")).not.toBeNull();
-	// The facts and the Download control sit in the figure's caption.
-	expect(image.closest("figure")?.querySelector("figcaption button")).not.toBeNull();
+	// Only the facts name the figure; Download sits beside the caption, not in it.
+	const figure = image.closest("figure");
+	const caption = figure?.querySelector("figcaption");
+	expect(caption?.textContent).toContain("640 × 480 pixels");
+	expect(caption?.querySelector("button")).toBeNull();
+	expect(figure?.lastElementChild).toBe(caption);
+	expect(screen.getByRole("figure").textContent).toContain("Download");
 });
 
 test("a new address is a new image: an old failure does not stick", () => {
@@ -64,6 +70,24 @@ test("a PDF larger than the viewer's limit is offered as a download", async () =
 	);
 	render(<PdfView url="/b.pdf" path="b.pdf" download={null} fallback={fallback} />);
 	expect(await screen.findByText("This PDF is too large to show here")).not.toBeNull();
+});
+
+test("a PDF with no stated size is not copied into the page", async () => {
+	const response = new Response("x", { status: 200 });
+	response.headers.delete("content-length");
+	stubFetch(response);
+	render(<PdfView url="/b.pdf" path="b.pdf" download={null} fallback={fallback} />);
+	expect(
+		await screen.findByText("This PDF's size is unknown, so it is not shown here"),
+	).not.toBeNull();
+});
+
+test("a PDF within the limit opens in the page's viewer", async () => {
+	vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:pdf");
+	vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+	stubFetch(new Response("%PDF", { status: 200, headers: { "content-length": "4" } }));
+	render(<PdfView url="/b.pdf" path="b.pdf" download={null} fallback={fallback} />);
+	expect((await screen.findByTitle("b.pdf, PDF")).getAttribute("src")).toBe("blob:pdf");
 });
 
 test("a PDF the server refuses falls back to the download panel", async () => {

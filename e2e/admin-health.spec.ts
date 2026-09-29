@@ -344,6 +344,31 @@ test.describe("admin health", () => {
 			expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 		});
 
+		test(`the package update notice has no automatic violations (${colorScheme})`, async ({
+			page,
+		}) => {
+			await page.emulateMedia({ colorScheme });
+			await seedSample(50, 0);
+			// The report is real apart from the notice, which the daily check would set (issue #861).
+			await page.route("**/admin/health", async (route) => {
+				const response = await route.fetch();
+				const report = await response.json();
+				await route.fulfill({
+					response,
+					json: {
+						...report,
+						packageUpdate: { installed: "0.1.695", available: "0.1.700" },
+					},
+				});
+			});
+			await openHealth(page);
+			await expect(page.getByTestId("health-package-update")).toContainText(
+				"Portikus 0.1.700 is available",
+			);
+			const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+			expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+		});
+
 		test(`the intro and an open help tip have no automatic violations (${colorScheme})`, async ({
 			page,
 		}) => {

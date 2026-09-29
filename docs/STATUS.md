@@ -3647,3 +3647,14 @@ fixes". In progress.
   it drew at the old width, so a single real resize can still leave
   overlapping lines; that part is Claude Code's renderer, and neither
   tmux nor xterm.js can turn reflow off.
+- Review fixes for the web app (F3): the "Extracting" toast stays until
+  the zip is done; a checkerboard shows through transparent images; only
+  an image's facts name its figure; a PDF with no stated size is offered
+  as a download; focus goes to the job heading after "Update to"; a clone
+  explains its name field; and a tab's close control is for the pointer
+  only, as Delete closes a tab from the keyboard. New axe scans cover the
+  whole file viewer page, the SVG modes, the extract toasts and the
+  Health package notice. They found two more problems, now fixed: a toast
+  put its live role on the list item, which broke the notification list,
+  and some of Monaco's own token colours, red attribute names among them,
+  fell below 4.5:1 on the editor's backgrounds.
