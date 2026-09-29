@@ -19,7 +19,8 @@
 #      then rerun setup as after a failed first Caddy refresh: Caddy not
 #      installed, its repository added but its package lists missing;
 #   8. publish the second version, apt upgrade, follow setup again, and
-#      check the keyring, the services and a sign-in;
+#      check the keyring, the services, a sign-in, and that the worker runs
+#      as its own account and cannot open the backup key socket;
 #   9. with IMAGE_JOBS=1, the workspace image rehearsal
 #      (image-job-rehearsal.py, docs/SPEC.md section 22.4);
 #  10. backups on the server (ADR 0044, backup-rehearsal.py): a student
@@ -37,6 +38,9 @@
 # Environment:
 #   IMAGE_JOBS=1         also run the workspace image rehearsal (about 90 min)
 #   KEEP_VM=1            leave the VM running at the end, for debugging
+#   UPGRADE_FROM_PUBLISHED=1  install the newest published release first, and
+#                        upgrade from it to this checkout's build; the smoke
+#                        test then runs after the upgrade, not before it
 #   INSTALL_TEST_PORT    the port this host serves on (default 8780)
 #   REHEARSAL_IMAGE_DIR  incus.tar.xz, rootfs.squashfs and manifest.json of
 #                        the recipe's VERSION.  Default: a cache filled once
@@ -165,6 +169,10 @@ build_packages() {
   (cd "$ROOT" && pnpm install --frozen-lockfile)
   local v1 v2 work
   v1=$(cat "${ROOT}/dist/deb/VERSION")
+  if [ -n "${UPGRADE_FROM_PUBLISHED:-}" ]; then
+    published_package "$v1"
+    return
+  fi
   v2="${v1}+upgrade"
   cp "${ROOT}/dist/deb/portikus_${v1}_amd64.deb" "${LOGS}/v1.deb"
   # The upgrade is the same contents under a higher version.
@@ -179,6 +187,34 @@ build_packages() {
   dpkg-deb --fsys-tarfile "${LOGS}/v2.deb" | tar -xO ./usr/share/keyrings/portikus-archive-keyring.gpg \
     | gpg --batch --show-keys --with-colons | awk -F: '$1 == "fpr" { print $10; exit }' \
     | grep -qx "$(cat "${LOGS}/rehearsal-key.fpr")"
+}
+
+# UPGRADE_FROM_PUBLISHED: v1 is the newest release in the real archive,
+# checked against the archive key, with the throwaway key's keyring put in
+# its place so the VM keeps trusting the local repository; v2 is this build.
+published_package() { # BUILT_VERSION
+  local base=https://toddawhittaker.github.io/portikus/apt work sum file v1
+  work=$(mktemp -d)
+  gpg --dearmor <"${ROOT}/packaging/portikus-archive-keyring.asc" >"${work}/archive.gpg"
+  curl -fsS -o "${work}/InRelease" "${base}/dists/trixie/InRelease"
+  gpgv --keyring "${work}/archive.gpg" "${work}/InRelease"
+  curl -fsS -o "${work}/Packages" "${base}/dists/trixie/main/binary-amd64/Packages"
+  sum=$(awk '$3 == "main/binary-amd64/Packages" && length($1) == 64 { print $1; exit }' "${work}/InRelease")
+  echo "${sum}  ${work}/Packages" | sha256sum -c
+  v1=$(awk '/^Package: portikus$/ { p = 1 } p && /^Version:/ { print $2; exit }' "${work}/Packages")
+  file=$(awk '/^Package: portikus$/ { p = 1 } p && /^Filename:/ { print $2; exit }' "${work}/Packages")
+  sum=$(awk '/^Package: portikus$/ { p = 1 } p && /^SHA256:/ { print $2; exit }' "${work}/Packages")
+  curl -fsS -o "${work}/published.deb" "${base}/${file}"
+  echo "${sum}  ${work}/published.deb" | sha256sum -c
+  dpkg --compare-versions "$1" gt "$v1" || { echo "this build, $1, is not newer than the published ${v1}"; return 1; }
+  dpkg-deb -R "${work}/published.deb" "${work}/root"
+  cp "${LOGS}/rehearsal-key.gpg" "${work}/root/usr/share/keyrings/portikus-archive-keyring.gpg"
+  dpkg-deb --root-owner-group -Zxz -b "${work}/root" "${LOGS}/v1.deb"
+  cp "${ROOT}/dist/deb/portikus_${1}_amd64.deb" "${LOGS}/v2.deb"
+  rm -rf "$work"
+  echo "$v1" >"${LOGS}/v1.version"
+  echo "$1" >"${LOGS}/v2.version"
+  echo "upgrade from the published ${v1} to ${1}"
 }
 
 publish() { # DEB...
@@ -455,6 +491,34 @@ after_upgrade() {
     test \"\$(\$C -o /dev/null -w '%{http_code}' \"\$A/admin/users\")\" = 200"
 }
 
+# The worker has its own account, outside the portikus group the key socket
+# admits (ADR 0044); the API's account, the control, still gets an answer.
+KEY_SOCKET_PROBE='import socket, sys
+s = socket.socket(socket.AF_UNIX)
+try:
+    s.connect("/run/portikus-backup-key.sock")
+except PermissionError:
+    print("refused")
+    sys.exit()
+s.sendall(b"status\n")
+s.shutdown(socket.SHUT_WR)
+print("answered" if s.recv(4096) else "empty")'
+
+worker_account() {
+  local pid
+  pid=$(vm "systemctl show -P MainPID portikus-worker")
+  [ "$(vm "ps -o user= -p ${pid}")" = portikus-worker ] || { echo "the worker does not run as portikus-worker"; return 1; }
+  vm "id portikus-worker"
+  [ "$(vm "stat -c '%U %G %a' /etc/portikus/worker.env")" = "root portikus-worker 640" ]
+  vm "sudo grep -q '^DATABASE_URL=postgresql://portikus-worker@' /etc/portikus/worker.env"
+  [ "$(vm "sudo runuser -u portikus-worker -- python3 -c '${KEY_SOCKET_PROBE}'")" = refused ] \
+    || { echo "the worker's account reached the backup key socket"; return 1; }
+  [ "$(vm "sudo runuser -u portikus -- python3 -c '${KEY_SOCKET_PROBE}'")" = answered ] \
+    || { echo "the API's account got no answer from the backup key socket"; return 1; }
+  # The worker's half of the backup channel, as the channel's timer runs it.
+  vm "sudo portikus backup-channel pull"
+}
+
 # ── 9: the workspace image rehearsal ───────────────────────────────
 
 image_jobs() {
@@ -588,11 +652,17 @@ step "fetch the key and add the repository" add_repository
 step "preseed and apt install portikus" install_package
 step "follow setup to its end (portikus setup --follow)" follow_setup install
 step "sign in with the one-time password and change it" first_signin
-step "smoke test, with the administrator's Dex sign-in" smoke
-step "setup converges after a failed first Caddy refresh" caddy_rerun
+if [ -z "${UPGRADE_FROM_PUBLISHED:-}" ]; then
+  step "smoke test, with the administrator's Dex sign-in" smoke
+  step "setup converges after a failed first Caddy refresh" caddy_rerun
+fi
 step "apt upgrade to the second version" upgrade
 step "follow the upgrade's setup" follow_setup upgrade
 step "services, /health and sign-in after the upgrade" after_upgrade
+step "the worker's own account, refused by the backup key socket" worker_account
+if [ -n "${UPGRADE_FROM_PUBLISHED:-}" ]; then
+  step "smoke test after the upgrade" smoke
+fi
 if [ -n "${IMAGE_JOBS:-}" ]; then
   step "workspace image rehearsal (image-job-rehearsal.py)" image_jobs
 fi

@@ -69,7 +69,8 @@ root) when there is no key, and writes the recipients file from the key.
 **The key stays root-only, and a root helper behind a socket hands it
 over.** `portikus-backup-key.socket` listens on
 `/run/portikus-backup-key.sock`, owner root, group `portikus`, mode 0660,
-with `Accept=yes`. Each connection starts one
+with `Accept=yes`. Only the API runs as `portikus`; the worker has its own
+`portikus-worker` account and cannot connect (Epic 15.1, issue #828). Each connection starts one
 `portikus-backup-key@.service`, a root shell script
 (`/usr/lib/portikus/backup/portikus-backup-key`) with the connection as
 its standard input and output. It reads one verb line:
@@ -172,10 +173,13 @@ with the private key can also sign; they can already read every set.
 
 ### What a compromised API or worker can and cannot do
 
-Both run as the unprivileged `portikus` account, and either can reach the
-key socket.
+The API runs as the unprivileged `portikus` account, the only one the key
+socket admits. The worker runs as its own `portikus-worker` account, so
+it cannot reach the socket at all (Epic 15.1, issue #828). Its database
+role is a member of `portikus`, so in the database it can do what the API
+can, which includes the channel requests below.
 
-It can:
+A compromised API can:
 
 - download the backup key. Each export is a root-side journal line
   naming the key's public half; a compromised API can skip its own audit
@@ -185,13 +189,14 @@ It can:
   that key. The old key stays on the server as
   `age-key.txt.replaced-<unix time>`, so the older sets can still be read
   and restored by root;
-- ask for backups, deletions of old sets and per-workspace restores, all
-  within the channel's fixed kinds, patterns and retention floor (ADR
-  0039);
 - send `mark-downloaded` itself and so clear the reminder. The reminder
   is a prompt for an honest administrator, not a control.
 
-It cannot:
+A compromised API or worker can ask for backups, deletions of old sets
+and per-workspace restores, all within the channel's fixed kinds, patterns
+and retention floor (ADR 0039).
+
+Neither can:
 
 - read or write `/etc/portikus-backup` or `/var/backups/portikus`, so it
   cannot plant a set on the server or read one there directly;
@@ -237,9 +242,11 @@ the disk.
   That is ruling 2: they could already read the live workspaces. The key
   matters for copies kept elsewhere, which is why the tab keeps reminding
   until it has been downloaded once.
-- The worker shares the API's account, so it too could ask the socket for
-  the key. A separate group for the API alone would not change that,
-  because processes of one account can already reach each other.
+- The worker runs as `portikus-worker`, outside the `portikus` group, so
+  only the API can ask the socket for the key. The package makes the
+  account; on an upgrade from a release whose worker ran as `portikus`,
+  postinst adds the worker's database role and points `worker.env` at it
+  before the worker restarts, and setup does the same on every run.
 - Replacing the key keeps the old one on the server, root-only, so sets
   encrypted to it can still be restored from a shell with
   `PORTIKUS_BACKUP_IDENTITY` pointing at the kept file. The tab cannot use

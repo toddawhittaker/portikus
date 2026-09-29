@@ -3473,3 +3473,11 @@ Gaps:
   script still keeps its own read-back map, checked by the test rather
   than read from the list, because config can run before the package's
   files are unpacked.
+- The worker runs under its own system account, `portikus-worker` (#828),
+  so it can no longer open the backup key socket, which admits only the
+  API's `portikus` group (ADR 0044). Its database role of the same name is
+  a member of `portikus`, and `worker.env` is `root:portikus-worker` 0640.
+  On an upgrade, postinst adds the role and moves `worker.env` before the
+  worker restarts; setup does the same. `make install-test` checks the
+  worker's account and the refusal, and `UPGRADE_FROM_PUBLISHED=1` makes
+  it upgrade from the newest published release.

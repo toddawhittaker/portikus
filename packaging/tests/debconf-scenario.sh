@@ -393,6 +393,50 @@ EOF
 		fail "the already-running line was not printed"
 	! grep -qF 'is running in the background' /tmp/install.log || fail "postinst claimed the change is being applied"
 	;;
+worker-account)
+	# The worker has its own account, outside the portikus group that opens
+	# the backup key socket (ADR 0044).
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.example.edu
+portikus portikus/tls select internal
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	[ "$(getent passwd portikus-worker | cut -d: -f7)" = /usr/sbin/nologin ] || fail "no portikus-worker system account"
+	[ "$(id -nG portikus-worker)" = portikus-worker ] || fail "portikus-worker is in groups: $(id -nG portikus-worker)"
+	# An upgrade from a release whose worker ran as portikus.
+	old_url='DATABASE_URL=postgresql://portikus@/portikus?host=/var/run/postgresql'
+	printf 'NODE_ENV=production\n%s\n' "$old_url" >/etc/portikus/worker.env
+	chown root:portikus /etc/portikus/worker.env
+	chmod 0640 /etc/portikus/worker.env
+	# With no PostgreSQL yet the settings stay as they were, and it says so.
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "reconfigure failed"
+	grep -qxF "$old_url" /etc/portikus/worker.env || fail "worker.env changed with no database role"
+	grep -qF 'could not add the portikus-worker database role' /tmp/install.log || fail "no warning without PostgreSQL"
+	[ "$(stat -c '%a %U %G' /etc/portikus/worker.env)" = "640 root portikus-worker" ] ||
+		fail "worker.env is $(stat -c '%a %U %G' /etc/portikus/worker.env)"
+	# With PostgreSQL, the role is made first, then the settings name it.
+	adduser --system --group --no-create-home postgres >/dev/null
+	cat >/usr/bin/psql <<'EOF'
+#!/bin/sh
+{ id -un; cat; } >>/tmp/psql.log
+EOF
+	chmod 0755 /usr/bin/psql
+	chown root:portikus /etc/portikus/worker.env
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "second reconfigure failed"
+	grep -qx postgres /tmp/psql.log || fail "psql did not run as postgres"
+	grep -qF 'GRANT portikus TO "portikus-worker";' /tmp/psql.log || fail "the worker's role was not granted portikus"
+	grep -qxF 'DATABASE_URL=postgresql://portikus-worker@/portikus?host=/var/run/postgresql' /etc/portikus/worker.env ||
+		fail "worker.env does not name the portikus-worker role"
+	grep -qxF 'NODE_ENV=production' /etc/portikus/worker.env || fail "worker.env lost its other lines"
+	[ "$(stat -c '%a %U %G' /etc/portikus/worker.env)" = "640 root portikus-worker" ] ||
+		fail "worker.env is $(stat -c '%a %U %G' /etc/portikus/worker.env)"
+	# Done once: a later configure leaves the database alone.
+	rm -f /tmp/psql.log
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "third reconfigure failed"
+	[ ! -e /tmp/psql.log ] || fail "psql ran again after the move"
+	;;
 ui-storage-default)
 	# With exactly one empty disk the suggestion is still the file, and the
 	# erase question still defaults to No.
