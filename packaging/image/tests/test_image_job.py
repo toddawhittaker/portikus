@@ -160,7 +160,8 @@ class FakeHost:
             if cmd[0] == "systemctl":
                 return 0, "running\n"
             default = {"node": "v24.8.0\n", "python3.14": "Python 3.14.7\n",
-                       "docker": "29.8.0 overlay2 /var/lib/docker\n"}.get(cmd[0], f"{cmd[0]} ok\n")
+                       "docker": "29.8.0 overlay2 /var/lib/docker\n",
+                       "sh": "paste-code\n"}.get(cmd[0], f"{cmd[0]} ok\n")
             return self.exec_results.get(cmd[0], (0, default))
         raise AssertionError(f"unexpected incus {args}")
 
@@ -398,7 +399,7 @@ class FetchTest(Base):
         self.assertEqual(health["result"], "passed")
         self.assertEqual([c["name"] for c in health["checks"]],
                          ["node --version", "python3 --version", "git --version", "docker info",
-                          "claude --version", "codex --version"])
+                          "claude --version", "claude login flow", "codex --version"])
         # It never makes itself the default.
         self.assertEqual(self.host.aliases["portikus"], FP["2026.09.11"])
         self.assertEqual(self.aliases_file(), {"default": "2026.09.11", "previous": None})
@@ -471,7 +472,7 @@ class FetchTest(Base):
         self.assertIn("codex --version", self.status()["message"])
         health = json.loads((self.images / "2026.09.12" / "health.json").read_text())
         self.assertEqual(health["result"], "failed")
-        self.assertEqual([c["ok"] for c in health["checks"]], [True, True, True, True, True, False])
+        self.assertEqual([c["ok"] for c in health["checks"]], [True, True, True, True, True, True, False])
         self.assertEqual(self.host.instances, set())
 
     def test_a_node_version_that_does_not_match_the_parameters_fails_health(self):
@@ -489,6 +490,15 @@ class FetchTest(Base):
         self.go()
         self.assertEqual(self.status()["state"], "failed")
         self.assertIn("docker info", self.status()["message"])
+
+    def test_a_claude_login_that_opens_a_browser_fails_health(self):
+        # A browser open would hand the broker a localhost-callback URL (issue #848).
+        self.host.publish("2026.09.12")
+        self.host.exec_results["sh"] = (0, "claude opened a browser or printed no paste-code URL\n")
+        self.request({"kind": "fetch", "version": "2026.09.12"})
+        self.go()
+        self.assertEqual(self.status()["state"], "failed")
+        self.assertIn("claude login flow", self.status()["message"])
 
     def test_the_default_image_is_never_refetched(self):
         self.put_image("2026.09.12")

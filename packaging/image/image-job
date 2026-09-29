@@ -409,6 +409,16 @@ def health_passed(images_dir, version):
 
 # ---- Health check (ruling 26) ----
 
+# A Claude Code that ignores the image's managed settings would hand the broker
+# a login URL whose callback is localhost in the workspace. It never logs in.
+CLAUDE_LOGIN_CHECK = (
+    'd=$(mktemp -d); printf "#!/bin/sh\\ntouch %s/opened\\n" "$d" > "$d/o"; chmod +x "$d/o"; '
+    'BROWSER="$d/o" CLAUDE_CONFIG_DIR="$d" timeout 15 claude auth login < /dev/null > "$d/out" 2>&1; '
+    'if [ ! -e "$d/opened" ] && grep -q oauth%2Fcode%2Fcallback "$d/out"; then echo paste-code; '
+    'else echo "claude opened a browser or printed no paste-code URL"; fi; rm -rf "$d"'
+)
+
+
 def health_checks(parameters):
     node = parameters["node"]
     checks = [
@@ -419,6 +429,8 @@ def health_checks(parameters):
         ("docker info", ["docker", "info", "--format", "{{.ServerVersion}} {{.Driver}} {{.DockerRootDir}}"],
          lambda out: out.split()[1:] == ["overlay2", "/var/lib/docker"]),
         ("claude --version", ["claude", "--version"], None),
+        # Login must offer the paste-code URL and open no browser, even with BROWSER set (issue #848).
+        ("claude login flow", ["sh", "-c", CLAUDE_LOGIN_CHECK], lambda out: out == "paste-code"),
         ("codex --version", ["codex", "--version"], None),
     ]
     if parameters["python"] == "uv-3.14":

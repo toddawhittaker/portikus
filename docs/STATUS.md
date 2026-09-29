@@ -3555,17 +3555,20 @@ Gaps:
 
 Built on `epic/15-2-pilot-fixes`.
 
-Delivered:
-
+- Claude Code login in a workspace offers the paste-code URL again (#848).
+  Because `BROWSER` was set, Claude Code also opened a second login URL
+  whose callback is localhost in the workspace. The image now sets
+  `BROWSER` to empty for Claude Code only, through
+  `/etc/claude-code/managed-settings.json` (BROWSER-HANDLING.md 19.2). The
+  image job's health check, the smoke test and
+  `infra/tests/claude-login-test.sh` fail if login opens a browser. It
+  reaches the pilot with the next workspace image.
 - T8 (#860, #861): the Users view calls a workspace on a non-default
   image "Old image" and keeps "Stale" for accounts only, and refetches
   the list when a rebuild finishes. A daily root timer,
   `portikus-image-check.timer`, records the newest published image and
   any newer `portikus` package. The Workspace image tab and the Health
   tab show a notice, and each administrator gets one notification per
-  version (SPEC.md sections 20.1 and 22.4). No migration.
-
-Gaps:
-
-- T8: the new timer and the check have unit tests only. They have not
-  yet run on a real host from bootstrap through the smoke test.
+  version (SPEC.md sections 20.1 and 22.4). No migration. Gap: the timer
+  and the check have unit tests only; they have not yet run on a real
+  host from bootstrap through the smoke test.
