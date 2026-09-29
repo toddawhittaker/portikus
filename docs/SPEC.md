@@ -2601,8 +2601,10 @@ This is an acceptance criterion, not merely documentation.
 
 Added by Epic 15 (ADR 0029). `apt install portikus` is the default way to
 install Portikus. The workstation Ansible and libvirt tooling under
-`infra/` is for development only; the pilot and the rehearsal VM keep
-using it. docs/INSTALL.md is the operator's guide.
+`infra/` is for development only: it creates the libvirt VMs, and it
+configures the rehearsal VM and unreleased builds. The pilot's VM is
+created by it but installed with apt and upgraded with `apt upgrade`,
+like any real install. docs/INSTALL.md is the operator's guide.
 
 - **Target.** A rented bare-metal or full virtual server, x86-64, Debian
   13 only. Other distributions, Debian's own Incus and an `.rpm` are out.

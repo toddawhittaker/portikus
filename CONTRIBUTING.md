@@ -10,7 +10,7 @@ Follow [Running it locally](README.md#running-it-locally) in the README to
 install the tools and start the apps. Before opening a pull request, run:
 
 ```sh
-make check        # typecheck, lint, tests with coverage, build
+make check        # typecheck, lint, docs links, tests with coverage, build, infra checks
 pnpm test:e2e     # Playwright browser tests
 ```
 

@@ -222,7 +222,7 @@ Two changes, done in a window Todd chooses: grow the data disk, and raise memory
 1. In `infra/tofu/environments/dev-libvirt/terraform.tfvars`, set `data_disk_size_bytes = 214748364800` (200 GiB). The host needs no free space up front: the disk file is sparse and grows as it fills.
 2. Run `make infra-plan`. The only change must be `module.platform_vm.terraform_data.data_disk_size` being created, or replaced if it already exists. If the plan shows the data disk or the VM being replaced, stop.
 3. Run `make infra-apply`. It prints `grow-data-disk: grew portikus-data.qcow2 from 107374182400 to 214748364800 bytes`. The running VM sees the bigger disk at once.
-4. Run `make configure-vm` with the pilot's usual settings. The `lvm` role grows the physical volume, then the thin pool's metadata and data, so the pool is again 90% of the disk.
+4. Run `sudo portikus setup` on the pilot. The `lvm` role grows the physical volume, then the thin pool's metadata and data, so the pool is again 90% of the disk.
 5. Check: `ssh deploy@10.100.0.120 sudo lvs portikus-data/thinpool` shows about 180 GiB, and `incus storage info workspace-data` shows the same total.
 
 OpenTofu refuses to shrink the disk, and the `lvm` role refuses to grow anything if the volume group sits on another device or holds anything but the thin pool. It never shrinks.

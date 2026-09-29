@@ -1,14 +1,18 @@
 # Portikus Pilot Infrastructure
 
 **This directory's workstation tooling is for development: the project's
-pilot and rehearsal VMs.** To install Portikus on a server for a class,
-follow docs/INSTALL.md (`apt install portikus`) instead; nothing here is
-needed for that.
+libvirt VMs, the rehearsal VM, and testing unreleased builds.** To install
+Portikus on a server for a class, follow docs/INSTALL.md
+(`apt install portikus`) instead; nothing here is needed for that.
 
-End-to-end steps to create the platform VM from a fresh Pop!_OS host.
+End-to-end steps to create a platform VM from a fresh Pop!_OS host.
 See STACK.md sections 16 through 24 and 27 through 33 for design rationale.
-Running the pilot once it exists (deploys, users, the Dex cutover, backups,
-restore, the rehearsal VM, routine checks) is in `docs/OPERATIONS.md`.
+
+The pilot uses steps 1 to 4 only. Once its VM exists, it is installed
+with apt as docs/INSTALL.md describes and upgraded with `apt upgrade`,
+never with `make configure-vm` or `make deploy-app` (docs/OPERATIONS.md,
+"The pilot"). Running the pilot (deploys, users, backups, restore, the
+rehearsal VM, routine checks) is in `docs/OPERATIONS.md`.
 
 ## Prerequisites
 
@@ -190,12 +194,14 @@ separate build step on the VM, and the VM has no build toolchain.
 
 ### Release and rollback
 
-**How a release is produced.** A release is published when an epic branch
-merges into `main`, or by running the Release workflow by hand from `main`.
-It builds the package, adds it to the signed apt repository at
+**How a release is produced.** A release is published when an epic or
+task branch merges into `main`, or by running the Release workflow by hand
+from `main`. It builds the package, adds it to the signed apt repository at
 `https://toddawhittaker.github.io/portikus/apt` (docs/SPEC.md section
-21.13), and creates a tagged GitHub release with notes but no files.
-The version is derived from the repository and looks like `0.1.123+gabc1234`:
+21.13), and creates a tagged GitHub release with notes and no files.
+Workspace images are published as GitHub releases of their own,
+`image-<version>`, with the image files as assets. The
+version is derived from the repository and looks like `0.1.123+gabc1234`:
 the release number, the commit count, and the short commit hash. The
 repository keeps the ten newest packages.
 
@@ -233,20 +239,20 @@ sudo apt-get update
 sudo apt-get install -y --allow-downgrades portikus=<previous-version>
 ```
 
-`apt-cache madison portikus` lists the versions the repository still holds.
+`apt-cache madison portikus` lists the versions the repository holds.
 
 **Testing a branch on a fresh VM.** A branch has no published release, so
-build the package and hand Ansible the file:
+build the package and hand Ansible the file, on the rehearsal VM:
 
 ```
 make build-deb
-make rebuild-pilot PORTIKUS_DEB=dist/deb/portikus_<version>_amd64.deb
-make smoke-test
+make rehearsal-up
+make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_DEB=dist/deb/portikus_<version>_amd64.deb
+make smoke-test TOFU_ENV=rehearsal-libvirt
+make rehearsal-destroy
 ```
 
-`PORTIKUS_DEB` works on `make configure-vm` too, and `make rebuild-pilot`
-passes it through because it calls `configure-vm`. On a VM that already
-exists, `make deploy-app` is the quicker path.
+On a VM that already exists, `make deploy-app` is the quicker path.
 
 **Development path.** `make deploy-app` builds the package on your
 workstation and installs it on the VM directly. It does not go through a
@@ -286,12 +292,15 @@ and a change made on the page applies straight away with no restart.
 ### Browser access
 
 Ansible installs Caddy, which is the only service listening on the VM's
-public address. It terminates TLS with its own internal certificate
-authority and forwards to the API and the browser bundle, both of which
-stay on loopback.
+public address. It terminates TLS and forwards to the API and the browser
+bundle, both of which stay on loopback.
 
-The VM sits on a libvirt NAT network, so nothing on the LAN can reach it
-until the host forwards to it. Publish it once per VM:
+On a VM configured from the workstation, Caddy terminates TLS with its
+own internal certificate authority. The apt-installed pilot uses a Let's
+Encrypt certificate instead (docs/INSTALL.md, "4. HTTPS certificate").
+
+The pilot VM sits on a libvirt NAT network, so nothing on the LAN can
+reach it until the host forwards to it. Publish it once per VM:
 
 ```
 make publish-vm
@@ -306,21 +315,16 @@ second one is what lets preview hostnames work from the host without
 `/etc/hosts` entries (docs/WORKFLOW.md, "Using the pilot from the host
 that runs it"). Nothing else is forwarded.
 The site is on 8443 rather than 443 because another service on the pilot
-host already owns 80 and 443, so the public address is
-`https://<host-lan-address-name>:8443`. A oneshot systemd unit, `portikus-publish-vm.service`, puts the rules back
+host already owns 80 and 443, so the pilot's public address is
+`https://pilot.portikus.thewhittakers.org:8443`. A oneshot systemd unit, `portikus-publish-vm.service`, puts the rules back
 after a reboot, reading the VM address from `/etc/portikus-host/vm-ip`.
 The VM address changes when the VM is rebuilt, so run `make publish-vm`
 again after `make rebuild-pilot` (that target already calls it).
 
-Then configure the VM, which names the site after the host's LAN address
-so browsers on the LAN reach it through the forward. Sign-in goes through
-Dex by default (see "Identity provider" below):
-
-```
-make configure-vm
-```
-
-The site name defaults to `portikus.<host-lan-ip>.nip.io`. nip.io is a
+**A throwaway VM without a DNS name.** When a libvirt VM other than the
+pilot is configured from the workstation, `make configure-vm` names the
+site after the host's LAN address. Sign-in goes through Dex by default
+(see "Identity provider" below). The site name defaults to `portikus.<host-lan-ip>.nip.io`. nip.io is a
 public DNS service that resolves any name of that shape back to the
 address in it, so no DNS has to be edited. Open
 
@@ -365,7 +369,8 @@ one.
 
 The certificate is generated on the VM, so destroying and recreating the
 VM produces a new one. Import the new copy after a rebuild and remove the
-old one.
+old one. None of this applies to the pilot, whose certificate browsers
+already trust.
 
 Never publish a VM configured with `PORTIKUS_IDP=mock`: while the mock
 sign-in is on, every device on the LAN can sign in as any mock account,
@@ -566,7 +571,7 @@ can show the launch page inside a frame.
 The mock LMS runs on this host, never on the VM, and signs a launch as any
 of its seeded people. It listens on port 8765 at loopback, the host's
 address on the VM network (`10.100.0.1`), and the host's LAN address
-(`HOST_IP`, `192.168.10.48` for the pilot), and registers itself at the LAN
+(`HOST_IP`), and registers itself at the LAN
 address (`MOCK_LMS_HOST` overrides). A platform's URLs must be reachable
 both by the user's browser (the login redirect) and by the API on the VM
 (the keyset fetch). A real LMS on the internet meets that; the mock must
@@ -648,5 +653,6 @@ host that was not built here.
 make destroy-pilot
 ```
 
-Then repeat from step 3. User data on the data disk is destroyed when the
-VM is destroyed; persistent-data backup and restore is a later epic.
+Then repeat from step 3. User data on the data disk is destroyed with the
+VM, so take a backup first and restore it afterwards (docs/OPERATIONS.md,
+"Backups" and "Restore").

@@ -1636,19 +1636,3 @@ it.
 slow wait and fix it.
 
 **Source.** Epic 15, T6 (#792).
-
-## Test the release workflow before it matters
-
-**What.** `release.yml`'s gate, which finds the merged pull request from
-the pushed commit, and its wait of up to 75 minutes for the matching
-image release, have never run, because they run only on a push to
-`main`.
-
-**Why.** The first merge to `main` after Epic 15 is also the first real
-release; a fault there blocks publishing.
-
-**What it would take.** Watch the first run and fix what breaks, or
-rehearse it on a fork with its own `publish` environment first. Half a
-day.
-
-**Source.** Epic 15 review fixes (#807, #810).
