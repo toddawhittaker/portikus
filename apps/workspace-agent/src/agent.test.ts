@@ -545,7 +545,7 @@ test("a null level returns the agent to the level it started with", async () => 
 	}
 });
 
-test("a successful request logs an info line and a 404 logs a warn line", async () => {
+test("a successful request logs an info line and a 404 refusal logs at info too", async () => {
 	const { server, requests } = await buildLoggingServer();
 	try {
 		const ok = await server.inject({
@@ -567,7 +567,7 @@ test("a successful request logs an info line and a 404 logs a warn line", async 
 		});
 		expect(missing.statusCode).toBe(404);
 		const bad = requests()[1];
-		expect(bad?.level).toBe("warn");
+		expect(bad?.level).toBe("info");
 		expect(bad?.status).toBe(404);
 		expect(bad?.code).toBe("TERMINAL_NOT_FOUND");
 	} finally {

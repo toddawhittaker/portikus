@@ -13,6 +13,7 @@ import {
 } from "@tanstack/react-query";
 import { z } from "zod";
 import { request } from "../api/request.js";
+import { gatePath, type MeState } from "../useMe.js";
 
 export const notificationsKey = ["me", "notifications"] as const;
 
@@ -44,6 +45,9 @@ export async function recordNotification(
 	toast: ToastRecord,
 ): Promise<void> {
 	if (toast.title.trim() === "") return;
+	// A gated session cannot record anything; the server would answer 403.
+	const me = client.getQueryData<MeState>(["me"]);
+	if (me && gatePath(me) !== null) return;
 	try {
 		const response = await fetch("/me/notifications", {
 			method: "POST",

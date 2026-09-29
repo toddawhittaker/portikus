@@ -33,6 +33,12 @@ function buildApp(level: LogLevel = "info") {
 		(request as { user?: { id: string } }).user = { id: "user-1" };
 		return reply.code(401).send({ code: "UNAUTHENTICATED", message: "sign in" });
 	});
+	app.get("/limited", async (_request, reply) =>
+		reply.code(429).send({ code: "RATE_LIMITED", message: "slow down" }),
+	);
+	app.get("/missing", async (_request, reply) =>
+		reply.code(404).send({ code: "NOT_FOUND", message: "no such thing" }),
+	);
 	app.get("/whoami", async (request) => {
 		(request as { user?: { id: string } }).user = { id: "user-1" };
 		return { ok: true };
@@ -89,19 +95,42 @@ test("an error body's code and message reach the line", async () => {
 	const { app, requests } = buildApp();
 	await app.inject({ method: "GET", url: "/forbidden" });
 	const line = lineAt(requests(), 0);
-	expect(line.level).toBe("warn");
+	expect(line.level).toBe("info");
 	expect(line.status).toBe(403);
 	expect(line.code).toBe("FORBIDDEN");
 	expect(line.error).toBe("no");
 });
 
-test("a 401 without a session logs at info; with a user it stays a warning", async () => {
+test("a 4xx refusal logs at info; only a 429 is a warning", async () => {
 	const { app, requests } = buildApp();
-	await app.inject({ method: "GET", url: "/me" });
-	await app.inject({ method: "GET", url: "/stale" });
-	expect(lineAt(requests(), 0).level).toBe("info");
-	expect(lineAt(requests(), 0).status).toBe(401);
-	expect(lineAt(requests(), 1).level).toBe("warn");
+	for (const url of [
+		"/me",
+		"/stale",
+		"/forbidden",
+		"/agent-shaped",
+		"/long",
+		"/limited",
+	]) {
+		await app.inject({ method: "GET", url });
+	}
+	expect(requests().map((line) => [line.status, line.level])).toEqual([
+		[401, "info"],
+		[401, "info"],
+		[403, "info"],
+		[409, "info"],
+		[400, "info"],
+		[429, "warn"],
+	]);
+});
+
+test("a matched route's 404 logs at info", async () => {
+	const { app, requests } = buildApp();
+	await app.inject({ method: "GET", url: "/missing" });
+	expect(lineAt(requests(), 0)).toMatchObject({
+		status: 404,
+		level: "info",
+		route: "/missing",
+	});
 });
 
 test("the agent's nested error shape is extracted too", async () => {

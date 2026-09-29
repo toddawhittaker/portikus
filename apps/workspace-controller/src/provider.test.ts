@@ -2072,16 +2072,21 @@ describe("admin operations", () => {
 		expect(state.requests).toEqual([`GET /1.0/instances/${WS}/files`]);
 	});
 
-	test("addedPackages refuses a symbolic link, a missing file and an oversized one", async () => {
+	test("addedPackages reads a missing file, a symbolic link or a directory as no list, and refuses an oversized one", async () => {
 		const state = opsState();
 		serveOps(state);
-		await expect(ops.addedPackages(WS)).rejects.toMatchObject({ code: "NOT_FOUND" });
+		const none = { image: null, packages: [] };
+		expect(await ops.addedPackages(WS)).toEqual(none);
 		state.file = { status: 200, type: "symlink", body: "/etc/shadow" };
-		await expect(ops.addedPackages(WS)).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(await ops.addedPackages(WS)).toEqual(none);
 		state.file = { status: 200, type: "directory", body: "[]" };
-		await expect(ops.addedPackages(WS)).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(await ops.addedPackages(WS)).toEqual(none);
 		state.file = { status: 200, type: "file", body: "a\n".repeat(40 * 1024) };
 		await expect(ops.addedPackages(WS)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		state.failOnce = `GET /1.0/instances/${WS}/files`;
+		await expect(ops.addedPackages(WS)).rejects.not.toMatchObject({
+			code: "NOT_FOUND",
+		});
 	});
 
 	test("keptVolumes lists pre-change snapshots and kept homes only", async () => {

@@ -312,10 +312,11 @@
   become_user: postgres
   changed_when: false
 
-- name: Start the worker and the controller
+# The controller first, so the worker's first sweep can reach it.
+- name: Start the controller and the worker
   ansible.builtin.systemd:
     name: "{{ item }}"
     state: started
   loop:
-    - portikus-worker
     - portikus-controller
+    - portikus-worker

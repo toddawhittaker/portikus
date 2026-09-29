@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
 import { badgeText } from "../shell/AppHeader.js";
-import { json, renderWithQuery, stubFetch } from "../test-utils.js";
+import { json, renderWithQuery, stubFetch, USER } from "../test-utils.js";
 import { NotificationsDialog, relativeTime } from "./NotificationsDialog.js";
 import { recordNotification } from "./queries.js";
 
@@ -175,6 +175,28 @@ test("each toast shown records one notification", async () => {
 		title: "Disk nearly full",
 		body: "",
 	});
+});
+
+test("a toast behind the acceptable-use gate is not recorded until the user accepts", async () => {
+	const fetchMock = stubFetch(() => json(201, {}));
+	const client = createQueryClient(() => {});
+	const gated = { status: "authenticated", user: { ...USER, mustAcceptUse: true } };
+	client.setQueryData(["me"], gated);
+	render(
+		<QueryClientProvider client={client}>
+			<ToastProvider onShow={(toast) => void recordNotification(client, toast)}>
+				<Raise />
+			</ToastProvider>
+		</QueryClientProvider>,
+	);
+	fireEvent.click(screen.getByText("Raise"));
+	expect(screen.getByText("Disk nearly full")).toBeDefined();
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	expect(fetchMock).not.toHaveBeenCalled();
+
+	client.setQueryData(["me"], { status: "authenticated", user: USER });
+	fireEvent.click(screen.getByText("Raise"));
+	await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 });
 
 test("a failed record is dropped: no retry, no second toast, the toast stays", async () => {

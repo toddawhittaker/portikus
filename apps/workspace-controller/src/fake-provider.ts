@@ -355,9 +355,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 	async addedPackages(name: string): Promise<AddedPackagesResponse> {
 		const inst = this.existingInstance(name);
 		const file = inst.addedPackagesFile;
-		if (file?.type !== "file") {
-			throw new IncusError("NOT_FOUND", "no added-packages list");
-		}
+		if (file?.type !== "file") return { image: null, packages: [] };
 		if (Buffer.byteLength(file.content) > ADDED_PACKAGES_MAX_BYTES) {
 			throw new IncusError("BAD_REQUEST", "the added-packages list is over 64 KiB");
 		}

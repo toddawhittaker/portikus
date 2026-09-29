@@ -135,3 +135,22 @@
     group: root
     mode: "0644"
   notify: Reload systemd for the platform slice
+
+# ── systemd-ssh-generator (issue #859) ──────────────────────────
+# It warns about AF_VSOCK on every daemon reload when the host has no vsock
+# device.  Portikus reaches the host through openssh-server, so SSH over
+# vsock or a local AF_UNIX socket is not needed.
+- name: Create the system generator mask directory
+  ansible.builtin.file:
+    path: /etc/systemd/system-generators
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Mask systemd-ssh-generator
+  ansible.builtin.file:
+    src: /dev/null
+    dest: /etc/systemd/system-generators/systemd-ssh-generator
+    state: link
+    force: true

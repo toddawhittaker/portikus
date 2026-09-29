@@ -227,6 +227,7 @@ export type DebianPackageName = z.infer<typeof DebianPackageName>;
  * Response body for `GET /instances/:name/added-packages`: the packages the
  * student added with apt, from the list the image's apt hook writes. `image`
  * is the image version named in its header, or null when there is none.
+ * A workspace with no list yet gets a null image and no packages.
  */
 export const AddedPackagesResponse = z.object({
 	image: z.string().nullable(),
