@@ -301,12 +301,17 @@ export async function seedFile(
 	workspaceId: string,
 	slug: string,
 	path: string,
-	content: string,
+	content: string | Buffer,
 ): Promise<void> {
+	// Bytes travel as base64, so an image arrives intact.
+	const body =
+		typeof content === "string"
+			? { content }
+			: { content: content.toString("base64"), encoding: "base64" };
 	const response = await fetch(`${FAKE_AGENT_URL}/__test/files`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ key: workspaceId, path: `${slug}/${path}`, content }),
+		body: JSON.stringify({ key: workspaceId, path: `${slug}/${path}`, ...body }),
 	});
 	if (!response.ok) {
 		throw new Error(`the fake agent refused to seed ${path}: ${response.status}`);
@@ -322,7 +327,7 @@ export async function openFileTab(
 	student: TestStudent,
 	name: string,
 	path: string,
-	content: string,
+	content: string | Buffer,
 ): Promise<TestProject> {
 	const project = await createProject(student.workspaceId, { name });
 	await seedFile(student.workspaceId, project.slug, path, content);

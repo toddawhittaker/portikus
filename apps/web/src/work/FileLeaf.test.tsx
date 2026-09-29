@@ -642,6 +642,88 @@ test("a binary file opens in the viewer", async () => {
 	expect(screen.queryByTestId(`file-status-${PATH}`)).toBeNull();
 });
 
+test("a binary image is shown fit to the tab, not offered as a download (#816)", async () => {
+	seed = {
+		text: "\u0000PNG",
+		etag: "etag-img",
+		contentType: "application/octet-stream",
+	};
+	renderLeaf(() => {}, "assets/logo.png");
+	const image = (await screen.findByRole("img", {
+		name: "logo.png",
+	})) as HTMLImageElement;
+	// The inline route, versioned by the etag so a change on disk reloads it.
+	expect(image.getAttribute("src")).toBe(
+		`/workspaces/${WORKSPACE}/projects/${PROJECT}/file?path=assets%2Flogo.png&inline=1&v=etag-img`,
+	);
+	expect(screen.queryByText("Not a text file")).toBeNull();
+	expect(screen.getByText("4 bytes")).not.toBeNull();
+	expect(screen.getByTestId("file-download")).not.toBeNull();
+	// An image is looked at, so the first view button says View.
+	expect(screen.getByTestId("file-view-edit-assets/logo.png").textContent).toBe("View");
+});
+
+test("an image that will not decode falls back to the download panel (#816)", async () => {
+	seed = {
+		text: "\u0000PNG",
+		etag: "etag-img",
+		contentType: "application/octet-stream",
+	};
+	renderLeaf(() => {}, "broken.png");
+	const image = await screen.findByRole("img", { name: "broken.png" });
+	fireEvent.error(image);
+	expect(await screen.findByText("This image could not be shown")).not.toBeNull();
+	expect(screen.getByRole("button", { name: "Download broken.png" })).not.toBeNull();
+});
+
+test("an SVG opens as its picture, drawn from the tab's text through img (#816)", async () => {
+	const svg =
+		'<svg xmlns="http://www.w3.org/2000/svg"><script>parent.hacked=1</script></svg>';
+	seed = { text: svg, etag: "etag-svg" };
+	renderLeaf(() => {}, "logo.svg");
+	const image = await screen.findByRole("img", { name: "logo.svg" });
+	expect(image.getAttribute("src")).toBe(
+		`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+	);
+	// The markup is never put into the page, so its script is not an element.
+	expect(document.querySelector("script")).toBeNull();
+	expect(screen.queryByTestId("editor-logo.svg")).toBeNull();
+	expect(
+		screen.getByTestId("file-view-view-logo.svg").getAttribute("aria-pressed"),
+	).toBe("true");
+
+	fireEvent.click(screen.getByTestId("file-view-edit-logo.svg"));
+	await findEditor("logo.svg");
+	expect(screen.queryByRole("img", { name: "logo.svg" })).toBeNull();
+	fireEvent.click(screen.getByTestId("file-view-view-logo.svg"));
+	expect(await screen.findByRole("img", { name: "logo.svg" })).not.toBeNull();
+});
+
+test("a PDF opens in the browser's viewer from a copy held in the page (#816)", async () => {
+	const created: Blob[] = [];
+	const revoked: string[] = [];
+	// jsdom has no object URLs of its own.
+	URL.createObjectURL = (blob: Blob) => {
+		created.push(blob);
+		return "blob:pdf-copy";
+	};
+	URL.revokeObjectURL = (url: string) => {
+		revoked.push(url);
+	};
+	seed = {
+		// No NUL byte, so the server calls it text; a .pdf is still shown as a PDF.
+		text: "%PDF-1.4\n",
+		etag: "etag-pdf",
+	};
+	renderLeaf(() => {}, "brief.pdf");
+	const frame = await screen.findByTitle("brief.pdf, PDF");
+	expect(frame.getAttribute("src")).toBe("blob:pdf-copy");
+	// The type is the page's choice, so the frame can only hold the PDF viewer.
+	expect(created[0]?.type).toBe("application/pdf");
+	cleanup();
+	expect(revoked).toEqual(["blob:pdf-copy"]);
+});
+
 test("a deleted file says so and can be closed", async () => {
 	seed = { text: "", etag: "", status: 404 };
 	const onClose = vi.fn();

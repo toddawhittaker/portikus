@@ -3550,3 +3550,35 @@ Gaps:
   `portikus`.
 - The loopback refusal tests probe only 127.0.0.1, not ::1 or the VM's
   own address (BACKLOG.md).
+
+## Epic 15.2 — Pilot fixes
+
+### File viewer shows images and PDFs (#816)
+
+A PNG, JPEG, GIF or WebP file opens in its tab fit to the pane, with its
+dimensions and size and a Download button, instead of the "Not a text
+file" panel. An SVG opens as its picture, drawn from the tab's own text,
+with View, Edit and Diff buttons. A PDF opens in the browser's built-in
+viewer. Other binary files, and DOCX, XLSX and PPTX, keep the download
+panel. A relative image in a Markdown preview now resolves against the
+Markdown file's own folder and loads through the file route; a leading
+slash means the project root, and any other address keeps
+react-markdown's own check.
+
+Security (SPEC.md §24.3): the file route gained `inline=1`, which serves
+only those extensions, with the type taken from the file name, never
+sniffed or relayed from the agent, plus `X-Content-Type-Options: nosniff`
+and `Content-Security-Policy: sandbox; default-src 'none'; …`. An image,
+SVG included, is only ever drawn through `img`, where its script cannot
+run. The PDF is fetched and handed to its frame as an in-page copy with
+the type `application/pdf`, because Chrome's PDF viewer refuses a frame
+with the `sandbox` attribute and the production proxy serves the web app
+to any document request under `/workspaces`.
+
+Gaps:
+
+- A PDF over 50 MB is offered as a download rather than shown, because
+  the in-page copy is held in memory.
+- An image or PDF over the 2 MiB editor limit has no version to put in
+  its address, so a change on disk shows only after the tab is reopened.
+- CSV as a table, optional in #816, was left out.
