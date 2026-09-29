@@ -397,6 +397,47 @@ describe("restoring a point", () => {
 		);
 	});
 
+	// The zip-slip spellings the extractor refuses too (docs/BACKLOG.md,
+	// folded in Epic 15.2): each is refused before anything is extracted.
+	for (const [label, transform] of [
+		["../../etc/passwd", "s,^.*$,../../etc/passwd,"],
+		["a traversal after a real folder", "s,^.*$,src/../../../escape.txt,"],
+		["a ./ prefix before the traversal", "s,^.*$,./../escape.txt,"],
+	] as const) {
+		test(`refuses a crafted ${label} member`, async () => {
+			const pointId = randomUUID();
+			const work = join(base, "craft");
+			await mkdir(work, { recursive: true });
+			await writeFile(join(work, "planted.txt"), "planted\n");
+			const hash = await crafted(
+				pointId,
+				["-P", "--transform", transform, "planted.txt"],
+				work,
+			);
+			await expect(
+				restoreRecoveryPoint(paths, {
+					slug: "alpha",
+					projectId,
+					pointId,
+					sha256: hash,
+				}),
+			).rejects.toMatchObject({
+				code: "RECOVERY_POINT_INVALID",
+				message: expect.stringContaining("unsafe"),
+			});
+			await expect(stat(join(base, "escape.txt"))).rejects.toThrow();
+			await expect(stat(join(paths.homeDir, "escape.txt"))).rejects.toThrow();
+			await expect(
+				stat(join(paths.homeDir, "projects", "escape.txt")),
+			).rejects.toThrow();
+			await expect(stat(join(paths.homeDir, "etc"))).rejects.toThrow();
+			expect(await readdir(outside)).toEqual(["target.txt"]);
+			expect(await readFile(join(project, "src", "app.js"), "utf8")).toBe(
+				"console.log(2);\n",
+			);
+		});
+	}
+
 	test("refuses a crafted absolute member", async () => {
 		const pointId = randomUUID();
 		const absolute = join(base, "absolute.txt");
