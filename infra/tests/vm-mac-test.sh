@@ -15,12 +15,10 @@ no() { printf '\033[1;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail + 1)); }
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
-# mac ENV -- the environment's mac_address as OpenTofu evaluates it.
-# Only variables.tf is copied, so no provider or state is needed.
+# mac ENV -- the default of the environment's mac_address, read from the file.
+# Not `tofu console`: CI's tofu wrapper does not pass it stdin, so it hangs.
 mac() {
-  mkdir -p "${work}/$1"
-  cp "${ENVS}/$1/variables.tf" "${work}/$1/"
-  (cd "${work}/$1" && tofu console -input=false <<<'var.mac_address' 2>&1) | tr -d '"'
+  sed -n '/^variable "mac_address"/,/^}/s/^ *default *= *"\(.*\)"$/\1/p' "${ENVS}/$1/variables.tf"
 }
 
 pilot="$(mac dev-libvirt)"
@@ -40,8 +38,12 @@ fi
 
 # An empty TF_VAR_mac_address, as the Makefile once exported after a destroy,
 # must be refused rather than let libvirt pick a new address.
+# Only variables.tf is copied, so no provider, libvirt or state is needed.
+mkdir -p "${work}/dev-libvirt"
+cp "${ENVS}/dev-libvirt/variables.tf" "${work}/dev-libvirt/"
 plan_dev() {
-  (cd "${work}/dev-libvirt" && TF_VAR_ssh_public_key="ssh-ed25519 test" tofu plan -input=false -lock=false -no-color -state="${work}/none.tfstate" 2>&1)
+  (cd "${work}/dev-libvirt" && TF_VAR_ssh_public_key="ssh-ed25519 test" \
+    timeout 120 tofu plan -input=false -lock=false -no-color -state="${work}/none.tfstate" </dev/null 2>&1)
 }
 if plan_dev >/dev/null; then
   ok "the committed MAC address passes validation"
