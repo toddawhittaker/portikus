@@ -35,6 +35,8 @@ export const AdminAccountMarkers = z.object({
 	archived: z.boolean(),
 	duplicateEmail: z.boolean(),
 	stale: z.boolean(),
+	/** Never signed in and not yet stale (issue #842); absent means false. */
+	notSignedInYet: z.boolean().optional(),
 	/** A course account retired by a link to an SSO account. */
 	linked: z.boolean(),
 });

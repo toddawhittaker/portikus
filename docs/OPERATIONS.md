@@ -96,7 +96,8 @@ repository on the server with
 `sudo apt install --allow-downgrades portikus=<old version>`. Only if the
 database itself is wrong, load the dump with `pg_restore --clean`.
 `apt-cache madison portikus` lists the versions the repository holds; it
-keeps the ten newest.
+keeps the ten newest of the current major.minor line and the newest
+of each earlier line.
 
 ## Deploying
 
@@ -107,7 +108,8 @@ changes the install answers, and `sudo portikus setup` reapplies them.
 Follow an upgrade of the pilot with `make smoke-test` from the host.
 
 **Releases.** The signed apt repository (SPEC.md section 21.13) carries
-the ten newest versions. A GitHub release carries the tag and the release
+the ten newest versions of the current major.minor line and the newest
+version of each earlier line. A GitHub release carries the tag and the release
 notes, with no `.deb` file. Workspace images are GitHub releases of their
 own, named `image-<version>`, with the image files as assets.
 
