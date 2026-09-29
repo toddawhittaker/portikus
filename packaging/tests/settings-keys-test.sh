@@ -52,6 +52,20 @@ while read -r key; do
 	grep -q " $key " <<<"$list" || fail "postinst names $key, which is not in settings-keys"
 done < <(grep -oE 'portikus_[a-z_]+' "$postinst" | sort -u)
 
+# postinst's reads of the list skip comment lines, as the reads above do.
+probe=$(mktemp)
+trap 'rm -f "$probe"' EXIT
+{
+	cat "$keys"
+	echo '#retired portikus_retired setting'
+	echo '#retired portikus_retired secret'
+} >"$probe"
+while read -r program; do
+	if awk "$program" "$probe" | grep -q retired; then
+		fail "postinst's awk '$program' reads comment lines"
+	fi
+done < <(grep -oE "awk '[^']+'" "$postinst" | sed -e "s/^awk '//" -e "s/'\$//")
+
 if [ "$failures" -gt 0 ]; then
 	echo "settings-keys: $failures problem(s)" >&2
 	exit 1

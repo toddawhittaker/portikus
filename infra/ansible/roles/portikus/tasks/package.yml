@@ -119,8 +119,9 @@
       register: portikus_madison
       changed_when: false
 
-    # madison lists newest first; a version installed from a local .deb is
-    # not listed, so the newest release still replaces a newer local build.
+    # madison lists newest first.  A newer local build is not listed, and
+    # replacing it with the newest release is a downgrade, which needs
+    # PORTIKUS_VERSION like any other.
     - name: Resolve the package version
       ansible.builtin.set_fact:
         portikus_resolved_version: >-
@@ -131,5 +132,6 @@
     - name: Install the portikus package
       ansible.builtin.apt:
         name: "portikus={{ portikus_resolved_version }}"
-        # So that setting PORTIKUS_VERSION to an older release rolls back.
-        allow_downgrade: true
+        # Only a named PORTIKUS_VERSION may roll back, so a stale mirror
+        # cannot move the server to an older release.
+        allow_downgrade: "{{ portikus_version | default('', true) | length > 0 }}"

@@ -20,7 +20,8 @@
 #      installed, its repository added but its package lists missing;
 #   8. publish the second version, apt upgrade, follow setup again, and
 #      check the keyring, the services, a sign-in, and that the worker runs
-#      as its own account and cannot open the backup key socket;
+#      as its own account and cannot open the backup key socket, and that
+#      its database role is refused on sessions and users but still works;
 #   9. with IMAGE_JOBS=1, the workspace image rehearsal
 #      (image-job-rehearsal.py, docs/SPEC.md section 22.4);
 #  10. backups on the server (ADR 0044, backup-rehearsal.py): a student
@@ -31,7 +32,8 @@
 #      from an off-site backup"): destroy the VM, install a fresh one, upload
 #      the key, rsync the set back in, show that a forged set is listed as
 #      not verified and refused, `portikus restore`, and check that the
-#      users, the Dex accounts and the workspace's files are back;
+#      users, the Dex accounts and the workspace's files are back, and the
+#      worker's database role again;
 #  12. destroy the VM.
 #
 # Usage: install-test.sh   (through `make install-test`)
@@ -193,19 +195,9 @@ build_packages() {
 # checked against the archive key, with the throwaway key's keyring put in
 # its place so the VM keeps trusting the local repository; v2 is this build.
 published_package() { # BUILT_VERSION
-  local base=https://toddawhittaker.github.io/portikus/apt work sum file v1
+  local work v1
   work=$(mktemp -d)
-  gpg --dearmor <"${ROOT}/packaging/portikus-archive-keyring.asc" >"${work}/archive.gpg"
-  curl -fsS -o "${work}/InRelease" "${base}/dists/trixie/InRelease"
-  gpgv --keyring "${work}/archive.gpg" "${work}/InRelease"
-  curl -fsS -o "${work}/Packages" "${base}/dists/trixie/main/binary-amd64/Packages"
-  sum=$(awk '$3 == "main/binary-amd64/Packages" && length($1) == 64 { print $1; exit }' "${work}/InRelease")
-  echo "${sum}  ${work}/Packages" | sha256sum -c
-  v1=$(awk '/^Package: portikus$/ { p = 1 } p && /^Version:/ { print $2; exit }' "${work}/Packages")
-  file=$(awk '/^Package: portikus$/ { p = 1 } p && /^Filename:/ { print $2; exit }' "${work}/Packages")
-  sum=$(awk '/^Package: portikus$/ { p = 1 } p && /^SHA256:/ { print $2; exit }' "${work}/Packages")
-  curl -fsS -o "${work}/published.deb" "${base}/${file}"
-  echo "${sum}  ${work}/published.deb" | sha256sum -c
+  v1=$(bash "${ROOT}/packaging/tests/fetch-published-deb.sh" "${work}/published.deb")
   dpkg --compare-versions "$1" gt "$v1" || { echo "this build, $1, is not newer than the published ${v1}"; return 1; }
   dpkg-deb -R "${work}/published.deb" "${work}/root"
   cp "${LOGS}/rehearsal-key.gpg" "${work}/root/usr/share/keyrings/portikus-archive-keyring.gpg"
@@ -519,6 +511,53 @@ worker_account() {
   vm "sudo portikus backup-channel pull"
 }
 
+# The worker's database role (SPEC.md section 24.9): not a member of
+# portikus, refused on sessions and users, and still doing its jobs.
+worker_db_role() {
+  local script="${LOGS}/worker-db-role.sh"
+  cat >"$script" <<'EOF'
+set -euo pipefail
+cd /
+as_postgres() { runuser -u postgres -- psql -X -At -v ON_ERROR_STOP=1 -d portikus -c "$1"; }
+refused() { # WHAT SQL
+  local out
+  if out=$(runuser -u portikus-worker -- psql -X -q -v ON_ERROR_STOP=1 -d portikus -c "$2" 2>&1); then
+    echo "the worker's role could $1"
+    exit 1
+  fi
+  case "$out" in
+  *"permission denied"*) echo "refused: $1 ($out)" ;;
+  *) echo "$1 failed, but not for want of permission: $out"; exit 1 ;;
+  esac
+}
+[ "$(as_postgres "SELECT pg_has_role('portikus-worker', 'portikus', 'MEMBER')")" = f ] \
+  || { echo "the worker's role is still a member of portikus"; exit 1; }
+refused "write a session" \
+  "INSERT INTO sessions (id, user_id, expires_at) SELECT 'forged', id, now() + interval '1 day' FROM users LIMIT 1"
+refused "read the sessions" "SELECT id FROM sessions"
+refused "add an administrator" \
+  "INSERT INTO users (oidc_issuer, oidc_subject, display_name, role) VALUES ('forged', 'forged', 'forged', 'administrator')"
+refused "promote an account" "UPDATE users SET role = 'administrator'"
+# Its jobs still run: a health sample written since it started (one a minute),
+# and no permission error in its journal.
+started=$(systemctl show -P ActiveEnterTimestamp portikus-worker)
+since=$(date -d "$started" +%s)
+for _ in $(seq 1 45); do
+  fresh=$(as_postgres "SELECT count(*) FROM health_samples WHERE observed_at > to_timestamp(${since})")
+  [ "$fresh" -gt 0 ] && break
+  sleep 2
+done
+[ "$fresh" -gt 0 ] || { echo "no health sample since the worker started at ${started}"; exit 1; }
+echo "health samples since the worker started: ${fresh}"
+if journalctl -u portikus-worker --since "@${since}" --no-pager | grep -i "permission denied"; then
+  echo "the worker hit a permission error"
+  exit 1
+fi
+EOF
+  scp -q -o BatchMode=yes "$script" "deploy@${IP}:/tmp/worker-db-role.sh"
+  vm "sudo bash /tmp/worker-db-role.sh; rc=\$?; rm -f /tmp/worker-db-role.sh; exit \$rc"
+}
+
 # ── 9: the workspace image rehearsal ───────────────────────────────
 
 image_jobs() {
@@ -660,6 +699,7 @@ step "apt upgrade to the second version" upgrade
 step "follow the upgrade's setup" follow_setup upgrade
 step "services, /health and sign-in after the upgrade" after_upgrade
 step "the worker's own account, refused by the backup key socket" worker_account
+step "the worker's database role: refused on sessions and users, jobs still run" worker_db_role
 if [ -n "${UPGRADE_FROM_PUBLISHED:-}" ]; then
   step "smoke test after the upgrade" smoke
 fi
@@ -685,3 +725,4 @@ step "rebuild: rsync the set back onto the server" copy_in
 step "rebuild: a forged set is shown not verified and refused" forged_set
 step "rebuild: portikus restore" restore_server
 step "rebuild: users, Dex accounts and workspace files are back" check_restored
+step "rebuild: the worker's database role after the restore" worker_db_role

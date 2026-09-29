@@ -235,6 +235,11 @@ start_services() {
     sleep 2
   done
   vm "curl -sf --max-time 3 http://127.0.0.1:3000/health >/dev/null" || die "the API did not become healthy"
+  # The restored tables carry the old server's grants, if any; the worker's
+  # role gets its own after the migrations.  A release without the file
+  # still makes the role a member of portikus.
+  vm "f=/usr/share/portikus/ansible/roles/portikus/files/worker-grants.sql; [ ! -f \$f ] || (cd / && sudo runuser -u postgres -- psql -X -q -1 -v ON_ERROR_STOP=1 -d portikus -f \$f)" \
+    || die "could not set the worker's database privileges"
   vm sudo systemctl start portikus-worker
 }
 

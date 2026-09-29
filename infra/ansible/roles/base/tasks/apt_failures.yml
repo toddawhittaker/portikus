@@ -5,7 +5,8 @@
   ansible.builtin.set_fact:
     base_apt_failures: >-
       {{ (base_apt_update.stdout_lines + base_apt_update.stderr_lines)
-         | select('match', '^(Err:|E:|Error:|W: Failed to fetch|Warning: Failed to fetch)') | list }}
+         | select('match', '^(Err:|E:|Error:|W: Failed to fetch|Warning: Failed to fetch)')
+         | reject('match', '^(E|Error): Some index files failed to download') | list }}
 
 - name: Fail when a repository other than Portikus failed
   ansible.builtin.fail:

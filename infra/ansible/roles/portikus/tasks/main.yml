@@ -294,11 +294,27 @@
 # The package enables the units, but ConditionPathExists keeps them from
 # starting until the environment files above exist.
 
-- name: Start portikus services
+# The API first: starting it runs the migrations the worker's grants name.
+- name: Start the portikus API
+  ansible.builtin.systemd:
+    name: portikus-api
+    state: started
+
+# Revokes and grants in one transaction, so the worker never holds more
+# than the file lists (SPEC.md section 24.9).
+- name: Give the worker's database role only the privileges it needs
+  ansible.builtin.command:
+    cmd: psql -X -q -1 -v ON_ERROR_STOP=1 -d portikus
+    stdin: "{{ lookup('ansible.builtin.file', 'worker-grants.sql') }}"
+    chdir: /
+  become: true
+  become_user: postgres
+  changed_when: false
+
+- name: Start the worker and the controller
   ansible.builtin.systemd:
     name: "{{ item }}"
     state: started
   loop:
-    - portikus-api
     - portikus-worker
     - portikus-controller

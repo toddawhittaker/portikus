@@ -416,26 +416,31 @@ EOF
 	grep -qF 'could not add the portikus-worker database role' /tmp/install.log || fail "no warning without PostgreSQL"
 	[ "$(stat -c '%a %U %G' /etc/portikus/worker.env)" = "640 root portikus-worker" ] ||
 		fail "worker.env is $(stat -c '%a %U %G' /etc/portikus/worker.env)"
-	# With PostgreSQL, the role is made first, then the settings name it.
+	# With PostgreSQL, the role is made first, then the settings name it, and
+	# it gets only the worker's grants.  A query (-c) finds the role.
 	adduser --system --group --no-create-home postgres >/dev/null
 	cat >/usr/bin/psql <<'EOF'
 #!/bin/sh
+for a; do [ "$a" = -c ] && { echo 1; exit 0; }; done
 { id -un; cat; } >>/tmp/psql.log
 EOF
 	chmod 0755 /usr/bin/psql
 	chown root:portikus /etc/portikus/worker.env
 	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "second reconfigure failed"
 	grep -qx postgres /tmp/psql.log || fail "psql did not run as postgres"
-	grep -qF 'GRANT portikus TO "portikus-worker";' /tmp/psql.log || fail "the worker's role was not granted portikus"
+	grep -qF 'CREATE ROLE "portikus-worker" LOGIN;' /tmp/psql.log || fail "the worker's role was not made"
+	! grep -qF 'GRANT portikus TO' /tmp/psql.log || fail "the worker's role was made a member of portikus"
+	grep -qF 'REVOKE portikus FROM "portikus-worker";' /tmp/psql.log || fail "the worker's grants were not applied"
 	grep -qxF 'DATABASE_URL=postgresql://portikus-worker@/portikus?host=/var/run/postgresql' /etc/portikus/worker.env ||
 		fail "worker.env does not name the portikus-worker role"
 	grep -qxF 'NODE_ENV=production' /etc/portikus/worker.env || fail "worker.env lost its other lines"
 	[ "$(stat -c '%a %U %G' /etc/portikus/worker.env)" = "640 root portikus-worker" ] ||
 		fail "worker.env is $(stat -c '%a %U %G' /etc/portikus/worker.env)"
-	# Done once: a later configure leaves the database alone.
+	# The move is done once; the grants are applied on every configure.
 	rm -f /tmp/psql.log
 	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || fail "third reconfigure failed"
-	[ ! -e /tmp/psql.log ] || fail "psql ran again after the move"
+	! grep -qF 'CREATE ROLE' /tmp/psql.log || fail "the role was made again after the move"
+	grep -qF 'REVOKE portikus FROM "portikus-worker";' /tmp/psql.log || fail "the grants were not applied again"
 	;;
 ui-storage-default)
 	# With exactly one empty disk the suggestion is still the file, and the

@@ -128,7 +128,9 @@ make smoke-test TOFU_ENV=rehearsal-libvirt
 - `make configure-vm` runs the whole Ansible play. With `PORTIKUS_DEB` it
   installs that local package. Without it, it adds the signed apt
   repository and installs the newest package there, and
-  `PORTIKUS_VERSION=<version>` installs an older one.
+  `PORTIKUS_VERSION=<version>` installs an older one. Only a named
+  version may move the server to an older package, so a server running a
+  newer local build needs `PORTIKUS_VERSION` to go back to a release.
 - Run `configure-vm` when no workspace is being created. A controller
   restart in the middle of a create used to leave the workspace in
   `error`. The worker now retries the create, but it is still better not

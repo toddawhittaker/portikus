@@ -17,6 +17,9 @@ KEEP=10
 SUITE=trixie
 COMPONENT=main
 ARCH=amd64
+# Valid-Until, 30 days: apt refuses an older index, so a mirror cannot hold
+# back updates.  The release workflow re-signs weekly to stay inside it.
+VALID_SECONDS=$((30 * 86400))
 
 if [[ $# -lt 1 ]]; then
   echo "usage: APT_SIGNING_KEY=... $0 <repo-dir> [new.deb ...]" >&2
@@ -88,6 +91,7 @@ FPR="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { pri
     -o "APT::FTPArchive::Release::Codename=$SUITE" \
     -o "APT::FTPArchive::Release::Components=$COMPONENT" \
     -o "APT::FTPArchive::Release::Architectures=$ARCH" \
+    -o "APT::FTPArchive::Release::ValidTime=$VALID_SECONDS" \
     release "dists/$SUITE" > "dists/$SUITE/Release.tmp"
   mv "dists/$SUITE/Release.tmp" "dists/$SUITE/Release"
 )
