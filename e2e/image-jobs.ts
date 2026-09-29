@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { API_PORT } from "./ports";
 
 /**
- * A fake host for the Workspace image section (docs/EPIC-15.md, T6; ADR 0030).
+ * A fake host for the Workspace image section (docs/SPEC.md section 22.4; ADR 0030).
  * The API reads IMAGE_JOBS_DIR and the `images` directory beside it; the
  * tests play the root job by hand: they take the request file and write the
  * status, log, manifests, health results and aliases the real job would.

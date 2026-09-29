@@ -1,6 +1,6 @@
 ---
 # A letsencrypt site needs Caddy with the caddy-dns/cloudflare plugin for
-# the DNS-01 challenge (docs/EPIC-15.md ruling 9).  It is built with xcaddy
+# the DNS-01 challenge (docs/SPEC.md section 21.12).  It is built with xcaddy
 # from pinned versions, the Go module checksum database checking every
 # module, and put in place of the packaged binary with dpkg-divert, so the
 # package's unit, user and directories stay as they are.  Any other site

@@ -3,7 +3,7 @@
 - **Status**: Proposed
 - **Date**: 2026-09-24
 - **References**: SPEC.md sections 21.7, 21.8, 22 and 24.1;
-  docs/EPIC-15.md rulings 22 to 29
+  SPEC.md section 22.4
 
 ## Context
 

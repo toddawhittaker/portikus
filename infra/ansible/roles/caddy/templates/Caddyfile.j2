@@ -1,7 +1,7 @@
 # Portikus edge configuration — managed by Ansible.
 # Caddy terminates TLS and proxies to services that listen on loopback only.
 {#
-  The certificate for both sites (docs/EPIC-15.md ruling 9): Caddy's own
+  The certificate for both sites (docs/SPEC.md section 21.12): Caddy's own
   authority, Let's Encrypt by a DNS-01 challenge through Cloudflare (which
   also gives the preview wildcard), or files on the host.  The token is a
   runtime placeholder, so it never lands in Caddy's saved configuration.

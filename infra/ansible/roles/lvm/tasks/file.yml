@@ -1,5 +1,5 @@
 ---
-# Workspace storage on a file (docs/EPIC-15.md, amendment of 2026-09-28):
+# Workspace storage on a file (docs/SPEC.md section 21.12):
 # for a host with no spare disk.  The file is attached to a loop device,
 # which then carries the same volume group and thin pool a disk would.  A
 # small unit attaches it at boot, before Incus starts.  Slower than a disk,

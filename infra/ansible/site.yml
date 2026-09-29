@@ -7,7 +7,7 @@
   become: true
 
   # Setup starts from postinst, whose outer apt still holds the dpkg lock
-  # until it finishes (docs/EPIC-15.md ruling 10).
+  # until it finishes (docs/SPEC.md section 21.12).
   module_defaults:
     ansible.builtin.apt:
       lock_timeout: 900
@@ -19,7 +19,7 @@
       {{ '' if ansible_connection | default('ssh') == 'local' or ansible_user | default('root') == 'root'
          else ansible_user }}
 
-    # ── Workspace storage (docs/EPIC-15.md ruling 3) ──────────────
+    # ── Workspace storage (docs/SPEC.md section 21.12) ──────────────
     # A whole empty block device (a path under /dev), the name of an
     # existing LVM volume group, or `file` for a loop-backed file on the
     # root filesystem.  Empty keeps a host that already has the
@@ -82,7 +82,7 @@
     workspace_egress_dns_port: 5300
 
     # ── Node.js runtime ──────────────────────────────────────────
-    # The Node the package bundles (docs/EPIC-15.md ruling 11), which the
+    # The Node the package bundles (docs/SPEC.md section 21.12), which the
     # play's own calls into the API's scripts use.
     portikus_node: /usr/lib/portikus/node/bin/node
 
@@ -279,7 +279,7 @@
     # given certificate under files, so a self-signed one is trusted too).
     portikus_caddy_root_cert: /etc/portikus/caddy-root.crt
 
-    # ── TLS (docs/EPIC-15.md ruling 9) ────────────────────────────
+    # ── TLS (docs/SPEC.md section 21.12) ────────────────────────────
     # internal: Caddy's own authority, which browsers must be told to trust.
     # letsencrypt: Let's Encrypt, the site's name and a wildcard for the
     #   preview suffix, both by a DNS-01 challenge through Cloudflare.
@@ -297,7 +297,7 @@
     caddy_xcaddy_version: v0.4.7
     caddy_dns_cloudflare_version: v0.2.4
 
-    # ── Workspace image (docs/EPIC-15.md ruling 19) ───────────────
+    # ── Workspace image (docs/SPEC.md section 21.12) ───────────────
     # The signed release a first install fetches with the image job, which
     # reads portikus_image_base_url from portikus.yaml.  Default: the recipe
     # VERSION shipped beside the play.  none downloads nothing, for a host

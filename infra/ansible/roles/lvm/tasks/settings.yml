@@ -1,6 +1,6 @@
 ---
 # The storage choice, checked before any role runs so a refused setting
-# changes nothing on the host (docs/EPIC-15.md ruling 3).  Sets lvm_storage_kind
+# changes nothing on the host (docs/SPEC.md section 21.12).  Sets lvm_storage_kind
 # (device, vg, file, or empty for a host that already has its volume group)
 # and, for a device, lvm_storage_device, the real device path.
 

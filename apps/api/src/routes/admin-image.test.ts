@@ -1,5 +1,5 @@
 /**
- * The Workspace image routes (docs/EPIC-15.md rulings 22 to 28; ADR 0030).
+ * The Workspace image routes (docs/SPEC.md section 22.4; ADR 0030).
  * Administrator-only and CSRF-checked; the API writes nothing but one
  * request file, and refuses a second request while one waits or runs.
  */

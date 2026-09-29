@@ -1,5 +1,5 @@
 # Portikus setup: runs the shipped Ansible play against this host
-# (docs/EPIC-15.md, ruling 10). postinst starts it with --no-block.
+# (docs/SPEC.md section 21.12). postinst starts it with --no-block.
 # Follow it with: portikus setup --follow
 [Unit]
 Description=Portikus setup

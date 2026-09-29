@@ -245,7 +245,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /admin/backups/key": { access: "admin" },
 	"POST /admin/backups/key": { access: "admin" },
 	"POST /admin/backups/key/download": { access: "admin" },
-	// The Workspace image section (docs/EPIC-15.md rulings 22 to 28, ADR 0030).
+	// The Workspace image section (docs/SPEC.md section 22.4, ADR 0030).
 	"GET /admin/image": { access: "admin" },
 	"HEAD /admin/image": { access: "admin" },
 	"GET /admin/image/diff": { access: "admin" },

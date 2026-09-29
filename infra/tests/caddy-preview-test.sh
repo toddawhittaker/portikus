@@ -407,7 +407,7 @@ has "PREVIEW_SUFFIX is written beside PUBLIC_URL" \
   "${REPO_ROOT}/infra/ansible/roles/portikus/templates/api.env.j2"
 
 echo ""
-echo "--- The TLS choice (docs/EPIC-15.md ruling 9) ---"
+echo "--- The TLS choice (docs/SPEC.md section 21.12) ---"
 
 render dex "${work}/Caddyfile.letsencrypt" -e portikus_tls=letsencrypt \
   -e portikus_acme_email=ops@example.edu -e portikus_acme_ca=https://acme-v02.api.letsencrypt.org/directory

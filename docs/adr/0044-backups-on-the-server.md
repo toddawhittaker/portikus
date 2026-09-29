@@ -3,7 +3,7 @@
 - **Status**: Accepted (Epic 15, task T7)
 - **Date**: 2026-09-28
 - **References**: SPEC.md sections 20.1, 24.9 and 24.11; STACK.md sections
-  13 and 15; docs/EPIC-15.md; ADRs 0012, 0024, 0030, 0039 and 0040
+  13 and 15; SPEC.md section 29 (Epic 15); ADRs 0012, 0024, 0030, 0039 and 0040
 
 ## Context
 

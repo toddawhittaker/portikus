@@ -1,5 +1,5 @@
 /**
- * The workspace image job's shapes (docs/EPIC-15.md rulings 24, 25, 28).
+ * The workspace image job's shapes (docs/SPEC.md section 22.4).
  * A request carries nothing but a fixed kind, fixed choices and a strictly
  * shaped version, because the job that reads it runs as root.
  */

@@ -3,7 +3,7 @@
 # terminates TLS and proxies to the control-plane services, which stay
 # bound to loopback (SPEC 24.3).  The certificate comes from Caddy's own
 # authority, Let's Encrypt, or files on the host (portikus_tls,
-# docs/EPIC-15.md ruling 9).
+# docs/SPEC.md section 21.12).
 # Follows the same apt-repo-with-checksum pattern as the incus role.
 
 - name: Create apt keyrings directory

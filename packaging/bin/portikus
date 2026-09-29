@@ -99,7 +99,7 @@ follow_setup() {
   exit 1
 }
 
-# Runs the play against this host (docs/EPIC-15.md, ruling 8, ADR 0029).
+# Runs the play against this host (docs/SPEC.md section 21.12, ADR 0029).
 setup() {
   case "${1:-}" in
     --follow)

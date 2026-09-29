@@ -1,6 +1,6 @@
 ---
 # The TLS choice, checked before any role runs so a bad setting changes
-# nothing on the host (docs/EPIC-15.md ruling 9).
+# nothing on the host (docs/SPEC.md section 21.12).
 
 - name: Require a known TLS choice
   ansible.builtin.assert:

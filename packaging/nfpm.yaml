@@ -13,7 +13,7 @@ vendor: Portikus
 homepage: https://github.com/toddawhittaker/portikus
 license: MIT
 
-# Debian-archive packages only; setup installs the rest (docs/EPIC-15.md, ruling 12).
+# Debian-archive packages only; setup installs the rest (docs/SPEC.md section 21.12).
 depends:
   - ansible-core
   - python3-apt
@@ -216,7 +216,7 @@ contents:
       owner: root
       group: root
 
-# The install questions (docs/EPIC-15.md, rulings 2 to 6).
+# The install questions (docs/SPEC.md section 21.12).
 deb:
   scripts:
     templates: ./packaging/debian/templates
