@@ -3557,6 +3557,14 @@ Built on `epic/15-2-pilot-fixes`.
 
 Delivered:
 
+- Claude Code login in a workspace offers the paste-code URL again (#848).
+  Because `BROWSER` was set, Claude Code also opened a second login URL
+  whose callback is localhost in the workspace. The image now sets
+  `BROWSER` to empty for Claude Code only, through
+  `/etc/claude-code/managed-settings.json` (BROWSER-HANDLING.md 19.2). The
+  image job's health check, the smoke test and
+  `infra/tests/claude-login-test.sh` fail if login opens a browser. It
+  reaches the pilot with the next workspace image.
 - A terminal tells tmux its size only once the pane has stopped changing
   size for 100 ms, so a window or split drag sends one settled size
   instead of one per step (#849). Each size made tmux reflow and Claude
