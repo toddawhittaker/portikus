@@ -203,7 +203,8 @@ Workspace images are published as GitHub releases of their own,
 `image-<version>`, with the image files as assets. The
 version is derived from the repository and looks like `0.1.123+gabc1234`:
 the release number, the commit count, and the short commit hash. The
-repository keeps the ten newest packages.
+repository keeps the ten newest packages of the current major.minor line
+and the newest of each earlier line.
 
 **How a version is deployed.** Run:
 

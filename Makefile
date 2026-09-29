@@ -157,6 +157,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	ansible-playbook infra/tests/workspace-image-test.yml
 	bash infra/tests/backup-scope-test.sh
 	bash infra/tests/backup-channel-test.sh
+	bash scripts/tests/publish-apt-repo-test.sh
 	bash infra/tests/backup-local-test.sh
 
 bootstrap-host: ## Install host prerequisites (KVM, libvirt, OpenTofu, Ansible, age, SOPS)
