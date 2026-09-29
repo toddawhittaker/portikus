@@ -192,7 +192,8 @@ EOF
 	[ "$(python3 -c 'import yaml; print(yaml.safe_load(open("/etc/portikus/secrets.yaml")))')" = "{}" ] ||
 		fail "secrets.yaml is not empty for a local-accounts site"
 	check_started
-	grep -qF 'Sign in at https://portikus.example.edu' /tmp/install.log || fail "sign-in line missing"
+	# apt runs postinst on a pseudo-terminal, so each line ends in a carriage return.
+	grep -qE $'^  3\\. Sign in at https://portikus\\.example\\.edu\r?$' /tmp/install.log || fail "sign-in line missing"
 	grep -qF 'as root@example.edu' /tmp/install.log || fail "sign-in email missing"
 	# The closing message fits an 80-column terminal.
 	long=$(sed -n '/Portikus setup is running/,$p' /tmp/install.log | awk 'length > 78')
@@ -355,6 +356,8 @@ EOF
 	expect "$CONFIG" portikus_public_port 8443
 	expect "$CONFIG" portikus_public_host '"portikus.example.edu"'
 	check_started
+	grep -qE $'^  3\\. Sign in at https://portikus\\.example\\.edu:8443\r?$' /tmp/install.log ||
+		fail "the sign-in address lacks the hand-set port"
 	;;
 unanswered)
 	# A non-interactive install with no preseed, as `make deploy-app` does.

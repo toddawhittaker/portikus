@@ -217,6 +217,10 @@ db_get portikus/public_host
 public_host=$RET
 db_get portikus/admin_email
 admin_email=$RET
+# A port set by hand in portikus.yaml belongs in the address too.
+public_port=$(python3 -c 'import yaml; d = yaml.safe_load(open("/etc/portikus/portikus.yaml")); print(d.get("portikus_public_port", 443) if isinstance(d, dict) else 443)' 2>/dev/null || echo 443)
+site_url="https://$public_host"
+[ "$public_port" = 443 ] || site_url="$site_url:$public_port"
 fi
 clear_secrets
 trap - EXIT
@@ -300,7 +304,7 @@ Portikus setup is running in the background. It takes about ten minutes.
   1. Follow it with:  sudo portikus setup --follow
   2. When it finishes, read the administrator's one-time password with:
        sudo cat /etc/portikus/admin-password
-  3. Sign in at https://$public_host
+  3. Sign in at $site_url
      as $admin_email and choose a new password.
 
 EOF
