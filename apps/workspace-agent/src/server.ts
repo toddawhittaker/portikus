@@ -31,6 +31,7 @@ import { z } from "zod";
 import { tokenAuth } from "./auth.js";
 import { startUrlBroker } from "./broker.js";
 import { checksRoute } from "./checks-route.js";
+import { type DockerRunner, dockerInventoryRoute } from "./docker-inventory.js";
 import { ERROR_STATUS, sendError } from "./errors.js";
 import { eventsRoute } from "./events-route.js";
 import { extractZip } from "./extract.js";
@@ -157,6 +158,8 @@ export interface ServerOptions {
 	 * tell the agent was upgraded under it (issue #887).
 	 */
 	build?: string;
+	/** Overrides how `docker` runs for the inventory route. For tests. */
+	dockerRunner?: DockerRunner;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -717,6 +720,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			homeDir: options.homeDir,
 		});
 		instance.register(listeningRoutes, { monitor, forwards });
+		instance.register(dockerInventoryRoute, { run: options.dockerRunner });
 		instance.register(processesRoutes, {
 			procRoot: options.usage?.procRoot,
 			tmuxPid: () => tmuxPid(true),
