@@ -309,3 +309,33 @@ export async function readInstanceProcesses(
 		(a, b) => b.cpuPercent - a.cpuPercent || b.residentBytes - a.residentBytes,
 	);
 }
+
+/**
+ * When the oldest process in a unit's cgroup started, read from the host's
+ * /proc (issue #887), or null when the cgroup is gone or empty. Nothing is
+ * read inside the instance.
+ */
+export async function readUnitStartTime(
+	procRoot: string,
+	unitCgroupDir: string,
+): Promise<Date | null> {
+	let members: Map<number, string>;
+	try {
+		members = await readCgroupMembers(unitCgroupDir);
+	} catch {
+		return null;
+	}
+	let oldest: number | null = null;
+	for (const hostPid of members.keys()) {
+		const text = await readFile(`${procRoot}/${hostPid}/stat`, "utf8").catch(() => "");
+		const stat = parseStatLine(text.trim());
+		if (stat && stat.pid === hostPid && (oldest === null || stat.startTicks < oldest)) {
+			oldest = stat.startTicks;
+		}
+	}
+	if (oldest === null) return null;
+	const procStat = await readFile(`${procRoot}/stat`, "utf8");
+	const btime = /^btime (\d+)$/m.exec(procStat)?.[1];
+	if (!btime) throw new Error("host boot time is unreadable");
+	return new Date((Number(btime) + oldest / CLOCK_TICKS) * 1000);
+}

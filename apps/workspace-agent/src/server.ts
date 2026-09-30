@@ -152,6 +152,11 @@ export interface ServerOptions {
 	terminalsExitPath?: string;
 	/** Overrides where the reinstall note reads the image and dpkg. For tests. */
 	packages?: Omit<PackagesRouteOptions, "homeDir">;
+	/**
+	 * Which agent code is running, sent on every attach so an open page can
+	 * tell the agent was upgraded under it (issue #887).
+	 */
+	build?: string;
 }
 
 /** The workspace agent's HTTP and WebSocket surface (SPEC.md §9.7). */
@@ -740,6 +745,9 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				const { terminalId } = params.data;
 				try {
 					await registry.attach(terminalId, socket, query.data);
+					if (options.build) {
+						socket.send(JSON.stringify({ type: "agent", build: options.build }));
+					}
 					socket.resume();
 					request.log.debug(
 						{ terminalId, cols: query.data.cols, rows: query.data.rows },

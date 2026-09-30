@@ -418,6 +418,9 @@ export async function startFakeAgent(
 	const received: string[] = [];
 	// The same frames, with the terminal each arrived on.
 	const receivedByTerminal: { terminalId: string; text: string }[] = [];
+	// The agent build each terminal's attach reports; a test stages an
+	// upgrade for one terminal so parallel workers are not disturbed (issue #887).
+	const buildOf = new Map<string, string>();
 	const projects = new Map<string, FakeDirectory>();
 	const files = new Map<string, FakeNode>();
 	const perKeyFiles = new Map<string, Map<string, FakeNode>>();
@@ -1726,6 +1729,17 @@ export async function startFakeAgent(
 		return reply.status(204).send();
 	});
 
+	// Restart the agent with a new build as an upgrade does: every attachment
+	// of the terminal drops the way a stopping agent closes it, and the
+	// browser's reconnect is told the new build (issue #887).
+	app.post("/__test/terminals/:id/agent-restart", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		const body = request.body as { build: string };
+		buildOf.set(id, body.build);
+		for (const peer of attached.get(id) ?? []) peer.close(1001, "agent shutting down");
+		return reply.status(204).send();
+	});
+
 	// Output a test wants on screen without typing for it, so a browser test
 	// can fill the scrollback.
 	app.post("/__test/terminals/:id/output", async (request, reply) => {
@@ -1770,6 +1784,10 @@ export async function startFakeAgent(
 				});
 			}
 			socket.send(JSON.stringify({ type: "size", cols: query.cols, rows: query.rows }));
+			// Only once a test has staged a restart, so tests reading the
+			// first frames are undisturbed.
+			const build = buildOf.get(id);
+			if (build) socket.send(JSON.stringify({ type: "agent", build }));
 			socket.on("message", (data: Buffer) => {
 				const text = data.toString();
 				received.push(text);

@@ -14,6 +14,7 @@ import { captureHistory, HISTORY_LINES, hasSession } from "./tmux.js";
 const run = promisify(execFile);
 
 const TOKEN = "a".repeat(64);
+const BUILD = "2026-09-30T10:00:00.000Z";
 const SOCKET_NAME = `portikus-test-${process.pid}`;
 const SERVER = { socketName: SOCKET_NAME, external: false };
 
@@ -141,7 +142,7 @@ beforeAll(async () => {
 	homeDir = await mkdtemp(join(tmpdir(), "portikus-agent-"));
 	const tokenPath = join(homeDir, "agent.token");
 	await writeFile(tokenPath, `${TOKEN}\n`, { mode: 0o600 });
-	app = buildServer({ tokenPath, homeDir, tmuxSocketName: SOCKET_NAME });
+	app = buildServer({ tokenPath, homeDir, tmuxSocketName: SOCKET_NAME, build: BUILD });
 	await app.listen({ port: 0, host: "127.0.0.1" });
 	port = (app.server.address() as { port: number }).port;
 });
@@ -195,6 +196,23 @@ test.skipIf(!haveTmux)("the upgrade is rejected without a valid token", async ()
 	const socket = await openSocket(id, "c".repeat(64));
 	expect(socket.ws.readyState).not.toBe(WebSocket.OPEN);
 
+	await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
+});
+
+// An open page tells an upgraded agent by this frame (issue #887).
+test.skipIf(!haveTmux)("every attach says which agent build is running", async () => {
+	const id = makeId();
+	const created = await app.inject({
+		method: "POST",
+		url: "/terminals",
+		headers: auth(),
+		payload: { id, cwd: homeDir, theme: "dark", timezone: "America/New_York" },
+	});
+	expect(created.statusCode).toBe(201);
+	const socket = await openSocket(id);
+	await socket.waitFor("$", 1);
+	expect(socket.textFrames).toContainEqual({ type: "agent", build: BUILD });
+	await socket.close();
 	await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
 });
 

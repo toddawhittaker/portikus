@@ -1,3 +1,5 @@
+import { stat } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { AgentConfigSchema, loadConfig } from "@portikus/config";
 import { createLogger } from "@portikus/observability";
 import { seedAgentInstructions } from "./agent-instructions.js";
@@ -44,6 +46,12 @@ const workspaceId =
 		? workspaceFromEnv
 		: undefined;
 
+// The package's own file time names the agent code; an upgrade changes it (issue #887).
+const build = await stat(fileURLToPath(import.meta.url)).then(
+	(file) => file.mtime.toISOString(),
+	() => undefined,
+);
+
 const app = buildServer({
 	tokenPath: config.TOKEN_PATH,
 	homeDir: config.HOME_DIR,
@@ -53,6 +61,7 @@ const app = buildServer({
 	logger,
 	brokerSocketPath: "/run/portikus/browser.sock",
 	workspaceId,
+	build,
 });
 
 // The workspace bridge is the only network the container has, and the Incus
