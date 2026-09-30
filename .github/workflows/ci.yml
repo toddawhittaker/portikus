@@ -184,7 +184,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: vitest-blob-${{ matrix.shard }}
-          path: .vitest-reports/
+          path: .vitest/blob/
           retention-days: 1
           include-hidden-files: true
 
@@ -218,7 +218,7 @@ jobs:
         if: needs.changes.outputs.app == 'true'
         with:
           pattern: vitest-blob-*
-          path: .vitest-reports
+          path: .vitest/blob/
           merge-multiple: true
       - if: needs.changes.outputs.app == 'true'
         run: pnpm exec vitest --merge-reports --coverage
