@@ -3679,7 +3679,7 @@ Gaps:
 ## Epic 26 — Shared Docker pull storage
 
 Built on `epic/26-docker-cache` for issue #840 (plan #901, task PRs #902
-to #905, review fixes #908 to #912). Migrations 0031 to 0033. SPEC.md
+to #905, review fixes #908 to #912, pilot fixes #921 to #927). Migrations 0031 to 0033. SPEC.md
 section 16.6 and ADR 0045.
 
 Delivered:
@@ -3699,6 +3699,12 @@ Delivered:
   digest-pinned seed images, a safe seed swap, the Hub cache held stopped
   after a failed clear, pull events counted by tag, and accessibility
   fixes on the Docker tab.
+- Pilot fixes: setup shrinks the cache to fit the disk or turns it off,
+  and never fails because of it; workspaces get no cache settings while it
+  is off; setup loads the egress table so the ghcr.io cache works without
+  a reboot; the ghcr.io hosts line survives a workspace's first start; Go
+  build caches no longer fill the main disk; the seed poll no longer logs
+  every minute; `portikus status` lists the cache services.
 
 Gaps:
 
