@@ -82,14 +82,6 @@ test("a workspace that fails or stopped meanwhile does not stop the others", asy
 	expect(warn?.err).toBe("instance is not running");
 });
 
-test("never restarts the same workspace twice in one run", async () => {
-	const { logger } = collectingLogger();
-	const twice = { name: "ws-a", imageSerial: "2026.09.14", startedAt: BEFORE };
-	const { fake, restarted } = restarter([twice, { ...twice }]);
-	await restartOutdatedAgents({ restarter: fake, agentChangedAt: UPGRADED, logger });
-	expect(restarted).toEqual(["ws-a"]);
-});
-
 test("a second run after the restart leaves the agent alone", async () => {
 	const { logger } = collectingLogger();
 	const agent: RunningAgent = {

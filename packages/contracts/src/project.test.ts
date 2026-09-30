@@ -533,3 +533,11 @@ test("CreateProjectRequest allows nameFromRepository only for a clone", () => {
 		}).success,
 	).toBe(false);
 });
+
+test("a clone's name drops flag emoji but keeps trademark signs (#883)", () => {
+	expect(projectNameFromRepository({ readme: "# 🇺🇸 Census Tool\n" })).toBe(
+		"Census Tool",
+	);
+	expect(projectNameFromRepository({ readme: "# Acme™ Tools\n" })).toBe("Acme™ Tools");
+	expect(projectNameFromRepository({ readme: "# Foo® ©Bar\n" })).toBe("Foo® ©Bar");
+});

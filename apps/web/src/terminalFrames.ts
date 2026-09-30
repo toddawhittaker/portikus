@@ -105,3 +105,11 @@ export function upgradedAgentNotice(workspaceId: string, build: string): boolean
 	toldBuilds.add(key);
 	return true;
 }
+
+/** Forget a workspace's agent build once its terminals are gone, so a fresh start is not called an upgrade. */
+export function forgetAgentBuild(workspaceId: string): void {
+	firstBuilds.delete(workspaceId);
+	for (const key of toldBuilds) {
+		if (key.startsWith(`${workspaceId} `)) toldBuilds.delete(key);
+	}
+}

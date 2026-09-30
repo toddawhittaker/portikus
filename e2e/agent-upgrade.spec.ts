@@ -9,8 +9,10 @@ import {
 	createStudent,
 	expectConnected,
 	newTerminal,
+	settledAxe,
 	terminalIds,
 	toast,
+	WCAG_TAGS,
 	workspacePath,
 	workTabs,
 } from "./helpers";
@@ -69,6 +71,8 @@ test("an agent upgraded under an open page shows one toast and keeps the termina
 	await expect(shown).toHaveCount(1);
 	// It is news, not a warning.
 	await expect(shown.getByRole("status")).toBeVisible();
+	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+	expect(results.violations).toEqual([]);
 	for (const id of ids) {
 		await expect(page.getByTestId(`terminal-pane-${id}`)).toHaveCount(1);
 		await expectConnected(page, id);
