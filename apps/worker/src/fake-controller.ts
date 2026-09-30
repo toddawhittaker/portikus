@@ -16,6 +16,8 @@ import type {
 	RebuildInstanceResponse,
 	ReplaceHomeResponse,
 	ResetDockerRequest,
+	SeedBuildRequest,
+	SeedBuildStatus,
 	SetInstanceLimitsRequest,
 	StartInstanceRequest,
 	StartInstanceResponse,
@@ -213,6 +215,36 @@ export class FakeControllerClient implements ControllerClient {
 		this.calls.push({ method: "applyEgressPolicy", args: [policy] });
 		if (this.egressResult instanceof Error) throw this.egressResult;
 		return this.egressResult;
+	}
+
+	/** Seed build answers; a function sees the request or id. */
+	startSeedBuildResult: ((req: SeedBuildRequest) => SeedBuildStatus) | Error = (
+		req,
+	) => ({
+		id: req.id,
+		state: "running",
+		step: "Starting",
+		message: null,
+		seed: null,
+	});
+	seedBuildResult: ((id: string) => SeedBuildStatus) | Error = (id) => ({
+		id,
+		state: "running",
+		step: "Pulling",
+		message: null,
+		seed: null,
+	});
+
+	async startSeedBuild(req: SeedBuildRequest): Promise<SeedBuildStatus> {
+		this.calls.push({ method: "startSeedBuild", args: [req] });
+		if (this.startSeedBuildResult instanceof Error) throw this.startSeedBuildResult;
+		return this.startSeedBuildResult(req);
+	}
+
+	async seedBuild(id: string): Promise<SeedBuildStatus> {
+		this.calls.push({ method: "seedBuild", args: [id] });
+		if (this.seedBuildResult instanceof Error) throw this.seedBuildResult;
+		return this.seedBuildResult(id);
 	}
 
 	/** Helper to make a ControllerClientError. */

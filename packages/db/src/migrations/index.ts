@@ -29,6 +29,7 @@ import { down as down0027, up as up0027 } from "./0027_workspace_limits.js";
 import { down as down0028, up as up0028 } from "./0028_throttle_hold.js";
 import { down as down0029, up as up0029 } from "./0029_package_survey.js";
 import { down as down0030, up as up0030 } from "./0030_egress_blocked_sites.js";
+import { down as down0031, up as up0031 } from "./0031_docker_cache.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -65,4 +66,5 @@ export const migrations: Record<string, Migration> = {
 	"0028_throttle_hold": { up: up0028, down: down0028 },
 	"0029_package_survey": { up: up0029, down: down0029 },
 	"0030_egress_blocked_sites": { up: up0030, down: down0030 },
+	"0031_docker_cache": { up: up0031, down: down0031 },
 };
