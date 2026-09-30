@@ -71,6 +71,9 @@ class FakeHost:
     def answers(self, name):
         return self.up[name]
 
+    def sleep(self, seconds):
+        self.calls.append(("sleep", seconds))
+
 
 def request_doc(request, file_id=ID):
     return {"id": file_id, "requestedAt": "2026-09-30T10:00:00.000Z", "requestedBy": USER, "request": request}
@@ -229,6 +232,13 @@ class ClearTest(Base):
         (self.config / "ghcr-enabled").write_text("on\n")
         self.helper.clear("admin")
         self.assertIn(("start", "portikus-registry-ghcr.service"), self.systemctl_calls())
+
+    def test_clear_waits_for_the_hub_cache_to_answer(self):
+        answers = iter([False, False])
+        self.host.answers = lambda name: next(answers, True) if name == "hub" else False
+        self.helper.clear("admin")
+        self.assertEqual([c for c in self.host.calls if c[0] == "sleep"], [("sleep", 1), ("sleep", 1)])
+        self.assertTrue(self.status()["hubUp"])
 
     def test_no_mkfs_when_the_filesystem_stays_mounted(self):
         self.host.fail_unmount = True

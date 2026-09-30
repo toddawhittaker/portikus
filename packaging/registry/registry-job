@@ -30,6 +30,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 
@@ -202,6 +203,9 @@ class Host:
         import pwd
         return pwd.getpwnam(REGISTRY_USER).pw_uid
 
+    def sleep(self, seconds):
+        time.sleep(seconds)
+
     def answers(self, name):
         """Whether the cache answers GET /v2/ with 200."""
         port = CACHES[name]["port"]
@@ -365,6 +369,11 @@ class Helper:
         self.host.systemctl("start", CACHES["hub"]["unit"])
         if self.ghcr_enabled():
             self.host.systemctl("start", CACHES["ghcr"]["unit"])
+        # So the status written next says up, not "starting".
+        for _ in range(15):
+            if self.host.answers("hub"):
+                break
+            self.host.sleep(1)
 
     def set_ghcr(self, enabled):
         write_file(self.path("ghcr-enabled"), "on\n" if enabled else "off\n", 0o644)
