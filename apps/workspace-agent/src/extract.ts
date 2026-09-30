@@ -138,6 +138,11 @@ export async function readZipEntries(handle: FileHandle): Promise<ZipEntry[]> {
 			});
 			at = end + extraLength + commentLength;
 		}
+		// unzip keeps reading central entries past the stored count, so any
+		// bytes left over could hide entries from every check here.
+		if (at !== centralSize || centralOffset + centralSize !== size - tailBytes + eocd) {
+			throw invalid("the zip is damaged");
+		}
 		return entries;
 	} catch (error) {
 		if (error instanceof AgentFailure) throw error;
@@ -176,10 +181,11 @@ export function checkEntries(entries: readonly ZipEntry[]): void {
 	}
 }
 
-/** The folder name for a zip: its name without `.zip`. */
+/** The folder name for a zip: its name without `.zip`, never `.git`. */
 export function folderNameFor(zipName: string): string {
 	const stem = zipName.replace(/\.zip$/i, "");
-	return stem === "" ? "archive" : stem;
+	if (stem === "") return "archive";
+	return stem.toLowerCase() === ".git" ? "git-archive" : stem;
 }
 
 function tooLarge(): AgentFailure {
@@ -217,15 +223,18 @@ async function claimFolder(parent: string, stem: string): Promise<string> {
 }
 
 /**
- * Refuse any symbolic link at all in the extracted folder, and return the
- * bytes it holds. The exact total catches a fast unzip that finished
- * between free-space polls.
+ * Refuse any symbolic link or `.git` part at all in the extracted folder,
+ * and return the bytes it holds. The exact total catches a fast unzip that
+ * finished between free-space polls.
  */
-async function checkExtracted(dir: string): Promise<number> {
+export async function checkExtracted(dir: string): Promise<number> {
 	let total = 0;
 	for (const dirent of await readdir(dir, { withFileTypes: true })) {
 		const path = join(dir, dirent.name);
 		if (dirent.isSymbolicLink()) throw invalid("the zip holds a symbolic link");
+		if (dirent.name.toLowerCase() === ".git") {
+			throw invalid("the zip writes into a .git folder");
+		}
 		if (dirent.isDirectory()) total += await checkExtracted(path);
 		else total += (await lstat(path)).size;
 	}
@@ -253,8 +262,10 @@ async function runUnzip(fd: number, dest: string, signal?: AbortSignal): Promise
 			},
 		);
 		let stopped: AgentFailure | null = null;
+		// Once unzip has exited its pid may be reused, so never signal it.
+		let closed = false;
 		const stop = (failure: AgentFailure) => {
-			if (stopped) return;
+			if (stopped || closed) return;
 			stopped = failure;
 			try {
 				if (child.pid) process.kill(-child.pid, "SIGKILL");
@@ -283,6 +294,7 @@ async function runUnzip(fd: number, dest: string, signal?: AbortSignal): Promise
 			stderr = (stderr + chunk).slice(-4096);
 		});
 		const finish = () => {
+			closed = true;
 			clearInterval(timer);
 			signal?.removeEventListener("abort", onAbort);
 		};

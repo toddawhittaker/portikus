@@ -48,7 +48,6 @@ export interface ToastProps {
 	/** Stays until the caller dismisses it, for progress that outlasts the usual duration. */
 	persistent?: boolean;
 	className?: string;
-	ref?: React.Ref<HTMLLIElement>;
 }
 
 /** One message. Render it inside a ToastProvider, or let useToast do it for you. */
@@ -61,7 +60,7 @@ export function Toast({
 	persistent,
 	className,
 	ref,
-}: ToastProps): React.ReactElement {
+}: ToastProps & { ref?: React.Ref<HTMLLIElement> }): React.ReactElement {
 	const urgent = tone === "warning" || tone === "danger";
 	return (
 		<RadixToast.Root

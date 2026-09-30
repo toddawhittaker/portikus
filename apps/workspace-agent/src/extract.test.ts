@@ -25,6 +25,7 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	checkEntries,
+	checkExtracted,
 	extractZip,
 	folderNameFor,
 	readZipEntries,
@@ -59,7 +60,7 @@ interface Member {
 }
 
 /** A stored (uncompressed) zip holding exactly the given members. */
-function makeZip(members: Member[]): Buffer {
+function makeZip(members: Member[], storedCount = members.length): Buffer {
 	const locals: Buffer[] = [];
 	const centrals: Buffer[] = [];
 	let offset = 0;
@@ -106,8 +107,8 @@ function makeZip(members: Member[]): Buffer {
 	const centralBytes = Buffer.concat(centrals);
 	const end = Buffer.alloc(22);
 	end.writeUInt32LE(0x06054b50, 0);
-	end.writeUInt16LE(members.length, 8);
-	end.writeUInt16LE(members.length, 10);
+	end.writeUInt16LE(storedCount, 8);
+	end.writeUInt16LE(storedCount, 10);
 	end.writeUInt32LE(centralBytes.length, 12);
 	end.writeUInt32LE(offset, 16);
 	return Buffer.concat([...locals, centralBytes, end]);
@@ -134,8 +135,12 @@ afterEach(async () => {
 	await rm(homeDir, { recursive: true, force: true });
 });
 
-async function place(name: string, members: Member[]): Promise<void> {
-	await writeFile(join(project, name), makeZip(members));
+async function place(
+	name: string,
+	members: Member[],
+	storedCount?: number,
+): Promise<void> {
+	await writeFile(join(project, name), makeZip(members, storedCount));
 }
 
 /** Nothing outside the project changed, and no folder was left behind. */
@@ -195,6 +200,29 @@ describe("extracting a zip", () => {
 		await expect(extractZip(homeDir, "alpha", "notes.txt")).rejects.toMatchObject({
 			code: "ARCHIVE_INVALID",
 		});
+	});
+
+	test("refuses a zip whose end record hides central entries", async () => {
+		// unzip reads every central entry while the signature matches, so a
+		// low stored count must not hide the rest from the checks.
+		await place(
+			"hidden.zip",
+			[
+				{ name: "a.txt", data: "a" },
+				{ name: ".git/config", data: "[core]\n\tfsmonitor = evil\n" },
+			],
+			1,
+		);
+		await expect(extractZip(homeDir, "alpha", "hidden.zip")).rejects.toMatchObject({
+			code: "ARCHIVE_INVALID",
+		});
+		await expectUntouched("hidden");
+	});
+
+	test("never names the new folder .git", async () => {
+		await place("sub/.git.zip", [{ name: "config", data: "x" }]);
+		expect(await extractZip(homeDir, "alpha", "sub/.git.zip")).toBe("sub/git-archive");
+		await expect(lstat(join(project, "sub/.git"))).rejects.toThrow();
 	});
 
 	test("refuses a password-protected zip", async () => {
@@ -342,6 +370,15 @@ describe("an aborted request", () => {
 	});
 });
 
+describe("the walk after extraction", () => {
+	test("refuses a .git folder in any case", async () => {
+		await mkdir(join(project, "out", "a", ".Git"), { recursive: true });
+		await expect(checkExtracted(join(project, "out"))).rejects.toMatchObject({
+			code: "ARCHIVE_INVALID",
+		});
+	});
+});
+
 describe("the pure checks", () => {
 	test("safeEntryName", () => {
 		expect(safeEntryName("src/app.js")).toBe(true);
@@ -355,6 +392,24 @@ describe("the pure checks", () => {
 		expect(folderNameFor("starter.zip")).toBe("starter");
 		expect(folderNameFor("Starter.ZIP")).toBe("Starter");
 		expect(folderNameFor(".zip")).toBe("archive");
+		expect(folderNameFor(".git.zip")).toBe("git-archive");
+		expect(folderNameFor(".GIT.Zip")).toBe("git-archive");
+	});
+
+	test("readZipEntries refuses central entries past the stored count", async () => {
+		await place(
+			"hidden.zip",
+			[
+				{ name: "a.txt", data: "a" },
+				{ name: ".git/config", data: "x" },
+			],
+			1,
+		);
+		const handle = await open(join(project, "hidden.zip"));
+		await expect(readZipEntries(handle)).rejects.toMatchObject({
+			code: "ARCHIVE_INVALID",
+		});
+		await handle.close();
 	});
 
 	test("checkEntries passes a plain zip and readZipEntries reads names", async () => {
