@@ -262,6 +262,8 @@
 
 # ── The caches and the helper ─────────────────────────────────────
 
+# On a held site (hub-held) the unit's condition skips the start, and
+# systemctl start still succeeds.
 - name: Enable and start the Docker Hub cache
   ansible.builtin.systemd_service:
     name: portikus-registry-hub.service

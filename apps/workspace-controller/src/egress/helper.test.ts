@@ -387,12 +387,10 @@ describe("a request (ADR 0038)", () => {
 		expect(status()).toMatchObject({ requestId: "req-1", ok: false });
 	});
 
-	test("no request on a site that never applied: the default open table, with the ghcr redirect when on", async () => {
+	test("no request, table loaded, no applied.json: the loaded table is left alone", async () => {
 		writeFileSync(deps.ghcrEnabledPath, "on\n");
 		expect(await runHelper(deps)).toBe(0);
-		expect(loads()).toHaveLength(1);
-		expect(loads()[0]).toMatch(/tcp dport 443 redirect to :5001/);
-		expect(loads()[0]).not.toMatch(/forward .*drop/);
+		expect(loads()).toEqual([]);
 		expect(systemctls()).toEqual([]);
 		expect(read("status.json")).toBeNull();
 	});

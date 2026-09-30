@@ -200,7 +200,7 @@ export const RegistryStatusFile = z.object({
 	lastClearedAt: z.string().datetime().nullable(),
 	lastClearReason: z.enum(["admin", "full", "credential"]).nullable(),
 	/** Why the last clear failed; while set after a credential change the Hub cache stays stopped. */
-	lastClearError: z.string().max(1000).optional(),
+	lastClearError: z.string().max(1000).nullable().optional(),
 	updatedAt: z.string().datetime(),
 });
 export type RegistryStatusFile = z.infer<typeof RegistryStatusFile>;

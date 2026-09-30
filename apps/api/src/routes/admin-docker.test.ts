@@ -184,6 +184,15 @@ describe.skipIf(skip)("GET /admin/docker", () => {
 		const withError = (await send(carol, "GET", "/admin/docker")).json();
 		expect(withError.cache.lastClearError).toBe("registry did not stop");
 
+		// The helper writes null when the last clear worked; the status still reads.
+		await writeFile(
+			join(jobsDir, "status.json"),
+			JSON.stringify(status({ lastClearError: null })),
+		);
+		const cleared = (await send(carol, "GET", "/admin/docker")).json();
+		expect(cleared.cache).not.toBeNull();
+		expect(cleared.cache.lastClearError).toBeNull();
+
 		await writeFile(join(jobsDir, "status.json"), "{not json");
 		const again = (await send(carol, "GET", "/admin/docker")).json();
 		expect(again.cache).toBeNull();
@@ -233,6 +242,22 @@ describe.skipIf(skip)("PUT /admin/docker/settings", () => {
 		expect(audits[1]?.metadata).toMatchObject({
 			to: { ghcrEnabled: true, seedMaxGiB: 12 },
 		});
+	});
+
+	test("the switch goes back when the set-ghcr request cannot be written", async () => {
+		await rm(jobsDir, { recursive: true, force: true });
+		const res = await send(carol, "PUT", "/admin/docker/settings", {
+			ghcrEnabled: true,
+			seedMaxGiB: 12,
+		});
+		expect(res.statusCode).toBe(500);
+		const row = await testDb.db
+			.selectFrom("settings")
+			.select(["docker_ghcr_enabled", "docker_seed_max_gib"])
+			.where("id", "=", 1)
+			.executeTakeFirstOrThrow();
+		expect(row.docker_ghcr_enabled).toBe(false);
+		expect(await dockerAudits()).toEqual([]);
 	});
 
 	test("a field left out keeps its saved value (review Q3)", async () => {

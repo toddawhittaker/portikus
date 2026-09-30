@@ -451,13 +451,22 @@ async function dropWithoutEnv(deps: HelperDeps): Promise<string | null> {
 
 /**
  * A run with no request while the table is loaded: the registry helper
- * switched the ghcr.io cache, so load the applied policy's table again, or
- * the default open one on a site that never applied. Learned names are kept.
+ * switched the ghcr.io cache, so load the applied policy's table again.
+ * Learned names are kept. With no applied.json the loaded table stays as it
+ * is: a lost file must never swap a restrictive table for the open one.
  */
 async function rerenderTable(deps: HelperDeps, env: EgressEnv): Promise<void> {
 	const applied = await readApplied(deps);
-	const policy = applied?.policy ?? DEFAULT_OPEN_POLICY;
-	await loadTable(deps, renderTable(policy, env, false, await readGhcrEnabled(deps)));
+	if (!applied) {
+		process.stderr.write(
+			"egress apply: no applied.json while the table is loaded; left the table as it is\n",
+		);
+		return;
+	}
+	await loadTable(
+		deps,
+		renderTable(applied.policy, env, false, await readGhcrEnabled(deps)),
+	);
 }
 
 async function tableLoaded(deps: HelperDeps): Promise<boolean> {
