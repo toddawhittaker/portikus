@@ -28,6 +28,15 @@ async function restartAgent(terminalId: string, build: string): Promise<void> {
 		},
 	);
 	expect(response.ok).toBe(true);
+	// The panes drop now and reconnect about three seconds later.
+	await expect.poll(() => attachments(terminalId)).toBe(0);
+}
+
+async function attachments(terminalId: string): Promise<number> {
+	const response = await fetch(
+		`${FAKE_AGENT_URL}/__test/terminals/${terminalId}/attachments`,
+	);
+	return ((await response.json()) as { attachments: number }).attachments;
 }
 
 test("an agent upgraded under an open page shows one toast and keeps the terminals", async ({
@@ -45,6 +54,11 @@ test("an agent upgraded under an open page shows one toast and keeps the termina
 		.toBe(2);
 	const ids = await terminalIds(student.workspaceId, project.id);
 	for (const id of ids) await expectConnected(page, id);
+
+	// The first build the page hears of is where it starts: no toast.
+	for (const id of ids) await restartAgent(id, "fake-build-1");
+	for (const id of ids) await expect.poll(() => attachments(id)).toBe(1);
+	await expect(toast(page, MESSAGE)).toHaveCount(0);
 
 	// The agent restarts on the new build: every pane drops and reconnects.
 	for (const id of ids) await restartAgent(id, "fake-build-2");
@@ -80,6 +94,6 @@ test("a page opened on an already upgraded agent shows no toast", async ({
 	// A reload starts from the build it finds, so nothing changed under it.
 	await page.reload();
 	await expectConnected(page, id);
-	await page.waitForTimeout(1_000);
+	await expect.poll(() => attachments(id)).toBe(1);
 	await expect(toast(page, MESSAGE)).toHaveCount(0);
 });

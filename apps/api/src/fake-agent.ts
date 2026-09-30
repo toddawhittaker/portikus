@@ -1784,9 +1784,10 @@ export async function startFakeAgent(
 				});
 			}
 			socket.send(JSON.stringify({ type: "size", cols: query.cols, rows: query.rows }));
-			socket.send(
-				JSON.stringify({ type: "agent", build: buildOf.get(id) ?? "fake-build-1" }),
-			);
+			// Only once a test has staged a restart, so tests reading the
+			// first frames are undisturbed.
+			const build = buildOf.get(id);
+			if (build) socket.send(JSON.stringify({ type: "agent", build }));
 			socket.on("message", (data: Buffer) => {
 				const text = data.toString();
 				received.push(text);
