@@ -3679,7 +3679,7 @@ Gaps:
 ## Epic 26 — Shared Docker pull storage
 
 Built on `epic/26-docker-cache` for issue #840 (plan #901, task PRs #902
-to #905, review fixes #908 to #912, pilot fixes #921 to #925). Migrations 0031 to 0033. SPEC.md
+to #905, review fixes #908 to #912, pilot fixes #921 to #927). Migrations 0031 to 0033. SPEC.md
 section 16.6 and ADR 0045.
 
 Delivered:
