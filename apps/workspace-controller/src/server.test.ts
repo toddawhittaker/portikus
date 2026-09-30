@@ -497,6 +497,22 @@ test("a request logs one line, and an Incus failure names the reason", async () 
 	}
 });
 
+test("the minute seed poll with no seed logs at debug only", async () => {
+	const { logged, requests } = buildLogging("debug");
+	try {
+		const res = await logged.inject({
+			method: "GET",
+			url: "/docker-seed",
+			headers: auth(),
+		});
+		expect(res.statusCode).toBe(404);
+		expect(res.json().code).toBe("NOT_FOUND");
+		expect(requests().map((l) => l.level)).toEqual(["debug"]);
+	} finally {
+		await logged.close();
+	}
+});
+
 // Maintenance operations (ADR 0021).
 
 async function createStopped(name = "ws-abc") {

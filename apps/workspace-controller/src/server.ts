@@ -70,7 +70,8 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		loggerInstance: rootLogger as FastifyBaseLogger,
 		logController: quietLogController(),
 	});
-	registerRequestLogging(app, { debugPaths: ["/health"] });
+	// The worker polls /docker-seed every minute; "no seed yet" is a normal 404.
+	registerRequestLogging(app, { debugPaths: ["/health", "/docker-seed"] });
 
 	// The level to return to when the worker clears the override (ADR 0012).
 	const startLevel = rootLogger.level as LogLevel;
