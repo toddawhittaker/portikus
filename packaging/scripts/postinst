@@ -125,6 +125,8 @@ if storage.startswith("/dev/"):
     settings["portikus_storage_confirm"] = answer("storage_confirm") == "true"
 if storage == "file" and answer("storage_size").isdigit():
     settings["portikus_storage_size"] = int(answer("storage_size"))
+if answer("registry_cache_gib").isdigit() and int(answer("registry_cache_gib")) >= 1:
+    settings["portikus_registry_cache_gib"] = int(answer("registry_cache_gib"))
 
 # Keys that follow from the answers; a key here that no longer applies is
 # removed, so switching providers leaves no stale settings behind.
@@ -285,6 +287,9 @@ if [ -d /run/systemd/system ]; then
 			systemctl enable "$unit" >/dev/null
 		done
 	fi
+
+	# The Docker caches pick up a changed unit or helper; setup starts them first.
+	systemctl try-restart portikus-registry-hub.service portikus-registry-ghcr.service || true
 
 	# The mock provider first so the API can reach its issuer, then the api,
 	# which runs the database migrations in ExecStartPre.

@@ -151,6 +151,33 @@ contents:
       owner: root
       group: root
       mode: 0755
+  # The Docker pull-through caches and their root helper (issue #840).
+  # Enabled by Ansible, which installs docker-registry and makes their
+  # filesystem, user and certificates.
+  - src: ./packaging/systemd/portikus-registry-hub.service
+    dst: /usr/lib/systemd/system/portikus-registry-hub.service
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-registry-ghcr.service
+    dst: /usr/lib/systemd/system/portikus-registry-ghcr.service
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-registry-job.path
+    dst: /usr/lib/systemd/system/portikus-registry-job.path
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-registry-job.service
+    dst: /usr/lib/systemd/system/portikus-registry-job.service
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-registry-status.service
+    dst: /usr/lib/systemd/system/portikus-registry-status.service
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-registry-status.timer
+    dst: /usr/lib/systemd/system/portikus-registry-status.timer
+    file_info: *unit_info
+  - src: ./packaging/registry/registry-job
+    dst: /usr/lib/portikus/registry-job
+    file_info:
+      owner: root
+      group: root
+      mode: 0755
   # Backups on the server itself (ADR 0044): the same scripts a separate
   # backup host runs, in local mode, and the root key helper.  Enabled by
   # setup's backup role only on a local install.

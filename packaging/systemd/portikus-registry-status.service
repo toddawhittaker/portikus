@@ -1,0 +1,23 @@
+# Portikus Docker cache status (issue #840). Run every minute by its timer:
+# writes the cache's size, use and state for the admin page, and clears the
+# cache when it passes 90 percent full.
+[Unit]
+Description=Portikus Docker cache status
+ConditionPathIsDirectory=/var/lib/portikus/registry-jobs
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/portikus/registry-job status
+TimeoutStartSec=10min
+
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native

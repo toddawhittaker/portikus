@@ -44,11 +44,12 @@ egress:
     description: Deny peer-workspace traffic (all protocols)
     state: enabled
   # Incus accepts DHCP, and DNS on port 53, to the gateway before these rules.
+  # The Docker caches stay open, never 443 (issue #840, rulings S1 and S3).
   - action: drop
     destination: "{{ gateway }}/32"
     protocol: tcp
-    destination_port: "{{ ports_except([workspace_egress_http_port, workspace_egress_https_port, workspace_egress_dns_port]) }}"
-    description: Deny the gateway except the egress redirect targets (TCP)
+    destination_port: "{{ ports_except([workspace_egress_http_port, workspace_egress_https_port, workspace_egress_dns_port, registry_cache_hub_port, registry_cache_ghcr_port]) }}"
+    description: Deny the gateway except the egress redirect targets and the Docker caches (TCP)
     state: enabled
   - action: drop
     destination: "{{ gateway }}/32"
