@@ -22,6 +22,7 @@ import {
 	pulledImage,
 	recordRegistryEvents,
 	startRegistryEvents,
+	TAGGED_DIGESTS_MAX,
 } from "./registry-events.js";
 
 const TOKEN = "events-token-for-tests";
@@ -63,7 +64,7 @@ describe("pulledImage", () => {
 		);
 	});
 
-	test("ignores pushes, blobs, HEAD requests and non-index digest fetches", () => {
+	test("ignores pushes, blobs and non-index digest fetches", () => {
 		expect(pulledImage(event({ action: "push" }), "docker.io")).toBeNull();
 		expect(
 			pulledImage(
@@ -71,8 +72,14 @@ describe("pulledImage", () => {
 				"docker.io",
 			),
 		).toBeNull();
-		expect(pulledImage(event({ method: "HEAD" }), "docker.io")).toBeNull();
+		expect(pulledImage(event({ method: "DELETE" }), "docker.io")).toBeNull();
 		expect(pulledImage(event({ tag: "", digest: DIGEST }), "docker.io")).toBeNull();
+	});
+
+	test("counts a tagged HEAD under the tag", () => {
+		expect(pulledImage(event({ method: "HEAD" }), "docker.io")).toBe(
+			"docker.io/library/redis:7",
+		);
 	});
 
 	test("keeps a digest-only index pull as repository@digest", () => {
@@ -150,6 +157,61 @@ describe.skipIf(skip)("registry events (ruling S7)", () => {
 		]);
 		await recordRegistryEvents(tdb.db, { events: [event({})] }, "docker.io", now);
 		expect((await pulls()).find((p) => p.image.includes("redis"))?.pulls).toBe(3);
+	});
+
+	test("a tagged HEAD then a digest GET of the same index counts once, by tag", async () => {
+		await workspace("10.200.0.10");
+		const now = new Date("2026-09-30T10:00:00Z");
+		const seen = new Map<string, number>();
+		const head = event({ method: "HEAD", digest: DIGEST, mediaType: INDEX });
+		const get = event({ tag: "", digest: DIGEST, mediaType: INDEX, method: "GET" });
+		expect(
+			await recordRegistryEvents(tdb.db, { events: [head] }, "docker.io", now, seen),
+		).toBe(1);
+		expect(
+			await recordRegistryEvents(tdb.db, { events: [get] }, "docker.io", now, seen),
+		).toBe(0);
+		// After the window, a pull by digest counts again.
+		const later = new Date(now.getTime() + 11 * 60 * 1000);
+		expect(
+			await recordRegistryEvents(tdb.db, { events: [get] }, "docker.io", later, seen),
+		).toBe(1);
+		expect((await pulls()).map((p) => p.image).sort()).toEqual([
+			"docker.io/library/redis:7",
+			`docker.io/library/redis@${DIGEST}`,
+		]);
+	});
+
+	test("a pull by digest from another address still counts as repo@digest", async () => {
+		await workspace("10.200.0.10");
+		await workspace("10.200.0.11");
+		const now = new Date("2026-09-30T10:00:00Z");
+		const seen = new Map<string, number>();
+		const head = event({ method: "HEAD", digest: DIGEST, mediaType: INDEX });
+		await recordRegistryEvents(tdb.db, { events: [head] }, "docker.io", now, seen);
+		const other = event({
+			tag: "",
+			digest: DIGEST,
+			mediaType: INDEX,
+			addr: "10.200.0.11:1",
+		});
+		expect(
+			await recordRegistryEvents(tdb.db, { events: [other] }, "docker.io", now, seen),
+		).toBe(1);
+	});
+
+	test("the tagged-digest memory stays bounded", async () => {
+		const now = new Date("2026-09-30T10:00:00Z");
+		const seen = new Map<string, number>();
+		const events = Array.from({ length: TAGGED_DIGESTS_MAX + 50 }, (_, i) =>
+			event({
+				method: "HEAD",
+				digest: `sha256:${i.toString(16).padStart(64, "0")}`,
+				mediaType: INDEX,
+			}),
+		);
+		await recordRegistryEvents(tdb.db, { events }, "docker.io", now, seen);
+		expect(seen.size).toBe(TAGGED_DIGESTS_MAX);
 	});
 
 	test("after the day's cap of distinct names, new names count as (other images)", async () => {
