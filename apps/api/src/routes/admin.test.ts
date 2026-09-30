@@ -531,7 +531,24 @@ test.skipIf(skip)(
 			activeConnections: 0,
 			quotaConfig: { homeGiB: 25, dockerGiB: 20 },
 			archivedAt: null,
+			pendingOperation: null,
 		});
+
+		// The row carries a pending rebuild so it can say "Rebuilding…" (issue #881).
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ pending_operation: "rebuild" })
+			.where("id", "=", aliceRow?.workspace?.id ?? "")
+			.execute();
+		const again = await app.inject({
+			method: "GET",
+			url: "/admin/users",
+			headers: { cookie: carol.cookieHeader() },
+		});
+		const aliceAgain = (again.json().users as AdminUser[]).find(
+			(user) => user.displayName === "Alice Student",
+		);
+		expect(aliceAgain?.workspace?.pendingOperation).toBe("rebuild");
 	},
 );
 

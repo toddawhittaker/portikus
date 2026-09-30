@@ -27,10 +27,13 @@ import {
 } from "./links.js";
 import { useProjects } from "./projects/queries.js";
 import {
+	AGENT_UPGRADED_MESSAGE,
 	decodeTerminalFrame,
 	firstNoticeOf,
+	forgetAgentBuild,
 	TERMINAL_GONE_NEXT_STEP,
 	terminalGoneMessage,
+	upgradedAgentNotice,
 } from "./terminalFrames.js";
 import { currentPlatform, decide } from "./work/terminalClipboard.js";
 
@@ -728,12 +731,19 @@ export function TerminalPane({
 					term.write("\u001b[3J");
 					return;
 				}
+				if (frame.kind === "agent") {
+					if (upgradedAgentNotice(workspaceId, frame.build)) {
+						handlers.current.toast.show({ title: AGENT_UPGRADED_MESSAGE });
+					}
+					return;
+				}
 				if (frame.kind === "error" && frame.reason) {
 					// The session went with a terminals restart: close the pane
 					// and say why, once per restart (SPEC.md §9.7).
 					stopped = true;
 					setReconnecting(false);
 					setConnected(false);
+					forgetAgentBuild(workspaceId);
 					if (firstNoticeOf(frame.at ?? "")) {
 						handlers.current.toast.show({
 							tone: "warning",

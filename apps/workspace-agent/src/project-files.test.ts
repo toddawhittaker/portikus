@@ -1,16 +1,27 @@
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	symlink,
+	utimes,
+	writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { ChecksFile } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import {
 	excludePortikusFiles,
 	PORTIKUS_README,
+	removeOldPastes,
 	writePortikusReadme,
 } from "./project-files.js";
 import { buildServer } from "./server.js";
@@ -362,4 +373,85 @@ test.skipIf(!haveGit)("a failed exclude update does not fail the write", async (
 	await writeFile(join(dir, ".git", "info"), "not a directory");
 	await mkdir(join(dir, ".portikus"));
 	expect((await put("broken", ".portikus/checks.json", "{}")).statusCode).toBe(200);
+});
+
+describe("old pastes (#885)", () => {
+	const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+
+	async function pastesDir(slug: string): Promise<string> {
+		const dir = join(projectsRoot, slug, ".portikus", "pastes");
+		await mkdir(dir, { recursive: true });
+		return dir;
+	}
+
+	async function aged(path: string, contents = "x"): Promise<void> {
+		await writeFile(path, contents);
+		await utimes(path, eightDaysAgo, eightDaysAgo);
+	}
+
+	test("a new paste removes old pastes and keeps recent ones", async () => {
+		const dir = await pastesDir("p");
+		await aged(join(dir, "2026-01-01T10-00-00.png"));
+		await aged(join(dir, "2026-01-01T10-00-00-2.jpeg"));
+		await writeFile(join(dir, "2026-09-28T10-00-00.png"), "recent");
+		expect(
+			(await put("p", ".portikus/pastes/2026-09-29T10-00-00.png", "new")).statusCode,
+		).toBe(200);
+		expect((await readdir(dir)).sort()).toEqual([
+			"2026-09-28T10-00-00.png",
+			"2026-09-29T10-00-00.png",
+		]);
+	});
+
+	test("non-matching files and symlinks are left alone", async () => {
+		const dir = await pastesDir("p");
+		const outside = join(homeDir, "outside.png");
+		await aged(outside);
+		await aged(join(dir, "notes.png"));
+		await aged(join(dir, "2026-01-01T10-00-00.gif"));
+		await mkdir(join(dir, "2026-01-01T10-00-01.png"));
+		await symlink(outside, join(dir, "2026-01-01T10-00-02.png"));
+		await removeOldPastes(join(projectsRoot, "p"));
+		expect((await readdir(dir)).sort()).toEqual([
+			"2026-01-01T10-00-00.gif",
+			"2026-01-01T10-00-01.png",
+			"2026-01-01T10-00-02.png",
+			"notes.png",
+		]);
+		expect(await readFile(outside, "utf8")).toBe("x");
+	});
+
+	test("a symlinked pastes folder is never followed", async () => {
+		const target = join(homeDir, "elsewhere");
+		await mkdir(target, { recursive: true });
+		await aged(join(target, "2026-01-01T10-00-00.png"));
+		await mkdir(join(projectsRoot, "p", ".portikus"), { recursive: true });
+		await symlink(target, join(projectsRoot, "p", ".portikus", "pastes"));
+		await removeOldPastes(join(projectsRoot, "p"));
+		expect(await readdir(target)).toEqual(["2026-01-01T10-00-00.png"]);
+	});
+
+	test.skipIf(process.getuid?.() === 0)(
+		"a failed cleanup does not fail the paste",
+		async () => {
+			const dir = await pastesDir("p");
+			await aged(join(dir, "2026-01-01T10-00-00.png"));
+			// Writable but not listable: the write works and the cleanup's readdir fails.
+			await chmod(dir, 0o300);
+			try {
+				const response = await put(
+					"p",
+					".portikus/pastes/2026-09-29T10-00-00.png",
+					"new",
+				);
+				expect(response.statusCode).toBe(200);
+			} finally {
+				await chmod(dir, 0o700);
+			}
+			expect((await readdir(dir)).sort()).toEqual([
+				"2026-01-01T10-00-00.png",
+				"2026-09-29T10-00-00.png",
+			]);
+		},
+	);
 });

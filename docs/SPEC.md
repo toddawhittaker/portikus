@@ -626,7 +626,8 @@ README there is never overwritten.
 When a repository is cloned, the dialog first suggests the folder name read
 as a title (`ipeds-oracle` reads "Ipeds Oracle"). Unless the student types
 their own name, the project then takes the name the repository gives
-itself: the README's first Markdown heading with its formatting removed,
+itself: the README's first Markdown heading with its formatting and emoji removed
+(a heading that is only emoji is skipped),
 else `displayName` or `name` in `package.json`, else `name` in
 `pyproject.toml`, trimmed to the name limit. The folder keeps the slug of
 the name the dialog sent, so only the displayed name changes.
@@ -953,7 +954,8 @@ project upload, under its limits and owner check, to
 `.portikus/pastes/<timestamp>.png` (or `.jpeg`) in the terminal's own
 project. The terminal then receives the file's absolute path and a trailing
 space, never a newline, so the paste cannot run a command. Image bytes are
-never logged.
+never logged. Pastes older than 7 days are removed on the next paste in that
+project (#885).
 
 ### 9.7 Session model and wire protocol
 
@@ -1014,7 +1016,8 @@ bytes without interpreting them:
   `{"type":"resize","cols":N,"rows":N}`;
 - server to client, binary frames: raw PTY output;
 - server to client, text frames: `{"type":"exit"}` and
-  `{"type":"error","code":"…"}`.
+  `{"type":"error","code":"…"}`, plus the `cwd`, `screen`, `clear` and
+  `agent` frames described in this section and section 22.5.
 
 Limits, enforced by the server:
 
@@ -1105,9 +1108,13 @@ A coding-agent launcher may create a terminal and invoke the appropriate CLI.
 
 The resulting session must remain a normal visible terminal.
 
+A launched agent starts in a new terminal whose tmux session runs the CLI directly, with no shell and no earlier output, so its scrollback starts empty (issue #886).
+
 ### 10.3 Direct CLI use
 
 Students must also be able to launch coding agents manually from an ordinary shell.
+
+A coding agent's interface assumes it owns the screen, so earlier shell output left as scrollback above it reads as a broken view (issue #886). The workspace image's `/etc/profile.d/portikus-agents.sh` therefore defines `claude` and `codex` shell functions for interactive bash only. When standard input and output are both a terminal, each runs `clear` and then the real CLI (`command claude "$@"`). `clear` empties tmux's history, which the workspace agent turns into a cleared browser scrollback (§9.7). A script, a pipe, `sh`, or a launcher gets the plain CLI with no clear, and ordinary commands keep their scrollback. `infra/tests/agent-clear-test.sh` and the smoke test check both sides. Added in image 2026.09.15.
 
 ### 10.4 Credential models
 
@@ -2358,6 +2365,19 @@ each request keeps its own audit row, CSRF check and pending-operation
 refusal; a refusal with 409 counts as skipped. There is no bulk API route,
 because it would only duplicate that logic.
 
+While a rebuild or Reset Docker is pending or running (issue #881), the
+detail panel's state badge and the workspace's badge in the Users row say
+"Rebuilding…" or "Resetting Docker…" with a spinner; each row of
+`GET /admin/users` carries the workspace's `pendingOperation` for this. The
+panel's badge sits in a status region, so the start is announced. Confirming
+the dialog refetches at once, and the panel and list keep their 5-second
+poll. Rebuild and Reset Docker stay off until the operation clears. When it
+clears, the panel reads the result from the worker's audit row in its recent
+audit (`workspace.rebuilt`, `workspace.rebuild_failed`,
+`workspace.docker_reset`, `workspace.docker_reset_failed`) and shows a toast:
+"finished" as a status, "failed" as an alert that gives the error code and
+points to the Logs tab.
+
 Added by Epic 17 (issue #613): the storage pool's fill is the larger of
 its data use (from Incus) and its metadata use (from
 `/run/portikus-thinpool.json`, written each minute by a root timer; the
@@ -2957,6 +2977,43 @@ language-aware editor".
   at 16 MiB and follows only https redirects. A check that cannot read
   the release list keeps the image the last check recorded. Setup runs
   the check once, right after enabling the timer.
+
+### 22.5 The workspace agent after a package upgrade
+
+The workspace agent is bind-mounted read-only from the package, but a
+running agent keeps the code it loaded at start (issue #887). So when the
+workspace controller starts, which it does after every package upgrade,
+it restarts `portikus-workspace-agent.service` in each running workspace
+whose agent started before the installed agent files last changed.
+
+- **What it compares.** The change time (ctime) of the host's
+  `/usr/lib/portikus/workspace-agent/dist/index.js`, which dpkg rewrites
+  on every upgrade and nothing can set back, against the start time of
+  the oldest process in the instance's
+  `system.slice/portikus-workspace-agent.service` cgroup, read from the
+  host's `/proc`. The image version is the instance's `image.serial`,
+  which the host sets. Nothing is read from inside the workspace, and the
+  only command run there is a fixed `systemctl restart` through the
+  Incus exec API (section 24).
+- **What it skips.** A workspace whose image is older than 2026.09.11, or
+  has no readable serial, is skipped and logged at warn, because an agent
+  restart there ends its terminals (section 9.7). It gets the new agent
+  at its next start. A workspace whose agent is not running, or started
+  after the change, is left alone.
+- **How it runs.** In the background after the controller is listening,
+  one workspace at a time and each at most once. A workspace that stops
+  meanwhile, or a failed restart, is logged at warn and the next one goes
+  ahead. A restarted agent starts after the change, so a later
+  controller start leaves it alone.
+- **What the student sees.** The agent names its build (its entry file's
+  change time, the same ctime the controller compares) in an `{"type":"agent","build":"…"}` frame on every
+  terminal attach. The page remembers the first build it sees for each
+  workspace, and forgets it when the page sees that workspace leave the
+  running state (a stop or an idle stop ends its terminals) or when a
+  terminal closes with a reason. An agent-only restart keeps the workspace
+  running, so it still toasts. When a reconnecting terminal reports a different one, the
+  page shows one neutral toast: "Portikus was updated. Your terminals are
+  still running." A page opened after the upgrade shows nothing.
 
 ## 23. Networking
 

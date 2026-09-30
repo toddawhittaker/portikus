@@ -3635,3 +3635,43 @@ Gaps:
 - An image or PDF over the 2 MiB editor limit shows a change on disk only
   after its tab is reopened.
 - CSV as a table (optional in #816) was left out.
+
+## Epic 15.3 — Pilot fixes
+
+Built on `epic/15-3-pilot-fixes` from the five issues in the "Pilot
+fixes (next fix batch)" milestone (task PRs #889 to #894). No
+migrations.
+
+Delivered:
+
+- A cloned project's suggested name drops emoji and pictographs from the
+  README heading, flags included, and keeps trademark signs. A heading
+  that is only emoji falls back to the next source (#883).
+- The workspace agent removes image pastes older than 7 days from a
+  project's `.portikus/pastes` on the next paste there (#885).
+- Admin Users shows "Rebuilding…" or "Resetting Docker…" with a spinner
+  on the detail panel and the row while an operation is pending, then a
+  success toast or a failure alert read from the worker's audit rows.
+  `/admin/users` rows carry `pendingOperation` (#881).
+- Workspace image 2026.09.15: `claude` and `codex` typed in a terminal
+  clear it first, so no old shell output sits above the agent. Portikus
+  launchers already started clean (#886).
+- After a package upgrade, the workspace controller restarts the agent in
+  each running workspace whose agent predates the installed files.
+  Terminals survive, and the student sees "Portikus was updated. Your
+  terminals are still running." Workspaces on images older than
+  2026.09.11 are skipped and logged at warn (#887).
+- Review fixes: the upgrade toast is not shown after a real stop and
+  start, the agent's build is its entry file's change time, and
+  an axe scan covers the upgrade toast.
+
+Gaps:
+
+- A keycap emoji such as 1️⃣ leaves its digit in the clone name.
+- Projects nobody pastes into again keep their old pastes, by design.
+- An admin rebuild or reset result that ends after the panel is closed
+  is not announced; the Audit tab still shows it.
+- The pilot needs image 2026.09.15 published and made default, and old
+  workspaces get the clear only on rebuild.
+- The old-image skip has only unit tests. The new install-test step for
+  #887 passed end to end on a fresh rehearsal VM (2026-09-30).

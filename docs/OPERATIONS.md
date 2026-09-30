@@ -107,6 +107,19 @@ new release and reruns setup on its own. `sudo dpkg-reconfigure portikus`
 changes the install answers, and `sudo portikus setup` reapplies them.
 Follow an upgrade of the pilot with `make smoke-test` from the host.
 
+**Running workspaces get the new workspace agent without a stop.** The
+agent is bind-mounted from the package, but a running agent keeps the
+code it loaded. So when the workspace controller starts, which it does
+after every package upgrade, it restarts `portikus-workspace-agent` in
+each running workspace whose agent started before the installed agent
+files last changed (SPEC.md section 22.5). It does this in the
+background, one workspace at a time. Terminals survive and students see
+a short "Portikus was updated" notice. A workspace on an image older than
+2026.09.11 is skipped, because the restart would end its terminals; the
+controller logs it at warn with "runs the old workspace agent", and it
+gets the new agent at its next start. A `make deploy-app` or
+`configure-vm` restarts the controller too, so the same applies there.
+
 **Releases.** The signed apt repository (SPEC.md section 21.13) carries
 the ten newest versions of the current major.minor line and the newest
 version of each earlier line. A GitHub release carries the tag and the release

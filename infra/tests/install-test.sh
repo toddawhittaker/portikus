@@ -454,6 +454,45 @@ caddy_rerun() {
 
 # ── 8: the upgrade ─────────────────────────────────────────────────
 
+# A running workspace keeps its terminals and gets the new agent after an
+# upgrade, without being stopped (issue #887, SPEC.md 22.5).
+AGENT_WS="install-agent-ws"
+ws_root() { vm "incus exec ${AGENT_WS} --project portikus -- $*"; }
+agent_started() { # epoch seconds the workspace agent's main process started
+  ws_root "sh -c 'date -d \"\$(ps -o lstart= -p \$(systemctl show -p MainPID --value portikus-workspace-agent))\" +%s'"
+}
+terminal_shell() { # the pane's shell pid in the Portikus tmux server
+  ws_root "su -l student -c 'tmux -L portikus -N display-message -p -t install-upgrade \"#{pane_pid}\"'"
+}
+
+agent_before_upgrade() {
+  # A packaged host has no workspace.sh, so bring this checkout's.
+  vm_stdin "cat >/tmp/install-workspace.sh" <"${ROOT}/infra/incus/workspace.sh"
+  vm "sudo bash /tmp/install-workspace.sh create ${AGENT_WS}"
+  ws_root "su -l student -c 'tmux -L portikus -N new-session -d -s install-upgrade bash'"
+  terminal_shell >"${LOGS}/agent-ws.shell"
+  agent_started >"${LOGS}/agent-ws.started"
+  vm "date +%s" >"${LOGS}/agent-ws.upgrade-began"
+  echo "agent started $(cat "${LOGS}/agent-ws.started"), shell $(cat "${LOGS}/agent-ws.shell")"
+}
+
+agent_after_upgrade() {
+  local began started i
+  began=$(cat "${LOGS}/agent-ws.upgrade-began")
+  # The controller restarts the agent in the background after it starts.
+  for ((i = 0; i < 60; i++)); do
+    started=$(agent_started 2>/dev/null || echo 0)
+    [ "${started:-0}" -ge "$began" ] && break
+    sleep 2
+  done
+  echo "agent started ${started}; the upgrade began ${began}"
+  [ "${started:-0}" -ge "$began" ] || { echo "the agent was not restarted"; return 1; }
+  [ "$(terminal_shell)" = "$(cat "${LOGS}/agent-ws.shell")" ] \
+    || { echo "the open terminal did not survive"; return 1; }
+  vm "sudo journalctl -u portikus-controller --no-pager | grep 'restarted the workspace agent after an upgrade' | grep -F ${AGENT_WS}"
+  vm "sudo bash /tmp/install-workspace.sh destroy ${AGENT_WS} && rm -f /tmp/install-workspace.sh"
+}
+
 upgrade() {
   local before after
   # An old time on the key file shows whether the upgrade writes it again.
@@ -721,9 +760,11 @@ if [ -z "${UPGRADE_FROM_PUBLISHED:-}" ]; then
   step "smoke test, with the administrator's Dex sign-in" smoke
   step "setup converges after a failed first Caddy refresh" caddy_rerun
 fi
+step "a running workspace with an open terminal before the upgrade" agent_before_upgrade
 step "apt upgrade to the second version" upgrade
 step "follow the upgrade's setup" follow_setup upgrade
 step "services, /health and sign-in after the upgrade" after_upgrade
+step "the workspace's agent restarted and its terminal survived" agent_after_upgrade
 step "the worker's own account, refused by the backup key socket" worker_account
 step "the worker's database role: refused on sessions and users, jobs still run" worker_db_role
 if [ -n "${UPGRADE_FROM_PUBLISHED:-}" ]; then
