@@ -1977,6 +1977,11 @@ question `portikus/registry-cache-gib` (default 20 GiB). Registry 2.8 has
 no size cap; it expires blobs 7 days after first fetch, and the status
 timer clears the whole cache when it passes 90 percent full. An
 administrator can also clear it from the Docker tab (section 20.1).
+The cache is an optimisation and never fails setup: when the answered size
+would leave less than 10 GiB free on the main disk, setup makes the largest
+whole-GiB cache that keeps the 10 GiB, and when not even 1 GiB fits it turns
+the cache off (the file `/etc/portikus/registry/cache-off`), warns in its
+output, and workspaces get no mirror.
 
 **ghcr.io cache, on by default.** A second registry on `10.200.0.1:5001`
 caches ghcr.io (GitHub's container registry). It is on by default (Todd's

@@ -1,0 +1,12 @@
+---
+# The cache's size (docs/SPEC.md section 16.6): the answer when it fits and
+# leaves the spare room free, else the largest whole GiB that does, else 0,
+# which turns the cache off.  The space the old cache file holds counts as
+# free, because a new size replaces it.  infra/tests/registry-cache-size-test.yml
+# tries it.
+- name: Work out the cache size the main disk has room for
+  ansible.builtin.set_fact:
+    registry_cache_gib_chosen: >-
+      {{ [portikus_registry_cache_gib | int,
+          [(registry_cache_free_bytes | int + registry_cache_existing_bytes | int
+            - registry_cache_spare_bytes | int) // 1073741824, 0] | max] | min }}

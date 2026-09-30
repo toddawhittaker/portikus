@@ -652,6 +652,9 @@ jobs:
       - name: Workspace image first-install decision
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/workspace-image-test.yml
+      - name: Docker cache size decision
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: ansible-playbook infra/tests/registry-cache-size-test.yml
       - name: Dex theme font matches the app font
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: |

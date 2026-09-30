@@ -243,6 +243,13 @@ class ClearTest(Base):
         self.assertEqual([c for c in self.host.calls if c[0] == "mkfs"], [])
         self.assertIn(("start", "portikus-registry-hub.service"), self.systemctl_calls())
 
+    def test_a_cache_turned_off_for_lack_of_disk_is_left_alone(self):
+        (self.config / "cache-off").write_text("off\n")
+        self.write_request({"kind": "set-hub-credential", "username": "portikus", "token": TOKEN})
+        self.assertEqual(self.helper.run_pending(self.lock), 0)
+        self.assertEqual([c for c in self.host.calls if c[0] in ("systemctl", "mkfs")], [])
+        self.assertFalse((self.config / "hub-held").exists())
+
     def test_the_timer_clears_past_ninety_percent(self):
         self.host.vfs = FakeStatvfs(1000, 95)
         self.helper.run_status(self.lock)

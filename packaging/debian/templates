@@ -265,7 +265,8 @@ Description: Size of the Docker image cache, in GiB:
  this size on the main disk, which the main disk must have room for.
  .
  The main disk has ${free} GiB free. Give a whole number of GiB, such as
- 20. A different size later empties the cache.
+ 20. A different size later empties the cache. If the disk has too little
+ room when setup runs, setup makes the cache smaller, or turns it off.
 
 Template: portikus/summary
 Type: boolean

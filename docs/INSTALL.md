@@ -392,7 +392,10 @@ Setup asks one more question after storage: **Size of the Docker image
 cache, in GiB** (20 by default). Workspaces pull Docker Hub and ghcr.io
 images through a cache on this server. It is one file of that size on the
 main disk, reserved when it is made. Choose a smaller size with
-`sudo dpkg-reconfigure portikus`; a new size empties the cache.
+`sudo dpkg-reconfigure portikus`; a new size empties the cache. If the size
+would leave less than 10 GiB free, setup makes the cache as large as it can
+and says so, or turns it off when not even 1 GiB fits; setup never fails
+for lack of room for the cache.
 
 The ghcr.io cache is on by default. Students build and push images in
 GitHub Actions, which pushes to the real ghcr.io with the repository's

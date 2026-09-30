@@ -185,7 +185,8 @@ class Host:
         return self.systemctl("is-active", "--quiet", unit) == 0
 
     def mkfs(self, image):
-        subprocess.run(["mkfs.ext4", "-q", "-F", "-m", "0", "-L", "portikus-registry", image],
+        # nodiscard keeps the file's reserved space; a discard would punch it out.
+        subprocess.run(["mkfs.ext4", "-q", "-F", "-m", "0", "-E", "nodiscard", "-L", "portikus-registry", image],
                        stdin=subprocess.DEVNULL, capture_output=True, check=True)
 
     def is_mount(self, path):
@@ -235,6 +236,10 @@ class Helper:
 
     def ghcr_enabled(self):
         return read_text(self.path("ghcr-enabled")) == "on"
+
+    def cache_off(self):
+        """Setup found no room on the main disk for the cache (SPEC.md section 16.6)."""
+        return os.path.exists(self.path("cache-off"))
 
     def hub_held(self):
         """A clear after a credential change failed; the Hub cache stays stopped (S3)."""
@@ -345,6 +350,9 @@ class Helper:
 
     def clear(self, reason):
         """Stop both caches, remake the filesystem, and start what is configured (S1)."""
+        if self.cache_off():
+            journal("the cache is off, so there is nothing to clear")
+            return True
         journal(f"clearing the cache ({reason})")
         for cache in ("ghcr", "hub"):
             self.host.systemctl("stop", CACHES[cache]["unit"])

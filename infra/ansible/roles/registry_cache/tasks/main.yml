@@ -162,135 +162,184 @@
     path: "{{ registry_cache_image }}"
   register: registry_cache_image_stat
 
-- name: Work out the cache's size
-  ansible.builtin.set_fact:
-    registry_cache_bytes: "{{ portikus_registry_cache_gib | int * 1073741824 }}"
-
 - name: Require a cache of 1 GiB or more
   ansible.builtin.assert:
     that:
       - portikus_registry_cache_gib | int >= 1
     fail_msg: "portikus_registry_cache_gib must be a whole number of GiB, 1 or more."
 
-# A cache is only a cache: a new size means a new, empty filesystem.
-- name: Make the cache's file at its size
-  when: >-
-    not registry_cache_image_stat.stat.exists
-    or registry_cache_image_stat.stat.size != registry_cache_bytes | int
+- name: Read the free space beside the cache's file
+  ansible.builtin.command:
+    argv: [df, --output=avail, -B1, "{{ registry_cache_image | dirname }}"]
+  register: registry_cache_free
+  changed_when: false
+  check_mode: false
+
+# A cache is only an optimisation, so a small disk shrinks it or turns it off, never fails setup.
+- name: Work out the cache's size
+  ansible.builtin.include_tasks: size.yml
+  vars:
+    registry_cache_free_bytes: "{{ registry_cache_free.stdout_lines | last | int }}"
+    # What the old file really holds: an earlier mkfs discarded its reservation.
+    registry_cache_existing_bytes: "{{ (registry_cache_image_stat.stat.blocks | default(0) | int) * 512 }}"
+
+- name: Work out the cache's size in bytes
+  ansible.builtin.set_fact:
+    registry_cache_bytes: "{{ registry_cache_gib_chosen | int * 1073741824 }}"
+
+- name: Say the cache is smaller than asked
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: the Docker cache is {{ registry_cache_gib_chosen }} GiB, not the
+      {{ portikus_registry_cache_gib }} GiB asked for, so the main disk keeps
+      {{ registry_cache_spare_bytes | int // 1073741824 }} GiB free.
+  when: 0 < registry_cache_gib_chosen | int < portikus_registry_cache_gib | int
+
+- name: Turn the cache off while the main disk has no room for it
+  when: registry_cache_gib_chosen | int == 0
   block:
-    - name: Read the free space beside the cache's file
-      ansible.builtin.command:
-        argv: [df, --output=avail, -B1, "{{ registry_cache_image | dirname }}"]
-      register: registry_cache_free
-      changed_when: false
-      check_mode: false
+    - name: Say the cache is off
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: the main disk has no room for even a 1 GiB Docker cache
+          and {{ registry_cache_spare_bytes | int // 1073741824 }} GiB to spare,
+          so the Docker cache is off and students pull straight from the
+          registries.  Free some space and run portikus setup again to turn it on.
 
-    - name: Require room for the cache's file
-      ansible.builtin.assert:
-        that:
-          - >-
-            registry_cache_free.stdout_lines | last | int
-            + (registry_cache_image_stat.stat.size | default(0) | int)
-            - registry_cache_bytes | int >= registry_cache_spare_bytes | int
-        fail_msg: >-
-          A {{ portikus_registry_cache_gib }} GiB Docker cache would leave less
-          than {{ registry_cache_spare_bytes | int // 1073741824 }} GiB free on
-          the main disk.  Choose a smaller size with dpkg-reconfigure portikus.
-          Nothing was changed.
+    # The units' condition skips them from here on, so nothing points at an absent cache.
+    - name: Mark the cache off
+      ansible.builtin.copy:
+        dest: "{{ registry_cache_off_marker }}"
+        content: "off\n"
+        owner: root
+        group: root
+        mode: "0644"
 
-    - name: Stop the caches and unmount their filesystem
+    - name: Stop and disable the caches and their filesystem
       ansible.builtin.systemd_service:
         name: "{{ item }}"
         state: stopped
+        enabled: false
       loop:
         - portikus-registry-ghcr.service
         - portikus-registry-hub.service
         - "{{ registry_cache_mount_unit }}"
       failed_when: false
 
-    - name: Remove the old cache file
+    - name: Remove the cache's file
       ansible.builtin.file:
         path: "{{ registry_cache_image }}"
         state: absent
 
-    # fallocate reserves the space, so a full root filesystem cannot fail the cache.
-    - name: Make the cache's file
-      ansible.builtin.command:
-        argv: [fallocate, --length, "{{ registry_cache_bytes }}", "{{ registry_cache_image }}"]
-      changed_when: true
+- name: Make, mount and start the cache
+  when: registry_cache_gib_chosen | int >= 1
+  block:
+    # A cache is only a cache: a new size means a new, empty filesystem.
+    - name: Make the cache's file at its size
+      when: >-
+        not registry_cache_image_stat.stat.exists
+        or registry_cache_image_stat.stat.size != registry_cache_bytes | int
+      block:
+        - name: Stop the caches and unmount their filesystem
+          ansible.builtin.systemd_service:
+            name: "{{ item }}"
+            state: stopped
+          loop:
+            - portikus-registry-ghcr.service
+            - portikus-registry-hub.service
+            - "{{ registry_cache_mount_unit }}"
+          failed_when: false
 
-    - name: Make the cache's filesystem
-      ansible.builtin.command:
-        argv: [mkfs.ext4, -q, -F, -m, "0", -L, portikus-registry, "{{ registry_cache_image }}"]
-      changed_when: true
-      notify: Restart the running Docker caches
+        - name: Remove the old cache file
+          ansible.builtin.file:
+            path: "{{ registry_cache_image }}"
+            state: absent
 
-- name: Make the cache's file root's alone
-  ansible.builtin.file:
-    path: "{{ registry_cache_image }}"
-    owner: root
-    group: root
-    mode: "0600"
+        # fallocate reserves the space, so a full root filesystem cannot fail
+        # the cache; nodiscard below stops mkfs punching it back out.
+        - name: Make the cache's file
+          ansible.builtin.command:
+            argv: [fallocate, --length, "{{ registry_cache_bytes }}", "{{ registry_cache_image }}"]
+          changed_when: true
 
-- name: Create the cache's mount point
-  ansible.builtin.file:
-    path: "{{ registry_cache_mount }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
+        - name: Make the cache's filesystem
+          ansible.builtin.command:
+            argv: [mkfs.ext4, -q, -F, -m, "0", -E, nodiscard, -L, portikus-registry, "{{ registry_cache_image }}"]
+          changed_when: true
+          notify: Restart the running Docker caches
 
-- name: Install the cache's mount unit
-  ansible.builtin.copy:
-    dest: "/etc/systemd/system/{{ registry_cache_mount_unit }}"
-    content: |
-      # Managed by Ansible (registry_cache role).  The Docker caches'
-      # filesystem; the root cache helper remakes it to clear them.
-      [Unit]
-      Description=Portikus Docker cache filesystem
+    - name: Make the cache's file root's alone
+      ansible.builtin.file:
+        path: "{{ registry_cache_image }}"
+        owner: root
+        group: root
+        mode: "0600"
 
-      [Mount]
-      What={{ registry_cache_image }}
-      Where={{ registry_cache_mount }}
-      Type=ext4
-      Options=loop,nodev,nosuid,noexec
+    - name: Mark the cache on
+      ansible.builtin.file:
+        path: "{{ registry_cache_off_marker }}"
+        state: absent
 
-      [Install]
-      WantedBy=multi-user.target
-    owner: root
-    group: root
-    mode: "0644"
-  register: registry_cache_mount_file
+    - name: Create the cache's mount point
+      ansible.builtin.file:
+        path: "{{ registry_cache_mount }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
 
-- name: Mount the cache's filesystem
-  ansible.builtin.systemd_service:
-    name: "{{ registry_cache_mount_unit }}"
-    enabled: true
-    state: started
-    daemon_reload: "{{ registry_cache_mount_file is changed }}"
+    - name: Install the cache's mount unit
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ registry_cache_mount_unit }}"
+        content: |
+          # Managed by Ansible (registry_cache role).  The Docker caches'
+          # filesystem; the root cache helper remakes it to clear them.
+          [Unit]
+          Description=Portikus Docker cache filesystem
+          ConditionPathExists=!{{ registry_cache_off_marker }}
 
-# ── The caches and the helper ─────────────────────────────────────
+          [Mount]
+          What={{ registry_cache_image }}
+          Where={{ registry_cache_mount }}
+          Type=ext4
+          Options=loop,nodev,nosuid,noexec
 
-# On a held site (hub-held) the unit's condition skips the start, and
-# systemctl start still succeeds.
-- name: Enable and start the Docker Hub cache
-  ansible.builtin.systemd_service:
-    name: portikus-registry-hub.service
-    enabled: true
-    state: started
-    daemon_reload: true
+          [Install]
+          WantedBy=multi-user.target
+        owner: root
+        group: root
+        mode: "0644"
+      register: registry_cache_mount_file
 
-- name: Read the ghcr.io cache switch
-  ansible.builtin.slurp:
-    src: "{{ registry_cache_config_dir }}/ghcr-enabled"
-  register: registry_cache_ghcr_switch
+    - name: Mount the cache's filesystem
+      ansible.builtin.systemd_service:
+        name: "{{ registry_cache_mount_unit }}"
+        enabled: true
+        state: started
+        daemon_reload: "{{ registry_cache_mount_file is changed }}"
 
-- name: Enable and start the ghcr.io cache while its switch is on
-  ansible.builtin.systemd_service:
-    name: portikus-registry-ghcr.service
-    enabled: true
-    state: started
-  when: (registry_cache_ghcr_switch.content | b64decode | trim) == "on"
+    # ── The caches and the helper ─────────────────────────────────
+
+    # On a held site (hub-held) the unit's condition skips the start, and
+    # systemctl start still succeeds.
+    - name: Enable and start the Docker Hub cache
+      ansible.builtin.systemd_service:
+        name: portikus-registry-hub.service
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Read the ghcr.io cache switch
+      ansible.builtin.slurp:
+        src: "{{ registry_cache_config_dir }}/ghcr-enabled"
+      register: registry_cache_ghcr_switch
+
+    - name: Enable and start the ghcr.io cache while its switch is on
+      ansible.builtin.systemd_service:
+        name: portikus-registry-ghcr.service
+        enabled: true
+        state: started
+      when: (registry_cache_ghcr_switch.content | b64decode | trim) == "on"
 
 - name: Watch for cache requests, and write the status every minute
   ansible.builtin.systemd_service:
