@@ -71,6 +71,11 @@ test("setCpuAllowance sends the allowance, or null to remove it", async () => {
 	]);
 });
 
+test("seed reads a NOT_FOUND as no seed yet", async () => {
+	answer = { status: 404, body: { code: "NOT_FOUND", message: "no Docker seed" } };
+	await expect(new HttpControllerClient(baseUrl, "tok").seed()).resolves.toBeNull();
+});
+
 test("a controller error keeps its code", async () => {
 	answer = { status: 404, body: { code: "NOT_FOUND", message: "gone" } };
 	await expect(
