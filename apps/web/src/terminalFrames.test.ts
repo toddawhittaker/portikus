@@ -3,7 +3,33 @@ import {
 	decodeTerminalFrame,
 	firstNoticeOf,
 	terminalGoneMessage,
+	upgradedAgentNotice,
 } from "./terminalFrames.js";
+
+test("an agent frame names the running agent build (issue #887)", () => {
+	expect(decodeTerminalFrame(JSON.stringify({ type: "agent", build: "b1" }))).toEqual({
+		kind: "agent",
+		build: "b1",
+	});
+	expect(decodeTerminalFrame(JSON.stringify({ type: "agent", build: "" }))).toEqual({
+		kind: "ignored",
+	});
+	expect(decodeTerminalFrame(JSON.stringify({ type: "agent" }))).toEqual({
+		kind: "ignored",
+	});
+});
+
+test("a new agent build under an open page is told once per workspace", () => {
+	// The first build a page sees is where it started, not an upgrade.
+	expect(upgradedAgentNotice("ws-1", "b1")).toBe(false);
+	expect(upgradedAgentNotice("ws-1", "b1")).toBe(false);
+	expect(upgradedAgentNotice("ws-1", "b2")).toBe(true);
+	// Every other pane reconnecting to the same new agent stays quiet.
+	expect(upgradedAgentNotice("ws-1", "b2")).toBe(false);
+	// Another workspace starts from its own first build.
+	expect(upgradedAgentNotice("ws-2", "b2")).toBe(false);
+	expect(upgradedAgentNotice("ws-2", "b1")).toBe(true);
+});
 
 test("an error frame carries the reason a terminal vanished", () => {
 	const frame = decodeTerminalFrame(

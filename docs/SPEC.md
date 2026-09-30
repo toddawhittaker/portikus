@@ -1014,7 +1014,8 @@ bytes without interpreting them:
   `{"type":"resize","cols":N,"rows":N}`;
 - server to client, binary frames: raw PTY output;
 - server to client, text frames: `{"type":"exit"}` and
-  `{"type":"error","code":"…"}`.
+  `{"type":"error","code":"…"}`, plus the `cwd`, `screen`, `clear` and
+  `agent` frames described in this section and section 22.5.
 
 Limits, enforced by the server:
 
@@ -2957,6 +2958,40 @@ language-aware editor".
   at 16 MiB and follows only https redirects. A check that cannot read
   the release list keeps the image the last check recorded. Setup runs
   the check once, right after enabling the timer.
+
+### 22.5 The workspace agent after a package upgrade
+
+The workspace agent is bind-mounted read-only from the package, but a
+running agent keeps the code it loaded at start (issue #887). So when the
+workspace controller starts, which it does after every package upgrade,
+it restarts `portikus-workspace-agent.service` in each running workspace
+whose agent started before the installed agent files last changed.
+
+- **What it compares.** The change time (ctime) of the host's
+  `/usr/lib/portikus/workspace-agent/dist/index.js`, which dpkg rewrites
+  on every upgrade and nothing can set back, against the start time of
+  the oldest process in the instance's
+  `system.slice/portikus-workspace-agent.service` cgroup, read from the
+  host's `/proc`. The image version is the instance's `image.serial`,
+  which the host sets. Nothing is read from inside the workspace, and the
+  only command run there is a fixed `systemctl restart` through the
+  Incus exec API (section 24).
+- **What it skips.** A workspace whose image is older than 2026.09.11, or
+  has no readable serial, is skipped and logged at warn, because an agent
+  restart there ends its terminals (section 9.7). It gets the new agent
+  at its next start. A workspace whose agent is not running, or started
+  after the change, is left alone.
+- **How it runs.** In the background after the controller is listening,
+  one workspace at a time and each at most once. A workspace that stops
+  meanwhile, or a failed restart, is logged at warn and the next one goes
+  ahead. A restarted agent starts after the change, so a later
+  controller start leaves it alone.
+- **What the student sees.** The agent names its build (its entry file's
+  modification time) in an `{"type":"agent","build":"…"}` frame on every
+  terminal attach. The page remembers the first build it sees for each
+  workspace. When a reconnecting terminal reports a different one, the
+  page shows one neutral toast: "Portikus was updated. Your terminals are
+  still running." A page opened after the upgrade shows nothing.
 
 ## 23. Networking
 

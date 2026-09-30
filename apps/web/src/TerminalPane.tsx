@@ -27,10 +27,12 @@ import {
 } from "./links.js";
 import { useProjects } from "./projects/queries.js";
 import {
+	AGENT_UPGRADED_MESSAGE,
 	decodeTerminalFrame,
 	firstNoticeOf,
 	TERMINAL_GONE_NEXT_STEP,
 	terminalGoneMessage,
+	upgradedAgentNotice,
 } from "./terminalFrames.js";
 import { currentPlatform, decide } from "./work/terminalClipboard.js";
 
@@ -726,6 +728,12 @@ export function TerminalPane({
 				if (frame.kind === "clear") {
 					// Erase the saved lines only; tmux has already cleared the screen.
 					term.write("\u001b[3J");
+					return;
+				}
+				if (frame.kind === "agent") {
+					if (upgradedAgentNotice(workspaceId, frame.build)) {
+						handlers.current.toast.show({ title: AGENT_UPGRADED_MESSAGE });
+					}
 					return;
 				}
 				if (frame.kind === "error" && frame.reason) {

@@ -26,6 +26,7 @@ import {
 	WorkspaceVolumeName,
 } from "@portikus/contracts";
 import { type Logger, silentLogger } from "@portikus/observability";
+import type { RunningAgent } from "./agent-restart.js";
 import {
 	growVolumes,
 	parseIncusSize,
@@ -34,7 +35,7 @@ import {
 	readPoolUse,
 } from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
-import { parseIdmap, readInstanceProcesses } from "./processes.js";
+import { parseIdmap, readInstanceProcesses, readUnitStartTime } from "./processes.js";
 
 export interface WorkspaceProvider {
 	create(
@@ -183,6 +184,9 @@ export const VOLUME_CREATE_TIMEOUT_MS = 60_000;
  * cannot hold the worker's serial start loop for the whole start deadline.
  */
 export const AGENT_HEALTH_TIMEOUT_MS = 15_000;
+
+/** How long one agent restart after an upgrade may take. */
+export const AGENT_RESTART_TIMEOUT_SECONDS = 60;
 
 /** The instance create's operation wait, inside the worker's 300 s create budget. */
 export const INSTANCE_CREATE_WAIT_SECONDS = 240;
@@ -1355,5 +1359,54 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 		}
 		return newest?.name ?? null;
+	}
+
+	/**
+	 * Each running instance with its image serial and when its agent started,
+	 * both read on the host (issue #887).
+	 */
+	async runningAgents(): Promise<RunningAgent[]> {
+		const instances = (await this.client.request(
+			"GET",
+			"/1.0/instances?recursion=1",
+		)) as Array<{ name: string; status: string; config?: Record<string, string> }>;
+		const agents: RunningAgent[] = [];
+		for (const inst of instances) {
+			if (inst.status !== "Running") continue;
+			const scope =
+				this.client.project === "default"
+					? inst.name
+					: `${this.client.project}_${inst.name}`;
+			agents.push({
+				name: inst.name,
+				imageSerial: inst.config?.["image.serial"] ?? null,
+				startedAt: await readUnitStartTime(
+					this.procRoot,
+					`${this.cgroupRoot}/lxc.payload.${scope}/system.slice/portikus-workspace-agent.service`,
+				),
+			});
+		}
+		return agents;
+	}
+
+	/** Restart the agent unit inside a running instance (issue #887). */
+	async restartAgent(name: string): Promise<void> {
+		validateName(name);
+		const result = await this.client.request(
+			"POST",
+			`/1.0/instances/${enc(name)}/exec`,
+			{
+				command: ["systemctl", "restart", "portikus-workspace-agent.service"],
+				"wait-for-websocket": false,
+				"record-output": false,
+				interactive: false,
+			},
+			undefined,
+			AGENT_RESTART_TIMEOUT_SECONDS,
+		);
+		const status = execExitStatus(result);
+		if (status !== null && status !== 0) {
+			throw new IncusError("OPERATION_FAILED", `systemctl restart exited ${status}`);
+		}
 	}
 }

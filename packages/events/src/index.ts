@@ -66,6 +66,9 @@ export const TerminalServerMessage = z.discriminatedUnion("type", [
 	// The pane's history was erased, as `clear` does; the browser drops its
 	// scrollback too (SPEC.md §9.7, issue #882).
 	z.object({ type: z.literal("clear") }),
+	// Which agent code is running, sent on every attach; a change while the
+	// page is open means the agent was upgraded and restarted (issue #887).
+	z.object({ type: z.literal("agent"), build: z.string().min(1) }),
 	z.object({
 		type: z.literal("error"),
 		code: TerminalErrorCode,
