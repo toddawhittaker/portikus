@@ -1626,3 +1626,53 @@ the API or Dex probe only 127.0.0.1, not ::1 or the VM's own address.
 own address.
 
 **Source.** Epic 15.1 confirmation review.
+
+## CSV files as a table in the file viewer
+
+**What.** Show a CSV file as a table, not as text. Issue #816 listed it
+as optional.
+
+**Why.** Students open data files and a table is easier to read.
+
+**What it would take.** A read-only table view in the file viewer, with a
+row cap like the editor's size limit.
+
+**Source.** Epic 15.2 (#816).
+
+## Progress for Extract here
+
+**What.** "Extract here" shows an "Extracting" notice, not a percentage.
+
+**Why.** A large zip gives no sign of how long it will take.
+
+**What it would take.** The agent streams unzip's per-entry output as
+progress, and the toast shows entries done out of the total.
+
+**Source.** Epic 15.2 (#817).
+
+## Refresh a large image or PDF when it changes on disk
+
+**What.** An image or PDF over the 2 MiB editor limit has no version in
+its address, so a change on disk shows only after its tab is reopened.
+A PDF over 50 MB is offered as a download, because the in-page copy is
+held in memory.
+
+**Why.** A student regenerating a large figure or report sees a stale one.
+
+**What it would take.** A version from the file's size and modified time
+for large files, and a streamed PDF source instead of an in-memory copy.
+
+**Source.** Epic 15.2 (#816).
+
+## Leave an administrator's disabled services alone
+
+**What.** Setup enables the API, controller and worker on every
+configure, so it undoes an administrator's own `systemctl disable`.
+
+**Why.** It was added so a remove and reinstall brings the services back,
+but it also overrides a deliberate choice.
+
+**What it would take.** Enable them only on a reinstall, for example
+when postinst sees no enable links left.
+
+**Source.** Epic 15.2 review fixes (#876).
