@@ -187,6 +187,37 @@ describe("writeDockerConfig", () => {
 		expect(files.files.get("/etc/hosts")?.content).not.toContain("ghcr.io");
 	});
 
+	test("with the cache off, writes no mirror and no ghcr.io entry even when asked", async () => {
+		const cacheOffPath = join(mkdtempSync(join(tmpdir(), "cache-off-")), "cache-off");
+		writeFileSync(cacheOffPath, "off\n");
+		await writeDockerConfig(
+			files,
+			"ws-a",
+			{ hubMirror: true, ghcr: true },
+			{ caPath, cacheOffPath, log },
+		);
+		const daemon = JSON.parse(
+			files.files.get("/etc/docker/daemon.json")?.content ?? "",
+		);
+		expect(daemon).not.toHaveProperty("registry-mirrors");
+		expect(files.files.has(GHCR_CERT_PATH)).toBe(false);
+		expect(files.files.get("/etc/hosts")?.content).toBe("127.0.0.1 localhost\n");
+	});
+
+	test("with no cache-off marker, writes the mirror and ghcr.io entry as asked", async () => {
+		await writeDockerConfig(
+			files,
+			"ws-a",
+			{ hubMirror: true, ghcr: true },
+			{ caPath, cacheOffPath: join(tmpdir(), "no-such-cache-off"), log },
+		);
+		const daemon = JSON.parse(
+			files.files.get("/etc/docker/daemon.json")?.content ?? "",
+		);
+		expect(daemon["registry-mirrors"]).toEqual(["http://10.200.0.1:5000"]);
+		expect(files.files.get("/etc/hosts")?.content).toContain("10.200.0.1 ghcr.io");
+	});
+
 	// A student with root in the container can turn /etc/docker into a link.
 	// Every write goes through the instance's own files API, and nothing is
 	// written at all through the link.

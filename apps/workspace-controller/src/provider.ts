@@ -30,7 +30,11 @@ import {
 } from "@portikus/contracts";
 import { type Logger, silentLogger } from "@portikus/observability";
 import type { RunningAgent } from "./agent-restart.js";
-import { GHCR_CA_HOST_PATH, writeDockerConfig } from "./docker-config.js";
+import {
+	CACHE_OFF_HOST_PATH,
+	GHCR_CA_HOST_PATH,
+	writeDockerConfig,
+} from "./docker-config.js";
 import type { SeedBuildHost } from "./docker-seed.js";
 import {
 	growVolumes,
@@ -243,6 +247,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly hostCpuCount: number;
 	private readonly thinPoolStatusPath: string | undefined;
 	private readonly ghcrCaPath: string;
+	private readonly cacheOffPath: string;
 
 	constructor(opts: {
 		client: IncusClient;
@@ -261,8 +266,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		thinPoolStatusPath?: string;
 		/** The ghcr.io cache's CA on the host; tests point it elsewhere. */
 		ghcrCaPath?: string;
+		cacheOffPath?: string;
 	}) {
 		this.ghcrCaPath = opts.ghcrCaPath ?? GHCR_CA_HOST_PATH;
+		this.cacheOffPath = opts.cacheOffPath ?? CACHE_OFF_HOST_PATH;
 		this.client = opts.client;
 		this.pool = opts.pool;
 		this.profile = opts.profile;
@@ -434,7 +441,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					this.client,
 					name,
 					opts.docker,
-					{ caPath: this.ghcrCaPath, log: this.log },
+					{ caPath: this.ghcrCaPath, cacheOffPath: this.cacheOffPath, log: this.log },
 					signal,
 				);
 			} catch (err) {
@@ -1304,7 +1311,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			this.client,
 			SEED_BUILDER,
 			{ hubMirror: true, ghcr: opts.ghcr },
-			{ caPath: this.ghcrCaPath, log: this.log },
+			{ caPath: this.ghcrCaPath, cacheOffPath: this.cacheOffPath, log: this.log },
 		);
 		await this.client.request(
 			"PUT",
