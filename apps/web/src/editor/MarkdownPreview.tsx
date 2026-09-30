@@ -6,9 +6,10 @@
  * text (SPEC.md §24, student content is untrusted).
  */
 import type { ComponentPropsWithoutRef, Ref, UIEventHandler } from "react";
-import Markdown from "react-markdown";
+import Markdown, { defaultUrlTransform, type UrlTransform } from "react-markdown";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
+import { projectImagePath } from "../files/viewable.js";
 import { splitFrontmatter } from "./frontmatter.js";
 import "./markdown.css";
 
@@ -67,13 +68,32 @@ export interface MarkdownPreviewProps {
 	/** The scrolling element, so the split view can follow the editor. */
 	scrollRef?: Ref<HTMLDivElement>;
 	onScroll?: UIEventHandler<HTMLDivElement>;
+	/** The Markdown file's project path, which relative images resolve against. */
+	path?: string;
+	/** The address that serves a project file as an image. */
+	imageUrl?: (projectPath: string) => string;
 }
 
-export function MarkdownPreview({ text, scrollRef, onScroll }: MarkdownPreviewProps) {
+export function MarkdownPreview({
+	text,
+	scrollRef,
+	onScroll,
+	path,
+	imageUrl,
+}: MarkdownPreviewProps) {
 	const { frontmatter, body } = splitFrontmatter(text);
 	// The two fence lines plus the frontmatter's own lines were cut off the
 	// body, and the body starts on the line after the closing fence.
 	const offset = frontmatter === null ? 0 : countLines(frontmatter) + 2;
+	// A relative image is a file in this project, so it comes through the
+	// file route; any other address keeps react-markdown's own check.
+	const urlTransform: UrlTransform = (url, key, node) => {
+		if (key === "src" && node.tagName === "img" && path !== undefined && imageUrl) {
+			const target = projectImagePath(url, path);
+			if (target !== null) return imageUrl(target);
+		}
+		return defaultUrlTransform(url);
+	};
 	return (
 		<div
 			className="pk-markdown"
@@ -94,6 +114,7 @@ export function MarkdownPreview({ text, scrollRef, onScroll }: MarkdownPreviewPr
 			<Markdown
 				remarkPlugins={PLUGINS}
 				rehypePlugins={[[rehypeSourceLines, offset]]}
+				urlTransform={urlTransform}
 				components={{ a: Link, input: TaskBox }}
 			>
 				{body}

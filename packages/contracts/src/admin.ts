@@ -258,6 +258,8 @@ export const HealthReport = z.object({
 	sampledAt: z.string().datetime().nullable(),
 	/** True when the newest sample is older than 2 minutes, or missing. */
 	workerStale: z.boolean(),
+	/** A newer portikus package in the apt repository (issue #861); null when none or unknown. */
+	packageUpdate: z.object({ installed: z.string(), available: z.string() }).nullable(),
 	controller: z.object({
 		reachable: z.boolean(),
 		errorCode: z.string().nullable(),

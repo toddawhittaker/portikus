@@ -229,7 +229,7 @@ test("the admin-operations calls use the controller's routes", async () => {
 	]);
 });
 
-test("addedPackages keeps the controller's NOT_FOUND when there is no list", async () => {
+test("addedPackages keeps a NOT_FOUND from the controller", async () => {
 	answer = { status: 404, body: { code: "NOT_FOUND", message: "no list" } };
 	await expect(
 		new HttpControllerClient(baseUrl, "tok").addedPackages(WS),

@@ -1058,7 +1058,7 @@ test("GET /instances/:name/added-packages returns the checked list", async () =>
 	});
 });
 
-test("added-packages answers 404 for a missing file or a symbolic link, and refuses an oversized one", async () => {
+test("added-packages answers an empty list for a missing file or a symbolic link, and refuses an oversized one", async () => {
 	await createWs();
 	const inst = provider.instances.get(WS);
 	if (!inst) throw new Error("no instance");
@@ -1069,11 +1069,13 @@ test("added-packages answers 404 for a missing file or a symbolic link, and refu
 			headers: auth(),
 		});
 
-	expect((await get()).statusCode).toBe(404);
+	const missing = await get();
+	expect(missing.statusCode).toBe(200);
+	expect(missing.json()).toEqual({ image: null, packages: [] });
 	inst.addedPackagesFile = { type: "symlink", content: "/etc/shadow" };
 	const link = await get();
-	expect(link.statusCode).toBe(404);
-	expect(link.json().code).toBe("NOT_FOUND");
+	expect(link.statusCode).toBe(200);
+	expect(link.json()).toEqual({ image: null, packages: [] });
 	inst.addedPackagesFile = { type: "file", content: "a".repeat(64 * 1024 + 1) };
 	expect((await get()).statusCode).toBe(400);
 });

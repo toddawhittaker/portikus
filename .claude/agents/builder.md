@@ -30,6 +30,9 @@ Rules:
   recovery storage) behind the interface that already exists for it.
 - Never write code that commits, branches, tags, or stashes in a user's Git
   repository on the platform's behalf.
+- In a parallel epic, do not edit `docs/STATUS.md`. Put your proposed STATUS
+  line (what you delivered, gaps left) in the PR body; the fold task writes
+  STATUS once (docs/WORKFLOW.md, "Epic plans").
 - Run the tests and lint that cover your change before reporting. If there is
   no test for the behavior you added, say so plainly.
 - If the task crosses into infrastructure or security-sensitive territory

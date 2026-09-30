@@ -15,12 +15,15 @@ import { DownloadFileButton } from "../files/DownloadFileButton.js";
 import { isStorageFull, STORAGE_FULL_SAVE_MESSAGE } from "../files/errors.js";
 import {
 	FileConflictError,
+	fileInlineUrl,
 	flushWrite,
 	useFile,
 	useSaveFile,
 } from "../files/queries.js";
+import { viewerKind } from "../files/viewable.js";
 import { useEditorViewState } from "../layout/store.js";
 import { DiffLeaf } from "./DiffLeaf.js";
+import { formatSize, ImageView, PdfView } from "./FileViewer.js";
 
 // Monaco is large, so it is its own chunk and is only fetched when a file tab
 // is actually opened (STACK.md §3).
@@ -41,8 +44,11 @@ const DiffViewer = lazy(() =>
 	import("../editor/DiffViewer.js").then((module) => ({ default: module.DiffViewer })),
 );
 
-/** The editor, or this file's changes against the last commit (issue #160). */
-type View = "edit" | "diff";
+/**
+ * The editor, or this file's changes against the last commit (issue #160).
+ * An SVG also has the picture it draws (#816).
+ */
+type View = "view" | "edit" | "diff";
 
 /** The tab is hidden, not unmounted, so the editor keeps its undo history. */
 const HIDDEN = { display: "none" } as const;
@@ -154,8 +160,13 @@ export function FileLeaf({
 	// not change the etag, so without this counter "Keep editing" would come
 	// back to an editor still holding the text from before those keystrokes.
 	const [conflictEdits, setConflictEdits] = useState(0);
+	// An image, SVG or PDF is shown rather than edited (#816).
+	const kind = viewerKind(path);
+	const svg = kind === "svg";
 	// Which view this tab shows. It belongs to this browser and is not saved.
-	const [view, setView] = useState<View>("edit");
+	// An SVG opens as its picture; its text is one button away.
+	const firstView: View = svg ? "view" : "edit";
+	const [view, setView] = useState<View>(firstView);
 	// The pressed button is replaced by its twin in the other header, so the
 	// keyboard is handed to the twin as it mounts (issue #358).
 	const focusView = useRef<View | null>(null);
@@ -230,7 +241,7 @@ export function FileLeaf({
 	consumeEdit.current = consumePendingEdit;
 	// biome-ignore lint/correctness/useExhaustiveDependencies: pendingEdit is the trigger
 	useEffect(() => {
-		if (consumeEdit.current?.()) setView("edit");
+		if (consumeEdit.current?.()) setView(firstView);
 	}, [pendingEdit]);
 
 	// The save reads the newest text and etag, not the ones captured when the
@@ -446,7 +457,14 @@ export function FileLeaf({
 		void write(current.text, conflict.etag);
 	}
 
-	const viewer = data?.tooLarge === true || data?.binary === true;
+	// A PDF or raster image is shown even when it happens to hold no NUL byte
+	// and the server calls it text.
+	const viewer =
+		data?.tooLarge === true ||
+		data?.binary === true ||
+		(data !== undefined && (kind === "image" || kind === "pdf"));
+	// An SVG small enough to edit has a picture view and a text view.
+	const svgModes = svg && !viewer;
 	// The pill says nothing useful about a file that cannot be edited, and
 	// while the editor is empty there is nothing to have saved.
 	const showStatus = text !== null && !viewer;
@@ -503,6 +521,27 @@ export function FileLeaf({
 		return null;
 	}
 
+	const downloadButton = (
+		<DownloadFileButton
+			workspaceId={workspaceId}
+			projectId={projectId}
+			path={path}
+			testId="file-download"
+		/>
+	);
+
+	/** The panel for a file this tab cannot show: why, and Download. */
+	function downloadPanel(title: string) {
+		const size = data?.size ?? 0;
+		return (
+			<EmptyState icon="file" title={title} actions={downloadButton}>
+				{size > 0
+					? `${path} is ${formatSize(size)}. Download it to open it elsewhere.`
+					: `${path} cannot be shown here. Download it to open it elsewhere.`}
+			</EmptyState>
+		);
+	}
+
 	function body() {
 		if (text === null && gone) {
 			return (
@@ -527,29 +566,53 @@ export function FileLeaf({
 			);
 		}
 		if (viewer && data) {
-			return (
-				<EmptyState
-					icon="file"
-					title={
-						data.tooLarge ? "This file is too large to edit here" : "Not a text file"
-					}
-					actions={
-						<DownloadFileButton
-							workspaceId={workspaceId}
-							projectId={projectId}
-							path={path}
-							testId="file-download"
-						/>
-					}
-				>
-					{data.size > 0
-						? `${path} is ${formatSize(data.size)}. Download it to open it elsewhere.`
-						: `${path} cannot be shown here. Download it to open it elsewhere.`}
-				</EmptyState>
+			// The etag, when there is one, makes a change on disk a new address.
+			const inlineUrl = fileInlineUrl(
+				workspaceId,
+				projectId,
+				path,
+				data.etag || undefined,
+			);
+			if (kind === "image" || kind === "svg") {
+				return (
+					<ImageView
+						src={inlineUrl}
+						path={path}
+						size={data.size}
+						download={downloadButton}
+						fallback={downloadPanel}
+					/>
+				);
+			}
+			if (kind === "pdf") {
+				return (
+					<PdfView
+						url={inlineUrl}
+						path={path}
+						download={downloadButton}
+						fallback={downloadPanel}
+					/>
+				);
+			}
+			return downloadPanel(
+				data.tooLarge ? "This file is too large to edit here" : "Not a text file",
 			);
 		}
 		if (text === null || !revealReady) {
 			return <p className="pk-file-note">Loading…</p>;
+		}
+		if (svgModes && view === "view") {
+			// Drawn from the text in the tab, so it shows unsaved edits too, and
+			// through `img`, where the SVG's own script cannot run.
+			return (
+				<ImageView
+					src={svgDataUrl(text)}
+					path={path}
+					size={new TextEncoder().encode(text).length}
+					download={downloadButton}
+					fallback={downloadPanel}
+				/>
+			);
 		}
 		const editor = (
 			<Suspense fallback={<p className="pk-file-note">Loading editor…</p>}>
@@ -578,6 +641,8 @@ export function FileLeaf({
 			<Suspense fallback={<p className="pk-file-note">Loading preview…</p>}>
 				<MarkdownPreview
 					text={previewText}
+					path={path}
+					imageUrl={(target) => fileInlineUrl(workspaceId, projectId, target)}
 					scrollRef={previewScroll}
 					onScroll={followPreview}
 				/>
@@ -640,14 +705,26 @@ export function FileLeaf({
 	) : (
 		<fieldset className="pk-segmented pk-view-modes">
 			<legend className="pk-visually-hidden">File view</legend>
+			{svgModes ? (
+				<button
+					type="button"
+					ref={viewButtonRef("view")}
+					aria-pressed={view === "view"}
+					onClick={() => pressView("view")}
+					data-testid={`file-view-view-${path}`}
+				>
+					View
+				</button>
+			) : null}
 			<button
 				type="button"
 				ref={viewButtonRef("edit")}
-				aria-pressed={!inDiff}
+				aria-pressed={!inDiff && !(svgModes && view === "view")}
 				onClick={() => pressView("edit")}
 				data-testid={`file-view-edit-${path}`}
 			>
-				Edit
+				{/* An image or PDF shown in place is looked at, not edited. */}
+				{viewer && kind !== null ? "View" : "Edit"}
 			</button>
 			<button
 				type="button"
@@ -738,9 +815,7 @@ export function FileLeaf({
 	);
 }
 
-/** A byte count a student can read. */
-function formatSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} bytes`;
-	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+/** An SVG's text as an address an `img` can draw. */
+function svgDataUrl(text: string): string {
+	return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(text)}`;
 }

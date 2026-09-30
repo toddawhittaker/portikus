@@ -59,6 +59,8 @@ class FakeHost:
         self.distrobuilder_rc = 0
         self.chroot_rc = 0
         self.dev_link = False
+        self.installed = "0.1.695"
+        self.candidate = "0.1.695"
 
     def publish(self, version, corrupt=None, manifest=None):
         base = f"{ij.DEFAULT_BASE_URL}/image-{version}"
@@ -110,8 +112,15 @@ class FakeHost:
             else:
                 (root / "dev").mkdir()
             return 0, ""
+        if tool == "dpkg-query" and argv[-1] == "portikus":
+            return (0, self.installed) if self.installed else (1, "")
         if tool == "dpkg-query":
             return 0, "curl\t8.14.1-2\nlibc6:amd64\t2.41-12\n"
+        if tool == "apt-cache":
+            return 0, f"portikus:\n  Installed: {self.installed}\n  Candidate: {self.candidate}\n"
+        if tool == "dpkg" and argv[1] == "--compare-versions":
+            newer = [int(p) for p in argv[2].split(".")] > [int(p) for p in argv[4].split(".")]
+            return (0 if newer else 1), ""
         if tool in ("mount", "umount", "mknod"):
             return 0, ""
         if tool == "chroot":
@@ -151,7 +160,8 @@ class FakeHost:
             if cmd[0] == "systemctl":
                 return 0, "running\n"
             default = {"node": "v24.8.0\n", "python3.14": "Python 3.14.7\n",
-                       "docker": "29.8.0 overlay2 /var/lib/docker\n"}.get(cmd[0], f"{cmd[0]} ok\n")
+                       "docker": "29.8.0 overlay2 /var/lib/docker\n",
+                       "sh": "paste-code\n"}.get(cmd[0], f"{cmd[0]} ok\n")
             return self.exec_results.get(cmd[0], (0, default))
         raise AssertionError(f"unexpected incus {args}")
 
@@ -389,7 +399,7 @@ class FetchTest(Base):
         self.assertEqual(health["result"], "passed")
         self.assertEqual([c["name"] for c in health["checks"]],
                          ["node --version", "python3 --version", "git --version", "docker info",
-                          "claude --version", "codex --version"])
+                          "claude --version", "claude login flow", "codex --version"])
         # It never makes itself the default.
         self.assertEqual(self.host.aliases["portikus"], FP["2026.09.11"])
         self.assertEqual(self.aliases_file(), {"default": "2026.09.11", "previous": None})
@@ -462,7 +472,7 @@ class FetchTest(Base):
         self.assertIn("codex --version", self.status()["message"])
         health = json.loads((self.images / "2026.09.12" / "health.json").read_text())
         self.assertEqual(health["result"], "failed")
-        self.assertEqual([c["ok"] for c in health["checks"]], [True, True, True, True, True, False])
+        self.assertEqual([c["ok"] for c in health["checks"]], [True, True, True, True, True, True, False])
         self.assertEqual(self.host.instances, set())
 
     def test_a_node_version_that_does_not_match_the_parameters_fails_health(self):
@@ -480,6 +490,15 @@ class FetchTest(Base):
         self.go()
         self.assertEqual(self.status()["state"], "failed")
         self.assertIn("docker info", self.status()["message"])
+
+    def test_a_claude_login_that_opens_a_browser_fails_health(self):
+        # A browser open would hand the broker a localhost-callback URL (issue #848).
+        self.host.publish("2026.09.12")
+        self.host.exec_results["sh"] = (0, "claude opened a browser or printed no paste-code URL\n")
+        self.request({"kind": "fetch", "version": "2026.09.12"})
+        self.go()
+        self.assertEqual(self.status()["state"], "failed")
+        self.assertIn("claude login flow", self.status()["message"])
 
     def test_the_default_image_is_never_refetched(self):
         self.put_image("2026.09.12")
@@ -891,6 +910,65 @@ class UnitFileTest(unittest.TestCase):
         # With the default limit, six quick requests failed the path unit, and no
         # later request ran until it was restarted by hand.
         self.assertEqual(self.settings.get("StartLimitIntervalSec"), "0")
+
+
+class CheckTest(Base):
+    """image-job check, the daily read-only look at what is published (issue #861)."""
+
+    def published(self):
+        return json.loads((self.images / "published.json").read_text())
+
+    def test_names_the_newest_published_image_and_downloads_nothing_else(self):
+        self.host.urls[ij.DEFAULT_RELEASES_URL] = json.dumps([
+            {"tag_name": "v0.1.700"}, {"tag_name": "image-2026.09.12"}, {"tag_name": "image-2026.09.13"},
+        ]).encode()
+        self.assertEqual(self.runner.run_check(), 0)
+        doc = self.published()
+        self.assertEqual(doc["image"], "2026.09.13")
+        self.assertIsNone(doc["package"])
+        self.assertRegex(doc["checkedAt"], ij.DATETIME_RE)
+        self.assertEqual([c[-1] for c in self.host.ran("curl")], [ij.DEFAULT_RELEASES_URL])
+        self.assertEqual(self.host.ran("incus"), [])
+
+    def test_an_unreadable_release_list_writes_no_image(self):
+        self.assertEqual(self.runner.run_check(), 0)
+        self.assertIsNone(self.published()["image"])
+
+    def test_a_failed_check_keeps_the_image_last_recorded(self):
+        self.host.urls[ij.DEFAULT_RELEASES_URL] = json.dumps([{"tag_name": "image-2026.09.13"}]).encode()
+        self.runner.run_check()
+        del self.host.urls[ij.DEFAULT_RELEASES_URL]
+        self.assertEqual(self.runner.run_check(), 0)
+        self.assertEqual(self.published()["image"], "2026.09.13")
+
+    def test_the_release_list_download_is_capped_and_redirects_only_to_https(self):
+        self.runner.run_check()
+        curl = self.host.ran("curl")[0]
+        self.assertEqual(curl[curl.index("--max-filesize") + 1], str(ij.RELEASES_MAX_BYTES))
+        self.assertEqual(curl[curl.index("--proto-redir") + 1], "=https")
+
+    def test_names_a_newer_package_only_when_apt_has_one(self):
+        self.host.candidate = "0.1.700"
+        self.runner.run_check()
+        self.assertEqual(self.published()["package"], {"installed": "0.1.695", "available": "0.1.700"})
+        self.host.candidate = "0.1.690"
+        self.runner.run_check()
+        self.assertIsNone(self.published()["package"])
+
+    def test_no_package_facts_off_an_apt_install(self):
+        self.host.installed = ""
+        self.host.candidate = "(none)"
+        self.runner.run_check()
+        self.assertIsNone(self.published()["package"])
+
+    def test_the_check_unit_runs_the_check_once_a_day(self):
+        units = Path(__file__).resolve().parents[2] / "systemd"
+        service = (units / "portikus-image-check.service").read_text()
+        timer = (units / "portikus-image-check.timer").read_text()
+        self.assertIn("ExecStart=/usr/lib/portikus/image-job check\n", service)
+        self.assertIn("CapabilityBoundingSet=\n", service)
+        self.assertIn("RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX\n", service)
+        self.assertIn("OnCalendar=daily\n", timer)
 
 
 if __name__ == "__main__":

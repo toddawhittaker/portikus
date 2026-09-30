@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CloneUrl, ProjectSlug } from "./project.js";
+import { CloneUrl, MAX_PROJECT_NAME_LENGTH, ProjectSlug } from "./project.js";
 import { TerminalTheme, Timezone } from "./settings.js";
 import { CodingAgent, TerminalId } from "./terminal.js";
 
@@ -94,6 +94,8 @@ export const AgentProject = z.object({
 	 * Optional because an older agent does not report it.
 	 */
 	directoryId: z.string().min(1).max(32).optional(),
+	/** After a clone: the name the repository gives itself, if any (#846). */
+	suggestedName: z.string().min(1).max(MAX_PROJECT_NAME_LENGTH).optional(),
 });
 export type AgentProject = z.infer<typeof AgentProject>;
 
@@ -188,6 +190,8 @@ export const AgentErrorCode = z.enum([
 	"RECOVERY_POINT_INVALID",
 	"RESTORE_INCOMPLETE",
 	"ROLLBACK_COPY_EXISTS",
+	// A zip that is damaged, locked, or unsafe to extract (issue #817).
+	"ARCHIVE_INVALID",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 

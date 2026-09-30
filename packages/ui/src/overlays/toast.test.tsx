@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	nodeText,
@@ -28,6 +29,15 @@ function Fixture() {
 }
 
 describe("Toast", () => {
+	it("keeps ref out of the props callers pass to show", () => {
+		const props: ToastProps = {
+			title: "Saved",
+			// @ts-expect-error the provider owns each toast's ref
+			ref: null,
+		};
+		expect(props.title).toBe("Saved");
+	});
+
 	it("shows a toast from useToast and dismisses it", () => {
 		render(
 			<ToastProvider>
@@ -80,6 +90,25 @@ describe("Toast", () => {
 		expect(screen.getByRole("alert").textContent).toContain("could not start");
 		fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 		expect(onDismiss).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps the viewport a list of list items, with the live role inside each", () => {
+		render(
+			<ToastProvider>
+				<Fixture />
+			</ToastProvider>,
+		);
+		fireEvent.click(screen.getByText("Create"));
+
+		const list = screen.getByRole("region").querySelector("ol");
+		const items = Array.from(list?.children ?? []);
+		expect(items.length).toBe(1);
+		expect(
+			items.every((item) => item.tagName === "LI" && !item.hasAttribute("role")),
+		).toBe(true);
+		expect(items[0]?.querySelector('[role="status"]')?.textContent).toContain(
+			"Project created",
+		);
 	});
 
 	it("sits above dialogs and names F8 as the way to reach it (#364)", () => {
@@ -154,6 +183,99 @@ describe("toast timing and recording", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("keeps a persistent toast until its caller dismisses it", () => {
+		function Progress() {
+			const { show } = useToast();
+			const dismiss = React.useRef<(() => void) | null>(null);
+			return (
+				<>
+					<button
+						type="button"
+						onClick={() => {
+							dismiss.current = show({ title: "Extracting", persistent: true });
+						}}
+					>
+						Show
+					</button>
+					<button type="button" onClick={() => dismiss.current?.()}>
+						Done
+					</button>
+				</>
+			);
+		}
+		vi.useFakeTimers();
+		try {
+			render(
+				<ToastProvider>
+					<Progress />
+				</ToastProvider>,
+			);
+			fireEvent.click(screen.getByText("Show"));
+			act(() => {
+				vi.advanceTimersByTime(10 * 60 * 1000);
+			});
+			expect(screen.queryByText("Extracting")).not.toBeNull();
+			fireEvent.click(screen.getByText("Done"));
+			expect(screen.queryByText("Extracting")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("moves focus to the viewport when its caller dismisses a focused toast", () => {
+		let dismiss: () => void = () => {};
+		function Progress() {
+			const { show } = useToast();
+			return (
+				<button
+					type="button"
+					onClick={() => {
+						dismiss = show({ title: "Extracting", persistent: true });
+					}}
+				>
+					Show
+				</button>
+			);
+		}
+		render(
+			<ToastProvider>
+				<Progress />
+			</ToastProvider>,
+		);
+		fireEvent.click(screen.getByText("Show"));
+		screen.getByRole("button", { name: "Dismiss" }).focus();
+		act(() => dismiss());
+		expect(screen.queryByText("Extracting")).toBeNull();
+		expect(document.activeElement).toBe(screen.getByRole("region").querySelector("ol"));
+	});
+
+	it("leaves focus alone when a dismissed toast did not hold it", () => {
+		let dismiss: () => void = () => {};
+		function Progress() {
+			const { show } = useToast();
+			return (
+				<button
+					type="button"
+					onClick={() => {
+						dismiss = show({ title: "Extracting", persistent: true });
+					}}
+				>
+					Show
+				</button>
+			);
+		}
+		render(
+			<ToastProvider>
+				<Progress />
+			</ToastProvider>,
+		);
+		const button = screen.getByText("Show");
+		fireEvent.click(button);
+		button.focus();
+		act(() => dismiss());
+		expect(document.activeElement).toBe(button);
 	});
 
 	it("records every toast once, as text, including one that asks for an answer", () => {

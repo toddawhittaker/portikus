@@ -505,6 +505,60 @@ describe("the file tree", () => {
 		expect(link.download).toBe("README.md");
 	});
 
+	/** Issue #817: "Extract here" is offered on a zip, and only on a zip. */
+	function stubZipTree(extract: () => Response) {
+		const calls: string[] = [];
+		stubFetch((url, init) => {
+			if (url.includes("/terminals")) return json(200, { terminals: [] });
+			if (url.includes("/git/status")) return json(200, gitStatus);
+			if (url.endsWith("/extract")) {
+				calls.push(String(init?.body));
+				return extract();
+			}
+			if (url.includes("/tree?path=starter")) return json(200, SRC);
+			if (url.includes("/tree?path=")) {
+				return json(200, { ...ROOT, entries: [...ROOT.entries, entry("starter.zip")] });
+			}
+			throw new Error(`unexpected request: ${url}`);
+		});
+		return calls;
+	}
+
+	it("extracts a zip from its menu and says where it went", async () => {
+		const calls = stubZipTree(() => json(201, { path: "starter" }));
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-README.md"), {
+			key: "Enter",
+		});
+		expect(screen.queryByText("Extract here")).toBeNull();
+		fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+
+		fireEvent.keyDown(await screen.findByTestId("file-menu-starter.zip"), {
+			key: "Enter",
+		});
+		fireEvent.click(await screen.findByTestId("row-extract-starter.zip"));
+
+		expect(await screen.findByText("Extracted starter.zip into starter")).toBeDefined();
+		// The progress toast gives way to the result rather than overlapping it.
+		expect(screen.queryByText("Extracting starter.zip…")).toBeNull();
+		expect(calls).toEqual([JSON.stringify({ path: "starter.zip" })]);
+	});
+
+	it("explains a zip that was refused", async () => {
+		stubZipTree(() =>
+			json(422, { code: "ARCHIVE_INVALID", message: "the zip holds an unsafe path" }),
+		);
+		renderPane();
+		fireEvent.keyDown(await screen.findByTestId("file-menu-starter.zip"), {
+			key: "Enter",
+		});
+		fireEvent.click(await screen.findByTestId("row-extract-starter.zip"));
+
+		expect(await screen.findByText("starter.zip was not extracted")).toBeDefined();
+		expect(screen.getByText(/would land outside its folder/)).toBeDefined();
+		expect(screen.queryByText("Extracting starter.zip…")).toBeNull();
+	});
+
 	/** Issue #361: Show hidden is a menu item, so the keyboard can reach it. */
 	it("toggles Show hidden from the keyboard as a menu checkbox", async () => {
 		renderPane();

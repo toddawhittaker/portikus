@@ -59,6 +59,7 @@ import { BrowserOpenDialog } from "./BrowserOpenDialog.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
 import {
 	downloadErrorToast,
+	extractErrorToast,
 	fileErrorToast,
 	isFileExists,
 	tooLargeToast,
@@ -145,6 +146,8 @@ interface TreeApi {
 	/** The rows an action on `path` applies to: the selection, or that row. */
 	targetsFor: (node: FileNode) => FileNode[];
 	download: (nodes: readonly FileNode[]) => void;
+	/** "Extract here" on a zip, into a new folder beside it (issue #817). */
+	extract: (node: FileNode) => void;
 	/** The element holding the rows, so the drawn order can be read back. */
 	treeRef: (element: HTMLElement | null) => void;
 	dropDir: string | null;
@@ -450,6 +453,32 @@ export function FileTreePane({
 		[openFileTab],
 	);
 
+	const extract = useCallback(
+		(node: FileNode) => {
+			const name = displayName(node.name);
+			// A large zip takes minutes, so the progress toast stays until the request settles.
+			const dismissProgress = toast.show({
+				title: `Extracting ${name}…`,
+				persistent: true,
+			});
+			mutationsRef.current.extract
+				.mutateAsync(node.path)
+				.then(({ path }) => {
+					dismissProgress();
+					setExpandedIn(project.id, path, true);
+					toast.show({
+						tone: "success",
+						title: `Extracted ${name} into ${baseName(path)}`,
+					});
+				})
+				.catch((error: unknown) => {
+					dismissProgress();
+					toast.show(extractErrorToast(name, error));
+				});
+		},
+		[project.id, setExpandedIn, toast],
+	);
+
 	const pickUpload = useCallback((dir: string) => {
 		uploadDir.current = dir;
 		uploadInput.current?.click();
@@ -478,6 +507,7 @@ export function FileTreePane({
 			clickRow,
 			targetsFor,
 			download,
+			extract,
 			treeRef: (element) => {
 				treeElement.current = element;
 			},
@@ -504,6 +534,7 @@ export function FileTreePane({
 			clickRow,
 			targetsFor,
 			download,
+			extract,
 			dropDir,
 			uploadDrag,
 			git,
@@ -1303,6 +1334,14 @@ function RowMenuItems({ node }: { node: FileNode }): ReactNode {
 					Download
 				</MenuItem>
 			)}
+			{!many && !node.isDir && /\.zip$/i.test(node.name) ? (
+				<MenuItem
+					onSelect={() => api.extract(node)}
+					testId={`row-extract-${node.path}`}
+				>
+					Extract here
+				</MenuItem>
+			) : null}
 			{/* The picker belongs to the pane, because the menu closes on select. */}
 			<MenuItem onSelect={() => api.pickUpload(dir)}>
 				<span data-testid="row-upload">Upload files…</span>

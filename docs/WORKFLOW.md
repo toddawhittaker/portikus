@@ -217,6 +217,11 @@ agent working from a checkout can read it.
 - The epic's last task folds the plan's lasting rules into SPEC.md in a
   sentence or two each, puts any "why" a later reader will ask into an
   ADR, and deletes the plan.
+- Parallel task pull requests do not edit `docs/STATUS.md`, because
+  they all conflict on it. Each one puts its proposed STATUS line (what
+  it delivered, gaps left) in its pull request body instead.
+- The fold task writes the epic's STATUS.md section once, from those
+  pull request bodies.
 - So `main` never holds a plan at a merge. Git history keeps it, and the
   epic pull request's commits show it to the reviewer.
 - Plans of epics finished before this rule are kept in

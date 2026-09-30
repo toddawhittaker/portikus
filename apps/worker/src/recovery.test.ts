@@ -8,6 +8,7 @@ import {
 	insertTestUser,
 	type TestDb,
 } from "@portikus/db/testing";
+import { collectingLogger } from "@portikus/observability/testing";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { AgentCallError, type RecoveryAgent } from "./agent-client.js";
 import { type RecoveryConfig, rebuildPointsDone, recoverySweep } from "./recovery.js";
@@ -427,6 +428,29 @@ test.skipIf(skip)(
 		expect(result.created).toBe(0);
 		expect(await points(pid)).toHaveLength(0);
 		expect((await checkedAt(pid))?.getTime()).toBe(now.getTime());
+	},
+);
+
+test.skipIf(skip)(
+	"a project whose folder is gone logs at info; other failures stay warnings",
+	async () => {
+		const gone = await insertProject(await insertWorkspace());
+		const { logger, lines } = collectingLogger();
+		agent.createError = new AgentCallError("PROJECT_NOT_FOUND", "no such project");
+		const now = new Date();
+
+		await recoverySweep(tdb.db, agentFor, cfg, now, logger);
+		expect(lines.filter((l) => l.projectId === gone).map((l) => l.level)).toEqual([
+			"info",
+		]);
+		expect((await checkedAt(gone))?.getTime()).toBe(now.getTime());
+
+		const full = await insertProject(await insertWorkspace());
+		agent.createError = new AgentCallError("STORAGE_FULL", "full");
+		await recoverySweep(tdb.db, agentFor, cfg, new Date(now.getTime() + 1), logger);
+		expect(lines.filter((l) => l.projectId === full).map((l) => l.level)).toEqual([
+			"warn",
+		]);
 	},
 );
 

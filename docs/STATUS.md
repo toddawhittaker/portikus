@@ -3550,3 +3550,87 @@ Gaps:
   `portikus`.
 - The loopback refusal tests probe only 127.0.0.1, not ::1 or the VM's
   own address (BACKLOG.md).
+
+## Epic 15.2 — Pilot fixes
+
+Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot
+fixes" (task PRs #863 to #876 and the confirmation fixes).
+
+Delivered:
+
+- Claude Code login in a workspace offers the paste-code URL again
+  (#848). The image sets `BROWSER` to empty for Claude Code only,
+  through `/etc/claude-code/managed-settings.json`, so it no longer opens
+  a second login URL with a localhost callback (BROWSER-HANDLING.md
+  19.2). The image health check, the smoke test and
+  `infra/tests/claude-login-test.sh` fail if login opens a browser.
+- A terminal tells tmux its size only once the pane has stopped changing
+  size for 100 ms (#849). Claude Code can still leave overlapping lines
+  after one real resize; that is its own renderer.
+- The file viewer shows PNG, JPEG, GIF, WebP and SVG images and PDFs
+  (#816). The file route's `inline=1` serves only those types, with a
+  sandbox Content Security Policy (CSP) and `nosniff`. A PDF is shown
+  from a fetched in-page copy. Relative Markdown images resolve against
+  the Markdown file's folder and load through the file route.
+- "Extract here" for a zip in the Files pane (#817). The agent checks the
+  whole zip before extracting and refuses it for traversal, absolute
+  paths, any symbolic link, a password, zip64, a `.git` path part, a
+  mismatched Unicode path, or a central directory that does not end
+  exactly at the end record (a false entry count could hide entries from
+  the checks). Limits are 1 GiB and 10,000 entries. unzip runs under
+  `prlimit`, and is killed on abort, after the connection closes, or
+  when disk use passes the cap. The files go to a new sibling folder,
+  `name-2` and so on when taken, never `.git`. A walk after extraction
+  refuses any `.git` path part. Zip-slip tests cover this extractor and
+  the recovery restore.
+- Project setup (#846, #847, #856, #857): a clone takes the name its
+  README heading or package file gives it; new repositories start on
+  `main`; `.portikus/` working files are ignored except `checks.json`
+  and `README.md`, through `.gitignore` for new projects and
+  `.git/info/exclude` for existing ones, including on the first write
+  under `.portikus/` in an older project (#871); new projects get
+  `.portikus/README.md`. Unexpected project route errors are `INTERNAL`
+  and read as a 500.
+- Workspace image 2026.09.14 ships `/usr/share/portikus/AGENTS.md` and
+  sets `init.defaultBranch main`. The agent copies the template once to
+  `~/.codex/AGENTS.md` and writes `~/.claude/CLAUDE.md` once as an
+  import of it, never overwriting either (#858). The template tells
+  agents to use `portikus-open`, since `BROWSER` is empty inside Claude
+  Code.
+- Log noise (#859): 4xx answers log at info (429 at warn), several
+  expected conditions no longer log as errors, and setup starts the
+  controller before the worker and masks `systemd-ssh-generator`.
+- Admin image notices (#860, #861): "Old image" for a workspace on a
+  non-default image, "Stale" for accounts only. A daily root timer,
+  `portikus-image-check.timer`, records the newest published image and
+  any newer `portikus` package; it is size-capped, follows only https
+  redirects, and keeps the last good image when a check fails. Setup
+  runs it once. The Workspace image and Health tabs show notices, and
+  each administrator gets one notification per version, sent at API
+  start and then every `RELEASE_NOTICE_SECONDS` (default 3600).
+- Review fixes: accessibility (a persistent extract toast, a
+  checkerboard behind images, focus after "Update to", toast live roles,
+  focus kept when a focused toast is dismissed, Monaco token and bracket
+  colours at 4.5:1) and infrastructure (reset-admin marker read, prerm
+  disables the backup timers and socket, setup re-enables the core
+  services after a remove and reinstall, new smoke checks for the inline
+  CSP and for starting at boot).
+- Process: task PRs leave STATUS to the fold task (#874).
+
+Gaps:
+
+- The new smoke check for the `inline=1` sandbox CSP has only run by
+  hand, because the smoke test skips its lifecycle block on a VM that
+  has workspaces.
+- Image 2026.09.14 is not yet built or published. The pilot needs it for
+  the Claude login fix (#848) and the agent instructions (#858).
+- The extractor's free-space backstop reads the whole filesystem, so
+  other writes on it count too. It is only a backstop behind the header
+  checks and `prlimit`.
+- Setup re-enables the API, controller and worker on every configure, so
+  it undoes an administrator's own `systemctl disable`.
+- Extract progress is a notice, not a percentage.
+- A PDF over 50 MB is offered as a download rather than shown.
+- An image or PDF over the 2 MiB editor limit shows a change on disk only
+  after its tab is reopened.
+- CSV as a table (optional in #816) was left out.

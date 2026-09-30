@@ -63,8 +63,7 @@ export function useRequestImageJob() {
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(body),
 			}),
-		onSuccess: () => {
-			void client.invalidateQueries({ queryKey: imageKey });
-		},
+		// Waiting for the refetch lets a confirm dialog return focus to the new job heading.
+		onSuccess: () => client.invalidateQueries({ queryKey: imageKey }),
 	});
 }

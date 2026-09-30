@@ -66,6 +66,7 @@ function data(over: Partial<AdminImage> = {}): AdminImage {
 		],
 		otherWorkspaces: 2,
 		job: null,
+		newerPublished: null,
 		...over,
 	};
 }
@@ -121,6 +122,36 @@ test("a running job turns the actions off and shows its step and log", async () 
 	);
 });
 
+test("a newer published image shows a notice whose button asks for the update (issue #861)", async () => {
+	const fetch = stubFetch((url, init) =>
+		init?.method === "POST"
+			? json(202, job({ state: "queued" }))
+			: url.startsWith("/admin/image/jobs/")
+				? json(200, { job: job(), log: [] })
+				: json(200, data({ newerPublished: "2026.09.13" })),
+	);
+	renderWithQuery(<ImageTab />);
+	const notice = await screen.findByTestId("image-newer-published");
+	expect(notice.textContent).toContain("Image 2026.09.13 is published");
+	fireEvent.click(within(notice).getByRole("button", { name: "Update to 2026.09.13" }));
+	fireEvent.click(
+		within(await screen.findByTestId("image-confirm")).getByRole("button", {
+			name: "Update",
+		}),
+	);
+	await waitFor(() => {
+		const post = fetch.mock.calls.find(([, init]) => init?.method === "POST");
+		expect(JSON.parse(String(post?.[1]?.body))).toEqual({ kind: "fetch" });
+	});
+});
+
+test("no notice when nothing newer is published", async () => {
+	stubFetch(() => json(200, data()));
+	renderWithQuery(<ImageTab />);
+	await screen.findByTestId("image-default");
+	expect(screen.queryByTestId("image-newer-published")).toBeNull();
+});
+
 test("Rebuild posts the chosen Node and Python", async () => {
 	const fetch = stubFetch((url, init) =>
 		init?.method === "POST"
@@ -158,4 +189,32 @@ test("a finished fetch shows its changes and offers Make default", async () => {
 	await waitFor(() => expect(within(result).getByText("zsh")).toBeTruthy());
 	fireEvent.click(within(result).getByTestId("image-make-default-2026.09.12"));
 	expect(await screen.findByTestId("image-confirm")).toBeTruthy();
+});
+
+test("a confirmed update from the notice sends focus to the job heading, not the page body", async () => {
+	let posted = false;
+	stubFetch((url, init) => {
+		if (init?.method === "POST") {
+			posted = true;
+			return json(202, job({ state: "queued" }));
+		}
+		if (url.startsWith("/admin/image/jobs/")) return json(200, { job: job(), log: [] });
+		return json(
+			200,
+			posted ? data({ job: job() }) : data({ newerPublished: "2026.09.13" }),
+		);
+	});
+	renderWithQuery(<ImageTab />);
+	const notice = await screen.findByTestId("image-newer-published");
+	const update = within(notice).getByRole("button", { name: "Update to 2026.09.13" });
+	update.focus();
+	fireEvent.click(update);
+	fireEvent.click(
+		within(await screen.findByTestId("image-confirm")).getByRole("button", {
+			name: "Update",
+		}),
+	);
+	await waitFor(() => expect(screen.queryByTestId("image-confirm")).toBeNull());
+	expect(screen.queryByTestId("image-newer-published")).toBeNull();
+	await waitFor(() => expect(document.activeElement?.id).toBe("image-job-title"));
 });

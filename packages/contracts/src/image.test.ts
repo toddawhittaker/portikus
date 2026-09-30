@@ -5,12 +5,15 @@
  */
 import { describe, expect, test } from "vitest";
 import {
+	compareImageVersions,
 	ImageAliasesFile,
 	ImageHealth,
 	ImageJobRequest,
 	ImageJobStatusFile,
 	ImageManifest,
 	ImageVersion,
+	newerPublishedImage,
+	PublishedReleasesFile,
 } from "./image.js";
 
 const ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -132,5 +135,65 @@ describe("the files the root job writes", () => {
 		const health = { result: "passed", checkedAt: "2026-09-28T10:00:00Z", checks: [] };
 		expect(ImageHealth.safeParse(health).success).toBe(true);
 		expect(ImageHealth.safeParse({ ...health, result: "ok" }).success).toBe(false);
+	});
+});
+
+describe("compareImageVersions (issue #861)", () => {
+	test("orders by year, month and serial as numbers", () => {
+		expect(compareImageVersions("2026.09.13", "2026.09.9")).toBeGreaterThan(0);
+		expect(compareImageVersions("2026.10.1", "2026.09.13")).toBeGreaterThan(0);
+		expect(compareImageVersions("2027.01.1", "2026.12.40")).toBeGreaterThan(0);
+		expect(compareImageVersions("2026.09.9", "2026.09.9")).toBe(0);
+	});
+
+	test("a local build sorts after its published version and before the next", () => {
+		const local = "2026.09.12-local.202609281530";
+		expect(compareImageVersions(local, "2026.09.12")).toBeGreaterThan(0);
+		expect(compareImageVersions("2026.09.13", local)).toBeGreaterThan(0);
+		expect(compareImageVersions(local, "2026.09.12-local.202609281531")).toBeLessThan(
+			0,
+		);
+	});
+});
+
+describe("newerPublishedImage (issue #861)", () => {
+	test("names a published image newer than every image on the server", () => {
+		expect(newerPublishedImage("2026.09.13", ["2026.09.12", "2026.09.9"])).toBe(
+			"2026.09.13",
+		);
+		expect(newerPublishedImage("2026.09.13", [])).toBe("2026.09.13");
+	});
+
+	test("is null once that version or a newer one is on the server", () => {
+		expect(newerPublishedImage("2026.09.13", ["2026.09.13", "2026.09.12"])).toBeNull();
+		expect(
+			newerPublishedImage("2026.09.13", ["2026.09.13-local.202609290000"]),
+		).toBeNull();
+		expect(newerPublishedImage(null, ["2026.09.12"])).toBeNull();
+	});
+});
+
+describe("PublishedReleasesFile", () => {
+	const checkedAt = "2026-09-29T04:00:00.000Z";
+
+	test("accepts what image-job check writes", () => {
+		expect(
+			PublishedReleasesFile.safeParse({
+				checkedAt,
+				image: "2026.09.13",
+				package: { installed: "0.1.695", available: "0.1.700" },
+			}).success,
+		).toBe(true);
+		expect(
+			PublishedReleasesFile.safeParse({ checkedAt, image: null, package: null })
+				.success,
+		).toBe(true);
+	});
+
+	test("rejects an image that is not an image version", () => {
+		expect(
+			PublishedReleasesFile.safeParse({ checkedAt, image: "../etc", package: null })
+				.success,
+		).toBe(false);
 	});
 });

@@ -271,6 +271,12 @@ Normal workspace stop/start must preserve all three.
 
 A deliberate workspace rebuild may replace the root filesystem while retaining the user's home/projects volume. Docker state may be retained or reset according to the selected administrative action.
 
+Added by Epic 15.2: the home folder gets the coding agents' global instructions once.
+
+- The workspace image ships a template, `/usr/share/portikus/AGENTS.md`, written for the agents in plain English: what the workspace is, projects and checks, previews and the host suffix, opening a URL with `/usr/local/bin/portikus-open` (because `BROWSER` is empty inside Claude Code), never committing on the student's behalf unless asked. It holds no issue, pull request, SPEC or ADR references.
+- Every time the workspace agent starts, it copies the template to `~/.codex/AGENTS.md` (Codex's global instructions) and writes `~/.claude/CLAUDE.md` holding the single import line `@~/.codex/AGENTS.md` (Claude Code's user memory), each only when nothing is at that path. It runs as the student, never follows or replaces a symbolic link, and creates a missing `~/.codex` or `~/.claude` with mode 0700. It never overwrites either file, so edits by the student or an agent survive restarts and rebuilds; a later template change does not reach an existing home, and a deleted file comes back at the next start. An image without the template gets neither file.
+- The image also sets `init.defaultBranch main` in `/etc/gitconfig`, so a student's own `git init` starts on `main`.
+
 ## 5. Identity and access
 
 ### 5.1 Authentication
@@ -591,6 +597,39 @@ P0 creation methods:
 For a new project, `git init` should be the default behavior because source control is part of the standard Portikus workflow. The UI may allow an explicit opt-out when appropriate.
 
 If Portikus opens an existing project that is not a Git repository, the UI must identify that state clearly and offer an **Initialize Git** action. Initialization must invoke real Git and must not create hidden commits. A new project initialised with Git starts with a default `.gitignore` covering secrets, dependency directories, build output and local databases; it is left untracked, and a project that already has one keeps it.
+
+Every repository Portikus initializes starts on branch `main`
+(`git init --initial-branch=main`); a clone keeps the branches it has.
+Choosing the initial branch name is part of creating the repository, so it
+does not conflict with §12.5.
+
+Portikus keeps working files, such as pasted images, under `.portikus/` in
+the project. Git ignores them with these lines, which keep
+`.portikus/checks.json` and `.portikus/README.md` as project content:
+
+```gitignore
+.portikus/*
+!.portikus/checks.json
+!.portikus/README.md
+```
+
+A new project's default `.gitignore` carries them. A repository that
+already has its own `.gitignore` (a clone, a template that ships one, or a
+folder given Initialize Git) gets them in `.git/info/exclude` instead,
+because the platform never edits a student's tracked files. A project
+made before these lines existed gets them in `.git/info/exclude` the
+first time the platform writes anything under `.portikus/`. A new project
+and a new project from a template also get `.portikus/README.md`, which
+explains checks (§18.1) to the student and to coding agents; an existing
+README there is never overwritten.
+
+When a repository is cloned, the dialog first suggests the folder name read
+as a title (`ipeds-oracle` reads "Ipeds Oracle"). Unless the student types
+their own name, the project then takes the name the repository gives
+itself: the README's first Markdown heading with its formatting removed,
+else `displayName` or `name` in `package.json`, else `name` in
+`pyproject.toml`, trimmed to the name limit. The folder keeps the slug of
+the name the dialog sent, so only the displayed name changes.
 
 ### 7.3 Project operations
 
@@ -984,6 +1023,11 @@ Limits, enforced by the server:
   output passes 1 MiB and resumes when it falls below 256 KiB, so that a
   runaway process cannot exhaust memory.
 
+The browser sends a `resize` frame only once the pane has stopped
+changing size for 100 ms, so a drag sends one settled size rather than
+one per step, each of which would make tmux reflow and the program
+redraw (issue #849).
+
 The workspace agent additionally exposes `GET /health`, `GET /terminals`,
 `POST /terminals`, and `DELETE /terminals/:terminalId`. Every agent route,
 including the WebSocket upgrade, requires the per-workspace bearer token of
@@ -1143,7 +1187,8 @@ P0 file-tree operations:
 - upload;
 - drag-and-drop upload;
 - download file;
-- download directory/project as archive.
+- download directory/project as archive;
+- extract a zip into a new folder beside it (§11.6).
 
 ### 11.3 Hidden and generated files
 
@@ -1239,6 +1284,27 @@ A download of a file, folder, or project is capped at 1 GiB (Epic 12b). The
 agent refuses a larger one before doing any work, with `FILE_TOO_LARGE`, and
 the API cuts off a relayed stream that runs past the cap plus a fixed zip
 allowance.
+
+A file read with `inline=1` is served for display in the browser (issue
+#816). It serves only PNG, JPEG, GIF, WebP, SVG and PDF files, with the
+type taken from the file name and never sniffed, plus
+`X-Content-Type-Options: nosniff` and a `Content-Security-Policy` that
+starts with `sandbox;`. A response without `Content-Length` is refused.
+Images, SVG included, are drawn only through `img`. A PDF is fetched and
+shown from an in-page blob, because Chrome's PDF viewer refuses a
+sandboxed frame.
+
+**Extract here** on a zip (issue #817) extracts into a new sibling folder
+named after the zip, `name-2`, `name-3` and so on when taken, and never
+`.git`; nothing is merged. Before extracting, the agent reads the whole
+central directory and refuses the zip with `ARCHIVE_INVALID` (422) for an
+entry with `..`, an absolute or drive-letter path, any symbolic link, a
+password, zip64, a `.git` path part, or a Unicode path field that does
+not match the name, and for a central directory that does not end
+exactly at the end record. The limits are 1 GiB declared size and 10,000
+entries, and free space is checked. unzip runs under `prlimit`, and is
+killed when the request aborts or when disk use passes the cap. A walk
+after extraction refuses any `.git` path part.
 
 The confinement rule is the one §7.6 already states for projects: the agent
 resolves the requested path with realpath and refuses unless the result lies
@@ -1953,6 +2019,10 @@ Requirements:
 - command output must remain visible to the student, preferably in an ordinary terminal or a terminal-backed check surface;
 - Portikus must present an understandable running/pass/fail result without hiding the actual command or output;
 - templates may provide check definitions;
+- checks live in `.portikus/checks.json`, which Git tracks (§7.2); a new
+  project gets a `.portikus/README.md` that explains the format with an
+  example that must stay a valid checks file, and no check is written for
+  it;
 - projects without configured checks must remain usable;
 - an agent may run the same commands directly, and resulting state should be reflected when practical;
 - test execution must obey ordinary workspace resource limits.
@@ -2362,8 +2432,15 @@ Changed by Epic 25 (UI polish and help):
   toggletips on its fields and headers (section 8.6).
 - **Users table.** Five columns: selection; Account (the name with its
   tags, then email or username); Role; Workspace (label, state, and an
-  "Older image" tag when out of date); and Activity ("Now" with the
-  connection count, or the time since a browser last connected). A
+  "Old image" tag when out of date); and Activity ("Now" with the
+  connection count, or the time since a browser last connected). Since
+  Epic 15.2 (issue #860) the tags keep two causes apart. Stale is only
+  about the account: no sign-in for 30 days, or a newer sign-in by another
+  account with the same email (`apps/api/src/admin/markers.ts`). Old image
+  is only about the workspace: its image fingerprint differs from the
+  default image in the newest host sample, and rebuilding moves it to the
+  default. When the detail panel sees a rebuild or Docker reset finish, it
+  refetches the Users list at once instead of waiting for its next poll. A
   toolbar row is always there: "Showing N of M" when the view hides rows
   (archived workspaces are hidden by default), or "N selected" with the
   bulk actions. Bulk Enable and Unarchive confirm in the neutral style.
@@ -2787,8 +2864,10 @@ Epic 24 (issue #626, ADR 0042):
   /instances/:name/added-packages`: the Incus file API, a regular file of
   at most 64 KiB, each line checked) and adds one to each package's count
   for the day. Only the date a workspace was last surveyed is stored per
-  workspace. Counts are kept 90 days. A workspace on an image without
-  the hook counts as not surveyed. The admin view is in section 20.1.
+  workspace. Counts are kept 90 days. A workspace with no list, on an
+  image without the hook or before its first apt run, gets an empty
+  answer (no image, no packages) rather than a 404, and counts as not
+  surveyed. The admin view is in section 20.1.
 
 ### 22.4 The Workspace image section
 
@@ -2846,6 +2925,32 @@ language-aware editor".
   `image.job_finished`. The page polls a running job every two seconds.
   With `IMAGE_JOBS_DIR` unset the routes answer 404 and the tab says
   image management is off.
+- **Release notices** (Epic 15.2, issue #861). The platform never
+  upgrades itself, so it tells administrators when something newer is
+  out. `portikus-image-check.timer` runs `image-job check` as root once
+  a day (and 15 minutes after boot). It reads the same release list that
+  **Update to the latest published image** reads, and apt's cache for
+  the `portikus` package as apt's own daily refresh left it. It writes
+  `images/published.json` (`PublishedReleasesFile`): the newest
+  published image, and the installed and available package versions
+  only when apt's candidate is newer (`dpkg --compare-versions`). It
+  downloads no image, changes no default and upgrades no package. The
+  API compares that image with every image in the store. When it is
+  newer than all of them, `GET /admin/image` returns it as
+  `newerPublished`, and the tab shows a notice at the top naming the
+  version, with an **Update to** button that asks for the same fetch.
+  The notice goes once that version is in the store. `GET /admin/health`
+  returns the package pair as `packageUpdate`, and the Health tab shows
+  it with the command `sudo apt update && sudo apt upgrade`. Every
+  enabled administrator gets one neutral notification per image version
+  and one per package version. The audit rows `image.release_noticed`
+  and `package.release_noticed` (target: the version) record that it was
+  sent. The API sends notices when it starts and then every
+  `RELEASE_NOTICE_SECONDS` (default 3600), under a PostgreSQL advisory
+  lock so two checks cannot both send. The check caps the release list
+  at 16 MiB and follows only https redirects. A check that cannot read
+  the release list keeps the image the last check recorded. Setup runs
+  the check once, right after enabling the timer.
 
 ## 23. Networking
 
@@ -3650,9 +3755,10 @@ API prunes rows older than 7 days at most once an hour. The Trends card
 charts the request rate, the 4xx and 5xx share, and the median and 95th
 percentile response time, interpolated inside the histogram bucket.
 
-Request lines are logged at warn for 4xx answers, except an unmatched
-path (404) at debug and a 401 without a session at info, so a signed-out
-browser polling `/me` does not fill the Warn view or the errors chart.
+Request lines are logged at error for 5xx answers and at info for 4xx
+answers, which are the API refusing as meant, except a 429 at warn and an
+unmatched path (404) at debug, so smoke runs and routine refusals do not
+fill the Warn view or the errors chart.
 
 ### 25.7 Maintainability
 

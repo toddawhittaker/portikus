@@ -290,14 +290,36 @@
     enabled: true
   when: portikus_image_job_units.results[1].stat.exists
 
+# The daily release check (issue #861); a package from before it has no timer.
+- name: Look for the release check's timer
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/portikus-image-check.timer
+  register: portikus_image_check_timer
+
+- name: Enable and start the release check's timer
+  ansible.builtin.systemd_service:
+    name: portikus-image-check.timer
+    enabled: true
+    state: started
+  when: portikus_image_check_timer.stat.exists
+
+# The timer's first run is 15 minutes after boot; run once now so the admin page has a result.
+- name: Run the release check once
+  ansible.builtin.command:
+    argv: [systemctl, start, --no-block, portikus-image-check.service]
+  changed_when: false
+  when: portikus_image_check_timer.stat.exists
+
 # ── Start the services ───────────────────────────────────────────
 # The package enables the units, but ConditionPathExists keeps them from
-# starting until the environment files above exist.
+# starting until the environment files above exist.  Setup enables them too,
+# because apt remove drops their links and a reinstall is not a first install.
 
 # The API first: starting it runs the migrations the worker's grants name.
 - name: Start the portikus API
   ansible.builtin.systemd:
     name: portikus-api
+    enabled: true
     state: started
 
 # The file drops the old membership in portikus, then revokes and grants in
@@ -312,10 +334,12 @@
   become_user: postgres
   changed_when: false
 
-- name: Start the worker and the controller
+# The controller first, so the worker's first sweep can reach it.
+- name: Start the controller and the worker
   ansible.builtin.systemd:
     name: "{{ item }}"
+    enabled: true
     state: started
   loop:
-    - portikus-worker
     - portikus-controller
+    - portikus-worker

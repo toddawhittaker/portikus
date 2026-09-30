@@ -300,10 +300,8 @@ test.describe("work area layout", () => {
 		await page.getByRole("menuitem", { name: "Close" }).click();
 		await expect(pane(page, second as string)).toHaveCount(0);
 
-		await page
-			.getByTestId(`tab-${terminalId}`)
-			.getByRole("button", { name: /close/i })
-			.click();
+		// The close control is pointer only (the keyboard uses Delete), so it has no role.
+		await page.getByTestId(`tab-${terminalId}-close`).click();
 
 		await expect(page.getByTestId("work-tabs").getByRole("tab")).toHaveCount(0);
 		await expect

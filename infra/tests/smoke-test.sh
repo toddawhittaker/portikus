@@ -315,6 +315,15 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check "xdg-open wrapper is executable"        ws_exec "test -x /usr/local/bin/xdg-open"
   check_output "BROWSER is portikus-open in a login shell" \
     "BROWSER=/usr/local/bin/portikus-open" ws_student 'env | grep ^BROWSER='
+  # Claude Code login must open nothing and offer the paste-code URL, even
+  # with BROWSER set; this catches a new Claude Code that drifts (issue #848,
+  # BROWSER-HANDLING.md 19.2). It stops at the prompt and never logs in.
+  # shellcheck disable=SC2016 # the workspace shell expands it
+  claude_login_flow() {
+    ws_student 'd=$(mktemp -d); echo "#!/bin/sh" > $d/o; echo "touch $d/opened" >> $d/o; chmod +x $d/o; BROWSER=$d/o CLAUDE_CONFIG_DIR=$d timeout 15 claude auth login </dev/null >$d/out 2>&1; if [ ! -e $d/opened ] && grep -q oauth%2Fcode%2Fcallback $d/out; then echo paste-code; fi; rm -rf $d'
+  }
+  check_output "Claude Code login offers the paste-code flow and opens no browser" \
+    "paste-code" claude_login_flow
   # The student cannot mkdir under /run. systemd must create the broker
   # socket directory before the agent starts (BROWSER-HANDLING.md 18).
   check_output "workspace agent unit sets RuntimeDirectory=portikus" \
@@ -418,6 +427,21 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check_output "Claude Code auto-update off in a login shell" \
     "DISABLE_AUTOUPDATER=1" ws_student 'env | grep DISABLE_AUTOUPDATER'
 
+  # 17aa. A student's own git init starts on main, and the workspace agent
+  # seeds the coding agents' instructions from the image's template once.
+  check_output "system git init.defaultBranch is main" "main" \
+    ws_exec "git config --system init.defaultBranch"
+  # shellcheck disable=SC2016  # expanded by the shell in the workspace
+  check_output "a new repository starts on main" "main" \
+    ws_student 'd=$(mktemp -d) && git -C "$d" init -q && git -C "$d" symbolic-ref --short HEAD; rm -rf "$d"'
+  check "the agent instructions template is in the image" \
+    ws_exec "test -s /usr/share/portikus/AGENTS.md"
+  # shellcheck disable=SC2016  # expanded by the shell in the workspace
+  check "the Codex AGENTS.md in the home is the template" \
+    ws_student 'for i in $(seq 1 30); do test -e ~/.claude/CLAUDE.md && break; sleep 1; done; cmp -s ~/.codex/AGENTS.md /usr/share/portikus/AGENTS.md'
+  check_output "the Claude CLAUDE.md in the home imports it" "@~/.codex/AGENTS.md" \
+    ws_student 'cat ~/.claude/CLAUDE.md'
+
   # 17ab. The clipboard shim turns a copy into an OSC 52 escape, because
   # a workspace has no X display (issue #125).  There is no terminal here,
   # so the shim falls back to stdout and we read the escape from there.
@@ -466,12 +490,17 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
     printf '\033[1;31mFAIL\033[0m  write persistence marker\n'
     fail=$((fail + 1))
   fi
+  ws_student "echo smoke-own-rule >> ~/.codex/AGENTS.md" >/dev/null 2>&1 || true
   ssh_cmd "incus stop ${WS_NAME} --project ${PROJECT}" >/dev/null 2>&1 || true
   ssh_cmd "incus start ${WS_NAME} --project ${PROJECT}" >/dev/null 2>&1 || true
   sleep 5
 
   check "projects marker survives restart"      ws_student "cat ~/projects/.smoke-marker"
   check "Docker images survive restart"         ws_student "docker images -q"
+  # Wait until the agent listens, which is after it seeds the files.
+  # shellcheck disable=SC2016  # expanded by the shell in the workspace
+  check "an edited AGENTS.md is not overwritten on restart" \
+    ws_student 'for i in $(seq 1 30); do ss -Hltn "sport = :7400" | grep -q . && break; sleep 1; done; grep -qx smoke-own-rule ~/.codex/AGENTS.md'
   # /run is cleared on stop, so an old exit record cannot explain anything.
   check "no exit record after the workspace restarts" \
     ws_exec "test -d /run/portikus-terminals && test ! -e /run/portikus-terminals/last-exit"
@@ -762,6 +791,10 @@ check_output "the API's proxy stays on the GnuTLS build" "/usr/sbin/squid-gnutls
   ssh_cmd "update-alternatives --query squid | sed -n 's/^Value: //p'"
 check "the egress helper watches for requests" ssh_cmd systemctl is-active portikus-egress-apply.path
 check "the egress helper runs at boot" ssh_cmd systemctl is-enabled portikus-egress-apply.service
+# One unit at a time: is-enabled passes when any one of several is enabled.
+# shellcheck disable=SC2016 # expanded on the VM
+check "the API, controller and worker start at boot" \
+  ssh_cmd 'for u in portikus-api portikus-controller portikus-worker; do systemctl is-enabled --quiet "$u" || exit 1; done'
 check_output "the egress helper's last run did not fail" "no" \
   ssh_cmd "systemctl is-failed --quiet portikus-egress-apply.service && echo yes || echo no"
 egress_mode() {
@@ -1426,10 +1459,11 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
   check_output "a student is refused the admin settings" "403" \
     http_status bob "${API}/admin/settings"
   # The Logs tab reads that refusal back from the journal (docs/adr/0036):
-  # a warn line from the API with the 403 and the path.
+  # an info line from the API with the 403 and the path, since a 4xx is not
+  # a warning (issue #859).
   logs_show_bob_403() {
     for _ in $(seq 1 5); do
-      if vm_get carol "${API}/admin/logs?level=warn&service=api" | python3 -c '
+      if vm_get carol "${API}/admin/logs?level=info&service=api" | python3 -c '
 import json, sys
 lines = json.load(sys.stdin)["lines"]
 sys.exit(0 if any(l["line"].get("status") == 403 and l["line"].get("path") == "/admin/settings" for l in lines) else 1)
@@ -1438,7 +1472,7 @@ sys.exit(0 if any(l["line"].get("status") == 403 and l["line"].get("path") == "/
     done
     return 1
   }
-  check "the Logs tab shows the student's refused request as a warn line" logs_show_bob_403
+  check "the Logs tab shows the student's refused request as an info line" logs_show_bob_403
   if [ "$skip_lifecycle" = "no" ]; then
     orig_grace=$(admin_grace)
     check "read the platform grace period as carol" test -n "$orig_grace"
@@ -2120,6 +2154,17 @@ for terminal in json.load(sys.stdin).get("terminals", []):
         >/dev/null 2>&1 || true
       check "downloaded archive passes unzip -t" \
         ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- unzip -t /tmp/smoke-download.zip"
+
+      # 15.5b An image shown inline carries the sandbox policy, so an SVG
+      #       opened on its own cannot run script (SPEC.md 24.3, #816).
+      alice_student "printf '<svg xmlns=\"http://www.w3.org/2000/svg\"/>' > ${PROJECTS_DIR}/smoke-renamed/smoke.svg" \
+        >/dev/null 2>&1 || true
+      inline_csp() {
+        ssh_cmd "${CURL} -I -b /tmp/portikus-smoke-alice.jar \
+          '${PROJECTS_URL}/${proj_id}/file?path=smoke.svg&inline=1'" \
+          | grep -qi '^content-security-policy: *sandbox;'
+      }
+      check "an inline file is served with a sandbox Content-Security-Policy" inline_csp
 
       # 15.6 Anything Git-enabled under ~/projects becomes a project; a
       #      plain directory does not (plan, Discovery).

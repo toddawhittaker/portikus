@@ -28,6 +28,10 @@ system and say in your report what you would change and why.
 
 ## Rules
 
+- In a parallel epic, do not edit `docs/STATUS.md`. Put your proposed STATUS
+  line (what you delivered, gaps left) in the PR body; the fold task writes
+  STATUS once (docs/WORKFLOW.md, "Epic plans").
+
 ### Semantic markup first
 
 - Pick the element that already means the thing: `button`, `a`, `nav`,
