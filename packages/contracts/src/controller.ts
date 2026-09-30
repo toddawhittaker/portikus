@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { InstanceProcess, LimitCpu, LimitMemoryMiB, LimitProcesses } from "./admin.js";
+import { WorkspaceDockerConfig } from "./docker-cache.js";
 import { Timezone } from "./settings.js";
 
 /**
@@ -92,6 +93,9 @@ export const StartInstanceRequest = z.object({
 	// A held throttle's allowance, set before the instance runs so a restart
 	// never gives it a moment at full speed. When absent any allowance is removed.
 	cpuAllowance: CpuAllowance.optional(),
+	// Registry cache and ghcr settings written into the workspace before it
+	// runs (issue #840). When absent the controller leaves Docker's config alone.
+	docker: WorkspaceDockerConfig.optional(),
 });
 export type StartInstanceRequest = z.infer<typeof StartInstanceRequest>;
 

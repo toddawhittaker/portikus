@@ -1,0 +1,422 @@
+import { z } from "zod";
+
+/**
+ * Shared Docker pull storage (issue #840): a pull-through registry cache on
+ * the Portikus VM and one seed volume that new Docker volumes are copied
+ * from. These are the shapes every part of the platform agrees on: the admin
+ * API and page, the worker, the workspace controller, the workspace agent,
+ * the registry's notification webhook and the root cache helper. The
+ * security rulings S1 to S8 are the epic's; the fold task moves them into
+ * SPEC.md section 24.
+ */
+
+// ---------------------------------------------------------------------------
+// Image names
+// ---------------------------------------------------------------------------
+
+/** Registries a seed image may come from. ghcr.io only while its cache is on. */
+export const SEED_REGISTRIES = ["docker.io", "ghcr.io"] as const;
+export type SeedRegistry = (typeof SEED_REGISTRIES)[number];
+
+// One path component, as the distribution reference grammar defines it.
+const COMPONENT = "[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*";
+const TAG = "[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}";
+const DIGEST = "sha256:[a-f0-9]{64}";
+const IMAGE_ID = /^sha256:[a-f0-9]{64}$/;
+
+/**
+ * An image reference an administrator may put in the seed list (ruling S8):
+ * first character a lowercase letter or digit, an optional `docker.io/` or
+ * `ghcr.io/` prefix and no other host, no `host:port`, one to four
+ * lowercase path components, an optional tag and an optional sha256 digest.
+ */
+export const SEED_IMAGE_PATTERN = new RegExp(
+	`^(?:(?:docker\\.io|ghcr\\.io)/)?${COMPONENT}(?:/${COMPONENT}){0,3}(?::${TAG})?(?:@${DIGEST})?$`,
+);
+
+export const SEED_IMAGE_MAX_LENGTH = 255;
+export const SEED_IMAGES_MAX = 30;
+
+export const SeedImageName = z
+	.string()
+	.max(SEED_IMAGE_MAX_LENGTH)
+	.regex(
+		SEED_IMAGE_PATTERN,
+		"Must be an image name such as python:3.12 or ghcr.io/owner/name:tag",
+	)
+	// Docker reads a dotted first part, or localhost, as a registry host.
+	.refine(
+		(name) => {
+			const slash = name.indexOf("/");
+			if (slash < 0) return true;
+			const first = name.slice(0, slash);
+			if ((SEED_REGISTRIES as readonly string[]).includes(first)) return true;
+			return !first.includes(".") && first !== "localhost";
+		},
+		{ message: "Only Docker Hub and ghcr.io images may be seeded" },
+	);
+export type SeedImageName = z.infer<typeof SeedImageName>;
+
+/**
+ * The canonical form used to compare names from every source: registry
+ * prefix, `library/` for single-component Docker Hub names, and `:latest`
+ * when neither tag nor digest is given. `python:3.12` becomes
+ * `docker.io/library/python:3.12`.
+ */
+export function canonicalImageName(name: string): string {
+	let rest = name;
+	let registry: SeedRegistry = "docker.io";
+	for (const r of SEED_REGISTRIES) {
+		if (rest.startsWith(`${r}/`)) {
+			registry = r;
+			rest = rest.slice(r.length + 1);
+		}
+	}
+	const at = rest.indexOf("@");
+	const digest = at >= 0 ? rest.slice(at) : "";
+	let path = at >= 0 ? rest.slice(0, at) : rest;
+	const colon = path.indexOf(":");
+	let tag = colon >= 0 ? path.slice(colon) : "";
+	if (colon >= 0) path = path.slice(0, colon);
+	if (registry === "docker.io" && !path.includes("/")) path = `library/${path}`;
+	if (tag === "" && digest === "") tag = ":latest";
+	return `${registry}/${path}${tag}${digest}`;
+}
+
+/** The seed list as stored: valid, at most 30, no duplicates after canonicalising. */
+export const SeedImageList = z
+	.array(SeedImageName)
+	.max(SEED_IMAGES_MAX)
+	.refine((list) => new Set(list.map(canonicalImageName)).size === list.length, {
+		message: "Each image may appear once",
+	});
+export type SeedImageList = z.infer<typeof SeedImageList>;
+
+/**
+ * The seed list an administrator may save now: ghcr.io names only while the
+ * ghcr.io cache is on (ruling S8). The API, the controller and the page use it.
+ */
+export function seedImageListFor(ghcrEnabled: boolean) {
+	return SeedImageList.refine(
+		(list) => ghcrEnabled || !list.some((name) => name.startsWith("ghcr.io/")),
+		{ message: "Turn on the ghcr.io cache before seeding ghcr.io images" },
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Fixed names, paths, ports and caps
+// ---------------------------------------------------------------------------
+
+/** The workspace bridge gateway the caches listen on (infra/ansible/site.yml). */
+export const REGISTRY_GATEWAY_ADDR = "10.200.0.1";
+/** The workspace bridge; a notification address outside it is dropped. */
+export const WORKSPACE_BRIDGE_PREFIX = "10.200.0.";
+/** Docker Hub pull-through cache, plain HTTP, set as the dockerd registry mirror. */
+export const HUB_CACHE_PORT = 5000;
+/** ghcr.io cache over TLS; tcp 443 to the gateway is redirected here while ghcr is on and allowed. */
+export const GHCR_CACHE_PORT = 5001;
+/** Mirror URL the controller writes into each workspace's daemon.json. */
+export const HUB_MIRROR_URL = `http://${REGISTRY_GATEWAY_ADDR}:${HUB_CACHE_PORT}`;
+
+/** Worker's registry-notification listener default port, on 127.0.0.1 only (env REGISTRY_EVENTS_PORT). */
+export const REGISTRY_EVENTS_DEFAULT_PORT = 8792;
+/** Path the registry posts notifications to. */
+export const REGISTRY_EVENTS_PATH = "/registry/events";
+/** Header carrying the webhook token on every notification (registry `notifications.endpoints[].headers`). */
+export const REGISTRY_EVENTS_TOKEN_HEADER = "X-Portikus-Registry-Token";
+/** Root-generated token file, readable only by the registry and worker users (ruling S7). */
+export const REGISTRY_EVENTS_TOKEN_FILE = "/etc/portikus/registry/events-token";
+/** Distinct image names stored per day; the rest count under `OTHER_IMAGES_LABEL` (ruling S7). */
+export const REGISTRY_NAMES_PER_DAY_MAX = 2000;
+export const OTHER_IMAGES_LABEL = "(other images)";
+
+/** Custom Incus volume the seed lives in, in the workspace-data pool. */
+export const SEED_VOLUME_NAME = "portikus-docker-seed";
+/** Largest seed an administrator may allow, and the default (ruling S8). */
+export const SEED_MAX_GIB_LIMIT = 64;
+export const SEED_MAX_GIB_DEFAULT = 8;
+
+/** Root cache helper's request directory (root:portikus 0770), like the image jobs' (ADR 0030). */
+export const REGISTRY_JOBS_DIR = "/var/lib/portikus/registry-jobs";
+/** Written by the helper and its timer (root, 0644): the cache's state for the admin page. */
+export const REGISTRY_STATUS_FILE = "/var/lib/portikus/registry-jobs/status.json";
+/** The cache clears itself past this share of its filesystem. */
+export const REGISTRY_AUTO_CLEAR_PERCENT = 90;
+
+/** Agent inventory caps (ruling S7): bytes of docker output read, and items returned. */
+export const INVENTORY_OUTPUT_MAX_BYTES = 4 * 1024 * 1024;
+export const INVENTORY_IMAGES_MAX = 500;
+export const INVENTORY_CONTAINERS_MAX = 1000;
+export const INVENTORY_LAYERS_MAX = 256;
+export const INVENTORY_TAGS_MAX = 50;
+
+// ---------------------------------------------------------------------------
+// Admin API: GET /admin/docker, PUT /admin/docker/settings,
+// PUT|DELETE /admin/docker/hub-credential, POST /admin/docker/cache/clear,
+// PUT /admin/docker/seed/images, POST|GET /admin/docker/seed/jobs,
+// GET /admin/docker/usage
+// ---------------------------------------------------------------------------
+
+/** `REGISTRY_STATUS_FILE` as the helper writes it. */
+export const RegistryStatusFile = z.object({
+	/** Size of the cache's own filesystem, set at install. */
+	sizeBytes: z.number().int().nonnegative(),
+	usedBytes: z.number().int().nonnegative(),
+	/** Whether the Hub cache answers on its health endpoint. */
+	hubUp: z.boolean(),
+	ghcrEnabled: z.boolean(),
+	ghcrUp: z.boolean(),
+	/** Whether a Hub credential is stored; neither its name nor its token is written here. */
+	hubCredentialSet: z.boolean(),
+	lastClearedAt: z.string().datetime().nullable(),
+	lastClearReason: z.enum(["admin", "full", "credential"]).nullable(),
+	updatedAt: z.string().datetime(),
+});
+export type RegistryStatusFile = z.infer<typeof RegistryStatusFile>;
+
+/** The current seed, as the controller reports it (`GET /docker-seed` on the controller). */
+export const SeedInfo = z.object({
+	images: SeedImageList,
+	sizeBytes: z.number().int().nonnegative(),
+	/** Workspace image version the seed was built with; its dockerd must match. */
+	imageVersion: z.string().min(1).max(100),
+	builtAt: z.string().datetime(),
+});
+export type SeedInfo = z.infer<typeof SeedInfo>;
+
+/** `GET /admin/docker`. `cache` is null while the helper has not written its status file. */
+export const DockerAdminResponse = z.object({
+	cache: RegistryStatusFile.nullable(),
+	/** The saved setting; the cache follows it once the helper applies it. */
+	ghcrEnabled: z.boolean(),
+	seedMaxGiB: z.number().int().min(1).max(SEED_MAX_GIB_LIMIT),
+	/** Only whether one is set (ruling S5). */
+	hubCredential: z.object({ isSet: z.boolean() }).strict(),
+	/** The list the next rebuild will use. */
+	seedImages: SeedImageList,
+	/** The built seed, or null when none exists yet. */
+	seed: SeedInfo.nullable(),
+});
+export type DockerAdminResponse = z.infer<typeof DockerAdminResponse>;
+
+/** `PUT /admin/docker/settings`. */
+export const DockerSettingsRequest = z
+	.object({
+		ghcrEnabled: z.boolean(),
+		seedMaxGiB: z.number().int().min(1).max(SEED_MAX_GIB_LIMIT),
+	})
+	.strict();
+export type DockerSettingsRequest = z.infer<typeof DockerSettingsRequest>;
+
+/**
+ * `PUT /admin/docker/hub-credential`: write-only, a Docker Hub personal
+ * access token with "Public Repo Read-only" scope; `DELETE` removes it.
+ * Either one clears the cache (ruling S5).
+ */
+export const HubCredentialRequest = z
+	.object({
+		// Docker Hub usernames: 4 to 30 lowercase letters and digits.
+		username: z.string().regex(/^[a-z0-9]{4,30}$/, "Must be a Docker Hub username"),
+		// Printable ASCII only, so it cannot break the helper's YAML.
+		token: z.string().regex(/^[\x21-\x7e]{8,200}$/, "Must be an access token"),
+	})
+	.strict();
+export type HubCredentialRequest = z.infer<typeof HubCredentialRequest>;
+
+/** `PUT /admin/docker/seed/images`. The API also checks `seedImageListFor`. */
+export const SeedImagesRequest = z.object({ images: SeedImageList }).strict();
+export type SeedImagesRequest = z.infer<typeof SeedImagesRequest>;
+
+export const SeedJobState = z.enum(["queued", "running", "succeeded", "failed"]);
+export type SeedJobState = z.infer<typeof SeedJobState>;
+
+/** One seed rebuild, in `GET /admin/docker/seed/jobs` (newest first) and from `POST` (202). */
+export const SeedJob = z.object({
+	id: z.string().uuid(),
+	state: SeedJobState,
+	/** One short sentence, such as "Pulling node:22 (2 of 4)". */
+	step: z.string().max(200),
+	images: SeedImageList,
+	message: z.string().max(1000).nullable(),
+	requestedAt: z.string().datetime(),
+	finishedAt: z.string().datetime().nullable(),
+});
+export type SeedJob = z.infer<typeof SeedJob>;
+
+export const SeedJobsResponse = z.object({ jobs: z.array(SeedJob) });
+export type SeedJobsResponse = z.infer<typeof SeedJobsResponse>;
+
+/** One image in the usage report. Aggregate only: never names a workspace or a person. */
+export const DockerImageUsage = z.object({
+	/** A canonical image name, or `OTHER_IMAGES_LABEL`. Shown as text only. */
+	image: z.string().max(SEED_IMAGE_MAX_LENGTH),
+	/** Registry pulls in the window; 0 for an image seen only in inventories. */
+	pulls: z.number().int().nonnegative(),
+	workspaces: z.number().int().nonnegative(),
+	lastSeen: z.string().datetime().nullable(),
+});
+export type DockerImageUsage = z.infer<typeof DockerImageUsage>;
+
+/** `GET /admin/docker/usage`. */
+export const DockerUsageResponse = z.object({
+	windowDays: z.number().int().positive(),
+	/** Pulled or present in workspaces but not in the seed, most workspaces first. */
+	notInSeed: z.array(DockerImageUsage),
+	/** Seed images no workspace has used in the window. */
+	unusedSeed: z.array(DockerImageUsage),
+});
+export type DockerUsageResponse = z.infer<typeof DockerUsageResponse>;
+
+// ---------------------------------------------------------------------------
+// Worker <-> controller
+// ---------------------------------------------------------------------------
+
+/**
+ * What the controller writes into a workspace before each start: the
+ * daemon.json mirror, and while ghcr is on the hosts entry and certs.d CA.
+ * The worker decides it from the settings and the egress policy.
+ */
+export const WorkspaceDockerConfig = z.object({
+	hubMirror: z.boolean(),
+	ghcr: z.boolean(),
+});
+export type WorkspaceDockerConfig = z.infer<typeof WorkspaceDockerConfig>;
+
+/** `POST /docker-seed/builds` on the controller; 202 with `SeedBuildStatus`. */
+export const SeedBuildRequest = z.object({
+	id: z.string().uuid(),
+	images: SeedImageList.refine((l) => l.length > 0, { message: "At least one image" }),
+	/** Whether ghcr.io names are allowed; the controller re-checks with `seedImageListFor`. */
+	ghcrEnabled: z.boolean(),
+	/** The build fails, keeping the old seed, when the seed would be larger (ruling S8). */
+	maxBytes: z
+		.number()
+		.int()
+		.positive()
+		.max(SEED_MAX_GIB_LIMIT * 1024 ** 3),
+});
+export type SeedBuildRequest = z.infer<typeof SeedBuildRequest>;
+
+/** `GET /docker-seed/builds/:id` on the controller. `seed` is set once it succeeded. */
+export const SeedBuildStatus = z.object({
+	id: z.string().uuid(),
+	state: SeedJobState.exclude(["queued"]),
+	step: z.string().max(200),
+	message: z.string().max(1000).nullable(),
+	seed: SeedInfo.nullable(),
+});
+export type SeedBuildStatus = z.infer<typeof SeedBuildStatus>;
+
+// ---------------------------------------------------------------------------
+// Workspace agent: GET /docker/inventory
+// ---------------------------------------------------------------------------
+
+export const AgentDockerImage = z.object({
+	id: z.string().regex(IMAGE_ID),
+	repoTags: z.array(z.string().max(SEED_IMAGE_MAX_LENGTH)).max(INVENTORY_TAGS_MAX),
+	/** Layer diff ids in order, from `docker image inspect` RootFS.Layers. */
+	layers: z.array(z.string().regex(IMAGE_ID)).max(INVENTORY_LAYERS_MAX),
+});
+export type AgentDockerImage = z.infer<typeof AgentDockerImage>;
+
+/**
+ * The student's images and the image ids every container (running or not)
+ * uses. The worker treats a reply that fails this schema as no data.
+ */
+export const AgentDockerInventory = z.object({
+	/** False when dockerd did not answer, timed out or said too much; the lists are then empty. */
+	available: z.boolean(),
+	images: z.array(AgentDockerImage).max(INVENTORY_IMAGES_MAX),
+	containerImageIds: z.array(z.string().regex(IMAGE_ID)).max(INVENTORY_CONTAINERS_MAX),
+});
+export type AgentDockerInventory = z.infer<typeof AgentDockerInventory>;
+
+// ---------------------------------------------------------------------------
+// Registry notifications webhook (docker-registry 2.8 envelope)
+// ---------------------------------------------------------------------------
+
+/**
+ * One event (ruling S7). The repository and tag must match the reference
+ * grammar, or the envelope is refused. Extra fields are ignored.
+ */
+export const RegistryEvent = z.object({
+	id: z.string().max(100),
+	timestamp: z.string().max(40),
+	action: z.string().max(20),
+	target: z.object({
+		mediaType: z.string().max(200).optional(),
+		repository: z
+			.string()
+			.max(SEED_IMAGE_MAX_LENGTH)
+			.regex(new RegExp(`^${COMPONENT}(?:/${COMPONENT}){0,3}$`)),
+		digest: z
+			.string()
+			.regex(new RegExp(`^${DIGEST}$`))
+			.optional(),
+		tag: z
+			.string()
+			.regex(new RegExp(`^${TAG}$`))
+			.optional(),
+	}),
+	request: z.object({
+		/** Where the registry says the pull came from; a hint only (`registryEventWorkspaceIp`). */
+		addr: z.string().max(200),
+		method: z.string().max(10).optional(),
+	}),
+});
+export type RegistryEvent = z.infer<typeof RegistryEvent>;
+
+export const RegistryEventEnvelope = z.object({
+	events: z.array(RegistryEvent).max(1000),
+});
+export type RegistryEventEnvelope = z.infer<typeof RegistryEventEnvelope>;
+
+const IPV4_WITH_PORT = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?::\d{1,5})?$/;
+
+/**
+ * The workspace bridge address an event's `addr` names, or null. `addr` can
+ * carry an X-Forwarded-For value a student chose, so it is a hint only:
+ * exactly one IPv4 address, with an optional port, inside the bridge and
+ * not the gateway. It is never used for anything per student (ruling S7).
+ */
+export function registryEventWorkspaceIp(addr: string): string | null {
+	const match = IPV4_WITH_PORT.exec(addr);
+	if (!match) return null;
+	const octets = match.slice(1, 5).map(Number);
+	if (octets.some((o) => o > 255)) return null;
+	const ip = octets.join(".");
+	if (!ip.startsWith(WORKSPACE_BRIDGE_PREFIX)) return null;
+	const last = octets[3] ?? 0;
+	return last >= 2 && last <= 254 ? ip : null;
+}
+
+// ---------------------------------------------------------------------------
+// Root cache helper request files (ADR 0030 pattern)
+// ---------------------------------------------------------------------------
+
+export const RegistryJobRequest = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("clear") }).strict(),
+	z.object({ kind: z.literal("set-ghcr"), enabled: z.boolean() }).strict(),
+	z
+		.object({
+			kind: z.literal("set-hub-credential"),
+			username: HubCredentialRequest.shape.username,
+			token: HubCredentialRequest.shape.token,
+		})
+		.strict(),
+	z.object({ kind: z.literal("remove-hub-credential") }).strict(),
+]);
+export type RegistryJobRequest = z.infer<typeof RegistryJobRequest>;
+
+/**
+ * `REGISTRY_JOBS_DIR/request-<id>.json`, mode 0600, written as
+ * `.request-<id>.tmp` then renamed; the helper deletes it before acting
+ * (ruling S5).
+ */
+export const RegistryJobRequestFile = z.object({
+	id: z.string().uuid(),
+	requestedAt: z.string().datetime(),
+	requestedBy: z.string().uuid(),
+	request: RegistryJobRequest,
+});
+export type RegistryJobRequestFile = z.infer<typeof RegistryJobRequestFile>;
