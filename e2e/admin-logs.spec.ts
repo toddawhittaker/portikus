@@ -296,8 +296,9 @@ test.describe("admin logs", () => {
 		await loginAs(page, "carol");
 		await page.goto("/admin?tab=logs");
 		const level = page.getByRole("combobox", { name: "Services log at" });
+		// No value check: admin.spec.ts changes this site-wide setting in a
+		// parallel worker, and this test is about layout.
 		await expect(level).toBeEnabled({ timeout: 15_000 });
-		await expect(level).toHaveValue("default");
 		const filters = page.getByRole("group", { name: "Filters" });
 		const levelBox = await level.boundingBox();
 		const filtersBox = await filters.boundingBox();
