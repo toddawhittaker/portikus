@@ -8,3 +8,5 @@ registry_cache_mount_unit: 'var-lib-portikus\x2dregistry.mount'
 registry_cache_gateway: 10.200.0.1
 # The root filesystem keeps at least this much free after the cache's file.
 registry_cache_spare_bytes: "{{ 10 * 1073741824 }}"
+# Present while the disk has no room for a cache; the units and the helper then stay off.
+registry_cache_off_marker: /etc/portikus/registry/cache-off

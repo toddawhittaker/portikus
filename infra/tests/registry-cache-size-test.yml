@@ -1,0 +1,31 @@
+---
+# The registry_cache role's size decision (docs/SPEC.md section 16.6), tried
+# with no VM: the answer when it fits, the largest whole GiB that fits when
+# it does not, and 0 (the cache off) when not even 1 GiB fits.  A 10 GiB
+# spare is kept each time.  `make infra-check` runs it.
+- name: Check the Docker cache size setup chooses
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    gib: 1073741824
+    registry_cache_spare_bytes: "{{ 10 * gib }}"
+    size_cases:
+      - { name: a 20 GiB cache on a roomy disk, want: 20, free: "{{ 100 * gib }}", existing: 0, chosen: 20 }
+      - { name: a 20 GiB cache that just fits, want: 20, free: "{{ 30 * gib }}", existing: 0, chosen: 20 }
+      - { name: a 20 GiB cache on 16.5 GiB free, want: 20, free: "{{ (16.5 * gib) | int }}", existing: 0, chosen: 6 }
+      - { name: an old 1 GiB cache counted as free, want: 20, free: "{{ (11.6 * gib) | int }}", existing: "{{ gib }}", chosen: 2 }
+      - { name: an old cache of the answered size, want: 5, free: "{{ 10 * gib }}", existing: "{{ 5 * gib }}", chosen: 5 }
+      - { name: a 20 GiB cache on 6.5 GiB free, want: 20, free: "{{ (6.5 * gib) | int }}", existing: 0, chosen: 0 }
+      - { name: a 20 GiB cache on 10.9 GiB free, want: 20, free: "{{ (10.9 * gib) | int }}", existing: 0, chosen: 0 }
+      - { name: a 20 GiB cache on exactly 11 GiB free, want: 20, free: "{{ 11 * gib }}", existing: 0, chosen: 1 }
+
+  tasks:
+    - name: Try each case
+      ansible.builtin.include_tasks: registry-cache-size-case.yml
+      loop: "{{ size_cases }}"
+      loop_control:
+        loop_var: size_case
+        label: "{{ size_case.name }}"

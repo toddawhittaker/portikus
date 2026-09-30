@@ -28,26 +28,42 @@
         name: golang-go
         state: present
 
+    - name: Create the Go build directory
+      ansible.builtin.file:
+        path: /root/go
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # Several GiB of module and build cache, removed after the build.
+    - name: Make a scratch directory for the Go caches
+      ansible.builtin.tempfile:
+        state: directory
+        path: /root/go
+        prefix: caddy-build-
+      register: caddy_go_tmp
+
     - name: Build Caddy
       ansible.builtin.shell:
         cmd: >-
           go install github.com/caddyserver/xcaddy/cmd/xcaddy@{{ caddy_xcaddy_version }}
-          && /root/go/bin/xcaddy build {{ caddy_version }}
+          && {{ caddy_go_tmp.path }}/bin/xcaddy build {{ caddy_version }}
           --with github.com/caddy-dns/cloudflare@{{ caddy_dns_cloudflare_version }}
-          --output /root/go/caddy-portikus
-        chdir: /root/go
+          --output {{ caddy_go_tmp.path }}/caddy-portikus
+        chdir: "{{ caddy_go_tmp.path }}"
       environment:
-        GOBIN: /root/go/bin
-        GOPATH: /root/go
-        GOCACHE: /root/go/cache
-        GOMODCACHE: /root/go/pkg/mod
+        GOBIN: "{{ caddy_go_tmp.path }}/bin"
+        GOPATH: "{{ caddy_go_tmp.path }}"
+        GOCACHE: "{{ caddy_go_tmp.path }}/cache"
+        GOMODCACHE: "{{ caddy_go_tmp.path }}/pkg/mod"
         GOFLAGS: -buildvcs=false
         GOTOOLCHAIN: auto
       changed_when: true
 
     - name: Check the build has the Cloudflare plugin
       ansible.builtin.command:
-        argv: [/root/go/caddy-portikus, list-modules, --versions, --skip-standard]
+        argv: ["{{ caddy_go_tmp.path }}/caddy-portikus", list-modules, --versions, --skip-standard]
       register: caddy_built_modules
       changed_when: false
       failed_when: ('dns.providers.cloudflare ' ~ caddy_dns_cloudflare_version) not in caddy_built_modules.stdout
@@ -59,13 +75,20 @@
 
     - name: Install the Caddy build
       ansible.builtin.copy:
-        src: /root/go/caddy-portikus
+        src: "{{ caddy_go_tmp.path }}/caddy-portikus"
         dest: /usr/bin/caddy
         remote_src: true
         owner: root
         group: root
         mode: "0755"
       notify: Restart caddy
+
+  always:
+    - name: Remove the Go caches of the Caddy build
+      ansible.builtin.file:
+        path: "{{ caddy_go_tmp.path }}"
+        state: absent
+      when: caddy_go_tmp.path is defined
 
 # rm first: dpkg-divert will not rename the packaged binary over a file.
 - name: Put the packaged Caddy back

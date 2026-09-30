@@ -10,6 +10,8 @@ After=network-online.target incus.service portikus-egress-apply.service
 Wants=network-online.target
 RequiresMountsFor=/var/lib/portikus-registry
 ConditionPathIsDirectory=/etc/portikus/registry
+# Setup turns the cache off when the main disk has no room for it.
+ConditionPathExists=!/etc/portikus/registry/cache-off
 # Held after a failed clear that followed a credential change: a clean skip, not a restart loop.
 ConditionPathExists=!/etc/portikus/registry/hub-held
 

@@ -1,0 +1,15 @@
+---
+# One case of registry-cache-size-test.yml.
+- name: Decide the size for {{ size_case.name }}
+  ansible.builtin.include_tasks: ../ansible/roles/registry_cache/tasks/size.yml
+  vars:
+    portikus_registry_cache_gib: "{{ size_case.want }}"
+    registry_cache_free_bytes: "{{ size_case.free }}"
+    registry_cache_existing_bytes: "{{ size_case.existing }}"
+
+- name: Check the size for {{ size_case.name }}
+  ansible.builtin.assert:
+    that:
+      - registry_cache_gib_chosen | int == size_case.chosen | int
+    fail_msg: "{{ size_case.name }}: chose {{ registry_cache_gib_chosen }} GiB, expected {{ size_case.chosen }}."
+    quiet: true

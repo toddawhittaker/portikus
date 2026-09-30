@@ -476,6 +476,41 @@ ui-storage-default)
 	expect "$CONFIG" portikus_storage '"/dev/sdb"'
 	expect "$CONFIG" portikus_storage_confirm false
 	;;
+ui-cache-small-disk)
+	# With 6 GiB free the cache question still accepts 1 GiB (setup shrinks
+	# or turns off what does not fit), and refuses more.
+	fake_one_disk
+	cat >/usr/local/bin/df <<'STUB'
+#!/bin/sh
+[ "$*" = "-B1G --output=avail /" ] && { echo " Avail"; echo "6"; exit 0; }
+exec /usr/bin/df "$@"
+STUB
+	chmod 0755 /usr/local/bin/df
+	ui_start
+	ui_first_screens portikus.example.edu
+	wait_for "HTTPS certificate"
+	keys Down Down Enter
+	wait_for "How people sign in"
+	keys Enter
+	wait_for "Where to keep student files"
+	keys Up Enter
+	wait_for "Erase /dev/sdb?"
+	keys Enter
+	wait_for "Size of the Docker image cache"
+	clear_field
+	typed 2
+	keys Enter
+	wait_for "Give a size from 1 to 1 GiB"
+	keys Enter
+	wait_for "Size of the Docker image cache"
+	clear_field
+	typed 1
+	keys Enter
+	wait_for "Save these answers and start setup?"
+	keys Enter
+	ui_done
+	expect "$CONFIG" portikus_registry_cache_gib 1
+	;;
 ui-host-short)
 	# A host name without a dot is not suggested, so typing the name works.
 	ui_start

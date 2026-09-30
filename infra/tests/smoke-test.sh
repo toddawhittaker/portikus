@@ -674,13 +674,13 @@ for vol in "$custom"/*; do
   target=${target:-$vol}
   n=$((n + 1))
   for user in portikus nobody; do
-    path="" refused=""
+    path="" refused="" denier=""
     IFS=/ read -ra parts <<<"${target#/}"
     for part in "${parts[@]}"; do
       path="$path/$part"
       if ! runuser -u "$user" -- stat "$path" >/dev/null 2>&1; then refused=$path; break; fi
     done
-    if [ -z "$denier" ] && [ "$target" != "$vol" ]; then echo "open: $user reaches $target"; fi
+    if [ -z "$refused" ] && [ "$target" != "$vol" ]; then echo "open: $user reaches $target"; fi
     # The refusal must come from custom/ or an Incus directory above it, not the volume itself.
     if [ -n "$refused" ]; then
       denier=${refused%/*}
@@ -1149,7 +1149,7 @@ else
       ssh_cmd 'sudo sh -c '\''f=/etc/portikus/admin-password; test ! -e "$f" || { test "$(stat -c "%U:%G %a" "$f")" = "root:root 600" && ! journalctl --no-pager -o cat | grep -qFf "$f"; }'\'''
     # The users file stays on the operator's machine, so the Dex config is
     # the only place with a hash (docs/adr/0023).  /root/go holds the Dex
-    # source and module cache, whose examples carry sample hashes.
+    # source, whose examples carry sample hashes.
     # shellcheck disable=SC2016  # the pattern is for grep on the VM
     check_zero_lines "no bcrypt hash on the VM outside the Dex config" \
       ssh_cmd 'sudo grep -rlsE --exclude-dir=go "[$]2[aby][$][0-9]{2}[$][./A-Za-z0-9]{53}" /etc /root /home /tmp /var/tmp | grep -vx /etc/portikus-dex/config.yaml'
