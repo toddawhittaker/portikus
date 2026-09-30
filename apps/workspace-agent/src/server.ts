@@ -55,7 +55,11 @@ import { listeningRoutes } from "./listening-route.js";
 import { type PackagesRouteOptions, packagesRoutes } from "./packages-route.js";
 import { tmuxPidSource } from "./processes.js";
 import { processesRoutes } from "./processes-route.js";
-import { excludeOnPortikusWrite } from "./project-files.js";
+import {
+	excludeOnPortikusWrite,
+	PASTES_DIR,
+	removeOldPastes,
+} from "./project-files.js";
 import {
 	archiveDir,
 	archiveProject,
@@ -506,6 +510,16 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 		}
 
+		// A failed cleanup must never fail the paste that triggered it (#885).
+		async function cleanPastes(request: FastifyRequest, slug: string): Promise<void> {
+			try {
+				const project = await resolveProject(slug, options.homeDir);
+				await removeOldPastes(project.path);
+			} catch (error) {
+				request.log.warn({ slug, err: error }, "could not remove old pastes");
+			}
+		}
+
 		registerSearchRoutes(instance, options.homeDir);
 		// The file routes. Paths are logged at debug only and file contents
 		// never (STACK.md §15, ADR 0012).
@@ -569,6 +583,9 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 						upload: upload || contentType.startsWith("application/octet-stream"),
 					});
 					await noteWrite(request, slug, path);
+					if (path.startsWith(`${PASTES_DIR}/`)) {
+						await cleanPastes(request, slug);
+					}
 					reply.header("etag", result.etag);
 					return reply.code(200).send(result);
 				} catch (error) {

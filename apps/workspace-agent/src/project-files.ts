@@ -4,7 +4,15 @@
  * `.portikus/README.md` that explains checks. None of this is ever
  * committed (SPEC.md §12.5).
  */
-import { appendFile, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+	appendFile,
+	lstat,
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 
 /** Everything under `.portikus/` is working data except these two files (#856). */
@@ -122,5 +130,34 @@ export async function writePortikusReadme(projectPath: string): Promise<void> {
 		await writeFile(join(dir, "README.md"), PORTIKUS_README, { flag: "wx" });
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+	}
+}
+
+/** The names the web client gives pasted images (apps/web TerminalPane pastePath). */
+export const PASTE_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(-\d+)?\.(png|jpeg)$/;
+export const PASTES_DIR = ".portikus/pastes";
+export const PASTE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Delete pastes in `<project>/.portikus/pastes` last modified more than 7
+ * days before `now` (#885). Only regular files with a paste name go; a
+ * symlinked folder or file is never followed.
+ */
+export async function removeOldPastes(
+	projectPath: string,
+	now = Date.now(),
+): Promise<void> {
+	const portikus = join(projectPath, ".portikus");
+	const pastes = join(projectPath, PASTES_DIR);
+	for (const dir of [portikus, pastes]) {
+		if (!(await lstat(dir)).isDirectory()) return;
+	}
+	for (const name of await readdir(pastes)) {
+		if (!PASTE_NAME.test(name)) continue;
+		const file = join(pastes, name);
+		const info = await lstat(file);
+		if (info.isFile() && now - info.mtimeMs > PASTE_MAX_AGE_MS) {
+			await rm(file);
+		}
 	}
 }

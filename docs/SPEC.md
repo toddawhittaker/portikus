@@ -953,7 +953,8 @@ project upload, under its limits and owner check, to
 `.portikus/pastes/<timestamp>.png` (or `.jpeg`) in the terminal's own
 project. The terminal then receives the file's absolute path and a trailing
 space, never a newline, so the paste cannot run a command. Image bytes are
-never logged.
+never logged. Pastes older than 7 days are removed on the next paste in that
+project (#885).
 
 ### 9.7 Session model and wire protocol
 
