@@ -11,6 +11,7 @@ export type TerminalFrame =
 	| { kind: "exit" }
 	| { kind: "cwd"; path: string }
 	| { kind: "screen"; alternate: boolean }
+	| { kind: "clear" }
 	| { kind: "error"; code: string; reason?: TerminalGoneReason; at?: string }
 	| { kind: "ignored" };
 
@@ -41,6 +42,7 @@ export function decodeTerminalFrame(data: unknown): TerminalFrame {
 	if (type === "screen" && typeof alternate === "boolean") {
 		return { kind: "screen", alternate };
 	}
+	if (type === "clear") return { kind: "clear" };
 	if (type === "error") {
 		const frame: TerminalFrame = {
 			kind: "error",

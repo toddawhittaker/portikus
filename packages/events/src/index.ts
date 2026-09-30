@@ -63,6 +63,9 @@ export const TerminalServerMessage = z.discriminatedUnion("type", [
 	// the agent whenever it changes. The browser sends arrow keys rather than
 	// scrolling its own buffer while it does (SPEC.md §9.1).
 	z.object({ type: z.literal("screen"), alternate: z.boolean() }),
+	// The pane's history was erased, as `clear` does; the browser drops its
+	// scrollback too (SPEC.md §9.7, issue #882).
+	z.object({ type: z.literal("clear") }),
 	z.object({
 		type: z.literal("error"),
 		code: TerminalErrorCode,

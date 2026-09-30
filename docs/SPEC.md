@@ -996,7 +996,13 @@ as ended with an action to create a new one, and a listing returns every
 open terminal plus the 20 most recently ended ones. On attach the agent
 replays the pane's recent history from tmux, up to the capture limit, into
 the browser's scrollback, so a reload shows earlier output above the
-prompt; the platform still stores no terminal output anywhere.
+prompt; the platform still stores no terminal output anywhere. tmux does
+not pass `clear`'s erase-scrollback on, so when a pane's history drops to
+nothing the agent sends `{"type":"clear"}` and the browser drops its own
+scrollback (issue #882). The agent polls every half second, so a `clear`
+followed at once by more than a screen of output (`clear && npm test`) is
+not detected. Growing the pane taller can pull the whole history back onto
+the screen, which also sends a clear.
 
 The browser connects to the control plane at
 `/workspaces/:id/terminals/:terminalId/ws`, and the control plane connects

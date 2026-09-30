@@ -99,6 +99,11 @@ export function watchPanes(server: TmuxServer): PaneWatcher {
 					send(socket, { type: "screen", alternate: state.alternate });
 				}
 			}
+			// tmux empties its history on `clear` but does not pass the
+			// erase-scrollback on, so say it here (SPEC.md §9.7, issue #882).
+			if (last !== null && last.history > 0 && state.history === 0) {
+				for (const socket of entry.sockets) send(socket, { type: "clear" });
+			}
 			entry.last = state;
 		}
 
