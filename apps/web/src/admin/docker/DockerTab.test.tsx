@@ -205,6 +205,44 @@ test("a set account offers Replace and Remove, and Remove asks first", async () 
 			),
 		).toBe(true),
 	);
+	await waitFor(() => expect(document.activeElement?.id).toBe("docker-hub-title"));
+});
+
+test("cancelling Remove account returns focus to the button", async () => {
+	serve(data({ hubCredential: { isSet: true } }));
+	renderWithQuery(<DockerTab />);
+	const opener = await screen.findByRole("button", { name: "Remove account…" });
+	opener.focus();
+	fireEvent.click(opener);
+	const dialog = await screen.findByTestId("docker-hub-remove-dialog");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	await waitFor(() =>
+		expect(screen.queryByTestId("docker-hub-remove-dialog")).toBeNull(),
+	);
+	await waitFor(() => expect(document.activeElement).toBe(opener));
+});
+
+test("a failed removal returns focus to the button, not the heading", async () => {
+	serve(data({ hubCredential: { isSet: true } }), [], (url, init) =>
+		url === "/admin/docker/hub-credential" && init?.method === "DELETE"
+			? json(503, {
+					code: "UNAVAILABLE",
+					message: "The cache helper is not answering.",
+				})
+			: undefined,
+	);
+	renderWithQuery(<DockerTab />);
+	const opener = await screen.findByRole("button", { name: "Remove account…" });
+	opener.focus();
+	fireEvent.click(opener);
+	const dialog = await screen.findByTestId("docker-hub-remove-dialog");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Remove account" }));
+	expect(await within(dialog).findByRole("alert")).toBeTruthy();
+	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	await waitFor(() =>
+		expect(screen.queryByTestId("docker-hub-remove-dialog")).toBeNull(),
+	);
+	await waitFor(() => expect(document.activeElement).toBe(opener));
 });
 
 test("the ghcr.io switch states what breaks and saves both settings", async () => {
@@ -299,6 +337,14 @@ test("Rebuild seed is off while a rebuild runs, and shows its step", async () =>
 	).toBeTruthy();
 });
 
+test("the latest rebuild region is there before the first rebuild", async () => {
+	serve(data());
+	renderWithQuery(<DockerTab />);
+	const none = await screen.findByTestId("docker-seed-job-none");
+	expect(none.closest('[role="status"]')).not.toBeNull();
+	expect(none.textContent).toBe("The seed has not been rebuilt yet.");
+});
+
 test("Rebuild seed is off with an empty list", async () => {
 	serve(data({ seedImages: [] }));
 	renderWithQuery(<DockerTab />);
@@ -353,24 +399,29 @@ test("the use report adds a pulled image to the seed and removes an unused one",
 	expect(within(extra).getByRole("rowheader", { name: "redis:7" })).toBeTruthy();
 	// ghcr.io is off, so its row says why instead of offering the button.
 	expect(within(extra).getByText("Needs the ghcr.io cache on.")).toBeTruthy();
-	fireEvent.click(
-		within(extra).getByRole("button", { name: "Add redis:7 to the seed" }),
-	);
+	fireEvent.click(within(extra).getByRole("button", { name: "Add to seed: redis:7" }));
 	await waitFor(() =>
 		expect(bodyOf(fetch, "PUT", "/admin/docker/seed/images")).toEqual({
 			images: ["python:3.12", "node:22", "redis:7"],
 		}),
 	);
+	// The pressed button may go; focus waits on the table's heading.
+	await waitFor(() =>
+		expect(document.activeElement?.id).toBe("docker-usage-extra-title"),
+	);
 
 	fetch.mockClear();
 	const unused = screen.getByTestId("docker-usage-unused");
 	fireEvent.click(
-		within(unused).getByRole("button", { name: "Remove node:22 from the seed" }),
+		within(unused).getByRole("button", { name: "Remove from seed: node:22" }),
 	);
 	await waitFor(() =>
 		expect(bodyOf(fetch, "PUT", "/admin/docker/seed/images")).toEqual({
 			images: ["python:3.12"],
 		}),
+	);
+	await waitFor(() =>
+		expect(document.activeElement?.id).toBe("docker-usage-unused-title"),
 	);
 });
 

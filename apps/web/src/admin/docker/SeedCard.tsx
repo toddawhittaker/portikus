@@ -104,7 +104,7 @@ export function SeedCard({ data }: { data: DockerAdminResponse }) {
 				</p>
 			) : null}
 			<CurrentSeed data={data} />
-			{latest ? <LatestRebuild job={latest} /> : null}
+			<LatestRebuild job={latest} loaded={jobs.data !== undefined} />
 			<ImageList data={data} error={listError} />
 			<SizeLimit data={data} />
 		</AdminGroup>
@@ -165,11 +165,11 @@ function CurrentSeed({ data }: { data: DockerAdminResponse }) {
 	);
 }
 
-function LatestRebuild({ job }: { job: SeedJob }) {
+function LatestRebuild({ job, loaded }: { job: SeedJob | null; loaded: boolean }) {
 	const tone =
-		job.state === "failed"
+		job?.state === "failed"
 			? "pk-tag pk-tag--error"
-			: job.state === "succeeded"
+			: job?.state === "succeeded"
 				? "pk-tag"
 				: "pk-tag border-transparent bg-status-starting-soft text-status-starting";
 	return (
@@ -177,39 +177,43 @@ function LatestRebuild({ job }: { job: SeedJob }) {
 			<h4 className={SUB_HEADING} id="docker-seed-job-title">
 				Latest rebuild
 			</h4>
-			<dl
-				className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]"
-				data-testid="docker-seed-job"
-			>
-				<dt className="pk-muted">State</dt>
-				<dd className="m-0">
-					<span role="status" data-testid="docker-seed-job-state">
-						<span className={tone}>{STATE_LABEL[job.state]}</span> {job.step}
-						{job.message && job.state === "failed" ? (
-							<span className="sr-only">. {job.message}</span>
-						) : null}
-					</span>
-				</dd>
-				{job.message ? (
-					<>
-						<dt className="pk-muted">Reason</dt>
-						<dd
-							className="m-0 [overflow-wrap:anywhere]"
-							data-testid="docker-seed-job-message"
-						>
-							{job.message}
+			{/* Mounted before the first job, so its arrival and each step are announced. */}
+			<div role="status">
+				{job ? (
+					<dl
+						className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]"
+						data-testid="docker-seed-job"
+					>
+						<dt className="pk-muted">State</dt>
+						<dd className="m-0" data-testid="docker-seed-job-state">
+							<span className={tone}>{STATE_LABEL[job.state]}</span> {job.step}
 						</dd>
-					</>
+						{job.message ? (
+							<>
+								<dt className="pk-muted">Reason</dt>
+								<dd
+									className="m-0 [overflow-wrap:anywhere]"
+									data-testid="docker-seed-job-message"
+								>
+									{job.message}
+								</dd>
+							</>
+						) : null}
+						<dt className="pk-muted">Requested</dt>
+						<dd className="m-0">{longTime(job.requestedAt)}</dd>
+						{job.finishedAt ? (
+							<>
+								<dt className="pk-muted">Finished</dt>
+								<dd className="m-0">{longTime(job.finishedAt)}</dd>
+							</>
+						) : null}
+					</dl>
+				) : loaded ? (
+					<p className="pk-muted m-0 text-[13px]" data-testid="docker-seed-job-none">
+						The seed has not been rebuilt yet.
+					</p>
 				) : null}
-				<dt className="pk-muted">Requested</dt>
-				<dd className="m-0">{longTime(job.requestedAt)}</dd>
-				{job.finishedAt ? (
-					<>
-						<dt className="pk-muted">Finished</dt>
-						<dd className="m-0">{longTime(job.finishedAt)}</dd>
-					</>
-				) : null}
-			</dl>
+			</div>
 		</section>
 	);
 }

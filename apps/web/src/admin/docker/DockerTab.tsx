@@ -9,7 +9,7 @@ import {
 	Toggletip,
 	useToast,
 } from "@portikus/ui";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { AdminGroup, AdminSection } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
@@ -187,6 +187,8 @@ function HubAccountCard({ data }: { data: DockerAdminResponse }) {
 		token: string | null;
 	}>({ username: null, token: null });
 	const [removing, setRemoving] = useState(false);
+	// Set only when the removal succeeded, so a cancel returns focus to the opener.
+	const removed = useRef(false);
 	// What was last sent, until the cache reports it applied.
 	const [sent, setSent] = useState<"set" | "removed" | null>(null);
 	const isSet = data.hubCredential.isSet;
@@ -218,6 +220,7 @@ function HubAccountCard({ data }: { data: DockerAdminResponse }) {
 	function confirmRemove() {
 		remove.mutate(undefined, {
 			onSuccess: () => {
+				removed.current = true;
 				setSent("removed");
 				setRemoving(false);
 				toast.show({ tone: "success", title: "Docker Hub account removed" });
@@ -298,7 +301,13 @@ function HubAccountCard({ data }: { data: DockerAdminResponse }) {
 						{isSet ? "Replace account" : "Save account"}
 					</Button>
 					{isSet ? (
-						<Button data-testid="docker-hub-remove" onClick={() => setRemoving(true)}>
+						<Button
+							data-testid="docker-hub-remove"
+							onClick={() => {
+								removed.current = false;
+								setRemoving(true);
+							}}
+						>
 							Remove account…
 						</Button>
 					) : null}
@@ -322,8 +331,10 @@ function HubAccountCard({ data }: { data: DockerAdminResponse }) {
 						confirmLabel="Remove account"
 						pending={remove.isPending}
 						onConfirm={confirmRemove}
-						// The Remove button goes away with the account.
-						returnFocusTo={() => document.getElementById("docker-hub-title")}
+						// After a removal the Remove button is gone; the heading keeps the place.
+						returnFocusTo={() =>
+							removed.current ? document.getElementById("docker-hub-title") : null
+						}
 					>
 						{remove.isError ? (
 							<p className="m-0 text-[13px] text-status-error" role="alert">
