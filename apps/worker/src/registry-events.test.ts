@@ -136,6 +136,8 @@ describe.skipIf(skip)("registry events (ruling S7)", () => {
 					event({ addr: "192.168.1.5:1234" }),
 					event({ addr: "10.200.0.10, 10.200.0.12" }),
 					event({ addr: "10.200.0.1:1234" }),
+					// The seed builder has a bridge address but no workspace row.
+					event({ addr: "10.200.0.99:40000" }),
 				],
 			},
 			"docker.io",

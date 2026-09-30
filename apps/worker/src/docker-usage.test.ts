@@ -205,12 +205,18 @@ describe.skipIf(skip)("inventory poll and retention", () => {
 			],
 		]);
 		const { logger } = collectingLogger();
+		const asked: string[] = [];
 		const tick = createInventoryPoll({
 			db: tdb.db,
 			logger,
-			readInventory: async (address) => answers.get(address) ?? null,
+			readInventory: async (address) => {
+				asked.push(address);
+				return answers.get(address) ?? null;
+			},
 		});
 		await tick();
+		// Only workspace rows are read: never the seed builder or any other instance.
+		expect(asked.sort()).toEqual(["10.200.0.10", "10.200.0.11"]);
 		expect(await presence(a)).toEqual([
 			{ image: "docker.io/library/node:22", in_seed: true, used: true },
 			{ image: "docker.io/library/postgres:16", in_seed: true, used: false },

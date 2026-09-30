@@ -224,6 +224,44 @@ test.skipIf(skip)(
 	},
 );
 
+/** Issue #840: the controller's seed builder is not a workspace; the guard never judges it. */
+test.skipIf(skip)(
+	"a busy Docker seed builder in the usage list is ignored",
+	async () => {
+		const ws = await insertWorkspace();
+		const controller = new FakeControllerClient();
+		const { logger } = collectingLogger();
+		let minute = 0;
+		const tick = createGuard({
+			db: tdb.db,
+			controller,
+			logger,
+			now: () => new Date(T0 + minute * 60_000),
+		});
+		for (; minute <= 31; minute++) {
+			controller.usageResult = [
+				{
+					name: "portikus-seed-builder",
+					cpuUsageNs: minute * 4 * MINUTE_NS,
+					bootMarker: 1,
+					cpuLimit: 4,
+					memoryBytes: 6 * GiB,
+					memoryLimitBytes: 6 * GiB,
+					cpuAllowance: null,
+				},
+			];
+			await tick();
+		}
+		expect(controller.calls.filter((c) => c.method !== "usage")).toEqual([]);
+		expect(await sampleCount(ws.id)).toBe(0);
+		const all = await tdb.db
+			.selectFrom("workspace_usage_samples")
+			.select("id")
+			.execute();
+		expect(all).toEqual([]);
+	},
+);
+
 test.skipIf(skip)("a workspace at 79% is not throttled", async () => {
 	const ws = await insertWorkspace();
 	const h = harness({ instance: ws.instance, busy: () => 0.79 });
