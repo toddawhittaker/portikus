@@ -778,6 +778,33 @@ test("the wheel moves a full-screen program a line at a time", async ({
 });
 
 /**
+ * `clear` empties the scrollback (SPEC.md §9.1). tmux keeps the erase to
+ * itself, so the agent sends a clear frame and the browser drops its saved
+ * lines (issue #882).
+ */
+test("a clear frame empties the scrollback", async ({ page, context }) => {
+	const student = await createStudent(context);
+	const terminalId = await openWithTerminal(page, student.workspaceId);
+	const rows = rowsOf(page, terminalId);
+
+	await printUntilVisible(page, terminalId, manyLines(200));
+	const response = await fetch(
+		`${FAKE_AGENT_URL}/__test/terminals/${terminalId}/clear`,
+		{
+			method: "POST",
+		},
+	);
+	expect(response.ok).toBe(true);
+
+	// Nothing is left above the screen to scroll back to.
+	await expect(async () => {
+		await wheelOverTerminal(page, -80);
+		await expect(rows).not.toContainText("SCROLL-0001", { timeout: 500 });
+		await expect(rows).toContainText("SCROLL-0200", { timeout: 500 });
+	}).toPass();
+});
+
+/**
  * xterm.js 6 draws its own scrollbar rather than letting the browser do it,
  * so the thin quiet bar of the design system is set through xterm's options
  * and has to be checked on the element it actually draws (SPEC.md §9.1).

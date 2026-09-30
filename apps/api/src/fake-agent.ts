@@ -1716,6 +1716,16 @@ export async function startFakeAgent(
 		return reply.status(204).send();
 	});
 
+	// Say the pane's history was erased, the way the real agent does after
+	// `clear` (issue #882).
+	app.post("/__test/terminals/:id/clear", async (request, reply) => {
+		const id = (request.params as { id: string }).id;
+		for (const peer of attached.get(id) ?? []) {
+			if (peer.readyState === peer.OPEN) peer.send(JSON.stringify({ type: "clear" }));
+		}
+		return reply.status(204).send();
+	});
+
 	// Output a test wants on screen without typing for it, so a browser test
 	// can fill the scrollback.
 	app.post("/__test/terminals/:id/output", async (request, reply) => {

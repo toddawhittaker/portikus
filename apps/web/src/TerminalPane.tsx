@@ -723,6 +723,11 @@ export function TerminalPane({
 					alternateScreen = frame.alternate;
 					return;
 				}
+				if (frame.kind === "clear") {
+					// Erase the saved lines only; tmux has already cleared the screen.
+					term.write("\u001b[3J");
+					return;
+				}
 				if (frame.kind === "error" && frame.reason) {
 					// The session went with a terminals restart: close the pane
 					// and say why, once per restart (SPEC.md §9.7).

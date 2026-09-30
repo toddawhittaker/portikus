@@ -162,9 +162,8 @@ export const HISTORY_LINES = 5000;
  * xterm.js has no scrollback at all and turns the wheel into arrow keys.
  * `indn`/`rin` scroll by N lines in place, which xterm.js does not save.
  * Without them tmux uses plain line feeds at the bottom of the screen, and
- * those do get saved. `E3=\E[3J` tells tmux the attached terminal can erase
- * its scrollback, which is what `clear` asks for. The browser drops the saved
- * lines when that sequence arrives (SPEC.md §9.1).
+ * those do get saved. tmux never passes on the erase-scrollback that `clear`
+ * sends, so the pane watcher tells the browser instead (issue #882).
  *
  * `history-limit` has to be global and set first: tmux reads it when a window
  * is created, so setting it on a session afterwards leaves that session's
@@ -182,7 +181,7 @@ function serverOptionArgs(): string[] {
 		"set-option",
 		"-s",
 		"terminal-overrides",
-		"*:smcup@:rmcup@:indn@:rin@:E3=\\E[3J",
+		"*:smcup@:rmcup@:indn@:rin@",
 		";",
 		"set-option",
 		"-s",
@@ -463,6 +462,8 @@ export interface PaneState {
 	path: string | null;
 	/** True while a full-screen program holds the pane (SPEC.md §9.7). */
 	alternate: boolean;
+	/** Lines in tmux's own history; `clear` empties it (issue #882). */
+	history: number;
 }
 
 /**
@@ -476,17 +477,18 @@ export async function listPanes(server: TmuxServer): Promise<Map<string, PaneSta
 			"list-panes",
 			"-a",
 			"-F",
-			"#{session_name}\t#{pane_current_path}\t#{alternate_on}",
+			"#{session_name}\t#{pane_current_path}\t#{alternate_on}\t#{history_size}",
 		],
 		server,
 	);
 	const panes = new Map<string, PaneState>();
 	for (const line of stdout.split("\n")) {
-		const [name, path = "", alternate = ""] = line.split("\t");
+		const [name, path = "", alternate = "", history = ""] = line.split("\t");
 		if (!name?.startsWith("pk-")) continue;
 		panes.set(name.slice(3), {
 			path: path === "" ? null : path,
 			alternate: alternate === "1",
+			history: Number(history) || 0,
 		});
 	}
 	return panes;

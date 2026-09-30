@@ -102,6 +102,10 @@ test("TerminalServerMessage accepts a cwd frame with an absolute path", () => {
 	expect(TerminalServerMessage.safeParse({ type: "cwd" }).success).toBe(false);
 });
 
+test("TerminalServerMessage accepts a clear frame", () => {
+	expect(TerminalServerMessage.parse({ type: "clear" })).toEqual({ type: "clear" });
+});
+
 test("TerminalServerMessage accepts a screen frame", () => {
 	expect(TerminalServerMessage.parse({ type: "screen", alternate: true })).toEqual({
 		type: "screen",

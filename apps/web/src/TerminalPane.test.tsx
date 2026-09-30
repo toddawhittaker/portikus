@@ -801,6 +801,29 @@ test("clear erases the scrollback and ordinary output still keeps it", async () 
 	expect(term.buffer.active.length).toBeLessThanOrEqual(SCROLLBACK_LINES + term.rows);
 });
 
+/**
+ * tmux does not pass `clear`'s erase-scrollback on, so the agent sends a
+ * clear frame instead and the pane drops its saved lines (issue #882).
+ */
+test("a clear frame erases the scrollback", async () => {
+	renderPane();
+	await waitFor(() => expect(sockets).toHaveLength(1));
+	const term = opened.terminals.at(-1);
+	if (!term) throw new Error("no terminal");
+	let filled = "";
+	for (let line = 1; line <= term.rows + 8; line += 1) filled += `line ${line}\r\n`;
+	act(() => {
+		sockets[0]?.onmessage?.({ data: outputBytes(filled) });
+	});
+	await waitFor(() => expect(term.buffer.active.baseY).toBeGreaterThan(0));
+
+	act(() => {
+		sockets[0]?.onmessage?.({ data: JSON.stringify({ type: "clear" }) });
+	});
+	// Only the saved lines go; tmux has already redrawn the screen.
+	await waitFor(() => expect(term.buffer.active.baseY).toBe(0));
+});
+
 // Image paste (Epic 9.2 brief, "Done").
 
 test("only a lone png or jpeg becomes a picture paste", () => {

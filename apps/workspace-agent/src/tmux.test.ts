@@ -13,6 +13,7 @@ import {
 	closeSession,
 	createSession,
 	hasSession,
+	listPanes,
 	listSessions,
 	SHELL_WRAPPER,
 	serverPid,
@@ -116,8 +117,6 @@ test.skipIf(!haveTmux)(
 	async () => {
 		const overrides = await serverOption("terminal-overrides");
 		expect(overrides).toContain("smcup@");
-		// Erase-scrollback for the attached terminal (SPEC.md §9.1).
-		expect(overrides).toContain("E3=\\E[3J");
 		const { stdout } = await run("tmux", [
 			"-L",
 			SOCKET_NAME,
@@ -339,6 +338,40 @@ test.skipIf(!haveTmux)(
 			expect(await hasSession(id, server)).toBe(false);
 			await stopped;
 			for (const pid of pids) expect(await running(pid)).toBe(false);
+		} finally {
+			await killServer(server.socketName);
+		}
+	},
+	20_000,
+);
+
+test.skipIf(!haveTmux)(
+	"clear empties the pane's history, which the pane watcher reports (#882)",
+	async () => {
+		const server = scratchServer("clear");
+		const home = await mkdtemp(join(tmpdir(), "portikus-clear-"));
+		const id = "00000000-0000-4000-8000-000000009105";
+		const keys = (text: string) =>
+			run("tmux", [
+				"-L",
+				server.socketName,
+				"send-keys",
+				"-t",
+				sessionName(id),
+				text,
+				"Enter",
+			]);
+		const history = async () => (await listPanes(server)).get(id)?.history;
+		try {
+			await createSession(id, home, home, "dark", "UTC", server);
+			await keys("seq 1 200");
+			await vi.waitFor(async () => expect(await history()).toBeGreaterThan(0), {
+				timeout: 10_000,
+			});
+			await keys("clear");
+			await vi.waitFor(async () => expect(await history()).toBe(0), {
+				timeout: 10_000,
+			});
 		} finally {
 			await killServer(server.socketName);
 		}
