@@ -3675,3 +3675,38 @@ Gaps:
   workspaces get the clear only on rebuild.
 - The old-image skip has only unit tests. The new install-test step for
   #887 passed end to end on a fresh rehearsal VM (2026-09-30).
+
+## Epic 26 — Shared Docker pull storage
+
+Built on `epic/26-docker-cache` for issue #840 (plan #901, task PRs #902
+to #905, review fixes #908 to #912). Migrations 0031 to 0033. SPEC.md
+section 16.6 and ADR 0045.
+
+Delivered:
+
+- A Docker Hub pull-through cache on the workspace gateway, on its own
+  fixed-size file sized by a new install question (20 GiB by default),
+  cleared automatically past 90 percent full.
+- A ghcr.io cache, on by default, that an administrator can turn off.
+- A global seed volume copied as a thin snapshot into new workspaces,
+  Reset Docker and admin rebuilds. Existing volumes are never replaced.
+- A Docker admin tab: cache use and Clear cache, the Hub credential, the
+  ghcr.io switch, the seed list, cap and Rebuild seed, and an image use
+  report built from registry pull events and agent inventories.
+- The egress gate on the cache ports, the security rulings S1 to S8, and
+  student and admin guide sections.
+- Review fixes: quota changes on seeded volumes, pulls counted per day,
+  digest-pinned seed images, a safe seed swap, the Hub cache held stopped
+  after a failed clear, pull events counted by tag, and accessibility
+  fixes on the Docker tab.
+
+Gaps:
+
+- No resource guard admission check for the seed's size, by ruling SEC1.
+- The registry's first pull downloads about twice the bytes.
+- The usage window can take in 31 calendar days.
+- Volumes seeded before the seed-share key fix lack the key.
+- A dropped cache connection stalls a pull for about 15 seconds.
+- The Ansible egress re-apply handler does less than the helper's own
+  re-apply.
+- Every workspace can list the cache's contents, by ruling S6.

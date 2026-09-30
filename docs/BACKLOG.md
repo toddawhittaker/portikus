@@ -1753,3 +1753,92 @@ and leaves its test workspace behind if a step fails.
 agent unit, and destroy the test workspace in a shell trap.
 
 **Source.** Epic 15.3 (#887).
+
+## Resource guard admission for the seed
+
+**What.** The resource guard does not count the seed's size when it admits
+a workspace. Ruling SEC1 accepted the overcommit; the controller's pool
+fill refusal and the seed cap are the protection (SPEC.md section 24.5).
+
+**What it would take.** Add the current seed's size to the Docker size the
+guard's admission check counts in `apps/worker/src/guard.ts`, with a unit
+test.
+
+**Source.** Epic 26 (#840), ruling SEC1.
+
+## Registry first pull downloads twice
+
+**What.** Registry 2.8 in proxy mode downloads about twice an image's
+bytes on the first fetch.
+
+**What it would take.** Try a newer `distribution` release once Debian
+ships one, and measure the first pull again on the rehearsal VM.
+
+**Source.** Epic 26 (#840) spike.
+
+## Usage window edge
+
+**What.** The Docker usage report says 30 days, but because pulls are
+stored by day, it can include 31 calendar days.
+
+**What it would take.** Start the window at the day after the cut-off in
+`usageReport` (`apps/api/src/routes/admin-docker.ts`), or say 31 days, with
+a database test at the edge.
+
+**Source.** Epic 26 (#840) review.
+
+## Seed share key on early seeded volumes
+
+**What.** Docker volumes seeded before the `user.portikus.seed-gib` fix
+lack the key, so a later Docker quota change on them does not count the
+seed's share.
+
+**What it would take.** A one-time controller step that sets the key on
+volumes copied from a seed without it, or a Reset Docker for those
+workspaces. Only the pilot has such volumes.
+
+**Source.** Epic 26 (#840) review fixes.
+
+## Stall when the cache connection is dropped
+
+**What.** When the cache drops connections instead of refusing them,
+Docker waits about 15 seconds before it falls back to Docker Hub.
+
+**What it would take.** Make the firewall reject rather than drop the
+cache ports when the registry is down, or lower dockerd's mirror timeout
+if Docker adds one; test by stopping the unit on the rehearsal VM.
+
+**Source.** Epic 26 (#840) verification.
+
+## Ansible egress re-apply matches the helper
+
+**What.** The Ansible handler that re-applies egress rules is not the
+same as the helper's own re-apply, which also rewrites the dnsmasq and
+Squid configuration.
+
+**What it would take.** Have the handler start `portikus-egress-apply`
+with no request, as the registry helper does, and drop its own steps.
+
+**Source.** Epic 26 (#840) review.
+
+## One student can wipe the shared cache
+
+**What.** A student can fill the pull cache past 90 percent and set off
+the automatic clear, which empties it for everyone. Ruling SEC5 accepted
+this: it costs download time, never data.
+
+**What it would take.** Per-workspace pull accounting and a limit, or a
+registry with a least-recently-used size cap in place of the full clear.
+
+**Source.** Epic 26 (#840), ruling SEC5.
+
+## Cache catalog visible to every workspace
+
+**What.** Any workspace can list every cached repository through
+`/v2/_catalog`, and so see which images others pulled. Ruling S6 accepted
+this.
+
+**What it would take.** A small proxy on the gateway that answers 404 for
+`/v2/_catalog` and passes everything else, with a smoke test.
+
+**Source.** Epic 26 (#840), ruling S6.

@@ -72,3 +72,4 @@ has four sections:
 | [0042](0042-package-survey.md) | The package survey and the reinstall note (accepted, Epic 24) |
 | [0043](0043-blocked-sites-in-open-mode.md) | Blocked sites in open mode (accepted, Epic 24) |
 | [0044](0044-backups-on-the-server.md) | An apt-installed server backs itself up, keeps its key, and hands the key over through a root socket (accepted, Epic 15) |
+| [0045](0045-shared-docker-pull-storage.md) | Shared Docker pull storage: a pull-through cache and LVM-thin seed snapshots (accepted, Epic 26) |
