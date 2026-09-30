@@ -422,5 +422,20 @@ class StatusTest(Base):
         self.assertEqual(self.status()["lastClearedAt"], first)
 
 
+class HostMkfsTest(unittest.TestCase):
+    def test_mkfs_reserves_the_whole_file_before_making_the_filesystem(self):
+        with tempfile.NamedTemporaryFile() as f:
+            f.truncate(4096)
+            runs = []
+            real_run = rj.subprocess.run
+            rj.subprocess.run = lambda argv, **kw: runs.append(argv)
+            try:
+                rj.Host().mkfs(f.name)
+            finally:
+                rj.subprocess.run = real_run
+        self.assertEqual(runs[0], ["fallocate", "--length", "4096", f.name])
+        self.assertEqual(runs[1][0], "mkfs.ext4")
+        self.assertIn("nodiscard", runs[1])
+
 if __name__ == "__main__":
     unittest.main()

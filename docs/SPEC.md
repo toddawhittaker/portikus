@@ -1984,6 +1984,9 @@ the cache off (the file `/etc/portikus/registry/cache-off`), warns in its
 output, and workspaces get no mirror. A workspace already running when the
 cache turns off keeps its cache settings until its next restart; meanwhile
 the gateway no longer redirects ghcr.io traffic, so its pulls fail plainly.
+The cache file's space is reserved in full: setup and a clear reserve any
+holes again, and the weekly fstrim leaves it alone because it trims only
+the file systems in `/etc/fstab`.
 
 **ghcr.io cache, on by default.** A second registry on `10.200.0.1:5001`
 caches ghcr.io (GitHub's container registry). It is on by default (Todd's
@@ -3315,7 +3318,9 @@ workspace's Docker settings when the policy would drop its names. The
 name lists live in `packages/contracts` beside the ports, shared by the
 worker and the render. When the registry helper changes the ghcr.io
 switch it starts the egress helper with no request, which re-renders the
-policy already applied (or the default open policy).
+policy already applied (or the default open policy). Setup starts it the
+same way after it sets the switch, so the table follows the switch without
+a reboot.
 
 **Rulings behind this design.** After the Epic 24 spike the orchestrator
 ruled (E1 to E10, recorded in ADR 0038): our own dnsmasq rather than

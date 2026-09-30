@@ -97,6 +97,22 @@
     - /root/go/bin
     - /root/go/caddy-portikus
 
+# A build killed outright skips its cleanup and leaves its scratch directory.
+- name: Find scratch directories of interrupted Go builds
+  ansible.builtin.find:
+    paths: /root/go
+    patterns: "*-build-*"
+    file_type: directory
+  register: image_builder_stale_builds
+
+- name: Remove scratch directories of interrupted Go builds
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ image_builder_stale_builds.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
 - name: Create the marker directory
   ansible.builtin.file:
     path: /usr/local/share/portikus

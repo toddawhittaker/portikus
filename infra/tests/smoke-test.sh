@@ -255,6 +255,8 @@ if ssh_cmd test -d /etc/portikus/registry; then
   reg_ghcr_before=$(ssh_cmd "cat /etc/portikus/registry/ghcr-enabled" 2>/dev/null)
   if [ "$reg_ghcr_before" = on ]; then
     check_output "the caches listen only on the gateway, with no debug port" "10.200.0.1:5000 10.200.0.1:5001" registry_listeners
+    check "the loaded egress table sends workspace ghcr.io traffic to the cache" \
+      ssh_cmd "sudo nft list chain inet portikus_egress prerouting | grep -q 'tcp dport 443 redirect to :5001'"
   else
     check_output "the cache listens only on 10.200.0.1:5000, with no debug port" "10.200.0.1:5000" registry_listeners
   fi
