@@ -140,7 +140,7 @@ export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 		const request = SeedBuildRequest.safeParse({
 			id: job.id,
 			images: job.images,
-			ghcrEnabled: settings?.docker_ghcr_enabled ?? false,
+			ghcrEnabled: settings?.docker_ghcr_enabled ?? true,
 			maxBytes: (settings?.docker_seed_max_gib ?? 8) * GIB,
 		});
 		if (!request.success) {

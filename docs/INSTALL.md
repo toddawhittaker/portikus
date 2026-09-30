@@ -386,6 +386,49 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
   import it into the browser's or the system's trusted authorities
   (infra/README.md, "Browser access", has the per-system steps).
 
+## The Docker image cache
+
+Setup asks one more question after storage: **Size of the Docker image
+cache, in GiB** (20 by default). Workspaces pull Docker Hub and ghcr.io
+images through a cache on this server. It is one file of that size on the
+main disk, reserved when it is made. Choose a smaller size with
+`sudo dpkg-reconfigure portikus`; a new size empties the cache.
+
+The ghcr.io cache is on by default. Students build and push images in
+GitHub Actions, which pushes to the real ghcr.io with the repository's
+`GITHUB_TOKEN` and is not affected. In workspaces they only pull those
+images, with no `docker login`. While it is on, inside workspaces:
+
+- `docker push` to ghcr.io does not work. Push from GitHub Actions instead.
+- Private ghcr.io images cannot be pulled. Make the package public.
+- `docker login ghcr.io` reports success without checking anything.
+- Tools other than Docker, such as curl, `gh` and ORAS, get certificate
+  errors for ghcr.io.
+
+An administrator turns it off under **Admin**, then **Docker**, by clearing
+**Cache ghcr.io images**; each workspace picks up the change at its next
+start. docs/ADMIN-GUIDE.md, "Docker images and the pull cache", has a
+sample workflow.
+
+Security: for ghcr.io the server makes its own certificate authority,
+limited to signing `ghcr.io`, in `/etc/portikus/registry/`. Its key is
+readable by root alone. Only Docker inside workspaces trusts it; the
+server, browsers and other tools do not.
+
+### What saves disk and what saves bandwidth
+
+The cache saves download bandwidth, pull time and the shared Docker Hub
+rate limit, not disk: every student who pulls an image still keeps a full
+unpacked copy in their own Docker storage. The first fetch of an image
+downloads about twice its size; later pulls download almost nothing
+(measured: 88 MB, then 8 KB). Seeds save disk: a seed image is stored once
+and shared, copy-on-write, by every workspace made or reset from the seed,
+costing a student only what they change (four images of 2.9 GB shared by
+30 students, instead of about 87 GB). The admin page's **Image use** report
+shows popular pulled images to move into the seed. Existing workspaces take
+a new seed only when the student uses Reset Docker. The net disk cost of
+the cache is its one capped file.
+
 ## Backups: copying them off the server
 
 Setup turns on two timers. `portikus-backup.timer` takes a backup at 02:30

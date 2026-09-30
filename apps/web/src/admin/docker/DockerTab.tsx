@@ -402,11 +402,11 @@ function GhcrCard({ data }: { data: DockerAdminResponse }) {
 				id="docker-ghcr-warning"
 				className="m-0 max-w-[72ch] text-[13px] text-ink-muted"
 			>
-				Off by default. While it is on, workspaces cannot docker push to ghcr.io, cannot
+				On by default. While it is on, workspaces cannot docker push to ghcr.io, cannot
 				pull private ghcr.io images, and tools other than Docker that talk to ghcr.io,
-				such as curl, gh and ORAS, do not work. Turning it off reaches a running
-				workspace only when it next starts; until then, ghcr.io in that workspace still
-				goes through the cache.
+				such as curl, gh and ORAS, do not work. Build and push images from GitHub
+				Actions; pull them here. Turning it off reaches a running workspace only when it
+				next starts; until then, ghcr.io in that workspace still goes through the cache.
 			</p>
 			{save.isError ? (
 				<p className="m-0 text-[13px] text-status-error" role="alert">

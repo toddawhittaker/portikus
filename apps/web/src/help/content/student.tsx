@@ -25,6 +25,27 @@ const KEYS: readonly { keys: string; what: string }[] = [
 	},
 ];
 
+/** A minimal GitHub Actions workflow that builds and pushes to ghcr.io. */
+const IMAGE_WORKFLOW = `name: image
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: \${{ github.actor }}
+          password: \${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: ghcr.io/\${{ github.repository }}:latest`;
+
 /**
  * For everyone who has a workspace. Each topic's id is "student-<topic>" and
  * becomes its anchor; Settings links to /help#student-keyboard, so keep that one.
@@ -184,6 +205,50 @@ export const STUDENT_HELP: HelpPart = {
 							such as SSH, Docker and PostgreSQL. Run your web app on a port from 1024
 							up, such as 3000 or 5173, then choose{" "}
 							<strong>Choose another port…</strong> in the preview.
+						</li>
+					</ul>
+				</>
+			),
+		},
+		{
+			id: "student-container-images",
+			title: "Container images with GitHub Actions",
+			body: (
+				<>
+					<p>
+						Build and push your own images from GitHub Actions, then pull them here.
+						Actions runs on GitHub's machines and pushes to ghcr.io with the
+						repository's built-in <code className="pk-mono-body">GITHUB_TOKEN</code>.
+						Put this in{" "}
+						<code className="pk-mono-body">.github/workflows/image.yml</code>. The
+						repository name in the tag must be lowercase.
+					</p>
+					<pre className="pk-mono-body whitespace-pre-wrap">
+						<code>{IMAGE_WORKFLOW}</code>
+					</pre>
+					<p>
+						After the first run, open the package on GitHub (your profile,{" "}
+						<strong>Packages</strong>), and under <strong>Package settings</strong> make
+						it public. Then, in a terminal here, run{" "}
+						<code className="pk-mono-body">docker pull ghcr.io/owner/image:tag</code>,
+						or start a Dockerfile with{" "}
+						<code className="pk-mono-body">FROM ghcr.io/owner/image:tag</code>. No{" "}
+						<code className="pk-mono-body">docker login</code> is needed.
+					</p>
+					<p>While your site caches ghcr.io, inside your workspace:</p>
+					<ul>
+						<li>
+							<code className="pk-mono-body">docker push</code> to ghcr.io does not
+							work. Push from GitHub Actions instead.
+						</li>
+						<li>Private ghcr.io images cannot be pulled. Make the package public.</li>
+						<li>
+							<code className="pk-mono-body">docker login ghcr.io</code> says it
+							succeeded without checking anything.
+						</li>
+						<li>
+							Tools other than Docker, such as curl, gh and ORAS, get certificate errors
+							for ghcr.io.
 						</li>
 					</ul>
 				</>

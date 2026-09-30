@@ -263,6 +263,9 @@ test("the ghcr.io switch states what breaks and saves only itself", async () => 
 	expect(warning).toContain(
 		"Turning it off reaches a running workspace only when it next starts",
 	);
+	expect(warning).toContain(
+		"Build and push images from GitHub Actions; pull them here.",
+	);
 	fireEvent.click(toggle);
 	await waitFor(() =>
 		expect(bodyOf(fetch, "PUT", "/admin/docker/settings")).toEqual({

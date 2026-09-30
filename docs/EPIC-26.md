@@ -22,8 +22,8 @@ its pull request and the orchestrator rules.
   `python:3.12`, `node:22`, `postgres:16`), as a thin copy that costs no
   disk until changed.
 - Administrators get a Docker admin tab: cache size, use and Clear cache;
-  an optional Docker Hub credential; a ghcr.io cache switch (off by
-  default); the seed image list, the seed size cap, Rebuild seed with
+  an optional Docker Hub credential; a ghcr.io cache switch (on by
+  default, an administrator can turn it off); the seed image list, the seed size cap, Rebuild seed with
   progress, and the current seed's size, images and image version; and a
   usage report of images pulled that are not in the seed and seed images
   nobody uses.
@@ -39,8 +39,9 @@ its pull request and the orchestrator rules.
 3. Registry 2.8 has no size cap. Its built-in 7-day expiry stays; the
    helper's timer also clears the cache when it passes 90 percent full
    (`REGISTRY_AUTO_CLEAR_PERCENT`). Clearing remakes the filesystem (S1).
-4. Docker Hub is always cached. ghcr.io is an administrator opt-in, off by
-   default: a second registry on `10.200.0.1:5001` with a certificate for
+4. Docker Hub is always cached. ghcr.io is cached too, on by default, and
+   an administrator can turn it off (revised by the product owner; students
+   push images from GitHub Actions and only pull them in workspaces): a second registry on `10.200.0.1:5001` with a certificate for
    `ghcr.io` from an internal certificate authority (CA), plus a hosts
    entry pointing `ghcr.io` at the gateway (S3). The page says plainly that
    while it is on, `docker push` to ghcr.io, private ghcr images and
@@ -100,7 +101,7 @@ done criteria below include it.
   `pkg-containers.githubusercontent.com`. This covers allow-list mode and
   open mode's blocked sites alike. `egress-drop-all.nft` and the guard
   table carry the same drops, so a failure closes the ports.
-- **S3, ghcr (T1 and T2; T5 the page).** Off by default. The Incus ACL
+- **S3, ghcr (T1 and T2; T5 the page).** On by default, admin can turn off. The Incus ACL
   opens only 5001 on the gateway, never 443. The redirect of 443 to 5001
   is rendered next to the S2 gate in `portikus_egress`. The CA is name
   constrained to `ghcr.io`, its key is root-only, and it is trusted only

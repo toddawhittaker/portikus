@@ -51,7 +51,7 @@ async function readSettings(db: Kysely<Database>): Promise<DockerSettings> {
 		.executeTakeFirst();
 	// The worker seeds the settings row; until then the column defaults apply.
 	return {
-		ghcrEnabled: row?.docker_ghcr_enabled ?? false,
+		ghcrEnabled: row?.docker_ghcr_enabled ?? true,
 		seedMaxGiB: row?.docker_seed_max_gib ?? 8,
 		seedImages: SeedImageList.safeParse(row?.docker_seed_images).data ?? [],
 	};

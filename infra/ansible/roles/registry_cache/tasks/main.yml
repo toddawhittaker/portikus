@@ -90,14 +90,23 @@
     group: portikus-worker
     mode: "0640"
 
-- name: Start with the ghcr.io cache off
+# The ghcr.io cache is on by default; the administrator's later choice stays.
+- name: Start with the ghcr.io cache on
   ansible.builtin.copy:
     dest: "{{ registry_cache_config_dir }}/ghcr-enabled"
-    content: "off\n"
+    content: "on\n"
     force: false
     owner: root
     group: root
     mode: "0644"
+
+# Sites set up while the default was off get it on once, as migration 0033
+# does for the settings row, so the file and the database agree.
+- name: Turn the ghcr.io cache on once for sites set up while it was off
+  ansible.builtin.shell:
+    cmd: printf 'on\n' > ghcr-enabled && touch ghcr-default-on
+    chdir: "{{ registry_cache_config_dir }}"
+    creates: "{{ registry_cache_config_dir }}/ghcr-default-on"
 
 # The authority may sign only ghcr.io, and workspaces trust it only through
 # /etc/docker/certs.d (ruling S3).  Its key stays root's.
@@ -270,6 +279,18 @@
     enabled: true
     state: started
     daemon_reload: true
+
+- name: Read the ghcr.io cache switch
+  ansible.builtin.slurp:
+    src: "{{ registry_cache_config_dir }}/ghcr-enabled"
+  register: registry_cache_ghcr_switch
+
+- name: Enable and start the ghcr.io cache while its switch is on
+  ansible.builtin.systemd_service:
+    name: portikus-registry-ghcr.service
+    enabled: true
+    state: started
+  when: (registry_cache_ghcr_switch.content | b64decode | trim) == "on"
 
 - name: Watch for cache requests, and write the status every minute
   ansible.builtin.systemd_service:

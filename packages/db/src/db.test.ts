@@ -602,6 +602,9 @@ describe("database migrations and schema", () => {
 				});
 				// Past 0031 (Epic 26) first.
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+					"0033_ghcr_default_on",
+				);
+				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 					"0032_docker_pull_days",
 				);
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -705,6 +708,7 @@ describe("database migrations and schema", () => {
 					"0030_egress_blocked_sites",
 					"0031_docker_cache",
 					"0032_docker_pull_days",
+					"0033_ghcr_default_on",
 				]);
 				throw rollback;
 			}),
@@ -727,6 +731,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
@@ -850,6 +857,9 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -931,6 +941,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
@@ -1317,6 +1330,9 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1411,6 +1427,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
@@ -1864,6 +1883,9 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2020,6 +2042,9 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2064,6 +2089,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
@@ -2329,6 +2357,9 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2366,10 +2397,12 @@ describe("resource guard migration", () => {
 						"0030_egress_blocked_sites",
 						"0031_docker_cache",
 						"0032_docker_pull_days",
+						"0033_ghcr_default_on",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0032 down to 0020, and 0018 (applied 0018, 0020 to 0032, 0019).
+					// Undo 0019, 0033 down to 0020, and 0018 (applied 0018, 0020 to 0033, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2404,6 +2437,7 @@ describe("resource guard migration", () => {
 						"0030_egress_blocked_sites",
 						"0031_docker_cache",
 						"0032_docker_pull_days",
+						"0033_ghcr_default_on",
 					]);
 					throw rollback;
 				}),
@@ -2437,6 +2471,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
@@ -2495,6 +2532,9 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2542,6 +2582,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2576,6 +2619,9 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
@@ -2635,7 +2681,7 @@ describe("resource guard migration", () => {
 						])
 						.executeTakeFirstOrThrow();
 					expect(s).toEqual({
-						docker_ghcr_enabled: false,
+						docker_ghcr_enabled: true,
 						docker_seed_max_gib: 8,
 						docker_seed_images: [],
 					});
@@ -2659,6 +2705,9 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
@@ -2699,6 +2748,9 @@ describe("resource guard migration", () => {
 						.returning("id")
 						.executeTakeFirstOrThrow();
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
 					await sql`insert into docker_image_pulls
@@ -2722,9 +2774,45 @@ describe("resource guard migration", () => {
 						})
 						.execute();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const folded = await sql<{ pulls: number }>`
 						select pulls from docker_image_pulls`.execute(trx);
 					expect(folded.rows).toEqual([{ pulls: 5 }]);
+					throw rollback;
+				}),
+			).rejects.toBe(rollback);
+		},
+	);
+	test.skipIf(!hasTestDb())(
+		"0033 turns the ghcr.io cache on for the existing row and for new rows",
+		async () => {
+			const { Migrator } = await import("kysely/migration");
+			const { migrations } = await import("./migrations/index.js");
+			const rollback = new Error("rollback");
+			await expect(
+				t.db.transaction().execute(async (trx) => {
+					const migrator = new Migrator({
+						db: trx,
+						provider: { getMigrations: async () => migrations },
+					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
+					await sql`insert into settings (id, shutdown_grace_seconds, docker_ghcr_enabled)
+						values (1, 600, false)
+						on conflict (id) do update set docker_ghcr_enabled = false`.execute(trx);
+					expect((await migrator.migrateToLatest()).error).toBeUndefined();
+					const row = await trx
+						.selectFrom("settings")
+						.select("docker_ghcr_enabled")
+						.executeTakeFirstOrThrow();
+					expect(row.docker_ghcr_enabled).toBe(true);
+					const fresh = await sql<{ d: string }>`
+						select column_default as d from information_schema.columns
+						where table_name = 'settings' and column_name = 'docker_ghcr_enabled'`.execute(
+						trx,
+					);
+					expect(fresh.rows[0]?.d).toBe("true");
 					throw rollback;
 				}),
 			).rejects.toBe(rollback);
@@ -2807,6 +2895,9 @@ describe("backups migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
@@ -2907,6 +2998,9 @@ describe("backups migration", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2980,6 +3074,9 @@ describe("api request samples migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);
@@ -3168,6 +3265,9 @@ describe("throttle hold migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0033_ghcr_default_on",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0032_docker_pull_days",
 					);

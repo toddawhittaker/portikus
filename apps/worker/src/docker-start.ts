@@ -55,5 +55,5 @@ export async function dockerStartConfig(
 		entries: entries.map((e) => ({ ...e, kind: e.kind as EgressEntryKind })),
 		blockedSites,
 	};
-	return dockerConfigFor(policy, s?.docker_ghcr_enabled ?? false);
+	return dockerConfigFor(policy, s?.docker_ghcr_enabled ?? true);
 }

@@ -101,6 +101,51 @@ When your web app is listening on a port, it appears under **Running**.
   up, such as 3000 or 5173, then choose **Choose another port…** in the
   preview.
 
+## Container images with GitHub Actions
+
+Build and push your own images from GitHub Actions, then pull them in your
+workspace. Actions runs on GitHub's machines and pushes to ghcr.io with the
+repository's built-in `GITHUB_TOKEN`, so no password is needed. Put this in
+`.github/workflows/image.yml` (the repository name in the tag must be
+lowercase):
+
+```yaml
+name: image
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: ghcr.io/${{ github.repository }}:latest
+```
+
+After the first run, open the package on GitHub (your profile, then
+**Packages**), and under **Package settings** make it public. Then, in a
+terminal in your workspace, run `docker pull ghcr.io/<owner>/<image>:<tag>`,
+or start a Dockerfile with `FROM ghcr.io/<owner>/<image>:<tag>`. No
+`docker login` is needed.
+
+Portikus caches ghcr.io unless your administrator turned that off. While it
+does, inside your workspace:
+
+- `docker push` to ghcr.io does not work. Push from GitHub Actions instead.
+- Private ghcr.io images cannot be pulled. Make the package public.
+- `docker login ghcr.io` reports success without checking anything.
+- Tools other than Docker, such as curl, `gh` and ORAS, get certificate
+  errors for ghcr.io.
+
 ## Checks
 
 Checks are commands your project lists in `.portikus/checks.json`, such as
