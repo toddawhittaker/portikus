@@ -7,6 +7,7 @@ import {
 	PreChangeSnapshotName,
 	RebuildInstanceRequest,
 	ResetDockerRequest,
+	SeedBuildRequest,
 	SetCpuAllowanceRequest,
 	SetInstanceLimitsRequest,
 	SetLogLevelRequest,
@@ -24,6 +25,7 @@ import {
 } from "@portikus/observability";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { tokenAuth } from "./auth.js";
+import { SeedBuildBusyError, SeedBuilds } from "./docker-seed.js";
 import { type EgressRouteOptions, registerEgressRoutes } from "./egress/routes.js";
 import { IncusError } from "./incus.js";
 import {
@@ -53,6 +55,8 @@ interface ServerOptions {
 	logger?: Logger;
 	/** Where the egress routes meet the root helper; tests point it elsewhere. */
 	egress?: EgressRouteOptions;
+	/** The seed build runner; tests pass their own. */
+	seedBuilds?: SeedBuilds;
 }
 
 export function buildServer(opts: ServerOptions): FastifyInstance {
@@ -180,6 +184,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 					dockerGiB: bodyResult.data.dockerGiB,
 					recoveryGiB: bodyResult.data.recoveryGiB,
 					cpuAllowance: bodyResult.data.cpuAllowance,
+					docker: bodyResult.data.docker,
 				}),
 			);
 			request.log.info(
@@ -489,6 +494,45 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		}
 	});
 
+	// The Docker seed (issue #840): one build at a time, polled by the worker.
+	const seedBuilds = opts.seedBuilds ?? new SeedBuilds(provider, rootLogger);
+
+	app.post("/docker-seed/builds", async (request, reply) => {
+		const parsed = SeedBuildRequest.safeParse(request.body);
+		if (!parsed.success) {
+			return reply.code(400).send({
+				code: "BAD_REQUEST",
+				message: parsed.error.issues.map((i) => i.message).join("; "),
+			});
+		}
+		try {
+			return reply.code(202).send(seedBuilds.start(parsed.data));
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
+	app.get("/docker-seed/builds/:id", async (request, reply) => {
+		const { id } = request.params as { id: string };
+		const status = seedBuilds.get(id);
+		if (!status) {
+			return reply.code(404).send({ code: "NOT_FOUND", message: "no such seed build" });
+		}
+		return reply.code(200).send(status);
+	});
+
+	app.get("/docker-seed", async (_request, reply) => {
+		try {
+			const seed = await provider.seedInfo();
+			if (!seed) {
+				return reply.code(404).send({ code: "NOT_FOUND", message: "no Docker seed" });
+			}
+			return reply.code(200).send(seed);
+		} catch (err) {
+			return sendError(reply, err);
+		}
+	});
+
 	registerEgressRoutes(app, opts.egress);
 
 	return app;
@@ -498,7 +542,11 @@ function sendError(
 	reply: { code: (n: number) => { send: (b: unknown) => unknown } },
 	err: unknown,
 ): unknown {
-	if (err instanceof InstanceNotStoppedError || err instanceof VolumeInUseError) {
+	if (
+		err instanceof InstanceNotStoppedError ||
+		err instanceof VolumeInUseError ||
+		err instanceof SeedBuildBusyError
+	) {
 		return reply.code(409).send({ code: err.code, message: err.message });
 	}
 	if (err instanceof IncusError) {

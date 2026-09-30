@@ -15,9 +15,11 @@ import {
 	parseAptList,
 	type RebuildInstanceResponse,
 	type ReplaceHomeResponse,
+	type SeedInfo,
 	type SetInstanceLimitsRequest,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
+	type WorkspaceDockerConfig,
 	WorkspaceVolumeName,
 } from "@portikus/contracts";
 import { IncusError } from "./incus.js";
@@ -49,6 +51,8 @@ interface FakeInstance {
 	dockerGeneration: number;
 	rebuilds: number;
 	cpuAllowance: string | null;
+	/** The Docker registry settings the last start wrote, or null. */
+	docker: WorkspaceDockerConfig | null;
 	limits: SetInstanceLimitsRequest;
 	/** The volume attached as home. */
 	homeVolume: string;
@@ -115,6 +119,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			dockerGeneration: 1,
 			rebuilds: 0,
 			cpuAllowance: null,
+			docker: null,
 			limits: { cpu: null, memoryMiB: null, processes: null },
 			homeVolume: `${name}-home`,
 			addedPackagesFile: null,
@@ -137,6 +142,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			dockerGiB?: number;
 			recoveryGiB?: number;
 			cpuAllowance?: string;
+			docker?: WorkspaceDockerConfig;
 		},
 	): Promise<StartInstanceResponse> {
 		this.validate(name);
@@ -148,6 +154,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 		inst.status = "Running";
 		inst.ipv4 = "10.0.0.2";
 		inst.cpuAllowance = opts.cpuAllowance ?? null;
+		if (opts.docker) inst.docker = opts.docker;
 		// The real provider pushes this token and waits for agent health;
 		// the fake records it and treats the agent as already healthy.
 		inst.agentToken = opts.agentToken;
@@ -410,6 +417,49 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			throw new VolumeInUseError(volume);
 		}
 		this.volumes.delete(volume);
+	}
+
+	/** The installed seed. */
+	seed: SeedInfo | null = null;
+	/** Every seed build step, in order, for tests. */
+	readonly seedSteps: string[] = [];
+	/** What the builder's volume measures at the end. */
+	seedBuildBytes = 1024 ** 3;
+	/** Exit status of one builder command; 0 by default. */
+	seedExec: (command: string[]) => number = () => 0;
+	/** Holds the build at `prepareSeedBuilder` until resolved, when set. */
+	seedPrepareGate: Promise<void> | null = null;
+
+	async seedInfo(): Promise<SeedInfo | null> {
+		return this.seed;
+	}
+
+	async prepareSeedBuilder(opts: { maxBytes: number; ghcr: boolean }): Promise<void> {
+		this.seedSteps.push(`prepare ghcr=${opts.ghcr}`);
+		if (this.seedPrepareGate) await this.seedPrepareGate;
+	}
+
+	async execInSeedBuilder(command: string[]): Promise<number> {
+		this.seedSteps.push(`exec ${JSON.stringify(command)}`);
+		return this.seedExec(command);
+	}
+
+	async seedImageVersion(): Promise<string> {
+		return "2026.09.9";
+	}
+
+	async finishSeedBuilder(): Promise<number> {
+		this.seedSteps.push("finish");
+		return this.seedBuildBytes;
+	}
+
+	async installSeed(info: SeedInfo): Promise<void> {
+		this.seedSteps.push("install");
+		this.seed = info;
+	}
+
+	async discardSeedBuild(): Promise<void> {
+		this.seedSteps.push("discard");
 	}
 
 	async replaceHome(name: string): Promise<ReplaceHomeResponse> {

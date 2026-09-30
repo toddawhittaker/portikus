@@ -54,6 +54,8 @@ export interface HelperDeps {
 	requestPath: string;
 	stateDir: string;
 	envPath: string;
+	/** The registry helper's ghcr.io switch; anything but "on", or no file, is off. */
+	ghcrEnabledPath: string;
 	now: () => Date;
 	/** Skip the root-ownership checks on the configuration file (tests only). */
 	allowAnyOwner?: boolean;
@@ -108,8 +110,18 @@ export function defaultDeps(): HelperDeps {
 		requestPath: EGRESS_PATHS.request,
 		stateDir: EGRESS_PATHS.stateDir,
 		envPath: EGRESS_PATHS.env,
+		ghcrEnabledPath: EGRESS_PATHS.ghcrEnabled,
 		now: () => new Date(),
 	};
+}
+
+/** Whether the ghcr.io cache is on (S3). A missing or unreadable file means off. */
+async function readGhcrEnabled(deps: HelperDeps): Promise<boolean> {
+	try {
+		return (await readFile(deps.ghcrEnabledPath, "utf8")).trim() === "on";
+	} catch {
+		return false;
+	}
 }
 
 /** Read the root-owned configuration, refusing a link or a file others could write. */
@@ -351,7 +363,7 @@ async function applyPolicy(
 
 	if (servicesFirst) await dns();
 	if (squidFirst) await squid();
-	await loadTable(deps, renderTable(policy, env, flush));
+	await loadTable(deps, renderTable(policy, env, flush, await readGhcrEnabled(deps)));
 	if (!servicesFirst) await dns();
 	if (!squidFirst) await squid();
 
@@ -385,7 +397,7 @@ async function restoreAtBoot(deps: HelperDeps, env: EgressEnv): Promise<void> {
 	if (!applied) return; // Never applied: open mode, as a fresh site has always been.
 	const { policy } = applied;
 	try {
-		await loadTable(deps, renderTable(policy, env, true));
+		await loadTable(deps, renderTable(policy, env, true, await readGhcrEnabled(deps)));
 	} catch (e) {
 		if (usesOurResolver(policy)) {
 			await loadTable(deps, renderDropAll(env));

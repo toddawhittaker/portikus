@@ -1,5 +1,7 @@
 import {
 	type EgressApplyPolicy,
+	GHCR_CACHE_PORT,
+	HUB_CACHE_PORT,
 	isEgressHostName,
 	parseIpv4Cidr,
 } from "@portikus/contracts";
@@ -103,6 +105,65 @@ function squidCapRule(env: EgressEnv): string {
 	return `add rule ${TABLE} input iifname "${env.bridge}" tcp dport { ${SQUID_HTTP_PORT}, ${SQUID_TLS_PORT} } ct state new add @squid_conns { ip saddr ct count over ${SQUID_CONNECTIONS_PER_WORKSPACE} } reject with tcp reset`;
 }
 
+/** The names a pull through each cache reaches upstream; all must be allowed (S2). */
+export const HUB_UPSTREAM_NAMES = [
+	"registry-1.docker.io",
+	"auth.docker.io",
+	"production.cloudflare.docker.com",
+] as const;
+export const GHCR_UPSTREAM_NAMES = [
+	"ghcr.io",
+	"pkg-containers.githubusercontent.com",
+] as const;
+
+function covers(entry: string, host: string): boolean {
+	return host === entry || host.endsWith(`.${entry}`);
+}
+
+/**
+ * Whether the policy's own name matching lets every one of `names` through:
+ * each must be listed in allow-list mode, and none blocked in open mode.
+ */
+export function policyAllowsNames(
+	policy: Pick<EgressApplyPolicy, "mode" | "names" | "blocked">,
+	names: readonly string[],
+): boolean {
+	if (policy.mode === "allow-list") {
+		return names.every((n) => policy.names.some((entry) => covers(entry, n)));
+	}
+	return !names.some((n) => policy.blocked.some((entry) => covers(entry, n)));
+}
+
+/**
+ * The registry caches' gate (S2): a workspace reaches a cache port only when
+ * the policy would let it reach the registry itself, so the cache is never a
+ * way around the allow-list or a blocked site. It drops every packet, new or
+ * established, and nothing in the input chain accepts ahead of it.
+ */
+function registryGateRules(
+	policy: Pick<EgressApplyPolicy, "mode" | "names" | "blocked">,
+	env: EgressEnv,
+): string[] {
+	const rules: string[] = [];
+	const input = `add rule ${TABLE} input iifname "${env.bridge}"`;
+	if (!policyAllowsNames(policy, HUB_UPSTREAM_NAMES)) {
+		rules.push(`${input} tcp dport ${HUB_CACHE_PORT} drop`);
+	}
+	if (!policyAllowsNames(policy, GHCR_UPSTREAM_NAMES)) {
+		rules.push(`${input} tcp dport ${GHCR_CACHE_PORT} drop`);
+	}
+	return rules;
+}
+
+/**
+ * While the ghcr.io cache is on (S3) the workspace's hosts entry points
+ * ghcr.io at the gateway, and its tcp 443 goes to the cache. The gate still
+ * decides, because the redirected packet reaches input on the cache port.
+ */
+function ghcrRedirectRule(env: EgressEnv): string {
+	return `add rule ${TABLE} prerouting iifname "${env.bridge}" ip daddr ${env.gateway} tcp dport 443 redirect to :${GHCR_CACHE_PORT}`;
+}
+
 /**
  * The `nft -f` script for a policy: one transaction that declares the
  * table, empties it and fills it again. The names set keeps the addresses
@@ -110,13 +171,16 @@ function squidCapRule(env: EgressEnv): string {
  * name is removed or the mode changes (ADR 0038).
  */
 export function renderTable(
-	policy: Pick<EgressApplyPolicy, "mode" | "ranges" | "ports" | "blocked">,
+	policy: Pick<EgressApplyPolicy, "mode" | "names" | "ranges" | "ports" | "blocked">,
 	env: EgressEnv,
 	flushNames: boolean,
+	ghcrEnabled: boolean,
 ): string {
 	const ranges = checkedRanges(policy.ranges);
 	const ports = checkedPorts(policy.ports);
 	const lines = [...declareTable(), ...resetTable(flushNames)];
+	lines.push(...registryGateRules(policy, env));
+	if (ghcrEnabled) lines.push(ghcrRedirectRule(env));
 	if (usesOurResolver(policy)) lines.push(...ownResolverRules(env), squidCapRule(env));
 	if (policy.mode === "allow-list") {
 		const ws = `iifname "${env.bridge}"`;
@@ -160,11 +224,12 @@ export function renderTable(
 	return `${lines.join("\n")}\n`;
 }
 
-/** The fallback when the last applied allow-list cannot be loaded at boot: drop all forwarding. */
+/** The fallback when the last applied allow-list cannot be loaded at boot: drop all forwarding and both caches. */
 export function renderDropAll(env: Pick<EgressEnv, "bridge">): string {
 	return `${[
 		...declareTable(),
 		...resetTable(true),
+		`add rule ${TABLE} input iifname "${env.bridge}" tcp dport { ${HUB_CACHE_PORT}, ${GHCR_CACHE_PORT} } drop`,
 		`add rule ${TABLE} forward iifname "${env.bridge}" drop`,
 	].join("\n")}\n`;
 }

@@ -146,7 +146,7 @@ export async function readPoolUse(
 }
 
 /** The image the alias points to, or nulls when the alias is missing. */
-async function readCurrentImage(
+export async function readCurrentImage(
 	client: IncusClient,
 	alias: string,
 ): Promise<HostSnapshot["image"]> {
