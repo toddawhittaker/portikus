@@ -196,12 +196,16 @@ export function parseIncusSize(size: unknown): number | null {
 	return Number(match[1]) * factor;
 }
 
+/** On a seeded Docker volume: the GiB added for the seed, kept on top of the quota (#840). */
+export const SEED_SHARE_KEY = "user.portikus.seed-gib";
+
 /**
  * Grow a workspace's home and Docker volumes (SPEC.md §20.1). Both sizes are
  * checked before either volume changes, so a shrink leaves both untouched.
  * A volume already at the requested size is left alone, which makes a retry
  * after a partial failure safe. On the pilot's LVM thin pool the filesystem
- * grows while the instance runs.
+ * grows while the instance runs. A Docker volume copied from the seed
+ * keeps its seed share on top of the requested size.
  */
 export async function growVolumes(
 	client: IncusClient,
@@ -217,10 +221,14 @@ export async function growVolumes(
 		`/1.0/storage-pools/${enc(pool)}/volumes/custom/${enc(volume)}`;
 
 	const current: Array<number | null> = [];
-	for (const { volume, gib } of wanted) {
+	for (const want of wanted) {
+		const { volume } = want;
 		const info = (await client.request("GET", path(volume))) as {
 			config?: Record<string, unknown>;
 		};
+		const share = Number(info.config?.[SEED_SHARE_KEY] ?? 0);
+		if (Number.isInteger(share) && share > 0) want.gib += share;
+		const { gib } = want;
 		const size = info.config?.size;
 		const bytes = parseIncusSize(size);
 		// A size we cannot read might be larger than the request, so do not risk a shrink.

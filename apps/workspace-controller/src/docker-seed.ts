@@ -24,7 +24,7 @@ export interface SeedBuildHost {
 	seedImageVersion(): Promise<string>;
 	/** Measure the build volume, then stop and delete the builder. Answers bytes used. */
 	finishSeedBuilder(): Promise<number>;
-	/** Mark the build volume shifted, store `info` on it and swap it in as the seed. */
+	/** Store `info` on the build volume and swap it in as the seed. */
 	installSeed(info: SeedInfo): Promise<void>;
 	/** Remove the builder and the build volume, whatever state they are in. */
 	discardSeedBuild(): Promise<void>;

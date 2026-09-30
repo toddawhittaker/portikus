@@ -2387,6 +2387,7 @@ describe("the Docker seed", () => {
 	function withSeed(state: FakeIncus): FakeIncus {
 		state.volumes.set("portikus-docker-seed", "12GiB");
 		state.volumeConfigs.set("portikus-docker-seed", {
+			size: "12GiB",
 			[SEED_INFO_KEY]: JSON.stringify(SEED),
 			"security.shifted": "true",
 		});
@@ -2407,7 +2408,11 @@ describe("the Docker seed", () => {
 		const docker = state.volumeBodies.find((b) => b.name === "ws-test-docker");
 		expect(docker).toEqual({
 			name: "ws-test-docker",
-			config: { size: "23GiB", "security.shifted": "true" },
+			config: {
+				size: "23GiB",
+				"security.shifted": "true",
+				"user.portikus.seed-gib": "3",
+			},
 			source: { type: "copy", pool: "mypool", name: "portikus-docker-seed" },
 		});
 		// Home and recovery are never copies.
@@ -2416,6 +2421,23 @@ describe("the Docker seed", () => {
 				"source",
 			);
 		}
+	});
+
+	test("a copy is never smaller than the seed volume it copies (F4)", async () => {
+		const state = withSeed(freshCreate());
+		state.volumes.set("portikus-docker-seed", "30GiB");
+		state.volumeConfigs.set("portikus-docker-seed", {
+			size: "30GiB",
+			[SEED_INFO_KEY]: JSON.stringify(SEED),
+		});
+		serveIncus(state);
+		await provider.create("ws-test", SIZES);
+		const docker = state.volumeBodies.find((b) => b.name === "ws-test-docker");
+		expect(docker?.config).toEqual({
+			size: "30GiB",
+			"security.shifted": "true",
+			"user.portikus.seed-gib": "10",
+		});
 	});
 
 	test("the seed itself is never attached to an instance, only its copy to its own", async () => {
@@ -2485,7 +2507,11 @@ describe("the Docker seed", () => {
 		expect(state.volumeBodies).toEqual([
 			{
 				name: "ws-test-docker",
-				config: { size: "33GiB", "security.shifted": "true" },
+				config: {
+					size: "33GiB",
+					"security.shifted": "true",
+					"user.portikus.seed-gib": "3",
+				},
 				source: { type: "copy", pool: "mypool", name: "portikus-docker-seed" },
 			},
 		]);
@@ -2573,6 +2599,8 @@ describe("the seed builder", () => {
 		volumes: Set<string>;
 		usedBy: string[];
 		used: number;
+		/** A volume whose rename Incus refuses. */
+		failRename?: string;
 	}
 
 	function serveBuilder(): Builder {
@@ -2633,6 +2661,7 @@ describe("the seed builder", () => {
 					b.volumes.delete(name);
 					respond(res, 200, sync({}));
 				} else if (m === "POST") {
+					if (name === b.failRename) return incusError(res, 500, "rename failed");
 					b.volumes.delete(name);
 					b.volumes.add(JSON.parse(body).name);
 					respond(res, 200, sync({}));
@@ -2673,7 +2702,11 @@ describe("the seed builder", () => {
 		expect(create).not.toHaveProperty("config");
 		const [volume] =
 			b.bodies.get("POST /1.0/storage-pools/mypool/volumes/custom") ?? [];
-		expect(volume).toEqual({ name: SEED_BUILD_VOLUME, config: { size: "9GiB" } });
+		// Shifted before the builder writes, so copies show real owners, not nobody.
+		expect(volume).toEqual({
+			name: SEED_BUILD_VOLUME,
+			config: { size: "9GiB", "security.shifted": "true" },
+		});
 	});
 
 	test("the builder gets the Hub mirror before it starts, and dockerd must answer", async () => {
@@ -2727,7 +2760,24 @@ describe("the seed builder", () => {
 		expect(b.exists).toBe(false);
 	});
 
-	test("install marks the volume shifted with its info and swaps it in for the old seed", async () => {
+	test("install puts the old seed back when the new one cannot take its name (F5)", async () => {
+		const b = serveBuilder();
+		b.volumes.add(SEED_BUILD_VOLUME);
+		b.volumes.add("portikus-docker-seed");
+		b.failRename = SEED_BUILD_VOLUME;
+		await expect(
+			provider.installSeed({
+				images: ["node:22"],
+				sizeBytes: 5,
+				imageVersion: "x",
+				builtAt: "2026-09-30T12:00:00.000Z",
+			}),
+		).rejects.toThrow();
+		expect(b.volumes.has("portikus-docker-seed")).toBe(true);
+		expect(b.volumes.has(SEED_OLD_VOLUME)).toBe(false);
+	});
+
+	test("install stores its info on the volume and swaps it in for the old seed", async () => {
 		const b = serveBuilder();
 		b.volumes.add(SEED_BUILD_VOLUME);
 		b.volumes.add("portikus-docker-seed");
@@ -2741,7 +2791,6 @@ describe("the seed builder", () => {
 		const [patch] = b.bodies.get(
 			`PATCH /1.0/storage-pools/mypool/volumes/custom/${SEED_BUILD_VOLUME}`,
 		) as Array<{ config: Record<string, string> }>;
-		expect(patch?.config["security.shifted"]).toBe("true");
 		expect(JSON.parse(patch?.config[SEED_INFO_KEY] ?? "")).toEqual(info);
 		expect([...b.volumes]).toEqual(["portikus-docker-seed"]);
 		const renames = b.log.filter((l) => l.startsWith("POST /1.0/storage-pools"));

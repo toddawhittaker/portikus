@@ -662,7 +662,7 @@ echo "$before $plain $after" >&2
   # 20b. Ruling S4: the portikus and nobody accounts cannot reach into a
   # workspace's Docker volume on the host, mounted or not, nor the seed.
   # Each path is walked with stat, one part at a time, to the first entry
-  # inside the volume; some part must refuse them.
+  # inside the volume; custom/ or an Incus directory above it must refuse them.
   # shellcheck disable=SC2016  # expanded on the VM
   s4_open_paths() {
     ssh_cmd_stdin "sudo bash -s" <<'EOF'
@@ -681,6 +681,13 @@ for vol in "$custom"/*; do
       if ! runuser -u "$user" -- stat "$path" >/dev/null 2>&1; then refused=$path; break; fi
     done
     if [ -z "$refused" ] && [ "$target" != "$vol" ]; then echo "open: $user reaches $target"; fi
+    # The refusal must come from custom/ or an Incus directory above it, not the volume itself.
+    if [ -n "$refused" ]; then
+      case "$custom/" in
+        "$refused"/*) case "$refused" in /var/lib/incus|/var/lib/incus/*) ;; *) echo "open: $user is refused only at $refused, outside Incus" ;; esac ;;
+        *) echo "open: $user passes custom/ and is refused only at $refused" ;;
+      esac
+    fi
     if [ "$target" = "$vol" ] && runuser -u "$user" -- ls "$vol" >/dev/null 2>&1 && [ -n "$(ls -A "$vol")" ]; then echo "open: $user lists $vol"; fi
   done
 done

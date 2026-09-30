@@ -387,10 +387,29 @@ describe("a request (ADR 0038)", () => {
 		expect(status()).toMatchObject({ requestId: "req-1", ok: false });
 	});
 
-	test("no request and a loaded table: nothing happens", async () => {
+	test("no request on a site that never applied: the default open table, with the ghcr redirect when on", async () => {
+		writeFileSync(deps.ghcrEnabledPath, "on\n");
 		expect(await runHelper(deps)).toBe(0);
-		expect(calls.map((c) => c.args[0])).toEqual(["list"]);
+		expect(loads()).toHaveLength(1);
+		expect(loads()[0]).toMatch(/tcp dport 443 redirect to :5001/);
+		expect(loads()[0]).not.toMatch(/forward .*drop/);
+		expect(systemctls()).toEqual([]);
 		expect(read("status.json")).toBeNull();
+	});
+
+	test("no request after a policy applied: its table again, names kept, ghcr redirect gone when off", async () => {
+		writeFileSync(deps.ghcrEnabledPath, "on\n");
+		writeRequest(policy());
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()[0]).toMatch(/redirect to :5001/);
+		calls = [];
+		writeFileSync(deps.ghcrEnabledPath, "off\n");
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()).toHaveLength(1);
+		expect(loads()[0]).toMatch(/forward iifname "portikus-ws" drop/);
+		expect(loads()[0]).not.toMatch(/redirect to :5001/);
+		expect(loads()[0]).not.toMatch(/flush set inet portikus_egress names_v4/);
+		expect(read("applied.json")).toMatch(/"version":3/);
 	});
 });
 
@@ -598,10 +617,12 @@ describe("at boot, when the table is missing", () => {
 		expect(read("blocked.txt")).toBe("");
 	});
 
-	test("a site that never applied stays open and loads nothing", async () => {
+	test("a site that never applied loads the default open table at boot", async () => {
 		tableLoadedNow = false;
 		expect(await runHelper(deps)).toBe(0);
-		expect(loads()).toEqual([]);
+		expect(loads()).toHaveLength(1);
+		expect(loads()[0]).not.toMatch(/forward .*drop/);
+		expect(read("applied.json")).toBeNull();
 	});
 
 	test("an unusable egress.env after an allow-list drops forwarding on the recorded bridge", async () => {
