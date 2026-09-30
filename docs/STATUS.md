@@ -3553,121 +3553,84 @@ Gaps:
 
 ## Epic 15.2 — Pilot fixes
 
-Built on `epic/15-2-pilot-fixes`.
+Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot
+fixes" (task PRs #863 to #876 and the confirmation fixes).
 
 Delivered:
 
-- Claude Code login in a workspace offers the paste-code URL again (#848).
-  Because `BROWSER` was set, Claude Code also opened a second login URL
-  whose callback is localhost in the workspace. The image now sets
-  `BROWSER` to empty for Claude Code only, through
-  `/etc/claude-code/managed-settings.json` (BROWSER-HANDLING.md 19.2). The
-  image job's health check, the smoke test and
-  `infra/tests/claude-login-test.sh` fail if login opens a browser. It
-  reaches the pilot with the next workspace image.
-- "Extract here" on a zip in the Files pane (#817). The agent reads the
-  zip's central directory first and refuses the whole zip for an entry
-  with `..`, an absolute or drive-letter path, a path beneath a
-  symbolic-link entry, a password, or zip64. It caps the declared size at
-  1 GiB and the entries at 10,000, and checks free space. unzip runs
-  under a 1 GiB per-file limit, and a symbolic link that points out of
-  the new folder removes the folder. A taken folder name gets `-2`, `-3`
-  and so on; nothing is merged. The zip-slip tests from the backlog now
-  cover this extractor and the recovery restore. Known gap: progress is an
-  "Extracting" notice and the files appearing in the tree, not a
-  percentage, and a zip whose headers lie about its size is bounded by
-  the per-file limit and the home volume's quota, not by the 1 GiB total.
-- Review fixes to the extractor: every symbolic link, any `.git` path part
-  and a mismatched Unicode path field are refused; a free-space watch now
-  enforces the 1 GiB total even when headers lie, closing the gap above;
-  an aborted request stops unzip. An agent `INTERNAL` error now reads as
-  a 500, and loading the image tab no longer sends release notices.
-Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot fixes".
-
-- Project setup (T5, #846, #847, #856, #857): a clone takes the name its
-  README heading or package file gives it; repositories Portikus creates
-  start on `main`; `.portikus/` working files are ignored except
-  `checks.json` and `README.md`, through `.gitignore` for new projects and
-  `.git/info/exclude` otherwise; new projects get `.portikus/README.md`
-  explaining checks. Unexpected project route errors are now `INTERNAL`.
-  Gap: the exclude lines and the README are not yet added on the first
-  file write under `.portikus/` in an older project, because that write
-  goes through the file routes.
-### File viewer shows images and PDFs (#816)
-
-A PNG, JPEG, GIF or WebP file opens in its tab fit to the pane, with its
-dimensions and size and a Download button, instead of the "Not a text
-file" panel. An SVG opens as its picture, drawn from the tab's own text,
-with View, Edit and Diff buttons. A PDF opens in the browser's built-in
-viewer. Other binary files, and DOCX, XLSX and PPTX, keep the download
-panel. A relative image in a Markdown preview now resolves against the
-Markdown file's own folder and loads through the file route; a leading
-slash means the project root, and any other address keeps
-react-markdown's own check.
-
-Security (SPEC.md §24.3): the file route gained `inline=1`, which serves
-only those extensions, with the type taken from the file name, never
-sniffed or relayed from the agent, plus `X-Content-Type-Options: nosniff`
-and `Content-Security-Policy: sandbox; default-src 'none'; …`. An image,
-SVG included, is only ever drawn through `img`, where its script cannot
-run. The PDF is fetched and handed to its frame as an in-page copy with
-the type `application/pdf`, because Chrome's PDF viewer refuses a frame
-with the `sandbox` attribute and the production proxy serves the web app
-to any document request under `/workspaces`.
+- Claude Code login in a workspace offers the paste-code URL again
+  (#848). The image sets `BROWSER` to empty for Claude Code only,
+  through `/etc/claude-code/managed-settings.json`, so it no longer opens
+  a second login URL with a localhost callback (BROWSER-HANDLING.md
+  19.2). The image health check, the smoke test and
+  `infra/tests/claude-login-test.sh` fail if login opens a browser.
+- A terminal tells tmux its size only once the pane has stopped changing
+  size for 100 ms (#849). Claude Code can still leave overlapping lines
+  after one real resize; that is its own renderer.
+- The file viewer shows PNG, JPEG, GIF, WebP and SVG images and PDFs
+  (#816). The file route's `inline=1` serves only those types, with a
+  sandbox Content Security Policy (CSP) and `nosniff`. A PDF is shown
+  from a fetched in-page copy. Relative Markdown images resolve against
+  the Markdown file's folder and load through the file route.
+- "Extract here" for a zip in the Files pane (#817). The agent checks the
+  whole zip before extracting and refuses it for traversal, absolute
+  paths, any symbolic link, a password, zip64, a `.git` path part, a
+  mismatched Unicode path, or a central directory that does not end
+  exactly at the end record (a false entry count could hide entries from
+  the checks). Limits are 1 GiB and 10,000 entries. unzip runs under
+  `prlimit`, and is killed on abort, after the connection closes, or
+  when disk use passes the cap. The files go to a new sibling folder,
+  `name-2` and so on when taken, never `.git`. A walk after extraction
+  refuses any `.git` path part. Zip-slip tests cover this extractor and
+  the recovery restore.
+- Project setup (#846, #847, #856, #857): a clone takes the name its
+  README heading or package file gives it; new repositories start on
+  `main`; `.portikus/` working files are ignored except `checks.json`
+  and `README.md`, through `.gitignore` for new projects and
+  `.git/info/exclude` for existing ones, including on the first write
+  under `.portikus/` in an older project (#871); new projects get
+  `.portikus/README.md`. Unexpected project route errors are `INTERNAL`
+  and read as a 500.
+- Workspace image 2026.09.14 ships `/usr/share/portikus/AGENTS.md` and
+  sets `init.defaultBranch main`. The agent copies the template once to
+  `~/.codex/AGENTS.md` and writes `~/.claude/CLAUDE.md` once as an
+  import of it, never overwriting either (#858). The template tells
+  agents to use `portikus-open`, since `BROWSER` is empty inside Claude
+  Code.
+- Log noise (#859): 4xx answers log at info (429 at warn), several
+  expected conditions no longer log as errors, and setup starts the
+  controller before the worker and masks `systemd-ssh-generator`.
+- Admin image notices (#860, #861): "Old image" for a workspace on a
+  non-default image, "Stale" for accounts only. A daily root timer,
+  `portikus-image-check.timer`, records the newest published image and
+  any newer `portikus` package; it is size-capped, follows only https
+  redirects, and keeps the last good image when a check fails. Setup
+  runs it once. The Workspace image and Health tabs show notices, and
+  each administrator gets one notification per version, sent at API
+  start and then every `RELEASE_NOTICE_SECONDS` (default 3600).
+- Review fixes: accessibility (a persistent extract toast, a
+  checkerboard behind images, focus after "Update to", toast live roles,
+  focus kept when a focused toast is dismissed, Monaco token and bracket
+  colours at 4.5:1) and infrastructure (reset-admin marker read, prerm
+  disables the backup timers and socket, setup re-enables the core
+  services after a remove and reinstall, new smoke checks for the inline
+  CSP and for starting at boot).
+- Process: task PRs leave STATUS to the fold task (#874).
 
 Gaps:
 
-- A PDF over 50 MB is offered as a download rather than shown, because
-  the in-page copy is held in memory.
-- An image or PDF over the 2 MiB editor limit has no version to put in
-  its address, so a change on disk shows only after the tab is reopened.
-- CSV as a table, optional in #816, was left out.
-- T8 (#860, #861): the Users view calls a workspace on a non-default
-  image "Old image" and keeps "Stale" for accounts only, and refetches
-  the list when a rebuild finishes. A daily root timer,
-  `portikus-image-check.timer`, records the newest published image and
-  any newer `portikus` package. The Workspace image tab and the Health
-  tab show a notice, and each administrator gets one notification per
-  version (SPEC.md sections 20.1 and 22.4). No migration. Gap: the timer
-  and the check have unit tests only; they have not yet run on a real
-  host from bootstrap through the smoke test.
-Built on `epic/15-2-pilot-fixes` from the milestone "Epic 15.2: pilot
-fixes". In progress.
-
-- Workspace image 2026.09.14 ships a coding-agent instructions template at
-  `/usr/share/portikus/AGENTS.md` and sets `init.defaultBranch main` in
-  `/etc/gitconfig`. The workspace agent copies the template once to
-  `~/.codex/AGENTS.md` and writes `~/.claude/CLAUDE.md` once as an import
-  of it; it never overwrites either (#858, T6). A workspace on an older
-  image gets neither file until it is rebuilt onto the new image.
-- Older projects (T5b, #856): the first file write, new folder or move
-  under `.portikus/` in an existing repository adds the exclude lines to
-  `.git/info/exclude`, once. A failure there is logged and never fails
-  the write. The README stays for new projects only.
-- A terminal tells tmux its size only once the pane has stopped changing
-  size for 100 ms, so a window or split drag sends one settled size
-  instead of one per step (#849). Each size made tmux reflow and Claude
-  Code redraw, and redraws for sizes already gone overlapped on screen.
-  Claude Code redraws its inline output by moving the cursor up the rows
-  it drew at the old width, so a single real resize can still leave
-  overlapping lines; that part is Claude Code's renderer, and neither
-  tmux nor xterm.js can turn reflow off.
-- Log noise (#859). A 4xx answer is logged at info, except a 429 at
-  warn. The controller answers "no added-packages list yet" with an
-  empty list, not a 404. A recovery point for a vanished project is
-  logged at info. A toast shown behind a session gate is not recorded.
-  `portikus backup-channel` exits quietly before setup writes the
-  worker's settings, and `portikus reset-admin` reports its exit codes
-  10 and 11 without a failed transient unit. Setup starts and restarts
-  the controller before the worker, and masks `systemd-ssh-generator`.
-- Review fixes for the web app (F3): the "Extracting" toast stays until
-  the zip is done; a checkerboard shows through transparent images; only
-  an image's facts name its figure; a PDF with no stated size is offered
-  as a download; focus goes to the job heading after "Update to"; a clone
-  explains its name field; and a tab's close control is for the pointer
-  only, as Delete closes a tab from the keyboard. New axe scans cover the
-  whole file viewer page, the SVG modes, the extract toasts and the
-  Health package notice. They found two more problems, now fixed: a toast
-  put its live role on the list item, which broke the notification list,
-  and some of Monaco's own token colours, red attribute names among them,
-  fell below 4.5:1 on the editor's backgrounds.
+- The new smoke check for the `inline=1` sandbox CSP has only run by
+  hand, because the smoke test skips its lifecycle block on a VM that
+  has workspaces.
+- Image 2026.09.14 is not yet built or published. The pilot needs it for
+  the Claude login fix (#848) and the agent instructions (#858).
+- The extractor's free-space backstop reads the whole filesystem, so
+  other writes on it count too. It is only a backstop behind the header
+  checks and `prlimit`.
+- Setup re-enables the API, controller and worker on every configure, so
+  it undoes an administrator's own `systemctl disable`.
+- Extract progress is a notice, not a percentage.
+- A PDF over 50 MB is offered as a download rather than shown.
+- An image or PDF over the 2 MiB editor limit shows a change on disk only
+  after its tab is reopened.
+- CSV as a table (optional in #816) was left out.

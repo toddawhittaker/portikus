@@ -273,7 +273,7 @@ A deliberate workspace rebuild may replace the root filesystem while retaining t
 
 Added by Epic 15.2: the home folder gets the coding agents' global instructions once.
 
-- The workspace image ships a template, `/usr/share/portikus/AGENTS.md`, written for the agents in plain English: what the workspace is, projects and checks, previews and the host suffix, never committing on the student's behalf unless asked. It holds no issue, pull request, SPEC or ADR references.
+- The workspace image ships a template, `/usr/share/portikus/AGENTS.md`, written for the agents in plain English: what the workspace is, projects and checks, previews and the host suffix, opening a URL with `/usr/local/bin/portikus-open` (because `BROWSER` is empty inside Claude Code), never committing on the student's behalf unless asked. It holds no issue, pull request, SPEC or ADR references.
 - Every time the workspace agent starts, it copies the template to `~/.codex/AGENTS.md` (Codex's global instructions) and writes `~/.claude/CLAUDE.md` holding the single import line `@~/.codex/AGENTS.md` (Claude Code's user memory), each only when nothing is at that path. It runs as the student, never follows or replaces a symbolic link, and creates a missing `~/.codex` or `~/.claude` with mode 0700. It never overwrites either file, so edits by the student or an agent survive restarts and rebuilds; a later template change does not reach an existing home, and a deleted file comes back at the next start. An image without the template gets neither file.
 - The image also sets `init.defaultBranch main` in `/etc/gitconfig`, so a student's own `git init` starts on `main`.
 
@@ -1023,6 +1023,11 @@ Limits, enforced by the server:
   output passes 1 MiB and resumes when it falls below 256 KiB, so that a
   runaway process cannot exhaust memory.
 
+The browser sends a `resize` frame only once the pane has stopped
+changing size for 100 ms, so a drag sends one settled size rather than
+one per step, each of which would make tmux reflow and the program
+redraw (issue #849).
+
 The workspace agent additionally exposes `GET /health`, `GET /terminals`,
 `POST /terminals`, and `DELETE /terminals/:terminalId`. Every agent route,
 including the WebSocket upgrade, requires the per-workspace bearer token of
@@ -1182,7 +1187,8 @@ P0 file-tree operations:
 - upload;
 - drag-and-drop upload;
 - download file;
-- download directory/project as archive.
+- download directory/project as archive;
+- extract a zip into a new folder beside it (§11.6).
 
 ### 11.3 Hidden and generated files
 
@@ -1278,6 +1284,27 @@ A download of a file, folder, or project is capped at 1 GiB (Epic 12b). The
 agent refuses a larger one before doing any work, with `FILE_TOO_LARGE`, and
 the API cuts off a relayed stream that runs past the cap plus a fixed zip
 allowance.
+
+A file read with `inline=1` is served for display in the browser (issue
+#816). It serves only PNG, JPEG, GIF, WebP, SVG and PDF files, with the
+type taken from the file name and never sniffed, plus
+`X-Content-Type-Options: nosniff` and a `Content-Security-Policy` that
+starts with `sandbox;`. A response without `Content-Length` is refused.
+Images, SVG included, are drawn only through `img`. A PDF is fetched and
+shown from an in-page blob, because Chrome's PDF viewer refuses a
+sandboxed frame.
+
+**Extract here** on a zip (issue #817) extracts into a new sibling folder
+named after the zip, `name-2`, `name-3` and so on when taken, and never
+`.git`; nothing is merged. Before extracting, the agent reads the whole
+central directory and refuses the zip with `ARCHIVE_INVALID` (422) for an
+entry with `..`, an absolute or drive-letter path, any symbolic link, a
+password, zip64, a `.git` path part, or a Unicode path field that does
+not match the name, and for a central directory that does not end
+exactly at the end record. The limits are 1 GiB declared size and 10,000
+entries, and free space is checked. unzip runs under `prlimit`, and is
+killed when the request aborts or when disk use passes the cap. A walk
+after extraction refuses any `.git` path part.
 
 The confinement rule is the one §7.6 already states for projects: the agent
 resolves the requested path with realpath and refuses unless the result lies
@@ -2918,9 +2945,12 @@ language-aware editor".
   enabled administrator gets one neutral notification per image version
   and one per package version. The audit rows `image.release_noticed`
   and `package.release_noticed` (target: the version) record that it was
-  sent. The API checks every hour, under a PostgreSQL advisory lock so two checks cannot both send. A
-  release list that cannot be read writes a null image, and then no
-  notice shows.
+  sent. The API sends notices when it starts and then every
+  `RELEASE_NOTICE_SECONDS` (default 3600), under a PostgreSQL advisory
+  lock so two checks cannot both send. The check caps the release list
+  at 16 MiB and follows only https redirects. A check that cannot read
+  the release list keeps the image the last check recorded. Setup runs
+  the check once, right after enabling the timer.
 
 ## 23. Networking
 
