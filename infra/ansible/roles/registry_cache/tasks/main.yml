@@ -180,7 +180,8 @@
   ansible.builtin.include_tasks: size.yml
   vars:
     registry_cache_free_bytes: "{{ registry_cache_free.stdout_lines | last | int }}"
-    registry_cache_existing_bytes: "{{ registry_cache_image_stat.stat.size | default(0) }}"
+    # What the old file really holds: an earlier mkfs discarded its reservation.
+    registry_cache_existing_bytes: "{{ (registry_cache_image_stat.stat.blocks | default(0) | int) * 512 }}"
 
 - name: Work out the cache's size in bytes
   ansible.builtin.set_fact:
@@ -254,7 +255,8 @@
             path: "{{ registry_cache_image }}"
             state: absent
 
-        # fallocate reserves the space, so a full root filesystem cannot fail the cache.
+        # fallocate reserves the space, so a full root filesystem cannot fail
+        # the cache; nodiscard below stops mkfs punching it back out.
         - name: Make the cache's file
           ansible.builtin.command:
             argv: [fallocate, --length, "{{ registry_cache_bytes }}", "{{ registry_cache_image }}"]
@@ -262,7 +264,7 @@
 
         - name: Make the cache's filesystem
           ansible.builtin.command:
-            argv: [mkfs.ext4, -q, -F, -m, "0", -L, portikus-registry, "{{ registry_cache_image }}"]
+            argv: [mkfs.ext4, -q, -F, -m, "0", -E, nodiscard, -L, portikus-registry, "{{ registry_cache_image }}"]
           changed_when: true
           notify: Restart the running Docker caches
 

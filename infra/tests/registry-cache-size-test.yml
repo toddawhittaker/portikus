@@ -17,6 +17,7 @@
       - { name: a 20 GiB cache that just fits, want: 20, free: "{{ 30 * gib }}", existing: 0, chosen: 20 }
       - { name: a 20 GiB cache on 16.5 GiB free, want: 20, free: "{{ (16.5 * gib) | int }}", existing: 0, chosen: 6 }
       - { name: an old 1 GiB cache counted as free, want: 20, free: "{{ (11.6 * gib) | int }}", existing: "{{ gib }}", chosen: 2 }
+      - { name: an old sparse 2 GiB cache holding 66 MiB, want: 20, free: "{{ 11901 * 1048576 }}", existing: "{{ 66 * 1048576 }}", chosen: 1 }
       - { name: an old cache of the answered size, want: 5, free: "{{ 10 * gib }}", existing: "{{ 5 * gib }}", chosen: 5 }
       - { name: a 20 GiB cache on 6.5 GiB free, want: 20, free: "{{ (6.5 * gib) | int }}", existing: 0, chosen: 0 }
       - { name: a 20 GiB cache on 10.9 GiB free, want: 20, free: "{{ (10.9 * gib) | int }}", existing: 0, chosen: 0 }

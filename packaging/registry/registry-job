@@ -185,7 +185,8 @@ class Host:
         return self.systemctl("is-active", "--quiet", unit) == 0
 
     def mkfs(self, image):
-        subprocess.run(["mkfs.ext4", "-q", "-F", "-m", "0", "-L", "portikus-registry", image],
+        # nodiscard keeps the file's reserved space; a discard would punch it out.
+        subprocess.run(["mkfs.ext4", "-q", "-F", "-m", "0", "-E", "nodiscard", "-L", "portikus-registry", image],
                        stdin=subprocess.DEVNULL, capture_output=True, check=True)
 
     def is_mount(self, path):
