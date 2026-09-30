@@ -466,7 +466,9 @@ terminal_shell() { # the pane's shell pid in the Portikus tmux server
 }
 
 agent_before_upgrade() {
-  vm "sudo bash /var/lib/portikus/incus/workspace.sh create ${AGENT_WS}"
+  # A packaged host has no workspace.sh, so bring this checkout's.
+  vm_stdin "cat >/tmp/install-workspace.sh" <"${ROOT}/infra/incus/workspace.sh"
+  vm "sudo bash /tmp/install-workspace.sh create ${AGENT_WS}"
   ws_root "su -l student -c 'tmux -L portikus -N new-session -d -s install-upgrade bash'"
   terminal_shell >"${LOGS}/agent-ws.shell"
   agent_started >"${LOGS}/agent-ws.started"
@@ -488,7 +490,7 @@ agent_after_upgrade() {
   [ "$(terminal_shell)" = "$(cat "${LOGS}/agent-ws.shell")" ] \
     || { echo "the open terminal did not survive"; return 1; }
   vm "sudo journalctl -u portikus-controller --no-pager | grep 'restarted the workspace agent after an upgrade' | grep -F ${AGENT_WS}"
-  vm "sudo bash /var/lib/portikus/incus/workspace.sh destroy ${AGENT_WS}"
+  vm "sudo bash /tmp/install-workspace.sh destroy ${AGENT_WS} && rm -f /tmp/install-workspace.sh"
 }
 
 upgrade() {
