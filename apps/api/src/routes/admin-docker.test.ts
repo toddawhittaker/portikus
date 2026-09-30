@@ -21,6 +21,7 @@ import {
 	type RegistryStatusFile,
 	SeedJob,
 	SeedJobsResponse,
+	USAGE_ROWS_MAX,
 } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
@@ -177,6 +178,12 @@ describe.skipIf(skip)("GET /admin/docker", () => {
 			builtAt: "2026-09-29T08:00:00.000Z",
 		});
 
+		// The helper's clear error reaches the page (review SEC3).
+		const failed = status({ lastClearError: "registry did not stop" });
+		await writeFile(join(jobsDir, "status.json"), JSON.stringify(failed));
+		const withError = (await send(carol, "GET", "/admin/docker")).json();
+		expect(withError.cache.lastClearError).toBe("registry did not stop");
+
 		await writeFile(join(jobsDir, "status.json"), "{not json");
 		const again = (await send(carol, "GET", "/admin/docker")).json();
 		expect(again.cache).toBeNull();
@@ -191,6 +198,7 @@ describe.skipIf(skip)("PUT /admin/docker/settings", () => {
 			{ ghcrEnabled: true, seedMaxGiB: 65 },
 			{ ghcrEnabled: true, seedMaxGiB: 8, extra: 1 },
 			{ ghcrEnabled: "yes", seedMaxGiB: 8 },
+			{},
 		]) {
 			expect(
 				(await send(carol, "PUT", "/admin/docker/settings", body)).statusCode,
@@ -225,6 +233,20 @@ describe.skipIf(skip)("PUT /admin/docker/settings", () => {
 		expect(audits[1]?.metadata).toMatchObject({
 			to: { ghcrEnabled: true, seedMaxGiB: 12 },
 		});
+	});
+
+	test("a field left out keeps its saved value (review Q3)", async () => {
+		await send(carol, "PUT", "/admin/docker/settings", { seedMaxGiB: 20 });
+		expect(await requests()).toEqual([]);
+		const res = await send(carol, "PUT", "/admin/docker/settings", {
+			ghcrEnabled: true,
+		});
+		expect(res.statusCode).toBe(204);
+		expect((await requests()).map((f) => f.request)).toEqual([
+			{ kind: "set-ghcr", enabled: true },
+		]);
+		const body = (await send(carol, "GET", "/admin/docker")).json();
+		expect(body).toMatchObject({ ghcrEnabled: true, seedMaxGiB: 20 });
 	});
 });
 
@@ -407,6 +429,8 @@ describe.skipIf(skip)("GET /admin/docker/usage (ruling S7)", () => {
 		const now = new Date();
 		const recent = new Date(now.getTime() - 86_400_000).toISOString();
 		const old = new Date(now.getTime() - 40 * 86_400_000).toISOString();
+		const recentDay = recent.slice(0, 10);
+		const oldDay = old.slice(0, 10);
 		await testDb.db
 			.insertInto("docker_seed")
 			.values({
@@ -422,20 +446,37 @@ describe.skipIf(skip)("GET /admin/docker/usage (ruling S7)", () => {
 				{
 					image: "docker.io/library/redis:7",
 					workspace_id: a,
+					day: recentDay,
 					pulls: 3,
 					last_seen: recent,
+				},
+				// The same image and workspace on a day outside the window (review F1).
+				{
+					image: "docker.io/library/redis:7",
+					workspace_id: a,
+					day: oldDay,
+					pulls: 50,
+					last_seen: old,
 				},
 				{
 					image: "docker.io/library/redis:7",
 					workspace_id: b,
+					day: recentDay,
 					pulls: 1,
 					last_seen: recent,
 				},
-				{ image: OTHER_IMAGES_LABEL, workspace_id: a, pulls: 5, last_seen: recent },
+				{
+					image: OTHER_IMAGES_LABEL,
+					workspace_id: a,
+					day: recentDay,
+					pulls: 5,
+					last_seen: recent,
+				},
 				// Outside the window.
 				{
 					image: "docker.io/library/mysql:8",
 					workspace_id: a,
+					day: oldDay,
 					pulls: 1,
 					last_seen: old,
 				},
@@ -477,10 +518,12 @@ describe.skipIf(skip)("GET /admin/docker/usage (ruling S7)", () => {
 			[OTHER_IMAGES_LABEL, 5, 1],
 			["quay.io/x/y:1", 0, 1],
 		]);
+		expect(body.notInSeedTotal).toBe(3);
 		expect(body.unusedSeed.map((u) => [u.image, u.workspaces])).toEqual([
 			["docker.io/library/node:22", 1],
 			["docker.io/library/postgres:16", 0],
 		]);
+		expect(body.unusedSeedTotal).toBe(2);
 		expect(res.body).not.toContain(a);
 		expect(res.body).not.toContain(b);
 	});
@@ -489,7 +532,28 @@ describe.skipIf(skip)("GET /admin/docker/usage (ruling S7)", () => {
 		expect(await usageReport(testDb.db, new Date())).toEqual({
 			windowDays: 30,
 			notInSeed: [],
+			notInSeedTotal: 0,
 			unusedSeed: [],
+			unusedSeedTotal: 0,
 		});
+	});
+
+	test("returns at most USAGE_ROWS_MAX rows with the full count (ruling S7)", async () => {
+		const a = await workspace("ws-a", 0);
+		const n = USAGE_ROWS_MAX + 5;
+		await testDb.db
+			.insertInto("docker_image_presence")
+			.values(
+				Array.from({ length: n }, (_, i) => ({
+					workspace_id: a,
+					image: `docker.io/library/img${i}:1`,
+					in_seed: false,
+					used: false,
+				})),
+			)
+			.execute();
+		const body = await usageReport(testDb.db, new Date());
+		expect(body.notInSeed).toHaveLength(USAGE_ROWS_MAX);
+		expect(body.notInSeedTotal).toBe(n);
 	});
 });

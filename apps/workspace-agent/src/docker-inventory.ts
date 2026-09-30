@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import {
 	AgentDockerInventory,
 	INVENTORY_CONTAINERS_MAX,
+	INVENTORY_DIGESTS_MAX,
 	INVENTORY_IMAGES_MAX,
 	INVENTORY_LAYERS_MAX,
 	INVENTORY_OUTPUT_MAX_BYTES,
@@ -88,24 +89,41 @@ export function parseContainerImages(stdout: string): string[] {
 	return refs;
 }
 
-/** Parse `docker image inspect` output into each image's layer diff ids. */
-export function parseLayers(stdout: string): Map<string, string[]> {
-	const layers = new Map<string, string[]>();
+export interface InspectRow {
+	layers: string[];
+	repoDigests: string[];
+}
+
+/** Parse `docker image inspect` output into each image's layer diff ids and repo digests. */
+export function parseInspect(stdout: string): Map<string, InspectRow> {
+	const rows = new Map<string, InspectRow>();
 	const parsed = JSON.parse(stdout) as unknown;
-	if (!Array.isArray(parsed)) return layers;
-	for (const entry of parsed as { Id?: unknown; RootFS?: { Layers?: unknown } }[]) {
+	if (!Array.isArray(parsed)) return rows;
+	for (const entry of parsed as {
+		Id?: unknown;
+		RepoDigests?: unknown;
+		RootFS?: { Layers?: unknown };
+	}[]) {
 		if (typeof entry?.Id !== "string") continue;
 		const list = Array.isArray(entry.RootFS?.Layers) ? entry.RootFS.Layers : [];
-		layers.set(
-			entry.Id,
-			list
+		const digests = Array.isArray(entry.RepoDigests) ? entry.RepoDigests : [];
+		rows.set(entry.Id, {
+			layers: list
 				.filter(
 					(layer): layer is string => typeof layer === "string" && IMAGE_ID.test(layer),
 				)
 				.slice(0, INVENTORY_LAYERS_MAX),
-		);
+			repoDigests: digests
+				.filter(
+					(d): d is string =>
+						typeof d === "string" &&
+						d.length <= SEED_IMAGE_MAX_LENGTH &&
+						d.includes("@"),
+				)
+				.slice(0, INVENTORY_DIGESTS_MAX),
+		});
 	}
-	return layers;
+	return rows;
 }
 
 /**
@@ -147,10 +165,10 @@ export async function dockerInventory(
 		const refs = parseContainerImages(
 			await run(["ps", "-a", "--no-trunc", "--format", "json"], remaining()),
 		);
-		const layers =
+		const inspected =
 			images.length === 0
-				? new Map<string, string[]>()
-				: parseLayers(
+				? new Map<string, InspectRow>()
+				: parseInspect(
 						await run(
 							["image", "inspect", ...images.map((image) => image.id)],
 							remaining(),
@@ -167,7 +185,8 @@ export async function dockerInventory(
 			images: images.map((image) => ({
 				id: image.id,
 				repoTags: image.repoTags,
-				layers: layers.get(image.id) ?? [],
+				repoDigests: inspected.get(image.id)?.repoDigests ?? [],
+				layers: inspected.get(image.id)?.layers ?? [],
 			})),
 			containerImageIds: [...containerIds],
 		});

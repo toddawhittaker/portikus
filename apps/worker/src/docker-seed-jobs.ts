@@ -1,4 +1,8 @@
-import { SeedBuildRequest, type SeedBuildStatus } from "@portikus/contracts";
+import {
+	SeedBuildRequest,
+	type SeedBuildStatus,
+	type SeedInfo,
+} from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
@@ -6,6 +10,8 @@ import { type ControllerClient, ControllerClientError } from "./controller-clien
 
 /** How often a running seed build is polled (issue #840). */
 export const SEED_JOB_POLL_SECONDS = 5;
+/** How often, with no build running, the seed row is checked against the controller. */
+export const SEED_SYNC_SECONDS = 60;
 
 const GIB = 1024 ** 3;
 // Controller answers that mean the request itself is wrong: retrying cannot help.
@@ -24,12 +30,44 @@ export interface SeedJobOptions {
  * size cap as `maxBytes`, then polls it, copying state and step into the
  * row. On success it writes the `docker_seed` row. The row's id is the
  * build id, so a worker restart simply resumes polling; a controller that
- * no longer knows the id fails the job.
+ * no longer knows the id fails the job. With no build active it keeps the
+ * `docker_seed` row equal to the controller's `GET /docker-seed`, removing
+ * the row when the controller has no seed (review Q2).
  */
 export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 	const { db, controller, logger } = options;
 	const now = options.now ?? (() => new Date());
 	let inFlight = false;
+	let lastSync: number | null = null;
+
+	async function writeSeed(seed: SeedInfo): Promise<void> {
+		const values = {
+			images: JSON.stringify(seed.images),
+			size_bytes: seed.sizeBytes,
+			image_version: seed.imageVersion,
+			built_at: seed.builtAt,
+		};
+		await db
+			.insertInto("docker_seed")
+			.values({ id: 1, ...values })
+			.onConflict((oc) => oc.column("id").doUpdateSet(values))
+			.execute();
+	}
+
+	async function syncSeed(): Promise<void> {
+		const at = now().getTime();
+		if (lastSync !== null && at - lastSync < SEED_SYNC_SECONDS * 1000) return;
+		lastSync = at;
+		let seed: SeedInfo | null;
+		try {
+			seed = await controller.seed();
+		} catch (e) {
+			logger.warn({ errorCode: codeOf(e) }, "seed check failed");
+			return;
+		}
+		if (seed) await writeSeed(seed);
+		else await db.deleteFrom("docker_seed").execute();
+	}
 
 	async function finish(
 		id: string,
@@ -74,17 +112,7 @@ export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 			await finish(id, "failed", step, "The controller reported no seed.");
 			return;
 		}
-		const values = {
-			images: JSON.stringify(seed.images),
-			size_bytes: seed.sizeBytes,
-			image_version: seed.imageVersion,
-			built_at: seed.builtAt,
-		};
-		await db
-			.insertInto("docker_seed")
-			.values({ id: 1, ...values })
-			.onConflict((oc) => oc.column("id").doUpdateSet(values))
-			.execute();
+		await writeSeed(seed);
 		await finish(id, "succeeded", step, null);
 	}
 
@@ -146,7 +174,10 @@ export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 				.where("state", "in", ["queued", "running"])
 				.orderBy("requested_at")
 				.executeTakeFirst();
-			if (!job) return;
+			if (!job) {
+				await syncSeed();
+				return;
+			}
 			if (job.state === "running") await poll(job.id);
 			else await start(job);
 		} catch (e) {

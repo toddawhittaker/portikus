@@ -70,6 +70,7 @@ export function canonicalImageName(name: string): string {
 		if (rest.startsWith(`${r}/`)) {
 			registry = r;
 			rest = rest.slice(r.length + 1);
+			break;
 		}
 	}
 	const at = rest.indexOf("@");
@@ -81,6 +82,19 @@ export function canonicalImageName(name: string): string {
 	if (registry === "docker.io" && !path.includes("/")) path = `library/${path}`;
 	if (tag === "" && digest === "") tag = ":latest";
 	return `${registry}/${path}${tag}${digest}`;
+}
+
+const HOST = "(?:[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)*)(?::[0-9]{1,5})?";
+const IMAGE_REFERENCE = new RegExp(
+	`^(?:${HOST}/)?${COMPONENT}(?:/${COMPONENT}){0,3}(?::${TAG})?(?:@${DIGEST})?$`,
+);
+
+/**
+ * Whether a name from a workspace inventory fits the reference grammar the
+ * webhook enforces, with any registry host allowed. Others are dropped (S7).
+ */
+export function isImageReference(name: string): boolean {
+	return name.length <= SEED_IMAGE_MAX_LENGTH && IMAGE_REFERENCE.test(name);
 }
 
 /** The seed list as stored: valid, at most 30, no duplicates after canonicalising. */
@@ -115,6 +129,17 @@ export const WORKSPACE_BRIDGE_PREFIX = "10.200.0.";
 export const HUB_CACHE_PORT = 5000;
 /** ghcr.io cache over TLS; tcp 443 to the gateway is redirected here while ghcr is on and allowed. */
 export const GHCR_CACHE_PORT = 5001;
+/** Upstream names the egress gate must let through for the Hub cache to work (ruling S2). */
+export const HUB_UPSTREAM_NAMES = [
+	"registry-1.docker.io",
+	"auth.docker.io",
+	"production.cloudflare.docker.com",
+] as const;
+/** Upstream names the egress gate must let through for the ghcr.io cache to work. */
+export const GHCR_UPSTREAM_NAMES = [
+	"ghcr.io",
+	"pkg-containers.githubusercontent.com",
+] as const;
 /** Mirror URL the controller writes into each workspace's daemon.json. */
 export const HUB_MIRROR_URL = `http://${REGISTRY_GATEWAY_ADDR}:${HUB_CACHE_PORT}`;
 
@@ -149,6 +174,10 @@ export const INVENTORY_IMAGES_MAX = 500;
 export const INVENTORY_CONTAINERS_MAX = 1000;
 export const INVENTORY_LAYERS_MAX = 256;
 export const INVENTORY_TAGS_MAX = 50;
+export const INVENTORY_DIGESTS_MAX = 50;
+
+/** Rows the usage report returns per table, most workspaces first (ruling S7). */
+export const USAGE_ROWS_MAX = 200;
 
 // ---------------------------------------------------------------------------
 // Admin API: GET /admin/docker, PUT /admin/docker/settings,
@@ -170,6 +199,8 @@ export const RegistryStatusFile = z.object({
 	hubCredentialSet: z.boolean(),
 	lastClearedAt: z.string().datetime().nullable(),
 	lastClearReason: z.enum(["admin", "full", "credential"]).nullable(),
+	/** Why the last clear failed; while set after a credential change the Hub cache stays stopped. */
+	lastClearError: z.string().max(1000).optional(),
 	updatedAt: z.string().datetime(),
 });
 export type RegistryStatusFile = z.infer<typeof RegistryStatusFile>;
@@ -199,13 +230,16 @@ export const DockerAdminResponse = z.object({
 });
 export type DockerAdminResponse = z.infer<typeof DockerAdminResponse>;
 
-/** `PUT /admin/docker/settings`. */
+/** `PUT /admin/docker/settings`: either field or both; a field left out keeps its value. */
 export const DockerSettingsRequest = z
 	.object({
-		ghcrEnabled: z.boolean(),
-		seedMaxGiB: z.number().int().min(1).max(SEED_MAX_GIB_LIMIT),
+		ghcrEnabled: z.boolean().optional(),
+		seedMaxGiB: z.number().int().min(1).max(SEED_MAX_GIB_LIMIT).optional(),
 	})
-	.strict();
+	.strict()
+	.refine((b) => b.ghcrEnabled !== undefined || b.seedMaxGiB !== undefined, {
+		message: "Give at least one setting",
+	});
 export type DockerSettingsRequest = z.infer<typeof DockerSettingsRequest>;
 
 /**
@@ -257,13 +291,16 @@ export const DockerImageUsage = z.object({
 });
 export type DockerImageUsage = z.infer<typeof DockerImageUsage>;
 
-/** `GET /admin/docker/usage`. */
+/** `GET /admin/docker/usage`. Each list holds at most `USAGE_ROWS_MAX` rows, most workspaces then most pulls first. */
 export const DockerUsageResponse = z.object({
 	windowDays: z.number().int().positive(),
-	/** Pulled or present in workspaces but not in the seed, most workspaces first. */
-	notInSeed: z.array(DockerImageUsage),
+	/** Pulled or present in workspaces but not in the seed. */
+	notInSeed: z.array(DockerImageUsage).max(USAGE_ROWS_MAX),
+	/** How many images are not in the seed, including those past the cap. */
+	notInSeedTotal: z.number().int().nonnegative(),
 	/** Seed images no workspace has used in the window. */
-	unusedSeed: z.array(DockerImageUsage),
+	unusedSeed: z.array(DockerImageUsage).max(USAGE_ROWS_MAX),
+	unusedSeedTotal: z.number().int().nonnegative(),
 });
 export type DockerUsageResponse = z.infer<typeof DockerUsageResponse>;
 
@@ -314,6 +351,11 @@ export type SeedBuildStatus = z.infer<typeof SeedBuildStatus>;
 export const AgentDockerImage = z.object({
 	id: z.string().regex(IMAGE_ID),
 	repoTags: z.array(z.string().max(SEED_IMAGE_MAX_LENGTH)).max(INVENTORY_TAGS_MAX),
+	/** `repository@sha256:...` names from `docker image inspect` RepoDigests. */
+	repoDigests: z
+		.array(z.string().max(SEED_IMAGE_MAX_LENGTH))
+		.max(INVENTORY_DIGESTS_MAX)
+		.default([]),
 	/** Layer diff ids in order, from `docker image inspect` RootFS.Layers. */
 	layers: z.array(z.string().regex(IMAGE_ID)).max(INVENTORY_LAYERS_MAX),
 });

@@ -77,7 +77,11 @@ describe("dockerInventory", () => {
 				{ Image: "gone:1" },
 			],
 			inspect: [
-				{ Id: id(1), RootFS: { Layers: [layer(1), layer(2)] } },
+				{
+					Id: id(1),
+					RepoDigests: [`redis@sha256:${"e".repeat(64)}`, 7, "no-digest"],
+					RootFS: { Layers: [layer(1), layer(2)] },
+				},
 				{ Id: id(2), RootFS: { Layers: [layer(1)] } },
 				{ Id: id(3), RootFS: {} },
 			],
@@ -90,10 +94,11 @@ describe("dockerInventory", () => {
 				{
 					id: id(1),
 					repoTags: ["redis:7", "redis:latest"],
+					repoDigests: [`redis@sha256:${"e".repeat(64)}`],
 					layers: [layer(1), layer(2)],
 				},
-				{ id: id(2), repoTags: [], layers: [layer(1)] },
-				{ id: id(3), repoTags: ["ghcr.io/org/app:v1"], layers: [] },
+				{ id: id(2), repoTags: [], repoDigests: [], layers: [layer(1)] },
+				{ id: id(3), repoTags: ["ghcr.io/org/app:v1"], repoDigests: [], layers: [] },
 			],
 			containerImageIds: [id(1), id(2), id(3)],
 		});
@@ -229,7 +234,7 @@ describe("GET /docker/inventory", () => {
 			expect(ok.statusCode).toBe(200);
 			expect(AgentDockerInventory.parse(ok.json())).toEqual({
 				available: true,
-				images: [{ id: id(1), repoTags: ["r:1"], layers: [] }],
+				images: [{ id: id(1), repoTags: ["r:1"], repoDigests: [], layers: [] }],
 				containerImageIds: [],
 			});
 		} finally {

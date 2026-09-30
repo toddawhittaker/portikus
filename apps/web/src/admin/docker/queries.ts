@@ -66,7 +66,8 @@ function useDockerWrite<T>(send: (body: T) => Promise<unknown>) {
 }
 
 export function useSaveDockerSettings() {
-	return useDockerWrite((body: DockerSettingsRequest) =>
+	// Each card sends only its own field (Epic 26 review, Q3).
+	return useDockerWrite((body: Partial<DockerSettingsRequest>) =>
 		send("/admin/docker/settings", {
 			method: "PUT",
 			headers: JSON_HEADERS,

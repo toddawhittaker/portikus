@@ -1,6 +1,7 @@
 import {
 	type AgentDockerInventory,
 	canonicalImageName,
+	isImageReference,
 	SEED_REGISTRIES,
 	SeedImageList,
 } from "@portikus/contracts";
@@ -24,10 +25,11 @@ export type InventoryReader = (
 /**
  * The name an inventory tag is compared under: canonical for Docker Hub and
  * ghcr.io, and as given (with `:latest` when bare) for any other registry,
- * which `canonicalImageName` would misread as a Docker Hub path.
+ * which `canonicalImageName` would misread as a Docker Hub path. A name
+ * outside the reference grammar is dropped (ruling S7).
  */
 export function inventoryImageName(tag: string): string | null {
-	if (tag.includes("<none>") || tag.length === 0) return null;
+	if (!isImageReference(tag)) return null;
 	const slash = tag.indexOf("/");
 	const first = slash >= 0 ? tag.slice(0, slash) : "";
 	const known = (SEED_REGISTRIES as readonly string[]).includes(first);
@@ -36,6 +38,14 @@ export function inventoryImageName(tag: string): string | null {
 		return /[:@]/.test(last) ? tag : `${tag}:latest`;
 	}
 	return canonicalImageName(tag);
+}
+
+/** `repo:tag@digest` as `repo@digest`, the form a RepoDigests entry takes. */
+function withoutTag(name: string): string {
+	const at = name.indexOf("@");
+	const path = name.slice(0, at);
+	const colon = path.lastIndexOf(":");
+	return colon > path.lastIndexOf("/") ? path.slice(0, colon) + name.slice(at) : name;
 }
 
 export interface PresenceRow {
@@ -49,21 +59,28 @@ export interface PresenceRow {
  * when a container references it, or when another local image, not itself
  * a seed image, has a layer list that starts with the seed image's layers
  * (an image built from it). Any other image is "used" when a container
- * references it.
+ * references it. A digest-pinned seed name matches an image by its
+ * RepoDigests, since its tags alone never carry the digest.
  */
 export function presenceRows(
 	inventory: AgentDockerInventory,
 	seedNames: ReadonlySet<string>,
 ): PresenceRow[] {
 	const containers = new Set(inventory.containerImageIds);
-	const named = inventory.images.map((image) => ({
-		image,
-		names: [
-			...new Set(
-				image.repoTags.map(inventoryImageName).filter((n): n is string => n !== null),
-			),
-		],
-	}));
+	const seedByDigest = new Map<string, string>();
+	for (const name of seedNames) {
+		if (name.includes("@")) seedByDigest.set(withoutTag(name), name);
+	}
+	const named = inventory.images.map((image) => {
+		const names = image.repoTags
+			.map(inventoryImageName)
+			.filter((n): n is string => n !== null);
+		for (const digest of image.repoDigests) {
+			const seed = seedByDigest.get(inventoryImageName(digest) ?? "");
+			if (seed) names.push(seed);
+		}
+		return { image, names: [...new Set(names)] };
+	});
 	const isSeed = (names: string[]): boolean => names.some((n) => seedNames.has(n));
 	const startsWith = (layers: string[], prefix: string[]): boolean =>
 		prefix.length > 0 &&

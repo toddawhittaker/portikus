@@ -33,6 +33,7 @@ import {
 	RebuildInstanceResponse as RebuildInstanceResponseSchema,
 	ReplaceHomeResponse as ReplaceHomeResponseSchema,
 	SeedBuildStatus,
+	SeedInfo,
 	StartInstanceResponse as StartInstanceResponseSchema,
 	StopInstanceResponse as StopInstanceResponseSchema,
 } from "@portikus/contracts";
@@ -104,6 +105,8 @@ export interface ControllerClient {
 	startSeedBuild(req: SeedBuildRequest): Promise<SeedBuildStatus>;
 	/** A seed build's progress; NOT_FOUND when the controller forgot it. */
 	seedBuild(id: string): Promise<SeedBuildStatus>;
+	/** The seed the controller holds now, or null when it has none. */
+	seed(): Promise<SeedInfo | null>;
 }
 
 /**
@@ -353,5 +356,15 @@ export class HttpControllerClient implements ControllerClient {
 			SHORT_BUDGET_MS,
 		);
 		return SeedBuildStatus.parse(res);
+	}
+
+	async seed(): Promise<SeedInfo | null> {
+		try {
+			const res = await this.request("GET", "/docker-seed", undefined, SHORT_BUDGET_MS);
+			return SeedInfo.parse(res);
+		} catch (e) {
+			if (e instanceof ControllerClientError && e.code === "NOT_FOUND") return null;
+			throw e;
+		}
 	}
 }

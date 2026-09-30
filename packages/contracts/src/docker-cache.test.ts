@@ -11,6 +11,7 @@ import {
 	DockerSettingsRequest,
 	HubCredentialRequest,
 	INVENTORY_IMAGES_MAX,
+	isImageReference,
 	RegistryEventEnvelope,
 	RegistryJobRequestFile,
 	registryEventWorkspaceIp,
@@ -77,9 +78,30 @@ describe("canonicalImageName", () => {
 		["ghcr.io/owner/tool", "ghcr.io/owner/tool:latest"],
 		[`alpine@${SHA}`, `docker.io/library/alpine@${SHA}`],
 		[`alpine:3@${SHA}`, `docker.io/library/alpine:3@${SHA}`],
+		// Only the first registry prefix is a registry (review F9).
+		["docker.io/ghcr.io/x", "docker.io/ghcr.io/x:latest"],
 	])("%s is %s", (name, canonical) => {
 		expect(canonicalImageName(name)).toBe(canonical);
 	});
+});
+
+describe("isImageReference", () => {
+	test.each([
+		"redis:7",
+		"docker.io/library/redis:7",
+		"quay.io/org/app",
+		"localhost:5000/app:dev",
+		`python@${SHA}`,
+	])("accepts %s", (name) => {
+		expect(isImageReference(name)).toBe(true);
+	});
+
+	test.each(["Evil Name", "a/b/c/d/e/f", "x:$(id)", `x:${"t".repeat(300)}`, ""])(
+		"refuses %j",
+		(name) => {
+			expect(isImageReference(name)).toBe(false);
+		},
+	);
 });
 
 describe("SeedImagesRequest", () => {
@@ -136,6 +158,12 @@ describe("seedImageListFor", () => {
 });
 
 describe("DockerSettingsRequest", () => {
+	test("takes either field alone, but not neither (review Q3)", () => {
+		expect(DockerSettingsRequest.safeParse({ ghcrEnabled: true }).success).toBe(true);
+		expect(DockerSettingsRequest.safeParse({ seedMaxGiB: 4 }).success).toBe(true);
+		expect(DockerSettingsRequest.safeParse({}).success).toBe(false);
+	});
+
 	test("takes the ghcr switch and a seed size cap in range", () => {
 		expect(
 			DockerSettingsRequest.safeParse({ ghcrEnabled: false, seedMaxGiB: 8 }).success,
@@ -304,6 +332,8 @@ describe("AgentDockerInventory", () => {
 			containerImageIds: [SHA],
 		};
 		expect(AgentDockerInventory.safeParse(ok).success).toBe(true);
+		// An agent that sends no digests still parses (review F3).
+		expect(AgentDockerInventory.parse(ok).images[0]?.repoDigests).toEqual([]);
 		const bad = { ...ok, images: [{ id: SHA, repoTags: [], layers: ["nope"] }] };
 		expect(AgentDockerInventory.safeParse(bad).success).toBe(false);
 	});

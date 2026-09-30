@@ -23,10 +23,21 @@ const layer = (c: string) => `sha256:${c.repeat(64)}`;
 const PYTHON = {
 	id: id("1"),
 	repoTags: ["python:3.12"],
+	repoDigests: [],
 	layers: [layer("a"), layer("b")],
 };
-const NODE = { id: id("2"), repoTags: ["node:22"], layers: [layer("c")] };
-const POSTGRES = { id: id("3"), repoTags: ["postgres:16"], layers: [layer("d")] };
+const NODE = {
+	id: id("2"),
+	repoTags: ["node:22"],
+	repoDigests: [],
+	layers: [layer("c")],
+};
+const POSTGRES = {
+	id: id("3"),
+	repoTags: ["postgres:16"],
+	repoDigests: [],
+	layers: [layer("d")],
+};
 const SEED = new Set([
 	"docker.io/library/python:3.12",
 	"docker.io/library/node:22",
@@ -50,6 +61,12 @@ describe("inventoryImageName", () => {
 		expect(inventoryImageName("localhost:5000/app:dev")).toBe("localhost:5000/app:dev");
 		expect(inventoryImageName("<none>:<none>")).toBeNull();
 	});
+
+	test("drops names outside the reference grammar (ruling S7)", () => {
+		expect(inventoryImageName("Evil Name:1")).toBeNull();
+		expect(inventoryImageName("a/b/c/d/e/f:1")).toBeNull();
+		expect(inventoryImageName(`x:${"t".repeat(300)}`)).toBeNull();
+	});
 });
 
 describe("presenceRows: the seed-use rule (ruling 7)", () => {
@@ -70,6 +87,7 @@ describe("presenceRows: the seed-use rule (ruling 7)", () => {
 		const app = {
 			id: id("9"),
 			repoTags: ["myapp:dev"],
+			repoDigests: [],
 			layers: [layer("a"), layer("b"), layer("e")],
 		};
 		const rows = presenceRows(
@@ -80,7 +98,12 @@ describe("presenceRows: the seed-use rule (ruling 7)", () => {
 			true,
 		);
 		// Only a prefix counts: sharing a middle layer does not.
-		const other = { id: id("8"), repoTags: ["x:1"], layers: [layer("f"), layer("c")] };
+		const other = {
+			id: id("8"),
+			repoTags: ["x:1"],
+			repoDigests: [],
+			layers: [layer("f"), layer("c")],
+		};
 		const rows2 = presenceRows(inventory({ images: [NODE, other] }), SEED);
 		expect(rows2.find((r) => r.image === "docker.io/library/node:22")?.used).toBe(
 			false,
@@ -88,7 +111,12 @@ describe("presenceRows: the seed-use rule (ruling 7)", () => {
 	});
 
 	test("a seed image built on another seed image does not mark it used", () => {
-		const debian = { id: id("7"), repoTags: ["debian:bookworm"], layers: [layer("a")] };
+		const debian = {
+			id: id("7"),
+			repoTags: ["debian:bookworm"],
+			repoDigests: [],
+			layers: [layer("a")],
+		};
 		const seed = new Set([...SEED, "docker.io/library/debian:bookworm"]);
 		const rows = presenceRows(inventory({ images: [debian, PYTHON] }), seed);
 		expect(
@@ -96,8 +124,30 @@ describe("presenceRows: the seed-use rule (ruling 7)", () => {
 		).toBe(false);
 	});
 
+	test("a digest-pinned seed name matches by RepoDigests (review F3)", () => {
+		const digest = `sha256:${"e".repeat(64)}`;
+		const pinned = `docker.io/library/python:3.12@${digest}`;
+		const python = {
+			...PYTHON,
+			repoDigests: [`python@${digest}`, `python@sha256:${"f".repeat(64)}`],
+		};
+		const rows = presenceRows(
+			inventory({ images: [python], containerImageIds: [python.id] }),
+			new Set([pinned]),
+		);
+		expect(rows).toEqual([
+			{ image: "docker.io/library/python:3.12", inSeed: false, used: true },
+			{ image: pinned, inSeed: true, used: true },
+		]);
+	});
+
 	test("images not in the seed are listed with inSeed false", () => {
-		const redis = { id: id("6"), repoTags: ["redis:7", "redis:latest"], layers: [] };
+		const redis = {
+			id: id("6"),
+			repoTags: ["redis:7", "redis:latest"],
+			repoDigests: [],
+			layers: [],
+		};
 		const rows = presenceRows(
 			inventory({ images: [redis], containerImageIds: [redis.id] }),
 			SEED,
@@ -243,8 +293,20 @@ describe.skipIf(skip)("inventory poll and retention", () => {
 		await tdb.db
 			.insertInto("docker_image_pulls")
 			.values([
-				{ image: "old", workspace_id: ws, pulls: 1, last_seen: old },
-				{ image: "recent", workspace_id: ws, pulls: 1, last_seen: recent },
+				{
+					image: "old",
+					workspace_id: ws,
+					day: old.slice(0, 10),
+					pulls: 1,
+					last_seen: old,
+				},
+				{
+					image: "recent",
+					workspace_id: ws,
+					day: recent.slice(0, 10),
+					pulls: 1,
+					last_seen: recent,
+				},
 			])
 			.execute();
 		await tdb.db

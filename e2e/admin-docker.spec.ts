@@ -180,6 +180,9 @@ test("the Docker Hub account is write-only: refusals, set, never shown, removed"
 	await dialog.getByRole("button", { name: "Remove account" }).click();
 	expect(await takeRegistryRequest()).toEqual({ kind: "remove-hub-credential" });
 	await expect(dialog).toHaveCount(0);
+	await expect(
+		page.getByRole("heading", { name: "Docker Hub account", exact: true }),
+	).toBeFocused();
 });
 
 test("the ghcr.io switch is off by default, says what breaks, and round-trips", async ({
@@ -193,6 +196,9 @@ test("the ghcr.io switch is off by default, says what breaks, and round-trips", 
 	await expect(warning).toContainText("cannot docker push to ghcr.io");
 	await expect(warning).toContainText("cannot pull private ghcr.io images");
 	await expect(warning).toContainText("tools other than Docker");
+	await expect(warning).toContainText(
+		"Turning it off reaches a running workspace only when it next starts",
+	);
 
 	// A ghcr.io name is refused while the cache is off (ruling S8).
 	const add = page.getByTestId("docker-seed").getByLabel("Image", { exact: true });
@@ -309,8 +315,22 @@ test("Rebuild seed shows its progress, then the new seed", async ({ page }) => {
 	await writeRegistryStatus();
 	await setSeedList(["python:3.12", "node:22"]);
 	await open(page);
+	// The status region is there before the first job, so its arrival is announced.
+	const none = page.getByTestId("docker-seed-job-none");
+	await expect(none).toHaveText("The seed has not been rebuilt yet.");
+	const region = await page
+		.getByTestId("docker-seed")
+		.getByRole("status")
+		.filter({ has: none })
+		.elementHandle();
 	await page.getByRole("button", { name: "Rebuild seed" }).click();
 	const state = page.getByTestId("docker-seed-job-state");
+	await expect(state).toBeVisible();
+	expect(
+		await region?.evaluate((el) =>
+			el.contains(document.querySelector('[data-testid="docker-seed-job-state"]')),
+		),
+	).toBe(true);
 	await expect(state).toContainText("Waiting to start");
 	await expect(page.getByTestId("docker-seed-rebuild")).toHaveAttribute(
 		"aria-disabled",
@@ -370,7 +390,7 @@ test("image use lists outside and unused images, with add and remove", async ({
 		[two, 1],
 	] as const) {
 		await query(
-			"insert into docker_image_pulls (image, workspace_id, pulls) values ('docker.io/library/redis:7', $1, $2)",
+			"insert into docker_image_pulls (image, workspace_id, day, pulls) values ('docker.io/library/redis:7', $1, current_date, $2)",
 			[ws, pulls],
 		);
 	}
@@ -386,15 +406,22 @@ test("image use lists outside and unused images, with add and remove", async ({
 	const redis = extra.getByRole("row", { name: /redis:7/ });
 	await expect(redis.getByRole("cell").nth(0)).toHaveText("4");
 	await expect(redis.getByRole("cell").nth(1)).toHaveText("2");
-	await redis.getByRole("button", { name: "Add redis:7 to the seed" }).click();
+	await redis.getByRole("button", { name: "Add to seed: redis:7" }).click();
 	await expect(redis).toContainText("In the next rebuild");
+	// The pressed button is gone; focus stays on the table's heading.
+	await expect(
+		page.getByRole("heading", { name: "Used but not in the seed" }),
+	).toBeFocused();
 	expect(await seedList()).toEqual(["python:3.12", "node:22", "redis:7"]);
 
 	const unused = page.getByTestId("docker-usage-unused");
 	const node = unused.getByRole("row", { name: /node:22/ });
 	await expect(node.getByRole("cell").nth(0)).toHaveText("1");
-	await node.getByRole("button", { name: "Remove node:22 from the seed" }).click();
+	await node.getByRole("button", { name: "Remove from seed: node:22" }).click();
 	await expect(node).toContainText("Not in the next rebuild");
+	await expect(
+		page.getByRole("heading", { name: "Seed images nobody used" }),
+	).toBeFocused();
 	expect(await seedList()).toEqual(["python:3.12", "redis:7"]);
 	await expect(page.getByTestId("docker-usage")).not.toContainText("python:3.12");
 });
@@ -433,7 +460,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			 ('running', 'Pulling node:22 (2 of 2)', '["python:3.12","node:22"]')`,
 		);
 		await query(
-			"insert into docker_image_pulls (image, workspace_id, pulls) values ('docker.io/library/redis:7', $1, 2), ('ghcr.io/owner/other:1', $1, 1)",
+			"insert into docker_image_pulls (image, workspace_id, day, pulls) values ('docker.io/library/redis:7', $1, current_date, 2), ('ghcr.io/owner/other:1', $1, current_date, 1)",
 			[ws],
 		);
 		await query(
@@ -459,6 +486,30 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("docker-cache-clear-dialog")).toHaveCount(0);
+
+		// A cancelled removal returns focus to the button that opened it.
+		const removeAccount = page.getByRole("button", { name: "Remove account…" });
+		await removeAccount.click();
+		await expect(page.getByTestId("docker-hub-remove-dialog")).toBeVisible();
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(page.getByTestId("docker-hub-remove-dialog")).toHaveCount(0);
+		await expect(removeAccount).toBeFocused();
+
+		// Field errors: an empty account and an empty seed image.
+		const hub = page.getByTestId("docker-hub");
+		await hub.getByRole("button", { name: "Replace account" }).click();
+		await expect(hub.getByLabel("Docker Hub username")).toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+		await page.getByRole("button", { name: "Add image" }).click();
+		await expect(
+			page
+				.getByTestId("docker-seed")
+				.getByText("Enter an image name, such as python:3.12."),
+		).toBeVisible();
+		await expectNoViolations(page);
 		expect(await registryRequests()).toEqual([]);
 	});
 }
