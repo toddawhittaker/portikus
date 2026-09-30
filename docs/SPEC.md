@@ -1107,9 +1107,13 @@ A coding-agent launcher may create a terminal and invoke the appropriate CLI.
 
 The resulting session must remain a normal visible terminal.
 
+A launched agent starts in a new terminal whose tmux session runs the CLI directly, with no shell and no earlier output, so its scrollback starts empty (issue #886).
+
 ### 10.3 Direct CLI use
 
 Students must also be able to launch coding agents manually from an ordinary shell.
+
+A coding agent's interface assumes it owns the screen, so earlier shell output left as scrollback above it reads as a broken view (issue #886). The workspace image's `/etc/profile.d/portikus-agents.sh` therefore defines `claude` and `codex` shell functions for interactive bash only. When standard input and output are both a terminal, each runs `clear` and then the real CLI (`command claude "$@"`). `clear` empties tmux's history, which the workspace agent turns into a cleared browser scrollback (§9.7). A script, a pipe, `sh`, or a launcher gets the plain CLI with no clear, and ordinary commands keep their scrollback. `infra/tests/agent-clear-test.sh` and the smoke test check both sides. Added in image 2026.09.15.
 
 ### 10.4 Credential models
 
