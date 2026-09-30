@@ -1842,3 +1842,39 @@ this.
 `/v2/_catalog` and passes everything else, with a smoke test.
 
 **Source.** Epic 26 (#840), ruling S6.
+
+## Seeded workspaces share one Docker engine ID
+
+**What.** `/var/lib/docker/engine-id` comes from the seed, so every seeded
+workspace reports the same Docker engine ID. Nothing in Portikus uses it,
+and no harm is known.
+
+**What it would take.** Remove `engine-id` from the seed volume after the
+build (dockerd writes a new one at first start), with a check in the seed
+builder test.
+
+**Source.** Epic 26 (#840) pilot verification.
+
+## Docker tab does not say the cache is off
+
+**What.** When setup turns the pull cache off because the disk has no
+room, the Docker tab shows both caches down with no reason, and Clear
+cache and credential changes report success while doing nothing.
+
+**What it would take.** A `cacheOff` field in the helper's `status.json`,
+read by the API, and a line on the Docker tab that says setup turned the
+cache off and why, with a Playwright test.
+
+**Source.** Epic 26 (#840) review of the cache size fix.
+
+## Install question stricter than setup about free space
+
+**What.** The install question's size limit keeps the larger of 10 GiB or
+10 percent of free space and ignores the space the current cache file
+already holds, while setup keeps 10 GiB and counts that file. The question
+can refuse a size setup would accept. This is safe, only stricter.
+
+**What it would take.** Use setup's rule in `packaging/debian/config`,
+with a debconf scenario at the edge.
+
+**Source.** Epic 26 (#840) review of the cache size fix.
