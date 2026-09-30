@@ -268,6 +268,18 @@
           changed_when: true
           notify: Restart the running Docker caches
 
+    # An old file made before nodiscard has holes; fallocate fills them and keeps the data.
+    - name: Look at how much of the cache's file is reserved
+      ansible.builtin.stat:
+        path: "{{ registry_cache_image }}"
+      register: registry_cache_image_now
+
+    - name: Reserve the whole cache file
+      ansible.builtin.command:
+        argv: [fallocate, --length, "{{ registry_cache_bytes }}", "{{ registry_cache_image }}"]
+      when: registry_cache_image_now.stat.blocks | int * 512 < registry_cache_bytes | int
+      changed_when: true
+
     - name: Make the cache's file root's alone
       ansible.builtin.file:
         path: "{{ registry_cache_image }}"
@@ -349,6 +361,15 @@
   loop:
     - portikus-registry-job.path
     - portikus-registry-status.timer
+
+# Nothing else loads the egress table until a policy or a reboot, and its
+# ghcr.io redirect follows the switch set above.  With no request the helper
+# loads the default open table if none is loaded, or reloads the applied one
+# keeping learned names, so running it on every setup is harmless.
+- name: Load the egress table with the current ghcr.io switch
+  ansible.builtin.systemd_service:
+    name: portikus-egress-apply.service
+    state: started
 
 # The admin page reads it; the timer rewrites it within a minute anyway.
 - name: Write the cache status

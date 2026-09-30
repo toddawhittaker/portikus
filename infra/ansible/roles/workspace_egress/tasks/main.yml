@@ -176,8 +176,8 @@
     daemon_reload: true
 
 # The helper runs on each request and once at boot, before Incus starts
-# workspaces.  Running it here would reload the table and empty the name set,
-# so the play only enables it.
+# workspaces.  The registry_cache role starts it once the ghcr.io switch is
+# set, so the play only enables it here.
 - name: Enable the egress helper
   ansible.builtin.systemd:
     name: "{{ item }}"
