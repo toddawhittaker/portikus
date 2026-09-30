@@ -5,6 +5,8 @@ import type { Kysely } from "kysely";
 import { httpAgentFactory } from "./agent-client.js";
 import { startBackupVmLoop } from "./backups.js";
 import { HttpControllerClient } from "./controller-client.js";
+import { startSeedJobs } from "./docker-seed-jobs.js";
+import { startDockerUsage } from "./docker-usage.js";
 import { startEgressSync } from "./egress.js";
 import { startBlockedCounter } from "./egress-blocked.js";
 import { startGuard } from "./guard.js";
@@ -17,6 +19,7 @@ import { startProcessSnapshots } from "./process-snapshots.js";
 import { startQuotaSync } from "./quota.js";
 import { reconcile, type SweepResult } from "./reconcile.js";
 import { recoverySweep } from "./recovery.js";
+import { startRegistryEvents } from "./registry-events.js";
 
 export const serviceName = "worker";
 
@@ -115,6 +118,13 @@ async function main(): Promise<void> {
 		logger.error({ error: e.message }, "blocked-name counter failed to listen"),
 	);
 	startPackageSurvey({ db, controller, logger });
+	// Shared Docker pull storage (issue #840).
+	startSeedJobs({ db, controller, logger });
+	startDockerUsage({ db, logger, agentPort: config.AGENT_PORT });
+	startRegistryEvents({ db, logger, port: config.REGISTRY_EVENTS_PORT }).catch(
+		(e: Error) =>
+			logger.error({ error: e.message }, "registry events listener failed to listen"),
+	);
 
 	let lastRefreshAt: Date | null = null;
 	let controllerUnreachable = false;

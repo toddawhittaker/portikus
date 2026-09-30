@@ -94,6 +94,19 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/image/jobs": 404,
 	"GET /admin/image/jobs/:id": 404,
 	"HEAD /admin/image/jobs/:id": 404,
+	// Tests set no REGISTRY_JOBS_DIR, so the Docker section is off.
+	"GET /admin/docker": 404,
+	"HEAD /admin/docker": 404,
+	"PUT /admin/docker/settings": 404,
+	"PUT /admin/docker/hub-credential": 404,
+	"DELETE /admin/docker/hub-credential": 404,
+	"POST /admin/docker/cache/clear": 404,
+	"PUT /admin/docker/seed/images": 404,
+	"POST /admin/docker/seed/jobs": 404,
+	"GET /admin/docker/seed/jobs": 404,
+	"HEAD /admin/docker/seed/jobs": 404,
+	"GET /admin/docker/usage": 404,
+	"HEAD /admin/docker/usage": 404,
 };
 
 // The smallest PNG: one transparent pixel.

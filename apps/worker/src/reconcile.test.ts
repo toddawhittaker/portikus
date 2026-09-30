@@ -200,6 +200,23 @@ test.skipIf(skip)("the start request carries the owner's timezone", async () => 
 	expect(startCall?.args[1]).toMatchObject({ timezone: "Europe/Berlin" });
 });
 
+/** Issue #840: the start request says whether to use the caches, from the saved policy. */
+test.skipIf(skip)("the start request carries the Docker cache config", async () => {
+	await tdb.db
+		.insertInto("settings")
+		.values({ id: 1, shutdown_grace_seconds: 600, docker_ghcr_enabled: true })
+		.onConflict((oc) => oc.column("id").doUpdateSet({ docker_ghcr_enabled: true }))
+		.execute();
+	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
+	await insertConnection(id);
+	const now = new Date();
+
+	await sweep(tdb.db, fake, cfg, now, now);
+
+	const startCall = fake.calls.find((c) => c.method === "start");
+	expect(startCall?.args[1]).toMatchObject({ docker: { hubMirror: true, ghcr: true } });
+});
+
 test.skipIf(skip)("disconnect -> sweep -> deadline set, still running", async () => {
 	const id = await insertWorkspace({
 		state: "running",
