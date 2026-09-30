@@ -390,7 +390,7 @@ test("image use lists outside and unused images, with add and remove", async ({
 		[two, 1],
 	] as const) {
 		await query(
-			"insert into docker_image_pulls (image, workspace_id, pulls) values ('docker.io/library/redis:7', $1, $2)",
+			"insert into docker_image_pulls (image, workspace_id, day, pulls) values ('docker.io/library/redis:7', $1, current_date, $2)",
 			[ws, pulls],
 		);
 	}
@@ -460,7 +460,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			 ('running', 'Pulling node:22 (2 of 2)', '["python:3.12","node:22"]')`,
 		);
 		await query(
-			"insert into docker_image_pulls (image, workspace_id, pulls) values ('docker.io/library/redis:7', $1, 2), ('ghcr.io/owner/other:1', $1, 1)",
+			"insert into docker_image_pulls (image, workspace_id, day, pulls) values ('docker.io/library/redis:7', $1, current_date, 2), ('ghcr.io/owner/other:1', $1, current_date, 1)",
 			[ws],
 		);
 		await query(
