@@ -45,6 +45,8 @@ export interface ToastProps {
 	children?: React.ReactNode;
 	actions?: React.ReactNode;
 	onDismiss?: () => void;
+	/** Stays until the caller dismisses it, for progress that outlasts the usual duration. */
+	persistent?: boolean;
 	className?: string;
 }
 
@@ -55,35 +57,40 @@ export function Toast({
 	children,
 	actions,
 	onDismiss,
+	persistent,
 	className,
 }: ToastProps): React.ReactElement {
 	const urgent = tone === "warning" || tone === "danger";
 	return (
 		<RadixToast.Root
 			type={urgent ? "foreground" : "background"}
-			role={urgent ? "alert" : "status"}
 			// A toast that asks for an answer stays until answered; Radix pauses the rest on hover or focus.
-			duration={actions ? Number.POSITIVE_INFINITY : TOAST_DURATION_MS[tone]}
+			duration={
+				actions || persistent ? Number.POSITIVE_INFINITY : TOAST_DURATION_MS[tone]
+			}
 			onOpenChange={(open) => {
 				if (!open) onDismiss?.();
 			}}
-			className={`pk-toast pk-toast--${tone} flex w-95 items-start gap-3 rounded-md border border-line bg-surface-raised py-3 pr-3 pl-4 shadow-md ${className ?? ""}`}
+			className={`pk-toast pk-toast--${tone} w-95 rounded-md border border-line bg-surface-raised py-3 pr-3 pl-4 shadow-md ${className ?? ""}`}
 		>
-			<Icon name={TONE_ICON[tone]} className="pk-toast-icon" />
-			<div className="min-w-0 flex-1">
-				<RadixToast.Title className="m-0 font-semibold text-ink">
-					{title}
-				</RadixToast.Title>
-				{children ? (
-					<RadixToast.Description className="mt-0.5 mb-0 text-ink-muted">
-						{children}
-					</RadixToast.Description>
-				) : null}
-				{actions ? <div className="mt-2 flex gap-2">{actions}</div> : null}
+			{/* The role sits inside the list item, so the viewport's list holds only list items. */}
+			<div role={urgent ? "alert" : "status"} className="flex items-start gap-3">
+				<Icon name={TONE_ICON[tone]} className="pk-toast-icon" />
+				<div className="min-w-0 flex-1">
+					<RadixToast.Title className="m-0 font-semibold text-ink">
+						{title}
+					</RadixToast.Title>
+					{children ? (
+						<RadixToast.Description className="mt-0.5 mb-0 text-ink-muted">
+							{children}
+						</RadixToast.Description>
+					) : null}
+					{actions ? <div className="mt-2 flex gap-2">{actions}</div> : null}
+				</div>
+				<RadixToast.Close asChild>
+					<IconButton icon="x" label="Dismiss" size="sm" className="-mt-0.5 -mr-0.5" />
+				</RadixToast.Close>
 			</div>
-			<RadixToast.Close asChild>
-				<IconButton icon="x" label="Dismiss" size="sm" className="-mt-0.5 -mr-0.5" />
-			</RadixToast.Close>
 		</RadixToast.Root>
 	);
 }
@@ -93,8 +100,8 @@ interface QueuedToast extends ToastProps {
 }
 
 interface ToastApi {
-	/** Shows a toast and returns nothing; it dismisses itself or the person does. */
-	show: (toast: ToastProps) => void;
+	/** Shows a toast; it dismisses itself or the person does, or the returned function removes it. */
+	show: (toast: ToastProps) => () => void;
 }
 
 const ToastContext = React.createContext<ToastApi | null>(null);
@@ -123,7 +130,9 @@ export function ToastProvider({
 					body: nodeText(toast.children),
 				});
 				nextKey.current += 1;
-				setToasts((current) => [...current, { ...toast, key: nextKey.current }]);
+				const key = nextKey.current;
+				setToasts((current) => [...current, { ...toast, key }]);
+				return () => setToasts((current) => current.filter((item) => item.key !== key));
 			},
 		}),
 		[],

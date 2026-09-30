@@ -92,12 +92,9 @@ const HOSTILE_SVG = [
 	"</svg>",
 ].join("");
 
-/** Axe over the file tab's own pane: the viewer, its bar and the view buttons. */
-async function expectNoViolations(page: Page, path: string) {
-	const results = await (await settledAxe(page))
-		.include(`[data-testid="file-pane-${path}"]`)
-		.withTags(WCAG_TAGS)
-		.analyze();
+/** Axe over the whole workspace page with the viewer open: tabs, panes and all. */
+async function expectNoViolations(page: Page) {
+	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
@@ -267,7 +264,7 @@ test.describe("file viewer", () => {
 			await expect(page.getByTestId("file-image-dimensions")).toBeVisible({
 				timeout: 15_000,
 			});
-			await expectNoViolations(page, "shot.png");
+			await expectNoViolations(page);
 		});
 
 		test(`the PDF viewer has no automatic accessibility violations (${scheme})`, async ({
@@ -278,7 +275,34 @@ test.describe("file viewer", () => {
 			const student = await createStudent(context);
 			await openFileTab(page, student, "A11y pdf", "brief.pdf", pdf());
 			await expect(page.getByTitle("brief.pdf, PDF")).toBeVisible({ timeout: 15_000 });
-			await expectNoViolations(page, "brief.pdf");
+			await expectNoViolations(page);
+		});
+
+		test(`an SVG in View, Edit and Diff has no automatic accessibility violations (${scheme})`, async ({
+			page,
+			context,
+		}) => {
+			await page.emulateMedia({ colorScheme: scheme });
+			const student = await createStudent(context);
+			const path = "logo.svg";
+			await openFileTab(page, student, "A11y svg", path, HOSTILE_SVG);
+			await expect(page.getByTestId("file-image-dimensions")).toBeVisible({
+				timeout: 15_000,
+			});
+			await expectNoViolations(page);
+
+			await page.getByTestId(`file-view-edit-${path}`).click();
+			await expect(
+				page.getByTestId(`editor-${path}`).locator(".view-lines"),
+			).toContainText("<rect", { timeout: 60_000 });
+			await expectNoViolations(page);
+
+			await page.getByTestId(`file-view-diff-${path}`).click();
+			await expect(page.getByTestId(`file-view-diff-${path}`)).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
+			await expectNoViolations(page);
 		});
 	}
 });

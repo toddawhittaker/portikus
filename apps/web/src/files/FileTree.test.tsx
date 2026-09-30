@@ -539,6 +539,8 @@ describe("the file tree", () => {
 		fireEvent.click(await screen.findByTestId("row-extract-starter.zip"));
 
 		expect(await screen.findByText("Extracted starter.zip into starter")).toBeDefined();
+		// The progress toast gives way to the result rather than overlapping it.
+		expect(screen.queryByText("Extracting starter.zip…")).toBeNull();
 		expect(calls).toEqual([JSON.stringify({ path: "starter.zip" })]);
 	});
 
@@ -554,6 +556,7 @@ describe("the file tree", () => {
 
 		expect(await screen.findByText("starter.zip was not extracted")).toBeDefined();
 		expect(screen.getByText(/would land outside its folder/)).toBeDefined();
+		expect(screen.queryByText("Extracting starter.zip…")).toBeNull();
 	});
 
 	/** Issue #361: Show hidden is a menu item, so the keyboard can reach it. */

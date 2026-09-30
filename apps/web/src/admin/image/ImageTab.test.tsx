@@ -190,3 +190,31 @@ test("a finished fetch shows its changes and offers Make default", async () => {
 	fireEvent.click(within(result).getByTestId("image-make-default-2026.09.12"));
 	expect(await screen.findByTestId("image-confirm")).toBeTruthy();
 });
+
+test("a confirmed update from the notice sends focus to the job heading, not the page body", async () => {
+	let posted = false;
+	stubFetch((url, init) => {
+		if (init?.method === "POST") {
+			posted = true;
+			return json(202, job({ state: "queued" }));
+		}
+		if (url.startsWith("/admin/image/jobs/")) return json(200, { job: job(), log: [] });
+		return json(
+			200,
+			posted ? data({ job: job() }) : data({ newerPublished: "2026.09.13" }),
+		);
+	});
+	renderWithQuery(<ImageTab />);
+	const notice = await screen.findByTestId("image-newer-published");
+	const update = within(notice).getByRole("button", { name: "Update to 2026.09.13" });
+	update.focus();
+	fireEvent.click(update);
+	fireEvent.click(
+		within(await screen.findByTestId("image-confirm")).getByRole("button", {
+			name: "Update",
+		}),
+	);
+	await waitFor(() => expect(screen.queryByTestId("image-confirm")).toBeNull());
+	expect(screen.queryByTestId("image-newer-published")).toBeNull();
+	await waitFor(() => expect(document.activeElement?.id).toBe("image-job-title"));
+});

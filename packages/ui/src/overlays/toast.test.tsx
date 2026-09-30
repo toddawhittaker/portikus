@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	nodeText,
@@ -82,6 +83,25 @@ describe("Toast", () => {
 		expect(onDismiss).toHaveBeenCalledTimes(1);
 	});
 
+	it("keeps the viewport a list of list items, with the live role inside each", () => {
+		render(
+			<ToastProvider>
+				<Fixture />
+			</ToastProvider>,
+		);
+		fireEvent.click(screen.getByText("Create"));
+
+		const list = screen.getByRole("region").querySelector("ol");
+		const items = Array.from(list?.children ?? []);
+		expect(items.length).toBe(1);
+		expect(
+			items.every((item) => item.tagName === "LI" && !item.hasAttribute("role")),
+		).toBe(true);
+		expect(items[0]?.querySelector('[role="status"]')?.textContent).toContain(
+			"Project created",
+		);
+	});
+
 	it("sits above dialogs and names F8 as the way to reach it (#364)", () => {
 		render(<ToastProvider />);
 
@@ -151,6 +171,45 @@ describe("toast timing and recording", () => {
 				vi.advanceTimersByTime(60 * 60 * 1000);
 			});
 			expect(screen.queryByText("Changed on disk")).not.toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps a persistent toast until its caller dismisses it", () => {
+		function Progress() {
+			const { show } = useToast();
+			const dismiss = React.useRef<(() => void) | null>(null);
+			return (
+				<>
+					<button
+						type="button"
+						onClick={() => {
+							dismiss.current = show({ title: "Extracting", persistent: true });
+						}}
+					>
+						Show
+					</button>
+					<button type="button" onClick={() => dismiss.current?.()}>
+						Done
+					</button>
+				</>
+			);
+		}
+		vi.useFakeTimers();
+		try {
+			render(
+				<ToastProvider>
+					<Progress />
+				</ToastProvider>,
+			);
+			fireEvent.click(screen.getByText("Show"));
+			act(() => {
+				vi.advanceTimersByTime(10 * 60 * 1000);
+			});
+			expect(screen.queryByText("Extracting")).not.toBeNull();
+			fireEvent.click(screen.getByText("Done"));
+			expect(screen.queryByText("Extracting")).toBeNull();
 		} finally {
 			vi.useRealTimers();
 		}

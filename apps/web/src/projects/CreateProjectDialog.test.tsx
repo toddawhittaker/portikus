@@ -81,6 +81,26 @@ test("an API error is shown in the dialog, user sentence first", async () => {
 	expect(error.textContent).toContain("PROJECT_EXISTS");
 });
 
+test("a clone says an untouched name is replaced by the repository's own (SPEC 7.2)", async () => {
+	stubLists();
+	open("clone");
+	const name = screen.getByTestId("field-name");
+	const hint = document.getElementById(
+		(name.getAttribute("aria-describedby") ?? "")
+			.split(" ")
+			.find((id) => id.endsWith("-hint")) ?? "",
+	);
+	expect(hint?.textContent).toContain(
+		"Leave it as is to use the name the repository gives itself.",
+	);
+});
+
+test("a new project has no clone name hint", async () => {
+	stubLists();
+	open("new");
+	expect(screen.queryByTestId("clone-name-hint")).toBeNull();
+});
+
 test("pasting a clone URL fills the name and slug, and editing the name wins", async () => {
 	stubLists();
 	open("clone");

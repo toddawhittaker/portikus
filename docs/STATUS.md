@@ -3660,3 +3660,14 @@ fixes". In progress.
   worker's settings, and `portikus reset-admin` reports its exit codes
   10 and 11 without a failed transient unit. Setup starts and restarts
   the controller before the worker, and masks `systemd-ssh-generator`.
+- Review fixes for the web app (F3): the "Extracting" toast stays until
+  the zip is done; a checkerboard shows through transparent images; only
+  an image's facts name its figure; a PDF with no stated size is offered
+  as a download; focus goes to the job heading after "Update to"; a clone
+  explains its name field; and a tab's close control is for the pointer
+  only, as Delete closes a tab from the keyboard. New axe scans cover the
+  whole file viewer page, the SVG modes, the extract toasts and the
+  Health package notice. They found two more problems, now fixed: a toast
+  put its live role on the list item, which broke the notification list,
+  and some of Monaco's own token colours, red attribute names among them,
+  fell below 4.5:1 on the editor's backgrounds.

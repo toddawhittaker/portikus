@@ -180,9 +180,16 @@ export function CreateProjectDialog({
 							) : undefined
 						}
 						hint={
-							<span data-testid="slug-preview" className="pk-mono-small">
-								{slug === "" ? "~/projects/…" : `~/projects/${slug}`}
-							</span>
+							<>
+								{mode === "clone" ? (
+									<span className="block" data-testid="clone-name-hint">
+										Leave it as is to use the name the repository gives itself.
+									</span>
+								) : null}
+								<span data-testid="slug-preview" className="pk-mono-small">
+									{slug === "" ? "~/projects/…" : `~/projects/${slug}`}
+								</span>
+							</>
 						}
 					/>
 					{mode === "template" && (

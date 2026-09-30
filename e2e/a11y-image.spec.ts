@@ -275,3 +275,30 @@ test("Make default from the table sends focus to the job heading, not the page",
 	await expect(page.getByTestId("image-confirm")).toHaveCount(0);
 	await expect(page.locator("#image-job-title")).toBeFocused();
 });
+
+test("Update from the newer-image notice sends focus to the job heading once the notice goes", async ({
+	page,
+}) => {
+	let current: object = { ...IMAGE, job: null };
+	await page.route("**/admin/image", (route) => route.fulfill({ json: current }));
+	await page.route("**/admin/image/jobs/*", (route) =>
+		route.fulfill({ json: { job: RUNNING_JOB, log: ["x"] } }),
+	);
+	await page.route("**/admin/image/jobs", (route) => {
+		// The fetch has started; the notice clears once the image is on the server.
+		current = { ...IMAGE, newerPublished: null, job: RUNNING_JOB };
+		return route.fulfill({ status: 202, json: { ...RUNNING_JOB, state: "queued" } });
+	});
+	await loginAs(page, "carol");
+	await page.goto("/admin?tab=image");
+	const update = page
+		.getByTestId("image-newer-published")
+		.getByRole("button", { name: "Update to 2026.09.11" });
+	await update.focus();
+	await page.keyboard.press("Enter");
+	await page.getByTestId("image-confirm").getByTestId("dialog-confirm").focus();
+	await page.keyboard.press("Enter");
+	await expect(page.getByTestId("image-confirm")).toHaveCount(0);
+	await expect(page.getByTestId("image-newer-published")).toHaveCount(0);
+	await expect(page.locator("#image-job-title")).toBeFocused();
+});

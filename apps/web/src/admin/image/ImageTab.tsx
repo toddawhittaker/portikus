@@ -109,8 +109,8 @@ function ImageSections({ data }: { data: AdminImage }) {
 	const toast = useToast();
 	const ask = useRequestImageJob();
 	const [confirming, setConfirming] = useState<Confirming | null>(null);
-	// Make default unmounts its own button, so a confirmed one sends focus to the job heading.
-	const madeDefault = useRef(false);
+	// Make default and the newer-image notice unmount their own button, so a confirmed one sends focus to the job heading.
+	const toJob = useRef(false);
 	const [rebuilding, setRebuilding] = useState(false);
 	const [diffOf, setDiffOf] = useState<string | null>(null);
 	const busy = isActive(data.job?.state);
@@ -240,13 +240,19 @@ function ImageSections({ data }: { data: AdminImage }) {
 						confirmLabel={confirmLabel(confirming)}
 						pending={ask.isPending}
 						returnFocusTo={() => {
-							const made = madeDefault.current;
-							madeDefault.current = false;
-							return made ? document.getElementById("image-job-title") : null;
+							const made = toJob.current;
+							toJob.current = false;
+							if (!made) return null;
+							// The job heading renders once the refetch lands; the current heading always exists.
+							return (
+								document.getElementById("image-job-title") ??
+								document.getElementById("image-current-title")
+							);
 						}}
 						onConfirm={() =>
 							submit(confirming, () => {
-								madeDefault.current = confirming.kind === "activate";
+								toJob.current =
+									confirming.kind === "activate" || confirming.kind === "fetch";
 								setConfirming(null);
 							})
 						}

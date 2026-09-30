@@ -366,11 +366,15 @@
 	overflow: auto;
 }
 
-/* Fit to the pane, never enlarged past its own size. */
+/* Fit to the pane, never enlarged past its own size. A checkerboard of two
+   surface tokens shows through transparent pixels in either theme. */
 .pk-file-viewer-stage img {
 	max-inline-size: 100%;
 	max-block-size: 100%;
 	object-fit: contain;
+	background:
+		repeating-conic-gradient(var(--surface-sunken) 0 25%, var(--surface-raised) 0 50%) 0
+		0 / var(--space-4) var(--space-4);
 }
 
 /* The PDF viewer brings its own toolbar and scrolling, so it takes the
@@ -396,6 +400,30 @@
 	padding: var(--space-2) var(--space-3);
 	border-block-start: 1px solid var(--line);
 	font-size: 13px;
+}
+
+/* An image's bar is two cells: the caption (its facts) and Download. The
+   figcaption must stay the figure's last child, so the grid lays them out. */
+.pk-file-viewer--image {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.pk-file-viewer--image > .pk-file-viewer-stage {
+	grid-column: 1 / -1;
+	grid-row: 1;
+}
+
+.pk-file-viewer--image > .pk-file-viewer-caption {
+	grid-column: 1;
+	grid-row: 2;
+	padding-inline-end: 0;
+}
+
+.pk-file-viewer--image > .pk-file-viewer-action {
+	grid-column: 2;
+	grid-row: 2;
 }
 
 .pk-file-viewer-facts {

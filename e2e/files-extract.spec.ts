@@ -1,11 +1,13 @@
 import { crc32 } from "node:zlib";
-import { expect, test } from "@playwright/test";
+import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
 	readSeededFile,
 	seedFile,
+	settledAxe,
 	toast,
+	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
 
@@ -53,7 +55,82 @@ function zipOf(files: Record<string, string>): Buffer {
 	return Buffer.concat([...parts, directory, end]);
 }
 
+/**
+ * Holds the extract request until the returned function is called, so a test
+ * can look at the progress toast while the zip is still being unpacked.
+ */
+async function holdExtract(page: Page): Promise<() => void> {
+	let release = () => {};
+	const released = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await page.route("**/extract", async (route) => {
+		await released;
+		await route.continue();
+	});
+	return release;
+}
+
+/** A project with a zip uploaded into its root, ready to extract. */
+async function withUploadedZip(page: Page, context: BrowserContext) {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Starter" });
+	await seedFile(student.workspaceId, project.slug, "README.md", "# hi\n");
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(page.getByTestId("file-tree")).toBeVisible({ timeout: 15_000 });
+	await page.getByTestId("files-upload-input").setInputFiles({
+		name: "starter.zip",
+		mimeType: "application/zip",
+		buffer: zipOf({ "README.md": "# starter\n" }),
+	});
+	await expect(page.getByTestId("file-row-starter.zip")).toBeVisible();
+}
+
+async function expectNoViolations(page: Page) {
+	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+}
+
 test.describe("extract here", () => {
+	test("the progress toast stays while a slow zip extracts, then gives way to the result", async ({
+		page,
+		context,
+	}) => {
+		await withUploadedZip(page, context);
+		const release = await holdExtract(page);
+		await page.getByTestId("file-menu-starter.zip").click();
+		await page.getByTestId("row-extract-starter.zip").click();
+
+		const progress = toast(page, "Extracting starter.zip…");
+		await expect(progress).toBeVisible();
+		// Longer than a neutral toast's five seconds (SPEC.md section 8.5).
+		await page.waitForTimeout(6000);
+		await expect(progress).toBeVisible();
+
+		release();
+		await expect(toast(page, "Extracted starter.zip into starter")).toBeVisible();
+		await expect(progress).toHaveCount(0);
+	});
+
+	for (const scheme of ["light", "dark"] as const) {
+		test(`the extract toasts have no automatic accessibility violations (${scheme})`, async ({
+			page,
+			context,
+		}) => {
+			await page.emulateMedia({ colorScheme: scheme });
+			await withUploadedZip(page, context);
+			const release = await holdExtract(page);
+			await page.getByTestId("file-menu-starter.zip").click();
+			await page.getByTestId("row-extract-starter.zip").click();
+			await expect(toast(page, "Extracting starter.zip…")).toBeVisible();
+			await expectNoViolations(page);
+
+			release();
+			await expect(toast(page, "Extracted starter.zip into starter")).toBeVisible();
+			await expectNoViolations(page);
+		});
+	}
+
 	test("an uploaded zip extracts into a new folder shown in the tree", async ({
 		page,
 		context,
