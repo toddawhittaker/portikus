@@ -22,14 +22,21 @@ export function UsageCard({ data }: { data: DockerAdminResponse }) {
 	function change(next: string[], name: string, added: boolean) {
 		if (save.isPending) return;
 		save.mutate(next, {
-			onSuccess: () =>
+			onSuccess: () => {
 				toast.show({
 					tone: "success",
 					title: added
 						? `${name} added to the seed list`
 						: `${name} removed from the seed list`,
 					children: "It takes effect at the next seed rebuild.",
-				}),
+				});
+				// The row's button is gone; its table heading keeps the place.
+				document
+					.getElementById(
+						added ? "docker-usage-extra-title" : "docker-usage-unused-title",
+					)
+					?.focus();
+			},
 			onError: (failure) =>
 				toast.show({
 					tone: "danger",
@@ -63,7 +70,7 @@ export function UsageCard({ data }: { data: DockerAdminResponse }) {
 						Over the last {usage.data.windowDays} days.
 					</p>
 					<section className="grid gap-2" aria-labelledby="docker-usage-extra-title">
-						<h4 className={SUB_HEADING} id="docker-usage-extra-title">
+						<h4 className={SUB_HEADING} id="docker-usage-extra-title" tabIndex={-1}>
 							Used but not in the seed
 						</h4>
 						{usage.data.notInSeed.length === 0 ? (
@@ -88,7 +95,7 @@ export function UsageCard({ data }: { data: DockerAdminResponse }) {
 										<Button
 											size="sm"
 											variant="quiet"
-											aria-label={`Add ${name} to the seed`}
+											aria-label={`Add to seed: ${name}`}
 											aria-disabled={save.isPending || undefined}
 											onClick={() => change([...list, name], name, true)}
 										>
@@ -100,7 +107,7 @@ export function UsageCard({ data }: { data: DockerAdminResponse }) {
 						)}
 					</section>
 					<section className="grid gap-2" aria-labelledby="docker-usage-unused-title">
-						<h4 className={SUB_HEADING} id="docker-usage-unused-title">
+						<h4 className={SUB_HEADING} id="docker-usage-unused-title" tabIndex={-1}>
 							Seed images nobody used
 						</h4>
 						{usage.data.unusedSeed.length === 0 ? (
@@ -126,7 +133,7 @@ export function UsageCard({ data }: { data: DockerAdminResponse }) {
 										<Button
 											size="sm"
 											variant="quiet"
-											aria-label={`Remove ${entry} from the seed`}
+											aria-label={`Remove from seed: ${entry}`}
 											aria-disabled={save.isPending || undefined}
 											onClick={() =>
 												change(
