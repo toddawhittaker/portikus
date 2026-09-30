@@ -2360,6 +2360,19 @@ each request keeps its own audit row, CSRF check and pending-operation
 refusal; a refusal with 409 counts as skipped. There is no bulk API route,
 because it would only duplicate that logic.
 
+While a rebuild or Reset Docker is pending or running (issue #881), the
+detail panel's state badge and the workspace's badge in the Users row say
+"Rebuilding…" or "Resetting Docker…" with a spinner; each row of
+`GET /admin/users` carries the workspace's `pendingOperation` for this. The
+panel's badge sits in a status region, so the start is announced. Confirming
+the dialog refetches at once, and the panel and list keep their 5-second
+poll. Rebuild and Reset Docker stay off until the operation clears. When it
+clears, the panel reads the result from the worker's audit row in its recent
+audit (`workspace.rebuilt`, `workspace.rebuild_failed`,
+`workspace.docker_reset`, `workspace.docker_reset_failed`) and shows a toast:
+"finished" as a status, "failed" as an alert that gives the error code and
+points to the Logs tab.
+
 Added by Epic 17 (issue #613): the storage pool's fill is the larger of
 its data use (from Incus) and its metadata use (from
 `/run/portikus-thinpool.json`, written each minute by a root timer; the

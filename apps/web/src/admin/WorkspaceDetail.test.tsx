@@ -25,6 +25,8 @@ import {
 	limitsText,
 	memoryFlagText,
 	NOT_AVAILABLE_TEXT,
+	operationOutcome,
+	outcomeToast,
 	PANEL_HELP,
 	quotaPending,
 	roleChangeNote,
@@ -76,6 +78,7 @@ const ALICE_ROW = {
 		quotaApplied: WORKSPACE.quotaConfig,
 		image: IMAGE,
 		archivedAt: null,
+		pendingOperation: null,
 		cpuThrottle: null,
 		memoryFlag: null,
 	},
@@ -638,6 +641,134 @@ test("a pending operation turns Rebuild and Reset Docker off and says so", async
 	expect(screen.queryByTestId("rebuild-dialog")).toBeNull();
 	expect(document.activeElement).toBe(rebuild);
 });
+
+function auditEvent(
+	id: number,
+	action: string,
+	metadata: Record<string, unknown> | null = null,
+) {
+	return {
+		id,
+		at: "2026-09-22T10:00:00.000Z",
+		actor: "system:worker",
+		actorName: null,
+		action,
+		target: WORKSPACE.id,
+		result: action.endsWith("_failed") ? "failed" : "ok",
+		metadata,
+	};
+}
+
+test("operationOutcome reads the newest rebuild or reset result after the watch began", () => {
+	const events = [
+		auditEvent(9, "workspace.rebuild_failed", { errorCode: "CONTROLLER_TIMEOUT" }),
+		auditEvent(8, "workspace.rebuild_requested"),
+		auditEvent(5, "workspace.docker_reset"),
+	];
+	expect(operationOutcome(events, 8)).toEqual({
+		rebuild: true,
+		ok: false,
+		errorCode: "CONTROLLER_TIMEOUT",
+	});
+	// Nothing after the watch began: the result is a poll away.
+	expect(operationOutcome(events, 9)).toBeNull();
+	// An older result is not this operation's.
+	expect(operationOutcome(events.slice(1), 5)).toBeNull();
+	expect(operationOutcome([auditEvent(6, "workspace.docker_reset")], 5)).toEqual({
+		rebuild: false,
+		ok: true,
+		errorCode: null,
+	});
+});
+
+test("outcomeToast says what finished or failed, and what to do next", () => {
+	expect(outcomeToast({ rebuild: true, ok: true, errorCode: null }, "Alice")).toEqual({
+		tone: "success",
+		title: "Rebuild of Alice's workspace finished",
+	});
+	expect(
+		outcomeToast({ rebuild: false, ok: false, errorCode: "INCUS_ERROR" }, "Alice"),
+	).toEqual({
+		tone: "danger",
+		title: "Docker reset of Alice's workspace failed",
+		children:
+			"The workspace is in error (INCUS_ERROR). Try again, or look for the error in the Logs tab.",
+	});
+});
+
+test.each([
+	["workspace.rebuilt", "Rebuild of Alice Example's workspace finished", "status"],
+	["workspace.rebuild_failed", "Rebuild of Alice Example's workspace failed", "alert"],
+])(
+	"a confirmed rebuild shows Rebuilding… on the panel and row, then announces %s",
+	async (action, title, role) => {
+		const requested = auditEvent(8, "workspace.rebuild_requested");
+		let body = detail({ capabilities: { rebuild: true, resetDocker: true } });
+		let pending: string | null = null;
+		const row = () => ({
+			...ALICE_ROW,
+			workspace: { ...ALICE_ROW.workspace, pendingOperation: pending },
+		});
+		stubFetch((url, init) => {
+			if (url === "/auth/me") return json(200, ADMIN);
+			if (url === "/admin/users")
+				return json(200, { users: [row(), ADMIN_ROW], dexUsers: false });
+			if (url === "/admin/settings") return json(200, SETTINGS);
+			if (url === "/admin/health") return json(200, HEALTH);
+			if (init?.method === "POST") {
+				// The API sets the pending operation before it answers 202 (ADR 0021).
+				body = detail({
+					workspace: { ...WORKSPACE, archivedAt: null, pendingOperation: "rebuild" },
+					capabilities: { rebuild: true, resetDocker: true },
+					recentAudit: [requested],
+				});
+				pending = "rebuild";
+				return json(202, { ok: true });
+			}
+			if (url === `/admin/workspaces/${WORKSPACE.id}`) return json(200, body);
+			throw new Error(`unexpected request: ${url}`);
+		});
+		const panel = await openAlice();
+
+		fireEvent.click(
+			within(panel).getByRole("button", {
+				name: "Rebuild workspace for Alice Example",
+			}),
+		);
+		const dialog = await screen.findByTestId("rebuild-dialog");
+		fireEvent.change(within(dialog).getByRole("textbox"), {
+			target: { value: WORKSPACE.label },
+		});
+		fireEvent.click(within(dialog).getByTestId("dialog-confirm"));
+
+		// The head badge sits in a status region, so the start is announced.
+		const state = within(panel).getByTestId("detail-state");
+		await waitFor(() => expect(state.textContent).toBe("Rebuilding…"));
+		expect(state.getAttribute("role")).toBe("status");
+		expect(state.querySelector(".pk-spin")).not.toBeNull();
+		const usersRow = screen.getByTestId(`account-row-${USER.id}`);
+		await waitFor(() => expect(within(usersRow).getByText("Rebuilding…")).toBeTruthy());
+		expect(
+			within(panel)
+				.getByRole("button", { name: "Rebuild workspace for Alice Example" })
+				.getAttribute("aria-disabled"),
+		).toBe("true");
+
+		// The worker clears the operation, then audits the result.
+		body = detail({
+			workspace: { ...WORKSPACE, state: "stopped", archivedAt: null },
+			capabilities: { rebuild: true, resetDocker: true },
+			recentAudit: [auditEvent(9, action), requested],
+		});
+		pending = null;
+
+		const toast = await screen.findByText(title, {}, { timeout: 8000 });
+		expect(toast.closest(`[role="${role}"]`)).not.toBeNull();
+		expect(state.textContent).not.toBe("Rebuilding…");
+		await waitFor(() => expect(within(usersRow).queryByText("Rebuilding…")).toBeNull());
+	},
+	20000,
+);
 
 test("the detail shows per-class storage meters when the agent measured them", async () => {
 	const gib = 1024 ** 3;

@@ -40,6 +40,7 @@ function summary(
 		quotaApplied: { homeGiB: 25, dockerGiB: 20 },
 		image: { label: "2026.09.9", fingerprint: "abc", current: true },
 		archivedAt: null,
+		pendingOperation: null,
 		cpuThrottle: null,
 		memoryFlag: null,
 		...overrides,

@@ -74,6 +74,7 @@ const ALICE_ROW = {
 		quotaApplied: null,
 		image: { label: "2026.09.9", fingerprint: null, current: true },
 		archivedAt: null,
+		pendingOperation: null,
 		cpuThrottle: null,
 		memoryFlag: null,
 	},
