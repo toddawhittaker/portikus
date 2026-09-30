@@ -200,13 +200,22 @@ export function registerAdminDockerRoutes(
 			.executeTakeFirst();
 		if (Number(updated.numUpdatedRows) === 0) return notReady(reply);
 		// Written only once the switch is saved, so the helper never acts on
-		// a change that was rolled back. If this write fails the request
-		// errors and the saved switch waits for the next change or reinstall.
+		// a change that was rolled back. If this write fails the switch goes
+		// back, so the page never shows a state the helper was not asked for.
 		if (before.ghcrEnabled !== after.ghcrEnabled) {
-			await writeRegistryRequest(jobsDir, admin.id, {
-				kind: "set-ghcr",
-				enabled: after.ghcrEnabled,
-			});
+			try {
+				await writeRegistryRequest(jobsDir, admin.id, {
+					kind: "set-ghcr",
+					enabled: after.ghcrEnabled,
+				});
+			} catch (error) {
+				await db
+					.updateTable("settings")
+					.set({ docker_ghcr_enabled: before.ghcrEnabled })
+					.where("id", "=", 1)
+					.execute();
+				throw error;
+			}
 		}
 		await audit(admin.id, "docker.settings_changed", {
 			from: { ghcrEnabled: before.ghcrEnabled, seedMaxGiB: before.seedMaxGiB },

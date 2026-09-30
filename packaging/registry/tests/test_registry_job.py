@@ -330,8 +330,9 @@ class GhcrTest(Base):
     def test_the_egress_helper_is_started_after_the_switch_on_and_off(self):
         self.helper.set_ghcr(False)
         calls = self.systemctl_calls()
-        self.assertEqual(calls[-1], ("start", "portikus-egress-apply.service"))
-        self.assertLess(calls.index(("disable", "--now", "portikus-registry-ghcr.service")), len(calls) - 1)
+        # Twice: the first may only wait for a run that read the old switch.
+        self.assertEqual(calls[-2:], [("start", "portikus-egress-apply.service")] * 2)
+        self.assertLess(calls.index(("disable", "--now", "portikus-registry-ghcr.service")), len(calls) - 2)
 
 
 class RenderTest(Base):

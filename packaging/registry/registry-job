@@ -399,6 +399,9 @@ class Helper:
         else:
             self.host.systemctl("disable", "--now", unit)
         # With no request the egress helper reloads its applied table, now with or without the redirect.
+        # A start while a run is in progress only waits for that run, which may have read the old
+        # switch; the second start is a fresh run that reads the new one.
+        self.host.systemctl("start", EGRESS_APPLY_UNIT)
         self.host.systemctl("start", EGRESS_APPLY_UNIT)
         return True
 
@@ -512,7 +515,6 @@ class Helper:
             "lastClearedAt": previous.get("lastClearedAt") if isinstance(previous.get("lastClearedAt"), str) else None,
             "lastClearReason": previous.get("lastClearReason")
             if previous.get("lastClearReason") in ("admin", "full", "credential") else None,
-            # Beyond the contract's RegistryStatusFile today; its parser drops unknown keys.
             "lastClearError": previous.get("lastClearError")
             if isinstance(previous.get("lastClearError"), str) else None,
             "updatedAt": now_iso(),

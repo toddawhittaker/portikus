@@ -3,11 +3,13 @@ import { expect, test } from "vitest";
 import {
 	addRefusal,
 	cacheUseText,
+	clearErrorText,
 	credentialErrors,
 	listHas,
 	parseSeedMaxGiB,
 	seedListError,
 	shortImageName,
+	shownText,
 } from "./text.js";
 
 test("short names drop only the Docker Hub prefix", () => {
@@ -51,6 +53,43 @@ test("the use report offers only images the list can take", () => {
 		"Needs the ghcr.io cache on.",
 	);
 	expect(addRefusal([], "ghcr.io/owner/tool:1", true)).toBeNull();
+});
+
+test("a saved ghcr.io name with the cache off is blamed on the list, not the row", () => {
+	expect(addRefusal(["ghcr.io/owner/tool:1"], "docker.io/library/redis:7", false)).toBe(
+		"The seed list has ghcr.io images; turn on the ghcr.io cache or remove them first.",
+	);
+	expect(
+		addRefusal(["ghcr.io/owner/tool:1"], "docker.io/library/redis:7", true),
+	).toBeNull();
+});
+
+test("capped usage tables say how many rows they show", () => {
+	expect(shownText(200, 200)).toBeNull();
+	expect(shownText(3, 3)).toBeNull();
+	expect(shownText(200, 340)).toBe("Showing 200 of 340.");
+});
+
+test("a failed clear is shown, and a stopped Hub cache waits for a clear that works", () => {
+	const cache = {
+		sizeBytes: 1,
+		usedBytes: 0,
+		hubUp: true,
+		ghcrEnabled: false,
+		ghcrUp: false,
+		hubCredentialSet: true,
+		lastClearedAt: null,
+		lastClearReason: null,
+		updatedAt: "2026-09-30T10:00:00.000Z",
+	};
+	expect(clearErrorText(cache)).toBeNull();
+	expect(clearErrorText({ ...cache, lastClearError: null })).toBeNull();
+	expect(clearErrorText({ ...cache, lastClearError: "disk busy" })).toBe(
+		"The last clear failed: disk busy",
+	);
+	expect(clearErrorText({ ...cache, hubUp: false, lastClearError: "disk busy" })).toBe(
+		"The last clear failed: disk busy The Docker Hub cache stays stopped until Clear cache succeeds.",
+	);
 });
 
 test("cache space reads as used of total", () => {

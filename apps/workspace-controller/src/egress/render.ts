@@ -1,7 +1,9 @@
 import {
 	type EgressApplyPolicy,
 	GHCR_CACHE_PORT,
+	GHCR_UPSTREAM_NAMES,
 	HUB_CACHE_PORT,
+	HUB_UPSTREAM_NAMES,
 	isEgressHostName,
 	parseIpv4Cidr,
 } from "@portikus/contracts";
@@ -104,17 +106,6 @@ function ownResolverRules(env: EgressEnv): string[] {
 function squidCapRule(env: EgressEnv): string {
 	return `add rule ${TABLE} input iifname "${env.bridge}" tcp dport { ${SQUID_HTTP_PORT}, ${SQUID_TLS_PORT} } ct state new add @squid_conns { ip saddr ct count over ${SQUID_CONNECTIONS_PER_WORKSPACE} } reject with tcp reset`;
 }
-
-/** The names a pull through each cache reaches upstream; all must be allowed (S2). */
-export const HUB_UPSTREAM_NAMES = [
-	"registry-1.docker.io",
-	"auth.docker.io",
-	"production.cloudflare.docker.com",
-] as const;
-export const GHCR_UPSTREAM_NAMES = [
-	"ghcr.io",
-	"pkg-containers.githubusercontent.com",
-] as const;
 
 function covers(entry: string, host: string): boolean {
 	return host === entry || host.endsWith(`.${entry}`);

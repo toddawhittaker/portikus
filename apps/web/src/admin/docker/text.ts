@@ -53,6 +53,11 @@ export function addRefusal(
 	// Short, because it sits in a table cell.
 	if (!ghcrEnabled && image.startsWith("ghcr.io/"))
 		return "Needs the ghcr.io cache on.";
+	if (
+		!ghcrEnabled &&
+		list.some((each) => canonicalImageName(each).startsWith("ghcr.io/"))
+	)
+		return "The seed list has ghcr.io images; turn on the ghcr.io cache or remove them first.";
 	return seedListError([...list, shortImageName(image)], ghcrEnabled);
 }
 
@@ -60,6 +65,20 @@ export function addRefusal(
 export function cacheUseText(cache: RegistryStatusFile | null): string | null {
 	if (!cache) return null;
 	return `${formatBytes(cache.usedBytes)} of ${formatBytes(cache.sizeBytes)} used`;
+}
+
+/** "Showing 200 of 340" when the API capped the rows, or null when all are shown. */
+export function shownText(shown: number, total: number): string | null {
+	return total > shown ? `Showing ${shown} of ${total}.` : null;
+}
+
+/** The failed clear as a sentence; a stopped Hub cache waits for a clear that works. */
+export function clearErrorText(cache: RegistryStatusFile): string | null {
+	if (!cache.lastClearError) return null;
+	const held = cache.hubUp
+		? ""
+		: " The Docker Hub cache stays stopped until Clear cache succeeds.";
+	return `The last clear failed: ${cache.lastClearError}${held}`;
 }
 
 export const CLEAR_REASON: Record<

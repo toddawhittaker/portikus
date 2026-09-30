@@ -3,6 +3,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -387,14 +388,40 @@ describe("a request (ADR 0038)", () => {
 		expect(status()).toMatchObject({ requestId: "req-1", ok: false });
 	});
 
-	test("no request on a site that never applied: the default open table, with the ghcr redirect when on", async () => {
+	test("no request, table loaded, no applied.json: the loaded table is left alone", async () => {
+		writeFileSync(deps.ghcrEnabledPath, "on\n");
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()).toEqual([]);
+		expect(systemctls()).toEqual([]);
+		expect(read("status.json")).toBeNull();
+	});
+
+	test("a site that never applied: boot marks the default table, and a later switch re-renders it", async () => {
+		tableLoadedNow = false;
+		expect(await runHelper(deps)).toBe(0);
+		expect(read("default-open")).toBe("");
+		expect(loads()[0]).not.toMatch(/redirect to :5001/);
+		calls = [];
 		writeFileSync(deps.ghcrEnabledPath, "on\n");
 		expect(await runHelper(deps)).toBe(0);
 		expect(loads()).toHaveLength(1);
 		expect(loads()[0]).toMatch(/tcp dport 443 redirect to :5001/);
 		expect(loads()[0]).not.toMatch(/forward .*drop/);
-		expect(systemctls()).toEqual([]);
-		expect(read("status.json")).toBeNull();
+		expect(read("applied.json")).toBeNull();
+	});
+
+	test("a real policy apply removes the default-open marker", async () => {
+		tableLoadedNow = false;
+		expect(await runHelper(deps)).toBe(0);
+		expect(read("default-open")).toBe("");
+		writeRequest(policy());
+		expect(await runHelper(deps)).toBe(0);
+		expect(read("default-open")).toBeNull();
+		// Losing applied.json now leaves the restrictive table alone.
+		rmSync(state("applied.json"));
+		calls = [];
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()).toEqual([]);
 	});
 
 	test("no request after a policy applied: its table again, names kept, ghcr redirect gone when off", async () => {
