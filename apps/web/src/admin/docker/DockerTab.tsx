@@ -361,7 +361,7 @@ function GhcrCard({ data }: { data: DockerAdminResponse }) {
 	function toggle(next: boolean) {
 		if (save.isPending) return;
 		save.mutate(
-			{ ghcrEnabled: next, seedMaxGiB: data.seedMaxGiB },
+			{ ghcrEnabled: next },
 			{
 				onSuccess: () =>
 					toast.show({
@@ -393,7 +393,9 @@ function GhcrCard({ data }: { data: DockerAdminResponse }) {
 			>
 				Off by default. While it is on, workspaces cannot docker push to ghcr.io, cannot
 				pull private ghcr.io images, and tools other than Docker that talk to ghcr.io,
-				such as curl, gh and ORAS, do not work.
+				such as curl, gh and ORAS, do not work. Turning it off reaches a running
+				workspace only when it next starts; until then, ghcr.io in that workspace still
+				goes through the cache.
 			</p>
 			{save.isError ? (
 				<p className="m-0 text-[13px] text-status-error" role="alert">

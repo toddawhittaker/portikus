@@ -366,7 +366,7 @@ function SizeLimit({ data }: { data: DockerAdminResponse }) {
 		}
 		setError(null);
 		save.mutate(
-			{ ghcrEnabled: data.ghcrEnabled, seedMaxGiB: gib },
+			{ seedMaxGiB: gib },
 			{
 				onSuccess: () => {
 					setDraft(null);

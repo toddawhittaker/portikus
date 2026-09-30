@@ -196,6 +196,9 @@ test("the ghcr.io switch is off by default, says what breaks, and round-trips", 
 	await expect(warning).toContainText("cannot docker push to ghcr.io");
 	await expect(warning).toContainText("cannot pull private ghcr.io images");
 	await expect(warning).toContainText("tools other than Docker");
+	await expect(warning).toContainText(
+		"Turning it off reaches a running workspace only when it next starts",
+	);
 
 	// A ghcr.io name is refused while the cache is off (ruling S8).
 	const add = page.getByTestId("docker-seed").getByLabel("Image", { exact: true });

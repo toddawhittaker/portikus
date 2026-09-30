@@ -245,7 +245,7 @@ test("a failed removal returns focus to the button, not the heading", async () =
 	await waitFor(() => expect(document.activeElement).toBe(opener));
 });
 
-test("the ghcr.io switch states what breaks and saves both settings", async () => {
+test("the ghcr.io switch states what breaks and saves only itself", async () => {
 	const fetch = serve(data(), [], (url, init) =>
 		url === "/admin/docker/settings" && init?.method === "PUT"
 			? new Response(null, { status: 204 })
@@ -258,11 +258,30 @@ test("the ghcr.io switch states what breaks and saves both settings", async () =
 	expect(warning).toContain("docker push to ghcr.io");
 	expect(warning).toContain("private ghcr.io images");
 	expect(warning).toContain("tools other than Docker");
+	expect(warning).toContain(
+		"Turning it off reaches a running workspace only when it next starts",
+	);
 	fireEvent.click(toggle);
 	await waitFor(() =>
 		expect(bodyOf(fetch, "PUT", "/admin/docker/settings")).toEqual({
 			ghcrEnabled: true,
-			seedMaxGiB: 8,
+		}),
+	);
+});
+
+test("Save limit sends only the seed size limit", async () => {
+	const fetch = serve(data({ ghcrEnabled: true }), [], (url, init) =>
+		url === "/admin/docker/settings" && init?.method === "PUT"
+			? new Response(null, { status: 204 })
+			: undefined,
+	);
+	renderWithQuery(<DockerTab />);
+	const limit = await screen.findByLabelText("Largest seed (GiB)");
+	fireEvent.change(limit, { target: { value: "12" } });
+	fireEvent.click(screen.getByRole("button", { name: "Save limit" }));
+	await waitFor(() =>
+		expect(bodyOf(fetch, "PUT", "/admin/docker/settings")).toEqual({
+			seedMaxGiB: 12,
 		}),
 	);
 });
