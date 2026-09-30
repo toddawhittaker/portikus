@@ -9,6 +9,7 @@ import {
 	createStudent,
 	expectConnected,
 	newTerminal,
+	query,
 	settledAxe,
 	terminalIds,
 	toast,
@@ -100,4 +101,53 @@ test("a page opened on an already upgraded agent shows no toast", async ({
 	await expectConnected(page, id);
 	await expect.poll(() => attachments(id)).toBe(1);
 	await expect(toast(page, MESSAGE)).toHaveCount(0);
+});
+
+test("a workspace stopped and started under an open page shows no toast", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Restarted" });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(workTabs(page)).toBeVisible({ timeout: 15_000 });
+	await newTerminal(page);
+	await expect
+		.poll(async () => (await terminalIds(student.workspaceId, project.id)).length)
+		.toBe(1);
+	const [id] = await terminalIds(student.workspaceId, project.id);
+	if (!id) throw new Error("the terminal row was not created");
+	await expectConnected(page, id);
+	await restartAgent(id, "fake-build-4");
+	await expect.poll(() => attachments(id)).toBe(1);
+
+	// The worker does not run here, so the test moves the row itself.
+	await query(
+		"update workspaces set state = 'stopped', desired_state = 'stopped', updated_at = now() where id = $1",
+		[student.workspaceId],
+	);
+	await expect(
+		page.getByRole("heading", { name: "Your workspace is stopped" }),
+	).toBeVisible({ timeout: 15_000 });
+	await query(
+		"update workspaces set state = 'running', desired_state = 'running', updated_at = now() where id = $1",
+		[student.workspaceId],
+	);
+	// The started workspace runs a newer agent; that is a fresh start, not an upgrade.
+	await restartAgent(id, "fake-build-5");
+	await expect.poll(() => attachments(id), { timeout: 15_000 }).toBe(1);
+	await expectConnected(page, id);
+	// The build frame comes before any output, so once this line shows the
+	// page has already decided about the toast.
+	const printed = await fetch(`${FAKE_AGENT_URL}/__test/terminals/${id}/output`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ lines: ["after-start"] }),
+	});
+	expect(printed.ok).toBe(true);
+	await expect(
+		page.locator(`[data-testid=terminal-pane-${id}] .xterm-rows`),
+	).toContainText("after-start");
+	// Read once: a retrying assertion would wait out an auto-dismissed toast.
+	expect(await toast(page, MESSAGE).count()).toBe(0);
 });
