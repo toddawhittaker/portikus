@@ -1693,3 +1693,73 @@ but it also overrides a deliberate choice.
 when postinst sees no enable links left.
 
 **Source.** Epic 15.2 review fixes (#876).
+
+## Build the workspace image on an apt-installed VM
+
+**What.** `make build-workspace-image` fails on a VM installed with apt,
+because its rsync cannot create `/var/lib/portikus/incus`.
+
+**What it would take.** Have the target create that folder with the
+right owner first, or copy to a folder the build user owns.
+
+**Source.** Epic 15.3.
+
+## Announce an admin rebuild result after the panel closes
+
+**What.** A rebuild or Docker reset that ends after its detail panel is
+closed or switched gets no toast. The Audit tab still shows it.
+
+**What it would take.** Watch pending operations at the Users view level
+rather than the panel, and toast when any of them ends.
+
+**Source.** Epic 15.3 (#881).
+
+## End toast for Replace home folder
+
+**What.** Replace home folder shows a pending badge but no toast when it
+ends.
+
+**What it would take.** Read its result audit row the same way rebuild
+and Reset Docker now do, and show the same toast.
+
+**Source.** Epic 15.3 (#881).
+
+## A "moving" option for StateBadge
+
+**What.** A pending label follows the workspace state's badge, so the
+student's "Rebuilding" badge can show a stopped ring.
+
+**What it would take.** A StateBadge option that shows a spinner whatever
+the workspace state, used by every pending label.
+
+**Source.** Epic 15.3 (#881).
+
+## Keycap emoji in clone names
+
+**What.** A keycap emoji such as 1️⃣ keeps its digit in the suggested
+clone name.
+
+**What it would take.** Strip a digit, `#` or `*` followed by the keycap
+combining mark, and add a unit test.
+
+**Source.** Epic 15.3 (#883).
+
+## Sturdier agent restart check in the install test
+
+**What.** The install test reads the agent's start time from the process,
+and leaves its test workspace behind if a step fails.
+
+**What it would take.** Read systemd's `ExecMainStartTimestamp` for the
+agent unit, and destroy the test workspace in a shell trap.
+
+**Source.** Epic 15.3 (#887).
+
+## Playwright test for the stop and start upgrade toast
+
+**What.** The fix that stops a stopped and started workspace from showing
+the upgrade toast has only a unit test.
+
+**What it would take.** Teach the fake agent to report its terminals gone
+and then a new build, so an e2e test can stage it.
+
+**Source.** Epic 15.3 review fixes.
