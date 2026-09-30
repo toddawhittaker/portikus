@@ -1,0 +1,285 @@
+---
+# Docker pull-through caches on the workspace gateway (issue #840, security
+# rulings S1, S3 and S7).  Debian's docker-registry in proxy mode, as its own
+# user, on its own loop-file filesystem.  The units and the root cache
+# helper come with the portikus package; the helper writes the registry
+# configs and applies the admin page's requests.  This role makes what they
+# need and enables them.  Nothing outside the helper depends on the storage.
+
+- name: Require the gateway address the caches and the platform are fixed to
+  ansible.builtin.assert:
+    that:
+      - incus_network_cidr | ansible.utils.ipaddr('address') == registry_cache_gateway
+    fail_msg: >-
+      The Docker caches listen on {{ registry_cache_gateway }}, which
+      packages/contracts/src/docker-cache.ts fixes; incus_network_cidr is
+      {{ incus_network_cidr }}.
+
+# Debian's unit listens on every interface.  Masked before the package is
+# installed, so its postinst cannot start it even once.
+- name: Mask Debian's own registry service
+  ansible.builtin.file:
+    src: /dev/null
+    dest: /etc/systemd/system/docker-registry.service
+    state: link
+    force: true
+
+- name: Install the registry
+  ansible.builtin.apt:
+    name:
+      - docker-registry
+      - e2fsprogs
+      - openssl
+    state: present
+
+- name: Keep Debian's own registry service stopped and masked
+  ansible.builtin.systemd_service:
+    name: docker-registry.service
+    state: stopped
+    masked: true
+
+- name: Create the caches' group
+  ansible.builtin.group:
+    name: portikus-registry
+    system: true
+
+- name: Create the caches' user
+  ansible.builtin.user:
+    name: portikus-registry
+    group: portikus-registry
+    system: true
+    shell: /usr/sbin/nologin
+    home: /nonexistent
+    create_home: false
+
+# ── Configuration, token and certificates ─────────────────────────
+
+- name: Create the registry configuration directory
+  ansible.builtin.file:
+    path: "{{ registry_cache_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# The API writes requests here and reads status.json (ADR 0030 pattern).
+- name: Create the cache helper's request directory
+  ansible.builtin.file:
+    path: "{{ registry_cache_jobs_dir }}"
+    state: directory
+    owner: root
+    group: portikus
+    mode: "0770"
+  notify: Restart portikus-api
+
+# The registry sends it with each notification; root writes it into the
+# configs, and the worker checks it (ruling S7).
+- name: Generate the notification token
+  ansible.builtin.shell:
+    cmd: umask 077 && openssl rand -hex 32 > {{ registry_cache_config_dir }}/events-token
+    creates: "{{ registry_cache_config_dir }}/events-token"
+  no_log: true
+  notify:
+    - Restart portikus-worker
+    - Restart the running Docker caches
+
+- name: Let only root and the worker read the notification token
+  ansible.builtin.file:
+    path: "{{ registry_cache_config_dir }}/events-token"
+    owner: root
+    group: portikus-worker
+    mode: "0640"
+
+- name: Start with the ghcr.io cache off
+  ansible.builtin.copy:
+    dest: "{{ registry_cache_config_dir }}/ghcr-enabled"
+    content: "off\n"
+    force: false
+    owner: root
+    group: root
+    mode: "0644"
+
+# The authority may sign only ghcr.io, and workspaces trust it only through
+# /etc/docker/certs.d (ruling S3).  Its key stays root's.
+- name: Create the ghcr.io cache's authority and certificate
+  ansible.builtin.shell:
+    chdir: "{{ registry_cache_config_dir }}"
+    cmd: |
+      set -eu
+      umask 077
+      openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+        -subj "/CN=Portikus ghcr.io cache authority" -keyout ghcr-ca.key -out ghcr-ca.crt \
+        -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign" \
+        -addext "nameConstraints=critical,permitted;DNS:ghcr.io"
+      openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+        -subj "/CN=ghcr.io" -keyout ghcr.key -out ghcr.csr
+      printf 'subjectAltName=DNS:ghcr.io\nbasicConstraints=critical,CA:FALSE\nextendedKeyUsage=serverAuth\nkeyUsage=critical,digitalSignature\n' > ghcr.ext
+      openssl x509 -req -in ghcr.csr -CA ghcr-ca.crt -CAkey ghcr-ca.key -CAcreateserial \
+        -days 3650 -extfile ghcr.ext -out ghcr.crt
+      rm -f ghcr.csr ghcr.ext ghcr-ca.srl
+    creates: "{{ registry_cache_config_dir }}/ghcr.crt"
+  notify: Restart the running Docker caches
+
+- name: Keep the authority's key root's alone
+  ansible.builtin.file:
+    path: "{{ registry_cache_config_dir }}/ghcr-ca.key"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Let the caches' group read the ghcr.io key
+  ansible.builtin.file:
+    path: "{{ registry_cache_config_dir }}/ghcr.key"
+    owner: root
+    group: portikus-registry
+    mode: "0640"
+
+# The controller copies the authority into workspaces while ghcr.io is on.
+- name: Make the certificates readable
+  ansible.builtin.file:
+    path: "{{ registry_cache_config_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - ghcr-ca.crt
+    - ghcr.crt
+
+# ── The cache's own filesystem (ruling S1) ────────────────────────
+
+- name: Look at the cache's file
+  ansible.builtin.stat:
+    path: "{{ registry_cache_image }}"
+  register: registry_cache_image_stat
+
+- name: Work out the cache's size
+  ansible.builtin.set_fact:
+    registry_cache_bytes: "{{ portikus_registry_cache_gib | int * 1073741824 }}"
+
+- name: Require a cache of 1 GiB or more
+  ansible.builtin.assert:
+    that:
+      - portikus_registry_cache_gib | int >= 1
+    fail_msg: "portikus_registry_cache_gib must be a whole number of GiB, 1 or more."
+
+# A cache is only a cache: a new size means a new, empty filesystem.
+- name: Make the cache's file at its size
+  when: >-
+    not registry_cache_image_stat.stat.exists
+    or registry_cache_image_stat.stat.size != registry_cache_bytes | int
+  block:
+    - name: Read the free space beside the cache's file
+      ansible.builtin.command:
+        argv: [df, --output=avail, -B1, "{{ registry_cache_image | dirname }}"]
+      register: registry_cache_free
+      changed_when: false
+      check_mode: false
+
+    - name: Require room for the cache's file
+      ansible.builtin.assert:
+        that:
+          - >-
+            registry_cache_free.stdout_lines | last | int
+            + (registry_cache_image_stat.stat.size | default(0) | int)
+            - registry_cache_bytes | int >= registry_cache_spare_bytes | int
+        fail_msg: >-
+          A {{ portikus_registry_cache_gib }} GiB Docker cache would leave less
+          than {{ registry_cache_spare_bytes | int // 1073741824 }} GiB free on
+          the main disk.  Choose a smaller size with dpkg-reconfigure portikus.
+          Nothing was changed.
+
+    - name: Stop the caches and unmount their filesystem
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - portikus-registry-ghcr.service
+        - portikus-registry-hub.service
+        - "{{ registry_cache_mount_unit }}"
+      failed_when: false
+
+    - name: Remove the old cache file
+      ansible.builtin.file:
+        path: "{{ registry_cache_image }}"
+        state: absent
+
+    # fallocate reserves the space, so a full root filesystem cannot fail the cache.
+    - name: Make the cache's file
+      ansible.builtin.command:
+        argv: [fallocate, --length, "{{ registry_cache_bytes }}", "{{ registry_cache_image }}"]
+      changed_when: true
+
+    - name: Make the cache's filesystem
+      ansible.builtin.command:
+        argv: [mkfs.ext4, -q, -F, -m, "0", -L, portikus-registry, "{{ registry_cache_image }}"]
+      changed_when: true
+      notify: Restart the running Docker caches
+
+- name: Make the cache's file root's alone
+  ansible.builtin.file:
+    path: "{{ registry_cache_image }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Create the cache's mount point
+  ansible.builtin.file:
+    path: "{{ registry_cache_mount }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the cache's mount unit
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ registry_cache_mount_unit }}"
+    content: |
+      # Managed by Ansible (registry_cache role).  The Docker caches'
+      # filesystem; the root cache helper remakes it to clear them.
+      [Unit]
+      Description=Portikus Docker cache filesystem
+
+      [Mount]
+      What={{ registry_cache_image }}
+      Where={{ registry_cache_mount }}
+      Type=ext4
+      Options=loop,nodev,nosuid,noexec
+
+      [Install]
+      WantedBy=multi-user.target
+    owner: root
+    group: root
+    mode: "0644"
+  register: registry_cache_mount_file
+
+- name: Mount the cache's filesystem
+  ansible.builtin.systemd_service:
+    name: "{{ registry_cache_mount_unit }}"
+    enabled: true
+    state: started
+    daemon_reload: "{{ registry_cache_mount_file is changed }}"
+
+# ── The caches and the helper ─────────────────────────────────────
+
+- name: Enable and start the Docker Hub cache
+  ansible.builtin.systemd_service:
+    name: portikus-registry-hub.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Watch for cache requests, and write the status every minute
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - portikus-registry-job.path
+    - portikus-registry-status.timer
+
+# The admin page reads it; the timer rewrites it within a minute anyway.
+- name: Write the cache status
+  ansible.builtin.command:
+    argv: [/usr/lib/portikus/registry-job, status]
+  changed_when: false

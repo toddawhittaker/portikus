@@ -367,6 +367,9 @@ EOF
   grep -q "Portikus setup is running in the background" "${LOGS}/apt-install.txt" \
     || { echo "postinst did not start setup"; return 1; }
   vm "dpkg-query -W -f '\${Version}' portikus" | grep -qx "$(cat "${LOGS}/${1:-v1}.version")"
+  # The Docker cache question's default, never preseeded here (issue #840).
+  vm "sudo grep -qx 'portikus_registry_cache_gib: 20' /etc/portikus/portikus.yaml" \
+    || { echo "portikus.yaml does not hold the Docker cache size"; return 1; }
 }
 
 # follow_setup LABEL -- portikus setup --follow, and proof it returned when the unit ended.
@@ -513,9 +516,14 @@ upgrade() {
 after_upgrade() {
   vm "sudo portikus status"
   local s
-  for s in portikus-api portikus-worker portikus-controller; do
+  for s in portikus-api portikus-worker portikus-controller portikus-registry-hub; do
     [ "$(vm "systemctl is-active ${s}")" = active ] || { echo "${s} is not active"; return 1; }
   done
+  # The Docker cache's own filesystem, at the install question's size (issue #840).
+  [ "$(vm "sudo stat -c %s /var/lib/portikus-registry.img")" = $((20 * 1024 * 1024 * 1024)) ] \
+    || { echo "the Docker cache's file is not 20 GiB"; return 1; }
+  [ "$(vm "systemctl is-enabled docker-registry.service")" = masked ] \
+    || { echo "Debian's docker-registry.service is not masked"; return 1; }
   vm "curl -fsS --cacert /etc/portikus/caddy-root.crt -o /dev/null https://${PUBLIC_HOST}/health"
   # The chosen password still signs in after the upgrade.
   sed -n 2p "${LOGS}/admin-signin" | tr -d '\n' | vm_stdin "

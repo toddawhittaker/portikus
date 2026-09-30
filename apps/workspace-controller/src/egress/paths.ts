@@ -6,6 +6,8 @@ export const EGRESS_PATHS = {
 	stateDir: "/var/lib/portikus/egress-state",
 	/** Root-owned, written by Ansible. */
 	env: "/etc/portikus/egress.env",
+	/** Root-owned, written by the registry cache helper: "on" while the ghcr.io cache runs. */
+	ghcrEnabled: "/etc/portikus/registry/ghcr-enabled",
 } as const;
 
 /** File names inside the state directory. */

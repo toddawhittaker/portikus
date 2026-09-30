@@ -13,3 +13,7 @@ portikus_lti_tool_key_path: /etc/portikus/lti-tool-key.pem
 
 # The workspace image job's request directory (docs/SPEC.md section 22.4).
 portikus_image_jobs_dir: /var/lib/portikus/image-jobs
+
+# The root Docker cache helper's request directory (issue #840), made by the
+# registry_cache role; packages/contracts/src/docker-cache.ts fixes it.
+portikus_registry_jobs_dir: /var/lib/portikus/registry-jobs

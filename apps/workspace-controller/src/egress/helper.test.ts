@@ -120,6 +120,7 @@ beforeEach(() => {
 		requestPath: join(dir, "request", "request.json"),
 		stateDir: join(dir, "state"),
 		envPath: join(dir, "egress.env"),
+		ghcrEnabledPath: join(dir, "ghcr-enabled"),
 		now: () => new Date("2026-09-27T12:00:00Z"),
 		allowAnyOwner: true,
 		run: async (file, args, input) => {
@@ -547,6 +548,7 @@ describe("at boot, when the table is missing", () => {
 		const [first, second] = loads();
 		expect(first).toMatch(/redirect to :5300/);
 		expect(second?.split("\n").filter((l) => l.startsWith("add rule"))).toEqual([
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
 			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
 		]);
 		expect(status().error).toMatch(/workspace forwarding is dropped/);
@@ -561,7 +563,10 @@ describe("at boot, when the table is missing", () => {
 			loads()[0]
 				?.split("\n")
 				.filter((l) => l.startsWith("add rule")),
-		).toEqual(['add rule inet portikus_egress forward iifname "portikus-ws" drop']);
+		).toEqual([
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
+			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
+		]);
 	});
 
 	test("the last applied open mode loads empty chains and starts no dnsmasq", async () => {
@@ -608,7 +613,10 @@ describe("at boot, when the table is missing", () => {
 			loads()[0]
 				?.split("\n")
 				.filter((l) => l.startsWith("add rule")),
-		).toEqual(['add rule inet portikus_egress forward iifname "portikus-ws" drop']);
+		).toEqual([
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
+			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
+		]);
 		expect(status().error).toMatch(/workspace forwarding is dropped/);
 	});
 
@@ -650,6 +658,7 @@ describe("at boot, when the table is missing", () => {
 		expect(await runHelper(deps)).toBe(1);
 		expect(loads()).toHaveLength(1);
 		expect(droppedRules()).toEqual([
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
 			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
 		]);
 	});
@@ -661,6 +670,7 @@ describe("at boot, when the table is missing", () => {
 		writeFileSync(deps.envPath, "garbage\n");
 		expect(await runHelper(deps)).toBe(1);
 		expect(droppedRules()).toEqual([
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
 			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
 		]);
 		expect(status().error).toMatch(/workspace forwarding is dropped/);
@@ -672,6 +682,7 @@ describe("at boot, when the table is missing", () => {
 		writeFileSync(deps.envPath, "garbage\n");
 		expect(await runHelper(deps)).toBe(1);
 		expect(droppedRules()).toEqual([
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
 			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
 		]);
 		expect(status().error).toMatch(/workspace forwarding is dropped/);
