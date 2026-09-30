@@ -177,6 +177,7 @@ jobs:
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
         run: pnpm exec vitest run --coverage --shard=${{ matrix.shard }}/2 --reporter=blob
         env:
+          COVERAGE_SHARD: "true"
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
       - name: Upload the shard's test report
         if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
