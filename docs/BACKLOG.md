@@ -1664,6 +1664,23 @@ for large files, and a streamed PDF source instead of an in-memory copy.
 
 **Source.** Epic 15.2 (#816).
 
+## Catch a clear followed at once by long output
+
+**What.** The terminal's clear frame comes from a half-second poll of
+tmux's history size, so `clear && npm test` scrolls new history in before
+the poll sees it empty, and the browser keeps the old scrollback.
+
+**Why.** A student who clears before a test run still scrolls back into
+the previous run.
+
+**What it would take.** A signal that does not depend on timing: for
+example a counter the agent can read from tmux that changes on every
+history clear (a tmux patch or a newer tmux), or scanning the pane's
+output for CSI 3 J in the agent before tmux sees it, which needs the
+agent in the pane's output path.
+
+**Source.** Issue #882 review.
+
 ## Leave an administrator's disabled services alone
 
 **What.** Setup enables the API, controller and worker on every

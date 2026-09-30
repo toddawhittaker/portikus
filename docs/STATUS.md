@@ -1236,9 +1236,10 @@ no longer keep the focus ring after a pointer dismiss, and the disabled
 File item is gone from the New menu (issues #320, #321 and #322, PR #334).
 Running `clear` now erases the saved lines as well as the screen. The
 interactive terminal handles the CSI 3 J sequence (the "erase saved
-lines" control code that `clear` sends on xterm-256color), and the tmux
-terminal overrides set E3, the erase-scrollback capability, so tmux passes
-the request through (issue #335, PR #344).
+lines" control code that `clear` sends on xterm-256color) (issue #335,
+PR #344). The E3 tmux override added then never worked, because tmux 3.5a
+does not pass CSI 3 J on; issue #882 replaced it with the pane watcher's
+clear frame.
 
 **Projects and the workspace chrome.** The projects pane shows the project
 name without the directory slug beside it. The status-bar path, the

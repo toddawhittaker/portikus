@@ -346,7 +346,7 @@ test.skipIf(!haveTmux)(
 );
 
 test.skipIf(!haveTmux)(
-	"clear empties the pane's history, which the pane watcher reports (#882)",
+	"clear empties the pane's history as listPanes reports it",
 	async () => {
 		const server = scratchServer("clear");
 		const home = await mkdtemp(join(tmpdir(), "portikus-clear-"));
