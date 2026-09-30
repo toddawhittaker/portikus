@@ -167,6 +167,9 @@ jobs:
           cache: pnpm
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
         run: pnpm install --frozen-lockfile
+      # Some tests import other packages from their dist, which typecheck emits.
+      - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
+        run: pnpm typecheck
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
         run: pnpm test:coverage
         env:
