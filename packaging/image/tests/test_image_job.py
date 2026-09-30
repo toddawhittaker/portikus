@@ -934,6 +934,19 @@ class CheckTest(Base):
         self.assertEqual(self.runner.run_check(), 0)
         self.assertIsNone(self.published()["image"])
 
+    def test_a_failed_check_keeps_the_image_last_recorded(self):
+        self.host.urls[ij.DEFAULT_RELEASES_URL] = json.dumps([{"tag_name": "image-2026.09.13"}]).encode()
+        self.runner.run_check()
+        del self.host.urls[ij.DEFAULT_RELEASES_URL]
+        self.assertEqual(self.runner.run_check(), 0)
+        self.assertEqual(self.published()["image"], "2026.09.13")
+
+    def test_the_release_list_download_is_capped_and_redirects_only_to_https(self):
+        self.runner.run_check()
+        curl = self.host.ran("curl")[0]
+        self.assertEqual(curl[curl.index("--max-filesize") + 1], str(ij.RELEASES_MAX_BYTES))
+        self.assertEqual(curl[curl.index("--proto-redir") + 1], "=https")
+
     def test_names_a_newer_package_only_when_apt_has_one(self):
         self.host.candidate = "0.1.700"
         self.runner.run_check()
@@ -953,6 +966,8 @@ class CheckTest(Base):
         service = (units / "portikus-image-check.service").read_text()
         timer = (units / "portikus-image-check.timer").read_text()
         self.assertIn("ExecStart=/usr/lib/portikus/image-job check\n", service)
+        self.assertIn("CapabilityBoundingSet=\n", service)
+        self.assertIn("RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX\n", service)
         self.assertIn("OnCalendar=daily\n", timer)
 
 

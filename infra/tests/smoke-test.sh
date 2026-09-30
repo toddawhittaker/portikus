@@ -791,6 +791,10 @@ check_output "the API's proxy stays on the GnuTLS build" "/usr/sbin/squid-gnutls
   ssh_cmd "update-alternatives --query squid | sed -n 's/^Value: //p'"
 check "the egress helper watches for requests" ssh_cmd systemctl is-active portikus-egress-apply.path
 check "the egress helper runs at boot" ssh_cmd systemctl is-enabled portikus-egress-apply.service
+# One unit at a time: is-enabled passes when any one of several is enabled.
+# shellcheck disable=SC2016 # expanded on the VM
+check "the API, controller and worker start at boot" \
+  ssh_cmd 'for u in portikus-api portikus-controller portikus-worker; do systemctl is-enabled --quiet "$u" || exit 1; done'
 check_output "the egress helper's last run did not fail" "no" \
   ssh_cmd "systemctl is-failed --quiet portikus-egress-apply.service && echo yes || echo no"
 egress_mode() {
@@ -2150,6 +2154,17 @@ for terminal in json.load(sys.stdin).get("terminals", []):
         >/dev/null 2>&1 || true
       check "downloaded archive passes unzip -t" \
         ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- unzip -t /tmp/smoke-download.zip"
+
+      # 15.5b An image shown inline carries the sandbox policy, so an SVG
+      #       opened on its own cannot run script (SPEC.md 24.3, #816).
+      alice_student "printf '<svg xmlns=\"http://www.w3.org/2000/svg\"/>' > ${PROJECTS_DIR}/smoke-renamed/smoke.svg" \
+        >/dev/null 2>&1 || true
+      inline_csp() {
+        ssh_cmd "${CURL} -I -b /tmp/portikus-smoke-alice.jar \
+          '${PROJECTS_URL}/${proj_id}/file?path=smoke.svg&inline=1'" \
+          | grep -qi '^content-security-policy: *sandbox;'
+      }
+      check "an inline file is served with a sandbox Content-Security-Policy" inline_csp
 
       # 15.6 Anything Git-enabled under ~/projects becomes a project; a
       #      plain directory does not (plan, Discovery).

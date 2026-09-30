@@ -1520,9 +1520,11 @@ files:
       For webpack-dev-server the same list goes in devServer.allowedHosts.
 
     ## The machine
-    - There is no desktop browser here. Links opened through $BROWSER open
-      in the student's own browser. For sign-in flows, prefer device-code or
-      paste-a-code options over ones that wait for a localhost callback.
+    - There is no desktop browser here. To show the student a web page, run
+      /usr/local/bin/portikus-open <url>; it opens in the student's own
+      browser. Do not rely on $BROWSER, which is empty inside Claude Code.
+      For sign-in flows, prefer device-code or paste-a-code options over
+      ones that wait for a localhost callback.
     - Docker works and is private to this workspace. Ports that containers
       publish appear in the Running pane too.
     - sudo apt install works, but a rebuild replaces the system disk. Only

@@ -10,9 +10,10 @@ if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
 		portikus-image-job.service portikus-egress-apply.service \
 		portikus-backup.service portikus-backup-channel.service \
 		portikus-image-check.timer portikus-image-check.service || true
+	# Setup enables these; left enabled, their links dangle once the unit files are gone.
 	systemctl disable portikus-image-job.path portikus-egress-apply.path \
-		portikus-image-check.timer \
-		portikus-setup.service >/dev/null 2>&1 || true
+		portikus-image-check.timer portikus-backup.timer portikus-backup-channel.timer \
+		portikus-backup-key.socket portikus-setup.service >/dev/null 2>&1 || true
 fi
 
 exit 0
