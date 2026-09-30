@@ -17,6 +17,7 @@ import {
 	WEB_PORT,
 	WEB_ORIGIN as WEB_URL,
 } from "./e2e/ports";
+import { REGISTRY_JOBS_DIR } from "./e2e/registry-jobs";
 import { writeDexGrpcCerts } from "./packages/auth/dist/testing/fake-dex-grpc.js";
 
 const FAKE_AGENT_TOKEN = "e2e-agent-token";
@@ -69,6 +70,8 @@ const dexCerts = writeDexGrpcCerts(dexCertDir, "e2e");
 // The Workspace image section's job directory and image store (e2e/image-jobs.ts).
 mkdirSync(IMAGE_JOBS_DIR, { recursive: true });
 mkdirSync(IMAGES_DIR, { recursive: true });
+// The Docker tab's cache helper directory (e2e/registry-jobs.ts).
+mkdirSync(REGISTRY_JOBS_DIR, { recursive: true });
 
 // The API's standard output, copied here, is the journal the fake journalctl
 // reads for the Logs tab (docs/adr/0036). `tee` empties it when the API starts.
@@ -182,6 +185,8 @@ export default defineConfig({
 				JOURNALCTL_PATH: fakeJournalctl,
 				// A fake image job directory the admin-image tests play the root job in.
 				IMAGE_JOBS_DIR,
+				// A fake cache helper directory the admin-docker tests play the helper in.
+				REGISTRY_JOBS_DIR,
 				// A server that backs itself up and holds its key (ADR 0044).
 				BACKUP_KEY_SOCKET,
 				BACKUP_KEY_STATE,

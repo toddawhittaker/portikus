@@ -1,0 +1,398 @@
+import {
+	type DockerAdminResponse,
+	SEED_IMAGES_MAX,
+	type SeedJob,
+} from "@portikus/contracts";
+import { Button, TextField, Toggletip, useToast } from "@portikus/ui";
+import { useQueryClient } from "@tanstack/react-query";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import { formatBytes } from "../../monitor/format.js";
+import { AdminGroup } from "../AdminSection.js";
+import { longTime } from "../backups/model.js";
+import { useAdminImage } from "../image/queries.js";
+import { announced, errorText } from "../SettingsTab.js";
+import { Notice } from "./Notice.js";
+import {
+	dockerKey,
+	isActive,
+	useRebuildSeed,
+	useSaveDockerSettings,
+	useSaveSeedImages,
+	useSeedJobs,
+} from "./queries.js";
+import { parseSeedMaxGiB, seedListError } from "./text.js";
+
+const STATE_LABEL: Record<SeedJob["state"], string> = {
+	queued: "Waiting to start",
+	running: "Running",
+	succeeded: "Finished",
+	failed: "Failed",
+};
+
+const SUB_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
+
+/** The seed: what it holds now, its latest rebuild, the list for the next one and its size limit. */
+export function SeedCard({ data }: { data: DockerAdminResponse }) {
+	const jobs = useSeedJobs();
+	const rebuild = useRebuildSeed();
+	const toast = useToast();
+	const client = useQueryClient();
+	const latest = jobs.data?.jobs[0] ?? null;
+	const busy = isActive(latest?.state);
+
+	// A rebuild that just finished changed the seed; reread it once.
+	const wasBusy = useRef(false);
+	useEffect(() => {
+		if (busy) {
+			wasBusy.current = true;
+		} else if (wasBusy.current) {
+			wasBusy.current = false;
+			void client.invalidateQueries({ queryKey: dockerKey });
+		}
+	}, [busy, client]);
+
+	const listError = seedListError(data.seedImages, data.ghcrEnabled);
+	const off = busy
+		? "A rebuild is waiting or running. Wait until it finishes."
+		: data.seedImages.length === 0
+			? "Add at least one image before rebuilding the seed."
+			: listError
+				? "Fix the image list below before rebuilding the seed."
+				: null;
+
+	function start() {
+		if (off) return;
+		rebuild.mutate(undefined, {
+			onSuccess: () => toast.show({ tone: "success", title: "Seed rebuild requested" }),
+			onError: (error) =>
+				toast.show({
+					tone: "danger",
+					title: "Could not start the rebuild",
+					children: errorText(error),
+				}),
+		});
+	}
+
+	return (
+		<AdminGroup
+			id="docker-seed-title"
+			title="Seed"
+			testId="docker-seed"
+			help={
+				<Toggletip label="the seed">
+					A new workspace, Reset Docker and a rebuild with Reset Docker start with a
+					copy of the seed, so its images are there without a pull. The copy takes no
+					space until it changes. Existing Docker storage keeps what it has.
+				</Toggletip>
+			}
+			actions={
+				<Button
+					variant="primary"
+					data-testid="docker-seed-rebuild"
+					aria-disabled={off ? true : undefined}
+					aria-describedby={off ? "docker-seed-rebuild-note" : undefined}
+					loading={rebuild.isPending}
+					onClick={start}
+				>
+					Rebuild seed
+				</Button>
+			}
+		>
+			{off ? (
+				<p id="docker-seed-rebuild-note" className="pk-muted m-0 text-[13px]">
+					{off}
+				</p>
+			) : null}
+			<CurrentSeed data={data} />
+			{latest ? <LatestRebuild job={latest} /> : null}
+			<ImageList data={data} error={listError} />
+			<SizeLimit data={data} />
+		</AdminGroup>
+	);
+}
+
+function CurrentSeed({ data }: { data: DockerAdminResponse }) {
+	const seed = data.seed;
+	// Only to say when the seed's Docker no longer matches new workspaces.
+	const image = useAdminImage();
+	const defaultVersion = image.data?.default ?? null;
+	return (
+		<section className="grid gap-2" aria-labelledby="docker-seed-current-title">
+			<h4 className={SUB_HEADING} id="docker-seed-current-title">
+				Current seed
+			</h4>
+			{seed ? (
+				<>
+					<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
+						<dt className="pk-muted">Size</dt>
+						<dd className="m-0" data-testid="docker-seed-size">
+							{formatBytes(seed.sizeBytes)}
+						</dd>
+						<dt className="pk-muted">Built</dt>
+						<dd className="m-0">{longTime(seed.builtAt)}</dd>
+						<dt className="pk-muted">Workspace image</dt>
+						<dd className="m-0" data-testid="docker-seed-image-version">
+							{seed.imageVersion}
+						</dd>
+						<dt className="pk-muted">Images</dt>
+						<dd className="m-0">
+							<ul
+								className="m-0 grid list-none gap-1 p-0 font-mono"
+								data-testid="docker-seed-images"
+							>
+								{seed.images.map((name) => (
+									<li key={name} className="[overflow-wrap:anywhere]">
+										{name}
+									</li>
+								))}
+							</ul>
+						</dd>
+					</dl>
+					{defaultVersion && defaultVersion !== seed.imageVersion ? (
+						<Notice tone="warning" testId="docker-seed-stale">
+							The default workspace image is now {defaultVersion}. Rebuild the seed so
+							its images match the Docker in new workspaces.
+						</Notice>
+					) : null}
+				</>
+			) : (
+				<p className="pk-muted m-0 text-[13px]" data-testid="docker-seed-none">
+					There is no seed yet, so new Docker storage starts empty. Add images below and
+					rebuild the seed.
+				</p>
+			)}
+		</section>
+	);
+}
+
+function LatestRebuild({ job }: { job: SeedJob }) {
+	const tone =
+		job.state === "failed"
+			? "pk-tag pk-tag--error"
+			: job.state === "succeeded"
+				? "pk-tag"
+				: "pk-tag border-transparent bg-status-starting-soft text-status-starting";
+	return (
+		<section className="grid gap-2" aria-labelledby="docker-seed-job-title">
+			<h4 className={SUB_HEADING} id="docker-seed-job-title">
+				Latest rebuild
+			</h4>
+			<dl
+				className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]"
+				data-testid="docker-seed-job"
+			>
+				<dt className="pk-muted">State</dt>
+				<dd className="m-0">
+					<span role="status" data-testid="docker-seed-job-state">
+						<span className={tone}>{STATE_LABEL[job.state]}</span> {job.step}
+						{job.message && job.state === "failed" ? (
+							<span className="sr-only">. {job.message}</span>
+						) : null}
+					</span>
+				</dd>
+				{job.message ? (
+					<>
+						<dt className="pk-muted">Reason</dt>
+						<dd
+							className="m-0 [overflow-wrap:anywhere]"
+							data-testid="docker-seed-job-message"
+						>
+							{job.message}
+						</dd>
+					</>
+				) : null}
+				<dt className="pk-muted">Requested</dt>
+				<dd className="m-0">{longTime(job.requestedAt)}</dd>
+				{job.finishedAt ? (
+					<>
+						<dt className="pk-muted">Finished</dt>
+						<dd className="m-0">{longTime(job.finishedAt)}</dd>
+					</>
+				) : null}
+			</dl>
+		</section>
+	);
+}
+
+function ImageList({
+	data,
+	error,
+}: {
+	data: DockerAdminResponse;
+	error: string | null;
+}) {
+	const save = useSaveSeedImages();
+	const toast = useToast();
+	const [draft, setDraft] = useState("");
+	const [addError, setAddError] = useState<string | null>(null);
+	const list = data.seedImages;
+
+	function add(event: FormEvent) {
+		event.preventDefault();
+		const name = draft.trim();
+		if (name === "") {
+			setAddError("Enter an image name, such as python:3.12.");
+			return;
+		}
+		const next = [...list, name];
+		const refused = seedListError(next, data.ghcrEnabled);
+		if (refused) {
+			setAddError(refused);
+			return;
+		}
+		setAddError(null);
+		save.mutate(next, {
+			onSuccess: () => {
+				setDraft("");
+				toast.show({ tone: "success", title: `${name} added to the seed list` });
+			},
+			onError: (failure) => setAddError(errorText(failure)),
+		});
+	}
+
+	function remove(name: string) {
+		if (save.isPending) return;
+		save.mutate(
+			list.filter((each) => each !== name),
+			{
+				onSuccess: () => {
+					toast.show({ tone: "success", title: `${name} removed from the seed list` });
+					// Its Remove button is gone; the list heading keeps the place.
+					document.getElementById("docker-seed-list-title")?.focus();
+				},
+				onError: (failure) =>
+					toast.show({
+						tone: "danger",
+						title: `Could not remove ${name}`,
+						children: errorText(failure),
+					}),
+			},
+		);
+	}
+
+	return (
+		<section className="grid gap-3" aria-labelledby="docker-seed-list-title">
+			<div className="flex flex-wrap items-baseline gap-x-3">
+				<h4 className={SUB_HEADING} id="docker-seed-list-title" tabIndex={-1}>
+					Images for the next rebuild
+				</h4>
+				<span className="pk-muted text-[13px]" data-testid="docker-seed-list-count">
+					{list.length} of {SEED_IMAGES_MAX}
+				</span>
+			</div>
+			{error ? (
+				<Notice tone="error" testId="docker-seed-list-error">
+					{error}
+				</Notice>
+			) : null}
+			{list.length === 0 ? (
+				<p className="pk-muted m-0 text-[13px]">No images yet.</p>
+			) : (
+				<ul
+					className="m-0 grid list-none divide-y divide-line border-line border-y p-0"
+					data-testid="docker-seed-list"
+				>
+					{list.map((name) => (
+						<li
+							key={name}
+							className="flex min-h-[var(--pk-row)] items-center gap-3 py-1"
+						>
+							<span className="min-w-0 flex-1 font-mono text-[13px] [overflow-wrap:anywhere]">
+								{name}
+							</span>
+							<Button
+								size="sm"
+								variant="quiet"
+								aria-label={`Remove ${name}`}
+								aria-disabled={save.isPending || undefined}
+								onClick={() => remove(name)}
+							>
+								Remove
+							</Button>
+						</li>
+					))}
+				</ul>
+			)}
+			<form className="flex flex-wrap items-start gap-3" onSubmit={add} noValidate>
+				<TextField
+					className="w-72 max-w-full"
+					id="docker-seed-add"
+					label="Image"
+					mono
+					autoComplete="off"
+					autoCapitalize="none"
+					spellCheck={false}
+					placeholder="python:3.12"
+					hint={
+						data.ghcrEnabled
+							? "A Docker Hub or ghcr.io image, with a tag."
+							: "A Docker Hub image, with a tag. Turn on the ghcr.io cache to add ghcr.io images."
+					}
+					value={draft}
+					error={announced(addError)}
+					onChange={(event) => setDraft(event.target.value)}
+				/>
+				{/* Lines the button up with the input, below the label row. */}
+				<Button
+					type="submit"
+					className="mt-6"
+					data-testid="docker-seed-add-submit"
+					loading={save.isPending}
+				>
+					Add image
+				</Button>
+			</form>
+		</section>
+	);
+}
+
+function SizeLimit({ data }: { data: DockerAdminResponse }) {
+	const save = useSaveDockerSettings();
+	const toast = useToast();
+	const [draft, setDraft] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const value = draft ?? String(data.seedMaxGiB);
+
+	function submit(event: FormEvent) {
+		event.preventDefault();
+		const gib = parseSeedMaxGiB(value);
+		if (gib === null) {
+			setError("Enter a whole number from 1 to 64.");
+			return;
+		}
+		setError(null);
+		save.mutate(
+			{ ghcrEnabled: data.ghcrEnabled, seedMaxGiB: gib },
+			{
+				onSuccess: () => {
+					setDraft(null);
+					toast.show({ tone: "success", title: "Seed size limit saved" });
+				},
+				onError: (failure) => setError(errorText(failure)),
+			},
+		);
+	}
+
+	return (
+		<form className="flex flex-wrap items-start gap-3" onSubmit={submit} noValidate>
+			<TextField
+				className="w-56"
+				id="docker-seed-max"
+				label="Largest seed (GiB)"
+				inputMode="numeric"
+				hint="A rebuild that comes out larger fails and keeps the current seed."
+				value={value}
+				error={announced(error)}
+				onChange={(event) => setDraft(event.target.value)}
+			/>
+			<Button
+				type="submit"
+				className="mt-6"
+				data-testid="docker-seed-max-save"
+				loading={save.isPending}
+			>
+				Save limit
+			</Button>
+		</form>
+	);
+}
