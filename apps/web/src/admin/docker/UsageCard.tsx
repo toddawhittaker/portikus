@@ -5,7 +5,7 @@ import { AdminGroup } from "../AdminSection.js";
 import { errorText } from "../SettingsTab.js";
 import { shortTime } from "../shortTime.js";
 import { useDockerUsage, useSaveSeedImages } from "./queries.js";
-import { addRefusal, listHas, shortImageName } from "./text.js";
+import { addRefusal, listHas, shortImageName, shownText } from "./text.js";
 
 const SUB_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
 
@@ -85,6 +85,7 @@ export function UsageCard({ data }: { data: DockerAdminResponse }) {
 								caption="Images used in workspaces that the seed does not hold"
 								testId="docker-usage-extra"
 								rows={usage.data.notInSeed}
+								total={usage.data.notInSeedTotal}
 								pulls
 								action={(row) => {
 									const name = shortImageName(row.image);
@@ -124,6 +125,7 @@ export function UsageCard({ data }: { data: DockerAdminResponse }) {
 								caption="Seed images no workspace used"
 								testId="docker-usage-unused"
 								rows={usage.data.unusedSeed}
+								total={usage.data.unusedSeedTotal}
 								pulls={false}
 								action={(row) => {
 									const name = shortImageName(row.image);
@@ -160,44 +162,54 @@ function UsageTable({
 	caption,
 	testId,
 	rows,
+	total,
 	pulls,
 	action,
 }: {
 	caption: string;
 	testId: string;
 	rows: DockerImageUsage[];
+	total: number;
 	pulls: boolean;
 	action: (row: DockerImageUsage) => ReactNode;
 }) {
+	const shown = shownText(rows.length, total);
 	return (
-		<div className="pk-table-wrap">
-			<table className="pk-table" data-testid={testId}>
-				<caption className="sr-only">{caption}</caption>
-				<thead>
-					<tr>
-						<th scope="col">Image</th>
-						{pulls ? <th scope="col">Pulls</th> : null}
-						<th scope="col">Workspaces</th>
-						<th scope="col">Last seen</th>
-						<th scope="col">
-							<span className="sr-only">Actions</span>
-						</th>
-					</tr>
-				</thead>
-				<tbody>
-					{rows.map((row) => (
-						<tr key={row.image}>
-							<th scope="row" className="font-mono [overflow-wrap:anywhere]">
-								{shortImageName(row.image)}
+		<>
+			{shown ? (
+				<p className="pk-muted m-0 text-[13px]" data-testid={`${testId}-shown`}>
+					{shown}
+				</p>
+			) : null}
+			<div className="pk-table-wrap">
+				<table className="pk-table" data-testid={testId}>
+					<caption className="sr-only">{caption}</caption>
+					<thead>
+						<tr>
+							<th scope="col">Image</th>
+							{pulls ? <th scope="col">Pulls</th> : null}
+							<th scope="col">Workspaces</th>
+							<th scope="col">Last seen</th>
+							<th scope="col">
+								<span className="sr-only">Actions</span>
 							</th>
-							{pulls ? <td>{row.pulls}</td> : null}
-							<td>{row.workspaces}</td>
-							<td>{row.lastSeen ? shortTime(row.lastSeen) : "Never"}</td>
-							<td className="text-right">{action(row)}</td>
 						</tr>
-					))}
-				</tbody>
-			</table>
-		</div>
+					</thead>
+					<tbody>
+						{rows.map((row) => (
+							<tr key={row.image}>
+								<th scope="row" className="font-mono [overflow-wrap:anywhere]">
+									{shortImageName(row.image)}
+								</th>
+								{pulls ? <td>{row.pulls}</td> : null}
+								<td>{row.workspaces}</td>
+								<td>{row.lastSeen ? shortTime(row.lastSeen) : "Never"}</td>
+								<td className="text-right">{action(row)}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+		</>
 	);
 }

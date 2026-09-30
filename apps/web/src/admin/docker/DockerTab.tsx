@@ -23,7 +23,12 @@ import {
 	useSetHubCredential,
 } from "./queries.js";
 import { SeedCard } from "./SeedCard.js";
-import { CLEAR_REASON, cacheUseText, credentialErrors } from "./text.js";
+import {
+	CLEAR_REASON,
+	cacheUseText,
+	clearErrorText,
+	credentialErrors,
+} from "./text.js";
 import { UsageCard } from "./UsageCard.js";
 
 const INTRO = {
@@ -81,6 +86,7 @@ function CacheCard({ data }: { data: DockerAdminResponse }) {
 	const toast = useToast();
 	const [confirming, setConfirming] = useState(false);
 	const cache = data.cache;
+	const clearError = cache ? clearErrorText(cache) : null;
 
 	function confirm() {
 		clear.mutate(undefined, {
@@ -145,6 +151,11 @@ function CacheCard({ data }: { data: DockerAdminResponse }) {
 					cache is not running on the server.
 				</p>
 			)}
+			{clearError ? (
+				<Notice tone="warning" testId="docker-cache-clear-error">
+					{clearError}
+				</Notice>
+			) : null}
 			<ConfirmDialogRoot
 				open={confirming}
 				onOpenChange={(open) => {

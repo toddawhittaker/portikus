@@ -7,12 +7,12 @@ import {
 	type EgressPolicy,
 	expandEgressPolicy,
 	explainHost,
+	GHCR_UPSTREAM_NAMES,
+	HUB_UPSTREAM_NAMES,
 } from "@portikus/contracts";
 import { describe, expect, test } from "vitest";
 import type { EgressEnv } from "./env.js";
 import {
-	GHCR_UPSTREAM_NAMES,
-	HUB_UPSTREAM_NAMES,
 	policyAllowsNames,
 	renderDnsmasq,
 	renderDropAll,

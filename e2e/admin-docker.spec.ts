@@ -426,6 +426,56 @@ test("image use lists outside and unused images, with add and remove", async ({
 	await expect(page.getByTestId("docker-usage")).not.toContainText("python:3.12");
 });
 
+test("a capped usage table says how many it shows, and a saved ghcr.io name is blamed", async ({
+	page,
+}) => {
+	await writeRegistryStatus();
+	const ws = await makeWorkspace();
+	// ghcr.io is off, so the saved ghcr.io name blocks every Add to seed.
+	await setSeedList(["python:3.12", "ghcr.io/owner/tool:1"]);
+	await query(
+		`insert into docker_image_pulls (image, workspace_id, day, pulls)
+		 select 'docker.io/library/img' || n || ':1', $1, current_date, 1
+		 from generate_series(1, 205) as n`,
+		[ws],
+	);
+	await open(page);
+	await expect(page.getByTestId("docker-usage-extra-shown")).toHaveText(
+		"Showing 200 of 205.",
+	);
+	await expect(page.getByTestId("docker-usage-extra").getByRole("row")).toHaveCount(
+		201,
+	);
+	await expect(page.getByTestId("docker-usage-unused-shown")).toHaveCount(0);
+	await expect(
+		page
+			.getByTestId("docker-usage-extra")
+			.getByText(
+				"The seed list has ghcr.io images; turn on the ghcr.io cache or remove them first.",
+			)
+			.first(),
+	).toBeVisible();
+	await expect(page.getByRole("button", { name: /^Add to seed/ })).toHaveCount(0);
+});
+
+test("a failed clear shows, and a stopped Hub cache says it waits for a clear", async ({
+	page,
+}) => {
+	await writeRegistryStatus({
+		hubUp: false,
+		hubCredentialSet: true,
+		lastClearError: "the cache volume is busy",
+	});
+	await open(page);
+	await expect(page.getByTestId("docker-cache-clear-error")).toHaveText(
+		"The last clear failed: the cache volume is busy The Docker Hub cache stays stopped until Clear cache succeeds.",
+	);
+	await writeRegistryStatus();
+	await page.reload();
+	await expect(page.getByTestId("docker-cache")).toBeVisible();
+	await expect(page.getByTestId("docker-cache-clear-error")).toHaveCount(0);
+});
+
 test("the tab says it is off when the server has no cache", async ({ page }) => {
 	await page.route("**/admin/docker", (route) =>
 		route.fulfill({ status: 404, json: { code: "NOT_FOUND", message: "Not found." } }),
