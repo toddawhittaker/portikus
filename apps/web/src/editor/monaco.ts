@@ -17,7 +17,12 @@ import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import JsonWorker from "monaco-editor/language/json/json.worker.js?worker";
 import { loadEditorFeatures } from "./features.js";
 import { detectLanguage } from "./language.js";
-import { DARK_TOKENS, LIGHT_TOKENS } from "./tokenColours.js";
+import {
+	DARK_BRACKETS,
+	DARK_TOKENS,
+	LIGHT_BRACKETS,
+	LIGHT_TOKENS,
+} from "./tokenColours.js";
 import { BASE_FONT_SIZE } from "./zoom.js";
 
 const environment: Monaco.Environment = {
@@ -101,6 +106,12 @@ function tokenRules(colours: Record<string, string>): Monaco.editor.ITokenThemeR
 	return Object.entries(colours).map(([token, foreground]) => ({ token, foreground }));
 }
 
+function withHash(colours: Record<string, string>): Record<string, string> {
+	return Object.fromEntries(
+		Object.entries(colours).map(([id, hex]) => [id, `#${hex}`]),
+	);
+}
+
 function defineThemes(monaco: typeof Monaco): void {
 	monaco.editor.defineTheme(LIGHT_THEME, {
 		base: "vs",
@@ -122,6 +133,7 @@ function defineThemes(monaco: typeof Monaco): void {
 			"scrollbarSlider.background": "#c1b9a8cc",
 			"scrollbarSlider.hoverBackground": "#a89f8ce6",
 			"scrollbarSlider.activeBackground": "#8d8472",
+			...withHash(LIGHT_BRACKETS),
 		},
 	});
 	monaco.editor.defineTheme(DARK_THEME, {
@@ -142,6 +154,7 @@ function defineThemes(monaco: typeof Monaco): void {
 			"scrollbarSlider.background": "#4b473fcc",
 			"scrollbarSlider.hoverBackground": "#615c52e6",
 			"scrollbarSlider.activeBackground": "#7a7466",
+			...withHash(DARK_BRACKETS),
 		},
 	});
 }

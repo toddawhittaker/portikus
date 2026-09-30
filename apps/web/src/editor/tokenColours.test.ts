@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { DARK_TOKENS, LIGHT_TOKENS } from "./tokenColours.js";
+import {
+	DARK_BRACKETS,
+	DARK_TOKENS,
+	LIGHT_BRACKETS,
+	LIGHT_TOKENS,
+} from "./tokenColours.js";
 
 function luminance(hex: string): number {
 	const [r, g, b] = [0, 2, 4].map((at) => {
@@ -31,6 +36,23 @@ test.each([
 				expect(
 					contrast(colour, background),
 					`${token} on #${background}`,
+				).toBeGreaterThanOrEqual(4.5);
+			}
+		}
+	},
+);
+
+test.each([
+	["light", LIGHT_BRACKETS, BACKGROUNDS.light],
+	["dark", DARK_BRACKETS, BACKGROUNDS.dark],
+] as const)(
+	"every %s bracket colour reads at 4.5:1 or better (SPEC.md 25.8)",
+	(_, brackets, backgrounds) => {
+		for (const [id, colour] of Object.entries(brackets)) {
+			for (const background of backgrounds) {
+				expect(
+					contrast(colour, background),
+					`${id} on #${background}`,
 				).toBeGreaterThanOrEqual(4.5);
 			}
 		}
