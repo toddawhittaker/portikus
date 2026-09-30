@@ -7,7 +7,6 @@ import type { Logger } from "@portikus/observability";
  */
 export const AGENT_ENTRY_PATH = "/usr/lib/portikus/workspace-agent/dist/index.js";
 
-/** The first image whose terminals survive an agent restart (SPEC.md 9.7). */
 /** A running workspace's agent as the host sees it. */
 export interface RunningAgent {
 	name: string;
@@ -26,15 +25,13 @@ export interface AgentRestarter {
 export function imageKeepsTerminals(serial: string | null): boolean {
 	const match = /^(\d{4})\.(\d{1,2})\.(\d+)$/.exec(serial ?? "");
 	if (!match) return false;
-	return (
-		(serial as string).localeCompare("2026.09.11", undefined, { numeric: true }) >= 0
-	);
+	return match[0].localeCompare("2026.09.11", undefined, { numeric: true }) >= 0;
 }
 
 /**
  * Restart the agent in each running workspace whose agent started before
- * the installed agent files changed (issue #887). One workspace at a time,
- *  a failure is logged and the next one goes ahead.
+ * the installed agent files changed (issue #887). One workspace at a time; a
+ * failure is logged and the next one goes ahead.
  */
 export async function restartOutdatedAgents(opts: {
 	restarter: AgentRestarter;
