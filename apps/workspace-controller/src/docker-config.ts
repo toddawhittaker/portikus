@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import {
 	HUB_MIRROR_URL,
 	REGISTRY_GATEWAY_ADDR,
@@ -21,6 +21,8 @@ export const GHCR_CERT_PATH = `${GHCR_CERT_DIR}/ca.crt`;
 export const HOSTS_PATH = "/etc/hosts";
 /** The CA the root cache helper made; public, readable by the controller. */
 export const GHCR_CA_HOST_PATH = "/etc/portikus/registry/ghcr-ca.crt";
+/** Setup writes this when the pull cache does not fit on disk (SPEC.md 16.6). */
+export const CACHE_OFF_HOST_PATH = "/etc/portikus/registry/cache-off";
 /** Marks the one hosts line the controller owns. */
 export const GHCR_HOSTS_MARKER = "# portikus-ghcr-cache";
 
@@ -90,6 +92,15 @@ async function readText(
 	}
 }
 
+async function exists(path: string): Promise<boolean> {
+	try {
+		await access(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 const ROOT_FILE = { uid: 0, gid: 0, mode: "0644" } as const;
 
 /**
@@ -102,9 +113,13 @@ export async function writeDockerConfig(
 	client: FilesClient,
 	name: string,
 	config: WorkspaceDockerConfig,
-	opts: { caPath: string; log: Logger },
+	opts: { caPath: string; cacheOffPath?: string; log: Logger },
 	signal?: AbortSignal,
 ): Promise<void> {
+	// With the cache off nothing listens, so neither mirror nor ghcr.io entry may point at it.
+	if (await exists(opts.cacheOffPath ?? CACHE_OFF_HOST_PATH)) {
+		config = { ...config, hubMirror: false, ghcr: false };
+	}
 	const dir = await readText(client, name, "/etc/docker", signal);
 	if (dir?.type !== "directory") {
 		throw new Error("/etc/docker is not a directory");
