@@ -8,3 +8,16 @@
 - name: Reload systemd for the platform slice
   ansible.builtin.systemd_service:
     daemon_reload: true
+
+# Runs only when the mask is new.  The sockets the generator made at boot
+# keep running without a unit file, and each daemon reload then warns about
+# them.  Exit 5 means the unit is not loaded, as after the next boot.
+- name: Stop the sockets systemd-ssh-generator made at boot
+  ansible.builtin.command:
+    argv: [systemctl, stop, "{{ item }}"]
+  loop:
+    - sshd-unix-local.socket
+    - sshd-vsock.socket
+  register: base_ssh_generator_sockets
+  changed_when: base_ssh_generator_sockets.rc == 0
+  failed_when: base_ssh_generator_sockets.rc not in [0, 5]

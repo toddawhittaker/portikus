@@ -195,7 +195,7 @@ export type ImageHealth = z.infer<typeof ImageHealth>;
  */
 export const PublishedReleasesFile = z.object({
 	checkedAt: z.string().datetime(),
-	/** The newest published image; null when the release list could not be read. */
+	/** The newest published image; a failed check keeps the last one, null if none was ever read. */
 	image: ImageVersion.nullable(),
 	/** Set only when apt's candidate for the portikus package is newer than the installed one. */
 	package: z

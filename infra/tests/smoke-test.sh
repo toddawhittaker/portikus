@@ -2151,6 +2151,17 @@ for terminal in json.load(sys.stdin).get("terminals", []):
       check "downloaded archive passes unzip -t" \
         ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- unzip -t /tmp/smoke-download.zip"
 
+      # 15.5b An image shown inline carries the sandbox policy, so an SVG
+      #       opened on its own cannot run script (SPEC.md 24.3, #816).
+      alice_student "printf '<svg xmlns=\"http://www.w3.org/2000/svg\"/>' > ${PROJECTS_DIR}/smoke-renamed/smoke.svg" \
+        >/dev/null 2>&1 || true
+      inline_csp() {
+        ssh_cmd "${CURL} -I -b /tmp/portikus-smoke-alice.jar \
+          '${PROJECTS_URL}/${proj_id}/file?path=smoke.svg&inline=1'" \
+          | grep -qi '^content-security-policy: *sandbox;'
+      }
+      check "an inline file is served with a sandbox Content-Security-Policy" inline_csp
+
       # 15.6 Anything Git-enabled under ~/projects becomes a project; a
       #      plain directory does not (plan, Discovery).
       alice_student "mkdir -p ${PROJECTS_DIR}/hand-made && git -C ${PROJECTS_DIR}/hand-made init -q" \

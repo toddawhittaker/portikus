@@ -15,6 +15,10 @@ ExecStart=/usr/lib/portikus/image-job check
 TimeoutStartSec=10min
 UMask=0022
 NoNewPrivileges=yes
+# Root owns the images directory, so writing it needs no capability.
+CapabilityBoundingSet=
+# curl needs the network; dpkg-query, apt-cache and the journal need local sockets.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 PrivateTmp=yes
 ProtectSystem=strict
 ReadWritePaths=/var/lib/portikus/images

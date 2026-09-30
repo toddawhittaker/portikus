@@ -247,7 +247,7 @@ reset_admin() {
     -p EnvironmentFile="${API_ENV}" \
     /bin/sh -c '"$0" "$@"; rc=$?; case $rc in 10 | 11) echo "reset-admin-exit $rc"; exit 0 ;; esac; exit $rc' \
     "${NODE}" "${RESET_ADMIN_MAIN}" "$@" >"${tmp}" || status=$?
-  case "${status}:$(cat "${tmp}")" in
+  case "${status}:$(tail -n1 "${tmp}")" in
     "0:reset-admin-exit 10") status=10 ;;
     "0:reset-admin-exit 11") status=11 ;;
   esac
