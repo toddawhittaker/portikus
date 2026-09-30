@@ -50,6 +50,12 @@ says it is the right action, and prefer a dry run or a check first.
 Report: what you changed, how you verified it (which script ran, on what),
 and anything that still depends on a manual step.
 
+## Task pull requests
+
+- In a parallel epic, do not edit `docs/STATUS.md`. Put your proposed STATUS
+  line (what you delivered, gaps left) in the PR body; the fold task writes
+  STATUS once (docs/WORKFLOW.md, "Epic plans").
+
 ## Writing style
 
 Keep code comments brief: one line saying why, only where the code cannot
