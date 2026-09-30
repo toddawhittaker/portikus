@@ -791,6 +791,10 @@ check_output "the API's proxy stays on the GnuTLS build" "/usr/sbin/squid-gnutls
   ssh_cmd "update-alternatives --query squid | sed -n 's/^Value: //p'"
 check "the egress helper watches for requests" ssh_cmd systemctl is-active portikus-egress-apply.path
 check "the egress helper runs at boot" ssh_cmd systemctl is-enabled portikus-egress-apply.service
+# One unit at a time: is-enabled passes when any one of several is enabled.
+# shellcheck disable=SC2016 # expanded on the VM
+check "the API, controller and worker start at boot" \
+  ssh_cmd 'for u in portikus-api portikus-controller portikus-worker; do systemctl is-enabled --quiet "$u" || exit 1; done'
 check_output "the egress helper's last run did not fail" "no" \
   ssh_cmd "systemctl is-failed --quiet portikus-egress-apply.service && echo yes || echo no"
 egress_mode() {

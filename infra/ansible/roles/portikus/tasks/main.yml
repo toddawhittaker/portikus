@@ -312,12 +312,14 @@
 
 # ── Start the services ───────────────────────────────────────────
 # The package enables the units, but ConditionPathExists keeps them from
-# starting until the environment files above exist.
+# starting until the environment files above exist.  Setup enables them too,
+# because apt remove drops their links and a reinstall is not a first install.
 
 # The API first: starting it runs the migrations the worker's grants name.
 - name: Start the portikus API
   ansible.builtin.systemd:
     name: portikus-api
+    enabled: true
     state: started
 
 # The file drops the old membership in portikus, then revokes and grants in
@@ -336,6 +338,7 @@
 - name: Start the controller and the worker
   ansible.builtin.systemd:
     name: "{{ item }}"
+    enabled: true
     state: started
   loop:
     - portikus-controller
