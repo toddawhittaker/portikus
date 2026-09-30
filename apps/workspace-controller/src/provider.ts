@@ -39,6 +39,7 @@ import {
 	readHostSnapshot,
 	readInactiveFileBytes,
 	readPoolUse,
+	SEED_SHARE_KEY,
 } from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
 import { parseIdmap, readInstanceProcesses, readUnitStartTime } from "./processes.js";
@@ -1157,14 +1158,18 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 	}
 
-	private async ensureVolume(volName: string, sizeGiB: number): Promise<void> {
+	private async ensureVolume(
+		volName: string,
+		sizeGiB: number,
+		extraConfig: Record<string, string> = {},
+	): Promise<void> {
 		try {
 			await this.client.request(
 				"POST",
 				`/1.0/storage-pools/${enc(this.pool)}/volumes/custom`,
 				{
 					name: volName,
-					config: { size: `${sizeGiB}GiB` },
+					config: { size: `${sizeGiB}GiB`, ...extraConfig },
 				},
 				undefined,
 				undefined,
@@ -1198,14 +1203,27 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 		if (seed) {
 			try {
+				// A copy cannot be smaller than its source, which is the build volume's size.
+				const source = (await this.client.request(
+					"GET",
+					this.volumePath(SEED_VOLUME_NAME),
+				)) as { config?: Record<string, unknown> };
+				const sourceGiB = Math.ceil(
+					(parseIncusSize(source.config?.size) ?? 0) / 2 ** 30,
+				);
+				const totalGiB = Math.max(
+					dockerGiB + Math.ceil(seed.sizeBytes / 1024 ** 3),
+					sourceGiB,
+				);
 				await this.client.request(
 					"POST",
 					`/1.0/storage-pools/${enc(this.pool)}/volumes/custom`,
 					{
 						name: volume,
 						config: {
-							size: `${dockerGiB + Math.ceil(seed.sizeBytes / 1024 ** 3)}GiB`,
+							size: `${totalGiB}GiB`,
 							"security.shifted": "true",
+							[SEED_SHARE_KEY]: String(totalGiB - dockerGiB),
 						},
 						source: { type: "copy", pool: this.pool, name: SEED_VOLUME_NAME },
 					},
@@ -1253,9 +1271,13 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		await this.discardSeedBuild();
 		// One GiB over the cap, so an oversize seed fails the size check with a
 		// clear message rather than filling the volume.
+		// Shifted from the start, so files keep real owners when copies are attached elsewhere.
 		await this.ensureVolume(
 			SEED_BUILD_VOLUME,
 			Math.ceil(opts.maxBytes / 1024 ** 3) + 1,
+			{
+				"security.shifted": "true",
+			},
 		);
 		// An ordinary workspace container: the workspace profile (network, ACL,
 		// unprivileged, isolated idmap) and nothing that loosens it (S8).
@@ -1355,21 +1377,37 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			throw new VolumeInUseError(SEED_BUILD_VOLUME);
 		}
 		await this.client.request("PATCH", this.volumePath(SEED_BUILD_VOLUME), {
-			config: {
-				"security.shifted": "true",
-				[SEED_INFO_KEY]: JSON.stringify(info),
-			},
+			config: { [SEED_INFO_KEY]: JSON.stringify(info) },
 		});
 		// Copies already made are independent of the old seed (spike #840).
 		await this.deleteVolumeIfPresent(SEED_OLD_VOLUME);
-		if (await this.volumeExists(SEED_VOLUME_NAME)) {
+		const hadSeed = await this.volumeExists(SEED_VOLUME_NAME);
+		if (hadSeed) {
 			await this.client.request("POST", this.volumePath(SEED_VOLUME_NAME), {
 				name: SEED_OLD_VOLUME,
 			});
 		}
-		await this.client.request("POST", this.volumePath(SEED_BUILD_VOLUME), {
-			name: SEED_VOLUME_NAME,
-		});
+		try {
+			await this.client.request("POST", this.volumePath(SEED_BUILD_VOLUME), {
+				name: SEED_VOLUME_NAME,
+			});
+		} catch (err) {
+			// Put the old seed back, so new workspaces still get one.
+			if (hadSeed) {
+				await this.client
+					.request("POST", this.volumePath(SEED_OLD_VOLUME), { name: SEED_VOLUME_NAME })
+					.catch((restoreErr: unknown) =>
+						this.log.warn(
+							{
+								err:
+									restoreErr instanceof Error ? restoreErr.message : String(restoreErr),
+							},
+							"could not restore the previous Docker seed",
+						),
+					);
+			}
+			throw err;
+		}
 		try {
 			await this.deleteVolumeIfPresent(SEED_OLD_VOLUME);
 		} catch (err) {

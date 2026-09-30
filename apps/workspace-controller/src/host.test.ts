@@ -235,7 +235,11 @@ test("Incus size strings parse to bytes", () => {
 	expect(parseIncusSize(undefined)).toBeNull();
 });
 
-function volumeRoutes(homeSize: string, dockerSize: string): void {
+function volumeRoutes(
+	homeSize: string,
+	dockerSize: string,
+	dockerConfig: Record<string, string> = {},
+): void {
 	const base = "/1.0/storage-pools/workspace-data/volumes/custom";
 	routes[`GET ${base}/ws-aaaaaaaaaaaa-home`] = {
 		status: 200,
@@ -243,7 +247,10 @@ function volumeRoutes(homeSize: string, dockerSize: string): void {
 	};
 	routes[`GET ${base}/ws-aaaaaaaaaaaa-docker`] = {
 		status: 200,
-		body: sync({ name: "ws-aaaaaaaaaaaa-docker", config: { size: dockerSize } }),
+		body: sync({
+			name: "ws-aaaaaaaaaaaa-docker",
+			config: { size: dockerSize, ...dockerConfig },
+		}),
 	};
 	routes[`PATCH ${base}/ws-aaaaaaaaaaaa-home`] = { status: 200, body: sync({}) };
 	routes[`PATCH ${base}/ws-aaaaaaaaaaaa-docker`] = { status: 200, body: sync({}) };
@@ -262,6 +269,31 @@ test("grow patches only the volumes whose size changes", async () => {
 			method: "PATCH",
 			url: "/1.0/storage-pools/workspace-data/volumes/custom/ws-aaaaaaaaaaaa-home",
 			body: JSON.stringify({ config: { size: "30GiB" } }),
+		},
+	]);
+});
+
+test("grow on a seeded workspace keeps the seed share: a home-only raise succeeds", async () => {
+	// Docker quota 20 GiB plus a 6 GiB seed share.
+	volumeRoutes("25GiB", "26GiB", { "user.portikus.seed-gib": "6" });
+	const result = await provider().growVolumes("ws-aaaaaaaaaaaa", {
+		homeGiB: 30,
+		dockerGiB: 20,
+	});
+	expect(result).toEqual({ homeGiB: 30, dockerGiB: 20 });
+	expect(requests.filter((r) => r.method === "PATCH").map((r) => r.url)).toEqual([
+		"/1.0/storage-pools/workspace-data/volumes/custom/ws-aaaaaaaaaaaa-home",
+	]);
+});
+
+test("grow on a seeded workspace adds the seed share to a Docker raise", async () => {
+	volumeRoutes("25GiB", "26GiB", { "user.portikus.seed-gib": "6" });
+	await provider().growVolumes("ws-aaaaaaaaaaaa", { homeGiB: 25, dockerGiB: 30 });
+	expect(requests.filter((r) => r.method === "PATCH")).toEqual([
+		{
+			method: "PATCH",
+			url: "/1.0/storage-pools/workspace-data/volumes/custom/ws-aaaaaaaaaaaa-docker",
+			body: JSON.stringify({ config: { size: "36GiB" } }),
 		},
 	]);
 });

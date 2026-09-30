@@ -86,9 +86,7 @@ class Base(unittest.TestCase):
         self.jobs = root / "registry-jobs"
         self.config = root / "registry"
         self.mount = root / "mnt"
-        self.egress_state = root / "egress-state" / "applied.json"
-        self.egress_request = root / "egress-request"
-        for d in (self.jobs, self.config, self.mount, self.egress_state.parent, self.egress_request):
+        for d in (self.jobs, self.config, self.mount):
             d.mkdir()
         (self.config / "events-token").write_text("t0ken\n")
         self.worker_env = root / "worker.env"
@@ -97,8 +95,7 @@ class Base(unittest.TestCase):
         self.helper = rj.Helper(
             host=self.host, jobs_dir=str(self.jobs), config_dir=str(self.config),
             mount_point=str(self.mount), image_file=str(root / "cache.img"),
-            worker_env=str(self.worker_env), egress_state=str(self.egress_state),
-            egress_request_dir=str(self.egress_request))
+            worker_env=str(self.worker_env))
         self.lock = str(root / "lock")
 
     def tearDown(self):
@@ -276,6 +273,32 @@ class CredentialTest(Base):
                                            "username": "portikus", "password": TOKEN})
         self.assertEqual(stat.S_IMODE((self.config / "hub.yml").stat().st_mode), 0o640)
 
+    def test_a_failed_clear_after_a_credential_change_keeps_the_hub_cache_stopped(self):
+        self.host.fail_unmount = True
+        self.write_request({"kind": "set-hub-credential", "username": "portikus", "token": TOKEN})
+        self.assertEqual(self.helper.run_pending(self.lock), 1)
+        self.assertNotIn(("start", "portikus-registry-hub.service"), self.systemctl_calls())
+        self.assertEqual(self.status()["lastClearError"], "could not unmount the cache")
+        with self.assertRaises(SystemExit):
+            self.helper.render("hub")
+        # The timer's status run keeps the error; an admin clear that fails keeps the hold.
+        self.helper.write_status()
+        self.assertEqual(self.status()["lastClearError"], "could not unmount the cache")
+        self.assertFalse(self.helper.clear("admin"))
+        self.assertNotIn(("start", "portikus-registry-hub.service"), self.systemctl_calls())
+
+        self.host.fail_unmount = False
+        self.assertTrue(self.helper.clear("admin"))
+        self.assertIn(("start", "portikus-registry-hub.service"), self.systemctl_calls())
+        self.assertIsNone(self.status()["lastClearError"])
+        self.helper.render("hub")
+
+    def test_a_failed_admin_clear_records_the_error_but_starts_the_hub_cache(self):
+        self.host.fail_unmount = True
+        self.assertFalse(self.helper.clear("admin"))
+        self.assertIn(("start", "portikus-registry-hub.service"), self.systemctl_calls())
+        self.assertEqual(self.status()["lastClearError"], "could not unmount the cache")
+
     def test_remove_deletes_it_and_clears(self):
         (self.config / "hub-credential.json").write_text(json.dumps({"username": "portikus", "token": TOKEN}))
         self.write_request({"kind": "remove-hub-credential"})
@@ -289,15 +312,13 @@ class CredentialTest(Base):
 
 class GhcrTest(Base):
     def test_on_and_off_round_trip(self):
-        self.egress_state.write_text(json.dumps({"policy": {"mode": "open", "blocked": []}}))
         self.write_request({"kind": "set-ghcr", "enabled": True})
         self.helper.run_pending(self.lock)
         self.assertEqual((self.config / "ghcr-enabled").read_text(), "on\n")
         self.assertIn(("enable", "--now", "portikus-registry-ghcr.service"), self.systemctl_calls())
         self.assertTrue(self.status()["ghcrEnabled"])
         self.assertTrue(self.status()["ghcrUp"])
-        request = json.loads((self.egress_request / "request.json").read_text())
-        self.assertEqual(request, {"requestId": "registry-ghcr", "mode": "open", "blocked": []})
+        self.assertIn(("start", "portikus-egress-apply.service"), self.systemctl_calls())
 
         self.write_request({"kind": "set-ghcr", "enabled": False}, file_id=ID2)
         self.helper.run_pending(self.lock)
@@ -306,9 +327,11 @@ class GhcrTest(Base):
         self.assertFalse(self.status()["ghcrEnabled"])
         self.assertFalse(self.status()["ghcrUp"])
 
-    def test_no_egress_request_on_a_site_that_never_applied_a_policy(self):
-        self.helper.set_ghcr(True)
-        self.assertFalse((self.egress_request / "request.json").exists())
+    def test_the_egress_helper_is_started_after_the_switch_on_and_off(self):
+        self.helper.set_ghcr(False)
+        calls = self.systemctl_calls()
+        self.assertEqual(calls[-1], ("start", "portikus-egress-apply.service"))
+        self.assertLess(calls.index(("disable", "--now", "portikus-registry-ghcr.service")), len(calls) - 1)
 
 
 class RenderTest(Base):
@@ -371,7 +394,8 @@ class StatusTest(Base):
     def test_status_matches_the_contract(self):
         status = self.helper.write_status()
         self.assertEqual(set(status), {"sizeBytes", "usedBytes", "hubUp", "ghcrEnabled", "ghcrUp",
-                                       "hubCredentialSet", "lastClearedAt", "lastClearReason", "updatedAt"})
+                                       "hubCredentialSet", "lastClearedAt", "lastClearReason", "lastClearError",
+                                       "updatedAt"})
         self.assertEqual(status["sizeBytes"], 1000 * 4096)
         self.assertEqual(status["usedBytes"], 100 * 4096)
         self.assertEqual(stat.S_IMODE((self.jobs / "status.json").stat().st_mode), 0o644)
