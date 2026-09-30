@@ -122,6 +122,7 @@ beforeEach(() => {
 		stateDir: join(dir, "state"),
 		envPath: join(dir, "egress.env"),
 		ghcrEnabledPath: join(dir, "ghcr-enabled"),
+		cacheOffPath: join(dir, "cache-off"),
 		now: () => new Date("2026-09-27T12:00:00Z"),
 		allowAnyOwner: true,
 		run: async (file, args, input) => {
@@ -408,6 +409,15 @@ describe("a request (ADR 0038)", () => {
 		expect(loads()[0]).toMatch(/tcp dport 443 redirect to :5001/);
 		expect(loads()[0]).not.toMatch(/forward .*drop/);
 		expect(read("applied.json")).toBeNull();
+	});
+
+	test("the cache-off marker drops the ghcr redirect even with the switch on", async () => {
+		writeFileSync(deps.ghcrEnabledPath, "on\n");
+		writeFileSync(deps.cacheOffPath, "off\n");
+		writeRequest(policy());
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()).toHaveLength(1);
+		expect(loads()[0]).not.toMatch(/redirect to :5001/);
 	});
 
 	test("a real policy apply removes the default-open marker", async () => {

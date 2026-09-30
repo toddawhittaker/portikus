@@ -1,3 +1,5 @@
+import { CACHE_OFF_HOST_PATH } from "../docker-config.js";
+
 /** The file interface between the controller, the root helper and Ansible (ADR 0038). */
 export const EGRESS_PATHS = {
 	/** Written by the controller; directory root:portikus-controller 0770. */
@@ -8,6 +10,8 @@ export const EGRESS_PATHS = {
 	env: "/etc/portikus/egress.env",
 	/** Root-owned, written by the registry cache helper: "on" while the ghcr.io cache runs. */
 	ghcrEnabled: "/etc/portikus/registry/ghcr-enabled",
+	/** Root-owned, written by setup while the pull cache is off; overrides ghcrEnabled. */
+	cacheOff: CACHE_OFF_HOST_PATH,
 } as const;
 
 /** File names inside the state directory. */
