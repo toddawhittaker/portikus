@@ -3673,5 +3673,5 @@ Gaps:
   is not announced; the Audit tab still shows it.
 - The pilot needs image 2026.09.15 published and made default, and old
   workspaces get the clear only on rebuild.
-- The old-image skip has only unit tests, and the new install-test steps
-  have not run end to end.
+- The old-image skip has only unit tests. The new install-test step for
+  #887 passed end to end on a fresh rehearsal VM (2026-09-30).
