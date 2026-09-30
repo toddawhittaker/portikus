@@ -9,8 +9,8 @@
     name: portikus-worker
     state: restarted
 
-# Only those running: the ghcr.io cache stays off unless an administrator
-# turned it on.  The systemd module has no try-restart.
+# Only those running: the ghcr.io cache stays off once an administrator
+# turned it off.  The systemd module has no try-restart.
 - name: Restart the running Docker caches  # noqa: command-instead-of-module
   ansible.builtin.command:
     cmd: systemctl try-restart portikus-registry-hub.service portikus-registry-ghcr.service

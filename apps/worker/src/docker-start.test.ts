@@ -73,7 +73,8 @@ describe.skipIf(skip)("dockerStartConfig", () => {
 	});
 
 	test("reads the saved mode, entries and ghcr switch", async () => {
-		expect(await dockerStartConfig(tdb.db)).toEqual({ hubMirror: true, ghcr: false });
+		// ghcr.io is on by default.
+		expect(await dockerStartConfig(tdb.db)).toEqual({ hubMirror: true, ghcr: true });
 		await tdb.db
 			.insertInto("settings")
 			.values({

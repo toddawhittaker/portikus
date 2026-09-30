@@ -147,7 +147,7 @@ describe.skipIf(skip)("GET /admin/docker", () => {
 		const body = DockerAdminResponse.parse(res.json());
 		expect(body).toEqual({
 			cache: null,
-			ghcrEnabled: false,
+			ghcrEnabled: true,
 			seedMaxGiB: 8,
 			hubCredential: { isSet: false },
 			seedImages: [],
@@ -218,21 +218,21 @@ describe.skipIf(skip)("PUT /admin/docker/settings", () => {
 
 	test("saves, audits, and writes set-ghcr only when the switch changes", async () => {
 		const res = await send(carol, "PUT", "/admin/docker/settings", {
-			ghcrEnabled: false,
+			ghcrEnabled: true,
 			seedMaxGiB: 12,
 		});
 		expect(res.statusCode).toBe(204);
 		expect(await requests()).toEqual([]);
 
 		await send(carol, "PUT", "/admin/docker/settings", {
-			ghcrEnabled: true,
+			ghcrEnabled: false,
 			seedMaxGiB: 12,
 		});
 		const files = await requests();
-		expect(files.map((f) => f.request)).toEqual([{ kind: "set-ghcr", enabled: true }]);
+		expect(files.map((f) => f.request)).toEqual([{ kind: "set-ghcr", enabled: false }]);
 
 		const body = (await send(carol, "GET", "/admin/docker")).json();
-		expect(body.ghcrEnabled).toBe(true);
+		expect(body.ghcrEnabled).toBe(false);
 		expect(body.seedMaxGiB).toBe(12);
 		const audits = await dockerAudits();
 		expect(audits.map((a) => a.action)).toEqual([
@@ -240,14 +240,14 @@ describe.skipIf(skip)("PUT /admin/docker/settings", () => {
 			"docker.settings_changed",
 		]);
 		expect(audits[1]?.metadata).toMatchObject({
-			to: { ghcrEnabled: true, seedMaxGiB: 12 },
+			to: { ghcrEnabled: false, seedMaxGiB: 12 },
 		});
 	});
 
 	test("the switch goes back when the set-ghcr request cannot be written", async () => {
 		await rm(jobsDir, { recursive: true, force: true });
 		const res = await send(carol, "PUT", "/admin/docker/settings", {
-			ghcrEnabled: true,
+			ghcrEnabled: false,
 			seedMaxGiB: 12,
 		});
 		expect(res.statusCode).toBe(500);
@@ -256,7 +256,7 @@ describe.skipIf(skip)("PUT /admin/docker/settings", () => {
 			.select(["docker_ghcr_enabled", "docker_seed_max_gib"])
 			.where("id", "=", 1)
 			.executeTakeFirstOrThrow();
-		expect(row.docker_ghcr_enabled).toBe(false);
+		expect(row.docker_ghcr_enabled).toBe(true);
 		expect(await dockerAudits()).toEqual([]);
 	});
 
@@ -264,14 +264,14 @@ describe.skipIf(skip)("PUT /admin/docker/settings", () => {
 		await send(carol, "PUT", "/admin/docker/settings", { seedMaxGiB: 20 });
 		expect(await requests()).toEqual([]);
 		const res = await send(carol, "PUT", "/admin/docker/settings", {
-			ghcrEnabled: true,
+			ghcrEnabled: false,
 		});
 		expect(res.statusCode).toBe(204);
 		expect((await requests()).map((f) => f.request)).toEqual([
-			{ kind: "set-ghcr", enabled: true },
+			{ kind: "set-ghcr", enabled: false },
 		]);
 		const body = (await send(carol, "GET", "/admin/docker")).json();
-		expect(body).toMatchObject({ ghcrEnabled: true, seedMaxGiB: 20 });
+		expect(body).toMatchObject({ ghcrEnabled: false, seedMaxGiB: 20 });
 	});
 });
 
@@ -348,6 +348,7 @@ describe.skipIf(skip)("POST /admin/docker/cache/clear", () => {
 
 describe.skipIf(skip)("the seed list and jobs (ruling S8)", () => {
 	test("refuses bad names, duplicates, more than 30, and ghcr.io while ghcr is off", async () => {
+		await send(carol, "PUT", "/admin/docker/settings", { ghcrEnabled: false });
 		for (const images of [
 			["Redis:7"],
 			["quay.io/x/y"],

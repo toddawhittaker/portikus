@@ -68,7 +68,8 @@ describe.skipIf(skip)("seed jobs (ruling S8)", () => {
 		expect(call?.args[0]).toEqual({
 			id,
 			images: ["redis:7", "node:22"],
-			ghcrEnabled: false,
+			// On by default when no row says otherwise.
+			ghcrEnabled: true,
 			maxBytes: 5 * 1024 ** 3,
 		} satisfies SeedBuildRequest);
 		expect(await job(id)).toMatchObject({ state: "running", step: "Starting" });

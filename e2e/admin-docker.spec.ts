@@ -185,13 +185,15 @@ test("the Docker Hub account is write-only: refusals, set, never shown, removed"
 	).toBeFocused();
 });
 
-test("the ghcr.io switch is off by default, says what breaks, and round-trips", async ({
+test("the ghcr.io switch is on by default, says what breaks, and round-trips", async ({
 	page,
 }) => {
-	await writeRegistryStatus();
+	// The other tests start with it off; this one takes the column's default.
+	await query("update settings set docker_ghcr_enabled = default where id = 1");
+	await writeRegistryStatus({ ghcrEnabled: true, ghcrUp: true });
 	await open(page);
 	const toggle = page.getByRole("switch", { name: "Cache ghcr.io images" });
-	await expect(toggle).not.toBeChecked();
+	await expect(toggle).toBeChecked();
 	const warning = page.locator("#docker-ghcr-warning");
 	await expect(warning).toContainText("cannot docker push to ghcr.io");
 	await expect(warning).toContainText("cannot pull private ghcr.io images");
@@ -199,6 +201,14 @@ test("the ghcr.io switch is off by default, says what breaks, and round-trips", 
 	await expect(warning).toContainText(
 		"Turning it off reaches a running workspace only when it next starts",
 	);
+	await expect(warning).toContainText(
+		"Build and push images from GitHub Actions; pull them here.",
+	);
+
+	await toggle.click();
+	expect(await takeRegistryRequest()).toEqual({ kind: "set-ghcr", enabled: false });
+	await expect(toggle).not.toBeChecked();
+	await writeRegistryStatus();
 
 	// A ghcr.io name is refused while the cache is off (ruling S8).
 	const add = page.getByTestId("docker-seed").getByLabel("Image", { exact: true });
