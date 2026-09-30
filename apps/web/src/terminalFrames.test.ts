@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
 	decodeTerminalFrame,
 	firstNoticeOf,
+	forgetAgentBuild,
 	terminalGoneMessage,
 	upgradedAgentNotice,
 } from "./terminalFrames.js";
@@ -69,4 +70,13 @@ test("a restart is told once", () => {
 	expect(firstNoticeOf("2026-09-26T11:00:00.000Z")).toBe(true);
 	expect(firstNoticeOf("2026-09-26T11:00:00.000Z")).toBe(false);
 	expect(firstNoticeOf("2026-09-26T12:00:00.000Z")).toBe(true);
+});
+
+test("a workspace whose terminals are gone starts over, so a fresh start is no upgrade", () => {
+	expect(upgradedAgentNotice("ws-gone", "old")).toBe(false);
+	expect(upgradedAgentNotice("ws-gone", "new")).toBe(true);
+	forgetAgentBuild("ws-gone");
+	// The workspace stopped and started: the first build heard again is the baseline.
+	expect(upgradedAgentNotice("ws-gone", "newer")).toBe(false);
+	expect(upgradedAgentNotice("ws-gone", "new")).toBe(true);
 });

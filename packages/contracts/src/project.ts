@@ -76,7 +76,7 @@ function readmeHeading(markdown: string): string | undefined {
 			.replace(/[*_`~]+/g, "")
 			// Emoji decorate a heading but make a poor project name (#883).
 			.replace(
-				/\p{Extended_Pictographic}|\p{Emoji_Modifier}|\u{FE0E}|\u{FE0F}|\u{200D}|\u{20E3}/gu,
+				/(?![\u{A9}\u{AE}\u{2122}])\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Modifier}|\u{FE0E}|\u{FE0F}|\u{200D}|\u{20E3}/gu,
 				"",
 			)
 			.replace(/\s+/g, " ")

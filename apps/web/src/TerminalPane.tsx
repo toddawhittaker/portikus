@@ -30,6 +30,7 @@ import {
 	AGENT_UPGRADED_MESSAGE,
 	decodeTerminalFrame,
 	firstNoticeOf,
+	forgetAgentBuild,
 	TERMINAL_GONE_NEXT_STEP,
 	terminalGoneMessage,
 	upgradedAgentNotice,
@@ -742,6 +743,7 @@ export function TerminalPane({
 					stopped = true;
 					setReconnecting(false);
 					setConnected(false);
+					forgetAgentBuild(workspaceId);
 					if (firstNoticeOf(frame.at ?? "")) {
 						handlers.current.toast.show({
 							tone: "warning",

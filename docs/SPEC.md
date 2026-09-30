@@ -3006,9 +3006,9 @@ whose agent started before the installed agent files last changed.
   ahead. A restarted agent starts after the change, so a later
   controller start leaves it alone.
 - **What the student sees.** The agent names its build (its entry file's
-  modification time) in an `{"type":"agent","build":"…"}` frame on every
+  change time, the same ctime the controller compares) in an `{"type":"agent","build":"…"}` frame on every
   terminal attach. The page remembers the first build it sees for each
-  workspace. When a reconnecting terminal reports a different one, the
+  workspace, and forgets it when that workspace's terminals are gone. When a reconnecting terminal reports a different one, the
   page shows one neutral toast: "Portikus was updated. Your terminals are
   still running." A page opened after the upgrade shows nothing.
 
