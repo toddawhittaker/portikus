@@ -29,6 +29,15 @@ function Fixture() {
 }
 
 describe("Toast", () => {
+	it("keeps ref out of the props callers pass to show", () => {
+		const props: ToastProps = {
+			title: "Saved",
+			// @ts-expect-error the provider owns each toast's ref
+			ref: null,
+		};
+		expect(props.title).toBe("Saved");
+	});
+
 	it("shows a toast from useToast and dismisses it", () => {
 		render(
 			<ToastProvider>
