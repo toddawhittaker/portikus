@@ -1,6 +1,7 @@
 import {
 	AgentCreateRecoveryPointRequest,
 	AgentCreateRecoveryPointResponse,
+	AgentDockerInventory,
 	AgentError as AgentErrorBody,
 } from "@portikus/contracts";
 
@@ -110,6 +111,40 @@ export class HttpRecoveryAgent implements RecoveryAgent {
 	}
 }
 
+/** The agent's own docker calls take up to 10 s each; three run in turn. */
+export const INVENTORY_TIMEOUT_MS = 45 * 1000;
+/** The agent caps docker's output at 4 MiB; its JSON reply stays below twice that. */
+const INVENTORY_JSON_LIMIT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * `GET /docker/inventory` on one agent (issue #840). Any failure, including
+ * a reply that fails the schema, is null: no data (ruling S7).
+ */
+export async function fetchDockerInventory(
+	address: string,
+	port: number,
+	token: string,
+	timeoutMs = INVENTORY_TIMEOUT_MS,
+): Promise<AgentDockerInventory | null> {
+	try {
+		const res = await fetch(`http://${address}:${port}/docker/inventory`, {
+			headers: { Authorization: `Bearer ${token}` },
+			signal: AbortSignal.timeout(timeoutMs),
+			redirect: "manual",
+		});
+		if (res.status !== 200) {
+			res.body?.cancel().catch(() => {});
+			return null;
+		}
+		const parsed = AgentDockerInventory.safeParse(
+			await readJson(res, INVENTORY_JSON_LIMIT_BYTES),
+		);
+		return parsed.success ? parsed.data : null;
+	} catch {
+		return null;
+	}
+}
+
 /** The agent factory for agents listening on `port` (the AGENT_PORT setting). */
 export function httpAgentFactory(port: number): AgentFactory {
 	return (address, token) => new HttpRecoveryAgent(address, port, token);
@@ -120,7 +155,10 @@ export function httpAgentFactory(port: number): AgentFactory {
  * container, so its reply is untrusted and must never be buffered without a
  * limit (SPEC.md §24.6). A body that is not JSON reads as undefined.
  */
-async function readJson(res: Response): Promise<unknown> {
+async function readJson(
+	res: Response,
+	limitBytes = AGENT_JSON_LIMIT_BYTES,
+): Promise<unknown> {
 	const body = res.body;
 	if (!body) return undefined;
 	const reader = body.getReader();
@@ -131,7 +169,7 @@ async function readJson(res: Response): Promise<unknown> {
 			const { done, value } = await reader.read();
 			if (done) break;
 			total += value.byteLength;
-			if (total > AGENT_JSON_LIMIT_BYTES) {
+			if (total > limitBytes) {
 				reader.cancel().catch(() => {});
 				throw new AgentCallError("AGENT_UNAVAILABLE", "Agent response too large");
 			}

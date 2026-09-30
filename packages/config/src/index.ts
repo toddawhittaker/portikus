@@ -159,6 +159,11 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "IMAGE_JOBS_DIR must be an absolute path")
 		.optional(),
+	/** Where the API drops Docker cache helper requests and reads its status (issue #840); unset turns the Docker admin routes off. */
+	REGISTRY_JOBS_DIR: z
+		.string()
+		.regex(/^\/./, "REGISTRY_JOBS_DIR must be an absolute path")
+		.optional(),
 	/** The root backup key helper's socket on an apt-installed server (ADR 0044); unset turns the key routes off. */
 	BACKUP_KEY_SOCKET: z
 		.string()
@@ -333,6 +338,8 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	PREVIEW_SUFFIX: z.string().min(1).default(DEV_PREVIEW_SUFFIX),
 	/** The port every workspace agent listens on; must match the API value. */
 	AGENT_PORT: positiveInt.default(7400),
+	/** The registry notification webhook, on 127.0.0.1 only (issue #840). */
+	REGISTRY_EVENTS_PORT: positiveInt.default(8792),
 })
 	.refine(
 		requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),

@@ -200,6 +200,23 @@ test.skipIf(skip)("the start request carries the owner's timezone", async () => 
 	expect(startCall?.args[1]).toMatchObject({ timezone: "Europe/Berlin" });
 });
 
+/** Issue #840: the start request says whether to use the caches, from the saved policy. */
+test.skipIf(skip)("the start request carries the Docker cache config", async () => {
+	await tdb.db
+		.insertInto("settings")
+		.values({ id: 1, shutdown_grace_seconds: 600, docker_ghcr_enabled: true })
+		.onConflict((oc) => oc.column("id").doUpdateSet({ docker_ghcr_enabled: true }))
+		.execute();
+	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
+	await insertConnection(id);
+	const now = new Date();
+
+	await sweep(tdb.db, fake, cfg, now, now);
+
+	const startCall = fake.calls.find((c) => c.method === "start");
+	expect(startCall?.args[1]).toMatchObject({ docker: { hubMirror: true, ghcr: true } });
+});
+
 test.skipIf(skip)("disconnect -> sweep -> deadline set, still running", async () => {
 	const id = await insertWorkspace({
 		state: "running",
@@ -401,6 +418,38 @@ test.skipIf(skip)(
 		expect(audits.some((a) => a.action === "workspace.observed_stopped")).toBe(true);
 	},
 );
+
+/** Issue #840: the controller's seed builder is not a workspace; the sweep leaves it alone. */
+test.skipIf(skip)("the Docker seed builder in the list is ignored", async () => {
+	const id = await insertWorkspace({
+		state: "running",
+		desired_state: "running",
+		incus_instance_name: "ws-with-builder",
+		agent_address: "10.200.0.10",
+	});
+	await insertConnection(id);
+	fake.listResult = [
+		{ name: "ws-with-builder", status: "Running", ipv4: "10.200.0.10" },
+		{ name: "portikus-seed-builder", status: "Running", ipv4: "10.200.0.99" },
+	];
+	const now = new Date();
+
+	await sweep(tdb.db, fake, cfg, now, null);
+
+	expect((await getWorkspace(id)).state).toBe("running");
+	expect(fake.calls.filter((c) => c.method !== "list")).toEqual([]);
+	const count = await tdb.db
+		.selectFrom("workspaces")
+		.select((eb) => eb.fn.countAll<string>().as("n"))
+		.executeTakeFirstOrThrow();
+	expect(Number(count.n)).toBe(1);
+	const builderAudits = await tdb.db
+		.selectFrom("audit_events")
+		.select("action")
+		.where("target", "=", "portikus-seed-builder")
+		.execute();
+	expect(builderAudits).toEqual([]);
+});
 
 test.skipIf(skip)("stale starting row resolved from list", async () => {
 	const id = await insertWorkspace({

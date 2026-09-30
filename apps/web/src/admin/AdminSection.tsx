@@ -61,3 +61,39 @@ export function AdminSection({
 		</section>
 	);
 }
+
+/** One of a tab's h3 groups, drawn as a card, as on the Backups tab. */
+export function AdminGroup({
+	id,
+	title,
+	help,
+	actions,
+	children,
+	testId,
+}: {
+	id: string;
+	title: string;
+	help?: ReactNode;
+	actions?: ReactNode;
+	children: ReactNode;
+	testId?: string;
+}) {
+	return (
+		<section
+			className="pk-card @container grid gap-5 p-6"
+			aria-labelledby={id}
+			data-testid={testId}
+		>
+			<div className="flex flex-wrap items-start gap-x-4 gap-y-2">
+				<div className="flex min-w-0 flex-1 items-center gap-1">
+					<h3 className="pk-text-heading m-0" id={id} tabIndex={-1}>
+						{title}
+					</h3>
+					{help}
+				</div>
+				{actions}
+			</div>
+			{children}
+		</section>
+	);
+}

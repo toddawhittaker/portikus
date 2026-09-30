@@ -3,7 +3,8 @@ import type { HelpPart } from "./part.js";
 /**
  * For administrators. Each admin tab's intro links to one of these anchors
  * ("More in Help"), so keep the ids stable: admin-users, admin-health,
- * admin-logs, admin-audit, admin-network, admin-backups, admin-image, admin-settings.
+ * admin-logs, admin-audit, admin-network, admin-backups, admin-image, admin-docker,
+ * admin-settings.
  */
 export const ADMIN_HELP: HelpPart = {
 	id: "admin",
@@ -203,6 +204,38 @@ export const ADMIN_HELP: HelpPart = {
 						becomes the previous image, and <strong>Roll back</strong> swaps them again.
 						Existing workspaces keep the image they were made from until you rebuild
 						each one; the list shows how many workspaces run each image.
+					</p>
+				</>
+			),
+		},
+		{
+			id: "admin-docker",
+			title: "Docker images and the pull cache",
+			body: (
+				<>
+					<p>
+						Workspaces pull Docker Hub images through a <strong>pull cache</strong> on
+						this server, so an image one student pulled comes from here for the next,
+						and the server stays under Docker Hub's limit on anonymous pulls. The{" "}
+						<strong>Docker</strong> tab shows the space the cache uses.{" "}
+						<strong>Clear cache</strong> empties it; images already in workspaces stay.
+						An optional <strong>Docker Hub account</strong>, given as a personal access
+						token with the "Public Repo Read-only" scope, raises the limit. Every
+						student can pull what that account can read, so use one with no private
+						repositories. Saving or removing it empties the cache.
+					</p>
+					<p>
+						The <strong>ghcr.io cache</strong> is off by default. While it is on,
+						workspaces cannot push to ghcr.io, cannot pull private ghcr.io images, and
+						tools other than Docker that talk to ghcr.io do not work.
+					</p>
+					<p>
+						The <strong>seed</strong> is a set of images that new workspaces, Reset
+						Docker and a rebuild with Reset Docker start with. List the images and press{" "}
+						<strong>Rebuild seed</strong>; the page shows each step. Existing Docker
+						storage keeps what it has. <strong>Image use</strong> lists images
+						workspaces used that the seed does not hold, and seed images nobody used, so
+						you can add or remove them.
 					</p>
 				</>
 			),

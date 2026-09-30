@@ -32,7 +32,7 @@ test.describe("admin layout", () => {
 		}
 	});
 
-	test("tabs read Users, then Health, Logs, Audit, then Network, Backups, Workspace image, Settings (Epic 25 R1)", async ({
+	test("tabs read Users, then Health, Logs, Audit, then Network, Backups, Workspace image, Docker, Settings (Epic 25 R1)", async ({
 		page,
 	}) => {
 		await loginAs(page, "carol");
@@ -47,6 +47,7 @@ test.describe("admin layout", () => {
 				"Network",
 				"Backups",
 				"Workspace image",
+				"Docker",
 				"Settings",
 			],
 			{ timeout: 15_000 },
