@@ -626,7 +626,8 @@ README there is never overwritten.
 When a repository is cloned, the dialog first suggests the folder name read
 as a title (`ipeds-oracle` reads "Ipeds Oracle"). Unless the student types
 their own name, the project then takes the name the repository gives
-itself: the README's first Markdown heading with its formatting removed,
+itself: the README's first Markdown heading with its formatting and emoji removed
+(a heading that is only emoji is skipped),
 else `displayName` or `name` in `package.json`, else `name` in
 `pyproject.toml`, trimmed to the name limit. The folder keeps the slug of
 the name the dialog sent, so only the displayed name changes.

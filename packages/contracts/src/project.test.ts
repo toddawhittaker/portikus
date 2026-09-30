@@ -467,6 +467,22 @@ test("a clone's name comes from the README's first heading, formatting removed (
 	);
 });
 
+test("a clone's name drops emoji from the README heading (#883)", () => {
+	expect(projectNameFromRepository({ readme: "# 📡 pfSense Docker Alias\n" })).toBe(
+		"pfSense Docker Alias",
+	);
+	expect(projectNameFromRepository({ readme: "# Rocket 🚀 Launcher 👍🏽\n" })).toBe(
+		"Rocket Launcher",
+	);
+	expect(projectNameFromRepository({ readme: "# Todo App\n" })).toBe("Todo App");
+	expect(
+		projectNameFromRepository({
+			readme: "# 🚀 👨‍👩‍👧 ❤️\n",
+			packageJson: JSON.stringify({ displayName: "Todo API" }),
+		}),
+	).toBe("Todo API");
+});
+
 test("without a README heading the name falls back to package.json, then pyproject.toml", () => {
 	expect(
 		projectNameFromRepository({
