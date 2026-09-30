@@ -153,12 +153,14 @@ test("a workspace stopped and started under an open page shows no toast", async 
 	await expect(
 		page.getByRole("heading", { name: "Your workspace is stopped" }),
 	).toBeVisible({ timeout: 15_000 });
+	// The started workspace runs a newer agent; that is a fresh start, not an
+	// upgrade. The build changes before the row says running, so the page can
+	// never attach to the old build after the stop.
+	await restartAgent(id, "fake-build-5");
 	await query(
 		"update workspaces set state = 'running', desired_state = 'running', updated_at = now() where id = $1",
 		[student.workspaceId],
 	);
-	// The started workspace runs a newer agent; that is a fresh start, not an upgrade.
-	await restartAgent(id, "fake-build-5");
 	await expect.poll(() => attachments(id), { timeout: 15_000 }).toBe(1);
 	await expectConnected(page, id);
 	await expectNoToast(page, [id]);
