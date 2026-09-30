@@ -215,6 +215,60 @@ describe("toast timing and recording", () => {
 		}
 	});
 
+	it("moves focus to the viewport when its caller dismisses a focused toast", () => {
+		let dismiss: () => void = () => {};
+		function Progress() {
+			const { show } = useToast();
+			return (
+				<button
+					type="button"
+					onClick={() => {
+						dismiss = show({ title: "Extracting", persistent: true });
+					}}
+				>
+					Show
+				</button>
+			);
+		}
+		render(
+			<ToastProvider>
+				<Progress />
+			</ToastProvider>,
+		);
+		fireEvent.click(screen.getByText("Show"));
+		screen.getByRole("button", { name: "Dismiss" }).focus();
+		act(() => dismiss());
+		expect(screen.queryByText("Extracting")).toBeNull();
+		expect(document.activeElement).toBe(screen.getByRole("region").querySelector("ol"));
+	});
+
+	it("leaves focus alone when a dismissed toast did not hold it", () => {
+		let dismiss: () => void = () => {};
+		function Progress() {
+			const { show } = useToast();
+			return (
+				<button
+					type="button"
+					onClick={() => {
+						dismiss = show({ title: "Extracting", persistent: true });
+					}}
+				>
+					Show
+				</button>
+			);
+		}
+		render(
+			<ToastProvider>
+				<Progress />
+			</ToastProvider>,
+		);
+		const button = screen.getByText("Show");
+		fireEvent.click(button);
+		button.focus();
+		act(() => dismiss());
+		expect(document.activeElement).toBe(button);
+	});
+
 	it("records every toast once, as text, including one that asks for an answer", () => {
 		const onShow = vi.fn();
 		render(

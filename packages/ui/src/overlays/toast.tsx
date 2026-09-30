@@ -48,6 +48,7 @@ export interface ToastProps {
 	/** Stays until the caller dismisses it, for progress that outlasts the usual duration. */
 	persistent?: boolean;
 	className?: string;
+	ref?: React.Ref<HTMLLIElement>;
 }
 
 /** One message. Render it inside a ToastProvider, or let useToast do it for you. */
@@ -59,10 +60,12 @@ export function Toast({
 	onDismiss,
 	persistent,
 	className,
+	ref,
 }: ToastProps): React.ReactElement {
 	const urgent = tone === "warning" || tone === "danger";
 	return (
 		<RadixToast.Root
+			ref={ref}
 			type={urgent ? "foreground" : "background"}
 			// A toast that asks for an answer stays until answered; Radix pauses the rest on hover or focus.
 			duration={
@@ -121,6 +124,8 @@ export function ToastProvider({
 	const nextKey = React.useRef(0);
 	const onShowRef = React.useRef(onShow);
 	onShowRef.current = onShow;
+	const viewportRef = React.useRef<HTMLOListElement>(null);
+	const nodes = React.useRef(new Map<number, HTMLLIElement>());
 	const api = React.useMemo<ToastApi>(
 		() => ({
 			show(toast) {
@@ -132,7 +137,13 @@ export function ToastProvider({
 				nextKey.current += 1;
 				const key = nextKey.current;
 				setToasts((current) => [...current, { ...toast, key }]);
-				return () => setToasts((current) => current.filter((item) => item.key !== key));
+				return () => {
+					// Radix moves focus to the viewport only on its own close paths, so do the same here.
+					if (nodes.current.get(key)?.contains(document.activeElement)) {
+						viewportRef.current?.focus();
+					}
+					setToasts((current) => current.filter((item) => item.key !== key));
+				};
 			},
 		}),
 		[],
@@ -145,6 +156,10 @@ export function ToastProvider({
 					<Toast
 						key={key}
 						{...toast}
+						ref={(node) => {
+							if (node) nodes.current.set(key, node);
+							else nodes.current.delete(key);
+						}}
 						onDismiss={() => {
 							setToasts((current) => current.filter((item) => item.key !== key));
 							onDismiss?.();
@@ -153,6 +168,7 @@ export function ToastProvider({
 				))}
 				{/* Radix fills {hotkey} with F8, the only keyboard route to a toast. */}
 				<RadixToast.Viewport
+					ref={viewportRef}
 					label="Notifications (press {hotkey} to reach them)"
 					className="pk-toast-viewport fixed right-4 bottom-4 z-[var(--z-toast)] m-0 flex w-95 list-none flex-col gap-2 p-0 outline-none"
 				/>

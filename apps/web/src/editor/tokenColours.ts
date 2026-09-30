@@ -35,3 +35,22 @@ export const DARK_TOKENS: Record<string, string> = {
 	"tag.class.pug": "688aba",
 	"string.sql": "ff3b3b",
 };
+
+/**
+ * Bracket pair colours, all listed so the contrast test covers each. Monaco's
+ * light green and both themes' unmatched-bracket red fell below 4.5:1, so
+ * they are moved in lightness only; the rest are Monaco's own.
+ */
+export const LIGHT_BRACKETS: Record<string, string> = {
+	"editorBracketHighlight.foreground1": "0431fa",
+	"editorBracketHighlight.foreground2": "297a29",
+	"editorBracketHighlight.foreground3": "7b3814",
+	"editorBracketHighlight.unexpectedBracket.foreground": "c52f2f",
+};
+
+export const DARK_BRACKETS: Record<string, string> = {
+	"editorBracketHighlight.foreground1": "ffd700",
+	"editorBracketHighlight.foreground2": "da70d6",
+	"editorBracketHighlight.foreground3": "179fff",
+	"editorBracketHighlight.unexpectedBracket.foreground": "ff4040",
+};

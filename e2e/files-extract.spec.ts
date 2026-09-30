@@ -112,6 +112,29 @@ test.describe("extract here", () => {
 		await expect(progress).toHaveCount(0);
 	});
 
+	test("focus on the progress toast moves to the notifications list when it goes", async ({
+		page,
+		context,
+	}) => {
+		await withUploadedZip(page, context);
+		const release = await holdExtract(page);
+		await page.getByTestId("file-menu-starter.zip").click();
+		await page.getByTestId("row-extract-starter.zip").click();
+		const progress = toast(page, "Extracting starter.zip…");
+		await expect(progress).toBeVisible();
+
+		// F8 reaches the notifications list; Tab then Tab lands on the toast's Dismiss button.
+		await page.keyboard.press("F8");
+		await page.keyboard.press("Tab");
+		await page.keyboard.press("Tab");
+		await expect(progress.getByRole("button", { name: "Dismiss" })).toBeFocused();
+
+		release();
+		await expect(toast(page, "Extracted starter.zip into starter")).toBeVisible();
+		await expect(progress).toHaveCount(0);
+		await expect(page.locator(".pk-toast-viewport")).toBeFocused();
+	});
+
 	for (const scheme of ["light", "dark"] as const) {
 		test(`the extract toasts have no automatic accessibility violations (${scheme})`, async ({
 			page,
