@@ -77,12 +77,15 @@ export default defineConfig({
 				// Monaco worker and theme glue; only the browser exercises it.
 				"apps/web/src/editor/monaco.ts",
 			],
-			thresholds: {
-				lines: 80,
-				branches: 70,
-				"apps/api/src/**": { lines: 85 },
-				"apps/workspace-agent/src/**": { lines: 85 },
-			},
+			// A CI shard covers only part of the code; the merge job checks the floors.
+			thresholds: process.env.COVERAGE_SHARD
+				? undefined
+				: {
+						lines: 80,
+						branches: 70,
+						"apps/api/src/**": { lines: 85 },
+						"apps/workspace-agent/src/**": { lines: 85 },
+					},
 		},
 		projects: [
 			{
