@@ -34,14 +34,15 @@ const INDEX_TYPES = [
 
 /**
  * The canonical image name one event counts under, or null when it does not
- * count: only manifest pulls do. A pull by tag counts under the tag. A pull
+ * count: only manifest GETs and HEADs do. A pull by tag counts under the tag. A pull
  * by digest counts as `repository@digest` only for a multi-platform index,
  * because dockerd follows every tag pull with a digest fetch of the
  * platform's own manifest, which would count the same pull twice.
  */
 export function pulledImage(event: RegistryEvent, registry: string): string | null {
 	if (event.action !== "pull") return null;
-	if (event.request.method && event.request.method !== "GET") return null;
+	const method = event.request.method ?? "GET";
+	if (method !== "GET" && method !== "HEAD") return null;
 	const type = event.target.mediaType ?? "";
 	if (!MANIFEST_TYPES.includes(type)) return null;
 	const repo = `${registry}/${event.target.repository}`;
@@ -58,6 +59,27 @@ function sameToken(given: string | undefined, expected: string): boolean {
 	const a = createHash("sha256").update(given).digest();
 	const b = createHash("sha256").update(expected).digest();
 	return timingSafeEqual(a, b);
+}
+
+/** How long a tagged event hides the digest fetch of the same index. */
+const TAGGED_DIGEST_TTL_MS = 10 * 60 * 1000;
+/** Most tagged digests remembered at once. */
+export const TAGGED_DIGESTS_MAX = 10_000;
+
+/**
+ * Tagged index digests seen recently, keyed by address, registry and
+ * repo@digest, valued by expiry time. dockerd sends a tagged HEAD and then
+ * a digest-only GET of the same index in separate notifications.
+ */
+export type TaggedDigests = Map<string, number>;
+
+function rememberTagged(seen: TaggedDigests, key: string, nowMs: number): void {
+	seen.delete(key);
+	seen.set(key, nowMs + TAGGED_DIGEST_TTL_MS);
+	for (const [k, expires] of seen) {
+		if (seen.size <= TAGGED_DIGESTS_MAX && expires > nowMs) break;
+		seen.delete(k);
+	}
 }
 
 export interface RegistryEventsOptions {
@@ -80,12 +102,24 @@ export async function recordRegistryEvents(
 	envelope: RegistryEventEnvelope,
 	registry: string,
 	now: Date,
+	seen: TaggedDigests = new Map(),
 ): Promise<number> {
+	const nowMs = now.getTime();
 	const counted: { image: string; ip: string }[] = [];
 	for (const event of envelope.events) {
 		const image = pulledImage(event, registry);
 		const ip = registryEventWorkspaceIp(event.request.addr);
-		if (image && ip) counted.push({ image, ip });
+		if (!image || !ip) continue;
+		const digest = event.target.digest;
+		const key = digest
+			? `${ip}\t${registry}\t${event.target.repository}@${digest}`
+			: "";
+		if (event.target.tag) {
+			if (key) rememberTagged(seen, key, nowMs);
+		} else if ((seen.get(key) ?? 0) > nowMs) {
+			continue;
+		}
+		counted.push({ image, ip });
 	}
 	if (counted.length === 0) return 0;
 
@@ -175,6 +209,7 @@ async function readBody(req: IncomingMessage): Promise<Buffer | null> {
 export function createRegistryEventsServer(options: RegistryEventsOptions): Server {
 	const { db, logger, token } = options;
 	const now = options.now ?? (() => new Date());
+	const seen: TaggedDigests = new Map();
 	return createServer((req, res) => {
 		const answer = (status: number): void => {
 			res.writeHead(status).end();
@@ -203,7 +238,7 @@ export function createRegistryEventsServer(options: RegistryEventsOptions): Serv
 			} catch {
 				return answer(400);
 			}
-			await recordRegistryEvents(db, envelope, registry, now());
+			await recordRegistryEvents(db, envelope, registry, now(), seen);
 			answer(200);
 		})().catch((e: unknown) => {
 			logger.warn(
