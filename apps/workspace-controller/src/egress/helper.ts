@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { constants as fsc } from "node:fs";
 import {
+	access,
 	lstat,
 	mkdir,
 	open,
@@ -57,6 +58,8 @@ export interface HelperDeps {
 	envPath: string;
 	/** The registry helper's ghcr.io switch; anything but "on", or no file, is off. */
 	ghcrEnabledPath: string;
+	/** Setup's cache-off marker; while it exists the ghcr.io cache counts as off. */
+	cacheOffPath: string;
 	now: () => Date;
 	/** Skip the root-ownership checks on the configuration file (tests only). */
 	allowAnyOwner?: boolean;
@@ -122,12 +125,20 @@ export function defaultDeps(): HelperDeps {
 		stateDir: EGRESS_PATHS.stateDir,
 		envPath: EGRESS_PATHS.env,
 		ghcrEnabledPath: EGRESS_PATHS.ghcrEnabled,
+		cacheOffPath: EGRESS_PATHS.cacheOff,
 		now: () => new Date(),
 	};
 }
 
-/** Whether the ghcr.io cache is on (S3). A missing or unreadable file means off. */
+/** Whether the ghcr.io cache is on (S3). A missing or unreadable file, or the cache-off marker, means off. */
 async function readGhcrEnabled(deps: HelperDeps): Promise<boolean> {
+	// With the cache off nothing listens on the cache port, so redirecting there would only refuse pulls.
+	try {
+		await access(deps.cacheOffPath);
+		return false;
+	} catch {
+		// No marker: the switch decides.
+	}
 	try {
 		return (await readFile(deps.ghcrEnabledPath, "utf8")).trim() === "on";
 	} catch {

@@ -34,6 +34,7 @@ import {
 	CACHE_OFF_HOST_PATH,
 	GHCR_CA_HOST_PATH,
 	writeDockerConfig,
+	writeGhcrHosts,
 } from "./docker-config.js";
 import type { SeedBuildHost } from "./docker-seed.js";
 import {
@@ -435,9 +436,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 
 		// Written before the start, so dockerd reads it; never fatal (issue #840).
+		let ghcr: boolean | null = null;
 		if (opts.docker !== undefined) {
 			try {
-				await writeDockerConfig(
+				ghcr = await writeDockerConfig(
 					this.client,
 					name,
 					opts.docker,
@@ -496,6 +498,19 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		await this.setHostname(name, opts.hostname, signal, opts.timeoutSeconds);
 
 		await this.setTimezone(name, opts.timezone, signal, opts.timeoutSeconds);
+
+		// Again after the start: a first start after create or copy runs the
+		// image's /etc/hosts template, which drops the line written above.
+		if (ghcr !== null) {
+			try {
+				await writeGhcrHosts(this.client, name, ghcr, signal);
+			} catch (err) {
+				this.log.warn(
+					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					"could not write the ghcr.io hosts line",
+				);
+			}
+		}
 
 		await this.client.pushFile(
 			name,
@@ -1307,7 +1322,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			undefined,
 			INSTANCE_CREATE_WAIT_SECONDS,
 		);
-		await writeDockerConfig(
+		const seedGhcr = await writeDockerConfig(
 			this.client,
 			SEED_BUILDER,
 			{ hubMirror: true, ghcr: opts.ghcr },
@@ -1326,6 +1341,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			deadline,
 			AbortSignal.timeout(SEED_BUILDER_START_SECONDS * 1000),
 		);
+		// The first start ran the image's /etc/hosts template over our line.
+		await writeGhcrHosts(this.client, SEED_BUILDER, seedGhcr);
 		while ((await this.execInSeedBuilder(["/usr/bin/docker", "info"], 30)) !== 0) {
 			if (Date.now() >= deadline) {
 				throw new IncusError("TIMEOUT", "dockerd in the seed builder did not start");

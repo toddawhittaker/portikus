@@ -115,7 +115,7 @@ export async function writeDockerConfig(
 	config: WorkspaceDockerConfig,
 	opts: { caPath: string; cacheOffPath?: string; log: Logger },
 	signal?: AbortSignal,
-): Promise<void> {
+): Promise<boolean> {
 	// With the cache off nothing listens, so neither mirror nor ghcr.io entry may point at it.
 	if (await exists(opts.cacheOffPath ?? CACHE_OFF_HOST_PATH)) {
 		config = { ...config, hubMirror: false, ghcr: false };
@@ -172,6 +172,25 @@ export async function writeDockerConfig(
 		}
 	}
 
+	await writeGhcrHosts(client, name, ghcr, signal);
+	return ghcr;
+}
+
+/**
+ * Add or remove our ghcr.io line in a workspace's /etc/hosts. Also run after
+ * a start: the image's create/copy template rewrites /etc/hosts at the first
+ * start after a create or copy, dropping a line written beforehand.
+ */
+export async function writeGhcrHosts(
+	client: FilesClient,
+	name: string,
+	ghcr: boolean,
+	signal?: AbortSignal,
+): Promise<void> {
+	const hosts = await readText(client, name, HOSTS_PATH, signal);
+	if (hosts && hosts.type !== "file") {
+		throw new Error(`${HOSTS_PATH} is not a regular file`);
+	}
 	if (hosts === null && !ghcr) return;
 	const text = hosts?.text ?? "";
 	const next = hostsWithGhcr(text, ghcr);

@@ -939,6 +939,8 @@ interface FakeIncus {
 	files: Map<string, { type: string; content: string }>;
 	/** Files API writes and deletes, in order, as "POST path" or "DELETE path". */
 	fileOps: string[];
+	/** Rewrite /etc/hosts at the next start, as the image's create/copy template does. */
+	hostsTemplate: string | null;
 	/** Every request, as "METHOD path", in order. */
 	log: string[];
 	instanceCreates: Array<{ devices: Record<string, Record<string, string>> }>;
@@ -987,6 +989,7 @@ function fakeIncus(): FakeIncus {
 			["/etc/hosts", { type: "file", content: "127.0.0.1 localhost\n" }],
 		]),
 		fileOps: [],
+		hostsTemplate: null,
 		log: [],
 		instanceCreates: [],
 	};
@@ -1128,6 +1131,10 @@ function serveIncus(state: FakeIncus): void {
 			respond(res, 200, sync({}));
 		} else if (p === "/1.0/instances/ws-test/state" && method === "PUT") {
 			state.status = "Running";
+			if (state.hostsTemplate !== null) {
+				state.files.set("/etc/hosts", { type: "file", content: state.hostsTemplate });
+				state.hostsTemplate = null;
+			}
 			respond(res, 200, sync({}));
 		} else if (p === "/1.0/instances/ws-test/state" && method === "GET") {
 			respond(res, 200, sync(runningWithAddress("127.0.0.1")));
@@ -2569,6 +2576,39 @@ describe("the Docker seed", () => {
 		await own.start("ws-test", { ...START, docker: { hubMirror: false, ghcr: false } });
 		expect(state.files.has("/etc/docker/certs.d/ghcr.io/ca.crt")).toBe(false);
 		expect(state.files.get("/etc/hosts")?.content).toBe("127.0.0.1 localhost\n");
+	});
+
+	test("the ghcr.io hosts line survives the first start's /etc/hosts template", async () => {
+		const state = fakeIncus();
+		const ca = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ca-")), "ca.crt");
+		fs.writeFileSync(ca, "CERT\n");
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			ghcrCaPath: ca,
+		});
+		serveIncus(state);
+		const ghcrLines = () =>
+			(state.files.get("/etc/hosts")?.content ?? "")
+				.split("\n")
+				.filter((l) => l.includes("ghcr.io"));
+
+		state.hostsTemplate = "127.0.0.1 localhost\n127.0.1.1 ws-test\n";
+		await own.start("ws-test", { ...START, docker: { hubMirror: true, ghcr: true } });
+		expect(ghcrLines()).toHaveLength(1);
+		expect(ghcrLines()[0]).toMatch(/^10\.200\.0\.1 ghcr\.io /);
+
+		state.status = "Stopped";
+		await own.start("ws-test", { ...START, docker: { hubMirror: true, ghcr: true } });
+		expect(ghcrLines()).toHaveLength(1);
+
+		state.status = "Stopped";
+		await own.start("ws-test", { ...START, docker: { hubMirror: true, ghcr: false } });
+		expect(ghcrLines()).toEqual([]);
 	});
 
 	test("start without Docker settings leaves Docker's config alone", async () => {

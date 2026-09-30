@@ -1981,7 +1981,9 @@ The cache is an optimisation and never fails setup: when the answered size
 would leave less than 10 GiB free on the main disk, setup makes the largest
 whole-GiB cache that keeps the 10 GiB, and when not even 1 GiB fits it turns
 the cache off (the file `/etc/portikus/registry/cache-off`), warns in its
-output, and workspaces get no mirror.
+output, and workspaces get no mirror. A workspace already running when the
+cache turns off keeps its cache settings until its next restart; meanwhile
+the gateway no longer redirects ghcr.io traffic, so its pulls fail plainly.
 
 **ghcr.io cache, on by default.** A second registry on `10.200.0.1:5001`
 caches ghcr.io (GitHub's container registry). It is on by default (Todd's
