@@ -13,6 +13,7 @@ import {
 	HealthSample,
 	isQuotaGrowOnly,
 	type MemoryFlag,
+	type PendingOperation,
 	QUOTA_SHRINK_MESSAGE,
 	type QuotaConfig,
 	type StorageFigure,
@@ -158,6 +159,7 @@ export function toWorkspaceSummary(
 			facts,
 		),
 		archivedAt: iso(row.archived_at),
+		pendingOperation: (row.pending_operation as PendingOperation | null) ?? null,
 		cpuThrottle: toJson<CpuThrottle>(row.cpu_throttle),
 		memoryFlag: toJson<MemoryFlag>(row.memory_flag),
 	};

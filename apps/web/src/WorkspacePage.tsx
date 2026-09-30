@@ -28,6 +28,7 @@ import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
 import { StatusBar } from "./shell/StatusBar.js";
 import { ThrottleNotice, throttleAnnouncement } from "./shell/ThrottleNotice.js";
 import { resolveStatus, type WorkspaceDialogMode } from "./shell/WorkspaceDialog.js";
+import { forgetAgentBuild } from "./terminalFrames.js";
 import { type MeUser, useMe } from "./useMe.js";
 import { useWorkspaceSocket } from "./useWorkspaceSocket.js";
 import { startingPhase, WorkspaceStarting } from "./WorkspaceStarting.js";
@@ -83,6 +84,10 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	const project = projects.data?.find((item) => item.id === projectId);
 	usePageTitle(project?.name ?? "");
 	const running = workspace?.state === "running";
+	// A stop ends the terminals, so the next start is not an upgrade (SPEC.md §22.5).
+	useEffect(() => {
+		if (workspace && !running) forgetAgentBuild(workspaceId);
+	}, [workspace, running, workspaceId]);
 	// Skeletons promise that something is loading; a stopped workspace loads nothing.
 	const phase = startingPhase(workspace);
 	const loading =

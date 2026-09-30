@@ -6,6 +6,7 @@ import {
 	GuardWindowMinutes,
 	IdleStopMinutes,
 	MemoryFlag,
+	PendingOperation,
 	ThrottleSharePercent,
 	Workspace,
 } from "./workspace.js";
@@ -123,6 +124,8 @@ export const AdminWorkspaceSummary = z.object({
 	quotaApplied: QuotaConfig.nullable(),
 	image: AdminImageVersion,
 	archivedAt: z.string().datetime().nullable(),
+	/** A rebuild or Reset Docker waiting or running, so the row can say so (issue #881). */
+	pendingOperation: PendingOperation.nullable(),
 	/** The Throttled and High memory tags (ADR 0032). */
 	cpuThrottle: CpuThrottle.nullable(),
 	memoryFlag: MemoryFlag.nullable(),

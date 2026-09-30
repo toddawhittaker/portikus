@@ -544,6 +544,18 @@ An upgrade installs the new Portikus release, restarts its services, and
 starts setup again in the background, so any change a release makes to the
 server is applied too. Follow it with `sudo portikus setup --follow`.
 
+Running workspaces pick up the new release on their own. When the
+workspace controller restarts after the upgrade, it restarts the
+workspace agent (the small service inside each workspace that the browser
+talks to) in every running workspace whose agent is older than the
+upgrade. Open terminals and the programs in them keep running, and the
+student's page reconnects and shows "Portikus was updated. Your
+terminals are still running." Workspaces on an image older than
+2026.09.11 are skipped, because restarting their agent would close their
+terminals. They keep the old agent until they are next stopped and
+started, and each one is named in the controller's log:
+`sudo journalctl -u portikus-controller | grep "old workspace agent"`.
+
 ## Troubleshooting
 
 - **Is it running?** `sudo portikus status` prints the package version and

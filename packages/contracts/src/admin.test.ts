@@ -161,6 +161,7 @@ describe("admin contracts", () => {
 					current: false,
 				},
 				archivedAt: null,
+				pendingOperation: null,
 				cpuThrottle: null,
 				memoryFlag: null,
 			},
@@ -337,6 +338,7 @@ describe("admin contracts", () => {
 			quotaApplied: null,
 			image: { label: null, fingerprint: null, current: null },
 			archivedAt: null,
+			pendingOperation: "rebuild",
 			cpuThrottle: throttle,
 			memoryFlag: flag,
 		};

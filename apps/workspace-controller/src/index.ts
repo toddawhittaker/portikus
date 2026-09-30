@@ -1,5 +1,7 @@
+import { stat } from "node:fs/promises";
 import { ControllerConfigSchema, loadConfig } from "@portikus/config";
 import { createLogger } from "@portikus/observability";
+import { AGENT_ENTRY_PATH, restartOutdatedAgents } from "./agent-restart.js";
 import { IncusClient } from "./incus.js";
 import { IncusWorkspaceProvider } from "./provider.js";
 import { buildServer } from "./server.js";
@@ -35,4 +37,18 @@ app.listen({ host: "127.0.0.1", port: config.PORT }, (err, address) => {
 		process.exit(1);
 	}
 	logger.info({ address }, "workspace-controller listening");
+	// Running workspaces pick up an upgraded agent without blocking anything else (issue #887).
+	void restartAgentsAfterUpgrade();
 });
+
+async function restartAgentsAfterUpgrade(): Promise<void> {
+	try {
+		const { ctime } = await stat(AGENT_ENTRY_PATH);
+		await restartOutdatedAgents({ restarter: provider, agentChangedAt: ctime, logger });
+	} catch (err) {
+		logger.warn(
+			{ err: err instanceof Error ? err.message : String(err) },
+			"could not check running workspaces for an outdated agent",
+		);
+	}
+}

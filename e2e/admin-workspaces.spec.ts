@@ -6,8 +6,10 @@ import {
 	MOCK_ISSUER,
 	openToggletip,
 	query,
+	settledAxe,
 	type TestStudent,
 	toast,
+	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
 
@@ -452,6 +454,111 @@ test("a workspace on an old image says Old image, not Stale, and loses it when i
 		timeout: 15_000,
 	});
 });
+
+/** Play the worker's end of an operation: clear it, then audit the result (ADR 0021). */
+async function finishOperation(
+	workspaceId: string,
+	action: string,
+	ok: boolean,
+): Promise<void> {
+	await query(
+		`update workspaces set pending_operation = null, pending_operation_at = null,
+		 pending_operation_by = null, state = $2, error_code = $3 where id = $1`,
+		[workspaceId, ok ? "stopped" : "error", ok ? null : "CONTROLLER_TIMEOUT"],
+	);
+	await query(
+		`insert into audit_events (actor, target, action, result, metadata)
+		 values ('worker', $1, $2, $3, $4)`,
+		[
+			workspaceId,
+			action,
+			ok ? "ok" : "failed",
+			JSON.stringify(ok ? {} : { errorCode: "CONTROLLER_TIMEOUT" }),
+		],
+	);
+}
+
+// Issue #881: the panel and the row say what is running, then how it ended.
+for (const { name, button, dialogId, running, endAction, ok, message, role } of [
+	{
+		name: "a rebuild that succeeds",
+		button: (student: string) => `Rebuild workspace for ${student}`,
+		dialogId: "rebuild-dialog",
+		running: "Rebuilding…",
+		endAction: "workspace.rebuilt",
+		ok: true,
+		message: "Rebuild of {name}'s workspace finished",
+		role: "status",
+	},
+	{
+		name: "a Docker reset that fails",
+		button: (student: string) => `Reset Docker for ${student}`,
+		dialogId: "reset-docker-dialog",
+		running: "Resetting Docker…",
+		endAction: "workspace.docker_reset_failed",
+		ok: false,
+		message: "Docker reset of {name}'s workspace failed",
+		role: "alert",
+	},
+]) {
+	test(`${name} shows its progress on the panel and row, then announces the result`, async ({
+		page,
+		browser,
+	}) => {
+		const student = await studentIn(browser);
+		const label = await workspaceLabel(student.workspaceId);
+		await openAdmin(page);
+		const panel = await openDetail(page, student.name);
+		const state = panel.getByTestId("detail-state");
+		const row = page.getByTestId(`account-row-${student.userId}`);
+
+		await panel.getByRole("button", { name: button(student.name) }).click();
+		const dialog = page.getByTestId(dialogId);
+		await dialog.getByRole("textbox").fill(label);
+		await dialog.getByTestId("dialog-confirm").click();
+
+		// Straight away, without waiting for a poll: the confirm refetches.
+		await expect(state).toHaveText(running, { timeout: 3000 });
+		await expect(state).toHaveAttribute("role", "status");
+		await expect(state.locator(".pk-spin")).toHaveCount(1);
+		await expect(row.getByText(running)).toBeVisible({ timeout: 3000 });
+		await expect(
+			panel.getByRole("button", { name: `Rebuild workspace for ${student.name}` }),
+		).toBeDisabled();
+		await expect(
+			panel.getByRole("button", { name: `Reset Docker for ${student.name}` }),
+		).toBeDisabled();
+
+		await finishOperation(student.workspaceId, endAction, ok);
+		const end = toast(page, message.replace("{name}", student.name));
+		await expect(end).toBeVisible({ timeout: 15_000 });
+		await expect(end.getByRole(role)).toHaveCount(1);
+		await expect(state).not.toHaveText(running);
+		await expect(row.getByText(running)).toHaveCount(0, { timeout: 15_000 });
+		await expect(
+			panel.getByRole("button", { name: `Rebuild workspace for ${student.name}` }),
+		).toBeEnabled();
+	});
+}
+
+for (const scheme of ["light", "dark"] as const) {
+	test(`a running rebuild on the panel and row has no automatic violations (${scheme})`, async ({
+		page,
+		browser,
+	}) => {
+		await page.setViewportSize({ width: 1024, height: 768 });
+		await page.emulateMedia({ colorScheme: scheme });
+		const student = await studentIn(browser);
+		await query("update workspaces set pending_operation = 'rebuild' where id = $1", [
+			student.workspaceId,
+		]);
+		await openAdmin(page);
+		const panel = await openDetail(page, student.name);
+		await expect(panel.getByTestId("detail-state")).toHaveText("Rebuilding…");
+		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+	});
+}
 
 /** The Users table of SPEC.md section 20.1. */
 test.describe("the Users table layout", () => {

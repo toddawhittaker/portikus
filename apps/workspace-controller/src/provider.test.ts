@@ -2214,3 +2214,85 @@ describe("admin operations", () => {
 		});
 	}
 });
+
+// Issue #887: the agent's start time and the image come from the host, and
+// the only thing run inside the instance is a fixed systemctl restart.
+describe("restarting outdated agents", () => {
+	let root: string;
+	const AGENT_UNIT = "system.slice/portikus-workspace-agent.service";
+
+	function statLine(pid: number, start: number): string {
+		const rest = Array.from({ length: 22 }, () => "0");
+		rest[0] = "S";
+		rest[19] = String(start);
+		return `${pid} (node) ${rest.join(" ")}\n`;
+	}
+
+	beforeEach(() => {
+		root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-restart-"));
+		fs.mkdirSync(path.join(root, "proc", "5000"), { recursive: true });
+		fs.mkdirSync(path.join(root, "proc", "5001"), { recursive: true });
+		fs.writeFileSync(path.join(root, "proc", "stat"), "cpu 1 2 3\nbtime 1790000000\n");
+		// The oldest process in the unit is its main one; 5001 is a child.
+		fs.writeFileSync(path.join(root, "proc", "5000", "stat"), statLine(5000, 12_345));
+		fs.writeFileSync(path.join(root, "proc", "5001", "stat"), statLine(5001, 99_999));
+		const unit = path.join(root, "cgroup", "lxc.payload.testproj_ws-a", AGENT_UNIT);
+		fs.mkdirSync(unit, { recursive: true });
+		fs.writeFileSync(path.join(unit, "cgroup.procs"), "5001\n5000\n");
+	});
+
+	afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+	function hostProvider(): IncusWorkspaceProvider {
+		return new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort: 1,
+			cgroupRoot: path.join(root, "cgroup"),
+			procRoot: path.join(root, "proc"),
+		});
+	}
+
+	test("reads each running agent's start from the host and the image from Incus", async () => {
+		handler = (_req, res) => {
+			respond(
+				res,
+				200,
+				sync([
+					{ name: "ws-a", status: "Running", config: { "image.serial": "2026.09.14" } },
+					{ name: "ws-b", status: "Running", config: {} },
+					{ name: "ws-c", status: "Stopped", config: { "image.serial": "2026.09.14" } },
+				]),
+			);
+		};
+		const agents = await hostProvider().runningAgents();
+		expect(agents).toEqual([
+			{
+				name: "ws-a",
+				imageSerial: "2026.09.14",
+				startedAt: new Date((1_790_000_000 + 123.45) * 1000),
+			},
+			{ name: "ws-b", imageSerial: null, startedAt: null },
+		]);
+	});
+
+	test("restartAgent runs a fixed systemctl restart and reports a failure", async () => {
+		const commands: unknown[] = [];
+		let code = 0;
+		handler = async (req, res) => {
+			commands.push(JSON.parse(await readBody(req)).command);
+			respond(res, 200, sync({ status_code: 200, metadata: { return: code } }));
+		};
+		await hostProvider().restartAgent("ws-a");
+		expect(commands).toEqual([
+			["systemctl", "restart", "portikus-workspace-agent.service"],
+		]);
+		code = 1;
+		await expect(hostProvider().restartAgent("ws-a")).rejects.toThrow("exited 1");
+		await expect(hostProvider().restartAgent("../x")).rejects.toMatchObject({
+			code: "INVALID_NAME",
+		});
+	});
+});
