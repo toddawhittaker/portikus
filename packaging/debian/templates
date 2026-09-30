@@ -256,6 +256,17 @@ Description: Size of the storage file, in GiB:
  The main disk has ${free} GiB free. Give a whole number of GiB, at most
  ${max}, so the system keeps room to work.
 
+Template: portikus/registry_cache_gib
+Type: string
+Default: 20
+Description: Size of the Docker image cache, in GiB:
+ Students' Docker Hub pulls go through a cache on this server, so an image
+ one student pulled is not downloaded again for the next. It is a file of
+ this size on the main disk, which the main disk must have room for.
+ .
+ The main disk has ${free} GiB free. Give a whole number of GiB, such as
+ 20. A different size later empties the cache.
+
 Template: portikus/summary
 Type: boolean
 Default: true

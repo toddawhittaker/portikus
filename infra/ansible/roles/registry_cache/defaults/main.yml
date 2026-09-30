@@ -1,0 +1,10 @@
+---
+# Fixed in packages/contracts/src/docker-cache.ts, like the gateway address.
+registry_cache_config_dir: /etc/portikus/registry
+registry_cache_jobs_dir: /var/lib/portikus/registry-jobs
+registry_cache_image: /var/lib/portikus-registry.img
+registry_cache_mount: /var/lib/portikus-registry
+registry_cache_mount_unit: 'var-lib-portikus\x2dregistry.mount'
+registry_cache_gateway: 10.200.0.1
+# The root filesystem keeps at least this much free after the cache's file.
+registry_cache_spare_bytes: "{{ 10 * 1073741824 }}"

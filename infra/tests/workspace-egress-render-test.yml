@@ -21,6 +21,9 @@
     incus_network_name: "{{ site_vars.incus_network_name }}"
     incus_network_cidr: "{{ site_vars.incus_network_cidr }}"
     portikus_controller_port: "{{ site_vars.portikus_controller_port }}"
+    registry_cache_hub_port: "{{ site_vars.registry_cache_hub_port }}"
+    registry_cache_ghcr_port: "{{ site_vars.registry_cache_ghcr_port }}"
+    registry_cache_connections_per_source: "{{ site_vars.registry_cache_connections_per_source }}"
     management_cidr: 10.100.0.0/24
     portikus_agent_port: 7400
     portikus_preview_port_min: 1024
@@ -72,6 +75,23 @@
           workspace_egress_http_port and workspace_egress_https_port in
           infra/ansible/site.yml.
 
+    - name: Read the contracts' Docker cache ports
+      ansible.builtin.set_fact:
+        cache_ports: >-
+          {{ dict(lookup('ansible.builtin.file', '../../packages/contracts/src/docker-cache.ts')
+             | regex_findall('export const (HUB_CACHE_PORT|GHCR_CACHE_PORT) = ([0-9]+);')) }}
+
+    - name: Check the firewall, the ACL and the drop-all table open and close the contracts' cache ports
+      ansible.builtin.assert:
+        that:
+          - cache_ports.HUB_CACHE_PORT | int == registry_cache_hub_port | int == 5000
+          - cache_ports.GHCR_CACHE_PORT | int == registry_cache_ghcr_port | int == 5001
+        fail_msg: >-
+          HUB_CACHE_PORT and GHCR_CACHE_PORT in packages/contracts/src/docker-cache.ts
+          ({{ cache_ports }}) must equal registry_cache_hub_port and
+          registry_cache_ghcr_port in infra/ansible/site.yml, and the 5000 and
+          5001 in egress-drop-all.nft.j2 and packaging/registry/registry-job.
+
     # ── The network ACL ───────────────────────────────────────────
 
     - name: Render the network ACL for the site's bridge
@@ -86,7 +106,8 @@
           - drops[0].destination == '10.200.0.0,10.200.0.2-10.200.0.255'
           - drops[0].protocol is not defined
           - drops[1].destination == '10.200.0.1/32' and drops[1].protocol == 'tcp'
-          - drops[1].destination_port == '1-3128,3131-5299,5301-65535'
+          # The Docker caches (5000, 5001) are open; 443 never is (rulings S1 and S3).
+          - drops[1].destination_port == '1-3128,3131-4999,5002-5299,5301-65535'
           - drops[2].protocol == 'udp' and drops[2].destination_port == '1-5299,5301-65535'
           - drops[2].destination == '10.200.0.1/32'
           - drops[3].protocol == 'icmp4' and drops[3].destination == '10.200.0.1/32'
@@ -137,6 +158,16 @@
           - firewall_lines | select('match', '^flush ') | list == ['flush table inet filter', 'flush table inet nat']
           - egress_ports | length == 2
           - egress_ports | reject('search', '^iifname "portikus-ws" .* ct status dnat accept$') | list | length == 0
+
+    - name: Check the Docker caches are open only from the bridge, with a cap per workspace
+      vars:
+        cache_lines: "{{ firewall_lines | select('search', '5000') | list }}"
+      ansible.builtin.assert:
+        that:
+          - >-
+            cache_lines == [
+              'iifname "portikus-ws" tcp dport { 5000, 5001 } ct state new add @registry_conns { ip saddr ct count over 256 } reject with tcp reset',
+              'iifname "portikus-ws" tcp dport { 5000, 5001 } accept']
 
     - name: Check the worker may open loopback connections only to the controller
       ansible.builtin.assert:
@@ -215,9 +246,11 @@
 
     # ── The guard's drop-all table (render.test.ts checks the rest) ──
 
-    - name: Check the drop-all table drops forwarding on the site's bridge
+    - name: Check the drop-all table drops forwarding and the Docker caches on the site's bridge
       ansible.builtin.assert:
         that:
           - >-
-            (lookup('ansible.builtin.template', '../ansible/roles/workspace_egress/templates/egress-drop-all.nft.j2').splitlines() | last)
-            == 'add rule inet portikus_egress forward iifname "portikus-ws" drop'
+            lookup('ansible.builtin.template', '../ansible/roles/workspace_egress/templates/egress-drop-all.nft.j2').splitlines()
+            | select('match', '^add rule') | list == [
+              'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
+              'add rule inet portikus_egress forward iifname "portikus-ws" drop']

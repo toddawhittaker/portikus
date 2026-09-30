@@ -1,0 +1,30 @@
+# Portikus root cache helper (issue #840, the pattern of ADR 0030).
+# Started by portikus-registry-job.path for each request the API writes:
+# clear the Docker cache, turn the ghcr.io cache on or off, and set or
+# remove the Docker Hub credential. It reads and deletes each request file
+# first, and logs only the request's kind (security ruling S5).
+[Unit]
+Description=Portikus Docker cache helper
+ConditionPathIsDirectory=/var/lib/portikus/registry-jobs
+# The path unit starts this once per request; the default start limit would
+# fail it after a burst, and the path unit's own trigger limit stops a loop.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/portikus/registry-job
+# Stopping both caches and remaking a large filesystem takes a while.
+TimeoutStartSec=10min
+
+# Root, for mkfs, mount and systemctl; it only ever runs fixed commands.
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
