@@ -43,6 +43,9 @@ code, and you do not decide whether a real failure is acceptable.
 - In a fresh worktree, run `nvm use` and `pnpm install --frozen-lockfile`
   before committing anything there, so the pre-commit hook actually runs
   instead of failing on a missing toolchain.
+- Run one command per Bash call. Never chain push, merge, and CI-watch
+  commands with `&&` or `;`; the permission classifier denies long chains.
+- Never edit or commit in another agent's worktree.
 - Never `git add -A`. Never put the word "git" in a branch name.
 - Never touch `main` except when told explicitly.
 
