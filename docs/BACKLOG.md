@@ -1753,13 +1753,3 @@ and leaves its test workspace behind if a step fails.
 agent unit, and destroy the test workspace in a shell trap.
 
 **Source.** Epic 15.3 (#887).
-
-## Playwright test for the stop and start upgrade toast
-
-**What.** The fix that stops a stopped and started workspace from showing
-the upgrade toast has only a unit test.
-
-**What it would take.** Teach the fake agent to report its terminals gone
-and then a new build, so an e2e test can stage it.
-
-**Source.** Epic 15.3 review fixes.

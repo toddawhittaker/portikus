@@ -3661,8 +3661,8 @@ Delivered:
   Terminals survive, and the student sees "Portikus was updated. Your
   terminals are still running." Workspaces on images older than
   2026.09.11 are skipped and logged at warn (#887).
-- Review fixes: a stopped and started workspace no longer shows the
-  upgrade toast, the agent's build is its entry file's change time, and
+- Review fixes: the upgrade toast is not shown after a real stop and
+  start, the agent's build is its entry file's change time, and
   an axe scan covers the upgrade toast.
 
 Gaps:
@@ -3675,4 +3675,3 @@ Gaps:
   workspaces get the clear only on rebuild.
 - The old-image skip has only unit tests, and the new install-test steps
   have not run end to end.
-- The stop-and-start toast fix has a unit test but no Playwright test.
