@@ -192,3 +192,53 @@ describe.skipIf(skip)("seed jobs (ruling S8)", () => {
 		});
 	});
 });
+
+describe.skipIf(skip)("seed row follows the controller (review Q2)", () => {
+	const seedRow = () => tdb.db.selectFrom("docker_seed").selectAll().executeTakeFirst();
+
+	test("with no job, writes the controller's seed and removes it when gone", async () => {
+		let t = Date.parse("2026-09-30T10:00:00.000Z");
+		const controller = new FakeControllerClient();
+		const { logger } = collectingLogger();
+		const tick = createSeedJobs({
+			db: tdb.db,
+			controller,
+			logger,
+			now: () => new Date(t),
+		});
+		controller.seedResult = SEED;
+		await tick();
+		expect((await seedRow())?.image_version).toBe("2026.09.15");
+
+		// Within the sync interval nothing is asked.
+		controller.seedResult = null;
+		t += 1000;
+		await tick();
+		expect(controller.calls.filter((c) => c.method === "seed")).toHaveLength(1);
+		expect(await seedRow()).toBeDefined();
+
+		t += 61_000;
+		await tick();
+		expect(await seedRow()).toBeUndefined();
+	});
+
+	test("a failed check leaves the row alone", async () => {
+		const first = build();
+		first.controller.seedResult = SEED;
+		await first.tick();
+		const second = build();
+		second.controller.seedResult = new ControllerClientError(
+			"INCUS_UNAVAILABLE",
+			"down",
+		);
+		await second.tick();
+		expect(await seedRow()).toBeDefined();
+	});
+
+	test("is not asked while a job is active", async () => {
+		await queue();
+		const { controller, tick } = build();
+		await tick();
+		expect(controller.calls.map((c) => c.method)).not.toContain("seed");
+	});
+});

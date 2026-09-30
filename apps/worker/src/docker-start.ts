@@ -4,21 +4,12 @@ import {
 	type EgressPolicy,
 	EgressPresetId,
 	explainHost,
+	GHCR_UPSTREAM_NAMES,
+	HUB_UPSTREAM_NAMES,
 	type WorkspaceDockerConfig,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Kysely } from "kysely";
-
-/** The names the egress gate must let through for each cache (ruling S2). */
-export const HUB_CACHE_NAMES = [
-	"registry-1.docker.io",
-	"auth.docker.io",
-	"production.cloudflare.docker.com",
-] as const;
-export const GHCR_CACHE_NAMES = [
-	"ghcr.io",
-	"pkg-containers.githubusercontent.com",
-] as const;
 
 /**
  * The Docker config for one start (ruling 8): the Hub mirror only when the
@@ -33,8 +24,8 @@ export function dockerConfigFor(
 	const allows = (names: readonly string[]): boolean =>
 		names.every((name) => explainHost(policy, name).allowed);
 	return {
-		hubMirror: allows(HUB_CACHE_NAMES),
-		ghcr: ghcrEnabled && allows(GHCR_CACHE_NAMES),
+		hubMirror: allows(HUB_UPSTREAM_NAMES),
+		ghcr: ghcrEnabled && allows(GHCR_UPSTREAM_NAMES),
 	};
 }
 

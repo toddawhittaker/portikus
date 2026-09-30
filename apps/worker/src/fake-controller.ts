@@ -18,6 +18,7 @@ import type {
 	ResetDockerRequest,
 	SeedBuildRequest,
 	SeedBuildStatus,
+	SeedInfo,
 	SetInstanceLimitsRequest,
 	StartInstanceRequest,
 	StartInstanceResponse,
@@ -245,6 +246,14 @@ export class FakeControllerClient implements ControllerClient {
 		this.calls.push({ method: "seedBuild", args: [id] });
 		if (this.seedBuildResult instanceof Error) throw this.seedBuildResult;
 		return this.seedBuildResult(id);
+	}
+
+	seedResult: SeedInfo | null | Error = null;
+
+	async seed(): Promise<SeedInfo | null> {
+		this.calls.push({ method: "seed", args: [] });
+		if (this.seedResult instanceof Error) throw this.seedResult;
+		return this.seedResult;
 	}
 
 	/** Helper to make a ControllerClientError. */

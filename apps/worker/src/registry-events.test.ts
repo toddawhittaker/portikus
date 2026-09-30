@@ -161,6 +161,7 @@ describe.skipIf(skip)("registry events (ruling S7)", () => {
 				Array.from({ length: REGISTRY_NAMES_PER_DAY_MAX }, (_, i) => ({
 					image: `docker.io/library/img${i}:latest`,
 					workspace_id: ws,
+					day: "2026-09-30",
 					pulls: 1,
 					first_seen: today.toISOString(),
 					last_seen: today.toISOString(),
@@ -185,17 +186,25 @@ describe.skipIf(skip)("registry events (ruling S7)", () => {
 			2,
 		);
 
-		// A new day starts a new count.
+		// A new day starts a new count, and its pulls get their own row (review F1).
 		await recordRegistryEvents(
 			tdb.db,
 			{
 				events: [
 					event({ addr: "10.200.0.20", repository: "library/newone", tag: "1" }),
+					event({ addr: "10.200.0.20", repository: "library/img5", tag: "latest" }),
 				],
 			},
 			"docker.io",
 			new Date("2026-10-01T00:00:01Z"),
 		);
+		const img5 = await tdb.db
+			.selectFrom("docker_image_pulls")
+			.select("pulls")
+			.where("image", "=", "docker.io/library/img5:latest")
+			.orderBy("day")
+			.execute();
+		expect(img5.map((r) => r.pulls)).toEqual([2, 1]);
 		expect((await pulls()).some((r) => r.image === "docker.io/library/newone:1")).toBe(
 			true,
 		);

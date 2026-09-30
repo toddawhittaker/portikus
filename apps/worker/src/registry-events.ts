@@ -71,7 +71,7 @@ export interface RegistryEventsOptions {
 /**
  * Record one envelope (ruling 7, S7): each counting pull is matched to the
  * running workspace whose bridge address the event names, and rolled up by
- * image and workspace. The address is a hint only. After
+ * image, workspace and UTC day. The address is a hint only. After
  * REGISTRY_NAMES_PER_DAY_MAX distinct names in a UTC day, new names count
  * under OTHER_IMAGES_LABEL. Returns how many pulls were stored.
  */
@@ -121,7 +121,7 @@ export async function recordRegistryEvents(
 					.selectFrom("docker_image_pulls")
 					.select("image")
 					.distinct()
-					.where("last_seen", ">=", new Date(`${day}T00:00:00.000Z`))
+					.where("day", "=", sql<Date>`${day}::date`)
 					.execute()
 			).map((r) => r.image),
 		);
@@ -137,12 +137,13 @@ export async function recordRegistryEvents(
 				.values({
 					image,
 					workspace_id: p.workspaceId,
+					day,
 					pulls: p.n,
 					first_seen: at,
 					last_seen: at,
 				})
 				.onConflict((oc) =>
-					oc.columns(["image", "workspace_id"]).doUpdateSet({
+					oc.columns(["image", "workspace_id", "day"]).doUpdateSet({
 						pulls: sql`docker_image_pulls.pulls + excluded.pulls`,
 						last_seen: at,
 					}),

@@ -50,7 +50,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON workspace_connections, health_samples,
 -- Shared Docker pull storage (issue #840): seed jobs, the seed and usage.
 GRANT SELECT, UPDATE, DELETE ON docker_seed_jobs TO "portikus-worker";
 GRANT SELECT, INSERT, DELETE ON docker_image_presence TO "portikus-worker";
-GRANT SELECT, INSERT, UPDATE ON docker_seed TO "portikus-worker";
+GRANT SELECT, INSERT, UPDATE, DELETE ON docker_seed TO "portikus-worker";
 GRANT SELECT, INSERT, UPDATE, DELETE ON docker_image_pulls TO "portikus-worker";
 
 GRANT USAGE ON SEQUENCE audit_events_id_seq, health_samples_id_seq,

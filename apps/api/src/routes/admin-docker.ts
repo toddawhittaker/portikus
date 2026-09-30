@@ -18,10 +18,11 @@ import {
 	type SeedJob,
 	SeedJobState,
 	seedImageListFor,
+	USAGE_ROWS_MAX,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import type { ServerDeps } from "../server.js";
 import { sendError } from "./project-scope.js";
 
@@ -185,30 +186,31 @@ export function registerAdminDockerRoutes(
 			return sendError(reply, 400, "VALIDATION_FAILED", "Invalid Docker settings.");
 		}
 		const before = await readSettings(db);
-		// The helper request is written inside the transaction, so a failed
-		// write leaves the saved switch as it was.
-		const saved = await db.transaction().execute(async (trx) => {
-			const updated = await trx
-				.updateTable("settings")
-				.set({
-					docker_ghcr_enabled: body.data.ghcrEnabled,
-					docker_seed_max_gib: body.data.seedMaxGiB,
-				})
-				.where("id", "=", 1)
-				.executeTakeFirst();
-			if (Number(updated.numUpdatedRows) === 0) return false;
-			if (before.ghcrEnabled !== body.data.ghcrEnabled) {
-				await writeRegistryRequest(jobsDir, admin.id, {
-					kind: "set-ghcr",
-					enabled: body.data.ghcrEnabled,
-				});
-			}
-			return true;
-		});
-		if (!saved) return notReady(reply);
+		const after = {
+			ghcrEnabled: body.data.ghcrEnabled ?? before.ghcrEnabled,
+			seedMaxGiB: body.data.seedMaxGiB ?? before.seedMaxGiB,
+		};
+		const updated = await db
+			.updateTable("settings")
+			.set({
+				docker_ghcr_enabled: after.ghcrEnabled,
+				docker_seed_max_gib: after.seedMaxGiB,
+			})
+			.where("id", "=", 1)
+			.executeTakeFirst();
+		if (Number(updated.numUpdatedRows) === 0) return notReady(reply);
+		// Written only once the switch is saved, so the helper never acts on
+		// a change that was rolled back. If this write fails the request
+		// errors and the saved switch waits for the next change or reinstall.
+		if (before.ghcrEnabled !== after.ghcrEnabled) {
+			await writeRegistryRequest(jobsDir, admin.id, {
+				kind: "set-ghcr",
+				enabled: after.ghcrEnabled,
+			});
+		}
 		await audit(admin.id, "docker.settings_changed", {
 			from: { ghcrEnabled: before.ghcrEnabled, seedMaxGiB: before.seedMaxGiB },
-			to: body.data,
+			to: after,
 		});
 		return reply.status(204).send();
 	});
@@ -362,20 +364,22 @@ export function registerAdminDockerRoutes(
 /**
  * The aggregate usage report (ruling 7, S7): images pulled or present that
  * the seed does not hold, and seed images no workspace used. Counts only;
- * no workspace id or owner leaves this function.
+ * no workspace id or owner leaves this function. Each list is cut to
+ * USAGE_ROWS_MAX rows, most workspaces then most pulls first (ruling S7).
  */
 export async function usageReport(
 	db: Kysely<Database>,
 	now: Date,
 ): Promise<DockerUsageResponse> {
 	const since = new Date(now.getTime() - USAGE_WINDOW_DAYS * 86_400_000);
+	const sinceDay = since.toISOString().slice(0, 10);
 	const seed = await readSeed(db);
 	const seedNames = new Set((seed?.images ?? []).map(canonicalImageName));
 
 	const pulls = await db
 		.selectFrom("docker_image_pulls")
 		.select(["image", "workspace_id", "pulls", "last_seen"])
-		.where("last_seen", ">=", since)
+		.where("day", ">=", sql<Date>`${sinceDay}::date`)
 		.execute();
 	const present = await db
 		.selectFrom("docker_image_presence")
@@ -418,18 +422,16 @@ export async function usageReport(
 		workspaces: t.workspaces.size,
 		lastSeen: t.lastSeen?.toISOString() ?? null,
 	});
+	const byUse = (a: DockerImageUsage, b: DockerImageUsage): number =>
+		b.workspaces - a.workspaces ||
+		b.pulls - a.pulls ||
+		// "(other images)" last among equals, then by name.
+		Number(a.image === OTHER_IMAGES_LABEL) - Number(b.image === OTHER_IMAGES_LABEL) ||
+		a.image.localeCompare(b.image);
 	const notInSeed = [...tallies]
 		.filter(([image]) => !seedNames.has(image))
 		.map(([image, t]) => toUsage(image, t))
-		.sort(
-			(a, b) =>
-				b.workspaces - a.workspaces ||
-				b.pulls - a.pulls ||
-				// "(other images)" last among equals, then by name.
-				Number(a.image === OTHER_IMAGES_LABEL) -
-					Number(b.image === OTHER_IMAGES_LABEL) ||
-				a.image.localeCompare(b.image),
-		);
+		.sort(byUse);
 
 	const unusedSeed: DockerImageUsage[] = [];
 	for (const image of seedNames) {
@@ -442,6 +444,12 @@ export async function usageReport(
 		}
 		unusedSeed.push(toUsage(image, t));
 	}
-	unusedSeed.sort((a, b) => a.image.localeCompare(b.image));
-	return { windowDays: USAGE_WINDOW_DAYS, notInSeed, unusedSeed };
+	unusedSeed.sort(byUse);
+	return {
+		windowDays: USAGE_WINDOW_DAYS,
+		notInSeed: notInSeed.slice(0, USAGE_ROWS_MAX),
+		notInSeedTotal: notInSeed.length,
+		unusedSeed: unusedSeed.slice(0, USAGE_ROWS_MAX),
+		unusedSeedTotal: unusedSeed.length,
+	};
 }
