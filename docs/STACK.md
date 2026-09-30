@@ -1417,6 +1417,8 @@ No firewall rule should exist solely because an administrator once typed it manu
 
 Workspace egress rules are the one set that changes at runtime (Epic 24, SPEC.md section 23.6, ADR 0038). They still come from a record, not a person: the policy lives in PostgreSQL, edited on the admin Network tab and audited, and a root helper, `portikus-egress-apply`, renders it into its own nftables table, `inet portikus_egress`, and the configuration of our egress dnsmasq and the workspace Squid. Ansible owns everything static around it (the units, `/etc/portikus/egress.env`, the Incus ACL carve-out, the input rules and the drop-all fallback) and never flushes that table. Nobody edits those rules by hand.
 
+The Docker pull cache (Epic 26, SPEC.md section 16.6, ADR 0045) is Debian's `docker-registry` 2.8 in proxy mode, one unit for Docker Hub and one for ghcr.io, on its own loop-file filesystem. Its admin requests go through a root helper, `/usr/lib/portikus/registry-job`, started by a path unit on the ADR 0030 pattern. The egress helper renders the cache's port gate in the same `inet portikus_egress` table.
+
 ## 30. CI/CD
 
 ### GitHub Actions
