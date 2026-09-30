@@ -388,6 +388,17 @@ async function applyPolicy(
 		gateway: env.gateway,
 	};
 	await writeState(deps, STATE_FILES.applied, `${JSON.stringify(applied)}\n`);
+	await unlink(join(deps.stateDir, STATE_FILES.defaultOpen)).catch(() => undefined);
+}
+
+/** Whether the default open table was loaded on purpose, as opposed to applied.json being lost. */
+async function defaultOpenMarked(deps: HelperDeps): Promise<boolean> {
+	try {
+		await lstat(join(deps.stateDir, STATE_FILES.defaultOpen));
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -409,6 +420,7 @@ async function restoreAtBoot(deps: HelperDeps, env: EgressEnv): Promise<void> {
 	const policy = applied?.policy ?? DEFAULT_OPEN_POLICY;
 	try {
 		await loadTable(deps, renderTable(policy, env, true, await readGhcrEnabled(deps)));
+		if (!applied) await writeState(deps, STATE_FILES.defaultOpen, "");
 	} catch (e) {
 		if (usesOurResolver(policy)) {
 			await loadTable(deps, renderDropAll(env));
@@ -452,21 +464,22 @@ async function dropWithoutEnv(deps: HelperDeps): Promise<string | null> {
 /**
  * A run with no request while the table is loaded: the registry helper
  * switched the ghcr.io cache, so load the applied policy's table again.
- * Learned names are kept. With no applied.json the loaded table stays as it
- * is: a lost file must never swap a restrictive table for the open one.
+ * Learned names are kept. A site that never applied (the default-open
+ * marker) gets the default open table again. With neither file the table
+ * stays as it is: lost state must never swap a restrictive table for the open one.
  */
 async function rerenderTable(deps: HelperDeps, env: EgressEnv): Promise<void> {
 	const applied = await readApplied(deps);
-	if (!applied) {
+	let policy: EgressApplyPolicy;
+	if (applied) policy = applied.policy;
+	else if (await defaultOpenMarked(deps)) policy = DEFAULT_OPEN_POLICY;
+	else {
 		process.stderr.write(
 			"egress apply: no applied.json while the table is loaded; left the table as it is\n",
 		);
 		return;
 	}
-	await loadTable(
-		deps,
-		renderTable(applied.policy, env, false, await readGhcrEnabled(deps)),
-	);
+	await loadTable(deps, renderTable(policy, env, false, await readGhcrEnabled(deps)));
 }
 
 async function tableLoaded(deps: HelperDeps): Promise<boolean> {

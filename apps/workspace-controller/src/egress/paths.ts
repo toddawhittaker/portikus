@@ -22,6 +22,8 @@ export const STATE_FILES = {
 	dnsmasq: "dnsmasq.conf",
 	/** Where the helper moves a request before reading it. */
 	processing: "request.processing",
+	/** Present while the default open table is loaded because no policy ever applied. */
+	defaultOpen: "default-open",
 } as const;
 
 /** The two services the helper may reload, restart or stop, and nothing else. */
