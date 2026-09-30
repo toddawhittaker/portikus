@@ -1444,7 +1444,8 @@ files:
 # installed system-wide at pinned versions, so the student cannot write the
 # npm prefix; Claude Code's updater would fail on every launch.  Versions
 # move with image rebuilds instead (SPEC.md 10, issue #127).  BROWSER sends
-# link opens to the workspace agent (BROWSER-HANDLING.md 18).
+# link opens to the workspace agent (BROWSER-HANDLING.md 18).  The claude and
+# codex functions clear the terminal first (SPEC.md 10.2, issue #886).
 - path: /etc/profile.d/portikus-agents.sh
   generator: dump
   mode: "0644"
@@ -1453,6 +1454,17 @@ files:
     export DISABLE_AUTOUPDATER=1
     # CLIs that honor BROWSER open links through the workspace broker.
     export BROWSER=/usr/local/bin/portikus-open
+    # A coding agent typed by hand starts on a cleared terminal, so earlier
+    # shell output is not left as scrollback above it (issue #886).  Only
+    # interactive bash gets these; scripts, pipes and launchers do not.
+    if [ -n "${BASH_VERSION:-}" ]; then
+      case $- in
+        *i*)
+          claude() { if [ -t 0 ] && [ -t 1 ]; then clear; fi; command claude "$@"; }
+          codex() { if [ -t 0 ] && [ -t 1 ]; then clear; fi; command codex "$@"; }
+          ;;
+      esac
+    fi
 
 # Claude Code opens a login URL whose callback is localhost in the
 # workspace, which the student's browser cannot reach.  An empty BROWSER

@@ -673,6 +673,9 @@ jobs:
       - name: Claude Code login settings
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/claude-login-test.sh
+      - name: Coding agents clear the terminal
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: bash infra/tests/agent-clear-test.sh
       # Under a second; incus, curl, gpgv and distrobuilder are stubbed.
       - name: Workspace image job
         if: needs.changes.outputs.infra == 'true'

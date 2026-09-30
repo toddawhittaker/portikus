@@ -427,6 +427,25 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check_output "Claude Code auto-update off in a login shell" \
     "DISABLE_AUTOUPDATER=1" ws_student 'env | grep DISABLE_AUTOUPDATER'
 
+  # 17ab. claude typed in a terminal clears tmux's history first, which the
+  # agent turns into a cleared browser scrollback; a plain command keeps it
+  # (issue #886).  A stand-in claude on PATH, in a throwaway tmux server.
+  # shellcheck disable=SC2016  # expanded by the shell in the workspace
+  agent_clear_probe='d=$(mktemp -d); printf "#!/bin/sh\necho FAKE-AGENT; sleep 30\n" > "$d/claude"; chmod +x "$d/claude"
+t() { tmux -L smoke-886 -f /dev/null "$@"; }
+h() { t display-message -p -t s "#{history_size}"; }
+t new-session -d -s s -x 80 -y 24 bash -l
+sleep 1; t send-keys -t s "PATH=$d:\$PATH; seq 1 200" Enter
+sleep 2; before=$(h); t send-keys -t s "true" Enter
+sleep 1; plain=$(h); t send-keys -t s "claude" Enter
+sleep 2; after=$(h); t kill-server; rm -rf "$d"
+echo "$before $plain $after" >&2
+[ "$before" -gt 0 ] && [ "$plain" -ge "$before" ] && [ "$after" = 0 ] && echo cleared'
+  check_output "claude typed in a terminal starts with empty scrollback" "cleared" \
+    ws_student "$agent_clear_probe"
+  check_output "a script gets the plain claude, not the clearing function" "file" \
+    ws_student 'type -t claude'
+
   # 17aa. A student's own git init starts on main, and the workspace agent
   # seeds the coding agents' instructions from the image's template once.
   check_output "system git init.defaultBranch is main" "main" \
