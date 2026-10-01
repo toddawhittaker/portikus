@@ -46,6 +46,23 @@ enforces. Do not weaken a test to make it pass. The orchestrator decides.
 Report: invariants you covered, invariants you could not cover and why,
 test files added or changed, and the exact run output. Plain English.
 
+## Code quality
+
+- Comments say why, never history. Do not write issue or PR numbers,
+  epic or task names, review codes, "ruling N", or pointers into epic
+  plans; git history holds those, and the plans are deleted. Cite a
+  SPEC.md section or an ADR instead. Never restate what the code says.
+- Search before you write a helper: grep for what it does, not only for
+  a name. If one exists, import it. If the same code is needed in a
+  second place, move it into a shared module (a packages/ library when
+  two apps need it) instead of copying it.
+- Give a shared helper a module of its own, not a home inside a route,
+  page, component or role that other files then import from.
+- A value that must match in two files or processes is one exported
+  constant, not two values and a "must match" comment.
+- When a file passes about 800 lines or starts doing a second job, split
+  it along that seam as part of the change.
+
 ## Writing style
 
 Keep code comments brief: one line saying why, only where the code cannot
