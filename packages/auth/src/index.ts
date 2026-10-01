@@ -15,8 +15,6 @@ export {
 	consumeLinkIntent,
 	courseLinkWindow,
 	findLinkIntent,
-	grantAdministrator,
-	grantInstructor,
 	isCourseIssuer,
 	LINK_INTENT_TTL_SECONDS,
 	LINK_WINDOW_SECONDS,
@@ -28,10 +26,7 @@ export {
 	pendingLinkIntent,
 	platformIssuerOf,
 	precreateDexAccount,
-	type RoleChange,
 	resolveIdentity,
-	revokeAdministrator,
-	revokeInstructor,
 	saveLinkIntent,
 	sessionLinkState,
 	unlinkAccount,
@@ -78,6 +73,13 @@ export {
 	sessionCookieOptions,
 	sessionGate,
 } from "./plugin.js";
+export {
+	grantAdministrator,
+	grantInstructor,
+	type RoleChange,
+	revokeAdministrator,
+	revokeInstructor,
+} from "./roles.js";
 export {
 	createSession,
 	deleteSession,
