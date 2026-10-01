@@ -67,6 +67,15 @@ export interface ListeningRegistry {
 	services(workspaceId: string): ListeningService[];
 	/** One service by port, or undefined when nothing is listening on it. */
 	service(workspaceId: string, port: number): ListeningService | undefined;
+	/**
+	 * One service by port with its protocol settled: the agent probes the
+	 * port for TLS the first time a preview asks (issue #957). When the agent
+	 * cannot answer, the service comes back with its unprobed hint.
+	 */
+	serviceWithProtocol(
+		workspaceId: string,
+		port: number,
+	): Promise<ListeningService | undefined>;
 	/** Called on every change for one workspace; returns an unsubscribe. */
 	subscribe(workspaceId: string, listener: ListeningListener): () => void;
 	/**
@@ -263,6 +272,34 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 
 		service(workspaceId, port) {
 			return entries.get(workspaceId)?.services.find((one) => one.port === port);
+		},
+
+		async serviceWithProtocol(workspaceId, port) {
+			const entry = entries.get(workspaceId);
+			const service = entry?.services.find((one) => one.port === port);
+			if (!entry || !service || service.protocolKnown) return service;
+			let probed: AgentListeningService;
+			try {
+				probed = await entry.client.probeProtocol(port);
+			} catch (error) {
+				logger.warn(
+					{
+						workspaceId,
+						port,
+						code: error instanceof AgentCallError ? error.code : "INTERNAL",
+					},
+					"protocol probe failed",
+				);
+				return service;
+			}
+			// Record it now; the agent's own report follows on the events socket.
+			const settled: ListeningService = {
+				...service,
+				protocolHint: probed.protocolHint,
+				protocolKnown: probed.protocolKnown ?? true,
+			};
+			entry.services = entry.services.map((one) => (one.port === port ? settled : one));
+			return settled;
 		},
 
 		subscribe(workspaceId, listener) {

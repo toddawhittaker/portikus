@@ -970,45 +970,105 @@ test("the probe reads a closed port as not HTTPS", async () => {
 	expect(await probeTls("127.0.0.1", port)).toBe(false);
 });
 
-test("a listener that speaks TLS is labelled https", async () => {
+/** A listening socket's `/proc/net/tcp` local address for a loopback port. */
+function loopbackHex(port: number): string {
+	return `0100007F:${port.toString(16).toUpperCase().padStart(4, "0")}`;
+}
+
+test("discovery alone sends nothing to a listener (issue #957)", async () => {
+	let connections = 0;
+	const server = createNetServer((socket) => {
+		connections += 1;
+		socket.destroy();
+	});
+	try {
+		const port = await listenOn(server);
+		await writeProcNet([HEADER, row(loopbackHex(port), "0A", "7101")].join("\n"));
+		// The real probe, so a probe on discovery would show up as a connection.
+		const monitor = monitorFor({ probeTls });
+		const services = await monitor.refresh();
+		await monitor.refresh();
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(connections).toBe(0);
+		expect(services[0]).toMatchObject({ port, protocolHint: "unknown" });
+		expect(services[0]?.protocolKnown).toBeUndefined();
+	} finally {
+		server.close();
+	}
+});
+
+test("the first preview request probes a TLS listener once and caches it", async () => {
 	const tlsServer = createHttpsServer(selfSignedCertificate(), (_req, res) =>
 		res.end("secure"),
 	);
 	try {
 		const port = await listenOn(tlsServer);
-		const hex = port.toString(16).toUpperCase().padStart(4, "0");
-		await writeProcNet([HEADER, row(`0100007F:${hex}`, "0A", "7001")].join("\n"));
-		const services = await monitorFor({ probeTls }).refresh();
-		expect(services[0]).toMatchObject({ port, protocolHint: "https" });
+		await writeProcNet([HEADER, row(loopbackHex(port), "0A", "7001")].join("\n"));
+		const probed: string[] = [];
+		const monitor = monitorFor({
+			probeTls: (host, target) => {
+				probed.push(`${host}:${target}`);
+				return probeTls(host, target);
+			},
+		});
+		const heard: string[] = [];
+		monitor.subscribe((services) => heard.push(services[0]?.protocolHint ?? ""));
+
+		const first = await monitor.probeProtocol(port);
+		expect(first).toMatchObject({ port, protocolHint: "https", protocolKnown: true });
+		expect(probed).toEqual([`127.0.0.1:${port}`]);
+		// Subscribers, and so the control plane, hear the answer.
+		expect(heard.at(-1)).toBe("https");
+
+		const second = await monitor.probeProtocol(port);
+		expect(second).toMatchObject({ protocolHint: "https", protocolKnown: true });
+		const scanned = await monitor.refresh();
+		expect(scanned[0]).toMatchObject({ protocolHint: "https", protocolKnown: true });
+		expect(probed).toHaveLength(1);
 	} finally {
 		tlsServer.close();
 	}
 });
 
-test("each listener is probed once, at its own address", async () => {
-	await writeProcNet(
-		[HEADER, row("00000000:1435", "0A", "501"), row("0100007F:1F90", "0A", "502")].join(
-			"\n",
-		),
-	);
+test("requests that race probe once", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "501")].join("\n"));
+	let probes = 0;
+	const monitor = monitorFor({
+		probeTls: async () => {
+			probes += 1;
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			return true;
+		},
+	});
+	const answers = await Promise.all([
+		monitor.probeProtocol(5173),
+		monitor.probeProtocol(5173),
+		monitor.probeProtocol(5173),
+	]);
+	expect(probes).toBe(1);
+	expect(answers.map((one) => one?.protocolHint)).toEqual(["https", "https", "https"]);
+});
+
+test("a plain listener keeps its hint, and a restart is probed again", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "501")].join("\n"));
 	const probed: string[] = [];
 	const monitor = monitorFor({
 		probeTls: async (host, port) => {
 			probed.push(`${host}:${port}`);
-			// Only the first 5173 speaks TLS; its restart is plain.
-			return probed.length === 1;
+			return false;
 		},
 	});
-	const first = await monitor.refresh();
-	expect(first.map((service) => service.protocolHint)).toEqual(["https", "http"]);
-	await monitor.refresh();
-	expect(probed).toEqual(["127.0.0.1:5173", "127.0.0.1:8080"]);
+	expect(await monitor.probeProtocol(5173)).toMatchObject({
+		protocolHint: "http",
+		protocolKnown: true,
+	});
 
-	// A restarted server is a new socket, so it is probed again and can change.
+	// A restarted server is a new socket, so its answer is unknown again.
 	await writeProcNet([HEADER, row("00000000:1435", "0A", "503")].join("\n"));
 	const again = await monitor.refresh();
-	expect(again[0]?.protocolHint).toBe("http");
-	expect(probed).toEqual(["127.0.0.1:5173", "127.0.0.1:8080", "127.0.0.1:5173"]);
+	expect(again[0]?.protocolKnown).toBeUndefined();
+	await monitor.probeProtocol(5173);
+	expect(probed).toEqual(["127.0.0.1:5173", "127.0.0.1:5173"]);
 });
 
 test("system listeners and ports below 1024 are never probed", async () => {
@@ -1020,33 +1080,29 @@ test("system listeners and ports below 1024 are never probed", async () => {
 		].join("\n"),
 	);
 	const probed: number[] = [];
-	await monitorFor({
+	const monitor = monitorFor({
 		probeTls: async (_host, port) => {
 			probed.push(port);
 			return true;
 		},
-	}).refresh();
+	});
+	expect(await monitor.probeProtocol(80)).toMatchObject({
+		protocolHint: "http",
+		protocolKnown: true,
+	});
+	expect(await monitor.probeProtocol(5355)).toMatchObject({ protocolKnown: true });
 	expect(probed).toEqual([]);
 });
 
-test("no more than four probes run at once", async () => {
-	const rows = [HEADER];
-	for (let index = 0; index < 10; index += 1) {
-		const hex = (2000 + index).toString(16).toUpperCase().padStart(4, "0");
-		rows.push(row(`00000000:${hex}`, "0A", String(700 + index)));
-	}
-	await writeProcNet(rows.join("\n"));
-	let running = 0;
-	let peak = 0;
-	const services = await monitorFor({
-		probeTls: async () => {
-			running += 1;
-			peak = Math.max(peak, running);
-			await new Promise((resolve) => setTimeout(resolve, 5));
-			running -= 1;
-			return false;
+test("a port nothing listens on is not probed", async () => {
+	await writeProcNet(HEADER);
+	const probed: number[] = [];
+	const monitor = monitorFor({
+		probeTls: async (_host, port) => {
+			probed.push(port);
+			return true;
 		},
-	}).refresh();
-	expect(services).toHaveLength(10);
-	expect(peak).toBe(4);
+	});
+	expect(await monitor.probeProtocol(5173)).toBeNull();
+	expect(probed).toEqual([]);
 });
