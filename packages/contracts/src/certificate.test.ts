@@ -246,6 +246,23 @@ describe("secret values", () => {
 		).toBe(false);
 	});
 
+	test("the key matches the root job's check exactly (SPEC.md 24.8)", () => {
+		const ok = (key: unknown) => CertificateJobRequest.safeParse(google(key)).success;
+		expect(
+			ok({
+				...serviceAccount,
+				token_uri: "https://oauth2.googleapis.com/token",
+				universe_domain: "googleapis.com",
+			}),
+		).toBe(true);
+		expect(ok({ ...serviceAccount, token_uri: "https://attacker.invalid/token" })).toBe(
+			false,
+		);
+		expect(ok({ ...serviceAccount, universe_domain: "attacker.invalid" })).toBe(false);
+		expect(ok({ ...serviceAccount, unexpected: "x" })).toBe(false);
+		expect(ok({ ...serviceAccount, client_id: 123 })).toBe(false);
+	});
+
 	test("external-account fields that read files or fetch URLs are refused", () => {
 		// Google's library would read the file or fetch the URL as caddy (SPEC.md 24.8).
 		for (const extra of [
