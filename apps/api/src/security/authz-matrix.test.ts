@@ -94,6 +94,15 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/image/jobs": 404,
 	"GET /admin/image/jobs/:id": 404,
 	"HEAD /admin/image/jobs/:id": 404,
+	// Tests set no CERTIFICATE_JOBS_DIR, so the Certificate section is off.
+	"GET /admin/certificate": 404,
+	"HEAD /admin/certificate": 404,
+	"GET /admin/certificate/jobs/:id": 404,
+	"HEAD /admin/certificate/jobs/:id": 404,
+	"POST /admin/certificate/jobs": 404,
+	"POST /admin/certificate/preflight": 404,
+	"GET /admin/certificate/root.crt": 404,
+	"HEAD /admin/certificate/root.crt": 404,
 	// Tests set no REGISTRY_JOBS_DIR, so the Docker section is off.
 	"GET /admin/docker": 404,
 	"HEAD /admin/docker": 404,

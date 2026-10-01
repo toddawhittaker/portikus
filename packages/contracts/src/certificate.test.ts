@@ -3,6 +3,8 @@
  * The request reaches a root job, so it must refuse anything loose; the
  * views reach the browser, so they must never hold a secret.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import {
 	AdminCertificate,
@@ -174,11 +176,70 @@ describe("CertificateStatusFile", () => {
 			CertificateStatusFile.safeParse({
 				checkedAt: NOW,
 				source: "acme",
+				settings: { source: "internal" },
+				previousAvailable: false,
 				site: info,
 				preview: null,
 				lastRenewal: { ok: false, at: NOW, message: "rate limited" },
 			}).success,
 		).toBe(true);
+	});
+
+	test("refuses a settings copy that carries a secret", () => {
+		expect(
+			CertificateStatusFile.safeParse({
+				checkedAt: NOW,
+				source: "acme",
+				settings: { ...acme, eab: null },
+				previousAvailable: false,
+				site: null,
+				preview: null,
+				lastRenewal: null,
+			}).success,
+		).toBe(false);
+	});
+});
+
+describe("secret values", () => {
+	const withDns = (dns: unknown) => ({
+		kind: "apply",
+		settings: { ...acme, challenge: { mode: "dns01", dns } },
+	});
+
+	test("a token must be one line", () => {
+		const dns = { provider: "cloudflare", fields: { api_token: "fake\ntoken" } };
+		expect(CertificateJobRequest.safeParse(withDns(dns)).success).toBe(false);
+	});
+
+	test("Google's service account is JSON object text", () => {
+		const ok = {
+			provider: "googleclouddns",
+			fields: {
+				gcp_project: "demo-project",
+				service_account_json: '{\n  "type": "service_account"\n}',
+			},
+		};
+		expect(CertificateJobRequest.safeParse(withDns(ok)).success).toBe(true);
+		const notJson = {
+			provider: "googleclouddns",
+			fields: { gcp_project: "demo-project", service_account_json: "not json" },
+		};
+		expect(CertificateJobRequest.safeParse(withDns(notJson)).success).toBe(false);
+	});
+});
+
+describe("DNS provider field fixture", () => {
+	// The root job's Python tests read this file (docs/SPEC.md section 24.8),
+	// so the two sides cannot drift apart.
+	test("dns-provider-fields.json matches DNS_PROVIDER_FIELDS", () => {
+		const fixture = JSON.parse(
+			readFileSync(
+				fileURLToPath(new URL("../fixtures/dns-provider-fields.json", import.meta.url)),
+				"utf8",
+			),
+		);
+		expect(fixture).toEqual(DNS_PROVIDER_FIELDS);
+		expect(Object.keys(fixture).sort()).toEqual([...DnsProvider.options].sort());
 	});
 });
 
