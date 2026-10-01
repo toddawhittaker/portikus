@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, openToggletip, settledAxe, WCAG_TAGS } from "./helpers";
+import { expectNoViolations, loginAs, openToggletip } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Backups tab
@@ -119,11 +119,6 @@ async function openTab(
 	await loginAs(page, "carol");
 	await page.goto("/admin?tab=backups");
 	await expect(page.getByTestId("backups-status")).toBeVisible();
-}
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
 for (const colorScheme of ["light", "dark"] as const) {

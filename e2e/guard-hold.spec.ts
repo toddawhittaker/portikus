@@ -4,20 +4,14 @@
  * restart does not lift. The worker does not run here, so each test writes
  * the held throttle row the worker would.
  */
-import { type Browser, expect, type Page, test } from "@playwright/test";
+import { type Browser, expect, test } from "@playwright/test";
 import {
 	createStudent,
+	expectNoViolations,
 	loginAs,
 	query,
-	settledAxe,
-	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 async function holdThrottle(workspaceId: string): Promise<void> {
 	await query(

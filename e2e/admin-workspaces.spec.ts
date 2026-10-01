@@ -1,13 +1,13 @@
 import * as crypto from "node:crypto";
-import { type Browser, expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
-	loginAs,
 	MOCK_ISSUER,
+	openAdmin,
 	openToggletip,
 	query,
 	settledAxe,
-	type TestStudent,
+	studentIn,
 	toast,
 	WCAG_TAGS,
 	workspacePath,
@@ -20,27 +20,8 @@ import {
  * down to them, and never touches another test's rows.
  */
 
-async function openAdmin(page: Page): Promise<void> {
-	await loginAs(page, "carol");
-	await page.goto("/admin");
-	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
-}
-
 async function filterTo(page: Page, text: string): Promise<void> {
 	await page.getByTestId("admin-filter-text").fill(text);
-}
-
-/** A student with a workspace, made in a context of its own so carol keeps her session. */
-async function studentIn(browser: Browser): Promise<TestStudent & { name: string }> {
-	const context = await browser.newContext();
-	const student = await createStudent(context);
-	await context.close();
-	const name = `E2E ${student.userId.slice(0, 8)}`;
-	await query("update users set display_name = $2 where id = $1", [
-		student.userId,
-		name,
-	]);
-	return { ...student, name };
 }
 
 async function openDetail(page: Page, name: string) {
@@ -139,7 +120,7 @@ test("an administrator stops another user's workspace, and it is audited", async
 	page,
 	browser,
 }) => {
-	const student = await studentIn(browser);
+	const student = await studentIn(browser, "E2E");
 	await openAdmin(page);
 	const panel = await openDetail(page, student.name);
 
@@ -228,7 +209,7 @@ test("archive hides the row, refuses a start, and unarchive brings it back", asy
 	page,
 	browser,
 }) => {
-	const student = await studentIn(browser);
+	const student = await studentIn(browser, "E2E");
 	await openAdmin(page);
 	const panel = await openDetail(page, student.name);
 	// Opening the panel moves focus to its heading (Gate E).
@@ -295,7 +276,7 @@ test("storage can only grow, and a grow shows as pending", async ({
 	page,
 	browser,
 }) => {
-	const student = await studentIn(browser);
+	const student = await studentIn(browser, "E2E");
 	// The worker has applied what was asked for, so nothing is pending yet.
 	const before = { home: 10, docker: 10 };
 	await query(
@@ -371,7 +352,7 @@ for (const { name, button, dialogId, confirmLabel, done, operation, action } of 
 		page,
 		browser,
 	}) => {
-		const student = await studentIn(browser);
+		const student = await studentIn(browser, "E2E");
 		const label = await workspaceLabel(student.workspaceId);
 		await openAdmin(page);
 		const panel = await openDetail(page, student.name);
@@ -406,7 +387,7 @@ test("a workspace on an old image says Old image, not Stale, and loses it when i
 	page,
 	browser,
 }) => {
-	const student = await studentIn(browser);
+	const student = await studentIn(browser, "E2E");
 	const label = await workspaceLabel(student.workspaceId);
 	// Image currency comes from the worker's host sample, which e2e has none of,
 	// so the list answer says the image is old until the fake rebuild finishes.
@@ -505,7 +486,7 @@ for (const { name, button, dialogId, running, endAction, ok, message, role } of 
 		page,
 		browser,
 	}) => {
-		const student = await studentIn(browser);
+		const student = await studentIn(browser, "E2E");
 		const label = await workspaceLabel(student.workspaceId);
 		await openAdmin(page);
 		const panel = await openDetail(page, student.name);
@@ -548,7 +529,7 @@ for (const scheme of ["light", "dark"] as const) {
 	}) => {
 		await page.setViewportSize({ width: 1024, height: 768 });
 		await page.emulateMedia({ colorScheme: scheme });
-		const student = await studentIn(browser);
+		const student = await studentIn(browser, "E2E");
 		await query("update workspaces set pending_operation = 'rebuild' where id = $1", [
 			student.workspaceId,
 		]);

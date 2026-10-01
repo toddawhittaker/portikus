@@ -3,8 +3,8 @@
  * process list (SPEC.md §20.1): the table, then the stop dialog at
  * its Force stop step, in the light and dark themes.
  */
-import { expect, type Page, test } from "@playwright/test";
-import { createStudent, loginAs, query, settledAxe, WCAG_TAGS } from "./helpers";
+import { expect, test } from "@playwright/test";
+import { createStudent, expectNoViolations, loginAs, query } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
 const STUBBORN = {
@@ -25,11 +25,6 @@ const AGENT = {
 	residentBytes: 2048,
 	protected: true,
 };
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 for (const scheme of ["light", "dark"] as const) {
 	test(`the process list and its stop dialog have no automatic violations (${scheme})`, async ({
