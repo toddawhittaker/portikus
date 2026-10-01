@@ -310,7 +310,6 @@ Setup needs outgoing internet access to:
 
 - Debian's own mirrors;
 - Zabbly (`pkgs.zabbly.com`), for Incus;
-- Cloudsmith (`dl.cloudsmith.io`), for Caddy;
 - GitHub (`github.com` and its release downloads), for Dex's source and
   the workspace image;
 - the Go module proxy (`proxy.golang.org`), to build Dex;

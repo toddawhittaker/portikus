@@ -3716,3 +3716,58 @@ Gaps:
 - The Ansible egress re-apply handler does less than the helper's own
   re-apply.
 - Every workspace can list the cache's contents, by ruling S6.
+
+## Epic 27 — Certificates from the admin page
+
+Built on `epic/27-certificates` for issue #804 (plan and contract #938,
+docs draft #939, task PRs #940, #943 and #944, review fixes #941, #945,
+#946, #947 and #948, setup fix #949, Caddy package fix #951). No migration. SPEC.md sections
+20.1, 21.12, 24.8 and 24.11, and ADR 0046.
+
+Delivered:
+
+- A Certificate admin tab: the certificate in use and its expiry, and a
+  form for Caddy's internal authority, ACME (Let's Encrypt, its staging
+  service, ZeroSSL or a directory URL, optional EAB, DNS-01 with nine
+  providers or HTTP-01) and uploaded files. Secrets are write-only.
+  Pre-flight results, Test only, Apply, Renew now (ACME only), Roll back,
+  job progress and Download root certificate are on the tab.
+- The admin API: job requests written as one 0600 file, pre-flight, upload
+  checks that name the failed check, the root download, audit rows
+  without secrets, and expiry and renewal-failure notices to every
+  administrator.
+- The on-demand ask endpoint, on loopback only. It approves a preview
+  name only for a non-system listening port in a running workspace, and
+  at most 10 new names per workspace per hour.
+- The root job `certificate-job`. It issues in a throwaway Caddy, then
+  copies, swaps, reloads and checks on loopback, and rolls back on
+  failure. It also runs the hourly check, the trust bundle and
+  `portikus reset-certificate`. Unit tests and Pebble tests cover HTTP-01,
+  on-demand previews and EAB.
+- Setup builds Caddy with nine DNS plugins. It seeds the certificate once
+  through `certificate-job first-install`, and an old letsencrypt
+  preseed becomes ACME DNS-01 with Cloudflare. Setup keeps the internal
+  root present and passes ACME challenges on port 80 to the throwaway.
+  WebSockets survive reloads. The installer now defaults to `internal`.
+- Review fixes: full service-account key checks in the page, API and job;
+  the mutation cache drops typed secrets; announced upload errors; a
+  race-free job audit; temp request files cleaned up.
+- Fresh installs work again: Caddy's Cloudsmith apt repository is signed
+  by a subkey that expired in 2024, which Debian 13 refuses, so every new
+  install stopped at `apt update`. Setup now installs Caddy from its
+  pinned GitHub release package (SHA-512 checked) and removes the old
+  repository from existing hosts. Setup also re-checks an ACME site's
+  certificate on every run.
+- Docs: ADR 0046, INSTALL.md, OPERATIONS.md and ADMIN-GUIDE.md.
+
+Gaps:
+
+- Only Cloudflare DNS-01 is tested end to end. The other eight providers
+  have configuration tests only. HTTP-01 and EAB are tested against
+  Pebble only, because the pilot's names resolve to a private address.
+- A fresh-VM bootstrap of the new setup order was not rehearsed. The pilot
+  run covered an upgrade with existing state.
+- No email for certificate warnings (#918).
+- The ask endpoint's hourly count is in memory, so an API restart resets
+  it.
+- No test forces a failed rename of the request file.

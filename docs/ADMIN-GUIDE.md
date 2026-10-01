@@ -241,6 +241,12 @@ Pick one way:
   certificate the first time someone opens it, which makes that first
   visit slower. Let's Encrypt allows 50 certificates per domain per week,
   so a busy class can run out; use DNS-01 when you can.
+  Portikus approves a preview certificate only for a port that is
+  listening in a running workspace, and at most 10 new preview names per
+  workspace in any hour (the count restarts when the API restarts). A
+  preview link opened before its port is listening gets a browser
+  certificate error; once the program is listening, reload the page and
+  it works.
 
 Some services, such as ZeroSSL or a campus authority, need **EAB**
 (External Account Binding): a key ID and an HMAC key from the service's
@@ -275,17 +281,21 @@ blocks outside traffic; the test below catches that.
   staging service. ZeroSSL and custom services have no staging service,
   so the test gets a real certificate from that service, which counts
   against its limits.
-- **Apply** runs the same test, then switches the live site. If the new
-  certificate does not appear in time, Portikus puts the old one back on
-  its own and shows the error, with any secret removed. The site keeps
-  working throughout.
+- **Apply** runs the same test, then gets the real certificate in a
+  separate, temporary web server, so the live site is untouched until the
+  certificate is in hand. Only then does it switch the live site and
+  check the certificate it serves. If that check fails, Portikus puts the
+  old settings back on its own and shows the error, with any secret
+  removed. The site keeps working throughout.
 
 The tab shows each step while it runs. Only one change runs at a time.
 
 ### Renew and roll back
 
 - **Renew now** asks for a fresh certificate from the same service, for
-  example after fixing a DNS token that made a renewal fail.
+  example after fixing a DNS token that made a renewal fail. It shows
+  only for ACME: Portikus's own certificates renew themselves, and
+  uploaded files are renewed by uploading new ones.
 - **Roll back** returns to the settings in use before the last change,
   with their secrets. Only one earlier generation is kept.
 

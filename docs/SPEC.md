@@ -2598,6 +2598,29 @@ Image use report, with **Add to seed** and **Remove from seed**. Every
 change writes an audit row, and the credential's row says only "set" or
 "cleared". The report lists at most 200 rows per table, with a total.
 
+Added by Epic 27 (section 21.12, ADR 0046): a **Certificate** tab after
+Image and before Docker. It shows the certificate in use for the site and
+a sample preview name (issuer, names, expiry), the source and the last
+renewal, and chooses between Caddy's internal authority, ACME (Let's
+Encrypt, its staging service, ZeroSSL or a directory URL, optional EAB,
+DNS-01 with nine providers or HTTP-01) and uploaded files. Secret fields
+are write-only and show only "set" or "not set"; a blank one keeps the
+stored value. **Test only** and **Apply** run a pre-flight first, from
+the server with a resolver that skips `/etc/hosts`: the names resolve and
+a nonce at `/.well-known/portikus-preflight/` answers, plus plain HTTP on
+port 80 for HTTP-01. A failure blocks HTTP-01 and is a warning for
+DNS-01. Uploads are checked by the API and again by the job, and a
+refusal names the failed check. **Renew now** shows only for ACME,
+**Roll back** returns to the one earlier generation, and **Download root
+certificate** serves Caddy's internal root. Every enabled administrator
+gets a notification for expiry within 14 days (not for the internal
+authority) and for a failed renewal, once per certificate per condition.
+Under HTTP-01, preview certificates are on demand: Caddy asks the API on
+loopback, which approves the site and a preview name only for a
+non-system listening port in a running workspace, and at most 10 new
+names per workspace per rolling hour, counted in memory so an API
+restart resets it. Changing the site's address is out (#935).
+
 ### 20.2 User impersonation
 
 P0 must not require silent administrator impersonation of a student session.
@@ -2815,7 +2838,10 @@ recreated VM gets the same DHCP address. docs/INSTALL.md is the operator's guide
   before makes it relevant: the public host name (default: the host's
   fully qualified name, when it passes the host-name check), the local
   administrator's email (default `admin@<public_host>`), TLS
-  (`letsencrypt`, `files` or `internal`, with that choice's fields), the
+  (`letsencrypt`, `files` or `internal`, with that choice's fields; since
+  Epic 27 the default is `internal` and the question is asked at medium
+  priority, so a normal install skips it, and it is not asked once a
+  certificate state exists), the
   sign-in provider (`dex`, `entra`, `google`, `ldap` or `oidc`; each but
   `dex` fills one Dex connector, section 5.1) with only that provider's
   fields, and storage. Every client secret, the LDAP bind password and
@@ -2858,21 +2884,66 @@ recreated VM gets the same DHCP address. docs/INSTALL.md is the operator's guide
 - **TLS.** `internal` is Caddy's own authority, for sites with no public
   DNS. `files` serves a given certificate and key, which must parse and
   match. `letsencrypt` gets both the site's certificate and the
-  `*.<preview suffix>` wildcard by a DNS-01 challenge through Cloudflare,
-  with a Caddy built by `xcaddy` with the `caddy-dns/cloudflare` plugin;
-  port 80 is not needed. Per-host preview certificates were rejected
-  because of Let's Encrypt's weekly limit. The token reaches Caddy only
-  through a root-only environment file.
+  `*.<preview suffix>` wildcard by a DNS-01 challenge through Cloudflare.
+  Since Epic 27 (ADR 0046) the answer only seeds the certificate state on
+  the first install; the admin page's Certificate tab owns it after that
+  (section 20.1).
+- **Certificate state (Epic 27, ADR 0046).** Caddy is the only ACME
+  client. Setup always builds it with nine caddy-dns plugins (Cloudflare,
+  Route 53, DigitalOcean, OVH, Hetzner, Gandi, Porkbun, Google Cloud DNS,
+  Azure) and checks each module and Caddy's version. The Caddyfile renders
+  no TLS directive; it imports `/etc/portikus/certificate/tls.caddy`,
+  which defines `portikus_tls_global`, `portikus_tls_site` and
+  `portikus_tls_preview`. Caddy's `pki` app always loads, so the internal
+  root exists whatever the source. Setup seeds the state only through
+  `certificate-job first-install` (answers as JSON on standard input,
+  never in arguments), and only when none of `settings.json`, `tls.caddy`
+  or `secrets/` exists; a later setup run, an upgrade or
+  `dpkg-reconfigure` never changes it. An old `letsencrypt` preseed seeds
+  ACME DNS-01 with Cloudflare, and the token then leaves `secrets.yaml`.
+  Secrets live in `/etc/portikus/certificate/secrets/` (root:caddy, 0640)
+  and reach Caddy only through `{file.…}` placeholders.
+- **The certificate job.** The API writes a 0600 request file into
+  `/var/lib/portikus/certificate-jobs/` by rename; a path unit starts the
+  root job `certificate-job` (Python standard library only, like the
+  image job in section 22.4). The job deletes the request first,
+  re-validates everything and never trusts the API, runs one job at a
+  time, keeps the last 20 job directories (root:portikus 0750) with
+  `status.json` and `log.txt`, and scrubs every stored secret from logs
+  and messages. Kinds are `test`, `apply`, `renew`, `rollback`, `check`,
+  and `reset` from the command line. Test and apply never touch the live
+  site first: a throwaway Caddy with its own storage issues (from Let's
+  Encrypt staging for a Let's Encrypt test, otherwise from the chosen
+  authority), and for apply the job then copies the certificates into
+  live storage, swaps the snippet, runs `caddy reload --force` and checks
+  the served certificate on loopback; a failed check puts the previous
+  generation back. Apply and renew refuse a chain the system authorities
+  do not trust. HTTP-01 tests and applies run in the throwaway on
+  127.0.0.1:8796; the live port-80 block proxies
+  `/.well-known/acme-challenge/*` there, and only the `caddy` account
+  may answer on that port. Renew is refused for the internal and
+  uploaded-files sources. Rollback swaps the current and previous
+  generations, secrets included. The hourly
+  `portikus-certificate-check` writes `/var/lib/portikus/certificate/status.json`
+  and `root.crt` and rebuilds the API's trust bundle (system authorities,
+  Caddy's internal root, any uploaded chain), restarting the API only
+  when the bundle changes. WebSocket routes carry `stream_close_delay
+  1h`, so a reload does not drop terminals.
 - **Node is bundled** at `/usr/lib/portikus/node`, the exact version in
   `.nvmrc`, checked against nodejs.org's SHA-256 at build time. The host
   has no NodeSource Node. A Node security fix therefore needs a Portikus
   release.
 - **Dependencies** are Debian-archive packages only. Setup adds Incus
-  from Zabbly and Caddy from Cloudsmith, and builds Dex and distrobuilder
+  from Zabbly and Caddy from its pinned, checksum-verified GitHub release
+  package, and builds Dex and distrobuilder
   from their pinned commits, so the first run needs the internet.
 - **The `portikus` command** has `setup` (in the foreground), `setup
   --follow` (follows the current or last run and exits 0 or 1),
-  `status`, `reset-admin` and `restore` (section 24.9).
+  `status`, `reset-admin`, `restore` (section 24.9) and, since Epic 27,
+  `reset-certificate`, which puts Caddy's internal authority back, keeps
+  the old settings and secrets as the previous generation for Roll back,
+  reloads (or restarts) Caddy, prints the root certificate's path, and
+  writes a `reset` job the API audits.
 - **Unattended install.** `debconf-set-selections` with a preseed file,
   then a noninteractive install. The package ships
   `/usr/share/doc/portikus/preseed.example`, which lists every question.
@@ -3521,6 +3592,15 @@ client secrets, the LDAP bind password and the Cloudflare token) only in
 `portikus.yaml`, the debconf database after postinst, a log line, the
 play's output or `ps` output.
 
+Added by Epic 27 (ADR 0046): certificate secrets (DNS credentials, the
+EAB HMAC key, a Google service-account key, an uploaded private key) are
+write-only in the API and page. They travel once in the 0600 request
+file, which the root job deletes first, and are stored only in files
+under `/etc/portikus/certificate/` (root:caddy, 0640) that the snippet
+names with `{file.…}` placeholders. They never appear in Caddy's
+autosave, a log, the journal, an audit row, a status file, a view or a
+process's arguments, and the job scrubs them from Caddy's messages.
+
 ### 24.9 Storage security
 
 At minimum:
@@ -3693,6 +3773,11 @@ log line, holds a password, a hash or the local administrator's email.
 Sign-ins that Dex refuses under a connector's admission rules never reach
 Portikus, so they are recorded in Dex's JSON log, not the audit table.
 `setup.code_issued` and `setup.code_claimed` are no longer written.
+
+As built (Epic 27): `certificate.job_requested` and
+`certificate.job_finished`, the latter also for a `reset` job written by
+`portikus reset-certificate`, with kind, source, directory, provider and
+state and no secret.
 
 As built (Epic 14.3, sections 5.1, 6.4 and 19.4): the worker (actor
 `worker`) writes `workspace.cpu_throttled`, `workspace.cpu_throttle_failed`,
@@ -5096,6 +5181,30 @@ Acceptance:
 - the cache ports are closed to the management network and to any
   workspace whose egress policy does not allow the registry's names;
 - a seeded workspace's files have real owners and `docker run` works.
+
+### Epic 27 — Certificates from the admin page
+
+See sections 20.1, 21.12, 24.8 and 24.11, and ADR 0046; built on
+`epic/27-certificates` (issue #804). No migration.
+
+Includes:
+
+- a Certificate admin tab for the internal authority, ACME by DNS-01
+  (nine providers) or HTTP-01 with on-demand previews, and uploaded
+  files, with Test only, Apply, Renew now, Roll back and the root
+  download;
+- a root certificate job with a throwaway Caddy, automatic restore, an
+  hourly check and expiry and renewal notices;
+- `portikus reset-certificate`, and an installer that defaults to the
+  internal authority and seeds the state once.
+
+Acceptance:
+
+- a failed change leaves the live certificate in use;
+- no secret appears in Caddy's autosave, a log, an audit row, a status
+  file or a view;
+- only Cloudflare is tested end to end; HTTP-01 and EAB are tested
+  against Pebble, Let's Encrypt's local test server.
 
 ### Estimated total
 

@@ -48,26 +48,44 @@ Portikus before it requests a certificate for each new preview name.
    Binding) HMAC key and an uploaded private key travel once, in the
    request file readable only by root and the API. The job deletes that
    file as soon as it has read it. The secrets are stored only in
-   root-owned files Caddy can read and appear in Caddy's configuration as
-   environment placeholders. They never appear in Caddy's saved
+   files under `/etc/portikus/certificate/secrets/` (root:caddy, 0640),
+   which the snippet names with Caddy's `{file.…}` placeholders, read at
+   run time. Caddy needs no restart and no environment file for a new
+   secret; the installer's old Cloudflare environment file and its
+   systemd drop-in are removed. Google Cloud DNS takes its
+   service-account key as such a file. The secrets never appear in Caddy's saved
    configuration, a log, the journal, an audit row, a status file, a page
    or a process's arguments. The page shows only whether each is set.
-6. **Staging first, then live, with an automatic restore.** An ACME change
-   first checks DNS and reachability, then has a throwaway second Caddy,
-   with its own storage, get a certificate from the staging service (for
-   Let's Encrypt) or from the chosen authority (ZeroSSL and custom
-   authorities have no staging service). Only then does it change the live
-   site. If the live certificate does not appear in time, the job puts back
-   the previous settings and secrets and reloads Caddy. One earlier
-   generation is kept for **Roll back**, and `portikus reset-certificate`
-   recovers a site the page has made unreachable.
-7. **HTTP-01 previews use on-demand TLS, gated by an ask endpoint.** Before
-   Caddy requests a certificate for a preview name, it asks the API, which
-   says yes only for the site and names under the preview suffix. The cost
-   is that every new preview name is a separate certificate, and Let's
-   Encrypt allows 50 certificates per registered domain per week. A busy
-   class with many preview names can hit that limit; DNS-01 with one
-   wildcard does not.
+6. **Never switch the live site and wait.** An ACME change first checks
+   DNS and reachability. A throwaway second Caddy, with its admin endpoint
+   off, its own storage seeded with a copy of the live ACME account, and
+   its site on loopback, then gets a test certificate: from Let's Encrypt
+   staging when the choice is Let's Encrypt, otherwise from the chosen
+   authority itself, because ZeroSSL and custom authorities have no
+   staging service. For Apply the throwaway also gets the real
+   certificate. The job stops it at a deadline. Only on success does the
+   job copy the certificates into the live storage, swap the snippet, run
+   `caddy reload --force`, and check the served certificate on loopback
+   for the site and a sample preview name. If that check fails, it puts
+   the previous snippet and secrets back and reloads, which is instant. If
+   the throwaway fails, the live site was never touched. Renew now works
+   the same way, then reloads to the internal authority and back so Caddy
+   reads the copied certificate; the live certificate is never deleted
+   first. One earlier generation is kept for **Roll back**, and
+   `portikus reset-certificate` recovers a site the page has made
+   unreachable.
+7. **HTTP-01 runs in the throwaway too.** Its tests and applies listen on
+   127.0.0.1:8796, and the live port-80 block proxies
+   `/.well-known/acme-challenge/*` there; the live Caddy still answers
+   its own challenges first. Only the `caddy` account may answer on 8796.
+   Preview names use on-demand TLS on the live Caddy, gated by an ask
+   endpoint the API answers only from loopback: yes for the site, and for
+   a preview name only when its port is a non-system listener in a
+   running workspace, at most 10 new names per workspace per rolling hour
+   (kept in memory, so an API restart resets the count). The cost is that
+   every preview name is a separate certificate, and Let's Encrypt allows
+   50 certificates per registered domain per week. A busy class can hit
+   that limit; DNS-01 with one wildcard does not.
 
 ## Alternatives rejected
 
@@ -91,4 +109,12 @@ Portikus before it requests a certificate for each new preview name.
   Let's Encrypt's local test server.
 - An installer answer no longer changes a running site's certificate,
   which surprises anyone used to `dpkg-reconfigure`; INSTALL.md says so.
+- The API's trust bundle is the system authorities plus Caddy's internal
+  root plus any uploaded chain, so a mode switch never breaks the API's
+  own calls through Caddy. The accepted cost: the API trusts those roots
+  for every outbound call it makes, not only calls to its own site.
+- Every reload closes proxied WebSockets unless they have a
+  `stream_close_delay`; setup sets one hour on the WebSocket routes, so
+  a certificate change does not drop terminals, but a connection older
+  than that hour after a reload is closed and the page reconnects.
 - Changing the site's address stays out of scope (#935).
