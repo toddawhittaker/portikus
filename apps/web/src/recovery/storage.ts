@@ -18,7 +18,8 @@ export const STORAGE_LABEL: Record<StorageClass, string> = {
 
 export const CRITICAL_AT = 0.95;
 
-const NEXT_STEP: Record<StorageClass, string> = {
+/** What to do when a class is nearly full; the status bar and the meters share it. */
+export const NEXT_STEP: Record<StorageClass, string> = {
 	home: "Delete files you no longer need.",
 	docker: "Use Reset Docker in the workspace dialog, or run docker system prune.",
 	recovery: "Older recovery points are removed automatically.",
@@ -28,7 +29,8 @@ const NEXT_STEP: Record<StorageClass, string> = {
  * The `high` to give a Meter so it says "nearly full" from exactly the
  * warning share, as storageLevel does; the Meter warns only strictly past it.
  */
-export function nearlyFullAbove(totalBytes: number): number {
+export function nearlyFullAbove(totalBytes: number): number | undefined {
+	if (totalBytes <= 0) return undefined;
 	return totalBytes * WARN_AT - 1;
 }
 

@@ -5,15 +5,12 @@ import type {
 	QuotaConfig,
 	WorkspaceLimits,
 } from "@portikus/contracts";
-import { Button, Meter, useToast } from "@portikus/ui";
+import { Button, useToast } from "@portikus/ui";
 import { useState } from "react";
 import { errorText } from "../../api/request.js";
-import { formatBytes, formatCpu, WARN_AT } from "../../monitor/format.js";
-import {
-	nearlyFullAbove,
-	STORAGE_CLASSES,
-	STORAGE_LABEL,
-} from "../../recovery/storage.js";
+import { formatBytes, formatCpu } from "../../monitor/format.js";
+import { STORAGE_CLASSES } from "../../recovery/storage.js";
+import { StorageMeterRow } from "../../shell/StorageMeters.js";
 import { GraceDialog, graceValueText } from "../GraceDialog.js";
 import { useSiteLimits } from "../health/queries.js";
 import {
@@ -85,22 +82,16 @@ export function limitsPending(
 function StorageMeters({ storage }: { storage: AdminStorage }) {
 	return (
 		<div className="pk-meters">
-			{STORAGE_CLASSES.map((key) => {
-				const { usedBytes, limitBytes } = storage[key];
-				const warn = limitBytes > 0 && usedBytes / limitBytes >= WARN_AT;
-				return (
-					<div key={key} className={warn ? "pk-meter pk-meter--warning" : "pk-meter"}>
-						<span className="pk-meter-label">{STORAGE_LABEL[key]}</span>
-						<Meter
-							value={usedBytes}
-							max={limitBytes}
-							label={STORAGE_LABEL[key]}
-							valueText={`${formatBytes(usedBytes)} of ${formatBytes(limitBytes)}`}
-							high={nearlyFullAbove(limitBytes)}
-						/>
-					</div>
-				);
-			})}
+			{STORAGE_CLASSES.map((key) => (
+				<StorageMeterRow
+					key={key}
+					storageClass={key}
+					figure={{
+						usedBytes: storage[key].usedBytes,
+						totalBytes: storage[key].limitBytes,
+					}}
+				/>
+			))}
 		</div>
 	);
 }

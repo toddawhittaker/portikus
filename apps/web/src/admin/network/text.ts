@@ -3,7 +3,7 @@ import {
 	EGRESS_LIMITS,
 	type EgressExplanation,
 } from "@portikus/contracts";
-import { timeAgo } from "../../text.js";
+import { shortTime, timeAgo } from "../../text.js";
 
 /**
  * The host name inside what an administrator typed into "Test a host". A URL
@@ -89,6 +89,12 @@ export type ApplyState =
 	| { tone: "applied"; text: string }
 	| { tone: "none"; text: string };
 
+/** "just now", "4 minutes ago", or the exact date after a day, as an audit line reads. */
+function appliedAge(iso: string, now: number): string {
+	if (now - Date.parse(iso) >= 86_400_000) return shortTime(iso);
+	return timeAgo(iso, now).toLowerCase();
+}
+
 /** Whether the workspaces follow the saved policy yet, in one line. */
 export function applyState(view: AdminEgressView, now: number): ApplyState {
 	const { appliedVersion, appliedAt, error } = view.apply;
@@ -104,7 +110,7 @@ export function applyState(view: AdminEgressView, now: number): ApplyState {
 	if (appliedAt) {
 		return {
 			tone: "applied",
-			text: `Applied ${timeAgo(appliedAt, now).toLowerCase()}. Every running workspace follows this policy.`,
+			text: `Applied ${appliedAge(appliedAt, now)}. Every running workspace follows this policy.`,
 		};
 	}
 	return {

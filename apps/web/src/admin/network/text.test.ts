@@ -1,5 +1,6 @@
 import { type AdminEgressView, explainHost } from "@portikus/contracts";
 import { expect, test } from "vitest";
+import { shortTime } from "../../text.js";
 import { egressView } from "./testView.js";
 import {
 	applyAnnouncement,
@@ -90,6 +91,18 @@ test("the ports field says what is wrong", () => {
 	expect(parsePorts("80,80")).toEqual({ error: "Port 80 is listed twice." });
 	const many = Array.from({ length: 21 }, (_, i) => i + 1).join(",");
 	expect(parsePorts(many)).toEqual({ error: "List at most 20 ports." });
+});
+
+test("the apply status says how long ago within a day, then the exact date", () => {
+	const view = egressView();
+	const appliedAt = view.apply.appliedAt as string;
+	const at = Date.parse(appliedAt);
+	expect(applyState(view, at + 4 * 60_000).text).toBe(
+		"Applied 4 minutes ago. Every running workspace follows this policy.",
+	);
+	expect(applyState(view, at + 2 * 86_400_000).text).toBe(
+		`Applied ${shortTime(appliedAt)}. Every running workspace follows this policy.`,
+	);
 });
 
 test("the apply status names an error, a pending change, the last apply, or nothing yet", () => {
