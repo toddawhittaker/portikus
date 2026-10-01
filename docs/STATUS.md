@@ -3720,8 +3720,9 @@ Gaps:
 ## Epic 27 — Certificates from the admin page
 
 Built on `epic/27-certificates` for issue #804 (plan and contract #938,
-docs draft #939, task PRs #940, #943 and #944, review fixes #941, #945,
-#946, #947 and #948, setup fix #949, Caddy package fix #951). No migration. SPEC.md sections
+docs draft #939, task PRs #940, #941, #943 and #944, review fixes #942,
+#945, #947 and #948, setup fix #949, Caddy package fix #951, docs fold
+#950, job folder mode fix #952). No migration. SPEC.md sections
 20.1, 21.12, 24.8 and 24.11, and ADR 0046.
 
 Delivered:
@@ -3760,13 +3761,20 @@ Delivered:
   certificate on every run.
 - Docs: ADR 0046, INSTALL.md, OPERATIONS.md and ADMIN-GUIDE.md.
 
+Verified: the scripted fresh install (`make install-test`, 41 steps) on a
+throwaway VM; on the pilot (0.1.762+g2d9bba1e) pre-flight, refused
+uploads, Roll back, `portikus reset-certificate`, a staging Test, a
+refused fake token with the live site unchanged, and a production Let's
+Encrypt DNS-01 Cloudflare apply for the site and the preview wildcard;
+no DNS token outside its secrets file; smoke test 241 passed.
+
 Gaps:
 
+- Re-applying the same settings issues a fresh certificate, but Caddy
+  keeps serving the identical one it already holds until renewal.
 - Only Cloudflare DNS-01 is tested end to end. The other eight providers
   have configuration tests only. HTTP-01 and EAB are tested against
   Pebble only, because the pilot's names resolve to a private address.
-- A fresh-VM bootstrap of the new setup order was not rehearsed. The pilot
-  run covered an upgrade with existing state.
 - No email for certificate warnings (#918).
 - The ask endpoint's hourly count is in memory, so an API restart resets
   it.
