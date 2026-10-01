@@ -7,7 +7,7 @@ import {
 	upgradedAgentNotice,
 } from "./terminalFrames.js";
 
-test("an agent frame names the running agent build (issue #887)", () => {
+test("an agent frame names the running agent build", () => {
 	expect(decodeTerminalFrame(JSON.stringify({ type: "agent", build: "b1" }))).toEqual({
 		kind: "agent",
 		build: "b1",

@@ -116,7 +116,7 @@ test("the 15-character minimum counts characters, not UTF-16 units", () => {
 	expect(checkPasswords("old", fifteen, fifteen)).toEqual({});
 });
 
-// Epic 25 S15: on the forced page the field names the one-time password.
+// On the forced page the field names the one-time password.
 test("the one-time form labels the current field for both and asks for either", async () => {
 	stubFetch(() => new Response(null, { status: 204 }));
 	renderWithQuery(

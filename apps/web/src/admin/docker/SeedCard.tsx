@@ -214,8 +214,8 @@ function Segments({ parts }: { parts: Segment[] }) {
 }
 
 /**
- * The seed list lacks the images matching the default workspace image
- * (issue #932). One button swaps them in and rebuilds, unless the estimate
+ * The seed list lacks the images matching the default workspace image.
+ * One button swaps them in and rebuilds, unless the estimate
  * says the seed would pass its limit; nothing changes without the click.
  */
 function MatchNotice({

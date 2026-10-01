@@ -68,7 +68,7 @@ afterEach(() => {
 
 /**
  * A stand-in for the browser tab's history, so a test can say whether the
- * frame has an entry of its own beyond the anchor (issue #283).
+ * frame has an entry of its own beyond the anchor.
  */
 function stubHistory() {
 	const back = vi.fn();
@@ -144,7 +144,7 @@ test("a port nothing is listening on says so and asks no grant", async () => {
 		"Nothing is currently listening on port 5173. Start your application to reconnect this preview.",
 	);
 	expect(fetchMock).not.toHaveBeenCalled();
-	// Announced, not only shown (issue #363).
+	// Announced, not only shown.
 	expect(screen.getByTestId("preview-status").getAttribute("role")).toBe("status");
 	expect(screen.getByTestId("preview-status").textContent).toBe(
 		"Nothing is running on port 5173",
@@ -207,7 +207,7 @@ test("a grant the gateway could not open shows its message", async () => {
 	);
 });
 
-/** Review S6: a refused port says what to do instead, and offers no retry. */
+/** A refused port says what to do instead, and offers no retry. */
 test("a port the policy refuses explains the rule and offers another port", async () => {
 	stubFetch(() =>
 		json(403, {
@@ -273,7 +273,7 @@ test("an application that refuses framing is offered in a new tab at once", asyn
 });
 
 test("a dev server refusing the preview host gets the line to paste", async () => {
-	// The control plane recognised Vite's blocked-host answer (issue #262).
+	// The control plane recognised Vite's blocked-host answer.
 	stubFetch((url) =>
 		url.includes("/preview/embeddable")
 			? json(200, {
@@ -330,7 +330,7 @@ test("webpack-dev-server gets its own setting", async () => {
 
 /**
  * Back must never take the Portikus document away, so a press with nothing
- * behind the anchor does nothing at all (issue #283).
+ * behind the anchor does nothing at all.
  */
 test("Back on a fresh preview does nothing and explains itself", async () => {
 	stubFetch(() => json(200, GRANT));
@@ -545,7 +545,7 @@ test("the bar keeps host, Back, Forward, Reload and new tab; the rest is in the 
 	}
 	expect(screen.queryByTestId("preview-copy")).toBeNull();
 	expect(screen.getByRole("button", { name: "More preview actions" })).toBeTruthy();
-	// Back and Forward are icons with names, like the rest of the bar (review S7).
+	// Back and Forward are icons with names, like the rest of the bar.
 	expect(screen.getByTestId("preview-back").textContent).toBe("");
 	expect(screen.getByRole("button", { name: "Back" })).toBe(
 		screen.getByTestId("preview-back"),

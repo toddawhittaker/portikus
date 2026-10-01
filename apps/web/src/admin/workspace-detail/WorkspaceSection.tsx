@@ -49,7 +49,7 @@ export type OperationOutcome = {
 	errorCode: string | null;
 };
 
-/** The newest rebuild or reset result audited after `afterId`, or null while none is (issue #881). */
+/** The newest rebuild or reset result audited after `afterId`, or null while none is. */
 export function operationOutcome(
 	events: AuditEvent[],
 	afterId: number,

@@ -46,7 +46,7 @@ test("the seed list uses the contract's rules and words", () => {
 	expect(seedListError(["python:3.12", "docker.io/library/python:3.12"], false)).toBe(
 		"Each image may appear once.",
 	);
-	// ghcr.io only while its cache is on (ruling S8).
+	// ghcr.io only while its cache is on.
 	expect(seedListError(["ghcr.io/owner/tool:1"], false)).toBe(
 		"Turn on the ghcr.io cache before seeding ghcr.io images.",
 	);
@@ -195,7 +195,7 @@ const say = (list: string[]) => {
 	return parts ? segmentText(driftSentence(parts)) : null;
 };
 
-test("the drift sentence names the image's versions and the old tags (issue #932)", () => {
+test("the drift sentence names the image's versions and the old tags", () => {
 	expect(say(["node:24-slim", "redis:7", "python:3.13-slim"])).toBe(
 		"The default workspace image runs Node 26 and Python 3.14, but the seed list has node:24-slim and python:3.13-slim.",
 	);
@@ -204,7 +204,7 @@ test("the drift sentence names the image's versions and the old tags (issue #932
 	);
 });
 
-test("the drift sentence speaks to every missing language, one clause each (review C4)", () => {
+test("the drift sentence speaks to every missing language, one clause each", () => {
 	// An old Node tag and no Python at all: Python must not go unmentioned.
 	expect(say(["node:24-slim", "redis:7"])).toBe(
 		"The default workspace image runs Node 26 and Python 3.14, but the seed list has node:24-slim and does not have python:3.14-slim.",
@@ -215,7 +215,7 @@ test("the drift sentence speaks to every missing language, one clause each (revi
 	);
 });
 
-test("over the limit the notice calls the sizes an estimate the rebuild checks (review C5)", () => {
+test("over the limit the notice calls the sizes an estimate the rebuild checks", () => {
 	const parts = driftParts(["redis:7"], MATCH_26_314) ?? [];
 	expect(segmentText(driftOverSentence(parts, 1))).toBe(
 		"Using node:26-slim and python:3.14-slim would take the list past the 1.0 GB limit. That is an estimate from download sizes; the rebuild checks the unpacked images, which are larger. Raise Largest seed below, or remove images from the list.",

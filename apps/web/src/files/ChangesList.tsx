@@ -62,7 +62,7 @@ export function ChangesList({
 			return;
 		}
 		// The diff is a view of the file's own tab, so a file already open is
-		// switched to its diff rather than opened a second time (issue #160).
+		// switched to its diff rather than opened a second time.
 		openFile(row.path, { diff: true });
 	}
 

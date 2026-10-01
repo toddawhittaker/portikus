@@ -157,8 +157,8 @@
 	flex: none;
 }
 /*
- * The strip scrolls sideways once every tab is at its floor width
- * (issue #240). Its own scrollbar is hidden: the fade edges say there is
+ * The strip scrolls sideways once every tab is at its floor width.
+ * Its own scrollbar is hidden: the fade edges say there is
  * more, and the wheel and keyboard both scroll it.
  */
 .pk-tablist {
@@ -275,12 +275,12 @@
 .pk-tab:focus-visible .pk-tab-dirty {
 	display: none;
 }
-/* Always visible, at every width, on every tab (issue #240). */
+/* Always visible, at every width, on every tab. */
 .pk-tab-close {
 	display: grid;
 	place-items: center;
 	flex: none;
-	/* 24px: the WCAG 2.5.8 minimum target (issue #372). */
+	/* 24px: the WCAG 2.5.8 minimum target. */
 	width: 24px;
 	height: 24px;
 	border-radius: var(--radius-xs);

@@ -1,5 +1,5 @@
 /**
- * The workspace page's first Tab stop (issue #357): a skip-link-style button
+ * The workspace page's first Tab stop: a skip-link-style button
  * that turns screen-reader mode on or off, so a screen-reader user does not
  * have to find it in Settings first. Hidden until it has focus.
  */

@@ -313,7 +313,7 @@ export function LogsTab() {
 							))}
 						</div>
 					</fieldset>
-					{/* A native select, as in the Users filter bar (ruling S18). */}
+					{/* A native select, as in the Users filter bar. */}
 					<div className={FIELD_CLASS}>
 						<label className={LABEL_CLASS} htmlFor="logs-window">
 							Time

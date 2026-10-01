@@ -1,5 +1,5 @@
 /**
- * The Back guard (BROWSER-HANDLING.md §12, issues #271 and #283): Back may
+ * The Back guard (BROWSER-HANDLING.md §12): Back may
  * step the frame, and may never step the Portikus document away.
  */
 import { afterEach, expect, test } from "vitest";

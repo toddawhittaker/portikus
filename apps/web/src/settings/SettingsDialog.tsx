@@ -3,7 +3,7 @@
  * SPEC.md §13.5). The left pane is the section list and a search box; the
  * right pane is the section that was chosen. Search reads that same list.
  * Every setting, the appearance included, is kept on the server per user
- * (issue #300) and saved the moment it changes; typed values (the auto-save
+ * and saved the moment it changes; typed values (the auto-save
  * delay and the profile links) when the student leaves the field, presses
  * Enter or closes the dialog. The terminal color scheme is separate
  * from the page appearance. Profile shows the institution sign-in and a few
@@ -139,7 +139,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	// same values the editor is using until they arrive.
 	const current = settings.data ?? EDITOR_SETTINGS_DEFAULTS;
 	// The zone names the server accepts, so the select cannot offer one it
-	// would reject (issue #287). Empty until the settings arrive.
+	// would reject. Empty until the settings arrive.
 	const zones = settings.data?.timezones ?? [];
 
 	// The draft is only what the student has touched, so a setting they left
@@ -382,7 +382,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 									change({ terminalTheme: event.target.checked ? "light" : "dark" })
 								}
 							/>
-							{/* A fixed name, so on and off mean light and dark (issue #373). */}
+							{/* A fixed name, so on and off mean light and dark. */}
 							<span>Light terminal</span>
 						</label>
 					</div>
@@ -485,7 +485,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 				description="Changes are saved as you make them and follow you to any browser you sign in from."
 				footer={
 					<>
-						{/* Always there, so a screen reader hears each save (review M5). */}
+						{/* Always there, so a screen reader hears each save. */}
 						<p
 							role="status"
 							className="pk-text-compact m-0 mr-auto self-center text-ink-muted"

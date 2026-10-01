@@ -1,5 +1,5 @@
 /**
- * The file tab's viewers for images and PDFs (#816). An image, SVG included,
+ * The file tab's viewers for images and PDFs. An image, SVG included,
  * is only ever drawn through `img`, where a script in it cannot run. A PDF
  * goes to the browser's own viewer as a copy held in the page, so its frame
  * never loads a document from the app's address.

@@ -6,8 +6,8 @@
  *
  * Listeners the agent attributes to the platform or a system account are
  * hidden behind a toggle, so a student sees their own Vite server and not
- * systemd-resolved (issue #265). A port that stops listening leaves the
- * list (issue #325). Selecting a row shows what holds it (issue #326).
+ * systemd-resolved. A port that stops listening leaves the
+ * list. Selecting a row shows what holds it.
  */
 
 import type { ListeningService, WorkspaceUsage } from "@portikus/contracts";
@@ -73,14 +73,14 @@ export function RunningPane({
 	const services = showSystem ? all : all.filter((service) => !service.system);
 	const systemCount = all.filter((service) => service.system).length;
 	// The panel only describes a row that is still on screen. A port that
-	// stopped, or a system row the toggle just hid, closes it (issue #326).
+	// stopped, or a system row the toggle just hid, closes it.
 	const stillThere =
 		selectedPort !== null && services.some((service) => service.port === selectedPort);
 	if (selectedPort !== null && !stillThere) setSelectedPort(null);
 	const selected = stillThere
 		? services.find((service) => service.port === selectedPort)
 		: undefined;
-	// CPU and memory are only read while a row is selected (issue #338).
+	// CPU and memory are only read while a row is selected.
 	const usage = useWorkspaceUsage(workspaceId, selected !== undefined);
 
 	async function openTab(port: number) {
@@ -302,7 +302,7 @@ function stopTitle(service: ListeningService): string {
 	return name ? `Stop ${name} on port ${service.port}?` : `Stop port ${service.port}?`;
 }
 
-/** What is holding the selected port, including CPU and memory (issues #326, #338). */
+/** What is holding the selected port, including CPU and memory. */
 function RunningDetails({
 	service,
 	usage,

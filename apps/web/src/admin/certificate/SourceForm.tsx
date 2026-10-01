@@ -85,7 +85,7 @@ const MODES: { value: ChallengeMode; label: string; text: string }[] = [
 const SECRET_KEPT = "Set. Leave blank to keep it.";
 const SECRET_NONE = "Not set.";
 
-/** The choice of certificate source and its settings, with Test only and Apply (Epic 27 R11). */
+/** The choice of certificate source and its settings, with Test only and Apply. */
 export function SourceForm({ data, busy }: { data: AdminCertificate; busy: boolean }) {
 	const toast = useToast();
 	const ask = useRequestCertificateJob();
@@ -146,7 +146,7 @@ export function SourceForm({ data, busy }: { data: AdminCertificate; busy: boole
 		return toSettings(form);
 	}
 
-	/** Run the pre-flight for ACME, then go on only when nothing failed (Epic 27 R10). */
+	/** Run the pre-flight for ACME, then go on only when nothing failed. */
 	function afterChecks(next: () => void) {
 		setFailure(null);
 		preflight.mutate(form.mode, {
@@ -170,7 +170,7 @@ export function SourceForm({ data, busy }: { data: AdminCertificate; busy: boole
 				// The request held the secrets; the mutation must not keep them.
 				ask.reset();
 			},
-			// The API names the upload check that failed (Epic 27 R9).
+			// The API names the upload check that failed.
 			onError: (error) => {
 				if (error instanceof ApiError && error.code === "CERTIFICATE_UPLOAD_REFUSED") {
 					const text = uploadRefusalText(error.message);

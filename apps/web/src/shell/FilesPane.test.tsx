@@ -178,7 +178,7 @@ function stubEmpty() {
 	);
 }
 
-test("the switcher is one tab stop, the arrows move along it, and each tab controls a panel (issue #365)", async () => {
+test("the switcher is one tab stop, the arrows move along it, and each tab controls a panel", async () => {
 	stubEmpty();
 	renderWithQuery(<FilesPane workspaceId={WORKSPACE} project={project()} />);
 
@@ -209,7 +209,7 @@ test("the switcher is one tab stop, the arrows move along it, and each tab contr
 	);
 });
 
-test("closing find in files returns focus to its button (issue #358)", async () => {
+test("closing find in files returns focus to its button", async () => {
 	stubEmpty();
 	renderWithQuery(<FilesPane workspaceId={WORKSPACE} project={project()} />);
 

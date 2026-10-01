@@ -37,7 +37,7 @@ export interface CodeEditorProps {
 	version: string;
 	onChange: (text: string) => void;
 	onSave: () => void;
-	/** From the student's editor settings (issue #159). */
+	/** From the student's editor settings. */
 	wordWrap?: "on" | "off";
 	/** Jump here when the editor opens, for "open at line" (SPEC.md §15.3). */
 	revealLine?: number;
@@ -48,14 +48,14 @@ export interface CodeEditorProps {
 	revealNonce?: number;
 	/**
 	 * Monaco's saved view state for this file: cursor, selections and scroll.
-	 * It is put back once the model holds the real text (issue #161).
+	 * It is put back once the model holds the real text.
 	 */
 	viewState?: unknown;
 	/** Hand the newest view state back, so it survives leaving the route. */
 	onViewState?: (viewState: unknown) => void;
 	/**
 	 * Reports the first line the editor is showing, so the Markdown split view
-	 * can put the same line at the top of the other side (issue #229).
+	 * can put the same line at the top of the other side.
 	 */
 	onTopLine?: (line: number) => void;
 	/** Lets the tab scroll this editor to a line. */
@@ -210,7 +210,7 @@ export function CodeEditor({
 				latest.current.onChange(model.getValue());
 			});
 			// Put the cursor and scroll back now that the model holds the real
-			// text (issue #161). A tab in the background has no height yet, and
+			// text. A tab in the background has no height yet, and
 			// Monaco clamps a scroll it cannot show, so this waits for a layout
 			// with a height rather than restoring into nothing.
 			// useEditorViewState reads this once when the tab mounts, so a save
@@ -233,14 +233,14 @@ export function CodeEditor({
 			}
 			// Every move and scroll goes straight into the layout store, which
 			// is cheap; writing it to this browser's storage is what the layout
-			// hook debounces (persist.ts, issue #161).
+			// hook debounces (persist.ts).
 			function report() {
 				if (!restored) return;
 				latest.current.onViewState?.(editor.saveViewState());
 			}
 			editor.onDidChangeCursorPosition(report);
 			// One scroll listener does both jobs: remember the position and let
-			// the split view follow it (issue #154). It is attached after the
+			// the split view follow it. It is attached after the
 			// restore above so the remembered position is put back first, rather
 			// than the two pulling against each other while the tab is opening.
 			editor.onDidScrollChange(() => {
@@ -287,7 +287,7 @@ export function CodeEditor({
 		editorRef.current?.updateOptions({ wordWrap });
 	}, [wordWrap]);
 
-	// Screen-reader support follows the student's setting, live (issue #357).
+	// Screen-reader support follows the student's setting, live.
 	useEffect(() => {
 		editorRef.current?.updateOptions({
 			accessibilitySupport: accessibilitySupport(screenReaderMode),

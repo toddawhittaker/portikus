@@ -300,7 +300,7 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 
 	const panel = await openAlice();
 
-	// Use is one fact per row; the disk shows here only without its meter (Epic 25, S6).
+	// Use is one fact per row; the disk shows here only without its meter.
 	expect(within(panel).getByTestId("detail-disk-use").textContent).toBe(
 		"2.0 GB of 10.0 GB",
 	);
@@ -335,7 +335,7 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 	).toBe("true");
 });
 
-test("the panel's sections come in the Epic 25 order (R2)", async () => {
+test("the panel's sections come in their set order", async () => {
 	stubDetail(
 		detail({
 			workspace: {
@@ -1244,7 +1244,7 @@ test("grace minutes convert to and from the API's seconds", () => {
 	expect(graceValueText(3600)).toBe("1 hour");
 });
 
-// Promote and demote (docs/archive/epics/EPIC-13-1.md ruling 23).
+// Promote and demote (ADR 0026).
 const GRANTED_ROW = {
 	...ALICE_ROW,
 	id: "44444444-4444-4444-8444-444444444444",
@@ -1306,7 +1306,7 @@ async function openRow(name: string) {
 	return screen.findByRole("region", { name });
 }
 
-test("the account section shows the role, source, issuer and username (issue #302)", async () => {
+test("the account section shows the role, source, issuer and username", async () => {
 	stubRoles();
 	const panel = await openRow("Alice Example");
 	expect(within(panel).getByTestId("detail-role").textContent).toBe("Student");
@@ -1425,7 +1425,7 @@ test("a refused promote shows the refusal in its dialog", async () => {
 	);
 });
 
-// Make and remove instructor (docs/archive/epics/EPIC-14.md ruling 14).
+// Make and remove instructor (ADR 0026).
 const TEACHER_ROW = {
 	...ALICE_ROW,
 	id: "66666666-6666-4666-8666-666666666666",

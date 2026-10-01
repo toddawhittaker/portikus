@@ -121,7 +121,7 @@ describe("Tabs", () => {
 		expect(ended.className).toContain("pk-tab--ended");
 	});
 
-	/** Issue #240: every tab keeps a close control, at every width. */
+	/** Every tab keeps a close control, at every width. */
 	it("gives every tab a close control, however many tabs there are", () => {
 		const many: TabItem[] = Array.from({ length: 30 }, (_, index) => ({
 			id: `t${index}`,
@@ -175,7 +175,7 @@ describe("Tabs", () => {
 		expect(list.scrollLeft).toBe(120);
 	});
 
-	it("advertises Delete and Alt+Shift+Arrow on every tab (#370, #372)", () => {
+	it("advertises Delete and Alt+Shift+Arrow on every tab", () => {
 		renderTabs();
 
 		for (const tab of screen.getAllByRole("tab")) {

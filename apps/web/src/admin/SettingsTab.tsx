@@ -117,7 +117,7 @@ interface GuardSettingField {
 
 /**
  * The Resource guard section's fields: the per-workspace ones, then the
- * automatic lift (#596) and the throttle hold (SPEC.md §19.4), which have no
+ * automatic lift and the throttle hold (SPEC.md §19.4), which have no
  * per-workspace override.
  */
 const GUARD_SETTING_FIELDS: GuardSettingField[] = [
@@ -252,7 +252,7 @@ function IdleStopField() {
 	);
 }
 
-/** The cap on a student's "Keep running until" hold (#955). */
+/** The cap on a student's "Keep running until" hold. */
 function KeepRunningField() {
 	const settings = usePlatformSettings();
 	const update = useUpdatePlatformSettings();

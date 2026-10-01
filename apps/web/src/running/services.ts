@@ -71,7 +71,7 @@ export function isDocker(service: ListeningService): boolean {
 }
 
 /**
- * Why a row offers no actions, or null when it does (issues #265, #272).
+ * Why a row offers no actions, or null when it does.
  * A port that can't be previewed is one the preview policy refuses (SPEC.md
  * §14.7); a system service is one
  * the agent attributes to the platform or a system account.
@@ -82,14 +82,14 @@ export function serviceReason(service: ListeningService): string | null {
 	return null;
 }
 
-/** Ask the workspace to stop what holds a port (SPEC.md §18.2, issue #273). */
+/** Ask the workspace to stop what holds a port (SPEC.md §18.2). */
 export async function stopListener(workspaceId: string, port: number): Promise<void> {
 	await request(z.unknown(), `/workspaces/${workspaceId}/listening/${port}/stop`, {
 		method: "POST",
 	});
 }
 
-/** Where the "Show system" choice is remembered (issue #265). */
+/** Where the "Show system" choice is remembered. */
 const SHOW_SYSTEM_KEY = "pk-running-show-system";
 
 export function readShowSystem(): boolean {

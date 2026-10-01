@@ -151,7 +151,7 @@ const TWO = [
 	{ id: "lint", name: "Lint", command: "npm run lint" },
 ];
 
-test("each row's fields say which check they belong to (issue #371)", () => {
+test("each row's fields say which check they belong to", () => {
 	stubFileApi(true);
 	renderWithQuery(
 		<EditChecksDialog
@@ -170,7 +170,7 @@ test("each row's fields say which check they belong to (issue #371)", () => {
 	);
 });
 
-test("removing a row keeps focus in the dialog (issue #358)", async () => {
+test("removing a row keeps focus in the dialog", async () => {
 	stubFileApi(true);
 	renderWithQuery(
 		<EditChecksDialog
@@ -194,7 +194,7 @@ test("removing a row keeps focus in the dialog (issue #358)", async () => {
 	);
 });
 
-test("a failed save is announced as an alert (issue #363)", async () => {
+test("a failed save is announced as an alert", async () => {
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async () => new Response("{}", { status: 500 })),

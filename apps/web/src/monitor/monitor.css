@@ -113,7 +113,7 @@
 
 /*
  * As the pane narrows, PID goes first and then Memory, so Command, CPU and
- * the two actions always fit and Stop never leaves the pane (Epic 25, M2).
+ * the two actions always fit and Stop never leaves the pane.
  * The Stop button still names the PID. Widen the pane to see both again.
  */
 @container pk-right (width < 16rem) {

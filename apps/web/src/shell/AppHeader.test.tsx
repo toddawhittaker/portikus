@@ -54,7 +54,7 @@ test("the account menu has no appearance choices", () => {
 	expect(screen.queryByRole("menuitem", { name: "System" })).toBeNull();
 });
 
-test("the account menu opens the editor settings dialog (issue #159)", async () => {
+test("the account menu opens the editor settings dialog", async () => {
 	stubFetch(() =>
 		json(200, { autoSave: true, autoSaveDelaySeconds: 5, wordWrap: false }),
 	);
@@ -103,7 +103,6 @@ test("a student gets no Administration link", () => {
 	expect(screen.queryByTestId("admin-link")).toBeNull();
 });
 
-// `instructor` joins the contract's Role in Epic 13 T2; cast until then.
 const INSTRUCTOR: MeUser = { ...USER, role: "instructor" };
 const COURSE = {
 	id: "55555555-5555-4555-8555-555555555555",
@@ -141,13 +140,13 @@ test("with no course, the header has no Course link", async () => {
 	expect(screen.queryByTestId("course-link")).toBeNull();
 });
 
-test("the header has no search button; find in files lives in the files pane (issue #241)", () => {
+test("the header has no search button; find in files lives in the files pane", () => {
 	renderHeader();
 
 	expect(screen.queryByRole("button", { name: /search/i })).toBeNull();
 });
 
-/** Issue #300: a saved profile picture replaces the initials. */
+/** A saved profile picture replaces the initials. */
 test("a saved profile picture shows in the account button instead of initials", async () => {
 	stubFetch((url) =>
 		url === "/me/profile"
@@ -168,7 +167,7 @@ test("a saved profile picture shows in the account button instead of initials", 
 	expect(screen.getByTestId("me").textContent).not.toContain("AE");
 });
 
-test("on the admin page, Open my workspace sits in the account menu where Administration sits (issue #550)", () => {
+test("on the admin page, Open my workspace sits in the account menu where Administration sits", () => {
 	renderWithQuery(
 		<AppHeader
 			user={{ ...USER, role: "administrator" }}
@@ -250,7 +249,7 @@ test("the badge and the menu item both open the Notifications dialog", async () 
 	expect(await screen.findByTestId("dialog-notifications")).toBeDefined();
 });
 
-// Epic 25 S9: the count is a trailing caption, and a long address cannot widen the menu.
+// The count is a trailing caption, and a long address cannot widen the menu.
 test("the menu item shows the unread count after its name, and the address is cut", async () => {
 	stubUnread(4);
 	const email = `${"a-very-long-local-part".repeat(4)}@students.example.edu`;
@@ -280,7 +279,7 @@ test("closing the dialog the badge opened returns focus to the badge", async () 
 	);
 });
 
-test("every role gets Help after Settings, opening in a new tab (Epic 25)", () => {
+test("every role gets Help after Settings, opening in a new tab", () => {
 	for (const role of ["student", "instructor", "administrator"] as const) {
 		renderWithQuery(
 			<AppHeader

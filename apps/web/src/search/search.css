@@ -87,7 +87,7 @@
 
 /*
  * The pane head already says "Find in files", so the field's label is for
- * screen readers only (Epic 25, N5).
+ * screen readers only.
  */
 .pk-search-controls .pk-field > .pk-label {
 	position: absolute;

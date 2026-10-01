@@ -1,5 +1,5 @@
 /**
- * The image and PDF viewers of a file tab (#816): what they show, and the
+ * The image and PDF viewers of a file tab: what they show, and the
  * download panel they fall back to when they cannot show the file.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";

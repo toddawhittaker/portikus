@@ -1,6 +1,6 @@
 /**
  * Which files the file tab shows as a picture or a PDF rather than as text
- * or a download (#816). The API serves these same extensions inline, and
+ * or a download. The API serves these same extensions inline, and
  * nothing else.
  */
 import { parentOf } from "./paths.js";

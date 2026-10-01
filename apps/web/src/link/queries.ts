@@ -20,7 +20,7 @@ export function usePendingLink(enabled: boolean) {
 	});
 }
 
-/** docs/archive/epics/EPIC-13-1.md, "The flow" step 5. */
+/** ADR 0026. */
 export function useConfirmLink() {
 	return useMutation({
 		mutationFn: () => request(z.unknown(), "/me/links/confirm", { method: "POST" }),

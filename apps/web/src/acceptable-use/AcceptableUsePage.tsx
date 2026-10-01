@@ -17,8 +17,8 @@ export function paragraphs(text: string): string[] {
 }
 
 /**
- * The first paragraph introduces; the rest are the rules, read as a list
- * (Epic 25 S14). The statement is static, so a paragraph's place is its key.
+ * The first paragraph introduces; the rest are the rules, read as a list.
+ * The statement is static, so a paragraph's place is its key.
  */
 function Statement({ text }: { text: string }) {
 	const [intro, ...rules] = paragraphs(text);

@@ -140,16 +140,16 @@ interface TreeApi {
 	/** The rows an action on `path` applies to: the selection, or that row. */
 	targetsFor: (node: FileNode) => FileNode[];
 	download: (nodes: readonly FileNode[]) => void;
-	/** "Extract here" on a zip, into a new folder beside it (issue #817). */
+	/** "Extract here" on a zip, into a new folder beside it. */
 	extract: (node: FileNode) => void;
 	/** The element holding the rows, so the drawn order can be read back. */
 	treeRef: (element: HTMLElement | null) => void;
 	dropDir: string | null;
-	/** A desktop file drag is over the pane (SPEC.md §11.2, issue #183). */
+	/** A desktop file drag is over the pane (SPEC.md §11.2). */
 	uploadDrag: boolean;
 	/** Git decorations for the rows (SPEC.md §12.1). */
 	git: GitDecorations;
-	/** The row whose ⋯ menu is open, so the keyboard can open it (issue #366). */
+	/** The row whose ⋯ menu is open, so the keyboard can open it. */
 	menuPath: string | null;
 	setMenuPath: (path: string | null) => void;
 }
@@ -187,7 +187,7 @@ export function FileTreePane({
 	project: Project;
 	/** Swap this pane for find in files (SPEC.md 11.5). */
 	onSearch: () => void;
-	/** Lets the caller return focus here when the search closes (issue #358). */
+	/** Lets the caller return focus here when the search closes. */
 	searchButtonRef?: Ref<HTMLButtonElement>;
 }) {
 	const toast = useToast();
@@ -338,7 +338,7 @@ export function FileTreePane({
 	/**
 	 * Download a selection. The download endpoint takes one path, so several
 	 * rows become one zip each, a moment apart so the browser keeps them all.
-	 * Each is checked against the size cap first (#399).
+	 * Each is checked against the size cap first.
 	 */
 	const download = useCallback(
 		(nodes: readonly FileNode[]) => {
@@ -1029,7 +1029,7 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 	const dirty = isDir && api.git.changedDirs.has(path);
 	const ignored = api.git.repo && isIgnored(path, api.git.ignored);
 	const title = decoration ? `${shown} — ${decoration.title}` : undefined;
-	// What the letter, the dot and the muted colour say, in words (issue #362).
+	// What the letter, the dot and the muted colour say, in words.
 	const status = decoration
 		? decoration.title
 		: dirty
@@ -1159,7 +1159,7 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 					onOpenChange={(value) => api.setMenuPath(value ? path : null)}
 				>
 					<MenuTrigger asChild>
-						{/* Not a Tab stop: the row is, and Shift+F10 opens this (issue #366). */}
+						{/* Not a Tab stop: the row is, and Shift+F10 opens this. */}
 						<IconButton
 							icon="more"
 							label={`Actions for ${shown}`}
@@ -1169,7 +1169,7 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 							data-testid={`file-menu-${path}`}
 							onClick={(event) => event.stopPropagation()}
 							// A dialog opened from this menu returns focus here on close;
-							// hand it on to the row, the tree's Tab stop (issue #358).
+							// hand it on to the row, the tree's Tab stop.
 							onFocus={() => rowRef.current?.focus()}
 						/>
 					</MenuTrigger>
@@ -1221,7 +1221,7 @@ function RowMenuItems({ node }: { node: FileNode }): ReactNode {
 	const api = useTreeApi();
 	// A new file or folder goes inside a directory, or beside a file.
 	const dir = node.isDir ? node.path : parentOf(node.path);
-	// A menu opened on a selected row acts on the whole selection (issue #182).
+	// A menu opened on a selected row acts on the whole selection.
 	const targets = api.targetsFor(node);
 	const many = targets.length > 1;
 

@@ -228,7 +228,7 @@ export function WorkArea({
 			store.getState().replaceLeaf(terminalId, created.id);
 			// The button the student clicked is gone with the ended pane, so
 			// the keyboard would land on nothing. Make the new terminal the
-			// focused one and its pane takes the keyboard (issue #264).
+			// focused one and its pane takes the keyboard.
 			store.getState().setFocused(created.id);
 		});
 	}
@@ -305,7 +305,7 @@ export function WorkArea({
 		(tabs[index < 0 ? 0 : index] ?? tabs[0])?.focus();
 	}
 
-	/** Give a pane a tab of its own after its current one (issue #370). */
+	/** Give a pane a tab of its own after its current one. */
 	function moveToNewTab(terminalId: string) {
 		const from = layout.tabs.findIndex((tab) =>
 			terminalIds(tab.root).includes(terminalId),

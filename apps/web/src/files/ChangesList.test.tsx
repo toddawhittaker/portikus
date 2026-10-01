@@ -140,7 +140,7 @@ test("a repository with nothing changed says so", () => {
 });
 
 test("clicking a changed file opens its one tab, showing the diff", () => {
-	// Issue #160: a file already open is switched to its diff, not opened
+	// A file already open is switched to its diff, not opened
 	// again, so one path never has two tabs (SPEC.md §8.3, §12.6).
 	const store = show({
 		...EMPTY,
@@ -157,7 +157,7 @@ test("clicking a changed file opens its one tab, showing the diff", () => {
 	expect(store.getState().consumePendingView("file:src/app.ts")?.mode).toBe("diff");
 });
 
-test("the row whose file is the tab on show is marked selected (issue #274)", () => {
+test("the row whose file is the tab on show is marked selected", () => {
 	const store = show({
 		...EMPTY,
 		entries: [
@@ -175,7 +175,7 @@ test("the row whose file is the tab on show is marked selected (issue #274)", ()
 	expect(
 		screen.getByTestId("change-row-src/other.ts").getAttribute("data-selected"),
 	).toBeNull();
-	// Screen readers hear which row is current, not only see a tint (issue #369).
+	// Screen readers hear which row is current, not only see a tint.
 	expect(screen.getByTestId("change-row-src/app.ts").getAttribute("aria-current")).toBe(
 		"true",
 	);

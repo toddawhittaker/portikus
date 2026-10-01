@@ -516,7 +516,7 @@ test("the use report adds a pulled image to the seed and removes an unused one",
 	);
 });
 
-test("an image name from the report is text, never markup (ruling S7)", async () => {
+test("an image name from the report is text, never markup", async () => {
 	const usage = {
 		...USAGE,
 		notInSeed: [{ ...USAGE.notInSeed[0], image: "<b>bold</b>" }],
@@ -623,7 +623,7 @@ const MATCH_26_314 = {
 	python: { version: "3.14", image: "python:3.14-slim" },
 };
 
-test("no drift notice when the list holds the matching images (issue #932)", async () => {
+test("no drift notice when the list holds the matching images", async () => {
 	serve(
 		data({ seedImages: ["node:26-slim", "python:3.14-slim"], match: MATCH_26_314 }),
 	);

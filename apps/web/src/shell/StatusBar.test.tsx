@@ -437,7 +437,7 @@ test("opened in restart mode, the dialog shows Restart's confirmation; Cancel le
 	expect(screen.getByTestId("dialog-workspace-status")).toBeDefined();
 });
 
-test("a restart confirmation opened while the state settles waits with a reason, then restarts (#707)", async () => {
+test("a restart confirmation opened while the state settles waits with a reason, then restarts", async () => {
 	const fetchMock = stubFetch(() => json(202, { ok: true }));
 	const client = createQueryClient(() => {});
 	const ui = (workspace: Workspace) => (

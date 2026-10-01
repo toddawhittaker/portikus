@@ -94,7 +94,7 @@ test("a throttled or memory-flagged workspace adds its tags after the account's"
 	expect(markerLabels(NONE, null)).toEqual([]);
 });
 
-test("accounts that share an email sit together, whatever their names (issue #302)", () => {
+test("accounts that share an email sit together, whatever their names", () => {
 	const dup = { ...NONE, duplicateEmail: true };
 	const sorted = sortAccounts([
 		account("1", "Zed Old", "Bob@Example.edu", dup),

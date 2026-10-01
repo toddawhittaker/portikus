@@ -11,7 +11,7 @@ import { postJson, request } from "../../api/request.js";
 
 export const certificateKey = ["admin", "certificate"] as const;
 
-/** The admin download of Caddy's internal root certificate (Epic 27 R13). */
+/** The admin download of Caddy's internal root certificate. */
 export const ROOT_CERTIFICATE_URL = "/admin/certificate/root.crt";
 
 /** The page polls a queued or running job every two seconds, as the image page does. */
@@ -50,7 +50,7 @@ export function useCertificateJob(id: string, pageState: CertificateJobState) {
 	});
 }
 
-/** Whether the names point here, before an ACME test or apply (Epic 27 R10). */
+/** Whether the names point here, before an ACME test or apply. */
 export function usePreflight() {
 	return useMutation({
 		mutationFn: (mode: "dns01" | "http01") =>

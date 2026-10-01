@@ -39,7 +39,7 @@ export const MIN_PREVIEW_PORT = 1024;
 /** Why a port cannot be previewed, for the Preview tab and the Running pane (SPEC.md §14.7). */
 export const PORT_REFUSED_TEXT = `Ports below ${MIN_PREVIEW_PORT}, and a few kept for services such as SSH, Docker and PostgreSQL, cannot be opened as a preview. Run your app on a port from ${MIN_PREVIEW_PORT} up, such as 3000 or 5173.`;
 
-/** `([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):(\d+)`, for example `src/auth.ts:73`. */
+/** A `path:line` reference, for example `src/auth.ts:73`. */
 export const FILE_LINE_PATTERN = /([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):(\d+)/;
 
 /**

@@ -156,7 +156,7 @@ export function directoryUrl(form: CertificateForm): string {
 }
 
 /**
- * Whether Test only issues a real certificate (Epic 27 R11 as amended):
+ * Whether Test only issues a real certificate:
  * Let's Encrypt is tested against its staging service, every other
  * directory against itself.
  */
@@ -295,7 +295,7 @@ const CHECK_LABEL: Record<CertificateUploadCheck, string> = {
 
 /**
  * The API names a refused upload's check by its id ("the key-matches check
- * failed"); the page names it in words (Epic 27 R9).
+ * failed"); the page names it in words.
  */
 export function uploadRefusalText(message: string): string {
 	return message.replace(/the ([a-z-]+) check failed\./, (whole, id: string) => {
@@ -481,7 +481,7 @@ export function settingsText(settings: CertificateSettingsView): string {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** How close an expiry is; "soon" is the 14 days before it (Epic 27 R12). */
+/** How close an expiry is; "soon" is the 14 days before it. */
 export function expiry(
 	notAfter: string,
 	now: Date,

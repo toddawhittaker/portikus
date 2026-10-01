@@ -111,7 +111,7 @@ describe("Toast", () => {
 		);
 	});
 
-	it("sits above dialogs and names F8 as the way to reach it (#364)", () => {
+	it("sits above dialogs and names F8 as the way to reach it", () => {
 		render(<ToastProvider />);
 
 		const viewport = screen.getByRole("region");

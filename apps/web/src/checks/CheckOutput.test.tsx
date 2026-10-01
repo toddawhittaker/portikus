@@ -1,4 +1,4 @@
-/** Issue #357: the check output follows the student's screen-reader setting. */
+/** The check output follows the student's screen-reader setting. */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";

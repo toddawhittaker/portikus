@@ -37,7 +37,7 @@ describe("IconButton", () => {
 		expect(await screen.findByRole("tooltip")).toBeDefined();
 	});
 
-	// Epic 25 M4: focus handed back by a closing menu must not pop the name up.
+	// Focus handed back by a closing menu must not pop the name up.
 	it("keeps its tooltip closed for focus a menu hands back", async () => {
 		render(<IconButton icon="more" label="Project actions" />);
 		const button = screen.getByRole("button", { name: "Project actions" });

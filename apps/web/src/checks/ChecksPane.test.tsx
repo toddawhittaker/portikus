@@ -141,7 +141,7 @@ test("each check shows its name, its real command, and what it last did", async 
 	expect(screen.getByTestId("check-state-lint").textContent).toContain("Not run yet");
 });
 
-test("the check whose output shows is marked current for screen readers (issue #369)", async () => {
+test("the check whose output shows is marked current for screen readers", async () => {
 	stubBrowserApis();
 	stubChecks({ checks: CHECKS, error: null, runs: [] });
 	renderWithQuery(<ChecksPane workspaceId={WORKSPACE} project={project()} />);
@@ -216,7 +216,7 @@ test("a broken checks file is reported without stopping the pane", async () => {
 	expect(screen.getByText("No checks configured")).toBeTruthy();
 });
 
-test("Run and Stop are icon buttons that name their check (issue #274)", async () => {
+test("Run and Stop are icon buttons that name their check", async () => {
 	stubBrowserApis();
 	stubChecks({
 		checks: CHECKS,
@@ -239,12 +239,12 @@ test("Run and Stop are icon buttons that name their check (issue #274)", async (
 	expect(run.getAttribute("aria-label")).toBe("Run Lint");
 	// An icon, not a word: the button holds no text.
 	expect(run.textContent).toBe("");
-	// Colour is a class on top of the name, not a different control (issue #324).
+	// Colour is a class on top of the name, not a different control.
 	expect(stop.classList.contains("pk-iconbtn-danger")).toBe(true);
 	expect(run.classList.contains("pk-check-run")).toBe(true);
 });
 
-test("a long command keeps the whole of it in a tooltip (issue #274)", async () => {
+test("a long command keeps the whole of it in a tooltip", async () => {
 	stubBrowserApis();
 	const long = `docker run --rm -p 8080:80 --name bar-project ${"x".repeat(80)}`;
 	stubChecks({

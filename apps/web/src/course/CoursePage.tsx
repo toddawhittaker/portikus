@@ -288,7 +288,7 @@ function CourseMembers() {
 									`[data-remove-id="${removed.next}"]`,
 								)
 							: null;
-						// With only yourself left, the heading, not the hidden caption (review A3).
+						// With only yourself left, the heading, not the hidden caption.
 						return button ?? headingRef.current;
 					}}
 				/>

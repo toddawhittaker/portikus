@@ -433,7 +433,7 @@ test("a file leaf cannot be split or moved", () => {
 	expect(moveLeaf(mixed, "file:src/app.ts", "a", "src/app.ts", "right")).toBe(mixed);
 });
 
-test("a tab strip has no cap: a seventeenth tab opens (issue #240)", () => {
+test("a tab strip has no cap: a seventeenth tab opens", () => {
 	let layout = emptyLayout();
 	for (let i = 0; i < 16; i++) layout = addTab(layout, `t${i}`, `t${i}`);
 	const opened = must(openFile(layout, "src/app.ts"));
@@ -442,7 +442,7 @@ test("a tab strip has no cap: a seventeenth tab opens (issue #240)", () => {
 	expect(must(openFile(opened.layout, "src/app.ts")).layout).toBe(opened.layout);
 });
 
-test("reconcile places every terminal, however many tabs are open (issue #240)", () => {
+test("reconcile places every terminal, however many tabs are open", () => {
 	let layout = must(openFile(emptyLayout(), "src/a.ts")).layout;
 	layout = must(openFile(layout, "src/b.ts")).layout;
 	for (let i = 0; i < 16; i++) layout = addTab(layout, `t${i}`, `t${i}`);

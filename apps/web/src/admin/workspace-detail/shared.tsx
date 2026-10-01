@@ -1,10 +1,10 @@
 import { Toggletip } from "@portikus/ui";
 import type * as React from "react";
 
-/** Every section heading in the panel: small, bold and quiet (Epic 25, S5). */
+/** Every section heading in the panel: small, bold and quiet. */
 export const SECTION_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
 
-/** Help text for the panel's toggletips, checked against the code (Epic 25, phase 2). */
+/** Help text for the panel's toggletips, checked against the code. */
 export const PANEL_HELP = {
 	reprovision:
 		"Creates the workspace again after it failed. Its home folder and files are kept.",
@@ -73,6 +73,6 @@ export function WithTip({
 	);
 }
 
-/** Why a button for an operation this build does not have is off (Epic 11 brief, ruling 1). */
+/** Why a button for an operation this build does not have is off. */
 export const NOT_AVAILABLE_TEXT =
 	"Rebuild and Reset Docker are not available in this release.";

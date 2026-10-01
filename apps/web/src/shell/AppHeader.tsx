@@ -160,7 +160,7 @@ export function AppHeader({
 					</MenuTrigger>
 					<Menu label="Account">
 						<MenuLabel>
-							{/* A long address is cut, not allowed to widen the menu (Epic 25 S9). */}
+							{/* A long address is cut, not allowed to widen the menu. */}
 							<span className="pk-account-email" title={user.email ?? user.displayName}>
 								{user.email ?? user.displayName}
 							</span>

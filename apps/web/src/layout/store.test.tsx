@@ -141,7 +141,7 @@ test("opening a file activates its tab, and opening it again just activates it",
 	expect(layout.getState().dirty).toBe(false);
 });
 
-test("asking for the diff of an open file reuses that tab (issue #160)", () => {
+test("asking for the diff of an open file reuses that tab", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts");
 	layout.getState().addTab("a");
@@ -211,7 +211,7 @@ test("closing a file tab forgets the line it was waiting to jump to", () => {
 	expect(layout.getState().pendingView).toEqual({});
 });
 
-test("a full strip still opens another file; there is no cap (issue #240)", () => {
+test("a full strip still opens another file; there is no cap", () => {
 	const layout = store();
 	for (let i = 0; i < 16; i++) layout.getState().addTab(`t${i}`);
 	layout.getState().openFile("src/app.ts", { line: 7 });
@@ -220,7 +220,7 @@ test("a full strip still opens another file; there is no cap (issue #240)", () =
 	expect(layout.getState().pendingView["file:src/app.ts"]?.line).toBe(7);
 });
 
-test("a file tab reports unsaved edits and forgets them again (issue #240)", () => {
+test("a file tab reports unsaved edits and forgets them again", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts");
 	expect(layout.getState().unsavedTabs).toEqual({});

@@ -149,7 +149,7 @@ test("Refresh polls past an old snapshot, then shows the table sorted by CPU wit
 		"Protected: the system or Portikus needs this process, so it cannot be stopped here.",
 	);
 	expect(screen.getByTestId("processes-stop-200")).toBeTruthy();
-	// Stop is danger red like every other Stop (issue #700).
+	// Stop is danger red like every other Stop.
 	expect(
 		screen.getByTestId("processes-stop-200").classList.contains("pk-iconbtn-danger"),
 	).toBe(true);

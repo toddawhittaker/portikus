@@ -1,6 +1,6 @@
 /**
  * The /link/start page, used when the browser blocks the new tab
- * (docs/archive/epics/EPIC-13-1.md, "The flow" step 2). Loading it must not start a link.
+ * (ADR 0026). Loading it must not start a link.
  */
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";

@@ -82,7 +82,7 @@ export function firstNoticeOf(at: string): boolean {
 	return true;
 }
 
-/** The toast for an agent upgraded and restarted under an open page (issue #887). */
+/** The toast for an agent upgraded and restarted under an open page. */
 export const AGENT_UPGRADED_MESSAGE =
 	"Portikus was updated. Your terminals are still running.";
 

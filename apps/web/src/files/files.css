@@ -44,7 +44,7 @@
 .pk-tree-row.is-dragging {
 	opacity: 0.5;
 }
-/* What follows the pointer during a drag (issue #237). */
+/* What follows the pointer during a drag. */
 .pk-tree-drag {
 	display: flex;
 	align-items: center;
@@ -165,7 +165,7 @@
 [data-git="untracked"] .pk-git-letter {
 	color: var(--git-added);
 }
-/* Untracked entries read as not-yet-part-of-the-project (issue #221). */
+/* Untracked entries read as not-yet-part-of-the-project. */
 .pk-tree-item[data-git="untracked"] .pk-tree-name {
 	font-style: italic;
 	opacity: 0.75;
@@ -181,7 +181,7 @@
 .pk-changes-row[data-git="conflict"] {
 	background: var(--status-warning-soft);
 }
-/* Muted colour plus a word, not opacity, which failed contrast (issue #367). */
+/* Muted colour plus a word, not opacity, which failed contrast. */
 .pk-tree-row.is-ignored .pk-tree-name {
 	color: var(--ink-muted);
 }
@@ -191,7 +191,7 @@
 	font-size: 12px;
 }
 
-/* A folder in the Move to picker (issue #370). */
+/* A folder in the Move to picker. */
 .pk-move-folder {
 	display: flex;
 	align-items: center;
@@ -296,10 +296,10 @@
 .pk-changes-row:hover {
 	background: var(--surface-hover);
 }
-/* The same neutral selection as the tree and the Checks pane (issue #274). */
+/* The same neutral selection as the tree and the Checks pane. */
 .pk-changes-row.is-current {
 	background: var(--surface-row-selected);
-	/* An ink bar, so the selection does not rest on a faint tint (issue #369). */
+	/* An ink bar, so the selection does not rest on a faint tint. */
 	box-shadow: var(--row-current-bar);
 }
 .pk-changes-row:focus-visible {

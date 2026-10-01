@@ -54,7 +54,7 @@ const FATAL_CLOSE_CODES = new Set([1008, 1009, 1011]);
 export const RESIZE_SETTLE_MS = 100;
 
 /**
- * The two terminal colour schemes (issue #239). They match the
+ * The two terminal colour schemes. They match the
  * `--terminal-*` and `--ansi-*` tokens in packages/ui/src/theme.css, which
  * colour the chrome around the terminal; xterm.js needs the values directly.
  * The scrollbar thumb is the terminal's muted foreground, quiet until the
@@ -69,7 +69,7 @@ const DARK_THEME = {
 	scrollbarSliderBackground: "#9a938666",
 	scrollbarSliderHoverBackground: "#9a9386b3",
 	scrollbarSliderActiveBackground: "#9a9386cc",
-	// xterm's default palette fails AA on this ground (issue #360).
+	// xterm's default palette fails AA on this ground.
 	black: "#11100e",
 	brightBlack: "#857f73",
 	red: "#e07a6e",
@@ -188,7 +188,7 @@ export function sanitizePaste(text: string): string {
 	return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, "");
 }
 
-/** The only picture types a paste saves as a file (Epic 9.2 brief). */
+/** The only picture types a paste saves as a file. */
 const PASTE_IMAGE_TYPES = ["image/png", "image/jpeg"];
 
 /**
@@ -295,11 +295,11 @@ export function TerminalPane({
 
 	// A pane that is born focused takes the keyboard, so "New terminal here"
 	// in an ended pane leaves the student typing in the new shell rather than
-	// nowhere (issue #264).
+	// nowhere.
 	const focusOnMountRef = useRef(focusOnMount);
 	focusOnMountRef.current = focusOnMount;
 
-	// This terminal's own colour scheme (issue #268). It can change while the
+	// This terminal's own colour scheme. It can change while the
 	// terminal is open, so the theme is set on the live instance rather than
 	// only at construction.
 	const scheme: TerminalTheme = terminal.theme;
@@ -309,7 +309,7 @@ export function TerminalPane({
 		if (xterm.current) xterm.current.options.theme = terminalTheme(scheme);
 	}, [scheme]);
 
-	// Read at construction and applied live when the student changes it (issue #357).
+	// Read at construction and applied live when the student changes it.
 	const screenReaderMode = useScreenReaderMode();
 	const screenReaderRef = useRef(screenReaderMode);
 	screenReaderRef.current = screenReaderMode;
@@ -783,7 +783,7 @@ export function TerminalPane({
 
 		// Wait for the box to settle: every size sent makes tmux reflow and a
 		// full-screen app like Claude Code redraw, and redraws for sizes already
-		// gone land on the wrong rows (#849).
+		// gone land on the wrong rows.
 		let settle: ReturnType<typeof setTimeout> | undefined;
 		const observer = new ResizeObserver(() => {
 			if (settle !== undefined) clearTimeout(settle);

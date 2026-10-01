@@ -89,7 +89,7 @@ afterEach(() => {
 });
 
 describe("the file tree", () => {
-	/** SPEC.md §11.3, issue #221: hidden and generated names are shown by default. */
+	/** SPEC.md §11.3: hidden and generated names are shown by default. */
 	it("shows generated and dotted names until Show hidden is turned off", async () => {
 		renderPane();
 
@@ -141,7 +141,7 @@ describe("the file tree", () => {
 		);
 	});
 
-	it("opens another file on a strip that is already full (issue #240)", async () => {
+	it("opens another file on a strip that is already full", async () => {
 		const store = createLayoutStore();
 		store.getState().load({
 			tabs: Array.from({ length: 16 }, (_item, index) => ({
@@ -298,7 +298,7 @@ describe("the file tree", () => {
 		expect(await screen.findByText("In the project root.")).toBeDefined();
 	});
 
-	/** Issue #185: the icon says what kind of file the row holds. */
+	/** The icon says what kind of file the row holds. */
 	it("draws a different icon for a markdown file and a TypeScript file", async () => {
 		renderPane();
 		fireEvent.click(await screen.findByText("src"));
@@ -314,7 +314,7 @@ describe("the file tree", () => {
 		expect(ts?.getAttribute("data-icon")).toBe("file-code");
 	});
 
-	/** SPEC.md §11.2, issue #182: Ctrl-click selects more than one row. */
+	/** SPEC.md §11.2: Ctrl-click selects more than one row. */
 	it("deletes every selected row after one confirmation", async () => {
 		const deleted: string[] = [];
 		stubFetch((url, init) => {
@@ -399,7 +399,7 @@ describe("the file tree", () => {
 		expect(store.getState().layout.tabs).toEqual([]);
 	});
 
-	/** Issue #183: dragging an upload over the pane shows where it will land. */
+	/** Dragging an upload over the pane shows where it will land. */
 	it("highlights the whole pane while a file is dragged over the root", async () => {
 		renderPane();
 		const body = await screen.findByTestId("file-tree-body");
@@ -416,7 +416,7 @@ describe("the file tree", () => {
 		await waitFor(() => expect(body.getAttribute("data-upload-root")).toBeNull());
 	});
 
-	/** Issue #237: the empty area below the tree is a project-root target. */
+	/** The empty area below the tree is a project-root target. */
 	it("offers the empty area below the tree as a drop target for the root", async () => {
 		renderPane();
 		const space = await screen.findByTestId("file-tree-space-drop");
@@ -428,7 +428,7 @@ describe("the file tree", () => {
 		).toBe("");
 	});
 
-	/** Issue #220: the root drop target must not flicker over a top-level row. */
+	/** The root drop target must not flicker over a top-level row. */
 	it("keeps the root drop target while the drag crosses a top-level file", async () => {
 		renderPane();
 		const body = await screen.findByTestId("file-tree-body");
@@ -450,7 +450,7 @@ describe("the file tree", () => {
 		await waitFor(() => expect(body.getAttribute("data-upload-root")).toBeNull());
 	});
 
-	/** Issue #221: an untracked file is marked so the CSS can dim it. */
+	/** An untracked file is marked so the CSS can dim it. */
 	it("marks an untracked file's row as untracked", async () => {
 		gitStatus = {
 			...NO_CHANGES,
@@ -462,7 +462,7 @@ describe("the file tree", () => {
 		await waitFor(() => expect(row.getAttribute("data-git")).toBe("untracked"));
 	});
 
-	/** Issue #186: the name field is ready to type into. */
+	/** The name field is ready to type into. */
 	it("focuses the name field when the New file dialog opens", async () => {
 		renderPane();
 		fireEvent.keyDown(await screen.findByTestId("files-more"), { key: "Enter" });
@@ -486,7 +486,7 @@ describe("the file tree", () => {
 		expect(field.selectionEnd).toBe("README.md".length);
 	});
 
-	it("downloads a file from its menu after the size check (#399)", async () => {
+	it("downloads a file from its menu after the size check", async () => {
 		renderPane();
 		const click = vi
 			.spyOn(HTMLAnchorElement.prototype, "click")
@@ -505,7 +505,7 @@ describe("the file tree", () => {
 		expect(link.download).toBe("README.md");
 	});
 
-	/** Issue #817: "Extract here" is offered on a zip, and only on a zip. */
+	/** "Extract here" is offered on a zip, and only on a zip. */
 	function stubZipTree(extract: () => Response) {
 		const calls: string[] = [];
 		stubFetch((url, init) => {
@@ -559,7 +559,7 @@ describe("the file tree", () => {
 		expect(screen.queryByText("Extracting starter.zip…")).toBeNull();
 	});
 
-	/** Issue #361: Show hidden is a menu item, so the keyboard can reach it. */
+	/** Show hidden is a menu item, so the keyboard can reach it. */
 	it("toggles Show hidden from the keyboard as a menu checkbox", async () => {
 		renderPane();
 		expect(await screen.findByText(".env")).toBeDefined();
@@ -574,7 +574,7 @@ describe("the file tree", () => {
 		await waitFor(() => expect(screen.queryByText(".env")).toBeNull());
 	});
 
-	/** Issue #362: the Git state is part of what a screen reader hears. */
+	/** The Git state is part of what a screen reader hears. */
 	it("puts the Git state, ignored and contains-changes into the row's text", async () => {
 		gitStatus = {
 			...NO_CHANGES,
@@ -596,7 +596,7 @@ describe("the file tree", () => {
 		expect(ignored.getAttribute("data-ignored")).toBe("true");
 	});
 
-	/** Issue #366: one Tab leaves the tree, so row buttons are not tab stops. */
+	/** One Tab leaves the tree, so row buttons are not tab stops. */
 	it("keeps the row action buttons out of the Tab order", async () => {
 		renderPane();
 		await screen.findByTestId("file-row-README.md");
@@ -607,7 +607,7 @@ describe("the file tree", () => {
 		expect(screen.getByTestId("file-menu-src").getAttribute("tabindex")).toBe("-1");
 	});
 
-	/** Issue #366: Shift+F10 and the Menu key open the focused row's menu. */
+	/** Shift+F10 and the Menu key open the focused row's menu. */
 	it.each([
 		{ key: "F10", shiftKey: true },
 		{ key: "ContextMenu", shiftKey: false },
@@ -625,7 +625,7 @@ describe("the file tree", () => {
 	});
 
 	/**
-	 * Issue #358: a dialog opened from the row menu returns focus to the menu's
+	 * A dialog opened from the row menu returns focus to the menu's
 	 * button, which is not a Tab stop, so the button hands it to its row.
 	 */
 	it("hands focus given to a row's menu button on to the row", async () => {
@@ -645,7 +645,7 @@ describe("the file tree", () => {
 		expect(document.getElementById(id)?.textContent).toContain("Shift+F10");
 	});
 
-	/** Issue #370: a file moves into a folder without a drag. */
+	/** A file moves into a folder without a drag. */
 	it("moves a file into a folder picked in the Move to dialog", async () => {
 		const moves: unknown[] = [];
 		stubFetch((url, init) => {

@@ -15,7 +15,7 @@ export interface QuotaProblem {
 	docker: boolean;
 }
 
-/** The problem with a draft and the fields it is about, or null when it can be sent (Epic 11 brief, "storage can only grow"). */
+/** The problem with a draft and the fields it is about, or null when it can be sent. */
 export function quotaError(
 	from: QuotaConfig,
 	home: string,

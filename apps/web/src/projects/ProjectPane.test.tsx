@@ -115,7 +115,7 @@ test("a repository offers rename, duplicate, download and archive", async () => 
 	expect(screen.queryByTestId("project-git-init")).toBeNull();
 });
 
-/** Issue #361: Enter on the download item must start the download itself. */
+/** Enter on the download item must start the download itself. */
 test("Enter on Download as zip checks the size and then starts the download", async () => {
 	await mount();
 	const click = vi
@@ -140,7 +140,7 @@ test("Enter on Download as zip checks the size and then starts the download", as
 	).toBe(true);
 });
 
-/** Issue #399: a project over the download cap is explained, not downloaded. */
+/** A project over the download cap is explained, not downloaded. */
 test("a project over the download cap shows the limit instead of downloading", async () => {
 	await mount();
 	const click = vi
