@@ -59,7 +59,7 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		name: "Dave Nobody",
 		groups: [],
 	},
-	// Linking tests only (docs/archive/epics/EPIC-13-1.md): erin and gail are link targets for
+	// Linking tests only: erin and gail are link targets for
 	// two specs that run at once; frank must never sign in, so he has no account.
 	erin: {
 		sub: "erin",

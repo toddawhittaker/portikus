@@ -80,7 +80,7 @@ test("UpdateTerminalRequest changes the name, the theme, or both", () => {
 	);
 });
 
-// Issue #268: a terminal carries its own colour scheme.
+// A terminal carries its own colour scheme.
 test("Terminal requires a theme and a new terminal may ask for one", () => {
 	const { theme: _theme, ...withoutTheme } = sampleTerminal;
 	expect(Terminal.safeParse(withoutTheme).success).toBe(false);

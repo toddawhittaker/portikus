@@ -12,7 +12,7 @@ import {
 	Workspace,
 } from "./workspace.js";
 
-/** An account with no sign-in for this many days is marked stale (issue #302). */
+/** An account with no sign-in for this many days is marked stale. */
 export const STALE_AFTER_DAYS = 30;
 
 /** Largest home or Docker volume an administrator may set, in GiB. */
@@ -31,13 +31,13 @@ const bytes = z.number().int().nonnegative();
 export const QuotaConfig = z.object({ homeGiB: quotaGiB, dockerGiB: quotaGiB });
 export type QuotaConfig = z.infer<typeof QuotaConfig>;
 
-/** Flags shown beside an account in the admin list (issue #302). */
+/** Flags shown beside an account in the admin list. */
 export const AdminAccountMarkers = z.object({
 	disabled: z.boolean(),
 	archived: z.boolean(),
 	duplicateEmail: z.boolean(),
 	stale: z.boolean(),
-	/** Never signed in and not yet stale (issue #842). */
+	/** Never signed in and not yet stale. */
 	notSignedInYet: z.boolean(),
 	/** A course account retired by a link to an SSO account. */
 	linked: z.boolean(),
@@ -56,7 +56,7 @@ export type EffectiveGuard = z.infer<typeof EffectiveGuard>;
 
 /** `workspaces.guard_config`: any key present overrides the platform value. */
 export const GuardConfig = EffectiveGuard.extend({
-	/** The cap on a student's "keep running until" hold, in hours (#955). */
+	/** The cap on a student's "keep running until" hold, in hours. */
 	keepRunningMaxHours: KeepRunningMaxHours,
 })
 	.partial()
@@ -131,7 +131,7 @@ export const AdminWorkspaceSummary = z.object({
 	quotaApplied: QuotaConfig.nullable(),
 	image: AdminImageVersion,
 	archivedAt: z.string().datetime().nullable(),
-	/** A rebuild or Reset Docker waiting or running, so the row can say so (issue #881). */
+	/** A rebuild or Reset Docker waiting or running, so the row can say so. */
 	pendingOperation: PendingOperation.nullable(),
 	/** The Throttled and High memory tags (ADR 0032). */
 	cpuThrottle: CpuThrottle.nullable(),
@@ -139,7 +139,7 @@ export const AdminWorkspaceSummary = z.object({
 });
 export type AdminWorkspaceSummary = z.infer<typeof AdminWorkspaceSummary>;
 
-/** Whether Epic 10's rebuild and Reset Docker routes exist in this build. */
+/** Whether the rebuild and Reset Docker routes exist in this build. */
 export const AdminCapabilities = z.object({
 	rebuild: z.boolean(),
 	resetDocker: z.boolean(),
@@ -148,7 +148,7 @@ export type AdminCapabilities = z.infer<typeof AdminCapabilities>;
 
 const StorageUse = z.object({ usedBytes: bytes, limitBytes: bytes });
 
-/** Per-class storage from Epic 10's accounting; null unless the agent measured all three. */
+/** Per-class storage from the storage accounting; null unless the agent measured all three. */
 export const AdminStorage = z.object({
 	home: StorageUse,
 	docker: StorageUse,
@@ -268,7 +268,7 @@ export const HealthReport = z.object({
 	sampledAt: z.string().datetime().nullable(),
 	/** True when the newest sample is older than 2 minutes, or missing. */
 	workerStale: z.boolean(),
-	/** A newer portikus package in the apt repository (issue #861); null when none or unknown. */
+	/** A newer portikus package in the apt repository; null when none or unknown. */
 	packageUpdate: z.object({ installed: z.string(), available: z.string() }).nullable(),
 	controller: z.object({
 		reachable: z.boolean(),

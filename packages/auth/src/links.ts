@@ -6,13 +6,12 @@ import type { SessionMethod, SessionOrigin } from "./sessions.js";
 import type { Role } from "./types.js";
 
 /**
- * Account links and the stored role grant (docs/archive/epics/EPIC-13-1.md, "The data
- * model" and rulings 10 to 23). Identities are looked up only by (issuer,
+ * Account links and the stored role grant (ADR 0026). Identities are looked up only by (issuer,
  * `sub`), never by email or username. Functions that change several rows
  * take the caller's transaction, so the caller's audit rows commit with them.
  */
 
-/** A course session may start or confirm a link this long after its launch (ruling 10). */
+/** A course session may start or confirm a link this long after its launch. */
 export const LINK_WINDOW_SECONDS = 15 * 60;
 
 /** How long a link intent lives between start and callback. */
@@ -20,7 +19,7 @@ export const LINK_INTENT_TTL_SECONDS = 10 * 60;
 
 const LTI_PREFIX = "lti:";
 
-/** True for a course account's issuer, `lti:<platform issuer>` (docs/archive/epics/EPIC-13.md ruling 12). */
+/** True for a course account's issuer, `lti:<platform issuer>` (ADR 0025). */
 export function isCourseIssuer(issuer: string): boolean {
 	return issuer.startsWith(LTI_PREFIX);
 }
@@ -136,7 +135,7 @@ export async function findLinkIntent(
 /**
  * Bind the SSO account to an intent, only for the session that made it,
  * only once, and only before it expires. Returns `expired` when no such
- * intent is left (ruling 18), or null when bound. The callback has already
+ * intent is left, or null when bound. The callback has already
  * refused a different session with `session_changed`.
  */
 export async function bindLinkIntent(
@@ -202,9 +201,9 @@ export type LinkRefusal =
 /**
  * Link a course account to an SSO account (flow step 5). Run inside the
  * confirm transaction. Locks both users rows, inserts the link, archives the
- * course workspace unless it is archived already (ruling 14), moves course
- * memberships (ruling 16), and ends every session and preview session of
- * the course account (ruling 17).
+ * course workspace unless it is archived already, moves course
+ * memberships, and ends every session and preview session of
+ * the course account.
  */
 export async function linkAccounts(
 	trx: Kysely<Database>,
@@ -227,7 +226,7 @@ export async function linkAccounts(
 	if (!isCourseIssuer(course.oidc_issuer))
 		return { ok: false, reason: "not_course_account" };
 	if (isCourseIssuer(sso.oidc_issuer)) return { ok: false, reason: "not_sso_account" };
-	// An administrator is never reachable from a launch (review N4).
+	// An administrator is never reachable from a launch.
 	if (sso.disabled_at !== null || sso.role === "administrator")
 		return { ok: false, reason: "not_authorized" };
 	const platformIssuer = platformIssuerOf(course.oidc_issuer);
@@ -263,7 +262,7 @@ export async function linkAccounts(
 			course_user_id: course.id,
 			user_id: sso.id,
 			platform_issuer: platformIssuer,
-			// The exact stamp, so unlink undoes only this archive (ruling 15).
+			// The exact stamp, so unlink undoes only this archive.
 			archived_at: archived?.archived_at
 				? new Date(archived.archived_at).toISOString()
 				: null,
@@ -284,11 +283,11 @@ export async function linkAccounts(
 }
 
 /**
- * Remove the caller's link to a course account (ruling 15). When the link
+ * Remove the caller's link to a course account. When the link
  * archived the course workspace, unarchive it, leaving it stopped, but only
  * while the workspace still carries that archive and not a later one. Ends
  * every session that came through the course identity, with its preview
- * sessions (review N1). Returns null when the link does not exist or
+ * sessions. Returns null when the link does not exist or
  * belongs to someone else.
  */
 export async function unlinkAccount(
@@ -380,7 +379,7 @@ export async function listLinks(
 /**
  * Create the account a new Dex password will sign into, before its first
  * sign-in, holding the role as a grant because Dex sends no groups
- * (docs/archive/epics/EPIC-14.md ruling 21). Run inside the caller's transaction.
+ * (ADR 0028). Run inside the caller's transaction.
  */
 export async function precreateDexAccount(
 	trx: Kysely<Database>,

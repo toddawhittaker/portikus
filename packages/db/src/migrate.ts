@@ -16,7 +16,7 @@ export async function migrateToLatest(
 	const migrator = new Migrator({
 		db,
 		provider: { getMigrations: async () => list },
-		// Epic 11's 0014 may be applied before Epic 10's 0013 arrives.
+		// Migration 0014 may be applied before 0013 arrives.
 		allowUnorderedMigrations: true,
 	});
 

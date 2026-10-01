@@ -44,7 +44,7 @@ export const PreviewEmbeddableResponse = z.object({
 	/**
 	 * With `host-refused`, the preview host the development server turned
 	 * away and which server did it, so the tab can show the exact setting to
-	 * add (issue #262).
+	 * add.
 	 */
 	refusedHost: z.string().optional(),
 	refusedServer: z.enum(["vite", "webpack-dev-server"]).optional(),

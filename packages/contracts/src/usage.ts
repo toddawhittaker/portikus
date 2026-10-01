@@ -18,7 +18,7 @@ export const UsageProcess = z.object({
 	/** Resident size, from VmRSS. */
 	residentBytes: z.number().int().nonnegative(),
 	command: z.string().min(1).max(15),
-	// The three defaults let an agent older than Epic 21, still running until
+	// The three defaults let an older agent, still running until
 	// its workspace restarts, parse: its rows show no Stop and no command line.
 	/** Field 22 of `/proc/<pid>/stat`; with the pid it names one process. */
 	startTicks: z.number().int().nonnegative().default(0),

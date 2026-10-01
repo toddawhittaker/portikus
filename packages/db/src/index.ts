@@ -45,7 +45,7 @@ export const POOL_TIMEOUT_MESSAGE = "timeout exceeded when trying to connect";
 /**
  * Pool settings for every process: wait at most 5 s for a connection, end a
  * statement after 30 s and an idle transaction after 60 s, so one stuck
- * query cannot hold the pool (ADR 0034 ruling 14).
+ * query cannot hold the pool (ADR 0034).
  */
 export function poolOptions(url: string, maxConnections?: number): pg.PoolConfig {
 	return {

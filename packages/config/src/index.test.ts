@@ -583,7 +583,7 @@ test("the preview port range must be ordered and within 65535", () => {
 
 test("the worker config carries the preview suffix and checks its shape", () => {
 	// The worker hands this to the controller, which writes it into every
-	// workspace (issue #263).
+	// workspace.
 	expect(
 		loadConfig(WorkerConfigSchema, { DATABASE_URL: "postgres://x" }).PREVIEW_SUFFIX,
 	).toBe("preview.localhost");
@@ -628,7 +628,7 @@ test("ApiConfig's sign-in limits let a lab of 30 behind one address sign in with
 	// One sign-in takes five starts: /auth/login, three /dex/auth pages, /auth/callback.
 	expect(config.SIGNIN_START_LIMIT_PER_MINUTE).toBe(150);
 	expect(config.PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES).toBe(30);
-	// Epic 17 ruling 16: per-user lifecycle and file-write limits.
+	// Per-user lifecycle and file-write limits.
 	expect(config.WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE).toBe(20);
 	expect(config.FILE_WRITE_LIMIT_PER_MINUTE).toBe(600);
 });

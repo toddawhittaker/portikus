@@ -11,7 +11,7 @@ export interface LtiLoginState {
 	clientId: string;
 }
 
-/** How long a login may take between `/lti/login` and `/lti/launch` (ruling 16). */
+/** How long a login may take between `/lti/login` and `/lti/launch`. */
 export const LTI_STATE_TTL_SECONDS = 600;
 
 const STATE_COOKIE_PREFIX = "__Host-portikus_lti_state_";
@@ -66,7 +66,7 @@ export async function consumeLoginState(
 }
 
 /**
- * The form's state must equal the cookie's (ruling 16). A missing cookie or
+ * The form's state must equal the cookie's. A missing cookie or
  * form field is `state_missing`; two different values are `state_mismatch`.
  */
 export function checkLaunchState(

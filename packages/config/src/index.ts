@@ -134,7 +134,7 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_GROUPS_CLAIM: z.string().default("groups"),
 	OIDC_STUDENT_GROUP: z.string().min(1).default("portikus-students"),
 	OIDC_ADMIN_GROUP: z.string().min(1).default("portikus-administrators"),
-	/** The group whose members are instructors (docs/archive/epics/EPIC-13.md ruling 4). */
+	/** The group whose members are instructors (SPEC.md section 5.2). */
 	OIDC_INSTRUCTOR_GROUP: z.string().min(1).default("portikus-instructors"),
 	/** What a signed-in person gets when no group matches (SPEC.md section 5.1). */
 	OIDC_DEFAULT_ROLE: z.enum(["none", "student"]).default("none"),
@@ -142,16 +142,16 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_PROVIDER: z.string().optional(),
 	OIDC_ALLOWED_TENANT: z.string().optional(),
 	OIDC_ALLOWED_DOMAINS: z.string().optional(),
-	/** Forward proxy for discovery, token, keyset and LMS keyset requests (ruling 27). */
+	/** Forward proxy for discovery, token, keyset and LMS keyset requests. */
 	OUTBOUND_PROXY_URL: z.string().url().optional(),
-	/** Dex gRPC API address and mutual TLS files; unset turns the Dex user routes off (rulings 20, 24). */
+	/** Dex gRPC API address and mutual TLS files; unset turns the Dex user routes off. */
 	DEX_GRPC_ADDR: z.string().min(1).optional(),
 	DEX_GRPC_CA: z.string().min(1).optional(),
 	DEX_GRPC_CERT: z.string().min(1).optional(),
 	DEX_GRPC_KEY: z.string().min(1).optional(),
-	/** The LTI platforms file (docs/archive/epics/EPIC-13.md ruling 14); unset means LTI is off. */
+	/** The LTI platforms file (ADR 0025); unset means LTI is off. */
 	LTI_PLATFORMS_FILE: z.string().min(1).optional(),
-	/** The tool's RSA key, whose public half `/lti/jwks` serves (ruling 15). */
+	/** The tool's RSA key, whose public half `/lti/jwks` serves. */
 	LTI_TOOL_KEY_FILE: z.string().min(1).optional(),
 	SESSION_COOKIE_SECRET: z.string().min(1).default(DEV_SESSION_SECRET),
 	SESSION_TTL_SECONDS: positiveInt.default(43200),
@@ -171,9 +171,9 @@ export const ApiConfigSchema = BaseConfig.extend({
 	PREVIEW_TICKET_TTL_SECONDS: positiveInt.default(30),
 	/** How often the API sends release notices (SPEC.md 22.4); the e2e run shortens it. */
 	RELEASE_NOTICE_SECONDS: positiveInt.default(3600),
-	/** Sign-in starts per address per minute (#398): 150 lets a lab of 30 behind one address sign in, at five starts each. */
+	/** Sign-in starts per address per minute: 150 lets a lab of 30 behind one address sign in, at five starts each. */
 	SIGNIN_START_LIMIT_PER_MINUTE: positiveInt.default(150),
-	/** Dex password posts per address per ten minutes; ten times this overall (#398). */
+	/** Dex password posts per address per ten minutes; ten times this overall. */
 	PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES: positiveInt.default(30),
 	/** The journal reader behind the Logs tab (docs/adr/0036); e2e points it at a fake. */
 	JOURNALCTL_PATH: z.string().min(1).default("/usr/bin/journalctl"),
@@ -187,7 +187,7 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "CERTIFICATE_JOBS_DIR must be an absolute path")
 		.optional(),
-	/** Where the API drops Docker cache helper requests and reads its status (issue #840); unset turns the Docker admin routes off. */
+	/** Where the API drops Docker cache helper requests and reads its status; unset turns the Docker admin routes off. */
 	REGISTRY_JOBS_DIR: z
 		.string()
 		.regex(/^\/./, "REGISTRY_JOBS_DIR must be an absolute path")
@@ -197,9 +197,9 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "BACKUP_KEY_SOCKET must be an absolute path")
 		.optional(),
-	/** Workspace start, stop and restart requests per user per minute (ADR 0034 ruling 16). */
+	/** Workspace start, stop and restart requests per user per minute (ADR 0034). */
 	WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: positiveInt.default(20),
-	/** File and project writes per user per minute (ADR 0034 ruling 16). */
+	/** File and project writes per user per minute (ADR 0034). */
 	FILE_WRITE_LIMIT_PER_MINUTE: positiveInt.default(600),
 })
 	// Silently dropping a tenant or domain check would admit any account (SPEC.md 5.1).
@@ -347,7 +347,7 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	RECOVERY_INTERVAL_SECONDS: positiveInt.default(900),
 	/** How often the recovery loop looks for due projects (ADR 0020). */
 	RECOVERY_SWEEP_SECONDS: positiveInt.default(60),
-	/** The registry notification webhook, on 127.0.0.1 only (issue #840). */
+	/** The registry notification webhook, on 127.0.0.1 only. */
 	REGISTRY_EVENTS_PORT: positiveInt.default(8792),
 })
 	.refine(

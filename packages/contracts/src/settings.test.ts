@@ -337,7 +337,7 @@ test("the editor settings defaults are a valid, complete set", () => {
 	expect(EditorSettings.parse(EDITOR_SETTINGS_DEFAULTS)).toEqual({
 		autoSave: true,
 		autoSaveDelaySeconds: 5,
-		// Issue #270: wrap is on unless the student turns it off.
+		// Wrap is on unless the student turns it off.
 		wordWrap: true,
 		terminalTheme: "dark",
 		timezone: "America/New_York",
@@ -346,7 +346,7 @@ test("the editor settings defaults are a valid, complete set", () => {
 	});
 });
 
-/** Issue #239: the terminal is dark unless the student asks for light. */
+/** The terminal is dark unless the student asks for light. */
 test("EditorSettings takes only the two terminal themes", () => {
 	expect(
 		EditorSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, terminalTheme: "light" })
@@ -374,7 +374,7 @@ test("EditorSettings requires every field", () => {
 });
 
 /**
- * Issue #287: the workspace runs in a zone the student may change. Only a
+ * The workspace runs in a zone the student may change. Only a
  * write is checked against the zone list, because a browser reading this
  * schema back knows a different set of names.
  */
@@ -393,7 +393,7 @@ test("a zone is only checked when one is written", () => {
 	).toBe("Mars/Olympus");
 });
 
-/** Issue #287: the browser is given the server's list, not asked for its own. */
+/** The browser is given the server's list, not asked for its own. */
 test("MeSettings carries the zone list beside the settings", () => {
 	const zones = [...systemTimezones()];
 	expect(MeSettings.parse({ ...EDITOR_SETTINGS_DEFAULTS, timezones: zones })).toEqual({
@@ -404,7 +404,7 @@ test("MeSettings carries the zone list beside the settings", () => {
 });
 
 /**
- * Issue #287: the zone name reaches a command inside the container, so
+ * The zone name reaches a command inside the container, so
  * nothing on this list may carry a shell metacharacter.
  */
 test("the zone list holds the default and no shell metacharacters", () => {
@@ -426,7 +426,7 @@ test("UpdateEditorSettingsRequest rejects an empty body and unknown keys", () =>
 	expect(() => UpdateEditorSettingsRequest.parse({ autoSave: "yes" })).toThrow();
 });
 
-/** Issue #300: appearance is a per-user setting that starts on "system". */
+/** Appearance is a per-user setting that starts on "system". */
 test("appearance defaults to system and takes only the three choices", () => {
 	expect(EDITOR_SETTINGS_DEFAULTS.appearance).toBe("system");
 	expect(UpdateEditorSettingsRequest.safeParse({ appearance: "dark" }).success).toBe(
@@ -438,7 +438,7 @@ test("appearance defaults to system and takes only the three choices", () => {
 });
 
 /**
- * Issue #357: screen-reader mode is off unless the student turns it on. With
+ * Screen-reader mode is off unless the student turns it on. With
  * it on, xterm.js drops text that arrives without a key press (emoji
  * pickers, dictation), so it is not forced on everyone.
  */
@@ -452,7 +452,7 @@ test("screen-reader mode defaults to off and takes only a boolean", () => {
 	).toBe(false);
 });
 
-/** Issue #300: links are https URLs or bare usernames, nothing else. */
+/** Links are https URLs or bare usernames, nothing else. */
 test("profile links accept https URLs and GitHub usernames only", () => {
 	const ok = (body: unknown) => UpdateProfileRequest.safeParse(body).success;
 	expect(ok({ github: "alice-ex" })).toBe(true);

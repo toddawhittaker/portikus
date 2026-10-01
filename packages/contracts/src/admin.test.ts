@@ -263,7 +263,7 @@ describe("admin contracts", () => {
 		expect(HealthReport.parse(report)).toEqual(report);
 		const { guard: _guard, ...withoutGuard } = report;
 		expect(HealthReport.safeParse(withoutGuard).success).toBe(false);
-		// The trend series moved to GET /admin/health/series (Epic 19).
+		// The trend series moved to GET /admin/health/series.
 		expect(HealthReport.parse({ ...report, series: [] })).not.toHaveProperty("series");
 	});
 

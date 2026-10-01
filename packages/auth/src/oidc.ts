@@ -24,7 +24,7 @@ export interface LoginState {
 export interface OidcClient {
 	/**
 	 * `prompt: "login"` asks the provider to re-authenticate the user, the
-	 * standard OIDC way; linking an account uses it (docs/archive/epics/EPIC-13-1.md ruling 11).
+	 * standard OIDC way; linking an account uses it (ADR 0026).
 	 */
 	buildLoginRedirect(options?: {
 		prompt?: "login";

@@ -1,8 +1,7 @@
 import { z } from "zod";
 
 /**
- * Linking a course account to an SSO account (docs/archive/epics/EPIC-13-1.md, "The
- * flow"). An SSO account signs in through the institution's OpenID Connect
+ * Linking a course account to an SSO account (ADR 0026). An SSO account signs in through the institution's OpenID Connect
  * provider; a course account was created by an LTI launch.
  */
 
@@ -19,7 +18,7 @@ export type AccountLink = z.infer<typeof AccountLink>;
 /** `GET /me/links`. */
 export const MyLinks = z.object({
 	source: z.enum(["sso", "course"]),
-	/** Session creation plus 15 minutes, for a course session only (ruling 10). */
+	/** Session creation plus 15 minutes, for a course session only. */
 	linkUntil: z.string().datetime().nullable(),
 	links: z.array(AccountLink),
 	/**
@@ -55,7 +54,7 @@ export const PendingLink = z.object({
 });
 export type PendingLink = z.infer<typeof PendingLink>;
 
-/** The `?error=` codes the link-mode callback sends to `/link` (ruling 18). */
+/** The `?error=` codes the link-mode callback sends to `/link`. */
 export const LinkError = z.enum([
 	"no_account",
 	"not_authorized",
