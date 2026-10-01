@@ -274,7 +274,9 @@ Before an ACME change, the tab checks that the site and a sample preview
 name point at this server, and for HTTP-01 that port 80 answers. For
 HTTP-01 a failed check stops the change; for DNS-01 it is a warning. The
 check runs from the server itself, so it cannot see a firewall that only
-blocks outside traffic; the test below catches that.
+blocks outside traffic; the test below catches that. On a server that
+uses systemd-resolved, an entry in `/etc/hosts` also counts, so the check
+can pass for a name that the public DNS does not have.
 
 - **Test only** runs the check and gets a test certificate without
   touching the live site. For Let's Encrypt it uses Let's Encrypt's

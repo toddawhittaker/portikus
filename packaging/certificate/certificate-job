@@ -1074,6 +1074,8 @@ class Runner:
         fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
         try:
             host.own(fd, uid, gid)
+            # The unit's UMask=0077 strips the group bits mkdir asked for; Caddy reads through them.
+            os.fchmod(fd, 0o750)
             write_at(fd, "settings.json", json.dumps(view, indent=2) + "\n", 0o640, host, uid, gid)
             write_at(fd, "tls.caddy", snippets(settings, base or self.state_dir), 0o640, host, uid, gid)
             # root:caddy 0640 in root:caddy 0750: Caddy reads them, the API cannot (Epic 27 R8).
@@ -1099,6 +1101,7 @@ class Runner:
         """Copy the generation in force to dest."""
         remove(dest)
         os.mkdir(dest, 0o750)
+        os.chmod(dest, 0o750)  # the unit's UMask=0077 would leave it 0700
         for name in GENERATION:
             if os.path.lexists(self.state(name)):
                 copy_entry(self.state(name), os.path.join(dest, name))
@@ -1330,6 +1333,8 @@ class Runner:
                  if f"{folder}.crt" in files and f"{folder}.json" in files}
         if not {storage_name(n) for n in names} <= found:
             errors = [e["message"] for e in parse_caddy_events(log) if not e["ok"]]
+            # Caddy prints "Error: ..." on stderr when it cannot start at all.
+            errors = errors or [line for line in log.splitlines() if line.startswith("Error: ")]
             said = " | ".join(errors[-3:])[:1500] or "nothing; the log has its output"
             raise JobFailed(f"No certificate was obtained, and the live site is unchanged. Caddy said: {said}")
         return certificates

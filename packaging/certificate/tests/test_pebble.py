@@ -235,6 +235,8 @@ https://*.{SUFFIX} {{
         new = self.runner.state(".new")
         settings = self.settings(HMAC)
         self.runner.build_generation(new, settings, {("eab", "hmacKey"): HMAC}, None, {}, base=new)
+        # Under the unit's UMask=0077 the caddy group must still read the generation (SPEC.md 20.1).
+        self.assertEqual(os.stat(new).st_mode & 0o777, 0o750)
         jobs_fd = os.open(self.runner.jobs_dir, os.O_RDONLY | os.O_DIRECTORY)
         job = cj.Job(jobs_fd, ID, os.getgid(), self.runner.host)
         try:
