@@ -231,8 +231,11 @@ agent working from a checkout can read it.
 
 Every pull request cites the SPEC.md and STACK.md sections it serves and
 says how it was verified. The template asks for both. CI must be green.
-A pull request branch must be up to date with its base before it is merged;
-`gh pr update-branch <number>` does that.
+An epic pull request must be up to date with `main` before it is merged;
+`gh pr update-branch <number>` does that. Task pull requests into an
+epic branch need not be up to date, because each update costs a full CI
+run. They are updated only when GitHub refuses a merge because the
+branch is behind.
 
 There are two kinds of pull request, merged by different people at
 different times:
