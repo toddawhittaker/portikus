@@ -44,6 +44,11 @@
         role: caddy
         accept: false
         vars: { portikus_tls: files, portikus_tls_cert: site.crt, portikus_tls_key: site.key }
+      # Once the admin page owns the certificate, the install answer is not read.
+      - name: an unknown TLS choice on a host whose certificate is already seeded
+        role: caddy
+        accept: true
+        vars: { portikus_tls: acme, caddy_certificate_dir: "{{ setup_test_seeded.path }}" }
       - { name: no storage on a host without a volume group, role: lvm, accept: false, vars: { portikus_storage: "" } }
       - { name: a volume group that does not exist, role: lvm, accept: false, vars: { portikus_storage: no-such-group } }
       - { name: a device that is not a block device, role: lvm, accept: false, vars: { portikus_storage: /dev/null } }
@@ -53,9 +58,26 @@
       - { name: a file of no whole size, role: lvm, accept: false, vars: { portikus_storage: file, portikus_storage_size: "1.5" } }
 
   tasks:
+    - name: Make a seeded certificate state
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: setup-settings-certificate-
+      register: setup_test_seeded
+
+    - name: Write its settings
+      ansible.builtin.copy:
+        content: '{"source": "internal"}'
+        dest: "{{ setup_test_seeded.path }}/settings.json"
+        mode: "0644"
+
     - name: Try each case
       ansible.builtin.include_tasks: setup-settings-case.yml
       loop: "{{ setup_test_cases }}"
       loop_control:
         loop_var: setup_case
         label: "{{ setup_case.name }}"
+
+    - name: Remove the seeded certificate state
+      ansible.builtin.file:
+        path: "{{ setup_test_seeded.path }}"
+        state: absent

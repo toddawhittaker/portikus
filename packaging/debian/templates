@@ -6,8 +6,11 @@ Description: Welcome to Portikus
  this server.
  .
  The next screens ask for this server's web address, the administrator's
- email, how to get the HTTPS certificate, how people sign in, and where to
- keep student files. Each one suggests an answer.
+ email, how people sign in, and where to keep student files. Each one
+ suggests an answer.
+ .
+ The site starts with a certificate from Portikus's own authority. Choose
+ a public one later on the Certificate page of the administration screen.
  .
  Nothing on this server changes until you confirm on the last screen.
  Setup then runs in the background and takes about ten minutes.
@@ -34,21 +37,22 @@ Description: Email of the Portikus administrator:
 
 Template: portikus/tls
 Type: select
-Choices-C: letsencrypt, files, internal
-Choices: Let's Encrypt (a free public certificate), Certificate files I already have, Portikus's own certificate authority (testing)
-Default: letsencrypt
+Choices-C: internal, letsencrypt, files
+Choices: Portikus's own certificate authority, Let's Encrypt through Cloudflare DNS, Certificate files I already have
+Default: internal
 Description: HTTPS certificate:
- Portikus is served only over HTTPS. Choose where its certificate comes
- from.
+ Portikus is served only over HTTPS. Choose where its first certificate
+ comes from. After setup, change it on the Certificate page of the
+ administration screen; setup never changes it again.
+ .
+ Own authority: works without public DNS, but every browser must be told
+ to trust its root certificate, which the Certificate page offers.
  .
  Let's Encrypt: needs your domain's DNS at Cloudflare and a Cloudflare API
  token. A free certificate every browser trusts.
  .
  Certificate files: a certificate and key you already have. They must
  cover this name and *.preview.<this name>.
- .
- Own authority: works without public DNS, but every browser must be told
- to trust its root certificate. Use it for testing and private networks.
 
 Template: portikus/acme_email
 Type: string
@@ -66,8 +70,9 @@ Description: Cloudflare API token:
  only after a DNS check. Portikus makes that check through Cloudflare, so
  your domain's DNS must be hosted there.
  .
- The token is stored only in /etc/portikus/secrets.yaml, which only root
- can read. ${keep}
+ The token is stored in /etc/portikus/secrets.yaml, which only root can
+ read, and under /etc/portikus/certificate, which only root and Caddy can
+ read. ${keep}
 
 Template: portikus/tls_cert
 Type: string

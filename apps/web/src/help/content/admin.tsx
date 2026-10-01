@@ -3,8 +3,8 @@ import type { HelpPart } from "./part.js";
 /**
  * For administrators. Each admin tab's intro links to one of these anchors
  * ("More in Help"), so keep the ids stable: admin-users, admin-health,
- * admin-logs, admin-audit, admin-network, admin-backups, admin-image, admin-docker,
- * admin-settings.
+ * admin-logs, admin-audit, admin-network, admin-backups, admin-image,
+ * admin-certificate, admin-docker, admin-settings.
  */
 export const ADMIN_HELP: HelpPart = {
 	id: "admin",
@@ -204,6 +204,42 @@ export const ADMIN_HELP: HelpPart = {
 						becomes the previous image, and <strong>Roll back</strong> swaps them again.
 						Existing workspaces keep the image they were made from until you rebuild
 						each one; the list shows how many workspaces run each image.
+					</p>
+				</>
+			),
+		},
+		{
+			id: "admin-certificate",
+			title: "The site certificate",
+			body: (
+				<>
+					<p>
+						The <strong>Certificate</strong> tab shows the certificate in use for the
+						site and its preview names, who issued it and when it expires, and changes
+						it. The <strong>internal authority</strong> works with no setup, but each
+						computer must install its root certificate, which the tab offers for
+						download. <strong>ACME</strong> gets a trusted certificate from Let's
+						Encrypt, ZeroSSL or another authority and renews it on its own.{" "}
+						<strong>Upload files</strong> uses your institution's certificate and key,
+						which you replace before they expire.
+					</p>
+					<p>
+						For ACME, <strong>DNS-01</strong> needs credentials for your DNS provider
+						and gets one wildcard certificate for the site and every preview name.{" "}
+						<strong>HTTP-01</strong> needs port 80 open to the internet and gets a
+						certificate for each preview name the first time it is opened. Tokens and
+						keys are never shown again: each field says whether one is set, and leaving
+						it blank keeps it.
+					</p>
+					<p>
+						<strong>Test only</strong> checks that the names point at this server and
+						gets a certificate without putting it in use: from Let's Encrypt staging, or
+						a real one from ZeroSSL or another directory, which have no test service.{" "}
+						<strong>Apply</strong> does the same, then switches the site once the new
+						certificate exists. If it does not arrive, the previous settings are put
+						back on their own. <strong>Roll back</strong> returns to the settings before
+						the last change. Administrators get a notification 14 days before the
+						certificate expires and when a renewal fails.
 					</p>
 				</>
 			),

@@ -629,9 +629,10 @@ host that was not built here.
 - A host given with `VM_IP=` is named `portikus.<its address>.nip.io`
   unless you pass `PORTIKUS_PUBLIC_HOST`. nip.io is a public service that
   resolves any name of that shape back to the address inside it. Nothing
-  here manages DNS, and the workstation run serves Caddy's own certificate
-  authority (`portikus_tls: internal`); the Let's Encrypt and certificate
-  file modes are set through the package's questions (docs/INSTALL.md).
+  here manages DNS, and a first workstation run serves Caddy's own
+  certificate authority (`portikus_tls: internal`). After that the
+  certificate is changed on the admin page's Certificate tab; setup never
+  touches it again (docs/INSTALL.md).
 - A host given with `VM_IP=` must name its own storage in
   `PORTIKUS_STORAGE` (a device, a volume group or `file`), with
   `PORTIKUS_STORAGE_CONFIRM=true` for a device. Only this checkout's
