@@ -415,15 +415,6 @@ test.skipIf(skip)("renaming a terminal that does not exist is 404", async () => 
 	expect(renamed.json().code).toBe("TERMINAL_NOT_FOUND");
 });
 
-test.skipIf(skip)("the preview route answers 501 for now", async () => {
-	const preview = await app.inject({
-		method: "GET",
-		url: `/workspaces/${workspaceId}/preview/3000/`,
-		headers: { cookie: alice.cookieHeader() },
-	});
-	expect(preview.statusCode).toBe(501);
-});
-
 async function makeProject(name: string): Promise<string> {
 	const row = await testDb.db
 		.insertInto("projects")

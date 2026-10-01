@@ -13,7 +13,6 @@ import {
 	AgentCreateTerminalResponse,
 	AgentDuplicateProjectRequest,
 	AgentError as AgentErrorBody,
-	type AgentErrorCode,
 	AgentListeningService,
 	AgentProject,
 	AgentProjectList,
@@ -44,9 +43,6 @@ export async function readJson(response: Response): Promise<unknown> {
 		throw error;
 	}
 }
-
-/** Error codes the API uses for agent trouble: the agent's own, or "unreachable". */
-export type AgentFailureCode = AgentErrorCode | "AGENT_UNAVAILABLE";
 
 /** How long any one agent call may take before it is treated as unreachable. */
 export const AGENT_TIMEOUT_MS = 5000;

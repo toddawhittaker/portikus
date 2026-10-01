@@ -23,9 +23,7 @@ export type AccessClass =
 	/** A course's instructors; everyone else sees no course, or a 404. */
 	| "course-instructor"
 	/** Preview host paths: only a preview session counts, never a main cookie. */
-	| "preview-edge"
-	/** The old preview placeholder: 401 signed out, 501 signed in. */
-	| "inert";
+	| "preview-edge";
 
 export interface RoutePolicy {
 	access: AccessClass;
@@ -297,9 +295,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /__portikus/reset": { access: "preview-edge" },
 	"GET /preview/authorize": { access: "preview-edge" },
 	"HEAD /preview/authorize": { access: "preview-edge" },
-
-	"GET /workspaces/:id/preview/:port/*": { access: "inert" },
-	"HEAD /workspaces/:id/preview/:port/*": { access: "inert" },
 };
 
 /** Split a policy key back into its method and URL pattern. */

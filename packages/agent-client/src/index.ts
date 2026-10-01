@@ -1,4 +1,4 @@
-import { AgentError as AgentErrorBody } from "@portikus/contracts";
+import { AgentError as AgentErrorBody, type AgentErrorCode } from "@portikus/contracts";
 
 /**
  * The shared HTTP transport to the workspace agent (ADR 0009, SPEC.md §9.7).
@@ -12,11 +12,15 @@ export const AGENT_JSON_LIMIT_BYTES = 1024 * 1024;
 
 /** A failed call to the workspace agent; `code` is the agent's code or AGENT_UNAVAILABLE. */
 export class AgentCallError extends Error {
-	readonly code: string;
+	readonly code: AgentErrorCode | "AGENT_UNAVAILABLE";
 	/** The agent's HTTP status, when it answered with one. */
 	readonly status: number | undefined;
 
-	constructor(code: string, message: string, status?: number) {
+	constructor(
+		code: AgentErrorCode | "AGENT_UNAVAILABLE",
+		message: string,
+		status?: number,
+	) {
 		super(message);
 		this.name = "AgentCallError";
 		this.code = code;

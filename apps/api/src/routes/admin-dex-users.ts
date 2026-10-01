@@ -244,6 +244,7 @@ export function registerAdminDexUserRoutes(
 			const result = await disableUser(db, {
 				actorId: actor.id,
 				targetId: id,
+				metadata: requestMetadata(request),
 				alsoInTransaction: async (trx) => {
 					await recordAudit(trx, {
 						actor: `user:${actor.id}`,

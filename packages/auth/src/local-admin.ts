@@ -1,4 +1,4 @@
-import type { Database } from "@portikus/db";
+import { type Database, recordAudit } from "@portikus/db";
 import type { Kysely } from "kysely";
 import { type DexApi, generateDexPassword, hashDexPassword } from "./dex-api.js";
 import { dexLocalSubject } from "./dex-subject.js";
@@ -106,16 +106,13 @@ export async function resetLocalAdmin(
 			.where("user_id", "=", id)
 			.where("revoked_at", "is", null)
 			.execute();
-		await trx
-			.insertInto("audit_events")
-			.values({
-				actor: "host:root",
-				target: id,
-				action: account ? "local_admin.reset" : "local_admin.created",
-				result: "ok",
-				metadata: JSON.stringify({}),
-			})
-			.execute();
+		await recordAudit(trx, {
+			actor: "host:root",
+			target: id,
+			action: account ? "local_admin.reset" : "local_admin.created",
+			result: "ok",
+			metadata: {},
+		});
 		// Last, so a refusal rolls the account back with it.
 		if (existing) {
 			await dex.updatePassword(existing.email, hash);

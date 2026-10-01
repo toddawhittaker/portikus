@@ -175,7 +175,10 @@ async function git(args: string[], cwd: string, timeout?: number): Promise<void>
 		: result.overflow
 			? "git printed too much output"
 			: `git exited with status ${result.exitCode}`;
-	throw new AgentFailure("GIT_FAILED", result.stderr.slice(-STDERR_LIMIT) || reason);
+	throw new AgentFailure(
+		"GIT_FAILED",
+		result.stderr.slice(-STDERR_LIMIT).trim() || reason,
+	);
 }
 
 /**
