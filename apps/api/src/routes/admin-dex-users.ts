@@ -16,7 +16,7 @@ import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import { disableUser, loadAdminUser, sendDisableRefusal } from "./admin.js";
+import { disableUser, loadAdminUser, sendDisableRefusal } from "./admin-users.js";
 import { requestMetadata } from "./start-session.js";
 
 /** Thrown inside a transaction to roll it back when Dex refuses the email. */

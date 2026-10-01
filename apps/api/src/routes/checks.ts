@@ -20,7 +20,7 @@ import {
 	scopedProject,
 	sendAgentError,
 } from "./project-scope.js";
-import { pipeBackpressure, safeCloseCode } from "./terminals.js";
+import { pipeBackpressure, safeCloseCode } from "./terminal-pipe.js";
 
 /** How often an open output socket re-checks its session (SPEC.md §5.3). */
 const SESSION_CHECK_INTERVAL_MS = 1000;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { pipeBackpressure } from "./terminals.js";
+import { pipeBackpressure } from "./terminal-pipe.js";
 
 /**
  * Backpressure on the browser end of the terminal pipe (SPEC.md §9.7): a

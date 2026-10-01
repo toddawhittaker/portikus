@@ -6,7 +6,7 @@ import {
 	type TestDb,
 } from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { toWorkspace } from "./workspace-view.js";
+import { loadWorkspaceSettings, toWorkspace } from "./workspace-view.js";
 
 const skip = !hasTestDb();
 let tdb: TestDb;
@@ -60,14 +60,14 @@ async function workspaceRow(values: Record<string, unknown>) {
 		})
 		.returningAll()
 		.executeTakeFirstOrThrow();
-	return row as Record<string, unknown>;
+	return row;
 }
 
 test.skipIf(skip)(
 	"a throttle shows when it lifts, never the average or the allowance",
 	async () => {
 		const row = await workspaceRow({ cpu_throttle: JSON.stringify(throttle) });
-		const view = await toWorkspace(tdb.db, row, 0, config);
+		const view = await toWorkspace(row, 0, config, await loadWorkspaceSettings(tdb.db));
 		expect(view.cpuThrottle).toEqual({
 			at,
 			thresholdPercent: 80,
@@ -87,12 +87,18 @@ test.skipIf(skip)(
 			.updateTable("settings")
 			.set({ cpu_idle_lift_minutes: 12, cpu_idle_lift_percent: 3 })
 			.execute();
-		expect((await toWorkspace(tdb.db, row, 0, config)).cpuThrottle).toMatchObject({
+		expect(
+			(await toWorkspace(row, 0, config, await loadWorkspaceSettings(tdb.db)))
+				.cpuThrottle,
+		).toMatchObject({
 			idleLiftMinutes: 12,
 			idleLiftPercent: 3,
 		});
 		await tdb.db.updateTable("settings").set({ cpu_idle_lift_percent: 0 }).execute();
-		expect((await toWorkspace(tdb.db, row, 0, config)).cpuThrottle).toMatchObject({
+		expect(
+			(await toWorkspace(row, 0, config, await loadWorkspaceSettings(tdb.db)))
+				.cpuThrottle,
+		).toMatchObject({
 			idleLiftMinutes: null,
 			idleLiftPercent: null,
 		});
@@ -103,7 +109,10 @@ test.skipIf(skip)("a small share lowers the quiet percent to half of it", async 
 	const row = await workspaceRow({
 		cpu_throttle: JSON.stringify({ ...throttle, sharePercent: 5 }),
 	});
-	expect((await toWorkspace(tdb.db, row, 0, config)).cpuThrottle).toMatchObject({
+	expect(
+		(await toWorkspace(row, 0, config, await loadWorkspaceSettings(tdb.db)))
+			.cpuThrottle,
+	).toMatchObject({
 		idleLiftPercent: 2,
 	});
 });
@@ -114,7 +123,7 @@ test.skipIf(skip)(
 		const row = await workspaceRow({
 			cpu_throttle: JSON.stringify({ ...throttle, held: { count: 3, hours: 24 } }),
 		});
-		const view = await toWorkspace(tdb.db, row, 0, config);
+		const view = await toWorkspace(row, 0, config, await loadWorkspaceSettings(tdb.db));
 		expect(view.cpuThrottle?.held).toEqual({ count: 3, hours: 24 });
 		expect(view.cpuThrottle).not.toHaveProperty("allowance");
 	},
@@ -122,14 +131,14 @@ test.skipIf(skip)(
 
 test.skipIf(skip)("the memory flag reaches the owner's view", async () => {
 	const row = await workspaceRow({ memory_flag: JSON.stringify(flag) });
-	const view = await toWorkspace(tdb.db, row, 0, config);
+	const view = await toWorkspace(row, 0, config, await loadWorkspaceSettings(tdb.db));
 	expect(view.memoryFlag).toEqual(flag);
 	expect(view.cpuThrottle).toBeNull();
 });
 
 test.skipIf(skip)("with neither set, both are null", async () => {
 	const row = await workspaceRow({});
-	const view = await toWorkspace(tdb.db, row, 0, config);
+	const view = await toWorkspace(row, 0, config, await loadWorkspaceSettings(tdb.db));
 	expect(view.cpuThrottle).toBeNull();
 	expect(view.memoryFlag).toBeNull();
 });
