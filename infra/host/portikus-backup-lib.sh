@@ -11,6 +11,8 @@
 # however long the remote command itself runs.
 PORTIKUS_SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 VM_CALL_TIMEOUT=0
+# Never taken from the environment: only a caller's own option sets it.
+OPERATOR=""
 
 # with_limit SECONDS CMD... -- CMD, killed after SECONDS; 0 means no limit.
 with_limit() {
