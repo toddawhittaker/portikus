@@ -1,5 +1,5 @@
 /**
- * The workspace egress policy's admin routes (issue #284; SPEC.md sections
+ * The workspace egress policy's admin routes (SPEC.md sections
  * 20.1, 24.9 and 24.11): administrator-only and CSRF-checked, every write
  * raises the version, a stale version gets 409, invalid entries are refused,
  * and each write leaves one audit row.

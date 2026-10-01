@@ -40,7 +40,7 @@ describe("journalArgs", () => {
 			afterCursor: cursorAt(10),
 			levels: ["error", "warn"],
 		});
-		// journalctl refuses --since with a cursor (issue #703); --until stays.
+		// journalctl refuses --since with a cursor; --until stays.
 		expect(args.some((arg) => arg.startsWith("--since"))).toBe(false);
 		expect(args).toContain("--until=@1790427600");
 		expect(args).toContain(`--after-cursor=${cursorAt(10)}`);

@@ -12,7 +12,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
-/** The Course page API (docs/archive/epics/EPIC-13.md ruling 23). */
+/** The Course page API. */
 
 const skip = !hasTestDb();
 let testDb: TestDb;
@@ -254,7 +254,7 @@ test.skipIf(skip)(
 			// Ivy is only a student in CS 240.
 			["a student elsewhere", await remove(cs240, lee, await cookieFor(ivy)), 404],
 			["yourself", await remove(cs101, ivy, await cookieFor(ivy)), 400],
-			// Tom co-teaches CS 101: instructors are the LMS's to manage (review S4).
+			// Tom co-teaches CS 101: instructors are the LMS's to manage.
 			["another instructor", await remove(cs101, tom, await cookieFor(ivy)), 400],
 			["a non-member", await remove(cs101, lee, await cookieFor(ivy)), 404],
 			[

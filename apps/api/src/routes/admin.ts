@@ -121,7 +121,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		return body;
 	});
 
-	// GET /admin/settings -- the platform-wide grace period.
+	// The platform-wide grace period.
 	app.get("/admin/settings", adminOnly, async (_request, reply) => {
 		const row = await db
 			.selectFrom("settings")
@@ -134,7 +134,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		return toPlatformSettings(row);
 	});
 
-	// PUT /admin/settings -- change it; the worker picks it up next sweep.
+	// The worker picks up a change at its next sweep.
 	app.put("/admin/settings", adminOnly, async (request, reply) => {
 		const user = requireUser(request);
 
@@ -279,14 +279,13 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		return toPlatformSettings(updated);
 	});
 
-	// GET /admin/users -- every account with its markers and workspace (issue #302).
 	app.get("/admin/users", adminOnly, async () => {
 		const list = await listAdminUsers(deps);
 		const body: AdminUserList = { users: list, dexUsers: deps.dex !== undefined };
 		return body;
 	});
 
-	// POST /admin/users/:id/disable -- the one platform-side revocation (SPEC.md §20.1).
+	// The one platform-side revocation (SPEC.md §20.1).
 	app.post("/admin/users/:id/disable", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
@@ -346,14 +345,12 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		});
 	}
 
-	// Grant administrator to an SSO account (ruling 23).
 	roleRoute(
 		"/admin/users/:id/promote",
 		(trx, _actorId, targetId) => grantAdministrator(trx, targetId),
 		{ course_account: "Only SSO accounts can be administrators." },
 	);
 
-	// Remove a granted administrator role (ruling 23).
 	roleRoute(
 		"/admin/users/:id/demote",
 		(trx, actorId, targetId) => revokeAdministrator(trx, { actorId, targetId }),
@@ -366,7 +363,6 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		},
 	);
 
-	// Grant instructor (docs/archive/epics/EPIC-14.md ruling 14).
 	roleRoute(
 		"/admin/users/:id/make-instructor",
 		(trx, _actorId, targetId) => grantInstructor(trx, targetId),
@@ -376,14 +372,13 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		},
 	);
 
-	// Remove the instructor grant (ruling 14).
 	roleRoute(
 		"/admin/users/:id/remove-instructor",
 		(trx, _actorId, targetId) => revokeInstructor(trx, targetId),
 		{ not_granted: "This account has no instructor grant." },
 	);
 
-	// POST /admin/users/:id/enable -- sign-in works again; nothing else changes.
+	// Sign-in works again; nothing else changes.
 	app.post("/admin/users/:id/enable", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
@@ -413,7 +408,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		return loadUser(updated.id);
 	});
 
-	// PUT /admin/users/:id/settings -- set or clear one user's override.
+	// Set or clear one user's override.
 	app.put("/admin/users/:id/settings", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 

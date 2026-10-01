@@ -1,5 +1,5 @@
 /**
- * Release notices (issue #861, SPEC.md section 22.4): every enabled
+ * Release notices (SPEC.md section 22.4): every enabled
  * administrator hears once about a published image newer than every image
  * on the server, and once about a newer portikus package.
  */

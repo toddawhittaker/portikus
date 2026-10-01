@@ -148,7 +148,7 @@ export function registerRecoveryRoutes(
 		return { scope, project };
 	}
 
-	// GET .../recovery-points -- works while the workspace is stopped.
+	// Works while the workspace is stopped.
 	app.get("/workspaces/:id/projects/:pid/recovery-points", async (request, reply) => {
 		const found = await scoped(request, reply);
 		if (!found) return;
@@ -180,7 +180,7 @@ export function registerRecoveryRoutes(
 		return body;
 	});
 
-	// POST .../recovery-points -- "Create recovery point now" (SPEC.md §15.6).
+	// "Create recovery point now" (SPEC.md §15.6).
 	app.post("/workspaces/:id/projects/:pid/recovery-points", async (request, reply) => {
 		const user = requireUser(request);
 		const found = await scoped(request, reply);
@@ -242,7 +242,7 @@ export function registerRecoveryRoutes(
 		return reply.status(201).send(toRecoveryPoint(row));
 	});
 
-	// POST .../recovery-points/:rpid/restore (SPEC.md §15.8).
+	// SPEC.md §15.8.
 	app.post(
 		"/workspaces/:id/projects/:pid/recovery-points/:rpid/restore",
 		async (request, reply) => {

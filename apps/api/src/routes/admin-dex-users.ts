@@ -40,8 +40,8 @@ async function viaDex<T>(call: Promise<T>): Promise<T> {
 }
 
 /**
- * Add, reset the password of, and remove standalone Dex users (docs/archive/epics/EPIC-14.md
- * rulings 21, 22 and 24). The routes answer 404 unless the site runs Dex's
+ * Add, reset the password of, and remove standalone Dex users
+ * (ADR 0028). The routes answer 404 unless the site runs Dex's
  * gRPC API. A generated password leaves Portikus only in one response body:
  * it is never stored, logged, or audited.
  */
@@ -105,7 +105,7 @@ export function registerAdminDexUserRoutes(
 
 	const adminOnly = { preHandler: requireRole("administrator") };
 
-	// POST /admin/dex-users -- a new Dex password and its pre-created account (ruling 21).
+	// A new Dex password and its pre-created account.
 	app.post("/admin/dex-users", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 		const dex = dexOr404(reply);
@@ -168,7 +168,7 @@ export function registerAdminDexUserRoutes(
 		return out;
 	});
 
-	// POST /admin/dex-users/:id/reset-password -- a new password; sessions end (ruling 22).
+	// A new password; the user's sessions end.
 	app.post("/admin/dex-users/:id/reset-password", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 		const dex = dexOr404(reply);
@@ -226,7 +226,7 @@ export function registerAdminDexUserRoutes(
 		return out;
 	});
 
-	// POST /admin/dex-users/:id/remove -- delete the Dex password, disable the account (ruling 22).
+	// Delete the Dex password and disable the account.
 	app.post("/admin/dex-users/:id/remove", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 		const dex = dexOr404(reply);

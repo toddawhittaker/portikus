@@ -159,7 +159,7 @@ async function countKind(trx: Transaction<Database>, kind: string): Promise<numb
 }
 
 /**
- * The workspace egress policy's admin routes (issue #284; SPEC.md sections
+ * The workspace egress policy's admin routes (SPEC.md sections
  * 20.1, 24.9 and 24.11). The API only writes the policy and raises its
  * version; the worker applies it through the controller.
  */

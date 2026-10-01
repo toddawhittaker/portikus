@@ -38,7 +38,7 @@ export function registerWorkspaceRoutes(
 ): void {
 	const limitLifecycle = lifecycleLimit(config);
 
-	// POST /workspaces -- idempotent create for the signed-in user
+	// Idempotent create for the signed-in user.
 	app.post("/workspaces", async (request, reply) => {
 		const user = requireUser(request);
 
@@ -71,7 +71,7 @@ export function registerWorkspaceRoutes(
 		const incusInstanceName = `ws-${hexPrefix}`;
 
 		// The label is derived once, at creation, from the login username
-		// (SPEC.md Epic 8; BROWSER-HANDLING.md section 8).
+		// (BROWSER-HANDLING.md section 8).
 		const owner = await db
 			.selectFrom("users")
 			.select(["preferred_username", "email", "oidc_issuer", "oidc_subject"])
@@ -80,7 +80,7 @@ export function registerWorkspaceRoutes(
 		const hex = randomHex8();
 		const hexLabel = `ws-${hex}`;
 		// A course (LTI) account falls back to its email's local part, then its
-		// LTI user ID, never random hex (SPEC.md, Epic 8).
+		// LTI user ID, never random hex.
 		const isCourse = owner !== undefined && isCourseIssuer(owner.oidc_issuer);
 		const subLabel = isCourse
 			? deriveWorkspaceLabel(owner.oidc_subject, hex)
@@ -142,7 +142,6 @@ export function registerWorkspaceRoutes(
 			.send(await toWorkspace(created, 0, config, await loadWorkspaceSettings(db)));
 	});
 
-	// GET /workspaces/:id
 	app.get("/workspaces/:id", async (request, reply) => {
 		const user = requireUser(request);
 
@@ -158,23 +157,20 @@ export function registerWorkspaceRoutes(
 		return toWorkspace(row, active, config, await loadWorkspaceSettings(db));
 	});
 
-	// POST /workspaces/:id/start
 	app.post("/workspaces/:id/start", async (request, reply) => {
 		return setDesired(request, reply, "running", "workspace.start_requested");
 	});
 
-	// POST /workspaces/:id/stop
 	app.post("/workspaces/:id/stop", async (request, reply) => {
 		return setDesired(request, reply, "stopped", "workspace.stop_requested");
 	});
 
-	// POST /workspaces/:id/restart
 	app.post("/workspaces/:id/restart", async (request, reply) => {
 		return setDesired(request, reply, "restarting", "workspace.restart_requested");
 	});
 
-	// PUT /workspaces/:id/keep-running -- hold the workspace up until a time
-	// (#955). Only the owner: an administrator's hold would be impersonation.
+	// Hold the workspace up until a time.
+	// Only the owner: an administrator's hold would be impersonation.
 	app.put("/workspaces/:id/keep-running", async (request, reply) => {
 		const user = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
@@ -250,7 +246,7 @@ export function registerWorkspaceRoutes(
 		return toWorkspace(updated, active, config, await loadWorkspaceSettings(db));
 	});
 
-	// DELETE /workspaces/:id/keep-running -- end the hold early (#955). The
+	// End the hold early. The
 	// timers start again from now, as if the student had just acted. With no
 	// hold left (it may have just expired) nothing changes.
 	app.delete("/workspaces/:id/keep-running", async (request, reply) => {
@@ -360,7 +356,7 @@ function suffixedLabel(base: string, attempt: number): string {
 
 /**
  * Insert the workspace, appending `-2`, `-3`, ... when two students derive
- * the same label (SPEC.md Epic 8). When those run out, each `lastResort`
+ * the same label. When those run out, each `lastResort`
  * label is tried once.
  */
 async function insertWithLabel(

@@ -44,7 +44,7 @@ function signatureOf(workspace: Workspace): string {
 		workspace.cpuThrottle,
 		workspace.idleStopAt,
 		workspace.memoryFlag,
-		// A hold set, ended, cut or expired shows at once (#955).
+		// A hold set, ended, cut or expired shows at once.
 		workspace.keepRunningUntil,
 		workspace.keepRunningMaxHours,
 	]);
@@ -151,7 +151,7 @@ export function registerWorkspaceSocket(
 		"/workspaces/:id/ws",
 		{
 			websocket: true,
-			// A HEAD twin would reach the socket handler and crash (issue #402).
+			// A HEAD twin would reach the socket handler and crash.
 			exposeHeadRoute: false,
 			preHandler: workspaceUpgradeGuard(db, config, { ownerOnly: false, adminSockets }),
 		},

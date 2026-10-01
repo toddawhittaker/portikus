@@ -22,7 +22,7 @@ import {
 import { type AccessClass, ROUTE_POLICY, splitKey } from "./route-policy.js";
 
 /**
- * The authorization matrix (Epic 12a, "The matrix"; SPEC.md sections 5.2,
+ * The authorization matrix (SPEC.md sections 5.2,
  * 5.3, 20.2, 24.3, 24.6). Every route the API registers has an access class
  * in route-policy.ts, and every kind of caller gets that class's answer.
  */
@@ -37,8 +37,8 @@ const UNSAFE = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const PUBLIC_ORIGIN = new URL(PUBLIC_URL).origin;
 
 /**
- * Allowed-caller checks that fail today, with the issue that tracks each
- * (Epic 12a, Part 3). The refusal checks of these routes still run normally.
+ * Allowed-caller checks that fail today, with the issue that tracks each.
+ * The refusal checks of these routes still run normally.
  */
 const KNOWN_VULN: Record<string, string> = {};
 
@@ -530,7 +530,7 @@ function printedRoutes(app: FastifyInstance): string[] {
 	return keys;
 }
 
-// --- Done item 1: every route is classified, every class names a route ----
+// --- Every route is classified, every class names a route ----
 
 test.skipIf(skip)("every registered route has an access class, and back", async () => {
 	const app = buildTestServer(testDb.db, mock.issuer, {
@@ -577,7 +577,7 @@ test.skipIf(skip)("every registered route has an access class, and back", async 
 	}
 });
 
-// --- Done items 2 and 5: every caller gets its class's answer --------------
+// --- Every caller gets its class's answer --------------
 
 const httpKeys = Object.keys(ROUTE_POLICY).filter((key) => {
 	// A socket's upgrade is probed in ws-authz-matrix.test.ts.
@@ -593,7 +593,7 @@ const signedInOnly: AccessClass[] = [
 	"inert",
 ];
 
-/** The LMS posts these cross-site; the token, state and nonce guard them (ruling 7). */
+/** The LMS posts these cross-site; the token, state and nonce guard them. */
 const CSRF_EXEMPT = new Set(["POST /lti/login", "POST /lti/launch"]);
 
 describe.skipIf(skip)("refused callers get the class's refusal", () => {
@@ -778,7 +778,7 @@ describe.skipIf(skip)("allowed callers get through", () => {
 	}
 });
 
-// --- Done item 3: A's workspace with B's child id is a 404 -----------------
+// --- A's workspace with B's child id is a 404 -----------------
 
 // A process id belongs to whichever workspace's agent is asked, so it has no
 // owner of its own to mix in.

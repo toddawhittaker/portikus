@@ -86,7 +86,7 @@ export function registerAuthRoutes(
 			}
 		}
 		if (!loginState) {
-			// A link attempt whose cookie is gone still belongs on the link page (ruling 18).
+			// A link attempt whose cookie is gone still belongs on the link page.
 			const { state } = request.query as { state?: unknown };
 			if (typeof state === "string" && (await findLinkIntent(db, state))) {
 				return reply.redirect("/link?error=expired", 302);
@@ -104,7 +104,7 @@ export function registerAuthRoutes(
 		const callbackUrl = new URL(request.url, auth.publicUrl);
 
 		// A stored intent under this state means the course account asked to
-		// link (docs/archive/epics/EPIC-13-1.md, "The flow" step 3); otherwise a sign-in.
+		// link (ADR 0026); otherwise a sign-in.
 		const intent = await findLinkIntent(db, loginState.state);
 		if (intent) {
 			return linkCallback(request, reply, callbackUrl, loginState, intent);
@@ -147,7 +147,7 @@ export function registerAuthRoutes(
 	});
 
 	/**
-	 * The callback in link mode (ruling 3 and 18): it never creates, updates
+	 * The callback in link mode: it never creates, updates
 	 * or signs in a user. It only binds the SSO account to the intent, and
 	 * every outcome goes to /link.
 	 */

@@ -27,7 +27,7 @@ import { loadLtiDeps, targetPath, toolJwks } from "./lti.js";
 
 /**
  * LTI 1.3 login and launch against a real database and a local keyset
- * (docs/archive/epics/EPIC-13.md, T3; rulings 12 to 22).
+ * (ADR 0025).
  */
 
 const skip = !hasTestDb();
@@ -279,7 +279,7 @@ describe.skipIf(skip)("a good launch", () => {
 			...client,
 		});
 
-		// Nothing secret or personal reaches the log (ruling 9).
+		// Nothing secret or personal reaches the log.
 		const logged = JSON.stringify(lines);
 		for (const secret of [
 			token,
@@ -474,7 +474,7 @@ describe.skipIf(skip)("a good launch", () => {
 		expect(labels[0]).not.toBe(labels[1]);
 	});
 
-	/** Launch, create the workspace, and return its label (SPEC.md, Epic 8; issue #549). */
+	/** Launch, create the workspace, and return its label (BROWSER-HANDLING.md section 8). */
 	async function labelFor(
 		sub: string,
 		claims?: (c: Record<string, unknown>) => void,

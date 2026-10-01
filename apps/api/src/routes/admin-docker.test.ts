@@ -1,7 +1,7 @@
 /**
- * The Docker admin routes (issue #840): administrator only, every change
+ * The Docker admin routes: administrator only, every change
  * audited without the token, helper requests written atomically with mode
- * 0600, and a usage report that carries counts only (rulings S5, S7, S8).
+ * 0600, and a usage report that carries counts only.
  */
 import {
 	mkdir,
@@ -575,7 +575,7 @@ describe.skipIf(skip)("GET /admin/docker/usage (ruling S7)", () => {
 					pulls: 3,
 					last_seen: recent,
 				},
-				// The same image and workspace on a day outside the window (review F1).
+				// The same image and workspace on a day outside the window.
 				{
 					image: "docker.io/library/redis:7",
 					workspace_id: a,

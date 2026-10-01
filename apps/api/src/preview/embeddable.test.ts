@@ -241,7 +241,7 @@ test("an application that cannot be reached is reported as unreachable", async (
 	});
 });
 
-// ── A development server that refuses the preview host (issue #262) ──
+// ── A development server that refuses the preview host ──
 
 const REFUSED_HOST = PREVIEW_HOST;
 
@@ -373,7 +373,7 @@ test("a page that merely mentions server.allowedHosts is not a refusal", () => {
 	).toBe(null);
 });
 
-// ── Over HTTPS, as `vite --https` serves (issue #283, ADR 0041) ──
+// ── Over HTTPS, as `vite --https` serves (ADR 0041) ──
 
 function selfSigned(): { key: Buffer; cert: Buffer } {
 	const dir = mkdtempSync(join(tmpdir(), "portikus-probe-tls-"));

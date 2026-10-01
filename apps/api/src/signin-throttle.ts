@@ -7,8 +7,7 @@ import { fromLoopback } from "./loopback.js";
 import { createCounter, type Window } from "./rate-limit.js";
 
 /**
- * The sign-in rate limit (issue #398; docs/archive/epics/EPIC-12B.md, "Sign-in rate
- * limit"). Counts live in this process, which the pilot runs one of.
+ * The sign-in rate limit (SPEC.md section 5.3). Counts live in this process, which the pilot runs one of.
  */
 
 const MINUTE_MS = 60_000;
@@ -17,7 +16,7 @@ const TEN_MINUTES_MS = 10 * MINUTE_MS;
 const PASSWORD_TOTAL_FACTOR = 10;
 /** The path Caddy asks about for Dex's sign-in pages and password form. */
 export const EDGE_THROTTLE_PATH = "/edge/signin-throttle";
-// An LTI launch is a sign-in start too (docs/archive/epics/EPIC-13.md ruling 21).
+// An LTI launch is a sign-in start too.
 const START_ROUTES = new Set([
 	"/auth/login",
 	"/auth/callback",
@@ -156,7 +155,7 @@ export function registerSigninThrottleRoute(app: FastifyInstance): void {
 
 /**
  * Wrong current passwords on the change form: ten per account in ten
- * minutes (SPEC.md section 5.3; Todd's ruling of 2026-09-25). Each try is
+ * minutes (SPEC.md section 5.3). Each try is
  * counted before Dex is asked, so parallel requests cannot slip past the
  * limit, and handed back when it was not a wrong password.
  */

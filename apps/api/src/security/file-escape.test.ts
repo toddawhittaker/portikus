@@ -30,8 +30,8 @@ import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
 /**
  * File operations through the API, in front of two REAL agents with separate
- * homes, reach only the caller's selected project (SPEC.md §11.1, §24.6;
- * Epic 12a Done item 7). Student A owns projects alpha and beta; student B
+ * homes, reach only the caller's selected project (SPEC.md §11.1, §24.6).
+ * Student A owns projects alpha and beta; student B
  * owns a project also called alpha, in another home. Every spelling is sent
  * raw, so nothing between the browser and the agent decodes it twice.
  */

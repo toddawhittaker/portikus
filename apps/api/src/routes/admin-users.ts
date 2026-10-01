@@ -73,7 +73,7 @@ async function listDexUserIds(
 }
 
 /**
- * A local Dex password this site manages (docs/archive/epics/EPIC-14.md ruling 24). Under
+ * A local Dex password this site manages. Under
  * Dex in front of an upstream provider, only the local (guest) accounts. While
  * Dex does not answer, the subject alone decides, so a click reports the outage.
  */
@@ -88,7 +88,7 @@ function isDexLocal(
 	return dexUserIds === "unknown" || dexUserIds.has(userId);
 }
 
-/** Every account with its markers and workspace (issue #302). */
+/** Every account with its markers and workspace. */
 export async function listAdminUsers({
 	db,
 	config,

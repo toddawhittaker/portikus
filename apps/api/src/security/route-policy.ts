@@ -1,6 +1,6 @@
 /**
- * The access class of every route the API registers (Epic 12a, "The matrix";
- * SPEC.md sections 5, 20.2, and 24). It lives on the test side, so a route
+ * The access class of every route the API registers (SPEC.md sections
+ * 5, 20.2, and 24). It lives on the test side, so a route
  * cannot opt out of a check it cannot see. `authz-matrix.test.ts` fails when
  * a registered route is missing here, or when an entry here names a route
  * that no longer exists.
@@ -47,7 +47,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	// Every /auth/ route is exempt; signing out with no session is a harmless
 	// redirect, and the CSRF check still applies.
 	"POST /auth/logout": { access: "public" },
-	// Loopback only; Caddy asks it before Dex's password form (issue #398).
+	// Loopback only; Caddy asks it before Dex's password form.
 	"GET /edge/signin-throttle": { access: "public" },
 	"HEAD /edge/signin-throttle": { access: "public" },
 	// Loopback only; Caddy's on-demand TLS asks it (SPEC.md 20.1).
@@ -57,8 +57,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /.well-known/portikus-preflight/:nonce": { access: "public" },
 	"HEAD /.well-known/portikus-preflight/:nonce": { access: "public" },
 
-	// LTI 1.3 login and launch; the two POSTs are CSRF-exempt (docs/archive/epics/EPIC-13.md
-	// ruling 7). With no platforms file every one answers 404.
+	// LTI 1.3 login and launch; the two POSTs are CSRF-exempt
+	// (ADR 0025). With no platforms file every one answers 404.
 	"GET /lti/login": { access: "public" },
 	"HEAD /lti/login": { access: "public" },
 	"POST /lti/login": { access: "public" },
@@ -86,7 +86,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"PATCH /me/notifications/:id": { access: "self" },
 	"POST /me/notifications/read-all": { access: "self" },
 	"POST /workspaces": { access: "self" },
-	// Account linking (docs/archive/epics/EPIC-13-1.md, "The flow"); each checks its own state.
+	// Account linking (ADR 0026); each checks its own state.
 	"GET /me/links": { access: "self" },
 	"HEAD /me/links": { access: "self" },
 	"POST /me/links/start": { access: "self" },
@@ -217,7 +217,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /admin/workspaces/:id/processes": { access: "admin" },
 	"POST /admin/workspaces/:id/processes/refresh": { access: "admin" },
 	"POST /admin/workspaces/:id/processes/:pid/stop": { access: "admin" },
-	// The workspace egress policy (issue #284).
+	// The workspace egress policy.
 	"GET /admin/egress": { access: "admin" },
 	"HEAD /admin/egress": { access: "admin" },
 	"PUT /admin/egress/mode": { access: "admin" },
@@ -270,7 +270,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/certificate/preflight": { access: "admin" },
 	"GET /admin/certificate/root.crt": { access: "admin" },
 	"HEAD /admin/certificate/root.crt": { access: "admin" },
-	// Shared Docker pull storage (issue #840).
+	// Shared Docker pull storage.
 	"GET /admin/docker": { access: "admin" },
 	"HEAD /admin/docker": { access: "admin" },
 	"PUT /admin/docker/settings": { access: "admin" },

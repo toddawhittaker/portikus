@@ -19,7 +19,7 @@ export function fromJson<T>(value: unknown): T | null {
 
 /**
  * The throttle numbers the student is shown, never the allowance string,
- * with when it lifts on its own from the settings row (#596).
+ * with when it lifts on its own from the settings row.
  */
 function toStudentThrottle(
 	value: unknown,

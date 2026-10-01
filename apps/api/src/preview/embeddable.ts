@@ -21,7 +21,7 @@
  *  - Nothing from the answer but the two framing headers is looked at or
  *    returned, with one narrow exception: when the application answers 403,
  *    the first few kilobytes are matched against the fixed sentences Vite
- *    and webpack-dev-server use to refuse an unknown `Host` (issue #262).
+ *    and webpack-dev-server use to refuse an unknown `Host`.
  *    Only which of those sentences matched leaves this file; no application
  *    content is returned, stored, or logged.
  *
@@ -38,7 +38,7 @@ const PROBE_TIMEOUT_MS = 3_000;
 
 /**
  * How much of a refused answer is read while looking for a development
- * server's "this host is not allowed" message (issue #262). Nothing read
+ * server's "this host is not allowed" message. Nothing read
  * here is returned or logged; only the match is.
  */
 export const MAX_REFUSAL_BODY_BYTES = 4_096;
@@ -266,7 +266,7 @@ function ask(
  * `HEAD /` first, because it costs the application least; an application
  * that refuses HEAD gets one `GET /`. The body of that answer is read only
  * when the status is 403, only up to MAX_REFUSAL_BODY_BYTES, and only to see
- * whether a development server is refusing the preview host (issue #262).
+ * whether a development server is refusing the preview host.
  * No part of it is returned, stored, or logged.
  */
 export async function probeEmbeddable(

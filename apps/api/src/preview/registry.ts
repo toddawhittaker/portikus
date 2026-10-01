@@ -69,7 +69,7 @@ export interface ListeningRegistry {
 	service(workspaceId: string, port: number): ListeningService | undefined;
 	/**
 	 * One service by port with its protocol settled: the agent probes the
-	 * port for TLS the first time a preview asks (issue #957). When the agent
+	 * port for TLS the first time a preview asks. When the agent
 	 * cannot answer, the service comes back with its unprobed hint.
 	 */
 	serviceWithProtocol(
@@ -112,7 +112,7 @@ export interface ProbeGuard {
 }
 
 /**
- * Guards the agent's TLS probe (issue #957). The authorize route has no rate
+ * Guards the agent's TLS probe. The authorize route has no rate
  * limit, so a crashed or hostile agent must cost the shared API at most one
  * call per port per memo window, and concurrent requests share one call.
  * A final answer is memoised too: an agent that re-reports the port as

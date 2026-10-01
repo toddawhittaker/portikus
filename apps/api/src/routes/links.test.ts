@@ -21,8 +21,7 @@ import { buildServer } from "../server.js";
 import { PUBLIC_URL, testConfig } from "../test-support.js";
 
 /**
- * Linking a course account to an SSO account (docs/archive/epics/EPIC-13-1.md, "The
- * flow" and "Security invariants to test").
+ * Linking a course account to an SSO account (ADR 0026).
  */
 
 const skip = !hasTestDb();

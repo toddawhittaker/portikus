@@ -211,7 +211,7 @@ test.skipIf(skip)("the removed connection routes are gone", async () => {
 	expect(res.statusCode).toBe(404);
 });
 
-// --- workspace label (SPEC.md Epic 8, BROWSER-HANDLING.md section 8) ---
+// --- workspace label (BROWSER-HANDLING.md section 8) ---
 
 test.skipIf(skip)("a new workspace is labelled after the login username", async () => {
 	const created = await post("/workspaces", alice);
@@ -305,7 +305,7 @@ test.skipIf(skip)(
 	},
 );
 
-// --- Keep running until (#955) ---
+// --- Keep running until ---
 
 function keepRunning(
 	id: string,
