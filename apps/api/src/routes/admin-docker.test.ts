@@ -821,6 +821,21 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 		});
 	});
 
+	test("a default seed that fails the seed-list check is never written (review S2-L3)", async () => {
+		// A Node major too long for an image tag (128 characters at most).
+		await activeImage("2026.09.15", `v24${"9".repeat(130)}.0.0`, "Python 3.13.5");
+		await send(carol, "GET", "/admin/docker");
+		const row = await testDb.db
+			.selectFrom("settings")
+			.select(["docker_seed_images", "docker_seed_images_set"])
+			.where("id", "=", 1)
+			.executeTakeFirstOrThrow();
+		expect(row.docker_seed_images_set).toBe(false);
+		expect(
+			(await dockerAudits()).some((a) => a.action === "docker.seed_images_defaulted"),
+		).toBe(false);
+	});
+
 	test("a list an administrator emptied stays empty, even after an image change", async () => {
 		await send(carol, "PUT", "/admin/docker/seed/images", { images: [] });
 		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");

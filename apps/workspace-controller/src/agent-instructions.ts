@@ -36,8 +36,8 @@ const ROOT_FILE = { uid: 0, gid: 0, mode: "0644" } as const;
 /**
  * Put `body` at `path` without ever reading or opening what is there: a
  * student who is root can leave a named pipe, and opening one blocks.
- * Deleting first replaces a pipe, link or file alike; a non-empty directory
- * cannot be deleted, so it is refused.
+ * Deleting first replaces a pipe, link or file alike; anything that cannot
+ * be deleted, such as a non-empty directory, is refused.
  */
 export async function replaceFile(
 	client: FilesClient,
@@ -50,7 +50,7 @@ export async function replaceFile(
 		await client.deleteFile(name, path, signal);
 	} catch (err) {
 		if (!(err instanceof IncusError && err.code === "NOT_FOUND")) {
-			throw new Error(`${path} cannot be replaced (is it a directory?)`);
+			throw new Error(`${path} cannot be replaced: ${(err as Error).message}`);
 		}
 	}
 	await client.pushFile(name, path, body, ROOT_FILE, signal);
@@ -58,7 +58,9 @@ export async function replaceFile(
 
 /**
  * Write both system files from the template, undoing any edit or deletion.
- * Does nothing when the host has no template.
+ * Does nothing when the host has no template. Each file is tried on its own,
+ * so one that cannot be written does not skip the other; the failures are
+ * thrown together afterwards.
  */
 export async function writeAgentInstructions(
 	client: FilesClient,
@@ -77,10 +79,17 @@ export async function writeAgentInstructions(
 		["/etc/claude-code", CLAUDE_SYSTEM_PATH, template],
 		["/etc/codex", CODEX_SYSTEM_PATH, codexSystemConfig(template)],
 	];
+	const failures: string[] = [];
 	for (const [dir, path, body] of files) {
-		// Creates the folder or keeps an existing one; fails on anything else there.
-		await client.pushFile(name, dir, "", ROOT_DIR, signal);
-		await replaceFile(client, name, path, body, signal);
+		try {
+			// Incus answers success whatever already sits at the folder path;
+			// a non-folder there makes the file push below fail instead.
+			await client.pushFile(name, dir, "", ROOT_DIR, signal);
+			await replaceFile(client, name, path, body, signal);
+		} catch (err) {
+			failures.push(`${path}: ${err instanceof Error ? err.message : String(err)}`);
+		}
 	}
+	if (failures.length > 0) throw new Error(failures.join("; "));
 	return true;
 }

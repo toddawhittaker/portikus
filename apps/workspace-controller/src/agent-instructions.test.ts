@@ -42,7 +42,13 @@ class FakeFiles {
 		opts: { uid: number; mode: string; type?: "file" | "directory" },
 	) {
 		const entry = this.files.get(path);
-		if (opts.type === "directory" && entry && entry.type !== "directory") {
+		// Incus answers success for a folder push onto any existing path.
+		if (opts.type === "directory" && entry) {
+			this.ops.push(`POST ${path}`);
+			return;
+		}
+		const parent = this.files.get(path.slice(0, path.lastIndexOf("/")));
+		if (parent && parent.type !== "directory") {
 			throw new IncusError("OPERATION_FAILED", "not a directory");
 		}
 		if (opts.type !== "directory" && entry && entry.type !== "file") {
@@ -143,6 +149,16 @@ describe("writeAgentInstructions", () => {
 		files.files.set("/etc/claude-code", { type: "fifo", content: "" });
 		await expect(writeAgentInstructions(files, "ws-a", templatePath)).rejects.toThrow(
 			/not a directory/,
+		);
+	});
+
+	test("one file that cannot be written does not skip the other", async () => {
+		files.files.set("/etc/claude-code", { type: "file", content: "student" });
+		await expect(writeAgentInstructions(files, "ws-a", templatePath)).rejects.toThrow(
+			CLAUDE_SYSTEM_PATH,
+		);
+		expect(files.files.get(CODEX_SYSTEM_PATH)?.content).toBe(
+			codexSystemConfig(TEMPLATE),
 		);
 	});
 });

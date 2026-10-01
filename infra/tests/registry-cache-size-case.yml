@@ -4,8 +4,7 @@
   ansible.builtin.include_tasks: ../ansible/roles/registry_cache/tasks/size.yml
   vars:
     portikus_registry_cache_gib: "{{ size_case.want }}"
-    registry_cache_free_bytes: "{{ size_case.free }}"
-    registry_cache_existing_bytes: "{{ size_case.existing }}"
+    registry_cache_room_bytes: "{{ size_case.free | int + size_case.existing | int }}"
 
 - name: Check the size for {{ size_case.name }}
   ansible.builtin.assert:
