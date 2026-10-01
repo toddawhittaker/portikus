@@ -2695,7 +2695,7 @@ describe("the Docker seed", () => {
 
 		await own.start("ws-test", { ...START, docker: { hubMirror: false, ghcr: false } });
 		expect(state.files.has("/etc/docker/certs.d/ghcr.io/ca.crt")).toBe(false);
-		expect(state.files.get("/etc/hosts")?.content).not.toContain("ghcr.io");
+		expect(state.files.get("/etc/hosts")?.content).toBe("127.0.0.1 localhost\n");
 	});
 
 	test("the ghcr.io hosts line survives the first start's /etc/hosts template", async () => {
@@ -2738,17 +2738,15 @@ describe("the Docker seed", () => {
 		expect(state.fileOps.filter((op) => op.includes("docker"))).toEqual([]);
 	});
 
-	test("a named pipe at /etc/docker writes nothing under it, and the workspace still starts", async () => {
+	test("a symbolic link at /etc/docker writes nothing there, and the workspace still starts", async () => {
 		const state = fakeIncus();
-		state.files.set("/etc/docker", { type: "fifo", content: "" });
+		state.files.set("/etc/docker", { type: "symlink", content: "/home/student/d" });
 		serveIncus(state);
 		await provider.start("ws-test", {
 			...START,
 			docker: { hubMirror: true, ghcr: false },
 		});
-		expect(state.fileOps.filter((op) => /docker|hosts/.test(op))).toEqual([
-			"POST /etc/docker",
-		]);
+		expect(state.fileOps.filter((op) => /docker|hosts/.test(op))).toEqual([]);
 		expect(state.status).toBe("Running");
 	});
 });

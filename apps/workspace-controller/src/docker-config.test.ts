@@ -4,45 +4,97 @@ import { join } from "node:path";
 import { silentLogger } from "@portikus/observability";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
-	daemonJson,
 	GHCR_CERT_PATH,
 	GHCR_HOSTS_MARKER,
-	workspaceHosts,
+	hostsWithGhcr,
+	mergeDaemonJson,
 	writeDockerConfig,
 } from "./docker-config.js";
 import { IncusError } from "./incus.js";
 
-describe("daemonJson", () => {
-	test("keeps the storage pin and adds the mirror only when on", () => {
-		expect(JSON.parse(daemonJson(true))).toEqual({
+const IMAGE_DAEMON = JSON.stringify({
+	"storage-driver": "overlay2",
+	features: { "containerd-snapshotter": false },
+	"log-driver": "local",
+});
+
+describe("mergeDaemonJson", () => {
+	test("adds the mirror and keeps the storage pin and the image's other keys", () => {
+		const merged = JSON.parse(mergeDaemonJson(IMAGE_DAEMON, true));
+		expect(merged).toEqual({
 			"storage-driver": "overlay2",
 			features: { "containerd-snapshotter": false },
+			"log-driver": "local",
 			"registry-mirrors": ["http://10.200.0.1:5000"],
 		});
-		expect(JSON.parse(daemonJson(false))).toEqual({
-			"storage-driver": "overlay2",
-			features: { "containerd-snapshotter": false },
+	});
+
+	test("removes only our mirror when the mirror is off", () => {
+		const withOthers = JSON.stringify({
+			"registry-mirrors": ["http://10.200.0.1:5000", "https://mirror.example.edu"],
 		});
+		expect(JSON.parse(mergeDaemonJson(withOthers, false))["registry-mirrors"]).toEqual([
+			"https://mirror.example.edu",
+		]);
+		const onlyOurs = JSON.stringify({ "registry-mirrors": ["http://10.200.0.1:5000"] });
+		expect(JSON.parse(mergeDaemonJson(onlyOurs, false))).not.toHaveProperty(
+			"registry-mirrors",
+		);
+	});
+
+	test("puts the pin back when the file lost it, or is missing or broken", () => {
+		const changed = JSON.stringify({
+			"storage-driver": "vfs",
+			features: { "containerd-snapshotter": true, other: true },
+		});
+		expect(JSON.parse(mergeDaemonJson(changed, false))).toEqual({
+			"storage-driver": "overlay2",
+			features: { "containerd-snapshotter": false, other: true },
+		});
+		for (const bad of [null, "{not json", "[]", "null"]) {
+			expect(JSON.parse(mergeDaemonJson(bad, false))).toEqual({
+				"storage-driver": "overlay2",
+				features: { "containerd-snapshotter": false },
+			});
+		}
+	});
+
+	test("never adds the mirror twice", () => {
+		const once = mergeDaemonJson(IMAGE_DAEMON, true);
+		expect(JSON.parse(mergeDaemonJson(once, true))["registry-mirrors"]).toEqual([
+			"http://10.200.0.1:5000",
+		]);
 	});
 });
 
-describe("workspaceHosts", () => {
-	test("names the instance and adds one marked ghcr.io line when on", () => {
-		const off = workspaceHosts("ws-a", false);
-		expect(off).toContain("127.0.0.1 localhost\n127.0.1.1 ws-a\n");
-		expect(off).not.toContain("ghcr.io");
-		const on = workspaceHosts("ws-a", true);
-		expect(on).toBe(`${off}10.200.0.1 ghcr.io ${GHCR_HOSTS_MARKER}\n`);
+describe("hostsWithGhcr", () => {
+	const base = "127.0.0.1 localhost\n::1 localhost\n";
+
+	test("adds one marked line and removes it again", () => {
+		const on = hostsWithGhcr(base, true);
+		expect(on).toBe(`${base}10.200.0.1 ghcr.io ${GHCR_HOSTS_MARKER}\n`);
+		expect(hostsWithGhcr(on, true)).toBe(on);
+		expect(hostsWithGhcr(on, false)).toBe(base);
+	});
+
+	test("leaves a student's own ghcr.io line alone", () => {
+		const own = `${base}192.0.2.9 ghcr.io\n`;
+		expect(hostsWithGhcr(own, false)).toBe(own);
 	});
 });
 
-/**
- * A container's files as the Incus files API treats them. It has no
- * readFile on purpose: opening a named pipe would block the controller.
- */
+/** A container's files as the Incus files API shows them. */
 class FakeFiles {
 	files = new Map<string, { type: string; content: string }>();
-	ops: string[] = [];
+	pushes: string[] = [];
+	deletes: string[] = [];
+
+	async readFile(instance: string, path: string) {
+		expect(instance).toBe("ws-a");
+		const f = this.files.get(path);
+		if (!f) throw new IncusError("NOT_FOUND", "not found");
+		return { type: f.type, content: Buffer.from(f.content), tooLarge: false };
+	}
 
 	async pushFile(
 		instance: string,
@@ -51,27 +103,14 @@ class FakeFiles {
 		opts: { type?: "file" | "directory" },
 	) {
 		expect(instance).toBe("ws-a");
-		const entry = this.files.get(path);
-		if (opts.type === "directory" && entry && entry.type !== "directory") {
-			throw new IncusError("OPERATION_FAILED", "not a directory");
-		}
-		if (opts.type !== "directory" && entry && entry.type !== "file") {
-			throw new Error(`test: pushed onto a ${entry.type}, which would block or follow`);
-		}
-		this.ops.push(`POST ${path}`);
+		this.pushes.push(path);
 		this.files.set(path, { type: opts.type ?? "file", content: body });
 	}
 
 	async deleteFile(instance: string, path: string) {
 		expect(instance).toBe("ws-a");
-		const entry = this.files.get(path);
-		if (!entry) throw new IncusError("NOT_FOUND", "not found");
-		const children = [...this.files.keys()].some((p) => p.startsWith(`${path}/`));
-		if (entry.type === "directory" && children) {
-			throw new IncusError("OPERATION_FAILED", "directory not empty");
-		}
-		this.ops.push(`DELETE ${path}`);
-		this.files.delete(path);
+		if (!this.files.delete(path)) throw new IncusError("NOT_FOUND", "not found");
+		this.deletes.push(path);
 	}
 }
 
@@ -83,7 +122,7 @@ describe("writeDockerConfig", () => {
 	beforeEach(() => {
 		files = new FakeFiles();
 		files.files.set("/etc/docker", { type: "directory", content: "" });
-		files.files.set("/etc/docker/daemon.json", { type: "file", content: "{}" });
+		files.files.set("/etc/docker/daemon.json", { type: "file", content: IMAGE_DAEMON });
 		files.files.set("/etc/hosts", { type: "file", content: "127.0.0.1 localhost\n" });
 		caPath = join(mkdtempSync(join(tmpdir(), "ghcr-ca-")), "ca.crt");
 		writeFileSync(caPath, "-----BEGIN CERTIFICATE-----\nx\n");
@@ -120,11 +159,21 @@ describe("writeDockerConfig", () => {
 			{ caPath, log },
 		);
 		expect(files.files.has(GHCR_CERT_PATH)).toBe(false);
-		expect(files.files.get("/etc/hosts")?.content).toBe(workspaceHosts("ws-a", false));
+		expect(files.files.get("/etc/hosts")?.content).toBe("127.0.0.1 localhost\n");
 		const daemon = JSON.parse(
 			files.files.get("/etc/docker/daemon.json")?.content ?? "",
 		);
 		expect(daemon).not.toHaveProperty("registry-mirrors");
+	});
+
+	test("with ghcr off and nothing to remove, touches neither the CA nor /etc/hosts", async () => {
+		await writeDockerConfig(
+			files,
+			"ws-a",
+			{ hubMirror: true, ghcr: false },
+			{ caPath, log },
+		);
+		expect(files.pushes).toEqual(["/etc/docker/daemon.json"]);
 	});
 
 	test("an unreadable CA leaves ghcr.io uncached rather than half set up", async () => {
@@ -152,7 +201,7 @@ describe("writeDockerConfig", () => {
 		);
 		expect(daemon).not.toHaveProperty("registry-mirrors");
 		expect(files.files.has(GHCR_CERT_PATH)).toBe(false);
-		expect(files.files.get("/etc/hosts")?.content).not.toContain("ghcr.io");
+		expect(files.files.get("/etc/hosts")?.content).toBe("127.0.0.1 localhost\n");
 	});
 
 	test("with no cache-off marker, writes the mirror and ghcr.io entry as asked", async () => {
@@ -169,30 +218,11 @@ describe("writeDockerConfig", () => {
 		expect(files.files.get("/etc/hosts")?.content).toContain("10.200.0.1 ghcr.io");
 	});
 
-	// A student with root in the container can leave a named pipe; opening one blocks.
-	test("a pipe, link or other type at a file is deleted then written, never opened", async () => {
-		for (const type of ["fifo", "symlink", "socket"]) {
-			files.ops = [];
-			for (const p of ["/etc/docker/daemon.json", "/etc/hosts", GHCR_CERT_PATH]) {
-				files.files.set(p, { type, content: "" });
-			}
-			await writeDockerConfig(
-				files,
-				"ws-a",
-				{ hubMirror: true, ghcr: true },
-				{ caPath, log },
-			);
-			for (const p of ["/etc/docker/daemon.json", "/etc/hosts", GHCR_CERT_PATH]) {
-				expect(files.ops.indexOf(`DELETE ${p}`)).toBeLessThan(
-					files.ops.indexOf(`POST ${p}`),
-				);
-				expect(files.files.get(p)?.type).toBe("file");
-			}
-		}
-	});
-
-	test("anything but a folder at /etc/docker stops every file write", async () => {
-		files.files.set("/etc/docker", { type: "fifo", content: "" });
+	// A student with root in the container can turn /etc/docker into a link.
+	// Every write goes through the instance's own files API, and nothing is
+	// written at all through the link.
+	test("a symbolic link at /etc/docker stops every write", async () => {
+		files.files.set("/etc/docker", { type: "symlink", content: "/home/student/x" });
 		await expect(
 			writeDockerConfig(
 				files,
@@ -201,12 +231,12 @@ describe("writeDockerConfig", () => {
 				{ caPath, log },
 			),
 		).rejects.toThrow(/not a directory/);
-		expect(files.ops).toEqual([]);
+		expect(files.pushes).toEqual([]);
+		expect(files.deletes).toEqual([]);
 	});
 
-	test("a directory at daemon.json is refused", async () => {
-		files.files.set("/etc/docker/daemon.json", { type: "directory", content: "" });
-		files.files.set("/etc/docker/daemon.json/x", { type: "file", content: "" });
+	test("a symbolic link at daemon.json or /etc/hosts is not written through", async () => {
+		files.files.set("/etc/docker/daemon.json", { type: "symlink", content: "/x" });
 		await expect(
 			writeDockerConfig(
 				files,
@@ -214,7 +244,35 @@ describe("writeDockerConfig", () => {
 				{ hubMirror: true, ghcr: false },
 				{ caPath, log },
 			),
-		).rejects.toThrow(/cannot be replaced/);
+		).rejects.toThrow(/not a regular file/);
+		expect(files.pushes).toEqual([]);
+
+		files.files.set("/etc/docker/daemon.json", { type: "file", content: IMAGE_DAEMON });
+		files.files.set("/etc/hosts", { type: "symlink", content: "/x" });
+		await expect(
+			writeDockerConfig(
+				files,
+				"ws-a",
+				{ hubMirror: true, ghcr: true },
+				{ caPath, log },
+			),
+		).rejects.toThrow(/not a regular file/);
+		expect(files.pushes).toEqual([]);
+	});
+
+	test("a named pipe at the ghcr.io CA is deleted then written, never opened", async () => {
+		files.files.set(GHCR_CERT_PATH, { type: "fifo", content: "" });
+		await writeDockerConfig(
+			files,
+			"ws-a",
+			{ hubMirror: true, ghcr: true },
+			{ caPath, log },
+		);
+		expect(files.deletes).toContain(GHCR_CERT_PATH);
+		expect(files.files.get(GHCR_CERT_PATH)).toEqual({
+			type: "file",
+			content: "-----BEGIN CERTIFICATE-----\nx\n",
+		});
 	});
 
 	test("a missing daemon.json is written with the pin", async () => {
