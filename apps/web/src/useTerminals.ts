@@ -15,9 +15,7 @@ import { useToast } from "@portikus/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { z } from "zod";
-import { ApiError, request, SessionEndedError } from "./api/request.js";
-
-const JSON_HEADERS = { "content-type": "application/json" };
+import { ApiError, postJson, request, SessionEndedError } from "./api/request.js";
 
 /** How often an idle tab re-reads the list, so a second browser's terminal shows up. */
 const REFETCH_MS = 15_000;
@@ -80,14 +78,10 @@ export function useTerminals(
 		mutationFn: (init?: { name?: string; agent?: CodingAgent }) =>
 			// The API answers with the created terminal. A launcher sends the
 			// agent enum and no command string (SPEC.md §10.2).
-			request(Terminal, url, {
-				method: "POST",
-				headers: JSON_HEADERS,
-				body: JSON.stringify({
-					projectId,
-					...(init?.name ? { name: init.name } : {}),
-					...(init?.agent ? { agent: init.agent } : {}),
-				}),
+			postJson(Terminal, url, {
+				projectId,
+				...(init?.name ? { name: init.name } : {}),
+				...(init?.agent ? { agent: init.agent } : {}),
 			}),
 		// No refetch here on purpose: a list answer holding a terminal the caller
 		// has not placed yet would be reconciled into a tab of its own. The
@@ -109,22 +103,14 @@ export function useTerminals(
 
 	const rename = useMutation({
 		mutationFn: ({ terminalId, name }: { terminalId: string; name: string }) =>
-			request(Terminal, `${url}/${terminalId}`, {
-				method: "PATCH",
-				headers: JSON_HEADERS,
-				body: JSON.stringify({ name }),
-			}),
+			postJson(Terminal, `${url}/${terminalId}`, { name }, "PATCH"),
 		onSuccess: invalidate,
 		onError: showFailure,
 	});
 
 	const setTheme = useMutation({
 		mutationFn: ({ terminalId, theme }: { terminalId: string; theme: TerminalTheme }) =>
-			request(Terminal, `${url}/${terminalId}`, {
-				method: "PATCH",
-				headers: JSON_HEADERS,
-				body: JSON.stringify({ theme }),
-			}),
+			postJson(Terminal, `${url}/${terminalId}`, { theme }, "PATCH"),
 		// The pane repaints from the cached row, so write it back at once
 		// rather than waiting for the next list answer.
 		onSuccess: (terminal) => {

@@ -14,8 +14,8 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useState } from "react";
+import { errorText } from "../../api/request.js";
 import { ConfirmByLabelDialog } from "../ConfirmByLabelDialog.js";
-import { errorText } from "../SettingsTab.js";
 import { setTime, workspaceName } from "./model.js";
 import { useAdminBackups, useRestoreCopy } from "./queries.js";
 

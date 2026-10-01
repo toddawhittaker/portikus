@@ -8,7 +8,7 @@
 import { ProjectLayout } from "@portikus/contracts";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { request } from "../api/request.js";
+import { postJson, request } from "../api/request.js";
 import { readLocalLayout, writeLocalLayout } from "./local.js";
 import type { LayoutStore } from "./store.js";
 
@@ -90,11 +90,7 @@ export function useLayoutPersistence(
 			const state = store.getState();
 			if (!state.dirty) return;
 			state.clearDirty();
-			void request(z.unknown(), url, {
-				method: "PUT",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(state.layout),
-			}).catch(() => {
+			void postJson(z.unknown(), url, state.layout, "PUT").catch(() => {
 				// A failed save is retried by the next change; the layout is a
 				// convenience, not the user's work.
 			});

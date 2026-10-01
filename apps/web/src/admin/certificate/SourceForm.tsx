@@ -21,8 +21,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
-import { ApiError } from "../../api/request.js";
-import { errorText } from "../SettingsTab.js";
+import { ApiError, errorText } from "../../api/request.js";
 import {
 	type CertificateForm,
 	type ChallengeMode,

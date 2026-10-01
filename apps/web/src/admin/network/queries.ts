@@ -6,7 +6,7 @@ import {
 	type EgressPresetId,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, request } from "../../api/request.js";
+import { ApiError, errorText, request } from "../../api/request.js";
 
 export const egressKey = ["admin", "egress"] as const;
 
@@ -34,8 +34,7 @@ export function egressErrorText(error: unknown): string {
 	if (isStale(error)) {
 		return "Someone else changed the network policy, so it was reloaded. Check it and try again.";
 	}
-	if (error instanceof ApiError) return error.message;
-	return "Something went wrong. Please try again.";
+	return errorText(error);
 }
 
 function send(method: string, url: string, body?: unknown): Promise<AdminEgressView> {

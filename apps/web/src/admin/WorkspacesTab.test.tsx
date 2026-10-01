@@ -9,12 +9,10 @@ import {
 	bulkOutcome,
 	filterAccounts,
 	isFiltered,
-	joinNames,
 	NO_FILTERS,
 	olderImageTargets,
 	rebuildTitle,
 	rebuildWarning,
-	timeAgo,
 } from "./WorkspacesTab.js";
 
 const NONE = {
@@ -144,13 +142,8 @@ test("activity is Now with the connection count while connected, otherwise the t
 	);
 	expect(
 		activityText(summary({ lastActiveConnectionAt: "2026-09-22T11:56:00.000Z" }), now),
-	).toBe("4 min ago");
+	).toBe("4 minutes ago");
 	expect(activityText(summary(), now)).toBe("—");
-	expect(timeAgo("2026-09-22T09:00:00.000Z", now)).toBe("3 h ago");
-	expect(timeAgo("2026-09-21T11:00:00.000Z", now)).toBe("1 day ago");
-	expect(timeAgo("2026-08-22T11:00:00.000Z", now)).toBe("31 days ago");
-	expect(timeAgo("2026-09-22T11:59:40.000Z", now)).toBe("Just now");
-	expect(timeAgo(null, now)).toBe("—");
 });
 
 test("the text filter also matches the username and the source", () => {
@@ -196,8 +189,6 @@ test("a bulk action applies only where it changes something", () => {
 	expect(bulkApplies("archive", dave, "me")).toBe(false);
 	expect(bulkApplies("unarchive", dave, "me")).toBe(true);
 	expect(bulkApplies("unarchive", alice, "me")).toBe(false);
-	expect(joinNames(["A"])).toBe("A");
-	expect(joinNames(["A", "B", "C"])).toBe("A, B and C");
 });
 
 // Rendered tests: rows need real ids to pass the contract.

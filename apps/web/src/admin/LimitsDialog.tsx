@@ -6,7 +6,7 @@ import {
 } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
-import { announced } from "./SettingsTab.js";
+import { announced } from "../common/announced.js";
 
 /** The terminals unit's own TasksMax, which a higher process limit does not raise (SPEC.md section 19.3). */
 export const TERMINALS_TASKS_MAX = 1700;

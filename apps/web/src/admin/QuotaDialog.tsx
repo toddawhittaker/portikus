@@ -6,7 +6,7 @@ import {
 } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
-import { announced } from "./SettingsTab.js";
+import { announced } from "../common/announced.js";
 
 export interface QuotaProblem {
 	message: string;

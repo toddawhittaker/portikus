@@ -8,7 +8,7 @@ import {
 	type BackupRestoreRequest,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { request, toApiError } from "../../api/request.js";
+import { postJson, request, toApiError } from "../../api/request.js";
 
 export const backupsKey = ["admin", "backups"] as const;
 
@@ -133,11 +133,7 @@ export function useUploadBackupKey() {
 	const client = useQueryClient();
 	return useMutation({
 		mutationFn: (body: BackupKeyUpload) =>
-			request(BackupKeyUploadResult, "/admin/backups/key", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(body),
-			}),
+			postJson(BackupKeyUploadResult, "/admin/backups/key", body),
 		onSuccess: (result) => {
 			client.setQueryData(backupKeyKey, result.key);
 		},

@@ -7,7 +7,7 @@
  */
 import { PreviewEmbeddableResponse, PreviewGrantResponse } from "@portikus/contracts";
 import { z } from "zod";
-import { request } from "../api/request.js";
+import { postJson, request } from "../api/request.js";
 
 export type Grant = PreviewGrantResponse;
 
@@ -18,10 +18,9 @@ export async function requestGrant(
 	port: number,
 	presentation: "embedded" | "top-level",
 ): Promise<Grant> {
-	return request(PreviewGrantResponse, `/workspaces/${workspaceId}/preview-grants`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ port, presentation }),
+	return postJson(PreviewGrantResponse, `/workspaces/${workspaceId}/preview-grants`, {
+		port,
+		presentation,
 	});
 }
 

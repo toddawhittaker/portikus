@@ -8,7 +8,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { flushSync } from "react-dom";
 import { z } from "zod";
-import { ApiError, request } from "../api/request.js";
+import { ApiError, postJson } from "../api/request.js";
 
 /** The server's minimum (contracts ChangePasswordRequest). */
 export const MIN_PASSWORD_LENGTH = 15;
@@ -59,11 +59,7 @@ export function ChangePasswordForm({
 	const [errors, setErrors] = useState<Errors>({});
 	const change = useMutation({
 		mutationFn: (body: { currentPassword: string; newPassword: string }) =>
-			request(z.undefined(), "/me/password", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(body),
-			}),
+			postJson(z.undefined(), "/me/password", body),
 	});
 
 	function showErrors(found: Errors) {

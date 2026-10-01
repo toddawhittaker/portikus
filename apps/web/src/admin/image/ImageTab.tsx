@@ -21,12 +21,11 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useRef, useState } from "react";
-import { ApiError } from "../../api/request.js";
-import { formatBytes } from "../../monitor/format.js";
+import { ApiError, errorText } from "../../api/request.js";
+import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { JobLog } from "../JobLog.js";
-import { errorText } from "../SettingsTab.js";
 import {
 	isActive,
 	useAdminImage,
@@ -581,7 +580,6 @@ function DeleteButton({
 }
 
 /** The main disk turns to the warning colour from this share used (DESIGN.md, status colour). */
-const DISK_WARN_SHARE = 0.8;
 
 /** The main disk's space, in the meter style of the Docker tab (issue #936). */
 function DiskSpace({ disk }: { disk: NonNullable<AdminImage["disk"]> }) {
@@ -594,7 +592,7 @@ function DiskSpace({ disk }: { disk: NonNullable<AdminImage["disk"]> }) {
 					label="Main disk space"
 					value={used}
 					max={disk.totalBytes}
-					high={disk.totalBytes * DISK_WARN_SHARE}
+					high={disk.totalBytes * WARN_AT}
 					valueText={`${formatBytes(used)} of ${formatBytes(disk.totalBytes)} used, ${formatBytes(disk.freeBytes)} free`}
 				/>
 			</dd>

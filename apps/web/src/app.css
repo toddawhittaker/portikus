@@ -856,6 +856,29 @@ button.pk-statusbar-item:hover {
 	color: var(--status-error);
 	font-weight: 600;
 }
+/* The storage meters' ui Meter: warning text as above, and the error colour at the critical level. */
+.pk-meter--warning .pk-meter-figure,
+.pk-meter--full .pk-meter-figure {
+	font-weight: 600;
+}
+.pk-meter--warning .pk-meter-figure {
+	color: var(--status-warning);
+}
+.pk-meter--full .pk-meter-figure,
+.pk-meter--full .pk-meter-alert {
+	color: var(--status-error);
+}
+.pk-meter--full .pk-meter-bar::-webkit-meter-suboptimum-value,
+.pk-meter--full .pk-meter-bar::-webkit-meter-even-less-good-value {
+	background: var(--status-error);
+}
+.pk-meter--full .pk-meter-bar:-moz-meter-sub-optimum::-moz-meter-bar,
+.pk-meter--full .pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
+	background: var(--status-error);
+}
+.pk-meters .pk-meter-wrap {
+	max-width: none;
+}
 
 /* The status bar's always-visible memory and disk meters (SPEC.md §19.2). No transition, so reduced motion needs nothing. */
 .pk-statusbar-meter {

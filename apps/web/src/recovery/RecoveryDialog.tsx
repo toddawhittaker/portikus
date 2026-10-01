@@ -1,8 +1,8 @@
 import type { Project, RecoveryPoint, RecoveryReason } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, Toggletip } from "@portikus/ui";
 import { useState } from "react";
+import { DialogError } from "../common/DialogError.js";
 import { formatBytes } from "../monitor/format.js";
-import { DialogError } from "../projects/DialogError.js";
 import { useCreateRecoveryPoint, useRecoveryPoints } from "./queries.js";
 import { pointTime, RestoreConfirm } from "./RestoreConfirm.js";
 

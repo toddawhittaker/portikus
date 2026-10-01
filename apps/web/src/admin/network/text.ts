@@ -3,6 +3,7 @@ import {
 	EGRESS_LIMITS,
 	type EgressExplanation,
 } from "@portikus/contracts";
+import { timeAgo } from "../../text.js";
 
 /**
  * The host name inside what an administrator typed into "Test a host". A URL
@@ -61,13 +62,6 @@ export function listedHostCount(view: AdminEgressView): number {
 	return names.size;
 }
 
-/** "22, 80 and 443". */
-export function joinPorts(ports: readonly number[]): string {
-	const text = ports.map(String);
-	if (text.length <= 1) return text.join("");
-	return `${text.slice(0, -1).join(", ")} and ${text[text.length - 1]}`;
-}
-
 /** Reads the ports field: numbers separated by commas or spaces, or a message saying what is wrong. */
 export function parsePorts(text: string): { ports: number[] } | { error: string } {
 	const parts = text.split(/[\s,]+/).filter((part) => part !== "");
@@ -95,22 +89,6 @@ export type ApplyState =
 	| { tone: "applied"; text: string }
 	| { tone: "none"; text: string };
 
-/** "just now", "4 minutes ago", or a short date. */
-export function ago(iso: string, now: number): string {
-	const seconds = Math.max(0, Math.floor((now - Date.parse(iso)) / 1000));
-	if (seconds < 60) return "just now";
-	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
-	return new Date(iso).toLocaleString(undefined, {
-		month: "short",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
-}
-
 /** Whether the workspaces follow the saved policy yet, in one line. */
 export function applyState(view: AdminEgressView, now: number): ApplyState {
 	const { appliedVersion, appliedAt, error } = view.apply;
@@ -126,7 +104,7 @@ export function applyState(view: AdminEgressView, now: number): ApplyState {
 	if (appliedAt) {
 		return {
 			tone: "applied",
-			text: `Applied ${ago(appliedAt, now)}. Every running workspace follows this policy.`,
+			text: `Applied ${timeAgo(appliedAt, now).toLowerCase()}. Every running workspace follows this policy.`,
 		};
 	}
 	return {

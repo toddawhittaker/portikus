@@ -7,7 +7,7 @@ import {
 } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField, useToast } from "@portikus/ui";
 import { type KeyboardEvent, useState } from "react";
-import { announced } from "../SettingsTab.js";
+import { announced } from "../../common/announced.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 
 /** What the dialog starts with: an existing entry to edit, or a new one. */

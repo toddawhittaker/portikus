@@ -11,7 +11,7 @@ import {
 	MAX_UPLOAD_BYTES,
 } from "@portikus/contracts";
 import type { ToastProps } from "@portikus/ui";
-import { ApiError } from "../api/request.js";
+import { ApiError, SOMETHING_WENT_WRONG } from "../api/request.js";
 
 /** What a file action says when the home folder is full (SPEC.md §28). */
 export const STORAGE_FULL_MESSAGE =
@@ -101,6 +101,6 @@ export function fileErrorToast(error: unknown): ToastProps {
 	return {
 		tone: "danger",
 		title: "That did not work",
-		children: "Something went wrong. Please try again.",
+		children: SOMETHING_WENT_WRONG,
 	};
 }

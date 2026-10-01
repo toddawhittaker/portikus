@@ -1,7 +1,8 @@
 import type { WorkspaceUsage } from "@portikus/contracts";
-import { Icon, Toggletip } from "@portikus/ui";
+import { Meter, Toggletip } from "@portikus/ui";
 import { formatBytes } from "../monitor/format.js";
 import {
+	nearlyFullAbove,
 	STORAGE_CLASSES,
 	STORAGE_LABEL,
 	type StorageLevel,
@@ -15,21 +16,13 @@ export function meterLevelClass(level: StorageLevel | null): string {
 	return "";
 }
 
-/**
- * One meter per storage class (SPEC.md §18.3). The "X of Y" text carries the
- * figure; the bar is decoration, so it has no role of its own.
- */
+/** One meter per storage class (SPEC.md §18.3), named by its class. */
 export function StorageMeters({ storage }: { storage: WorkspaceUsage["storage"] }) {
 	return (
 		<div className="pk-meters" data-testid="storage-meters">
 			{STORAGE_CLASSES.map((storageClass) => {
 				const figure = storage[storageClass];
 				const level = storageLevel(figure);
-				const high = level === "warning" || level === "critical";
-				const percent =
-					figure && figure.totalBytes > 0
-						? Math.min(100, (figure.usedBytes / figure.totalBytes) * 100)
-						: 0;
 				return (
 					<div
 						key={storageClass}
@@ -37,33 +30,31 @@ export function StorageMeters({ storage }: { storage: WorkspaceUsage["storage"] 
 						data-testid={`storage-meter-${storageClass}`}
 						data-level={level ?? undefined}
 					>
-						<div className="pk-meter-head">
-							<span className="pk-meter-label inline-flex items-center gap-1">
-								{STORAGE_LABEL[storageClass]}
-								{storageClass === "recovery" ? (
-									<Toggletip label="Recovery storage">
-										Space used by recovery points, the copies of your projects that
-										Portikus keeps outside the project folders. Old points are removed
-										automatically.
-									</Toggletip>
-								) : null}
-							</span>
-							<span className="pk-meter-value">
-								{high ? <Icon name="alert" size="sm" /> : null}
-								<span data-testid={`storage-${storageClass}`}>
-									{figure
-										? `${formatBytes(figure.usedBytes)} of ${formatBytes(figure.totalBytes)}${
-												high ? ", nearly full" : ""
-											}`
-										: "Not available"}
-								</span>
-							</span>
-						</div>
+						<span className="pk-meter-label inline-flex items-center gap-1">
+							{STORAGE_LABEL[storageClass]}
+							{storageClass === "recovery" ? (
+								<Toggletip label="Recovery storage">
+									Space used by recovery points, the copies of your projects that
+									Portikus keeps outside the project folders. Old points are removed
+									automatically.
+								</Toggletip>
+							) : null}
+						</span>
 						{figure ? (
-							<div className="pk-meter-track" aria-hidden="true">
-								<div className="pk-meter-fill" style={{ width: `${percent}%` }} />
-							</div>
-						) : null}
+							<span data-testid={`storage-${storageClass}`}>
+								<Meter
+									value={figure.usedBytes}
+									max={figure.totalBytes}
+									label={STORAGE_LABEL[storageClass]}
+									valueText={`${formatBytes(figure.usedBytes)} of ${formatBytes(figure.totalBytes)}`}
+									high={nearlyFullAbove(figure.totalBytes)}
+								/>
+							</span>
+						) : (
+							<span className="pk-meter-value" data-testid={`storage-${storageClass}`}>
+								Not available
+							</span>
+						)}
 					</div>
 				);
 			})}

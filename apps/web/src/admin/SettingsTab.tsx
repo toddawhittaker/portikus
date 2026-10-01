@@ -17,7 +17,8 @@ import {
 } from "@portikus/ui";
 import { type FormEvent, useState } from "react";
 import type { z } from "zod";
-import { ApiError } from "../api/request.js";
+import { errorText } from "../api/request.js";
+import { announced } from "../common/announced.js";
 import { AdminSection } from "./AdminSection.js";
 import { graceMinutes, graceText, parseGraceMinutes } from "./graceText.js";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./guardFields.js";
@@ -33,16 +34,6 @@ export function parseSeconds(value: string): number | null {
 	if (!/^\d+$/.test(value.trim())) return null;
 	const seconds = Number(value.trim());
 	return seconds > MAX_SECONDS ? null : seconds;
-}
-
-export function errorText(error: unknown): string {
-	if (error instanceof ApiError) return error.message;
-	return "Something went wrong. Please try again.";
-}
-
-/** A field error, announced when it appears (issue #363). */
-export function announced(error: string | null) {
-	return error ? <span role="alert">{error}</span> : null;
 }
 
 /**

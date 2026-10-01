@@ -6,7 +6,7 @@
  */
 import { Checkbox, EmptyState, TextField } from "@portikus/ui";
 import { type KeyboardEvent, useContext, useRef, useState } from "react";
-import { ApiError } from "../api/request.js";
+import { ApiError, SOMETHING_WENT_WRONG } from "../api/request.js";
 import { LayoutStoreContext } from "../layout/store.js";
 import { groupByFile, highlightParts } from "./results.js";
 import { useSearch } from "./useSearch.js";
@@ -24,7 +24,7 @@ function searchErrorMessage(error: unknown): string {
 	if (error instanceof ApiError && error.code === "AGENT_UNAVAILABLE") {
 		return "The workspace is not responding. Try again in a moment.";
 	}
-	return "Something went wrong. Please try again.";
+	return SOMETHING_WENT_WRONG;
 }
 
 /** The result count, in words (issue #363). */

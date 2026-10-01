@@ -8,7 +8,8 @@ import {
 	SeedJobsResponse,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { request, toApiError } from "../../api/request.js";
+import { z } from "zod";
+import { postJson, request, toApiError } from "../../api/request.js";
 
 export const dockerKey = ["admin", "docker"] as const;
 const jobsKey = [...dockerKey, "seed-jobs"] as const;
@@ -18,14 +19,6 @@ const usageKey = [...dockerKey, "usage"] as const;
 export const DOCKER_POLL_MS = 15_000;
 /** A queued or running seed rebuild is polled every two seconds, like image jobs. */
 export const SEED_JOB_POLL_MS = 2000;
-
-const JSON_HEADERS = { "content-type": "application/json" };
-
-/** A write the API answers with no body (204, or 202 for Clear cache). */
-async function send(input: string, init: RequestInit): Promise<void> {
-	const response = await fetch(input, { credentials: "same-origin", ...init });
-	if (!response.ok) throw await toApiError(response);
-}
 
 export function isActive(state: SeedJobState | undefined): boolean {
 	return state === "queued" || state === "running";
@@ -68,43 +61,36 @@ function useDockerWrite<T>(send: (body: T) => Promise<unknown>) {
 export function useSaveDockerSettings() {
 	// Each card sends only its own field (Epic 26 review, Q3).
 	return useDockerWrite((body: Partial<DockerSettingsRequest>) =>
-		send("/admin/docker/settings", {
-			method: "PUT",
-			headers: JSON_HEADERS,
-			body: JSON.stringify(body),
-		}),
+		postJson(z.undefined(), "/admin/docker/settings", body, "PUT"),
 	);
 }
 
 export function useSetHubCredential() {
 	return useDockerWrite((body: HubCredentialRequest) =>
-		send("/admin/docker/hub-credential", {
-			method: "PUT",
-			headers: JSON_HEADERS,
-			body: JSON.stringify(body),
-		}),
+		postJson(z.undefined(), "/admin/docker/hub-credential", body, "PUT"),
 	);
 }
 
 export function useRemoveHubCredential() {
 	return useDockerWrite<void>(() =>
-		send("/admin/docker/hub-credential", { method: "DELETE" }),
+		request(z.undefined(), "/admin/docker/hub-credential", { method: "DELETE" }),
 	);
 }
 
 export function useClearCache() {
-	return useDockerWrite<void>(() =>
-		send("/admin/docker/cache/clear", { method: "POST" }),
-	);
+	// A 202 with no body, which `request` would try to parse.
+	return useDockerWrite<void>(async () => {
+		const response = await fetch("/admin/docker/cache/clear", {
+			method: "POST",
+			credentials: "same-origin",
+		});
+		if (!response.ok) throw await toApiError(response);
+	});
 }
 
 export function useSaveSeedImages() {
 	return useDockerWrite((images: string[]) =>
-		send("/admin/docker/seed/images", {
-			method: "PUT",
-			headers: JSON_HEADERS,
-			body: JSON.stringify({ images }),
-		}),
+		postJson(z.undefined(), "/admin/docker/seed/images", { images }, "PUT"),
 	);
 }
 

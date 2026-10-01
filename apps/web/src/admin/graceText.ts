@@ -1,3 +1,5 @@
+import { plural } from "../text.js";
+
 /**
  * The disconnect grace period in words, for the helper text under an input
  * (SPEC.md §6.4). Zero means the workspace keeps running.
@@ -17,10 +19,6 @@ function graceLength(seconds: number): string {
 	if (minutes > 0) parts.push(plural(minutes, "minute"));
 	if (rest > 0) parts.push(plural(rest, "second"));
 	return parts.join(" ");
-}
-
-function plural(count: number, unit: string): string {
-	return `${count} ${unit}${count === 1 ? "" : "s"}`;
 }
 
 /** The largest grace period the API's 32-bit integer column takes. */

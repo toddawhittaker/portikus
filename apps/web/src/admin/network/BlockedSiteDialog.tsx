@@ -1,6 +1,6 @@
 import { Button, Dialog, DialogRoot, TextField, useToast } from "@portikus/ui";
 import { type KeyboardEvent, useState } from "react";
-import { announced } from "../SettingsTab.js";
+import { announced } from "../../common/announced.js";
 import { entryLabelError, entryValueError } from "./EntryDialog.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 

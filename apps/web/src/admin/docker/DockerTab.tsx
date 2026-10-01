@@ -11,10 +11,10 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { type FormEvent, useRef, useState } from "react";
-import { ApiError } from "../../api/request.js";
+import { ApiError, errorText } from "../../api/request.js";
+import { announced } from "../../common/announced.js";
 import { AdminGroup, AdminSection } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
-import { announced, errorText } from "../SettingsTab.js";
 import { Notice } from "./Notice.js";
 import {
 	useClearCache,

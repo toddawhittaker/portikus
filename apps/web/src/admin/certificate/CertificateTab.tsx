@@ -15,12 +15,11 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useState } from "react";
-import { ApiError } from "../../api/request.js";
+import { ApiError, errorText } from "../../api/request.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { Notice } from "../docker/Notice.js";
 import { JobLog } from "../JobLog.js";
-import { errorText } from "../SettingsTab.js";
 import {
 	daysText,
 	expiry,

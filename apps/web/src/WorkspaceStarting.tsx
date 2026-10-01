@@ -2,9 +2,9 @@ import type { PendingOperation, Workspace, WorkspaceUsage } from "@portikus/cont
 import { Button, Icon, Skeleton, useToast } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { useWorkspaceAction } from "./api/workspace.js";
+import { DialogError } from "./common/DialogError.js";
 import { formatBytes } from "./monitor/format.js";
 import { STORAGE_POLL_MS, useWorkspaceUsage } from "./monitor/usage.js";
-import { DialogError } from "./projects/DialogError.js";
 import { useResetDocker } from "./recovery/queries.js";
 import {
 	STORAGE_CLASSES,

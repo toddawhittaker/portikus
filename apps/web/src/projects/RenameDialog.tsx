@@ -1,7 +1,7 @@
 import { type Project, slugify } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
-import { DialogError } from "./DialogError.js";
+import { DialogError } from "../common/DialogError.js";
 import { useRenameProject } from "./queries.js";
 
 /**

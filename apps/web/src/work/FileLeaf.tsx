@@ -22,8 +22,9 @@ import {
 } from "../files/queries.js";
 import { viewerKind } from "../files/viewable.js";
 import { useEditorViewState } from "../layout/store.js";
+import { formatBytes } from "../monitor/format.js";
 import { DiffLeaf } from "./DiffLeaf.js";
-import { formatSize, ImageView, PdfView } from "./FileViewer.js";
+import { ImageView, PdfView } from "./FileViewer.js";
 
 // Monaco is large, so it is its own chunk and is only fetched when a file tab
 // is actually opened (STACK.md §3).
@@ -536,7 +537,7 @@ export function FileLeaf({
 		return (
 			<EmptyState icon="file" title={title} actions={downloadButton}>
 				{size > 0
-					? `${path} is ${formatSize(size)}. Download it to open it elsewhere.`
+					? `${path} is ${formatBytes(size)}. Download it to open it elsewhere.`
 					: `${path} cannot be shown here. Download it to open it elsewhere.`}
 			</EmptyState>
 		);

@@ -21,8 +21,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { ApiError, request } from "../api/request.js";
+import { ApiError, errorText, request } from "../api/request.js";
 import { PENDING_LABEL } from "../shell/StatusBar.js";
+import { joinWords, timeAgo } from "../text.js";
 import { AdminSection } from "./AdminSection.js";
 import { AddDexUser } from "./DexUserDialogs.js";
 import {
@@ -35,7 +36,6 @@ import {
 	sourceText,
 } from "./markers.js";
 import { adminActionUrl, useAdminUsers } from "./queries.js";
-import { errorText } from "./SettingsTab.js";
 import { WorkspaceDetail } from "./WorkspaceDetail.js";
 
 export const KNOWN_STATES: readonly string[] = [
@@ -96,18 +96,6 @@ export function filterAccounts(
 			workspace?.id,
 		].some((field) => field?.toLowerCase().includes(needle));
 	});
-}
-
-/** "Now", "4 min ago", "3 days ago"; an em dash when there is no time. */
-export function timeAgo(iso: string | null | undefined, now: number): string {
-	if (!iso) return "—";
-	const minutes = Math.max(0, Math.floor((now - Date.parse(iso)) / 60_000));
-	if (minutes < 1) return "Just now";
-	if (minutes < 60) return `${minutes} min ago`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours} h ago`;
-	const days = Math.floor(hours / 24);
-	return days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
 /** The Activity column: "Now, 2 connections" while connected, else when a browser last connected. */
@@ -292,12 +280,6 @@ export function bulkApplies(
 		case "rebuild":
 			return user.workspace !== null && user.workspace.archivedAt === null;
 	}
-}
-
-/** "Alice", "Alice and Bob", "Alice, Bob and Carol". */
-export function joinNames(names: string[]): string {
-	if (names.length <= 1) return names[0] ?? "";
-	return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
 interface BulkResult {
@@ -744,7 +726,7 @@ function BulkActions({
 							) : (
 								<>
 									<span className="block" data-testid="bulk-dialog-names">
-										{joinNames(confirming.users.map((user) => user.displayName))}.
+										{joinWords(confirming.users.map((user) => user.displayName))}.
 									</span>
 									<span className="block">{BULK[confirming.action].consequence}</span>
 								</>
@@ -788,13 +770,13 @@ export function rebuildTitle(count: number): string {
 /** The single Rebuild dialog's warning, plus who restarts (SPEC.md §22.3, ruling 26). */
 export function rebuildWarning(users: AdminUser[], resetDocker: boolean): string[] {
 	const lines = [
-		`${joinNames(users.map((user) => user.displayName))}.`,
+		`${joinWords(users.map((user) => user.displayName))}.`,
 		`Each workspace is recreated from the current image. System packages installed with sudo apt are lost. Projects and home stay${resetDocker ? "; Docker images and volumes are removed." : ", and so do Docker images and volumes."}`,
 	];
 	const restarting = runningNames(users);
 	if (restarting.length > 0) {
 		lines.push(
-			`${joinNames(restarting)} ${restarting.length === 1 ? "is" : "are"} running and will restart.`,
+			`${joinWords(restarting)} ${restarting.length === 1 ? "is" : "are"} running and will restart.`,
 		);
 	}
 	return lines;
@@ -828,12 +810,12 @@ function BulkSummary({ result }: { result: BulkResult }) {
 		<div className="pk-text-compact flex flex-col gap-1 pt-2">
 			{result.done.length > 0 ? (
 				<p className="m-0">
-					{copy.done} {joinNames(result.done)}.
+					{copy.done} {joinWords(result.done)}.
 				</p>
 			) : null}
 			{result.skipped.length > 0 ? (
 				<p className="m-0">
-					Skipped {joinNames(result.skipped)}: another operation is already waiting or
+					Skipped {joinWords(result.skipped)}: another operation is already waiting or
 					running.
 				</p>
 			) : null}

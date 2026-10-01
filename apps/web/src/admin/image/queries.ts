@@ -7,7 +7,7 @@ import {
 	ImageJobView,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { request } from "../../api/request.js";
+import { postJson, request } from "../../api/request.js";
 
 export const imageKey = ["admin", "image"] as const;
 
@@ -58,11 +58,7 @@ export function useRequestImageJob() {
 	const client = useQueryClient();
 	return useMutation({
 		mutationFn: (body: ImageJobRequest) =>
-			request(ImageJobView, "/admin/image/jobs", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(body),
-			}),
+			postJson(ImageJobView, "/admin/image/jobs", body),
 		// Waiting for the refetch lets a confirm dialog return focus to the new job heading.
 		onSuccess: () => client.invalidateQueries({ queryKey: imageKey }),
 	});
