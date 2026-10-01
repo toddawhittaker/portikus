@@ -974,7 +974,7 @@ function loopbackHex(port: number): string {
 	return `0100007F:${port.toString(16).toUpperCase().padStart(4, "0")}`;
 }
 
-test("discovery alone sends nothing to a listener (issue #957)", async () => {
+test("discovery alone sends nothing to a listener", async () => {
 	let connections = 0;
 	const server = createNetServer((socket) => {
 		connections += 1;

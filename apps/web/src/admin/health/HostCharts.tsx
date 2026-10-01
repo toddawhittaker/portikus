@@ -16,7 +16,7 @@ export function formatLoad(value: number): string {
 	return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
-/** Storage pool, memory and load over the range (SPEC.md §25.6, #598 item 1). Ticks are bare numbers; the titles carry the unit. */
+/** Storage pool, memory and load over the range (SPEC.md §25.6). Ticks are bare numbers; the titles carry the unit. */
 export function HostCharts({
 	series,
 	frame,

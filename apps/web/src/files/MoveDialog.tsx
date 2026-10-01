@@ -1,5 +1,5 @@
 /**
- * Move files into another folder without a drag (SPEC.md §11.2, issue #370,
+ * Move files into another folder without a drag (SPEC.md §11.2,
  * WCAG 2.5.7). The picker walks the project one folder at a time; the move
  * itself is the same file API a drag uses.
  */

@@ -211,7 +211,7 @@ describe.skipIf(skip)("GET /admin/image", () => {
 		expect(body.job).toBeNull();
 	});
 
-	test("shows each image's recorded size and the disk's free space (issue #936)", async () => {
+	test("shows each image's recorded size and the disk's free space", async () => {
 		await writeFile(
 			join(imagesDir, CURRENT, "size.json"),
 			JSON.stringify({ bytes: 880803840 }),
@@ -475,7 +475,7 @@ describe.skipIf(skip)("POST /admin/image/jobs", () => {
 		expect(res.json().code).toBe("IMAGE_NO_PREVIOUS");
 	});
 
-	test("queues a delete of a candidate and audits it (issue #936)", async () => {
+	test("queues a delete of a candidate and audits it", async () => {
 		const res = await send(carol, "POST", "/admin/image/jobs", {
 			kind: "delete",
 			version: BUILT,

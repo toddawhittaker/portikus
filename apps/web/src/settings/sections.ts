@@ -1,5 +1,5 @@
 /**
- * The settings window's one list of sections (issue #340, SPEC.md §13.5).
+ * The settings window's one list of sections (SPEC.md §13.5).
  * Search reads this list and nothing else, so a section added here is
  * searchable without a second index.
  */

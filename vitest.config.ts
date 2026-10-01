@@ -100,6 +100,7 @@ export default defineConfig({
 						"apps/worker/src/**/*.test.ts",
 						"apps/workspace-agent/src/**/*.test.ts",
 						"apps/workspace-controller/src/**/*.test.ts",
+						"scripts/**/*.test.ts",
 					],
 				},
 			},

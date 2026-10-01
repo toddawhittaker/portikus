@@ -258,7 +258,7 @@
 }
 
 /* The tab's body. It is a box only so the conflict diff can hide it without
-   unmounting the editor (issue #158); otherwise it is not there at all. */
+   unmounting the editor; otherwise it is not there at all. */
 .pk-file-body {
 	display: contents;
 }
@@ -448,7 +448,7 @@
 }
 
 /* The Diff control on a Markdown tab (SPEC.md §13.4), and the
-   Edit | Diff control on every other file tab (issue #160). The look is the
+   Edit | Diff control on every other file tab. The look is the
    shared .pk-segmented; here it only sits at the right of the file bar. */
 .pk-segmented.pk-view-modes {
 	margin-left: auto;

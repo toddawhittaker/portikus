@@ -1,6 +1,6 @@
 /**
  * Which files the tab shows in a viewer, and where a Markdown image points
- * inside the project (#816, SPEC.md §13.2, §13.4).
+ * inside the project (SPEC.md §13.2, §13.4).
  */
 import { expect, test } from "vitest";
 import { projectImagePath, viewerKind } from "./viewable.js";

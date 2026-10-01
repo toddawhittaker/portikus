@@ -492,7 +492,7 @@ test("Leave terminal moves the keyboard to the active tab", async () => {
 	expect(document.activeElement).toBe(screen.getByTestId("tab-tab1"));
 });
 
-/** Issue #608 item 1: the empty work area offers the two launcher actions. */
+/** The empty work area offers the two launcher actions. */
 test("the empty work area opens a terminal or Claude Code from its buttons", async () => {
 	const { fetchMock } = stubFetch({ terminals: [] });
 	renderArea();

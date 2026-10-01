@@ -49,7 +49,7 @@ export function cellText(value: number | null, threshold: number): string {
 
 /**
  * Per-workspace CPU or memory as a grid: one row per workspace, one cell per
- * bucket (SPEC.md §25.6, #598 item 3). It is an HTML table, so a screen
+ * bucket (SPEC.md §25.6). It is an HTML table, so a screen
  * reader walks it by row and column and hears each value; a cell at or over
  * the workspace's guard threshold is hatched as well as coloured.
  */

@@ -256,7 +256,7 @@ test("a name filled from a clone URL warns about a clash too", async () => {
 	);
 });
 
-/** Issue #608 item 5: one segmented control, exactly one option pressed. */
+/** One segmented control, exactly one option pressed. */
 test("What to create is a segmented control with one pressed option", async () => {
 	stubLists();
 	open();

@@ -430,7 +430,7 @@ export function PreviewLeaf({
 					) : null}
 				</span>
 				{/* Always enabled: the frame is cross-origin, so whether it has
-				    somewhere to go back to cannot be read (issue #271). A press
+				    somewhere to go back to cannot be read. A press
 				    with nothing behind it does nothing and says so. */}
 				<IconButton
 					icon="arrow-left"
@@ -504,7 +504,7 @@ export function PreviewLeaf({
 
 			<div className="pk-preview-body">
 				{/* Every state but the frame itself is one compact stack, centred
-				    in the pane rather than spread down it (issue #275). */}
+				    in the pane rather than spread down it. */}
 				{state.status === "connecting" ? (
 					<div className="pk-preview-state">
 						<p className="pk-preview-note" data-testid="preview-connecting">
@@ -593,7 +593,7 @@ export function PreviewLeaf({
 				) : null}
 
 				{/* The development server answered, but it refuses the preview
-				    host. The student can allow it in one line (issue #262). */}
+				    host. The student can allow it in one line. */}
 				{state.status === "host-refused" ? (
 					<div className="pk-preview-state">
 						<EmptyState

@@ -282,7 +282,7 @@ export function CodeEditor({
 		editorRef.current?.updateOptions({ fontSize: fontSizeFor(zoom) });
 	}, [zoom]);
 
-	// Word wrap comes from the student's settings (issue #159, SPEC.md §13.1).
+	// Word wrap comes from the student's settings (SPEC.md §13.1).
 	useEffect(() => {
 		editorRef.current?.updateOptions({ wordWrap });
 	}, [wordWrap]);

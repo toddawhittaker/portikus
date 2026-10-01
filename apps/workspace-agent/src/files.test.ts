@@ -234,7 +234,7 @@ test("a file past the editor limit is refused unless it is a download", async ()
 	);
 });
 
-test("a file past the download cap is refused before any byte is sent (#399)", async () => {
+test("a file past the download cap is refused before any byte is sent", async () => {
 	// A sparse file has the apparent size without using the disk.
 	await writeFileFs(join(project, "huge.bin"), "");
 	await truncate(join(project, "huge.bin"), MAX_DOWNLOAD_BYTES + 1);

@@ -295,7 +295,7 @@ test("the grace form takes minutes and still sends only the seconds", async () =
 	expect(writes[0]?.body).toEqual({ shutdownGraceSeconds: 900 });
 });
 
-test("the page title names the tab (issue #374, SPEC.md section 20.1)", async () => {
+test("the page title names the tab (SPEC.md section 20.1)", async () => {
 	stubAdmin(600);
 
 	renderApp("/admin");

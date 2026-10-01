@@ -102,7 +102,7 @@ const PROBES = [
 	"pypi.org",
 ];
 
-describe("renderers agree with explainHost (issue #284, ADR 0038)", () => {
+describe("renderers agree with explainHost (ADR 0038)", () => {
 	test("allow-list: dnsmasq, the names set and Squid allow exactly what explainHost allows", () => {
 		const p = applied(policy);
 		const conf = renderDnsmasq(p, env);
@@ -496,7 +496,7 @@ describe.skipIf(!dnsmasqAvailable())("the real dnsmasq accepts the rendering", (
 	});
 });
 
-describe("the registry caches' gate and the ghcr.io redirect (issue #840)", () => {
+describe("the registry caches' gate and the ghcr.io redirect", () => {
 	const HUB_DROP =
 		'add rule inet portikus_egress input iifname "portikus-ws" tcp dport 5000 drop';
 	const GHCR_DROP =

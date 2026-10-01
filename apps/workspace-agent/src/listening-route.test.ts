@@ -178,7 +178,7 @@ test("stopping a port nothing is listening on is a 404", async () => {
 	expect(response.json().error.code).toBe("LISTENER_NOT_FOUND");
 });
 
-test("a probe request settles the port's protocol (issue #957)", async () => {
+test("a probe request settles the port's protocol", async () => {
 	const response = await app.inject({
 		method: "POST",
 		url: `/listening/${echoPort}/probe`,

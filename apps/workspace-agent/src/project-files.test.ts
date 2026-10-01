@@ -375,7 +375,7 @@ test.skipIf(!haveGit)("a failed exclude update does not fail the write", async (
 	expect((await put("broken", ".portikus/checks.json", "{}")).statusCode).toBe(200);
 });
 
-describe("old pastes (#885)", () => {
+describe("old pastes", () => {
 	const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
 
 	async function pastesDir(slug: string): Promise<string> {

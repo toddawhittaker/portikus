@@ -167,7 +167,7 @@ export function ProjectPane({
 													<span data-testid="project-duplicate">Duplicate…</span>
 												</MenuItem>
 												{/* Selecting the item, by click or Enter, starts the download
-												    after the size check (issues #361, #399). */}
+												    after the size check. */}
 												<MenuItem
 													onSelect={() => download(project)}
 													testId="project-download"

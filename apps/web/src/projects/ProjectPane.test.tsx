@@ -216,7 +216,7 @@ test("with no projects at all the centre invites you to make one", async () => {
 	expect(await screen.findByTestId("empty-projects")).toBeDefined();
 });
 
-/** Issue #608 item 9: archiving is reversible, so it is not styled as danger. */
+/** Archiving is reversible, so it is not styled as danger. */
 test("archive is a neutral action and confirms with a success toast", async () => {
 	await mount();
 	openMenu(TODO.id);
