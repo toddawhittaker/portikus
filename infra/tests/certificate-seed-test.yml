@@ -150,6 +150,7 @@
       ansible.builtin.assert:
         that:
           - seed_test_portikus_names.index('Create the certificate status directory') < seed_test_portikus_names.index('Set up the certificate and the Caddyfile')
+          - seed_test_certificate_names.index('Create the certificate state directory') < seed_test_certificate_names.index('Seed the certificate state on first install')
 
     # first-install rebuilds the bundle, so trust-bundle then says unchanged.
     - name: Require first install to restart a running API

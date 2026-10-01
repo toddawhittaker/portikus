@@ -18,6 +18,16 @@
       The installed portikus package has no {{ caddy_certificate_job }}, so the
       certificate cannot be set up.  Install a newer package.
 
+# The job writes its state inside this directory but does not make it.
+# Caddy reads tls.caddy and the files in it.
+- name: Create the certificate state directory
+  ansible.builtin.file:
+    path: "{{ caddy_certificate_dir }}"
+    state: directory
+    owner: root
+    group: caddy
+    mode: "0750"
+
 - name: Look for the certificate state
   ansible.builtin.import_tasks: state.yml
 
