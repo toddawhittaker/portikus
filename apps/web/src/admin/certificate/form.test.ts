@@ -26,6 +26,15 @@ import {
 	withSecret,
 } from "./form.js";
 
+// The contract accepts only a whole service-account key (SPEC.md 24.8).
+const FAKE_KEY = {
+	type: "service_account",
+	project_id: "fake",
+	private_key_id: "fake-id",
+	private_key: "fake-key",
+	client_email: "fake@fake.iam.gserviceaccount.com",
+};
+
 const PEM = "-----BEGIN CERTIFICATE-----\nMIIfake\n-----END CERTIFICATE-----\n";
 // A fake key, split so the secret scanner does not mistake it for a real one.
 const KEY = `-----BEGIN ${"PRIVATE"} KEY-----\nMIIfake\n-----END ${"PRIVATE"} KEY-----\n`;
@@ -139,7 +148,7 @@ test("every provider in the contract builds a request the contract accepts", () 
 		for (const name of fields.plain) form = withPlain(form, name, "fake-value");
 		for (const name of fields.secret) {
 			const value =
-				name === "service_account_json" ? '{"type":"service_account"}' : "fake-secret";
+				name === "service_account_json" ? JSON.stringify(FAKE_KEY) : "fake-secret";
 			form = withSecret(form, name, value);
 		}
 		expect(validate(form, null)).toEqual({});
@@ -313,13 +322,13 @@ test("secrets are one line, except Google's service account key, which is a JSON
 	);
 	expect(secretProblem("api_token", "x".repeat(1025), false)).toMatch(/1,024/);
 	expect(
-		secretProblem("service_account_json", '{"type":"service_account"}', false),
+		secretProblem("service_account_json", JSON.stringify(FAKE_KEY), false),
 	).toBeNull();
 	expect(secretProblem("service_account_json", "[1]", false)).toMatch(/whole JSON key/);
 	expect(secretProblem("service_account_json", "{not json", false)).toMatch(
 		/whole JSON key/,
 	);
-	const multiline = '{\n  "type": "service_account",\n  "project_id": "fake"\n}';
+	const multiline = JSON.stringify(FAKE_KEY, null, 2);
 	const form = withSecret(
 		withPlain(acme({ provider: "googleclouddns" }), "gcp_project", "fake-project"),
 		"service_account_json",
