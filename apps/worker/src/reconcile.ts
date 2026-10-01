@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
 	type ControllerErrorCode,
+	DEFAULT_KEEP_RUNNING_MAX_HOURS,
 	DEFAULT_TIMEZONE,
 	isSystemTimezone,
 	PendingOperation,
@@ -251,14 +252,17 @@ export async function settleKeepRunning(
 	now: Date,
 ): Promise<void> {
 	const at = now.toISOString();
-	const cap = sql`coalesce((ws.guard_config->>'keepRunningMaxHours')::int, s.keep_running_max_hours, 12)`;
+	// The target row's own columns only, so a concurrent end or shorter hold
+	// committed first is rechecked under READ COMMITTED, not overwritten.
+	const cap = sql`coalesce((w.guard_config->>'keepRunningMaxHours')::int,
+		(select s.keep_running_max_hours from settings s where s.id = 1),
+		${DEFAULT_KEEP_RUNNING_MAX_HOURS}::int)`;
 
 	const off = await sql<{ id: string }>`
 		update workspaces w
 		set keep_running_until = null, last_activity_at = ${at}::timestamptz, idle_stop_at = null,
 			disconnected_at = case when w.disconnected_at is null then null else ${at}::timestamptz end
-		from workspaces ws left join settings s on s.id = 1
-		where w.id = ws.id and ws.keep_running_until > ${at}::timestamptz and ${cap} = 0
+		where w.keep_running_until > ${at}::timestamptz and ${cap} = 0
 		returning w.id
 	`.execute(db);
 	for (const ws of off.rows) {
@@ -270,9 +274,7 @@ export async function settleKeepRunning(
 	const cut = await sql<{ id: string; until: Date; max_hours: number }>`
 		update workspaces w
 		set keep_running_until = ${at}::timestamptz + ${cap} * interval '1 hour'
-		from workspaces ws left join settings s on s.id = 1
-		where w.id = ws.id
-			and ws.keep_running_until > ${at}::timestamptz + ${cap} * interval '1 hour'
+		where w.keep_running_until > ${at}::timestamptz + ${cap} * interval '1 hour'
 		returning w.id, w.keep_running_until as until, ${cap} as max_hours
 	`.execute(db);
 	for (const ws of cut.rows) {

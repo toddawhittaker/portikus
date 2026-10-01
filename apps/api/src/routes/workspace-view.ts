@@ -1,6 +1,7 @@
 import type { ApiConfig } from "@portikus/config";
 import {
 	type AuthUser,
+	DEFAULT_KEEP_RUNNING_MAX_HOURS,
 	type GuardConfig,
 	idleLift,
 	keepRunningMaxHours,
@@ -10,7 +11,7 @@ import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 
 /** Parse a jsonb value that may arrive as text. */
-function fromJson<T>(value: unknown): T | null {
+export function fromJson<T>(value: unknown): T | null {
 	if (value === null || value === undefined) return null;
 	return (typeof value === "string" ? JSON.parse(value) : value) as T;
 }
@@ -108,9 +109,9 @@ export async function toWorkspace(
 		keepRunningUntil: row.keep_running_until
 			? (row.keep_running_until as Date).toISOString()
 			: null,
-		// No settings row yet means nothing has capped holds; 12 is the column default.
+		// No settings row yet means nothing has capped holds; use the column default.
 		keepRunningMaxHours: keepRunningMaxHours(
-			settings?.keep_running_max_hours ?? 12,
+			settings?.keep_running_max_hours ?? DEFAULT_KEEP_RUNNING_MAX_HOURS,
 			fromJson<GuardConfig>(row.guard_config),
 		),
 		createdAt: (row.created_at as Date).toISOString(),
