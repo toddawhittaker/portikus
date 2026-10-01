@@ -108,6 +108,7 @@ export function KeepRunningSection({
 	const setRef = useRef<HTMLButtonElement>(null);
 	const active = holdActive(workspace);
 	// Kept outside the section, which goes away when a hold ends under a cap of 0.
+	const showSection = choices.length > 0 || active;
 	const status = (
 		<span
 			role="status"
@@ -118,8 +119,6 @@ export function KeepRunningSection({
 			{said}
 		</span>
 	);
-	if (choices.length === 0 && !active) return status;
-
 	const fallback = choices.includes(PREFERRED_HOURS)
 		? PREFERRED_HOURS
 		: (choices[choices.length - 1] ?? 1);
@@ -129,6 +128,8 @@ export function KeepRunningSection({
 	const until = endFor(hours);
 
 	function hold(next: string) {
+		// Cleared first, so the same words twice in a row are still announced.
+		setSaid("");
 		keep.mutate(next, {
 			onSuccess: (saved) =>
 				setSaid(
@@ -138,6 +139,7 @@ export function KeepRunningSection({
 	}
 
 	function release() {
+		setSaid("");
 		keep.mutate(null, {
 			onSuccess: () => {
 				setSaid("Keep running ended.");
@@ -153,70 +155,72 @@ export function KeepRunningSection({
 
 	return (
 		<>
-			<section
-				className="flex flex-col items-start gap-2"
-				aria-labelledby="workspace-keep-running-title"
-			>
-				<h3 id="workspace-keep-running-title" className="pk-text-heading m-0">
-					Keep running
-				</h3>
-				{active && workspace.keepRunningUntil ? (
-					<p className="pk-text-body m-0" data-testid="keep-running-status">
-						Kept running until{" "}
-						<strong>{formatHoldEnd(workspace.keepRunningUntil, timeZone)}</strong>.
-						Closing this page or leaving it idle does not stop it before then.
-					</p>
-				) : (
-					<p className="pk-text-compact m-0 text-ink-muted">
-						Your workspace stays on until the time you pick, even if you close this page
-						or leave it idle. Then it stops as usual, with a warning first.
-					</p>
-				)}
-				<form
-					className="flex flex-wrap items-end gap-2"
-					onSubmit={(event) => {
-						event.preventDefault();
-						// Measured from the click, not from when the dialog opened.
-						if (!keep.isPending && choices.length > 0) hold(endFor(hours));
-					}}
+			{showSection ? (
+				<section
+					className="flex flex-col items-start gap-2"
+					aria-labelledby="workspace-keep-running-title"
 				>
-					{choices.length > 0 ? (
-						<>
-							<Select
-								id="keep-running-hours"
-								label="Keep running for"
-								options={choices.map((h) => ({
-									value: String(h),
-									label: hoursText(h),
-								}))}
-								value={String(hours)}
-								onValueChange={(value) => setPicked(Number(value))}
-							/>
+					<h3 id="workspace-keep-running-title" className="pk-text-heading m-0">
+						Keep running
+					</h3>
+					{active && workspace.keepRunningUntil ? (
+						<p className="pk-text-body m-0" data-testid="keep-running-status">
+							Kept running until{" "}
+							<strong>{formatHoldEnd(workspace.keepRunningUntil, timeZone)}</strong>.
+							Closing this page or leaving it idle does not stop it before then.
+						</p>
+					) : (
+						<p className="pk-text-compact m-0 text-ink-muted">
+							Your workspace stays on until the time you pick, even if you close this
+							page or leave it idle. Then it stops as usual, with a warning first.
+						</p>
+					)}
+					<form
+						className="flex flex-wrap items-end gap-2"
+						onSubmit={(event) => {
+							event.preventDefault();
+							// Measured from the click, not from when the dialog opened.
+							if (!keep.isPending && choices.length > 0) hold(endFor(hours));
+						}}
+					>
+						{choices.length > 0 ? (
+							<>
+								<Select
+									id="keep-running-hours"
+									label="Keep running for"
+									options={choices.map((h) => ({
+										value: String(h),
+										label: hoursText(h),
+									}))}
+									value={String(hours)}
+									onValueChange={(value) => setPicked(Number(value))}
+								/>
+								<Button
+									type="submit"
+									variant="primary"
+									data-testid="keep-running-set"
+									ref={setRef}
+									// The end time can outgrow a narrow dialog or 200% text, so it wraps.
+									className="h-auto! min-h-[var(--pk-control)] whitespace-normal! py-1.5 text-left leading-snug!"
+									loading={keep.isPending && keep.variables !== null}
+								>
+									Keep running until {formatHoldEnd(until, timeZone)}
+								</Button>
+							</>
+						) : null}
+						{active ? (
 							<Button
-								type="submit"
-								variant="primary"
-								data-testid="keep-running-set"
-								ref={setRef}
-								// The end time can outgrow a narrow dialog or 200% text, so it wraps.
-								className="h-auto! min-h-[var(--pk-control)] whitespace-normal! py-1.5 text-left leading-snug!"
-								loading={keep.isPending && keep.variables !== null}
+								data-testid="keep-running-end"
+								loading={keep.isPending && keep.variables === null}
+								onClick={() => !keep.isPending && release()}
 							>
-								Keep running until {formatHoldEnd(until, timeZone)}
+								Don't keep running
 							</Button>
-						</>
-					) : null}
-					{active ? (
-						<Button
-							data-testid="keep-running-end"
-							loading={keep.isPending && keep.variables === null}
-							onClick={() => !keep.isPending && release()}
-						>
-							Don't keep running
-						</Button>
-					) : null}
-				</form>
-				<DialogError error={keep.error} />
-			</section>
+						) : null}
+					</form>
+					<DialogError error={keep.error} />
+				</section>
+			) : null}
 			{status}
 		</>
 	);

@@ -1,7 +1,9 @@
 import type { Workspace } from "@portikus/contracts";
-import { Dialog, DialogRoot } from "@portikus/ui";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { Dialog, DialogRoot, ToastProvider } from "@portikus/ui";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { createQueryClient } from "../api/queryClient.js";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
 import {
 	formatHoldEnd,
@@ -142,6 +144,41 @@ test("ending a hold under a cap of 0 announces it and focuses the dialog heading
 	expect(document.activeElement).toBe(
 		screen.getByRole("heading", { name: "Your workspace" }),
 	);
+});
+
+test("setting the same end twice in a row is announced both times", async () => {
+	stubKeepRunning();
+	renderWithQuery(
+		<KeepRunningSection workspaceId={WORKSPACE.id} workspace={WORKSPACE} />,
+	);
+	const status = screen.getByRole("status");
+	fireEvent.click(screen.getByTestId("keep-running-set"));
+	await waitFor(() => expect(status.textContent).toMatch(/^Kept running until /));
+	const first = status.textContent;
+	fireEvent.click(screen.getByTestId("keep-running-set"));
+	// Emptied first, so a screen reader hears the same words again.
+	expect(status.textContent).toBe("");
+	await waitFor(() => expect(status.textContent).toBe(first));
+});
+
+test("the status region is the same node when the section goes, so nothing remounts", () => {
+	stubKeepRunning();
+	const client = createQueryClient(() => {});
+	const held = { ...WORKSPACE, keepRunningMaxHours: 0, keepRunningUntil: inHours(1) };
+	const view = (workspace: Workspace) => (
+		<QueryClientProvider client={client}>
+			<ToastProvider>
+				<KeepRunningSection workspaceId={WORKSPACE.id} workspace={workspace} />
+			</ToastProvider>
+		</QueryClientProvider>
+	);
+	const { rerender } = render(view(held));
+	const status = screen.getByRole("status");
+	expect(screen.getByRole("heading", { name: "Keep running" })).toBeDefined();
+	// The socket says the hold ended; under a cap of 0 the section leaves.
+	rerender(view({ ...held, keepRunningUntil: null }));
+	expect(screen.queryByRole("heading", { name: "Keep running" })).toBeNull();
+	expect(screen.getByRole("status")).toBe(status);
 });
 
 test("a hold set before the cap went to 0 can still be ended, with nothing new offered", () => {

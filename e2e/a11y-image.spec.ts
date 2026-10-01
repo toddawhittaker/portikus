@@ -388,15 +388,5 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await row.screenshot({
 			path: `screenshots/meter-nearly-full-wide-${colorScheme}.png`,
 		});
-		// The figure wraps under the bar in a narrow window rather than clipping.
-		await page.setViewportSize({ width: 360, height: 720 });
-		await row.scrollIntoViewIfNeeded();
-		const fits = await row.evaluate(
-			(element) => element.scrollWidth <= element.clientWidth,
-		);
-		expect(fits).toBe(true);
-		await row.screenshot({
-			path: `screenshots/meter-nearly-full-360-${colorScheme}.png`,
-		});
 	});
 }

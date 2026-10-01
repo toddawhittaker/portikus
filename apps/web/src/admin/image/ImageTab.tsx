@@ -114,7 +114,7 @@ function ImageSections({ data }: { data: AdminImage }) {
 	const toast = useToast();
 	const ask = useRequestImageJob();
 	const [confirming, setConfirming] = useState<Confirming | null>(null);
-	// Make default and the newer-image notice unmount their own button, so a confirmed one sends focus to the job heading.
+	// Make default, Fetch (the newer-image notice) and Delete unmount their own button, so a confirmed one sends focus to the job heading.
 	const toJob = useRef(false);
 	const [rebuilding, setRebuilding] = useState(false);
 	const [diffOf, setDiffOf] = useState<string | null>(null);

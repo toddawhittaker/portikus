@@ -47,7 +47,7 @@ describe("Meter", () => {
 		expect((screen.getByRole("meter") as HTMLMeterElement).high).toBe(6.4);
 	});
 
-	it("at or past high says nearly full in words and with the alert icon, not by colour alone", () => {
+	it("past high says nearly full in words and with the alert icon, not by colour alone", () => {
 		const { container, rerender } = render(
 			<Meter label="Seed size" value={7} max={8} high={6.4} valueText="7 of 8" />,
 		);
@@ -62,7 +62,9 @@ describe("Meter", () => {
 		rerender(
 			<Meter label="Seed size" value={6.4} max={8} high={6.4} valueText="6.4 of 8" />,
 		);
-		expect(meter.getAttribute("aria-valuetext")).toBe("6.4 of 8, nearly full");
+		// Exactly at high the native meter still draws the normal fill, so no warning yet.
+		expect(meter.getAttribute("aria-valuetext")).toBe("6.4 of 8");
+		expect(container.querySelector('[data-icon="alert"]')).toBeNull();
 		rerender(
 			<Meter label="Seed size" value={6} max={8} high={6.4} valueText="6 of 8" />,
 		);
@@ -70,6 +72,21 @@ describe("Meter", () => {
 		expect(container.querySelector('[data-icon="alert"]')).toBeNull();
 		rerender(<Meter label="Seed size" value={7} max={8} valueText="7 of 8" />);
 		expect(meter.getAttribute("aria-valuetext")).toBe("7 of 8");
+	});
+
+	it("past the limit says over the limit instead of nearly full", () => {
+		const { container } = render(
+			<Meter label="Seed size" value={9} max={8} high={6.4} valueText="9 of 8" />,
+		);
+		expect(screen.getByRole("meter").getAttribute("aria-valuetext")).toBe(
+			"9 of 8, over the limit",
+		);
+		expect(container.querySelector(".pk-meter-text")?.textContent).toBe(
+			"9 of 8, over the limit",
+		);
+		expect(
+			container.querySelector('.pk-meter-text [data-icon="alert"]'),
+		).not.toBeNull();
 	});
 
 	it("an empty limit still renders a valid meter", () => {
