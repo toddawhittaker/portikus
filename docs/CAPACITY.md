@@ -221,7 +221,7 @@ Two changes, done in a window Todd chooses: grow the data disk, and raise memory
 
 1. In `infra/tofu/environments/dev-libvirt/terraform.tfvars`, set `data_disk_size_bytes = 214748364800` (200 GiB). The host needs no free space up front: the disk file is sparse and grows as it fills.
 2. Run `make infra-plan`. The only change must be `module.platform_vm.terraform_data.data_disk_size` being created, or replaced if it already exists. If the plan shows the data disk or the VM being replaced, stop.
-3. Run `make infra-apply`. It prints `grow-data-disk: grew portikus-data.qcow2 from 107374182400 to 214748364800 bytes`. The running VM sees the bigger disk at once.
+3. Run `make infra-apply`. It prints `grow-disk: grew portikus-data.qcow2 from 107374182400 to 214748364800 bytes`. The running VM sees the bigger disk at once.
 4. Run `sudo portikus setup` on the pilot. The `lvm` role grows the physical volume, then the thin pool's metadata and data, so the pool is again 90% of the disk.
 5. Check: `ssh deploy@10.100.0.120 sudo lvs portikus-data/thinpool` shows about 180 GiB, and `incus storage info workspace-data` shows the same total.
 
@@ -239,6 +239,10 @@ On the rehearsal VM, growing from 100 GiB to 150 GiB with `make rehearsal-up REH
 | Incus's total for the pool | 89.82 GiB | 134.73 GiB |
 
 A second `configure-vm` changed nothing. The shrink refusal and both `lvm` refusals were tested on the rehearsal VM, and each left the disk and the volume group as they were.
+
+### Grow the OS disk
+
+The OS (root) disk grows the same way. Set `os_disk_size_bytes` (60 GiB by default since 2026-09-30), run `make infra-plan` and check that the only change is `module.platform_vm.terraform_data.os_disk_size` being created or replaced, then `make infra-apply`. cloud-init grows the root partition and its ext4 filesystem at the next boot, so restart the VM afterwards. OpenTofu refuses to shrink this disk too.
 
 ### Raise memory and vCPUs (a restart of about two minutes)
 

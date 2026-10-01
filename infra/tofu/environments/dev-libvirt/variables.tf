@@ -35,7 +35,7 @@ variable "memory_mb" {
 variable "os_disk_size_bytes" {
   description = "OS disk size in bytes"
   type        = number
-  default     = 21474836480 # 20 GiB
+  default     = 64424509440 # 60 GiB
 }
 
 variable "data_disk_size_bytes" {
