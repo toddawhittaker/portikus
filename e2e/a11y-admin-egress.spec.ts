@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { loginAs, openToggletip, query, settledAxe, WCAG_TAGS } from "./helpers";
+import { expect, test } from "@playwright/test";
+import { expectNoViolations, loginAs, openToggletip, query } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the admin Network
@@ -34,11 +34,6 @@ async function unseed(suffix: string): Promise<void> {
 	await query("delete from egress_entries where value like $1", [`%${suffix}`]);
 	await query("delete from egress_blocked_names where name like $1", [`%${suffix}`]);
 	await query("delete from egress_blocked_entries where value like $1", [`%${suffix}`]);
-}
-
-async function expectNoViolations(page: Page): Promise<void> {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
 for (const colorScheme of ["light", "dark"] as const) {

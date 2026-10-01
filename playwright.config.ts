@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 import { BACKUP_KEY_SOCKET, BACKUP_KEY_STATE } from "./e2e/backup-key";
 import { CERTIFICATE_JOBS_DIR, CERTIFICATE_STATUS_DIR } from "./e2e/certificate-jobs";
+import { FAKE_AGENT_TOKEN } from "./e2e/helpers";
 import { IMAGE_JOBS_DIR, IMAGES_DIR } from "./e2e/image-jobs";
 import {
 	API_ORIGIN,
@@ -20,8 +21,6 @@ import {
 } from "./e2e/ports";
 import { REGISTRY_JOBS_DIR } from "./e2e/registry-jobs";
 import { writeDexGrpcCerts } from "./packages/auth/dist/testing/fake-dex-grpc.js";
-
-const FAKE_AGENT_TOKEN = "e2e-agent-token";
 
 // The throwaway PostgreSQL from docs/WORKFLOW.md, "Local PostgreSQL for
 // database tests"; CI points TEST_DATABASE_URL at its service container.

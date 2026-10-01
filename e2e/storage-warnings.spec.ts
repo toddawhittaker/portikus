@@ -6,6 +6,7 @@
  */
 import { expect, type Page, test } from "@playwright/test";
 import {
+	contrast,
 	createProject,
 	createStudent,
 	query,
@@ -17,19 +18,6 @@ import { FAKE_AGENT_URL } from "./ports";
 
 const GIB = 1024 ** 3;
 const percent = (value: number) => ({ usedBytes: value * GIB, totalBytes: 100 * GIB });
-
-/** The WCAG 2 contrast ratio between two rgb() colours. */
-function contrast(first: string, second: string): number {
-	const luminance = (colour: string) => {
-		const [r, g, b] = (colour.match(/[\d.]+/g) ?? []).slice(0, 3).map((part) => {
-			const channel = Number(part) / 255;
-			return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
-		});
-		return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
-	};
-	const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a);
-	return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
-}
 
 /** The warning's text colour against the status bar behind it. */
 async function warningContrast(page: Page): Promise<number> {

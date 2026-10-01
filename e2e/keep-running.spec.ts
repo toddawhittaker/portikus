@@ -1,11 +1,10 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
+	expectNoViolations,
 	loginAs,
 	query,
-	settledAxe,
 	toast,
-	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
 
@@ -19,11 +18,6 @@ import {
 test.describe.configure({ mode: "serial" });
 
 const ZONE = "Asia/Tokyo";
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 async function setCap(hours: number): Promise<void> {
 	await query("update settings set keep_running_max_hours = $1", [hours]);

@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, openToggletip, settledAxe, WCAG_TAGS } from "./helpers";
+import { expectNoViolations, loginAs, openToggletip } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Workspace
@@ -127,11 +127,6 @@ async function openTab(page: Page, colorScheme: "light" | "dark") {
 	await page.goto("/admin?tab=image");
 	await expect(page.getByTestId("image-job-result")).toBeVisible({ timeout: 15_000 });
 	await expect(page.getByTestId("image-job-result").getByText("zsh")).toBeVisible();
-}
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
 for (const colorScheme of ["light", "dark"] as const) {

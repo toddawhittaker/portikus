@@ -4,6 +4,21 @@ import { WorkspaceDockerConfig } from "./docker-cache.js";
 import { Timezone } from "./settings.js";
 
 /**
+ * The instance create's operation wait. The worker's create budget is this
+ * plus a margin; a retry adopts whatever already exists.
+ */
+export const INSTANCE_CREATE_WAIT_SECONDS = 240;
+
+/** A volume create on a busy thin pool can pass the default 30 s, so each gets 60 s. */
+export const VOLUME_CREATE_TIMEOUT_MS = 60_000;
+
+/** How long one agent restart after an upgrade may take. */
+export const AGENT_RESTART_TIMEOUT_SECONDS = 60;
+
+/** How long the controller waits for the egress helper to answer. */
+export const EGRESS_HELPER_TIMEOUT_MS = 30_000;
+
+/**
  * Validated Incus instance name (SPEC.md §6, §18.3; STACK.md §5, §9).
  *
  * Must start with a lowercase letter, followed by up to 30 lowercase

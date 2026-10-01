@@ -3,11 +3,10 @@ import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	readSeededFile,
 	seedFile,
-	settledAxe,
 	toast,
-	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
 
@@ -84,11 +83,6 @@ async function withUploadedZip(page: Page, context: BrowserContext) {
 		buffer: zipOf({ "README.md": "# starter\n" }),
 	});
 	await expect(page.getByTestId("file-row-starter.zip")).toBeVisible();
-}
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
 test.describe("extract here", () => {

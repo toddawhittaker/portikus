@@ -8,10 +8,9 @@ import {
 	createProject,
 	createStudent,
 	expectConnected,
+	expectNoViolations,
 	openFileTab,
-	settledAxe,
 	terminalIds,
-	WCAG_TAGS,
 	WEB_ORIGIN,
 	workspacePath,
 	workTabs,
@@ -23,15 +22,6 @@ async function openSettings(page: Page) {
 	const dialog = page.getByTestId("dialog-editor-settings");
 	await expect(dialog).toBeVisible();
 	return dialog;
-}
-
-async function expectNoViolations(page: Page, alsoInclude?: string) {
-	let builder = (await settledAxe(page))
-		.withTags(WCAG_TAGS)
-		.include("[data-testid=dialog-editor-settings]");
-	if (alsoInclude) builder = builder.include(alsoInclude);
-	const results = await builder.analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
 async function openTerminal(page: Page, workspaceId: string, projectId: string) {
@@ -263,7 +253,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		const dialog = await openSettings(page);
 		await dialog.getByRole("checkbox", { name: /Word wrap/ }).click();
 		await expect(dialog.getByRole("status")).toHaveText("Saved");
-		await expectNoViolations(page);
+		await expectNoViolations(page, "[data-testid=dialog-editor-settings]");
 
 		// A toggletip opens from the keyboard, is checked with the dialog, and
 		// Escape closes only the tip (review N9).
@@ -272,7 +262,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.keyboard.press("Enter");
 		const tip = page.locator(".pk-toggletip-content");
 		await expect(tip).toContainText("does not reach a terminal");
-		await expectNoViolations(page, ".pk-toggletip-content");
+		await expectNoViolations(
+			page,
+			"[data-testid=dialog-editor-settings]",
+			".pk-toggletip-content",
+		);
 		await page.keyboard.press("Escape");
 		await expect(tip).toHaveCount(0);
 		await expect(dialog).toBeVisible();
@@ -284,7 +278,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(dialog.getByText("Give an https:// link")).toBeVisible();
 		await dialog.getByRole("button", { name: "About Workspace label" }).click();
 		await expect(tip).toContainText("preview addresses");
-		await expectNoViolations(page, ".pk-toggletip-content");
+		await expectNoViolations(
+			page,
+			"[data-testid=dialog-editor-settings]",
+			".pk-toggletip-content",
+		);
 	});
 }
 

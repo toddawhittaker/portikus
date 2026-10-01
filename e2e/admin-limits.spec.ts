@@ -1,12 +1,11 @@
-import { type Browser, expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import {
-	createStudent,
-	loginAs,
+	expectNoViolations,
+	openAdmin,
+	openDetail,
 	query,
-	settledAxe,
-	type TestStudent,
+	studentIn,
 	toast,
-	WCAG_TAGS,
 } from "./helpers";
 
 /**
@@ -52,46 +51,19 @@ const HEALTH = {
 const ALL_SITE =
 	"2 CPUs (site value) · 4 GiB memory (site value) · 2,000 processes (site value)";
 
-async function openAdmin(page: Page): Promise<void> {
+/** The admin page with a canned health answer. */
+async function openLimitsAdmin(page: Page): Promise<void> {
 	await page.route("**/admin/health", (route) => route.fulfill({ json: HEALTH }));
-	await loginAs(page, "carol");
-	await page.goto("/admin");
-	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
-}
-
-/** A student with a workspace, made in a context of its own so carol keeps her session. */
-async function studentIn(browser: Browser): Promise<TestStudent & { name: string }> {
-	const context = await browser.newContext();
-	const student = await createStudent(context);
-	await context.close();
-	const name = `Limits ${student.userId.slice(0, 8)}`;
-	await query("update users set display_name = $2 where id = $1", [
-		student.userId,
-		name,
-	]);
-	return { ...student, name };
-}
-
-async function openDetail(page: Page, name: string) {
-	await page.getByTestId("admin-filter-text").fill(name);
-	await page.getByRole("button", { name: `Show details for ${name}` }).click();
-	const panel = page.getByRole("region", { name });
-	await expect(panel.getByRole("region", { name: "Resources" })).toBeVisible();
-	return panel;
-}
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+	await openAdmin(page);
 }
 
 test("an administrator sets limits, sees them pending, then applied", async ({
 	page,
 	browser,
 }) => {
-	const student = await studentIn(browser);
-	await openAdmin(page);
-	const panel = await openDetail(page, student.name);
+	const student = await studentIn(browser, "Limits");
+	await openLimitsAdmin(page);
+	const panel = await openDetail(page, student.name, "Resources");
 	const limits = panel.getByTestId("detail-limits");
 	await expect(limits).toHaveText(ALL_SITE);
 
@@ -161,13 +133,13 @@ test("blank fields return a workspace to the site limits", async ({
 	page,
 	browser,
 }) => {
-	const student = await studentIn(browser);
+	const student = await studentIn(browser, "Limits");
 	await query(
 		"update workspaces set limits_config = $2, limits_applied = $2 where id = $1",
 		[student.workspaceId, JSON.stringify({ processes: 2000 })],
 	);
-	await openAdmin(page);
-	const panel = await openDetail(page, student.name);
+	await openLimitsAdmin(page);
+	const panel = await openDetail(page, student.name, "Resources");
 	await expect(panel.getByTestId("detail-limits")).toHaveText(
 		"2 CPUs (site value) · 4 GiB memory (site value) · 2,000 processes",
 	);
@@ -195,13 +167,13 @@ for (const scheme of ["light", "dark"] as const) {
 		browser,
 	}) => {
 		await page.emulateMedia({ colorScheme: scheme });
-		const student = await studentIn(browser);
+		const student = await studentIn(browser, "Limits");
 		await query("update workspaces set limits_config = $2 where id = $1", [
 			student.workspaceId,
 			JSON.stringify({ cpu: 2 }),
 		]);
-		await openAdmin(page);
-		const panel = await openDetail(page, student.name);
+		await openLimitsAdmin(page);
+		const panel = await openDetail(page, student.name, "Resources");
 		await expect(panel.getByTestId("detail-limits-pending")).toBeVisible();
 		await expectNoViolations(page);
 
