@@ -1959,3 +1959,27 @@ when the job fails.
 **What it would take.** A time picker beside the hours choice, limited by the cap, with unit and Playwright tests.
 
 **Source.** Epic 28 (#955).
+
+## A cap on the browser's listening event
+
+**What.** The listening-services event the API sends the browser (`packages/events/src/index.ts`) has an uncapped services array. The API's acceptance of agent frames bounds it today (SPEC.md section 24.5), but the browser schema does not say so.
+
+**What it would take.** Apply `MAX_LISTENING_SERVICES` to the event schema too, with a contract test.
+
+**Source.** Epic 28 security fix #984.
+
+## The e2e toast helper can match two toasts
+
+**What.** The shared `toast()` helper in `e2e/helpers.ts` can match two toasts when the same message shows twice, which trips Playwright's strict mode; one spec works around it with `.last()`.
+
+**What it would take.** Take `.last()` inside the helper and drop the workaround, then run the specs that use it.
+
+**Source.** Epic 28 (#981).
+
+## Holds can be renewed indefinitely
+
+**What.** The Keep running cap bounds how far ahead a hold reaches, not the total time held, as ruled, so a student can renew a hold forever (SPEC.md section 6.4).
+
+**What it would take.** If that becomes a problem, a site setting for the longest total hold, counted from the first hold of a run.
+
+**Source.** Epic 28 review (#955).

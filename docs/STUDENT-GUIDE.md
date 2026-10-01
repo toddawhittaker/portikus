@@ -58,13 +58,15 @@ To start working:
 
 To leave a coding agent working while you are away, open **Your
 workspace** from the status bar. Under **Keep running**, pick how long in
-**Keep running for**, up to the limit your administrator set, and choose
-**Keep running**. Until then, closing the page or leaving it idle does not
-stop the workspace. The status bar shows "Kept running until" and the end
-time. To change the time, pick another under **Change to** and choose
-**Change**; **End hold** ends it early. Afterwards the workspace stops as
-usual, with the "Still working?" warning first. If your administrator has
-turned the feature off, the section is not shown.
+**Keep running for**, up to the limit your administrator set, then press
+**Keep running until …**, which shows the end time. Until then, closing
+the page or leaving it idle does not stop the workspace. The status bar
+shows "Kept running until" and the end time; a hold ending six or more
+days ahead shows its date as well. To change it, pick another length and
+press the button again. To let the workspace stop as usual again, press
+**Don't keep running**. Afterwards the workspace stops as usual, with the
+"Still working?" warning first. If your administrator has turned the
+feature off, the section is not shown.
 
 ## Terminals
 

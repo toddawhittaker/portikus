@@ -66,10 +66,13 @@ A student can choose **Keep running** in their workspace dialog, for
 example to leave a coding agent working overnight. Until the time they
 pick, neither the grace period nor idle stop counts; afterwards both start
 again, with the "Still working?" warning first. Resource guard limits still
-apply. **Keep running, longest (hours)** on **Settings**, default 12, caps
+apply. **Longest keep running (hours)** on **Settings**, default 12, caps
 how far ahead a student can hold their workspace, and 0 turns the feature
-off. Lowering it shortens holds already set at the next worker pass.
-**Guard settings** in a workspace's panel sets it for that workspace.
+off. It limits how far ahead a hold reaches, not how often it is renewed.
+Lowering it shortens holds already set at the next worker pass. **Guard
+settings** in a workspace's panel sets it for that workspace. While a
+student's hold lasts, the workspace's resource guard summary shows "Kept
+running by its owner until …".
 
 ![The Settings tab: when workspaces stop, and the resource guard thresholds](images/admin-settings.png)
 
@@ -95,10 +98,11 @@ last 7 days, for the whole site, never per student.
 
 Workspaces pull Docker Hub and ghcr.io images through a pull cache on the
 server. The **Docker** tab shows its size and use, and **Clear cache**
-empties it. A meter shows how full the cache is, with a mark at 90 percent,
-where it empties itself. The **seed** is a set of images that new
-workspaces and Reset Docker start with; its meter shows the seed's size on
-disk against its limit.
+empties it. The **Pull cache space** meter shows how full the cache is,
+with a mark at 90 percent, where it empties itself. The **seed** is a set
+of images that new workspaces and Reset Docker start with; the **Seed
+size** meter shows its size on disk against its limit. A meter adds "nearly
+full" and an alert icon near its limit, and "over the limit" past it.
 
 Every image row shows a **Download size**: the compressed size for this
 server, from what the cache already holds. A dash means the cache has never
@@ -114,11 +118,12 @@ On a new install the seed list starts with the official slim Node and
 Python images that match the default workspace image, such as
 `node:24-slim` and `python:3.13-slim`. Press **Rebuild seed** to build it.
 Portikus never changes a list you have set or emptied. After you make
-another workspace image the default, or roll back, the seed card may say
-the image runs a different Node or Python than the seed list holds. The
-button in that notice swaps the old node and python slim images for the
-new ones and rebuilds the seed. Sizes in the notice are estimates, and the
-button is not offered when the download would pass the seed's limit.
+another workspace image the default, or roll back, a notice under **Images
+for the next rebuild** may say the image runs a different Node or Python
+than the list holds, and which images it would replace or add. **Update
+list and rebuild** does both and rebuilds the seed. If the new images
+would pass the size limit, judged by download sizes, the notice offers no
+button; raise **Largest seed**, or remove images, first.
 
 The ghcr.io cache is on by default. Students build and push their images
 in GitHub Actions, which runs on GitHub's machines and pushes to the real
@@ -188,16 +193,17 @@ file, which `sudo dpkg-reconfigure portikus` can size down.
 ## Workspace images
 
 The **Image** tab lists the workspace images on this server. **Delete**
-removes an image you no longer need and frees its disk space. You cannot
-delete the default or the previous image, so you can always roll back.
-The confirmation says how many workspaces were made from the image; they
-keep working. After each fetch or build, the server keeps the default, the
+removes an image you no longer need and frees its disk space. The default
+image is never deleted, and the previous image is kept so you can roll
+back. Delete asks first, saying how many workspaces were made from the
+image (they keep working) and how much space deleting frees. After each fetch or build, the server keeps the default, the
 previous and the newest image on its own and deletes the rest.
 
 **Image size (compressed)** is the size of the image file Incus stores.
-Deleting an image frees about this much, or less. An image shows "Not
-measured yet" until the next image job measures it. The line below the
-list shows the free space on the main disk.
+Deleting an image frees about this much, or less. A dash, read as "Not
+measured yet", means the next image job will measure it. The **Main disk
+space** meter above the list shows space used, the total and space free,
+and turns amber from 80 percent used.
 
 ## Backups and restores
 

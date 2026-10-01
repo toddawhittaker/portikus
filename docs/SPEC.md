@@ -512,9 +512,9 @@ Added by Epic 28 (issue #955): **Keep running until.** The owner can hold a runn
 
 - While `workspaces.keep_running_until` is ahead, the worker arms neither the disconnect grace deadline nor the idle warning, and withdraws a warning already shown. When the hold ends, by time or by the student, both timers start from its end as if the student had just acted, so "Still working?" and its five-minute warning still come first. A hold does not lift resource guard limits.
 - How far ahead a hold may reach is `settings.keep_running_max_hours` (default 12, 0 to 168; 0 turns holds off), overridden per workspace by `keepRunningMaxHours` in `workspaces.guard_config` (section 19.4). A lowered cap cuts existing holds to now plus the cap at the next sweep, or ends them at 0.
-- Only the owner may set or end a hold (`PUT` and `DELETE /workspaces/:id/keep-running`); anyone else, administrators included, gets 404. The API refuses a time in the past or past now plus the cap (400), and any hold when the cap is 0 (409 `KEEP_RUNNING_OFF`). Setting a hold counts as activity.
+- Only the owner may set or end a hold (`PUT` and `DELETE /workspaces/:id/keep-running`); anyone else, administrators included, gets 404. The API refuses a time in the past or past now plus the cap (400), and any hold when the cap is 0 (409 `KEEP_RUNNING_OFF`). A requested end up to five minutes past the cap is taken as exactly now plus the cap, to absorb browser clock skew. The cap bounds how far ahead a hold reaches, not the total time held, so a student may renew a hold. Setting a hold counts as activity. The worker's cut and end updates recheck the row itself, so a student's concurrent end or shorter hold is not undone.
 - Audit: `workspace.keep_running_set` (`until`, `previousUntil`, or `reason: "cut_by_cap"` from the worker), `workspace.keep_running_ended` (`reason` `ended_early`, `expired` or `cut_by_cap`) and `settings.keep_running_updated`.
-- The status bar shows "Kept running until {time}" in the student's timezone setting.
+- The status bar shows "Kept running until {time}" in the student's timezone setting, with the date added when the end is six or more days ahead. The dialog's button names its result ("Keep running until …"), and "Don't keep running" ends a hold early. While a hold lasts, the admin workspace detail's guard summary says "Kept running by its owner until …".
 
 ### 6.5 Graceful stop
 
@@ -1717,10 +1717,17 @@ a restarted server is probed again, and publishes it with
 `protocolKnown: true`; a completed handshake sets `protocolHint: "https"`.
 Until then `protocolHint` is a guess from the port number (`http` or
 `unknown`). System listeners and ports below 1024 are never probed. The
-API caches only a final answer. A failed or unsettled probe is not
-retried for 30 seconds for that workspace and port, during which the
-guessed protocol stands; concurrent requests share one call, and the
-call has a 1.5-second timeout. `/preview/authorize` then sends
+API remembers every probe answer, final or not, for 30 seconds per
+workspace and port, and caches only a final answer beyond that; a failed
+or unsettled probe leaves the guessed protocol standing. The memo for a
+port is forgotten when its hint changes, or when a listener the API knew
+as probed comes back unprobed, so a server restarted with `--https` is
+probed again. Concurrent requests share one call, the call has a
+1.5-second timeout, and the memo is pruned as it goes and dropped with
+the workspace. A workspace reports at most 1,024 listening services
+(`MAX_LISTENING_SERVICES`): the agent trims to that, student listeners
+first and then by port, and the API drops any longer frame and keeps the
+previous list. `/preview/authorize` then sends
 a second trusted header, `X-Portikus-Upstream-Scheme: https` (or `http`),
 taken only from the listening registry. Caddy strips any client-sent
 copy, and for `https` uses a TLS transport with certificate checks off
@@ -3150,8 +3157,10 @@ language-aware editor".
   root is its own thin volume. After every job the root job records each
   image's size in `images/<version>/size.json`, best effort, never failing
   the job. The page shows it as "Image size (compressed)", the size of the
-  image file Incus stores, and shows the free space on the disk that holds
-  the image store.
+  image file Incus stores, or a dash read as "Not measured yet", and
+  shows the disk that holds the image store as a meter ("Main disk
+  space") that warns from 80 percent used. The confirmation says what
+  deleting frees when the size is known.
 - **The boundary.** The API writes one request file into
   `/var/lib/portikus/image-jobs/` (`root:portikus`, 0770), and a
   path-activated root oneshot, `portikus-image-job.service`, runs it.
@@ -3589,7 +3598,12 @@ review, as built:
   a new workspace's Docker volume will be copied from the seed, the
   controller counts the seed's size on top of the pool's current use and
   refuses the create (`POOL_FULL`) when that would reach 90 percent. A
-  seed whose size cannot be read is not counted.
+  seed whose size cannot be read is not counted. A default seed list is
+  checked against the same image-name rules before the API writes it.
+- **Listening frames (Epic 28).** An agent's listening-services frame is
+  bounded at 1,024 services by the contract and compared with the
+  previous list in linear time, so a replaced agent cannot stall the
+  shared API with large frames (section 14.5).
 - **Shared cache availability (SEC5).** Clearing is an administrator's
   action, but one student can fill the shared cache past 90 percent and so
   set off the automatic clear, which wipes it for everyone. That costs
@@ -4184,7 +4198,9 @@ Every Stop icon button (Running, Checks, Monitor and the admin Processes table) 
 
 Added by Epic 25: a Toggletip (section 8.6) is a button named "About {subject}". Opening it leaves focus on the button, and a polite live region reads the text. The live region sits at the end of the page, or of the dialog that holds the tip, so the text never joins the name of a table header or label around the button. The button makes no popup claim (no `aria-haspopup`), and the visible tip is hidden from screen readers, so browse mode never finds an empty dialog; the button still reports `aria-expanded`. Tab or Shift+Tab moves on and closes it, as do Escape and a click outside; after Escape focus is still on the button. The PageIntro is a native `details`. Icon-button tooltips can be hovered, so the pointer can move onto them without closing them (WCAG 1.4.13). The Help page moves focus to the heading its anchor names. A sticky table header never hides a focused control (WCAG 2.4.11): the admin page and the Course page keep a scroll padding for it.
 
-Added by Epic 28: a meter is the `Meter` component in `packages/ui`: a native `meter` with an accessible name, its value text beside it and as `aria-valuetext`, and a `line-strong` edge on the track so its empty part meets 3:1.
+Added by Epic 28: a meter is the `Meter` component in `packages/ui`: a native `meter` with an accessible name matching its row label, its value text beside it (hidden from screen readers) and as `aria-valuetext`, and a `line-strong` edge on the track so its empty part meets 3:1. At or past its warning mark (`high`) the text and value gain the alert icon and "nearly full", and past `max` "over the limit", so colour is not the only sign.
+
+Added by Epic 28: setting or ending a Keep running hold is announced through a status region that is always mounted ("Kept running until {end}." or "Keep running ended."). After "Don't keep running", focus moves to the "Keep running until …" button, or to the dialog's title when no hold can be set. A button whose label holds a date wraps rather than clipping at 320 px and at 200% text. After a control is removed by its own action, such as the seed drift update or an image delete, focus moves to the nearest heading.
 
 The automated axe checks in the Playwright suite run the WCAG 2.0, 2.1 and 2.2 A and AA rules from one shared tag list, `WCAG_TAGS` in `e2e/helpers.ts`.
 

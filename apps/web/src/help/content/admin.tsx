@@ -86,7 +86,7 @@ export const ADMIN_HELP: HelpPart = {
 					<strong>Settings</strong> and can be changed for one workspace from its panel.
 					A student can choose <strong>Keep running</strong> to hold their workspace up
 					while away; neither timer counts until the hold ends.{" "}
-					<strong>Keep running, longest (hours)</strong> caps the hold (default 12; 0
+					<strong>Longest keep running (hours)</strong> caps the hold (default 12; 0
 					turns it off), and <strong>Guard settings</strong> changes it for one
 					workspace.
 				</p>
@@ -215,8 +215,8 @@ export const ADMIN_HELP: HelpPart = {
 						disk space. You cannot delete the default or the previous image. Workspaces
 						made from a deleted image keep working. After each fetch or build the host
 						keeps the default, the previous and the newest image on its own.{" "}
-						<strong>Image size (compressed)</strong> and the free space on the main disk
-						show what each image costs.
+						<strong>Image size (compressed)</strong> and the{" "}
+						<strong>Main disk space</strong> meter show what each image costs.
 					</p>
 				</>
 			),
@@ -266,10 +266,11 @@ export const ADMIN_HELP: HelpPart = {
 						Workspaces pull Docker Hub images through a <strong>pull cache</strong> on
 						this server, so an image one student pulled comes from here for the next,
 						and the server stays under Docker Hub's limit on anonymous pulls. The{" "}
-						<strong>Docker</strong> tab shows the space the cache uses on a meter marked
-						at 90 percent, where it empties itself. <strong>Clear cache</strong> empties
-						it; images already in workspaces stay. If setup turned the cache off for
-						lack of disk space, the tab says why; free space and run{" "}
+						<strong>Docker</strong> tab shows the space the cache uses on the{" "}
+						<strong>Pull cache space</strong> meter, marked at 90 percent, where it
+						empties itself. <strong>Clear cache</strong> empties it; images already in
+						workspaces stay. If setup turned the cache off for lack of disk space, the
+						tab says why; free space and run{" "}
 						<code className="pk-mono-body">sudo dpkg-reconfigure portikus</code> to turn
 						it back on. An optional <strong>Docker Hub account</strong>, given as a
 						personal access token with the "Public Repo Read-only" scope, raises the
@@ -325,9 +326,10 @@ export const ADMIN_HELP: HelpPart = {
 						A new install's seed list starts with the slim Node and Python images that
 						match the default workspace image. Portikus never changes a list you have
 						set or emptied. After the default image changes, the seed card may say the
-						image runs a different Node or Python; its button swaps the old node and
-						python slim images for the new ones and rebuilds the seed, unless the
-						download would pass the seed's limit.
+						image runs a different Node or Python;{" "}
+						<strong>Update list and rebuild</strong> swaps the old node and python slim
+						images for the new ones and rebuilds the seed, unless the download would
+						pass the seed's limit.
 					</p>
 				</>
 			),
