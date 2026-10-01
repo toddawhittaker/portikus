@@ -134,10 +134,8 @@ export function WorkArea({
 	const layout = useLayout(store, (state) => state.layout);
 	const activeTabId = useLayout(store, (state) => state.activeTabId);
 	const focusedTerminalId = useLayout(store, (state) => state.focusedTerminalId);
-	const pendingLine = useLayout(store, (state) => state.pendingLine);
-	const pendingDiff = useLayout(store, (state) => state.pendingDiff);
+	const pendingView = useLayout(store, (state) => state.pendingView);
 	const diffBaseline = useLayout(store, (state) => state.diffBaseline);
-	const pendingEdit = useLayout(store, (state) => state.pendingEdit);
 	const unsavedTabs = useLayout(store, (state) => state.unsavedTabs);
 	const loaded = useLayoutPersistence(workspaceId, projectId, store, onSessionEnded);
 	const terminals = useTerminals(workspaceId, projectId, true, onSessionEnded);
@@ -585,13 +583,9 @@ export function WorkArea({
 							onLeave={leaveTerminal}
 							onMoveToNewTab={moveToNewTab}
 							onCloseTab={() => store.getState().closeTab(tab.id)}
-							pendingLine={pendingLine[tab.id]}
-							consumePendingLine={() => store.getState().consumePendingLine(tab.id)}
-							pendingDiff={pendingDiff[tab.id]}
+							pendingView={pendingView[tab.id]}
+							consumePendingView={() => store.getState().consumePendingView(tab.id)}
 							diffBaseline={diffBaseline[tab.id] ?? null}
-							consumePendingDiff={() => store.getState().consumePendingDiff(tab.id)}
-							pendingEdit={pendingEdit[tab.id]}
-							consumePendingEdit={() => store.getState().consumePendingEdit(tab.id)}
 							onUnsavedChange={(unsaved) =>
 								store.getState().setTabUnsaved(tab.id, unsaved)
 							}

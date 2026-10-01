@@ -152,14 +152,14 @@ test("asking for the diff of an open file reuses that tab (issue #160)", () => {
 	]);
 	expect(layout.getState().activeTabId).toBe("file:src/app.ts");
 	// The tab is told once to show its diff.
-	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(true);
-	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(false);
+	expect(layout.getState().consumePendingView("file:src/app.ts")?.mode).toBe("diff");
+	expect(layout.getState().consumePendingView("file:src/app.ts")).toBeUndefined();
 });
 
 test("a file opened for editing is not asked to show its diff", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts");
-	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(false);
+	expect(layout.getState().consumePendingView("file:src/app.ts")?.mode).toBe("edit");
 });
 
 test("a saved diff tab loads as the file's tab showing its diff", () => {
@@ -170,7 +170,7 @@ test("a saved diff tab loads as the file's tab showing its diff", () => {
 	expect(layout.getState().layout.tabs.map((tab) => tab.id)).toEqual([
 		"file:src/app.ts",
 	]);
-	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(true);
+	expect(layout.getState().consumePendingView("file:src/app.ts")?.mode).toBe("diff");
 	// The old shape is gone, so the layout is worth saving again.
 	expect(layout.getState().dirty).toBe(true);
 });
@@ -188,26 +188,27 @@ test("closing a file tab removes it and marks the layout dirty", () => {
 test("the line a file was opened at is handed out once", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts", { line: 42 });
-	expect(layout.getState().consumePendingLine("file:src/app.ts")).toBe(42);
-	expect(layout.getState().consumePendingLine("file:src/app.ts")).toBeUndefined();
-	// A file opened with no line asks the editor for nothing.
+	expect(layout.getState().consumePendingView("file:src/app.ts")?.line).toBe(42);
+	expect(layout.getState().consumePendingView("file:src/app.ts")).toBeUndefined();
+	// A file opened with no line asks the editor for no line.
 	layout.getState().openFile("src/other.ts");
-	expect(layout.getState().consumePendingLine("file:src/other.ts")).toBeUndefined();
+	expect(
+		layout.getState().consumePendingView("file:src/other.ts")?.line,
+	).toBeUndefined();
 });
 
 test("reopening a file with no line forgets the line it was opened at before", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts", { line: 42 });
 	layout.getState().openFile("src/app.ts");
-	expect(layout.getState().consumePendingLine("file:src/app.ts")).toBeUndefined();
+	expect(layout.getState().consumePendingView("file:src/app.ts")?.line).toBeUndefined();
 });
 
 test("closing a file tab forgets the line it was waiting to jump to", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts", { line: 42, diff: true });
 	layout.getState().closeTab("file:src/app.ts");
-	expect(layout.getState().pendingLine).toEqual({});
-	expect(layout.getState().pendingDiff).toEqual({});
+	expect(layout.getState().pendingView).toEqual({});
 });
 
 test("a full strip still opens another file; there is no cap (issue #240)", () => {
@@ -216,7 +217,7 @@ test("a full strip still opens another file; there is no cap (issue #240)", () =
 	layout.getState().openFile("src/app.ts", { line: 7 });
 	expect(layout.getState().layout.tabs).toHaveLength(17);
 	expect(layout.getState().activeTabId).toBe("file:src/app.ts");
-	expect(layout.getState().pendingLine).toEqual({ "file:src/app.ts": 7 });
+	expect(layout.getState().pendingView["file:src/app.ts"]?.line).toBe(7);
 });
 
 test("a file tab reports unsaved edits and forgets them again (issue #240)", () => {
@@ -235,24 +236,23 @@ test("opening a file for editing asks its tab for the editor", () => {
 	// Opening the file again from the tree or a terminal link must take the
 	// tab out of diff view, so the diff request is replaced by an edit one.
 	layout.getState().openFile("src/app.ts");
-	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(false);
-	expect(layout.getState().consumePendingEdit("file:src/app.ts")).toBe(true);
-	expect(layout.getState().consumePendingEdit("file:src/app.ts")).toBe(false);
+	expect(layout.getState().consumePendingView("file:src/app.ts")?.mode).toBe("edit");
+	expect(layout.getState().consumePendingView("file:src/app.ts")).toBeUndefined();
 });
 
 test("asking for the diff cancels an edit request that was waiting", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts");
 	layout.getState().openFile("src/app.ts", { diff: true });
-	expect(layout.getState().consumePendingEdit("file:src/app.ts")).toBe(false);
-	expect(layout.getState().consumePendingDiff("file:src/app.ts")).toBe(true);
+	expect(layout.getState().consumePendingView("file:src/app.ts")?.mode).toBe("diff");
+	expect(layout.getState().consumePendingView("file:src/app.ts")).toBeUndefined();
 });
 
 test("closing a file tab forgets the editor request it was waiting for", () => {
 	const layout = store();
 	layout.getState().openFile("src/app.ts");
 	layout.getState().closeTab("file:src/app.ts");
-	expect(layout.getState().pendingEdit).toEqual({});
+	expect(layout.getState().pendingView).toEqual({});
 });
 
 test("a file's zoom is kept for the session and dropped with the tab", () => {
@@ -374,4 +374,21 @@ test("a closed tab is forgotten, so reopening it does not jump backwards", () =>
 	expect(layout.getState().activeTabId).toBe("file:b.ts");
 	layout.getState().closeTab("file:b.ts");
 	expect(layout.getState().activeTabId).toBe("file:a.ts");
+});
+
+test("each request for a tab is new, even when it repeats the last one", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts", { line: 3 });
+	const first = layout.getState().pendingView["file:src/app.ts"]?.seq;
+	layout.getState().openFile("src/app.ts", { line: 3 });
+	expect(layout.getState().pendingView["file:src/app.ts"]?.seq).not.toBe(first);
+});
+
+test("a diff request carries its line with it", () => {
+	const layout = store();
+	layout.getState().openFile("src/app.ts", { line: 9, diff: true });
+	expect(layout.getState().consumePendingView("file:src/app.ts")).toMatchObject({
+		mode: "diff",
+		line: 9,
+	});
 });

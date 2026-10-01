@@ -15,6 +15,7 @@ import {
 	createLayoutStore,
 	type LayoutStore,
 	LayoutStoreContext,
+	type PendingView,
 } from "../layout/store.js";
 import { renderWithQuery } from "../test-utils.js";
 import { FileLeaf } from "./FileLeaf.js";
@@ -807,10 +808,14 @@ test("a file that is not Markdown is one editor, with Edit and Diff", async () =
 
 /** Asking for a line while the tab is already open, as a search result does. */
 function Harness() {
-	const [line, setLine] = useState<number | undefined>(undefined);
+	const [view, setView] = useState<PendingView | undefined>(undefined);
 	return (
 		<>
-			<button type="button" data-testid="ask" onClick={() => setLine(9)}>
+			<button
+				type="button"
+				data-testid="ask"
+				onClick={() => setView({ mode: "edit", line: 9, seq: 1 })}
+			>
 				ask
 			</button>
 			<FileLeaf
@@ -818,11 +823,8 @@ function Harness() {
 				workspaceId={WORKSPACE}
 				projectId={PROJECT}
 				onClose={() => {}}
-				pendingLine={line}
-				consumePendingLine={() => {
-					setLine(undefined);
-					return line;
-				}}
+				pendingView={view}
+				consumePendingView={() => view}
 			/>
 		</>
 	);
@@ -922,6 +924,8 @@ test("the model is named after the project as well as the file (issue #160)", as
 test("opening a file again brings a tab in diff view back to the editor", async () => {
 	function Reopen() {
 		const [opened, setOpened] = useState(0);
+		const view: PendingView =
+			opened === 0 ? { mode: "diff", seq: 1 } : { mode: "edit", seq: 2 };
 		return (
 			<>
 				<button type="button" data-testid="reopen" onClick={() => setOpened(1)}>
@@ -932,10 +936,8 @@ test("opening a file again brings a tab in diff view back to the editor", async 
 					workspaceId={WORKSPACE}
 					projectId={PROJECT}
 					onClose={() => {}}
-					pendingDiff={1}
-					consumePendingDiff={() => opened === 0}
-					pendingEdit={opened}
-					consumePendingEdit={() => opened === 1}
+					pendingView={view}
+					consumePendingView={() => view}
 				/>
 			</>
 		);
@@ -970,8 +972,8 @@ test("a tab asked for its diff shows it, and the toggle goes back (issue #160)",
 			workspaceId={WORKSPACE}
 			projectId={PROJECT}
 			onClose={() => {}}
-			pendingDiff={1}
-			consumePendingDiff={() => true}
+			pendingView={{ mode: "diff", seq: 1 }}
+			consumePendingView={() => ({ mode: "diff", seq: 1 })}
 		/>,
 	);
 
