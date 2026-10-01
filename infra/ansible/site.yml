@@ -117,6 +117,9 @@
     portikus_node_env: production
     portikus_api_port: 3000
     portikus_controller_port: 3001
+    # The certificate job's throwaway Caddy answers HTTP-01 here
+    # (CHALLENGE_PORT in certificate-job); the caddy and firewall roles use it.
+    caddy_challenge_port: 8796
     portikus_database_url: "postgresql://portikus@/portikus?host=/var/run/postgresql"
     # The worker's own role, a member of portikus (the postgresql role).
     portikus_worker_database_url: "postgresql://portikus-worker@/portikus?host=/var/run/postgresql"

@@ -1,0 +1,13 @@
+---
+# Whether the certificate state exists: any of the files the root job
+# writes, as `certificate-job first-install` itself checks, so setup never
+# seeds over state the admin page owns (docs/SPEC.md section 21.12).
+- name: Look for the certificate state
+  ansible.builtin.stat:
+    path: "{{ caddy_certificate_dir }}/{{ item }}"
+  loop: [settings.json, tls.caddy, secrets]
+  register: caddy_certificate_state
+
+- name: Note whether the certificate state exists
+  ansible.builtin.set_fact:
+    caddy_certificate_state_exists: "{{ caddy_certificate_state.results | selectattr('stat.exists') | list | length > 0 }}"

@@ -49,6 +49,11 @@
         role: caddy
         accept: true
         vars: { portikus_tls: acme, caddy_certificate_dir: "{{ setup_test_seeded.path }}" }
+      # Any file the job writes counts, so a half-written state is never seeded over.
+      - name: an unknown TLS choice on a host with only the job's secrets
+        role: caddy
+        accept: true
+        vars: { portikus_tls: acme, caddy_certificate_dir: "{{ setup_test_partial.path }}" }
       - { name: no storage on a host without a volume group, role: lvm, accept: false, vars: { portikus_storage: "" } }
       - { name: a volume group that does not exist, role: lvm, accept: false, vars: { portikus_storage: no-such-group } }
       - { name: a device that is not a block device, role: lvm, accept: false, vars: { portikus_storage: /dev/null } }
@@ -70,6 +75,18 @@
         dest: "{{ setup_test_seeded.path }}/settings.json"
         mode: "0644"
 
+    - name: Make a certificate state with only the secrets directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: setup-settings-partial-
+      register: setup_test_partial
+
+    - name: Make its secrets directory
+      ansible.builtin.file:
+        path: "{{ setup_test_partial.path }}/secrets"
+        state: directory
+        mode: "0750"
+
     - name: Try each case
       ansible.builtin.include_tasks: setup-settings-case.yml
       loop: "{{ setup_test_cases }}"
@@ -77,7 +94,10 @@
         loop_var: setup_case
         label: "{{ setup_case.name }}"
 
-    - name: Remove the seeded certificate state
+    - name: Remove the seeded certificate states
       ansible.builtin.file:
-        path: "{{ setup_test_seeded.path }}"
+        path: "{{ item }}"
         state: absent
+      loop:
+        - "{{ setup_test_seeded.path }}"
+        - "{{ setup_test_partial.path }}"

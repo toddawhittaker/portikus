@@ -90,8 +90,10 @@ def write(path, data, mode, header):
 
 tls = answer("tls") or "internal"
 # After the first setup the admin page owns the certificate, and setup no
-# longer reads the TLS answers, so none of them is missing.
-certificate_seeded = os.path.exists("/etc/portikus/certificate/settings.json")
+# longer reads the TLS answers, so none of them is missing.  Any file the
+# root job writes counts, as setup and the job itself check.
+certificate_seeded = any(os.path.lexists("/etc/portikus/certificate/" + name)
+                         for name in ("settings.json", "tls.caddy", "secrets"))
 provider = answer("provider") or "dex"
 storage = answer("storage")
 
@@ -139,10 +141,11 @@ for key in owned:
     config.pop(key, None)
 config.update(settings)
 
-# A blank password keeps the stored secret.
+# A blank password keeps the stored secret.  Once setup has seeded the
+# certificate, the root job keeps the Cloudflare token, so none stays here.
 current = load(SECRETS)
 wanted = {}
-if tls == "letsencrypt":
+if tls == "letsencrypt" and not certificate_seeded:
     wanted["portikus_cloudflare_api_token"] = answer("cloudflare_api_token")
 if provider in ("entra", "google", "oidc"):
     wanted["portikus_dex_upstream_client_secret"] = answer("client_secret")
@@ -201,8 +204,6 @@ names = {
     "portikus_ldap_bind_password": "the service account password (ldap_bind_password)",
 }
 for key in wanted:
-    if key == "portikus_cloudflare_api_token" and certificate_seeded:
-        continue
     if not secrets.get(key):
         print("- " + names[key])
 PY

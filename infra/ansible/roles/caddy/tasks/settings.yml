@@ -5,12 +5,10 @@
 # owns the certificate and these settings are ignored, so they are not checked.
 
 - name: Look for the certificate state
-  ansible.builtin.stat:
-    path: "{{ caddy_certificate_dir }}/settings.json"
-  register: caddy_certificate_state
+  ansible.builtin.import_tasks: state.yml
 
 - name: Check the TLS answer that seeds the certificate
-  when: not caddy_certificate_state.stat.exists
+  when: not caddy_certificate_state_exists
   block:
     - name: Require a known TLS choice
       ansible.builtin.assert:
