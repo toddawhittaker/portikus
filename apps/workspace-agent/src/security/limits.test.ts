@@ -9,7 +9,7 @@ import { buildServer } from "../server.js";
 
 /**
  * The workspace agent's own limits that had no direct test (SPEC.md §9.7,
- * §18.1, §24; BROWSER-HANDLING.md §18; Epic 12a Done item 8): the checks
+ * §18.1, §24; BROWSER-HANDLING.md §18): the checks
  * count, the JSON body limit on every route that takes one, the 1 MiB frame
  * limit on its sockets, and the one-line limit on the URL broker socket.
  */

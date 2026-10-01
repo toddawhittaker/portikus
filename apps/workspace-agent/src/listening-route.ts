@@ -46,7 +46,7 @@ export async function listeningRoutes(
 		await monitor.refresh();
 	});
 
-	/** Stop what holds a port (SPEC.md §18.2, issue #273). */
+	/** Stop what holds a port (SPEC.md §18.2). */
 	instance.post("/listening/:port/stop", async (request, reply) => {
 		const { port } = request.params as { port: string };
 		const parsed = PortNumber.safeParse(Number.parseInt(port, 10));
@@ -65,7 +65,7 @@ export async function listeningRoutes(
 		return { port: parsed.data, stopped: true };
 	});
 
-	/** Settle a port's protocol when a preview first asks (issue #957). */
+	/** Settle a port's protocol when a preview first asks. */
 	instance.post("/listening/:port/probe", async (request, reply) => {
 		const { port } = request.params as { port: string };
 		const parsed = PortNumber.safeParse(Number.parseInt(port, 10));

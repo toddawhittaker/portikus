@@ -1,5 +1,5 @@
 /**
- * "Extract here" for a zip in the Files pane (issue #817). The central
+ * "Extract here" for a zip in the Files pane. The central
  * directory is read and checked before anything is written: every entry
  * must stay inside the new folder (SPEC.md §11.1, §24.6), no entry may be
  * a symbolic link or touch `.git`, and the entry count and declared size

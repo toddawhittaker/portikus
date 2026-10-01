@@ -1,6 +1,6 @@
 /**
  * The platform's agent instructions are system files rewritten at every
- * start from one template (SPEC.md §3, issue #933).
+ * start from one template (SPEC.md §3).
  */
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

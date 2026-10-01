@@ -9,7 +9,7 @@ import type { Kysely } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
 import { startLoop } from "./loop.js";
 
-/** How often a running seed build is polled (issue #840). */
+/** How often a running seed build is polled. */
 export const SEED_JOB_POLL_SECONDS = 5;
 /** How often, with no build running, the seed row is checked against the controller. */
 export const SEED_SYNC_SECONDS = 60;
@@ -26,14 +26,14 @@ export interface SeedJobOptions {
 }
 
 /**
- * Build the tick that drives seed rebuilds (issue #840, ruling S8). The API
+ * Build the tick that drives seed rebuilds. The API
  * inserts a `queued` row; this starts it on the controller with the seed
  * size cap as `maxBytes`, then polls it, copying state and step into the
  * row. On success it writes the `docker_seed` row. The row's id is the
  * build id, so a worker restart simply resumes polling; a controller that
  * no longer knows the id fails the job. With no build active it keeps the
  * `docker_seed` row equal to the controller's `GET /docker-seed`, removing
- * the row when the controller has no seed (review Q2).
+ * the row when the controller has no seed.
  */
 export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 	const { db, controller, logger } = options;

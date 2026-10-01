@@ -174,7 +174,7 @@ test.skipIf(skip)("connect -> sweep -> start called -> running", async () => {
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
 	expect(fake.calls.some((c) => c.method === "start")).toBe(true);
-	// The start request carries the preview host suffix (issue #263).
+	// The start request carries the preview host suffix.
 	const startCall = fake.calls.find((c) => c.method === "start");
 	expect(startCall?.args[1]).toMatchObject({
 		previewHostSuffix: "preview.portikus.example.edu",
@@ -184,7 +184,7 @@ test.skipIf(skip)("connect -> sweep -> start called -> running", async () => {
 	expect(audits.some((a) => a.action === "workspace.start")).toBe(true);
 });
 
-/** Issue #287: the container starts in the zone its owner chose. */
+/** The container starts in the zone its owner chose. */
 test.skipIf(skip)("the start request carries the owner's timezone", async () => {
 	const ownerId = await insertTestUser(tdb.db);
 	await tdb.db
@@ -206,7 +206,7 @@ test.skipIf(skip)("the start request carries the owner's timezone", async () => 
 	expect(startCall?.args[1]).toMatchObject({ timezone: "Europe/Berlin" });
 });
 
-/** Issue #840: the start request says whether to use the caches, from the saved policy. */
+/** The start request says whether to use the caches, from the saved policy. */
 test.skipIf(skip)("the start request carries the Docker cache config", async () => {
 	await tdb.db
 		.insertInto("settings")
@@ -425,7 +425,7 @@ test.skipIf(skip)(
 	},
 );
 
-/** Issue #840: the controller's seed builder is not a workspace; the sweep leaves it alone. */
+/** The controller's seed builder is not a workspace; the sweep leaves it alone. */
 test.skipIf(skip)("the Docker seed builder in the list is ignored", async () => {
 	const id = await insertWorkspace({
 		state: "running",
@@ -1999,7 +1999,7 @@ test.skipIf(skip)(
 		const now = new Date();
 		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		expect((await getAudits(id)).map((a) => a.action)).toEqual(["workspace.stop"]);
-		// Usage is remembered across restarts (Todd's ruling, 2026-09-25).
+		// Usage is remembered across restarts.
 		expect(await sampleRows(id)).toBe(1);
 	},
 );
@@ -2129,7 +2129,7 @@ test.skipIf(skip)("a stop records the time it finished, not the sweep's", async 
 	expect(new Date(ws.updated_at).getTime()).toBeGreaterThanOrEqual(beforeRelease);
 });
 
-// --- Keep running until (#955, Epic 28 ruling R1) ---
+// --- Keep running until ---
 
 const HOUR = 60 * MIN;
 

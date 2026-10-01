@@ -30,7 +30,7 @@ export function imageKeepsTerminals(serial: string | null): boolean {
 
 /**
  * Restart the agent in each running workspace whose agent started before
- * the installed agent files changed (issue #887). One workspace at a time; a
+ * the installed agent files changed. One workspace at a time; a
  * failure is logged and the next one goes ahead.
  */
 export async function restartOutdatedAgents(opts: {

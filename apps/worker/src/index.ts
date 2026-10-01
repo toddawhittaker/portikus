@@ -100,7 +100,7 @@ async function main(): Promise<void> {
 		logger.error({ error: e.message }, "blocked-name counter failed to listen"),
 	);
 	startPackageSurvey({ db, controller, logger });
-	// Shared Docker pull storage (issue #840).
+	// Shared Docker pull storage.
 	startSeedJobs({ db, controller, logger });
 	startDockerUsage({ db, logger, agentPort: config.AGENT_PORT });
 	startRegistryEvents({ db, logger, port: config.REGISTRY_EVENTS_PORT }).catch(

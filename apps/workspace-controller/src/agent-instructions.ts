@@ -3,7 +3,7 @@ import type { IncusClient } from "./incus.js";
 import { IncusError } from "./incus.js";
 
 /**
- * The coding agents' platform instructions (SPEC.md §3, issue #933). One
+ * The coding agents' platform instructions (SPEC.md §3). One
  * template ships in the Portikus package, next to the workspace agent, so a
  * change reaches every workspace at its next start without a new image.
  */
@@ -16,7 +16,7 @@ export const CLAUDE_SYSTEM_PATH = "/etc/claude-code/CLAUDE.md";
 /** Codex's system config layer; a pilot test showed it applies developer_instructions. */
 export const CODEX_SYSTEM_PATH = "/etc/codex/config.toml";
 
-/** The line the image already ships in the Codex system config (issue #129). */
+/** The line the image already ships in the Codex system config. */
 const CODEX_UPDATE_LINE = "check_for_update_on_startup = false";
 
 /** The Codex system config holding the template. A JSON string is a valid TOML basic string. */

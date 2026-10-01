@@ -40,7 +40,7 @@ import {
 	StopInstanceResponse as StopInstanceResponseSchema,
 } from "@portikus/contracts";
 
-/** Time budgets for each call (ADR 0034 ruling 7), so a hung controller never hangs the worker. */
+/** Time budgets for each call (ADR 0034), so a hung controller never hangs the worker. */
 const SHORT_BUDGET_MS = 30_000;
 /** The controller's instance create wait plus a 60 s margin. */
 export const CREATE_BUDGET_MS = INSTANCE_CREATE_WAIT_SECONDS * 1000 + 60_000;
@@ -104,7 +104,7 @@ export interface ControllerClient {
 	replaceHome(name: string): Promise<ReplaceHomeResponse>;
 	/** Hand the expanded egress policy to the root helper and wait for it (ADR 0038). */
 	applyEgressPolicy(policy: EgressApplyPolicy): Promise<EgressApplyStatus>;
-	/** Start a Docker seed build; one at a time (issue #840). */
+	/** Start a Docker seed build; one at a time. */
 	startSeedBuild(req: SeedBuildRequest): Promise<SeedBuildStatus>;
 	/** A seed build's progress; NOT_FOUND when the controller forgot it. */
 	seedBuild(id: string): Promise<SeedBuildStatus>;

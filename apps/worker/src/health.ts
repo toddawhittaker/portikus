@@ -11,7 +11,7 @@ import { type ControllerClient, ControllerClientError } from "./controller-clien
 import { startLoop } from "./loop.js";
 import { notifyAdministrators } from "./notifications.js";
 
-/** How often the worker samples the host (Epic 11, "Decisions"). */
+/** How often the worker samples the host. */
 export const HEALTH_SAMPLE_SECONDS = 60;
 
 /** How long one host snapshot may take before the sample records a failure. */
@@ -29,7 +29,7 @@ export type PoolLevel = 0 | typeof POOL_WARN_PERCENT | typeof POOL_FULL_PERCENT;
 /**
  * The pool's alert level after a sample: the highest threshold the fill has
  * reached, kept until the fill falls POOL_REARM_POINTS below it, so a fill
- * wobbling around a threshold alerts once (ADR 0034 ruling 21).
+ * wobbling around a threshold alerts once (ADR 0034).
  */
 export function nextPoolLevel(previous: PoolLevel, fill: number): PoolLevel {
 	for (const threshold of [POOL_FULL_PERCENT, POOL_WARN_PERCENT] as const) {

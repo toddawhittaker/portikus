@@ -308,7 +308,7 @@ function put(slug: string, path: string, body: string) {
 	});
 }
 
-/** A project made before #868: a repository with its own .gitignore and no exclude lines. */
+/** A project from before the exclude lines: a repository with its own .gitignore and no exclude lines. */
 async function olderRepo(slug: string): Promise<string> {
 	const dir = join(projectsRoot, slug);
 	await mkdir(dir, { recursive: true });
@@ -346,7 +346,7 @@ test.skipIf(!haveGit)(
 		expect(exclude.split("\n").filter((line) => line === ".portikus/*")).toHaveLength(
 			1,
 		);
-		// No README on these writes; that is for new projects only (#857).
+		// No README on these writes; that is for new projects only.
 		await expect(readFile(join(dir, ".portikus", "README.md"))).rejects.toThrow();
 	},
 );

@@ -1,6 +1,6 @@
 /**
  * Give the coding agents' home instruction files back to the student
- * (SPEC.md §3, issue #933). The platform's guidance now lives in system
+ * (SPEC.md §3). The platform's guidance now lives in system
  * files the workspace controller writes at every start, so the copies an
  * older agent put in the home folder are taken out again, and nothing a
  * student wrote is touched.

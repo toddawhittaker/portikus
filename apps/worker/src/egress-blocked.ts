@@ -6,7 +6,7 @@ import { type Kysely, sql } from "kysely";
 import { utcDay } from "./package-survey.js";
 
 /**
- * The blocked-name counter (issue #284, ADR 0038). Our egress dnsmasq sends
+ * The blocked-name counter (ADR 0038). Our egress dnsmasq sends
  * every unlisted name here; this answers NXDOMAIN and counts the name. The
  * workspace Squid sends each refused TLS or HTTP name as a UDP line. Only
  * dnsmasq and Squid talk to it, on loopback, so it never learns which

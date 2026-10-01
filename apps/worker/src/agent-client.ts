@@ -79,8 +79,8 @@ export const INVENTORY_TIMEOUT_MS = 45 * 1000;
 const INVENTORY_JSON_LIMIT_BYTES = 8 * 1024 * 1024;
 
 /**
- * `GET /docker/inventory` on one agent (issue #840). Any failure, including
- * a reply that fails the schema, is null: no data (ruling S7).
+ * `GET /docker/inventory` on one agent. Any failure, including
+ * a reply that fails the schema, is null: no data.
  */
 export async function fetchDockerInventory(
 	address: string,

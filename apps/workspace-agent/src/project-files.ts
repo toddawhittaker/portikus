@@ -15,14 +15,14 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 
-/** Everything under `.portikus/` is working data except these two files (#856). */
+/** Everything under `.portikus/` is working data except these two files. */
 export const PORTIKUS_IGNORE_LINES = [
 	".portikus/*",
 	"!.portikus/checks.json",
 	"!.portikus/README.md",
 ];
 
-/** The README a new project gets under `.portikus/` (#857). */
+/** The README a new project gets under `.portikus/`. */
 export const PORTIKUS_README = `# Portikus project files
 
 Portikus keeps a few files for this project in this folder. Two of them
@@ -77,7 +77,7 @@ saying so.
 
 /**
  * Add the ignore lines to `.git/info/exclude`, which Git never tracks, so a
- * repository's own `.gitignore` is left alone (#856). Adding them twice is
+ * repository's own `.gitignore` is left alone. Adding them twice is
  * avoided by looking for the first line.
  */
 export async function excludePortikusFiles(projectPath: string): Promise<void> {
@@ -97,7 +97,7 @@ export async function excludePortikusFiles(projectPath: string): Promise<void> {
 
 /**
  * Called after a write at `relPath`: an older Git project gets the exclude
- * lines the first time Portikus writes under `.portikus/` (#856). A project
+ * lines the first time Portikus writes under `.portikus/`. A project
  * without a `.git` directory is left alone.
  */
 export async function excludeOnPortikusWrite(
@@ -140,7 +140,7 @@ export const PASTE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Delete pastes in `<project>/.portikus/pastes` last modified more than 7
- * days before `now` (#885). Only regular files with a paste name go; a
+ * days before `now`. Only regular files with a paste name go; a
  * symlinked folder or file is never followed.
  */
 export async function removeOldPastes(

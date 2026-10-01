@@ -15,7 +15,7 @@ import { IncusClient, IncusError } from "./incus.js";
 import { IncusWorkspaceProvider } from "./provider.js";
 
 // A fake Incus on a unix socket. Routes answer with the response shapes read
-// from the pilot on 2026-09-22 (Epic 11 task 2 spike).
+// from the pilot on 2026-09-22.
 let socketPath: string;
 let server: http.Server;
 let dir: string;

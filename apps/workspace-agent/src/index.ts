@@ -46,7 +46,7 @@ const workspaceId =
 		? workspaceFromEnv
 		: undefined;
 
-// The package's own change time (ctime, as the controller compares) names the agent code; an upgrade changes it (issue #887).
+// The package's own change time (ctime, as the controller compares) names the agent code; an upgrade changes it.
 const build = await stat(fileURLToPath(import.meta.url)).then(
 	(file) => file.ctime.toISOString(),
 	() => undefined,

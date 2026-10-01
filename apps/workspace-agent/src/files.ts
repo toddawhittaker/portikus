@@ -205,7 +205,7 @@ function sniffContentType(sample: Buffer): string {
 
 /**
  * Read a file. An editor read is capped at MAX_EDITOR_FILE_BYTES; a download
- * streams instead, up to MAX_DOWNLOAD_BYTES (SPEC.md §11.2, #399).
+ * streams instead, up to MAX_DOWNLOAD_BYTES (SPEC.md §11.2).
  */
 export async function readFile(
 	homeDir: string,

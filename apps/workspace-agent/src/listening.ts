@@ -50,10 +50,10 @@ const FIRST_PROBED_PORT = 1024;
 export type TlsProbe = (host: string, port: number) => Promise<boolean>;
 
 /**
- * Whether a listener completes a TLS handshake (issue #283). Certificate
+ * Whether a listener completes a TLS handshake. Certificate
  * checks are off because a development server's certificate is self-signed;
  * nothing is sent after the handshake. A plain HTTP server logs the handshake
- * as a bad request, so it runs only when a preview asks (issue #957).
+ * as a bad request, so it runs only when a preview asks.
  */
 export function probeTls(
 	host: string,
@@ -119,7 +119,7 @@ export interface SocketOwner {
 
 /**
  * Whether a listener is the platform's own or a system account's rather than
- * the student's (SPEC.md §18.2, issue #265).
+ * the student's (SPEC.md §18.2).
  *
  * The agent itself is the process doing the scan, so a listener whose owning
  * pid is our own pid is the agent, whatever port it was configured with. The
@@ -130,12 +130,12 @@ export interface SocketOwner {
  * The agent also opens a loopback forward on the student's own port to serve
  * a preview (BROWSER-HANDLING.md §11.1), which makes the agent one holder of
  * that port. A forward is never the service, so a forwarded port is judged by
- * the other rows alone (issue #299).
+ * the other rows alone.
  *
  * A port can have several rows, one per address family. It is hidden only
  * when every one of them belongs to a system account: one row that is the
  * student's makes the port the student's, because hiding it would hide their
- * own work (issue #265).
+ * own work.
  */
 export function isSystemListener(input: {
 	ownerPid?: number;
@@ -300,7 +300,7 @@ type Listener = (services: AgentListeningService[]) => void;
 /**
  * Whether a failed signal means the process is gone. Only ESRCH does. EPERM
  * means the kernel refused us, which tells us nothing about whether the
- * process stopped, so it must never read as success (issue #273).
+ * process stopped, so it must never read as success.
  */
 function isGone(error: unknown): boolean {
 	return (error as NodeJS.ErrnoException | undefined)?.code === "ESRCH";
@@ -332,7 +332,7 @@ function fingerprint(services: AgentListeningService[]): string {
  * Scans for listening ports on a timer and tells its subscribers whenever the
  * set changes (BROWSER-HANDLING.md §17). The timer scans only while someone
  * watches, never overlaps itself, and walks the `/proc/<pid>/fd` links only when a
- * listening socket's owner is not already known (SPEC.md §18.2, issue #623).
+ * listening socket's owner is not already known (SPEC.md §18.2).
  */
 export class ListeningMonitor {
 	private readonly procRoot: string;
@@ -460,7 +460,7 @@ export class ListeningMonitor {
 	}
 
 	/**
-	 * Stop whatever is listening on a port (SPEC.md §18.2, issue #273).
+	 * Stop whatever is listening on a port (SPEC.md §18.2).
 	 *
 	 * A container row is stopped with `docker stop`, because the process
 	 * inside it is not what keeps the service alive. Otherwise the owning
@@ -539,10 +539,9 @@ export class ListeningMonitor {
 	/**
 	 * The owning process is gone, but the port may not be. A server that is
 	 * shutting down often keeps the socket for a moment, and a parent that
-	 * forked the server can hold it open for good (issue #273). Keep looking
+	 * forked the server can hold it open for good. Keep looking
 	 * for the grace period. A port that clears in that time is a stop. A port
-	 * that is still taken at the end is the failure the student is told about
-	 * (issue #348).
+	 * that is still taken at the end is the failure the student is told about.
 	 */
 	private async confirmPortFree(port: number): Promise<void> {
 		const deadline = Date.now() + this.graceMs;
@@ -666,7 +665,7 @@ export class ListeningMonitor {
 				.map((entry) => owners.get(entry.inode))
 				.filter((entry) => entry !== undefined && entry !== null);
 			// The agent's own forward is never the service: if another process
-			// holds this port too, that one is the owner (issue #299).
+			// holds this port too, that one is the owner.
 			const owner = found.find((entry) => entry.pid !== this.selfPid) ?? found[0];
 			const container = containers.find((entry) => entry.ports.includes(port));
 			const system = isSystemListener({
@@ -715,7 +714,7 @@ export class ListeningMonitor {
 	/**
 	 * The protocol fields for a port. A port the agent never probes is final
 	 * at once; a probed socket carries its answer; anything else is a guess
-	 * from the port number until a preview asks (issue #957).
+	 * from the port number until a preview asks.
 	 */
 	private protocolOf(
 		port: number,
@@ -730,7 +729,7 @@ export class ListeningMonitor {
 
 	/**
 	 * Settle whether a port speaks TLS, probing its socket the first time a
-	 * preview asks (issues #283, #957). Only a socket the last scan found is
+	 * preview asks. Only a socket the last scan found is
 	 * dialled, at its own loopback or bound address, so a caller names a port
 	 * and nothing else. Null when nothing listens there.
 	 */

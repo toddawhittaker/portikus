@@ -20,8 +20,8 @@ import { buildServer } from "../server.js";
 
 /**
  * Path spellings sent straight to the agent, as a hostile or buggy caller
- * would, across every file operation (SPEC.md §11.1, §24.6; Epic 12a Done
- * item 7). files.test.ts already covers plain `..`, absolute paths, a
+ * would, across every file operation (SPEC.md §11.1, §24.6).
+ * files.test.ts already covers plain `..`, absolute paths, a
  * backslash, `.`, a NUL on read, and single symlinks on read and write; this
  * file covers the encoded spellings and the operations those tests skip.
  *

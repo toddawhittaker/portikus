@@ -10,7 +10,7 @@ import { type IncusClient, IncusError } from "./incus.js";
 
 /**
  * What the controller writes into a workspace's Docker setup before it
- * starts (issue #840, ruling 9): the Hub cache as a registry mirror, and
+ * starts: the Hub cache as a registry mirror, and
  * while the ghcr.io cache is on, a hosts entry and the CA Docker trusts for
  * it. Everything goes through the Incus files API, which resolves paths
  * inside the container, never on the host.

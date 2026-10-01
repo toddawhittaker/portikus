@@ -37,12 +37,12 @@ app.listen({ host: "127.0.0.1", port: config.PORT }, (err, address) => {
 		process.exit(1);
 	}
 	logger.info({ address }, "workspace-controller listening");
-	// Running workspaces pick up an upgraded agent without blocking anything else (issue #887).
+	// Running workspaces pick up an upgraded agent without blocking anything else.
 	void restartAgentsAfterUpgrade();
 	void discardForgottenSeedBuild();
 });
 
-/** A seed build the last controller process was running is gone with it (#840). */
+/** A seed build the last controller process was running is gone with it. */
 async function discardForgottenSeedBuild(): Promise<void> {
 	try {
 		await provider.discardSeedBuild();
