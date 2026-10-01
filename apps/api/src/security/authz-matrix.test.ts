@@ -112,6 +112,7 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/docker/cache/clear": 404,
 	"PUT /admin/docker/seed/images": 404,
 	"POST /admin/docker/seed/jobs": 404,
+	"POST /admin/docker/seed/match": 404,
 	"GET /admin/docker/seed/jobs": 404,
 	"HEAD /admin/docker/seed/jobs": 404,
 	"GET /admin/docker/usage": 404,
@@ -302,6 +303,9 @@ const PAYLOADS: Record<string, object> = {
 	"POST /admin/workspaces/:id/processes/:pid/stop": { startTicks: 100 },
 	"PUT /admin/workspaces/:id/quota": { homeGiB: 100, dockerGiB: 100 },
 	"PUT /admin/workspaces/:id/guard": { idleStopMinutes: 0 },
+	"PUT /workspaces/:id/keep-running": {
+		until: new Date(Date.now() + 3_600_000).toISOString(),
+	},
 	"PUT /admin/workspaces/:id/limits": { cpu: null, memoryMiB: null, processes: null },
 	"POST /admin/workspaces/:id/rebuild": { resetDocker: false },
 	"PUT /admin/egress/mode": { version: 0, mode: "open" },

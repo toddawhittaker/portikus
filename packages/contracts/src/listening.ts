@@ -19,6 +19,13 @@ export const ListeningService = z.object({
 	port: PortNumber,
 	addresses: z.array(z.string()),
 	protocolHint: z.enum(["http", "https", "unknown"]),
+	/**
+	 * True once `protocolHint` is final for this socket: the agent has probed
+	 * it for TLS, or it is a port the agent never probes. The probe runs only
+	 * when a preview of the port is first asked for (issue #957), so until
+	 * then the hint is a guess from the port number.
+	 */
+	protocolKnown: z.boolean().optional(),
 	process: z
 		.object({
 			pid: z.number().int().optional(),
@@ -57,11 +64,17 @@ export type ListeningService = z.infer<typeof ListeningService>;
 export const AgentListeningService = ListeningService.omit({ workspaceId: true });
 export type AgentListeningService = z.infer<typeof AgentListeningService>;
 
+/**
+ * Most listeners one workspace reports. A student container has a handful;
+ * 1024 leaves room for odd cases while bounding the work a frame costs the API.
+ */
+export const MAX_LISTENING_SERVICES = 1024;
+
 /** The set of listening services changed (BROWSER-HANDLING.md §17). */
 export const ListeningServicesChanged = z.object({
 	type: z.literal("workspace.listening-services.changed"),
 	workspaceId: z.string(),
-	services: z.array(ListeningService),
+	services: z.array(ListeningService).max(MAX_LISTENING_SERVICES),
 	observedAt: z.string(),
 });
 export type ListeningServicesChanged = z.infer<typeof ListeningServicesChanged>;
@@ -69,7 +82,9 @@ export type ListeningServicesChanged = z.infer<typeof ListeningServicesChanged>;
 /** The same frame as the agent sends it, without the workspace id. */
 export const AgentListeningServicesChanged = ListeningServicesChanged.omit({
 	workspaceId: true,
-}).extend({ services: z.array(AgentListeningService) });
+}).extend({
+	services: z.array(AgentListeningService).max(MAX_LISTENING_SERVICES),
+});
 export type AgentListeningServicesChanged = z.infer<
 	typeof AgentListeningServicesChanged
 >;

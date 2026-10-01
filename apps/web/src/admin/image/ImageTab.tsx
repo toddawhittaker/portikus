@@ -14,6 +14,7 @@ import {
 	Dialog,
 	DialogRoot,
 	EmptyState,
+	Meter,
 	Select,
 	Skeleton,
 	Toggletip,
@@ -21,6 +22,7 @@ import {
 } from "@portikus/ui";
 import { useRef, useState } from "react";
 import { ApiError } from "../../api/request.js";
+import { formatBytes } from "../../monitor/format.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { JobLog } from "../JobLog.js";
@@ -54,6 +56,7 @@ const KIND_LABEL: Record<NonNullable<ImageJobView["kind"]>, string> = {
 	build: "Rebuild with latest packages",
 	activate: "Make default",
 	rollback: "Roll back",
+	delete: "Delete an image",
 };
 
 const STATE_LABEL: Record<ImageJobView["state"], string> = {
@@ -104,13 +107,14 @@ export function ImageTab() {
 type Confirming =
 	| { kind: "activate"; version: string }
 	| { kind: "rollback" }
-	| { kind: "fetch" };
+	| { kind: "fetch" }
+	| { kind: "delete"; version: string; workspaces: number; sizeBytes: number | null };
 
 function ImageSections({ data }: { data: AdminImage }) {
 	const toast = useToast();
 	const ask = useRequestImageJob();
 	const [confirming, setConfirming] = useState<Confirming | null>(null);
-	// Make default and the newer-image notice unmount their own button, so a confirmed one sends focus to the job heading.
+	// Make default, Fetch (the newer-image notice) and Delete unmount their own button, so a confirmed one sends focus to the job heading.
 	const toJob = useRef(false);
 	const [rebuilding, setRebuilding] = useState(false);
 	const [diffOf, setDiffOf] = useState<string | null>(null);
@@ -141,8 +145,8 @@ function ImageSections({ data }: { data: AdminImage }) {
 					data-testid="image-newer-published"
 				>
 					<p className="m-0 flex-1">
-						Image <strong>{data.newerPublished}</strong> is published and not yet on
-						this server.
+						Image <strong className="pk-mono-small">{data.newerPublished}</strong> is
+						published and not yet on this server.
 					</p>
 					<Button
 						variant="primary"
@@ -225,6 +229,14 @@ function ImageSections({ data }: { data: AdminImage }) {
 				busy={busy}
 				onDiff={setDiffOf}
 				onMakeDefault={(version) => setConfirming({ kind: "activate", version })}
+				onDelete={(image) =>
+					setConfirming({
+						kind: "delete",
+						version: image.version,
+						workspaces: image.workspaces,
+						sizeBytes: image.sizeBytes,
+					})
+				}
 			/>
 
 			<ConfirmDialogRoot
@@ -235,7 +247,7 @@ function ImageSections({ data }: { data: AdminImage }) {
 					<ConfirmDialog
 						id="image-confirm"
 						testId="image-confirm"
-						destructive={false}
+						destructive={confirming.kind === "delete"}
 						title={confirmTitle(confirming, data)}
 						description={confirmText(confirming)}
 						confirmLabel={confirmLabel(confirming)}
@@ -251,9 +263,9 @@ function ImageSections({ data }: { data: AdminImage }) {
 							);
 						}}
 						onConfirm={() =>
-							submit(confirming, () => {
-								toJob.current =
-									confirming.kind === "activate" || confirming.kind === "fetch";
+							submit(requestOf(confirming), () => {
+								// A deleted row takes its Delete button with it, so focus goes to the job too.
+								toJob.current = confirming.kind !== "rollback";
 								setConfirming(null);
 							})
 						}
@@ -291,13 +303,29 @@ function ImageSections({ data }: { data: AdminImage }) {
 	);
 }
 
+function requestOf(c: Confirming): ImageJobRequest {
+	return c.kind === "delete" ? { kind: "delete", version: c.version } : c;
+}
+
 function confirmTitle(c: Confirming, data: AdminImage): string {
+	if (c.kind === "delete") return `Delete image ${c.version}?`;
 	if (c.kind === "fetch") return "Update to the latest published image?";
 	if (c.kind === "rollback") return `Roll back to ${data.previous}?`;
 	return `Make ${c.version} the default image?`;
 }
 
 function confirmText(c: Confirming): string {
+	if (c.kind === "delete") {
+		const made =
+			c.workspaces === 0
+				? "No workspaces were made from this image."
+				: `${c.workspaces === 1 ? "1 workspace was" : `${c.workspaces} workspaces were`} made from this image. They keep working, because each has its own copy of its disk.`;
+		const frees =
+			c.sizeBytes === null
+				? "Deleting it frees its space on the main disk."
+				: `Deleting it frees about ${formatBytes(c.sizeBytes)} on the main disk.`;
+		return `${made} ${frees} To use it again, update or rebuild.`;
+	}
 	if (c.kind === "fetch") {
 		return "The host downloads the newest published image, checks its signature, imports it and runs its health check. Nothing changes for workspaces until you make it the default.";
 	}
@@ -305,6 +333,7 @@ function confirmText(c: Confirming): string {
 }
 
 function confirmLabel(c: Confirming): string {
+	if (c.kind === "delete") return "Delete image";
 	if (c.kind === "fetch") return "Update";
 	if (c.kind === "rollback") return "Roll back";
 	return "Make default";
@@ -330,7 +359,7 @@ function CurrentList({
 	return (
 		<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px] @3xl:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)]">
 			<dt className="pk-muted">Default</dt>
-			<dd className="m-0" data-testid="image-default">
+			<dd className="pk-mono-small m-0 self-center" data-testid="image-default">
 				{data.default ?? "None"}
 			</dd>
 			<dt className="pk-muted flex items-center gap-1">
@@ -340,7 +369,7 @@ function CurrentList({
 					again.
 				</Toggletip>
 			</dt>
-			<dd className="m-0" data-testid="image-previous">
+			<dd className="pk-mono-small m-0 self-center" data-testid="image-previous">
 				{data.previous ?? "None"}
 			</dd>
 			<dt className="pk-muted">Node</dt>
@@ -367,6 +396,7 @@ function jobTitle(job: ImageJobView): string {
 		return `${KIND_LABEL.build}: ${NODE_LABEL[request.node]}, ${PYTHON_LABEL[request.python]}`;
 	}
 	if (job.kind === "activate" && job.version) return `Make ${job.version} the default`;
+	if (job.kind === "delete" && job.version) return `Delete ${job.version}`;
 	return job.kind ? KIND_LABEL[job.kind] : "Unknown request";
 }
 
@@ -448,13 +478,63 @@ function JobGroup({
 	);
 }
 
-/** Why Make default is off for this image, or null when it may be pressed. */
-function makeDefaultOff(image: ImageView, busy: boolean): string | null {
+/** Why Make default is off for this image alone, or null; a busy job is said once, above. */
+function makeDefaultOff(image: ImageView): string | null {
 	if (image.role === "default") return "This is the default image.";
-	if (busy) return BUSY_REASON;
 	if (!image.health) return "This image has not been health-checked.";
 	if (image.health.result !== "passed") return "This image failed its health check.";
 	return null;
+}
+
+/** Why Delete is off for this image alone, or null. The root job refuses the same two. */
+function deleteOff(image: ImageView): string | null {
+	if (image.role === "default") return "The default image is never deleted.";
+	if (image.role === "previous") return "Kept so you can roll back.";
+	return null;
+}
+
+/**
+ * A row action that is off for a reason of its own, shown under it, or off
+ * while a job runs, pointing at the one busy note above the list.
+ */
+function RowAction({
+	label,
+	ariaLabel,
+	testId,
+	primary,
+	reason,
+	busy,
+	onPress,
+}: {
+	label: string;
+	ariaLabel: string;
+	testId: string;
+	primary?: boolean;
+	reason: string | null;
+	busy: boolean;
+	onPress: () => void;
+}) {
+	const noteId = `${testId}-note`;
+	const off = reason !== null || busy;
+	return (
+		<span className="inline-flex flex-col items-start gap-1">
+			<Button
+				variant={primary ? "primary" : "secondary"}
+				data-testid={testId}
+				aria-label={ariaLabel}
+				aria-disabled={off ? true : undefined}
+				aria-describedby={reason ? noteId : busy ? "image-busy-note" : undefined}
+				onClick={() => (off ? undefined : onPress())}
+			>
+				{label}
+			</Button>
+			{reason ? (
+				<span id={noteId} className="pk-muted text-[12px]">
+					{reason}
+				</span>
+			) : null}
+		</span>
+	);
 }
 
 function MakeDefaultButton({
@@ -466,26 +546,59 @@ function MakeDefaultButton({
 	busy: boolean;
 	onMakeDefault: (version: string) => void;
 }) {
-	const off = makeDefaultOff(image, busy);
-	const noteId = `image-make-default-note-${image.version}`;
 	return (
-		<span className="inline-flex flex-col gap-1">
-			<Button
-				variant="primary"
-				data-testid={`image-make-default-${image.version}`}
-				aria-label={`Make default: ${image.version}`}
-				aria-disabled={off ? true : undefined}
-				aria-describedby={off ? noteId : undefined}
-				onClick={() => (off ? undefined : onMakeDefault(image.version))}
-			>
-				Make default
-			</Button>
-			{off ? (
-				<span id={noteId} className="pk-muted text-[12px]">
-					{off}
-				</span>
-			) : null}
-		</span>
+		<RowAction
+			primary
+			label="Make default"
+			ariaLabel={`Make default: ${image.version}`}
+			testId={`image-make-default-${image.version}`}
+			reason={makeDefaultOff(image)}
+			busy={busy}
+			onPress={() => onMakeDefault(image.version)}
+		/>
+	);
+}
+
+function DeleteButton({
+	image,
+	busy,
+	onDelete,
+}: {
+	image: ImageView;
+	busy: boolean;
+	onDelete: (image: ImageView) => void;
+}) {
+	return (
+		<RowAction
+			label="Delete"
+			ariaLabel={`Delete: ${image.version}`}
+			testId={`image-delete-${image.version}`}
+			reason={deleteOff(image)}
+			busy={busy}
+			onPress={() => onDelete(image)}
+		/>
+	);
+}
+
+/** The main disk turns to the warning colour from this share used (DESIGN.md, status colour). */
+const DISK_WARN_SHARE = 0.8;
+
+/** The main disk's space, in the meter style of the Docker tab (issue #936). */
+function DiskSpace({ disk }: { disk: NonNullable<AdminImage["disk"]> }) {
+	const used = Math.max(disk.totalBytes - disk.freeBytes, 0);
+	return (
+		<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
+			<dt className="pk-muted">Main disk space</dt>
+			<dd className="m-0" data-testid="image-disk-free">
+				<Meter
+					label="Main disk space"
+					value={used}
+					max={disk.totalBytes}
+					high={disk.totalBytes * DISK_WARN_SHARE}
+					valueText={`${formatBytes(used)} of ${formatBytes(disk.totalBytes)} used, ${formatBytes(disk.freeBytes)} free`}
+				/>
+			</dd>
+		</dl>
 	);
 }
 
@@ -500,11 +613,13 @@ function ImagesGroup({
 	busy,
 	onDiff,
 	onMakeDefault,
+	onDelete,
 }: {
 	data: AdminImage;
 	busy: boolean;
 	onDiff: (version: string) => void;
 	onMakeDefault: (version: string) => void;
+	onDelete: (image: ImageView) => void;
 }) {
 	return (
 		<Group
@@ -514,11 +629,12 @@ function ImagesGroup({
 			help={
 				<Toggletip label="images on this host">
 					After each update or rebuild, the host keeps the default, the previous image
-					and the two newest others, and deletes the rest. A workspace never needs its
-					image to still exist.
+					and the new image, and deletes the rest. You can also delete an image
+					yourself. A workspace never needs its image to still exist.
 				</Toggletip>
 			}
 		>
+			{data.disk ? <DiskSpace disk={data.disk} /> : null}
 			{data.images.length === 0 ? (
 				<p className="pk-muted m-0 text-[13px]">No images yet.</p>
 			) : (
@@ -541,6 +657,7 @@ function ImagesGroup({
 									</span>
 								</th>
 								<th scope="col">Workspaces</th>
+								<th scope="col">Image size (compressed)</th>
 								<th scope="col">
 									<span className="sr-only">Actions</span>
 								</th>
@@ -551,7 +668,9 @@ function ImagesGroup({
 								const tools = toolsText(image);
 								return (
 									<tr key={image.version} data-testid={`image-row-${image.version}`}>
-										<th scope="row">{image.version}</th>
+										<th scope="row" className="pk-mono-small">
+											{image.version}
+										</th>
 										<td>{ROLE_LABEL[image.role]}</td>
 										<td>
 											{tools.node}
@@ -572,8 +691,20 @@ function ImagesGroup({
 										<td data-testid={`image-workspaces-${image.version}`}>
 											{image.workspaces}
 										</td>
+										<td data-testid={`image-size-${image.version}`}>
+											{image.sizeBytes === null ? (
+												<>
+													<span aria-hidden={true}>—</span>
+													<span className="sr-only">Not measured yet</span>
+												</>
+											) : (
+												formatBytes(image.sizeBytes)
+											)}
+										</td>
 										<td>
-											{image.role === "default" ? null : (
+											{image.role === "default" ? (
+												<DeleteButton image={image} busy={busy} onDelete={onDelete} />
+											) : (
 												<div className="flex flex-wrap items-start gap-2">
 													{data.default ? (
 														<Button
@@ -589,6 +720,7 @@ function ImagesGroup({
 														busy={busy}
 														onMakeDefault={onMakeDefault}
 													/>
+													<DeleteButton image={image} busy={busy} onDelete={onDelete} />
 												</div>
 											)}
 										</td>

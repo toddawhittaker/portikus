@@ -32,6 +32,8 @@ import { down as down0030, up as up0030 } from "./0030_egress_blocked_sites.js";
 import { down as down0031, up as up0031 } from "./0031_docker_cache.js";
 import { down as down0032, up as up0032 } from "./0032_docker_pull_days.js";
 import { down as down0033, up as up0033 } from "./0033_ghcr_default_on.js";
+import { down as down0034, up as up0034 } from "./0034_keep_running.js";
+import { down as down0035, up as up0035 } from "./0035_docker_seed_images_set.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -71,4 +73,6 @@ export const migrations: Record<string, Migration> = {
 	"0031_docker_cache": { up: up0031, down: down0031 },
 	"0032_docker_pull_days": { up: up0032, down: down0032 },
 	"0033_ghcr_default_on": { up: up0033, down: down0033 },
+	"0034_keep_running": { up: up0034, down: down0034 },
+	"0035_docker_seed_images_set": { up: up0035, down: down0035 },
 };

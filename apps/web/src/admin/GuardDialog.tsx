@@ -1,8 +1,4 @@
-import type {
-	EffectiveGuard,
-	GuardConfig,
-	UpdateGuardRequest,
-} from "@portikus/contracts";
+import type { GuardConfig, UpdateGuardRequest } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./guardFields.js";
@@ -45,6 +41,13 @@ export function guardDrafts(config: GuardConfig | null): GuardDrafts {
 	return drafts;
 }
 
+/** "Site setting: 12", with "(off)" where 0 turns Keep running off. */
+export function siteHint(key: GuardKey, value: number): string {
+	return key === "keepRunningMaxHours" && value === 0
+		? "Site setting: 0 (off)"
+		: `Site setting: ${value}`;
+}
+
 /** Override the resource guard for one workspace (ADR 0032). */
 export function GuardDialog({
 	open,
@@ -60,7 +63,7 @@ export function GuardDialog({
 	onOpenChange: (open: boolean) => void;
 	current: GuardConfig | null;
 	/** The site settings a blank field falls back to, once loaded. */
-	defaults: EffectiveGuard | null;
+	defaults: Record<GuardKey, number> | null;
 	ownerName: string;
 	pending: boolean;
 	serverError: string | null;
@@ -85,7 +88,7 @@ export function GuardDialog({
 			<Dialog
 				testId="guard-dialog"
 				title={`Resource guard for ${ownerName}'s workspace`}
-				description="When this workspace is slowed, flagged or stopped for inactivity. Leave a field blank to use the site setting."
+				description="When this workspace is slowed, flagged or stopped for inactivity, and how long its owner may keep it running. Leave a field blank to use the site setting."
 				footer={
 					<>
 						<Button onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -110,7 +113,7 @@ export function GuardDialog({
 								label={field.label}
 								inputMode="numeric"
 								data-testid={`guard-${field.key}`}
-								hint={defaults ? `Site setting: ${defaults[field.key]}` : undefined}
+								hint={defaults ? siteHint(field.key, defaults[field.key]) : undefined}
 								// Only the first problem is announced, so a reader hears one alert.
 								error={field.key === firstError ? announced(error) : error}
 								value={drafts[field.key]}

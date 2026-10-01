@@ -30,7 +30,7 @@ import { z } from "zod";
 import { type AgentClient, agentClientFor, readJson } from "../agent-client.js";
 import type { ListeningRegistry } from "../preview/registry.js";
 import type { ServerDeps } from "../server.js";
-import { countActive, toWorkspace } from "./workspace-view.js";
+import { countActive, fromJson, toWorkspace } from "./workspace-view.js";
 
 const UuidParam = z.object({ id: z.string().uuid() });
 
@@ -160,15 +160,9 @@ export function toWorkspaceSummary(
 		),
 		archivedAt: iso(row.archived_at),
 		pendingOperation: (row.pending_operation as PendingOperation | null) ?? null,
-		cpuThrottle: toJson<CpuThrottle>(row.cpu_throttle),
-		memoryFlag: toJson<MemoryFlag>(row.memory_flag),
+		cpuThrottle: fromJson<CpuThrottle>(row.cpu_throttle),
+		memoryFlag: fromJson<MemoryFlag>(row.memory_flag),
 	};
-}
-
-/** A jsonb column, or null when it is unset. */
-function toJson<T>(value: unknown): T | null {
-	if (value === null || value === undefined) return null;
-	return (typeof value === "string" ? JSON.parse(value) : value) as T;
 }
 
 /**
@@ -364,12 +358,12 @@ export function registerAdminWorkspaceRoutes(
 				rebuild: app.hasRoute({ method: "POST", url: REBUILD_ROUTE }),
 				resetDocker: app.hasRoute({ method: "POST", url: RESET_DOCKER_ROUTE }),
 			},
-			guardConfig: toJson<GuardConfig>(row.guard_config),
-			effectiveGuard: effectiveGuard(settings, toJson<GuardConfig>(row.guard_config)),
-			cpuThrottle: toJson<CpuThrottle>(row.cpu_throttle),
-			memoryFlag: toJson<MemoryFlag>(row.memory_flag),
-			limitsConfig: toJson<WorkspaceLimits>(row.limits_config),
-			limitsApplied: toJson<WorkspaceLimits>(row.limits_applied),
+			guardConfig: fromJson<GuardConfig>(row.guard_config),
+			effectiveGuard: effectiveGuard(settings, fromJson<GuardConfig>(row.guard_config)),
+			cpuThrottle: fromJson<CpuThrottle>(row.cpu_throttle),
+			memoryFlag: fromJson<MemoryFlag>(row.memory_flag),
+			limitsConfig: fromJson<WorkspaceLimits>(row.limits_config),
+			limitsApplied: fromJson<WorkspaceLimits>(row.limits_applied),
 		};
 		return body;
 	});
@@ -525,7 +519,7 @@ export function registerAdminWorkspaceRoutes(
 				.forUpdate()
 				.executeTakeFirst();
 			if (!row) return false;
-			const from: GuardConfig = toJson<GuardConfig>(row.guard_config) ?? {};
+			const from: GuardConfig = fromJson<GuardConfig>(row.guard_config) ?? {};
 			const to: GuardConfig = { ...from };
 			for (const [key, value] of Object.entries(body.data)) {
 				if (value === undefined) continue;
@@ -668,7 +662,7 @@ export function registerAdminWorkspaceRoutes(
 				.forUpdate()
 				.executeTakeFirst();
 			if (!row) return false;
-			const from: WorkspaceLimits = toJson<WorkspaceLimits>(row.limits_config) ?? {};
+			const from: WorkspaceLimits = fromJson<WorkspaceLimits>(row.limits_config) ?? {};
 			if (JSON.stringify(from) === JSON.stringify(to)) return true;
 			const changes: {
 				limits_config: string | null;
@@ -679,7 +673,7 @@ export function registerAdminWorkspaceRoutes(
 				updated_at: new Date().toISOString(),
 			};
 			// A throttle's slice is a share of the CPU count, so it follows the new count.
-			const throttle = toJson<CpuThrottle>(row.cpu_throttle);
+			const throttle = fromJson<CpuThrottle>(row.cpu_throttle);
 			const cpu = to.cpu ?? host?.profileCpu ?? null;
 			if (throttle && from.cpu !== to.cpu && cpu !== null) {
 				changes.cpu_throttle = JSON.stringify({

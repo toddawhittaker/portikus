@@ -13,6 +13,7 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
@@ -24,6 +25,7 @@ jobs:
   docs:
     name: Docs links
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - name: Check Markdown links and images
@@ -32,6 +34,7 @@ jobs:
   changes:
     name: Detect changed files
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       app: ${{ steps.changed.outputs.app }}
       infra: ${{ steps.changed.outputs.infra }}
@@ -91,6 +94,7 @@ jobs:
   app:
     name: Application checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: changes
     steps:
       - uses: actions/checkout@v7
@@ -130,6 +134,7 @@ jobs:
   unit-shard:
     name: Unit tests (shard ${{ matrix.shard }} of 2)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: changes
     strategy:
       fail-fast: false
@@ -159,9 +164,10 @@ jobs:
       # runner image ships.
       - name: Install tmux, zip, and ripgrep
         if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends tmux zip unzip ripgrep
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 --no-install-recommends tmux zip unzip ripgrep
       - uses: pnpm/action-setup@v6
         if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
       - uses: actions/setup-node@v7
@@ -194,6 +200,7 @@ jobs:
   unit:
     name: Unit tests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [changes, unit-shard]
     if: always()
     steps:
@@ -236,6 +243,7 @@ jobs:
   e2e-shard:
     name: Browser end-to-end tests (shard ${{ matrix.shard }} of 5)
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     needs: changes
     strategy:
       fail-fast: false
@@ -277,6 +285,8 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       # With the browser cached this only installs the system libraries.
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
+        # One attempt: a killed attempt leaves apt holding the dpkg lock, so a retry cannot succeed.
+        timeout-minutes: 12
         run: pnpm exec playwright install --with-deps --only-shell chromium
       # The Playwright servers run the compiled output, and Vite serves the
       # ui package's theme and fonts from its dist, so build both first.
@@ -300,6 +310,7 @@ jobs:
   e2e:
     name: Browser end-to-end tests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: e2e-shard
     if: always()
     steps:
@@ -317,6 +328,7 @@ jobs:
   dex-signin:
     name: Dex sign-in
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.app == 'true' || needs.changes.outputs.infra == 'true'
     services:
@@ -585,6 +597,7 @@ jobs:
   debconf:
     name: Package install questions
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.infra == 'true'
     steps:
@@ -611,6 +624,7 @@ jobs:
   infra:
     name: Infrastructure checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: changes
     steps:
       - uses: actions/checkout@v7
@@ -663,10 +677,14 @@ jobs:
         run: |
           cmp packages/ui/src/fonts/PublicSans-Variable.woff2 infra/ansible/roles/dex/files/theme/PublicSans-Variable.woff2 \
             || { echo "Dex's theme font differs from packages/ui/src/fonts; copy it over"; exit 1; }
-      - name: shellcheck
+      - name: Install shellcheck and age
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         # age is for the backup scope test below.
-        run: sudo apt-get install -y shellcheck age && find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* packaging/bin/portikus packaging/backup/backup-key infra/host/portikus-backup-export
+        timeout-minutes: 5
+        run: sudo apt-get install -y -o Acquire::Retries=3 shellcheck age
+      - name: shellcheck
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* packaging/bin/portikus packaging/backup/backup-key infra/host/portikus-backup-export
       - name: Smoke test cleanup scope
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/cleanup-scope-test.sh
@@ -756,11 +774,13 @@ jobs:
   apt-repo:
     name: Signed apt repository
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Install apt-ftparchive
-        run: command -v apt-ftparchive || { sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils; }
+        timeout-minutes: 5
+        run: command -v apt-ftparchive || { sudo apt-get update -o Acquire::Retries=3 && sudo apt-get install -y -o Acquire::Retries=3 --no-install-recommends apt-utils; }
       - name: Test publish-apt-repo.sh in a Debian 13 container
         run: scripts/tests/publish-apt-repo-test.sh

@@ -4,6 +4,8 @@ import {
 	countIncusCpus,
 	effectiveGuard,
 	idleLift,
+	keepRunningMaxHours,
+	keepRunningRefusal,
 	throttleHold,
 } from "./guard.js";
 
@@ -102,4 +104,34 @@ test("countIncusCpus reads a count or a CPU set, and null otherwise", () => {
 	expect(countIncusCpus("0")).toBeNull();
 	expect(countIncusCpus("3-1")).toBeNull();
 	expect(countIncusCpus("four")).toBeNull();
+});
+
+describe("keep running until (#955)", () => {
+	const now = new Date("2026-10-01T12:00:00Z");
+	const hours = (n: number) => new Date(now.getTime() + n * 3_600_000);
+
+	test("a workspace override wins over the site cap, 0 included", () => {
+		expect(keepRunningMaxHours(12, null)).toBe(12);
+		expect(keepRunningMaxHours(12, {})).toBe(12);
+		expect(keepRunningMaxHours(12, { keepRunningMaxHours: 24 })).toBe(24);
+		expect(keepRunningMaxHours(12, { keepRunningMaxHours: 0 })).toBe(0);
+	});
+
+	test("a cap of 0 refuses every hold", () => {
+		expect(keepRunningRefusal(hours(1), now, 0)).toBe("off");
+	});
+
+	test("a hold must end after now and never past the cap", () => {
+		expect(keepRunningRefusal(now, now, 12)).toBe("past");
+		expect(keepRunningRefusal(hours(-1), now, 12)).toBe("past");
+		expect(keepRunningRefusal(hours(12), now, 12)).toBeNull();
+		// Five minutes of clock skew past the cap is allowed; the caller clamps it.
+		expect(
+			keepRunningRefusal(new Date(hours(12).getTime() + 300_000), now, 12),
+		).toBeNull();
+		expect(keepRunningRefusal(new Date(hours(12).getTime() + 300_001), now, 12)).toBe(
+			"too-far",
+		);
+		expect(keepRunningRefusal(hours(0.5), now, 12)).toBeNull();
+	});
 });

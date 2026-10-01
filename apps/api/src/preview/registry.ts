@@ -67,6 +67,15 @@ export interface ListeningRegistry {
 	services(workspaceId: string): ListeningService[];
 	/** One service by port, or undefined when nothing is listening on it. */
 	service(workspaceId: string, port: number): ListeningService | undefined;
+	/**
+	 * One service by port with its protocol settled: the agent probes the
+	 * port for TLS the first time a preview asks (issue #957). When the agent
+	 * cannot answer, the service comes back with its unprobed hint.
+	 */
+	serviceWithProtocol(
+		workspaceId: string,
+		port: number,
+	): Promise<ListeningService | undefined>;
 	/** Called on every change for one workspace; returns an unsubscribe. */
 	subscribe(workspaceId: string, listener: ListeningListener): () => void;
 	/**
@@ -88,6 +97,95 @@ export interface ListeningRegistry {
 	stop(): Promise<void>;
 }
 
+/** How long any probe answer stops further probes of that port. */
+export const PROBE_MEMO_MS = 30_000;
+
+export interface ProbeGuard {
+	/** The agent's final answer, or null when the guess must stand. */
+	probe(workspaceId: string, port: number): Promise<AgentListeningService | null>;
+	/** Drop every memo of a workspace that left the registry. */
+	forget(workspaceId: string): void;
+	/** Drop one port's memo, for a listener the agent now reports differently. */
+	forgetPort(workspaceId: string, port: number): void;
+	/** How many memo entries are held; tests pin that the map is pruned. */
+	memoSize(): number;
+}
+
+/**
+ * Guards the agent's TLS probe (issue #957). The authorize route has no rate
+ * limit, so a crashed or hostile agent must cost the shared API at most one
+ * call per port per memo window, and concurrent requests share one call.
+ * A final answer is memoised too: an agent that re-reports the port as
+ * unprobed must not force a fresh probe on every request.
+ */
+export function createProbeGuard(deps: {
+	probe(workspaceId: string, port: number): Promise<AgentListeningService>;
+	logger: Logger;
+}): ProbeGuard {
+	const now = (): number => Date.now();
+	const inFlight = new Map<string, Promise<AgentListeningService | null>>();
+	const memo = new Map<
+		string,
+		{ until: number; answer: AgentListeningService | null }
+	>();
+
+	function remember(key: string, answer: AgentListeningService | null): void {
+		memo.set(key, { until: now() + PROBE_MEMO_MS, answer });
+	}
+
+	async function run(
+		key: string,
+		workspaceId: string,
+		port: number,
+	): Promise<AgentListeningService | null> {
+		try {
+			const answer = await deps.probe(workspaceId, port);
+			// The agent leaves it unprobed when the socket was replaced mid-probe.
+			const final = answer.protocolKnown === true ? answer : null;
+			remember(key, final);
+			return final;
+		} catch (error) {
+			remember(key, null);
+			const status = error instanceof AgentCallError ? error.status : undefined;
+			const fields = {
+				workspaceId,
+				port,
+				code: error instanceof AgentCallError ? error.code : "INTERNAL",
+			};
+			// An agent older than the probe route answers 404; that is expected.
+			if (status === 404) deps.logger.debug(fields, "protocol probe not supported");
+			else deps.logger.warn(fields, "protocol probe failed");
+			return null;
+		}
+	}
+
+	return {
+		probe(workspaceId, port) {
+			const at = now();
+			// Sweep expired keys so a long-running workspace cannot grow the map.
+			for (const [key, held] of memo) if (held.until <= at) memo.delete(key);
+			const key = `${workspaceId}:${port}`;
+			const held = memo.get(key);
+			if (held) return Promise.resolve(held.answer);
+			const already = inFlight.get(key);
+			if (already) return already;
+			const work = run(key, workspaceId, port).finally(() => inFlight.delete(key));
+			inFlight.set(key, work);
+			return work;
+		},
+		forget(workspaceId) {
+			const prefix = `${workspaceId}:`;
+			for (const key of memo.keys()) if (key.startsWith(prefix)) memo.delete(key);
+		},
+		forgetPort(workspaceId, port) {
+			memo.delete(`${workspaceId}:${port}`);
+		},
+		memoSize() {
+			return memo.size;
+		},
+	};
+}
+
 export interface RegistryDeps {
 	db: Kysely<Database>;
 	config: ApiConfig;
@@ -104,6 +202,14 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 	let poller: NodeJS.Timeout | null = null;
 	let stopped = false;
 	const pending = new Set<Promise<unknown>>();
+	const probeGuard = createProbeGuard({
+		logger,
+		probe: (workspaceId, port) => {
+			const entry = entries.get(workspaceId);
+			if (!entry) throw new AgentCallError("AGENT_UNAVAILABLE", "no agent connection");
+			return entry.client.probeProtocol(port);
+		},
+	});
 
 	function track(work: Promise<unknown>): void {
 		pending.add(work);
@@ -159,7 +265,19 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				return; // A malformed frame from the container is ignored.
 			}
 			const frame = AgentListeningServicesChanged.safeParse(parsed);
+			// Over-long or invalid frames are dropped and the last list kept;
+			// the socket stays open so a bad agent cannot force a reconnect loop.
 			if (!frame.success) return;
+			const previous = new Map(entry.services.map((one) => [one.port, one]));
+			for (const next of frame.data.services) {
+				const before = previous.get(next.port);
+				// A restarted server on the same port comes back unprobed with
+				// the same guessed hint, so losing "known" also clears the memo.
+				const relisted = before?.protocolKnown === true && next.protocolKnown !== true;
+				if (before?.protocolHint !== next.protocolHint || relisted) {
+					probeGuard.forgetPort(workspaceId, next.port);
+				}
+			}
 			entry.services = stamp(workspaceId, frame.data.services);
 			notify(workspaceId, entry.services);
 		});
@@ -190,6 +308,7 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 		if (entry.timer) clearTimeout(entry.timer);
 		entry.socket?.close();
 		entries.delete(workspaceId);
+		probeGuard.forget(workspaceId);
 		// A stopped workspace has nothing listening, and the UI must be told.
 		notify(workspaceId, []);
 		// A preview must stop working the moment its workspace leaves running
@@ -263,6 +382,22 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 
 		service(workspaceId, port) {
 			return entries.get(workspaceId)?.services.find((one) => one.port === port);
+		},
+
+		async serviceWithProtocol(workspaceId, port) {
+			const entry = entries.get(workspaceId);
+			const service = entry?.services.find((one) => one.port === port);
+			if (!entry || !service || service.protocolKnown) return service;
+			const probed = await probeGuard.probe(workspaceId, port);
+			if (!probed) return service;
+			// Record it now; the agent's own report follows on the events socket.
+			const settled: ListeningService = {
+				...service,
+				protocolHint: probed.protocolHint,
+				protocolKnown: true,
+			};
+			entry.services = entry.services.map((one) => (one.port === port ? settled : one));
+			return settled;
 		},
 
 		subscribe(workspaceId, listener) {

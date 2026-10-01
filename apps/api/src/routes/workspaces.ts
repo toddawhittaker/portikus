@@ -2,17 +2,28 @@ import { isCourseIssuer, requireUser } from "@portikus/auth";
 import {
 	type ApiError,
 	CreateWorkspaceRequest,
+	DEFAULT_KEEP_RUNNING_MAX_HOURS,
 	type DesiredState,
 	deriveWorkspaceLabel,
+	type GuardConfig,
+	keepRunningMaxHours,
+	keepRunningRefusal,
 	MAX_WORKSPACE_LABEL_LENGTH,
+	SetKeepRunningRequest,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { Insertable } from "kysely";
+import { type Insertable, sql } from "kysely";
 import { z } from "zod";
 import { lifecycleLimit } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
-import { countActive, findOwnedWorkspace, toWorkspace } from "./workspace-view.js";
+import {
+	countActive,
+	findOwnedWorkspace,
+	findWorkspaceOwnedBy,
+	fromJson,
+	toWorkspace,
+} from "./workspace-view.js";
 
 const UuidParam = z.object({ id: z.string().uuid() });
 
@@ -174,6 +185,137 @@ export function registerWorkspaceRoutes(
 	// POST /workspaces/:id/restart
 	app.post("/workspaces/:id/restart", async (request, reply) => {
 		return setDesired(request, reply, "restarting", "workspace.restart_requested");
+	});
+
+	// PUT /workspaces/:id/keep-running -- hold the workspace up until a time
+	// (#955). Only the owner: an administrator's hold would be impersonation.
+	app.put("/workspaces/:id/keep-running", async (request, reply) => {
+		const user = requireUser(request);
+		const params = UuidParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const row = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		if (!row) {
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+		}
+		const body = SetKeepRunningRequest.safeParse(request.body ?? {});
+		if (!body.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
+		}
+		const settings = await db
+			.selectFrom("settings")
+			.select("keep_running_max_hours")
+			.where("id", "=", 1)
+			.executeTakeFirst();
+		const maxHours = keepRunningMaxHours(
+			settings?.keep_running_max_hours ?? DEFAULT_KEEP_RUNNING_MAX_HOURS,
+			fromJson<GuardConfig>(row.guard_config),
+		);
+		const now = new Date();
+		const requested = new Date(body.data.until);
+		const refusal = keepRunningRefusal(requested, now, maxHours);
+		if (refusal === "off") {
+			return sendError(
+				reply,
+				409,
+				"KEEP_RUNNING_OFF",
+				"Keeping a workspace running is turned off.",
+			);
+		}
+		if (refusal === "past") {
+			return sendError(reply, 400, "VALIDATION_FAILED", "Pick a time in the future.");
+		}
+		if (refusal === "too-far") {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				`Pick a time no more than ${maxHours} hours from now.`,
+			);
+		}
+		// A browser clock a little fast lands just past the cap; hold to the cap.
+		const until = new Date(
+			Math.min(requested.getTime(), now.getTime() + maxHours * 3_600_000),
+		);
+		const previous = row.keep_running_until as Date | null;
+		// Setting a hold is the student acting, so any "Still working?" is answered.
+		const updated = await db
+			.updateTable("workspaces")
+			.set({
+				keep_running_until: until.toISOString(),
+				last_activity_at: now.toISOString(),
+				idle_stop_at: null,
+				updated_at: now.toISOString(),
+			})
+			.where("id", "=", params.data.id)
+			.returningAll()
+			.executeTakeFirstOrThrow();
+		await db
+			.insertInto("audit_events")
+			.values({
+				actor: `user:${user.id}`,
+				target: params.data.id,
+				action: "workspace.keep_running_set",
+				result: "ok",
+				metadata: JSON.stringify({
+					until: until.toISOString(),
+					previousUntil:
+						previous && previous > now ? new Date(previous).toISOString() : null,
+				}),
+			})
+			.execute();
+		const active = await countActive(db, params.data.id, config);
+		return toWorkspace(db, updated as Record<string, unknown>, active, config);
+	});
+
+	// DELETE /workspaces/:id/keep-running -- end the hold early (#955). The
+	// timers start again from now, as if the student had just acted. With no
+	// hold left (it may have just expired) nothing changes.
+	app.delete("/workspaces/:id/keep-running", async (request, reply) => {
+		const user = requireUser(request);
+		const params = UuidParam.safeParse(request.params);
+		if (!params.success) {
+			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
+		}
+		const row = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		if (!row) {
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
+		}
+		const now = new Date();
+		const updated = await db
+			.updateTable("workspaces")
+			.set({
+				keep_running_until: null,
+				last_activity_at: now.toISOString(),
+				idle_stop_at: null,
+				disconnected_at: sql`case when disconnected_at is null then null else ${now.toISOString()}::timestamptz end`,
+				updated_at: now.toISOString(),
+			})
+			.where("id", "=", params.data.id)
+			.where("keep_running_until", ">", now)
+			.returningAll()
+			.executeTakeFirst();
+		if (!updated) {
+			return toWorkspace(
+				db,
+				row,
+				await countActive(db, params.data.id, config),
+				config,
+			);
+		}
+		await db
+			.insertInto("audit_events")
+			.values({
+				actor: `user:${user.id}`,
+				target: params.data.id,
+				action: "workspace.keep_running_ended",
+				result: "ok",
+				metadata: JSON.stringify({ reason: "ended_early" }),
+			})
+			.execute();
+		const active = await countActive(db, params.data.id, config);
+		return toWorkspace(db, updated as Record<string, unknown>, active, config);
 	});
 
 	// Helper: set desired_state and write audit

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
+import { collectingLogger } from "@portikus/observability/testing";
 import {
 	afterAll,
 	afterEach,
@@ -245,6 +246,75 @@ test("create is refused when metadata use reaches 90%, even with data room", asy
 test("create goes ahead just under 90%", async () => {
 	handler = poolAt(89, []);
 	expect((await provider.create("ws-test", SIZES)).created).toBe(true);
+});
+
+/** poolAt, plus a seed of `seedBytes` (or none when null) and no Docker volume yet. */
+function seededPoolAt(used: number, seedBytes: number | null) {
+	const base = poolAt(used, []);
+	return async (req: http.IncomingMessage, res: http.ServerResponse) => {
+		if (
+			req.method === "GET" &&
+			req.url?.includes("/volumes/custom/portikus-docker-seed?")
+		) {
+			await readBody(req);
+			const config =
+				seedBytes === null
+					? {}
+					: {
+							[SEED_INFO_KEY]: JSON.stringify({
+								images: ["alpine:3"],
+								sizeBytes: seedBytes,
+								imageVersion: "2026.09.15",
+								builtAt: "2026-09-30T00:00:00.000Z",
+							}),
+						};
+			respond(res, 200, sync({ config }));
+		} else if (
+			req.method === "GET" &&
+			req.url?.includes("/volumes/custom/ws-test-docker?")
+		) {
+			await readBody(req);
+			respond(res, 404, { type: "error", status_code: 404, error: "not found" });
+		} else {
+			await base(req, res);
+		}
+	};
+}
+
+describe("create counts the Docker seed it will copy (SPEC.md 24.5, SEC1)", () => {
+	test("refused when the seed tips the pool to 90%", async () => {
+		handler = seededPoolAt(80, 10);
+		await expect(provider.create("ws-test", SIZES)).rejects.toMatchObject({
+			code: "POOL_FULL",
+			message: expect.stringContaining("90% full"),
+		});
+	});
+
+	test("admitted when the pool plus the seed stays below 90%", async () => {
+		handler = seededPoolAt(80, 9);
+		expect((await provider.create("ws-test", SIZES)).created).toBe(true);
+	});
+
+	test("admitted with no seed", async () => {
+		handler = seededPoolAt(89, null);
+		expect((await provider.create("ws-test", SIZES)).created).toBe(true);
+	});
+
+	test("admitted when the seed's size cannot be read", async () => {
+		const base = seededPoolAt(89, 50);
+		handler = async (req, res) => {
+			if (
+				req.method === "GET" &&
+				req.url?.includes("/volumes/custom/portikus-docker-seed?")
+			) {
+				await readBody(req);
+				respond(res, 500, { type: "error", status_code: 500, error: "boom" });
+			} else {
+				await base(req, res);
+			}
+		};
+		expect((await provider.create("ws-test", SIZES)).created).toBe(true);
+	});
 });
 
 test("create sends both disk devices in one POST and returns created", async () => {
@@ -1103,6 +1173,11 @@ function serveIncus(state: FakeIncus): void {
 			}
 			if (method === "POST") {
 				const type = String(req.headers["x-incus-type"] ?? "file");
+				const existing = state.files.get(path);
+				if (type === "directory" && existing && existing.type !== "directory") {
+					incusError(res, 400, "not a directory");
+					return;
+				}
 				state.files.set(path, { type, content: body });
 			}
 			respond(res, 200, sync({}));
@@ -2539,6 +2614,51 @@ describe("the Docker seed", () => {
 		expect(await provider.seedInfo()).toBeNull();
 		withSeed(state);
 		expect(await provider.seedInfo()).toEqual(SEED);
+	});
+
+	test("start warns when the agent instructions template is missing", async () => {
+		const state = fakeIncus();
+		const { logger, lines } = collectingLogger();
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			agentInstructionsPath: path.join(os.tmpdir(), "no-such-e28-template.md"),
+			logger,
+		});
+		serveIncus(state);
+		await own.start("ws-test", START);
+		expect(lines.some((l) => String(l.msg).includes("template is missing"))).toBe(true);
+	});
+
+	test("start rewrites the agents' system instructions, and a refusal does not stop it", async () => {
+		const state = fakeIncus();
+		const template = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ai-")), "t.md");
+		fs.writeFileSync(template, "Platform rules\n");
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			agentInstructionsPath: template,
+		});
+		serveIncus(state);
+		state.files.set("/etc/claude-code/CLAUDE.md", { type: "file", content: "edited" });
+		await own.start("ws-test", START);
+		expect(state.files.get("/etc/claude-code/CLAUDE.md")?.content).toBe(
+			"Platform rules\n",
+		);
+		expect(state.files.get("/etc/codex/config.toml")?.content).toContain(
+			'developer_instructions = "Platform rules\\n"',
+		);
+
+		state.files.set("/etc/claude-code", { type: "symlink", content: "/home/student" });
+		await expect(own.start("ws-test", START)).resolves.toBeDefined();
 	});
 
 	test("start writes the registry settings before the instance starts", async () => {

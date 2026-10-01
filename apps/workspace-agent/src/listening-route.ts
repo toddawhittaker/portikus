@@ -75,6 +75,27 @@ export async function listeningRoutes(
 		return { port: parsed.data, stopped: true };
 	});
 
+	/** Settle a port's protocol when a preview first asks (issue #957). */
+	instance.post("/listening/:port/probe", async (request, reply) => {
+		const { port } = request.params as { port: string };
+		const parsed = PortNumber.safeParse(Number.parseInt(port, 10));
+		if (!parsed.success) {
+			return reply
+				.code(400)
+				.send({ error: { code: "BAD_REQUEST", message: "invalid port" } });
+		}
+		const service = await monitor.probeProtocol(parsed.data);
+		if (!service) {
+			return reply.code(404).send({
+				error: {
+					code: "LISTENER_NOT_FOUND",
+					message: "nothing is listening on that port",
+				},
+			});
+		}
+		return { service };
+	});
+
 	instance.get("/forwards", async () => ({ forwards: forwards.list() }));
 
 	instance.post("/forwards", async (request, reply) => {

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
 	type ControllerErrorCode,
+	DEFAULT_KEEP_RUNNING_MAX_HOURS,
 	DEFAULT_TIMEZONE,
 	isSystemTimezone,
 	PendingOperation,
@@ -240,6 +241,65 @@ function startedNow(now: Date): Record<string, unknown> {
 }
 
 /**
+ * Settle every "keep running until" hold (#955, Epic 28 ruling R1). A hold
+ * past its cap is cut to the cap from now, or ended when the cap is 0. An
+ * ended hold restarts both timers from its end, as if the student had just
+ * acted, so "Still working?" and its warning still come. After this, any
+ * hold left is ahead of now, and the grace and idle steps skip its workspace.
+ */
+export async function settleKeepRunning(
+	db: Kysely<Database>,
+	now: Date,
+): Promise<void> {
+	const at = now.toISOString();
+	// The target row's own columns only, so a concurrent end or shorter hold
+	// committed first is rechecked under READ COMMITTED, not overwritten.
+	const cap = sql`coalesce((w.guard_config->>'keepRunningMaxHours')::int,
+		(select s.keep_running_max_hours from settings s where s.id = 1),
+		${DEFAULT_KEEP_RUNNING_MAX_HOURS}::int)`;
+
+	const off = await sql<{ id: string }>`
+		update workspaces w
+		set keep_running_until = null, last_activity_at = ${at}::timestamptz, idle_stop_at = null,
+			disconnected_at = case when w.disconnected_at is null then null else ${at}::timestamptz end
+		where w.keep_running_until > ${at}::timestamptz and ${cap} = 0
+		returning w.id
+	`.execute(db);
+	for (const ws of off.rows) {
+		await audit(db, ws.id, "workspace.keep_running_ended", "ok", {
+			reason: "cut_by_cap",
+		});
+	}
+
+	const cut = await sql<{ id: string; until: Date; max_hours: number }>`
+		update workspaces w
+		set keep_running_until = ${at}::timestamptz + ${cap} * interval '1 hour'
+		where w.keep_running_until > ${at}::timestamptz + ${cap} * interval '1 hour'
+		returning w.id, w.keep_running_until as until, ${cap} as max_hours
+	`.execute(db);
+	for (const ws of cut.rows) {
+		await audit(db, ws.id, "workspace.keep_running_set", "ok", {
+			until: new Date(ws.until).toISOString(),
+			reason: "cut_by_cap",
+			maxHours: ws.max_hours,
+		});
+	}
+
+	const expired = await sql<{ id: string }>`
+		update workspaces w
+		set keep_running_until = null, idle_stop_at = null,
+			last_activity_at = greatest(w.last_activity_at, w.keep_running_until),
+			disconnected_at = case when w.disconnected_at is null then null
+				else greatest(w.disconnected_at, w.keep_running_until) end
+		where w.keep_running_until <= ${at}::timestamptz
+		returning w.id
+	`.execute(db);
+	for (const ws of expired.rows) {
+		await audit(db, ws.id, "workspace.keep_running_ended", "ok", { reason: "expired" });
+	}
+}
+
+/**
  * Run one reconciliation sweep (ADR 0006; SPEC section 6.3-6.5, 25.3).
  *
  * Steps: (1) expire stale connections, (2) manage deadlines,
@@ -278,6 +338,9 @@ export async function reconcile(
 		.deleteFrom("workspace_connections")
 		.where("last_seen_at", "<", ttlCutoff)
 		.execute();
+
+	// (1b) Keep running until (#955): settle holds before the timers below.
+	await settleKeepRunning(db, now);
 
 	// (2) Track disconnection and recompute shutdown deadlines.
 	// A running workspace with no connections gets a disconnected_at stamp;
@@ -330,7 +393,7 @@ export async function reconcile(
 		from (
 			select
 				ws.id,
-				case when ${grace} = 0 then null
+				case when ${grace} = 0 or ws.keep_running_until is not null then null
 					else ws.disconnected_at + ${grace} * interval '1 second' end as new_deadline
 			from workspaces ws
 			join users u on u.id = ws.owner_user_id
@@ -490,12 +553,12 @@ export async function reconcile(
 	// grace period above may still stop a workspace first.
 	const idle = sql`coalesce((ws.guard_config->>'idleStopMinutes')::int, s.idle_stop_minutes)`;
 
-	// Idle turned off since the warning: withdraw it.
+	// Idle turned off since the warning, or a hold set: withdraw it.
 	await sql`
 		update workspaces w set idle_stop_at = null
 		from workspaces ws left join settings s on s.id = 1
 		where w.id = ws.id and ws.idle_stop_at is not null
-			and coalesce(${idle}, 0) = 0
+			and (coalesce(${idle}, 0) = 0 or ws.keep_running_until is not null)
 	`.execute(db);
 
 	// Idle for long enough: warn, and stop five minutes later. A shortened
@@ -504,6 +567,7 @@ export async function reconcile(
 		update workspaces w set idle_stop_at = ${new Date(now.getTime() + IDLE_WARNING_MS).toISOString()}::timestamptz
 		from workspaces ws left join settings s on s.id = 1
 		where w.id = ws.id and ws.state = 'running' and ws.idle_stop_at is null
+			and ws.keep_running_until is null
 			and ${idle} > 0
 			and ws.last_activity_at + ${idle} * interval '1 minute' <= ${now.toISOString()}::timestamptz
 	`.execute(db);

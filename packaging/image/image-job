@@ -2,7 +2,7 @@
 """The workspace image job, run as root by portikus-image-job.service.
 
 It takes the request files the API writes into the job directory and runs
-one fixed job per request: fetch, build, activate or rollback
+one fixed job per request: fetch, build, activate, rollback or delete
 (docs/SPEC.md section 22.4, ADR 0030). The file contract is the
 comment at the top of packages/contracts/src/image.ts.
 
@@ -27,6 +27,7 @@ Usage:
 """
 
 import argparse
+import contextlib
 import datetime
 import fcntl
 import hashlib
@@ -83,6 +84,7 @@ REQUEST_KEYS = {
     "build": ({"kind", "node", "python"}, set()),
     "activate": ({"kind", "version"}, set()),
     "rollback": ({"kind"}, set()),
+    "delete": ({"kind", "version"}, set()),
 }
 
 
@@ -628,14 +630,17 @@ class Runner:
         self.prune(job, keep=version)
 
     def prune(self, job, keep):
-        """Keep the default, the previous, the two newest candidates and the one just made (ruling 27)."""
+        """Keep three images: the default, the previous, and the one just made (issue #936).
+
+        Every other image is deleted from Incus and the store. An image either
+        alias points at is never deleted, even under another versioned name.
+        """
         aliases = alias_map()
         default, previous = roles(aliases)
         known = versions_in(aliases)
         on_disk = {n for n in os.listdir(self.images_dir) if VERSION_RE.fullmatch(n)}
         protected = {aliases.get(ALIAS_DEFAULT), aliases.get(ALIAS_PREVIOUS)} - {None}
-        candidates = sorted((set(known) | on_disk) - {default, previous, keep}, key=version_key, reverse=True)
-        for version in candidates[2:]:
+        for version in sorted((set(known) | on_disk) - {default, previous, keep}, key=version_key):
             if version in known and known[version] not in protected:
                 job.line(f"removing image {version}")
                 incus("image", "delete", f"portikus-{version}", log=job)
@@ -643,6 +648,35 @@ class Runner:
                 continue
             safe_rmtree(os.path.join(self.images_dir, version))
         write_aliases(self.images_dir, aliases)
+
+    def record_sizes(self):
+        """Write <version>/size.json, the image's compressed size in Incus, for every image in the store.
+
+        Best effort: it never changes a job's outcome. An image Incus cannot
+        describe keeps no size, and the page says so.
+        """
+        try:
+            self._record_sizes()
+        except Exception as err:  # noqa: BLE001 - sizes are informational only
+            journal(f"warning: could not record image sizes: {err}")
+
+    def _record_sizes(self):
+        try:
+            known = versions_in(alias_map())
+        except JobFailed:
+            return
+        for version, fingerprint in known.items():
+            store = os.path.join(self.images_dir, version)
+            if not os.path.isdir(store) or os.path.islink(store):
+                continue
+            code, out = run(["incus", "query", f"/1.0/images/{fingerprint}?project={PROJECT}"],
+                            capture=True, timeout=60)
+            try:
+                size = json.loads(out).get("size") if code == 0 else None
+            except (ValueError, AttributeError):
+                size = None
+            if isinstance(size, int) and not isinstance(size, bool) and size >= 0:
+                write_json(os.path.join(store, "size.json"), {"bytes": size})
 
     # -- kinds --
 
@@ -789,6 +823,35 @@ class Runner:
         set_alias(ALIAS_PREVIOUS, current, aliases, job)
         write_aliases(self.images_dir, aliases)
 
+    def delete(self, job, request):
+        """Delete one image that is neither the default nor the previous (issue #936).
+
+        Instances keep working: on LVM thin each instance's root is its own
+        thin volume, so Incus can drop the image and its volume beneath them.
+        """
+        version = request["version"]
+        job.version = version
+        aliases = alias_map()
+        default, previous = roles(aliases)
+        known = versions_in(aliases)
+        fingerprint = known.get(version)
+        # Checked here too, so a hand-written request cannot remove the rollback target.
+        if version == default or (fingerprint and fingerprint == aliases.get(ALIAS_DEFAULT)):
+            raise Refused(f"Image {version} is the default image.", "delete")
+        if version == previous or (fingerprint and fingerprint == aliases.get(ALIAS_PREVIOUS)):
+            raise Refused(f"Image {version} is the previous image, kept so you can roll back.", "delete")
+        store = os.path.join(self.images_dir, version)
+        if not fingerprint and not os.path.lexists(store):
+            raise JobFailed(f"Image {version} is not on this host.")
+        if fingerprint:
+            job.status("running", "Deleting the image")
+            code, _ = incus("image", "delete", f"portikus-{version}", log=job)
+            if code != 0:
+                raise JobFailed(f"Incus could not delete image {version}.")
+        safe_rmtree(store)
+        write_aliases(self.images_dir, alias_map())
+        return f"Deleted image {version}."
+
     # -- the queue --
 
     def pending(self, jobs_fd):
@@ -849,7 +912,9 @@ class Runner:
     def refuse(self, job, reason):
         journal(f"refused request {job.id}: {reason}")
         job.line(f"Refused: {reason}")
-        job.status("refused", "Refused", message=f"The request was refused: {reason}.")
+        # Most reasons are sentences already; add a period only to those that are not.
+        ending = "" if reason.endswith(".") else "."
+        job.status("refused", "Refused", message=f"The request was refused: {reason}{ending}")
 
     def execute(self, job, doc):
         journal(f"running {job.kind} job {job.id} requested by {doc['requestedBy']}")
@@ -861,6 +926,7 @@ class Runner:
         try:
             job.status("running", "Starting")
             message = getattr(self, job.kind)(job, request)
+            self.record_sizes()
             job.status("succeeded", "Done", message=message)
             journal(f"{job.kind} job {job.id} succeeded")
             return "succeeded"
@@ -990,73 +1056,61 @@ class Runner:
         write_json(path, {"checkedAt": now_iso(), "image": image, "package": package_update()})
         return 0
 
+    @contextlib.contextmanager
+    def locked_jobs_dir(self, lock_path):
+        """Wait for the job lock, then yield the jobs directory's fd and its group."""
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            jobs_fd = os.open(self.jobs_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                yield jobs_fd, os.fstat(jobs_fd).st_gid
+            finally:
+                os.close(jobs_fd)
+        finally:
+            os.close(lock_fd)
+
     def run_first_install(self, version, lock_path=LOCK_FILE):
         """Setup's first install: fetch version and activate it, as two jobs the admin page lists.
 
         Prints "changed" or "unchanged" for Ansible. A host with a default
         image already is left to the admin page, so setup never moves it.
         """
-        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            jobs_fd = os.open(self.jobs_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        with self.locked_jobs_dir(lock_path) as (jobs_fd, gid):
             try:
-                gid = os.fstat(jobs_fd).st_gid
-                try:
-                    has_default = ALIAS_DEFAULT in alias_map()
-                except JobFailed as err:
-                    journal(str(err))
-                    return 1
-                if has_default:
-                    journal("the host has a default image already; the admin page manages it")
-                    print("unchanged")
-                    return 0
-                for kind in ("fetch", "activate"):
-                    if self.command_line_job(jobs_fd, gid, {"kind": kind, "version": version}, "setup") is None:
-                        return 1
-                print("changed")
+                has_default = ALIAS_DEFAULT in alias_map()
+            except JobFailed as err:
+                journal(str(err))
+                return 1
+            if has_default:
+                journal("the host has a default image already; the admin page manages it")
+                print("unchanged")
                 return 0
-            finally:
-                os.close(jobs_fd)
-        finally:
-            os.close(lock_fd)
+            for kind in ("fetch", "activate"):
+                if self.command_line_job(jobs_fd, gid, {"kind": kind, "version": version}, "setup") is None:
+                    return 1
+            print("changed")
+            return 0
 
     def run_local_build(self, lock_path=LOCK_FILE):
         """make build-workspace-image: build the shipped recipe and make it the default, as two jobs.
 
         Uses the recipe's own defaults, Node 24 and Debian's Python. Prints the new version.
         """
-        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            jobs_fd = os.open(self.jobs_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            try:
-                gid = os.fstat(jobs_fd).st_gid
-                build = {"kind": "build", "node": "24", "python": "debian"}
-                version = self.command_line_job(jobs_fd, gid, build, "local-build")
-                if version is None:
-                    return 1
-                if self.command_line_job(jobs_fd, gid, {"kind": "activate", "version": version},
-                                         "local-build") is None:
-                    return 1
-                print(version)
-                return 0
-            finally:
-                os.close(jobs_fd)
-        finally:
-            os.close(lock_fd)
+        with self.locked_jobs_dir(lock_path) as (jobs_fd, gid):
+            build = {"kind": "build", "node": "24", "python": "debian"}
+            version = self.command_line_job(jobs_fd, gid, build, "local-build")
+            if version is None:
+                return 1
+            if self.command_line_job(jobs_fd, gid, {"kind": "activate", "version": version},
+                                     "local-build") is None:
+                return 1
+            print(version)
+            return 0
 
     def run_recover(self, lock_path=LOCK_FILE):
-        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            jobs_fd = os.open(self.jobs_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            try:
-                self.recover(jobs_fd, os.fstat(jobs_fd).st_gid)
-            finally:
-                os.close(jobs_fd)
-        finally:
-            os.close(lock_fd)
+        with self.locked_jobs_dir(lock_path) as (jobs_fd, gid):
+            self.recover(jobs_fd, gid)
         return 0
 
 

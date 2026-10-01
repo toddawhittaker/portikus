@@ -131,6 +131,18 @@ max_file_gib() {
 	echo $((free - spare))
 }
 
+# The largest cache setup accepts (infra/ansible/roles/registry_cache/tasks/size.yml):
+# free space beside the file, plus what an existing cache file holds, less 10 GiB.
+registry_max_gib() {
+	img=/var/lib/portikus-registry.img
+	free=$(df -B1 --output=avail /var/lib 2>/dev/null | tail -n 1 | tr -d ' ')
+	existing=0
+	[ -f "$img" ] && existing=$(($(stat -c %b "$img") * $(stat -c %B "$img")))
+	max=$(((${free:-0} + existing - 10 * 1073741824) / 1073741824))
+	[ "$max" -ge 0 ] || max=0
+	echo "$max"
+}
+
 prepare_storage() {
 	db_get portikus/storage
 	current=$RET
@@ -554,7 +566,7 @@ check() {
 			return 1
 			;;
 		esac
-		max=$(max_file_gib)
+		max=$(registry_max_gib)
 		# Setup shrinks or turns off a cache the disk has no room for, so 1 is always a valid answer.
 		[ "$max" -ge 1 ] || max=1
 		if [ "$value" -lt 1 ] || [ "$value" -gt "$max" ]; then

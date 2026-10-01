@@ -1497,3 +1497,44 @@ test.skipIf(skip)(
 		expect(JSON.stringify(rows)).not.toContain("Be kind");
 	},
 );
+
+test.skipIf(skip)(
+	"the keep-running cap defaults to 12 hours, saves 0 to 168, and is audited",
+	async () => {
+		await seedSettings();
+		const jar = await adminJar();
+		const before = await app.inject({
+			method: "GET",
+			url: "/admin/settings",
+			headers: { cookie: jar.cookieHeader() },
+		});
+		expect(before.json().keepRunningMaxHours).toBe(12);
+
+		const put = await app.inject({
+			method: "PUT",
+			url: "/admin/settings",
+			headers: csrfHeaders(jar, PUBLIC_URL),
+			payload: { keepRunningMaxHours: 0 },
+		});
+		expect(put.statusCode).toBe(200);
+		expect(put.json().keepRunningMaxHours).toBe(0);
+
+		for (const payload of [{ keepRunningMaxHours: -1 }, { keepRunningMaxHours: 169 }]) {
+			const res = await app.inject({
+				method: "PUT",
+				url: "/admin/settings",
+				headers: csrfHeaders(jar, PUBLIC_URL),
+				payload,
+			});
+			expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+		}
+
+		const rows = await testDb.db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("target", "=", "settings")
+			.execute();
+		expect(rows.map((row) => row.action)).toEqual(["settings.keep_running_updated"]);
+		expect(rows[0]?.metadata).toMatchObject({ from: 12, to: 0 });
+	},
+);

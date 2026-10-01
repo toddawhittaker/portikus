@@ -3,7 +3,7 @@ import type {
 	DockerUsageResponse,
 	SeedJob,
 } from "@portikus/contracts";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { DockerTab } from "./DockerTab.js";
@@ -35,6 +35,8 @@ function data(over: Partial<DockerAdminResponse> = {}): DockerAdminResponse {
 			imageVersion: "2026.09.9",
 			builtAt: "2026-09-29T09:00:00.000Z",
 		},
+		imageSizes: { "docker.io/library/python:3.12": 60 * 1024 ** 2 },
+		match: null,
 		...over,
 	};
 }
@@ -53,19 +55,21 @@ function job(over: Partial<SeedJob> = {}): SeedJob {
 }
 
 const USAGE: DockerUsageResponse = {
-	windowDays: 30,
+	windowDays: 120,
 	notInSeed: [
 		{
 			image: "docker.io/library/redis:7",
 			pulls: 5,
 			workspaces: 3,
 			lastSeen: "2026-09-30T08:00:00.000Z",
+			downloadBytes: 40 * 1024 ** 2,
 		},
 		{
 			image: "ghcr.io/owner/tool:1",
 			pulls: 1,
 			workspaces: 1,
 			lastSeen: "2026-09-30T08:00:00.000Z",
+			downloadBytes: null,
 		},
 	],
 	unusedSeed: [
@@ -74,6 +78,7 @@ const USAGE: DockerUsageResponse = {
 			pulls: 0,
 			workspaces: 2,
 			lastSeen: "2026-09-30T07:00:00.000Z",
+			downloadBytes: null,
 		},
 	],
 	notInSeedTotal: 2,
@@ -112,9 +117,18 @@ test("says the tab is off when the API answers 404", async () => {
 test("shows the cache's space, state and last clear", async () => {
 	serve(data());
 	renderWithQuery(<DockerTab />);
-	expect((await screen.findByTestId("docker-cache-use")).textContent).toBe(
-		"5.0 GB of 20.0 GB used",
-	);
+	const meter = (await screen.findByRole("meter", {
+		name: "Pull cache space",
+	})) as HTMLMeterElement;
+	expect(meter.value).toBe(5 * 1024 ** 3);
+	expect(meter.max).toBe(20 * 1024 ** 3);
+	expect(meter.getAttribute("aria-valuetext")).toBe("5.0 GB of 20.0 GB used");
+	const space = screen.getByTestId("docker-cache-space");
+	expect(space.textContent).toContain("5.0 GB of 20.0 GB used");
+	// The tick sits at the 90 percent auto-clear point.
+	expect(
+		space.querySelector<HTMLElement>(".pk-meter-mark")?.style.insetInlineStart,
+	).toBe("90%");
 	expect(screen.getByTestId("docker-cache-hub").textContent).toBe("Answering");
 	expect(screen.getByTestId("docker-cache-cleared").textContent).toContain(
 		"cleared because it was nearly full",
@@ -300,10 +314,63 @@ test("a saved switch the cache has not applied shows as waiting", async () => {
 test("the seed shows its size, image version and images", async () => {
 	serve(data());
 	renderWithQuery(<DockerTab />);
-	expect((await screen.findByTestId("docker-seed-size")).textContent).toBe("1.0 GB");
+	expect((await screen.findByTestId("docker-seed-size")).textContent).toBe(
+		"1.0 GB of the 8.0 GB limit",
+	);
+	const meter = screen.getByRole("meter", { name: "Seed size" }) as HTMLMeterElement;
+	expect(meter.value).toBe(1024 ** 3);
+	expect(meter.max).toBe(8 * 1024 ** 3);
+	expect(meter.high).toBe(0.8 * 8 * 1024 ** 3);
 	expect(screen.getByTestId("docker-seed-image-version").textContent).toBe("2026.09.9");
-	expect(screen.getByTestId("docker-seed-images").textContent).toBe("python:3.12");
+	const images = screen.getByTestId("docker-seed-images");
+	expect(within(images).getByRole("row", { name: /python:3\.12/ }).textContent).toBe(
+		"python:3.1260.0 MB",
+	);
 	expect(screen.getByTestId("docker-seed-list-count").textContent).toBe("2 of 30");
+});
+
+test("both meters follow new figures when the tab rereads", async () => {
+	let current = data();
+	stubFetch((url) => {
+		if (url === "/admin/docker") return json(200, current);
+		if (url === "/admin/docker/seed/jobs") return json(200, { jobs: [] });
+		if (url === "/admin/docker/usage") return json(200, USAGE);
+		return json(404, { code: "NOT_FOUND", message: "Not found." });
+	});
+	const client = renderWithQuery(<DockerTab />);
+	const cache = (await screen.findByRole("meter", {
+		name: "Pull cache space",
+	})) as HTMLMeterElement;
+	expect(cache.value).toBe(5 * 1024 ** 3);
+	const base = data();
+	current = {
+		...base,
+		cache: base.cache ? { ...base.cache, usedBytes: 9 * 1024 ** 3 } : null,
+		seedMaxGiB: 4,
+		seed: base.seed ? { ...base.seed, sizeBytes: 3 * 1024 ** 3 } : null,
+	};
+	await client.invalidateQueries();
+	await waitFor(() => expect(cache.value).toBe(9 * 1024 ** 3));
+	const seed = screen.getByRole("meter", { name: "Seed size" }) as HTMLMeterElement;
+	expect(seed.value).toBe(3 * 1024 ** 3);
+	expect(seed.max).toBe(4 * 1024 ** 3);
+	expect(screen.getByTestId("docker-seed-size").textContent).toBe(
+		"3.0 GB of the 4.0 GB limit",
+	);
+});
+
+test("the list for the next rebuild shows each image's size, a dash when not known, and the total", async () => {
+	serve(data());
+	renderWithQuery(<DockerTab />);
+	const list = await screen.findByTestId("docker-seed-list");
+	expect(
+		within(list).getByRole("columnheader", { name: "Download size" }),
+	).toBeTruthy();
+	const node = within(list).getByRole("row", { name: /node:22/ });
+	expect(within(node).getAllByRole("cell")[0]?.textContent).toBe("—Not known");
+	expect(screen.getByTestId("docker-seed-list-size").textContent).toBe(
+		"These images download as 60.0 MB, not counting 1 image the pull cache has not held. The limit of 8.0 GB counts the unpacked images, which take more space than their download.",
+	);
 });
 
 test("adding an image checks it with the contract before saving", async () => {
@@ -464,4 +531,197 @@ test("an image name from the report is text, never markup (ruling S7)", async ()
 	const extra = await screen.findByTestId("docker-usage-extra");
 	expect(extra.querySelector("b")).toBeNull();
 	expect(within(extra).getByText("<b>bold</b>")).toBeTruthy();
+});
+
+test("the use report shows each image's download size, or a dash read as not known", async () => {
+	serve(data());
+	renderWithQuery(<DockerTab />);
+	const extra = await screen.findByTestId("docker-usage-extra");
+	expect(
+		within(extra).getByRole("columnheader", { name: "Download size" }),
+	).toBeTruthy();
+	const redis = within(extra).getByRole("row", { name: /redis:7/ });
+	expect(within(redis).getAllByRole("cell")[0]?.textContent).toBe("40.0 MB");
+	const tool = within(extra).getByRole("row", { name: /tool:1/ });
+	expect(within(tool).getAllByRole("cell")[0]?.textContent).toBe("—Not known");
+	const unused = screen.getByTestId("docker-usage-unused");
+	const node = within(unused).getByRole("row", { name: /node:22/ });
+	expect(within(node).getAllByRole("cell")[0]?.textContent).toBe("—Not known");
+	expect(screen.getByTestId("docker-usage-window").textContent).toContain(
+		"Over the last 120 days.",
+	);
+});
+
+const OFF_REASON =
+	"When setup last ran, the main disk had 9.5 GiB free, and setup keeps 10 GiB of it free, so not even a 1 GiB cache fits.";
+
+function offData(): DockerAdminResponse {
+	const base = data();
+	return {
+		...base,
+		cache: base.cache
+			? {
+					...base.cache,
+					cacheOff: OFF_REASON,
+					hubUp: false,
+					sizeBytes: 0,
+					usedBytes: 0,
+				}
+			: null,
+	};
+}
+
+test("when setup turned the cache off, the tab says why and Clear cache does nothing", async () => {
+	const fetch = serve(offData());
+	renderWithQuery(<DockerTab />);
+	const line = await screen.findByTestId("docker-cache-off");
+	expect(line.textContent).toContain("Setup turned the pull cache off");
+	expect(line.textContent).toContain(OFF_REASON);
+	expect(line.textContent).toContain("sudo dpkg-reconfigure portikus");
+	expect(screen.queryByRole("meter", { name: "Pull cache space" })).toBeNull();
+	expect(screen.queryByTestId("docker-cache-hub")).toBeNull();
+
+	const clear = screen.getByRole("button", { name: "Clear cache…" });
+	expect(clear.getAttribute("aria-disabled")).toBe("true");
+	expect(clear.getAttribute("aria-describedby")).toBe("docker-cache-off");
+	fireEvent.click(clear);
+	expect(screen.queryByTestId("docker-cache-clear-dialog")).toBeNull();
+	expect(
+		fetch.mock.calls.some(([u]) => String(u) === "/admin/docker/cache/clear"),
+	).toBe(false);
+	expect(screen.getByTestId("docker-ghcr-state").textContent).toBe(
+		"The pull cache is off, so workspaces reach ghcr.io directly.",
+	);
+	expect(screen.queryByTestId("docker-ghcr-down")).toBeNull();
+});
+
+test("a Docker Hub account saved while the cache is off does not claim the cache uses it", async () => {
+	serve(offData(), [], (url, init) =>
+		url === "/admin/docker/hub-credential" && init?.method === "PUT"
+			? new Response(null, { status: 204 })
+			: undefined,
+	);
+	renderWithQuery(<DockerTab />);
+	fireEvent.change(await screen.findByLabelText("Docker Hub username"), {
+		target: { value: "teacher01" },
+	});
+	fireEvent.change(screen.getByLabelText("Access token"), {
+		target: { value: "fake-token-value" },
+	});
+	fireEvent.click(screen.getByRole("button", { name: "Save account" }));
+	expect(await screen.findByText("Docker Hub account saved")).toBeTruthy();
+	expect(
+		screen.getByText(
+			"The pull cache is off. It uses the account once setup turns the cache back on.",
+		),
+	).toBeTruthy();
+	expect(screen.queryByText("Docker Hub account sent to the cache")).toBeNull();
+});
+
+const MATCH_26_314 = {
+	node: { version: "26", image: "node:26-slim" },
+	python: { version: "3.14", image: "python:3.14-slim" },
+};
+
+test("no drift notice when the list holds the matching images (issue #932)", async () => {
+	serve(
+		data({ seedImages: ["node:26-slim", "python:3.14-slim"], match: MATCH_26_314 }),
+	);
+	renderWithQuery(<DockerTab />);
+	await screen.findByTestId("docker-seed-list");
+	expect(screen.queryByTestId("docker-seed-drift")).toBeNull();
+});
+
+test("the drift notice's button posts the match, starts a rebuild and keeps focus in place", async () => {
+	const fetch = serve(
+		data({ seedImages: ["node:24-slim", "python:3.13-slim"], match: MATCH_26_314 }),
+		[],
+		(url, init) =>
+			url === "/admin/docker/seed/match" && init?.method === "POST"
+				? json(
+						202,
+						job({ state: "queued", images: ["node:26-slim", "python:3.14-slim"] }),
+					)
+				: undefined,
+	);
+	renderWithQuery(<DockerTab />);
+	const notice = await screen.findByTestId("docker-seed-drift");
+	expect(notice.textContent).toContain(
+		"The default workspace image runs Node 26 and Python 3.14, but the seed list has node:24-slim and python:3.13-slim.",
+	);
+	expect(notice.textContent).toContain(
+		"Updating replaces node:24-slim with node:26-slim and python:3.13-slim with python:3.14-slim, then rebuilds the seed.",
+	);
+	// Image names read as code, like the tables around the notice.
+	expect(within(notice).getByText("node:26-slim").tagName).toBe("CODE");
+	// It sits under the heading of the list it changes.
+	const list = screen.getByRole("region", { name: /Images for the next rebuild/ });
+	expect(list.contains(notice)).toBe(true);
+	fireEvent.click(
+		within(notice).getByRole("button", { name: "Update list and rebuild" }),
+	);
+	await waitFor(() =>
+		expect(
+			fetch.mock.calls.some(
+				([u, init]) =>
+					String(u) === "/admin/docker/seed/match" && init?.method === "POST",
+			),
+		).toBe(true),
+	);
+	// Nothing else writes the list.
+	expect(bodyOf(fetch, "PUT", "/admin/docker/seed/images")).toBeUndefined();
+	// The notice and its button go; focus lands on the list it changed.
+	await waitFor(() =>
+		expect(document.activeElement?.id).toBe("docker-seed-list-title"),
+	);
+});
+
+test("over the size limit the notice says so and offers no button", async () => {
+	serve(
+		data({
+			seedMaxGiB: 1,
+			seedImages: ["python:3.12"],
+			imageSizes: { "docker.io/library/python:3.12": 1024 ** 3 },
+			match: MATCH_26_314,
+		}),
+	);
+	renderWithQuery(<DockerTab />);
+	const notice = await screen.findByTestId("docker-seed-drift");
+	expect(within(notice).getByTestId("docker-seed-drift-over").textContent).toBe(
+		"Using node:26-slim and python:3.14-slim would take the list past the 1.0 GB limit. That is an estimate from download sizes; the rebuild checks the unpacked images, which are larger. Raise Largest seed below, or remove images from the list.",
+	);
+	expect(within(notice).queryByRole("button")).toBeNull();
+});
+
+test("a seed built from an older image says so once: the drift notice's rebuild covers it", async () => {
+	const image = (url: string) =>
+		url === "/admin/image"
+			? json(200, {
+					default: "2026.09.10",
+					previous: null,
+					images: [],
+					otherWorkspaces: 0,
+					job: null,
+					newerPublished: null,
+					disk: null,
+				})
+			: undefined;
+	serve(
+		data({ seedImages: ["node:26-slim", "python:3.14-slim"], match: MATCH_26_314 }),
+		[],
+		image,
+	);
+	renderWithQuery(<DockerTab />);
+	expect(await screen.findByTestId("docker-seed-stale")).toBeTruthy();
+	cleanup();
+	vi.unstubAllGlobals();
+
+	serve(
+		data({ seedImages: ["node:24-slim", "python:3.13-slim"], match: MATCH_26_314 }),
+		[],
+		image,
+	);
+	renderWithQuery(<DockerTab />);
+	await screen.findByTestId("docker-seed-drift");
+	expect(screen.queryByTestId("docker-seed-stale")).toBeNull();
 });

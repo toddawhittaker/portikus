@@ -101,6 +101,7 @@ test("the student part has one anchored topic per section, keyboard included", (
 	expect(ids).toEqual([
 		"student-getting-started",
 		"student-layout",
+		"student-keep-running",
 		"student-terminals",
 		"student-files",
 		"student-previews",

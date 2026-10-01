@@ -7,6 +7,7 @@ import {
 	AgentDuplicateProjectRequest,
 	AgentError as AgentErrorBody,
 	type AgentErrorCode,
+	AgentListeningService,
 	AgentProject,
 	AgentProjectList,
 	AgentRenameProjectRequest,
@@ -19,6 +20,7 @@ import {
 	ProcessStopResponse,
 	SetLogLevelRequest,
 } from "@portikus/contracts";
+import { z } from "zod";
 
 /** Error codes the API uses for agent trouble: the agent's own, or "unreachable". */
 export type AgentFailureCode = AgentErrorCode | "AGENT_UNAVAILABLE";
@@ -26,16 +28,22 @@ export type AgentFailureCode = AgentErrorCode | "AGENT_UNAVAILABLE";
 /** A failed call to the workspace agent (ADR 0009; SPEC.md §9.7). */
 export class AgentCallError extends Error {
 	readonly code: AgentFailureCode;
+	/** The agent's HTTP status, when it answered with one. */
+	readonly status: number | undefined;
 
-	constructor(code: AgentFailureCode, message: string) {
+	constructor(code: AgentFailureCode, message: string, status?: number) {
 		super(message);
 		this.name = "AgentCallError";
 		this.code = code;
+		this.status = status;
 	}
 }
 
 /** How long any one agent call may take before it is treated as unreachable. */
 export const AGENT_TIMEOUT_MS = 5000;
+
+/** The agent's own TLS check is capped at 1 s, so a probe needs little more. */
+export const AGENT_PROBE_TIMEOUT_MS = 1500;
 
 /**
  * Stopping waits three seconds for SIGTERM before SIGKILL, so the agent needs
@@ -108,6 +116,27 @@ export class AgentClient {
 	/** Stop what holds a port inside the workspace (SPEC.md 18.2). */
 	async stopListener(port: number): Promise<void> {
 		await this.call("POST", `/listening/${port}/stop`, undefined, STOP_TIMEOUT_MS);
+	}
+
+	/**
+	 * Ask the agent to settle whether a port speaks TLS (issue #957). The
+	 * agent is untrusted, so an answer about another port is a failed agent.
+	 */
+	async probeProtocol(port: number): Promise<AgentListeningService> {
+		const payload = await this.call(
+			"POST",
+			`/listening/${port}/probe`,
+			undefined,
+			AGENT_PROBE_TIMEOUT_MS,
+		);
+		const parsed = z.object({ service: AgentListeningService }).safeParse(payload);
+		if (!parsed.success || parsed.data.service.port !== port) {
+			throw new AgentCallError(
+				"AGENT_UNAVAILABLE",
+				"The workspace agent sent a bad answer",
+			);
+		}
+		return parsed.data.service;
 	}
 
 	/**
@@ -390,6 +419,7 @@ export class AgentClient {
 			throw new AgentCallError(
 				parsed.success ? parsed.data.error.code : "AGENT_UNAVAILABLE",
 				parsed.success ? parsed.data.error.message : "The workspace agent failed",
+				response.status,
 			);
 		}
 		return payload;

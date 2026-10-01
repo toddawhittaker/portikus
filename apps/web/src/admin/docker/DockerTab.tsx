@@ -4,6 +4,7 @@ import {
 	ConfirmDialog,
 	ConfirmDialogRoot,
 	EmptyState,
+	Meter,
 	Skeleton,
 	TextField,
 	Toggletip,
@@ -24,6 +25,7 @@ import {
 } from "./queries.js";
 import { SeedCard } from "./SeedCard.js";
 import {
+	autoClearBytes,
 	CLEAR_REASON,
 	cacheUseText,
 	clearErrorText,
@@ -87,6 +89,7 @@ function CacheCard({ data }: { data: DockerAdminResponse }) {
 	const [confirming, setConfirming] = useState(false);
 	const cache = data.cache;
 	const clearError = cache ? clearErrorText(cache) : null;
+	const cacheOff = cache?.cacheOff ?? null;
 
 	function confirm() {
 		clear.mutate(undefined, {
@@ -113,16 +116,38 @@ function CacheCard({ data }: { data: DockerAdminResponse }) {
 				</Toggletip>
 			}
 			actions={
-				<Button data-testid="docker-cache-clear" onClick={() => setConfirming(true)}>
+				<Button
+					data-testid="docker-cache-clear"
+					aria-disabled={cacheOff ? true : undefined}
+					aria-describedby={cacheOff ? "docker-cache-off" : undefined}
+					onClick={() => {
+						if (!cacheOff) setConfirming(true);
+					}}
+				>
 					Clear cache…
 				</Button>
 			}
 		>
-			{cache ? (
+			{cacheOff ? (
+				<Notice tone="warning" id="docker-cache-off" testId="docker-cache-off">
+					Setup turned the pull cache off, so there is nothing to clear. {cacheOff}{" "}
+					Workspaces pull straight from Docker Hub and ghcr.io. To turn it back on, free
+					space on the main disk and run <code>sudo dpkg-reconfigure portikus</code>.
+				</Notice>
+			) : cache ? (
 				<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
-					<dt className="pk-muted">Space</dt>
-					<dd className="m-0" data-testid="docker-cache-use">
-						{cacheUseText(cache)}
+					<dt className="pk-muted">Pull cache space</dt>
+					<dd className="m-0 grid gap-1" data-testid="docker-cache-space">
+						<Meter
+							label="Pull cache space"
+							value={cache.usedBytes}
+							max={cache.sizeBytes}
+							mark={autoClearBytes(cache)}
+							valueText={cacheUseText(cache) ?? ""}
+						/>
+						<span className="pk-muted">
+							The line marks 90 percent, where the cache empties itself.
+						</span>
 					</dd>
 					<dt className="pk-muted">Docker Hub cache</dt>
 					<dd className="m-0" data-testid="docker-cache-hub">
@@ -204,6 +229,8 @@ function HubAccountCard({ data }: { data: DockerAdminResponse }) {
 	const [sent, setSent] = useState<"set" | "removed" | null>(null);
 	const isSet = data.hubCredential.isSet;
 	const waiting = sent !== null && isSet !== (sent === "set");
+	// The helper still stores the change, but nothing uses or empties until the cache is back.
+	const cacheOff = Boolean(data.cache?.cacheOff);
 
 	function save(event: FormEvent) {
 		event.preventDefault();
@@ -218,11 +245,21 @@ function HubAccountCard({ data }: { data: DockerAdminResponse }) {
 					setUsername("");
 					setToken("");
 					setSent("set");
-					toast.show({
-						tone: "success",
-						title: "Docker Hub account sent to the cache",
-						children: "The cache starts using it, and empties itself, within a minute.",
-					});
+					toast.show(
+						cacheOff
+							? {
+									tone: "success",
+									title: "Docker Hub account saved",
+									children:
+										"The pull cache is off. It uses the account once setup turns the cache back on.",
+								}
+							: {
+									tone: "success",
+									title: "Docker Hub account sent to the cache",
+									children:
+										"The cache starts using it, and empties itself, within a minute.",
+								},
+					);
 				},
 			},
 		);
@@ -234,7 +271,13 @@ function HubAccountCard({ data }: { data: DockerAdminResponse }) {
 				removed.current = true;
 				setSent("removed");
 				setRemoving(false);
-				toast.show({ tone: "success", title: "Docker Hub account removed" });
+				toast.show({
+					tone: "success",
+					title: "Docker Hub account removed",
+					...(cacheOff
+						? { children: "The pull cache is off, so there was nothing to empty." }
+						: {}),
+				});
 			},
 		});
 	}
@@ -419,6 +462,10 @@ function GhcrCard({ data }: { data: DockerAdminResponse }) {
 					<Notice tone="pending" testId="docker-ghcr-waiting">
 						Waiting for the cache to apply the change.
 					</Notice>
+				) : cache?.cacheOff ? (
+					<p className="pk-muted m-0 text-[13px]" data-testid="docker-ghcr-state">
+						The pull cache is off, so workspaces reach ghcr.io directly.
+					</p>
 				) : data.ghcrEnabled && cache && !cache.ghcrUp ? (
 					<Notice tone="error" testId="docker-ghcr-down">
 						The ghcr.io cache is not answering, so ghcr.io pulls in workspaces fail.

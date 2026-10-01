@@ -84,6 +84,11 @@ export const ADMIN_HELP: HelpPart = {
 					<strong>idle stop</strong> time, the student is asked "Still working?", and
 					the workspace stops five minutes later unless they answer. Both are set on{" "}
 					<strong>Settings</strong> and can be changed for one workspace from its panel.
+					A student can choose <strong>Keep running</strong> to hold their workspace up
+					while away; neither timer counts until the hold ends.{" "}
+					<strong>Longest keep running (hours)</strong> caps the hold (default 12; 0
+					turns it off), and <strong>Guard settings</strong> changes it for one
+					workspace.
 				</p>
 			),
 		},
@@ -205,6 +210,14 @@ export const ADMIN_HELP: HelpPart = {
 						Existing workspaces keep the image they were made from until you rebuild
 						each one; the list shows how many workspaces run each image.
 					</p>
+					<p>
+						<strong>Delete</strong> removes an image you no longer need and frees its
+						disk space. You cannot delete the default or the previous image. Workspaces
+						made from a deleted image keep working. After each fetch or build the host
+						keeps the default, the previous and the newest image on its own.{" "}
+						<strong>Image size (compressed)</strong> and the{" "}
+						<strong>Main disk space</strong> meter show what each image costs.
+					</p>
 				</>
 			),
 		},
@@ -253,12 +266,16 @@ export const ADMIN_HELP: HelpPart = {
 						Workspaces pull Docker Hub images through a <strong>pull cache</strong> on
 						this server, so an image one student pulled comes from here for the next,
 						and the server stays under Docker Hub's limit on anonymous pulls. The{" "}
-						<strong>Docker</strong> tab shows the space the cache uses.{" "}
-						<strong>Clear cache</strong> empties it; images already in workspaces stay.
-						An optional <strong>Docker Hub account</strong>, given as a personal access
-						token with the "Public Repo Read-only" scope, raises the limit. Every
-						student can pull what that account can read, so use one with no private
-						repositories. Saving or removing it empties the cache.
+						<strong>Docker</strong> tab shows the space the cache uses on the{" "}
+						<strong>Pull cache space</strong> meter, marked at 90 percent, where it
+						empties itself. <strong>Clear cache</strong> empties it; images already in
+						workspaces stay. If setup turned the cache off for lack of disk space, the
+						tab says why; free space and run{" "}
+						<code className="pk-mono-body">sudo dpkg-reconfigure portikus</code> to turn
+						it back on. An optional <strong>Docker Hub account</strong>, given as a
+						personal access token with the "Public Repo Read-only" scope, raises the
+						limit. Every student can pull what that account can read, so use one with no
+						private repositories. Saving or removing it empties the cache.
 					</p>
 					<p>
 						The <strong>ghcr.io cache</strong> is on by default. Students build and push
@@ -300,8 +317,19 @@ export const ADMIN_HELP: HelpPart = {
 						Docker and a rebuild with Reset Docker start with. List the images and press{" "}
 						<strong>Rebuild seed</strong>; the page shows each step. Existing Docker
 						storage keeps what it has. <strong>Image use</strong> lists images
-						workspaces used that the seed does not hold, and seed images nobody used, so
-						you can add or remove them.
+						workspaces used over the last 120 days that the seed does not hold, and seed
+						images nobody used, so you can add or remove them. Every image row shows its{" "}
+						<strong>Download size</strong>, or a dash when the cache never held it; the
+						seed meter shows the seed's size on disk against its limit.
+					</p>
+					<p>
+						A new install's seed list starts with the slim Node and Python images that
+						match the default workspace image. Portikus never changes a list you have
+						set or emptied. After the default image changes, the seed card may say the
+						image runs a different Node or Python;{" "}
+						<strong>Update list and rebuild</strong> swaps the old node and python slim
+						images for the new ones and rebuilds the seed, unless the download would
+						pass the seed's limit.
 					</p>
 				</>
 			),

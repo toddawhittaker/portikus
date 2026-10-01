@@ -95,3 +95,36 @@ export function countIncusCpus(value: unknown): number | null {
 	}
 	return count;
 }
+
+/** The cap on one workspace's "keep running until" hold: its override wins (#955). */
+export function keepRunningMaxHours(
+	platformHours: number,
+	overrides: GuardConfig | null,
+): number {
+	return overrides?.keepRunningMaxHours ?? platformHours;
+}
+
+/** The hold cap when no settings row exists yet; the column default. */
+export const DEFAULT_KEEP_RUNNING_MAX_HOURS = 12;
+
+/** How far past the cap a requested hold may land and still be clamped to it (browser clock skew). */
+export const KEEP_RUNNING_SKEW_MS = 5 * 60_000;
+
+/**
+ * Why a "keep running until" time is refused, or null when it is allowed
+ * (#955): it must be ahead of now and at most `maxHours` from now, give or
+ * take KEEP_RUNNING_SKEW_MS, which the caller clamps away. A cap of 0 refuses
+ * every hold.
+ */
+export function keepRunningRefusal(
+	until: Date,
+	now: Date,
+	maxHours: number,
+): "off" | "past" | "too-far" | null {
+	if (maxHours === 0) return "off";
+	if (until.getTime() <= now.getTime()) return "past";
+	if (until.getTime() > now.getTime() + maxHours * 3_600_000 + KEEP_RUNNING_SKEW_MS) {
+		return "too-far";
+	}
+	return null;
+}

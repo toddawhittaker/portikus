@@ -1,13 +1,15 @@
 /**
- * The instruction files are copied once and never overwritten (SPEC.md §4.4).
+ * The home's instruction files belong to the student; only the platform's
+ * own leftovers are removed (SPEC.md §3, issue #933).
  */
+import { createHash } from "node:crypto";
 import {
+	lstat,
 	mkdir,
 	mkdtemp,
 	readFile,
 	readlink,
 	rm,
-	stat,
 	symlink,
 	writeFile,
 } from "node:fs/promises";
@@ -15,111 +17,107 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
-	CLAUDE_IMPORT_LINE,
 	CLAUDE_INSTRUCTIONS,
 	CODEX_INSTRUCTIONS,
-	seedAgentInstructions,
+	returnHomeInstructions,
 } from "./agent-instructions.js";
-
-const TEMPLATE_TEXT = "# Working in a Portikus workspace\n";
 
 let root: string;
 let home: string;
-let template: string;
 
 beforeEach(async () => {
 	root = await mkdtemp(join(tmpdir(), "portikus-agent-instructions-"));
 	home = join(root, "home");
-	await mkdir(home);
-	template = join(root, "AGENTS.md");
-	await writeFile(template, TEMPLATE_TEXT);
+	await mkdir(join(home, ".codex"), { recursive: true });
+	await mkdir(join(home, ".claude"), { recursive: true });
 });
 
 afterEach(async () => {
 	await rm(root, { recursive: true, force: true });
 });
 
-describe("seedAgentInstructions", () => {
-	test("a fresh home gets the template and the Claude import", async () => {
-		const created = await seedAgentInstructions(home, template);
-		expect(created).toEqual([CODEX_INSTRUCTIONS, CLAUDE_INSTRUCTIONS]);
-		expect(await readFile(join(home, CODEX_INSTRUCTIONS), "utf8")).toBe(TEMPLATE_TEXT);
-		expect(await readFile(join(home, CLAUDE_INSTRUCTIONS), "utf8")).toBe(
-			"@~/.codex/AGENTS.md\n",
-		);
-		expect((await stat(join(home, ".codex"))).mode & 0o777).toBe(0o700);
-		expect((await stat(join(home, ".claude"))).mode & 0o777).toBe(0o700);
+async function exists(path: string): Promise<boolean> {
+	return lstat(path).then(
+		() => true,
+		() => false,
+	);
+}
+
+describe("returnHomeInstructions", () => {
+	test("an empty home is left alone", async () => {
+		await rm(join(home, ".codex"), { recursive: true });
+		expect(await returnHomeInstructions(home)).toEqual([]);
+		expect(await exists(join(home, ".codex"))).toBe(false);
 	});
 
-	test("edited files are never overwritten, even after the template changes", async () => {
-		await seedAgentInstructions(home, template);
-		await writeFile(join(home, CODEX_INSTRUCTIONS), "my own rules\n");
+	test("a Claude file holding only the import line is removed", async () => {
+		await writeFile(join(home, CLAUDE_INSTRUCTIONS), "@~/.codex/AGENTS.md\n");
+		expect(await returnHomeInstructions(home)).toEqual([CLAUDE_INSTRUCTIONS]);
+		expect(await exists(join(home, CLAUDE_INSTRUCTIONS))).toBe(false);
+	});
+
+	test("only the exact import line goes; the student's lines stay", async () => {
 		await writeFile(
 			join(home, CLAUDE_INSTRUCTIONS),
-			"@~/.codex/AGENTS.md\nmore rules\n",
+			"@~/.codex/AGENTS.md\nmy rule\n  @~/.codex/AGENTS.md\n@~/.codex/AGENTS.md extra\n",
 		);
-		await writeFile(template, "a newer template\n");
+		await returnHomeInstructions(home);
+		expect(await readFile(join(home, CLAUDE_INSTRUCTIONS), "utf8")).toBe(
+			"my rule\n  @~/.codex/AGENTS.md\n@~/.codex/AGENTS.md extra\n",
+		);
+	});
 
-		expect(await seedAgentInstructions(home, template)).toEqual([]);
+	test("a Claude file without the import line is untouched", async () => {
+		await writeFile(join(home, CLAUDE_INSTRUCTIONS), "only mine\n");
+		expect(await returnHomeInstructions(home)).toEqual([]);
+		expect(await readFile(join(home, CLAUDE_INSTRUCTIONS), "utf8")).toBe("only mine\n");
+	});
+
+	test("an unchanged copy of a past template is removed", async () => {
+		const text = "old platform template\n";
+		const hash = createHash("sha256").update(text).digest("hex");
+		await writeFile(join(home, CODEX_INSTRUCTIONS), text);
+		expect(await returnHomeInstructions(home, [hash])).toEqual([CODEX_INSTRUCTIONS]);
+		expect(await exists(join(home, CODEX_INSTRUCTIONS))).toBe(false);
+	});
+
+	test("an edited Codex file survives", async () => {
+		await writeFile(join(home, CODEX_INSTRUCTIONS), "student's AGENTS.md\n");
+		expect(await returnHomeInstructions(home)).toEqual([]);
 		expect(await readFile(join(home, CODEX_INSTRUCTIONS), "utf8")).toBe(
-			"my own rules\n",
-		);
-		expect(await readFile(join(home, CLAUDE_INSTRUCTIONS), "utf8")).toBe(
-			"@~/.codex/AGENTS.md\nmore rules\n",
+			"student's AGENTS.md\n",
 		);
 	});
 
-	test("a student's own CLAUDE.md is kept while the Codex file is added", async () => {
-		await mkdir(join(home, ".claude"));
-		await writeFile(join(home, CLAUDE_INSTRUCTIONS), "student's rules\n");
-
-		expect(await seedAgentInstructions(home, template)).toEqual([CODEX_INSTRUCTIONS]);
-		expect(await readFile(join(home, CLAUDE_INSTRUCTIONS), "utf8")).toBe(
-			"student's rules\n",
-		);
-		expect(await readFile(join(home, CODEX_INSTRUCTIONS), "utf8")).toBe(TEMPLATE_TEXT);
+	test("the import line goes with a removed past-template Codex copy", async () => {
+		const text = "old platform template\n";
+		const hash = createHash("sha256").update(text).digest("hex");
+		await writeFile(join(home, CODEX_INSTRUCTIONS), text);
+		await writeFile(join(home, CLAUDE_INSTRUCTIONS), "@~/.codex/AGENTS.md\nmine\n");
+		expect(await returnHomeInstructions(home, [hash])).toEqual([
+			CODEX_INSTRUCTIONS,
+			CLAUDE_INSTRUCTIONS,
+		]);
+		expect(await readFile(join(home, CLAUDE_INSTRUCTIONS), "utf8")).toBe("mine\n");
 	});
 
-	test("a student's own AGENTS.md is kept while the Claude import is added", async () => {
-		await mkdir(join(home, ".codex"));
-		await writeFile(join(home, CODEX_INSTRUCTIONS), "student's rules\n");
-
-		expect(await seedAgentInstructions(home, template)).toEqual([CLAUDE_INSTRUCTIONS]);
-		expect(await readFile(join(home, CODEX_INSTRUCTIONS), "utf8")).toBe(
-			"student's rules\n",
-		);
+	test("the import line stays while the student's edited Codex file is kept", async () => {
+		await writeFile(join(home, CODEX_INSTRUCTIONS), "student's AGENTS.md\n");
+		await writeFile(join(home, CLAUDE_INSTRUCTIONS), "@~/.codex/AGENTS.md\nmine\n");
+		expect(await returnHomeInstructions(home)).toEqual([]);
 		expect(await readFile(join(home, CLAUDE_INSTRUCTIONS), "utf8")).toBe(
-			CLAUDE_IMPORT_LINE,
+			"@~/.codex/AGENTS.md\nmine\n",
 		);
 	});
 
-	test("a symbolic link at either path is left alone, not followed", async () => {
-		const target = join(root, "elsewhere");
-		await mkdir(join(home, ".codex"));
-		await mkdir(join(home, ".claude"));
-		await symlink(target, join(home, CODEX_INSTRUCTIONS));
+	test("symbolic links are never followed or replaced", async () => {
+		const target = join(root, "elsewhere.md");
+		await writeFile(target, "@~/.codex/AGENTS.md\n");
 		await symlink(target, join(home, CLAUDE_INSTRUCTIONS));
-
-		expect(await seedAgentInstructions(home, template)).toEqual([]);
+		await symlink(target, join(home, CODEX_INSTRUCTIONS));
+		expect(await returnHomeInstructions(home)).toEqual([]);
+		expect(await readlink(join(home, CLAUDE_INSTRUCTIONS))).toBe(target);
 		expect(await readlink(join(home, CODEX_INSTRUCTIONS))).toBe(target);
-		await expect(stat(target)).rejects.toMatchObject({ code: "ENOENT" });
-	});
-
-	test("an image without the template gets neither file", async () => {
-		expect(await seedAgentInstructions(home, join(root, "missing.md"))).toEqual([]);
-		await expect(stat(join(home, CODEX_INSTRUCTIONS))).rejects.toMatchObject({
-			code: "ENOENT",
-		});
-		await expect(stat(join(home, CLAUDE_INSTRUCTIONS))).rejects.toMatchObject({
-			code: "ENOENT",
-		});
-	});
-
-	test("an unexpected error is thrown for the caller to log", async () => {
-		// A file where the .claude folder should be makes mkdir fail.
-		await writeFile(join(home, ".claude"), "not a folder");
-		await expect(seedAgentInstructions(home, template)).rejects.toMatchObject({
-			code: "EEXIST",
-		});
+		expect(await readFile(target, "utf8")).toBe("@~/.codex/AGENTS.md\n");
 	});
 });

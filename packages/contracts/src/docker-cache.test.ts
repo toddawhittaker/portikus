@@ -9,17 +9,25 @@ import {
 	canonicalImageName,
 	DockerAdminResponse,
 	DockerSettingsRequest,
+	estimatedListBytes,
 	HubCredentialRequest,
+	IMAGE_SIZES_MAX,
 	INVENTORY_IMAGES_MAX,
 	isImageReference,
+	isMatchedTag,
+	matchingSeedImages,
+	overSeedCap,
 	RegistryEventEnvelope,
 	RegistryJobRequestFile,
+	RegistryStatusFile,
 	registryEventWorkspaceIp,
 	SEED_IMAGES_MAX,
 	SEED_MAX_GIB_LIMIT,
 	SeedBuildRequest,
 	SeedImageName,
 	SeedImagesRequest,
+	SLIM_ESTIMATE_BYTES,
+	seedDrift,
 	seedImageListFor,
 } from "./docker-cache.js";
 
@@ -188,12 +196,56 @@ describe("DockerAdminResponse", () => {
 		hubCredential: { isSet: true },
 		seedImages: ["node:22"],
 		seed: null,
+		imageSizes: {},
+		match: null,
 	};
 
 	test("carries only whether a credential is set", () => {
 		expect(DockerAdminResponse.safeParse(answer).success).toBe(true);
 		const leaky = { ...answer, hubCredential: { isSet: true, username: "portikus" } };
 		expect(DockerAdminResponse.safeParse(leaky).success).toBe(false);
+	});
+});
+
+describe("RegistryStatusFile", () => {
+	const status = {
+		sizeBytes: 1,
+		usedBytes: 0,
+		hubUp: true,
+		ghcrEnabled: false,
+		ghcrUp: false,
+		hubCredentialSet: false,
+		lastClearedAt: null,
+		lastClearReason: null,
+		updatedAt: "2026-09-30T10:00:00.000Z",
+	};
+	const seenAt = "2026-09-30T10:00:00.000Z";
+
+	test("a status from before issue #931 still reads", () => {
+		expect(RegistryStatusFile.safeParse(status).success).toBe(true);
+	});
+
+	test("takes the cache-off reason and the download sizes, capped", () => {
+		const sizes = (n: number) =>
+			Object.fromEntries(
+				Array.from({ length: n }, (_, i) => [
+					`docker.io/library/i${i}:1`,
+					{ bytes: i, seenAt },
+				]),
+			);
+		const full = {
+			...status,
+			cacheOff: "No room.",
+			imageSizes: sizes(IMAGE_SIZES_MAX),
+		};
+		expect(RegistryStatusFile.safeParse(full).success).toBe(true);
+		const over = { ...status, imageSizes: sizes(IMAGE_SIZES_MAX + 1) };
+		expect(RegistryStatusFile.safeParse(over).success).toBe(false);
+		const negative = {
+			...status,
+			imageSizes: { "docker.io/library/a:1": { bytes: -1, seenAt } },
+		};
+		expect(RegistryStatusFile.safeParse(negative).success).toBe(false);
 	});
 });
 
@@ -357,5 +409,106 @@ describe("StartInstanceRequest docker field", () => {
 			docker: { hubMirror: true, ghcr: false },
 		});
 		expect(r.success && r.data.docker).toEqual({ hubMirror: true, ghcr: false });
+	});
+});
+
+describe("seed images matching the workspace image (issue #932)", () => {
+	const manifest = (
+		node: string | null,
+		python3: string | null,
+		python: "debian" | "uv-3.14" = "debian",
+	) => ({
+		parameters: { node: "24" as const, python },
+		tools: {
+			node,
+			npm: null,
+			python3,
+			git: null,
+			docker: null,
+			claude: null,
+			codex: null,
+		},
+	});
+	const MATCH_24_313 = {
+		node: { version: "24", image: "node:24-slim" },
+		python: { version: "3.13", image: "python:3.13-slim" },
+	};
+	const MATCH_26_314 = {
+		node: { version: "26", image: "node:26-slim" },
+		python: { version: "3.14", image: "python:3.14-slim" },
+	};
+
+	test("Debian Python: major Node and major.minor Python from the tool versions", () => {
+		expect(matchingSeedImages(manifest("v24.11.1", "Python 3.13.5"))).toEqual(
+			MATCH_24_313,
+		);
+	});
+
+	test("uv Python: 3.14, whatever Debian's python3 says", () => {
+		expect(matchingSeedImages(manifest("v26.0.0", "Python 3.13.5", "uv-3.14"))).toEqual(
+			MATCH_26_314,
+		);
+	});
+
+	test("an unknown or unreadable version gives nothing for that language", () => {
+		expect(matchingSeedImages(manifest(null, "something else"))).toEqual({
+			node: null,
+			python: null,
+		});
+		expect(matchingSeedImages(manifest("24", "Python 3"))).toEqual({
+			node: null,
+			python: null,
+		});
+	});
+
+	test("matched tags are slim official images only", () => {
+		expect(isMatchedTag("node:24-slim", "node")).toBe(true);
+		expect(isMatchedTag("docker.io/library/python:3.13-slim", "python")).toBe(true);
+		expect(isMatchedTag("node:24", "node")).toBe(false);
+		expect(isMatchedTag("python:3-slim", "python")).toBe(false);
+		expect(isMatchedTag("bitnami/node:24-slim", "node")).toBe(false);
+	});
+
+	test("no drift when the list holds every matched image", () => {
+		expect(
+			seedDrift(["redis:7", "node:24-slim", "python:3.13-slim"], MATCH_24_313),
+		).toBe(null);
+		expect(seedDrift([], { node: null, python: null })).toBe(null);
+	});
+
+	test("drift swaps the old matched tags for the new, keeping everything else", () => {
+		expect(
+			seedDrift(
+				["node:24-slim", "redis:7", "python:3.13-slim", "node:22"],
+				MATCH_26_314,
+			),
+		).toEqual({
+			missing: ["node:26-slim", "python:3.14-slim"],
+			old: ["node:24-slim", "python:3.13-slim"],
+			next: ["redis:7", "node:22", "node:26-slim", "python:3.14-slim"],
+		});
+	});
+
+	test("drift in one language leaves the other's tags alone", () => {
+		expect(
+			seedDrift(["node:24-slim", "python:3.12-slim", "python:3.14-slim"], MATCH_26_314),
+		).toEqual({
+			missing: ["node:26-slim"],
+			old: ["node:24-slim"],
+			next: ["python:3.12-slim", "python:3.14-slim", "node:26-slim"],
+		});
+	});
+
+	test("the estimate uses known sizes, then slim estimates, else nothing", () => {
+		const sizes = { "docker.io/library/redis:7": 50 };
+		expect(
+			estimatedListBytes(["redis:7", "node:26-slim", "python:3.14-slim", "x:1"], sizes),
+		).toBe(50 + SLIM_ESTIMATE_BYTES.node + SLIM_ESTIMATE_BYTES.python);
+	});
+
+	test("over the cap when the estimate passes the limit", () => {
+		const big = { "docker.io/library/redis:7": 1024 ** 3 };
+		expect(overSeedCap(["redis:7", "node:26-slim"], big, 1)).toBe(true);
+		expect(overSeedCap(["node:26-slim"], {}, 1)).toBe(false);
 	});
 });

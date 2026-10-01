@@ -33,6 +33,8 @@ import { z } from "zod";
  *     job rewrite it whenever they move an alias.
  *   - `<version>/manifest.json` (`ImageManifest`): what is in the image.
  *   - `<version>/health.json` (`ImageHealth`): the job's health check.
+ *   - `<version>/size.json` (`ImageSizeFile`): the image's size in Incus,
+ *     rewritten after every job that finishes (issue #936).
  *   - The image files themselves, which the API ignores.
  *
  * The job's kinds: `fetch` downloads and verifies a published image (the
@@ -40,8 +42,9 @@ import { z } from "zod";
  * writes its manifest and health; `build` runs the recipe with the chosen
  * Node and Python, versions the result `<recipe VERSION>-local.<YYYYMMDDHHMM>`,
  * and does the same; `activate` moves `portikus` to a healthy version and
- * `portikus-previous` to the old default; `rollback` swaps the two. None of
- * them makes a new image the default on its own.
+ * `portikus-previous` to the old default; `rollback` swaps the two; `delete`
+ * removes one image that is neither the default nor the previous, from Incus
+ * and the store. None of them makes a new image the default on its own.
  */
 
 /** A published version, or a local build's (ruling 24). The job enforces the same pattern. */
@@ -58,7 +61,13 @@ export type ImageNodeChoice = z.infer<typeof ImageNodeChoice>;
 export const ImagePythonChoice = z.enum(["debian", "uv-3.14"]);
 export type ImagePythonChoice = z.infer<typeof ImagePythonChoice>;
 
-export const ImageJobKind = z.enum(["fetch", "build", "activate", "rollback"]);
+export const ImageJobKind = z.enum([
+	"fetch",
+	"build",
+	"activate",
+	"rollback",
+	"delete",
+]);
 export type ImageJobKind = z.infer<typeof ImageJobKind>;
 
 /** The body of `POST /admin/image/jobs`: nothing beyond the fixed kinds and choices. */
@@ -73,6 +82,7 @@ export const ImageJobRequest = z.discriminatedUnion("kind", [
 		.strict(),
 	z.object({ kind: z.literal("activate"), version: ImageVersion }).strict(),
 	z.object({ kind: z.literal("rollback") }).strict(),
+	z.object({ kind: z.literal("delete"), version: ImageVersion }).strict(),
 ]);
 export type ImageJobRequest = z.infer<typeof ImageJobRequest>;
 
@@ -128,6 +138,10 @@ export const ImageAliasesFile = z.object({
 	previous: ImageVersion.nullable(),
 });
 export type ImageAliasesFile = z.infer<typeof ImageAliasesFile>;
+
+/** `images/<version>/size.json`: the image's file size as Incus reports it (issue #936). */
+export const ImageSizeFile = z.object({ bytes: z.number().int().nonnegative() });
+export type ImageSizeFile = z.infer<typeof ImageSizeFile>;
 
 /** The tools the manifest names by version (ruling 24); null when the tool is missing. */
 export const IMAGE_TOOLS = [
@@ -264,6 +278,8 @@ export const ImageView = z.object({
 	health: ImageHealth.nullable(),
 	/** Workspaces whose root was made from this image. */
 	workspaces: z.number().int().nonnegative(),
+	/** Bytes on disk, null until a job has recorded it. */
+	sizeBytes: z.number().int().nonnegative().nullable(),
 });
 export type ImageView = z.infer<typeof ImageView>;
 
@@ -279,6 +295,13 @@ export const AdminImage = z.object({
 	job: ImageJobView.nullable(),
 	/** A published image newer than every image on the server (issue #861). */
 	newerPublished: ImageVersion.nullable(),
+	/** Free and total bytes of the disk holding the images, null when it cannot be read. */
+	disk: z
+		.object({
+			freeBytes: z.number().int().nonnegative(),
+			totalBytes: z.number().int().nonnegative(),
+		})
+		.nullable(),
 });
 export type AdminImage = z.infer<typeof AdminImage>;
 

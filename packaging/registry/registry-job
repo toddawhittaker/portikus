@@ -24,6 +24,7 @@ import datetime
 import fcntl
 import json
 import os
+import platform
 import re
 import ssl
 import stat
@@ -65,6 +66,25 @@ EVENTS_TOKEN_HEADER = "X-Portikus-Registry-Token"
 AUTO_CLEAR_PERCENT = 90
 
 MAX_REQUEST_BYTES = 4096
+
+# Download sizes for the admin page (issue #931): the contracts' IMAGE_SIZES_MAX,
+# kept this long after the cache last held the image, so a seed image keeps
+# its size after the cache's week-long expiry or a clear.
+IMAGE_SIZES_MAX = 1000
+IMAGE_SIZES_KEEP_DAYS = 120
+IMAGE_NAME_MAX = 255
+MANIFEST_MAX_BYTES = 1 << 20
+TAGS_SCANNED_MAX = 2 * IMAGE_SIZES_MAX
+REPOSITORY_DEPTH_MAX = 6
+REGISTRY_HOST = {"hub": "docker.io", "ghcr": "ghcr.io"}
+INDEX_TYPES = {"application/vnd.docker.distribution.manifest.list.v2+json",
+               "application/vnd.oci.image.index.v1+json"}
+COMPONENT_RE = re.compile(r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*")
+TAG_NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
+DIGEST_RE = re.compile(r"sha256:([a-f0-9]{64})")
+# What the page says when the cache-off marker gives no reason (setups before #931 wrote "off").
+CACHE_OFF_DEFAULT = "The main disk had no room for even a 1 GiB cache when setup last ran."
+CACHE_OFF_REASON_RE = re.compile(r"[\x20-\x7e]{1,300}")
 REQUEST_NAME_RE = re.compile(r"request-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json")
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 DATETIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z")
@@ -166,6 +186,52 @@ def read_json(path):
         return None
 
 
+def host_arch():
+    """The host's architecture as image indexes name it."""
+    machine = platform.machine()
+    return {"x86_64": "amd64", "aarch64": "arm64"}.get(machine, machine)
+
+
+def open_under(base_fd, parts, directory=False):
+    """Open base/parts[0]/.../parts[-1] without following any link the registry user planted."""
+    fd = os.dup(base_fd)
+    try:
+        for i, part in enumerate(parts):
+            last = i == len(parts) - 1
+            flags = os.O_RDONLY | os.O_NOFOLLOW
+            flags |= os.O_DIRECTORY if (directory or not last) else os.O_NONBLOCK
+            next_fd = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def read_under(base_fd, parts, limit):
+    """A small regular file's text under base, or None."""
+    try:
+        fd = open_under(base_fd, parts)
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
+            return None
+        return os.read(fd, limit + 1).decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    finally:
+        os.close(fd)
+
+
+def subdirs(fd):
+    """Names of the real directories in fd; links are skipped."""
+    with os.scandir(fd) as it:
+        return sorted(e.name for e in it if e.is_dir(follow_symlinks=False))
+
+
 def read_text(path):
     try:
         with open(path, encoding="utf-8") as f:
@@ -242,6 +308,16 @@ class Helper:
     def cache_off(self):
         """Setup found no room on the main disk for the cache (SPEC.md section 16.6)."""
         return os.path.exists(self.path("cache-off"))
+
+    def cache_off_reason(self):
+        """Why setup turned the cache off, from the marker's first line, or None while it is on."""
+        if not self.cache_off():
+            return None
+        text = read_text(self.path("cache-off"))
+        line = text.splitlines()[0].strip() if text else ""
+        if line == "off" or not CACHE_OFF_REASON_RE.fullmatch(line):
+            return CACHE_OFF_DEFAULT
+        return line
 
     def hub_held(self):
         """A clear after a credential change failed; the Hub cache stays stopped (S3)."""
@@ -511,6 +587,131 @@ class Helper:
         size = st.f_blocks * st.f_frsize
         return size, size - st.f_bfree * st.f_frsize
 
+    # -- image sizes (issue #931) --
+
+    def manifest(self, blobs_fd, digest):
+        match = DIGEST_RE.fullmatch(digest) if isinstance(digest, str) else None
+        if not match:
+            return None
+        hex_digest = match.group(1)
+        raw = read_under(blobs_fd, ["sha256", hex_digest[:2], hex_digest, "data"], MANIFEST_MAX_BYTES)
+        try:
+            doc = json.loads(raw) if raw is not None else None
+        except ValueError:
+            return None
+        return doc if isinstance(doc, dict) else None
+
+    def download_size(self, blobs_fd, digest):
+        """The compressed size of the image a manifest names, for this host's platform, or None."""
+        doc = self.manifest(blobs_fd, digest)
+        if doc is not None and (doc.get("mediaType") in INDEX_TYPES or "manifests" in doc):
+            arch = host_arch()
+            child = next((m for m in doc.get("manifests") or []
+                          if isinstance(m, dict) and isinstance(m.get("platform"), dict)
+                          and m["platform"].get("os") == "linux"
+                          and m["platform"].get("architecture") == arch), None)
+            # Only the platform's manifest the cache stored counts; another platform's is never fetched.
+            doc = self.manifest(blobs_fd, child.get("digest")) if child else None
+        if doc is None or not isinstance(doc.get("layers"), list) or not doc["layers"]:
+            return None
+        sizes = [part.get("size") if isinstance(part, dict) else None
+                 for part in [doc.get("config"), *doc["layers"]]]
+        if not all(isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in sizes):
+            return None
+        return sum(sizes)
+
+    def scan_sizes(self):
+        """Download sizes of the tagged images the caches hold now, by canonical name."""
+        found = {}
+        if not self.host.is_mount(self.mount_point):
+            return found
+        budget = [TAGS_SCANNED_MAX]
+        for cache, registry in REGISTRY_HOST.items():
+            try:
+                top = os.open(self.mount_point, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            except OSError:
+                return found
+            try:
+                root = open_under(top, [cache, "docker", "registry", "v2"], directory=True)
+            except OSError:
+                continue
+            finally:
+                os.close(top)
+            try:
+                self.scan_cache(root, registry, found, budget)
+            finally:
+                os.close(root)
+        return found
+
+    def scan_cache(self, root, registry, found, budget):
+        try:
+            blobs = open_under(root, ["blobs"], directory=True)
+        except OSError:
+            return
+        try:
+            repos = open_under(root, ["repositories"], directory=True)
+        except OSError:
+            os.close(blobs)
+            return
+        try:
+            stack = [[]]
+            while stack and budget[0] > 0:
+                path = stack.pop()
+                try:
+                    fd = open_under(repos, path, directory=True) if path else os.dup(repos)
+                    try:
+                        names = subdirs(fd)
+                    finally:
+                        os.close(fd)
+                except OSError:
+                    continue
+                if path and "_manifests" in names:
+                    self.scan_tags(repos, blobs, path, registry, found, budget)
+                if len(path) < REPOSITORY_DEPTH_MAX:
+                    stack.extend(path + [n] for n in reversed(names) if COMPONENT_RE.fullmatch(n))
+        finally:
+            os.close(blobs)
+            os.close(repos)
+
+    def scan_tags(self, repos, blobs, path, registry, found, budget):
+        try:
+            fd = open_under(repos, path + ["_manifests", "tags"], directory=True)
+            try:
+                tags = [t for t in subdirs(fd) if TAG_NAME_RE.fullmatch(t)]
+            finally:
+                os.close(fd)
+        except OSError:
+            return
+        for tag in tags[:budget[0]]:
+            budget[0] -= 1
+            link = read_under(repos, path + ["_manifests", "tags", tag, "current", "link"], 200)
+            size = self.download_size(blobs, link.strip()) if link else None
+            name = f"{registry}/{'/'.join(path)}:{tag}"
+            if size is not None and len(name) <= IMAGE_NAME_MAX:
+                found[name] = size
+
+    def image_sizes(self, previous):
+        """Sizes seen now, plus those seen in the last IMAGE_SIZES_KEEP_DAYS; the newest IMAGE_SIZES_MAX."""
+        now = datetime.datetime.now(datetime.timezone.utc)
+        keep_after = now - datetime.timedelta(days=IMAGE_SIZES_KEEP_DAYS)
+        merged = {}
+        for name, entry in (previous.items() if isinstance(previous, dict) else ()):
+            if not (isinstance(name, str) and len(name) <= IMAGE_NAME_MAX and isinstance(entry, dict)):
+                continue
+            size, seen = entry.get("bytes"), entry.get("seenAt")
+            if not (isinstance(size, int) and not isinstance(size, bool) and size >= 0):
+                continue
+            if not (isinstance(seen, str) and DATETIME_RE.fullmatch(seen)):
+                continue
+            if datetime.datetime.fromisoformat(seen.replace("Z", "+00:00")) < keep_after:
+                continue
+            merged[name] = {"bytes": size, "seenAt": seen}
+        stamp = now.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        for name, size in self.scan_sizes().items():
+            merged[name] = {"bytes": size, "seenAt": stamp}
+        newest = sorted(merged.items(), key=lambda item: (item[1]["seenAt"], item[0]), reverse=True)
+        return dict(sorted(newest[:IMAGE_SIZES_MAX]))
+
     def write_status(self, previous=None):
         previous = previous if previous is not None else (read_json(os.path.join(self.jobs_dir, STATUS_NAME)) or {})
         size, used = self.usage()
@@ -527,6 +728,8 @@ class Helper:
             if previous.get("lastClearReason") in ("admin", "full", "credential") else None,
             "lastClearError": previous.get("lastClearError")
             if isinstance(previous.get("lastClearError"), str) else None,
+            "cacheOff": self.cache_off_reason(),
+            "imageSizes": self.image_sizes(previous.get("imageSizes")),
             "updatedAt": now_iso(),
         }
         # Readable by the API through the directory's group; root-owned, so only the helper writes it.

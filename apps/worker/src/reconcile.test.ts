@@ -9,7 +9,13 @@ import type { KyselyPlugin, PluginTransformQueryArgs, RootOperationNode } from "
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
-import { doStop, type ReconcileConfig, reconcile, settleStops } from "./reconcile.js";
+import {
+	doStop,
+	type ReconcileConfig,
+	reconcile,
+	settleKeepRunning,
+	settleStops,
+} from "./reconcile.js";
 
 /** One sweep, then wait for the stops it began in the background. */
 async function sweep(
@@ -2097,4 +2103,200 @@ test.skipIf(skip)("a stop records the time it finished, not the sweep's", async 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
 	expect(new Date(ws.updated_at).getTime()).toBeGreaterThanOrEqual(beforeRelease);
+});
+
+// --- Keep running until (#955, Epic 28 ruling R1) ---
+
+const HOUR = 60 * MIN;
+
+/** One sweep at `at` with no browser connected; the drift refresh counts as fresh. */
+async function sweepHeld(at: Date): Promise<void> {
+	await sweep(tdb.db, fake, cfg, at, at);
+}
+
+/** A running workspace with no browser, idle `idleFor` ms, holding until `until`. */
+async function heldWorkspace(
+	now: Date,
+	idleFor: number,
+	until: Date,
+	overrides: Record<string, unknown> = {},
+): Promise<string> {
+	return insertWorkspace({
+		state: "running",
+		desired_state: "running",
+		last_activity_at: new Date(now.getTime() - idleFor).toISOString(),
+		keep_running_until: until.toISOString(),
+		...overrides,
+	});
+}
+
+async function keepRunningAudits(id: string) {
+	return (await getAudits(id))
+		.filter((a) => a.action.startsWith("workspace.keep_running"))
+		.map((a) => [a.action, a.metadata]);
+}
+
+test.skipIf(skip)(
+	"a hold keeps a disconnected, idle workspace up with neither timer armed",
+	async () => {
+		await setIdleMinutes(10);
+		const now = new Date();
+		const until = new Date(now.getTime() + 8 * HOUR);
+		const id = await heldWorkspace(now, 2 * HOUR, until, {
+			idle_stop_at: new Date(now.getTime() + MIN).toISOString(),
+		});
+
+		for (const offset of [0, 30 * MIN, 4 * HOUR, 8 * HOUR - 1000]) {
+			await sweepHeld(new Date(now.getTime() + offset));
+			const ws = await getWorkspace(id);
+			expect(ws.state).toBe("running");
+			expect(ws.shutdown_deadline).toBeNull();
+			expect(ws.idle_stop_at).toBeNull();
+		}
+		expect(fake.calls.some((c) => c.method === "stop")).toBe(false);
+	},
+);
+
+test.skipIf(skip)(
+	"when a hold ends both timers start from its end, and Still working? comes first",
+	async () => {
+		await setIdleMinutes(10);
+		const now = new Date();
+		const until = new Date(now.getTime() + HOUR);
+		const id = await heldWorkspace(now, 3 * HOUR, until);
+		await sweepHeld(now);
+		expect((await getWorkspace(id)).disconnected_at).not.toBeNull();
+
+		await sweepHeld(new Date(until.getTime() + 1000));
+		const ended = await getWorkspace(id);
+		expect(ended.state).toBe("running");
+		expect(ended.keep_running_until).toBeNull();
+		expect(ended.last_activity_at?.getTime()).toBe(until.getTime());
+		expect(ended.disconnected_at?.getTime()).toBe(until.getTime());
+		expect(ended.shutdown_deadline?.getTime()).toBe(until.getTime() + 600_000);
+		expect(ended.idle_stop_at).toBeNull();
+		expect(await keepRunningAudits(id)).toEqual([
+			["workspace.keep_running_ended", { reason: "expired" }],
+		]);
+
+		// The idle time after the hold's end warns rather than stops.
+		await setGlobalGrace(0);
+		const warnAt = new Date(until.getTime() + 10 * MIN);
+		await sweepHeld(warnAt);
+		const warned = await getWorkspace(id);
+		expect(warned.state).toBe("running");
+		expect(warned.idle_stop_at?.getTime()).toBe(warnAt.getTime() + 5 * MIN);
+	},
+);
+
+test.skipIf(skip)("a lowered cap cuts a hold to the cap from now", async () => {
+	const now = new Date();
+	const id = await heldWorkspace(now, 0, new Date(now.getTime() + 10 * HOUR));
+	await tdb.db.updateTable("settings").set({ keep_running_max_hours: 2 }).execute();
+
+	await sweepHeld(now);
+
+	const ws = await getWorkspace(id);
+	expect(ws.keep_running_until?.getTime()).toBe(now.getTime() + 2 * HOUR);
+	expect(await keepRunningAudits(id)).toEqual([
+		[
+			"workspace.keep_running_set",
+			{
+				until: new Date(now.getTime() + 2 * HOUR).toISOString(),
+				reason: "cut_by_cap",
+				maxHours: 2,
+			},
+		],
+	]);
+});
+
+test.skipIf(skip)("a hold the student ended stays ended through the cut", async () => {
+	const now = new Date();
+	const id = await heldWorkspace(now, 0, new Date(now.getTime() + 10 * HOUR));
+	await tdb.db.updateTable("settings").set({ keep_running_max_hours: 2 }).execute();
+	await tdb.db
+		.updateTable("workspaces")
+		.set({ keep_running_until: null })
+		.where("id", "=", id)
+		.execute();
+
+	await settleKeepRunning(tdb.db, now);
+
+	expect((await getWorkspace(id)).keep_running_until).toBeNull();
+	expect(await keepRunningAudits(id)).toEqual([]);
+});
+
+test.skipIf(skip)(
+	"a student's end committed while the cut waits on the row is not undone",
+	async () => {
+		const now = new Date();
+		const id = await heldWorkspace(now, 0, new Date(now.getTime() + 10 * HOUR));
+		await tdb.db.updateTable("settings").set({ keep_running_max_hours: 2 }).execute();
+
+		let settle: Promise<void> | undefined;
+		await tdb.db.transaction().execute(async (trx) => {
+			await trx
+				.updateTable("workspaces")
+				.set({ keep_running_until: null })
+				.where("id", "=", id)
+				.execute();
+			// The cut blocks on the row lock until this transaction commits.
+			settle = settleKeepRunning(tdb.db, now);
+			await new Promise((resolve) => setTimeout(resolve, 200));
+		});
+		await settle;
+
+		expect((await getWorkspace(id)).keep_running_until).toBeNull();
+	},
+);
+
+test.skipIf(skip)("a workspace's cap override wins over the site cap", async () => {
+	const now = new Date();
+	const id = await heldWorkspace(now, 0, new Date(now.getTime() + 5 * HOUR), {
+		guard_config: JSON.stringify({ keepRunningMaxHours: 1 }),
+	});
+
+	await sweepHeld(now);
+
+	expect((await getWorkspace(id)).keep_running_until?.getTime()).toBe(
+		now.getTime() + HOUR,
+	);
+});
+
+test.skipIf(skip)(
+	"a cap of 0 ends a hold, and the timers start from then",
+	async () => {
+		const now = new Date();
+		const id = await heldWorkspace(now, 2 * HOUR, new Date(now.getTime() + HOUR));
+		await tdb.db.updateTable("settings").set({ keep_running_max_hours: 0 }).execute();
+
+		await sweepHeld(now);
+
+		const ws = await getWorkspace(id);
+		expect(ws.keep_running_until).toBeNull();
+		expect(ws.last_activity_at?.getTime()).toBe(now.getTime());
+		expect(ws.shutdown_deadline?.getTime()).toBe(now.getTime() + 600_000);
+		expect(await keepRunningAudits(id)).toEqual([
+			["workspace.keep_running_ended", { reason: "cut_by_cap" }],
+		]);
+	},
+);
+
+test.skipIf(skip)("a hold does not lift a CPU throttle", async () => {
+	const now = new Date();
+	const throttle = {
+		at: now.toISOString(),
+		averagePercent: 95,
+		thresholdPercent: 80,
+		windowMinutes: 30,
+		sharePercent: 25,
+		allowance: "50ms/100ms",
+	};
+	const id = await heldWorkspace(now, 0, new Date(now.getTime() + HOUR), {
+		cpu_throttle: JSON.stringify(throttle),
+	});
+
+	await sweepHeld(now);
+
+	expect((await getWorkspace(id)).cpu_throttle).toEqual(throttle);
 });

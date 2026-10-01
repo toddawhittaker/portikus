@@ -28,6 +28,7 @@ jobs:
     name: Build the image
     # Pinned: the build depends on the host's debootstrap and distrobuilder behaviour, and ubuntu-latest moves to 26 on 2026-10-19.
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     outputs:
       version: ${{ steps.version.outputs.version }}
       exists: ${{ steps.version.outputs.exists }}
@@ -64,7 +65,8 @@ jobs:
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
       - name: Install build dependencies
         if: steps.version.outputs.build == 'true'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends debootstrap squashfs-tools rsync gnupg pkg-config libgpgme-dev libbtrfs-dev
+        timeout-minutes: 5
+        run: sudo apt-get update -o Acquire::Retries=3 && sudo apt-get install -y -o Acquire::Retries=3 --no-install-recommends debootstrap squashfs-tools rsync gnupg pkg-config libgpgme-dev libbtrfs-dev
       - name: Cache distrobuilder
         if: steps.version.outputs.build == 'true'
         id: cache
@@ -144,6 +146,7 @@ jobs:
   publish:
     name: Sign and publish the image
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: build
     # Only main may sign, as a second guard behind the environment's branch policy.
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.build.outputs.exists == 'false'

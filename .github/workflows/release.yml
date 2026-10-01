@@ -26,6 +26,7 @@ jobs:
   gate:
     name: Decide whether this push is a release
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
@@ -82,6 +83,7 @@ jobs:
   build:
     name: Build the Debian package
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: gate
     if: needs.gate.outputs.release == 'true'
     steps:
@@ -133,6 +135,7 @@ jobs:
   publish:
     name: Publish the GitHub release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: build
     permissions:
       contents: write
@@ -162,6 +165,7 @@ jobs:
   apt-repo:
     name: Sign the apt repository
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [gate, build]
     # After a release build, or alone for the weekly re-sign.
     if: >-
@@ -182,7 +186,8 @@ jobs:
           name: portikus-deb
           path: dist/deb
       - name: Install apt-ftparchive
-        run: command -v apt-ftparchive || { sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils; }
+        timeout-minutes: 5
+        run: command -v apt-ftparchive || { sudo apt-get update -o Acquire::Retries=3 && sudo apt-get install -y -o Acquire::Retries=3 --no-install-recommends apt-utils; }
       # The live Pages site is the only state this stateless job has. Trust it
       # only through InRelease signed by our key, and fail closed otherwise.
       - name: Download the published packages
@@ -231,6 +236,7 @@ jobs:
   pages:
     name: Deploy the apt repository to Pages
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: apt-repo
     # The default success() would also require the build, skipped by a re-sign.
     if: ${{ !cancelled() && needs.apt-repo.result == 'success' }}

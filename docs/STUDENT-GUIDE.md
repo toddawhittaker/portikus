@@ -54,6 +54,20 @@ To start working:
   to open **Your workspace**, where you can restart or stop it, see its
   storage, and reset Docker.
 
+## Keep your workspace running while you are away
+
+To leave a coding agent working while you are away, open **Your
+workspace** from the status bar. Under **Keep running**, pick how long in
+**Keep running for**, up to the limit your administrator set, then press
+**Keep running until …**, which shows the end time. Until then, closing
+the page or leaving it idle does not stop the workspace. The status bar
+shows "Kept running until" and the end time; a hold ending six or more
+days ahead shows its date as well. To change it, pick another length and
+press the button again. To let the workspace stop as usual again, press
+**Don't keep running**. Afterwards the workspace stops as usual, with the
+"Still working?" warning first. If your administrator has turned the
+feature off, the section is not shown.
+
 ## Terminals
 
 A terminal is a real Linux shell in your project folder. It keeps running

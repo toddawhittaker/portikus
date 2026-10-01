@@ -15,6 +15,7 @@ const SETTINGS = {
 	cpuIdleLiftPercent: 10,
 	cpuThrottleHoldAfter: 3,
 	cpuThrottleHoldHours: 24,
+	keepRunningMaxHours: 12,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
 	acceptableUseVersion: 1,
@@ -81,7 +82,7 @@ test("the resource guard is four named groups, each with its fields and one line
 	expect(within(guard).getAllByRole("button", { name: "Save" })).toHaveLength(1);
 });
 
-test("the grace period and idle stop sit side by side, each with its own Save", async () => {
+test("the grace period, idle stop and keep-running cap sit side by side, each with its own Save", async () => {
 	stubSettings();
 	renderApp("/admin?tab=settings");
 
@@ -92,8 +93,12 @@ test("the grace period and idle stop sit side by side, each with its own Save", 
 	expect(
 		within(stop).getByRole("textbox", { name: "Idle stop (minutes)" }),
 	).toBeDefined();
-	expect(within(stop).getAllByRole("button", { name: "Save" })).toHaveLength(2);
+	expect(
+		within(stop).getByRole("textbox", { name: "Longest keep running (hours)" }),
+	).toBeDefined();
+	expect(within(stop).getAllByRole("button", { name: "Save" })).toHaveLength(3);
 	expect(within(stop).getByText("0 means never.")).toBeDefined();
+	expect(within(stop).getByText("0 turns it off.")).toBeDefined();
 });
 
 test("every setting has a help button beside its label, and the page an intro", async () => {
@@ -104,6 +109,7 @@ test("every setting has a help button beside its label, and the page an intro", 
 	for (const label of [
 		"Disconnect grace",
 		"Idle stop",
+		"Keep running",
 		"CPU threshold (%)",
 		"Window (minutes)",
 		"Throttled share (%)",
