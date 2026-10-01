@@ -154,9 +154,9 @@ test("an unsettled probe answer is not final, so the next request probes again",
 	});
 	vi.useFakeTimers();
 	try {
-		expect(await guard("ws", 5173)).toBeNull();
+		expect(await guard.probe("ws", 5173)).toBeNull();
 		await vi.advanceTimersByTimeAsync(PROBE_MEMO_MS);
-		expect((await guard("ws", 5173))?.protocolKnown).toBe(true);
+		expect((await guard.probe("ws", 5173))?.protocolKnown).toBe(true);
 		expect(calls).toBe(2);
 	} finally {
 		vi.useRealTimers();
@@ -168,7 +168,7 @@ test("an answer without protocolKnown is not treated as final", async () => {
 		logger: collectingLogger().logger,
 		probe: async () => answer(undefined),
 	});
-	expect(await guard("ws", 5173)).toBeNull();
+	expect(await guard.probe("ws", 5173)).toBeNull();
 });
 
 test("a failed probe is not retried within the memo window, then is", async () => {
@@ -183,17 +183,67 @@ test("a failed probe is not retried within the memo window, then is", async () =
 	});
 	vi.useFakeTimers();
 	try {
-		expect(await guard("ws", 5173)).toBeNull();
+		expect(await guard.probe("ws", 5173)).toBeNull();
 		await vi.advanceTimersByTimeAsync(PROBE_MEMO_MS - 1);
-		expect(await guard("ws", 5173)).toBeNull();
+		expect(await guard.probe("ws", 5173)).toBeNull();
 		expect(calls).toBe(1);
 		expect(lines.filter((one) => one.msg === "protocol probe failed")).toHaveLength(1);
 		await vi.advanceTimersByTimeAsync(1);
-		await guard("ws", 5173);
+		await guard.probe("ws", 5173);
 		expect(calls).toBe(2);
 		// Another port has its own memo.
-		await guard("ws", 3000);
+		await guard.probe("ws", 3000);
 		expect(calls).toBe(3);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("a final answer is memoised, so re-reporting the port unprobed cannot force probes", async () => {
+	let calls = 0;
+	const guard = createProbeGuard({
+		logger: collectingLogger().logger,
+		probe: async () => {
+			calls += 1;
+			return answer(true);
+		},
+	});
+	vi.useFakeTimers();
+	try {
+		expect((await guard.probe("ws", 5173))?.protocolKnown).toBe(true);
+		expect((await guard.probe("ws", 5173))?.protocolKnown).toBe(true);
+		expect(calls).toBe(1);
+		await vi.advanceTimersByTimeAsync(PROBE_MEMO_MS);
+		await guard.probe("ws", 5173);
+		expect(calls).toBe(2);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("forget drops one workspace's memo and expired keys are swept", async () => {
+	let calls = 0;
+	const guard = createProbeGuard({
+		logger: collectingLogger().logger,
+		probe: async () => {
+			calls += 1;
+			return answer(true);
+		},
+	});
+	vi.useFakeTimers();
+	try {
+		await guard.probe("ws", 5173);
+		await guard.probe("ws", 3000);
+		await guard.probe("other", 5173);
+		expect(guard.memoSize()).toBe(3);
+		guard.forget("ws");
+		expect(guard.memoSize()).toBe(1);
+		await guard.probe("ws", 5173);
+		expect(calls).toBe(4);
+		await vi.advanceTimersByTimeAsync(PROBE_MEMO_MS);
+		await guard.probe("ws", 8080);
+		// Only the fresh key survives the sweep.
+		expect(guard.memoSize()).toBe(1);
 	} finally {
 		vi.useRealTimers();
 	}
@@ -207,7 +257,7 @@ test("an old agent without the probe route logs at debug, not warn", async () =>
 			throw new AgentCallError("AGENT_UNAVAILABLE", "not found", 404);
 		},
 	});
-	expect(await guard("ws", 5173)).toBeNull();
+	expect(await guard.probe("ws", 5173)).toBeNull();
 	expect(lines.map((one) => one.level)).toEqual(["debug"]);
 });
 
@@ -226,9 +276,9 @@ test("concurrent requests for one port share one probe call", async () => {
 		},
 	});
 	const results = Promise.all([
-		guard("ws", 5173),
-		guard("ws", 5173),
-		guard("ws", 5173),
+		guard.probe("ws", 5173),
+		guard.probe("ws", 5173),
+		guard.probe("ws", 5173),
 	]);
 	release();
 	const settled = await results;
