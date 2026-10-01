@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, expect, test, vi } from "vitest";
 import {
 	AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS,
+	AGENT_PROBE_TIMEOUT_MS,
 	AGENT_TIMEOUT_MS,
 	AgentCallError,
 	AgentClient,
@@ -241,6 +242,31 @@ test("an ordinary call still gives up after five seconds", async () => {
 	expect((error as AgentCallError).code).toBe("AGENT_UNAVAILABLE");
 	expect(budgets).toEqual([AGENT_TIMEOUT_MS]);
 }, 20_000);
+
+test("a protocol probe gives up after a second and a half, not five", async () => {
+	const budgets = recordBudgets();
+	const port = await startUpstream(() => {
+		// Never answer.
+	});
+	const client = new AgentClient("127.0.0.1", port, "token");
+
+	const started = Date.now();
+	const error = await client.probeProtocol(5173).catch((caught) => caught);
+	expect(error).toBeInstanceOf(AgentCallError);
+	expect(Date.now() - started).toBeLessThan(AGENT_TIMEOUT_MS);
+	expect(budgets).toEqual([AGENT_PROBE_TIMEOUT_MS]);
+	expect(AGENT_PROBE_TIMEOUT_MS).toBe(1500);
+}, 20_000);
+
+test("an agent error answer carries its HTTP status", async () => {
+	const port = await startUpstream((_request, response) => {
+		response.writeHead(404, { "content-type": "application/json" });
+		response.end(JSON.stringify({ message: "Route not found", statusCode: 404 }));
+	});
+	const client = new AgentClient("127.0.0.1", port, "token");
+	const error = await client.probeProtocol(5173).catch((caught) => caught);
+	expect((error as AgentCallError).status).toBe(404);
+});
 
 test("a download that streams slowly after its headers is not cut off", async () => {
 	const port = await startUpstream((_request, response) => {

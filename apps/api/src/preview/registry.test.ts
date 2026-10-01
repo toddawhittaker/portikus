@@ -1,10 +1,16 @@
 import type { ApiConfig } from "@portikus/config";
+import type { AgentListeningService } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { Kysely } from "kysely";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { AgentCallError } from "../agent-client.js";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
-import { createListeningRegistry } from "./registry.js";
+import {
+	createListeningRegistry,
+	createProbeGuard,
+	PROBE_MEMO_MS,
+} from "./registry.js";
 
 /**
  * The registry's poll opens one agent socket per running workspace. Two polls
@@ -120,4 +126,112 @@ test("concurrent calls cannot open more forwards than the cap", async () => {
 
 	await registry.stop();
 	await agent.close();
+});
+
+/**
+ * The TLS probe guard (issue #957). The authorize route has no rate limit, so
+ * a failing agent may cost the API one call per port per memo window, and an
+ * unsettled answer (the socket was replaced mid-probe) must not stick.
+ */
+function answer(protocolKnown: boolean | undefined): AgentListeningService {
+	return {
+		port: 5173,
+		addresses: ["127.0.0.1"],
+		previewReachability: "reachable",
+		protocolHint: "http",
+		...(protocolKnown === undefined ? {} : { protocolKnown }),
+	} as AgentListeningService;
+}
+
+test("an unsettled probe answer is not final, so the next request probes again", async () => {
+	let calls = 0;
+	const guard = createProbeGuard({
+		logger: collectingLogger().logger,
+		probe: async () => {
+			calls += 1;
+			return answer(calls !== 1);
+		},
+	});
+	vi.useFakeTimers();
+	try {
+		expect(await guard("ws", 5173)).toBeNull();
+		await vi.advanceTimersByTimeAsync(PROBE_MEMO_MS);
+		expect((await guard("ws", 5173))?.protocolKnown).toBe(true);
+		expect(calls).toBe(2);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("an answer without protocolKnown is not treated as final", async () => {
+	const guard = createProbeGuard({
+		logger: collectingLogger().logger,
+		probe: async () => answer(undefined),
+	});
+	expect(await guard("ws", 5173)).toBeNull();
+});
+
+test("a failed probe is not retried within the memo window, then is", async () => {
+	let calls = 0;
+	const { logger, lines } = collectingLogger("debug");
+	const guard = createProbeGuard({
+		logger,
+		probe: async () => {
+			calls += 1;
+			throw new AgentCallError("AGENT_UNAVAILABLE", "down");
+		},
+	});
+	vi.useFakeTimers();
+	try {
+		expect(await guard("ws", 5173)).toBeNull();
+		await vi.advanceTimersByTimeAsync(PROBE_MEMO_MS - 1);
+		expect(await guard("ws", 5173)).toBeNull();
+		expect(calls).toBe(1);
+		expect(lines.filter((one) => one.msg === "protocol probe failed")).toHaveLength(1);
+		await vi.advanceTimersByTimeAsync(1);
+		await guard("ws", 5173);
+		expect(calls).toBe(2);
+		// Another port has its own memo.
+		await guard("ws", 3000);
+		expect(calls).toBe(3);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("an old agent without the probe route logs at debug, not warn", async () => {
+	const { logger, lines } = collectingLogger("debug");
+	const guard = createProbeGuard({
+		logger,
+		probe: async () => {
+			throw new AgentCallError("AGENT_UNAVAILABLE", "not found", 404);
+		},
+	});
+	expect(await guard("ws", 5173)).toBeNull();
+	expect(lines.map((one) => one.level)).toEqual(["debug"]);
+});
+
+test("concurrent requests for one port share one probe call", async () => {
+	let calls = 0;
+	let release = (): void => {};
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const guard = createProbeGuard({
+		logger: collectingLogger().logger,
+		probe: async () => {
+			calls += 1;
+			await gate;
+			return answer(true);
+		},
+	});
+	const results = Promise.all([
+		guard("ws", 5173),
+		guard("ws", 5173),
+		guard("ws", 5173),
+	]);
+	release();
+	const settled = await results;
+	expect(calls).toBe(1);
+	expect(settled.every((one) => one?.protocolKnown === true)).toBe(true);
 });
