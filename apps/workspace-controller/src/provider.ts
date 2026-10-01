@@ -298,7 +298,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				new Date(),
 				this.thinPoolStatusPath,
 			);
-			const fill = poolFillPercent(use);
+			let fill = poolFillPercent(use);
+			// A seeded Docker volume will fill the pool by up to the seed's size (SEC1, #840).
+			if (fill < POOL_FULL_PERCENT) {
+				const seedBytes = await this.seedBytesFor(name);
+				fill = poolFillPercent({ ...use, usedBytes: use.usedBytes + seedBytes });
+			}
 			if (fill >= POOL_FULL_PERCENT) {
 				throw new IncusError(
 					"POOL_FULL",
@@ -1265,6 +1270,21 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 		}
 		await this.ensureVolume(volume, dockerGiB);
+	}
+
+	/**
+	 * The seed's size when `name`'s Docker volume will be copied from it, else
+	 * 0. An unreadable seed counts as 0, as ensureDockerVolume then makes an
+	 * empty volume.
+	 */
+	private async seedBytesFor(name: string): Promise<number> {
+		try {
+			const seed = await this.seedInfo();
+			if (!seed || (await this.volumeExists(`${name}-docker`))) return 0;
+			return seed.sizeBytes;
+		} catch {
+			return 0;
+		}
 	}
 
 	async seedInfo(): Promise<SeedInfo | null> {
