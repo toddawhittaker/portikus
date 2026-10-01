@@ -162,7 +162,7 @@ test.skipIf(skip)("reports the newest sample and no series", async () => {
 	// Instance names stay out of the report.
 	expect(res.body).not.toContain("ws-secret-name");
 
-	// The trends moved to /admin/health/series (Epic 19).
+	// The trends moved to /admin/health/series.
 	expect(res.json()).not.toHaveProperty("series");
 });
 

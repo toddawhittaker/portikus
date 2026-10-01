@@ -128,7 +128,7 @@ export function registerAdminHealthRoutes(
 				.execute();
 
 			const host = sampled?.host ?? null;
-			// The daily check writes this beside the images (issue #861).
+			// The daily check writes this beside the images.
 			const published = config.IMAGE_JOBS_DIR
 				? await readPublished(imagesDirOf(config.IMAGE_JOBS_DIR))
 				: null;

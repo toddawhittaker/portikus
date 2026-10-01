@@ -47,13 +47,13 @@ function headersDeadline() {
 	};
 }
 
-/** The most bytes the API relays for one download, whatever the agent sends (#399). */
+/** The most bytes the API relays for one download, whatever the agent sends. */
 export const DOWNLOAD_RELAY_LIMIT = MAX_DOWNLOAD_BYTES + ZIP_OVERHEAD_BYTES;
 
 /**
  * A download body cut off at DOWNLOAD_RELAY_LIMIT. The agent refuses a
  * download over the cap before sending anything, so only a misbehaving
- * agent reaches this; the browser then sees a failed download (#399).
+ * agent reaches this; the browser then sees a failed download.
  */
 export function cappedDownload(body: ReadableStream<Uint8Array>): Readable {
 	let sent = 0;
@@ -85,7 +85,7 @@ function pinnedType(value: string | null): string {
 }
 
 /**
- * The types the file viewer shows in the page, by file extension (#816).
+ * The types the file viewer shows in the page, by file extension.
  * Nothing else is ever served inline, and never as HTML.
  */
 const INLINE_TYPES: Record<string, string> = {
@@ -110,7 +110,7 @@ export function inlineType(path: string): string | null {
  * The policy on an inline file. `sandbox` gives a document an opaque origin
  * with no script, so an SVG opened on its own cannot reach the session or
  * the page; the rest stops it loading anything but its own inline styles
- * and data images (SPEC.md §24.3, #816).
+ * and data images (SPEC.md §24.3).
  */
 export const INLINE_CSP =
 	"sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'";
@@ -175,7 +175,7 @@ export function registerFileRoutes(
 			return sendAgentError(reply, error);
 		}
 
-		// GET tree -- one directory listing, straight from the agent.
+		// One directory listing, straight from the agent.
 		instance.get("/workspaces/:id/projects/:pid/tree", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
@@ -205,7 +205,7 @@ export function registerFileRoutes(
 			return parsed.data;
 		});
 
-		// GET file -- streamed, so a download of any size never sits in memory.
+		// Streamed, so a download of any size never sits in memory.
 		instance.get("/workspaces/:id/projects/:pid/file", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
@@ -264,7 +264,7 @@ export function registerFileRoutes(
 			// here and the browser may rewrite it. Caddy's gzip compression
 			// otherwise appends "-gzip" to the etag, the next save sends that
 			// back as If-Match, and the agent refuses a save nobody conflicted
-			// with (issue #157, SPEC.md §13.5).
+			// with (SPEC.md §13.5).
 			reply.header("cache-control", "no-transform");
 			const length = response.headers.get("content-length");
 			if (Number(length) > DOWNLOAD_RELAY_LIMIT) {
@@ -292,7 +292,7 @@ export function registerFileRoutes(
 			return reply.send(cappedDownload(response.body));
 		});
 
-		// PUT file -- a conditional write, streamed through (SPEC.md §13.5). It
+		// A conditional write, streamed through (SPEC.md §13.5). It
 		// sits in its own plugin because it is the one route that must see the
 		// raw body: Fastify parses JSON and text/plain by itself, and every
 		// other route here still wants that.
@@ -366,7 +366,7 @@ export function registerFileRoutes(
 					);
 				}
 				reply.header("etag", parsed.data.etag);
-				// The next save is conditional on this etag too (issue #157).
+				// The next save is conditional on this etag too.
 				reply.header("cache-control", "no-transform");
 				return parsed.data;
 			});
@@ -455,7 +455,7 @@ export function registerFileRoutes(
 			return reply.status(204).send();
 		});
 
-		// POST extract -- "Extract here" on a zip (issue #817). One at a time
+		// "Extract here" on a zip. One at a time
 		// per workspace, because a large zip holds the request for minutes.
 		instance.post("/workspaces/:id/projects/:pid/extract", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);

@@ -69,7 +69,7 @@ const AGENT_DUPLICATE_PROJECT_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
 /** Archiving or restoring a project walks the whole tree, as a copy does. */
 export const AGENT_RECOVERY_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
 
-/** Extracting a zip writes up to a gigabyte, as a copy does (issue #817). */
+/** Extracting a zip writes up to a gigabyte, as a copy does. */
 export const AGENT_EXTRACT_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
 
 /**
@@ -125,7 +125,7 @@ export class AgentClient {
 	}
 
 	/**
-	 * Ask the agent to settle whether a port speaks TLS (issue #957). The
+	 * Ask the agent to settle whether a port speaks TLS. The
 	 * agent is untrusted, so an answer about another port is a failed agent.
 	 */
 	async probeProtocol(port: number): Promise<AgentListeningService> {

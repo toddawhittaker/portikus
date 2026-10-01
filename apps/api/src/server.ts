@@ -69,7 +69,7 @@ export interface ServerDeps {
 	oidc?: OidcClient;
 	/** The registered LMS platforms; absent means LTI is off and /lti/* is 404. */
 	lti?: LtiDeps;
-	/** Dex's gRPC API; absent means the Dex user routes answer 404 (docs/archive/epics/EPIC-14.md ruling 24). */
+	/** Dex's gRPC API; absent means the Dex user routes answer 404. */
 	dex?: DexApi;
 	/** How often the listening registry looks for workspaces; tests go faster. */
 	previewPollIntervalMs?: number;
@@ -110,7 +110,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	});
 
 	// Browser forms post urlencoded: the sign-out button, whose fields no
-	// route reads, and the LTI login and launch (docs/archive/epics/EPIC-13.md ruling 1).
+	// route reads, and the LTI login and launch.
 	app.addContentTypeParser(
 		"application/x-www-form-urlencoded",
 		{ parseAs: "string" },
@@ -118,7 +118,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 			done(null, Object.fromEntries(new URLSearchParams(body as string))),
 	);
 
-	// Before the auth plugin, so its hook runs first (issue #398).
+	// Before the auth plugin, so its hook runs first.
 	registerSigninThrottle(app, deps);
 	// One websocket per running workspace tells the control plane what is
 	// listening inside it (BROWSER-HANDLING.md §11.1).
@@ -168,7 +168,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	// Never let a driver or runtime message reach the client (SPEC.md §24, §27).
 	app.setErrorHandler((error, request, reply) => {
 		// Fastify's own client errors (too large, bad JSON, wrong type) keep
-		// their 4xx status; they are the caller's fault, not ours (issue #401).
+		// their 4xx status; they are the caller's fault, not ours.
 		const status = (error as { statusCode?: unknown }).statusCode;
 		const code = (error as { code?: unknown }).code;
 		if (

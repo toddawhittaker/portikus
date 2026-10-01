@@ -15,8 +15,7 @@ import {
 import { ROUTE_POLICY, splitKey } from "./route-policy.js";
 
 /**
- * The browser sockets of the authorization matrix (Epic 12a, Done items 3
- * to 5; SPEC.md sections 5.3, 5.4, 20.2, 24.3). A refused socket is refused
+ * The browser sockets of the authorization matrix (SPEC.md sections 5.3, 5.4, 20.2, 24.3). A refused socket is refused
  * with an HTTP status before the upgrade, and the agent never hears of it.
  */
 

@@ -132,7 +132,7 @@ test("concurrent calls cannot open more forwards than the cap", async () => {
 });
 
 /**
- * The TLS probe guard (issue #957). The authorize route has no rate limit, so
+ * The TLS probe guard. The authorize route has no rate limit, so
  * a failing agent may cost the API one call per port per memo window, and an
  * unsettled answer (the socket was replaced mid-probe) must not stick.
  */
@@ -387,7 +387,7 @@ test("an over-long services frame is dropped and the previous list kept", async 
 /**
  * A server restarted on the same port is a new socket the agent has not
  * probed, and it often keeps the same port-number guess. The memoised
- * answer for the old server must not stand in for it (issue #957).
+ * answer for the old server must not stand in for it.
  */
 test("a known listener relisted as unknown with the same hint is probed again", async () => {
 	const WORKSPACE = "44444444-4444-4444-8444-444444444444";

@@ -39,13 +39,13 @@ import {
 
 const adminOnly = { preHandler: requireRole("administrator") };
 
-/** How long the detail view waits for the workspace agent (Epic 11 brief). */
+/** How long the detail view waits for the workspace agent. */
 const AGENT_PROBE_TIMEOUT_MS = 2000;
 
 /** How many audit rows the detail panel shows. */
 const RECENT_AUDIT_LIMIT = 10;
 
-/** Epic 10's routes; the admin buttons are on when they are registered. */
+/** The maintenance routes; the admin buttons are on when they are registered. */
 const REBUILD_ROUTE = "/admin/workspaces/:id/rebuild";
 const RESET_DOCKER_ROUTE = "/workspaces/:id/reset-docker";
 
@@ -179,7 +179,7 @@ async function probeAgent(agent: AgentClient): Promise<{
 	}
 }
 
-/** Epic 10's per-class figures, or null unless the agent measured all three. */
+/** The per-class storage figures, or null unless the agent measured all three. */
 function toAdminStorage(
 	storage: WorkspaceUsage["storage"],
 ): AdminWorkspaceDetail["storage"] {
@@ -403,7 +403,7 @@ export function registerAdminWorkspaceRoutes(
 		setArchived(request, reply, false),
 	);
 
-	// PUT /admin/workspaces/:id/quota -- grow home or Docker; the worker applies it.
+	// Grow home or Docker; the worker applies it.
 	app.put("/admin/workspaces/:id/quota", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
@@ -436,7 +436,7 @@ export function registerAdminWorkspaceRoutes(
 		if (from.homeGiB !== to.homeGiB || from.dockerGiB !== to.dockerGiB) {
 			const now = new Date().toISOString();
 			const changed = await db.transaction().execute(async (trx) => {
-				// Merge, so other keys (Epic 10's recoveryGiB) survive, and land only
+				// Merge, so other keys (such as recoveryGiB) survive, and land only
 				// if nobody changed the sizes since we read them.
 				const updated = await trx
 					.updateTable("workspaces")
@@ -478,7 +478,7 @@ export function registerAdminWorkspaceRoutes(
 			await loadWorkspaceSettings(db),
 		);
 	});
-	// PUT /admin/workspaces/:id/guard -- per-workspace guard overrides (ADR 0032).
+	// Per-workspace guard overrides (ADR 0032).
 	app.put("/admin/workspaces/:id/guard", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);

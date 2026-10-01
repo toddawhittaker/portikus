@@ -118,7 +118,7 @@ export const DISABLED_MOCK_USER: MockUser = {
 	groups: ["portikus-students"],
 };
 
-/** A mock user in the instructor group (docs/archive/epics/EPIC-13.md ruling 4). */
+/** A mock user in the instructor group. */
 export const INSTRUCTOR_MOCK_USER: MockUser = {
 	sub: "ivy",
 	email: "ivy@example.edu",
@@ -200,7 +200,7 @@ async function matrixStudent(
 }
 
 /**
- * The world of the authorization matrix (Epic 12a, "The matrix"): students A
+ * The world of the authorization matrix (SPEC.md section 5.2): students A
  * and B, each with a running workspace on the fake agent, a project, and a
  * terminal; an administrator who owns nothing; and a disabled user whose
  * session row is still there. The mock provider must know

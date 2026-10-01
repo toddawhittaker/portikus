@@ -13,10 +13,9 @@ import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
 /**
- * The API's size and rate limits at its own edge (SPEC.md §9.7, §24;
- * Epic 12a Done item 8): the 1 MiB frame limit on every browser socket, the
+ * The API's size and rate limits at its own edge (SPEC.md §9.7, §24): the 1 MiB frame limit on every browser socket, the
  * JSON body limit on every route that takes a body, and the documented
- * sign-in rate limit (issue #398).
+ * sign-in rate limit.
  */
 
 vi.setConfig({ testTimeout: 20_000, hookTimeout: 20_000 });

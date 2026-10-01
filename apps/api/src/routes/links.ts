@@ -44,7 +44,7 @@ function fail(
 
 /**
  * Linking a course account to an SSO account, and unlinking it
- * (docs/archive/epics/EPIC-13-1.md, "The flow"; ADR 0026). The OIDC callback's link mode
+ * (ADR 0026). The OIDC callback's link mode
  * lives in auth.ts.
  */
 export function registerLinkRoutes(
@@ -96,7 +96,7 @@ export function registerLinkRoutes(
 
 	app.get("/me/links", async (request) => myLinks(request));
 
-	// Step 2: only a recent course session may start a link (rulings 10 and 11).
+	// Only a recent course session may start a link.
 	app.post("/me/links/start", async (request, reply) => {
 		if (!oidc) return fail(reply, 500, "INTERNAL", "Login is not configured");
 		const window = await courseLinkWindow(db, sessionId(request));
@@ -124,7 +124,7 @@ export function registerLinkRoutes(
 		return body;
 	});
 
-	// Step 4: the two accounts the confirmation page names.
+	// The two accounts the confirmation page names.
 	app.get("/me/links/pending", async (request, reply) => {
 		const pending = await pendingLinkIntent(db, sessionId(request));
 		if (!pending) return fail(reply, 404, "NOT_FOUND", "No link is waiting.");
@@ -150,7 +150,7 @@ export function registerLinkRoutes(
 		return body;
 	});
 
-	// Step 5: link, retire the course account, and sign in to the SSO account.
+	// Link, retire the course account, and sign in to the SSO account.
 	app.post("/me/links/confirm", async (request, reply) => {
 		const id = sessionId(request);
 		const outcome = await db.transaction().execute(async (trx) => {
@@ -231,10 +231,10 @@ export function registerLinkRoutes(
 		return {};
 	});
 
-	// Step 7: the SSO account removes one of its links (ruling 15). A session
-	// launched through a linked course identity may remove only that link
-	// (review N2), and then ends with every other session that came through
-	// the identity (review N1).
+	// The SSO account removes one of its links. A session
+	// launched through a linked course identity may remove only that link,
+	// and then ends with every other session that came through
+	// the identity.
 	app.post("/me/links/:courseUserId/unlink", async (request, reply) => {
 		const user = requireUser(request);
 		const params = CourseUserParam.safeParse(request.params);

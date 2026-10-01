@@ -13,8 +13,7 @@ import type { Kysely } from "kysely";
 
 /**
  * Create a server-side session and set its cookie. Both sign-in paths, the
- * OIDC callback, the LTI launch and link confirm, end here (docs/archive/epics/EPIC-13.md
- * ruling 3). The origin records how it started (docs/archive/epics/EPIC-13-1.md ruling 21).
+ * OIDC callback, the LTI launch and link confirm, end here. The origin records how it started.
  */
 export async function startSession(
 	db: Kysely<Database>,
@@ -59,7 +58,7 @@ export async function completeSignIn(
 ): Promise<{ ok: boolean; userId: string }> {
 	const { identity, role, loginMetadata } = input;
 	const user = await upsertUser(db, identity, role);
-	// `role` is what the provider gave; the audit follows the effective role (ruling 20).
+	// `role` is what the provider gave; the audit follows the effective role.
 	if (user.previousRole !== null && user.previousRole !== user.role) {
 		// Roles come from identity-provider groups or LTI roles (SPEC.md §24.11).
 		await recordAudit(db, {

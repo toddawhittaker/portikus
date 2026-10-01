@@ -145,7 +145,7 @@ test.skipIf(skip)("create, list, rename, and delete a terminal", async () => {
 });
 
 /**
- * Issues #267 and #268: a terminal carries its own colour scheme. It starts
+ * A terminal carries its own colour scheme. It starts
  * in whatever the user chose in their settings, the agent is told so it can
  * set COLORFGBG, and the pane menu can change it afterwards.
  */
@@ -200,7 +200,7 @@ test.skipIf(skip)("a terminal starts in the user's scheme and can change", async
 });
 
 /**
- * Issue #287: a new terminal is told the owner's zone, so a shell opened
+ * A new terminal is told the owner's zone, so a shell opened
  * after the setting changed runs in it without a workspace restart.
  */
 test.skipIf(skip)("a new terminal carries the user's timezone", async () => {

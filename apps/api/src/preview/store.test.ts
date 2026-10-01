@@ -42,7 +42,7 @@ async function sessionId(
 	return hashSessionToken(token);
 }
 
-// The preview gateway applies the same rules as loadSession (review N5).
+// The preview gateway applies the same rules as loadSession.
 describe.skipIf(skip)("loadMainSessionUser", () => {
 	test("returns the user of a live session", async () => {
 		const user = await insertTestUser(testDb.db);

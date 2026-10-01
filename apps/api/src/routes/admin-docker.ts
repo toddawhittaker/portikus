@@ -48,7 +48,7 @@ interface DockerSettings {
 	ghcrEnabled: boolean;
 	seedMaxGiB: number;
 	seedImages: string[];
-	/** False until an administrator first saves the list (issue #932). */
+	/** False until an administrator first saves the list. */
 	seedImagesSet: boolean;
 }
 
@@ -92,7 +92,7 @@ function matchedImages(match: SeedMatch | null): string[] {
 
 type ImageSizes = NonNullable<RegistryStatusFile["imageSizes"]>;
 
-/** The page's view of the status: everything but the size list (issue #931). */
+/** The page's view of the status: everything but the size list. */
 function cacheView(status: RegistryStatusFile | null): DockerCacheStatus | null {
 	if (!status) return null;
 	const { imageSizes: _sizes, ...cache } = status;
@@ -193,7 +193,7 @@ export async function writeRegistryRequest(
 }
 
 /**
- * The Docker admin tab's routes (issue #840): cache settings and the Hub
+ * The Docker admin tab's routes: cache settings and the Hub
  * credential through the root helper's request files, the seed list and
  * rebuild jobs through the database and the worker, and the aggregate usage
  * report. Every change writes an audit row, and none carries the token.
@@ -241,7 +241,7 @@ export function registerAdminDockerRoutes(
 			defaults.length > 0 &&
 			defaultsValid
 		) {
-			// The default seed for a list no administrator has set (ruling R4).
+			// The default seed for a list no administrator has set.
 			const applied = await db
 				.updateTable("settings")
 				.set({
@@ -359,7 +359,7 @@ export function registerAdminDockerRoutes(
 	app.post("/admin/docker/cache/clear", adminOnly, async (request, reply) => {
 		if (off(reply) || !jobsDir) return;
 		const admin = requireUser(request);
-		// The helper would do nothing and the page would say it cleared (issue #931).
+		// The helper would do nothing and the page would say it cleared.
 		// No cache, so nothing to clear: 404 rather than a new error code.
 		if ((await readJson(join(jobsDir, "status.json"), RegistryStatusFile))?.cacheOff) {
 			return sendError(
@@ -438,7 +438,7 @@ export function registerAdminDockerRoutes(
 		return reply.status(202).send(jobView(row));
 	});
 
-	// The drift notice's button (issue #932): swap the old matched tags for the
+	// The drift notice's button: swap the old matched tags for the
 	// default image's, then rebuild, both or neither.
 	app.post("/admin/docker/seed/match", adminOnly, async (request, reply) => {
 		if (off(reply) || !jobsDir) return;
@@ -541,7 +541,7 @@ export function registerAdminDockerRoutes(
 /**
  * The first moment of the usage window: midnight UTC at the start of the
  * oldest of USAGE_WINDOW_DAYS calendar days, today included. Pulls are kept
- * by UTC day, so a cut-off mid-day would count one day more (issue #934).
+ * by UTC day, so a cut-off mid-day would count one day more.
  */
 export function usageWindowStart(now: Date): Date {
 	return new Date(
@@ -554,10 +554,10 @@ export function usageWindowStart(now: Date): Date {
 }
 
 /**
- * The aggregate usage report (ruling 7, S7): images pulled or present that
+ * The aggregate usage report: images pulled or present that
  * the seed does not hold, and seed images no workspace used. Counts only;
  * no workspace id or owner leaves this function. Each list is cut to
- * USAGE_ROWS_MAX rows, most workspaces then most pulls first (ruling S7).
+ * USAGE_ROWS_MAX rows, most workspaces then most pulls first.
  */
 export async function usageReport(
 	db: Kysely<Database>,

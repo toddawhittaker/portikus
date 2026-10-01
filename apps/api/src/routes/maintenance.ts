@@ -78,7 +78,7 @@ export function registerMaintenanceRoutes(
 		reply.status(202).send({ ok: true });
 	}
 
-	// POST /workspaces/:id/reset-docker -- the owner or an administrator.
+	// The owner or an administrator.
 	app.post("/workspaces/:id/reset-docker", async (req, reply) => {
 		const user = requireUser(req);
 		const params = parseOr400(UuidParam, req.params, reply);
@@ -97,7 +97,7 @@ export function registerMaintenanceRoutes(
 		);
 	});
 
-	// POST /admin/workspaces/:id/rebuild -- administrators only (SPEC.md §17.2).
+	// SPEC.md §17.2.
 	app.post(
 		"/admin/workspaces/:id/rebuild",
 		{ preHandler: requireRole("administrator") },

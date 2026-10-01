@@ -95,7 +95,7 @@ interface AgentDirectory {
 }
 
 /**
- * Follow projects whose directory was renamed in the shell (issue #238).
+ * Follow projects whose directory was renamed in the shell.
  *
  * The marker is the directory's inode, which `mv` keeps and which the agent
  * reports as `directoryId`. It was chosen over the alternatives because it
@@ -168,8 +168,8 @@ async function relocateMovedProjects(
 /**
  * Point a project row at a directory that has a new name, and bring its
  * terminals' working directories along (SPEC.md §7.1, "Rename"). The display
- * name follows the new folder, because the folder is the project (issue
- * #269): renaming the folder is how a student renames the project from a
+ * name follows the new folder, because the folder is the project:
+ * renaming the folder is how a student renames the project from a
  * shell, so the pane must not keep showing the old title.
  */
 async function moveProjectRow(
@@ -227,7 +227,7 @@ export function registerProjectRoutes(
 		return ownedProjectRow(db, workspaceId, projectId, reply);
 	}
 
-	// GET /workspaces/:id/projects -- rows reconciled with what the agent sees.
+	// Rows reconciled with what the agent sees.
 	app.get("/workspaces/:id/projects", async (request, reply) => {
 		const scope = await owned(request, reply);
 		if (!scope) return;
@@ -263,7 +263,7 @@ export function registerProjectRoutes(
 		}
 
 		// A project the student renamed with `mv` follows its directory to the
-		// new slug, keeping its id, tabs and layout (issue #238).
+		// new slug, keeping its id, tabs and layout.
 		if (directories && query.data.state === "active") {
 			const relocated = await relocateMovedProjects(db, scope.workspaceId, directories);
 			for (const move of relocated) {
@@ -292,7 +292,7 @@ export function registerProjectRoutes(
 					workspace_id: scope.workspaceId,
 					slug,
 					// The folder name, read as a title, so a discovered project and
-					// one whose folder was renamed are named the same way (#269).
+					// one whose folder was renamed are named the same way.
 					name: displayNameFromDirectory(slug),
 					path: projectPath(slug),
 					source: "discovered",
@@ -349,7 +349,7 @@ export function registerProjectRoutes(
 		return body;
 	});
 
-	// POST /workspaces/:id/projects (SPEC.md §7.2).
+	// SPEC.md §7.2.
 	app.post(
 		"/workspaces/:id/projects",
 		{ preHandler: limitWrites },
@@ -423,7 +423,7 @@ export function registerProjectRoutes(
 					workspace_id: scope.workspaceId,
 					slug,
 					// The folder keeps the typed name's slug; only the display name
-					// takes the one the repository gives itself (#846).
+					// takes the one the repository gives itself.
 					name:
 						(body.data.nameFromRepository ? created.suggestedName : undefined) ??
 						body.data.name,
@@ -437,7 +437,7 @@ export function registerProjectRoutes(
 		},
 	);
 
-	// PATCH /workspaces/:id/projects/:pid -- rename, archive, unarchive.
+	// Rename, archive, or unarchive.
 	app.patch(
 		"/workspaces/:id/projects/:pid",
 		{ preHandler: limitWrites },
@@ -563,7 +563,7 @@ export function registerProjectRoutes(
 		},
 	);
 
-	// DELETE /workspaces/:id/projects/:pid -- permanent (SPEC.md §7.3, §24.11).
+	// Permanent (SPEC.md §7.3, §24.11).
 	app.delete(
 		"/workspaces/:id/projects/:pid",
 		{ preHandler: limitWrites },
@@ -683,7 +683,7 @@ export function registerProjectRoutes(
 		reply.status(204).send();
 	}
 
-	// POST /workspaces/:id/projects/:pid/duplicate (SPEC.md §7.3).
+	// SPEC.md §7.3.
 	app.post(
 		"/workspaces/:id/projects/:pid/duplicate",
 		{ preHandler: limitWrites },
@@ -751,7 +751,7 @@ export function registerProjectRoutes(
 		},
 	);
 
-	// POST /workspaces/:id/projects/:pid/git-init (SPEC.md §7.2).
+	// SPEC.md §7.2.
 	app.post(
 		"/workspaces/:id/projects/:pid/git-init",
 		{ preHandler: limitWrites },
@@ -773,7 +773,7 @@ export function registerProjectRoutes(
 		},
 	);
 
-	// GET /workspaces/:id/projects/:pid/download -- the agent's zip, streamed.
+	// The agent's zip, streamed.
 	// With `?path=` it is one directory inside the project (SPEC.md §11.2).
 	app.get("/workspaces/:id/projects/:pid/download", async (request, reply) => {
 		const params = parseOr400(ProjectParam, request.params, reply);
@@ -803,7 +803,7 @@ export function registerProjectRoutes(
 		}
 
 		// `check=1` asks only whether the download is under the size cap, so
-		// the browser can explain a refusal before it starts a download (#399).
+		// the browser can explain a refusal before it starts a download.
 		if ((request.query as { check?: unknown }).check === "1") {
 			let checked: Response;
 			try {
@@ -852,7 +852,7 @@ export function registerProjectRoutes(
 		return reply.send(stream);
 	});
 
-	// GET /workspaces/:id/projects/:pid/layout (SPEC.md §7.5).
+	// SPEC.md §7.5.
 	app.get("/workspaces/:id/projects/:pid/layout", async (request, reply) => {
 		const params = parseOr400(ProjectParam, request.params, reply);
 		if (!params) return;
@@ -864,7 +864,7 @@ export function registerProjectRoutes(
 		return row.layout;
 	});
 
-	// PUT /workspaces/:id/projects/:pid/layout -- last write wins (plan, Layout).
+	// Last write wins (SPEC.md §7.5).
 	app.put(
 		"/workspaces/:id/projects/:pid/layout",
 		{ preHandler: limitWrites },

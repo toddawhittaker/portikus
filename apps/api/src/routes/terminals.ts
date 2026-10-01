@@ -160,7 +160,7 @@ export function chooseTerminalName(
 
 /**
  * The settings a new terminal of this user starts with: the colour scheme
- * (issue #268) and the zone its shell runs in (issue #287). Once the terminal
+ * and the zone its shell runs in. Once the terminal
  * exists, its own row decides the scheme.
  */
 async function userTerminalSettings(
@@ -196,7 +196,7 @@ export function registerTerminalRoutes(
 ): void {
 	const { track, drain } = createPendingWork();
 
-	// GET /workspaces/:id/terminals -- durable metadata only, never the agent.
+	// Durable metadata only; the agent is not asked.
 	app.get("/workspaces/:id/terminals", async (request, reply) => {
 		const user = requireUser(request);
 		const params = parseOr400(WorkspaceParam, request.params, reply);
@@ -236,7 +236,6 @@ export function registerTerminalRoutes(
 		return body;
 	});
 
-	// POST /workspaces/:id/terminals
 	app.post("/workspaces/:id/terminals", async (request, reply) => {
 		const user = requireUser(request);
 		const params = parseOr400(WorkspaceParam, request.params, reply);
@@ -293,8 +292,8 @@ export function registerTerminalRoutes(
 			body.data.name ?? chooseTerminalName(rows, project ? project.id : null);
 		const cwd = body.data.cwd ?? project?.path ?? DEFAULT_CWD;
 		// A new terminal starts in the scheme the user chose in their settings
-		// unless the caller asked for one outright (issues #267, #268), and in
-		// the zone they chose (issue #287).
+		// unless the caller asked for one outright, and in
+		// the zone they chose.
 		const settings = await userTerminalSettings(db, user.id);
 		const theme = body.data.theme ?? settings.terminalTheme;
 
@@ -304,7 +303,7 @@ export function registerTerminalRoutes(
 		if (body.data.agent !== undefined && project) {
 			try {
 				if ((await countProjectPoints(db, project.id)) >= MAX_POINTS_PER_PROJECT) {
-					// Ids only (ADR 0012); the student is not told (docs/archive/epics/EPIC-10.md decisions).
+					// Ids only (ADR 0012); the student is not told .
 					request.log.warn(
 						{ workspaceId: params.id, projectId: project.id },
 						"agent-session recovery point skipped: point cap",
@@ -390,8 +389,8 @@ export function registerTerminalRoutes(
 		return reply.status(201).send(toTerminal(saved));
 	});
 
-	// PATCH /workspaces/:id/terminals/:tid -- display name, colour scheme, or
-	// both (SPEC.md §9.6, issue #268). A scheme change repaints the browser;
+	// Display name, colour scheme, or
+	// both (SPEC.md §9.6). A scheme change repaints the browser;
 	// the shell that is already running keeps the COLORFGBG it started with.
 	app.patch("/workspaces/:id/terminals/:tid", async (request, reply) => {
 		const user = requireUser(request);
@@ -423,7 +422,7 @@ export function registerTerminalRoutes(
 		return toTerminal(updated);
 	});
 
-	// DELETE /workspaces/:id/terminals/:tid -- closing is a user action, so the
+	// Closing is a user action, so the
 	// terminal goes away entirely (SPEC.md §9.3). The "ended" state is for
 	// terminals the platform ended, which the worker marks (SPEC.md §9.7).
 	app.delete("/workspaces/:id/terminals/:tid", async (request, reply) => {
@@ -464,12 +463,12 @@ export function registerTerminalRoutes(
 		return reply.status(204).send();
 	});
 
-	// GET /workspaces/:id/terminals/:tid/ws -- the browser end of the pipe.
+	// The browser end of the pipe.
 	app.get(
 		"/workspaces/:id/terminals/:tid/ws",
 		{
 			websocket: true,
-			// A HEAD twin would reach the socket handler and crash (issue #402).
+			// A HEAD twin would reach the socket handler and crash.
 			exposeHeadRoute: false,
 			preHandler: [
 				workspaceUpgradeGuard(db, config, { ownerOnly: true }),
@@ -548,8 +547,8 @@ export function registerTerminalRoutes(
 		},
 	);
 
-	// Epic 5 linkification navigates to the preview route, which lands in
-	// Epic 8 (SPEC.md §14.9, §29 Epic 5 scope note).
+	// A link to this old path answers 501; previews are served on their own
+	// origin (SPEC.md §14.3, §14.9).
 	app.get("/workspaces/:id/preview/:port/*", async (_request, reply) => {
 		return sendError(
 			reply,

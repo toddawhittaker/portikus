@@ -54,7 +54,7 @@ export function previewCookieName(config: ApiConfig): string {
 		: "portikus-preview";
 }
 
-/** Authorized requests one preview session may make per window (ruling 12). */
+/** Authorized requests one preview session may make per window. */
 export const PREVIEW_SESSION_CAP = 2000;
 const PREVIEW_SESSION_CAP_WINDOW_MS = 10_000;
 
@@ -67,7 +67,7 @@ const TicketQuery = z.object({ t: z.string().min(1).max(200) });
  * another, and the same range either way. */
 const PortInput = z.object({ port: z.coerce.number().int().min(1).max(65535) });
 
-/** The status each agent refusal to stop a listener becomes (issue #273). */
+/** The status each agent refusal to stop a listener becomes. */
 function stopStatusFor(code: string): number {
 	if (code === "LISTENER_NOT_FOUND") return 404;
 	if (code === "LISTENER_IS_SYSTEM") return 403;
@@ -151,7 +151,7 @@ export function registerPreviewRoutes(
 	/**
 	 * The workspaces with a stop already running. Stopping asks the agent to
 	 * kill a process, so a second ask for the same workspace before the first
-	 * answers could kill whatever took the port next (issue #273).
+	 * answers could kill whatever took the port next.
 	 */
 	const stopping = new Set<string>();
 
@@ -215,7 +215,7 @@ export function registerPreviewRoutes(
 	});
 
 	/**
-	 * Stop what holds a port inside the workspace (SPEC.md §18.2, issue #273).
+	 * Stop what holds a port inside the workspace (SPEC.md §18.2).
 	 * Only the owner may ask; the agent decides whether the listener is the
 	 * student's to stop, and its refusal is passed on unchanged.
 	 */
@@ -433,7 +433,7 @@ export function registerPreviewRoutes(
 		}
 
 		// The Preview tab's first look is when the agent learns whether the
-		// port speaks TLS (issue #957).
+		// port speaks TLS.
 		const settled =
 			(await registry.serviceWithProtocol(params.data.id, port)) ?? service;
 		// Asked as the preview host, because a development server that checks
@@ -608,7 +608,7 @@ export function registerPreviewRoutes(
 		// An account held at any session gate gets no preview (SPEC.md sections 5.1 and 5.3).
 		if (sessionGate(user)) return page(reply, 403, refusedPage());
 
-		// A runaway page is held to 2,000 requests per 10 seconds (ruling 12).
+		// A runaway page is held to 2,000 requests per 10 seconds.
 		const capped = check(sessionCap, session.id);
 		if (!capped.allowed) {
 			if (capped.firstRefusal) {
@@ -705,7 +705,7 @@ export function registerPreviewRoutes(
 		}
 
 		// The gateway's first request for a port settles its protocol; later
-		// ones read the cached answer (issue #957).
+		// ones read the cached answer.
 		const settled =
 			(await registry.serviceWithProtocol(session.workspace_id, port)) ?? service;
 

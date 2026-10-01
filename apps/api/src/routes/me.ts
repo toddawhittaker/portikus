@@ -25,10 +25,10 @@ const TIMEZONES: string[] = [...systemTimezones()];
 
 /**
  * Fill in the defaults for anything the user has not set, and ignore anything
- * stored that is no longer a setting we know (issue #159).
+ * stored that is no longer a setting we know.
  *
  * Each field is parsed on its own, so one bad stored value (for example a
- * zone name this build no longer knows, issue #287) falls back to its own
+ * zone name this build no longer knows) falls back to its own
  * default and takes none of the student's other settings with it.
  */
 export function toEditorSettings(stored: unknown): EditorSettings {
@@ -69,7 +69,7 @@ export function pictureType(bytes: Buffer): "image/png" | "image/jpeg" | null {
 }
 
 /**
- * The signed-in user's own editor settings (issue #159). Both routes read and
+ * The signed-in user's own editor settings. Both routes read and
  * write the caller's row only, so one user can never see or change another
  * user's settings (SPEC.md §24).
  */
@@ -82,7 +82,7 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 			.where("id", "=", user.id)
 			.executeTakeFirst();
 		// The zone list travels with the settings so the dialog can only offer
-		// names PUT will accept (issue #287).
+		// names PUT will accept.
 		const body: MeSettings = {
 			...toEditorSettings(row?.editor_settings),
 			timezones: TIMEZONES,
@@ -126,7 +126,7 @@ export function registerMeRoutes(app: FastifyInstance, { db }: ServerDeps): void
 }
 
 /**
- * The signed-in user's own profile (issue #300). Every route reads and writes
+ * The signed-in user's own profile. Every route reads and writes
  * the caller's row only, and nothing here is used for authorization
  * (SPEC.md §13.5, §24). Picture bytes are never logged.
  */
