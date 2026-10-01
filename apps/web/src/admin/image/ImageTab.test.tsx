@@ -33,6 +33,7 @@ function image(version: string, over: Partial<ImageView> = {}): ImageView {
 		},
 		health: { result: "passed", checkedAt: "2026-09-20T10:00:00Z", checks: [] },
 		workspaces: 0,
+		sizeBytes: 880803840,
 		...over,
 	};
 }
@@ -67,6 +68,7 @@ function data(over: Partial<AdminImage> = {}): AdminImage {
 		otherWorkspaces: 2,
 		job: null,
 		newerPublished: null,
+		disk: { freeBytes: 5 * 1024 ** 3, totalBytes: 20 * 1024 ** 3 },
 		...over,
 	};
 }
@@ -217,4 +219,74 @@ test("a confirmed update from the notice sends focus to the job heading, not the
 	await waitFor(() => expect(screen.queryByTestId("image-confirm")).toBeNull());
 	expect(screen.queryByTestId("image-newer-published")).toBeNull();
 	await waitFor(() => expect(document.activeElement?.id).toBe("image-job-title"));
+});
+
+test("shows each image's size and the main disk's free space (issue #936)", async () => {
+	stubFetch(() =>
+		json(
+			200,
+			data({
+				images: [
+					image("2026.09.10", { role: "default" }),
+					image("2026.09.11", { sizeBytes: null }),
+				],
+			}),
+		),
+	);
+	renderWithQuery(<ImageTab />);
+	expect((await screen.findByTestId("image-size-2026.09.10")).textContent).toBe(
+		"840 MB",
+	);
+	expect(screen.getByTestId("image-size-2026.09.11").textContent).toBe(
+		"Not measured yet",
+	);
+	expect(screen.getByTestId("image-disk-free").textContent).toBe(
+		"Free space on the main disk: 5.0 GB of 20.0 GB.",
+	);
+});
+
+test("Delete is off for the default and the previous image, with the reason", async () => {
+	stubFetch(() => json(200, data()));
+	renderWithQuery(<ImageTab />);
+	for (const [version, reason] of [
+		["2026.09.10", "The default image cannot be deleted."],
+		["2026.09.9", "The previous image is kept so you can roll back."],
+	] as const) {
+		const button = await screen.findByTestId(`image-delete-${version}`);
+		expect(button.getAttribute("aria-disabled")).toBe("true");
+		expect(screen.getByText(reason)).toBeTruthy();
+		fireEvent.click(button);
+		expect(screen.queryByTestId("image-confirm")).toBeNull();
+	}
+});
+
+test("Delete confirms with the workspace count and posts a delete request", async () => {
+	const fetch = stubFetch((url, init) =>
+		init?.method === "POST"
+			? json(202, job({ kind: "delete", state: "queued", request: null }))
+			: url.startsWith("/admin/image/jobs/")
+				? json(200, { job: job({ kind: "delete", version: "2026.09.11" }), log: [] })
+				: json(
+						200,
+						data({
+							images: [
+								...data().images.slice(0, 2),
+								image("2026.09.11", { workspaces: 4 }),
+							],
+						}),
+					),
+	);
+	renderWithQuery(<ImageTab />);
+	fireEvent.click(await screen.findByTestId("image-delete-2026.09.11"));
+	const dialog = await screen.findByTestId("image-confirm");
+	expect(dialog.textContent).toContain("Delete image 2026.09.11?");
+	expect(dialog.textContent).toContain("4 workspaces were made from this image.");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+	await waitFor(() => {
+		const post = fetch.mock.calls.find(([, init]) => init?.method === "POST");
+		expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+			kind: "delete",
+			version: "2026.09.11",
+		});
+	});
 });

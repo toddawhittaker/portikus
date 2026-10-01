@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { rename, writeFile } from "node:fs/promises";
+import { rename, statfs, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
@@ -14,6 +14,7 @@ import {
 	ImageJobStatusFile,
 	type ImageJobView,
 	ImageManifest,
+	ImageSizeFile,
 	ImageVersion,
 	type ImageView,
 	newerPublishedImage,
@@ -24,6 +25,19 @@ import { imagesDirOf, readPublished } from "../image/release-notices.js";
 import { listDir, readJson, tailLines } from "../job-files.js";
 import type { ServerDeps } from "../server.js";
 import { sendError } from "./project-scope.js";
+
+/** The disk the image store is on, which also holds Incus's image files on a standard install. */
+async function diskOf(path: string): Promise<AdminImage["disk"]> {
+	try {
+		const stat = await statfs(path);
+		return {
+			freeBytes: stat.bavail * stat.bsize,
+			totalBytes: stat.blocks * stat.bsize,
+		};
+	} catch {
+		return null;
+	}
+}
 
 const adminOnly = { preHandler: requireRole("administrator") };
 const REQUEST_FILE = /^request-([0-9a-f-]{36})\.json$/;
@@ -165,6 +179,7 @@ export function registerAdminImageRoutes(
 				version,
 				manifest: await readJson(join(store, version, "manifest.json"), ImageManifest),
 				health: await readJson(join(store, version, "health.json"), ImageHealth),
+				size: await readJson(join(store, version, "size.json"), ImageSizeFile),
 			})),
 		);
 		return { aliases, images };
@@ -186,7 +201,7 @@ export function registerAdminImageRoutes(
 			counts.map((row) => [row.image_version ?? "", Number(row.count)]),
 		);
 		let counted = 0;
-		const views: ImageView[] = images.map(({ version, manifest, health }) => {
+		const views: ImageView[] = images.map(({ version, manifest, health, size }) => {
 			const fingerprint = manifest?.fingerprint ?? null;
 			const workspaces = fingerprint ? (byFingerprint.get(fingerprint) ?? 0) : 0;
 			counted += workspaces;
@@ -201,6 +216,7 @@ export function registerAdminImageRoutes(
 				manifest: summarize(manifest),
 				health,
 				workspaces,
+				sizeBytes: size?.bytes ?? null,
 			};
 		});
 		const rank = { default: 0, previous: 1, candidate: 2 };
@@ -222,6 +238,7 @@ export function registerAdminImageRoutes(
 				published?.image ?? null,
 				images.map((image) => image.version),
 			),
+			disk: await diskOf(imagesDir),
 		};
 		return reply.header("cache-control", "no-store").send(out);
 	});
@@ -319,6 +336,20 @@ export function registerAdminImageRoutes(
 						"IMAGE_NOT_HEALTHY",
 						"Only an image that passed its health check can become the default.",
 					);
+				}
+			}
+			if (wanted.kind === "delete") {
+				// The job refuses these too; the API says why before anything is queued.
+				if (wanted.version === aliases.default || wanted.version === aliases.previous) {
+					return sendError(
+						reply,
+						409,
+						"IMAGE_IN_USE",
+						"The default and the previous image cannot be deleted.",
+					);
+				}
+				if (!(await listDir(imagesDir)).includes(wanted.version)) {
+					return sendError(reply, 404, "NOT_FOUND", "No such image on this host.");
 				}
 			}
 			if (wanted.kind === "rollback" && (!aliases.previous || !aliases.default)) {

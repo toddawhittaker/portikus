@@ -211,6 +211,23 @@ describe.skipIf(skip)("GET /admin/image", () => {
 		expect(body.job).toBeNull();
 	});
 
+	test("shows each image's recorded size and the disk's free space (issue #936)", async () => {
+		await writeFile(
+			join(imagesDir, CURRENT, "size.json"),
+			JSON.stringify({ bytes: 880803840 }),
+		);
+		await writeFile(join(imagesDir, OLD, "size.json"), "not json");
+		const body = (await send(carol, "GET", "/admin/image")).json();
+		const size = (v: string) =>
+			body.images.find((i: { version: string }) => i.version === v).sizeBytes;
+		expect(size(CURRENT)).toBe(880803840);
+		expect(size(OLD)).toBeNull();
+		expect(size(BUILT)).toBeNull();
+		expect(body.disk.totalBytes).toBeGreaterThan(0);
+		expect(body.disk.freeBytes).toBeGreaterThan(0);
+		expect(body.disk.freeBytes).toBeLessThanOrEqual(body.disk.totalBytes);
+	});
+
 	test("is administrator-only", async () => {
 		expect((await send(alice, "GET", "/admin/image")).statusCode).toBe(403);
 		expect((await app.inject({ method: "GET", url: "/admin/image" })).statusCode).toBe(
@@ -456,6 +473,43 @@ describe.skipIf(skip)("POST /admin/image/jobs", () => {
 		const res = await send(carol, "POST", "/admin/image/jobs", { kind: "rollback" });
 		expect(res.statusCode).toBe(409);
 		expect(res.json().code).toBe("IMAGE_NO_PREVIOUS");
+	});
+
+	test("queues a delete of a candidate and audits it (issue #936)", async () => {
+		const res = await send(carol, "POST", "/admin/image/jobs", {
+			kind: "delete",
+			version: BUILT,
+		});
+		expect(res.statusCode).toBe(202);
+		const file = JSON.parse(
+			await readFile(join(jobsDir, `request-${res.json().id}.json`), "utf8"),
+		);
+		expect(file.request).toEqual({ kind: "delete", version: BUILT });
+		const requested = await audits("image.job_requested");
+		expect(requested[0]?.metadata).toEqual({ kind: "delete", version: BUILT });
+	});
+
+	test.each([
+		["default", CURRENT],
+		["previous", OLD],
+	])("refuses to delete the %s image without writing", async (_role, version) => {
+		const res = await send(carol, "POST", "/admin/image/jobs", {
+			kind: "delete",
+			version,
+		});
+		expect(res.statusCode).toBe(409);
+		expect(res.json().code).toBe("IMAGE_IN_USE");
+		expect(await requestFiles()).toHaveLength(0);
+		expect(await audits("image.job_requested")).toHaveLength(0);
+	});
+
+	test("refuses to delete an image that is not on the host", async () => {
+		const res = await send(carol, "POST", "/admin/image/jobs", {
+			kind: "delete",
+			version: "2026.09.99",
+		});
+		expect(res.statusCode).toBe(404);
+		expect(await requestFiles()).toHaveLength(0);
 	});
 
 	test("is administrator-only", async () => {

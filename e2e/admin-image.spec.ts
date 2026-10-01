@@ -1,4 +1,4 @@
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { createStudent, loginAs, query, WEB_ORIGIN } from "./helpers";
@@ -262,6 +262,94 @@ test("shows how many workspaces run each image version", async ({ page, browser 
 	await expect(page.getByTestId(`image-workspaces-${CURRENT}`)).toHaveText("2");
 	await expect(page.getByTestId(`image-workspaces-${OLD}`)).toHaveText("1");
 	await expect(page.getByTestId("image-default-workspaces")).toHaveText("2");
+});
+
+test("delete an old image: the confirmation counts its workspaces, then it is gone (issue #936)", async ({
+	page,
+	browser,
+}) => {
+	const fpNewest = fingerprint();
+	await putImage({ version: NEWEST, fingerprint: fpNewest, health: "passed" });
+	const context = await browser.newContext();
+	const a = await createStudent(context);
+	const b = await createStudent(context);
+	await context.close();
+	await query("update workspaces set image_version = $1 where id = any($2)", [
+		fpNewest,
+		[a.workspaceId, b.workspaceId],
+	]);
+	await open(page);
+	await page.getByRole("button", { name: `Delete: ${NEWEST}` }).click();
+	await expect(confirmDialog(page)).toContainText(`Delete image ${NEWEST}?`);
+	await expect(confirmDialog(page)).toContainText(
+		"2 workspaces were made from this image. They keep working",
+	);
+	await confirmDialog(page).getByRole("button", { name: "Delete" }).click();
+
+	const { id, request } = await takeRequest();
+	expect(request).toEqual({ kind: "delete", version: NEWEST });
+	await writeStatus(id, "delete", "running", "Deleting the image", NEWEST);
+	const job = page.getByTestId("image-job");
+	await expect(job.getByTestId("image-job-kind")).toHaveText(`Delete ${NEWEST}`);
+	await expect(job.getByTestId("image-job-state")).toContainText("Deleting the image");
+	// The root job removes the store directory, as the real one does.
+	await rm(join(IMAGES_DIR, NEWEST), { recursive: true });
+	await writeStatus(
+		id,
+		"delete",
+		"succeeded",
+		"Done",
+		NEWEST,
+		`Deleted image ${NEWEST}.`,
+	);
+	await expect(page.getByTestId(`image-row-${NEWEST}`)).toHaveCount(0, {
+		timeout: 5_000,
+	});
+	const audits = await query<{ metadata: unknown }>(
+		"select metadata from audit_events where action = 'image.job_requested' and target = $1",
+		[id],
+	);
+	expect(audits.map((r) => r.metadata)).toEqual([{ kind: "delete", version: NEWEST }]);
+});
+
+test("the default and the previous image cannot be deleted, in the page or the API (issue #936)", async ({
+	page,
+}) => {
+	await open(page);
+	for (const [version, reason] of [
+		[CURRENT, "The default image cannot be deleted."],
+		[OLD, "The previous image is kept so you can roll back."],
+	] as const) {
+		const button = page.getByRole("button", { name: `Delete: ${version}` });
+		await expect(button).toHaveAttribute("aria-disabled", "true");
+		await expect(button).toHaveAccessibleDescription(reason);
+		await button.click({ force: true });
+		await expect(confirmDialog(page)).toHaveCount(0);
+		const res = await page.request.post("/admin/image/jobs", {
+			headers: { origin: WEB_ORIGIN },
+			data: { kind: "delete", version },
+		});
+		expect(res.status()).toBe(409);
+		expect((await res.json()).code).toBe("IMAGE_IN_USE");
+	}
+	expect(await requestFiles()).toEqual([]);
+});
+
+test("shows each image's size on disk and the main disk's free space (issue #936)", async ({
+	page,
+}) => {
+	await putImage({
+		version: CURRENT,
+		fingerprint: fpCurrent,
+		health: "passed",
+		sizeBytes: 880803840,
+	});
+	await open(page);
+	await expect(page.getByTestId(`image-size-${CURRENT}`)).toHaveText("840 MB");
+	await expect(page.getByTestId(`image-size-${OLD}`)).toHaveText("Not measured yet");
+	await expect(page.getByTestId("image-disk-free")).toHaveText(
+		/^Free space on the main disk: [0-9.]+ [KMGT]?B of [0-9.]+ [KMGT]?B\.$/,
+	);
 });
 
 test("a second request while one waits is refused", async ({ page }) => {
