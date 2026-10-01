@@ -2928,6 +2928,7 @@ describe("resource guard migration", () => {
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const folded = await sql<{ pulls: number }>`
 						select pulls from docker_image_pulls`.execute(trx);
 					expect(folded.rows).toEqual([{ pulls: 5 }]);
