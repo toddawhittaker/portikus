@@ -17,8 +17,9 @@ import {
 	readAgentError,
 	readJson,
 } from "../agent-client.js";
+import { sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import { agentUrl, scopedProject, sendAgentError, sendError } from "./project-scope.js";
+import { agentUrl, scopedProject, sendAgentError } from "./project-scope.js";
 
 /**
  * How long the agent has to answer, route by route. Each budget is the

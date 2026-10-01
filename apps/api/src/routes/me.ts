@@ -14,8 +14,8 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
+import { sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import { sendError } from "./project-scope.js";
 
 /**
  * The zone list this build knows, built once. It is the same list for every

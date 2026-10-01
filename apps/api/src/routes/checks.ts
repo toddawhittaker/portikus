@@ -11,6 +11,7 @@ import {
 	readAgentError,
 	readJson,
 } from "../agent-client.js";
+import { sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
 import { createPendingWork, workspaceUpgradeGuard } from "./presence.js";
 import {
@@ -18,7 +19,6 @@ import {
 	type ProjectScope,
 	scopedProject,
 	sendAgentError,
-	sendError,
 } from "./project-scope.js";
 import { pipeBackpressure, safeCloseCode } from "./terminals.js";
 

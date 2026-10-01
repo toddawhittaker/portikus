@@ -6,7 +6,7 @@ import {
 	CertificateStatusFile,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { notifyOnce } from "../image/release-notices.js";
 import { allJobs, noteFinished } from "./jobs.js";
@@ -91,10 +91,7 @@ export function startCertificateNotices(options: {
 			await noteFinished(db, await allJobs(jobsDir));
 			await noticeCertificates(db, statusDir);
 		} catch (e) {
-			logger.error(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"certificate notice error",
-			);
+			logger.error({ error: errorMessage(e) }, "certificate notice error");
 		}
 	};
 	const timer = setInterval(() => void tick(), intervalSeconds * 1000);

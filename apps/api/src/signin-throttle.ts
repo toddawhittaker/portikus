@@ -1,6 +1,6 @@
 import type { ApiConfig } from "@portikus/config";
 import type { ApiError } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import { fromLoopback } from "./loopback.js";
@@ -93,16 +93,13 @@ export function registerSigninThrottle(
 	): Promise<void> {
 		if (decision.audit) {
 			try {
-				await deps.db
-					.insertInto("audit_events")
-					.values({
-						actor: "unknown",
-						target: "unknown",
-						action: "auth.throttled",
-						result: "denied",
-						metadata: JSON.stringify({ ip: request.ip, scope }),
-					})
-					.execute();
+				await recordAudit(deps.db, {
+					actor: "unknown",
+					target: "unknown",
+					action: "auth.throttled",
+					result: "denied",
+					metadata: { ip: request.ip, scope },
+				});
 			} catch (error) {
 				request.log.error({ err: error }, "could not audit a sign-in throttle");
 			}

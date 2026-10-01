@@ -14,20 +14,18 @@ import {
 	HostBackupStatus,
 	restoreDirFor,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Selectable } from "kysely";
-import { z } from "zod";
+import { parseOr400, sendError, UuidParam } from "../http.js";
 import type { ServerDeps } from "../server.js";
 import {
 	claimLongOperation,
 	longOperationRunning,
 	releaseLongOperation,
-	sendError,
 } from "./project-scope.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
-const UuidParam = z.object({ id: z.string().uuid() });
 const RECENT_REQUESTS = 50;
 
 type RequestRow = Selectable<Database["backup_requests"]>;
@@ -45,14 +43,6 @@ function toView(row: RequestRow): BackupRequestView {
 		workspaceId: row.workspace_id,
 		result: row.result ?? null,
 	};
-}
-
-function isUniqueViolation(error: unknown): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		(error as { code?: unknown }).code === "23505"
-	);
 }
 
 /**
@@ -130,16 +120,13 @@ export function registerAdminBackupRoutes(
 					})
 					.returningAll()
 					.executeTakeFirstOrThrow();
-				await trx
-					.insertInto("audit_events")
-					.values({
-						actor: `user:${adminId}`,
-						target: audit.target,
-						action: audit.action,
-						result: "ok",
-						metadata: JSON.stringify({ requestId: inserted.id, ...audit.metadata }),
-					})
-					.execute();
+				await recordAudit(trx, {
+					actor: `user:${adminId}`,
+					target: audit.target,
+					action: audit.action,
+					result: "ok",
+					metadata: { requestId: inserted.id, ...audit.metadata },
+				});
 				return inserted;
 			});
 		} catch (error) {
@@ -335,14 +322,12 @@ export function registerAdminBackupRoutes(
 		adminOnly,
 		async (request, reply) => {
 			const admin = requireUser(request);
-			const params = UuidParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", "invalid restore id");
-			}
+			const params = parseOr400(UuidParam, request.params, reply, "invalid restore id");
+			if (!params) return;
 			const restore = await db
 				.selectFrom("backup_requests")
 				.selectAll()
-				.where("id", "=", params.data.id)
+				.where("id", "=", params.id)
 				.where("kind", "=", "restore_copy")
 				.executeTakeFirst();
 			if (!restore?.workspace_id) {
@@ -385,19 +370,16 @@ export function registerAdminBackupRoutes(
 						.where("pending_operation", "is", null)
 						.executeTakeFirst();
 					if (result.numUpdatedRows > 0n) {
-						await trx
-							.insertInto("audit_events")
-							.values({
-								actor: `user:${admin.id}`,
-								target: workspaceId,
-								action: "workspace.home_replace_requested",
-								result: "ok",
-								metadata: JSON.stringify({
-									restoreRequestId: restore.id,
-									stamp: (restore.args as { stamp?: string }).stamp ?? null,
-								}),
-							})
-							.execute();
+						await recordAudit(trx, {
+							actor: `user:${admin.id}`,
+							target: workspaceId,
+							action: "workspace.home_replace_requested",
+							result: "ok",
+							metadata: {
+								restoreRequestId: restore.id,
+								stamp: (restore.args as { stamp?: string }).stamp ?? null,
+							},
+						});
 					}
 					return result;
 				});

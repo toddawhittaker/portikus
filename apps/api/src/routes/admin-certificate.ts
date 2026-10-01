@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { readdir, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
@@ -14,6 +14,7 @@ import {
 	type CertificateSettingsView,
 	DNS_PROVIDER_FIELDS,
 } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
 	allJobs,
@@ -34,9 +35,9 @@ import {
 	systemNet,
 } from "../certificate/preflight.js";
 import { checkUpload } from "../certificate/upload-check.js";
-import { listDir, tailLines } from "../job-files.js";
+import { sendError } from "../http.js";
+import { listDir, tailLines, writeRequestFile } from "../job-files.js";
 import type { ServerDeps } from "../server.js";
-import { sendError } from "./project-scope.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 const BUSY_MESSAGE = "A certificate job is already waiting or running.";
@@ -311,30 +312,19 @@ export function registerAdminCertificateRoutes(
 				requestedBy: admin.id,
 				request: wanted,
 			};
-			// Owner-only, because it may hold secrets; written aside, then renamed,
-			// so the path unit never reads half a file.
+			// Owner-only, because it may hold secrets.
 			await sweepTempRequests(jobsDir);
-			const temp = join(jobsDir, `.request-${id}.tmp`);
-			try {
-				await writeFile(temp, `${JSON.stringify(file)}\n`, { flag: "wx", mode: 0o600 });
-				await rename(temp, join(jobsDir, `request-${id}.json`));
-			} catch (err) {
-				await unlink(temp).catch(() => {});
-				throw err;
-			}
-			await db
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${admin.id}`,
-					target: id,
-					action: "certificate.job_requested",
-					result: "ok",
-					metadata: JSON.stringify({
-						kind: wanted.kind,
-						...auditSummary("settings" in wanted ? wanted.settings : null),
-					}),
-				})
-				.execute();
+			await writeRequestFile(jobsDir, file, 0o600);
+			await recordAudit(db, {
+				actor: `user:${admin.id}`,
+				target: id,
+				action: "certificate.job_requested",
+				result: "ok",
+				metadata: {
+					kind: wanted.kind,
+					...auditSummary("settings" in wanted ? wanted.settings : null),
+				},
+			});
 			return reply.status(202).send(queuedView(id, requestedAt, wanted.kind));
 		} finally {
 			writing = false;

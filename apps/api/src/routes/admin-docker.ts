@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
@@ -28,13 +27,13 @@ import {
 	USAGE_ROWS_MAX,
 	USAGE_WINDOW_DAYS,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { type Kysely, sql } from "kysely";
+import { sendError } from "../http.js";
 import { imagesDirOf } from "../image/release-notices.js";
-import { readJson } from "../job-files.js";
+import { readJson, writeRequestFile } from "../job-files.js";
 import type { ServerDeps } from "../server.js";
-import { sendError } from "./project-scope.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 
@@ -111,17 +110,6 @@ function sizesOf(names: string[], sizes: ImageSizes): Record<string, number> {
 	return out;
 }
 
-async function readStatus(file: string): Promise<RegistryStatusFile | null> {
-	try {
-		const parsed = RegistryStatusFile.safeParse(
-			JSON.parse(await readFile(file, "utf8")),
-		);
-		return parsed.success ? parsed.data : null;
-	} catch {
-		return null;
-	}
-}
-
 async function readSeed(db: Kysely<Database>): Promise<DockerAdminResponse["seed"]> {
 	const row = await db.selectFrom("docker_seed").selectAll().executeTakeFirst();
 	if (!row) return null;
@@ -163,11 +151,6 @@ function insertJob(
 		.executeTakeFirstOrThrow();
 }
 
-/** The partial unique index allows one queued or running job. */
-function isUniqueViolation(e: unknown): boolean {
-	return (e as { code?: string }).code === "23505";
-}
-
 function jobRunning(reply: FastifyReply): void {
 	sendError(
 		reply,
@@ -190,9 +173,8 @@ function jobView(row: JobRow): SeedJob {
 }
 
 /**
- * Write one request for the root cache helper: aside, then renamed, so its
- * path unit never reads half a file. Mode 0600 because a credential request
- * carries the token (ruling S5).
+ * Write one request for the root cache helper. Mode 0600 because a
+ * credential request carries the token.
  */
 export async function writeRegistryRequest(
 	dir: string,
@@ -206,14 +188,7 @@ export async function writeRegistryRequest(
 		requestedBy,
 		request,
 	};
-	const temp = join(dir, `.request-${id}.tmp`);
-	try {
-		await writeFile(temp, `${JSON.stringify(file)}\n`, { flag: "wx", mode: 0o600 });
-		await rename(temp, join(dir, `request-${id}.json`));
-	} catch (e) {
-		await rm(temp, { force: true });
-		throw e;
-	}
+	await writeRequestFile(dir, file, 0o600);
 	return id;
 }
 
@@ -242,16 +217,13 @@ export function registerAdminDockerRoutes(
 		action: string,
 		metadata: Record<string, unknown>,
 	): Promise<void> {
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: `user:${actor}`,
-				target: "docker",
-				action,
-				result: "ok",
-				metadata: JSON.stringify(metadata),
-			})
-			.execute();
+		await recordAudit(db, {
+			actor: `user:${actor}`,
+			target: "docker",
+			action,
+			result: "ok",
+			metadata: metadata,
+		});
 	}
 
 	app.get("/admin/docker", adminOnly, async (_request, reply) => {
@@ -280,20 +252,17 @@ export function registerAdminDockerRoutes(
 				.where("docker_seed_images_set", "=", false)
 				.executeTakeFirst();
 			if (Number(applied.numUpdatedRows) > 0) {
-				await db
-					.insertInto("audit_events")
-					.values({
-						actor: "platform",
-						target: "docker",
-						action: "docker.seed_images_defaulted",
-						result: "ok",
-						metadata: JSON.stringify({ to: defaults }),
-					})
-					.execute();
+				await recordAudit(db, {
+					actor: "platform",
+					target: "docker",
+					action: "docker.seed_images_defaulted",
+					result: "ok",
+					metadata: { to: defaults },
+				});
 			}
 			settings = await readSettings(db);
 		}
-		const status = await readStatus(join(jobsDir, "status.json"));
+		const status = await readJson(join(jobsDir, "status.json"), RegistryStatusFile);
 		const seed = await readSeed(db);
 		const out: DockerAdminResponse = {
 			cache: cacheView(status),
@@ -392,7 +361,7 @@ export function registerAdminDockerRoutes(
 		const admin = requireUser(request);
 		// The helper would do nothing and the page would say it cleared (issue #931).
 		// No cache, so nothing to clear: 404 rather than a new error code.
-		if ((await readStatus(join(jobsDir, "status.json")))?.cacheOff) {
+		if ((await readJson(join(jobsDir, "status.json"), RegistryStatusFile))?.cacheOff) {
 			return sendError(
 				reply,
 				404,
@@ -493,7 +462,7 @@ export function registerAdminDockerRoutes(
 				"The seed list already holds the images that match the workspace image.",
 			);
 		}
-		const status = await readStatus(join(jobsDir, "status.json"));
+		const status = await readJson(join(jobsDir, "status.json"), RegistryStatusFile);
 		const sizes = sizesOf(drift.next, status?.imageSizes ?? {});
 		if (overSeedCap(drift.next, sizes, seedMaxGiB)) {
 			return sendError(
@@ -562,7 +531,7 @@ export function registerAdminDockerRoutes(
 
 	app.get("/admin/docker/usage", adminOnly, async (_request, reply) => {
 		if (off(reply) || !jobsDir) return;
-		const status = await readStatus(join(jobsDir, "status.json"));
+		const status = await readJson(join(jobsDir, "status.json"), RegistryStatusFile);
 		return reply
 			.header("cache-control", "no-store")
 			.send(await usageReport(db, new Date(), status?.imageSizes));

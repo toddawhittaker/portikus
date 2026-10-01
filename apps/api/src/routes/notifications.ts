@@ -12,8 +12,8 @@ import type { Database, NotificationsTable } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
+import { sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import { sendError } from "./project-scope.js";
 
 /** How many notifications one user may record per minute before 429. */
 export const NOTIFICATION_RECORDS_PER_MINUTE = 30;

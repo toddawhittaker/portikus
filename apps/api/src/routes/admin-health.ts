@@ -14,6 +14,7 @@ import { hostSeries, newestCpuCount } from "../health-series/host.js";
 import { platformSeries } from "../health-series/platform.js";
 import { seriesWindow } from "../health-series/range.js";
 import { usageSeries } from "../health-series/usage.js";
+import { sendError } from "../http.js";
 import { imagesDirOf, readPublished } from "../image/release-notices.js";
 import type { ServerDeps } from "../server.js";
 
@@ -192,9 +193,12 @@ export function registerAdminHealthRoutes(
 		async (request, reply) => {
 			const parsed = HealthSeriesQuery.safeParse(request.query);
 			if (!parsed.success) {
-				return reply
-					.status(400)
-					.send({ code: "VALIDATION_FAILED", message: "invalid health series query" });
+				return sendError(
+					reply,
+					400,
+					"VALIDATION_FAILED",
+					"invalid health series query",
+				);
 			}
 			const window = seriesWindow(parsed.data.range, new Date());
 			const [cpuCount, host, platform, events, usage, api] = await Promise.all([

@@ -16,7 +16,7 @@ import {
 	slugify,
 	UpdateProjectRequest,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import { z } from "zod";
@@ -26,6 +26,7 @@ import {
 	type AgentClient,
 	readAgentError,
 } from "../agent-client.js";
+import { ProjectParam, parseOr400, sendError } from "../http.js";
 import type { UserLimit } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 import { cappedDownload } from "./files.js";
@@ -40,11 +41,9 @@ import {
 	requireAgent,
 	type Scope,
 	sendAgentError,
-	sendError,
 } from "./project-scope.js";
 import { makeRecoveryPoint } from "./recovery.js";
 
-const ProjectParam = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
 const ListQuery = z.object({ state: ProjectState.default("active") });
 
 /**
@@ -53,15 +52,6 @@ const ListQuery = z.object({ state: ProjectState.default("active") });
  * one page load into thousands of inserts (SPEC.md §24.6).
  */
 const MAX_DISCOVERED_PROJECTS = 200;
-
-/** PostgreSQL's unique-violation code, for a write two listings raced on. */
-function isUniqueViolation(error: unknown): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		(error as { code?: unknown }).code === "23505"
-	);
-}
 
 function toProject(
 	row: ProjectRow,
@@ -453,17 +443,15 @@ export function registerProjectRoutes(
 		{ preHandler: limitWrites },
 		async (request, reply) => {
 			const user = requireUser(request);
-			const params = ProjectParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-			}
+			const params = parseOr400(ProjectParam, request.params, reply);
+			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
 			const body = UpdateProjectRequest.safeParse(request.body ?? {});
 			if (!body.success) {
 				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 			}
-			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 
 			let current = row;
@@ -563,15 +551,12 @@ export function registerProjectRoutes(
 					.where("id", "=", current.id)
 					.returningAll()
 					.executeTakeFirstOrThrow();
-				await db
-					.insertInto("audit_events")
-					.values({
-						actor: `user:${user.id}`,
-						target: current.id,
-						action: archiving ? "project.archived" : "project.unarchived",
-						result: "ok",
-					})
-					.execute();
+				await recordAudit(db, {
+					actor: `user:${user.id}`,
+					target: current.id,
+					action: archiving ? "project.archived" : "project.unarchived",
+					result: "ok",
+				});
 			}
 
 			return toProject(current, null, null);
@@ -584,17 +569,15 @@ export function registerProjectRoutes(
 		{ preHandler: limitWrites },
 		async (request, reply) => {
 			const user = requireUser(request);
-			const params = ProjectParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-			}
+			const params = parseOr400(ProjectParam, request.params, reply);
+			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
 			const body = DeleteProjectRequest.safeParse(request.body ?? {});
 			if (!body.success) {
 				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 			}
-			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 			// Typing the folder name back is the whole safeguard, so it is checked
 			// against the row rather than anything the browser chose.
@@ -680,20 +663,17 @@ export function registerProjectRoutes(
 
 		await db.transaction().execute(async (trx) => {
 			await trx.deleteFrom("projects").where("id", "=", row.id).execute();
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${userId}`,
-					target: row.id,
-					action: "project.deleted",
-					result: "ok",
-					metadata: JSON.stringify({
-						slug: row.slug,
-						name: row.name,
-						ip: request.ip,
-					}),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: `user:${userId}`,
+				target: row.id,
+				action: "project.deleted",
+				result: "ok",
+				metadata: {
+					slug: row.slug,
+					name: row.name,
+					ip: request.ip,
+				},
+			});
 		});
 
 		request.log.info(
@@ -708,17 +688,15 @@ export function registerProjectRoutes(
 		"/workspaces/:id/projects/:pid/duplicate",
 		{ preHandler: limitWrites },
 		async (request, reply) => {
-			const params = ProjectParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-			}
+			const params = parseOr400(ProjectParam, request.params, reply);
+			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
 			const body = DuplicateProjectRequest.safeParse(request.body ?? {});
 			if (!body.success) {
 				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 			}
-			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 			const agent = requireAgent(scope, reply);
 			if (!agent) return;
@@ -778,13 +756,11 @@ export function registerProjectRoutes(
 		"/workspaces/:id/projects/:pid/git-init",
 		{ preHandler: limitWrites },
 		async (request, reply) => {
-			const params = ProjectParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-			}
+			const params = parseOr400(ProjectParam, request.params, reply);
+			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
-			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 			const agent = requireAgent(scope, reply);
 			if (!agent) return;
@@ -800,13 +776,11 @@ export function registerProjectRoutes(
 	// GET /workspaces/:id/projects/:pid/download -- the agent's zip, streamed.
 	// With `?path=` it is one directory inside the project (SPEC.md §11.2).
 	app.get("/workspaces/:id/projects/:pid/download", async (request, reply) => {
-		const params = ProjectParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(ProjectParam, request.params, reply);
+		if (!params) return;
 		const scope = await owned(request, reply);
 		if (!scope) return;
-		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+		const row = await ownedProject(scope.workspaceId, params.pid, reply);
 		if (!row) return;
 		const agent = requireAgent(scope, reply);
 		if (!agent) return;
@@ -880,13 +854,11 @@ export function registerProjectRoutes(
 
 	// GET /workspaces/:id/projects/:pid/layout (SPEC.md §7.5).
 	app.get("/workspaces/:id/projects/:pid/layout", async (request, reply) => {
-		const params = ProjectParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(ProjectParam, request.params, reply);
+		if (!params) return;
 		const scope = await owned(request, reply);
 		if (!scope) return;
-		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+		const row = await ownedProject(scope.workspaceId, params.pid, reply);
 		if (!row) return;
 		if (row.layout === null) return reply.status(204).send();
 		return row.layout;
@@ -897,17 +869,15 @@ export function registerProjectRoutes(
 		"/workspaces/:id/projects/:pid/layout",
 		{ preHandler: limitWrites },
 		async (request, reply) => {
-			const params = ProjectParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-			}
+			const params = parseOr400(ProjectParam, request.params, reply);
+			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
 			const body = ProjectLayout.safeParse(request.body ?? {});
 			if (!body.success) {
 				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 			}
-			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 
 			await db

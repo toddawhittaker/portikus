@@ -5,11 +5,12 @@ import {
 	requireUser,
 } from "@portikus/auth";
 import { ChangePasswordRequest } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
 import { createPasswordChangeThrottle } from "../signin-throttle.js";
-import { sendError } from "./admin.js";
-import { audit, requestMetadata } from "./start-session.js";
+import { requestMetadata } from "./start-session.js";
 
 /** Thrown inside the transaction when Dex no longer holds the password. */
 class PasswordGone extends Error {}
@@ -72,9 +73,15 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 		const decision = throttle.attempt(user.id);
 		if (!decision.allowed) {
 			if (decision.audit) {
-				await audit(db, "auth.throttled", `user:${user.id}`, user.id, "denied", {
-					ip: request.ip,
-					scope: "password-change",
+				await recordAudit(db, {
+					actor: `user:${user.id}`,
+					target: user.id,
+					action: "auth.throttled",
+					result: "denied",
+					metadata: {
+						ip: request.ip,
+						scope: "password-change",
+					},
 				});
 			}
 			return sendError(
@@ -96,8 +103,14 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 			if (verified === "not_found") return notLocal(reply);
 			if (verified === "wrong") {
 				wrong = true;
-				await audit(db, "user.password_changed", actor, user.id, "failed", {
-					...requestMetadata(request),
+				await recordAudit(db, {
+					actor: actor,
+					target: user.id,
+					action: "user.password_changed",
+					result: "failed",
+					metadata: {
+						...requestMetadata(request),
+					},
 				});
 				return sendError(
 					reply,
@@ -126,8 +139,14 @@ export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps)
 					.where("session_id", "<>", currentSession)
 					.where("revoked_at", "is", null)
 					.execute();
-				await audit(trx, "user.password_changed", actor, user.id, "ok", {
-					...requestMetadata(request),
+				await recordAudit(trx, {
+					actor: actor,
+					target: user.id,
+					action: "user.password_changed",
+					result: "ok",
+					metadata: {
+						...requestMetadata(request),
+					},
 				});
 				// Last, so a failure rolls the rest back.
 				const updated = await dex.updatePassword(password.email, hash);

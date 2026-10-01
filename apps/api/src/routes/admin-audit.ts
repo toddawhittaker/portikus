@@ -7,6 +7,7 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
+import { sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
 
 const UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -32,9 +33,7 @@ export function registerAdminAuditRoutes(
 		async (request, reply) => {
 			const parsed = AuditQuery.safeParse(request.query);
 			if (!parsed.success) {
-				return reply
-					.status(400)
-					.send({ code: "VALIDATION_FAILED", message: "invalid audit query" });
+				return sendError(reply, 400, "VALIDATION_FAILED", "invalid audit query");
 			}
 			const query = parsed.data;
 

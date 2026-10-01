@@ -11,7 +11,6 @@ import {
 	type AdminUser,
 	type AdminUserList,
 	type AdminWorkspaceList,
-	type ApiError,
 	DEFAULT_ACCEPTABLE_USE_TEXT,
 	LogLevel,
 	type PlatformSettings,
@@ -19,17 +18,15 @@ import {
 	UpdateAdminUserSettingsRequest,
 	UpdatePlatformSettingsRequest,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { type Kysely, sql, type Updateable } from "kysely";
-import { z } from "zod";
 import { accountFlags, groupByEmail } from "../admin/markers.js";
+import { parseOr400, sendError, UuidParam } from "../http.js";
 import type { ServerDeps } from "../server.js";
 import { loadImageFacts, toWorkspaceSummary } from "./admin-workspaces.js";
-import { audit, requestMetadata } from "./start-session.js";
+import { requestMetadata } from "./start-session.js";
 import { countActive, toWorkspace } from "./workspace-view.js";
-
-export const UuidParam = z.object({ id: z.string().uuid() });
 
 /** The settings columns this route may write. */
 type SettingsUpdate = Partial<Updateable<Database["settings"]>>;
@@ -97,15 +94,6 @@ function toPlatformSettings(row: {
 }
 
 const adminOnly = { preHandler: requireRole("administrator") };
-
-export function sendError(
-	reply: FastifyReply,
-	statusCode: number,
-	code: ApiError["code"],
-	message: string,
-): void {
-	reply.status(statusCode).send({ code, message });
-}
 
 /** The users columns the administration pages read. */
 const USER_COLUMNS = [
@@ -334,15 +322,12 @@ export async function disableUser(
 			.set({ desired_state: "stopped", updated_at: now })
 			.where("owner_user_id", "=", id)
 			.execute();
-		await trx
-			.insertInto("audit_events")
-			.values({
-				actor: `user:${actorId}`,
-				target: id,
-				action: "user.disabled",
-				result: "ok",
-			})
-			.execute();
+		await recordAudit(trx, {
+			actor: `user:${actorId}`,
+			target: id,
+			action: "user.disabled",
+			result: "ok",
+		});
 		await input.alsoInTransaction?.(trx);
 		return { ok: true } as const;
 	});
@@ -540,20 +525,17 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 				.returning(SETTINGS_COLUMNS)
 				.executeTakeFirstOrThrow();
 			for (const audit of audits) {
-				await trx
-					.insertInto("audit_events")
-					.values({
-						actor: `user:${user.id}`,
-						target: "settings",
-						action: audit.action,
-						result: "ok",
-						metadata: JSON.stringify({
-							...audit.details,
-							ip: request.ip,
-							userAgent: request.headers["user-agent"] ?? null,
-						}),
-					})
-					.execute();
+				await recordAudit(trx, {
+					actor: `user:${user.id}`,
+					target: "settings",
+					action: audit.action,
+					result: "ok",
+					metadata: {
+						...audit.details,
+						ip: request.ip,
+						userAgent: request.headers["user-agent"] ?? null,
+					},
+				});
 			}
 			return row;
 		});
@@ -571,34 +553,36 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	// POST /admin/users/:id/disable -- the one platform-side revocation (SPEC.md §20.1).
 	app.post("/admin/users/:id/disable", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
 		const result = await disableUser(db, {
 			actorId: actor.id,
-			targetId: params.data.id,
+			targetId: params.id,
 		});
 		if (!result.ok) return sendDisableRefusal(reply, result.reason);
-		return loadUser(params.data.id);
+		return loadUser(params.id);
 	});
 
 	// POST /admin/users/:id/promote -- grant administrator to an SSO account (ruling 23).
 	app.post("/admin/users/:id/promote", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		const result = await db.transaction().execute(async (trx) => {
 			const granted = await grantAdministrator(trx, id);
 			if (granted.ok && granted.changed) {
-				await audit(trx, "user.role_changed", `user:${actor.id}`, id, "ok", {
-					from: granted.from,
-					to: granted.to,
-					source: "admin",
-					...requestMetadata(request),
+				await recordAudit(trx, {
+					actor: `user:${actor.id}`,
+					target: id,
+					action: "user.role_changed",
+					result: "ok",
+					metadata: {
+						from: granted.from,
+						to: granted.to,
+						source: "admin",
+						...requestMetadata(request),
+					},
 				});
 			}
 			return granted;
@@ -620,11 +604,9 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	// POST /admin/users/:id/demote -- remove a granted administrator role (ruling 23).
 	app.post("/admin/users/:id/demote", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		const result = await db.transaction().execute(async (trx) => {
 			const revoked = await revokeAdministrator(trx, {
 				actorId: actor.id,
@@ -632,11 +614,17 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			});
 			// A provider administrator with a grant too keeps the role: nothing to audit.
 			if (revoked.ok && revoked.from !== revoked.to) {
-				await audit(trx, "user.role_changed", `user:${actor.id}`, id, "ok", {
-					from: revoked.from,
-					to: revoked.to,
-					source: "admin",
-					...requestMetadata(request),
+				await recordAudit(trx, {
+					actor: `user:${actor.id}`,
+					target: id,
+					action: "user.role_changed",
+					result: "ok",
+					metadata: {
+						from: revoked.from,
+						to: revoked.to,
+						source: "admin",
+						...requestMetadata(request),
+					},
 				});
 			}
 			return revoked;
@@ -681,19 +669,23 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	// POST /admin/users/:id/make-instructor -- grant instructor (docs/archive/epics/EPIC-14.md ruling 14).
 	app.post("/admin/users/:id/make-instructor", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		const result = await db.transaction().execute(async (trx) => {
 			const granted = await grantInstructor(trx, id);
 			if (granted.ok && granted.changed) {
-				await audit(trx, "user.role_changed", `user:${actor.id}`, id, "ok", {
-					from: granted.from,
-					to: granted.to,
-					source: "admin",
-					...requestMetadata(request),
+				await recordAudit(trx, {
+					actor: `user:${actor.id}`,
+					target: id,
+					action: "user.role_changed",
+					result: "ok",
+					metadata: {
+						from: granted.from,
+						to: granted.to,
+						source: "admin",
+						...requestMetadata(request),
+					},
 				});
 			}
 			return granted;
@@ -719,20 +711,24 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	// POST /admin/users/:id/remove-instructor -- remove the instructor grant (ruling 14).
 	app.post("/admin/users/:id/remove-instructor", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		const result = await db.transaction().execute(async (trx) => {
 			const revoked = await revokeInstructor(trx, id);
 			// A provider instructor with the grant too keeps the role: nothing to audit.
 			if (revoked.ok && revoked.from !== revoked.to) {
-				await audit(trx, "user.role_changed", `user:${actor.id}`, id, "ok", {
-					from: revoked.from,
-					to: revoked.to,
-					source: "admin",
-					...requestMetadata(request),
+				await recordAudit(trx, {
+					actor: `user:${actor.id}`,
+					target: id,
+					action: "user.role_changed",
+					result: "ok",
+					metadata: {
+						from: revoked.from,
+						to: revoked.to,
+						source: "admin",
+						...requestMetadata(request),
+					},
 				});
 			}
 			return revoked;
@@ -754,11 +750,9 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	// POST /admin/users/:id/enable -- sign-in works again; nothing else changes.
 	app.post("/admin/users/:id/enable", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		const updated = await db.transaction().execute(async (trx) => {
 			const now = new Date().toISOString();
 			const row = await trx
@@ -768,15 +762,12 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 				.returning(USER_COLUMNS)
 				.executeTakeFirst();
 			if (!row) return null;
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${actor.id}`,
-					target: id,
-					action: "user.enabled",
-					result: "ok",
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: `user:${actor.id}`,
+				target: id,
+				action: "user.enabled",
+				result: "ok",
+			});
 			return row;
 		});
 		if (!updated) {
@@ -789,10 +780,8 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 	app.put("/admin/users/:id/settings", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
 
 		const body = UpdateAdminUserSettingsRequest.safeParse(request.body ?? {});
 		if (!body.success) {
@@ -802,7 +791,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		const before = await db
 			.selectFrom("users")
 			.select("shutdown_grace_seconds")
-			.where("id", "=", params.data.id)
+			.where("id", "=", params.id)
 			.executeTakeFirst();
 		if (!before) {
 			return sendError(reply, 404, "NOT_FOUND", "User not found");
@@ -816,24 +805,21 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 					shutdown_grace_seconds: body.data.shutdownGraceSeconds,
 					updated_at: new Date().toISOString(),
 				})
-				.where("id", "=", params.data.id)
+				.where("id", "=", params.id)
 				.returning(USER_COLUMNS)
 				.executeTakeFirstOrThrow();
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${actor.id}`,
-					target: params.data.id,
-					action: "user.shutdown_grace_updated",
-					result: "ok",
-					metadata: JSON.stringify({
-						from: before.shutdown_grace_seconds,
-						to: body.data.shutdownGraceSeconds,
-						ip: request.ip,
-						userAgent: request.headers["user-agent"] ?? null,
-					}),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: `user:${actor.id}`,
+				target: params.id,
+				action: "user.shutdown_grace_updated",
+				result: "ok",
+				metadata: {
+					from: before.shutdown_grace_seconds,
+					to: body.data.shutdownGraceSeconds,
+					ip: request.ip,
+					userAgent: request.headers["user-agent"] ?? null,
+				},
+			});
 			return row;
 		});
 

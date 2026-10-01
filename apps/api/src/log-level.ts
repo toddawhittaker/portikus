@@ -1,6 +1,6 @@
 import { LogLevel } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import { applyLevel, type Logger } from "@portikus/observability";
+import { applyLevel, errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { agentClientFor } from "./agent-client.js";
 
@@ -75,7 +75,7 @@ export function startLogLevelSync(options: LogLevelSyncOptions): LogLevelSync {
 					{
 						workspaceId,
 						level,
-						error: error instanceof Error ? error.message : String(error),
+						error: errorMessage(error),
 					},
 					"could not set the workspace agent log level",
 				);
@@ -98,10 +98,7 @@ export function startLogLevelSync(options: LogLevelSyncOptions): LogLevelSync {
 			applyLevel(logger, envLevel, override);
 			await pushToAgents(override);
 		} catch (error) {
-			logger.debug(
-				{ error: error instanceof Error ? error.message : String(error) },
-				"log level sync failed",
-			);
+			logger.debug({ error: errorMessage(error) }, "log level sync failed");
 		} finally {
 			running = false;
 		}

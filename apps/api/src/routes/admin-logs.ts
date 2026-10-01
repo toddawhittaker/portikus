@@ -1,11 +1,7 @@
 import { requireRole } from "@portikus/auth";
-import {
-	type ApiError,
-	LogCountsQuery,
-	type LogPage,
-	LogQuery,
-} from "@portikus/contracts";
+import { LogCountsQuery, type LogPage, LogQuery } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { sendNoStoreError } from "../http.js";
 import { LogCounter } from "../logs/counts.js";
 import { readLogPage } from "../logs/filter.js";
 import { JournalReader, LogsBusyError, LogsUnavailableError } from "../logs/journal.js";
@@ -13,20 +9,10 @@ import type { ServerDeps } from "../server.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function sendError(
-	reply: FastifyReply,
-	status: number,
-	code: ApiError["code"],
-	message: string,
-) {
-	const body: ApiError = { code, message };
-	return reply.status(status).header("cache-control", "no-store").send(body);
-}
-
 /** Map the reader's two failures to their answers; anything else is a real error. */
 function sendReadFailure(request: FastifyRequest, reply: FastifyReply, error: unknown) {
 	if (error instanceof LogsBusyError) {
-		return sendError(
+		return sendNoStoreError(
 			reply,
 			429,
 			"RATE_LIMITED",
@@ -38,7 +24,7 @@ function sendReadFailure(request: FastifyRequest, reply: FastifyReply, error: un
 			{ code: "LOGS_UNAVAILABLE", error: error.message },
 			"logs unavailable",
 		);
-		return sendError(
+		return sendNoStoreError(
 			reply,
 			503,
 			"LOGS_UNAVAILABLE",
@@ -66,7 +52,7 @@ export function registerAdminLogRoutes(
 		async (request, reply) => {
 			const parsed = LogQuery.safeParse(request.query);
 			if (!parsed.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", "invalid log query");
+				return sendNoStoreError(reply, 400, "VALIDATION_FAILED", "invalid log query");
 			}
 			const query = parsed.data;
 
@@ -128,7 +114,12 @@ export function registerAdminLogRoutes(
 		async (request, reply) => {
 			const parsed = LogCountsQuery.safeParse(request.query);
 			if (!parsed.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", "invalid log counts query");
+				return sendNoStoreError(
+					reply,
+					400,
+					"VALIDATION_FAILED",
+					"invalid log counts query",
+				);
 			}
 			try {
 				const body = await counter.counts(parsed.data.range);
