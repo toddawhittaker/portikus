@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
-import { type BrowserContext, expect, type Page, test } from "@playwright/test";
+import { type BrowserContext, expect, test } from "@playwright/test";
 import { dexLocalSubject } from "../packages/auth/dist/dex-subject.js";
-import { MOCK_ISSUER, query, settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
+import { expectNoViolations, MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
 
 /**
  * axe on the change-password page and Settings, Password, in light and dark
@@ -10,14 +10,6 @@ import { MOCK_ISSUER, query, settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers
  * local administrator change-password.spec.ts uses. Only the browser's own
  * checks run here, so no Dex password is needed.
  */
-
-async function expectNoViolations(page: Page, selector: string) {
-	const results = await (await settledAxe(page))
-		.withTags(WCAG_TAGS)
-		.include(selector)
-		.analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 /** A Dex local-password administrator with a session cookie in `context`. */
 async function signInLocalAccount(context: BrowserContext, mustChange: boolean) {

@@ -7,21 +7,12 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	query,
-	settledAxe,
 	toast,
-	WCAG_TAGS,
 	WEB_ORIGIN,
 	workspacePath,
 } from "./helpers";
-
-async function expectNoViolations(page: Page, include: string) {
-	const results = await (await settledAxe(page))
-		.withTags(WCAG_TAGS)
-		.include(include)
-		.analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 /** Delete a project through the UI; it answers with a "Project deleted" toast. */
 async function deleteProject(page: Page, project: { id: string; slug: string }) {
