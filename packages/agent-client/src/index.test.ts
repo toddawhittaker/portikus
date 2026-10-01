@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import {
 	AGENT_JSON_LIMIT_BYTES,
 	AgentCallError,
+	AgentStreamError,
 	callAgent,
 	readJson,
 	throwOnRedirect,
@@ -138,6 +139,7 @@ test("a body that breaks mid-stream throws", async () => {
 		},
 	});
 	const error = await failure(readJson(new Response(broken)));
+	expect(error).toBeInstanceOf(AgentStreamError);
 	expect(error.code).toBe("AGENT_UNAVAILABLE");
 	expect(error.message).toBe("The workspace agent could not be reached");
 });

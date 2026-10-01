@@ -24,6 +24,14 @@ export class AgentCallError extends Error {
 	}
 }
 
+/** The agent's reply body broke off mid-stream, as a dropped connection does. */
+export class AgentStreamError extends AgentCallError {
+	constructor() {
+		super("AGENT_UNAVAILABLE", "The workspace agent could not be reached");
+		this.name = "AgentStreamError";
+	}
+}
+
 /** Where one agent listens and the per-workspace token it expects. */
 export interface AgentTarget {
 	address: string;
@@ -112,7 +120,7 @@ export async function readJson(
 		}
 	} catch (error) {
 		if (error instanceof AgentCallError) throw error;
-		throw unreachable();
+		throw new AgentStreamError();
 	}
 	if (total === 0) return undefined;
 	try {

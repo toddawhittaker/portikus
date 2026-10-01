@@ -1,7 +1,8 @@
 import {
 	AgentCallError,
+	AgentStreamError,
 	callAgent,
-	readJson,
+	readJson as readCappedJson,
 	throwOnRedirect,
 } from "@portikus/agent-client";
 import {
@@ -28,7 +29,21 @@ import {
 } from "@portikus/contracts";
 import { z } from "zod";
 
-export { AgentCallError, readJson };
+export { AgentCallError };
+
+/**
+ * Read an agent JSON body under the byte cap (SPEC.md §24.6). In the API a
+ * body that breaks mid-stream reads as undefined, so a route answers that the
+ * reply could not be read rather than failing with a 500.
+ */
+export async function readJson(response: Response): Promise<unknown> {
+	try {
+		return await readCappedJson(response);
+	} catch (error) {
+		if (error instanceof AgentStreamError) return undefined;
+		throw error;
+	}
+}
 
 /** Error codes the API uses for agent trouble: the agent's own, or "unreachable". */
 export type AgentFailureCode = AgentErrorCode | "AGENT_UNAVAILABLE";
