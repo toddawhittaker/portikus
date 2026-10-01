@@ -17,8 +17,9 @@ import { useCourses } from "../course/queries.js";
 import { clearLocalLayouts } from "../layout/local.js";
 import { NotificationsDialog } from "../notifications/NotificationsDialog.js";
 import { useNotifications } from "../notifications/queries.js";
+import { initials } from "../settings/ProfilePane.js";
 import { useProfile } from "../settings/profileQueries.js";
-import { initials, SettingsDialog } from "../settings/SettingsDialog.js";
+import { SettingsDialog } from "../settings/SettingsDialog.js";
 import type { MeUser } from "../useMe.js";
 
 /** The badge text: the count, "9+" above nine, nothing at zero. */
