@@ -212,6 +212,16 @@
     mode: "0640"
   notify: Restart portikus-api
 
+# The root job's status directory, which also holds the lock every job
+# command takes, so before the first call below.
+- name: Create the certificate status directory
+  ansible.builtin.file:
+    path: /var/lib/portikus/certificate
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 # The certificate on first install, the Caddyfile and the API's trust:
 # after the package, which ships the root job, and api.env, which it reads.
 - name: Set up the certificate and the Caddyfile
@@ -320,8 +330,8 @@
   when: portikus_image_check_timer.stat.exists
 
 # ── Certificate jobs (docs/SPEC.md section 21.12; packages/contracts/src/certificate.ts) ──
-# The admin page's request directory and the root job's status directory,
-# as for the image job above.  The job owns the state it seeded above.
+# The admin page's request directory, as for the image job above.  The job
+# owns the state it seeded above.
 - name: Create the certificate job directory
   ansible.builtin.file:
     path: "{{ portikus_certificate_jobs_dir }}"
@@ -329,14 +339,6 @@
     owner: root
     group: portikus
     mode: "0770"
-
-- name: Create the certificate status directory
-  ansible.builtin.file:
-    path: /var/lib/portikus/certificate
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
 
 # A package from before the certificate page has none of these units.
 - name: Look for the certificate job's units

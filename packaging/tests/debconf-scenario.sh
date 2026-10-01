@@ -463,7 +463,8 @@ EOF
 	;;
 seeded-certificate)
 	# Once setup has seeded the certificate, the admin page owns it: a
-	# reconfigure with no Cloudflare token still starts setup.
+	# reconfigure with no Cloudflare token still starts setup.  A seed cut
+	# short after the secrets counts too, as setup and the job check.
 	install_with <<'EOF'
 portikus portikus/public_host string portikus.example.edu
 portikus portikus/tls select letsencrypt
@@ -473,8 +474,7 @@ portikus portikus/storage select file
 portikus portikus/storage_size string 1
 EOF
 	check_not_started "the Cloudflare API token (cloudflare_api_token)"
-	mkdir -p /etc/portikus/certificate
-	echo '{"source": "internal"}' >/etc/portikus/certificate/settings.json
+	mkdir -p /etc/portikus/certificate/secrets
 	: >/tmp/systemctl.log
 	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || {
 		cat /tmp/install.log >&2

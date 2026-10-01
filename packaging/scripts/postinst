@@ -90,8 +90,10 @@ def write(path, data, mode, header):
 
 tls = answer("tls") or "internal"
 # After the first setup the admin page owns the certificate, and setup no
-# longer reads the TLS answers, so none of them is missing.
-certificate_seeded = os.path.exists("/etc/portikus/certificate/settings.json")
+# longer reads the TLS answers, so none of them is missing.  Any file the
+# root job writes counts, as setup and the job itself check.
+certificate_seeded = any(os.path.lexists("/etc/portikus/certificate/" + name)
+                         for name in ("settings.json", "tls.caddy", "secrets"))
 provider = answer("provider") or "dex"
 storage = answer("storage")
 

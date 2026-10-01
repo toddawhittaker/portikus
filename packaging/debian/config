@@ -8,11 +8,20 @@ set -e
 
 CONFIG_FILE=/etc/portikus/portikus.yaml
 SECRETS_FILE=/etc/portikus/secrets.yaml
-# Once setup has seeded the certificate, the admin page owns it and the
-# TLS questions are not asked again.
-CERTIFICATE_STATE=/etc/portikus/certificate/settings.json
+CERTIFICATE_DIR=/etc/portikus/certificate
 
 db_capb backup escape
+
+# Once setup has seeded the certificate, the admin page owns it and the TLS
+# questions are not asked again.  Any file the root job writes counts.
+certificate_seeded() {
+	for state_file in settings.json tls.caddy secrets; do
+		if [ -e "$CERTIFICATE_DIR/$state_file" ] || [ -L "$CERTIFICATE_DIR/$state_file" ]; then
+			return 0
+		fi
+	done
+	return 1
+}
 
 # The questions in the order they are asked; step() skips the ones that do
 # not apply to the answers so far.
@@ -182,15 +191,15 @@ prepare_group() {
 relevant() {
 	case "$1" in
 	tls)
-		[ ! -e "$CERTIFICATE_STATE" ]
+		! certificate_seeded
 		;;
 	acme_email | cloudflare_api_token)
-		[ ! -e "$CERTIFICATE_STATE" ] || return 1
+		! certificate_seeded || return 1
 		db_get portikus/tls
 		[ "$RET" = letsencrypt ]
 		;;
 	tls_cert | tls_key)
-		[ ! -e "$CERTIFICATE_STATE" ] || return 1
+		! certificate_seeded || return 1
 		db_get portikus/tls
 		[ "$RET" = files ]
 		;;
@@ -327,7 +336,7 @@ summary() {
 	db_get portikus/admin_email
 	line "Administrator: $RET"
 	db_get portikus/tls
-	[ ! -e "$CERTIFICATE_STATE" ] || RET=page
+	! certificate_seeded || RET=page
 	case "$RET" in
 	page) line "Certificate: as set on the Certificate admin page" ;;
 	letsencrypt)

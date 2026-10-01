@@ -139,6 +139,32 @@
         that:
           - (lookup('file', seed_test_tasks ~ '/state.yml') | from_yaml | first).loop == ['settings.json', 'tls.caddy', 'secrets']
 
+    # ── Order in the play ──────────────────────────────────────────
+    - name: Read the portikus role's tasks
+      ansible.builtin.set_fact:
+        seed_test_portikus_names: "{{ lookup('file', playbook_dir ~ '/../ansible/roles/portikus/tasks/main.yml') | from_yaml | map(attribute='name') | list }}"
+        seed_test_certificate_names: "{{ seed_test_certificate_tasks | map(attribute='name') | list }}"
+
+    # Every job command locks a file in the status directory.
+    - name: Require the status directory before the first job call
+      ansible.builtin.assert:
+        that:
+          - seed_test_portikus_names.index('Create the certificate status directory') < seed_test_portikus_names.index('Set up the certificate and the Caddyfile')
+
+    # first-install rebuilds the bundle, so trust-bundle then says unchanged.
+    - name: Require first install to restart a running API
+      ansible.builtin.assert:
+        that:
+          - seed_test_job_call.notify == 'Restart a running API for the new trust'
+
+    - name: Require the token gone and the state checked before Caddy and the ACME wait
+      ansible.builtin.assert:
+        that:
+          - seed_test_certificate_names.index('Remove the Cloudflare token from the install answers') < seed_test_certificate_names.index('Wait for the ACME certificates')
+          - seed_test_certificate_names.index('Seed the certificate state on first install') < seed_test_certificate_names.index('Remove the Cloudflare token from the install answers')
+          - seed_test_certificate_names.index('Stop when the certificate state is incomplete') < seed_test_certificate_names.index('Put the Caddyfile in place')
+          - "'reset-certificate' in (seed_test_certificate_tasks | selectattr('name', 'equalto', 'Stop when the certificate state is incomplete') | first)['ansible.builtin.fail'].msg"
+
     - name: Remove the scratch directory
       ansible.builtin.file:
         path: "{{ seed_test_dir.path }}"

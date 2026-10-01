@@ -37,6 +37,8 @@
       changed_when: caddy_first_install.stdout | trim == 'changed'
       failed_when: false
       no_log: true
+      # The job rebuilds the trust bundle here, so the trust-bundle task below finds it unchanged.
+      notify: Restart a running API for the new trust
 
     # The job's own messages name the check that failed and never a secret.
     - name: Stop when the root job refused the install answer
@@ -47,6 +49,31 @@
           (certificate-job first-install exit {{ caddy_first_install.rc }}):
           {{ caddy_first_install.stderr | default('') }}
       when: caddy_first_install.rc != 0
+
+# The job keeps the Cloudflare token in the state directory now, so no copy
+# stays in the install answers (docs/SPEC.md section 24.8).  Before the
+# ACME wait, so a failed wait does not leave it there.
+- name: Remove the Cloudflare token from the install answers
+  ansible.builtin.lineinfile:
+    path: /etc/portikus/secrets.yaml
+    regexp: '^portikus_cloudflare_api_token:'
+    state: absent
+  no_log: true
+
+# A first install cut short after the secrets but before tls.caddy leaves
+# state that stops seeding, and a Caddyfile importing a missing file.
+- name: Look for the certificate's Caddyfile fragment
+  ansible.builtin.stat:
+    path: "{{ caddy_certificate_dir }}/tls.caddy"
+  register: caddy_tls_fragment
+
+- name: Stop when the certificate state is incomplete
+  ansible.builtin.fail:
+    msg: >-
+      The certificate state in {{ caddy_certificate_dir }} has no tls.caddy,
+      so an earlier setup stopped part way.  Run `sudo portikus
+      reset-certificate`, then run setup again.
+  when: not caddy_tls_fragment.stat.exists
 
 - name: Put the Caddyfile in place
   ansible.builtin.import_tasks: caddyfile.yml
@@ -93,15 +120,6 @@
           DNS in that zone.
 
 # ── What releases before the certificate page left behind ────────
-# The job keeps the Cloudflare token in the state directory now, so no copy
-# stays in the install answers (docs/SPEC.md section 24.8).
-- name: Remove the Cloudflare token from the install answers
-  ansible.builtin.lineinfile:
-    path: /etc/portikus/secrets.yaml
-    regexp: '^portikus_cloudflare_api_token:'
-    state: absent
-  no_log: true
-
 # Caddy read the token from its environment then.  The Caddyfile above no
 # longer does, so the running Caddy needs no restart.
 - name: Remove the old token file, its drop-in and the old certificate copy
