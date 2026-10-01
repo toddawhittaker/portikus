@@ -2,12 +2,16 @@ import { OTHER_IMAGES_LABEL } from "@portikus/contracts";
 import { expect, test } from "vitest";
 import {
 	addRefusal,
+	autoClearBytes,
 	cacheUseText,
 	clearErrorText,
 	credentialErrors,
+	downloadSize,
 	listHas,
+	listSizeText,
 	parseSeedMaxGiB,
 	seedListError,
+	seedUseText,
 	shortImageName,
 	shownText,
 } from "./text.js";
@@ -126,4 +130,52 @@ test("a Docker Hub account needs a valid username and token", () => {
 	expect(bad.username).toContain("4 to 30 lowercase letters");
 	expect(bad.token).toContain("8 to 200 characters");
 	expect(credentialErrors("teacher01", "has a space in it").token).not.toBeNull();
+});
+
+const MB = 1024 ** 2;
+const SIZES = {
+	"docker.io/library/python:3.12": 60 * MB,
+	"docker.io/library/redis:latest": 40 * MB,
+	"ghcr.io/owner/tool:1": 5 * MB,
+};
+
+test("a download size is found by any name Docker reads the same, or is null", () => {
+	expect(downloadSize(SIZES, "python:3.12")).toBe(60 * MB);
+	expect(downloadSize(SIZES, "docker.io/library/python:3.12")).toBe(60 * MB);
+	expect(downloadSize(SIZES, "redis")).toBe(40 * MB);
+	expect(downloadSize(SIZES, "ghcr.io/owner/tool:1")).toBe(5 * MB);
+	expect(downloadSize(SIZES, "node:22")).toBeNull();
+});
+
+test("the list's size sentence totals what is known and says what is not", () => {
+	const limit =
+		"The limit of 8.0 GB counts the unpacked images, which take more space than their download.";
+	expect(listSizeText(["python:3.12", "redis"], SIZES, 8)).toBe(
+		`These images download as 100 MB. ${limit}`,
+	);
+	expect(listSizeText(["python:3.12", "node:22"], SIZES, 8)).toBe(
+		`These images download as 60.0 MB, not counting 1 image the pull cache has not held. ${limit}`,
+	);
+	expect(listSizeText(["python:3.12", "node:22", "go:1"], SIZES, 8)).toContain(
+		"not counting 2 images the pull cache has not held",
+	);
+	expect(listSizeText(["node:22"], SIZES, 8)).toBe(
+		`Download sizes are not known yet; the pull cache has not held these images. ${limit}`,
+	);
+});
+
+test("the meters' figures: the seed against its limit, the cache's auto-clear tick", () => {
+	expect(seedUseText(2 * 1024 ** 3, 8)).toBe("2.0 GB of the 8.0 GB limit");
+	const cache = {
+		sizeBytes: 20 * 1024 ** 3,
+		usedBytes: 0,
+		hubUp: true,
+		ghcrEnabled: false,
+		ghcrUp: false,
+		hubCredentialSet: false,
+		lastClearedAt: null,
+		lastClearReason: null,
+		updatedAt: "2026-09-30T10:00:00.000Z",
+	};
+	expect(autoClearBytes(cache)).toBe(18 * 1024 ** 3);
 });

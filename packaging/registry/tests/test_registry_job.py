@@ -403,7 +403,9 @@ class StatusTest(Base):
         status = self.helper.write_status()
         self.assertEqual(set(status), {"sizeBytes", "usedBytes", "hubUp", "ghcrEnabled", "ghcrUp",
                                        "hubCredentialSet", "lastClearedAt", "lastClearReason", "lastClearError",
-                                       "updatedAt"})
+                                       "cacheOff", "imageSizes", "updatedAt"})
+        self.assertIsNone(status["cacheOff"])
+        self.assertEqual(status["imageSizes"], {})
         self.assertEqual(status["sizeBytes"], 1000 * 4096)
         self.assertEqual(status["usedBytes"], 100 * 4096)
         self.assertEqual(stat.S_IMODE((self.jobs / "status.json").stat().st_mode), 0o644)
@@ -420,6 +422,147 @@ class StatusTest(Base):
         first = self.status()["lastClearedAt"]
         self.helper.write_status()
         self.assertEqual(self.status()["lastClearedAt"], first)
+
+
+class CacheOffTest(Base):
+    """The status says setup turned the cache off, and why (SPEC.md section 16.6)."""
+
+    def test_the_marker_gives_the_reason(self):
+        reason = "When setup ran, the main disk had 9.5 GiB free and setup keeps 10 GiB free."
+        (self.config / "cache-off").write_text(reason + "\n")
+        self.assertEqual(self.helper.write_status()["cacheOff"], reason)
+
+    def test_an_old_marker_or_an_odd_one_gets_the_plain_reason(self):
+        for text in ("off\n", "", "\x1b[31mred\n", "x" * 301, "café\n"):
+            with self.subTest(text=text):
+                (self.config / "cache-off").write_text(text)
+                self.assertEqual(self.helper.write_status()["cacheOff"], rj.CACHE_OFF_DEFAULT)
+
+    def test_only_the_first_line_is_read(self):
+        (self.config / "cache-off").write_text("No room.\nsecond line\n")
+        self.assertEqual(self.helper.write_status()["cacheOff"], "No room.")
+
+    def test_no_marker_means_on(self):
+        self.assertIsNone(self.helper.write_status()["cacheOff"])
+
+
+def digest_of(n):
+    return "sha256:" + f"{n:064x}"
+
+
+class ImageSizesTest(Base):
+    """Download sizes from the caches' own storage (issue #931)."""
+
+    def store(self, cache, doc, n):
+        """Put a manifest blob into CACHE's storage under digest n."""
+        digest = digest_of(n)
+        hex_digest = digest.split(":")[1]
+        blob = self.mount / cache / "docker/registry/v2/blobs/sha256" / hex_digest[:2] / hex_digest
+        blob.mkdir(parents=True, exist_ok=True)
+        (blob / "data").write_text(json.dumps(doc))
+        return digest
+
+    def tag(self, cache, repo, tag, digest):
+        link = self.mount / cache / "docker/registry/v2/repositories" / repo / "_manifests/tags" / tag / "current"
+        link.mkdir(parents=True, exist_ok=True)
+        (link / "link").write_text(digest)
+
+    def image(self, cache, n, layers):
+        return self.store(cache, {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {"size": 1000},
+            "layers": [{"size": s} for s in layers],
+        }, n)
+
+    def index(self, cache, n, children):
+        return self.store(cache, {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [{"digest": d, "platform": {"os": "linux", "architecture": a}} for a, d in children],
+        }, n)
+
+    def test_a_tagged_image_reports_config_plus_layers(self):
+        self.tag("hub", "library/redis", "7", self.image("hub", 1, [100, 200]))
+        self.assertEqual(self.helper.scan_sizes(), {"docker.io/library/redis:7": 1300})
+
+    def test_an_index_counts_this_hosts_platform_only(self):
+        mine = self.image("hub", 2, [5000])
+        other = self.image("hub", 3, [9])
+        arch = rj.host_arch()
+        self.tag("hub", "library/python", "3.12", self.index("hub", 4, [("other", other), (arch, mine)]))
+        self.assertEqual(self.helper.scan_sizes(), {"docker.io/library/python:3.12": 6000})
+
+    def test_an_index_whose_platform_manifest_is_not_stored_is_not_known(self):
+        self.tag("hub", "library/node", "22",
+                 self.index("hub", 5, [(rj.host_arch(), digest_of(99))]))
+        self.assertEqual(self.helper.scan_sizes(), {})
+
+    def test_ghcr_names_keep_their_registry_and_path(self):
+        self.tag("ghcr", "owner/tools/cli", "1.0", self.image("ghcr", 6, [10]))
+        self.assertEqual(self.helper.scan_sizes(), {"ghcr.io/owner/tools/cli:1.0": 1010})
+
+    def test_bad_manifests_and_links_are_skipped(self):
+        self.tag("hub", "library/a", "1", "not a digest")
+        self.tag("hub", "library/b", "1", self.store("hub", {"layers": [{"size": -1}]}, 7))
+        self.tag("hub", "library/c", "1", self.store("hub", {"layers": [{"size": True}]}, 8))
+        self.tag("hub", "library/d", "1", self.store("hub", {"schemaVersion": 1, "fsLayers": []}, 9))
+        self.tag("hub", "library/e", "1", digest_of(404))
+        self.assertEqual(self.helper.scan_sizes(), {})
+
+    def test_a_planted_link_is_never_followed(self):
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        (outside / "link").write_text(self.image("hub", 10, [1]))
+        repo = self.mount / "hub/docker/registry/v2/repositories/library/x/_manifests/tags/1"
+        repo.mkdir(parents=True)
+        os.symlink(outside, repo / "current")
+        linked = self.mount / "hub/docker/registry/v2/repositories/evil"
+        os.symlink(self.mount / "hub/docker/registry/v2/repositories/library", linked)
+        self.assertEqual(self.helper.scan_sizes(), {})
+
+    def test_nothing_while_unmounted(self):
+        self.tag("hub", "library/redis", "7", self.image("hub", 1, [100]))
+        self.host.mounted = False
+        self.assertEqual(self.helper.scan_sizes(), {})
+
+    def test_sizes_outlive_the_cache_for_the_kept_days_then_go(self):
+        now = rj.datetime.datetime.now(rj.datetime.timezone.utc)
+
+        def ago(days):
+            return (now - rj.datetime.timedelta(days=days)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+        previous = {
+            "docker.io/library/kept:1": {"bytes": 5, "seenAt": ago(rj.IMAGE_SIZES_KEEP_DAYS - 1)},
+            "docker.io/library/gone:1": {"bytes": 5, "seenAt": ago(rj.IMAGE_SIZES_KEEP_DAYS + 1)},
+            "docker.io/library/redis:7": {"bytes": 1, "seenAt": ago(3)},
+            "docker.io/library/bad:1": {"bytes": "5", "seenAt": ago(1)},
+        }
+        self.tag("hub", "library/redis", "7", self.image("hub", 1, [100]))
+        sizes = self.helper.image_sizes(previous)
+        self.assertEqual(set(sizes), {"docker.io/library/kept:1", "docker.io/library/redis:7"})
+        self.assertEqual(sizes["docker.io/library/redis:7"]["bytes"], 1100)
+        self.assertRegex(sizes["docker.io/library/redis:7"]["seenAt"], rj.DATETIME_RE)
+
+    def test_only_the_newest_are_kept(self):
+        now = rj.datetime.datetime.now(rj.datetime.timezone.utc)
+
+        def minutes_ago(n):
+            return (now - rj.datetime.timedelta(minutes=n)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+        previous = {f"docker.io/library/i{n}:1": {"bytes": n, "seenAt": minutes_ago(n)}
+                    for n in range(rj.IMAGE_SIZES_MAX + 50)}
+        sizes = self.helper.image_sizes(previous)
+        self.assertEqual(set(sizes), {f"docker.io/library/i{n}:1" for n in range(rj.IMAGE_SIZES_MAX)})
+
+    def test_the_status_keeps_sizes_across_a_clear(self):
+        self.tag("hub", "library/redis", "7", self.image("hub", 1, [100]))
+        self.helper.write_status()
+        # A clear remakes the filesystem; the fake leaves the files, so take them away by hand.
+        import shutil
+        shutil.rmtree(self.mount / "hub")
+        self.helper.clear("admin")
+        self.assertEqual(self.status()["imageSizes"]["docker.io/library/redis:7"]["bytes"], 1100)
 
 
 class HostMkfsTest(unittest.TestCase):

@@ -281,3 +281,102 @@
 	font-size: 14px;
 	line-height: 20px;
 }
+
+/* Meter: a native meter styled like the storage meters, with a line-strong edge so the empty part still shows (WCAG 1.4.11). */
+.pk-meter-line {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	min-width: 0;
+}
+
+.pk-meter-wrap {
+	position: relative;
+	flex: 1 1 8rem;
+	min-width: 6rem;
+	max-width: 16rem;
+}
+
+.pk-meter-bar {
+	-webkit-appearance: none;
+	appearance: none;
+	display: block;
+	box-sizing: border-box;
+	inline-size: 100%;
+	block-size: 8px;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-xs);
+	background: var(--surface-hover);
+	overflow: hidden;
+}
+
+.pk-meter-bar::-webkit-meter-bar {
+	block-size: 100%;
+	border: 0;
+	border-radius: 0;
+	background: var(--surface-hover);
+}
+
+.pk-meter-bar::-webkit-meter-optimum-value {
+	background: var(--accent);
+}
+
+.pk-meter-bar::-webkit-meter-suboptimum-value,
+.pk-meter-bar::-webkit-meter-even-less-good-value {
+	background: var(--status-warning);
+}
+
+.pk-meter-bar::-moz-meter-bar {
+	background: var(--accent);
+}
+
+.pk-meter-bar:-moz-meter-sub-optimum::-moz-meter-bar {
+	background: var(--status-warning);
+}
+
+.pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
+	background: var(--status-warning);
+}
+
+/* The tick stands out above and below the bar, in ink, so it reads on the fill and the track. */
+.pk-meter-mark {
+	position: absolute;
+	inset-block: -3px;
+	inline-size: 2px;
+	margin-inline-start: -1px;
+	background: var(--ink);
+}
+
+.pk-meter-text {
+	min-width: 0;
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+@media (forced-colors: active) {
+	.pk-meter-bar,
+	.pk-meter-mark {
+		forced-color-adjust: none;
+	}
+
+	.pk-meter-bar,
+	.pk-meter-bar::-webkit-meter-bar {
+		border-color: CanvasText;
+		background: Canvas;
+	}
+
+	.pk-meter-bar::-webkit-meter-optimum-value,
+	.pk-meter-bar::-webkit-meter-suboptimum-value,
+	.pk-meter-bar::-webkit-meter-even-less-good-value {
+		background: Highlight;
+	}
+
+	.pk-meter-bar::-moz-meter-bar {
+		background: Highlight;
+	}
+
+	.pk-meter-mark {
+		background: CanvasText;
+	}
+}

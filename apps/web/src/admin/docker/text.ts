@@ -1,8 +1,9 @@
 import {
 	canonicalImageName,
+	type DockerCacheStatus,
 	HubCredentialRequest,
 	OTHER_IMAGES_LABEL,
-	type RegistryStatusFile,
+	REGISTRY_AUTO_CLEAR_PERCENT,
 	SEED_IMAGE_MAX_LENGTH,
 	SEED_IMAGES_MAX,
 	SEED_MAX_GIB_LIMIT,
@@ -62,9 +63,50 @@ export function addRefusal(
 }
 
 /** "4.1 GB of 20 GB used", or null before the cache first reports. */
-export function cacheUseText(cache: RegistryStatusFile | null): string | null {
+export function cacheUseText(cache: DockerCacheStatus | null): string | null {
 	if (!cache) return null;
 	return `${formatBytes(cache.usedBytes)} of ${formatBytes(cache.sizeBytes)} used`;
+}
+
+/** Where the cache meter's tick goes: the point the cache empties itself. */
+export function autoClearBytes(cache: DockerCacheStatus): number {
+	return (cache.sizeBytes * REGISTRY_AUTO_CLEAR_PERCENT) / 100;
+}
+
+/** The seed's size against its limit, "2.0 GB of the 8.0 GB limit". */
+export function seedUseText(sizeBytes: number, seedMaxGiB: number): string {
+	return `${formatBytes(sizeBytes)} of the ${formatBytes(seedMaxGiB * 1024 ** 3)} limit`;
+}
+
+/** An image's download size from the cache, looked up as Docker reads the name, or null. */
+export function downloadSize(
+	sizes: Record<string, number>,
+	name: string,
+): number | null {
+	return sizes[canonicalImageName(name)] ?? null;
+}
+
+/**
+ * What the list for the next rebuild downloads, against the seed's limit.
+ * Download sizes are compressed, so the built seed is larger; the sentence says so.
+ */
+export function listSizeText(
+	list: readonly string[],
+	sizes: Record<string, number>,
+	seedMaxGiB: number,
+): string {
+	const known = list.map((name) => downloadSize(sizes, name));
+	const total = known.reduce<number>((sum, n) => sum + (n ?? 0), 0);
+	const unknown = known.filter((n) => n === null).length;
+	const limit = `The limit of ${formatBytes(seedMaxGiB * 1024 ** 3)} counts the unpacked images, which take more space than their download.`;
+	if (unknown === list.length) {
+		return `Download sizes are not known yet; the pull cache has not held these images. ${limit}`;
+	}
+	const rest =
+		unknown === 0
+			? ""
+			: `, not counting ${unknown} ${unknown === 1 ? "image" : "images"} the pull cache has not held`;
+	return `These images download as ${formatBytes(total)}${rest}. ${limit}`;
 }
 
 /** "Showing 200 of 340" when the API capped the rows, or null when all are shown. */
@@ -73,7 +115,7 @@ export function shownText(shown: number, total: number): string | null {
 }
 
 /** The failed clear as a sentence; a stopped Hub cache waits for a clear that works. */
-export function clearErrorText(cache: RegistryStatusFile): string | null {
+export function clearErrorText(cache: DockerCacheStatus): string | null {
 	if (!cache.lastClearError) return null;
 	const held = cache.hubUp
 		? ""
@@ -82,7 +124,7 @@ export function clearErrorText(cache: RegistryStatusFile): string | null {
 }
 
 export const CLEAR_REASON: Record<
-	NonNullable<RegistryStatusFile["lastClearReason"]>,
+	NonNullable<DockerCacheStatus["lastClearReason"]>,
 	string
 > = {
 	admin: "cleared by an administrator",

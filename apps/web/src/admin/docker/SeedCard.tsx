@@ -3,14 +3,14 @@ import {
 	SEED_IMAGES_MAX,
 	type SeedJob,
 } from "@portikus/contracts";
-import { Button, TextField, Toggletip, useToast } from "@portikus/ui";
+import { Button, Meter, TextField, Toggletip, useToast } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useRef, useState } from "react";
-import { formatBytes } from "../../monitor/format.js";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { AdminGroup } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { useAdminImage } from "../image/queries.js";
 import { announced, errorText } from "../SettingsTab.js";
+import { DownloadSize } from "./DownloadSize.js";
 import { Notice } from "./Notice.js";
 import {
 	dockerKey,
@@ -20,7 +20,13 @@ import {
 	useSaveSeedImages,
 	useSeedJobs,
 } from "./queries.js";
-import { parseSeedMaxGiB, seedListError } from "./text.js";
+import {
+	downloadSize,
+	listSizeText,
+	parseSeedMaxGiB,
+	seedListError,
+	seedUseText,
+} from "./text.js";
 
 const STATE_LABEL: Record<SeedJob["state"], string> = {
 	queued: "Waiting to start",
@@ -30,6 +36,9 @@ const STATE_LABEL: Record<SeedJob["state"], string> = {
 };
 
 const SUB_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
+
+/** The seed meter turns to the warning colour from this share of its limit (DESIGN.md, status colour). */
+const SEED_WARN_SHARE = 0.8;
 
 /** The seed: what it holds now, its latest rebuild, the list for the next one and its size limit. */
 export function SeedCard({ data }: { data: DockerAdminResponse }) {
@@ -124,9 +133,15 @@ function CurrentSeed({ data }: { data: DockerAdminResponse }) {
 			{seed ? (
 				<>
 					<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
-						<dt className="pk-muted">Size</dt>
+						<dt className="pk-muted">Size on disk</dt>
 						<dd className="m-0" data-testid="docker-seed-size">
-							{formatBytes(seed.sizeBytes)}
+							<Meter
+								label="Seed size"
+								value={seed.sizeBytes}
+								max={data.seedMaxGiB * 1024 ** 3}
+								high={data.seedMaxGiB * 1024 ** 3 * SEED_WARN_SHARE}
+								valueText={seedUseText(seed.sizeBytes, data.seedMaxGiB)}
+							/>
 						</dd>
 						<dt className="pk-muted">Built</dt>
 						<dd className="m-0">{longTime(seed.builtAt)}</dd>
@@ -134,20 +149,13 @@ function CurrentSeed({ data }: { data: DockerAdminResponse }) {
 						<dd className="m-0" data-testid="docker-seed-image-version">
 							{seed.imageVersion}
 						</dd>
-						<dt className="pk-muted">Images</dt>
-						<dd className="m-0">
-							<ul
-								className="m-0 grid list-none gap-1 p-0 font-mono"
-								data-testid="docker-seed-images"
-							>
-								{seed.images.map((name) => (
-									<li key={name} className="[overflow-wrap:anywhere]">
-										{name}
-									</li>
-								))}
-							</ul>
-						</dd>
 					</dl>
+					<ImageTable
+						caption="Images in the current seed"
+						testId="docker-seed-images"
+						names={seed.images}
+						sizes={data.imageSizes}
+					/>
 					{defaultVersion && defaultVersion !== seed.imageVersion ? (
 						<Notice tone="warning" testId="docker-seed-stale">
 							The default workspace image is now {defaultVersion}. Rebuild the seed so
@@ -292,18 +300,16 @@ function ImageList({
 			{list.length === 0 ? (
 				<p className="pk-muted m-0 text-[13px]">No images yet.</p>
 			) : (
-				<ul
-					className="m-0 grid list-none divide-y divide-line border-line border-y p-0"
-					data-testid="docker-seed-list"
-				>
-					{list.map((name) => (
-						<li
-							key={name}
-							className="flex min-h-[var(--pk-row)] items-center gap-3 py-1"
-						>
-							<span className="min-w-0 flex-1 font-mono text-[13px] [overflow-wrap:anywhere]">
-								{name}
-							</span>
+				<>
+					<p className="pk-muted m-0 text-[13px]" data-testid="docker-seed-list-size">
+						{listSizeText(list, data.imageSizes, data.seedMaxGiB)}
+					</p>
+					<ImageTable
+						caption="Images for the next rebuild"
+						testId="docker-seed-list"
+						names={list}
+						sizes={data.imageSizes}
+						action={(name) => (
 							<Button
 								size="sm"
 								variant="quiet"
@@ -313,9 +319,9 @@ function ImageList({
 							>
 								Remove
 							</Button>
-						</li>
-					))}
-				</ul>
+						)}
+					/>
+				</>
 			)}
 			<form className="flex flex-wrap items-start gap-3" onSubmit={add} noValidate>
 				<TextField
@@ -347,6 +353,58 @@ function ImageList({
 				</Button>
 			</form>
 		</section>
+	);
+}
+
+/** Seed image names with their download sizes, and an optional action per row. */
+function ImageTable({
+	caption,
+	testId,
+	names,
+	sizes,
+	action,
+}: {
+	caption: string;
+	testId: string;
+	names: readonly string[];
+	sizes: Record<string, number>;
+	action?: (name: string) => ReactNode;
+}) {
+	return (
+		<div className="pk-table-wrap">
+			<table className="pk-table" data-testid={testId}>
+				<caption className="sr-only">{caption}</caption>
+				<thead>
+					<tr>
+						<th scope="col">Image</th>
+						<th scope="col" className="pk-num">
+							Download size
+						</th>
+						{action ? (
+							<th scope="col">
+								<span className="sr-only">Actions</span>
+							</th>
+						) : null}
+					</tr>
+				</thead>
+				<tbody>
+					{names.map((name) => (
+						<tr key={name}>
+							<th
+								scope="row"
+								className="whitespace-normal font-mono [overflow-wrap:anywhere]"
+							>
+								{name}
+							</th>
+							<td className="pk-num">
+								<DownloadSize bytes={downloadSize(sizes, name)} />
+							</td>
+							{action ? <td className="pk-cell-actions">{action(name)}</td> : null}
+						</tr>
+					))}
+				</tbody>
+			</table>
+		</div>
 	);
 }
 

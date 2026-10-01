@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { AgentDockerInventory } from "@portikus/contracts";
+import { type AgentDockerInventory, USAGE_WINDOW_DAYS } from "@portikus/contracts";
 import {
 	createTestDb,
 	hasTestDb,
@@ -16,6 +16,7 @@ import {
 	inventoryImageName,
 	presenceRows,
 	pruneDockerUsage,
+	USAGE_RETENTION_DAYS,
 } from "./docker-usage.js";
 
 const id = (c: string) => `sha256:${c.repeat(64)}`;
@@ -56,6 +57,13 @@ function inventory(over: Partial<AgentDockerInventory> = {}): AgentDockerInvento
 
 test("each running workspace's images are read every hour, so short sessions are seen", () => {
 	expect(INVENTORY_SECONDS).toBe(60 * 60);
+});
+
+test("usage rows are kept at least as long as the report looks back (issue #934)", () => {
+	// The window counts today, so its oldest day starts USAGE_WINDOW_DAYS - 1 days
+	// before today's midnight; a full USAGE_WINDOW_DAYS of retention covers it.
+	expect(USAGE_RETENTION_DAYS).toBeGreaterThanOrEqual(USAGE_WINDOW_DAYS);
+	expect(USAGE_WINDOW_DAYS).toBe(120);
 });
 
 describe("inventoryImageName", () => {
@@ -290,11 +298,11 @@ describe.skipIf(skip)("inventory poll and retention", () => {
 		]);
 	});
 
-	test("retention deletes usage rows and finished jobs older than 90 days", async () => {
+	test("retention deletes usage rows and finished jobs older than 120 days", async () => {
 		const ws = await workspace("10.200.0.12");
 		const now = new Date("2026-09-30T00:00:00Z");
-		const old = new Date(now.getTime() - 91 * 86_400_000).toISOString();
-		const recent = new Date(now.getTime() - 89 * 86_400_000).toISOString();
+		const old = new Date(now.getTime() - 121 * 86_400_000).toISOString();
+		const recent = new Date(now.getTime() - 119 * 86_400_000).toISOString();
 		await tdb.db
 			.insertInto("docker_image_pulls")
 			.values([
@@ -348,5 +356,26 @@ describe.skipIf(skip)("inventory poll and retention", () => {
 		expect(
 			await tdb.db.selectFrom("docker_seed_jobs").select("id").execute(),
 		).toHaveLength(1);
+	});
+
+	test("a pull on the report's oldest day survives the prune, however late today is", async () => {
+		const ws = await workspace("10.200.0.13");
+		const now = new Date("2026-09-30T23:59:59.999Z");
+		// Midnight UTC at the start of the report's oldest day (admin-docker.ts usageWindowStart).
+		const start = new Date(Date.UTC(2026, 8, 30 - (USAGE_WINDOW_DAYS - 1)));
+		await tdb.db
+			.insertInto("docker_image_pulls")
+			.values({
+				image: "edge",
+				workspace_id: ws,
+				day: start.toISOString().slice(0, 10),
+				pulls: 1,
+				last_seen: start.toISOString(),
+			})
+			.execute();
+		await pruneDockerUsage(tdb.db, now);
+		expect(
+			await tdb.db.selectFrom("docker_image_pulls").select("image").execute(),
+		).toEqual([{ image: "edge" }]);
 	});
 });

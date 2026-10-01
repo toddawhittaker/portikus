@@ -5,6 +5,7 @@ import { requireRole, requireUser } from "@portikus/auth";
 import {
 	canonicalImageName,
 	type DockerAdminResponse,
+	type DockerCacheStatus,
 	type DockerImageUsage,
 	DockerSettingsRequest,
 	type DockerUsageResponse,
@@ -19,6 +20,7 @@ import {
 	SeedJobState,
 	seedImageListFor,
 	USAGE_ROWS_MAX,
+	USAGE_WINDOW_DAYS,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -33,8 +35,6 @@ function notReady(reply: FastifyReply): void {
 	sendError(reply, 404, "NOT_FOUND", "Platform settings are not set yet");
 }
 
-/** The usage report's window (issue #840). */
-export const USAGE_WINDOW_DAYS = 30;
 const SEED_JOBS_SHOWN = 10;
 
 interface DockerSettings {
@@ -55,6 +55,26 @@ async function readSettings(db: Kysely<Database>): Promise<DockerSettings> {
 		seedMaxGiB: row?.docker_seed_max_gib ?? 8,
 		seedImages: SeedImageList.safeParse(row?.docker_seed_images).data ?? [],
 	};
+}
+
+type ImageSizes = NonNullable<RegistryStatusFile["imageSizes"]>;
+
+/** The page's view of the status: everything but the size list (issue #931). */
+function cacheView(status: RegistryStatusFile | null): DockerCacheStatus | null {
+	if (!status) return null;
+	const { imageSizes: _sizes, ...cache } = status;
+	return cache;
+}
+
+/** Download sizes of the named images, keyed as the page looks them up. */
+function sizesOf(names: string[], sizes: ImageSizes): Record<string, number> {
+	const out: Record<string, number> = {};
+	for (const name of names) {
+		const key = canonicalImageName(name);
+		const entry = sizes[key];
+		if (entry) out[key] = entry.bytes;
+	}
+	return out;
 }
 
 async function readStatus(file: string): Promise<RegistryStatusFile | null> {
@@ -166,14 +186,19 @@ export function registerAdminDockerRoutes(
 	app.get("/admin/docker", adminOnly, async (_request, reply) => {
 		if (off(reply) || !jobsDir) return;
 		const settings = await readSettings(db);
-		const cache = await readStatus(join(jobsDir, "status.json"));
+		const status = await readStatus(join(jobsDir, "status.json"));
+		const seed = await readSeed(db);
 		const out: DockerAdminResponse = {
-			cache,
+			cache: cacheView(status),
 			ghcrEnabled: settings.ghcrEnabled,
 			seedMaxGiB: settings.seedMaxGiB,
-			hubCredential: { isSet: cache?.hubCredentialSet ?? false },
+			hubCredential: { isSet: status?.hubCredentialSet ?? false },
 			seedImages: settings.seedImages,
-			seed: await readSeed(db),
+			seed,
+			imageSizes: sizesOf(
+				[...settings.seedImages, ...(seed?.images ?? [])],
+				status?.imageSizes ?? {},
+			),
 		};
 		return reply.header("cache-control", "no-store").send(out);
 	});
@@ -257,6 +282,16 @@ export function registerAdminDockerRoutes(
 	app.post("/admin/docker/cache/clear", adminOnly, async (request, reply) => {
 		if (off(reply) || !jobsDir) return;
 		const admin = requireUser(request);
+		// The helper would do nothing and the page would say it cleared (issue #931).
+		// No cache, so nothing to clear: 404 rather than a new error code.
+		if ((await readStatus(join(jobsDir, "status.json")))?.cacheOff) {
+			return sendError(
+				reply,
+				404,
+				"NOT_FOUND",
+				"The pull cache is off, so there is nothing to clear.",
+			);
+		}
 		const id = await writeRegistryRequest(jobsDir, admin.id, { kind: "clear" });
 		await audit(admin.id, "docker.cache_clear_requested", { requestId: id });
 		return reply.status(202).send();
@@ -363,11 +398,27 @@ export function registerAdminDockerRoutes(
 	});
 
 	app.get("/admin/docker/usage", adminOnly, async (_request, reply) => {
-		if (off(reply)) return;
+		if (off(reply) || !jobsDir) return;
+		const status = await readStatus(join(jobsDir, "status.json"));
 		return reply
 			.header("cache-control", "no-store")
-			.send(await usageReport(db, new Date()));
+			.send(await usageReport(db, new Date(), status?.imageSizes));
 	});
+}
+
+/**
+ * The first moment of the usage window: midnight UTC at the start of the
+ * oldest of USAGE_WINDOW_DAYS calendar days, today included. Pulls are kept
+ * by UTC day, so a cut-off mid-day would count one day more (issue #934).
+ */
+export function usageWindowStart(now: Date): Date {
+	return new Date(
+		Date.UTC(
+			now.getUTCFullYear(),
+			now.getUTCMonth(),
+			now.getUTCDate() - (USAGE_WINDOW_DAYS - 1),
+		),
+	);
 }
 
 /**
@@ -379,8 +430,9 @@ export function registerAdminDockerRoutes(
 export async function usageReport(
 	db: Kysely<Database>,
 	now: Date,
+	sizes: ImageSizes = {},
 ): Promise<DockerUsageResponse> {
-	const since = new Date(now.getTime() - USAGE_WINDOW_DAYS * 86_400_000);
+	const since = usageWindowStart(now);
 	const sinceDay = since.toISOString().slice(0, 10);
 	const seed = await readSeed(db);
 	const seedNames = new Set((seed?.images ?? []).map(canonicalImageName));
@@ -430,6 +482,8 @@ export async function usageReport(
 		pulls: t.pulls,
 		workspaces: t.workspaces.size,
 		lastSeen: t.lastSeen?.toISOString() ?? null,
+		// Names here are canonical already; other registries' names are never in the cache.
+		downloadBytes: sizes[image]?.bytes ?? null,
 	});
 	const byUse = (a: DockerImageUsage, b: DockerImageUsage): number =>
 		b.workspaces - a.workspaces ||

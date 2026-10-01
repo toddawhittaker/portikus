@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { AdminGroup } from "../AdminSection.js";
 import { errorText } from "../SettingsTab.js";
 import { shortTime } from "../shortTime.js";
+import { DownloadSize } from "./DownloadSize.js";
 import { useDockerUsage, useSaveSeedImages } from "./queries.js";
 import { addRefusal, listHas, shortImageName, shownText } from "./text.js";
 
@@ -67,7 +68,8 @@ export function UsageCard({ data }: { data: DockerAdminResponse }) {
 			) : (
 				<>
 					<p className="pk-muted m-0 text-[13px]" data-testid="docker-usage-window">
-						Over the last {usage.data.windowDays} days.
+						Over the last {usage.data.windowDays} days. Download sizes come from the
+						pull cache; a dash means it has not held the image.
 					</p>
 					<section className="grid gap-2" aria-labelledby="docker-usage-extra-title">
 						<h4 className={SUB_HEADING} id="docker-usage-extra-title" tabIndex={-1}>
@@ -187,6 +189,9 @@ function UsageTable({
 					<thead>
 						<tr>
 							<th scope="col">Image</th>
+							<th scope="col" className="pk-num">
+								Download size
+							</th>
 							{pulls ? <th scope="col">Pulls</th> : null}
 							<th scope="col">Workspaces</th>
 							<th scope="col">Last seen</th>
@@ -198,9 +203,15 @@ function UsageTable({
 					<tbody>
 						{rows.map((row) => (
 							<tr key={row.image}>
-								<th scope="row" className="font-mono [overflow-wrap:anywhere]">
+								<th
+									scope="row"
+									className="whitespace-normal font-mono [overflow-wrap:anywhere]"
+								>
 									{shortImageName(row.image)}
 								</th>
+								<td className="pk-num">
+									<DownloadSize bytes={row.downloadBytes} />
+								</td>
 								{pulls ? <td>{row.pulls}</td> : null}
 								<td>{row.workspaces}</td>
 								<td>{row.lastSeen ? shortTime(row.lastSeen) : "Never"}</td>

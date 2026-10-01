@@ -22,12 +22,13 @@ import {
 	SeedJob,
 	SeedJobsResponse,
 	USAGE_ROWS_MAX,
+	USAGE_WINDOW_DAYS,
 } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
-import { usageReport } from "./admin-docker.js";
+import { usageReport, usageWindowStart } from "./admin-docker.js";
 
 const skip = !hasTestDb();
 const TOKEN = "dckr_pat_SECRET-token-123";
@@ -152,6 +153,7 @@ describe.skipIf(skip)("GET /admin/docker", () => {
 			hubCredential: { isSet: false },
 			seedImages: [],
 			seed: null,
+			imageSizes: {},
 		});
 	});
 
@@ -197,6 +199,93 @@ describe.skipIf(skip)("GET /admin/docker", () => {
 		const again = (await send(carol, "GET", "/admin/docker")).json();
 		expect(again.cache).toBeNull();
 		expect(again.hubCredential).toEqual({ isSet: false });
+	});
+});
+
+describe.skipIf(skip)("sizes and the cache-off line (issue #931)", () => {
+	const SIZES = {
+		"docker.io/library/python:3.12": {
+			bytes: 50_000_000,
+			seenAt: "2026-09-30T10:00:00.000Z",
+		},
+		"docker.io/library/redis:7": {
+			bytes: 40_000_000,
+			seenAt: "2026-09-30T10:00:00.000Z",
+		},
+		"ghcr.io/owner/tool:1": { bytes: 7, seenAt: "2026-09-30T10:00:00.000Z" },
+	};
+
+	test("the page gets the sizes of its seed and list images only, and never the whole list", async () => {
+		await writeFile(
+			join(jobsDir, "status.json"),
+			JSON.stringify(status({ imageSizes: SIZES, cacheOff: null })),
+		);
+		await testDb.db
+			.updateTable("settings")
+			.set({ docker_seed_images: JSON.stringify(["python:3.12", "node:22"]) })
+			.where("id", "=", 1)
+			.execute();
+		const res = await send(carol, "GET", "/admin/docker");
+		const body = DockerAdminResponse.parse(res.json());
+		expect(body.imageSizes).toEqual({ "docker.io/library/python:3.12": 50_000_000 });
+		expect(body.cache).toEqual(status({ cacheOff: null }));
+		expect(res.body).not.toContain("redis");
+	});
+
+	test("the cache-off reason reaches the page, and Clear cache is refused", async () => {
+		const reason = "When setup last ran, the main disk had 9.5 GiB free.";
+		await writeFile(
+			join(jobsDir, "status.json"),
+			JSON.stringify(
+				status({ cacheOff: reason, hubUp: false, sizeBytes: 0, usedBytes: 0 }),
+			),
+		);
+		const body = DockerAdminResponse.parse(
+			(await send(carol, "GET", "/admin/docker")).json(),
+		);
+		expect(body.cache?.cacheOff).toBe(reason);
+		const res = await send(carol, "POST", "/admin/docker/cache/clear");
+		expect(res.statusCode).toBe(404);
+		expect(res.json().message).toBe(
+			"The pull cache is off, so there is nothing to clear.",
+		);
+		expect(await requests()).toEqual([]);
+		expect(await dockerAudits()).toEqual([]);
+	});
+
+	test("usage rows carry their download size, or null", async () => {
+		const user = await testDb.db
+			.selectFrom("users")
+			.select("id")
+			.executeTakeFirstOrThrow();
+		const ws = await testDb.db
+			.insertInto("workspaces")
+			.values({ owner_user_id: user.id, label: "ws-s", state: "running" })
+			.returning("id")
+			.executeTakeFirstOrThrow();
+		await testDb.db
+			.insertInto("docker_image_presence")
+			.values([
+				{
+					workspace_id: ws.id,
+					image: "docker.io/library/redis:7",
+					in_seed: false,
+					used: true,
+				},
+				{ workspace_id: ws.id, image: "quay.io/x/y:1", in_seed: false, used: true },
+			])
+			.execute();
+		await writeFile(
+			join(jobsDir, "status.json"),
+			JSON.stringify(status({ imageSizes: SIZES })),
+		);
+		const body = DockerUsageResponse.parse(
+			(await send(carol, "GET", "/admin/docker/usage")).json(),
+		);
+		expect(body.notInSeed.map((u) => [u.image, u.downloadBytes])).toEqual([
+			["docker.io/library/redis:7", 40_000_000],
+			["quay.io/x/y:1", null],
+		]);
 	});
 });
 
@@ -454,7 +543,7 @@ describe.skipIf(skip)("GET /admin/docker/usage (ruling S7)", () => {
 		const b = await workspace("ws-b", 1);
 		const now = new Date();
 		const recent = new Date(now.getTime() - 86_400_000).toISOString();
-		const old = new Date(now.getTime() - 40 * 86_400_000).toISOString();
+		const old = new Date(now.getTime() - 130 * 86_400_000).toISOString();
 		const recentDay = recent.slice(0, 10);
 		const oldDay = old.slice(0, 10);
 		await testDb.db
@@ -538,7 +627,7 @@ describe.skipIf(skip)("GET /admin/docker/usage (ruling S7)", () => {
 		const res = await send(carol, "GET", "/admin/docker/usage");
 		expect(res.statusCode).toBe(200);
 		const body = DockerUsageResponse.parse(res.json());
-		expect(body.windowDays).toBe(30);
+		expect(body.windowDays).toBe(120);
 		expect(body.notInSeed.map((u) => [u.image, u.pulls, u.workspaces])).toEqual([
 			["docker.io/library/redis:7", 4, 2],
 			[OTHER_IMAGES_LABEL, 5, 1],
@@ -554,9 +643,62 @@ describe.skipIf(skip)("GET /admin/docker/usage (ruling S7)", () => {
 		expect(res.body).not.toContain(b);
 	});
 
+	test("the window is 120 calendar days, today included (issue #934)", async () => {
+		const ws = await workspace("ws-edge", 0);
+		const now = new Date("2026-09-30T15:30:00.000Z");
+		const start = usageWindowStart(now);
+		expect(start.toISOString()).toBe("2026-06-03T00:00:00.000Z");
+		// 2026-06-03 to 2026-09-30 inclusive: 28 + 31 + 31 + 30 days.
+		expect(28 + 31 + 31 + 30).toBe(USAGE_WINDOW_DAYS);
+		const dayBefore = new Date(start.getTime() - 1);
+		await testDb.db
+			.insertInto("docker_image_pulls")
+			.values([
+				{
+					image: "docker.io/library/first:1",
+					workspace_id: ws,
+					day: "2026-06-03",
+					pulls: 1,
+					last_seen: start.toISOString(),
+				},
+				{
+					image: "docker.io/library/before:1",
+					workspace_id: ws,
+					day: "2026-06-02",
+					pulls: 1,
+					last_seen: dayBefore.toISOString(),
+				},
+			])
+			.execute();
+		await testDb.db
+			.insertInto("docker_image_presence")
+			.values([
+				{
+					workspace_id: ws,
+					image: "docker.io/library/seenfirst:1",
+					in_seed: false,
+					used: true,
+					sampled_at: start.toISOString(),
+				},
+				{
+					workspace_id: ws,
+					image: "docker.io/library/seenbefore:1",
+					in_seed: false,
+					used: true,
+					sampled_at: dayBefore.toISOString(),
+				},
+			])
+			.execute();
+		const body = await usageReport(testDb.db, now);
+		expect(body.notInSeed.map((u) => u.image).sort()).toEqual([
+			"docker.io/library/first:1",
+			"docker.io/library/seenfirst:1",
+		]);
+	});
+
 	test("with no seed nothing is unused, and the report is empty", async () => {
 		expect(await usageReport(testDb.db, new Date())).toEqual({
-			windowDays: 30,
+			windowDays: 120,
 			notInSeed: [],
 			notInSeedTotal: 0,
 			unusedSeed: [],

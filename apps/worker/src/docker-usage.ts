@@ -12,8 +12,11 @@ import { fetchDockerInventory } from "./agent-client.js";
 
 /** How often every running workspace's Docker images are read (issue #840). */
 export const INVENTORY_SECONDS = 60 * 60;
-/** Usage rows older than this are deleted, once a day. */
-export const USAGE_RETENTION_DAYS = 90;
+/**
+ * Usage rows older than this are deleted, once a day. Never shorter than the
+ * report's USAGE_WINDOW_DAYS, or the report would miss its oldest days (issue #934).
+ */
+export const USAGE_RETENTION_DAYS = 120;
 const RETENTION_SECONDS = 24 * 60 * 60;
 const INSERT_CHUNK = 1000;
 

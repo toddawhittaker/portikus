@@ -10,10 +10,12 @@ import {
 	DockerAdminResponse,
 	DockerSettingsRequest,
 	HubCredentialRequest,
+	IMAGE_SIZES_MAX,
 	INVENTORY_IMAGES_MAX,
 	isImageReference,
 	RegistryEventEnvelope,
 	RegistryJobRequestFile,
+	RegistryStatusFile,
 	registryEventWorkspaceIp,
 	SEED_IMAGES_MAX,
 	SEED_MAX_GIB_LIMIT,
@@ -188,12 +190,55 @@ describe("DockerAdminResponse", () => {
 		hubCredential: { isSet: true },
 		seedImages: ["node:22"],
 		seed: null,
+		imageSizes: {},
 	};
 
 	test("carries only whether a credential is set", () => {
 		expect(DockerAdminResponse.safeParse(answer).success).toBe(true);
 		const leaky = { ...answer, hubCredential: { isSet: true, username: "portikus" } };
 		expect(DockerAdminResponse.safeParse(leaky).success).toBe(false);
+	});
+});
+
+describe("RegistryStatusFile", () => {
+	const status = {
+		sizeBytes: 1,
+		usedBytes: 0,
+		hubUp: true,
+		ghcrEnabled: false,
+		ghcrUp: false,
+		hubCredentialSet: false,
+		lastClearedAt: null,
+		lastClearReason: null,
+		updatedAt: "2026-09-30T10:00:00.000Z",
+	};
+	const seenAt = "2026-09-30T10:00:00.000Z";
+
+	test("a status from before issue #931 still reads", () => {
+		expect(RegistryStatusFile.safeParse(status).success).toBe(true);
+	});
+
+	test("takes the cache-off reason and the download sizes, capped", () => {
+		const sizes = (n: number) =>
+			Object.fromEntries(
+				Array.from({ length: n }, (_, i) => [
+					`docker.io/library/i${i}:1`,
+					{ bytes: i, seenAt },
+				]),
+			);
+		const full = {
+			...status,
+			cacheOff: "No room.",
+			imageSizes: sizes(IMAGE_SIZES_MAX),
+		};
+		expect(RegistryStatusFile.safeParse(full).success).toBe(true);
+		const over = { ...status, imageSizes: sizes(IMAGE_SIZES_MAX + 1) };
+		expect(RegistryStatusFile.safeParse(over).success).toBe(false);
+		const negative = {
+			...status,
+			imageSizes: { "docker.io/library/a:1": { bytes: -1, seenAt } },
+		};
+		expect(RegistryStatusFile.safeParse(negative).success).toBe(false);
 	});
 });
 

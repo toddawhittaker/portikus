@@ -8,6 +8,7 @@ import {
 	query,
 	settledAxe,
 	WCAG_TAGS,
+	WEB_ORIGIN,
 } from "./helpers";
 import {
 	registryRequests,
@@ -105,7 +106,11 @@ test("the cache's space and last clear show, and Clear cache asks before it send
 		lastClearReason: "full",
 	});
 	await open(page);
-	await expect(page.getByTestId("docker-cache-use")).toHaveText(
+	await expect(page.getByRole("meter", { name: "Pull cache space" })).toHaveAttribute(
+		"aria-valuetext",
+		"3.0 GB of 20.0 GB used",
+	);
+	await expect(page.getByTestId("docker-cache-space")).toContainText(
 		"3.0 GB of 20.0 GB used",
 	);
 	await expect(page.getByTestId("docker-cache-hub")).toHaveText("Answering");
@@ -361,10 +366,12 @@ test("Rebuild seed shows its progress, then the new seed", async ({ page }) => {
 		[job?.id],
 	);
 	await expect(state).toContainText("Finished");
-	await expect(page.getByTestId("docker-seed-size")).toHaveText("2.0 GB");
+	await expect(page.getByTestId("docker-seed-size")).toHaveText(
+		"2.0 GB of the 8.0 GB limit",
+	);
 	await expect(page.getByTestId("docker-seed-image-version")).toHaveText("2026.09.12");
-	await expect(page.getByTestId("docker-seed-images")).toHaveText(
-		/python:3\.12\s*node:22/,
+	await expect(page.getByTestId("docker-seed-images")).toContainText(
+		/python:3\.12.*node:22/,
 	);
 	await expect(page.getByTestId("docker-seed-rebuild")).not.toHaveAttribute(
 		"aria-disabled",
@@ -414,8 +421,9 @@ test("image use lists outside and unused images, with add and remove", async ({
 
 	const extra = page.getByTestId("docker-usage-extra");
 	const redis = extra.getByRole("row", { name: /redis:7/ });
-	await expect(redis.getByRole("cell").nth(0)).toHaveText("4");
-	await expect(redis.getByRole("cell").nth(1)).toHaveText("2");
+	// Download size, pulls, workspaces.
+	await expect(redis.getByRole("cell").nth(1)).toHaveText("4");
+	await expect(redis.getByRole("cell").nth(2)).toHaveText("2");
 	await redis.getByRole("button", { name: "Add to seed: redis:7" }).click();
 	await expect(redis).toContainText("In the next rebuild");
 	// The pressed button is gone; focus stays on the table's heading.
@@ -426,7 +434,7 @@ test("image use lists outside and unused images, with add and remove", async ({
 
 	const unused = page.getByTestId("docker-usage-unused");
 	const node = unused.getByRole("row", { name: /node:22/ });
-	await expect(node.getByRole("cell").nth(0)).toHaveText("1");
+	await expect(node.getByRole("cell").nth(1)).toHaveText("1");
 	await node.getByRole("button", { name: "Remove from seed: node:22" }).click();
 	await expect(node).toContainText("Not in the next rebuild");
 	await expect(
@@ -497,6 +505,137 @@ test("the tab says it is off when the server has no cache", async ({ page }) => 
 	);
 });
 
+const MB = 1024 ** 2;
+const SEEN = new Date().toISOString();
+/** Download sizes as the helper records them; node:22 was never in the cache. */
+const SIZES = {
+	"docker.io/library/python:3.12": { bytes: 60 * MB, seenAt: SEEN },
+	"docker.io/library/redis:7": { bytes: 40 * MB, seenAt: SEEN },
+};
+const OFF_REASON =
+	"When setup last ran, the main disk had 9.5 GiB free, and setup keeps 10 GiB of it free, so not even a 1 GiB cache fits.";
+
+/** A seed, a list one image longer, and one workspace that pulled redis:7 and left node:22 unused. */
+async function sizedTab() {
+	await writeRegistryStatus({ imageSizes: SIZES });
+	const ws = await makeWorkspace();
+	await setSeedList(["python:3.12", "node:22", "redis:7"]);
+	await putSeed(["python:3.12", "node:22"]);
+	await query(
+		"insert into docker_image_pulls (image, workspace_id, day, pulls) values ('docker.io/library/redis:7', $1, current_date, 2), ('docker.io/library/mysql:8', $1, current_date, 1)",
+		[ws],
+	);
+	await query(
+		"insert into docker_image_presence (workspace_id, image, in_seed, used) values ($1, 'docker.io/library/node:22', true, false)",
+		[ws],
+	);
+}
+
+test("every image row shows its download size or a dash, and the report covers 120 days", async ({
+	page,
+}) => {
+	await sizedTab();
+	await open(page);
+	const size = (table: string, image: RegExp) =>
+		page.getByTestId(table).getByRole("row", { name: image }).getByRole("cell").first();
+
+	await expect(size("docker-seed-images", /python:3\.12/)).toHaveText("60.0 MB");
+	await expect(size("docker-seed-images", /node:22/)).toHaveText("—Not known");
+	await expect(size("docker-seed-list", /redis:7/)).toHaveText("40.0 MB");
+	await expect(size("docker-seed-list", /node:22/)).toHaveText("—Not known");
+	await expect(page.getByTestId("docker-seed-list-size")).toHaveText(
+		"These images download as 100 MB, not counting 1 image the pull cache has not held. The limit of 8.0 GB counts the unpacked images, which take more space than their download.",
+	);
+	// An image added before a rebuild shows its size straight away.
+	await page
+		.getByTestId("docker-seed")
+		.getByLabel("Image", { exact: true })
+		.fill("mysql:8");
+	await page.getByRole("button", { name: "Add image" }).click();
+	await expect(size("docker-seed-list", /mysql:8/)).toHaveText("—Not known");
+
+	await expect(size("docker-usage-extra", /mysql:8/)).toHaveText("—Not known");
+	await expect(size("docker-usage-unused", /node:22/)).toHaveText("—Not known");
+	await expect(page.getByTestId("docker-usage-window")).toContainText(
+		"Over the last 120 days.",
+	);
+});
+
+test("the cache and seed meters show their fill, the 90 percent mark, and follow changes", async ({
+	page,
+}) => {
+	await writeRegistryStatus({ usedBytes: 5 * 1024 ** 3 });
+	await setSeedList(["python:3.12"]);
+	await putSeed(["python:3.12"]);
+	await open(page);
+	const cache = page.getByRole("meter", { name: "Pull cache space" });
+	await expect(cache).toHaveJSProperty("value", 5 * 1024 ** 3);
+	await expect(cache).toHaveJSProperty("max", 20 * 1024 ** 3);
+	const space = page.getByTestId("docker-cache-space");
+	await expect(space).toContainText("5.0 GB of 20.0 GB used");
+	await expect(space).toContainText("The line marks 90 percent");
+	// The tick sits nine tenths along the bar.
+	const bar = await cache.boundingBox();
+	const tick = await space.locator(".pk-meter-mark").boundingBox();
+	expect(bar && tick).toBeTruthy();
+	if (bar && tick) {
+		const at = (tick.x + tick.width / 2 - bar.x) / bar.width;
+		expect(at).toBeGreaterThan(0.88);
+		expect(at).toBeLessThan(0.92);
+	}
+	const seed = page.getByRole("meter", { name: "Seed size" });
+	await expect(seed).toHaveJSProperty("value", 2 * 1024 ** 3);
+	await expect(seed).toHaveJSProperty("max", 8 * 1024 ** 3);
+	await expect(page.getByTestId("docker-seed-size")).toHaveText(
+		"2.0 GB of the 8.0 GB limit",
+	);
+
+	await writeRegistryStatus({ usedBytes: 12 * 1024 ** 3 });
+	await query("update settings set docker_seed_max_gib = 4 where id = 1");
+	await page.reload();
+	await expect(cache).toHaveJSProperty("value", 12 * 1024 ** 3);
+	await expect(seed).toHaveJSProperty("max", 4 * 1024 ** 3);
+	await expect(page.getByTestId("docker-seed-size")).toHaveText(
+		"2.0 GB of the 4.0 GB limit",
+	);
+});
+
+test("when setup turned the cache off, the tab says why and Clear cache claims nothing", async ({
+	page,
+}) => {
+	await writeRegistryStatus({
+		cacheOff: OFF_REASON,
+		sizeBytes: 0,
+		usedBytes: 0,
+		hubUp: false,
+	});
+	await open(page);
+	const line = page.getByTestId("docker-cache-off");
+	await expect(line).toContainText("Setup turned the pull cache off");
+	await expect(line).toContainText(OFF_REASON);
+	await expect(line).toContainText("sudo dpkg-reconfigure portikus");
+	await expect(page.getByRole("meter", { name: "Pull cache space" })).toHaveCount(0);
+	await expect(page.getByTestId("docker-ghcr-state")).toHaveText(
+		"The pull cache is off, so workspaces reach ghcr.io directly.",
+	);
+
+	const clear = page.getByRole("button", { name: "Clear cache…" });
+	await expect(clear).toHaveAttribute("aria-disabled", "true");
+	await expect(clear).toHaveAccessibleDescription(/Setup turned the pull cache off/);
+	// Still focusable (SPEC.md 25.8), so a keyboard press must do nothing.
+	await clear.focus();
+	await page.keyboard.press("Enter");
+	await expect(page.getByTestId("docker-cache-clear-dialog")).toHaveCount(0);
+	expect(await registryRequests()).toEqual([]);
+
+	// A stale page that still sends a clear is refused, with nothing written.
+	const res = await page.request.post("/admin/docker/cache/clear", {
+		headers: { origin: WEB_ORIGIN },
+	});
+	expect(res.status()).toBe(404);
+	expect(await registryRequests()).toEqual([]);
+});
+
 async function expectNoViolations(page: Page) {
 	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
@@ -511,6 +650,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			ghcrEnabled: false,
 			lastClearedAt: "2026-09-29T10:00:00.000Z",
 			lastClearReason: "admin",
+			imageSizes: SIZES,
 		});
 		const ws = await makeWorkspace();
 		await setSeedList(["python:3.12", "node:22", "ghcr.io/owner/tool:1"]);
@@ -532,6 +672,9 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("docker-seed-job-state")).toContainText("Pulling");
 		await expect(page.getByTestId("docker-usage-extra")).toBeVisible();
 		await expect(page.getByTestId("docker-seed-list-error")).toBeVisible();
+		await expect(page.getByRole("meter", { name: "Pull cache space" })).toBeVisible();
+		await expect(page.getByRole("meter", { name: "Seed size" })).toBeVisible();
+		await expect(page.getByTestId("docker-seed-images")).toContainText("60.0 MB");
 		await expectNoViolations(page);
 
 		const tip = page.getByRole("button", { name: "About the seed" });
@@ -571,5 +714,31 @@ for (const colorScheme of ["light", "dark"] as const) {
 		).toBeVisible();
 		await expectNoViolations(page);
 		expect(await registryRequests()).toEqual([]);
+	});
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the cache-off line and a nearly full seed have no accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await writeRegistryStatus({
+			cacheOff: OFF_REASON,
+			sizeBytes: 0,
+			usedBytes: 0,
+			hubUp: false,
+		});
+		await setSeedList(["python:3.12"]);
+		// Past the warning share of a 1 GiB limit, so the warning fill is checked too.
+		await query("update settings set docker_seed_max_gib = 1 where id = 1");
+		await query(
+			`insert into docker_seed (id, images, size_bytes, image_version, built_at)
+			 values (1, '["python:3.12"]', $1, '2026.09.9', now())`,
+			[Math.round(0.95 * 1024 ** 3)],
+		);
+		await page.emulateMedia({ colorScheme });
+		await open(page);
+		await expect(page.getByTestId("docker-cache-off")).toBeVisible();
+		await expect(page.getByRole("meter", { name: "Seed size" })).toBeVisible();
+		await expectNoViolations(page);
 	});
 }
