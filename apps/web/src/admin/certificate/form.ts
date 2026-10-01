@@ -9,6 +9,7 @@ import {
 	DNS_PROVIDER_FIELDS,
 	type DnsChallenge,
 	type DnsProvider,
+	isServiceAccountKey,
 	MAX_PEM_LENGTH,
 	MAX_SERVICE_ACCOUNT_JSON,
 	type PreflightCheck,
@@ -275,14 +276,7 @@ export function secretProblem(
 	if (value === "") return stored ? null : `Enter the ${fieldLabel(name)}.`;
 	if (name === "service_account_json") {
 		if (value.length > MAX_SERVICE_ACCOUNT_JSON) return "The key is larger than 16 KB.";
-		try {
-			const parsed: unknown = JSON.parse(value);
-			if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-				return null;
-			}
-		} catch {
-			// Falls through to the message below.
-		}
+		if (isServiceAccountKey(value)) return null;
 		return "Paste the whole JSON key file, from the opening { to the closing }.";
 	}
 	if (/[\r\n]/.test(value)) return "Enter it on one line.";

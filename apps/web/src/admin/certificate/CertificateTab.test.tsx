@@ -585,6 +585,39 @@ test("an upload the API refuses names the failed check, and the key never leaves
 	expect(document.body.textContent).not.toContain("MIIfake");
 });
 
+test("a PEM error after a server refusal replaces the paragraph, so it is announced", async () => {
+	serve(data({ settings: { source: "internal" } }), {
+		post: () =>
+			json(400, {
+				code: "CERTIFICATE_UPLOAD_REFUSED",
+				message:
+					"Site certificate: the key-matches check failed. The private key does not match the certificate.",
+			}),
+	});
+	renderWithQuery(<CertificateTab />);
+	fireEvent.click(await screen.findByTestId("cert-source-files"));
+	choose("Certificate", PEM, "site.crt");
+	choose("Private key", KEY, "site.key");
+	await waitFor(() =>
+		expect(screen.queryByText("Choose the private key file.")).toBeNull(),
+	);
+	fireEvent.click(screen.getByTestId("cert-apply"));
+	const dialog = await screen.findByTestId("cert-apply-confirm");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+	await waitFor(() =>
+		expect(document.getElementById("cert-site-key-err")).not.toBeNull(),
+	);
+	const before = document.getElementById("cert-site-key-err");
+	expect(before?.getAttribute("role")).toBeNull();
+	choose("Private key", "binary DER bytes", "site.der");
+	await waitFor(() =>
+		expect(document.getElementById("cert-site-key-err")?.getAttribute("role")).toBe(
+			"alert",
+		),
+	);
+	expect(document.getElementById("cert-site-key-err")).not.toBe(before);
+});
+
 test("a file that is not PEM is refused where it was chosen", async () => {
 	serve(data({ settings: { source: "internal" } }));
 	renderWithQuery(<CertificateTab />);

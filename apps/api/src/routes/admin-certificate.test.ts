@@ -318,6 +318,17 @@ describe.skipIf(skip)("POST /admin/certificate/jobs", () => {
 		});
 	});
 
+	test("sweeps a stale temp request file before writing, since it may hold secrets", async () => {
+		await mkdir(jobsDir, { recursive: true });
+		await writeFile(join(jobsDir, ".request-stale.tmp"), "{}");
+		const res = await send(carol, "POST", "/admin/certificate/jobs", {
+			kind: "apply",
+			settings: { source: "internal" },
+		});
+		expect(res.statusCode).toBe(202);
+		expect((await readdir(jobsDir)).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+	});
+
 	test("refuses a second job while one waits or runs", async () => {
 		const first = await send(carol, "POST", "/admin/certificate/jobs", {
 			kind: "check",

@@ -183,7 +183,7 @@ const ServiceAccountJson = z
  * A Google service-account key, and nothing Google's library would treat as
  * an instruction to read a local file or fetch a URL as caddy (SPEC.md 24.8).
  */
-function isServiceAccountKey(text: string): boolean {
+export function isServiceAccountKey(text: string): boolean {
 	let value: unknown;
 	try {
 		value = JSON.parse(text);
@@ -192,17 +192,36 @@ function isServiceAccountKey(text: string): boolean {
 	}
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
 	const key = value as Record<string, unknown>;
+	const names = Object.keys(key);
+	// The same check as the root job's _service_account, so the form and the job agree.
+	if (!SERVICE_ACCOUNT_REQUIRED.every((name) => names.includes(name))) return false;
+	if (!names.every((name) => SERVICE_ACCOUNT_KEYS.includes(name))) return false;
+	if (!Object.values(key).every((v) => typeof v === "string")) return false;
+	if (!SERVICE_ACCOUNT_REQUIRED.every((name) => key[name] !== "")) return false;
 	if (key.type !== "service_account") return false;
-	for (const name of ["project_id", "private_key_id", "private_key", "client_email"]) {
-		if (typeof key[name] !== "string" || key[name] === "") return false;
-	}
-	return !Object.keys(key).some(
-		(name) =>
-			name === "credential_source" ||
-			name === "token_url" ||
-			name.startsWith("external_account"),
-	);
+	// Google's library posts a signed assertion to token_uri, so only Google's own.
+	if ((key.token_uri ?? GOOGLE_TOKEN_URI) !== GOOGLE_TOKEN_URI) return false;
+	return (key.universe_domain ?? GOOGLE_UNIVERSE) === GOOGLE_UNIVERSE;
 }
+
+const SERVICE_ACCOUNT_REQUIRED = [
+	"type",
+	"project_id",
+	"private_key_id",
+	"private_key",
+	"client_email",
+];
+const SERVICE_ACCOUNT_KEYS = [
+	...SERVICE_ACCOUNT_REQUIRED,
+	"client_id",
+	"auth_uri",
+	"token_uri",
+	"auth_provider_x509_cert_url",
+	"client_x509_cert_url",
+	"universe_domain",
+];
+const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
+const GOOGLE_UNIVERSE = "googleapis.com";
 
 function providerSchema<P extends DnsProvider>(provider: P) {
 	const fields = DNS_PROVIDER_FIELDS[provider];
@@ -297,6 +316,11 @@ export const CertificateSettings = z.discriminatedUnion("source", [
 export type CertificateSettings = z.infer<typeof CertificateSettings>;
 export type CertificateSource = CertificateSettings["source"];
 
+/**
+ * Job kinds. HTTP-01 tests and applies run in a throwaway Caddy listening on
+ * 127.0.0.1:8796; the live port-80 site block proxies
+ * /.well-known/acme-challenge/* there.
+ */
 export const CertificateJobKind = z.enum([
 	"test",
 	"apply",

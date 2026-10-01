@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
@@ -313,9 +313,15 @@ export function registerAdminCertificateRoutes(
 			};
 			// Owner-only, because it may hold secrets; written aside, then renamed,
 			// so the path unit never reads half a file.
+			await sweepTempRequests(jobsDir);
 			const temp = join(jobsDir, `.request-${id}.tmp`);
-			await writeFile(temp, `${JSON.stringify(file)}\n`, { flag: "wx", mode: 0o600 });
-			await rename(temp, join(jobsDir, `request-${id}.json`));
+			try {
+				await writeFile(temp, `${JSON.stringify(file)}\n`, { flag: "wx", mode: 0o600 });
+				await rename(temp, join(jobsDir, `request-${id}.json`));
+			} catch (err) {
+				await unlink(temp).catch(() => {});
+				throw err;
+			}
 			await db
 				.insertInto("audit_events")
 				.values({
@@ -334,4 +340,17 @@ export function registerAdminCertificateRoutes(
 			writing = false;
 		}
 	});
+}
+
+/**
+ * Remove temp request files a crash left behind; they may hold secrets.
+ * Runs under the write lock, so no write of ours is in flight.
+ */
+export async function sweepTempRequests(jobsDir: string): Promise<void> {
+	const names = await readdir(jobsDir).catch(() => [] as string[]);
+	for (const name of names) {
+		if (name.startsWith(".request-") && name.endsWith(".tmp")) {
+			await unlink(join(jobsDir, name)).catch(() => {});
+		}
+	}
 }

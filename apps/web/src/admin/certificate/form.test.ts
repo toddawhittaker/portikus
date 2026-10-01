@@ -329,6 +329,27 @@ test("secrets are one line, except Google's service account key, which is a JSON
 	expect(secretProblem("service_account_json", "{not json", false)).toMatch(
 		/whole JSON key/,
 	);
+	for (const name of ["project_id", "private_key_id", "private_key", "client_email"]) {
+		const missing: Record<string, unknown> = { ...FAKE_KEY };
+		delete missing[name];
+		expect(
+			secretProblem("service_account_json", JSON.stringify(missing), false),
+		).toMatch(/whole JSON key/);
+		expect(
+			secretProblem(
+				"service_account_json",
+				JSON.stringify({ ...FAKE_KEY, [name]: "" }),
+				false,
+			),
+		).toMatch(/whole JSON key/);
+	}
+	expect(
+		secretProblem(
+			"service_account_json",
+			JSON.stringify({ ...FAKE_KEY, type: "external_account" }),
+			false,
+		),
+	).toMatch(/whole JSON key/);
 	const multiline = JSON.stringify(FAKE_KEY, null, 2);
 	const form = withSecret(
 		withPlain(acme({ provider: "googleclouddns" }), "gcp_project", "fake-project"),

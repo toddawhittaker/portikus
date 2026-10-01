@@ -16,7 +16,8 @@ import { type NonceStore, PREFLIGHT_PATH } from "./preflight.js";
  * - `GET /edge/certificate-ask?domain=<name>`: Caddy's on-demand TLS asks
  *   before issuing a certificate for a preview name (HTTP-01). 200 only for
  *   the site and for `<label>-<port>.<suffix>` where the listening registry
- *   shows that port listening in that running workspace; 404 for anything
+ *   shows that port listening in that running workspace, the listener is
+ *   not a system one, and the workspace is under its hourly cap of new names; 404 for anything
  *   else, so made-up names cannot spend the CA's rate limit. Loopback only.
  * - `GET /.well-known/portikus-preflight/<nonce>`: answers the nonce back
  *   while it is live, which proves to the pre-flight that a name reaches
@@ -25,11 +26,55 @@ import { type NonceStore, PREFLIGHT_PATH } from "./preflight.js";
 export const CERTIFICATE_ASK_PATH = "/edge/certificate-ask";
 const NONCE_ROUTE = `${PREFLIGHT_PATH}:nonce`;
 
+/** Most new preview names one workspace may get approved per rolling hour. */
+export const NEW_NAMES_PER_WORKSPACE_PER_HOUR = 10;
+const WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Caps how many new preview names each workspace can send to the CA, so one
+ * student listening on many ports cannot spend the site's rate limit
+ * (SPEC.md 24). Held in memory: an API restart resets the window, which is
+ * acceptable because the CA's own limits still apply.
+ */
+export class PreviewApprovals {
+	private readonly approved = new Set<string>();
+	private readonly recent = new Map<string, number[]>();
+	private readonly warned = new Map<string, number>();
+
+	constructor(
+		private readonly warn: (workspaceId: string) => void = () => {},
+		private readonly now: () => number = Date.now,
+	) {}
+
+	/** True if `name` was approved before or the workspace still has room this hour. */
+	admit(workspaceId: string, name: string): boolean {
+		if (this.approved.has(name)) return true;
+		const now = this.now();
+		const times = (this.recent.get(workspaceId) ?? []).filter(
+			(t) => now - t < WINDOW_MS,
+		);
+		if (times.length >= NEW_NAMES_PER_WORKSPACE_PER_HOUR) {
+			this.recent.set(workspaceId, times);
+			const last = this.warned.get(workspaceId);
+			if (last === undefined || now - last >= WINDOW_MS) {
+				this.warned.set(workspaceId, now);
+				this.warn(workspaceId);
+			}
+			return false;
+		}
+		times.push(now);
+		this.recent.set(workspaceId, times);
+		this.approved.add(name);
+		return true;
+	}
+}
+
 /** Whether Caddy may get a certificate for `domain`. */
 export async function askAllows(
 	db: Kysely<Database>,
 	config: ApiConfig,
 	registry: Pick<ListeningRegistry, "service">,
+	approvals: PreviewApprovals,
 	domain: string,
 ): Promise<boolean> {
 	const name = domain.toLowerCase();
@@ -42,9 +87,11 @@ export async function askAllows(
 		.where("label", "=", parsed.label)
 		.where("state", "=", "running")
 		.executeTakeFirst();
-	return (
-		workspace !== undefined && registry.service(workspace.id, parsed.port) !== undefined
-	);
+	if (workspace === undefined) return false;
+	const service = registry.service(workspace.id, parsed.port);
+	// System listeners (SPEC.md 18.2) run in every workspace with no student action.
+	if (service === undefined || service.system) return false;
+	return approvals.admit(workspace.id, name);
 }
 
 /** Call before registering the auth plugin. */
@@ -57,6 +104,12 @@ export function registerCertificateEdge(
 		registry: ListeningRegistry;
 	},
 ): void {
+	const approvals = new PreviewApprovals((workspaceId) =>
+		app.log.warn(
+			{ workspaceId, limit: NEW_NAMES_PER_WORKSPACE_PER_HOUR },
+			"certificate ask refused: too many new preview names this hour",
+		),
+	);
 	app.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) => {
 		const url = request.routeOptions.url ?? "";
 		if (url === NONCE_ROUTE) {
@@ -81,7 +134,7 @@ export function registerCertificateEdge(
 		const domain = (request.query as { domain?: unknown }).domain;
 		const allowed =
 			typeof domain === "string" &&
-			(await askAllows(deps.db, deps.config, deps.registry, domain));
+			(await askAllows(deps.db, deps.config, deps.registry, approvals, domain));
 		if (allowed) {
 			await reply.status(200).send();
 			return;
