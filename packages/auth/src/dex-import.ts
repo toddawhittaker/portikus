@@ -8,6 +8,7 @@
  * Dex that already holds passwords.
  */
 import { type Database, recordAudit } from "@portikus/db";
+import { errorMessage } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import type { DexApi } from "./dex-api.js";
 import { dexLocalSubject } from "./dex-subject.js";
@@ -118,7 +119,7 @@ async function grant(
 			? await grantAdministrator(trx, row.id)
 			: await grantInstructor(trx, row.id);
 	if (!result.ok) return "unchanged";
-	if (!result.changed) {
+	if (result.from === result.to) {
 		// Already that role from the file's groups, which Dex will not send: keep it as a grant.
 		await trx
 			.updateTable("users")
@@ -228,7 +229,7 @@ export async function importUsersFile(
 		}
 		if (leftBehind.length === 0) throw err;
 		throw new Error(
-			`${err instanceof Error ? err.message : String(err)}; ` +
+			`${errorMessage(err)}; ` +
 				`could not remove these Dex passwords again, delete them before the next run: ${leftBehind.join(", ")}`,
 			{ cause: err },
 		);

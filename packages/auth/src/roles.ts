@@ -13,15 +13,14 @@ export type RoleChange = { from: Role; to: Role };
 
 /**
  * Grant administrator to an SSO account. Run inside the
- * caller's transaction. `changed` is false when the account is already an
- * administrator, in which case nothing is written.
+ * caller's transaction. When the account is already an administrator,
+ * `from` equals `to` and nothing is written.
  */
 export async function grantAdministrator(
 	trx: Kysely<Database>,
 	targetId: string,
 ): Promise<
-	| ({ ok: true; changed: boolean } & RoleChange)
-	| { ok: false; reason: "not_found" | "course_account" }
+	({ ok: true } & RoleChange) | { ok: false; reason: "not_found" | "course_account" }
 > {
 	const target = await trx
 		.selectFrom("users")
@@ -33,7 +32,7 @@ export async function grantAdministrator(
 	if (isCourseIssuer(target.oidc_issuer))
 		return { ok: false, reason: "course_account" };
 	const from = target.role as Role;
-	if (from === "administrator") return { ok: true, changed: false, from, to: from };
+	if (from === "administrator") return { ok: true, from, to: from };
 	const to: Role = "administrator";
 	await trx
 		.updateTable("users")
@@ -44,7 +43,7 @@ export async function grantAdministrator(
 		})
 		.where("id", "=", targetId)
 		.execute();
-	return { ok: true, changed: true, from, to };
+	return { ok: true, from, to };
 }
 
 /**
@@ -104,13 +103,13 @@ export async function revokeAdministrator(
 /**
  * Grant instructor to an SSO account (SPEC.md section 5.2). Run inside
  * the caller's transaction. An administrator grant is never touched, and an
- * account already instructor or higher is left as it is (`changed` false).
+ * account already instructor or higher is left as it is (`from` equals `to`).
  */
 export async function grantInstructor(
 	trx: Kysely<Database>,
 	targetId: string,
 ): Promise<
-	| ({ ok: true; changed: boolean } & RoleChange)
+	| ({ ok: true } & RoleChange)
 	| { ok: false; reason: "not_found" | "course_account" | "granted_administrator" }
 > {
 	const target = await trx
@@ -125,14 +124,14 @@ export async function grantInstructor(
 	if (target.granted_role === "administrator")
 		return { ok: false, reason: "granted_administrator" };
 	const from = target.role as Role;
-	if (from !== "student") return { ok: true, changed: false, from, to: from };
+	if (from !== "student") return { ok: true, from, to: from };
 	const to: Role = "instructor";
 	await trx
 		.updateTable("users")
 		.set({ granted_role: "instructor", role: to, updated_at: new Date().toISOString() })
 		.where("id", "=", targetId)
 		.execute();
-	return { ok: true, changed: true, from, to };
+	return { ok: true, from, to };
 }
 
 /**

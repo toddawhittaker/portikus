@@ -547,16 +547,5 @@ export function registerTerminalRoutes(
 		},
 	);
 
-	// A link to this old path answers 501; previews are served on their own
-	// origin (SPEC.md §14.3, §14.9).
-	app.get("/workspaces/:id/preview/:port/*", async (_request, reply) => {
-		return sendError(
-			reply,
-			501,
-			"NOT_IMPLEMENTED",
-			"Application preview is not available yet.",
-		);
-	});
-
 	app.addHook("onClose", drain);
 }

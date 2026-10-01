@@ -13,7 +13,7 @@ import { startGuard } from "./guard.js";
 import { startHealthSampling } from "./health.js";
 import { startLimitsSync } from "./limits.js";
 import { createLogLevelSync } from "./log-level.js";
-import { startLoop } from "./loop.js";
+import { startLoop, startSweepLoop } from "./loop.js";
 import { startNotificationPrune } from "./notifications.js";
 import { startPackageSurvey } from "./package-survey.js";
 import { startProcessSnapshots } from "./process-snapshots.js";
@@ -153,8 +153,8 @@ async function main(): Promise<void> {
 		}
 	};
 
-	startLoop(sweep, config.SWEEP_INTERVAL_SECONDS * 1000, { afterRun: true });
-	startLoop(recovery, config.RECOVERY_SWEEP_SECONDS * 1000, { afterRun: true });
+	startSweepLoop(sweep, config.SWEEP_INTERVAL_SECONDS * 1000);
+	startSweepLoop(recovery, config.RECOVERY_SWEEP_SECONDS * 1000);
 }
 
 if (process.argv[1]?.endsWith("index.ts") || process.argv[1]?.endsWith("index.js")) {

@@ -590,7 +590,6 @@ const signedInOnly: AccessClass[] = [
 	"owner-or-admin",
 	"admin",
 	"course-instructor",
-	"inert",
 ];
 
 /** The LMS posts these cross-site; the token, state and nonce guard them. */
@@ -676,13 +675,6 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 						if (key.startsWith("GET ")) expect(res.json()).toEqual([]);
 					}
 				}
-				if (access === "inert") {
-					for (const actor of [a, b, admin, instructor]) {
-						const { res, calls } = await send(app, key, own, actor.headers);
-						expect(res.statusCode, `${key} for ${actor.name}`).toBe(501);
-						expect(calls).toEqual([]);
-					}
-				}
 				if (access === "public" || access === "preview-edge") {
 					// Nobody gets more than a stranger's GET gets. A HEAD twin
 					// outside the sign-in exemption may be refused outright.
@@ -711,7 +703,7 @@ describe.skipIf(skip)("refused callers get the class's refusal", () => {
 
 const allowedKeys = httpKeys.filter((key) => {
 	const access = ROUTE_POLICY[key]?.access;
-	return access !== "public" && access !== "preview-edge" && access !== "inert";
+	return access !== "public" && access !== "preview-edge";
 });
 
 describe.skipIf(skip)("allowed callers get through", () => {
