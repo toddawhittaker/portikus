@@ -272,9 +272,7 @@ describe.skipIf(skip)("the worker's role", () => {
 				PREVIEW_SUFFIX: "preview.example.edu",
 			},
 			new Date(),
-			null,
-			false,
-			logger,
+			{ log: logger },
 		);
 		await settleStops();
 		const opts = { db: worker, controller, logger, now };

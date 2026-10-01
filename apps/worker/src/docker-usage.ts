@@ -6,9 +6,10 @@ import {
 	SeedImageList,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { fetchDockerInventory } from "./agent-client.js";
+import { startLoop } from "./loop.js";
 
 /** How often every running workspace's Docker images are read (issue #840). */
 export const INVENTORY_SECONDS = 60 * 60;
@@ -157,10 +158,7 @@ export function createInventoryPoll(options: DockerUsageOptions): () => Promise<
 			}
 			logger.info({ workspaces: workspaces.length, read }, "docker inventory read");
 		} catch (e) {
-			logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"docker inventory failed",
-			);
+			logger.warn({ error: errorMessage(e) }, "docker inventory failed");
 		} finally {
 			inFlight = false;
 		}
@@ -217,22 +215,17 @@ export function startDockerUsage(
 			fetchDockerInventory(address, options.agentPort, token),
 	});
 	const now = options.now ?? (() => new Date());
-	const prune = (): void => {
-		pruneDockerUsage(options.db, now()).catch((e: unknown) =>
-			options.logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"docker usage prune failed",
-			),
-		);
+	const prune = async (): Promise<void> => {
+		try {
+			await pruneDockerUsage(options.db, now());
+		} catch (e) {
+			options.logger.warn({ error: errorMessage(e) }, "docker usage prune failed");
+		}
 	};
-	const inventoryTimer = setInterval(() => void tick(), INVENTORY_SECONDS * 1000);
-	const pruneTimer = setInterval(prune, RETENTION_SECONDS * 1000);
-	inventoryTimer.unref();
-	pruneTimer.unref();
-	void tick();
-	prune();
+	const stopInventory = startLoop(tick, INVENTORY_SECONDS * 1000);
+	const stopPrune = startLoop(prune, RETENTION_SECONDS * 1000);
 	return () => {
-		clearInterval(inventoryTimer);
-		clearInterval(pruneTimer);
+		stopInventory();
+		stopPrune();
 	};
 }

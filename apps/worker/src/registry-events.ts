@@ -13,7 +13,7 @@ import {
 	registryEventWorkspaceIp,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 
 /** Largest notification body read; 1000 events fit well inside it. */
@@ -241,10 +241,7 @@ export function createRegistryEventsServer(options: RegistryEventsOptions): Serv
 			await recordRegistryEvents(db, envelope, registry, now(), seen);
 			answer(200);
 		})().catch((e: unknown) => {
-			logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"registry event failed",
-			);
+			logger.warn({ error: errorMessage(e) }, "registry event failed");
 			if (!res.headersSent) answer(500);
 		});
 	});

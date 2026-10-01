@@ -1,6 +1,6 @@
 import { loadConfig, WorkerConfigSchema } from "@portikus/config";
 import { createDb, type Database } from "@portikus/db";
-import { createLogger } from "@portikus/observability";
+import { createLogger, errorMessage } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { httpAgentFactory } from "./agent-client.js";
 import { startBackupVmLoop } from "./backups.js";
@@ -13,6 +13,7 @@ import { startGuard } from "./guard.js";
 import { startHealthSampling } from "./health.js";
 import { startLimitsSync } from "./limits.js";
 import { createLogLevelSync } from "./log-level.js";
+import { startLoop } from "./loop.js";
 import { startNotificationPrune } from "./notifications.js";
 import { startPackageSurvey } from "./package-survey.js";
 import { startProcessSnapshots } from "./process-snapshots.js";
@@ -42,19 +43,6 @@ export async function seedSettings(
 		.onConflict((oc) => oc.doNothing())
 		.executeTakeFirst();
 	return Number(result?.numInsertedOrUpdatedRows ?? 0n) > 0;
-}
-
-/**
- * Run `task` now and again `intervalMs` after each run finishes. Each loop
- * made this way is independent, so a slow task in one never delays another
- * (ADR 0006, ADR 0020). `task` must catch its own errors.
- */
-export function loopEvery(task: () => Promise<void>, intervalMs: number): void {
-	const run = async (): Promise<void> => {
-		await task();
-		setTimeout(run, intervalMs);
-	};
-	void run();
 }
 
 /** How often the worker re-reads the log level an administrator chose. */
@@ -95,13 +83,7 @@ async function main(): Promise<void> {
 		envLevel: config.LOG_LEVEL,
 		controller,
 	});
-	const logLevelTimer = setInterval(() => {
-		void syncLogLevel();
-	}, LOG_LEVEL_SYNC_SECONDS * 1000);
-	// Do not keep the process alive for this, and leave Node's default signal
-	// handling in place so systemd's SIGTERM stops the worker at once.
-	logLevelTimer.unref();
-	void syncLogLevel();
+	startLoop(syncLogLevel, LOG_LEVEL_SYNC_SECONDS * 1000);
 
 	// Host samples, quota grows and the resource guard each run on their own timer, off the sweep.
 	startHealthSampling({ db, controller, logger });
@@ -132,15 +114,11 @@ async function main(): Promise<void> {
 	const sweep = async (): Promise<void> => {
 		try {
 			const now = new Date();
-			const result: SweepResult = await reconcile(
-				db,
-				controller,
-				config,
-				now,
+			const result: SweepResult = await reconcile(db, controller, config, now, {
 				lastRefreshAt,
 				controllerUnreachable,
-				logger,
-			);
+				log: logger,
+			});
 			lastRefreshAt = result.lastRefreshAt;
 			controllerUnreachable = result.controllerUnreachable;
 			if (result.refreshError) {
@@ -153,10 +131,7 @@ async function main(): Promise<void> {
 				logger.info({ transitions: result.transitions }, "sweep");
 			}
 		} catch (e) {
-			logger.error(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"sweep error",
-			);
+			logger.error({ error: errorMessage(e) }, "sweep error");
 		}
 	};
 
@@ -174,15 +149,12 @@ async function main(): Promise<void> {
 				logger.info(result, "recovery sweep");
 			}
 		} catch (e) {
-			logger.error(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"recovery sweep error",
-			);
+			logger.error({ error: errorMessage(e) }, "recovery sweep error");
 		}
 	};
 
-	loopEvery(sweep, config.SWEEP_INTERVAL_SECONDS * 1000);
-	loopEvery(recovery, config.RECOVERY_SWEEP_SECONDS * 1000);
+	startLoop(sweep, config.SWEEP_INTERVAL_SECONDS * 1000, { afterRun: true });
+	startLoop(recovery, config.RECOVERY_SWEEP_SECONDS * 1000, { afterRun: true });
 }
 
 if (process.argv[1]?.endsWith("index.ts") || process.argv[1]?.endsWith("index.js")) {

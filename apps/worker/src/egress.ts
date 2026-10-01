@@ -4,10 +4,11 @@ import {
 	EgressPresetId,
 	expandEgressPolicy,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { type Database, recordAudit } from "@portikus/db";
+import { errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { startLoop } from "./loop.js";
 
 /** How often the worker looks for a policy an administrator changed. */
 export const EGRESS_SYNC_SECONDS = 2;
@@ -20,24 +21,6 @@ export interface EgressSyncOptions {
 	controller: ControllerClient;
 	logger: Logger;
 	now?: () => Date;
-}
-
-async function audit(
-	db: Kysely<Database>,
-	action: string,
-	result: string,
-	metadata: Record<string, unknown>,
-): Promise<void> {
-	await db
-		.insertInto("audit_events")
-		.values({
-			actor: "worker",
-			target: "egress",
-			action,
-			result,
-			metadata: JSON.stringify(metadata),
-		})
-		.execute();
 }
 
 /**
@@ -98,10 +81,7 @@ export function createEgressSync(options: EgressSyncOptions): () => Promise<void
 			});
 			await applyOne(version, expanded);
 		} catch (e) {
-			logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"egress sync failed",
-			);
+			logger.warn({ error: errorMessage(e) }, "egress sync failed");
 		} finally {
 			inFlight = false;
 		}
@@ -124,7 +104,7 @@ export function createEgressSync(options: EgressSyncOptions): () => Promise<void
 		} catch (e) {
 			const errorCode =
 				e instanceof ControllerClientError ? e.code : "OPERATION_FAILED";
-			const message = e instanceof Error ? e.message : String(e);
+			const message = errorMessage(e);
 			const firstForVersion = failed?.version !== version;
 			failed = { version, at: now().getTime() };
 			logger.warn({ version, errorCode }, "egress apply failed");
@@ -134,7 +114,13 @@ export function createEgressSync(options: EgressSyncOptions): () => Promise<void
 				.where("id", "=", 1)
 				.execute();
 			if (firstForVersion) {
-				await audit(db, "egress.apply_failed", "failed", { ...summary, errorCode });
+				await recordAudit(db, {
+					actor: "worker",
+					target: "egress",
+					action: "egress.apply_failed",
+					result: "failed",
+					metadata: { ...summary, errorCode },
+				});
 			}
 			return;
 		}
@@ -157,17 +143,18 @@ export function createEgressSync(options: EgressSyncOptions): () => Promise<void
 			)
 			.execute();
 		logger.info(summary, "egress policy applied");
-		await audit(db, "egress.applied", "ok", summary);
+		await recordAudit(db, {
+			actor: "worker",
+			target: "egress",
+			action: "egress.applied",
+			result: "ok",
+			metadata: summary,
+		});
 	}
 }
 
 /** Run the egress sync now and then every EGRESS_SYNC_SECONDS; returns a stop function. */
 export function startEgressSync(options: EgressSyncOptions): () => void {
 	const tick = createEgressSync(options);
-	const timer = setInterval(() => {
-		void tick();
-	}, EGRESS_SYNC_SECONDS * 1000);
-	timer.unref();
-	void tick();
-	return () => clearInterval(timer);
+	return startLoop(tick, EGRESS_SYNC_SECONDS * 1000);
 }

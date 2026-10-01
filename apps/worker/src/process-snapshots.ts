@@ -1,5 +1,5 @@
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
 
@@ -92,10 +92,7 @@ export function startProcessSnapshots(options: {
 		try {
 			await serveProcessSnapshots(db, controller, logger);
 		} catch (e) {
-			logger.error(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"process snapshot loop error",
-			);
+			logger.error({ error: errorMessage(e) }, "process snapshot loop error");
 		}
 		if (stopped) return;
 		timer = setTimeout(() => void tick(), PROCESS_SNAPSHOT_TICK_MS);

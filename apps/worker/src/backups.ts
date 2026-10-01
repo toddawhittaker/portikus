@@ -7,8 +7,8 @@ import {
 	BackupVmListing,
 	HostBackupStatus,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { type Database, recordAudit } from "@portikus/db";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql, type Transaction } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
 
@@ -48,20 +48,6 @@ const OUTCOME_ACTIONS: Record<string, { done: string; failed: string }> = {
 		failed: "backup.kept_home_delete_failed",
 	},
 };
-
-async function audit(
-	db: Db,
-	actor: string,
-	target: string,
-	action: string,
-	result: string,
-	metadata: Record<string, unknown>,
-): Promise<void> {
-	await db
-		.insertInto("audit_events")
-		.values({ actor, target, action, result, metadata: JSON.stringify(metadata) })
-		.execute();
-}
 
 /** The same target the request's own audit row used, so the two pair up. */
 function auditTarget(row: {
@@ -148,18 +134,17 @@ async function finishHostRequest(
 		.execute();
 	const actions = OUTCOME_ACTIONS[row.kind];
 	if (actions) {
-		await audit(
-			db,
-			"host",
-			auditTarget(row),
-			outcome.state === "done" ? actions.done : actions.failed,
-			outcome.state === "done" ? "ok" : "failed",
-			{
+		await recordAudit(db, {
+			actor: "host",
+			target: auditTarget(row),
+			action: outcome.state === "done" ? actions.done : actions.failed,
+			result: outcome.state === "done" ? "ok" : "failed",
+			metadata: {
 				requestId: row.id,
 				...(outcome.stamp ? { stamp: outcome.stamp } : {}),
 				...(outcome.state === "failed" ? { error: outcome.error } : {}),
 			},
-		);
+		});
 	}
 	const args = (row.args ?? {}) as { stamp?: string; dir?: string };
 	if (
@@ -399,14 +384,17 @@ export async function runVmDeletes(
 				})
 				.where("id", "=", row.id)
 				.execute();
-			await audit(
-				trx,
-				"worker",
-				auditTarget(row),
-				error ? actions.failed : actions.done,
-				error ? "failed" : "ok",
-				{ requestId: row.id, ...(row.args as object), ...(error ? { error } : {}) },
-			);
+			await recordAudit(trx, {
+				actor: "worker",
+				target: auditTarget(row),
+				action: error ? actions.failed : actions.done,
+				result: error ? "failed" : "ok",
+				metadata: {
+					requestId: row.id,
+					...(row.args as object),
+					...(error ? { error } : {}),
+				},
+			});
 		});
 	}
 	return rows.length;
@@ -449,10 +437,7 @@ export async function backupVmTick(options: {
 			listedAt === null || now().getTime() - listedAt >= BACKUP_VM_LIST_SECONDS * 1000;
 		if (ran > 0 || due) await listVmVolumes(db, controller, now());
 	} catch (e) {
-		logger.error(
-			{ error: e instanceof Error ? e.message : String(e) },
-			"backup volume loop error",
-		);
+		logger.error({ error: errorMessage(e) }, "backup volume loop error");
 	}
 }
 
@@ -537,18 +522,17 @@ export async function runReplaceHome(
 				.where("pending_operation", "=", "replace-home")
 				.executeTakeFirst();
 			if (updated.numUpdatedRows === 0n) return 0;
-			await audit(
-				trx,
-				"worker",
-				ws.id,
-				failed ? "workspace.home_replace_failed" : "workspace.home_replaced",
-				failed ? "failed" : "ok",
-				{
+			await recordAudit(trx, {
+				actor: "worker",
+				target: ws.id,
+				action: failed ? "workspace.home_replace_failed" : "workspace.home_replaced",
+				result: failed ? "failed" : "ok",
+				metadata: {
 					...base,
 					requestedBy: ws.pendingBy,
 					...(failed ? { error: outcome.error } : { kept: outcome.kept }),
 				},
-			);
+			});
 			const when = stamp ? ` from ${describeStamp(stamp)}` : "";
 			await notifyOwner(
 				trx,

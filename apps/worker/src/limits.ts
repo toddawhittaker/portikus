@@ -1,8 +1,9 @@
 import { WorkspaceLimits } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { type Database, recordAudit } from "@portikus/db";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { startLoop } from "./loop.js";
 
 /** How often the worker looks for limits an administrator changed. */
 export const LIMITS_SYNC_SECONDS = 10;
@@ -15,25 +16,6 @@ export interface LimitsSyncOptions {
 	controller: ControllerClient;
 	logger: Logger;
 	now?: () => Date;
-}
-
-async function audit(
-	db: Kysely<Database>,
-	target: string,
-	action: string,
-	result: string,
-	metadata: Record<string, unknown>,
-): Promise<void> {
-	await db
-		.insertInto("audit_events")
-		.values({
-			actor: "worker",
-			target,
-			action,
-			result,
-			metadata: JSON.stringify(metadata),
-		})
-		.execute();
 }
 
 /**
@@ -87,10 +69,7 @@ export function createLimitsSync(options: LimitsSyncOptions): () => Promise<void
 				);
 			}
 		} catch (e) {
-			logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"limits sync failed",
-			);
+			logger.warn({ error: errorMessage(e) }, "limits sync failed");
 		} finally {
 			inFlight = false;
 		}
@@ -116,9 +95,15 @@ export function createLimitsSync(options: LimitsSyncOptions): () => Promise<void
 			failures.set(id, { wanted: key, at: now().getTime() });
 			logger.warn({ workspaceId: id, errorCode }, "limits apply failed");
 			if (previous?.wanted !== key) {
-				await audit(db, id, "workspace.limits_apply_failed", "failed", {
-					errorCode,
-					to: wanted,
+				await recordAudit(db, {
+					actor: "worker",
+					target: id,
+					action: "workspace.limits_apply_failed",
+					result: "failed",
+					metadata: {
+						errorCode,
+						to: wanted,
+					},
 				});
 			}
 			return;
@@ -135,9 +120,15 @@ export function createLimitsSync(options: LimitsSyncOptions): () => Promise<void
 		if (Number(updated.numUpdatedRows) === 0) return;
 
 		logger.info({ workspaceId: id, ...wanted }, "limits applied");
-		await audit(db, id, "workspace.limits_applied", "ok", {
-			from: applied ?? {},
-			to: wanted,
+		await recordAudit(db, {
+			actor: "worker",
+			target: id,
+			action: "workspace.limits_applied",
+			result: "ok",
+			metadata: {
+				from: applied ?? {},
+				to: wanted,
+			},
 		});
 	}
 }
@@ -145,10 +136,5 @@ export function createLimitsSync(options: LimitsSyncOptions): () => Promise<void
 /** Run the limits sync now and then every LIMITS_SYNC_SECONDS; returns a stop function. */
 export function startLimitsSync(options: LimitsSyncOptions): () => void {
 	const tick = createLimitsSync(options);
-	const timer = setInterval(() => {
-		void tick();
-	}, LIMITS_SYNC_SECONDS * 1000);
-	timer.unref();
-	void tick();
-	return () => clearInterval(timer);
+	return startLoop(tick, LIMITS_SYNC_SECONDS * 1000);
 }
