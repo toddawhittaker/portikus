@@ -3721,7 +3721,7 @@ Gaps:
 
 Built on `epic/27-certificates` for issue #804 (plan and contract #938,
 docs draft #939, task PRs #940, #943 and #944, review fixes #941, #945,
-#946, #947 and #948, setup fix #949). No migration. SPEC.md sections
+#946, #947 and #948, setup fix #949, Caddy package fix #951). No migration. SPEC.md sections
 20.1, 21.12, 24.8 and 24.11, and ADR 0046.
 
 Delivered:
@@ -3752,6 +3752,12 @@ Delivered:
 - Review fixes: full service-account key checks in the page, API and job;
   the mutation cache drops typed secrets; announced upload errors; a
   race-free job audit; temp request files cleaned up.
+- Fresh installs work again: Caddy's Cloudsmith apt repository is signed
+  by a subkey that expired in 2024, which Debian 13 refuses, so every new
+  install stopped at `apt update`. Setup now installs Caddy from its
+  pinned GitHub release package (SHA-512 checked) and removes the old
+  repository from existing hosts. Setup also re-checks an ACME site's
+  certificate on every run.
 - Docs: ADR 0046, INSTALL.md, OPERATIONS.md and ADMIN-GUIDE.md.
 
 Gaps:

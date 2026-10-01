@@ -2934,7 +2934,8 @@ recreated VM gets the same DHCP address. docs/INSTALL.md is the operator's guide
   has no NodeSource Node. A Node security fix therefore needs a Portikus
   release.
 - **Dependencies** are Debian-archive packages only. Setup adds Incus
-  from Zabbly and Caddy from Cloudsmith, and builds Dex and distrobuilder
+  from Zabbly and Caddy from its pinned, checksum-verified GitHub release
+  package, and builds Dex and distrobuilder
   from their pinned commits, so the first run needs the internet.
 - **The `portikus` command** has `setup` (in the foreground), `setup
   --follow` (follows the current or last run and exits 0 or 1),
