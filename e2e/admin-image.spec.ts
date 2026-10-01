@@ -335,7 +335,7 @@ test("the default and the previous image cannot be deleted, in the page or the A
 	expect(await requestFiles()).toEqual([]);
 });
 
-test("shows each image's size on disk and the main disk's free space (issue #936)", async ({
+test("shows each image's compressed size and the main disk's free space (issue #936)", async ({
 	page,
 }) => {
 	await putImage({

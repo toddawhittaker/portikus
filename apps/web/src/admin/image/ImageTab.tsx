@@ -607,7 +607,7 @@ function ImagesGroup({
 									</span>
 								</th>
 								<th scope="col">Workspaces</th>
-								<th scope="col">Size on disk</th>
+								<th scope="col">Image size (compressed)</th>
 								<th scope="col">
 									<span className="sr-only">Actions</span>
 								</th>

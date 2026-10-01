@@ -53,8 +53,6 @@ class FakeHost:
         self.calls = []
         self.aliases = {}
         self.instances = set()
-        # name to the fingerprint it was made from, for workspaces the tests plant.
-        self.made_from = {}
         self.sizes = {}
         self.urls = {}
         self.gpgv_rc = 0
@@ -156,8 +154,7 @@ class FakeHost:
                 return 1, ""
             return 0, json.dumps({"fingerprint": fp, "size": self.sizes.get(fp, 880803840)})
         if args[:1] == ["list"]:
-            return 0, json.dumps([{"name": n, "config": {"volatile.base_image": self.made_from.get(n, "")}}
-                                  for n in sorted(self.instances | set(self.made_from))])
+            return 0, json.dumps([{"name": n, "config": {}} for n in sorted(self.instances)])
         if args[:1] == ["launch"]:
             self.instances.add(args[2])
             return 0, ""
@@ -707,7 +704,7 @@ class DeleteTest(Base):
         return [c[-1] for c in self.host.calls if c[3:5] == ["image", "delete"]]
 
     def test_deletes_a_candidate_from_incus_and_the_store(self):
-        self.host.made_from = {"ws-a": FP["2026.09.12"], "ws-b": FP["2026.09.12"], "ws-c": FP["2026.09.11"]}
+        self.host.instances = {"ws-a", "ws-b"}
         self.request({"kind": "delete", "version": "2026.09.12"})
         self.go()
         self.assertEqual(self.status()["state"], "succeeded")
@@ -715,7 +712,8 @@ class DeleteTest(Base):
         self.assertEqual(self.deletes(), ["portikus-2026.09.12"])
         self.assertNotIn("portikus-2026.09.12", self.host.aliases)
         self.assertFalse((self.images / "2026.09.12").exists())
-        self.assertIn("2 workspace(s) were made from 2026.09.12", self.log())
+        # The delete no longer lists workspaces, so a failing `incus list` cannot block it.
+        self.assertFalse([c for c in self.host.calls if c[3:4] == ["list"]])
         # Workspaces are never touched: no instance is deleted or rebuilt.
         self.assertFalse([c for c in self.host.calls if c[3:4] == ["delete"] and c[-1].startswith("ws-")])
         self.assertEqual(self.aliases_file(), {"default": "2026.09.11", "previous": "2026.09.10"})
@@ -784,6 +782,41 @@ class SizeTest(Base):
         self.host.sizes[FP["2026.09.10"]] = "big"
         self.runner.record_sizes()
         self.assertFalse((self.images / "2026.09.10" / "size.json").exists())
+
+    def rollback_with_sizes_broken(self):
+        for v in ("2026.09.10", "2026.09.11"):
+            self.put_image(v)
+        self.set_default("2026.09.11", previous="2026.09.10")
+        self.request({"kind": "rollback"})
+        self.go()
+        self.assertEqual(self.status()["state"], "succeeded")
+        self.assertTrue(any("could not record image sizes" in m for m in self.journal))
+
+    def test_a_size_that_cannot_be_written_leaves_the_job_succeeded(self):
+        real = ij.write_json
+
+        def write_json(path, doc):
+            if path.endswith("size.json"):
+                raise OSError("disk full")
+            return real(path, doc)
+
+        ij.write_json = write_json
+        try:
+            self.rollback_with_sizes_broken()
+        finally:
+            ij.write_json = real
+
+    def test_an_incus_failure_while_sizing_leaves_the_job_succeeded(self):
+        host = self.host
+
+        def run(argv, **kwargs):
+            if argv[:2] == ["incus", "query"] and len(argv) == 3:
+                self.assertEqual(kwargs.get("timeout"), 60)
+                raise RuntimeError("incus is gone")
+            return host(argv, **kwargs)
+
+        ij.run = run
+        self.rollback_with_sizes_broken()
 
 
 class SharedLockTest(Base):

@@ -630,7 +630,7 @@ class Runner:
         self.prune(job, keep=version)
 
     def prune(self, job, keep):
-        """Keep the default, the previous and the one just made, the single newest other image (ruling 27, issue #936).
+        """Keep three images: the default, the previous, and the one just made (issue #936).
 
         Every other image is deleted from Incus and the store. An image either
         alias points at is never deleted, even under another versioned name.
@@ -650,10 +650,17 @@ class Runner:
         write_aliases(self.images_dir, aliases)
 
     def record_sizes(self):
-        """Write <version>/size.json, the image's file size in Incus, for every image in the store.
+        """Write <version>/size.json, the image's compressed size in Incus, for every image in the store.
 
-        Best effort: an image Incus cannot describe keeps no size, and the page says so.
+        Best effort: it never changes a job's outcome. An image Incus cannot
+        describe keeps no size, and the page says so.
         """
+        try:
+            self._record_sizes()
+        except Exception as err:  # noqa: BLE001 - sizes are informational only
+            journal(f"warning: could not record image sizes: {err}")
+
+    def _record_sizes(self):
         try:
             known = versions_in(alias_map())
         except JobFailed:
@@ -662,7 +669,8 @@ class Runner:
             store = os.path.join(self.images_dir, version)
             if not os.path.isdir(store) or os.path.islink(store):
                 continue
-            code, out = run(["incus", "query", f"/1.0/images/{fingerprint}?project={PROJECT}"], capture=True)
+            code, out = run(["incus", "query", f"/1.0/images/{fingerprint}?project={PROJECT}"],
+                            capture=True, timeout=60)
             try:
                 size = json.loads(out).get("size") if code == 0 else None
             except (ValueError, AttributeError):
@@ -836,13 +844,6 @@ class Runner:
         if not fingerprint and not os.path.lexists(store):
             raise JobFailed(f"Image {version} is not on this host.")
         if fingerprint:
-            job.status("running", "Counting workspaces made from it")
-            code, out = incus("list", "--format", "json", log=job)
-            if code != 0:
-                raise JobFailed("Could not list the workspaces.")
-            made = [i.get("name", "") for i in json.loads(out or "[]")
-                    if (i.get("config") or {}).get("volatile.base_image") == fingerprint]
-            job.line(f"{len(made)} workspace(s) were made from {version}; each keeps its own root volume.")
             job.status("running", "Deleting the image")
             code, _ = incus("image", "delete", f"portikus-{version}", log=job)
             if code != 0:
