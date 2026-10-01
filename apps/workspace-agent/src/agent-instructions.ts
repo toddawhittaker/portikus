@@ -1,14 +1,14 @@
 /**
- * Seed the coding agents' global instruction files in the student's home
- * (SPEC.md §4.4, §10). The image ships a template; each home gets its own
- * copy once and keeps it, so a student's or agent's edits survive rebuilds.
+ * Give the coding agents' home instruction files back to the student
+ * (SPEC.md §3, issue #933). The platform's guidance now lives in system
+ * files the workspace controller writes at every start, so the copies an
+ * older agent put in the home folder are taken out again, and nothing a
+ * student wrote is touched.
  */
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { lstat, open, unlink } from "node:fs/promises";
 import { join } from "node:path";
-
-/** Where the workspace image puts the template. */
-export const AGENT_INSTRUCTIONS_TEMPLATE = "/usr/share/portikus/AGENTS.md";
 
 /** Codex's global instructions file, relative to the home folder. */
 export const CODEX_INSTRUCTIONS = ".codex/AGENTS.md";
@@ -16,39 +16,84 @@ export const CODEX_INSTRUCTIONS = ".codex/AGENTS.md";
 /** Claude Code's user memory file, relative to the home folder. */
 export const CLAUDE_INSTRUCTIONS = ".claude/CLAUDE.md";
 
-/** Claude Code reads the Codex file through an import, so both share one text. */
-export const CLAUDE_IMPORT_LINE = "@~/.codex/AGENTS.md\n";
+/** The one line an older agent wrote into the Claude file. */
+export const CLAUDE_IMPORT_LINE = "@~/.codex/AGENTS.md";
 
 /**
- * Create each file only when nothing is at its path. Returns the files it
- * created. An old image without the template gets neither file.
+ * SHA-256 of every template an older image shipped and an older agent
+ * copied to ~/.codex/AGENTS.md. Only an unchanged copy is removed.
  */
-export async function seedAgentInstructions(
-	homeDir: string,
-	templatePath: string = AGENT_INSTRUCTIONS_TEMPLATE,
-): Promise<string[]> {
-	const created: string[] = [];
-	const codex = join(homeDir, CODEX_INSTRUCTIONS);
-	const claude = join(homeDir, CLAUDE_INSTRUCTIONS);
+export const PAST_TEMPLATE_HASHES: readonly string[] = [
+	"68e96566d0fd28c6161f9839c4e55d99b3cf208eeba6fa1e03374d0b22475bcb",
+	"d1a0de6225863daf3555d18c40511eeb926fce732d61523d47849cbc9e1349bf",
+];
 
-	// Both folders hold sign-in tokens, so a new one is private.
-	await mkdir(join(homeDir, ".codex"), { recursive: true, mode: 0o700 });
+/** Read a regular file without following a symbolic link; null if absent or not plain. */
+async function readPlainFile(path: string): Promise<string | null> {
+	let handle: Awaited<ReturnType<typeof open>>;
 	try {
-		// COPYFILE_EXCL refuses any existing path, a symbolic link included.
-		await copyFile(templatePath, codex, constants.COPYFILE_EXCL);
-		created.push(CODEX_INSTRUCTIONS);
+		handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT") return created;
-		if (code !== "EEXIST") throw error;
+		if (code === "ENOENT" || code === "ELOOP") return null;
+		throw error;
+	}
+	try {
+		if (!(await handle.stat()).isFile()) return null;
+		return await handle.readFile("utf8");
+	} finally {
+		await handle.close();
+	}
+}
+
+/** Unlink only if the path is still a regular file, never a link. */
+async function unlinkPlainFile(path: string): Promise<void> {
+	if ((await lstat(path)).isFile()) await unlink(path);
+}
+
+/**
+ * Remove the platform's own leftovers from the home folder. Returns the
+ * files it changed. Symbolic links are never followed or replaced.
+ */
+export async function returnHomeInstructions(
+	homeDir: string,
+	pastHashes: readonly string[] = PAST_TEMPLATE_HASHES,
+): Promise<string[]> {
+	const changed: string[] = [];
+
+	const codex = join(homeDir, CODEX_INSTRUCTIONS);
+	const codexText = await readPlainFile(codex);
+	if (codexText !== null) {
+		const hash = createHash("sha256").update(codexText).digest("hex");
+		if (pastHashes.includes(hash)) {
+			await unlinkPlainFile(codex);
+			changed.push(CODEX_INSTRUCTIONS);
+		}
 	}
 
-	await mkdir(join(homeDir, ".claude"), { recursive: true, mode: 0o700 });
-	try {
-		await writeFile(claude, CLAUDE_IMPORT_LINE, { flag: "wx", mode: 0o644 });
-		created.push(CLAUDE_INSTRUCTIONS);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+	const claude = join(homeDir, CLAUDE_INSTRUCTIONS);
+	const claudeText = await readPlainFile(claude);
+	if (claudeText !== null) {
+		const lines = claudeText.split("\n");
+		const kept = lines.filter((line) => line !== CLAUDE_IMPORT_LINE);
+		if (kept.length !== lines.length) {
+			const rest = kept.join("\n");
+			if (rest.trim() === "") {
+				await unlinkPlainFile(claude);
+			} else {
+				// O_NOFOLLOW: the file was swapped for a link since the read.
+				const handle = await open(
+					claude,
+					constants.O_WRONLY | constants.O_TRUNC | constants.O_NOFOLLOW,
+				);
+				try {
+					await handle.writeFile(rest);
+				} finally {
+					await handle.close();
+				}
+			}
+			changed.push(CLAUDE_INSTRUCTIONS);
+		}
 	}
-	return created;
+	return changed;
 }
