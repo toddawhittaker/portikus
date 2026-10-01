@@ -9,6 +9,7 @@ import {
 	DNS_PROVIDER_FIELDS,
 	type DnsChallenge,
 	type DnsProvider,
+	isServiceAccountKey,
 	MAX_PEM_LENGTH,
 	MAX_SERVICE_ACCOUNT_JSON,
 	type PreflightCheck,
@@ -281,23 +282,6 @@ export function secretProblem(
 	if (/[\r\n]/.test(value)) return "Enter it on one line.";
 	if (value.length > MAX_SECRET) return "This is longer than 1,024 characters.";
 	return null;
-}
-
-/** Same fields the contract requires of a Google service-account key. */
-function isServiceAccountKey(text: string): boolean {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(text);
-	} catch {
-		return false;
-	}
-	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
-		return false;
-	const key = parsed as Record<string, unknown>;
-	if (key.type !== "service_account") return false;
-	return ["project_id", "private_key_id", "private_key", "client_email"].every(
-		(name) => typeof key[name] === "string" && key[name] !== "",
-	);
 }
 
 const CHECK_LABEL: Record<CertificateUploadCheck, string> = {

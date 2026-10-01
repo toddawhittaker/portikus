@@ -183,7 +183,7 @@ const ServiceAccountJson = z
  * A Google service-account key, and nothing Google's library would treat as
  * an instruction to read a local file or fetch a URL as caddy (SPEC.md 24.8).
  */
-function isServiceAccountKey(text: string): boolean {
+export function isServiceAccountKey(text: string): boolean {
 	let value: unknown;
 	try {
 		value = JSON.parse(text);
