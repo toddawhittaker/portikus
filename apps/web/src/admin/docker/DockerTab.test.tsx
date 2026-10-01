@@ -3,7 +3,7 @@ import type {
 	DockerUsageResponse,
 	SeedJob,
 } from "@portikus/contracts";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { DockerTab } from "./DockerTab.js";
@@ -647,12 +647,18 @@ test("the drift notice's button posts the match and starts a rebuild", async () 
 	renderWithQuery(<DockerTab />);
 	const notice = await screen.findByTestId("docker-seed-drift");
 	expect(notice.textContent).toContain(
-		"The default workspace image runs Node 26 and Python 3.14; the seed list has node:24-slim and python:3.13-slim.",
+		"The default workspace image runs Node 26 and Python 3.14, but the seed list has node:24-slim and python:3.13-slim.",
 	);
+	expect(notice.textContent).toContain(
+		"Updating replaces node:24-slim with node:26-slim and python:3.13-slim with python:3.14-slim, then rebuilds the seed.",
+	);
+	// Image names read as code, like the tables around the notice.
+	expect(within(notice).getByText("node:26-slim").tagName).toBe("CODE");
+	// It sits under the heading of the list it changes.
+	const list = screen.getByRole("region", { name: /Images for the next rebuild/ });
+	expect(list.contains(notice)).toBe(true);
 	fireEvent.click(
-		within(notice).getByRole("button", {
-			name: "Use node:26-slim and python:3.14-slim and rebuild",
-		}),
+		within(notice).getByRole("button", { name: "Update list and rebuild" }),
 	);
 	await waitFor(() =>
 		expect(
@@ -677,8 +683,41 @@ test("over the size limit the notice says so and offers no button", async () => 
 	);
 	renderWithQuery(<DockerTab />);
 	const notice = await screen.findByTestId("docker-seed-drift");
-	expect(within(notice).getByTestId("docker-seed-drift-over").textContent).toContain(
-		"would take the seed past its 1 GiB limit, by estimated download size, so they are not added.",
+	expect(within(notice).getByTestId("docker-seed-drift-over").textContent).toBe(
+		"Using node:26-slim and python:3.14-slim would take the list past the 1.0 GB limit. That is an estimate from download sizes; the rebuild checks the unpacked images, which are larger. Raise Largest seed below, or remove images from the list.",
 	);
 	expect(within(notice).queryByRole("button")).toBeNull();
+});
+
+test("a seed built from an older image says so once: the drift notice's rebuild covers it", async () => {
+	const image = (url: string) =>
+		url === "/admin/image"
+			? json(200, {
+					default: "2026.09.10",
+					previous: null,
+					images: [],
+					otherWorkspaces: 0,
+					job: null,
+					newerPublished: null,
+					disk: null,
+				})
+			: undefined;
+	serve(
+		data({ seedImages: ["node:26-slim", "python:3.14-slim"], match: MATCH_26_314 }),
+		[],
+		image,
+	);
+	renderWithQuery(<DockerTab />);
+	expect(await screen.findByTestId("docker-seed-stale")).toBeTruthy();
+	cleanup();
+	vi.unstubAllGlobals();
+
+	serve(
+		data({ seedImages: ["node:24-slim", "python:3.13-slim"], match: MATCH_26_314 }),
+		[],
+		image,
+	);
+	renderWithQuery(<DockerTab />);
+	await screen.findByTestId("docker-seed-drift");
+	expect(screen.queryByTestId("docker-seed-stale")).toBeNull();
 });

@@ -7,12 +7,16 @@ import {
 	clearErrorText,
 	credentialErrors,
 	downloadSize,
-	driftText,
+	driftActionSentence,
+	driftOverSentence,
+	driftParts,
+	driftSentence,
 	listHas,
 	listSizeText,
 	parseSeedMaxGiB,
 	seedListError,
 	seedUseText,
+	segmentText,
 	shortImageName,
 	shownText,
 } from "./text.js";
@@ -186,16 +190,39 @@ const MATCH_26_314 = {
 	python: { version: "3.14", image: "python:3.14-slim" },
 };
 
+const say = (list: string[]) => {
+	const parts = driftParts(list, MATCH_26_314);
+	return parts ? segmentText(driftSentence(parts)) : null;
+};
+
 test("the drift sentence names the image's versions and the old tags (issue #932)", () => {
-	expect(driftText(["node:24-slim", "redis:7", "python:3.13-slim"], MATCH_26_314)).toBe(
-		"The default workspace image runs Node 26 and Python 3.14; the seed list has node:24-slim and python:3.13-slim.",
+	expect(say(["node:24-slim", "redis:7", "python:3.13-slim"])).toBe(
+		"The default workspace image runs Node 26 and Python 3.14, but the seed list has node:24-slim and python:3.13-slim.",
 	);
-	expect(driftText(["redis:7", "python:3.14-slim"], MATCH_26_314)).toBe(
-		"The default workspace image runs Node 26; the seed list does not have node:26-slim.",
+	expect(say(["redis:7", "python:3.14-slim"])).toBe(
+		"The default workspace image runs Node 26, but the seed list does not have node:26-slim.",
+	);
+});
+
+test("the drift sentence speaks to every missing language, one clause each (review C4)", () => {
+	// An old Node tag and no Python at all: Python must not go unmentioned.
+	expect(say(["node:24-slim", "redis:7"])).toBe(
+		"The default workspace image runs Node 26 and Python 3.14, but the seed list has node:24-slim and does not have python:3.14-slim.",
+	);
+	const parts = driftParts(["node:24-slim", "redis:7"], MATCH_26_314) ?? [];
+	expect(segmentText(driftActionSentence(parts))).toBe(
+		"Updating replaces node:24-slim with node:26-slim and adds python:3.14-slim, then rebuilds the seed.",
+	);
+});
+
+test("over the limit the notice calls the sizes an estimate the rebuild checks (review C5)", () => {
+	const parts = driftParts(["redis:7"], MATCH_26_314) ?? [];
+	expect(segmentText(driftOverSentence(parts, 1))).toBe(
+		"Using node:26-slim and python:3.14-slim would take the list past the 1.0 GB limit. That is an estimate from download sizes; the rebuild checks the unpacked images, which are larger. Raise Largest seed below, or remove images from the list.",
 	);
 });
 
 test("no drift sentence when the list matches or no image is known", () => {
-	expect(driftText(["node:26-slim", "python:3.14-slim"], MATCH_26_314)).toBeNull();
-	expect(driftText(["node:24-slim"], null)).toBeNull();
+	expect(driftParts(["node:26-slim", "python:3.14-slim"], MATCH_26_314)).toBeNull();
+	expect(driftParts(["node:24-slim"], null)).toBeNull();
 });
