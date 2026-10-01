@@ -1562,19 +1562,6 @@ slow wait and fix it.
 
 **Source.** Epic 15, T6 (#792).
 
-## Share the image job's lock and jobs-directory setup
-
-**What.** `packaging/image/image-job` takes its lock and sets up the
-jobs directory three times, in `run_first_install`, `run_local_build`
-and `run_recover`. Share it in one context manager.
-
-**Why.** Three copies drift; a fix to one is easily missed in the others.
-
-**What it would take.** A small context manager used by all three, with
-the existing unit tests kept green.
-
-**Source.** Epic 15.1 review.
-
 ## A weekly re-sign can cancel a queued release
 
 **What.** The scheduled weekly re-sign of the apt index can still cancel
@@ -1754,18 +1741,6 @@ agent unit, and destroy the test workspace in a shell trap.
 
 **Source.** Epic 15.3 (#887).
 
-## Resource guard admission for the seed
-
-**What.** The resource guard does not count the seed's size when it admits
-a workspace. Ruling SEC1 accepted the overcommit; the controller's pool
-fill refusal and the seed cap are the protection (SPEC.md section 24.5).
-
-**What it would take.** Add the current seed's size to the Docker size the
-guard's admission check counts in `apps/worker/src/guard.ts`, with a unit
-test.
-
-**Source.** Epic 26 (#840), ruling SEC1.
-
 ## Registry first pull downloads twice
 
 **What.** Registry 2.8 in proxy mode downloads about twice an image's
@@ -1775,17 +1750,6 @@ bytes on the first fetch.
 ships one, and measure the first pull again on the rehearsal VM.
 
 **Source.** Epic 26 (#840) spike.
-
-## Usage window edge
-
-**What.** The Docker usage report says 30 days, but because pulls are
-stored by day, it can include 31 calendar days.
-
-**What it would take.** Start the window at the day after the cut-off in
-`usageReport` (`apps/api/src/routes/admin-docker.ts`), or say 31 days, with
-a database test at the edge.
-
-**Source.** Epic 26 (#840) review.
 
 ## Seed share key on early seeded volumes
 
@@ -1855,30 +1819,6 @@ builder test.
 
 **Source.** Epic 26 (#840) pilot verification.
 
-## Docker tab does not say the cache is off
-
-**What.** When setup turns the pull cache off because the disk has no
-room, the Docker tab shows both caches down with no reason, and Clear
-cache and credential changes report success while doing nothing.
-
-**What it would take.** A `cacheOff` field in the helper's `status.json`,
-read by the API, and a line on the Docker tab that says setup turned the
-cache off and why, with a Playwright test.
-
-**Source.** Epic 26 (#840) review of the cache size fix.
-
-## Install question stricter than setup about free space
-
-**What.** The install question's size limit keeps the larger of 10 GiB or
-10 percent of free space and ignores the space the current cache file
-already holds, while setup keeps 10 GiB and counts that file. The question
-can refuse a size setup would accept. This is safe, only stricter.
-
-**What it would take.** Use setup's rule in `packaging/debian/config`,
-with a debconf scenario at the edge.
-
-**Source.** Epic 26 (#840) review of the cache size fix.
-
 ## Email for certificate warnings
 
 **What.** Certificate expiry and renewal-failure warnings reach
@@ -1939,3 +1879,83 @@ when the job fails.
 (a small reviver or a token scan), with a unit test.
 
 **Source.** Epic 27 (#804) security review of the API.
+
+## A named pipe at /etc/hosts or /etc/docker/daemon.json blocks a start
+
+**What.** A student is root in their container and can leave a named pipe at `/etc/hosts` or `/etc/docker/daemon.json`. The controller reads and merges those two files at every start (SPEC.md section 16.6), and reading a pipe through the Incus files API blocks, so that workspace no longer starts. Only the student's own workspace is affected.
+
+**What it would take.** Read the two files through an exec with a type check first, or put a timeout on the read, with a unit test using a pipe.
+
+**Source.** Epic 28 review (#933).
+
+## Open home instruction files with O_NONBLOCK in the workspace agent
+
+**What.** At start the workspace agent opens `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` to remove what older versions wrote (SPEC.md section 3). It opens them without `O_NONBLOCK`, so a named pipe there could stall that step.
+
+**What it would take.** Open with `O_NOFOLLOW | O_NONBLOCK` and check the type is a regular file before reading, with a unit test.
+
+**Source.** Epic 28 review (#933).
+
+## A student's Codex developer_instructions replace the platform's
+
+**What.** A student's own `developer_instructions` in `~/.codex/config.toml` replaces the platform's guidance from `/etc/codex/config.toml` (SPEC.md section 3), so Codex then loses the workspace advice.
+
+**What it would take.** Find a Codex setting that adds to rather than replaces system instructions, or tell the student in the Student Guide; test on a workspace.
+
+**Source.** Epic 28 (#933), the pilot Codex test.
+
+## Status bar overflow and page reflow at narrow widths
+
+**What.** At narrow widths the status bar's text, including the Keep running line, overflows, and the workspace and admin pages do not reflow at 560 pixels.
+
+**What it would take.** Shorten or wrap the status bar items under a container query, and check both pages at 560 pixels with a Playwright screenshot and an axe run.
+
+**Source.** Epic 28 UI review (#955).
+
+## Move the shell's storage meters onto the Meter component
+
+**What.** The status bar and workspace dialog storage meters are CSS-only bars. Epic 28 added the `Meter` component in `packages/ui` (SPEC.md section 25.8), whose empty track meets 3:1 contrast; the shell's empty track is about 1.2:1.
+
+**What it would take.** Replace the shell meters with `Meter`, keeping their text and warning tones, and update their unit and Playwright tests.
+
+**Source.** Epic 28 a11y notes (#931).
+
+## Image sizes of existing images
+
+**What.** Images on a host before Epic 28 show "Not measured yet" in the Admin image page's size column until the next image job records their size (SPEC.md section 22.4).
+
+**What it would take.** Have the image job's status timer, or the first job after an upgrade, record sizes for every image, with a unit test.
+
+**Source.** Epic 28 (#936).
+
+## Dedicated error codes for the Docker cache and seed match
+
+**What.** Clearing the pull cache while it is off returns 404 `NOT_FOUND`, and the seed match route's refusals (over the size limit, a rebuild running, no manifest) share generic codes, so the page tells them apart by message.
+
+**What it would take.** Add `CACHE_OFF` and seed-match codes to `ApiErrorCode`, return them from `apps/api/src/routes/admin-docker.ts`, and update the tests.
+
+**Source.** Epic 28 (#931, #932).
+
+## Download sizes, not on-disk sizes, on the Docker tab
+
+**What.** The Docker tab shows each image's compressed download size, not what it takes unpacked on disk, and a seed name pinned by digest shows a dash.
+
+**What it would take.** Measure unpacked sizes during the seed build, and match digest-pinned names to the cache's manifests.
+
+**Source.** Epic 28 (#931).
+
+## The default seed list builds only on Rebuild seed
+
+**What.** On a new install the default seed list is written when an administrator first opens the Docker tab, and nothing builds it until they press Rebuild seed (SPEC.md section 16.6).
+
+**What it would take.** Write the list at install and queue the first seed build after setup, if the pool has room.
+
+**Source.** Epic 28 (#932).
+
+## Keep running at a clock time
+
+**What.** A student picks how many hours to keep the workspace running, not an end time on the clock (SPEC.md section 6.4).
+
+**What it would take.** A time picker beside the hours choice, limited by the cap, with unit and Playwright tests.
+
+**Source.** Epic 28 (#955).

@@ -3779,3 +3779,76 @@ Gaps:
 - The ask endpoint's hourly count is in memory, so an API restart resets
   it.
 - No test forces a failed rename of the request file.
+
+## Epic 28 — Fix batch
+
+Built on `epic/28-fix-batch` for issues #928, #931 to #934, #936, #955,
+#957 and #959 and five backlog items (plan #960, task PRs #961 to #970,
+review fixes #971 to #974 and #976, merger rules #975, this fold).
+Migrations 0034 and 0035. SPEC.md sections 3, 6.4, 14.5, 16.6, 19.4,
+22.4, 24.5, 25.8 and 29, and ADR 0045.
+
+Delivered:
+
+- Keep running until (#955): a student can hold their workspace up from
+  the workspace dialog, and neither the disconnect grace nor idle stop
+  counts until the hold ends. Both timers then start from its end, so
+  "Still working?" still warns first. The site cap is 12 hours by default
+  (0 turns it off) with a per-workspace override. The API routes are
+  owner-only and audited, and the status bar shows the hold. The UI review
+  made the button name its end time, dated long holds, showed an active
+  hold in the admin guard summary, and read a 0 cap as off.
+- Agent instructions (#933): one template in the package. The controller
+  writes `/etc/claude-code/CLAUDE.md` and Codex's `developer_instructions`
+  in `/etc/codex/config.toml` before every start, replacing the files
+  without opening them, so a named pipe cannot block a start. The home
+  files are given back to the student. Codex applies the system file
+  (tested on the pilot). No new image is needed.
+- The TLS probe (#957) runs only when a preview first asks, so discovery
+  leaves nothing in student server logs. The API caches only final
+  answers, remembers a failure for 30 seconds, shares concurrent probes,
+  and gives the call 1.5 seconds.
+- The Docker tab (#931, #934): download sizes or a dash on every image
+  row, a `Meter` component in `packages/ui` for the cache (with its
+  90 percent mark) and the seed, the reason setup turned the cache off,
+  and a 120-day usage window with 120-day retention.
+- The seed matches the image (#932): a new install's seed list starts
+  with the default image's node and python slim images, and after an
+  image change a notice with one button swaps them and rebuilds, never
+  past the size limit.
+- Workspace images (#936): Delete for any image but the default and the
+  previous (refused by both the API and the root job), a clean-up that
+  keeps the default, the previous and the newest, image sizes as "Image
+  size (compressed)" and the main disk's free space. Size recording and
+  delete never fail a job. The image job's three runs share one lock
+  helper.
+- Workspace create counts the Docker seed's size against the pool's
+  90 percent line.
+- The install question for the cache size uses setup's free-space rule.
+- CI (#959): every job in ci.yml, release.yml and workspace-image.yml has
+  a time limit, and apt and Playwright installs have step limits and a
+  retry.
+- The audit person e2e test (#928) waits for the people list; the flake
+  was the test, not the component.
+
+Verified: typecheck, lint and the unit and Playwright tests of each task
+PR, as listed in each PR body.
+
+Gaps:
+
+- A named pipe at `/etc/hosts` or `/etc/docker/daemon.json` still blocks
+  the controller's read at start, for that student's workspace only.
+- A student's own Codex `developer_instructions` replaces the platform's.
+- Claude Code's `/context` listing of the system file is not checked
+  (needs a signed-in session); the new smoke checks run at the next pilot
+  deploy.
+- The check that a workspace made from a deleted image still starts runs
+  on the pilot during epic verification.
+- Existing images show "Not measured yet" until the next image job.
+- Docker tab sizes are download sizes, and digest-pinned seed names show
+  a dash. The default seed list is written when the tab is first opened,
+  and its first build still needs Rebuild seed.
+- A student picks hours, not a clock time, for Keep running. The admin
+  guard summary does not list the effective cap.
+- Status bar overflow at narrow widths, and the shell's storage meters
+  are not yet on `Meter` (BACKLOG.md).

@@ -62,6 +62,15 @@ asked "Still working?", and the workspace stops five minutes later unless
 they answer. Both are set on **Settings** and can be changed for one
 workspace from its panel.
 
+A student can choose **Keep running** in their workspace dialog, for
+example to leave a coding agent working overnight. Until the time they
+pick, neither the grace period nor idle stop counts; afterwards both start
+again, with the "Still working?" warning first. Resource guard limits still
+apply. **Keep running, longest (hours)** on **Settings**, default 12, caps
+how far ahead a student can hold their workspace, and 0 turns the feature
+off. Lowering it shortens holds already set at the next worker pass.
+**Guard settings** in a workspace's panel sets it for that workspace.
+
 ![The Settings tab: when workspaces stop, and the resource guard thresholds](images/admin-settings.png)
 
 **Settings** holds the site-wide rules: when workspaces stop, how heavy use
@@ -86,8 +95,30 @@ last 7 days, for the whole site, never per student.
 
 Workspaces pull Docker Hub and ghcr.io images through a pull cache on the
 server. The **Docker** tab shows its size and use, and **Clear cache**
-empties it. The **seed** is a set of images that new workspaces and Reset
-Docker start with.
+empties it. A meter shows how full the cache is, with a mark at 90 percent,
+where it empties itself. The **seed** is a set of images that new
+workspaces and Reset Docker start with; its meter shows the seed's size on
+disk against its limit.
+
+Every image row shows a **Download size**: the compressed size for this
+server, from what the cache already holds. A dash means the cache has never
+held that image. The seed limit counts unpacked images, which are larger
+than the download. **Image use** covers the last 120 days.
+
+When there was not enough free space at setup, setup turns the pull cache
+off, and the tab says so and why. **Clear cache** then does nothing. To turn
+the cache back on, free space on the main disk and run
+`sudo dpkg-reconfigure portikus`.
+
+On a new install the seed list starts with the official slim Node and
+Python images that match the default workspace image, such as
+`node:24-slim` and `python:3.13-slim`. Press **Rebuild seed** to build it.
+Portikus never changes a list you have set or emptied. After you make
+another workspace image the default, or roll back, the seed card may say
+the image runs a different Node or Python than the seed list holds. The
+button in that notice swaps the old node and python slim images for the
+new ones and rebuilds the seed. Sizes in the notice are estimates, and the
+button is not offered when the download would pass the seed's limit.
 
 The ghcr.io cache is on by default. Students build and push their images
 in GitHub Actions, which runs on GitHub's machines and pushes to the real
@@ -153,6 +184,20 @@ popular pulled images into the seed. Existing workspaces take a new seed
 only when the student uses Reset Docker; Docker storage is never swapped
 behind a student's back. The net disk cost of the cache is that one capped
 file, which `sudo dpkg-reconfigure portikus` can size down.
+
+## Workspace images
+
+The **Image** tab lists the workspace images on this server. **Delete**
+removes an image you no longer need and frees its disk space. You cannot
+delete the default or the previous image, so you can always roll back.
+The confirmation says how many workspaces were made from the image; they
+keep working. After each fetch or build, the server keeps the default, the
+previous and the newest image on its own and deletes the rest.
+
+**Image size (compressed)** is the size of the image file Incus stores.
+Deleting an image frees about this much, or less. An image shows "Not
+measured yet" until the next image job measures it. The line below the
+list shows the free space on the main disk.
 
 ## Backups and restores
 

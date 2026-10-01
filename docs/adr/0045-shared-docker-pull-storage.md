@@ -78,7 +78,8 @@ shared-cache availability note (SEC5) are in SPEC.md section 24.5.
   costs everyone only download time (SEC5).
 - Seed copies overcommit the thin pool by up to the seed cap per
   workspace. The controller's refusal to fill the pool past 90 percent is
-  the guard; no admission check was added (SEC1).
+  the guard (SEC1). Epic 28 added one admission check: a create that
+  gets the seed counts the seed's size against the 90 percent line.
 - While the ghcr.io cache is on, `docker push` to ghcr.io, private
   ghcr.io images and non-Docker tools talking to ghcr.io do not work from
   workspaces.
