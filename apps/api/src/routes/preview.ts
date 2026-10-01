@@ -433,13 +433,17 @@ export function registerPreviewRoutes(
 			return reply.header("cache-control", "no-store").send(unreachable);
 		}
 
+		// The Preview tab's first look is when the agent learns whether the
+		// port speaks TLS (issue #957).
+		const settled =
+			(await registry.serviceWithProtocol(params.data.id, port)) ?? service;
 		// Asked as the preview host, because a development server that checks
 		// `Host` refuses only the name the student's browser would use.
 		const verdict = await probeOnce(
 			params.data.id,
 			port,
 			`${address}:${port}`,
-			upstreamScheme(service.protocolHint),
+			upstreamScheme(settled.protocolHint),
 			previewHost(workspace.label, port, config.PREVIEW_SUFFIX),
 		);
 		return reply.header("cache-control", "no-store").send(verdict);
@@ -705,13 +709,18 @@ export function registerPreviewRoutes(
 			await recordActivity(db, workspace.id);
 		}
 
+		// The gateway's first request for a port settles its protocol; later
+		// ones read the cached answer (issue #957).
+		const settled =
+			(await registry.serviceWithProtocol(session.workspace_id, port)) ?? service;
+
 		// The upstream comes from the workspace row and a port the registry
 		// vouched for, never from anything the request carries (SPEC.md §24.7).
 		return (
 			reply
 				.header("x-portikus-upstream", `${workspace.agent_address}:${port}`)
 				// Caddy speaks TLS to the upstream only when this says https (ADR 0041).
-				.header("x-portikus-upstream-scheme", upstreamScheme(service.protocolHint))
+				.header("x-portikus-upstream-scheme", upstreamScheme(settled.protocolHint))
 				.header("cache-control", "no-store")
 				.status(200)
 				.send()

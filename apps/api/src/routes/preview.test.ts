@@ -200,6 +200,7 @@ beforeEach(async () => {
 	await testDb.truncate();
 	agent.listening.clear();
 	agent.forwards.clear();
+	agent.probes.clear();
 	agent.failForward = false;
 	app = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
 	await app.listen({ port: 0, host: "127.0.0.1" });
@@ -1172,6 +1173,50 @@ async function embeddable(
 		headers: { cookie: jar.cookieHeader() },
 	});
 }
+
+// ── The TLS probe runs only when a preview asks (issue #957) ──
+
+test.skipIf(skip)("discovering a port does not probe it", async () => {
+	const port = await startApp(undefined, 0, true);
+	const listed = await app.inject({
+		method: "GET",
+		url: `/workspaces/${workspaceId}/listening`,
+		headers: { cookie: alice.cookieHeader() },
+	});
+	expect(listed.statusCode).toBe(200);
+	expect(agent.probes.get(workspaceId)).toBeUndefined();
+	expect(
+		(listed.json().services as { port: number; protocolHint: string }[]).find(
+			(one) => one.port === port,
+		)?.protocolHint,
+	).toBe("unknown");
+});
+
+test.skipIf(skip)(
+	"the gateway's first request probes the port once and later ones reuse it",
+	async () => {
+		const port = await startApp(undefined, 0, true);
+		const token = await openPreview(port);
+		expect(agent.probes.get(workspaceId)).toBeUndefined();
+		const first = await authorize(token, previewHostFor(port));
+		expect(first.statusCode).toBe(200);
+		expect(first.headers[SCHEME]).toBe("https");
+		const second = await authorize(token, previewHostFor(port));
+		expect(second.headers[SCHEME]).toBe("https");
+		expect(agent.probes.get(workspaceId)).toEqual([port]);
+	},
+);
+
+test.skipIf(skip)(
+	"the Preview tab's first look probes the port and reaches it over TLS",
+	async () => {
+		const port = await startApp(undefined, 0, true);
+		const response = await embeddable(port);
+		expect(response.json()).toEqual({ embeddable: true });
+		await embeddable(port);
+		expect(agent.probes.get(workspaceId)).toEqual([port]);
+	},
+);
 
 test.skipIf(skip)("an ordinary application is reported as embeddable", async () => {
 	const port = await startApp();
