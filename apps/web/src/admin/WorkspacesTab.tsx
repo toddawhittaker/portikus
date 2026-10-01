@@ -1,28 +1,20 @@
-import type {
-	AdminUser,
-	AdminWorkspaceSummary,
-	PendingOperation,
-} from "@portikus/contracts";
+import type { AdminUser, AdminWorkspaceSummary } from "@portikus/contracts";
 import {
 	Button,
 	Checkbox,
 	CONTROL_CLASS,
 	ConfirmDialog,
 	ConfirmDialogRoot,
-	type DesiredState,
 	FIELD_CLASS,
 	LABEL_CLASS,
-	StateBadge,
 	TextField,
 	Toggletip,
-	type WorkspaceState,
 } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ApiError, errorText, request } from "../api/request.js";
-import { PENDING_LABEL } from "../shell/StatusBar.js";
 import { joinWords, timeAgo } from "../text.js";
 import { AdminSection } from "./AdminSection.js";
 import { AddDexUser } from "./DexUserDialogs.js";
@@ -37,16 +29,7 @@ import {
 } from "./markers.js";
 import { adminActionUrl, useAdminUsers } from "./queries.js";
 import { WorkspaceDetail } from "./WorkspaceDetail.js";
-
-export const KNOWN_STATES: readonly string[] = [
-	"provisioning",
-	"starting",
-	"running",
-	"stopping",
-	"stopped",
-	"error",
-];
-const KNOWN_DESIRED: readonly string[] = ["running", "stopped", "restarting"];
+import { KNOWN_STATES, WorkspaceStateBadge } from "./WorkspaceStateBadge.js";
 
 export interface AccountFilters {
 	text: string;
@@ -113,49 +96,6 @@ export function isFiltered(filters: AccountFilters): boolean {
 		filters.image !== NO_FILTERS.image ||
 		filters.role !== NO_FILTERS.role ||
 		filters.showArchived !== NO_FILTERS.showArchived
-	);
-}
-
-export function storageText(quota: { homeGiB: number; dockerGiB: number }): string {
-	return `Home ${quota.homeGiB} GiB · Docker ${quota.dockerGiB} GiB`;
-}
-
-/**
- * A state the badge knows is drawn as one; anything newer shows its raw name.
- * A pending rebuild or reset wins, drawn like the student's status.
- */
-export function WorkspaceStateBadge({
-	state,
-	desiredState,
-	pendingOperation,
-	statusRole,
-}: {
-	state: string;
-	desiredState: string;
-	pendingOperation?: PendingOperation | null;
-	/** In a table cell or inside a status wrapper, so it is not its own live region. */
-	statusRole?: boolean;
-}) {
-	if (pendingOperation) {
-		return (
-			<StateBadge
-				state="starting"
-				label={PENDING_LABEL[pendingOperation]}
-				statusRole={statusRole}
-			/>
-		);
-	}
-	if (!KNOWN_STATES.includes(state)) return <span className="pk-tag">{state}</span>;
-	return (
-		<StateBadge
-			state={state as WorkspaceState}
-			statusRole={statusRole}
-			desiredState={
-				KNOWN_DESIRED.includes(desiredState)
-					? (desiredState as DesiredState)
-					: undefined
-			}
-		/>
 	);
 }
 

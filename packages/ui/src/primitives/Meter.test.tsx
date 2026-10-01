@@ -89,6 +89,25 @@ describe("Meter", () => {
 		).not.toBeNull();
 	});
 
+	it("can take its name from a visible label and a description by id", () => {
+		render(
+			<>
+				<span id="seed-label">Seed size</span>
+				<p id="seed-step">Delete old images.</p>
+				<Meter
+					aria-labelledby="seed-label"
+					aria-describedby="seed-step"
+					value={1}
+					max={8}
+					valueText="1 of 8"
+				/>
+			</>,
+		);
+		const meter = screen.getByRole("meter", { name: "Seed size" });
+		expect(meter.hasAttribute("aria-label")).toBe(false);
+		expect(meter.getAttribute("aria-describedby")).toBe("seed-step");
+	});
+
 	it("an empty limit still renders a valid meter", () => {
 		render(<Meter label="Seed" value={0} max={0} mark={0} valueText="Not known" />);
 		const meter = screen.getByRole("meter") as HTMLMeterElement;

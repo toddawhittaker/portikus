@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { z } from "zod";
-import { ApiError, postJson, request } from "../api/request.js";
+import { ApiError, request, sendJson } from "../api/request.js";
 import { StandalonePage } from "../pages/StandalonePage.js";
 import { useMe } from "../useMe.js";
 
@@ -60,7 +60,7 @@ export function AcceptableUsePage() {
 	});
 	const accept = useMutation({
 		mutationFn: (version: number) =>
-			postJson(z.undefined(), "/me/acceptable-use", { version }),
+			sendJson(z.undefined(), "/me/acceptable-use", { version }),
 		onSuccess: async () => {
 			// The gate is clear now; refetch so the router stops sending pages here.
 			await client.refetchQueries({ queryKey: ["me"] });

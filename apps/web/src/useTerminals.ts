@@ -15,7 +15,7 @@ import { useToast } from "@portikus/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { z } from "zod";
-import { ApiError, postJson, request, SessionEndedError } from "./api/request.js";
+import { ApiError, request, SessionEndedError, sendJson } from "./api/request.js";
 
 /** How often an idle tab re-reads the list, so a second browser's terminal shows up. */
 const REFETCH_MS = 15_000;
@@ -78,7 +78,7 @@ export function useTerminals(
 		mutationFn: (init?: { name?: string; agent?: CodingAgent }) =>
 			// The API answers with the created terminal. A launcher sends the
 			// agent enum and no command string (SPEC.md §10.2).
-			postJson(Terminal, url, {
+			sendJson(Terminal, url, {
 				projectId,
 				...(init?.name ? { name: init.name } : {}),
 				...(init?.agent ? { agent: init.agent } : {}),
@@ -103,14 +103,14 @@ export function useTerminals(
 
 	const rename = useMutation({
 		mutationFn: ({ terminalId, name }: { terminalId: string; name: string }) =>
-			postJson(Terminal, `${url}/${terminalId}`, { name }, "PATCH"),
+			sendJson(Terminal, `${url}/${terminalId}`, { name }, "PATCH"),
 		onSuccess: invalidate,
 		onError: showFailure,
 	});
 
 	const setTheme = useMutation({
 		mutationFn: ({ terminalId, theme }: { terminalId: string; theme: TerminalTheme }) =>
-			postJson(Terminal, `${url}/${terminalId}`, { theme }, "PATCH"),
+			sendJson(Terminal, `${url}/${terminalId}`, { theme }, "PATCH"),
 		// The pane repaints from the cached row, so write it back at once
 		// rather than waiting for the next list answer.
 		onSuccess: (terminal) => {
