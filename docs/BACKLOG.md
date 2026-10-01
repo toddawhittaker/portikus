@@ -1878,3 +1878,64 @@ can refuse a size setup would accept. This is safe, only stricter.
 with a debconf scenario at the edge.
 
 **Source.** Epic 26 (#840) review of the cache size fix.
+
+## Email for certificate warnings
+
+**What.** Certificate expiry and renewal-failure warnings reach
+administrators only as notifications in Portikus. An administrator who
+does not sign in misses them.
+
+**What it would take.** Send the same notices by email once outgoing mail
+exists. This is blocked on #918.
+
+**Source.** Epic 27 (#804), ruling R12.
+
+## Shared file input in packages/ui
+
+**What.** The Certificate tab builds its own file picker for the PEM
+uploads. There is no shared file input that looks and behaves like the
+Select in `packages/ui`.
+
+**What it would take.** A file input component in `packages/ui`, styled
+like Select, with its hint linked by `aria-describedby`, used by the
+Certificate tab, with unit and axe tests.
+
+**Source.** Epic 27 (#804) review of the Certificate tab.
+
+## Caddy reloads and long WebSockets
+
+**What.** A Caddy reload closes every proxied WebSocket, such as a
+terminal. Setup sets `stream_close_delay 1h` on the WebSocket routes, so
+a certificate change does not drop them. A connection still open an hour
+after a reload is closed anyway, and the page reconnects. Each reload
+inside that hour also keeps an old configuration in memory.
+
+**What it would take.** Nothing now. Revisit if reloads become frequent
+or terminals drop after certificate changes.
+
+**Source.** Epic 27 (#804), ruling R19.
+
+## ACME "unauthorized" treated as final
+
+**What.** The certificate job treats every ACME `unauthorized` error as
+final and stops at once. During DNS propagation a DNS-01 challenge can
+fail with that error and would succeed a minute later, so a test can fail
+when a retry would have passed.
+
+**What it would take.** Watch for it on real installs. If it happens,
+retry `unauthorized` for DNS-01 a few times before giving up, with a unit
+test for the classification.
+
+**Source.** Epic 27 (#804) review of the root job.
+
+## Duplicate keys in a Google key file
+
+**What.** A Google Cloud DNS service-account key with a duplicate JSON key
+is refused only by the root job. The page and the API accept it, because
+`JSON.parse` keeps the last value, so the administrator learns of it only
+when the job fails.
+
+**What it would take.** A duplicate-key check in the contract's parser
+(a small reviver or a token scan), with a unit test.
+
+**Source.** Epic 27 (#804) security review of the API.

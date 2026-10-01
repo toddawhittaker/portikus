@@ -146,10 +146,13 @@ sudo apt update
 sudo apt install portikus
 ```
 
-A few text screens ask for the web address, the administrator's email, the
-HTTPS certificate, how people sign in, and where to keep student files:
+A few text screens ask for the web address, the administrator's email, how
+people sign in, and where to keep student files:
 
-![The install screen asking where the HTTPS certificate comes from](docs/images/install/04-https-certificate.png)
+![The sign-in screen, offering local accounts only, Microsoft Entra ID, Google Workspace, LDAP or Active Directory, or another OpenID Connect provider](docs/images/install/06-sign-in.png)
+
+The site starts with Portikus's own certificate authority; an
+administrator chooses the real HTTPS certificate on the Admin page.
 
 When apt finishes, setup runs in the background for about ten minutes and
 then you sign in as the administrator at your web address.
