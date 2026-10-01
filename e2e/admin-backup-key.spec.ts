@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
 import { OFFSITE_KEY, resetKey, SERVER_KEY } from "./backup-key";
-import { loginAs, query, settledAxe, toast, WCAG_TAGS } from "./helpers";
+import { expectNoViolations, loginAs, query, toast } from "./helpers";
 
 /**
  * The backup key on a server that backs itself up (ADR 0044): the reminder
@@ -226,11 +226,6 @@ test("the replace step starts on Cancel and shows its own errors", async ({ page
 		SERVER_KEY.recipient,
 	);
 });
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`the key section and its dialogs have no automatic accessibility violations (${colorScheme})`, async ({

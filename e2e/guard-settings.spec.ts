@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { loginAs, query, settledAxe, toast, WCAG_TAGS } from "./helpers";
+import { expect, test } from "@playwright/test";
+import { expectNoViolations, loginAs, query, toast } from "./helpers";
 
 /**
  * The Resource guard card's saves in the admin Settings tab: the automatic
@@ -8,11 +8,6 @@ import { loginAs, query, settledAxe, toast, WCAG_TAGS } from "./helpers";
  * tests share a file and run serially; in parallel they overwrite each other.
  */
 test.describe.configure({ mode: "serial" });
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 interface LiftRow {
 	cpu_idle_lift_minutes: number;

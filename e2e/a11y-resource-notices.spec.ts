@@ -6,32 +6,14 @@
  */
 import { expect, type Page, test } from "@playwright/test";
 import {
+	contrast,
 	createStudent,
+	expectNoViolations,
 	query,
 	seedStorage,
-	settledAxe,
-	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
-
-/** The WCAG 2 contrast ratio between two rgb() colours. */
-function contrast(first: string, second: string): number {
-	const luminance = (colour: string) => {
-		const [r, g, b] = (colour.match(/[\d.]+/g) ?? []).slice(0, 3).map((part) => {
-			const channel = Number(part) / 255;
-			return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
-		});
-		return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
-	};
-	const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a);
-	return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
-}
 
 /** Each meter's fill against its track is 3:1, and its value text 4.5:1 on the bar. */
 async function expectMeterContrast(page: Page) {

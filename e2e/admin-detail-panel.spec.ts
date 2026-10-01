@@ -3,13 +3,12 @@ import { expect, type Page, test } from "@playwright/test";
 import { backupSet, hostStatus } from "./backup-channel";
 import {
 	createStudent,
+	expectNoViolations,
 	loginAs,
 	MOCK_ISSUER,
 	openToggletip,
 	query,
-	settledAxe,
 	toast,
-	WCAG_TAGS,
 } from "./helpers";
 
 /**
@@ -28,11 +27,6 @@ const SECTIONS = [
 	"Account",
 	"Recent audit events",
 ];
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 /** A student renamed with a tag, so the Users filter finds only them. */
 async function namedStudent(
