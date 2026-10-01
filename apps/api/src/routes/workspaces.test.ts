@@ -7,7 +7,7 @@ import {
 } from "@portikus/auth/testing";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
 const skip = !hasTestDb();
@@ -370,6 +370,37 @@ test.skipIf(skip)("a hold must be ahead of now and within the cap", async () => 
 	expect((await keepRunning(id, alice, "PUT", {})).statusCode).toBe(400);
 	expect(await keepRunningAudits(id)).toEqual([]);
 });
+
+test.skipIf(skip)(
+	"a hold a few seconds past the cap is clamped to the cap; minutes past is refused",
+	async () => {
+		const id = (await post("/workspaces", alice)).json().id;
+		const now = new Date("2026-10-01T12:00:00.000Z");
+		vi.useFakeTimers({ toFake: ["Date"], now });
+		try {
+			const cap = now.getTime() + 12 * 3_600_000;
+			const ok = await keepRunning(id, alice, "PUT", {
+				until: new Date(cap + 2_000).toISOString(),
+			});
+			expect(ok.statusCode).toBe(200);
+			expect(ok.json().keepRunningUntil).toBe(new Date(cap).toISOString());
+			const row = await testDb.db
+				.selectFrom("workspaces")
+				.select("keep_running_until")
+				.where("id", "=", id)
+				.executeTakeFirstOrThrow();
+			expect(row.keep_running_until?.getTime()).toBe(cap);
+
+			const far = await keepRunning(id, alice, "PUT", {
+				until: new Date(cap + 6 * 60_000).toISOString(),
+			});
+			expect(far.statusCode).toBe(400);
+			expect(far.json().code).toBe("VALIDATION_FAILED");
+		} finally {
+			vi.useRealTimers();
+		}
+	},
+);
 
 test.skipIf(skip)(
 	"a site cap of 0 refuses a hold, and a workspace override wins",

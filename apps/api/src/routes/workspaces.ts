@@ -2,6 +2,7 @@ import { isCourseIssuer, requireUser } from "@portikus/auth";
 import {
 	type ApiError,
 	CreateWorkspaceRequest,
+	DEFAULT_KEEP_RUNNING_MAX_HOURS,
 	type DesiredState,
 	deriveWorkspaceLabel,
 	type GuardConfig,
@@ -20,6 +21,7 @@ import {
 	countActive,
 	findOwnedWorkspace,
 	findWorkspaceOwnedBy,
+	fromJson,
 	toWorkspace,
 } from "./workspace-view.js";
 
@@ -30,12 +32,6 @@ function randomHex8(): string {
 	return Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) =>
 		b.toString(16).padStart(2, "0"),
 	).join("");
-}
-
-/** Parse a jsonb value that may arrive as text. */
-function parseJson<T>(value: unknown): T | null {
-	if (value === null || value === undefined) return null;
-	return (typeof value === "string" ? JSON.parse(value) : value) as T;
 }
 
 function sendError(
@@ -213,12 +209,12 @@ export function registerWorkspaceRoutes(
 			.where("id", "=", 1)
 			.executeTakeFirst();
 		const maxHours = keepRunningMaxHours(
-			settings?.keep_running_max_hours ?? 12,
-			parseJson<GuardConfig>(row.guard_config),
+			settings?.keep_running_max_hours ?? DEFAULT_KEEP_RUNNING_MAX_HOURS,
+			fromJson<GuardConfig>(row.guard_config),
 		);
 		const now = new Date();
-		const until = new Date(body.data.until);
-		const refusal = keepRunningRefusal(until, now, maxHours);
+		const requested = new Date(body.data.until);
+		const refusal = keepRunningRefusal(requested, now, maxHours);
 		if (refusal === "off") {
 			return sendError(
 				reply,
@@ -238,6 +234,10 @@ export function registerWorkspaceRoutes(
 				`Pick a time no more than ${maxHours} hours from now.`,
 			);
 		}
+		// A browser clock a little fast lands just past the cap; hold to the cap.
+		const until = new Date(
+			Math.min(requested.getTime(), now.getTime() + maxHours * 3_600_000),
+		);
 		const previous = row.keep_running_until as Date | null;
 		// Setting a hold is the student acting, so any "Still working?" is answered.
 		const updated = await db

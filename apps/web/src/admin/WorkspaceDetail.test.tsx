@@ -1571,6 +1571,23 @@ test("the guard texts give the numbers and mark overrides", () => {
 	);
 });
 
+test("the guard summary names the owner's Keep running hold only while it lasts", () => {
+	const guard = {
+		cpuThresholdPercent: 80,
+		memoryThresholdPercent: 90,
+		windowMinutes: 30,
+		throttleSharePercent: 25,
+		idleStopMinutes: 60,
+	};
+	const now = Date.parse("2026-10-01T12:00:00.000Z");
+	const until = "2026-10-01T20:00:00.000Z";
+	const lines = effectiveGuardText(guard, null, until, now);
+	expect(lines).toHaveLength(4);
+	expect(lines[3]).toMatch(/^Kept running by its owner until .+\.$/);
+	expect(effectiveGuardText(guard, null, until, Date.parse(until) + 1)).toHaveLength(3);
+	expect(effectiveGuardText(guard, null, null, now)).toHaveLength(3);
+});
+
 test("a normal workspace shows its limits and last activity, with no lift or clear", async () => {
 	stubDetail(
 		detail({ workspace: { ...WORKSPACE, lastActivityAt: "2026-09-25T12:00:00.000Z" } }),

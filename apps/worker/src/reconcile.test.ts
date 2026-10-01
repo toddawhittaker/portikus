@@ -9,7 +9,13 @@ import type { KyselyPlugin, PluginTransformQueryArgs, RootOperationNode } from "
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
-import { doStop, type ReconcileConfig, reconcile, settleStops } from "./reconcile.js";
+import {
+	doStop,
+	type ReconcileConfig,
+	reconcile,
+	settleKeepRunning,
+	settleStops,
+} from "./reconcile.js";
 
 /** One sweep, then wait for the stops it began in the background. */
 async function sweep(
@@ -2203,6 +2209,46 @@ test.skipIf(skip)("a lowered cap cuts a hold to the cap from now", async () => {
 		],
 	]);
 });
+
+test.skipIf(skip)("a hold the student ended stays ended through the cut", async () => {
+	const now = new Date();
+	const id = await heldWorkspace(now, 0, new Date(now.getTime() + 10 * HOUR));
+	await tdb.db.updateTable("settings").set({ keep_running_max_hours: 2 }).execute();
+	await tdb.db
+		.updateTable("workspaces")
+		.set({ keep_running_until: null })
+		.where("id", "=", id)
+		.execute();
+
+	await settleKeepRunning(tdb.db, now);
+
+	expect((await getWorkspace(id)).keep_running_until).toBeNull();
+	expect(await keepRunningAudits(id)).toEqual([]);
+});
+
+test.skipIf(skip)(
+	"a student's end committed while the cut waits on the row is not undone",
+	async () => {
+		const now = new Date();
+		const id = await heldWorkspace(now, 0, new Date(now.getTime() + 10 * HOUR));
+		await tdb.db.updateTable("settings").set({ keep_running_max_hours: 2 }).execute();
+
+		let settle: Promise<void> | undefined;
+		await tdb.db.transaction().execute(async (trx) => {
+			await trx
+				.updateTable("workspaces")
+				.set({ keep_running_until: null })
+				.where("id", "=", id)
+				.execute();
+			// The cut blocks on the row lock until this transaction commits.
+			settle = settleKeepRunning(tdb.db, now);
+			await new Promise((resolve) => setTimeout(resolve, 200));
+		});
+		await settle;
+
+		expect((await getWorkspace(id)).keep_running_until).toBeNull();
+	},
+);
 
 test.skipIf(skip)("a workspace's cap override wins over the site cap", async () => {
 	const now = new Date();

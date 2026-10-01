@@ -237,11 +237,21 @@ test("shows each image's size and the main disk's free space (issue #936)", asyn
 	expect((await screen.findByTestId("image-size-2026.09.10")).textContent).toBe(
 		"840 MB",
 	);
+	// A dash on screen, read out as "Not measured yet", as the Docker tab does.
 	expect(screen.getByTestId("image-size-2026.09.11").textContent).toBe(
-		"Not measured yet",
+		"—Not measured yet",
 	);
-	expect(screen.getByTestId("image-disk-free").textContent).toBe(
-		"Free space on the main disk: 5.0 GB of 20.0 GB.",
+	const meter = screen.getByRole("meter", {
+		name: "Main disk space",
+	}) as HTMLMeterElement;
+	expect(meter.value).toBe(15 * 1024 ** 3);
+	expect(meter.max).toBe(20 * 1024 ** 3);
+	expect(meter.high).toBe(16 * 1024 ** 3);
+	expect(meter.getAttribute("aria-valuetext")).toBe(
+		"15.0 GB of 20.0 GB used, 5.0 GB free",
+	);
+	expect(screen.getByTestId("image-disk-free").textContent).toContain(
+		"15.0 GB of 20.0 GB used, 5.0 GB free",
 	);
 });
 
@@ -249,12 +259,13 @@ test("Delete is off for the default and the previous image, with the reason", as
 	stubFetch(() => json(200, data()));
 	renderWithQuery(<ImageTab />);
 	for (const [version, reason] of [
-		["2026.09.10", "The default image cannot be deleted."],
-		["2026.09.9", "The previous image is kept so you can roll back."],
+		["2026.09.10", "The default image is never deleted."],
+		["2026.09.9", "Kept so you can roll back."],
 	] as const) {
 		const button = await screen.findByTestId(`image-delete-${version}`);
 		expect(button.getAttribute("aria-disabled")).toBe("true");
-		expect(screen.getByText(reason)).toBeTruthy();
+		const note = screen.getByText(reason);
+		expect(button.getAttribute("aria-describedby")).toBe(note.id);
 		fireEvent.click(button);
 		expect(screen.queryByTestId("image-confirm")).toBeNull();
 	}
@@ -280,8 +291,13 @@ test("Delete confirms with the workspace count and posts a delete request", asyn
 	fireEvent.click(await screen.findByTestId("image-delete-2026.09.11"));
 	const dialog = await screen.findByTestId("image-confirm");
 	expect(dialog.textContent).toContain("Delete image 2026.09.11?");
-	expect(dialog.textContent).toContain("4 workspaces were made from this image.");
-	fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+	expect(dialog.textContent).toContain(
+		"4 workspaces were made from this image. They keep working, because each has its own copy of its disk.",
+	);
+	expect(dialog.textContent).toContain(
+		"Deleting it frees about 840 MB on the main disk.",
+	);
+	fireEvent.click(within(dialog).getByRole("button", { name: "Delete image" }));
 	await waitFor(() => {
 		const post = fetch.mock.calls.find(([, init]) => init?.method === "POST");
 		expect(JSON.parse(String(post?.[1]?.body))).toEqual({
@@ -289,4 +305,48 @@ test("Delete confirms with the workspace count and posts a delete request", asyn
 			version: "2026.09.11",
 		});
 	});
+});
+
+test("Delete of an image no workspace was made from says so, and an unmeasured one frees its space", async () => {
+	stubFetch(() =>
+		json(
+			200,
+			data({
+				images: [
+					...data().images.slice(0, 2),
+					image("2026.09.11", { workspaces: 0, sizeBytes: null }),
+				],
+			}),
+		),
+	);
+	renderWithQuery(<ImageTab />);
+	fireEvent.click(await screen.findByTestId("image-delete-2026.09.11"));
+	const dialog = await screen.findByTestId("image-confirm");
+	expect(dialog.textContent).toContain("No workspaces were made from this image.");
+	expect(dialog.textContent).not.toContain("They keep working");
+	expect(dialog.textContent).toContain("Deleting it frees its space on the main disk.");
+});
+
+test("while a job runs, each row action points at the one busy note instead of repeating it", async () => {
+	stubFetch((url) =>
+		url.startsWith("/admin/image/jobs/")
+			? json(200, { job: job(), log: [] })
+			: json(
+					200,
+					data({
+						job: job(),
+						images: [...data().images.slice(0, 2), image("2026.09.11")],
+					}),
+				),
+	);
+	renderWithQuery(<ImageTab />);
+	const remove = await screen.findByTestId("image-delete-2026.09.11");
+	const make = screen.getByTestId("image-make-default-2026.09.11");
+	for (const button of [remove, make]) {
+		expect(button.getAttribute("aria-disabled")).toBe("true");
+		expect(button.getAttribute("aria-describedby")).toBe("image-busy-note");
+	}
+	expect(
+		screen.getAllByText("An image job is waiting or running. Wait until it finishes."),
+	).toHaveLength(1);
 });

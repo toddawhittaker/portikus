@@ -33,6 +33,15 @@ test("the end time is shown in the student's timezone", () => {
 	expect(formatHoldEnd(at, "Not/AZone")).toMatch(/\d:30/);
 });
 
+test("an end six days or more ahead also names its date, so a week is not read as today", () => {
+	const now = Date.parse("2026-10-01T12:00:00.000Z");
+	const week = new Date(now + 168 * 3_600_000).toISOString();
+	const soon = new Date(now + 8 * 3_600_000).toISOString();
+	expect(formatHoldEnd(week, "UTC", now)).toMatch(/Oct 8/);
+	expect(formatHoldEnd(soon, "UTC", now)).not.toMatch(/Oct/);
+	expect(formatHoldEnd(soon, "UTC", now)).toMatch(/8:00/);
+});
+
 test("a hold is active only while its end is ahead", () => {
 	expect(holdActive({ keepRunningUntil: null })).toBe(false);
 	expect(holdActive({ keepRunningUntil: inHours(1) })).toBe(true);
@@ -62,6 +71,10 @@ test("with no hold, Keep running asks for a time within the cap", async () => {
 
 	expect(screen.getByRole("heading", { name: "Keep running" })).toBeDefined();
 	expect(screen.queryByTestId("keep-running-end")).toBeNull();
+	// The button names its result: the end time eight hours ahead.
+	expect(screen.getByTestId("keep-running-set").textContent).toMatch(
+		/^Keep running until \w{3} \d{1,2}:\d{2}/,
+	);
 	const before = Date.now();
 	fireEvent.click(screen.getByTestId("keep-running-set"));
 	await waitFor(() => expect(calls.length).toBe(1));
@@ -73,7 +86,7 @@ test("with no hold, Keep running asks for a time within the cap", async () => {
 	expect(until).toBeLessThanOrEqual(Date.now() + 12 * 3_600_000);
 });
 
-test("with a hold, the end time shows and End hold ends it", async () => {
+test("with a hold, the end time shows and Don't keep running ends it", async () => {
 	const calls = stubKeepRunning();
 	const workspace: Workspace = { ...WORKSPACE, keepRunningUntil: inHours(3) };
 	renderWithQuery(
@@ -83,9 +96,26 @@ test("with a hold, the end time shows and End hold ends it", async () => {
 	expect(screen.getByTestId("keep-running-status").textContent).toContain(
 		formatHoldEnd(workspace.keepRunningUntil as string),
 	);
-	expect(screen.getByTestId("keep-running-set").textContent).toBe("Change");
-	fireEvent.click(screen.getByTestId("keep-running-end"));
+	expect(screen.getByTestId("keep-running-set").textContent).toMatch(
+		/^Keep running until /,
+	);
+	const end = screen.getByRole("button", { name: "Don't keep running" });
+	expect(end.getAttribute("data-testid")).toBe("keep-running-end");
+	fireEvent.click(end);
 	await waitFor(() => expect(calls).toEqual([{ method: "DELETE", body: null }]));
+});
+
+test("a hold set before the cap went to 0 can still be ended, with nothing new offered", () => {
+	stubKeepRunning();
+	renderWithQuery(
+		<KeepRunningSection
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, keepRunningMaxHours: 0, keepRunningUntil: inHours(1) }}
+		/>,
+	);
+	expect(screen.getByTestId("keep-running-status")).toBeDefined();
+	expect(screen.queryByTestId("keep-running-set")).toBeNull();
+	expect(screen.getByRole("button", { name: "Don't keep running" })).toBeDefined();
 });
 
 test("a cap of 0 shows nothing", () => {

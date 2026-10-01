@@ -185,7 +185,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		const remove = page.getByRole("button", { name: "Delete: 2026.09.10" });
 		await remove.click();
 		await expect(page.getByTestId("image-confirm")).toContainText(
-			"0 workspaces were made from this image.",
+			"No workspaces were made from this image.",
 		);
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");

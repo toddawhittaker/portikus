@@ -41,6 +41,13 @@ export function guardDrafts(config: GuardConfig | null): GuardDrafts {
 	return drafts;
 }
 
+/** "Site setting: 12", with "(off)" where 0 turns Keep running off. */
+export function siteHint(key: GuardKey, value: number): string {
+	return key === "keepRunningMaxHours" && value === 0
+		? "Site setting: 0 (off)"
+		: `Site setting: ${value}`;
+}
+
 /** Override the resource guard for one workspace (ADR 0032). */
 export function GuardDialog({
 	open,
@@ -106,7 +113,7 @@ export function GuardDialog({
 								label={field.label}
 								inputMode="numeric"
 								data-testid={`guard-${field.key}`}
-								hint={defaults ? `Site setting: ${defaults[field.key]}` : undefined}
+								hint={defaults ? siteHint(field.key, defaults[field.key]) : undefined}
 								// Only the first problem is announced, so a reader hears one alert.
 								error={field.key === firstError ? announced(error) : error}
 								value={drafts[field.key]}
