@@ -69,9 +69,9 @@ done
 for lti_path in /lti/login /lti/launch; do
   lti_status=$(sec_http a POST "$lti_path" -H "Origin: https://attacker.example" --data "state=x")
   if [ "$lti_status" != "403" ]; then
-    sec_pass "a cross-site POST to ${lti_path} reaches the LTI handler (${lti_status})"
+    ok "a cross-site POST to ${lti_path} reaches the LTI handler (${lti_status})"
   else
-    sec_fail "a cross-site POST to ${lti_path} reaches the LTI handler (got: 403)"
+    bad "a cross-site POST to ${lti_path} reaches the LTI handler (got: 403)"
   fi
 done
 
@@ -116,7 +116,7 @@ print(", ".join(p["name"] + " (" + p["issuer"] + ")" for p in json.load(sys.stdi
   if [ -n "$lti_mocks" ]; then
     sec_warn "a mock LMS is registered: ${lti_mocks} can launch as anyone while it runs (make lti-mock-unregister)"
   else
-    sec_pass "no mock LMS is registered"
+    ok "no mock LMS is registered"
   fi
 fi
 

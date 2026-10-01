@@ -19,6 +19,7 @@
 #     keeps its files root-only, and waits for a running backup.
 #
 # Usage: ./infra/tests/backup-local-test.sh
+# shellcheck disable=SC2154  # pass and fail come from lib.sh
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,10 +29,8 @@ trap 'rm -rf "${work}"' EXIT
 
 command -v age-keygen >/dev/null || { echo "backup-local-test: age is not installed"; exit 1; }
 
-pass=0
-fail=0
-ok() { printf '\033[1;32mPASS\033[0m  %s\n' "$1"; pass=$((pass + 1)); }
-bad() { printf '\033[1;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail + 1)); }
+# shellcheck source=/dev/null
+. "${here}/lib.sh"
 expect() { if eval "$2"; then ok "$1"; else bad "$1"; fi; }
 
 INST=ws-0123456789abcdef01234567

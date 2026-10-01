@@ -87,9 +87,9 @@ pe_refused() {
   local label="$1" want="$2" got; shift 2
   got=$(pe_get "$@")
   if [ "$got" = "$want" ] && ! pe_leaks; then
-    sec_pass "$label"
+    ok "$label"
   else
-    sec_fail "$label (got: ${got}$(pe_leaks && echo ', a workspace page came back'))"
+    bad "$label (got: ${got}$(pe_leaks && echo ', a workspace page came back'))"
   fi
 }
 # pe_serves COOKIE-FILE URL [curl args] -- "status page" for a control.
@@ -111,7 +111,7 @@ pe_a_label="${pe_a_first%-*}"
 echo "Preview hosts: a ${pe_a_host:-?}, b ${pe_b_host:-?}"
 
 if [ -z "$pe_a_boot" ] || [ -z "$pe_b_boot" ]; then
-  sec_fail "preview setup: both workspaces got a bootstrap URL"
+  bad "preview setup: both workspaces got a bootstrap URL"
 else
   check_output "a's bootstrap sets a preview session (control)" "303" pe_bootstrap "$pe_a_boot" pe-a.cookie
   check_output "b's bootstrap sets a preview session (control)" "303" pe_bootstrap "$pe_b_boot" pe-b.cookie

@@ -19,7 +19,7 @@ xu_secret="sectest-secret-${SEC_RUN_ID}"
 xu_a_ip=$(sec_ws_ip a)
 xu_b_ip=$(sec_ws_ip b)
 if [ -z "$xu_a_ip" ] || [ -z "$xu_b_ip" ]; then
-  sec_fail "cross-user setup: both workspace addresses are known (a '${xu_a_ip}', b '${xu_b_ip}')"
+  bad "cross-user setup: both workspace addresses are known (a '${xu_a_ip}', b '${xu_b_ip}')"
 fi
 
 # The project is made through the API so it has a row, then the secret file
@@ -47,14 +47,14 @@ xu_expect() {
   local label="$1" want="$2" got; shift 2
   got=$(sec_http "$@")
   if [ "$got" = "$want" ] && xu_body_clean; then
-    sec_pass "$label"
+    ok "$label"
   else
-    sec_fail "$label (got: ${got}$(xu_body_clean || echo ', body names a'"'"'s data'))"
+    bad "$label (got: ${got}$(xu_body_clean || echo ', body names a'"'"'s data'))"
   fi
 }
 
 if [ -z "$xu_pid" ] || [ -z "$xu_tid" ]; then
-  sec_fail "cross-user setup: a's project and terminal exist (project '${xu_pid}', terminal '${xu_tid}')"
+  bad "cross-user setup: a's project and terminal exist (project '${xu_pid}', terminal '${xu_tid}')"
 else
   xu_file="/workspaces/${xu_a}/projects/${xu_pid}/file?path=secret.txt"
   xu_tree="/workspaces/${xu_a}/projects/${xu_pid}/tree"

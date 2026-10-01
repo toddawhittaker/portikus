@@ -22,7 +22,7 @@ echo "Workspace a ${net_a_ip}, workspace b ${net_b_ip}, bridge ${net_bridge}, VM
 # Every probe below dials these addresses; an empty one would dial nothing
 # and pass, so the module stops here instead.
 if [ -z "$net_a_ip" ] || [ -z "$net_b_ip" ] || [ -z "$net_bridge" ] || [ -z "$net_gateway" ]; then
-  sec_fail "network setup: the addresses of a, b, the bridge and the libvirt host are all known"
+  bad "network setup: the addresses of a, b, the bridge and the libvirt host are all known"
   return 0
 fi
 
@@ -101,7 +101,7 @@ declare -A net_group_names=(
 
 # The public-site probe counts only if the site really answers there.
 if [ -z "$net_lan_ip" ]; then
-  sec_fail "the public site's name resolves to the host's LAN address"
+  bad "the public site's name resolves to the host's LAN address"
 else
   check_output "this host reaches the public site at ${net_lan_ip}:${SEC_PUBLIC_PORT} (probe control)" "200" \
     curl -s -o /dev/null -w '%{http_code}' --max-time 5 -k \
@@ -129,18 +129,18 @@ net_probe_sh() { # [TARGETS]
 net_report() {
   local context="$1" results="$2" g open
   if printf '%s\n' "$results" | grep -qx "${net_control} open"; then
-    sec_pass "${context}: Internet control target is reachable"
+    ok "${context}: Internet control target is reachable"
   else
-    sec_fail "${context}: Internet control target is reachable (the probe proves nothing)"
+    bad "${context}: Internet control target is reachable (the probe proves nothing)"
   fi
   for g in "${net_groups[@]}"; do
     [ -n "${net_group_targets[$g]}" ] || continue
     open=$(printf '%s\n' "$results" | awk '$2 == "open" { print $1 }' \
       | grep -x -F -f <(printf '%s\n' "${net_group_targets[$g]}") | tr '\n' ' ')
     if [ -z "$open" ]; then
-      sec_pass "${context}: ${net_group_names[$g]} is unreachable"
+      ok "${context}: ${net_group_names[$g]} is unreachable"
     else
-      sec_fail "${context}: ${net_group_names[$g]} is unreachable (open: ${open% })"
+      bad "${context}: ${net_group_names[$g]} is unreachable (open: ${open% })"
     fi
   done
 }
@@ -176,15 +176,15 @@ else
   net_ll_report() { # CONTEXT RESULTS
     local open
     if ! printf '%s\n' "$2" | grep -qxF "${net_ll_own} open"; then
-      sec_fail "$1: reaches its own link-local listener (control; the peer probe proves nothing)"
+      bad "$1: reaches its own link-local listener (control; the peer probe proves nothing)"
       return
     fi
-    sec_pass "$1: reaches its own link-local listener (control)"
+    ok "$1: reaches its own link-local listener (control)"
     open=$(printf '%s\n' "$2" | awk '$2 == "open" { print $1 }' | grep -vxF "$net_ll_own" | tr '\n' ' ')
     if [ -z "$open" ]; then
-      sec_pass "$1: the other workspace is unreachable over IPv6 link-local"
+      ok "$1: the other workspace is unreachable over IPv6 link-local"
     else
-      sec_fail "$1: the other workspace is unreachable over IPv6 link-local (open: ${open% })"
+      bad "$1: the other workspace is unreachable over IPv6 link-local (open: ${open% })"
     fi
   }
   net_ll_report "a as student" "$(sec_exec a student "$(net_probe_bash "${net_ll_own} ${net_ll_peer}")" 2>/dev/null)"

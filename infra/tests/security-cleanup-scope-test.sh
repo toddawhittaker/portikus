@@ -8,6 +8,7 @@
 #
 # Usage: ./infra/tests/security-cleanup-scope-test.sh
 # shellcheck disable=SC2034  # the recorded arrays are read by lib.sh
+# shellcheck disable=SC2154  # pass and fail come from lib.sh
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,10 +37,6 @@ ours_instance="ws-111111111111111111111111"
 theirs_ws="22222222-2222-2222-2222-222222222222"
 theirs_instance="ws-222222222222222222222222"
 
-pass=0
-fail=0
-ok() { printf '\033[1;32mPASS\033[0m  %s\n' "$1"; pass=$((pass + 1)); }
-bad() { printf '\033[1;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail + 1)); }
 assert_logged() { if grep -qF -- "$2" "$log"; then ok "$1"; else bad "$1"; fi; }
 assert_not_logged() { if grep -qF -- "$2" "$log"; then bad "$1"; else ok "$1"; fi; }
 # Every line matching PATTERN also carries the sectest issuer guard.

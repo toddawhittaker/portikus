@@ -25,7 +25,7 @@ we_start_presets=${we_policy#* }
 [ "$we_start_presets" = "$we_policy" ] && we_start_presets=""
 echo "Gateway ${we_gateway}, workspace a ${we_a_ip}, policy: ${we_start_mode} (presets: ${we_start_presets:-none})"
 if [ -z "$we_gateway" ] || [ -z "$we_a_ip" ] || [ -z "$we_start_mode" ]; then
-  sec_fail "workspace egress setup: the gateway, a's address and the policy are known"
+  bad "workspace egress setup: the gateway, a's address and the policy are known"
   return 0
 fi
 
@@ -124,11 +124,11 @@ we_expect() {
   local context="$1" results="$2" name="$3" wanted="$4" label="$5" got
   got=$(printf '%s\n' "$results" | awk -v n="$name" '$1 == n { print $2; exit }')
   if [ "${wanted#!}" != "$wanted" ]; then
-    if [ -n "$got" ] && [ "$got" != "${wanted#!}" ]; then sec_pass "${context}: ${label}"; else sec_fail "${context}: ${label} (got: ${got:-nothing})"; fi
+    if [ -n "$got" ] && [ "$got" != "${wanted#!}" ]; then ok "${context}: ${label}"; else bad "${context}: ${label} (got: ${got:-nothing})"; fi
   elif [ "$got" = "$wanted" ]; then
-    sec_pass "${context}: ${label}"
+    ok "${context}: ${label}"
   else
-    sec_fail "${context}: ${label} (got: ${got:-nothing})"
+    bad "${context}: ${label} (got: ${got:-nothing})"
   fi
 }
 
@@ -177,7 +177,7 @@ we_check_open() {
   we_expect "open, a's Docker" "$r" unlisted_host_on_listed_address '!403' "plain HTTP is not intercepted (control)"
   we_expect "open, a's Docker" "$r" direct_proxy_ports "closed/closed/closed" "the redirect targets cannot be used directly"
   r=$(we_quic_leaks)
-  if [ "${r:-0}" -gt 0 ]; then sec_pass "open, a: UDP 443 (QUIC) leaves the VM (control for the allow-list check)"; else sec_fail "open, a: UDP 443 (QUIC) leaves the VM (control; counted ${r:-nothing})"; fi
+  if [ "${r:-0}" -gt 0 ]; then ok "open, a: UDP 443 (QUIC) leaves the VM (control for the allow-list check)"; else bad "open, a: UDP 443 (QUIC) leaves the VM (control; counted ${r:-nothing})"; fi
 }
 
 # ── Open mode with blocked sites ─────────────────────────────────
@@ -406,9 +406,9 @@ we_check_nftables_restart() {
   sec_ssh "sudo systemctl restart nftables" >/dev/null 2>&1
   after=$(sec_ssh "sudo nft list table inet portikus_egress | grep -c redirect")
   if [ -n "$before" ] && [ "$before" -gt 0 ] && [ "$after" = "$before" ]; then
-    sec_pass "restarting nftables keeps the egress table's ${after} redirect rule(s)"
+    ok "restarting nftables keeps the egress table's ${after} redirect rule(s)"
   else
-    sec_fail "restarting nftables keeps the egress table's redirect rules (before ${before:-none}, after ${after:-none})"
+    bad "restarting nftables keeps the egress table's redirect rules (before ${before:-none}, after ${after:-none})"
   fi
 }
 
@@ -451,7 +451,7 @@ we_check_reboots() {
     'a = json.load(open("/var/lib/portikus/egress-state/applied.json"))' \
     'json.dump({"requestId": "sectest-boot", **a["policy"]}, open("/var/lib/portikus/egress-request/request.json", "w"))' \
     | sec_ssh_stdin "sudo python3 -"
-  we_reboot || { sec_fail "the workspaces run again after a reboot in allow-list mode"; return; }
+  we_reboot || { bad "the workspaces run again after a reboot in allow-list mode"; return; }
   for ((i = 0; i < 60; i += 3)); do
     sec_ssh "systemctl is-active --quiet portikus-egress-dns" >/dev/null 2>&1 && break
     sleep 3
@@ -589,7 +589,7 @@ we_restore() {
   while IFS= read -r body; do
     [ -n "$body" ] && { we_send POST /admin/egress/blocked-sites "$body" || true; }
   done <<<"$we_start_blocked"
-  if we_wait_applied; then sec_pass "the egress policy is back as it was"; else sec_fail "the egress policy is back as it was (not applied)"; fi
+  if we_wait_applied; then ok "the egress policy is back as it was"; else bad "the egress policy is back as it was (not applied)"; fi
   check_output "the blocked sites are exactly as they were" "$we_start_blocked" \
     sec_psql "SELECT '{\"version\":@VERSION@,\"value\":' || to_json(value) || ',\"label\":' || to_json(label) || '}' FROM egress_blocked_entries ORDER BY value"
   # A VM that had never applied a policy now has one applied: the same open
@@ -614,19 +614,19 @@ if [ "$we_start_mode" = "open" ] && [ "$we_others" != "0" ]; then
 elif [ "$we_start_mode" = "open" ]; then
   # Open mode with no blocked site is exactly the open mode before blocked sites existed.
   if ! we_clear_blocked || ! we_wait_applied; then
-    sec_fail "the administrator empties the blocked sites through the API, and it is applied"
+    bad "the administrator empties the blocked sites through the API, and it is applied"
   else
     we_check_open
   fi
   if we_hold_connection; then
     check_output "open mode: a's long-lived connection to example.com is tracked (control)" "1" we_held_tracked
   else
-    sec_fail "open mode: a opens a long-lived connection to example.com"
+    bad "open mode: a opens a long-lived connection to example.com"
   fi
   if ! we_set_blocked "${WE_BLOCKED[@]}" || ! we_wait_applied; then
-    sec_fail "the administrator blocks sites through the API, and it is applied ($(sec_psql "SELECT coalesce(egress_apply_error, 'no error') FROM settings WHERE id = 1"))"
+    bad "the administrator blocks sites through the API, and it is applied ($(sec_psql "SELECT coalesce(egress_apply_error, 'no error') FROM settings WHERE id = 1"))"
   else
-    sec_pass "the administrator blocks sites through the API, and it is applied"
+    ok "the administrator blocks sites through the API, and it is applied"
     [ -n "$we_held_ip" ] && check_output "the connection opened before the block is forgotten" "0" we_held_tracked
     we_check_open_blocked
     # The blocked checks are long; renew presence so a and b outlast the allow-list checks.
@@ -634,17 +634,17 @@ elif [ "$we_start_mode" = "open" ]; then
   fi
   we_release_connection
   if ! we_clear_blocked; then
-    sec_fail "the administrator empties the blocked sites before allow-list mode"
+    bad "the administrator empties the blocked sites before allow-list mode"
     we_restore
   elif ! we_put /admin/egress/presets '{"version":@VERSION@,"presets":["github","docker-hub"]}' \
     || ! we_put /admin/egress/mode '{"version":@VERSION@,"mode":"allow-list"}'; then
-    sec_fail "the administrator switches to allow-list mode through the API"
+    bad "the administrator switches to allow-list mode through the API"
     we_restore
   elif ! we_wait_applied; then
-    sec_fail "the allow-list policy is applied within 90 s ($(sec_psql "SELECT coalesce(egress_apply_error, 'no error') FROM settings WHERE id = 1"))"
+    bad "the allow-list policy is applied within 90 s ($(sec_psql "SELECT coalesce(egress_apply_error, 'no error') FROM settings WHERE id = 1"))"
     we_restore
   else
-    sec_pass "the administrator switches to allow-list mode through the API, and it is applied"
+    ok "the administrator switches to allow-list mode through the API, and it is applied"
     we_check_allow_list
     we_check_nftables_restart
     if [ "$SEC_HEAVY" = "1" ]; then

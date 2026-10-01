@@ -3,6 +3,7 @@
 # entries it derives (docs/archive/epics/EPIC-14.md, ruling 28), and the mock
 # registration helper the Makefile uses.  Needs no VM.  The file's rules
 # are tested with the API's own parser in packages/auth.
+# shellcheck disable=SC2154  # pass and fail come from lib.sh
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -11,11 +12,8 @@ TASKS="${REPO_ROOT}/infra/ansible/roles/portikus/tasks/lti.yml"
 HELPER="${REPO_ROOT}/infra/host/lti-mock-registration.py"
 SEED="${REPO_ROOT}/packages/mock-lms/src/seed.ts"
 
-pass=0
-fail=0
-ok() { printf '\033[1;32mPASS\033[0m  %s\n' "$1"; pass=$((pass + 1)); }
-no() { printf '\033[1;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail + 1)); }
-check() { if "${@:2}"; then ok "$1"; else no "$1"; fi; }
+# shellcheck source=/dev/null
+. "${REPO_ROOT}/infra/tests/lib.sh"
 
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
@@ -33,11 +31,11 @@ load() {
 
 accepts() { # LABEL FILE EXPECTED-RESULT
   local got
-  if got="$(load "$2")" && [ "${got}" = "$3" ]; then ok "$1"; else no "$1 (got '${got:-refused}')"; fi
+  if got="$(load "$2")" && [ "${got}" = "$3" ]; then ok "$1"; else bad "$1 (got '${got:-refused}')"; fi
 }
 
 refuses() { # LABEL FILE
-  if load "$2" >/dev/null; then no "$1"; else ok "$1"; fi
+  if load "$2" >/dev/null; then bad "$1"; else ok "$1"; fi
 }
 
 # platform NAME ISSUER KEYSET MOCK
