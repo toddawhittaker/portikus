@@ -25,28 +25,14 @@ import {
 	type TreeResponse,
 	type WriteFileResponse,
 } from "@portikus/contracts";
+import { AgentFailure, errorCode, FileChanged } from "./errors.js";
 import { resolveProject } from "./projects.js";
-import { AgentFailure } from "./tmux.js";
 
 /** How much of a file is sniffed for a NUL byte before it is called binary. */
 const SNIFF_BYTES = 8 * 1024;
 
 export const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
 export const BINARY_CONTENT_TYPE = "application/octet-stream";
-
-/**
- * A stale conditional write. It carries the file's current etag so the route
- * can return it as an ETag header and the editor can recover (SPEC.md §13.5).
- */
-export class FileChanged extends AgentFailure {
-	readonly etag: string;
-
-	constructor(etag: string) {
-		super("FILE_CHANGED", "the file changed on disk since it was read");
-		this.name = "FileChanged";
-		this.etag = etag;
-	}
-}
 
 export interface ResolvedPath {
 	/** The target, with its parent directories already resolved. */
@@ -58,12 +44,6 @@ export interface ResolvedPath {
 
 function contains(root: string, path: string): boolean {
 	return path === root || path.startsWith(`${root}/`);
-}
-
-function errorCode(error: unknown): string | undefined {
-	return typeof (error as { code?: unknown }).code === "string"
-		? (error as { code: string }).code
-		: undefined;
 }
 
 /**

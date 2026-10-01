@@ -1,5 +1,6 @@
 import {
 	MAX_UPLOAD_BYTES,
+	SCROLLBACK_LINES,
 	type Terminal as TerminalMeta,
 	type TerminalTheme,
 } from "@portikus/contracts";
@@ -48,12 +49,6 @@ const MAX_RECONNECT_ATTEMPTS = 5;
  * that was too large, and a server error.
  */
 const FATAL_CLOSE_CODES = new Set([1008, 1009, 1011]);
-
-/**
- * Lines the browser keeps above the visible screen, which is what the wheel
- * scrolls back through (SPEC.md §9.1). tmux keeps the same number.
- */
-export const SCROLLBACK_LINES = 5_000;
 
 /** Quiet time after the pane's last size change before the size is sent. */
 export const RESIZE_SETTLE_MS = 100;

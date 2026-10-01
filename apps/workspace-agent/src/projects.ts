@@ -25,12 +25,13 @@ import {
 	PROJECT_SLUG_PATTERN,
 	projectNameFromRepository,
 } from "@portikus/contracts";
+import { AgentFailure } from "./errors.js";
+import { runGit, STDERR_LIMIT } from "./git.js";
 import {
 	excludePortikusFiles,
 	PORTIKUS_IGNORE_LINES,
 	writePortikusReadme,
 } from "./project-files.js";
-import { AgentFailure } from "./tmux.js";
 
 const run = promisify(execFile);
 
@@ -42,9 +43,6 @@ const COPY_TIMEOUT_MS = CLONE_TIMEOUT_MS;
 
 /** The prefix every half-finished clone directory carries. */
 const TEMPORARY_PREFIX = ".tmp-";
-
-/** How much git stderr travels back to the student. */
-export const STDERR_LIMIT = 2048;
 
 export function projectsDir(homeDir: string): string {
 	return join(homeDir, "projects");
@@ -164,27 +162,19 @@ export async function getProject(slug: string, homeDir: string): Promise<AgentPr
 	};
 }
 
-function gitFailure(error: unknown): AgentFailure {
-	const stderr =
-		typeof (error as { stderr?: unknown }).stderr === "string"
-			? (error as { stderr: string }).stderr
-			: "";
-	const tail = stderr.slice(-STDERR_LIMIT).trim();
-	return new AgentFailure("GIT_FAILED", tail || String(error));
-}
+/** Clone and init print little; past this the child is killed. */
+const GIT_OUTPUT_LIMIT = 8 * 1024 * 1024;
 
+/** Run git through runGit, which never prompts for credentials (SPEC.md §24.6). */
 async function git(args: string[], cwd: string, timeout?: number): Promise<void> {
-	try {
-		await run("git", args, {
-			cwd,
-			timeout,
-			// Git must never stop to ask a student for credentials.
-			env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-			maxBuffer: 8 * 1024 * 1024,
-		});
-	} catch (error) {
-		throw gitFailure(error);
-	}
+	const result = await runGit(args, cwd, GIT_OUTPUT_LIMIT, timeout);
+	if (result.ok) return;
+	const reason = result.timedOut
+		? "git timed out"
+		: result.overflow
+			? "git printed too much output"
+			: `git exited with status ${result.exitCode}`;
+	throw new AgentFailure("GIT_FAILED", result.stderr.slice(-STDERR_LIMIT) || reason);
 }
 
 /**

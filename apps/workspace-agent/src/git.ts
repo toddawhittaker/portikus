@@ -11,14 +11,14 @@ import {
 	MAX_DIFF_SIDE_BYTES,
 	MAX_GIT_ENTRIES,
 } from "@portikus/contracts";
+import { AgentFailure } from "./errors.js";
 import { resolveInProject } from "./files.js";
-import { AgentFailure } from "./tmux.js";
 
 /** How much of a side is sniffed for a NUL byte before it is called binary. */
 const SNIFF_BYTES = 8 * 1024;
 
-/** How much git stderr is kept for the debug log. It never reaches a body. */
-const STDERR_LIMIT = 2048;
+/** How much git stderr is kept: a project create sends its tail to the student. */
+export const STDERR_LIMIT = 2048;
 
 /** Somewhere to put git stderr that is not the response body (STACK.md §15). */
 export interface GitDebugLog {

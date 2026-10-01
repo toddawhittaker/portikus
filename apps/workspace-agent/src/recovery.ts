@@ -27,8 +27,8 @@ import { Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createZstdCompress, createZstdDecompress } from "node:zlib";
 import type { AgentCreateRecoveryPointResponse } from "@portikus/contracts";
+import { AgentFailure, isNoSpace } from "./errors.js";
 import { projectsDir, resolveProject } from "./projects.js";
-import { AgentFailure } from "./tmux.js";
 import { loadRecoveryMatcher, type RecoveryMatcher } from "./workspace-ignore.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -684,9 +684,4 @@ function isDenied(error: unknown): boolean {
 function isMissing(error: unknown): boolean {
 	const code = (error as NodeJS.ErrnoException).code;
 	return code === "ENOENT" || code === "ENOTDIR";
-}
-
-function isNoSpace(error: unknown): boolean {
-	const code = (error as NodeJS.ErrnoException | undefined)?.code;
-	return code === "ENOSPC" || code === "EDQUOT";
 }

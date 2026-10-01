@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import {
 	EDITOR_SETTINGS_DEFAULTS,
 	MAX_UPLOAD_BYTES,
+	SCROLLBACK_LINES,
 	type Terminal,
 } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
@@ -19,7 +20,6 @@ import {
 	pastedPathInput,
 	pastePath,
 	RESIZE_SETTLE_MS,
-	SCROLLBACK_LINES,
 	sanitizePaste,
 	TerminalPane,
 	terminalTheme,

@@ -2,6 +2,7 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import "../terminal.css";
 import "./checks.css";
+import { SCROLLBACK_LINES } from "@portikus/contracts";
 import { FitAddon } from "@xterm/addon-fit";
 import { useEffect, useRef } from "react";
 import { wsUrl } from "../api/ws.js";
@@ -18,9 +19,6 @@ const THEME = {
 	scrollbarSliderHoverBackground: "#9a9386b3",
 	scrollbarSliderActiveBackground: "#9a9386cc",
 };
-
-/** Lines of output the panel keeps above the visible screen. */
-const SCROLLBACK_LINES = 5_000;
 
 export interface CheckOutputProps {
 	workspaceId: string;

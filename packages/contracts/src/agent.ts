@@ -180,6 +180,12 @@ export const AgentErrorCode = z.enum([
 	"LISTENER_NOT_FOUND",
 	"LISTENER_IS_SYSTEM",
 	"STOP_FAILED",
+	// Loopback forwards (BROWSER-HANDLING.md §11.1).
+	"FORWARD_UNAVAILABLE",
+	"FORWARD_NOT_LOOPBACK",
+	"FORWARD_PORT_IN_USE",
+	"FORWARD_FAILED",
+	"FORWARD_NOT_FOUND",
 	// Stopping one process (SPEC.md §18.3).
 	"PROCESS_NOT_FOUND",
 	"PROCESS_CHANGED",

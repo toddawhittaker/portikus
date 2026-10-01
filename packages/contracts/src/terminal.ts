@@ -7,6 +7,13 @@ export const MAX_TERMINALS_PER_WORKSPACE = 20;
 /** Maximum browser attachments to one terminal (SPEC.md §9.5). */
 export const MAX_ATTACHMENTS_PER_TERMINAL = 4;
 
+/**
+ * Lines of history a terminal keeps above the visible screen (SPEC.md §9.1,
+ * §9.7). tmux's history-limit and the browser's scrollback both use it, so a
+ * replay never sends more than the browser can hold.
+ */
+export const SCROLLBACK_LINES = 5_000;
+
 /** Maximum bytes accepted in one terminal input frame (SPEC.md §24.2). */
 export const MAX_INPUT_FRAME_BYTES = 65536;
 

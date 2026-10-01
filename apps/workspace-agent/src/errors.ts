@@ -1,7 +1,42 @@
 import type { AgentErrorCode } from "@portikus/contracts";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { FileChanged } from "./files.js";
-import { AgentFailure } from "./tmux.js";
+
+/** An agent failure carrying the wire error code of SPEC.md §27. */
+export class AgentFailure extends Error {
+	readonly code: AgentErrorCode;
+
+	constructor(code: AgentErrorCode, message: string) {
+		super(message);
+		this.name = "AgentFailure";
+		this.code = code;
+	}
+}
+
+/**
+ * A stale conditional write. It carries the file's current etag so the route
+ * can return it as an ETag header and the editor can recover (SPEC.md §13.5).
+ */
+export class FileChanged extends AgentFailure {
+	readonly etag: string;
+
+	constructor(etag: string) {
+		super("FILE_CHANGED", "the file changed on disk since it was read");
+		this.name = "FileChanged";
+		this.etag = etag;
+	}
+}
+
+/** The errno name a filesystem or child-process error carries, if any. */
+export function errorCode(error: unknown): string | undefined {
+	const code = (error as { code?: unknown } | null | undefined)?.code;
+	return typeof code === "string" ? code : undefined;
+}
+
+/** A full disk or an exhausted quota (SPEC.md §13.5). */
+export function isNoSpace(error: unknown): boolean {
+	const code = errorCode(error);
+	return code === "ENOSPC" || code === "EDQUOT";
+}
 
 /** The HTTP status each agent failure maps to (SPEC.md §27). */
 export const ERROR_STATUS: Record<AgentErrorCode, number> = {
@@ -34,6 +69,11 @@ export const ERROR_STATUS: Record<AgentErrorCode, number> = {
 	LISTENER_NOT_FOUND: 404,
 	LISTENER_IS_SYSTEM: 403,
 	STOP_FAILED: 409,
+	FORWARD_UNAVAILABLE: 409,
+	FORWARD_NOT_LOOPBACK: 409,
+	FORWARD_PORT_IN_USE: 409,
+	FORWARD_FAILED: 409,
+	FORWARD_NOT_FOUND: 404,
 	PROCESS_NOT_FOUND: 404,
 	PROCESS_CHANGED: 409,
 	PROCESS_PROTECTED: 403,
@@ -66,8 +106,7 @@ export function sendError(
 	}
 	// A full disk or quota is the student's to fix, whichever route hit it
 	// (SPEC.md §13.5).
-	const errno = (error as NodeJS.ErrnoException | null)?.code;
-	if (errno === "ENOSPC" || errno === "EDQUOT") {
+	if (isNoSpace(error)) {
 		return reply.code(ERROR_STATUS.STORAGE_FULL).send({
 			error: { code: "STORAGE_FULL", message: "no space left in the home folder" },
 		});

@@ -8,6 +8,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PROCESS_COMMAND_LINE_LIMIT } from "@portikus/contracts";
+import { AgentFailure } from "./errors.js";
 
 /** How long a stopped process has to exit before the answer is "still running". */
 export const STOP_GRACE_MS = 3000;
@@ -130,18 +131,6 @@ export async function readCommandLine(
 	return raw === null ? null : formatCommandLine(raw);
 }
 
-/** Why a stop was refused, with the status the route sends. */
-export class ProcessStopFailure extends Error {
-	constructor(
-		readonly status: 403 | 404 | 409,
-		readonly code: "PROCESS_NOT_FOUND" | "PROCESS_CHANGED" | "PROCESS_PROTECTED",
-		message: string,
-	) {
-		super(message);
-		this.name = "ProcessStopFailure";
-	}
-}
-
 /** How long a "no tmux server" answer is reused before tmux is asked again. */
 const NO_SERVER_REUSE_MS = 10_000;
 
@@ -200,13 +189,13 @@ export async function stopProcess(
 	options: StopOptions,
 ): Promise<{ pid: number; exited: boolean }> {
 	const facts = await readProcess(options.procRoot, pid);
-	if (!facts) throw new ProcessStopFailure(404, "PROCESS_NOT_FOUND", "no such process");
+	if (!facts) throw new AgentFailure("PROCESS_NOT_FOUND", "no such process");
 	if (facts.startTicks !== request.startTicks) {
-		throw new ProcessStopFailure(409, "PROCESS_CHANGED", "the process id was reused");
+		throw new AgentFailure("PROCESS_CHANGED", "the process id was reused");
 	}
 	const owner = { ...options, tmuxPid: await options.tmuxPid() };
 	if (isProtected(facts, owner)) {
-		throw new ProcessStopFailure(403, "PROCESS_PROTECTED", "this process is protected");
+		throw new AgentFailure("PROCESS_PROTECTED", "this process is protected");
 	}
 	try {
 		options.kill(pid, request.force ? "SIGKILL" : "SIGTERM");
@@ -214,11 +203,7 @@ export async function stopProcess(
 		// It exited between the read and the signal.
 		if ((error as NodeJS.ErrnoException).code === "ESRCH") return { pid, exited: true };
 		if ((error as NodeJS.ErrnoException).code === "EPERM") {
-			throw new ProcessStopFailure(
-				403,
-				"PROCESS_PROTECTED",
-				"this process is protected",
-			);
+			throw new AgentFailure("PROCESS_PROTECTED", "this process is protected");
 		}
 		throw error;
 	}
