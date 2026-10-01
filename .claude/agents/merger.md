@@ -29,6 +29,10 @@ code, and you do not decide whether a real failure is acceptable.
   its base, and auto-merge is off. Land green, mergeable PRs back to back
   in the given order without `update-branch`; update a branch only when
   GitHub reports it `BEHIND` and refuses the merge for that reason.
+  This holds even when your prompt asks you to update a branch first:
+  every update costs a full CI run, so skip it and say so in your
+  report. The `main` ruleset is different: an epic PR into `main` must
+  be up to date.
 - Read check results with
   `gh pr view N --json mergeable,mergeStateStatus,statusCheckRollup`
   (filter with `--jq`), not `gh pr checks N | grep ...`; the permission
