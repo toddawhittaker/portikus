@@ -97,7 +97,7 @@ obs_probe_page() {
   return 1
 }
 if obs_probe_page; then
-  sec_pass "the Logs tab shows the probe line from the API's journal"
+  ok "the Logs tab shows the probe line from the API's journal"
   check_output "the probe line shows no bearer token, cookie, token or password" "0" \
     grep -c "$obs_secret" "$SEC_LAST_BODY"
   check_output "the probe line's credentials are replaced by [redacted]" "5" \
@@ -107,7 +107,7 @@ line = json.load(open(sys.argv[1]))["lines"][0]["line"]
 text = json.dumps(line)
 print(text.count("[redacted]"))' "$SEC_LAST_BODY"
 else
-  sec_fail "the Logs tab shows the probe line from the API's journal"
+  bad "the Logs tab shows the probe line from the API's journal"
 fi
 
 # No session cookie of this run appears anywhere on the first pages of every level.

@@ -269,9 +269,9 @@ lim_refused() {
   local label="$1" said; shift
   said=$(lim_fallocate "$@" 2>&1 | tr '\n' ' ')
   if [[ "$said" == *"No space left on device"* ]]; then
-    sec_pass "$label"
+    ok "$label"
   else
-    sec_fail "${label} (fallocate said: ${said:-nothing, so it succeeded})"
+    bad "${label} (fallocate said: ${said:-nothing, so it succeeded})"
   fi
 }
 check "fallocate a little in a's home works (control)" lim_fallocate a student /home/student 64M

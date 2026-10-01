@@ -8,6 +8,7 @@
 # Needs no VM.  When a caddy binary is found (on PATH, or named by CADDY),
 # the rendered file is also run through `caddy validate`, and a live Caddy
 # on loopback proxies to stand-in plain and TLS upstreams (#283).
+# shellcheck disable=SC2154  # pass and fail come from lib.sh
 set -uo pipefail
 
 caddy_bin="${CADDY:-$(command -v caddy || true)}"
@@ -23,28 +24,18 @@ API_PORT=3000
 CHALLENGE_PORT=8796
 ADMIN_SOCKET=/var/lib/caddy/admin.sock
 
-pass=0
-fail=0
-
-ok() {
-  printf '\033[1;32mPASS\033[0m  %s\n' "$1"
-  pass=$((pass + 1))
-}
-
-no() {
-  printf '\033[1;31mFAIL\033[0m  %s\n' "$1"
-  fail=$((fail + 1))
-}
+# shellcheck source=/dev/null
+. "${REPO_ROOT}/infra/tests/lib.sh"
 
 # has LABEL PATTERN FILE — the file contains a line matching PATTERN.
 has() {
-  if grep -qE -- "$2" "$3"; then ok "$1"; else no "$1"; fi
+  if grep -qE -- "$2" "$3"; then ok "$1"; else bad "$1"; fi
 }
 
 # lacks LABEL PATTERN FILE — no directive of the file matches PATTERN.
 # Comments are skipped: they are allowed to name what is deliberately absent.
 lacks() {
-  if grep -vE '^[[:space:]]*#' "$3" | grep -qE -- "$2"; then no "$1"; else ok "$1"; fi
+  if grep -vE '^[[:space:]]*#' "$3" | grep -qE -- "$2"; then bad "$1"; else ok "$1"; fi
 }
 
 # Caddy's `*` in a site address matches exactly one DNS label.  So a host is
@@ -123,7 +114,7 @@ done
 echo "--- The wildcard cannot serve the application host ---"
 
 if covered_by_wildcard "${PUBLIC_HOST}" "${PREVIEW_SUFFIX}"; then
-  no "the default preview suffix does not cover the application host"
+  bad "the default preview suffix does not cover the application host"
 else
   ok "the default preview suffix does not cover the application host"
 fi
@@ -133,7 +124,7 @@ fi
 if covered_by_wildcard "${PUBLIC_HOST}" "192.0.2.10.nip.io"; then
   ok "a parent-domain suffix is recognised as covering the application host"
 else
-  no "a parent-domain suffix is recognised as covering the application host"
+  bad "a parent-domain suffix is recognised as covering the application host"
 fi
 
 has "site.yml refuses a preview suffix equal to the application host" \
@@ -149,7 +140,7 @@ has "the admin interface is a socket only its owner may open" \
 if [ "$(grep -cE '^[[:space:]]*admin ' "${rendered}")" = 1 ]; then
   ok "no other admin address is set"
 else
-  no "no other admin address is set"
+  bad "no other admin address is set"
 fi
 
 has "the preview virtual host is the wildcard on the public port" \
@@ -192,7 +183,7 @@ has "the forwarded headers are forgotten in one place" \
 if [ "$(grep -c 'import portikus_forget_forwarded' "${preview}")" = "4" ]; then
   ok "bootstrap, reset, the pre-flight nonce and the application path all forget them"
 else
-  no "bootstrap, reset, the pre-flight nonce and the application path all forget them"
+  bad "bootstrap, reset, the pre-flight nonce and the application path all forget them"
 fi
 
 has "every request is authorized by the API" \
@@ -213,12 +204,12 @@ if [ "$(grep -cE '^[[:space:]]+tls_insecure_skip_verify$' "${rendered}")" = "1" 
   [ "$(grep -cE '^[[:space:]]+tls_insecure_skip_verify$' "${preview}")" = "1" ]; then
   ok "certificate checks are skipped only on the TLS preview hop"
 else
-  no "certificate checks are skipped only on the TLS preview hop"
+  bad "certificate checks are skipped only on the TLS preview hop"
 fi
 if [ "$(grep -c 'import portikus_preview_proxy_rules' "${preview}")" = "2" ]; then
   ok "both preview proxies share one set of header rules"
 else
-  no "both preview proxies share one set of header rules"
+  bad "both preview proxies share one set of header rules"
 fi
 has "the authorization subrequest is a plain request, not an upgrade" \
   '^[[:space:]]+header_up -Upgrade$' "${preview}"
@@ -255,7 +246,7 @@ if [ -n "${authorize_line}" ] && [ -n "${cut_line}" ] && [ -n "${proxy_line}" ] 
   [ "${authorize_line}" -lt "${cut_line}" ] && [ "${cut_line}" -lt "${proxy_line}" ]; then
   ok "the cookie is cut after the authorization and before the proxy"
 else
-  no "the cookie is cut after the authorization and before the proxy"
+  bad "the cookie is cut after the authorization and before the proxy"
 fi
 
 echo ""
@@ -286,7 +277,7 @@ if [ -n "${strip_line}" ] && [ -n "${bridge_auth_line}" ] && [ -n "${bridge_prox
   [ "${bridge_auth_line}" -lt "${strip_line}" ] && [ "${strip_line}" -lt "${bridge_proxy_line}" ]; then
   ok "the prefix is still on the URI when the API is asked"
 else
-  no "the prefix is still on the URI when the API is asked"
+  bad "the prefix is still on the URI when the API is asked"
 fi
 
 echo ""
@@ -332,7 +323,7 @@ has "the frame policy is applied through that matcher" \
 if [ "$(grep -vE '^[[:space:]]*#' "${app}" | grep -c 'frame-ancestors')" = "$(grep -c 'header @not_lti Content-Security-Policy' "${app}")" ]; then
   ok "no frame policy is set without the /lti/* exception"
 else
-  no "no frame policy is set without the /lti/* exception"
+  bad "no frame policy is set without the /lti/* exception"
 fi
 has "/lti/* reaches the API" '^[[:space:]]+handle /lti/\* \{$' "${app}"
 has "the course list and members reach the API" '^[[:space:]]+handle /courses\* \{$' "${app}"
@@ -393,11 +384,11 @@ for used in '/dex/auth*' /dex/token /dex/userinfo /dex/keys '/dex/.well-known/*'
   '/dex/static/*' '/dex/theme/*' '/dex/callback*'; do
   case " ${dex_allowed} " in
     *" ${used} "*) ok "the sign-in flow's ${used} is let through" ;;
-    *) no "the sign-in flow's ${used} is let through" ;;
+    *) bad "the sign-in flow's ${used} is let through" ;;
   esac
 done
 case " ${dex_allowed} " in
-  "  "|*device*|*" /dex/* "*) no "/dex/device/code is not let through" ;;
+  "  "|*device*|*" /dex/* "*) bad "/dex/device/code is not let through" ;;
   *) ok "/dex/device/code is not let through" ;;
 esac
 line_of() { grep -n -- "$1" "${app}" | head -1 | cut -d: -f1; }
@@ -408,7 +399,7 @@ for step in 'respond @dex_unused' 'respond @dex_long_uri' 'respond @dex_auth_oth
   if [ -n "${step_line}" ] && [ -n "${dex_proxy_line}" ] && [ "${step_line}" -lt "${dex_proxy_line}" ]; then
     ok "${step} runs before the request reaches Dex"
   else
-    no "${step} runs before the request reaches Dex"
+    bad "${step} runs before the request reaches Dex"
   fi
 done
 has "with Dex, the mock provider's prefix is a 404" 'handle /mock-idp\* \{' "${app}"
@@ -428,13 +419,13 @@ api_routes() {
 }
 edge_open=0
 for f in "${rendered}" "${work}/Caddyfile.mock"; do
-  [ -n "$(api_routes "${f}")" ] || { no "no API route was found in $(basename "${f}")"; edge_open=1; }
+  [ -n "$(api_routes "${f}")" ] || { bad "no API route was found in $(basename "${f}")"; edge_open=1; }
   while IFS= read -r m; do
     case "${m}" in
       /auth/\* | /workspaces\* | /admin\* | /lti/\* | /courses\* | /me/\* | /health | \
         /.well-known/portikus-preflight/\* | /__portikus/bootstrap | /__portikus/reset) ;;
       *)
-        no "the route '${m}' in $(basename "${f}") proxies to the API and could cover /edge"
+        bad "the route '${m}' in $(basename "${f}") proxies to the API and could cover /edge"
         edge_open=1
         ;;
     esac
@@ -447,7 +438,7 @@ if [ "$(grep -cE '^[[:space:]]+forward_auth .*127\.0\.0\.1:'"${API_PORT}"' \{$' 
   "$(grep -cE '^[[:space:]]+uri /(preview/authorize|edge/signin-throttle\?scope=(password|start))$' "${rendered}")" ]; then
   ok "every authorization subrequest to the API names its own fixed path"
 else
-  no "every authorization subrequest to the API names its own fixed path"
+  bad "every authorization subrequest to the API names its own fixed path"
 fi
 
 has "with the mock, /dex is a 404" 'handle /dex\* \{' "${work}/Caddyfile.mock"
@@ -467,7 +458,7 @@ echo "--- The certificate is the admin page's (docs/SPEC.md section 21.12) ---"
 
 # count_is LABEL N PATTERN FILE — exactly N lines of the file match PATTERN.
 count_is() {
-  if [ "$(grep -cE -- "$3" "$4")" = "$2" ]; then ok "$1"; else no "$1"; fi
+  if [ "$(grep -cE -- "$3" "$4")" = "$2" ]; then ok "$1"; else bad "$1"; fi
 }
 
 has "the certificate snippet file is imported before the global options" \
@@ -475,7 +466,7 @@ has "the certificate snippet file is imported before the global options" \
 if [ "$(grep -nE '^import .*/tls\.caddy$' "${rendered}" | cut -d: -f1)" -lt "$(grep -nE '^\{$' "${rendered}" | head -1 | cut -d: -f1)" ]; then
   ok "the import comes first, so its snippets exist when used"
 else
-  no "the import comes first, so its snippets exist when used"
+  bad "the import comes first, so its snippets exist when used"
 fi
 has "the global options take on-demand TLS from the snippet, asking the API on loopback" \
   "^[[:space:]]+import portikus_tls_global http://127\.0\.0\.1:${API_PORT}/edge/certificate-ask$" "${rendered}"
@@ -528,7 +519,7 @@ else
     if "${caddy_bin}" validate --adapter caddyfile --config "${config}" >"${work}/validate.log" 2>&1; then
       ok "caddy validate accepts the configuration for ${idp}"
     else
-      no "caddy validate accepts the configuration for ${idp}"
+      bad "caddy validate accepts the configuration for ${idp}"
       cat "${work}/validate.log" >&2
     fi
   done
@@ -677,7 +668,7 @@ PY
   expect() { # LABEL EXPECTED ACTUAL
     case "$3" in
       *"$2"*) ok "$1" ;;
-      *) no "$1 (got: $3)" ;;
+      *) bad "$1 (got: $3)" ;;
     esac
   }
 
@@ -727,7 +718,7 @@ PY
   site /edge/signin-throttle?scope=start
   get plain /.well-known/portikus-preflight/0123abcd -o /dev/null
   if grep -q '/edge' "${work}/api-paths"; then
-    no "no request from outside reaches the API's /edge routes (got: $(grep '/edge' "${work}/api-paths" | head -3 | tr '\n' ' '))"
+    bad "no request from outside reaches the API's /edge routes (got: $(grep '/edge' "${work}/api-paths" | head -3 | tr '\n' ' '))"
   else
     ok "no request from outside reaches the API's /edge routes"
   fi
@@ -751,7 +742,7 @@ PY
   expect "a path that climbs out of the challenge prefix only redirects" "308" \
     "$(plain /.well-known/acme-challenge/../../edge/certificate-ask -H "Host: ${PUBLIC_HOST}" -o /dev/null -w '%{http_code}')"
   if grep -q '/edge' "${work}/api-paths"; then
-    no "no plain HTTP request reaches the API's /edge routes"
+    bad "no plain HTTP request reaches the API's /edge routes"
   else
     ok "no plain HTTP request reaches the API's /edge routes"
   fi

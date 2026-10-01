@@ -37,9 +37,9 @@ finish() {
   echo ""
   sec_snapshot_others >"$snapshot_after"
   if diff -u "$snapshot_before" "$snapshot_after"; then
-    sec_pass "every other workspace, user and setting is unchanged"
+    ok "every other workspace, user and setting is unchanged"
   else
-    sec_fail "every other workspace, user and setting is unchanged (diff above)"
+    bad "every other workspace, user and setting is unchanged (diff above)"
   fi
   local left
   left=$(sec_psql "SELECT count(*) FROM users WHERE oidc_issuer = '${SEC_ISSUER}' AND oidc_subject LIKE 'sectest-${SEC_RUN_ID}-%'")

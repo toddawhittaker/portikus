@@ -436,7 +436,7 @@ EOF
 smoke() {
   "${M[@]}" smoke-test PORTIKUS_PUBLIC_HOST="$PUBLIC_HOST" PORTIKUS_PUBLIC_PORT=443 \
     PORTIKUS_SMOKE_SIGNIN_FILE="${LOGS}/admin-signin" 2>&1 | tee "${LOGS}/smoke.txt"
-  grep -qE '[0-9]+ passed, 0 failed' "${LOGS}/smoke.txt"
+  grep -qE '^--- Results: [0-9]+ passed, 0 failed ---$' "${LOGS}/smoke.txt"
 }
 
 # A host set up by an older release: Caddy's Cloudsmith repository, whose
