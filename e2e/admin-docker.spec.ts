@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import {
+	expectNoViolations,
 	FAKE_AGENT_TOKEN,
 	loginAs,
 	MOCK_ISSUER,
 	openToggletip,
 	query,
-	settledAxe,
 	toast,
-	WCAG_TAGS,
 	WEB_ORIGIN,
 } from "./helpers";
 import {
@@ -642,11 +641,6 @@ test("when setup turned the cache off, the tab says why and Clear cache claims n
 	expect(res.status()).toBe(404);
 	expect(await registryRequests()).toEqual([]);
 });
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`the Docker tab has no automatic accessibility violations (${colorScheme})`, async ({

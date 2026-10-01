@@ -2,9 +2,11 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import {
+	cookiePairs,
 	createProject,
 	createStudent,
 	deleteSessions,
+	headersOf,
 	seedListening,
 	setWorkspaceState,
 	toast,
@@ -43,23 +45,6 @@ const PASSED_HEADERS = [
 	"content-security-policy",
 	"service-worker-allowed",
 ];
-
-function headersOf(response: Response): Record<string, string> {
-	const headers: Record<string, string> = {};
-	for (const name of PASSED_HEADERS) {
-		const value = response.headers.get(name);
-		if (value !== null) headers[name] = value;
-	}
-	return headers;
-}
-
-function cookiePairs(response: Response): string {
-	return response.headers
-		.getSetCookie()
-		.map((line) => line.split(";")[0] ?? "")
-		.filter(Boolean)
-		.join("; ");
-}
 
 interface Seen {
 	/** Every cookie header the browser sent to a preview host. */
@@ -133,7 +118,7 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
 		if (!authorized.ok) {
 			return {
 				status: authorized.status,
-				headers: headersOf(authorized),
+				headers: headersOf(authorized, PASSED_HEADERS),
 				body: Buffer.from(await authorized.arrayBuffer()),
 			};
 		}
@@ -158,7 +143,7 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
 			// The app closed after authorization; Caddy has no error page and answers a bare 502.
 			return { status: 502, headers: {}, body: Buffer.alloc(0) };
 		}
-		const headers = headersOf(proxied);
+		const headers = headersOf(proxied, PASSED_HEADERS);
 		const setCookie = proxied.headers.getSetCookie();
 		if (setCookie.length > 0) headers["set-cookie"] = setCookie.join("\n");
 		const location = proxied.headers.get("location");
@@ -193,7 +178,7 @@ async function previewGateway(context: BrowserContext): Promise<Seen> {
 					path: url.pathname,
 					clearSiteData: answer.headers.get("clear-site-data"),
 				});
-				const headers = headersOf(answer);
+				const headers = headersOf(answer, PASSED_HEADERS);
 				const setCookie = answer.headers.getSetCookie();
 				if (setCookie.length > 0) headers["set-cookie"] = setCookie.join("\n");
 
