@@ -1,13 +1,12 @@
 import { deflateSync } from "node:zlib";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	openFileTab,
 	query,
 	seedFile,
-	settledAxe,
-	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
 
@@ -91,12 +90,6 @@ const HOSTILE_SVG = [
 	"<script>top.svgRan = true; parent.svgRan = true;</script>",
 	"</svg>",
 ].join("");
-
-/** Axe over the whole workspace page with the viewer open: tabs, panes and all. */
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 test.describe("file viewer", () => {
 	// Monaco is a large chunk the dev server transforms on first use.

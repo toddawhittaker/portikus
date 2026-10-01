@@ -4,11 +4,12 @@
  * a file tree that shows no selection until it has focus, and the terminal
  * menu's Light terminal checkbox.
  */
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
 	expectConnected,
+	expectNoViolations,
 	newTerminal,
 	openFileTab,
 	openToggletip,
@@ -16,20 +17,10 @@ import {
 	seedFile,
 	seedGit,
 	seedListening,
-	settledAxe,
 	terminalIds,
-	WCAG_TAGS,
 	workspacePath,
 	workTabs,
 } from "./helpers";
-
-async function expectNoViolations(page: Page, selector: string): Promise<void> {
-	const results = await (await settledAxe(page))
-		.withTags(WCAG_TAGS)
-		.include(selector)
-		.analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 async function saveLayout(projectId: string, tabs: unknown[]): Promise<void> {
 	await query("update projects set layout = $2 where id = $1", [

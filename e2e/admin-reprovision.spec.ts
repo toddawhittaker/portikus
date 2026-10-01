@@ -1,10 +1,11 @@
-import { type Browser, expect, type Page, test } from "@playwright/test";
+import { type Browser, expect, test } from "@playwright/test";
 import {
-	createStudent,
-	loginAs,
+	openAdmin,
+	openDetail,
 	openToggletip,
 	query,
 	settledAxe,
+	studentIn,
 	type TestStudent,
 	toast,
 	WCAG_TAGS,
@@ -17,24 +18,11 @@ import {
  * button sends it back to `provisioning`, audited.
  */
 
-async function openAdmin(page: Page): Promise<void> {
-	await loginAs(page, "carol");
-	await page.goto("/admin");
-	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
-}
-
 /** A student whose workspace failed to create, made in its own context. */
 async function failedStudent(
 	browser: Browser,
 ): Promise<TestStudent & { name: string }> {
-	const context = await browser.newContext();
-	const student = await createStudent(context);
-	await context.close();
-	const name = `Reprovision ${student.userId.slice(0, 8)}`;
-	await query("update users set display_name = $2 where id = $1", [
-		student.userId,
-		name,
-	]);
+	const student = await studentIn(browser, "Reprovision");
 	await query(
 		`update workspaces
 		    set state = 'error', error_code = 'OPERATION_FAILED',
@@ -42,15 +30,7 @@ async function failedStudent(
 		  where id = $1`,
 		[student.workspaceId],
 	);
-	return { ...student, name };
-}
-
-async function openDetail(page: Page, name: string) {
-	await page.getByTestId("admin-filter-text").fill(name);
-	await page.getByRole("button", { name: `Show details for ${name}` }).click();
-	const panel = page.getByRole("region", { name });
-	await expect(panel.getByRole("region", { name: "Error" })).toBeVisible();
-	return panel;
+	return student;
 }
 
 test("Re-provision sends a workspace in error back to provisioning, audited", async ({
@@ -59,7 +39,7 @@ test("Re-provision sends a workspace in error back to provisioning, audited", as
 }) => {
 	const student = await failedStudent(browser);
 	await openAdmin(page);
-	const panel = await openDetail(page, student.name);
+	const panel = await openDetail(page, student.name, "Error");
 	const error = panel.getByRole("region", { name: "Error" });
 	// What Re-provision does is one click away, in its toggletip.
 	await error.getByRole("button", { name: "About Re-provision" }).click();
@@ -100,7 +80,7 @@ test("a workspace not in error has no Re-provision button", async ({
 		[student.workspaceId],
 	);
 	await openAdmin(page);
-	const panel = await openDetail(page, student.name);
+	const panel = await openDetail(page, student.name, "Error");
 	await expect(panel.getByTestId("detail-reprovision")).toHaveCount(0);
 });
 
@@ -112,7 +92,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme: scheme });
 		const student = await failedStudent(browser);
 		await openAdmin(page);
-		const panel = await openDetail(page, student.name);
+		const panel = await openDetail(page, student.name, "Error");
 		await expect(panel.getByTestId("detail-reprovision")).toBeVisible();
 		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);

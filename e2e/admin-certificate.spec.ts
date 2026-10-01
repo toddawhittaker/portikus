@@ -15,7 +15,7 @@ import {
 	writeLog,
 	writeStatus,
 } from "./certificate-jobs";
-import { loginAs, openToggletip, settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
+import { expectNoViolations, loginAs, openToggletip, WEB_ORIGIN } from "./helpers";
 
 /**
  * The Certificate tab (docs/SPEC.md section 20.1; ADR 0046). The first
@@ -501,11 +501,6 @@ async function routePage(page: Page) {
 			},
 		],
 	});
-}
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
 for (const colorScheme of ["light", "dark"] as const) {

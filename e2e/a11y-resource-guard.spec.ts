@@ -4,20 +4,14 @@
  * notices, the admin detail section and its overrides dialog, the Settings
  * sections, and the Health tab's list, each in the light and dark themes.
  */
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	createStudent,
+	expectNoViolations,
 	loginAs,
 	query,
-	settledAxe,
-	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 /** Throttled and waiting on "Still working?", as the worker would leave it. */
 async function throttleAndWarn(workspaceId: string): Promise<void> {

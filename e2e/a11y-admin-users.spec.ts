@@ -5,20 +5,14 @@
  * Enable confirmation, in the light and dark themes.
  */
 import * as crypto from "node:crypto";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
+	expectNoViolations,
 	loginAs,
 	MOCK_ISSUER,
 	openToggletip,
 	query,
-	settledAxe,
-	WCAG_TAGS,
 } from "./helpers";
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 async function insertUser(name: string, disabled: boolean): Promise<string> {
 	const [row] = await query<{ id: string }>(
