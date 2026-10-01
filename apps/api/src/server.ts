@@ -11,6 +11,11 @@ import {
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
 import { toAuthOptions } from "./auth-options.js";
+import {
+	registerCertificateEdge,
+	registerCertificateEdgeRoutes,
+} from "./certificate/edge.js";
+import { NonceStore, type PreflightNet } from "./certificate/preflight.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { fileWriteLimit } from "./rate-limit.js";
 import { registerRequestMetrics } from "./request-metrics.js";
@@ -19,6 +24,7 @@ import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
 import { registerAdminBackupKeyRoutes } from "./routes/admin-backup-key.js";
 import { registerAdminBackupRoutes } from "./routes/admin-backups.js";
+import { registerAdminCertificateRoutes } from "./routes/admin-certificate.js";
 import { registerAdminDexUserRoutes } from "./routes/admin-dex-users.js";
 import { registerAdminDockerRoutes } from "./routes/admin-docker.js";
 import { registerAdminEgressRoutes } from "./routes/admin-egress.js";
@@ -67,6 +73,8 @@ export interface ServerDeps {
 	dex?: DexApi;
 	/** How often the listening registry looks for workspaces; tests go faster. */
 	previewPollIntervalMs?: number;
+	/** DNS and probes for the certificate pre-flight; tests fake them. */
+	certificateNet?: PreflightNet;
 }
 
 /** Build the control-plane HTTP server (SPEC.md §2.8, STACK.md §4). */
@@ -112,6 +120,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	// Before the auth plugin, so its hook runs first (issue #398).
 	registerSigninThrottle(app, deps);
+	// Caddy's certificate asks and pre-flight probes carry no session (SPEC.md 20.1).
+	const nonces = new NonceStore();
+	registerCertificateEdge(app, { db: deps.db, config: deps.config, nonces });
 
 	app.register(authPlugin, { db: deps.db, auth: toAuthOptions(deps.config) });
 
@@ -218,6 +229,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		});
 		registerAuthRoutes(instance, deps);
 		registerSigninThrottleRoute(instance);
+		registerCertificateEdgeRoutes(instance);
 		registerLtiRoutes(instance, deps);
 		registerCourseRoutes(instance, deps);
 		registerWorkspaceRoutes(instance, deps);
@@ -250,6 +262,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerAdminBackupKeyRoutes(instance, deps);
 		registerAdminPackageRoutes(instance, deps);
 		registerAdminImageRoutes(instance, deps);
+		registerAdminCertificateRoutes(instance, deps, nonces, deps.certificateNet);
 		registerAdminDockerRoutes(instance, deps);
 		registerReinstallNoteRoutes(instance, deps);
 	});

@@ -3,6 +3,10 @@ import { ApiConfigSchema, loadConfig } from "@portikus/config";
 import { createDb } from "@portikus/db";
 import { createLogger } from "@portikus/observability";
 import { toAuthOptions } from "./auth-options.js";
+import {
+	certificateStatusDirOf,
+	startCertificateNotices,
+} from "./certificate/notices.js";
 import { imagesDirOf, startReleaseNotices } from "./image/release-notices.js";
 import { startLogLevelSync } from "./log-level.js";
 import { loadLtiDeps } from "./routes/lti.js";
@@ -48,9 +52,18 @@ const stopReleaseNotices = config.IMAGE_JOBS_DIR
 			intervalSeconds: config.RELEASE_NOTICE_SECONDS,
 		})
 	: () => {};
+const stopCertificateNotices = config.CERTIFICATE_JOBS_DIR
+	? startCertificateNotices({
+			db,
+			logger,
+			statusDir: certificateStatusDirOf(config.CERTIFICATE_JOBS_DIR),
+			intervalSeconds: config.RELEASE_NOTICE_SECONDS,
+		})
+	: () => {};
 app.addHook("onClose", async () => {
 	levelSync.stop();
 	stopReleaseNotices();
+	stopCertificateNotices();
 	dex?.close();
 });
 closeOnSigterm(app);

@@ -40,10 +40,12 @@ import { z } from "zod";
  *   `portikus reset-certificate` change it.
  *   - `settings.json` (`CertificateSettingsView`, 0640): what is in force,
  *     without secrets.
- *   - `secrets.env` (root:root, 0600): the DNS provider's and EAB's
- *     secrets, loaded into Caddy's environment by a systemd drop-in and
- *     referenced from the snippet as `{env.NAME}` placeholders, so they
- *     never reach Caddy's autosave.
+ *   - `secrets/` (root:caddy, 0750): one file per secret (the DNS
+ *     provider's secret fields, the EAB HMAC key, Google's service account
+ *     JSON), each root:caddy 0640, referenced from the snippet as
+ *     `{file./etc/portikus/certificate/secrets/<name>}` placeholders, so
+ *     they never reach Caddy's autosave and need no restart. Google Cloud
+ *     DNS names its file by path (`gcp_application_default`).
  *   - `files/` (0750): uploaded certificates and keys (keys 0640
  *     root:caddy).
  *   - `tls.caddy` (0640): the snippet the Caddyfile imports for both site
@@ -52,9 +54,11 @@ import { z } from "zod";
  *     `rollback` and for `reset-certificate`.
  *
  * - The status directory, `/var/lib/portikus/certificate/` (root, 0755).
- *   The API only reads here.
+ *   The API only reads here, and finds it beside the job directory.
  *   - `status.json` (`CertificateStatusFile`, 0644), rewritten by the
  *     hourly `check` (portikus-certificate-check.timer) and after each job.
+ *     It also carries a copy of `settings.json` and whether `previous/`
+ *     exists, because the API cannot read the state directory.
  *   - `root.crt` (0644): a copy of Caddy's internal root certificate, for
  *     the admin download.
  *
@@ -62,12 +66,31 @@ import { z } from "zod";
  * renamed into place. The job keeps the last 20 job directories and
  * deletes older ones.
  *
- * The job's kinds: `test` runs a staging issuance with a throwaway Caddy
- * and its own storage, and changes nothing live; `apply` saves the current
- * generation as `previous`, puts the new settings in force, reloads Caddy
- * and waits for the new certificate, restoring `previous` if it does not
- * come; `renew` asks Caddy to renew now; `rollback` swaps the current and
- * previous generations; `check` refreshes status.json only. `reset` is
+ * The job never switches the live issuer and waits: a reload to an issuer
+ * with no stored certificate leaves every name unserved until issuance
+ * ends. Instead a throwaway Caddy (admin off, its own storage seeded with
+ * a copy of the live ACME account, one site block on a loopback spare
+ * port importing the candidate snippet) issues, and the job kills it at a
+ * deadline, because Caddy retries forever and never exits on its own.
+ * Every reload of the live Caddy uses `--force`.
+ *
+ * The job's kinds and their steps (each step is `status.json`'s `step`):
+ * - `test`: pre-flight, then a test issuance by the throwaway Caddy (Let's
+ *   Encrypt staging when the directory is Let's Encrypt production,
+ *   otherwise the chosen directory itself). Nothing live changes.
+ * - `apply` (ACME): pre-flight, test issuance, production issuance by the
+ *   throwaway Caddy, copy the new certificates into live storage, save
+ *   the current generation as `previous`, swap the snippet and reload,
+ *   then check the served certificate on loopback (SNI for the site and a
+ *   sample preview name). If that check fails the job puts `previous`
+ *   back and reloads (`restored` true). If the throwaway fails, nothing
+ *   live was touched. `apply` for `internal` or `files` skips the
+ *   issuance steps.
+ * - `renew`: the throwaway Caddy gets a new certificate, the job copies it
+ *   into live storage and reloads to the internal issuer and back. It
+ *   never deletes the live certificate first.
+ * - `rollback` swaps the current and previous generations and reloads;
+ *   `check` refreshes status.json only. `reset` is
  * never requested by the API: `portikus reset-certificate` writes it as
  * a job directory of its own (status only, no request file) so the API
  * can audit it.
@@ -89,13 +112,19 @@ export type AcmeDirectoryPreset = keyof typeof ACME_DIRECTORY_PRESETS;
 
 /**
  * The nine caddy-dns plugins Caddy is built with (Epic 27 A1), each with
- * the plugin's own field names, split into plain fields (shown on the page)
- * and secret fields (write-only). Field names: from the spike, to confirm.
+ * the plugin's own Caddyfile field names, split into plain fields (shown on
+ * the page) and secret fields (write-only); every field is required.
+ * Confirmed against the plugins by the Epic 27 spike. One exception:
+ * Google's `service_account_json` is the JSON text itself; the job writes
+ * it to a file and gives the plugin that path as `gcp_application_default`.
+ * Hetzner is the v2 plugin (the Hetzner Cloud DNS API).
+ * `packages/contracts/fixtures/dns-provider-fields.json` mirrors this
+ * table for the root job's Python tests; a test keeps the two equal.
  */
 export const DNS_PROVIDER_FIELDS = {
 	cloudflare: { plain: [], secret: ["api_token"] },
 	route53: { plain: ["region", "access_key_id"], secret: ["secret_access_key"] },
-	digitalocean: { plain: [], secret: ["auth_token"] },
+	digitalocean: { plain: [], secret: ["api_token"] },
 	ovh: {
 		plain: ["endpoint", "application_key"],
 		secret: ["application_secret", "consumer_key"],
@@ -133,17 +162,39 @@ const PlainValue = z
 	.max(200)
 	.regex(/^[A-Za-z0-9._:/@-]+$/);
 
-/** A secret: kept whole, but one line except the Google service account JSON. Omitted means keep the stored one. */
+/** A secret token: kept whole, one line. Omitted means keep the stored one. */
 const SecretValue = z
 	.string()
 	.min(1)
-	.max(16 * 1024);
+	.max(1024)
+	.regex(/^[^\r\n]+$/, "must be one line");
+
+/** Longest Google service account JSON the API accepts. */
+export const MAX_SERVICE_ACCOUNT_JSON = 16 * 1024;
+
+/** Google's service account key: JSON text holding one object. */
+const ServiceAccountJson = z
+	.string()
+	.min(1)
+	.max(MAX_SERVICE_ACCOUNT_JSON)
+	.refine((text) => {
+		try {
+			const value: unknown = JSON.parse(text);
+			return typeof value === "object" && value !== null && !Array.isArray(value);
+		} catch {
+			return false;
+		}
+	}, "must be a JSON object");
 
 function providerSchema<P extends DnsProvider>(provider: P) {
 	const fields = DNS_PROVIDER_FIELDS[provider];
 	const shape: Record<string, z.ZodTypeAny> = {};
 	for (const name of fields.plain) shape[name] = PlainValue;
-	for (const name of fields.secret) shape[name] = SecretValue.optional();
+	for (const name of fields.secret) {
+		shape[name] = (
+			name === "service_account_json" ? ServiceAccountJson : SecretValue
+		).optional();
+	}
 	return z
 		.object({ provider: z.literal(provider), fields: z.object(shape).strict() })
 		.strict();
@@ -312,29 +363,6 @@ export const CertificateInfo = z
 	.strict();
 export type CertificateInfo = z.infer<typeof CertificateInfo>;
 
-/** `status.json`, rewritten hourly and after each job. */
-export const CertificateStatusFile = z
-	.object({
-		checkedAt: z.string().datetime(),
-		source: z.enum(["internal", "acme", "files"]),
-		/** Null when the check could not read a certificate. */
-		site: CertificateInfo.nullable(),
-		/** Null when the check could not read one, or HTTP-01 has issued none yet. */
-		preview: CertificateInfo.nullable(),
-		/** From Caddy's journal; null when Caddy has not renewed or failed since the last change. */
-		lastRenewal: z
-			.object({
-				ok: z.boolean(),
-				at: z.string().datetime(),
-				/** Caddy's error, secrets scrubbed; null when ok. */
-				message: z.string().max(2000).nullable(),
-			})
-			.strict()
-			.nullable(),
-	})
-	.strict();
-export type CertificateStatusFile = z.infer<typeof CertificateStatusFile>;
-
 // ---- Views: never a secret, only whether one is set ----
 
 const SecretsSet = z.record(z.string(), z.boolean());
@@ -380,6 +408,33 @@ export const CertificateSettingsView = z.discriminatedUnion("source", [
 ]);
 export type CertificateSettingsView = z.infer<typeof CertificateSettingsView>;
 
+/** `status.json`, rewritten hourly and after each job. */
+export const CertificateStatusFile = z
+	.object({
+		checkedAt: z.string().datetime(),
+		source: z.enum(["internal", "acme", "files"]),
+		/** A copy of the state directory's settings.json, which the API cannot read. */
+		settings: CertificateSettingsView,
+		/** Whether the state directory's `previous/` holds a generation to roll back to. */
+		previousAvailable: z.boolean(),
+		/** Null when the check could not read a certificate. */
+		site: CertificateInfo.nullable(),
+		/** Null when the check could not read one, or HTTP-01 has issued none yet. */
+		preview: CertificateInfo.nullable(),
+		/** From Caddy's journal; null when Caddy has not renewed or failed since the last change. */
+		lastRenewal: z
+			.object({
+				ok: z.boolean(),
+				at: z.string().datetime(),
+				/** Caddy's error, secrets scrubbed; null when ok. */
+				message: z.string().max(2000).nullable(),
+			})
+			.strict()
+			.nullable(),
+	})
+	.strict();
+export type CertificateStatusFile = z.infer<typeof CertificateStatusFile>;
+
 /** The job's own record of what was asked: `<id>/request.json` and the page's view of it. */
 export const CertificateJobRecord = z
 	.object({
@@ -420,6 +475,23 @@ export const PreflightCheck = z
 	})
 	.strict();
 export type PreflightCheck = z.infer<typeof PreflightCheck>;
+
+/** The body of `POST /admin/certificate/preflight`: which challenge the checks are for. */
+export const CertificatePreflightRequest = z
+	.object({ mode: z.enum(["dns01", "http01"]) })
+	.strict();
+export type CertificatePreflightRequest = z.infer<typeof CertificatePreflightRequest>;
+
+/** The upload checks the API runs with node:crypto (Epic 27 R9); a refusal names one. */
+export const CertificateUploadCheck = z.enum([
+	"certificate-readable",
+	"key-readable",
+	"key-matches",
+	"chain-complete",
+	"dates-valid",
+	"names-cover",
+]);
+export type CertificateUploadCheck = z.infer<typeof CertificateUploadCheck>;
 
 /** `POST /admin/certificate/preflight`. */
 export const CertificatePreflight = z
