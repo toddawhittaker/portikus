@@ -2541,6 +2541,33 @@ describe("the Docker seed", () => {
 		expect(await provider.seedInfo()).toEqual(SEED);
 	});
 
+	test("start rewrites the agents' system instructions, and a refusal does not stop it", async () => {
+		const state = fakeIncus();
+		const template = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ai-")), "t.md");
+		fs.writeFileSync(template, "Platform rules\n");
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			agentInstructionsPath: template,
+		});
+		serveIncus(state);
+		state.files.set("/etc/claude-code/CLAUDE.md", { type: "file", content: "edited" });
+		await own.start("ws-test", START);
+		expect(state.files.get("/etc/claude-code/CLAUDE.md")?.content).toBe(
+			"Platform rules\n",
+		);
+		expect(state.files.get("/etc/codex/config.toml")?.content).toContain(
+			'developer_instructions = "Platform rules\\n"',
+		);
+
+		state.files.set("/etc/claude-code", { type: "symlink", content: "/home/student" });
+		await expect(own.start("ws-test", START)).resolves.toBeDefined();
+	});
+
 	test("start writes the registry settings before the instance starts", async () => {
 		const state = fakeIncus();
 		const ca = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ca-")), "ca.crt");
