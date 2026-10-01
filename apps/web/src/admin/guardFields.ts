@@ -53,7 +53,7 @@ export const GUARD_FIELDS: {
 	},
 	{
 		key: "keepRunningMaxHours",
-		label: "Keep running, longest (hours)",
+		label: "Longest keep running (hours)",
 		schema: KeepRunningMaxHours,
 		rangeText: "Enter 0 to turn it off, or a whole number up to 168.",
 	},

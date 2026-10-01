@@ -91,7 +91,7 @@ export function ConfirmDialog({
 						) : null}
 						{children ? <div className="mt-2">{children}</div> : null}
 						{/* Always mounted so a screen reader hears the reason when it appears. */}
-						<div id={`${id}-reason`} role="status" className="pk-text-small">
+						<div id={`${id}-reason`} role="status" className="pk-text-compact">
 							{disabled && disabledReason ? (
 								<p className="m-0 mt-2" data-testid="dialog-disabled-reason">
 									{disabledReason}

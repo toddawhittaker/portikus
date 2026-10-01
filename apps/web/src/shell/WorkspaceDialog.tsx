@@ -130,14 +130,14 @@ export function WorkspaceDialog({
 								<StorageMeters storage={storage} />
 							) : (
 								<p
-									className="pk-text-small m-0 text-ink-muted"
+									className="pk-text-compact m-0 text-ink-muted"
 									data-testid="storage-unavailable"
 								>
 									Available when the workspace is running.
 								</p>
 							)}
 							{warningDetail ? (
-								<p className="pk-text-small m-0" data-testid="storage-warning-detail">
+								<p className="pk-text-compact m-0" data-testid="storage-warning-detail">
 									{warningDetail}
 								</p>
 							) : null}
@@ -172,7 +172,7 @@ export function WorkspaceDialog({
 								Rebuilds
 							</h3>
 							<p
-								className="pk-text-small m-0 text-ink-muted"
+								className="pk-text-compact m-0 text-ink-muted"
 								data-testid="rebuild-note"
 							>
 								An administrator can rebuild the workspace system. Your home folder and
@@ -295,7 +295,7 @@ function WorkspaceControls({
 			)}
 			{/* Always mounted, so a new transition is announced inside the dialog. */}
 			<span
-				className="pk-text-small text-ink-muted"
+				className="pk-text-compact text-ink-muted"
 				role="status"
 				data-testid="workspace-transition"
 			>
