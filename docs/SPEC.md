@@ -271,10 +271,11 @@ Normal workspace stop/start must preserve all three.
 
 A deliberate workspace rebuild may replace the root filesystem while retaining the user's home/projects volume. Docker state may be retained or reset according to the selected administrative action.
 
-Added by Epic 15.2: the home folder gets the coding agents' global instructions once.
+Added by Epic 15.2, changed by Epic 28 (issue #933): the coding agents' platform instructions are system files the student does not own.
 
-- The workspace image ships a template, `/usr/share/portikus/AGENTS.md`, written for the agents in plain English: what the workspace is, projects and checks, previews and the host suffix, opening a URL with `/usr/local/bin/portikus-open` (because `BROWSER` is empty inside Claude Code), never committing on the student's behalf unless asked. It holds no issue, pull request, SPEC or ADR references.
-- Every time the workspace agent starts, it copies the template to `~/.codex/AGENTS.md` (Codex's global instructions) and writes `~/.claude/CLAUDE.md` holding the single import line `@~/.codex/AGENTS.md` (Claude Code's user memory), each only when nothing is at that path. It runs as the student, never follows or replaces a symbolic link, and creates a missing `~/.codex` or `~/.claude` with mode 0700. It never overwrites either file, so edits by the student or an agent survive restarts and rebuilds; a later template change does not reach an existing home, and a deleted file comes back at the next start. An image without the template gets neither file.
+- One template, `agent-instructions.md`, ships in the Portikus package with the workspace agent (`/usr/lib/portikus/workspace-agent/`, bind-mounted read-only into every workspace), written for the agents in plain English: what the workspace is, projects and checks, previews and the host suffix, opening a URL with `/usr/local/bin/portikus-open` (because `BROWSER` is empty inside Claude Code), preferring the seed's preloaded Docker images, never committing on the student's behalf unless asked. It holds no issue, pull request, SPEC or ADR references.
+- Before every start the workspace controller writes it, as root with mode 0644, to `/etc/claude-code/CLAUDE.md` (Claude Code's system memory) and as `developer_instructions` in `/etc/codex/config.toml` (Codex's system config, beside `check_for_update_on_startup = false`). The controller, not the agent, writes them because the agent runs as the student and cannot write `/etc`. An edit or deletion lasts until the next start. The controller never opens what is at those paths: it deletes the path (a file, named pipe or link alike) and pushes the new file, so a pipe cannot block a start; a directory there is refused and logged. A failure is logged and never stops the start, and a host without the template writes nothing. A student's own `developer_instructions` in `~/.codex/config.toml` replaces the platform's for Codex; other keys there keep it.
+- `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` belong to the student. The workspace agent only removes what older versions wrote there: a `~/.codex/AGENTS.md` that is an unchanged copy of an old template (checked by SHA-256), and the exact line `@~/.codex/AGENTS.md` in `~/.claude/CLAUDE.md` once that file is gone (the file too if nothing else is left). It never follows a symbolic link.
 - The image also sets `init.defaultBranch main` in `/etc/gitconfig`, so a student's own `git init` starts on `main`.
 
 ## 5. Identity and access
@@ -506,6 +507,14 @@ Added by Epic 14.3 (ADR 0032): a second timer, **idle stop**, stops a running wo
 - While `idle_stop_at` is set, the workspace view carries `idleStopAt` and the work area shows "Still working?" with the stop time and a **Keep working** button that takes focus and sends an activity message. Any other activity also answers it. If the workspace then stops while the tab is open, the stopped screen says it stopped after that many minutes without activity.
 - A changed setting or override takes effect on the next sweep. Lowering the idle time below how long a workspace has already been idle shows the warning on the next sweep; it never stops the workspace at once.
 - The grace period above is unchanged and runs beside idle stop; whichever fires first stops the workspace. A new connection still starts a stopped workspace.
+
+Added by Epic 28 (issue #955): **Keep running until.** The owner can hold a running workspace up until a time, from the "Keep running" section of the workspace dialog, for example while a coding agent works overnight.
+
+- While `workspaces.keep_running_until` is ahead, the worker arms neither the disconnect grace deadline nor the idle warning, and withdraws a warning already shown. When the hold ends, by time or by the student, both timers start from its end as if the student had just acted, so "Still working?" and its five-minute warning still come first. A hold does not lift resource guard limits.
+- How far ahead a hold may reach is `settings.keep_running_max_hours` (default 12, 0 to 168; 0 turns holds off), overridden per workspace by `keepRunningMaxHours` in `workspaces.guard_config` (section 19.4). A lowered cap cuts existing holds to now plus the cap at the next sweep, or ends them at 0.
+- Only the owner may set or end a hold (`PUT` and `DELETE /workspaces/:id/keep-running`); anyone else, administrators included, gets 404. The API refuses a time in the past or past now plus the cap (400), and any hold when the cap is 0 (409 `KEEP_RUNNING_OFF`). A requested end up to five minutes past the cap is taken as exactly now plus the cap, to absorb browser clock skew. The cap bounds how far ahead a hold reaches, not the total time held, so a student may renew a hold. Setting a hold counts as activity. The worker's cut and end updates recheck the row itself, so a student's concurrent end or shorter hold is not undone.
+- Audit: `workspace.keep_running_set` (`until`, `previousUntil`, or `reason: "cut_by_cap"` from the worker), `workspace.keep_running_ended` (`reason` `ended_early`, `expired` or `cut_by_cap`) and `settings.keep_running_updated`.
+- The status bar shows "Kept running until {time}" in the student's timezone setting, with the date added when the end is six or more days ahead. The dialog's button names its result ("Keep running until …"), and "Don't keep running" ends a hold early. While a hold lasts, the admin workspace detail's guard summary says "Kept running by its owner until …".
 
 ### 6.5 Graceful stop
 
@@ -1696,10 +1705,29 @@ The preview proxy must support:
 
 HTTPS upstreams (Epic 24, issue #283, ADR 0041): a student server that
 speaks HTTPS on its port, such as `vite --https`, previews like any
-other. For each new student listener on port 1024 or above, once per
-listener, the workspace agent tries a TLS handshake with certificate
-checks off and a one-second timeout, at most four at a time; a completed
-handshake sets `protocolHint: "https"`. `/preview/authorize` then sends
+other. Changed by Epic 28 (issue #957): the agent never sends anything to
+a listener while discovering it. The first time a preview of a port is
+requested, from the Preview tab or the preview gateway's first request
+for that port, the API asks the agent (`POST /listening/:port/probe`) to
+settle the port's protocol. The agent completes one TLS handshake, with
+certificate checks off and a one-second timeout, with that socket at its
+own loopback or bound address, never at an address the caller names;
+racing requests share one probe. It caches the answer by socket inode, so
+a restarted server is probed again, and publishes it with
+`protocolKnown: true`; a completed handshake sets `protocolHint: "https"`.
+Until then `protocolHint` is a guess from the port number (`http` or
+`unknown`). System listeners and ports below 1024 are never probed. The
+API remembers every probe answer, final or not, for 30 seconds per
+workspace and port, and caches only a final answer beyond that; a failed
+or unsettled probe leaves the guessed protocol standing. The memo for a
+port is forgotten when its hint changes, or when a listener the API knew
+as probed comes back unprobed, so a server restarted with `--https` is
+probed again. Concurrent requests share one call, the call has a
+1.5-second timeout, and the memo is pruned as it goes and dropped with
+the workspace. A workspace reports at most 1,024 listening services
+(`MAX_LISTENING_SERVICES`): the agent trims to that, student listeners
+first and then by port, and the API drops any longer frame and keeps the
+previous list. `/preview/authorize` then sends
 a second trusted header, `X-Portikus-Upstream-Scheme: https` (or `http`),
 taken only from the listening registry. Caddy strips any client-sent
 copy, and for `https` uses a TLS transport with certificate checks off
@@ -1981,7 +2009,13 @@ The cache is an optimisation and never fails setup: when the answered size
 would leave less than 10 GiB free on the main disk, setup makes the largest
 whole-GiB cache that keeps the 10 GiB, and when not even 1 GiB fits it turns
 the cache off (the file `/etc/portikus/registry/cache-off`), warns in its
-output, and workspaces get no mirror. A workspace already running when the
+output, and workspaces get no mirror. Added by Epic 28: the marker holds one
+sentence saying why (the free space counted and the 10 GiB kept), which the
+cache helper reports in its status and the Docker tab shows with how to turn
+the cache back on; Clear cache does nothing while the cache is off, and the
+API refuses it. The install question for the cache size uses setup's rule:
+the free space beside the cache file plus the space the file already holds,
+less 10 GiB. A workspace already running when the
 cache turns off keeps its cache settings until its next restart; meanwhile
 the gateway no longer redirects ghcr.io traffic, so its pulls fail plainly.
 The cache file's space is reserved in full: setup and a clear reserve any
@@ -2027,13 +2061,35 @@ containers and build cache, stops dockerd cleanly, and swaps the new
 volume in. A seed over the size cap fails the build and the old seed
 stays. Workspaces already copied from the old seed are not affected.
 
+Added by Epic 28 (issues #931, #932). The Docker tab shows each image's
+download size (compressed, for the host's platform), read by the cache
+helper from manifests the cache already holds; it never fetches anything.
+The helper keeps a size 120 days after the cache last held the image (at
+most 1,000), and the tab shows a dash, read as "Not known", for an image
+the cache never held. A meter shows the cache's use with its 90 percent
+auto-clear mark, and another shows the seed's size on disk against its
+limit. A seed list no administrator has set starts with the official slim
+images matching the default workspace image: `node:<major>-slim` and
+`python:<major.minor>-slim` (3.14 when the image was built with uv 3.14).
+The API writes it, sets `settings.docker_seed_images_set` and audits
+`docker.seed_images_defaulted` when the Docker tab is first read; it starts
+no rebuild. The platform never edits a list an administrator has set or
+emptied. When the default image changes and the list lacks its matching
+images, the Seed card shows a notice with one button
+(`POST /admin/docker/seed/match`) that replaces the old matching slim tags
+with the new ones and queues a seed rebuild in one transaction. The button
+is not offered, and the route refuses, when the estimated download would
+pass the seed's size limit.
+
 **Usage report.** The registry's notification webhook tells the worker
 about each pull, and every hour the worker asks each running
 workspace's agent for its Docker inventory (`GET /docker/inventory`). A
 seed image counts as used in a workspace when a container references it or
-another local image is built on it. The Docker tab shows, over 30 days and
-as counts only, images pulled that are not in the seed and seed images
-nobody uses. Rows are kept 90 days.
+another local image is built on it. The Docker tab shows, over the last
+120 calendar days, today included, and as counts with download sizes,
+images pulled that are not in the seed and seed images nobody uses. Rows
+are kept 120 days, never less than the report's window (Epic 28, issue
+#934).
 
 ## 17. Workspace reset and rebuild
 
@@ -2320,7 +2376,7 @@ Added by Epic 14.3 (ADR 0032). The guard slows a workspace that keeps its CPUs b
 
 **Memory flag.** A workspace whose memory average is above the memory threshold (default 90%) is flagged: `workspaces.memory_flag` (when, the average, the threshold, the window) and `workspace.memory_flagged`. Nothing is slowed, because memory already has a hard limit. The owner's workspace view carries the flag as `memoryFlag` (when, the average, the threshold, the window). The student sees a warning notice, dismissible for the page's life per flag: "Your workspace has been near its memory limit", "For {window} minutes it used more than {threshold}% of its memory. If it runs out, the biggest program is stopped.", with a **See what's using memory** button that opens Monitor sorted by memory. The flag clears at the next stop (`workspace.memory_flag_cleared` with `{reason: "stopped"}`) or when an administrator clears it (`{reason: "administrator"}`, which also deletes the workspace's samples).
 
-**Settings and overrides.** The platform values are columns on the `settings` row, edited in the admin Settings tab in four groups, "Slow down heavy CPU use", "Give full speed back", "Keep repeat cases slowed" and "Flag high memory" (Epic 25): CPU threshold (1 to 100, default 80), memory threshold (1 to 100, default 90), window (5 to 240 minutes, default 30), throttle share (5 to 100, default 25; 100 means the throttle changes nothing), the automatic lift's quiet time (`cpu_idle_lift_minutes`, 1 to 60, default 5) and quiet percent (`cpu_idle_lift_percent`, 0 to 100, default 10; 0 turns automatic lifting off), and the idle time of section 6.4. The two lift settings have no per-workspace override. Each workspace may override any of the others in the nullable jsonb column `workspaces.guard_config`, with the keys `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes`; a missing key uses the platform value, as `quota_config` does. A change takes effect on the next tick.
+**Settings and overrides.** The platform values are columns on the `settings` row, edited in the admin Settings tab in four groups, "Slow down heavy CPU use", "Give full speed back", "Keep repeat cases slowed" and "Flag high memory" (Epic 25): CPU threshold (1 to 100, default 80), memory threshold (1 to 100, default 90), window (5 to 240 minutes, default 30), throttle share (5 to 100, default 25; 100 means the throttle changes nothing), the automatic lift's quiet time (`cpu_idle_lift_minutes`, 1 to 60, default 5) and quiet percent (`cpu_idle_lift_percent`, 0 to 100, default 10; 0 turns automatic lifting off), and the idle time of section 6.4. The two lift settings have no per-workspace override. Each workspace may override any of the others in the nullable jsonb column `workspaces.guard_config`, with the keys `cpuThresholdPercent`, `memoryThresholdPercent`, `windowMinutes`, `throttleSharePercent` and `idleStopMinutes` and, since Epic 28, `keepRunningMaxHours` (section 6.4); a missing key uses the platform value, as `quota_config` does. A change takes effect on the next tick.
 
 **Throttle hold (Epic 24).** Stopping and starting used to lift every throttle, so a student could run a heavy load, get throttled, restart and repeat. Two settings bound that: `cpu_throttle_hold_after` (0 turns holding off, otherwise 1 to 10, default 3) and `cpu_throttle_hold_hours` (1 to 168, default 24). The worker keeps each workspace's recent throttle times in `workspaces.cpu_throttle_recent`, trimmed to the window. When a throttle is the Nth within the window, the row's `cpu_throttle` gains `held: true`, the worker audits `workspace.cpu_throttle_held`, and every enabled administrator gets one warning notification. A held throttle is not cleared when the worker records a stop: the worker passes the allowance with the start request (`POST /instances/:name/start` with `{cpuAllowance}`), and the controller sets it before the instance runs, so there is no moment at full speed. The automatic idle lift and an administrator's lift still work. The student's notice adds "It stays slowed after a restart because it was slowed {n} times in the last {hours} hours." The Health tab and the Workspaces table show a **Held** tag beside **Throttled**. An administrator's lift does not clear `cpu_throttle_recent`, so a workspace lifted by hand can be held again sooner than one that started fresh.
 
@@ -3089,13 +3145,26 @@ language-aware editor".
   writes the result where the API cannot. An image that did not pass
   cannot be made the default, even by a hand-written request.
 - **Make default** moves the `portikus` alias in one step and keeps the
-  old default as `portikus-previous`; **Roll back** swaps them. After a
-  fetch or build, images other than the default, the previous and the two
-  newest candidates are deleted.
+  old default as `portikus-previous`; **Roll back** swaps them. Changed by
+  Epic 28 (issue #936): after a fetch or build that passes its health
+  check, every image other than the default, the previous and the new one
+  is deleted.
+- **Delete** on an image row removes one image that is neither the
+  default nor the previous. Both the API (409 `IMAGE_IN_USE`) and the root
+  job refuse those two, so rollback always works. The confirmation shows
+  the database's count of workspaces made from the image. Workspaces made
+  from a deleted image keep working, because on LVM thin each instance's
+  root is its own thin volume. After every job the root job records each
+  image's size in `images/<version>/size.json`, best effort, never failing
+  the job. The page shows it as "Image size (compressed)", the size of the
+  image file Incus stores, or a dash read as "Not measured yet", and
+  shows the disk that holds the image store as a meter ("Main disk
+  space") that warns from 80 percent used. The confirmation says what
+  deleting frees when the size is known.
 - **The boundary.** The API writes one request file into
   `/var/lib/portikus/image-jobs/` (`root:portikus`, 0770), and a
   path-activated root oneshot, `portikus-image-job.service`, runs it.
-  Kinds are `fetch`, `build`, `activate` and `rollback`, plus
+  Kinds are `fetch`, `build`, `activate`, `rollback` and `delete`, plus
   `first-install`, which only setup runs, and `local-build` (a build
   then an activate), which only `make build-workspace-image` runs on a
   development VM. The job refuses an unknown
@@ -3521,12 +3590,20 @@ review, as built:
   strict pattern (Docker Hub, or ghcr.io only while that cache is on; no
   other host or port; an optional `@sha256` digest), at most 30, passed
   as separate arguments with no shell. The seed has a size cap.
-- **Accepted overcommit (ruling SEC1).** The resource guard adds no
-  admission check for the seed's size. Thin-pool overcommit already exists
-  for home and Docker quotas, a thin copy costs nothing until written, and
-  the seed adds at most the seed cap to each workspace. The controller's
-  refusal to fill the pool past 90 percent, the Health tab's pool usage,
-  and the seed cap are the protection.
+- **Accepted overcommit (ruling SEC1).** Thin-pool overcommit already
+  exists for home and Docker quotas, a thin copy costs nothing until
+  written, and the seed adds at most the seed cap to each workspace. The
+  controller's refusal to fill the pool past 90 percent, the Health tab's
+  pool usage, and the seed cap are the protection. Added by Epic 28: when
+  a new workspace's Docker volume will be copied from the seed, the
+  controller counts the seed's size on top of the pool's current use and
+  refuses the create (`POOL_FULL`) when that would reach 90 percent. A
+  seed whose size cannot be read is not counted. A default seed list is
+  checked against the same image-name rules before the API writes it.
+- **Listening frames (Epic 28).** An agent's listening-services frame is
+  bounded at 1,024 services by the contract and compared with the
+  previous list in linear time, so a replaced agent cannot stall the
+  shared API with large frames (section 14.5).
 - **Shared cache availability (SEC5).** Clearing is an administrator's
   action, but one student can fill the shared cache past 90 percent and so
   set off the automatic clear, which wipes it for everyone. That costs
@@ -4120,6 +4197,10 @@ A control that cannot act yet, such as a Confirm button while the workspace is c
 Every Stop icon button (Running, Checks, Monitor and the admin Processes table) uses one shared danger colour, the `pk-iconbtn-danger` class, for its normal, hover and focus states, and keeps a target of at least 24 px (WCAG 2.5.8) (Epic 22).
 
 Added by Epic 25: a Toggletip (section 8.6) is a button named "About {subject}". Opening it leaves focus on the button, and a polite live region reads the text. The live region sits at the end of the page, or of the dialog that holds the tip, so the text never joins the name of a table header or label around the button. The button makes no popup claim (no `aria-haspopup`), and the visible tip is hidden from screen readers, so browse mode never finds an empty dialog; the button still reports `aria-expanded`. Tab or Shift+Tab moves on and closes it, as do Escape and a click outside; after Escape focus is still on the button. The PageIntro is a native `details`. Icon-button tooltips can be hovered, so the pointer can move onto them without closing them (WCAG 1.4.13). The Help page moves focus to the heading its anchor names. A sticky table header never hides a focused control (WCAG 2.4.11): the admin page and the Course page keep a scroll padding for it.
+
+Added by Epic 28: a meter is the `Meter` component in `packages/ui`: a native `meter` with an accessible name matching its row label, its value text beside it (hidden from screen readers) and as `aria-valuetext`, and a `line-strong` edge on the track so its empty part meets 3:1. At or past its warning mark (`high`) the text and value gain the alert icon and "nearly full", and past `max` "over the limit", so colour is not the only sign.
+
+Added by Epic 28: setting or ending a Keep running hold is announced through a status region that is always mounted ("Kept running until {end}." or "Keep running ended."). After "Don't keep running", focus moves to the "Keep running until …" button, or to the dialog's title when no hold can be set. A button whose label holds a date wraps rather than clipping at 320 px and at 200% text. After a control is removed by its own action, such as the seed drift update or an image delete, focus moves to the nearest heading.
 
 The automated axe checks in the Playwright suite run the WCAG 2.0, 2.1 and 2.2 A and AA rules from one shared tag list, `WCAG_TAGS` in `e2e/helpers.ts`.
 
@@ -5207,6 +5288,32 @@ Acceptance:
   file or a view;
 - only Cloudflare is tested end to end; HTTP-01 and EAB are tested
   against Pebble, Let's Encrypt's local test server.
+
+### Epic 28 — Fix batch
+
+See sections 3, 6.4, 14.5, 16.6, 19.4, 22.4, 24.5 and 25.8, and ADR 0045;
+built on `epic/28-fix-batch` (issues #928, #931 to #934, #936, #955,
+#957, #959). Migrations 0034 and 0035.
+
+Includes:
+
+- Keep running until, a student hold over the disconnect grace and idle
+  stop, with a site cap and a per-workspace override;
+- platform agent instructions as system files the controller rewrites at
+  every start;
+- a TLS probe only when a preview first asks;
+- Docker tab sizes and meters, the cache-off reason, a 120-day usage
+  window, and a seed matched to the default image's Node and Python;
+- deleting workspace images, a smaller automatic keep, and image sizes;
+- seed admission against the pool limit, the install question's
+  free-space rule, and CI time limits.
+
+Acceptance:
+
+- a held workspace is not stopped by grace or idle stop before the hold
+  ends, and both timers warn first afterwards;
+- discovery sends nothing to a student's listener;
+- the default and previous images can never be deleted.
 
 ### Estimated total
 

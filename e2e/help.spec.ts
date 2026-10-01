@@ -181,6 +181,7 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 		"Using your workspace",
 		"Getting started",
 		"The workspace layout",
+		"Keep your workspace running while you are away",
 		"Terminals",
 		"Files and the editor",
 		"Previews",
