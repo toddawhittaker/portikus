@@ -1130,6 +1130,45 @@ class ThrowawayCaddy(JobTest):
             self.assertIn(line, config)
         self.assertNotIn(TOKEN, config)
 
+    def test_a_generation_is_readable_by_caddy_under_the_units_umask(self):
+        # SPEC.md section 20.1: the throwaway and live Caddy run as caddy and read the generation.
+        self.assertEqual(os.umask(0o077), 0o077)
+        new = self.runner.state(".new")
+        upload = {"pem": "cert", "key": "key"}
+        self.runner.build_generation(new, acme(), {("cloudflare", "api_token"): TOKEN}, {"site": upload}, {},
+                                     base=new)
+        for sub in ("", "secrets", "files"):
+            self.assertEqual(stat.S_IMODE(os.stat(os.path.join(new, sub)).st_mode), 0o750, sub)
+        for name in ("settings.json", "tls.caddy", "secrets/cloudflare_api_token", "files/site.key"):
+            self.assertEqual(stat.S_IMODE(os.stat(os.path.join(new, name)).st_mode), 0o640, name)
+        before = self.runner.state(".before")
+        self.runner.snapshot(before)
+        self.assertEqual(stat.S_IMODE(os.stat(before).st_mode), 0o750)
+
+    def test_a_startup_failure_names_caddys_error_line(self):
+        fake_caddy = Path(self.tree.root, "fake-caddy")
+        fake_caddy.write_text(
+            "#!/bin/sh\n"
+            "echo '{\"level\":\"info\",\"msg\":\"using config from file\",\"file\":\"/x/Caddyfile\"}' >&2\n"
+            f"echo 'Error: loading initial config: open /fake/.new/secrets/token-{TOKEN}: permission denied' >&2\n"
+            "exit 1\n")
+        fake_caddy.chmod(0o755)
+        runner = cj.Runner(root=self.tree.root, run_=self.fake, caddy=str(fake_caddy), timeouts={"issue": 5})
+        jobs_fd = os.open(runner.jobs_dir, os.O_RDONLY | os.O_DIRECTORY)
+        job = cj.Job(jobs_fd, ID, os.getgid(), runner.host)
+        job.secrets = [TOKEN]
+        try:
+            with self.assertRaises(cj.JobFailed) as caught:
+                runner.issue_with_throwaway_caddy(job, acme(), [SITE], runner.state_dir)
+        finally:
+            job.close()
+            os.close(jobs_fd)
+        said = cj.scrub(str(caught.exception), job.secrets)
+        self.assertIn("Caddy said: Error: loading initial config", said)
+        self.assertIn("permission denied", said)
+        self.assertNotIn("nothing; the log", said)
+        self.assertNotIn(TOKEN, said)
+
 
 class Reset(JobTest):
     def test_reset_puts_internal_back_and_keeps_the_old_settings(self):
@@ -1220,6 +1259,9 @@ class Units(unittest.TestCase):
         self.assertIn(f"PathExistsGlob={cj.JOBS_DIR}/request-*.json", path)
         timer = (REPO / "packaging" / "systemd" / "portikus-certificate-check.timer").read_text()
         self.assertIn("OnCalendar=hourly", timer)
+        # The job sets every mode Caddy needs explicitly, so it is correct under this umask.
+        service = (REPO / "packaging" / "systemd" / "portikus-certificate-job.service").read_text()
+        self.assertIn("UMask=0077", service)
 
 
 if __name__ == "__main__":

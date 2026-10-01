@@ -9,6 +9,9 @@ import tempfile
 from pathlib import Path
 
 sys.dont_write_bytecode = True
+# The job runs under UMask=0077 (portikus-certificate-job.service); test under it too so a mode
+# that leans on the umask fails here, not on a real install.
+os.umask(0o077)
 _PATH = Path(__file__).resolve().parents[1] / "certificate-job"
 _loader = importlib.machinery.SourceFileLoader("certificate_job", str(_PATH))
 _spec = importlib.util.spec_from_loader("certificate_job", _loader)

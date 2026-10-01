@@ -2609,7 +2609,9 @@ stored value. **Test only** and **Apply** run a pre-flight first, from
 the server with a resolver that skips `/etc/hosts`: the names resolve and
 a nonce at `/.well-known/portikus-preflight/` answers, plus plain HTTP on
 port 80 for HTTP-01. A failure blocks HTTP-01 and is a warning for
-DNS-01. Uploads are checked by the API and again by the job, and a
+DNS-01. When the host resolver is systemd-resolved, it answers
+from `/etc/hosts`, so a hosts entry can make a name pass the pre-flight
+that the public DNS does not have. Uploads are checked by the API and again by the job, and a
 refusal names the failed check. **Renew now** shows only for ACME,
 **Roll back** returns to the one earlier generation, and **Download root
 certificate** serves Caddy's internal root. Every enabled administrator
