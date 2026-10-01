@@ -1,7 +1,7 @@
 import type { WebSocket } from "@fastify/websocket";
 import { type FsEvent, MAX_EVENT_SOCKETS } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
-import { AgentFailure } from "./tmux.js";
+import { AgentFailure } from "./errors.js";
 import { ProjectWatchers, WatchLimitedError } from "./watch.js";
 
 export interface EventsRouteOptions {

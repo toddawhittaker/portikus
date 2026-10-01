@@ -3,13 +3,13 @@ import { mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { MAX_TERMINALS_PER_WORKSPACE } from "@portikus/contracts";
+import { MAX_TERMINALS_PER_WORKSPACE, SCROLLBACK_LINES } from "@portikus/contracts";
 import type { LogLevel } from "@portikus/observability";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { buildServer } from "./server.js";
-import { captureHistory, HISTORY_LINES, hasSession } from "./tmux.js";
+import { captureHistory, hasSession } from "./tmux.js";
 
 const run = promisify(execFile);
 
@@ -835,7 +835,7 @@ test.skipIf(!haveTmux)("a new session keeps the whole scrollback", async () => {
 		`pk-${id}`,
 		"#{history_limit}",
 	]);
-	expect(stdout.trim()).toBe(String(HISTORY_LINES));
+	expect(stdout.trim()).toBe(String(SCROLLBACK_LINES));
 
 	await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
 });

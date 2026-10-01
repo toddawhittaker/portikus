@@ -4,25 +4,15 @@ import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
-	type AgentErrorCode,
 	type CodingAgent,
+	SCROLLBACK_LINES,
 	TerminalId,
 	type TerminalTheme,
 } from "@portikus/contracts";
+import { AgentFailure } from "./errors.js";
 import { collectProcessTree, stopProcesses } from "./process-tree.js";
 
 const run = promisify(execFile);
-
-/** An agent failure carrying the wire error code of SPEC.md §27. */
-export class AgentFailure extends Error {
-	readonly code: AgentErrorCode;
-
-	constructor(code: AgentErrorCode, message: string) {
-		super(message);
-		this.name = "AgentFailure";
-		this.code = code;
-	}
-}
 
 /** Which tmux server the agent talks to (SPEC.md §9.7). */
 export interface TmuxServer {
@@ -144,13 +134,6 @@ async function resolveCwd(cwd: string, homeDir: string): Promise<string> {
 }
 
 /**
- * How many lines of history a pane keeps, and so the most an attachment can
- * be sent back. The browser keeps the same number (`SCROLLBACK_LINES` in
- * `TerminalPane.tsx`); what a replay is really bounded by is `HISTORY_BYTES`.
- */
-export const HISTORY_LINES = 5000;
-
-/**
  * Settings that belong to the tmux server rather than one session. They are
  * passed on the same command line as `new-session`, in front of it: tmux
  * starts the server for the whole list, so the options are in place before
@@ -196,15 +179,15 @@ function serverOptionArgs(): string[] {
 		"set-option",
 		"-g",
 		"history-limit",
-		String(HISTORY_LINES),
+		String(SCROLLBACK_LINES),
 		";",
 	];
 }
 
 /**
- * And how many bytes, which is the limit that actually holds: a line can be
- * any length, and escape sequences make it longer again. The newest lines are
- * the ones worth keeping, so the cut is made from the front.
+ * The most bytes of history a replay sends. This, not the line count, is the
+ * limit that holds: a line can be any length, and escape sequences make it
+ * longer again.
  */
 const HISTORY_BYTES = 256 * 1024;
 
@@ -244,7 +227,7 @@ export async function captureHistory(id: string, server: TmuxServer): Promise<st
 			"-e",
 			"-J",
 			"-S",
-			`-${Math.min(size, HISTORY_LINES)}`,
+			`-${Math.min(size, SCROLLBACK_LINES)}`,
 			"-E",
 			"-1",
 			"-t",

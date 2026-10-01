@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SEARCH_TIMEOUT_MS } from "@portikus/contracts";
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
+import { AgentFailure } from "./errors.js";
 import { searchProject } from "./search.js";
-import { AgentFailure } from "./tmux.js";
 
 // These tests pin what a search must do when ripgrep misbehaves (SPEC.md
 // §11.5: a search must not block the agent and must stay inside the

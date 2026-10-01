@@ -6,7 +6,8 @@
  */
 import { type AddressInfo, connect, createServer, type Server } from "node:net";
 import { afterEach, expect, test } from "vitest";
-import { ForwardFailure, Forwards } from "./forwards.js";
+import { AgentFailure } from "./errors.js";
+import { Forwards } from "./forwards.js";
 import type { ListeningMonitor } from "./listening.js";
 
 /** A second loopback address, so the forward can reuse the target's port. */
@@ -111,7 +112,6 @@ test("a port that is not listening on loopback is refused", async () => {
 	const forwards = makeForwards(new Set());
 	await expect(forwards.open(4321)).rejects.toMatchObject({
 		code: "FORWARD_NOT_LOOPBACK",
-		status: 409,
 	});
 });
 
@@ -125,7 +125,6 @@ test("a port already in use on the interface is refused", async () => {
 	const forwards = makeForwards(new Set([port]));
 	await expect(forwards.open(port)).rejects.toMatchObject({
 		code: "FORWARD_PORT_IN_USE",
-		status: 409,
 	});
 	expect(forwards.list()).toEqual([]);
 });
@@ -136,7 +135,7 @@ test("a workspace with no interface address cannot forward", async () => {
 		monitor: fakeMonitor(new Set([1234])),
 	});
 	pools.push(forwards);
-	await expect(forwards.open(1234)).rejects.toBeInstanceOf(ForwardFailure);
+	await expect(forwards.open(1234)).rejects.toBeInstanceOf(AgentFailure);
 });
 
 test("closing a forward stops it, and closing an unknown one says so", async () => {

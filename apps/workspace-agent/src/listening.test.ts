@@ -16,18 +16,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_LISTENING_SERVICES } from "@portikus/contracts";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { type DockerContainer, parseDockerPs } from "./docker-listeners.js";
+import { AgentFailure } from "./errors.js";
 import {
 	capServices,
-	type DockerContainer,
-	decodeHexAddress,
 	isSystemListener,
 	ListeningMonitor,
-	parseDockerPs,
-	parseProcNetTcp,
 	probeTls,
 	readSocketOwners,
-	StopFailure,
 } from "./listening.js";
+import { decodeHexAddress, parseProcNetTcp } from "./proc-net.js";
 
 const HEADER =
 	"  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode";
@@ -623,7 +621,6 @@ test("a port still listening after the pid died is not a success", async () => {
 		graceMs: 1000,
 	});
 	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
-		status: 409,
 		code: "STOP_FAILED",
 	});
 });
@@ -642,7 +639,6 @@ test("a SIGTERM refused with EPERM is a conflict, not a success", async () => {
 		graceMs: 100,
 	});
 	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
-		status: 409,
 		code: "STOP_FAILED",
 	});
 });
@@ -658,7 +654,6 @@ test("a liveness check refused with EPERM is a conflict, not a success", async (
 		graceMs: 100,
 	});
 	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
-		status: 409,
 		code: "STOP_FAILED",
 	});
 });
@@ -701,7 +696,6 @@ test("a process that survives SIGKILL is reported as a conflict", async () => {
 	await fakeProcess(88, "node", [3]);
 	const monitor = monitorFor({ kill: () => {}, graceMs: 50 });
 	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
-		status: 409,
 		code: "STOP_FAILED",
 	});
 });
@@ -713,13 +707,17 @@ test("a root-owned listener is refused", async () => {
 			throw new Error("the stop must never reach a system process");
 		},
 	});
-	await expect(monitor.stopListener(5355)).rejects.toBeInstanceOf(StopFailure);
-	await expect(monitor.stopListener(5355)).rejects.toMatchObject({ status: 403 });
+	await expect(monitor.stopListener(5355)).rejects.toBeInstanceOf(AgentFailure);
+	await expect(monitor.stopListener(5355)).rejects.toMatchObject({
+		code: "LISTENER_IS_SYSTEM",
+	});
 });
 
 test("a port nothing is listening on is not found", async () => {
 	await writeProcNet(HEADER);
-	await expect(monitorFor().stopListener(5173)).rejects.toMatchObject({ status: 404 });
+	await expect(monitorFor().stopListener(5173)).rejects.toMatchObject({
+		code: "LISTENER_NOT_FOUND",
+	});
 });
 
 test("a container row is stopped with docker stop, not a signal", async () => {
@@ -894,7 +892,6 @@ test("a stop fails rather than act on stale data when the fresh scan fails", asy
 	await monitor.refresh();
 	broken = true;
 	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
-		status: 409,
 		code: "STOP_FAILED",
 	});
 	expect(signals).toEqual([]);

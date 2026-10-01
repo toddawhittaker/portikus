@@ -32,7 +32,7 @@ import { tokenAuth } from "./auth.js";
 import { startUrlBroker } from "./broker.js";
 import { checksRoute } from "./checks-route.js";
 import { type DockerRunner, dockerInventoryRoute } from "./docker-inventory.js";
-import { ERROR_STATUS, sendError } from "./errors.js";
+import { AgentFailure, ERROR_STATUS, sendError } from "./errors.js";
 import { eventsRoute } from "./events-route.js";
 import { extractZip } from "./extract.js";
 import {
@@ -78,7 +78,6 @@ import { registerRecoveryRoutes } from "./recovery-routes.js";
 import { registerSearchRoutes } from "./search-routes.js";
 import { readTerminalsExit, TerminalRegistry } from "./terminals.js";
 import {
-	AgentFailure,
 	closeSession,
 	commandForAgent,
 	createSession,

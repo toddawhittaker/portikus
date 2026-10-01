@@ -6,8 +6,8 @@ import {
 	type SearchMatch,
 	type SearchResponse,
 } from "@portikus/contracts";
+import { AgentFailure } from "./errors.js";
 import { resolveProject } from "./projects.js";
-import { AgentFailure } from "./tmux.js";
 
 export interface SearchOptions {
 	hidden: boolean;

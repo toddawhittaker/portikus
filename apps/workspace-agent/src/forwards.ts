@@ -8,20 +8,8 @@
 import { connect, createServer, type Server, type Socket } from "node:net";
 import type { LoopbackForward } from "@portikus/contracts";
 import type { FastifyBaseLogger } from "fastify";
+import { AgentFailure } from "./errors.js";
 import type { ListeningMonitor } from "./listening.js";
-
-/** A forward request the agent refuses, with the status it answers. */
-export class ForwardFailure extends Error {
-	readonly code: string;
-	readonly status: number;
-
-	constructor(code: string, status: number, message: string) {
-		super(message);
-		this.name = "ForwardFailure";
-		this.code = code;
-		this.status = status;
-	}
-}
 
 interface Entry {
 	server: Server;
@@ -66,9 +54,8 @@ export class Forwards {
 	async open(port: number): Promise<LoopbackForward> {
 		const address = this.interfaceAddress;
 		if (address === null) {
-			throw new ForwardFailure(
+			throw new AgentFailure(
 				"FORWARD_UNAVAILABLE",
-				409,
 				"this workspace has no reachable network interface",
 			);
 		}
@@ -77,9 +64,8 @@ export class Forwards {
 
 		await this.monitor.refresh();
 		if (!this.monitor.isLoopbackOnly(port)) {
-			throw new ForwardFailure(
+			throw new AgentFailure(
 				"FORWARD_NOT_LOOPBACK",
-				409,
 				"no service is listening on loopback only at that port",
 			);
 		}
@@ -109,9 +95,8 @@ export class Forwards {
 		await new Promise<void>((resolve, reject) => {
 			server.once("error", (error: NodeJS.ErrnoException) => {
 				reject(
-					new ForwardFailure(
+					new AgentFailure(
 						error.code === "EADDRINUSE" ? "FORWARD_PORT_IN_USE" : "FORWARD_FAILED",
-						409,
 						error.code === "EADDRINUSE"
 							? "that port is already in use on the workspace interface"
 							: "the forward could not be opened",

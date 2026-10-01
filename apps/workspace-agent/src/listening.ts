@@ -6,7 +6,6 @@
  * is best effort: a `/proc` entry we cannot read is left out rather than
  * failing the scan.
  */
-import { execFile } from "node:child_process";
 import { access, readdir, readFile, readlink } from "node:fs/promises";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
@@ -17,19 +16,21 @@ import {
 	MAX_LISTENING_SERVICES,
 } from "@portikus/contracts";
 import type { FastifyBaseLogger } from "fastify";
+import {
+	type DockerContainer,
+	type DockerLookup,
+	dockerPs,
+	dockerStopContainer,
+} from "./docker-listeners.js";
+import { AgentFailure } from "./errors.js";
+import { type ProcListener, parseProcNetTcp } from "./proc-net.js";
 import { ownedByStudent, parseStatusUids, readCommandLine } from "./processes.js";
-
-/** The TCP state `/proc` uses for a listening socket. */
-const LISTEN_STATE = "0A";
 
 /** How often the port list is rescanned. */
 export const SCAN_INTERVAL_MS = 1000;
 
 /** How long a Docker answer is reused before asking again. */
 export const DOCKER_CACHE_MS = 5000;
-
-/** How long `docker ps` may take before we give up on it for this scan. */
-export const DOCKER_TIMEOUT_MS = 500;
 
 /**
  * Ports that development servers use for plain HTTP often enough to label.
@@ -95,15 +96,6 @@ interface ProbeTarget {
 	address: string;
 }
 
-/** One listening socket as `/proc/net/tcp` reports it. */
-export interface ProcListener {
-	address: string;
-	port: number;
-	inode: string;
-	/** The account the socket belongs to; 0 is root. */
-	uid: number;
-}
-
 /**
  * The lowest uid Debian gives a human account. Anything below it belongs to
  * the system: systemd-resolved, sshd and dnsmasq all sit there (SPEC.md §18.2).
@@ -112,9 +104,6 @@ export const FIRST_HUMAN_UID = 1000;
 
 /** How long a process has to exit after SIGTERM before it is killed. */
 export const STOP_GRACE_MS = 3000;
-
-/** How long `docker stop` may take. */
-export const DOCKER_STOP_TIMEOUT_MS = 15_000;
 
 /** The process a socket inode belongs to. */
 export interface SocketOwner {
@@ -126,94 +115,6 @@ export interface SocketOwner {
 	 * student owns the process (SPEC.md §24.11). Never logged.
 	 */
 	commandLine?: string;
-}
-
-/** A running inner Docker container and the host ports it publishes. */
-export interface DockerContainer {
-	id: string;
-	name: string;
-	ports: number[];
-}
-
-export type DockerLookup = () => Promise<DockerContainer[]>;
-
-/**
- * Decode one `/proc/net/tcp` address. Addresses are hexadecimal 32-bit words
- * in host byte order, so each group of four bytes is reversed: eight hex
- * digits for IPv4, thirty-two for IPv6.
- */
-export function decodeHexAddress(hex: string): string {
-	if (hex.length !== 8 && hex.length !== 32) {
-		throw new Error(`unexpected address length: ${hex.length}`);
-	}
-	const bytes: number[] = [];
-	for (let word = 0; word < hex.length / 8; word += 1) {
-		const chunk = hex.slice(word * 8, word * 8 + 8);
-		for (let byte = 3; byte >= 0; byte -= 1) {
-			bytes.push(Number.parseInt(chunk.slice(byte * 2, byte * 2 + 2), 16));
-		}
-	}
-	if (bytes.length === 4) return bytes.join(".");
-	return formatIpv6(bytes);
-}
-
-/** Format sixteen bytes as an IPv6 address, with the usual `::` shortening. */
-function formatIpv6(bytes: number[]): string {
-	const groups: string[] = [];
-	for (let index = 0; index < 16; index += 2) {
-		groups.push((((bytes[index] ?? 0) << 8) | (bytes[index + 1] ?? 0)).toString(16));
-	}
-	// Find the longest run of zero groups to replace with "::".
-	let bestStart = -1;
-	let bestLength = 0;
-	let runStart = -1;
-	for (let index = 0; index <= groups.length; index += 1) {
-		if (index < groups.length && groups[index] === "0") {
-			if (runStart < 0) runStart = index;
-			continue;
-		}
-		if (runStart >= 0) {
-			const length = index - runStart;
-			if (length > bestLength) {
-				bestStart = runStart;
-				bestLength = length;
-			}
-			runStart = -1;
-		}
-	}
-	if (bestLength < 2) return groups.join(":");
-	const head = groups.slice(0, bestStart).join(":");
-	const tail = groups.slice(bestStart + bestLength).join(":");
-	return `${head}::${tail}`;
-}
-
-/** Parse the LISTEN rows out of a `/proc/net/tcp` or `tcp6` file. */
-export function parseProcNetTcp(text: string): ProcListener[] {
-	const listeners: ProcListener[] = [];
-	for (const line of text.split("\n").slice(1)) {
-		const fields = line.trim().split(/\s+/);
-		// sl, local, remote, state, queues, timer, retransmit, uid, timeout, inode
-		if (fields.length < 10) continue;
-		if (fields[3] !== LISTEN_STATE) continue;
-		const [hexAddress, hexPort] = (fields[1] ?? "").split(":");
-		if (!hexAddress || !hexPort) continue;
-		let address: string;
-		try {
-			address = decodeHexAddress(hexAddress);
-		} catch {
-			continue;
-		}
-		const port = Number.parseInt(hexPort, 16);
-		if (!Number.isInteger(port) || port <= 0 || port > 65535) continue;
-		const uid = Number.parseInt(fields[7] ?? "", 10);
-		listeners.push({
-			address,
-			port,
-			inode: fields[9] ?? "",
-			uid: Number.isInteger(uid) ? uid : -1,
-		});
-	}
-	return listeners;
 }
 
 /**
@@ -341,54 +242,6 @@ async function isStudentProcess(
 	return uids !== null && ownedByStudent({ uids }, { studentUid });
 }
 
-/** Stop an inner Docker container by id or name. */
-export async function dockerStopContainer(container: string): Promise<void> {
-	await new Promise<void>((resolve, reject) => {
-		execFile(
-			"docker",
-			["stop", container],
-			{ timeout: DOCKER_STOP_TIMEOUT_MS, encoding: "utf8" },
-			(error) => {
-				if (error) reject(error);
-				else resolve();
-			},
-		);
-	});
-}
-
-/** Ask Docker which containers are running and what ports they publish. */
-export async function dockerPs(): Promise<DockerContainer[]> {
-	const stdout = await new Promise<string>((resolve, reject) => {
-		execFile(
-			"docker",
-			["ps", "--format", "{{.ID}}\t{{.Names}}\t{{.Ports}}"],
-			{ timeout: DOCKER_TIMEOUT_MS, encoding: "utf8" },
-			(error, out) => {
-				if (error) reject(error);
-				else resolve(out);
-			},
-		);
-	});
-	return parseDockerPs(stdout);
-}
-
-/** Parse `docker ps` rows into containers and the host ports they publish. */
-export function parseDockerPs(stdout: string): DockerContainer[] {
-	const containers: DockerContainer[] = [];
-	for (const line of stdout.split("\n")) {
-		if (line.trim() === "") continue;
-		const [id, name, ports] = line.split("\t");
-		if (!id || !name) continue;
-		const published = new Set<number>();
-		// Rows look like "0.0.0.0:5432->5432/tcp, :::5432->5432/tcp".
-		for (const match of (ports ?? "").matchAll(/:(\d+)->/g)) {
-			published.add(Number.parseInt(match[1] ?? "0", 10));
-		}
-		containers.push({ id, name, ports: [...published] });
-	}
-	return containers;
-}
-
 /**
  * The address the preview gateway reaches this container on. Incus gives the
  * container one bridged interface, `eth0`; the agent itself binds `0.0.0.0`,
@@ -443,18 +296,6 @@ export interface ListeningMonitorOptions {
 }
 
 type Listener = (services: AgentListeningService[]) => void;
-
-/** Why a stop request was refused, with the status the route should send. */
-export class StopFailure extends Error {
-	readonly status: number;
-	readonly code: string;
-
-	constructor(status: number, code: string, message: string) {
-		super(message);
-		this.status = status;
-		this.code = code;
-	}
-}
 
 /**
  * Whether a failed signal means the process is gone. Only ESRCH does. EPERM
@@ -634,14 +475,9 @@ export class ListeningMonitor {
 		await this.scanOrFail();
 		const service = this.services.find((entry) => entry.port === port);
 		if (!service)
-			throw new StopFailure(
-				404,
-				"LISTENER_NOT_FOUND",
-				"nothing is listening on that port",
-			);
+			throw new AgentFailure("LISTENER_NOT_FOUND", "nothing is listening on that port");
 		if (service.system) {
-			throw new StopFailure(
-				403,
+			throw new AgentFailure(
 				"LISTENER_IS_SYSTEM",
 				"that service belongs to the system",
 			);
@@ -651,14 +487,13 @@ export class ListeningMonitor {
 			try {
 				await this.dockerStop(container);
 			} catch {
-				throw new StopFailure(409, "STOP_FAILED", "the container did not stop");
+				throw new AgentFailure("STOP_FAILED", "the container did not stop");
 			}
 			return;
 		}
 		const pid = service.process?.pid;
 		if (pid === undefined) {
-			throw new StopFailure(
-				409,
+			throw new AgentFailure(
 				"STOP_FAILED",
 				"the owning process could not be identified",
 			);
@@ -687,7 +522,7 @@ export class ListeningMonitor {
 			return true;
 		} catch (error) {
 			if (isGone(error)) return false;
-			throw new StopFailure(409, "STOP_FAILED", "the process could not be signalled");
+			throw new AgentFailure("STOP_FAILED", "the process could not be signalled");
 		}
 	}
 
@@ -715,8 +550,7 @@ export class ListeningMonitor {
 			await this.refresh();
 			if (!this.services.some((entry) => entry.port === port)) return;
 			if (Date.now() >= deadline) {
-				throw new StopFailure(
-					409,
+				throw new AgentFailure(
 					"STOP_FAILED",
 					"the process stopped but something is still listening on that port",
 				);
@@ -736,7 +570,7 @@ export class ListeningMonitor {
 			return true;
 		} catch (error) {
 			if (isGone(error)) return false;
-			throw new StopFailure(409, "STOP_FAILED", "the process could not be signalled");
+			throw new AgentFailure("STOP_FAILED", "the process could not be signalled");
 		}
 	}
 
@@ -767,11 +601,7 @@ export class ListeningMonitor {
 			this.inFlight = null;
 		}
 		if (failed) {
-			throw new StopFailure(
-				409,
-				"STOP_FAILED",
-				"the listening ports could not be read",
-			);
+			throw new AgentFailure("STOP_FAILED", "the listening ports could not be read");
 		}
 	}
 

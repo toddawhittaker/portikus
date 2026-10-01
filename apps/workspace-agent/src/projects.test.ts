@@ -773,3 +773,40 @@ test("a size check answers for a file, a folder, or the project without zipping"
 	expect(file.json().error.code).toBe("FILE_TOO_LARGE");
 	expect((await check("")).statusCode).toBe(413);
 });
+
+test("clone and init run git with the filesystem monitor turned off", async () => {
+	const fakeBin = await mkdtemp(join(tmpdir(), "portikus-fakebin-"));
+	const argsFile = join(fakeBin, "args");
+	// A git that records its arguments, then fails a clone and passes an init.
+	await writeFile(
+		join(fakeBin, "git"),
+		`#!/bin/sh\necho "$@" >> ${argsFile}\nfor arg in "$@"; do\n  if [ "$arg" = clone ]; then echo "fatal: no such repository" >&2; exit 128; fi\ndone\nexit 0\n`,
+		{ mode: 0o755 },
+	);
+	const realPath = process.env.PATH;
+	process.env.PATH = `${fakeBin}:${realPath}`;
+	try {
+		const cloned = await create({
+			slug: "cloned",
+			source: "clone",
+			url: "https://example.com/repo.git",
+			gitInit: true,
+		});
+		expect(cloned.statusCode).toBe(500);
+		expect(cloned.json()).toEqual({
+			error: { code: "GIT_FAILED", message: "fatal: no such repository" },
+		});
+		const fresh = await create({ slug: "fresh", source: "new", gitInit: true });
+		expect(fresh.statusCode).toBe(201);
+		const lines = (await readFile(argsFile, "utf8")).trim().split("\n");
+		expect(lines).toEqual([
+			expect.stringMatching(
+				/^-c core\.fsmonitor= clone -- https:\/\/example\.com\/repo\.git /,
+			),
+			"-c core.fsmonitor= init --initial-branch=main",
+		]);
+	} finally {
+		process.env.PATH = realPath;
+		await rm(fakeBin, { recursive: true, force: true });
+	}
+});

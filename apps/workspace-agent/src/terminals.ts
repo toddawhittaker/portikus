@@ -10,8 +10,8 @@ import { TerminalClientMessage, type TerminalServerMessage } from "@portikus/eve
 import type { FastifyBaseLogger } from "fastify";
 import { type IPty, spawn } from "node-pty";
 import { type PaneWatcher, watchPanes } from "./cwd.js";
+import { AgentFailure } from "./errors.js";
 import {
-	AgentFailure,
 	attachArgs,
 	captureHistory,
 	hasSession,

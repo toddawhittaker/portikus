@@ -1,7 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { expect, test } from "vitest";
-import { ERROR_STATUS, sendError } from "./errors.js";
-import { AgentFailure } from "./tmux.js";
+import { AgentFailure, ERROR_STATUS, sendError } from "./errors.js";
 
 function stubs() {
 	const logged: unknown[] = [];

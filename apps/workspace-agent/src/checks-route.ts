@@ -19,11 +19,10 @@ import {
 } from "@portikus/contracts";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { type IPty, spawn } from "node-pty";
-import { sendError } from "./errors.js";
+import { AgentFailure, sendError } from "./errors.js";
 import { killProcessTree, readStartTime } from "./process-tree.js";
 import { resolveProject } from "./projects.js";
 import { DRAIN_POLL_MS, HIGH_WATER_BYTES, LOW_WATER_BYTES } from "./terminals.js";
-import { AgentFailure } from "./tmux.js";
 
 /** Close code for a socket asking about a run that does not exist. */
 const NOT_FOUND_CLOSE = 4404;

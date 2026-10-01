@@ -8,8 +8,8 @@ import {
 } from "@portikus/contracts";
 import { type FSWatcher, watch } from "chokidar";
 import type { FastifyBaseLogger } from "fastify";
+import { AgentFailure } from "./errors.js";
 import { resolveProject } from "./projects.js";
-import { AgentFailure } from "./tmux.js";
 
 /**
  * A subscriber. `null` means the watcher has failed and will send nothing
