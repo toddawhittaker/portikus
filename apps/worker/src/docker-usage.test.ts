@@ -12,6 +12,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 import { fetchDockerInventory } from "./agent-client.js";
 import {
 	createInventoryPoll,
+	INVENTORY_SECONDS,
 	inventoryImageName,
 	presenceRows,
 	pruneDockerUsage,
@@ -52,6 +53,10 @@ function inventory(over: Partial<AgentDockerInventory> = {}): AgentDockerInvento
 		...over,
 	};
 }
+
+test("each running workspace's images are read every hour, so short sessions are seen", () => {
+	expect(INVENTORY_SECONDS).toBe(60 * 60);
+});
 
 describe("inventoryImageName", () => {
 	test("canonical for Docker Hub and ghcr.io, as given for other registries", () => {

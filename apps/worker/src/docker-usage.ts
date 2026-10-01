@@ -11,7 +11,7 @@ import type { Kysely } from "kysely";
 import { fetchDockerInventory } from "./agent-client.js";
 
 /** How often every running workspace's Docker images are read (issue #840). */
-export const INVENTORY_SECONDS = 6 * 60 * 60;
+export const INVENTORY_SECONDS = 60 * 60;
 /** Usage rows older than this are deleted, once a day. */
 export const USAGE_RETENTION_DAYS = 90;
 const RETENTION_SECONDS = 24 * 60 * 60;

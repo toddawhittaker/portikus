@@ -2028,7 +2028,7 @@ volume in. A seed over the size cap fails the build and the old seed
 stays. Workspaces already copied from the old seed are not affected.
 
 **Usage report.** The registry's notification webhook tells the worker
-about each pull, and every 6 hours the worker asks each running
+about each pull, and every hour the worker asks each running
 workspace's agent for its Docker inventory (`GET /docker/inventory`). A
 seed image counts as used in a workspace when a container references it or
 another local image is built on it. The Docker tab shows, over 30 days and
