@@ -799,6 +799,8 @@ function FileField({
 				<p
 					className="m-0 text-[12px] text-status-error leading-4"
 					id={`${id}-err`}
+					// A new element per kind, so role="alert" is announced on mount.
+					key={problem ? "pem" : "server"}
 					// A problem found on picking is read out at once (SPEC.md section 25.8).
 					role={problem ? "alert" : undefined}
 				>
