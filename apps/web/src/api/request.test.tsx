@@ -3,10 +3,10 @@ import { z } from "zod";
 import {
 	ApiError,
 	errorText,
-	postJson,
 	request,
 	SessionEndedError,
 	SOMETHING_WENT_WRONG,
+	sendJson,
 } from "./request.js";
 
 const schema = z.object({ ok: z.boolean() });
@@ -89,9 +89,9 @@ test("a 200 body that does not match the schema rejects", async () => {
 	await expect(request(schema, "/x")).rejects.toThrow();
 });
 
-test("postJson sends the body as JSON, by POST unless told otherwise", async () => {
+test("sendJson sends the body as JSON, by POST unless told otherwise", async () => {
 	const fetchStub = stubFetch(json({ ok: true }, 200));
-	await expect(postJson(schema, "/things", { a: 1 })).resolves.toEqual({ ok: true });
+	await expect(sendJson(schema, "/things", { a: 1 })).resolves.toEqual({ ok: true });
 	expect(fetchStub).toHaveBeenCalledWith("/things", {
 		credentials: "same-origin",
 		method: "POST",
@@ -100,7 +100,7 @@ test("postJson sends the body as JSON, by POST unless told otherwise", async () 
 	});
 
 	const patchStub = stubFetch(json({ ok: true }, 200));
-	await postJson(schema, "/things/1", { a: 2 }, "PATCH");
+	await sendJson(schema, "/things/1", { a: 2 }, "PATCH");
 	expect(patchStub.mock.calls[0]?.[1]?.method).toBe("PATCH");
 });
 

@@ -7,7 +7,7 @@ import {
 	CertificatePreflight,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { postJson, request } from "../../api/request.js";
+import { request, sendJson } from "../../api/request.js";
 
 export const certificateKey = ["admin", "certificate"] as const;
 
@@ -54,7 +54,7 @@ export function useCertificateJob(id: string, pageState: CertificateJobState) {
 export function usePreflight() {
 	return useMutation({
 		mutationFn: (mode: "dns01" | "http01") =>
-			postJson(CertificatePreflight, "/admin/certificate/preflight", { mode }),
+			sendJson(CertificatePreflight, "/admin/certificate/preflight", { mode }),
 	});
 }
 
@@ -64,7 +64,7 @@ export function useRequestCertificateJob() {
 	return useMutation({
 		gcTime: 0,
 		mutationFn: (body: CertificateJobRequest) =>
-			postJson(CertificateJobView, "/admin/certificate/jobs", body),
+			sendJson(CertificateJobView, "/admin/certificate/jobs", body),
 		onSuccess: () => client.invalidateQueries({ queryKey: certificateKey }),
 	});
 }

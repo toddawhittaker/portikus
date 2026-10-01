@@ -4,7 +4,7 @@
  * reused PID is refused rather than signalled.
  */
 import { ProcessStopResponse } from "@portikus/contracts";
-import { ApiError, postJson } from "../api/request.js";
+import { ApiError, sendJson } from "../api/request.js";
 
 export function stopProcess(
 	workspaceId: string,
@@ -12,7 +12,7 @@ export function stopProcess(
 	startTicks: number,
 	force: boolean,
 ): Promise<ProcessStopResponse> {
-	return postJson(
+	return sendJson(
 		ProcessStopResponse,
 		`/workspaces/${workspaceId}/processes/${pid}/stop`,
 		{ startTicks, force },

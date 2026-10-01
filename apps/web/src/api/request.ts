@@ -61,7 +61,7 @@ export async function request<T>(
 }
 
 /** Send `body` as JSON and parse the response through `schema`, as `request` does. */
-export function postJson<T>(
+export function sendJson<T>(
 	schema: ZodType<T>,
 	input: string,
 	body: unknown,

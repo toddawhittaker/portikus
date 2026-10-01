@@ -11,7 +11,7 @@ import { ApiError } from "../../api/request.js";
 import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { shortTime } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
-import { KNOWN_STATES, WorkspaceStateBadge } from "../WorkspacesTab.js";
+import { KNOWN_STATES, WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
 import { PackagesSection } from "./PackagesSection.js";
 import { useHealth } from "./queries.js";
 import { TrendsCard } from "./TrendsCard.js";

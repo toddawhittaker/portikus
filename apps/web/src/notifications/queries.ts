@@ -12,7 +12,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { z } from "zod";
-import { postJson, request } from "../api/request.js";
+import { request, sendJson } from "../api/request.js";
 import { gatePath, type MeState } from "../useMe.js";
 
 export const notificationsKey = ["me", "notifications"] as const;
@@ -75,7 +75,7 @@ function useNotificationMutation<T>(send: (input: T) => Promise<unknown>) {
 
 export function useMarkNotificationRead() {
 	return useNotificationMutation((id: string) =>
-		postJson(Notification, `/me/notifications/${id}`, { read: true }, "PATCH"),
+		sendJson(Notification, `/me/notifications/${id}`, { read: true }, "PATCH"),
 	);
 }
 

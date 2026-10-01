@@ -14,7 +14,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { z } from "zod";
-import { postJson, request, toApiError } from "../api/request.js";
+import { request, sendJson, toApiError } from "../api/request.js";
 import { isFileExists } from "./errors.js";
 import { isDescendant, parentOf } from "./paths.js";
 
@@ -209,14 +209,14 @@ export function useFileMutations(
 	const createDirectory = useMutation({
 		mutationKey,
 		mutationFn: (path: string) =>
-			postJson(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, { path }),
+			sendJson(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, { path }),
 		onSuccess: (_data, path) => invalidate(parentOf(path)),
 	});
 
 	const move = useMutation({
 		mutationKey,
 		mutationFn: ({ from, to }: { from: string; to: string }) =>
-			postJson(z.undefined(), `${base(workspaceId, projectId)}/move`, { from, to }),
+			sendJson(z.undefined(), `${base(workspaceId, projectId)}/move`, { from, to }),
 		onSuccess: (_data, { from, to }) => {
 			forgetSubtree(from);
 			invalidateOpenFiles(from);
@@ -265,7 +265,7 @@ export function useFileMutations(
 	const extract = useMutation({
 		mutationKey,
 		mutationFn: (path: string) =>
-			postJson(ExtractResponse, `${base(workspaceId, projectId)}/extract`, { path }),
+			sendJson(ExtractResponse, `${base(workspaceId, projectId)}/extract`, { path }),
 		onSuccess: (_data, path) => invalidate(parentOf(path)),
 	});
 
@@ -430,7 +430,7 @@ export async function savePastedImage(
 ): Promise<string> {
 	for (const dir of [".portikus", ".portikus/pastes"]) {
 		try {
-			await postJson(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, {
+			await sendJson(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, {
 				path: dir,
 			});
 		} catch (error) {
