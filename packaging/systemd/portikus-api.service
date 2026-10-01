@@ -30,11 +30,12 @@ MemoryLow=256M
 # Hardening (SPEC section 24)
 NoNewPrivileges=yes
 ProtectSystem=strict
-# Its only writes outside its own state: image job and Docker cache requests
-# (ADR 0030). The leading "-" lets the API start on a host where a directory
-# is not made yet.
+# Its only writes outside its own state: image job, Docker cache and
+# certificate requests (ADRs 0030 and 0046). The leading "-" lets the API
+# start on a host where a directory is not made yet.
 ReadWritePaths=-/var/lib/portikus/image-jobs
 ReadWritePaths=-/var/lib/portikus/registry-jobs
+ReadWritePaths=-/var/lib/portikus/certificate-jobs
 ProtectHome=yes
 PrivateTmp=yes
 # Loopback includes the egress proxy on 127.0.0.1:3128, the API's only way
