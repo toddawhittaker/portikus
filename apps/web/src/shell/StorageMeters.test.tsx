@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
+import { nearlyFullAbove } from "../recovery/storage.js";
 import { meterLevelClass, StorageMeters } from "./StorageMeters.js";
 
 const GB = 1024 ** 3;
@@ -42,5 +43,25 @@ test("a class at 80% gets the warning level", () => {
 	// From exactly 80%, as the level, not only past it.
 	expect(screen.getByTestId("storage-home").textContent).toBe(
 		"80.0 GB of 100 GB, nearly full",
+	);
+});
+
+test("a class with no size never says nearly full", () => {
+	expect(nearlyFullAbove(0)).toBeUndefined();
+	expect(nearlyFullAbove(-1)).toBeUndefined();
+	render(
+		<StorageMeters
+			storage={{ home: { usedBytes: 0, totalBytes: 0 }, docker: null, recovery: null }}
+		/>,
+	);
+	expect(screen.getByTestId("storage-home").textContent).toBe("0 B of 0 B");
+	expect(screen.getByTestId("storage-meter-home").dataset.level).toBeUndefined();
+});
+
+test("at the critical level the next step is written under the meter", () => {
+	render(<StorageMeters storage={{ home: at(90), docker: at(96), recovery: null }} />);
+	expect(screen.queryByTestId("storage-step-home")).toBeNull();
+	expect(screen.getByTestId("storage-step-docker").textContent).toBe(
+		"Use Reset Docker in the workspace dialog, or run docker system prune.",
 	);
 });
