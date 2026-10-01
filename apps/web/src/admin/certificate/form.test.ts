@@ -20,6 +20,7 @@ import {
 	settingsText,
 	testIsReal,
 	toSettings,
+	uploadRefusalField,
 	uploadRefusalText,
 	validate,
 	withPlain,
@@ -346,4 +347,20 @@ test("a refused upload names its check in words (Epic 27 R9)", () => {
 	expect(uploadRefusalText("Site certificate: the unknown-thing check failed. x")).toBe(
 		"Site certificate: the unknown-thing check failed. x",
 	);
+});
+
+test("a refused upload points at the file its check reads (SPEC.md section 25.8)", () => {
+	expect(uploadRefusalField("Site certificate: the key-matches check failed. x")).toBe(
+		"cert-site-key",
+	);
+	expect(
+		uploadRefusalField("Preview certificate: the chain-complete check failed. x"),
+	).toBe("cert-preview-chain");
+	expect(uploadRefusalField("Site certificate: the names-cover check failed. x")).toBe(
+		"cert-site-certificate",
+	);
+	expect(
+		uploadRefusalField("Site certificate: the unknown-thing check failed. x"),
+	).toBeNull();
+	expect(uploadRefusalField("Something else went wrong.")).toBeNull();
 });

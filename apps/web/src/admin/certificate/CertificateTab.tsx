@@ -19,6 +19,7 @@ import { ApiError } from "../../api/request.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { Notice } from "../docker/Notice.js";
+import { JobLog } from "../JobLog.js";
 import { errorText } from "../SettingsTab.js";
 import {
 	daysText,
@@ -89,8 +90,8 @@ function CertificateSections({ data }: { data: AdminCertificate }) {
 	const ask = useRequestCertificateJob();
 	const [rollingBack, setRollingBack] = useState(false);
 	const busy = isActive(data.job?.state);
-	// An uploaded certificate never renews; a new upload replaces it.
-	const renewable = data.settings?.source !== "files";
+	// Only ACME renews on request: an upload never renews, and the internal authority's short certificates renew themselves.
+	const renewable = data.settings?.source === "acme";
 	const busyNote = busy ? "cert-busy-note" : undefined;
 	const noPrevious = !busy && !data.previousAvailable;
 
@@ -152,6 +153,10 @@ function CertificateSections({ data }: { data: AdminCertificate }) {
 				<CurrentPart data={data} />
 			</Group>
 
+			{/* Always mounted, so each change of the job's state is read out (SPEC.md section 25.8). */}
+			<p role="status" className="sr-only" data-testid="cert-job-announce">
+				{data.job ? jobAnnouncement(data.job) : ""}
+			</p>
 			{data.job ? <JobGroup job={data.job} /> : null}
 
 			<Group
@@ -371,8 +376,24 @@ function jobTitle(job: CertificateJobView): string {
 	return KIND_LABEL[job.kind];
 }
 
+/** What the status region says about the job, in one line. */
+function jobAnnouncement(job: CertificateJobView): string {
+	const kind = job.kind ? KIND_LABEL[job.kind] : "Unknown request";
+	const parts = [`${kind}: ${STATE_LABEL[job.state]}.`, sentence(job.step)];
+	if (job.message && (job.state === "failed" || job.state === "refused")) {
+		parts.push(sentence(job.message));
+	}
+	if (job.restored) parts.push("The previous certificate settings were put back.");
+	return parts.filter(Boolean).join(" ");
+}
+
+function sentence(text: string): string {
+	const trimmed = text.trim();
+	return trimmed === "" || /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
 function JobGroup({ job }: { job: CertificateJobView }) {
-	const detail = useCertificateJob(job.id);
+	const detail = useCertificateJob(job.id, job.state);
 	const shown = detail.data?.job ?? job;
 	const log = detail.data?.log ?? [];
 	const ended = shown.state === "failed" || shown.state === "refused";
@@ -390,16 +411,8 @@ function JobGroup({ job }: { job: CertificateJobView }) {
 				</dd>
 				<dt className="pk-muted">State</dt>
 				<dd className="m-0">
-					<span role="status" data-testid="cert-job-state">
+					<span data-testid="cert-job-state">
 						<span className={tone}>{STATE_LABEL[shown.state]}</span> {shown.step}
-						{shown.message && ended ? (
-							<span className="sr-only">. {shown.message}</span>
-						) : null}
-						{shown.restored ? (
-							<span className="sr-only">
-								. The previous certificate settings were put back.
-							</span>
-						) : null}
 					</span>
 				</dd>
 				{shown.message ? (
@@ -425,26 +438,7 @@ function JobGroup({ job }: { job: CertificateJobView }) {
 					</>
 				) : null}
 			</dl>
-			<div className="grid gap-2">
-				<h4
-					className="pk-text-compact m-0 font-semibold text-ink-muted"
-					id="cert-log-title"
-				>
-					Log
-				</h4>
-				{/* Focusable so it scrolls by keyboard (SPEC.md section 25.8); plain text, never HTML. */}
-				<section
-					className="pk-focus-inset max-h-80 overflow-auto"
-					data-testid="cert-job-log"
-					aria-labelledby="cert-log-title"
-					// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus
-					tabIndex={0}
-				>
-					<pre className="pk-techdetail m-0 whitespace-pre-wrap break-all">
-						{log.length > 0 ? log.join("\n") : "No output yet."}
-					</pre>
-				</section>
-			</div>
+			<JobLog idPrefix="cert" log={log} />
 		</Group>
 	);
 }

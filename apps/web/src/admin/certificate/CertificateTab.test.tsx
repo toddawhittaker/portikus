@@ -10,6 +10,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { CertificateTab } from "./CertificateTab.js";
+import { certificateKey } from "./queries.js";
 
 beforeEach(() => {
 	vi.useFakeTimers({ toFake: ["Date"] });
@@ -97,6 +98,7 @@ const PASSED: CertificatePreflight = {
 	],
 };
 
+// Only HTTP-01 fails a check; DNS-01 turns the same finding into a warning.
 const FAILED: CertificatePreflight = {
 	ok: false,
 	checks: [
@@ -328,10 +330,11 @@ test("Test only runs the checks, then asks for a test with the stored secret kep
 	);
 });
 
-test("a failed check blocks Apply and names the name that is wrong", async () => {
+test("a failed HTTP-01 check blocks Apply and names the name that is wrong", async () => {
 	const fetch = serve(data(), { preflight: FAILED });
 	renderWithQuery(<CertificateTab />);
-	fireEvent.click(await screen.findByTestId("cert-apply"));
+	fireEvent.click(await screen.findByTestId("cert-mode-http01"));
+	fireEvent.click(screen.getByTestId("cert-apply"));
 	expect((await screen.findByTestId("cert-preflight-summary")).textContent).toBe(
 		"1 check failed. Fix it and try again.",
 	);
@@ -339,7 +342,130 @@ test("a failed check blocks Apply and names the name that is wrong", async () =>
 		"x1.preview.portikus.example.edu resolves to 198.51.100.9",
 	);
 	expect(screen.queryByTestId("cert-apply-confirm")).toBeNull();
+	expect(posted(fetch, "/admin/certificate/preflight")).toEqual([{ mode: "http01" }]);
 	expect(posted(fetch, "/admin/certificate/jobs")).toEqual([]);
+});
+
+/** Every variable any mutation in the cache still holds, as text. */
+function heldVariables(client: ReturnType<typeof renderWithQuery>): string {
+	return JSON.stringify(
+		client
+			.getMutationCache()
+			.getAll()
+			.map((m) => m.state.variables),
+	);
+}
+
+test("Test only drops the typed secret from the mutation but keeps it in the form", async () => {
+	const fetch = serve(data());
+	const client = renderWithQuery(<CertificateTab />);
+	const token = (await screen.findByLabelText("API token")) as HTMLInputElement;
+	fireEvent.change(token, { target: { value: "fake-typed-token" } });
+	fireEvent.click(screen.getByTestId("cert-test"));
+	await waitFor(() => expect(posted(fetch, "/admin/certificate/jobs")).toHaveLength(1));
+	await waitFor(() => expect(heldVariables(client)).not.toContain("fake-typed-token"));
+	// Kept on purpose, so Apply can follow the test without typing it again.
+	expect(token.value).toBe("fake-typed-token");
+});
+
+test("Apply drops the typed secret from the mutation and the form", async () => {
+	const fetch = serve(data());
+	const client = renderWithQuery(<CertificateTab />);
+	const token = (await screen.findByLabelText("API token")) as HTMLInputElement;
+	fireEvent.change(token, { target: { value: "fake-typed-token" } });
+	fireEvent.click(screen.getByTestId("cert-apply"));
+	const dialog = await screen.findByTestId("cert-apply-confirm");
+	fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+	await waitFor(() => expect(posted(fetch, "/admin/certificate/jobs")).toHaveLength(1));
+	await waitFor(() => expect(heldVariables(client)).not.toContain("fake-typed-token"));
+	expect((screen.getByLabelText("API token") as HTMLInputElement).value).toBe("");
+});
+
+test("the form starts again from the new settings once an apply or roll back lands", async () => {
+	serve(data());
+	const client = renderWithQuery(<CertificateTab />);
+	const email = (await screen.findByLabelText("Account email")) as HTMLInputElement;
+	fireEvent.change(email, { target: { value: "half-typed@example.edu" } });
+	client.setQueryData(
+		certificateKey,
+		data({ settings: { ...SETTINGS, email: "new@example.edu" } }),
+	);
+	await waitFor(() =>
+		expect((screen.getByLabelText("Account email") as HTMLInputElement).value).toBe(
+			"new@example.edu",
+		),
+	);
+	client.setQueryData(certificateKey, data({ settings: { source: "internal" } }));
+	await waitFor(() =>
+		expect(
+			(screen.getByTestId("cert-source-internal") as HTMLInputElement).checked,
+		).toBe(true),
+	);
+	expect(screen.queryByLabelText("Account email")).toBeNull();
+});
+
+test("the job log keeps polling after a first 404 while the job runs", async () => {
+	let detailCalls = 0;
+	stubFetch((url) => {
+		if (url.startsWith("/admin/certificate/jobs/")) {
+			detailCalls += 1;
+			return detailCalls === 1
+				? json(404, { code: "NOT_FOUND", message: "Not found." })
+				: json(200, { job: job(), log: ["solving dns-01"] });
+		}
+		return json(200, data({ job: job() }));
+	});
+	renderWithQuery(<CertificateTab />);
+	await waitFor(
+		() =>
+			expect(screen.getByTestId("cert-job-log").textContent).toContain(
+				"solving dns-01",
+			),
+		{ timeout: 5_000 },
+	);
+});
+
+test("the job's state is read out from a status region that is always there", async () => {
+	serve(data());
+	const client = renderWithQuery(<CertificateTab />);
+	const region = await screen.findByTestId("cert-job-announce");
+	expect(region.getAttribute("role")).toBe("status");
+	expect(region.textContent).toBe("");
+	client.setQueryData(
+		certificateKey,
+		data({
+			job: job({
+				state: "failed",
+				step: "Put the previous settings back",
+				message: "Cloudflare refused the token",
+				restored: true,
+			}),
+		}),
+	);
+	await waitFor(() =>
+		expect(screen.getByTestId("cert-job-announce").textContent).toBe(
+			"Apply: Failed. Put the previous settings back. Cloudflare refused the token. The previous certificate settings were put back.",
+		),
+	);
+	// The same node, so assistive technology hears the change.
+	expect(screen.getByTestId("cert-job-announce")).toBe(region);
+});
+
+test("each source radio is named by its label and described by its sentence", async () => {
+	serve(data());
+	renderWithQuery(<CertificateTab />);
+	const acme = await screen.findByRole("radio", { name: "ACME" });
+	expect(
+		document.getElementById(acme.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toContain("Let's Encrypt, ZeroSSL");
+	expect(screen.getByRole("radio", { name: "HTTP-01" })).toBeTruthy();
+});
+
+test("the internal authority has no Renew now, since its certificates renew themselves", async () => {
+	serve(data({ settings: { source: "internal" } }));
+	renderWithQuery(<CertificateTab />);
+	await screen.findByTestId("cert-rollback");
+	expect(screen.queryByTestId("cert-renew")).toBeNull();
 });
 
 test("ZeroSSL says its test gets a real certificate (R11 amendment)", async () => {
@@ -442,6 +568,14 @@ test("an upload the API refuses names the failed check, and the key never leaves
 	expect((await screen.findByTestId("cert-form-error")).textContent).toBe(
 		'Site certificate: failed the check "Key matches the certificate". The private key does not match the certificate.',
 	);
+	// Also under the field the check reads, so it is found where it is fixed.
+	const key = within(screen.getByTestId("cert-upload-site")).getByLabelText(
+		"Private key",
+	);
+	expect(key.getAttribute("aria-invalid")).toBe("true");
+	expect(document.getElementById("cert-site-key-err")?.textContent).toContain(
+		"Key matches the certificate",
+	);
 	expect(posted(fetch, "/admin/certificate/jobs")).toEqual([
 		{
 			kind: "apply",
@@ -456,7 +590,8 @@ test("a file that is not PEM is refused where it was chosen", async () => {
 	renderWithQuery(<CertificateTab />);
 	fireEvent.click(await screen.findByTestId("cert-source-files"));
 	const input = choose("Certificate", "binary DER bytes", "site.der");
-	expect(await screen.findByText(/not in PEM format/)).toBeTruthy();
+	// An alert, so it is read out as soon as the file is picked.
+	expect((await screen.findByRole("alert")).textContent).toMatch(/not in PEM format/);
 	expect(input.getAttribute("aria-invalid")).toBe("true");
 });
 

@@ -193,6 +193,11 @@ test.describe("with the fake root job", () => {
 			{ timeout: 5_000 },
 		);
 		await expect(job.getByTestId("cert-job-log")).toContainText("solving dns-01");
+		// The always-present status region reads the new state out.
+		await expect(page.getByTestId("cert-job-announce")).toHaveText(
+			"Test only: Running. Getting a certificate from Let's Encrypt staging.",
+			{ timeout: 5_000 },
+		);
 		await expect(page.getByRole("button", { name: "Apply" })).toHaveAttribute(
 			"aria-disabled",
 			"true",
@@ -309,8 +314,41 @@ test.describe("with the fake root job", () => {
 		await expect(error).toContainText(
 			'Site certificate: failed the check "Key matches the certificate".',
 		);
+		// Also under the file the check reads.
+		await expect(site.getByLabel("Private key")).toHaveAccessibleDescription(
+			/Key matches the certificate/,
+		);
 		await expect(error).not.toContainText("BEGIN");
 		expect(await requestFiles()).toEqual([]);
+	});
+
+	test("descriptions and errors reach assistive technology (SPEC.md section 25.8)", async ({
+		page,
+	}) => {
+		await open(page);
+		// Each source's sentence describes its radio; the name stays the short label.
+		const acme = page.getByRole("radio", { name: "ACME", exact: true });
+		await expect(acme).toHaveAccessibleDescription(/Let's Encrypt, ZeroSSL/);
+		await acme.check();
+		// A Select's hint describes its trigger.
+		await page.getByRole("combobox", { name: /ACME directory/ }).click();
+		await page.getByRole("option", { name: "Let's Encrypt staging" }).click();
+		await expect(
+			page.getByRole("combobox", { name: /ACME directory/ }),
+		).toHaveAccessibleDescription(/Browsers do not trust staging certificates/);
+		// A file that is not PEM is an alert as soon as it is picked.
+		await page.getByRole("radio", { name: "Upload files", exact: true }).check();
+		await page
+			.getByTestId("cert-upload-site")
+			.getByLabel("Certificate", { exact: true })
+			.setInputFiles({
+				name: "site.der",
+				mimeType: "application/octet-stream",
+				buffer: Buffer.from("not a pem file"),
+			});
+		await expect(page.getByTestId("cert-upload-site").getByRole("alert")).toContainText(
+			"not in PEM format",
+		);
 	});
 
 	test("a request the job refuses shows the failed check", async ({ page }) => {
@@ -375,10 +413,12 @@ test.describe("with the fake root job", () => {
 		await expect(page.getByTestId("cert-job-state")).toContainText("Waiting to start", {
 			timeout: 15_000,
 		});
-		await expect(page.getByRole("button", { name: "Renew now" })).toHaveAttribute(
+		await expect(page.getByRole("button", { name: "Apply" })).toHaveAttribute(
 			"aria-disabled",
 			"true",
 		);
+		// The internal authority's certificates renew themselves, so there is no Renew now.
+		await expect(page.getByRole("button", { name: "Renew now" })).toHaveCount(0);
 	});
 });
 
@@ -444,6 +484,7 @@ async function routePage(page: Page) {
 			json: { job: FAILED_JOB, log: ["starting a separate caddy", "dns-01 failed"] },
 		}),
 	);
+	// An HTTP-01 answer: DNS-01 only ever warns, so only HTTP-01 has a failed check.
 	await routePreflight(page, {
 		ok: false,
 		checks: [
@@ -481,6 +522,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expectNoViolations(page);
 
 		// Pre-flight results, then the form for each source.
+		await page.getByRole("radio", { name: "HTTP-01" }).check();
 		await page.getByRole("button", { name: "Test only" }).click();
 		await expect(page.getByTestId("cert-preflight-summary")).toHaveText(
 			"1 check failed. Fix it and try again.",
