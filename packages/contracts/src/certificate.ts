@@ -183,7 +183,7 @@ const ServiceAccountJson = z
  * A Google service-account key, and nothing Google's library would treat as
  * an instruction to read a local file or fetch a URL as caddy (SPEC.md 24.8).
  */
-function isServiceAccountKey(text: string): boolean {
+export function isServiceAccountKey(text: string): boolean {
 	let value: unknown;
 	try {
 		value = JSON.parse(text);
@@ -297,6 +297,11 @@ export const CertificateSettings = z.discriminatedUnion("source", [
 export type CertificateSettings = z.infer<typeof CertificateSettings>;
 export type CertificateSource = CertificateSettings["source"];
 
+/**
+ * Job kinds. HTTP-01 tests and applies run in a throwaway Caddy listening on
+ * 127.0.0.1:8796; the live port-80 site block proxies
+ * /.well-known/acme-challenge/* there.
+ */
 export const CertificateJobKind = z.enum([
 	"test",
 	"apply",
