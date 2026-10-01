@@ -8,6 +8,9 @@ set -e
 
 CONFIG_FILE=/etc/portikus/portikus.yaml
 SECRETS_FILE=/etc/portikus/secrets.yaml
+# Once setup has seeded the certificate, the admin page owns it and the
+# TLS questions are not asked again.
+CERTIFICATE_STATE=/etc/portikus/certificate/settings.json
 
 db_capb backup escape
 
@@ -178,11 +181,16 @@ prepare_group() {
 # Whether a question applies, given the answers so far.
 relevant() {
 	case "$1" in
+	tls)
+		[ ! -e "$CERTIFICATE_STATE" ]
+		;;
 	acme_email | cloudflare_api_token)
+		[ ! -e "$CERTIFICATE_STATE" ] || return 1
 		db_get portikus/tls
 		[ "$RET" = letsencrypt ]
 		;;
 	tls_cert | tls_key)
+		[ ! -e "$CERTIFICATE_STATE" ] || return 1
 		db_get portikus/tls
 		[ "$RET" = files ]
 		;;
@@ -319,7 +327,9 @@ summary() {
 	db_get portikus/admin_email
 	line "Administrator: $RET"
 	db_get portikus/tls
+	[ ! -e "$CERTIFICATE_STATE" ] || RET=page
 	case "$RET" in
+	page) line "Certificate: as set on the Certificate admin page" ;;
 	letsencrypt)
 		db_get portikus/acme_email
 		line "Certificate: Let's Encrypt, notices to $RET"
@@ -571,8 +581,12 @@ while [ "$STATE" -ge 1 ] && [ "$STATE" -le "$LAST" ]; do
 	db_get portikus/storage
 	STORAGE_BEFORE=$RET
 	prepare "$name"
+	# The certificate is changed on the admin page, so its question shows
+	# only at a lower priority than a normal install asks at.
+	priority=high
+	[ "$name" != tls ] || priority=medium
 	rc=0
-	db_input high "portikus/$name" || rc=$?
+	db_input "$priority" "portikus/$name" || rc=$?
 	shown=0
 	if [ "$rc" = 0 ]; then
 		shown=1

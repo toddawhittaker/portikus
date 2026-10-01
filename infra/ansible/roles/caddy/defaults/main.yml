@@ -1,5 +1,6 @@
 ---
-# Where a files site's certificate and key are copied for the caddy user.
-caddy_tls_dir: /etc/caddy/portikus-tls
+# The certificate's state, owned by the admin page's root job after setup
+# seeds it once (docs/SPEC.md section 21.12; packages/contracts/src/certificate.ts).
+caddy_certificate_dir: /etc/portikus/certificate
 # Caddy's admin interface; the caddy user's home, so it needs no runtime directory.
 caddy_admin_socket: /var/lib/caddy/admin.sock

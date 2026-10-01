@@ -12,6 +12,7 @@
         portikus_cloudflare_api_token: "{{ setup_case.vars.portikus_cloudflare_api_token | default('') }}"
         portikus_tls_cert: "{{ setup_case.vars.portikus_tls_cert | default('') }}"
         portikus_tls_key: "{{ setup_case.vars.portikus_tls_key | default('') }}"
+        caddy_certificate_dir: "{{ setup_case.vars.caddy_certificate_dir | default('/nonexistent/certificate') }}"
         portikus_storage: "{{ setup_case.vars.portikus_storage | default('') }}"
         portikus_storage_confirm: false
         portikus_storage_size: "{{ setup_case.vars.portikus_storage_size | default(0) }}"
