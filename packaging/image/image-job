@@ -912,7 +912,9 @@ class Runner:
     def refuse(self, job, reason):
         journal(f"refused request {job.id}: {reason}")
         job.line(f"Refused: {reason}")
-        job.status("refused", "Refused", message=f"The request was refused: {reason}.")
+        # Most reasons are sentences already; add a period only to those that are not.
+        ending = "" if reason.endswith(".") else "."
+        job.status("refused", "Refused", message=f"The request was refused: {reason}{ending}")
 
     def execute(self, job, doc):
         journal(f"running {job.kind} job {job.id} requested by {doc['requestedBy']}")
