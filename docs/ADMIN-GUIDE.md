@@ -195,6 +195,122 @@ rebuild on a new image, and saves a database dump on the backup host before
 each deploy. Nothing deletes them on its own; delete them once the change
 checks out.
 
+## The site certificate
+
+The **Certificate** tab sets the HTTPS certificate browsers see for the
+site and for student previews (`*.preview.<site>`). A fresh install uses
+Portikus's own certificate authority, which browsers warn about until
+they trust its root certificate. Choose a real certificate here once the
+site is up. The installer and later setup runs never change it.
+
+### Read the status
+
+The top of the tab shows the certificate in use: where it comes from, who
+issued it, the names it covers, and when it expires, for the site and for
+a sample preview name. It also says whether the last renewal worked.
+Portikus sends every administrator a notification when the certificate
+expires within 14 days or a renewal fails.
+
+### Choose a source
+
+- **Portikus's own authority.** No setup, but every browser must trust
+  its root certificate ("Download the root certificate", below). Good for
+  a lab or a private network.
+- **ACME.** ACME (Automatic Certificate Management Environment) is the
+  protocol free certificate services speak. Choose Let's Encrypt, Let's
+  Encrypt's staging service (for trying things out; browsers do not trust
+  it), ZeroSSL, or any other service by its directory URL. Give an email
+  the service can write to about problems. Caddy, the web server in front
+  of Portikus, renews the certificate on its own.
+- **Upload files.** Use a certificate you already have, for example from
+  your institution.
+
+### ACME: prove you control the name
+
+Pick one way:
+
+- **DNS-01** (recommended). Portikus adds a temporary DNS record to prove
+  control, so it can get one wildcard certificate for every preview
+  address and does not need port 80. Choose your DNS provider (Cloudflare,
+  Route 53, DigitalOcean, OVH, Hetzner, Gandi, Porkbun, Google Cloud DNS
+  or Azure) and fill in its fields. Give the provider's token only the
+  right to edit DNS records in this zone.
+- **HTTP-01 with on-demand previews.** The service fetches a file from the
+  server on port 80, so port 80 must reach the server from the internet.
+  It cannot issue a wildcard, so each preview address gets its own
+  certificate the first time someone opens it, which makes that first
+  visit slower. Let's Encrypt allows 50 certificates per domain per week,
+  so a busy class can run out; use DNS-01 when you can.
+
+Some services, such as ZeroSSL or a campus authority, need **EAB**
+(External Account Binding): a key ID and an HMAC key from the service's
+account page that tie the certificate to your account. Fill in both when
+the service asks for them.
+
+Secret fields (tokens, the HMAC key, a private key) are write-only. The
+tab shows only whether each is set. Leave one blank when you apply again
+to keep the stored value.
+
+### Upload files
+
+Upload the certificate in PEM format with its intermediate certificates
+after it, and its private key without a passphrase. The certificate must
+cover the site's name and `*.preview.<site>`. If your site certificate does
+not cover previews, upload a separate preview wildcard certificate and key
+as well. Portikus checks that each key matches its certificate, that the
+chain is complete, that the dates are valid and that the names cover the
+site and previews. If a check fails, the tab names it and changes
+nothing.
+
+### Test, then apply
+
+Before an ACME change, the tab checks that the site and a sample preview
+name point at this server, and for HTTP-01 that port 80 answers. For
+HTTP-01 a failed check stops the change; for DNS-01 it is a warning. The
+check runs from the server itself, so it cannot see a firewall that only
+blocks outside traffic; the test below catches that.
+
+- **Test only** runs the check and gets a test certificate without
+  touching the live site. For Let's Encrypt it uses Let's Encrypt's
+  staging service. ZeroSSL and custom services have no staging service,
+  so the test gets a real certificate from that service, which counts
+  against its limits.
+- **Apply** runs the same test, then switches the live site. If the new
+  certificate does not appear in time, Portikus puts the old one back on
+  its own and shows the error, with any secret removed. The site keeps
+  working throughout.
+
+The tab shows each step while it runs. Only one change runs at a time.
+
+### Renew and roll back
+
+- **Renew now** asks for a fresh certificate from the same service, for
+  example after fixing a DNS token that made a renewal fail.
+- **Roll back** returns to the settings in use before the last change,
+  with their secrets. Only one earlier generation is kept.
+
+If a change made the site unreachable so this tab cannot be opened, the
+server's operator runs `sudo portikus reset-certificate`
+(OPERATIONS.md, "The site certificate"). That switches to Portikus's own
+authority; then Roll back here returns to the settings it replaced.
+
+### Download the root certificate
+
+**Download root certificate** gives Portikus's internal root certificate.
+Browsers trust the site under the internal authority only after it is
+installed:
+
+- **Windows**: open the file, choose Install Certificate, Local Machine,
+  and place it in Trusted Root Certification Authorities.
+- **macOS**: open it in Keychain Access, add it to the System keychain,
+  and set it to Always Trust.
+- **Linux**: copy it to `/usr/local/share/ca-certificates/` with a `.crt`
+  name and run `sudo update-ca-certificates`. Firefox keeps its own list:
+  Settings, Privacy & Security, View Certificates, Authorities, Import.
+
+The root also stays useful after a switch to ACME, because the reset
+command falls back to it.
+
 ## Health, logs and audit
 
 **Health** shows the host and the platform now and over time. Read it first
