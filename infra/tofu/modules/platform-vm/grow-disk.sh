@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Grows the platform VM's data disk in place to SIZE_BYTES; never shrinks it.
-# Called by OpenTofu (terraform_data.data_disk_size) with LIBVIRT_URI, DOMAIN,
-# POOL, VOLUME and SIZE_BYTES set.
+# Grows one of the platform VM's disks in place to SIZE_BYTES; never shrinks it.
+# Called by OpenTofu (terraform_data.os_disk_size and data_disk_size) with
+# LIBVIRT_URI, DOMAIN, POOL, VOLUME, SIZE_BYTES and SIZE_VARIABLE set.
 set -euo pipefail
 
 virsh_() { virsh -q -c "$LIBVIRT_URI" "$@"; }
@@ -9,15 +9,15 @@ capacity() { virsh_ vol-info --bytes --pool "$POOL" "$VOLUME" | awk '$1 == "Capa
 
 current=$(capacity)
 if [ -z "$current" ]; then
-  echo "grow-data-disk: cannot read the size of ${VOLUME} in pool ${POOL}" >&2
+  echo "grow-disk: cannot read the size of ${VOLUME} in pool ${POOL}" >&2
   exit 1
 fi
 if [ "$SIZE_BYTES" -lt "$current" ]; then
-  echo "grow-data-disk: refusing to shrink ${VOLUME} from ${current} to ${SIZE_BYTES} bytes; set data_disk_size_bytes back to at least ${current}" >&2
+  echo "grow-disk: refusing to shrink ${VOLUME} from ${current} to ${SIZE_BYTES} bytes; set ${SIZE_VARIABLE} back to at least ${current}" >&2
   exit 1
 fi
 if [ "$SIZE_BYTES" -eq "$current" ]; then
-  echo "grow-data-disk: ${VOLUME} is already ${current} bytes"
+  echo "grow-disk: ${VOLUME} is already ${current} bytes"
   exit 0
 fi
 
@@ -30,7 +30,7 @@ fi
 
 now=$(capacity)
 if [ "$now" != "$SIZE_BYTES" ]; then
-  echo "grow-data-disk: ${VOLUME} is ${now} bytes after the resize, not ${SIZE_BYTES}" >&2
+  echo "grow-disk: ${VOLUME} is ${now} bytes after the resize, not ${SIZE_BYTES}" >&2
   exit 1
 fi
-echo "grow-data-disk: grew ${VOLUME} from ${current} to ${SIZE_BYTES} bytes"
+echo "grow-disk: grew ${VOLUME} from ${current} to ${SIZE_BYTES} bytes"

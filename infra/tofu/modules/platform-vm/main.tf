@@ -87,6 +87,28 @@ resource "libvirt_volume" "os_disk" {
   base_volume_id = libvirt_volume.base_image.id
   size           = var.os_disk_size_bytes
   format         = "qcow2"
+
+  # A size change would replace the disk and with it the VM.  os_disk_size
+  # below grows it in place; cloud-init grows the root partition at boot.
+  lifecycle {
+    ignore_changes = [size]
+  }
+}
+
+resource "terraform_data" "os_disk_size" {
+  triggers_replace = var.os_disk_size_bytes
+
+  provisioner "local-exec" {
+    command = "bash ${path.module}/grow-disk.sh"
+    environment = {
+      LIBVIRT_URI   = var.libvirt_uri
+      DOMAIN        = libvirt_domain.vm.name
+      POOL          = libvirt_pool.portikus.name
+      VOLUME        = libvirt_volume.os_disk.name
+      SIZE_BYTES    = var.os_disk_size_bytes
+      SIZE_VARIABLE = "os_disk_size_bytes"
+    }
+  }
 }
 
 # ── Workspace-data disk (blank, formatted inside the VM) ────────
@@ -110,13 +132,14 @@ resource "terraform_data" "data_disk_size" {
   triggers_replace = var.data_disk_size_bytes
 
   provisioner "local-exec" {
-    command = "bash ${path.module}/grow-data-disk.sh"
+    command = "bash ${path.module}/grow-disk.sh"
     environment = {
-      LIBVIRT_URI = var.libvirt_uri
-      DOMAIN      = libvirt_domain.vm.name
-      POOL        = libvirt_pool.portikus.name
-      VOLUME      = libvirt_volume.data_disk.name
-      SIZE_BYTES  = var.data_disk_size_bytes
+      LIBVIRT_URI   = var.libvirt_uri
+      DOMAIN        = libvirt_domain.vm.name
+      POOL          = libvirt_pool.portikus.name
+      VOLUME        = libvirt_volume.data_disk.name
+      SIZE_BYTES    = var.data_disk_size_bytes
+      SIZE_VARIABLE = "data_disk_size_bytes"
     }
   }
 }
