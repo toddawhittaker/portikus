@@ -1,6 +1,15 @@
 import * as http from "node:http";
+import {
+	EGRESS_HELPER_TIMEOUT_MS,
+	INSTANCE_CREATE_WAIT_SECONDS,
+} from "@portikus/contracts";
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
-import { ControllerClientError, HttpControllerClient } from "./controller-client.js";
+import {
+	ControllerClientError,
+	CREATE_BUDGET_MS,
+	EGRESS_BUDGET_MS,
+	HttpControllerClient,
+} from "./controller-client.js";
 
 let server: http.Server;
 let baseUrl: string;
@@ -246,4 +255,12 @@ test("addedPackages refuses a reply with a line that is not a package name", asy
 	await expect(
 		new HttpControllerClient(baseUrl, "tok").addedPackages(WS),
 	).rejects.toThrow();
+});
+
+test("each worker budget outlasts the controller timeout it wraps", () => {
+	expect(CREATE_BUDGET_MS).toBeGreaterThan(INSTANCE_CREATE_WAIT_SECONDS * 1000);
+	expect(EGRESS_BUDGET_MS).toBeGreaterThan(EGRESS_HELPER_TIMEOUT_MS);
+	// Values unchanged from before they were derived.
+	expect(CREATE_BUDGET_MS).toBe(300_000);
+	expect(EGRESS_BUDGET_MS).toBe(45_000);
 });
