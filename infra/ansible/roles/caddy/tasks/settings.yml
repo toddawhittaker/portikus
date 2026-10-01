@@ -1,57 +1,67 @@
 ---
-# The TLS choice, checked before any role runs so a bad setting changes
-# nothing on the host (docs/SPEC.md section 21.12).
+# The install's TLS answer, checked before any role runs so a bad setting
+# changes nothing on the host (docs/SPEC.md section 21.12).  It only seeds
+# the certificate state on first install; once that exists the admin page
+# owns the certificate and these settings are ignored, so they are not checked.
 
-- name: Require a known TLS choice
-  ansible.builtin.assert:
-    that:
-      - portikus_tls in ['internal', 'letsencrypt', 'files']
-    fail_msg: "portikus_tls must be internal, letsencrypt or files, not {{ portikus_tls }}."
-
-- name: Require the Let's Encrypt settings
-  ansible.builtin.assert:
-    that:
-      - portikus_acme_email is match('^[^@\s]+@[^@\s]+\.[^@\s]+$')
-      - portikus_acme_ca is match('^https://')
-    fail_msg: >-
-      A letsencrypt site needs portikus_acme_email, the address Let's Encrypt
-      writes to about the certificates.
-  when: portikus_tls == 'letsencrypt'
-
-# The token is never printed, not even in a failure, so only whether it
-# looks like a token leaves this task.
-- name: Check the Cloudflare API token's form
-  ansible.builtin.set_fact:
-    caddy_token_ok: "{{ portikus_cloudflare_api_token is match('^[A-Za-z0-9_-]+$') }}"
-  no_log: true
-  when: portikus_tls == 'letsencrypt'
-
-- name: Require the Cloudflare API token
-  ansible.builtin.assert:
-    that:
-      - caddy_token_ok | bool
-    fail_msg: >-
-      A letsencrypt site needs portikus_cloudflare_api_token in
-      /etc/portikus/secrets.yaml: a Cloudflare API token that may edit the
-      DNS of the site's zone, for the DNS-01 challenge.
-  when: portikus_tls == 'letsencrypt'
-
-- name: Look at the certificate and key files
+- name: Look for the certificate state
   ansible.builtin.stat:
-    path: "{{ item }}"
-  loop:
-    - "{{ portikus_tls_cert }}"
-    - "{{ portikus_tls_key }}"
-  register: caddy_tls_files
-  when: portikus_tls == 'files'
+    path: "{{ caddy_certificate_dir }}/settings.json"
+  register: caddy_certificate_state
 
-- name: Require the certificate and key files
-  ansible.builtin.assert:
-    that:
-      - portikus_tls_cert is match('^/') and portikus_tls_key is match('^/')
-      - caddy_tls_files.results | map(attribute='stat.exists') | min
-    fail_msg: >-
-      A files site needs portikus_tls_cert and portikus_tls_key, the absolute
-      paths of a certificate and its key on this host.  Missing:
-      {{ caddy_tls_files.results | rejectattr('stat.exists') | map(attribute='item') | join(', ') }}.
-  when: portikus_tls == 'files'
+- name: Check the TLS answer that seeds the certificate
+  when: not caddy_certificate_state.stat.exists
+  block:
+    - name: Require a known TLS choice
+      ansible.builtin.assert:
+        that:
+          - portikus_tls in ['internal', 'letsencrypt', 'files']
+        fail_msg: "portikus_tls must be internal, letsencrypt or files, not {{ portikus_tls }}."
+
+    - name: Require the Let's Encrypt settings
+      ansible.builtin.assert:
+        that:
+          - portikus_acme_email is match('^[^@\s]+@[^@\s]+\.[^@\s]+$')
+          - portikus_acme_ca is match('^https://[^\s"{}]+$')
+        fail_msg: >-
+          A letsencrypt site needs portikus_acme_email, the address Let's Encrypt
+          writes to about the certificates.
+      when: portikus_tls == 'letsencrypt'
+
+    # The token is never printed, not even in a failure, so only whether it
+    # looks like a token leaves this task.
+    - name: Check the Cloudflare API token's form
+      ansible.builtin.set_fact:
+        caddy_token_ok: "{{ portikus_cloudflare_api_token is match('^[A-Za-z0-9_-]+$') }}"
+      no_log: true
+      when: portikus_tls == 'letsencrypt'
+
+    - name: Require the Cloudflare API token
+      ansible.builtin.assert:
+        that:
+          - caddy_token_ok | bool
+        fail_msg: >-
+          A letsencrypt site needs portikus_cloudflare_api_token in
+          /etc/portikus/secrets.yaml: a Cloudflare API token that may edit the
+          DNS of the site's zone, for the DNS-01 challenge.
+      when: portikus_tls == 'letsencrypt'
+
+    - name: Look at the certificate and key files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ portikus_tls_cert }}"
+        - "{{ portikus_tls_key }}"
+      register: caddy_tls_files
+      when: portikus_tls == 'files'
+
+    - name: Require the certificate and key files
+      ansible.builtin.assert:
+        that:
+          - portikus_tls_cert is match('^/') and portikus_tls_key is match('^/')
+          - caddy_tls_files.results | map(attribute='stat.exists') | min
+        fail_msg: >-
+          A files site needs portikus_tls_cert and portikus_tls_key, the absolute
+          paths of a certificate and its key on this host.  Missing:
+          {{ caddy_tls_files.results | rejectattr('stat.exists') | map(attribute='item') | join(', ') }}.
+      when: portikus_tls == 'files'
