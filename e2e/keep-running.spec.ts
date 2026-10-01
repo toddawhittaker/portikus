@@ -201,7 +201,8 @@ test("an administrator's cap bounds the choice, and 0 turns it off", async ({
 
 	await cap.fill("0");
 	await stop.getByTestId("keep-running-max-save").click();
-	await expect(toast(page, "Keep running saved")).toBeVisible();
+	// The first save's toast can still be up, so two match; the newest is last.
+	await expect(toast(page, "Keep running saved").last()).toBeVisible();
 	await studentPage.reload();
 	await expect(studentPage.getByTestId("workspace-state")).toHaveText("Running", {
 		timeout: 15_000,
