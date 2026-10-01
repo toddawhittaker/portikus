@@ -249,6 +249,24 @@ test("forget drops one workspace's memo and expired keys are swept", async () =>
 	}
 });
 
+test("forgetPort drops only that port's memo", async () => {
+	let calls = 0;
+	const guard = createProbeGuard({
+		logger: collectingLogger().logger,
+		probe: async () => {
+			calls += 1;
+			return answer(true);
+		},
+	});
+	await guard.probe("ws", 5173);
+	await guard.probe("ws", 3000);
+	guard.forgetPort("ws", 5173);
+	expect(guard.memoSize()).toBe(1);
+	await guard.probe("ws", 5173);
+	await guard.probe("ws", 3000);
+	expect(calls).toBe(3);
+});
+
 test("an old agent without the probe route logs at debug, not warn", async () => {
 	const { logger, lines } = collectingLogger("debug");
 	const guard = createProbeGuard({

@@ -105,6 +105,8 @@ export interface ProbeGuard {
 	probe(workspaceId: string, port: number): Promise<AgentListeningService | null>;
 	/** Drop every memo of a workspace that left the registry. */
 	forget(workspaceId: string): void;
+	/** Drop one port's memo, for a listener the agent now reports differently. */
+	forgetPort(workspaceId: string, port: number): void;
 	/** How many memo entries are held; tests pin that the map is pruned. */
 	memoSize(): number;
 }
@@ -174,6 +176,9 @@ export function createProbeGuard(deps: {
 		forget(workspaceId) {
 			const prefix = `${workspaceId}:`;
 			for (const key of memo.keys()) if (key.startsWith(prefix)) memo.delete(key);
+		},
+		forgetPort(workspaceId, port) {
+			memo.delete(`${workspaceId}:${port}`);
 		},
 		memoSize() {
 			return memo.size;
@@ -261,6 +266,12 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 			}
 			const frame = AgentListeningServicesChanged.safeParse(parsed);
 			if (!frame.success) return;
+			for (const next of frame.data.services) {
+				const before = entry.services.find((one) => one.port === next.port);
+				if (before?.protocolHint !== next.protocolHint) {
+					probeGuard.forgetPort(workspaceId, next.port);
+				}
+			}
 			entry.services = stamp(workspaceId, frame.data.services);
 			notify(workspaceId, entry.services);
 		});
