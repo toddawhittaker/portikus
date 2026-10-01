@@ -67,7 +67,7 @@ export const NO_FILTERS: AccountFilters = {
 	showArchived: false,
 };
 
-/** The rows the filters leave. Archived rows are hidden unless asked for (Epic 11 brief). */
+/** The rows the filters leave. Archived rows are hidden unless asked for. */
 export function filterAccounts(
 	users: AdminUser[],
 	filters: AccountFilters,
@@ -122,7 +122,7 @@ export function storageText(quota: { homeGiB: number; dockerGiB: number }): stri
 
 /**
  * A state the badge knows is drawn as one; anything newer shows its raw name.
- * A pending rebuild or reset wins, drawn like the student's status (issue #881).
+ * A pending rebuild or reset wins, drawn like the student's status.
  */
 export function WorkspaceStateBadge({
 	state,
@@ -250,7 +250,7 @@ export function olderImageTargets(rows: AdminUser[]): AdminUser[] {
 	);
 }
 
-/** A 409 means another operation already waits or runs, so the row is skipped (ruling 25). */
+/** A 409 means another operation already waits or runs, so the row is skipped. */
 export function bulkOutcome(error: unknown): "skipped" | "failed" {
 	return error instanceof ApiError && error.status === 409 ? "skipped" : "failed";
 }
@@ -289,7 +289,7 @@ interface BulkResult {
 	failed: { id: string; name: string; reason: string }[];
 }
 
-/** One row per account, with its workspace beside it (SPEC.md §20.1, issue #302). */
+/** One row per account, with its workspace beside it (SPEC.md §20.1). */
 export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	const users = useAdminUsers();
 	const [filters, setFilters] = useState<AccountFilters>(NO_FILTERS);
@@ -353,7 +353,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 							Rebuild all on older images…
 						</Button>
 					) : null}
-					{/* Only when the site runs Dex's own passwords (docs/archive/epics/EPIC-14.md ruling 24). */}
+					{/* Only when the site runs Dex's own passwords (ADR 0028). */}
 					{users.data?.dexUsers ? <AddDexUser /> : null}
 				</>
 			}
@@ -583,7 +583,7 @@ interface BulkConfirm {
  * The toolbar row over the table: the filtered count, or the bulk actions
  * while rows are ticked. It keeps one height, so ticking a row never moves
  * the table. Each action calls the existing single-row route once per
- * account (Epic 13.1 T4).
+ * account.
  */
 function BulkActions({
 	rowCount,
@@ -767,7 +767,7 @@ export function rebuildTitle(count: number): string {
 	return `Rebuild ${count} ${count === 1 ? "workspace" : "workspaces"}?`;
 }
 
-/** The single Rebuild dialog's warning, plus who restarts (SPEC.md §22.3, ruling 26). */
+/** The single Rebuild dialog's warning, plus who restarts (SPEC.md §22.3). */
 export function rebuildWarning(users: AdminUser[], resetDocker: boolean): string[] {
 	const lines = [
 		`${joinWords(users.map((user) => user.displayName))}.`,
@@ -869,7 +869,7 @@ function AccountRow({
 		>
 			<td
 				className="py-2"
-				// The ink bar marks the selected row without relying on colour (issue #369).
+				// The ink bar marks the selected row without relying on colour.
 				style={selected ? { boxShadow: "var(--row-current-bar)" } : undefined}
 				data-testid={`account-cell-${user.id}`}
 			>

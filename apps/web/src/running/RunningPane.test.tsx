@@ -1,7 +1,7 @@
 /**
  * The Running surface (SPEC.md §18.2): what each row says, which ports
  * offer actions, how a system listener is hidden, and what selecting a
- * row shows (issues #265, #272, #273, #325, #326).
+ * row shows.
  */
 import type { ListeningService } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
@@ -261,7 +261,7 @@ test("the row of the Preview tab in view is marked current", () => {
 	show([service({ port: 3000 }), service({ port: 5173 })], { activePort: 5173 });
 	expect(screen.getByTestId("running-row-5173").className).toContain("is-current");
 	expect(screen.getByTestId("running-row-3000").className).not.toContain("is-current");
-	// Screen readers hear it too (issue #369).
+	// Screen readers hear it too.
 	expect(
 		screen.getByRole("button", { name: /^5173/ }).getAttribute("aria-current"),
 	).toBe("true");
@@ -440,7 +440,7 @@ test("Docker and reserved-port tags sit on a second line under the name", () => 
 	expect(row.querySelector(".pk-portrow-name")?.textContent).toBe("postgres");
 });
 
-test("a student's own listener can reveal its full command below the row (issue #701)", () => {
+test("a student's own listener can reveal its full command below the row", () => {
 	show([
 		service({
 			port: 3000,

@@ -44,7 +44,7 @@ export async function probeEmbeddable(
 }
 
 /**
- * Open a preview in a new browser tab (issue #261, issue #272).
+ * Open a preview in a new browser tab.
  *
  * The blank tab is opened from inside the click, because a browser blocks a
  * window opened after an await. It is then pointed at the bootstrap URL, so

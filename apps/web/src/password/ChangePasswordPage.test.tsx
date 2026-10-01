@@ -63,7 +63,7 @@ test("after a good change the administrator lands on the admin page", async () =
 	).toBeTruthy();
 });
 
-// Epic 25 S15: the field itself says it takes the one-time password.
+// The field itself says it takes the one-time password.
 test("the forced change page labels the field for the one-time password, with a hint", async () => {
 	stubFetch((url) => (url === "/auth/me" ? json(200, FLAGGED) : json(200, {})));
 	renderApp("/change-password");

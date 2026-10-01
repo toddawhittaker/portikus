@@ -153,7 +153,7 @@ export function CreateProjectDialog({
 							onChange={(event) => {
 								setUrl(event.target.value);
 								if (nameEdited) return;
-								// The folder read as a title; the clone may replace it (#846).
+								// The folder read as a title; the clone may replace it.
 								const folder = projectNameFromCloneUrl(event.target.value);
 								setName(folder === "" ? "" : displayNameFromDirectory(folder));
 							}}

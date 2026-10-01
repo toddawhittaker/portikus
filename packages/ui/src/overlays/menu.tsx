@@ -62,7 +62,7 @@ export function Menu({
 			className={`pk-menu min-w-50 rounded-md border border-line bg-surface-raised p-1 shadow-md ${className ?? ""}`}
 			style={style}
 			sideOffset={kind === "dropdown" ? 4 : undefined}
-			// Keep the menu off the window edge (Epic 25 N2).
+			// Keep the menu off the window edge.
 			collisionPadding={8}
 			onCloseAutoFocus={(event) => {
 				onCloseAutoFocus?.(event);

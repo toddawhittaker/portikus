@@ -3,7 +3,7 @@
  * once on mount and written back at most once a second after a structural
  * change; last write wins. The selected tab and each open file's cursor and
  * scroll position are browser-local, so they go to localStorage rather than
- * to the server (local.ts, issue #161).
+ * to the server (local.ts).
  */
 import { ProjectLayout } from "@portikus/contracts";
 import { useEffect, useRef, useState } from "react";

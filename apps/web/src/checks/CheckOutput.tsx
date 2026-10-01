@@ -46,7 +46,7 @@ export function CheckOutput({
 	const finished = useRef(onFinished);
 	finished.current = onFinished;
 	const term = useRef<Xterm | null>(null);
-	// Read at construction and applied live when the student changes it (issue #357).
+	// Read at construction and applied live when the student changes it.
 	const screenReaderMode = useScreenReaderMode();
 	const screenReaderRef = useRef(screenReaderMode);
 	screenReaderRef.current = screenReaderMode;

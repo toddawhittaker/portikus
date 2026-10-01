@@ -1,6 +1,5 @@
 /**
- * Back and Forward for the Preview tab (BROWSER-HANDLING.md §12, issues
- * #271 and #283).
+ * Back and Forward for the Preview tab (BROWSER-HANDLING.md §12).
  *
  * The frame is cross-origin, so its own history cannot be read. It does not
  * need to be: every navigation inside the frame, including a single-page
@@ -112,10 +111,7 @@ interface Guard {
 /** The one guard for this document. */
 let guard: Guard | null = null;
 
-/**
- * Take the guard for one Preview tab, pushing the anchor entry if there is
- * not one already. `tabId` only labels the entry; any anchor counts as ours.
- */
+/** Take the guard for one Preview tab, pushing the anchor entry if there is not one already. */
 export function attachPreviewHistory(
 	tabId: string,
 	win: HistoryWindow,

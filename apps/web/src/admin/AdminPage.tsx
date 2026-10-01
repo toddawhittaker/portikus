@@ -17,7 +17,7 @@ import { ADMIN_TABS, type AdminTab } from "./tabs.js";
 import { WorkspacesTab } from "./WorkspacesTab.js";
 
 const TAB_LABEL: Record<AdminTab, string> = {
-	// The address stays ?tab=workspaces so old links keep working (docs/archive/epics/EPIC-13-1.md ruling 24).
+	// The address stays ?tab=workspaces so old links keep working (ADR 0026).
 	workspaces: "Users",
 	health: "Health",
 	logs: "Logs",
@@ -72,7 +72,7 @@ export function AdminPage() {
 					<h1 className="pk-text-title" id="admin-title">
 						Administration
 					</h1>
-					{/* Links, not a tab widget, so each tab has an address (Epic 11 brief). */}
+					{/* Links, not a tab widget, so each tab has an address. */}
 					<nav
 						aria-label="Administration"
 						className="mt-4 flex gap-1 border-line border-b"

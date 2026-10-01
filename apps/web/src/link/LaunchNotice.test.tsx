@@ -46,7 +46,7 @@ test("a launch into a linked account names the platform and the account", async 
 	).toBeTruthy();
 });
 
-test("the status region is there before the launch is known, then filled (review A1)", async () => {
+test("the status region is there before the launch is known, then filled", async () => {
 	stubLinks(LAUNCH);
 	renderWithQuery(<LaunchNotice displayName="Erin Student" />);
 

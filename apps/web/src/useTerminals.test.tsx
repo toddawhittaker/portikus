@@ -59,7 +59,7 @@ test("a created terminal is in the cached list before any refetch", async () => 
 	expect(cached?.terminals.map((terminal) => terminal.id)).toEqual([created.id]);
 });
 
-// Issue #474: the limit is named, anything else stays generic.
+// The limit is named, anything else stays generic.
 test("TERMINAL_LIMIT names the limit and other failures stay generic", () => {
 	expect(terminalFailureMessage(new ApiError(409, "at most", "TERMINAL_LIMIT"))).toBe(
 		"You can have up to 20 terminals open at once. Close one to open another.",

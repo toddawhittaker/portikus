@@ -37,14 +37,14 @@ export interface TerminalLeafProps {
 	onFocus: (terminalId: string) => void;
 	onSplit: (terminalId: string, direction: SplitDirection) => void;
 	onRename: (terminalId: string, name: string) => void;
-	/** Switch this one terminal between the light and dark scheme (issue #268). */
+	/** Switch this one terminal between the light and dark scheme. */
 	onSetTheme: (terminalId: string, theme: TerminalTheme) => void;
 	onClose: (terminalId: string) => void;
 	onExited: (terminalId: string) => void;
 	onReplace: (terminalId: string) => void;
 	onSessionEnded: () => void;
 	onLeave: () => void;
-	/** Give this pane a tab of its own, the keyboard way to drag it (issue #370). */
+	/** Give this pane a tab of its own, the keyboard way to drag it. */
 	onMoveToNewTab: (terminalId: string) => void;
 	/** The only pane in its tab, which already has a tab of its own. */
 	alone: boolean;
@@ -182,7 +182,7 @@ export function TerminalLeaf({
 			data-testid={`terminal-leaf-${terminal.id}`}
 			// The pane's own --terminal-* tokens, so the title bar and the
 			// scrollbar follow this terminal rather than the per-user default
-			// on the document (issue #286).
+			// on the document.
 			data-terminal-theme={terminal.theme}
 			// Changes only when this pane is mounted again, which a test reads
 			// to tell a move apart from a teardown and reconnect.

@@ -88,7 +88,7 @@ function useKeepRunning(workspaceId: string) {
 }
 
 /**
- * "Keep running" in the workspace dialog (#955): hold the workspace up for a
+ * "Keep running" in the workspace dialog: hold the workspace up for a
  * while, so leaving and idle time do not stop it, then end the hold early.
  * The new hold reaches the page over the workspace socket.
  */

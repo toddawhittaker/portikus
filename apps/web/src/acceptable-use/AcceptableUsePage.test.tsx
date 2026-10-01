@@ -17,7 +17,7 @@ test("blank lines separate paragraphs; single line breaks do not", () => {
 	]);
 });
 
-// Epic 25 S14: the opening paragraph introduces, and the rules after it are a list.
+// The opening paragraph introduces, and the rules after it are a list.
 test("the first paragraph leads and the rest read as a list of rules", async () => {
 	stubFetch((url) => {
 		if (url === "/auth/me") return json(200, UNACCEPTED);

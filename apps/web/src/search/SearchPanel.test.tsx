@@ -72,7 +72,7 @@ test("results are grouped by file, with the match highlighted", async () => {
 	// One line of context on each side (SPEC.md §11.5).
 	expect(screen.getByTestId("search-results").textContent).toContain("// the answer");
 	expect(screen.getByTestId("search-results").textContent).toContain("export {};");
-	// The count is announced in a status region (issue #363).
+	// The count is announced in a status region.
 	expect(screen.getByRole("status").textContent).toBe("3 matches in 2 files");
 });
 
@@ -234,7 +234,7 @@ test("a click with no work area to open into does nothing", async () => {
 	);
 	fireEvent.click(screen.getByTestId("search-result-src/app.ts-3"));
 
-	// There is no tab cap to complain about any more (issue #240), and no work
+	// There is no tab cap to complain about any more, and no work
 	// area in this render, so the click is simply ignored.
 	expect(screen.getByTestId("search-result-src/app.ts-3")).toBeTruthy();
 	expect(document.querySelectorAll(".pk-toast")).toHaveLength(0);

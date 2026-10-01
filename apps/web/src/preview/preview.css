@@ -70,7 +70,7 @@
 	padding: var(--space-4);
 }
 
-/* The line to paste into the dev server's config (issue #262). */
+/* The line to paste into the dev server's config. */
 .pk-preview-config {
 	display: block;
 	margin-top: var(--space-2);

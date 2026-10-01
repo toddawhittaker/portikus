@@ -33,7 +33,7 @@ export function sampleAge(sampledAt: string, now: number): string {
 	return `${hours} hour${hours === 1 ? "" : "s"} ago`;
 }
 
-/** The Health tab's intro under its heading (Epic 25). */
+/** The Health tab's intro under its heading. */
 export const HEALTH_INTRO = {
 	id: "admin-health",
 	helpAnchor: "admin-health",
@@ -156,7 +156,7 @@ export function HealthView({
 				</div>
 			) : null}
 			{report.packageUpdate ? (
-				// The platform never upgrades itself (issue #861).
+				// The platform never upgrades itself.
 				<div className="pk-card p-4" data-testid="health-package-update">
 					<p className="m-0">
 						Portikus <strong>{report.packageUpdate.available}</strong> is available.

@@ -1,5 +1,5 @@
 /**
- * The timezone list the settings dialog shows (issue #287). The names come
+ * The timezone list the settings dialog shows. The names come
  * from the server with the settings, so the dialog can only offer zones the
  * API will accept. There are a few hundred, so they are grouped by the region
  * their name starts with, and the zone in use is offered on its own at the top.

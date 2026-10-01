@@ -1,6 +1,6 @@
 /*
  * The Running pane, and the rows it shares with the + Preview launcher
- * (SPEC.md §18.2, issues #265, #272, #273, #274, #325, #326).
+ * (SPEC.md §18.2).
  *
  * One listening port is one row: the port, the command, an optional kind,
  * then the actions. The markup lives in RunningPane.tsx and PreviewPicker.tsx
@@ -28,7 +28,7 @@
 .pk-portrow.is-current,
 .pk-portrow.is-selected {
 	background: var(--surface-row-selected);
-	/* An ink bar, so the selection does not rest on a faint tint (issue #369). */
+	/* An ink bar, so the selection does not rest on a faint tint. */
 	box-shadow: var(--row-current-bar);
 }
 
@@ -128,7 +128,7 @@
 	color: var(--ink-muted);
 }
 
-/* The "Show system" checkbox in the pane head (issue #265). */
+/* The "Show system" checkbox in the pane head. */
 .pk-running-toggle {
 	flex: none;
 	display: flex;
@@ -148,7 +148,7 @@
 
 /*
  * A narrow pane puts a row on two lines: the port and program first, then the
- * actions along the end edge, so neither covers the other (Epic 25, M1).
+ * actions along the end edge, so neither covers the other.
  */
 @container pk-right (width < 18rem) {
 	.pk-portrow:has(.pk-portrow-select) {
@@ -170,7 +170,7 @@
 
 /*
  * What holds the selected port, in the same place and shape as the Checks
- * output panel: a fixed band under the scrolling list (issue #326).
+ * output panel: a fixed band under the scrolling list.
  */
 .pk-running-panel {
 	flex: none;

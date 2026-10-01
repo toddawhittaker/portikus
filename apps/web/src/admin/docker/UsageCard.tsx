@@ -11,7 +11,7 @@ import { addRefusal, listHas, shortImageName, shownText } from "./text.js";
 const SUB_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
 
 /**
- * Which images to add to the seed and which to drop (issue #840). Counts
+ * Which images to add to the seed and which to drop. Counts
  * only; names are shown as text, never as links or markup.
  */
 export function UsageCard({ data }: { data: DockerAdminResponse }) {

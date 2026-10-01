@@ -623,7 +623,7 @@ test("the service log level sits on the Logs tab, starts on the default and save
 	await waitFor(() => expect(writes[1]).toEqual({ logLevel: null }));
 });
 
-test("a failed log-level save is an alert tied to the select (issue #363)", async () => {
+test("a failed log-level save is an alert tied to the select", async () => {
 	stubLogs(
 		() => json(200, page([])),
 		() => json(500, { code: "INTERNAL", message: "Something broke" }),

@@ -270,7 +270,7 @@
 }
 
 /*
- * Terminal colours (issues #239, #286). Both schemes are written for any
+ * Terminal colours. Both schemes are written for any
  * element, not just <html>, because each terminal pane carries its own
  * data-terminal-theme: that way the pane's title bar and scrollbar take the
  * colours of the terminal inside it rather than the per-user default on the
@@ -286,7 +286,7 @@
 	--terminal-muted: #9a9386;
 	--terminal-cursor: #e8c37a;
 	--terminal-selection: #3a4a48;
-	/* Hairline between terminal panes, on terminal-bg. Proposed in Epic 6. */
+	/* Hairline between terminal panes, on terminal-bg. */
 	--terminal-line: #2a2824;
 	--ansi-black: #11100e;
 	--ansi-bright-black: #857f73;

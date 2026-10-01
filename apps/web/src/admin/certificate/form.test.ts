@@ -63,7 +63,7 @@ function acme(over: Partial<CertificateForm> = {}): CertificateForm {
 	};
 }
 
-test("the form starts from the settings in force, with every secret blank (Epic 27 R8)", () => {
+test("the form starts from the settings in force, with every secret blank", () => {
 	const form = initialForm(ACME_VIEW);
 	expect(form.source).toBe("acme");
 	expect(form.directory).toBe("letsencrypt");
@@ -363,7 +363,7 @@ test("secrets are one line, except Google's service account key, which is a JSON
 	).toBe(true);
 });
 
-test("a refused upload names its check in words (Epic 27 R9)", () => {
+test("a refused upload names its check in words", () => {
 	expect(
 		uploadRefusalText(
 			"Preview certificate: the names-cover check failed. The certificate does not cover *.preview.example.edu.",

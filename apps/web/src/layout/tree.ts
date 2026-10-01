@@ -392,7 +392,7 @@ export function moveLeafToNewTab(
 /**
  * Open `path` as a tab of its own (SPEC.md §8.3). A path already open is not
  * opened twice; the caller activates the tab it gets back. A diff is a view
- * of this tab, not a tab of its own (issue #160).
+ * of this tab, not a tab of its own.
  */
 export function openFile(
 	layout: ProjectLayout,
@@ -417,7 +417,7 @@ export function previewTabId(port: number): string {
 /**
  * Open a preview of `port` as a tab of its own (SPEC.md §14.6). A port
  * already open is not opened twice; the caller activates the tab it gets
- * back. There is no limit on open tabs (issue #240).
+ * back. There is no limit on open tabs.
  */
 export function openPreview(
 	layout: ProjectLayout,

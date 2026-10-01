@@ -3,7 +3,7 @@
  * project: switching project mounts a new one, so nothing carries over.
  * `dirty` marks a structural change the persistence hook still has to save;
  * the active tab, the editor view states and the focused pane are local to
- * this browser and are kept in localStorage instead (local.ts, issue #161).
+ * this browser and are kept in localStorage instead (local.ts).
  */
 import type { ProjectLayout } from "@portikus/contracts";
 import { createContext, useCallback, useContext, useRef, useState } from "react";
@@ -32,24 +32,24 @@ export interface LayoutState {
 	/**
 	 * Monaco's view state (cursor, selections, scroll) for each open file, by
 	 * project-relative path. It belongs to this browser, so it is kept beside
-	 * the layout rather than in the saved document (issue #161).
+	 * the layout rather than in the saved document.
 	 */
 	viewStates: Record<string, unknown>;
 	/**
-	 * The editor zoom of each open file, by project-relative path. Issue #162
-	 * asks for zoom that lasts the session only, so this one lives here and is
+	 * The editor zoom of each open file, by project-relative path. It
+	 * lasts the session only, so this one lives here and is
 	 * never written to this browser's storage.
 	 */
 	zooms: Record<string, number>;
 	/**
 	 * The tabs that have been active, newest first, so closing a tab can go
-	 * back to the one before it the way a browser does (issue #223). It only
+	 * back to the one before it the way a browser does. It only
 	 * matters while this workspace is open, so it is neither saved to the
 	 * server nor written to this browser's storage.
 	 */
 	tabHistory: string[];
 	/**
-	 * Which file tabs have edits that are not on disk, by tab id (issue #240).
+	 * Which file tabs have edits that are not on disk, by tab id.
 	 * The tab strip shows a dot instead of the close button for these. It is
 	 * what the editor is holding right now, so it is never saved anywhere.
 	 */
@@ -65,9 +65,9 @@ export interface LayoutState {
 	diffBaseline: Record<string, string | null>;
 	/**
 	 * Open a file tab, or activate the one already open for this path. With
-	 * `diff` the tab is asked to show its diff rather than the editor
-	 * (issue #160). `baseline` compares that diff with an object id instead
-	 * of Git HEAD. There is no limit on open tabs (issue #240).
+	 * `diff` the tab is asked to show its diff rather than the editor.
+	 * `baseline` compares that diff with an object id instead
+	 * of Git HEAD. There is no limit on open tabs.
 	 */
 	openFile: (
 		path: string,
@@ -75,12 +75,12 @@ export interface LayoutState {
 	) => void;
 	/**
 	 * Open a preview tab for one port, or activate the one already open for
-	 * it (SPEC.md §14.6). There is no limit on open tabs (issue #240).
+	 * it (SPEC.md §14.6). There is no limit on open tabs.
 	 */
 	openPreview: (port: number) => void;
 	/** Close one whole tab. Terminal tabs close by closing their terminals. */
 	closeTab: (tabId: string) => void;
-	/** Record whether one file tab has unsaved edits (issue #240). */
+	/** Record whether one file tab has unsaved edits. */
 	setTabUnsaved: (tabId: string, unsaved: boolean) => void;
 	/** Read and forget what a file tab was asked to show. */
 	consumePendingView: (tabId: string) => PendingView | undefined;
@@ -107,7 +107,7 @@ export interface LayoutState {
 	setViewState: (path: string, viewState: unknown) => void;
 	/** Remember the editor zoom of one open file for this session. */
 	setZoom: (path: string, percent: number) => void;
-	/** Put back what this browser remembered for this project (issue #161). */
+	/** Put back what this browser remembered for this project. */
 	restoreLocal: (local: LocalLayout) => void;
 	setFocused: (terminalId: string | null) => void;
 	reconcile: (terminalIds: string[], endedIds?: string[]) => void;
@@ -142,7 +142,7 @@ function pruneHistory(history: string[], layout: ProjectLayout): string[] {
 
 /**
  * Keep the active tab pointing at a tab that still exists, preferring the one
- * that was active most recently (issue #223).
+ * that was active most recently.
  */
 function pickActive(
 	layout: ProjectLayout,
@@ -265,8 +265,8 @@ export function createLayoutStore() {
 						layout.tabs.some((tab) => tab.id === state.activeTabId);
 					// Closing another tab leaves the student where they are. Closing
 					// the active one goes back to the tab that was active before it,
-					// then to the neighbour on the left, then the one on the right
-					// (issue #223). After the removal `index` is the right neighbour.
+					// then to the neighbour on the left, then the one on the right.
+					// After the removal `index` is the right neighbour.
 					const activeTabId = stillThere
 						? state.activeTabId
 						: (tabHistory[0] ??
@@ -440,7 +440,7 @@ export function useLayoutStore(projectId: string): LayoutStore {
 
 /**
  * The remembered cursor and scroll position of one open file, and a way to
- * put the newest one back (issue #161). `initial` is read once, when the tab
+ * put the newest one back. `initial` is read once, when the tab
  * mounts, so later saves do not make the editor jump. A file tab rendered
  * outside a workspace has no store and simply remembers nothing.
  */
@@ -464,7 +464,7 @@ export function useEditorViewState(path: string): {
 }
 
 /**
- * The editor zoom of one open file (issue #162). It is held in the layout
+ * The editor zoom of one open file. It is held in the layout
  * store, beside the cursor and scroll position, so there is one place that
  * remembers what a tab looked like; unlike those it is never written to this
  * browser's storage, so a reload starts at 100% again. A file tab rendered

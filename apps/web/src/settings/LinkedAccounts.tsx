@@ -5,7 +5,7 @@ import { startLink, useMyLinks, useUnlink } from "./profileQueries.js";
 
 /**
  * A course account links itself to an SSO account; an SSO account lists and
- * unlinks its course sign-ins (docs/archive/epics/EPIC-13-1.md, "The flow" steps 1, 2 and 7).
+ * unlinks its course sign-ins (ADR 0026).
  */
 export function LinkedAccounts() {
 	const links = useMyLinks();

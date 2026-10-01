@@ -1,5 +1,5 @@
 /**
- * The draggable split under a list (issue #337). The handle is the same one
+ * The draggable split under a list. The handle is the same one
  * the terminal splits use. The height is kept in sessionStorage, so it lasts
  * for this browser session and not the next.
  */

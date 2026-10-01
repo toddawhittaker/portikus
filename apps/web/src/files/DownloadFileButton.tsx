@@ -7,7 +7,7 @@ import { downloadCheckUrl, fileDownloadUrl, startDownload } from "./queries.js";
 /**
  * The Download control for one file in an editor or diff tab. A button, so
  * the size check runs first and a refusal is explained, not a silent failed
- * download (#399).
+ * download.
  */
 export function DownloadFileButton({
 	workspaceId,

@@ -54,7 +54,7 @@ export function fileDownloadUrl(
 }
 
 /**
- * The same file as an image or PDF the page can show (#816). `version`, the
+ * The same file as an image or PDF the page can show. `version`, the
  * file's etag, makes a changed file a new address, so the browser reloads it.
  */
 export function fileInlineUrl(
@@ -70,7 +70,7 @@ export function fileInlineUrl(
 /**
  * Start a download once the API says it is under the size cap. The check
  * adds up file sizes without zipping, so a refusal is explained in the page
- * rather than shown as a failed download (#399). `checkUrl` is a download
+ * rather than shown as a failed download. `checkUrl` is a download
  * URL with `check=1`.
  */
 export async function startDownload(
@@ -128,7 +128,7 @@ export interface FileMutations {
 		Error,
 		{ path: string; file: File; replace?: boolean }
 	>;
-	/** "Extract here" on a zip; resolves to the new folder (issue #817). */
+	/** "Extract here" on a zip; resolves to the new folder. */
 	extract: UseMutationResult<ExtractResponse, Error, string>;
 	pending: boolean;
 }

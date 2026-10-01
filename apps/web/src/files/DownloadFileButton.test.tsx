@@ -24,7 +24,7 @@ function renderButton() {
 	return click;
 }
 
-test("Enter on the button checks the size, then downloads the file (#399)", async () => {
+test("Enter on the button checks the size, then downloads the file", async () => {
 	const fetch = stubFetch(() => new Response(null, { status: 204 }));
 	const click = renderButton();
 
@@ -68,7 +68,7 @@ test("the button is busy during the size check and ignores repeats (Gate E)", as
 	await waitFor(() => expect(button.hasAttribute("aria-busy")).toBe(false));
 });
 
-test("a file over the cap shows the limit and does not download (#399)", async () => {
+test("a file over the cap shows the limit and does not download", async () => {
 	stubFetch(() => json(413, { code: "FILE_TOO_LARGE", message: "too large" }));
 	const click = renderButton();
 

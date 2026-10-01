@@ -22,7 +22,7 @@ interface Sent {
 
 /**
  * The zone names the server says it accepts. The dialog offers these and
- * nothing else, so the browser's own zone list never comes into it (#287).
+ * nothing else, so the browser's own zone list never comes into it.
  */
 const SERVER_ZONES = [
 	"UTC",
@@ -128,7 +128,7 @@ function buttonNamed(label: string): HTMLElement {
 	return button;
 }
 
-/** Issue #288, plus appearance in the same dialog (issue #329). */
+/** Issue #288, plus appearance in the same dialog. */
 test("each section holds its own fields", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
@@ -185,7 +185,7 @@ test("it shows the settings the server holds", async () => {
 	).toBe(true);
 });
 
-/** Review M5: a preference is saved the moment it changes, one field per request. */
+/** A preference is saved the moment it changes, one field per request. */
 test("a changed preference is saved at once and Saved is announced", async () => {
 	const writes = stubSettings();
 	const onClose = vi.fn();
@@ -203,7 +203,7 @@ test("a changed preference is saved at once and Saved is announced", async () =>
 	fireEvent.click(checkbox(/Word wrap/));
 
 	await waitFor(() => expect(writes).toHaveLength(1));
-	// The box starts ticked (issue #270), so the click clears it.
+	// The box starts ticked, so the click clears it.
 	expect(writes[0]?.body).toEqual({ wordWrap: false });
 	await waitFor(() => expect(status.textContent).toBe("Saved"));
 	expect(onClose).not.toHaveBeenCalled();
@@ -274,7 +274,7 @@ test("the footer is a single Close button and it does not undo a change", async 
 	await waitFor(() => expect(writes).toHaveLength(1));
 });
 
-/** Review S3: a save that fails after the dialog has closed is not silent. */
+/** A save that fails after the dialog has closed is not silent. */
 test("a save that fails after the dialog has closed shows a danger toast", async () => {
 	let release: () => void = () => {};
 	const held = new Promise<void>((resolve) => {
@@ -400,7 +400,7 @@ test("a delay outside 1 to 60 seconds is refused before anything is sent", async
 });
 
 /**
- * Issues #329 and #300: page appearance is chosen here, applied at once,
+ * Page appearance is chosen here, applied at once,
  * cached in this browser, and saved on the server at once. It does not
  * change the terminal color scheme sent with everything else.
  */
@@ -442,7 +442,7 @@ test("choosing an appearance applies at once, is cached, and is saved", async ()
 });
 
 /**
- * Issue #239: the dialog shows the stored terminal theme, and switching it
+ * The dialog shows the stored terminal theme, and switching it
  * saves only that.
  */
 test("the stored terminal theme is shown and a switch saves it", async () => {
@@ -473,7 +473,7 @@ test("the stored terminal theme is shown and a switch saves it", async () => {
 });
 
 /**
- * Issue #287: the dialog shows the stored zone. Choosing a different zone
+ * The dialog shows the stored zone. Choosing a different zone
  * from the Radix list needs a real browser, so that is covered in
  * e2e/timezone.spec.ts.
  */
@@ -496,7 +496,7 @@ test("the stored timezone is shown", async () => {
 });
 
 /**
- * Issue #287: the zone select is built from the list the server sent with the
+ * The zone select is built from the list the server sent with the
  * settings, so it can only offer names the API accepts. The browser's own
  * zone list, which differs, is never read.
  */
@@ -571,7 +571,7 @@ test("settings opens on Preferences, with Profile first in the list", async () =
 	).toBe("page");
 	const nav = screen.getByRole("navigation", { name: "Settings sections" });
 	expect(within(nav).getAllByRole("button")[0]?.textContent).toBe("Profile");
-	// Account is folded into Profile (issue #300).
+	// Account is folded into Profile.
 	expect(screen.queryByRole("button", { name: "Account" })).toBeNull();
 	expect(screen.getByRole("heading", { name: "Preferences" })).toBeTruthy();
 	expect(screen.queryByLabelText("Display name")).toBeNull();
@@ -648,7 +648,7 @@ test("Profile shows the institution sign-in, read-only", async () => {
 
 	expect(screen.getByText(/come from the institution sign-in/)).toBeTruthy();
 	expect(screen.getByTestId("account-initials").textContent).toBe("AE");
-	// Label and value pairs, not form fields (review S1).
+	// Label and value pairs, not form fields.
 	const list = screen.getByTestId("profile-signin");
 	expect(list.tagName).toBe("DL");
 	const pairs = within(list)
@@ -718,7 +718,7 @@ test("a failed account request explains that the details are missing", async () 
 	);
 });
 
-/** Epic 25 ruling: links save like the delay, on leaving the field, Enter or close. */
+/** Links save like the delay, on leaving the field, Enter or close. */
 test("a link is saved when the field is left and shown as a plain anchor", async () => {
 	const writes = stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	const onClose = vi.fn();
@@ -803,7 +803,7 @@ test("an invalid link keeps its error and is not sent, but a valid one beside it
 	expect(writes).toHaveLength(0);
 });
 
-/** Review N9: the long explanations sit behind a help button beside each control. */
+/** The long explanations sit behind a help button beside each control. */
 test("the long explanations are toggletips beside their controls", async () => {
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
@@ -827,7 +827,7 @@ test("the long explanations are toggletips beside their controls", async () => {
 	expect(screen.getByRole("button", { name: "About Linked accounts" })).toBeTruthy();
 });
 
-/** Review S3: a labelled button opens the file picker; the native input is hidden. */
+/** A labelled button opens the file picker; the native input is hidden. */
 test("Choose picture opens the hidden file input", async () => {
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
@@ -876,7 +876,7 @@ test("a picture over the cap is refused before it is sent", async () => {
 	expect(vi.mocked(fetch).mock.calls.length).toBe(sent);
 });
 
-/** Issue #357: screen-reader mode is a per-user setting. */
+/** Screen-reader mode is a per-user setting. */
 test("screen reader mode shows what is stored and is saved when turned on", async () => {
 	const writes = stubSettings({ ...EDITOR_SETTINGS_DEFAULTS, screenReaderMode: false });
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
@@ -892,7 +892,7 @@ test("screen reader mode shows what is stored and is saved when turned on", asyn
 	expect(writes[0]?.body).toEqual({ screenReaderMode: true });
 });
 
-/** Issue #373: the switch is named for what "on" means, whatever it shows. */
+/** The switch is named for what "on" means, whatever it shows. */
 test("the terminal colours switch is named Light terminal", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
@@ -902,7 +902,7 @@ test("the terminal colours switch is named Light terminal", async () => {
 	expect(within(terminal).getByRole("switch", { name: "Light terminal" })).toBe(toggle);
 });
 
-/** Review S4: the keys and the library limits live on the Help page. */
+/** The keys and the library limits live on the Help page. */
 test("Accessibility points to the keys on the Help page, in a new tab", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
@@ -922,7 +922,7 @@ test("Accessibility points to the keys on the Help page, in a new tab", async ()
 	).toBeNull();
 });
 
-/** Issue #359: search still finds the pointer, now under Accessibility. */
+/** Search still finds the pointer, now under Accessibility. */
 test("searching for keyboard finds the pointer to Help", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
@@ -938,7 +938,7 @@ test("searching for keyboard finds the pointer to Help", async () => {
 	);
 });
 
-/** docs/archive/epics/EPIC-13-1.md, "The flow" steps 1, 2 and 7. */
+/** ADR 0026. */
 async function openLinked() {
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await openProfile();
@@ -1187,7 +1187,7 @@ test("after an unlink, focus moves to the next Unlink button", async () => {
 	);
 });
 
-test("focus moves only after the refetch has removed the unlinked row (review C2)", async () => {
+test("focus moves only after the refetch has removed the unlinked row", async () => {
 	const courseUserId = "33333333-3333-4333-8333-333333333333";
 	myLinks = {
 		source: "sso",
@@ -1228,7 +1228,7 @@ test("focus moves only after the refetch has removed the unlinked row (review C2
 	await waitFor(() => expect(rowPresentAtFocus).toEqual([false]));
 });
 
-/** Issue #363: a failed save is announced, not only shown, and the control goes back. */
+/** A failed save is announced, not only shown, and the control goes back. */
 test("a failed save is shown as an alert and the control shows what the server holds", async () => {
 	stubFetch((url, init) => {
 		if ((init?.method ?? "GET") !== "GET") {

@@ -95,7 +95,7 @@ test("a healthy report shows the figures and no warnings", () => {
 	expect(states.getByRole("row", { name: /stopped 5$/i })).toBeDefined();
 });
 
-test("a newer package names both versions and the apt command (issue #861)", () => {
+test("a newer package names both versions and the apt command", () => {
 	render(
 		<HealthView
 			report={report({ packageUpdate: { installed: "0.1.695", available: "0.1.700" } })}

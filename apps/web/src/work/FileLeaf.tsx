@@ -46,8 +46,8 @@ const DiffViewer = lazy(() =>
 );
 
 /**
- * The editor, or this file's changes against the last commit (issue #160).
- * An SVG also has the picture it draws (#816).
+ * The editor, or this file's changes against the last commit.
+ * An SVG also has the picture it draws.
  */
 type View = "view" | "edit" | "diff";
 
@@ -57,7 +57,7 @@ const HIDDEN = { display: "none" } as const;
 /**
  * How many pixels apart two preview positions can be and still count as the
  * same place. A side that is put where it already is reports a scroll of its
- * own; this is how that echo is told from a student's own scroll (issue #229).
+ * own; this is how that echo is told from a student's own scroll.
  */
 const SAME_PLACE = 1;
 /** Lines closer together than this are the same place; lines are fractional. */
@@ -92,7 +92,7 @@ export interface FileLeafProps {
 	consumePendingView?: () => PendingView | undefined;
 	/** False while this tab is in the background. */
 	visible?: boolean;
-	/** Tells the tab strip whether this file has unsaved edits (issue #240). */
+	/** Tells the tab strip whether this file has unsaved edits. */
 	onUnsavedChange?: (unsaved: boolean) => void;
 	/** Object id the diff compares against, or null for Git HEAD. */
 	baseline?: string | null;
@@ -109,12 +109,12 @@ export function FileLeaf({
 	onUnsavedChange,
 	baseline,
 }: FileLeafProps) {
-	// The student's own editor settings (issue #159). They load once per
+	// The student's own editor settings. They load once per
 	// session; until they arrive the editor uses the defaults.
 	const settingsQuery = useEditorSettings();
 	const settings = settingsQuery.data ?? EDITOR_SETTINGS_DEFAULTS;
 	// Where the cursor and scroll were when this file was last on screen, so
-	// leaving the workspace and coming back puts them back (issue #161).
+	// leaving the workspace and coming back puts them back.
 	const viewState = useEditorViewState(path);
 	const file = useFile(workspaceId, projectId, path);
 	const save = useSaveFile(workspaceId, projectId, path);
@@ -127,7 +127,7 @@ export function FileLeaf({
 	const [status, setStatus] = useState<Status>("loading");
 
 	// The tab strip shows a dot instead of the close button while the file has
-	// edits that are not on disk (issue #240). Reported on unmount as clean, so
+	// edits that are not on disk. Reported on unmount as clean, so
 	// a closed tab leaves nothing behind.
 	const reportUnsaved = useRef(onUnsavedChange);
 	reportUnsaved.current = onUnsavedChange;
@@ -142,14 +142,14 @@ export function FileLeaf({
 	// what that version says. Null when there is nothing to resolve.
 	const [conflict, setConflict] = useState<{ etag: string; text: string } | null>(null);
 	// A conflict opens as a diff; the student can put it aside and carry on
-	// typing, and the banner brings the diff back (issue #158).
+	// typing, and the banner brings the diff back.
 	const [showConflict, setShowConflict] = useState(false);
 	// Counts the edits made on the conflict side. The editor below only takes
 	// new text when its version changes, and typing in the conflict diff does
 	// not change the etag, so without this counter "Keep editing" would come
 	// back to an editor still holding the text from before those keystrokes.
 	const [conflictEdits, setConflictEdits] = useState(0);
-	// An image, SVG or PDF is shown rather than edited (#816).
+	// An image, SVG or PDF is shown rather than edited.
 	const kind = viewerKind(path);
 	const svg = kind === "svg";
 	// Which view this tab shows. It belongs to this browser and is not saved.
@@ -157,7 +157,7 @@ export function FileLeaf({
 	const firstView: View = svg ? "view" : "edit";
 	const [view, setView] = useState<View>(firstView);
 	// The pressed button is replaced by its twin in the other header, so the
-	// keyboard is handed to the twin as it mounts (issue #358).
+	// keyboard is handed to the twin as it mounts.
 	const focusView = useRef<View | null>(null);
 	function pressView(next: View, button: View = next) {
 		if (next !== view) focusView.current = button;
@@ -172,7 +172,7 @@ export function FileLeaf({
 		};
 	}
 	const markdown = isMarkdownPath(path);
-	// The two sides of the Markdown split keep the same top line (issue #229).
+	// The two sides of the Markdown split keep the same top line.
 	// Each side remembers the place it last put the other one at, so it can
 	// recognise that side's answering scroll event and not send it back.
 	const editorScroll = useRef<CodeEditorHandle | null>(null);
@@ -196,7 +196,7 @@ export function FileLeaf({
 	// The last few bodies this tab wrote. A write of its own makes the file
 	// change on disk, which the project events socket reports, and that read
 	// can come back before the write's own answer does. Without this the
-	// editor would see its own text as someone else's edit (issue #157).
+	// editor would see its own text as someone else's edit.
 	const sent = useRef<string[]>([]);
 
 	// A file can be opened again while its tab is already there, so the
@@ -295,7 +295,7 @@ export function FileLeaf({
 				// The file on disk may hold a version this tab itself wrote or
 				// loaded. Then nobody else has touched it, the refusal came from an
 				// etag that had gone stale here, and a conflict would be a lie. Save
-				// again against the version the server just gave, once (issue #157).
+				// again against the version the server just gave, once.
 				if (
 					!retried &&
 					readable &&
@@ -356,7 +356,7 @@ export function FileLeaf({
 		if (settingsRef.current.autoSave) scheduleSave();
 	}
 
-	/** A keystroke on the student's side of the conflict diff (issue #158). */
+	/** A keystroke on the student's side of the conflict diff. */
 	function onConflictChange(next: string) {
 		setConflictEdits((count) => count + 1);
 		onChange(next);
@@ -447,7 +447,7 @@ export function FileLeaf({
 
 	// The two sides of the Markdown split follow each other by source line:
 	// the first line showing on the left is the first line showing on the
-	// right (SPEC.md §13.4, issue #229).
+	// right (SPEC.md §13.4).
 	// The preview is matched through the data-line attribute its blocks carry.
 	// Putting one side in its place makes that side report a scroll, which
 	// must not be sent straight back, so each side ignores exactly the place
@@ -611,8 +611,8 @@ export function FileLeaf({
 		);
 		if (!markdown) return editor;
 		// A Markdown tab is always a split: the raw text on the left, and on
-		// the right either the rendered file or its diff (SPEC.md §13.4,
-		// issue #218). The preview is read-only; every edit happens in Monaco.
+		// the right either the rendered file or its diff (SPEC.md §13.4).
+		// The preview is read-only; every edit happens in Monaco.
 		const preview = (
 			<Suspense fallback={<p className="pk-file-note">Loading preview…</p>}>
 				<MarkdownPreview
@@ -644,10 +644,10 @@ export function FileLeaf({
 
 	const note = banner();
 	// The diff replaces the whole tab on every file, Markdown included
-	// (SPEC.md §13.4, issue #218).
+	// (SPEC.md §13.4).
 	const inDiff = view === "diff";
 	// The version on disk on the left, the student's own text on the right and
-	// still editable (issue #158). The editor below is hidden rather than
+	// still editable. The editor below is hidden rather than
 	// unmounted, so it keeps its undo history while the diff is up.
 	const conflictDiff =
 		conflict !== null && showConflict && text !== null ? (

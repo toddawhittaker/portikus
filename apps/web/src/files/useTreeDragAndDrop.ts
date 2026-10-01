@@ -17,8 +17,8 @@ import { moveForDrop } from "./paths.js";
 export const dropId = (dir: string) => `dir:${dir}`;
 
 /**
- * The empty area below the tree is a second way into the project root
- * (issue #237). It is its own element rather than the pane body, so it never
+ * The empty area below the tree is a second way into the project root.
+ * It is its own element rather than the pane body, so it never
  * overlaps a row and the pointer can only be over one of the two.
  */
 export const ROOT_SPACE_DROP_ID = "root-space";
@@ -44,13 +44,13 @@ export function useTreeDragAndDrop({
 	const [uploadDrag, setUploadDrag] = useState(false);
 	// How many pane elements the upload drag is currently inside. Moving onto a
 	// child row fires a leave for the element behind it, so counting is the only
-	// way to tell "moved within the pane" from "left the pane" (issue #220).
+	// way to tell "moved within the pane" from "left the pane".
 	const uploadDepth = useRef(0);
 	const sensors = useSensors(
 		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
 	);
-	// What the pointer is carrying, so the drag has something visible to show
-	// (issue #237). dnd-kit draws it in a DragOverlay at the pointer.
+	// What the pointer is carrying, so the drag has something visible to show.
+	// dnd-kit draws it in a DragOverlay at the pointer.
 	const [dragged, setDragged] = useState<{ path: string; isDir: boolean } | null>(null);
 
 	function onDragStart(event: DragStartEvent) {

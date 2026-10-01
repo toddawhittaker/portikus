@@ -55,7 +55,7 @@ function trackFocus(event: FocusEvent): void {
 
 /**
  * A dialog portals to the body, outside any data-density container, so it
- * copies the density around whatever opened it (Epic 25 N1). Used as the
+ * copies the density around whatever opened it. Used as the
  * content's ref: it runs as the dialog mounts, before focus moves into it.
  */
 export function followOpenerDensity(content: HTMLElement | null): void {
@@ -75,7 +75,7 @@ export function followOpenerDensity(content: HTMLElement | null): void {
 /**
  * Puts focus back where it was when a dialog opened. Most dialogs open from
  * state or a menu item, so Radix has no trigger to return to and focus would
- * fall to the page body (issue #358).
+ * fall to the page body.
  */
 export function useReturnFocus(returnFocusTo?: () => HTMLElement | null): {
 	onOpenAutoFocus: () => void;

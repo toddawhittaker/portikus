@@ -25,7 +25,7 @@ export interface TabItem {
 	/** Hover text, when the label is a shortened form of something longer. */
 	title?: string;
 	ended?: boolean;
-	/** Unsaved changes: the dot takes the close button's place (issue #240). */
+	/** Unsaved changes: the dot takes the close button's place. */
 	dirty?: boolean;
 	/** Test hook: set as `data-testid` on the trigger, plus `-close` on the close control. */
 	testId?: string;
@@ -90,7 +90,7 @@ function TabTrigger({
 			title={tab.title ?? tab.label}
 			data-testid={tab.testId}
 			// The close control sits inside the tab, so assistive technology only
-			// learns about closing and moving from these (issues #370, #372).
+			// learns about closing and moving from these.
 			aria-keyshortcuts="Delete Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
 			aria-describedby={hintId}
 			className={[
@@ -178,7 +178,7 @@ export function Tabs({
 	const hintId = React.useId();
 
 	// Selecting a tab brings it back into view, however the selection was made
-	// (click, keyboard, Ctrl+Tab, or opening a file). Issue #240.
+	// (click, keyboard, Ctrl+Tab, or opening a file).
 	const activeIndex = tabs.findIndex((tab) => tab.id === activeId);
 	React.useEffect(() => {
 		const container = list.current;

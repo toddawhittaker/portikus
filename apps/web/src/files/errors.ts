@@ -39,7 +39,7 @@ export function tooLargeToast(): ToastProps {
 /** The download cap in whole gigabytes, for the message that names it. */
 export const MAX_DOWNLOAD_GB = Math.floor(MAX_DOWNLOAD_BYTES / (1024 * 1024 * 1024));
 
-/** Why a download did not start: over the cap gets its own advice (#399). */
+/** Why a download did not start: over the cap gets its own advice. */
 export function downloadErrorToast(error: unknown): ToastProps {
 	if (error instanceof ApiError && error.code === "FILE_TOO_LARGE") {
 		return {
@@ -52,7 +52,7 @@ export function downloadErrorToast(error: unknown): ToastProps {
 	return fileErrorToast(error);
 }
 
-/** Why "Extract here" failed, in words a beginner can act on (issue #817). */
+/** Why "Extract here" failed, in words a beginner can act on. */
 export function extractErrorToast(zipName: string, error: unknown): ToastProps {
 	const title = `${zipName} was not extracted`;
 	if (error instanceof ApiError && error.code === "ARCHIVE_INVALID") {

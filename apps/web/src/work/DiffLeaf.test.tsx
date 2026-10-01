@@ -54,8 +54,8 @@ vi.mock("monaco-editor/editor/editor.api.js", () => ({
 				setModel: (models: { original: FakeModel; modified: FakeModel }) => {
 					editorState.models = models;
 				},
-				// The Markdown split scrolls the working-copy side by line (issue
-				// #229); nothing scrolls in jsdom, so this only has to answer.
+				// The Markdown split scrolls the working-copy side by line;
+				// nothing scrolls in jsdom, so this only has to answer.
 				getModifiedEditor: () => ({
 					onDidScrollChange: () => {},
 					getVisibleRanges: () => [],
@@ -134,7 +134,7 @@ test("a modified file shows both sides with no note", async () => {
 	await screen.findByTestId(`diff-editor-${PATH}`);
 	expect(editorState.models?.original.getValue()).toBe("one\n");
 	expect(editorState.models?.modified.getValue()).toBe("two\n");
-	// The status is a word, and each column is named (review S13).
+	// The status is a word, and each column is named.
 	expect(screen.getByTestId(`diff-status-${PATH}`).textContent).toBe("Modified");
 	expect(screen.getByTestId("diff-sides").textContent).toBe("Last commitYour changes");
 	expect(screen.queryByTestId("diff-note")).toBeNull();
@@ -294,7 +294,7 @@ test("closing the tab disposes both sides of the diff", async () => {
 	expect(models?.modified.disposed).toBe(true);
 });
 
-/** Issue #357: the diff editor's screen-reader support follows the setting, live. */
+/** The diff editor's screen-reader support follows the setting, live. */
 test("the diff editor's screen-reader support follows the setting", async () => {
 	const client = renderLeaf();
 	await screen.findByTestId(`diff-editor-${PATH}`);

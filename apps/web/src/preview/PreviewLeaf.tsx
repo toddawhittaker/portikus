@@ -71,7 +71,7 @@ type State =
 	| { status: "blocked"; grant: Grant; probed: boolean }
 	/**
 	 * The application answered, but its development server refuses the
-	 * preview host and says which setting would allow it (issue #262).
+	 * preview host and says which setting would allow it.
 	 */
 	| {
 			status: "host-refused";
@@ -129,7 +129,7 @@ function allowedHostsLine(server: RefusedServer, refusedHost: string): string {
 	return ALLOWED_HOSTS_SETTING[server].line(suffixOf(refusedHost));
 }
 
-/** What a screen reader hears as the preview changes state (issue #363). */
+/** What a screen reader hears as the preview changes state. */
 function announcement(state: State, port: number): string {
 	switch (state.status) {
 		case "connecting":
@@ -179,7 +179,7 @@ export function PreviewLeaf({
 	/** True while a grant request is out, so a flickering list cannot start a second. */
 	const granting = useRef(false);
 	const history = useRef<PreviewHistory | null>(null);
-	/** Shown on Back once a press found nothing to go back to (issue #283). */
+	/** Shown on Back once a press found nothing to go back to. */
 	const [backHint, setBackHint] = useState<string | undefined>(undefined);
 
 	// The anchor entry that keeps Back away from the Portikus document goes in

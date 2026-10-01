@@ -138,7 +138,7 @@ function ImageSections({ data }: { data: AdminImage }) {
 	return (
 		<AdminSection title="Workspace image" intro={INTRO}>
 			{data.newerPublished ? (
-				// The daily check found it; it clears once that version is on the server (issue #861).
+				// The daily check found it; it clears once that version is on the server.
 				<div
 					className="pk-card flex flex-wrap items-center gap-3 p-4"
 					data-testid="image-newer-published"
@@ -581,7 +581,7 @@ function DeleteButton({
 
 /** The main disk turns to the warning colour from this share used (DESIGN.md, status colour). */
 
-/** The main disk's space, in the meter style of the Docker tab (issue #936). */
+/** The main disk's space, in the meter style of the Docker tab. */
 function DiskSpace({ disk }: { disk: NonNullable<AdminImage["disk"]> }) {
 	const used = Math.max(disk.totalBytes - disk.freeBytes, 0);
 	return (

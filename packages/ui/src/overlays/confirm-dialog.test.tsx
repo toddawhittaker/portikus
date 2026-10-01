@@ -133,7 +133,7 @@ describe("ConfirmDialog", () => {
 		expect(onConfirm).toHaveBeenCalledTimes(1);
 	});
 
-	it("returns focus to the menu trigger when the opening item is gone (#358)", async () => {
+	it("returns focus to the menu trigger when the opening item is gone", async () => {
 		function MenuFixture() {
 			const [menuOpen, setMenuOpen] = React.useState(true);
 			const [open, setOpen] = React.useState(false);
@@ -253,7 +253,7 @@ describe("ConfirmDialog", () => {
 		await waitFor(() => expect(document.activeElement?.id).toBe("after"));
 	});
 
-	it("takes the density around the menu that opened it (Epic 25 N1)", () => {
+	it("takes the density around the menu that opened it", () => {
 		function MenuFixture() {
 			const [menuOpen, setMenuOpen] = React.useState(true);
 			const [open, setOpen] = React.useState(false);

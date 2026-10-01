@@ -38,7 +38,7 @@ export function initials(displayName: string): string {
 	return letters || "?";
 }
 
-/** A saved link, shown only as a plain anchor (issue #300). */
+/** A saved link, shown only as a plain anchor. */
 function SavedLink({ href, testId }: { href: string; testId: string }) {
 	return (
 		<a

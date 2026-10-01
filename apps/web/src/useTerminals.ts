@@ -26,13 +26,13 @@ export interface Terminals {
 	error: string | null;
 	create: (init?: { name?: string; agent?: CodingAgent }) => Promise<Terminal>;
 	rename: (terminalId: string, name: string) => Promise<void>;
-	/** Switch one terminal between the light and dark scheme (issue #268). */
+	/** Switch one terminal between the light and dark scheme. */
 	setTheme: (terminalId: string, theme: TerminalTheme) => Promise<void>;
 	close: (terminalId: string) => Promise<void>;
 	refetch: () => void;
 }
 
-/** What to tell the user when a terminal call fails (issue #474). */
+/** What to tell the user when a terminal call fails. */
 export function terminalFailureMessage(error: unknown): string {
 	if (error instanceof ApiError && error.code === "TERMINAL_LIMIT") {
 		return `You can have up to ${MAX_TERMINALS_PER_WORKSPACE} terminals open at once. Close one to open another.`;

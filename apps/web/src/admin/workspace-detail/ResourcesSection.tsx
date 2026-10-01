@@ -107,7 +107,7 @@ type ResourceDialog = "quota" | "limits" | "grace";
 
 /**
  * Storage, CPU and memory use, limits and the disconnect grace, each with its
- * editor in one row of actions (Epic 25, R2). Only the grace shows for an
+ * editor in one row of actions. Only the grace shows for an
  * account without a workspace, because it belongs to the account.
  */
 export function ResourcesSection({

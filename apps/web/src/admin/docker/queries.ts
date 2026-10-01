@@ -59,7 +59,7 @@ function useDockerWrite<T>(send: (body: T) => Promise<unknown>) {
 }
 
 export function useSaveDockerSettings() {
-	// Each card sends only its own field (Epic 26 review, Q3).
+	// Each card sends only its own field.
 	return useDockerWrite((body: Partial<DockerSettingsRequest>) =>
 		postJson(z.undefined(), "/admin/docker/settings", body, "PUT"),
 	);
@@ -94,7 +94,7 @@ export function useSaveSeedImages() {
 	);
 }
 
-/** Swap the list's matched images for the default image's and rebuild (issue #932). */
+/** Swap the list's matched images for the default image's and rebuild. */
 export function useMatchSeed() {
 	return useDockerWrite<void>(() =>
 		request(SeedJob, "/admin/docker/seed/match", { method: "POST" }),

@@ -2,7 +2,7 @@
  * The diff view of a file tab: that file's changes, HEAD against the working
  * tree (SPEC.md §8.3, §12.6). Staged and unstaged changes are one picture, so
  * there is no staging state to choose here. The tab above owns the toggle
- * between this view and the editor (issue #160).
+ * between this view and the editor.
  */
 import { EmptyState } from "@portikus/ui";
 import { lazy, type ReactNode, Suspense, useEffect } from "react";

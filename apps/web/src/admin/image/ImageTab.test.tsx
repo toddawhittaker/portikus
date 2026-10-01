@@ -124,7 +124,7 @@ test("a running job turns the actions off and shows its step and log", async () 
 	);
 });
 
-test("a newer published image shows a notice whose button asks for the update (issue #861)", async () => {
+test("a newer published image shows a notice whose button asks for the update", async () => {
 	const fetch = stubFetch((url, init) =>
 		init?.method === "POST"
 			? json(202, job({ state: "queued" }))
@@ -221,7 +221,7 @@ test("a confirmed update from the notice sends focus to the job heading, not the
 	await waitFor(() => expect(document.activeElement?.id).toBe("image-job-title"));
 });
 
-test("shows each image's size and the main disk's free space (issue #936)", async () => {
+test("shows each image's size and the main disk's free space", async () => {
 	stubFetch(() =>
 		json(
 			200,

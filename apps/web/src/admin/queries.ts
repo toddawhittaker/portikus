@@ -23,7 +23,7 @@ export const adminKeys = {
 	workspace: (id: string) => ["admin", "workspace", id] as const,
 };
 
-/** The list and the detail panel refresh this often (Epic 11 brief, "Decisions"). */
+/** The list and the detail panel refresh this often. */
 export const ADMIN_REFRESH_MS = 5000;
 
 function json(method: string, body: unknown): RequestInit {
@@ -42,7 +42,7 @@ export function usePlatformSettings() {
 	});
 }
 
-/** Every account, and whether the site manages Dex users (docs/archive/epics/EPIC-14.md ruling 24). */
+/** Every account, and whether the site manages Dex users (ADR 0028). */
 export function useAdminUsers({ poll = true }: { poll?: boolean } = {}) {
 	return useQuery({
 		queryKey: adminKeys.users,
@@ -64,7 +64,7 @@ export function useAdminWorkspace(id: string | null) {
 
 /**
  * Refetch the Users list the moment the detail panel sees a rebuild or
- * reset finish, so its Old image tag goes without waiting a poll (issue #860).
+ * reset finish, so its Old image tag goes without waiting a poll.
  */
 export function useRefreshUsersWhenDone(pendingOperation: string | null) {
 	const client = useQueryClient();
@@ -168,7 +168,7 @@ export function useSetArchived() {
 	);
 }
 
-/** Promote grants administrator; demote clears the grant (docs/archive/epics/EPIC-13-1.md ruling 23). */
+/** Promote grants administrator; demote clears the grant (ADR 0026). */
 export function useSetGrantedAdmin() {
 	return useAdminWrite(({ userId, admin }: { userId: string; admin: boolean }) => ({
 		url: `/admin/users/${userId}/${admin ? "promote" : "demote"}`,
@@ -176,7 +176,7 @@ export function useSetGrantedAdmin() {
 	}));
 }
 
-/** Make instructor sets the grant; remove instructor clears it (docs/archive/epics/EPIC-14.md ruling 14). */
+/** Make instructor sets the grant; remove instructor clears it (ADR 0026). */
 export function useSetGrantedInstructor() {
 	return useAdminWrite(
 		({ userId, instructor }: { userId: string; instructor: boolean }) => ({
@@ -187,7 +187,7 @@ export function useSetGrantedInstructor() {
 }
 
 /**
- * The Dex user writes (docs/archive/epics/EPIC-14.md rulings 21 and 22). Each waits for the
+ * The Dex user writes (ADR 0028). Each waits for the
  * list to refetch before its caller hears of success, so the caller can move
  * focus knowing which buttons are still on the page.
  */
@@ -228,7 +228,7 @@ export function useUpdateQuota() {
 	);
 }
 
-/** Epic 10's routes; the buttons follow `capabilities` (Epic 11 brief, ruling 1). */
+/** The rebuild and reset operations; the buttons follow `capabilities`. */
 export function useRebuild() {
 	return useAdminWrite(
 		({ workspaceId, resetDocker }: { workspaceId: string; resetDocker: boolean }) => ({

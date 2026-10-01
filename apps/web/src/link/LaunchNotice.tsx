@@ -44,7 +44,7 @@ export function LaunchNotice({ displayName }: { displayName: string }) {
 
 	return (
 		<>
-			{/* Mounted before the text arrives, so filling it is announced (review A1). */}
+			{/* Mounted before the text arrives, so filling it is announced. */}
 			<p className="sr-only" role="status" data-testid="launch-notice-status">
 				{message}
 			</p>

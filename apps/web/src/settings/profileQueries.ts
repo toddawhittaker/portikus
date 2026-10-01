@@ -12,7 +12,7 @@ import { postJson, request } from "../api/request.js";
 
 export const profileKey = ["me", "profile"] as const;
 
-/** The signed-in user's profile (issue #300). */
+/** The signed-in user's profile. */
 export function useProfile() {
 	return useQuery({
 		queryKey: profileKey,
@@ -61,7 +61,7 @@ export function useRemovePicture() {
 
 export const linksKey = ["me", "links"] as const;
 
-/** Whether this is a course or an SSO account, and its links (docs/archive/epics/EPIC-13-1.md, "The flow" step 1). */
+/** Whether this is a course or an SSO account, and its links (ADR 0026). */
 export function useMyLinks() {
 	return useQuery({
 		queryKey: linksKey,

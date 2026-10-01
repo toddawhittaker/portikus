@@ -27,7 +27,7 @@ function searchErrorMessage(error: unknown): string {
 	return SOMETHING_WENT_WRONG;
 }
 
-/** The result count, in words (issue #363). */
+/** The result count, in words. */
 export function matchCount(matches: number, files: number, truncated: boolean): string {
 	if (matches === 0) return "No matches";
 	const count = `${matches} ${matches === 1 ? "match" : "matches"} in ${files} ${files === 1 ? "file" : "files"}`;
@@ -53,7 +53,7 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 	const matches = result.data?.matches ?? [];
 	const groups = groupByFile(matches);
 
-	// Said by screen readers as the search settles (issue #363).
+	// Said by screen readers as the search settles.
 	let status = "";
 	if (term === "") status = "";
 	else if (result.isError) status = "The search failed";

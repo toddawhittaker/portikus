@@ -13,7 +13,7 @@ import {
 } from "../queries.js";
 import { PANEL_HELP, SECTION_HEADING, WithTip } from "./shared.js";
 
-/** Why Promote or Demote is off for this account, or null when it is on (docs/archive/epics/EPIC-13-1.md ruling 23). */
+/** Why Promote or Demote is off for this account, or null when it is on (ADR 0026). */
 export function roleChangeNote(user: AdminUser, isSelf: boolean): string | null {
 	if (user.role !== "administrator") {
 		return isCourseAccount(user.issuer)
@@ -27,7 +27,7 @@ export function roleChangeNote(user: AdminUser, isSelf: boolean): string | null 
 	return null;
 }
 
-/** Promote to administrator, or demote a granted one (docs/archive/epics/EPIC-13-1.md ruling 23). */
+/** Promote to administrator, or demote a granted one (ADR 0026). */
 function RoleChange({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 	const change = useSetGrantedAdmin();
 	const promote = user.role !== "administrator";
@@ -176,7 +176,7 @@ function GrantChange<V>({
 	);
 }
 
-/** Why Make instructor is off for this account, or null when it is on (docs/archive/epics/EPIC-14.md ruling 14). */
+/** Why Make instructor is off for this account, or null when it is on (ADR 0026). */
 export function instructorChangeNote(user: AdminUser): string | null {
 	if (user.grantedRole === "instructor") return null;
 	if (isCourseAccount(user.issuer)) return "Only SSO accounts can be instructors.";
@@ -189,7 +189,7 @@ export function instructorChangeNote(user: AdminUser): string | null {
 	return null;
 }
 
-/** Make instructor, or remove a granted instructor role (docs/archive/epics/EPIC-14.md ruling 14). */
+/** Make instructor, or remove a granted instructor role (ADR 0026). */
 function InstructorChange({ user }: { user: AdminUser }) {
 	const change = useSetGrantedInstructor();
 	const make = user.grantedRole !== "instructor";
@@ -228,7 +228,7 @@ export function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: bool
 	const wasDexLocal = useRef(user.dexLocal);
 
 	// Remove takes the Dex buttons and their dialog away with it; focus then
-	// goes to the panel heading rather than being lost (docs/archive/epics/EPIC-14.md ruling 22).
+	// goes to the panel heading rather than being lost (ADR 0028).
 	useEffect(() => {
 		const lost = document.activeElement === document.body || !document.activeElement;
 		if (wasDexLocal.current && !user.dexLocal && lost) {

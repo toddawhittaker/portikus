@@ -34,7 +34,7 @@ export function NameDialog({
 	const error = nameError(name);
 	// The dialog focuses itself when it opens, which lands after the input's
 	// own autoFocus; taking focus back on the next frame wins the race, so the
-	// student can type the name straight away (issue #186).
+	// student can type the name straight away.
 	useEffect(() => {
 		const frame = requestAnimationFrame(() => {
 			field.current?.focus();

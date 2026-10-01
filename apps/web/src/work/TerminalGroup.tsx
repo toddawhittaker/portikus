@@ -24,7 +24,7 @@ export interface TerminalGroupProps {
 	onFocus: (terminalId: string) => void;
 	onSplit: (terminalId: string, direction: SplitDirection) => void;
 	onRename: (terminalId: string, name: string) => void;
-	/** Switch one terminal between the light and dark scheme (issue #268). */
+	/** Switch one terminal between the light and dark scheme. */
 	onSetTheme: (terminalId: string, theme: TerminalTheme) => void;
 	onClose: (terminalId: string) => void;
 	onExited: (terminalId: string) => void;
@@ -43,7 +43,7 @@ export interface TerminalGroupProps {
 	onShowRunning: () => void;
 	/** Pick another port in place of this preview tab's refused one. */
 	onChoosePreviewPort: () => void;
-	/** A file tab reporting whether its edits are on disk (issue #240). */
+	/** A file tab reporting whether its edits are on disk. */
 	onUnsavedChange?: (unsaved: boolean) => void;
 	/** Object id this file tab's diff compares against, or null for Git HEAD. */
 	diffBaseline?: string | null;
@@ -87,8 +87,8 @@ export function TerminalGroup(props: TerminalGroupProps) {
 				/>
 			);
 		}
-		// A diff is a view of the file's tab, not a tab of its own (issue
-		// #160); a layout saved before that still names one, and it opens as
+		// A diff is a view of the file's tab, not a tab of its own;
+		// a layout saved before that still names one, and it opens as
 		// the file it shows.
 		if (node.type === "file" || node.type === "diff") {
 			return (
