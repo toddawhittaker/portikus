@@ -233,7 +233,7 @@ function startedNow(now: Date): Record<string, unknown> {
 }
 
 /**
- * Settle every "keep running until" hold (#955, Epic 28 ruling R1). A hold
+ * Settle every "keep running until" hold. A hold
  * past its cap is cut to the cap from now, or ended when the cap is 0. An
  * ended hold restarts both timers from its end, as if the student had just
  * acted, so "Still working?" and its warning still come. After this, any
@@ -1055,7 +1055,7 @@ export async function reconcile(
 }
 
 /**
- * The zone the workspace's owner chose (issue #287). Anything missing or no
+ * The zone the workspace's owner chose. Anything missing or no
  * longer a known zone name reads as the platform default, so a start is
  * never held up by a stored value.
  */

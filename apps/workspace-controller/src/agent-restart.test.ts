@@ -1,6 +1,6 @@
 /**
  * After an upgrade the controller restarts outdated workspace agents
- * (issue #887; SPEC.md 9.7, 22.5): only running workspaces whose agent
+ * (SPEC.md 9.7, 22.5): only running workspaces whose agent
  * started before the agent files changed, never an image older than
  * 2026.09.11, each at most once, and one failure never stops the rest.
  */

@@ -312,7 +312,7 @@ export async function readInstanceProcesses(
 
 /**
  * When the oldest process in a unit's cgroup started, read from the host's
- * /proc (issue #887), or null when the cgroup is gone or empty. Nothing is
+ * /proc, or null when the cgroup is gone or empty. Nothing is
  * read inside the instance.
  */
 export async function readUnitStartTime(

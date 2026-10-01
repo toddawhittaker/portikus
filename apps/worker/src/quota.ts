@@ -13,7 +13,7 @@ export const QUOTA_RETRY_SECONDS = 300;
 
 type Sizes = GrowVolumesRequest;
 
-// Only the two grown volumes are compared; quota_config may hold other keys (Epic 10's recoveryGiB).
+// Only the two grown volumes are compared; quota_config may hold other keys (such as recoveryGiB).
 const wantedSizes = sql`jsonb_build_object('homeGiB', quota_config->'homeGiB', 'dockerGiB', quota_config->'dockerGiB')`;
 const appliedSizes = sql`jsonb_build_object('homeGiB', quota_applied->'homeGiB', 'dockerGiB', quota_applied->'dockerGiB')`;
 
@@ -28,7 +28,7 @@ export interface QuotaSyncOptions {
  * Build the tick that grows workspace volumes to the size an administrator
  * asked for (SPEC.md §20.1, ADR 0006). The API writes `quota_config`; this
  * compares it with `quota_applied`, asks the controller to grow, and records
- * the result. Growing works while the instance runs (Epic 11 task 2 spike),
+ * the result. Growing works while the instance runs,
  * so any state is applied except `provisioning`. A row whose instance was
  * never created has no image version and is skipped. Create records
  * quota_applied itself, so every row here already has one.

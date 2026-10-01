@@ -5,6 +5,7 @@
  * and its output goes to a read-only panel in the browser rather than to a
  * terminal tab the student could type into.
  */
+
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { WebSocket } from "@fastify/websocket";
@@ -17,6 +18,7 @@ import {
 	type ChecksResponse,
 	MAX_CHECK_OUTPUT_BYTES,
 } from "@portikus/contracts";
+import { errorMessage } from "@portikus/observability";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { type IPty, spawn } from "node-pty";
 import { AgentFailure, sendError } from "./errors.js";
@@ -140,10 +142,7 @@ export class CheckRunner {
 				env: { ...process.env } as Record<string, string>,
 			});
 		} catch (error) {
-			this.log.error(
-				{ error: error instanceof Error ? error.message : String(error) },
-				"check failed to start",
-			);
+			this.log.error({ error: errorMessage(error) }, "check failed to start");
 			this.finish(run, { type: "error", code: "SPAWN_FAILED" }, "error");
 			return run.meta;
 		}
@@ -187,7 +186,7 @@ export class CheckRunner {
 			.then((start) => (start === null ? undefined : killProcessTree(pid, start)))
 			.catch((error: unknown) => {
 				this.log.warn(
-					{ error: error instanceof Error ? error.message : String(error) },
+					{ error: errorMessage(error) },
 					"could not stop a check's processes",
 				);
 			});

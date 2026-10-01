@@ -92,13 +92,13 @@ test("listing reports git directories and skips everything else", async () => {
 		{ slug: "alpha", isGitRepo: true },
 		{ slug: "beta", isGitRepo: false },
 	]);
-	// Each directory reports its own identity, and no two share one (issue #238).
+	// Each directory reports its own identity, and no two share one.
 	const ids = listed.projects.map((p) => p.directoryId);
 	expect(ids.every((id) => typeof id === "string" && id.length > 0)).toBe(true);
 	expect(new Set(ids).size).toBe(2);
 });
 
-/** Issue #238: a directory renamed with `mv` keeps its reported identity. */
+/** A directory renamed with `mv` keeps its reported identity. */
 test("a renamed directory keeps the identity it reported before", async () => {
 	await mkdir(join(projectsRoot, "alpha", ".git"), { recursive: true });
 	const before = await app.inject({ method: "GET", url: "/projects", headers: auth() });
@@ -141,7 +141,7 @@ test.skipIf(!haveGit)("a new project is created with and without git", async () 
 
 	const without = await create({ slug: "beta", source: "new", gitInit: false });
 	expect(without.json()).toEqual({ slug: "beta", isGitRepo: false });
-	expect(await readdir(join(projectsRoot, "beta"))).toEqual([".portikus"]); // Only the README folder (#857).
+	expect(await readdir(join(projectsRoot, "beta"))).toEqual([".portikus"]); // Only the README folder.
 
 	const again = await create({ slug: "alpha", source: "new", gitInit: true });
 	expect(again.statusCode).toBe(409);
@@ -155,7 +155,7 @@ test.skipIf(!haveGit)("initializing Git writes a default .gitignore", async () =
 		expect(created).toContain(entry);
 	}
 
-	// A project made without Git gets no .gitignore, only the .portikus README (#857).
+	// A project made without Git gets no .gitignore, only the .portikus README.
 	await create({ slug: "beta", source: "new", gitInit: false });
 	expect(await readdir(join(projectsRoot, "beta"))).toEqual([".portikus"]);
 

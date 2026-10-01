@@ -1,7 +1,7 @@
 import * as http from "node:http";
 import type { ControllerErrorCode } from "@portikus/contracts";
 
-/** Bound for an Incus request whose caller passed no signal (ADR 0034 ruling 8). */
+/** Bound for an Incus request whose caller passed no signal (ADR 0034). */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 export class IncusError extends Error {

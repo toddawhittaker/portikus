@@ -495,7 +495,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		}
 	});
 
-	// The Docker seed (issue #840): one build at a time, polled by the worker.
+	// The Docker seed: one build at a time, polled by the worker.
 	const seedBuilds = opts.seedBuilds ?? new SeedBuilds(provider, rootLogger);
 
 	app.post("/docker-seed/builds", async (request, reply) => {

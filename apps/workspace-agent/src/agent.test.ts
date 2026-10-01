@@ -199,7 +199,7 @@ test.skipIf(!haveTmux)("the upgrade is rejected without a valid token", async ()
 	await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
 });
 
-// An open page tells an upgraded agent by this frame (issue #887).
+// An open page tells an upgraded agent by this frame.
 test.skipIf(!haveTmux)("every attach says which agent build is running", async () => {
 	const id = makeId();
 	const created = await app.inject({

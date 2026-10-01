@@ -229,7 +229,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 	}
 
 	/**
-	 * Lift a throttle once the workspace has been quiet (#596): the CPU
+	 * Lift a throttle once the workspace has been quiet: the CPU
 	 * average over the last `lift.minutes`, counting only samples taken
 	 * after the throttle and measured against the full limit, is strictly
 	 * below `lift.percent` and half the throttle share. Clears the row, drops the samples from before
@@ -279,7 +279,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 	/**
 	 * Throttle when CPU use over the last window of wall-clock time averages
 	 * above the threshold; returns the new row. Usage is remembered across
-	 * restarts (Todd's ruling, 2026-09-25): the CPU time between consecutive
+	 * restarts: the CPU time between consecutive
 	 * samples is summed and stopped time counts as no use. Across a restart
 	 * (see restartedBetween) the later counter counts in full, plus the time
 	 * before the restart, up to one sample interval, as full use: a reboot

@@ -691,7 +691,7 @@ test("two concurrent rebuilds cause one provider call", async () => {
 	expect(rebuilds).toBe(1);
 });
 
-// Host snapshot and volume grow (Epic 11 task 2).
+// Host snapshot and volume grow.
 
 test("GET /host needs the token", async () => {
 	const res = await app.inject({ method: "GET", url: "/host" });
@@ -1228,7 +1228,7 @@ test("replace-home refuses a running instance and a missing import", async () =>
 	expect(missing.statusCode).toBe(404);
 });
 
-// The Docker seed and registry settings (issue #840).
+// The Docker seed and registry settings.
 
 const BUILD_ID = "3f0e6c1a-4b1d-4c2e-9a55-0c8f5b2d1e01";
 

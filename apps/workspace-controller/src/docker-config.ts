@@ -4,13 +4,13 @@ import {
 	REGISTRY_GATEWAY_ADDR,
 	type WorkspaceDockerConfig,
 } from "@portikus/contracts";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { replaceFile } from "./agent-instructions.js";
 import { type IncusClient, IncusError } from "./incus.js";
 
 /**
  * What the controller writes into a workspace's Docker setup before it
- * starts (issue #840, ruling 9): the Hub cache as a registry mirror, and
+ * starts: the Hub cache as a registry mirror, and
  * while the ghcr.io cache is on, a hosts entry and the CA Docker trusts for
  * it. Everything goes through the Incus files API, which resolves paths
  * inside the container, never on the host.
@@ -147,7 +147,7 @@ export async function writeDockerConfig(
 			ca = await readFile(opts.caPath, "utf8");
 		} catch (err) {
 			opts.log.warn(
-				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				{ instance: name, err: errorMessage(err) },
 				"the ghcr.io cache's CA cannot be read; leaving ghcr.io uncached",
 			);
 		}

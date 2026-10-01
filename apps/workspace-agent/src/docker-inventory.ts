@@ -1,7 +1,7 @@
 /**
  * The student's Docker images and the images their containers use
  * (SPEC.md §16.5), for the worker's seed usage report. Docker runs by
- * absolute path as the agent's own user, the student (ruling S7).
+ * absolute path as the agent's own user, the student.
  */
 import { execFile } from "node:child_process";
 import {

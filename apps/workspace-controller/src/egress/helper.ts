@@ -130,7 +130,7 @@ export function defaultDeps(): HelperDeps {
 	};
 }
 
-/** Whether the ghcr.io cache is on (S3). A missing or unreadable file, or the cache-off marker, means off. */
+/** Whether the ghcr.io cache is on. A missing or unreadable file, or the cache-off marker, means off. */
 async function readGhcrEnabled(deps: HelperDeps): Promise<boolean> {
 	// With the cache off nothing listens on the cache port, so redirecting there would only refuse pulls.
 	try {

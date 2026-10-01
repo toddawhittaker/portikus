@@ -36,7 +36,7 @@ function num(value: unknown): number {
 
 /**
  * Take one look at the host for the admin Health tab (SPEC.md §25.6). Every
- * query is a read; the shapes were confirmed on the pilot (Epic 11 task 2).
+ * query is a read; the shapes were confirmed on the pilot.
  */
 export async function readHostSnapshot(
 	client: IncusClient,
@@ -96,7 +96,7 @@ export async function readHostSnapshot(
 	};
 }
 
-/** Written every minute by the lvm role's root timer (ADR 0034 ruling 18). */
+/** Written every minute by the lvm role's root timer (ADR 0034). */
 export const THIN_POOL_STATUS_PATH = "/run/portikus-thinpool.json";
 
 /** A status file older than this is ignored, since its timer has stopped. */
@@ -196,7 +196,7 @@ export function parseIncusSize(size: unknown): number | null {
 	return Number(match[1]) * factor;
 }
 
-/** On a seeded Docker volume: the GiB added for the seed, kept on top of the quota (#840). */
+/** On a seeded Docker volume: the GiB added for the seed, kept on top of the quota. */
 export const SEED_SHARE_KEY = "user.portikus.seed-gib";
 
 /**

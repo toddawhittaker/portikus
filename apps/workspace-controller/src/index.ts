@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import { ControllerConfigSchema, loadConfig } from "@portikus/config";
-import { createLogger } from "@portikus/observability";
+import { createLogger, errorMessage } from "@portikus/observability";
 import { AGENT_ENTRY_PATH, restartOutdatedAgents } from "./agent-restart.js";
 import { IncusClient } from "./incus.js";
 import { IncusWorkspaceProvider } from "./provider.js";
@@ -37,20 +37,17 @@ app.listen({ host: "127.0.0.1", port: config.PORT }, (err, address) => {
 		process.exit(1);
 	}
 	logger.info({ address }, "workspace-controller listening");
-	// Running workspaces pick up an upgraded agent without blocking anything else (issue #887).
+	// Running workspaces pick up an upgraded agent without blocking anything else.
 	void restartAgentsAfterUpgrade();
 	void discardForgottenSeedBuild();
 });
 
-/** A seed build the last controller process was running is gone with it (#840). */
+/** A seed build the last controller process was running is gone with it. */
 async function discardForgottenSeedBuild(): Promise<void> {
 	try {
 		await provider.discardSeedBuild();
 	} catch (err) {
-		logger.warn(
-			{ err: err instanceof Error ? err.message : String(err) },
-			"could not remove a leftover seed builder",
-		);
+		logger.warn({ err: errorMessage(err) }, "could not remove a leftover seed builder");
 	}
 }
 
@@ -60,7 +57,7 @@ async function restartAgentsAfterUpgrade(): Promise<void> {
 		await restartOutdatedAgents({ restarter: provider, agentChangedAt: ctime, logger });
 	} catch (err) {
 		logger.warn(
-			{ err: err instanceof Error ? err.message : String(err) },
+			{ err: errorMessage(err) },
 			"could not check running workspaces for an outdated agent",
 		);
 	}

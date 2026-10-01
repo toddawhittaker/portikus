@@ -224,7 +224,7 @@ test.skipIf(skip)(
 	},
 );
 
-/** Issue #840: the controller's seed builder is not a workspace; the guard never judges it. */
+/** The controller's seed builder is not a workspace; the guard never judges it. */
 test.skipIf(skip)(
 	"a busy Docker seed builder in the usage list is ignored",
 	async () => {
@@ -311,7 +311,7 @@ test.skipIf(skip)("workspace overrides set the window and the share", async () =
 	});
 });
 
-// Usage is remembered across restarts (Todd's ruling, 2026-09-25).
+// Usage is remembered across restarts.
 test.skipIf(skip)(
 	"stopping for a minute in every 26 still averages above the threshold",
 	async () => {
@@ -662,7 +662,7 @@ test.skipIf(skip)(
 	},
 );
 
-// Automatic throttle lift (#596): busy until minute 5, then `quiet` of the four CPUs.
+// Automatic throttle lift: busy until minute 5, then `quiet` of the four CPUs.
 function liftHarness(instance: string, quiet: number) {
 	return harness({ instance, busy: (minute) => (minute < 5 ? 1 : quiet) });
 }

@@ -25,6 +25,7 @@ import {
 	PROJECT_SLUG_PATTERN,
 	projectNameFromRepository,
 } from "@portikus/contracts";
+import { errorMessage } from "@portikus/observability";
 import { AgentFailure } from "./errors.js";
 import { runGit, STDERR_LIMIT } from "./git.js";
 import {
@@ -35,7 +36,7 @@ import {
 
 const run = promisify(execFile);
 
-/** Clones run inside the request, so cap them (plan: Epic 6 decisions). */
+/** Clones run inside the request, so cap them. */
 const CLONE_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Copying a project tree runs inside the request too, with the same budget. */
@@ -101,8 +102,8 @@ async function isGitRepo(path: string): Promise<boolean> {
 }
 
 /**
- * The directory's own identity: its inode number as a decimal string
- * (issue #238). `mv` within a filesystem keeps the inode, so this is what
+ * The directory's own identity: its inode number as a decimal string.
+ * `mv` within a filesystem keeps the inode, so this is what
  * lets the control plane recognise a project a student renamed in the shell.
  * A copy or a restore from an archive gets a new inode and is a new project,
  * which is the honest answer.
@@ -240,7 +241,7 @@ ${PORTIKUS_IGNORE_LINES.join("\n")}
 /**
  * Write the default .gitignore, unless the project already has one. Then
  * the Portikus ignore lines go to .git/info/exclude instead, so the
- * project's own file is never edited (#856).
+ * project's own file is never edited.
  */
 async function writeDefaultGitignore(path: string): Promise<void> {
 	const file = join(path, ".gitignore");
@@ -253,7 +254,7 @@ async function writeDefaultGitignore(path: string): Promise<void> {
 	await excludePortikusFiles(path);
 }
 
-/** Start a repository on main, never master (#847). No commit is made. */
+/** Start a repository on main, never master. No commit is made. */
 async function gitInit(path: string): Promise<void> {
 	await git(["init", "--initial-branch=main"], path);
 }
@@ -272,7 +273,7 @@ async function readSmallFile(path: string): Promise<string | undefined> {
 	}
 }
 
-/** The name a freshly cloned repository gives itself (#846). */
+/** The name a freshly cloned repository gives itself. */
 async function suggestName(dir: string): Promise<string | undefined> {
 	const readme = (await readdir(dir)).find((name) =>
 		/^readme(\.(md|markdown))?$/i.test(name),
@@ -416,7 +417,7 @@ export async function duplicateProject(
 		await rm(target.path, { recursive: true, force: true });
 		throw new AgentFailure(
 			"GIT_FAILED",
-			`could not duplicate the project: ${error instanceof Error ? error.message : String(error)}`,
+			`could not duplicate the project: ${errorMessage(error)}`,
 		);
 	}
 	return { slug: to, isGitRepo: await isGitRepo(target.path) };
@@ -457,7 +458,7 @@ export async function archiveProject(
 /**
  * Zip one directory from its parent, so the archive holds a single top-level
  * entry named after that directory (SPEC.md §11.2). zip writes to a private
- * temporary file, because it cannot store a symlink entry on a pipe (#400);
+ * temporary file, because it cannot store a symlink entry on a pipe;
  * the returned stream deletes that file when it closes. Aborting `signal`
  * kills zip. The file goes under /var/tmp because /tmp is a tmpfs on
  * Debian 13, and a large zip there would count against the memory limit.
@@ -484,7 +485,7 @@ export async function archiveDir(
 }
 
 /**
- * Refuse a download over MAX_DOWNLOAD_BYTES before any zipping (#399). A
+ * Refuse a download over MAX_DOWNLOAD_BYTES before any zipping. A
  * directory counts the apparent size of its regular files, walked without
  * following symlinks, and the walk stops as soon as the cap is passed. A
  * symlink named directly counts its target file.

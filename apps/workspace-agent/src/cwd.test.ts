@@ -1,6 +1,6 @@
 /**
  * The pane watcher tells the browser when `clear` erased a pane's history,
- * because tmux does not pass the erase-scrollback on (issue #882, SPEC.md §9.7).
+ * because tmux does not pass the erase-scrollback on (SPEC.md §9.7).
  */
 import type { WebSocket } from "@fastify/websocket";
 import { afterEach, expect, test, vi } from "vitest";

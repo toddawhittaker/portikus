@@ -248,7 +248,7 @@ describe.skipIf(skip)("registry events (ruling S7)", () => {
 			2,
 		);
 
-		// A new day starts a new count, and its pulls get their own row (review F1).
+		// A new day starts a new count, and its pulls get their own row.
 		await recordRegistryEvents(
 			tdb.db,
 			{

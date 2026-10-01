@@ -457,9 +457,9 @@ test("start pushes the agent token, then waits for agent health", async () => {
 	expect(hostnamePush.url).toContain("path=%2Fetc%2Fhostname");
 	expect(hostnamePush.body).toBe("tw7\n");
 	expect(hostnamePush.headers["x-incus-uid"]).toBe("0");
-	// Every login shell reads this, so a terminal sees the preview suffix
-	// (issue #263). It is owned by root, world readable, and has no secret.
-	// The container runs in the owner's zone from this start on (issue #287):
+	// Every login shell reads this, so a terminal sees the preview suffix.
+	// It is owned by root, world readable, and has no secret.
+	// The container runs in the owner's zone from this start on:
 	// /etc/timezone for the tools that read it, /etc/localtime for libc.
 	expect(timezonePush.url).toContain("path=%2Fetc%2Ftimezone");
 	expect(timezonePush.body).toBe("America/New_York\n");
@@ -494,7 +494,7 @@ test("start pushes the agent token, then waits for agent health", async () => {
 });
 
 /**
- * Issue #287: the zone is set by linking a file from the image. If the image
+ * The zone is set by linking a file from the image. If the image
  * has no such file the link fails, and the container would come up in the
  * wrong zone with nothing said. The start must fail instead.
  */
@@ -728,7 +728,7 @@ test("a forced stop that fails because the graceful stop just finished still rep
 	expect(puts.map((p) => p.force)).toEqual([false, true]);
 });
 
-// Issue #704: a stop that meets an instance already shutting down fails in
+// A stop that meets an instance already shutting down fails in
 // Incus with "Invalid PID -1"; the instance reads Stopping, then Stopped.
 test("a stop that races an instance already shutting down reports stopped", async () => {
 	const puts: Array<{ force?: boolean }> = [];
@@ -785,7 +785,7 @@ test("stop on an already-stopped instance is a no-op", async () => {
 	expect(puts).toBe(0);
 });
 
-// Issue #704, as seen on the rehearsal VM: for about a second of a shutdown
+// As seen on the rehearsal VM: for about a second of a shutdown
 // Incus answers the state read itself with 500 "Invalid PID -1".
 test("a stop whose first state read fails with Invalid PID -1 reports stopped", async () => {
 	const puts: Array<{ force?: boolean }> = [];
@@ -957,7 +957,7 @@ test("start refuses a preview host suffix that is not a DNS name", async () => {
 });
 
 /**
- * Issue #287: the zone name becomes part of a path in a command inside the
+ * The zone name becomes part of a path in a command inside the
  * container, so only a name on the zone list may get that far.
  */
 test("start refuses a timezone that is not a known zone", async () => {
@@ -979,7 +979,7 @@ test("start refuses a timezone that is not a known zone", async () => {
 	}
 });
 
-// Recovery volume, Reset Docker and Rebuild (Epic 10, ADR 0020, ADR 0021).
+// Recovery volume, Reset Docker and Rebuild (ADR 0020, ADR 0021).
 // A small stateful Incus: one instance, the pool's custom volumes, an ETag
 // that changes on every write, and PATCH that merges devices as Incus does.
 
@@ -1255,7 +1255,7 @@ test("reset Docker puts back every other device exactly and replaces only the do
 	expect(state.devices.docker).toEqual(before.docker);
 	expect(state.deleted).toEqual(["ws-test-docker"]);
 	expect(state.createdVolumes).toEqual(["ws-test-docker"]);
-	// A new volume picks up the current quota (docs/archive/epics/EPIC-10.md risk 9).
+	// A new volume picks up the current quota.
 	expect(state.volumes.get("ws-test-docker")).toBe("30GiB");
 	expect(state.volumes.get("ws-test-home")).toBe("25GiB");
 	expect(state.volumes.get("ws-test-recovery")).toBe("3GiB");
@@ -2373,7 +2373,7 @@ describe("admin operations", () => {
 	}
 });
 
-// Issue #887: the agent's start time and the image come from the host, and
+// The agent's start time and the image come from the host, and
 // the only thing run inside the instance is a fixed systemctl restart.
 describe("restarting outdated agents", () => {
 	let root: string;
@@ -2455,7 +2455,7 @@ describe("restarting outdated agents", () => {
 	});
 });
 
-// Shared Docker pull storage (issue #840): seed copies, the registry
+// Shared Docker pull storage: seed copies, the registry
 // settings written before a start, and the seed builder.
 describe("the Docker seed", () => {
 	const GIB = 1024 ** 3;

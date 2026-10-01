@@ -24,7 +24,7 @@ export interface EgressSyncOptions {
 }
 
 /**
- * Build the tick that applies the egress policy (issue #284, ADR 0038).
+ * Build the tick that applies the egress policy (ADR 0038).
  * The API raises `egress_version` on every write; when it is ahead of
  * `egress_applied_version`, this expands the presets, asks the controller
  * to apply, and records the outcome. A failure is recorded and audited

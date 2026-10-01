@@ -414,7 +414,7 @@ test("the loopback target prefers IPv4 when the port has both", async () => {
 	expect(monitor.loopbackTarget(9999)).toBeNull();
 });
 
-// --- system listeners (SPEC.md 18.2, issue #265) ---
+// --- system listeners (SPEC.md 18.2) ---
 
 test("the uid of the socket owner is read from the row", () => {
 	const text = [HEADER, row("00000000:1F90", "0A", "1", 0)].join("\n");
@@ -440,7 +440,7 @@ test("a student's own listener is not a system service", () => {
 });
 
 /**
- * Issue #265: a port is hidden only when nothing listening on it is the
+ * A port is hidden only when nothing listening on it is the
  * student's. A dev server bound on both IPv4 and IPv6 can show one row owned
  * by a system account beside the student's own; hiding that port would hide
  * the student's work.
@@ -497,7 +497,7 @@ test("the monitor flags systemd-resolved and its own port as system", async () =
 test("a port the agent forwards stays the student's, and the owner is theirs", async () => {
 	// The student's server on loopback, plus the agent's own forward on the
 	// workspace interface at the same port, plus the agent's API port alone
-	// (issue #299, BROWSER-HANDLING.md 11.1).
+	// (BROWSER-HANDLING.md 11.1).
 	await writeProcNet(
 		[
 			HEADER,
@@ -522,7 +522,7 @@ test("a port the agent forwards stays the student's, and the owner is theirs", a
 	expect(services.find((service) => service.port === 7400)?.system).toBe(true);
 });
 
-// --- stopping a listener (SPEC.md 18.2, issue #273) ---
+// --- stopping a listener (SPEC.md 18.2) ---
 
 /** Drop every listening row, the way the kernel does when a process exits. */
 function clearProcNet(): void {
@@ -583,12 +583,12 @@ test("a process that ignores SIGTERM is killed after the grace period", async ()
 });
 
 /**
- * Issue #273: a pid can die while the port stays open, because a parent that
+ * A pid can die while the port stays open, because a parent that
  * forked the server inherited the listening socket. Saying "stopped" there
  * would be a lie: the student would see the service still running.
  */
 /**
- * Issue #348: a server often keeps the port for a moment after it accepts
+ * A server often keeps the port for a moment after it accepts
  * the signal. That delay is not a failed stop.
  */
 test("a port that frees shortly after the process exits is a success", async () => {
@@ -626,7 +626,7 @@ test("a port still listening after the pid died is not a success", async () => {
 });
 
 /**
- * Issue #273: only ESRCH means the process is gone. EPERM means we were not
+ * Only ESRCH means the process is gone. EPERM means we were not
  * allowed to signal it, which is a refusal, not a stop.
  */
 test("a SIGTERM refused with EPERM is a conflict, not a success", async () => {
@@ -673,7 +673,7 @@ test("a pid that is already gone stops cleanly when the port is free", async () 
 });
 
 /**
- * Issue #273: after SIGKILL the port is the test, not the pid. A killed
+ * After SIGKILL the port is the test, not the pid. A killed
  * process whose parent has not reaped it is a zombie, and a zombie still
  * answers signal 0, so asking whether the pid exists would refuse a stop
  * that worked.
@@ -736,7 +736,7 @@ test("a container row is stopped with docker stop, not a signal", async () => {
 	expect(stopped).toEqual(["abc123"]);
 });
 
-// --- scan cost (SPEC.md §18.2, issue #623) ---
+// --- scan cost (SPEC.md §18.2) ---
 
 test("the timer does not scan while nothing watches, and resumes when something does", async () => {
 	await writeProcNet([HEADER, row("0100007F:1388", "0A", "1")].join("\n"));
@@ -897,7 +897,7 @@ test("a stop fails rather than act on stale data when the fresh scan fails", asy
 	expect(signals).toEqual([]);
 });
 
-// --- HTTPS detection (issue #283) ---
+// --- HTTPS detection ---
 
 /** A throwaway self-signed certificate for a local TLS listener. */
 function selfSignedCertificate(): { key: Buffer; cert: Buffer } {

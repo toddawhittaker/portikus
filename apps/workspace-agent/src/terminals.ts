@@ -7,6 +7,7 @@ import {
 	MAX_INPUT_FRAME_BYTES,
 } from "@portikus/contracts";
 import { TerminalClientMessage, type TerminalServerMessage } from "@portikus/events";
+import { errorMessage } from "@portikus/observability";
 import type { FastifyBaseLogger } from "fastify";
 import { type IPty, spawn } from "node-pty";
 import { type PaneWatcher, watchPanes } from "./cwd.js";
@@ -421,10 +422,7 @@ export class TerminalRegistry {
 				"terminal resized",
 			);
 		} catch (error) {
-			this.log.warn(
-				{ error: error instanceof Error ? error.message : String(error) },
-				"terminal resize failed",
-			);
+			this.log.warn({ error: errorMessage(error) }, "terminal resize failed");
 		}
 	}
 

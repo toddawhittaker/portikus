@@ -1,5 +1,5 @@
 /**
- * The Docker inventory (SPEC.md §16.5, ruling S7) against a fake docker
+ * The Docker inventory (SPEC.md §16.5) against a fake docker
  * runner, and the route through the server so its token check applies.
  */
 import { mkdtemp, writeFile } from "node:fs/promises";
