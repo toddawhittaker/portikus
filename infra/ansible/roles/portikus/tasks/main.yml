@@ -212,6 +212,25 @@
     mode: "0640"
   notify: Restart portikus-api
 
+# The root job's status directory, which also holds the lock every job
+# command takes, so before the first call below.
+- name: Create the certificate status directory
+  ansible.builtin.file:
+    path: /var/lib/portikus/certificate
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# The certificate on first install, the Caddyfile and the API's trust:
+# after the package, which ships the root job, and api.env, which it reads.
+- name: Set up the certificate and the Caddyfile
+  ansible.builtin.include_role:
+    name: caddy
+    tasks_from: certificate
+    apply:
+      tags: portikus
+
 # ── LTI launch (docs/archive/epics/EPIC-13.md) ─────────────────────────────────
 # After api.env, which names the files these tasks write.
 - name: Apply the LTI platforms file and tool key
@@ -309,6 +328,55 @@
     argv: [systemctl, start, --no-block, portikus-image-check.service]
   changed_when: false
   when: portikus_image_check_timer.stat.exists
+
+# ── Certificate jobs (docs/SPEC.md section 21.12; packages/contracts/src/certificate.ts) ──
+# The admin page's request directory, as for the image job above.  The job
+# owns the state it seeded above.
+- name: Create the certificate job directory
+  ansible.builtin.file:
+    path: "{{ portikus_certificate_jobs_dir }}"
+    state: directory
+    owner: root
+    group: portikus
+    mode: "0770"
+
+# A package from before the certificate page has none of these units.
+- name: Look for the certificate job's units
+  ansible.builtin.stat:
+    path: "/usr/lib/systemd/system/{{ item }}"
+  loop:
+    - portikus-certificate-job.path
+    - portikus-certificate-job.service
+    - portikus-certificate-check.timer
+  register: portikus_certificate_units
+
+- name: Enable and start the certificate job's path unit
+  ansible.builtin.systemd_service:
+    name: portikus-certificate-job.path
+    enabled: true
+    state: started
+  when: portikus_certificate_units.results[0].stat.exists
+
+# Enabled for boot too, as the image job's is, for a job a reboot cut short.
+- name: Enable the certificate job's service for boot
+  ansible.builtin.systemd_service:
+    name: portikus-certificate-job.service
+    enabled: true
+  when: portikus_certificate_units.results[1].stat.exists
+
+- name: Enable and start the hourly certificate check
+  ansible.builtin.systemd_service:
+    name: portikus-certificate-check.timer
+    enabled: true
+    state: started
+  when: portikus_certificate_units.results[2].stat.exists
+
+# So the admin page shows the certificate before the timer's first run.
+- name: Run the certificate check once
+  ansible.builtin.command:
+    argv: [systemctl, start, --no-block, portikus-certificate-check.service]
+  changed_when: false
+  when: portikus_certificate_units.results[2].stat.exists
 
 # ── Start the services ───────────────────────────────────────────
 # The package enables the units, but ConditionPathExists keeps them from

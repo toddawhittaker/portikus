@@ -9,6 +9,7 @@ PASSWORD_FILE=/etc/portikus/admin-password
 BACKUP_SETS=/var/backups/portikus/local
 BACKUP_KEY=/etc/portikus-backup/age-key.txt
 RESTORE=/usr/lib/portikus/backup/portikus-restore
+CERTIFICATE_JOB=/usr/lib/portikus/certificate-job
 RESET_ADMIN_MAIN=/usr/lib/portikus/api/node_modules/@portikus/auth/dist/reset-admin-main.js
 NODE=/usr/lib/portikus/node/bin/node
 ANSIBLE_DIR=/usr/share/portikus/ansible
@@ -26,6 +27,7 @@ Usage: portikus setup [--follow]
        portikus reset-admin [--email ADDRESS] [--if-missing]
        portikus backup-channel pull|report
        portikus restore [--check] [--start-check] [--unverified] [--key FILE] STAMP
+       portikus reset-certificate
 
 setup        Apply ${CONFIG_FILE} to this host with the shipped Ansible
              play, in the foreground.  Safe to run again.
@@ -64,6 +66,13 @@ restore STAMP  Restore the whole server from the backup set
                             public key could have made such a set
              --key FILE     open the set with a key an upload replaced,
                             ${BACKUP_KEY}.replaced-<time>
+
+reset-certificate
+             Put Caddy's internal certificate authority back in force,
+             for a site the Certificate tab made unreachable.  The
+             earlier settings are kept, so Roll back on that tab returns
+             to them.  Prints where the root certificate browsers must
+             trust is.
 EOF
 }
 
@@ -277,7 +286,24 @@ reset_admin() {
   esac
 }
 
+# Recovery for a site the Certificate tab made unreachable (ADR 0046).
+reset_certificate() {
+  if [ "$(id -u)" != 0 ]; then
+    echo "portikus: reset-certificate must run as root: sudo portikus reset-certificate" >&2
+    exit 1
+  fi
+  if [ $# -ne 0 ]; then
+    usage >&2
+    exit 2
+  fi
+  exec "${CERTIFICATE_JOB}" reset
+}
+
 case "${1:-}" in
+  reset-certificate)
+    shift
+    reset_certificate "$@"
+    ;;
   setup)
     shift
     setup "$@"

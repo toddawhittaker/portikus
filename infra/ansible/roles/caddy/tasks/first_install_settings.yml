@@ -1,0 +1,29 @@
+---
+# The install's TLS answer as the CertificateSettings JSON the root job's
+# first install reads (packages/contracts/src/certificate.ts).  An old
+# letsencrypt answer becomes ACME by DNS-01 through Cloudflare, so an
+# upgraded site keeps its certificate.  Holds secrets: never logged.
+
+- name: Read the certificate and key to upload
+  ansible.builtin.slurp:
+    src: "{{ item }}"
+  loop:
+    - "{{ portikus_tls_cert }}"
+    - "{{ portikus_tls_key }}"
+  register: caddy_seed_files
+  when: portikus_tls == 'files'
+  no_log: true
+
+- name: Write down the first certificate settings
+  ansible.builtin.set_fact:
+    caddy_first_install_settings: >-
+      {{ {'source': 'acme', 'directory': portikus_acme_ca, 'email': portikus_acme_email,
+          'challenge': {'mode': 'dns01', 'dns': {'provider': 'cloudflare',
+                        'fields': {'api_token': portikus_cloudflare_api_token}}}}
+         if portikus_tls == 'letsencrypt'
+         else {'source': 'files', 'site': {
+                 'certificate': caddy_seed_files.results[0].content | b64decode,
+                 'privateKey': caddy_seed_files.results[1].content | b64decode}}
+         if portikus_tls == 'files'
+         else {'source': 'internal'} }}
+  no_log: true

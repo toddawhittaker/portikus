@@ -159,6 +159,11 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "IMAGE_JOBS_DIR must be an absolute path")
 		.optional(),
+	/** Where the API drops certificate job requests (SPEC.md 20.1); the status directory sits beside it. Unset turns the certificate routes off. */
+	CERTIFICATE_JOBS_DIR: z
+		.string()
+		.regex(/^\/./, "CERTIFICATE_JOBS_DIR must be an absolute path")
+		.optional(),
 	/** Where the API drops Docker cache helper requests and reads its status (issue #840); unset turns the Docker admin routes off. */
 	REGISTRY_JOBS_DIR: z
 		.string()

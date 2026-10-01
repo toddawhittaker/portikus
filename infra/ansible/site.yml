@@ -117,6 +117,9 @@
     portikus_node_env: production
     portikus_api_port: 3000
     portikus_controller_port: 3001
+    # The certificate job's throwaway Caddy answers HTTP-01 here
+    # (CHALLENGE_PORT in certificate-job); the caddy and firewall roles use it.
+    caddy_challenge_port: 8796
     portikus_database_url: "postgresql://portikus@/portikus?host=/var/run/postgresql"
     # The worker's own role, a member of portikus (the postgresql role).
     portikus_worker_database_url: "postgresql://portikus-worker@/portikus?host=/var/run/postgresql"
@@ -286,19 +289,20 @@
     # a port may be previewed; the network ACL only has to be no narrower.
     portikus_preview_port_min: 1024
     portikus_preview_port_max: 65535
-    # Caddy signing key from Cloudsmith, verified 2026-09-16.
-    caddy_gpg_checksum: "783dfee04b19e851a928cd87b34710213ebbe7628f98d9f34595ab83be578c00"
     # Caddy's internal certificate authority root, written on first start.
     caddy_root_cert: /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
-    # What the site's certificate chains to, for the API and the tests:
-    # Caddy's root under internal, else the system's authorities (plus the
-    # given certificate under files, so a self-signed one is trusted too).
+    # What the API trusts when it calls the site through Caddy, and what the
+    # tests use with curl: the system's authorities, Caddy's internal root
+    # and any uploaded chain, so switching the certificate never breaks it.
     portikus_caddy_root_cert: /etc/portikus/caddy-root.crt
 
     # ── TLS (docs/SPEC.md section 21.12) ────────────────────────────
+    # The first install's certificate.  Setup seeds the admin page's state
+    # from these once; after that the page owns the certificate and they
+    # are ignored.
     # internal: Caddy's own authority, which browsers must be told to trust.
-    # letsencrypt: Let's Encrypt, the site's name and a wildcard for the
-    #   preview suffix, both by a DNS-01 challenge through Cloudflare.
+    # letsencrypt: ACME by a DNS-01 challenge through Cloudflare, for the
+    #   site's name and a wildcard for the preview suffix.
     # files: a certificate and key already on the host, which must cover
     #   the site's name and *.<preview suffix>.
     portikus_tls: internal
@@ -308,10 +312,25 @@
     portikus_cloudflare_api_token: ""
     portikus_tls_cert: ""
     portikus_tls_key: ""
-    # Caddy with the Cloudflare DNS plugin, built with xcaddy for letsencrypt.
+    # Caddy is always built with xcaddy and the DNS plugins the admin page
+    # offers (packages/contracts/src/certificate.ts, DNS_PROVIDER_FIELDS).
+    # CI's Caddy tests run this version too (.github/workflows/ci.yml); change both together.
     caddy_version: v2.11.4
+    # caddy_2.11.4_linux_amd64.deb, from the release's caddy_2.11.4_checksums.txt.
+    caddy_deb_sha512: "1c6f5404f3622e46d401d81f4af59677d46b886229c6694d60fd936b87c72d3bb5d1fcf42b55c8d555769fa75acf434ab618fc7e0df2c79cf8512ee580d38d06"
     caddy_xcaddy_version: v0.4.7
-    caddy_dns_cloudflare_version: v0.2.4
+    caddy_dns_plugins:
+      - { name: cloudflare, module: github.com/caddy-dns/cloudflare, version: v0.2.4 }
+      - { name: route53, module: github.com/caddy-dns/route53, version: v1.6.2 }
+      # No release tag yet; the pseudo-version pins the commit.
+      - { name: digitalocean, module: github.com/caddy-dns/digitalocean, version: v0.0.0-20250606074528-04bde2867106 }
+      - { name: ovh, module: github.com/caddy-dns/ovh, version: v1.1.0 }
+      # v2 speaks the Hetzner Cloud DNS API that replaced dns.hetzner.com.
+      - { name: hetzner, module: github.com/caddy-dns/hetzner/v2, version: v2.0.1 }
+      - { name: gandi, module: github.com/caddy-dns/gandi, version: v1.1.0 }
+      - { name: porkbun, module: github.com/caddy-dns/porkbun, version: v0.3.1 }
+      - { name: googleclouddns, module: github.com/caddy-dns/googleclouddns, version: v1.1.0 }
+      - { name: azure, module: github.com/caddy-dns/azure, version: v0.6.0 }
 
     # ── Workspace image (docs/SPEC.md section 21.12) ───────────────
     # The signed release a first install fetches with the image job, which

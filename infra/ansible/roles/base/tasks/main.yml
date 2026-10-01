@@ -1,5 +1,15 @@
 ---
 # Base OS configuration for the Debian platform VM.
+# Caddy's Cloudsmith repository, which older setups added, signs with an
+# expired subkey that fails every refresh; Caddy now comes from its .deb.
+- name: Remove the retired Caddy apt repository
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/caddy-stable.sources
+    - /etc/apt/keyrings/caddy-stable.asc
+
 # The one refresh every run makes; a role that adds a repository refreshes again.
 # Setup installs nothing from the Portikus repository, so only its failure is a warning.
 - name: Update apt cache

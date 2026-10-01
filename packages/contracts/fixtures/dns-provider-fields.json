@@ -1,0 +1,17 @@
+{
+	"cloudflare": { "plain": [], "secret": ["api_token"] },
+	"route53": { "plain": ["region", "access_key_id"], "secret": ["secret_access_key"] },
+	"digitalocean": { "plain": [], "secret": ["api_token"] },
+	"ovh": {
+		"plain": ["endpoint", "application_key"],
+		"secret": ["application_secret", "consumer_key"]
+	},
+	"hetzner": { "plain": [], "secret": ["api_token"] },
+	"gandi": { "plain": [], "secret": ["bearer_token"] },
+	"porkbun": { "plain": ["api_key"], "secret": ["api_secret_key"] },
+	"googleclouddns": { "plain": ["gcp_project"], "secret": ["service_account_json"] },
+	"azure": {
+		"plain": ["tenant_id", "client_id", "subscription_id", "resource_group_name"],
+		"secret": ["client_secret"]
+	}
+}

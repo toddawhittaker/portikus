@@ -50,6 +50,12 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	// Loopback only; Caddy asks it before Dex's password form (issue #398).
 	"GET /edge/signin-throttle": { access: "public" },
 	"HEAD /edge/signin-throttle": { access: "public" },
+	// Loopback only; Caddy's on-demand TLS asks it (SPEC.md 20.1).
+	"GET /edge/certificate-ask": { access: "public" },
+	"HEAD /edge/certificate-ask": { access: "public" },
+	// Answers only a live pre-flight nonce, which only an administrator's pre-flight makes.
+	"GET /.well-known/portikus-preflight/:nonce": { access: "public" },
+	"HEAD /.well-known/portikus-preflight/:nonce": { access: "public" },
 
 	// LTI 1.3 login and launch; the two POSTs are CSRF-exempt (docs/archive/epics/EPIC-13.md
 	// ruling 7). With no platforms file every one answers 404.
@@ -254,6 +260,14 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/image/jobs": { access: "admin" },
 	"GET /admin/image/jobs/:id": { access: "admin" },
 	"HEAD /admin/image/jobs/:id": { access: "admin" },
+	"GET /admin/certificate": { access: "admin" },
+	"HEAD /admin/certificate": { access: "admin" },
+	"GET /admin/certificate/jobs/:id": { access: "admin" },
+	"HEAD /admin/certificate/jobs/:id": { access: "admin" },
+	"POST /admin/certificate/jobs": { access: "admin" },
+	"POST /admin/certificate/preflight": { access: "admin" },
+	"GET /admin/certificate/root.crt": { access: "admin" },
+	"HEAD /admin/certificate/root.crt": { access: "admin" },
 	// Shared Docker pull storage (issue #840).
 	"GET /admin/docker": { access: "admin" },
 	"HEAD /admin/docker": { access: "admin" },

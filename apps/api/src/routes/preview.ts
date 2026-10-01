@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { recordActivity } from "../activity.js";
 import { AgentCallError } from "../agent-client.js";
+import { fromLoopback } from "../loopback.js";
 import {
 	createPreviewDeniedAudit,
 	type PreviewDeniedReason,
@@ -90,12 +91,6 @@ function stopMessageFor(code: string): string {
  */
 const PREVIEW_REQUESTS_PER_WINDOW = 30;
 const PREVIEW_WINDOW_MS = 60_000;
-
-/** The socket's own peer address, which no header can influence. */
-function fromLoopback(request: FastifyRequest): boolean {
-	const address = request.raw.socket.remoteAddress ?? "";
-	return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
-}
 
 /** Send a Portikus-owned page. Nothing from the request is echoed. */
 function page(reply: FastifyReply, status: number, html: string): FastifyReply {

@@ -41,6 +41,20 @@ describe("Select", () => {
 		expect(onValueChange).toHaveBeenCalledWith("5173");
 	});
 
+	it("links its hint to the trigger as the description (SPEC.md section 25.8)", () => {
+		render(
+			<Select id="dir" label="ACME directory" options={OPTIONS} hint="Not trusted." />,
+		);
+		const trigger = screen.getByRole("combobox", { name: /ACME directory/ });
+		expect(trigger.getAttribute("aria-describedby")).toBe("dir-hint");
+		expect(document.getElementById("dir-hint")?.textContent).toBe("Not trusted.");
+	});
+
+	it("has no description without a hint", () => {
+		render(<Select id="bare" label="Bare" options={OPTIONS} />);
+		expect(screen.getByRole("combobox").hasAttribute("aria-describedby")).toBe(false);
+	});
+
 	it("puts a help button beside the label, not inside it", () => {
 		render(
 			<Select

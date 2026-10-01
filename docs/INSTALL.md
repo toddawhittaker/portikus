@@ -29,16 +29,14 @@ detail could not be checked that way, this guide says so.
   you install Debian" below says how to plan this.
 - **A DNS name you control**, such as `portikus.example.edu`, for the
   server. Students also get preview addresses under `preview.<that name>`.
-- **A way to get the HTTPS certificate**, one of:
-  - **Let's Encrypt** (recommended). It is free and every browser trusts it.
-    Your domain's DNS must be hosted at Cloudflare, and you need a
-    Cloudflare API token with the "Edit zone DNS" permission for that
-    domain (see "Choosing the certificate" below for why).
-  - **Certificate files you already have**, covering both the server's name
-    and `*.preview.<that name>`, copied onto the server before you start.
-  - **Portikus's own certificate authority**, for a lab or a private
-    network with no public DNS. Every browser that uses the site must be
-    told to trust its root certificate.
+- **A plan for the HTTPS certificate.** Setup starts with Portikus's own
+  certificate authority, which browsers do not trust until told to. Once
+  the site is up, an administrator chooses the real certificate on the
+  **Admin** page, **Certificate** tab (docs/ADMIN-GUIDE.md, "The site
+  certificate"): Let's Encrypt or another ACME service (ACME is the
+  protocol these free services speak), using one of nine DNS providers or
+  port 80, or certificate files you already have. Have the provider's API
+  token or the files ready.
 - **Outgoing internet access from the server** during setup (see "Setup").
 - **SSH access** to the server as root or as a user with `sudo`.
 
@@ -199,31 +197,10 @@ suggestion is `admin@<web address>`, which is fine.
 
 ### 4. HTTPS certificate
 
-![The HTTPS certificate screen, offering Let's Encrypt, certificate files, or Portikus's own certificate authority](images/install/04-https-certificate.png)
-
-- **Let's Encrypt** (the default): needs your domain's DNS at Cloudflare
-  and a Cloudflare API token. Two more screens follow:
-  - **Email for Let's Encrypt**: where Let's Encrypt writes if a
-    certificate has a problem. The suggestion is the administrator's
-    email; use a mailbox someone reads.
-  - **Cloudflare API token**: Let's Encrypt issues the wildcard
-    certificate for student previews only after a DNS check, and Portikus
-    makes that check by adding a temporary record through Cloudflare. In
-    the Cloudflare dashboard, go to My Profile, API Tokens, Create Token,
-    and use the "Edit zone DNS" template limited to your domain. Paste the
-    token here. It is stored only in `/etc/portikus/secrets.yaml`, which
-    only root can read.
-
-    ![The Cloudflare API token screen, a hidden field asking for a token with the Edit zone DNS permission](images/install/05-cloudflare-token.png)
-- **Certificate files I already have**: two more screens ask for the full
-  paths of the certificate (PEM format, intermediates after it) and its
-  private key. The files must already be on the server and must cover
-  both the web address and `*.preview.<web address>`. The screens check
-  that openssl can read the certificate and the key, that the key has no
-  passphrase, and that the key matches the certificate.
-- **Portikus's own certificate authority (testing)**: no more screens.
-  Browsers will warn until each one trusts the root certificate (see
-  "After setup").
+A normal install does not show this screen. Setup uses Portikus's own
+certificate authority, and you choose the real certificate on the Admin
+page after the first sign-in ("After setup", below). The question is still
+there for unattended installs ("Unattended installs", below).
 
 ### 5. How people sign in
 
@@ -333,19 +310,15 @@ Setup needs outgoing internet access to:
 
 - Debian's own mirrors;
 - Zabbly (`pkgs.zabbly.com`), for Incus;
-- Cloudsmith (`dl.cloudsmith.io`), for Caddy;
 - GitHub (`github.com` and its release downloads), for Dex's source and
   the workspace image;
 - the Go module proxy (`proxy.golang.org`), to build Dex;
-- for Let's Encrypt, Let's Encrypt itself and Cloudflare's API.
 
 The firewall setup installs allows SSH, HTTP (port 80) and HTTPS (port
 443) in, and nothing else. For SSH it opens whichever ports the SSH server
 itself reports through `sshd -T`, so a server that runs SSH on a port
-other than 22 keeps its connection. Port 80 only redirects browsers to HTTPS.
-Let's Encrypt does not need it: Portikus proves it owns the domain through
-a temporary DNS record (the DNS-01 check), not through port 80, so a
-server whose port 80 is blocked upstream still gets its certificates.
+other than 22 keeps its connection. Port 80 redirects browsers to HTTPS, and it also answers the HTTP-01
+check if you later choose that way of getting a certificate.
 
 ## First sign-in
 
@@ -379,12 +352,22 @@ makes a new one (docs/OPERATIONS.md, "The local administrator").
   server, such as a password manager. Then set up a copy of the sets to
   another machine ("Backups: copying them off the server", below). The
   sets on the server alone do not survive losing the server.
-- **Own certificate authority only.** Each browser that uses the site must
-  trust Caddy's root certificate, which setup copies to
-  `/etc/portikus/caddy-root.crt`. Copy it to your computer, for example
-  with `scp you@portikus.example.edu:/etc/portikus/caddy-root.crt .`, and
-  import it into the browser's or the system's trusted authorities
-  (infra/README.md, "Browser access", has the per-system steps).
+- **The certificate.** The site starts with Portikus's own certificate
+  authority, so browsers warn. Sign in, open **Admin**, then
+  **Certificate**, and choose Let's Encrypt, another ACME service or your
+  own files (docs/ADMIN-GUIDE.md, "The site certificate"). When it is
+  applied, the server needs outgoing access to the ACME service and, for
+  DNS-01, the DNS provider's API. If you keep the internal authority, for
+  a lab or a private network, each browser must trust its root
+  certificate. Download it from the same tab and import it into the
+  browser's or the system's trusted authorities (infra/README.md,
+  "Browser access", has the per-system steps).
+- **After this, setup leaves the certificate alone.** A later setup run,
+  an upgrade or `sudo dpkg-reconfigure portikus` never changes it, even if
+  you give a different answer to the certificate question. Change it only
+  on the Certificate tab. If the tab has made the site unreachable, run
+  `sudo portikus reset-certificate` (docs/OPERATIONS.md, "The site
+  certificate").
 
 ## The Docker image cache
 
@@ -550,6 +533,13 @@ answer store once written, but delete your `preseed.txt` yourself. Setup
 starts only when every answer it needs is there; for a disk that includes
 `portikus/storage_confirm` set to `true`.
 
+The certificate keys in the preseed still work, but only for the first
+setup run. Leaving them out gives Portikus's own certificate authority.
+An old Let's Encrypt preseed, with an ACME email and a Cloudflare API
+token, starts the site on Let's Encrypt through Cloudflare's DNS, as
+before. Certificate files named in the preseed are used as they were.
+From then on the Certificate tab owns the certificate.
+
 ## Changing your answers
 
 ```
@@ -615,14 +605,15 @@ started, and each one is named in the controller's log:
   answered No to "Erase ...?", setup will not touch the disk. Run
   `sudo dpkg-reconfigure portikus` and answer Yes, or choose another
   storage option.
-- **Let's Encrypt or DNS failures.** Check both DNS records point at the
-  server (`host portikus.example.edu` and
-  `host test.preview.portikus.example.edu`), that the Cloudflare token has
-  "Edit zone DNS" for the right domain, and that port 443 reaches the
-  server. Port 80 plays no part in getting the certificate. To replace
-  the token, run `sudo dpkg-reconfigure portikus` and paste the new one. Let's Encrypt limits repeated failures, so fix
-  the cause before retrying many times. Caddy's own log is in
-  `sudo journalctl -u caddy`.
+- **Certificate failures.** The Certificate tab shows the last error and
+  what was checked. Check both DNS records point at the server
+  (`host portikus.example.edu` and `host test.preview.portikus.example.edu`)
+  and that the DNS provider's token can edit that zone. Let's Encrypt
+  limits repeated failures, so fix the cause before retrying many times.
+  Caddy's own log is in `sudo journalctl -u caddy`. A site that no
+  browser can reach any more is recovered with
+  `sudo portikus reset-certificate` (docs/OPERATIONS.md, "The site
+  certificate").
 - **Setup waits at the start.** Setup waits up to fifteen minutes for
   another apt or dpkg run to finish. Let it finish.
 - **Downloads fail.** Check the server reaches the sites listed under

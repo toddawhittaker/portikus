@@ -2608,13 +2608,16 @@ for terminal in json.load(sys.stdin).get("terminals", []):
       ws_state=$(wait_for_state running 60)
       sleep 3
 
-      # 80 and 443 are the Caddy edge: a workspace must not be able to
-      # reach the sign-in page from inside the bridge.  One exec covers
-      # every port, because the shortened grace period would stop the
-      # workspace part-way through five separate probes.
-      port_probe=$(ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- bash -c 'for p in 80 443 3000 3001 3002; do if timeout 1 bash -c \"echo >/dev/tcp/10.200.0.1/\$p\" 2>/dev/null; then echo \"\$p open\"; else echo \"\$p blocked\"; fi; done'" 2>/dev/null)
+      # 80 and the public port are the Caddy edge: a workspace must not be
+      # able to reach the sign-in page from inside the bridge.  The
+      # gateway's 443 is the ghcr.io cache's redirect (issue #840), so it
+      # is not probed.  One exec covers every port, because the shortened
+      # grace period would stop the workspace part-way through the probes.
+      edge_ports="80 3000 3001 3002"
+      [ "${PUBLIC_PORT}" = 443 ] || edge_ports="80 ${PUBLIC_PORT} 3000 3001 3002"
+      port_probe=$(ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- bash -c 'for p in ${edge_ports}; do if timeout 1 bash -c \"echo >/dev/tcp/10.200.0.1/\$p\" 2>/dev/null; then echo \"\$p open\"; else echo \"\$p blocked\"; fi; done'" 2>/dev/null)
       port_result() { echo "$port_probe" | awk -v p="$1" '$1 == p { print $2 }'; }
-      for port in 80 443 3000 3001 3002; do
+      for port in ${edge_ports}; do
         check_output "port ${port} unreachable from workspace" "blocked" port_result "${port}"
       done
 

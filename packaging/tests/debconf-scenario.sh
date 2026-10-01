@@ -93,10 +93,11 @@ check_not_started() {
 }
 
 # The ui-* scenarios: apt install in a 100 by 30 tmux session with the
-# whiptail frontend, answered with key presses.
+# whiptail frontend, answered with key presses. ui_start medium also shows
+# the questions a normal install skips, such as the certificate.
 ui_start() {
 	tmux new-session -d -s ui -x 100 -y 30 \
-		"DEBIAN_FRONTEND=dialog apt-get install -y -qq -o Dpkg::Use-Pty=0 /t/portikus.deb 2>/tmp/install.log; touch /tmp/ui-done; sleep 600"
+		"DEBIAN_FRONTEND=dialog DEBIAN_PRIORITY=${1:-high} apt-get install -y -qq -o Dpkg::Use-Pty=0 /t/portikus.deb 2>/tmp/install.log; touch /tmp/ui-done; sleep 600"
 }
 
 # The screen's text as one line without the dialog border, so a phrase
@@ -448,14 +449,84 @@ EOF
 	! grep -qF 'CREATE ROLE' /tmp/psql.log || fail "the role was made again after the move"
 	grep -qF 'REVOKE portikus FROM "portikus-worker";' /tmp/psql.log || fail "the grants were not applied again"
 	;;
+tls-default)
+	# A preseed without the certificate question gets Portikus's own authority.
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.example.edu
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	expect "$CONFIG" portikus_tls '"internal"'
+	expect "$CONFIG" portikus_acme_email null
+	check_started
+	;;
+seeded-certificate)
+	# Once setup has seeded the certificate, the admin page owns it: a
+	# reconfigure with no Cloudflare token still starts setup.  A seed cut
+	# short after the secrets counts too, as setup and the job check.
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.example.edu
+portikus portikus/tls select letsencrypt
+portikus portikus/acme_email string certs@example.edu
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	check_not_started "the Cloudflare API token (cloudflare_api_token)"
+	mkdir -p /etc/portikus/certificate/secrets
+	: >/tmp/systemctl.log
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || {
+		cat /tmp/install.log >&2
+		fail "dpkg-reconfigure failed"
+	}
+	expect "$SECRETS" portikus_cloudflare_api_token null
+	check_started again
+	;;
+ui-reconfigure-seeded)
+	# dpkg-reconfigure asks at low priority, but never the certificate
+	# questions once the admin page owns the certificate.
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.example.edu
+portikus portikus/tls select letsencrypt
+portikus portikus/acme_email string certs@example.edu
+portikus portikus/cloudflare_api_token password CF-TOKEN-seeded-0123456789abcdef
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	mkdir -p /etc/portikus/certificate
+	echo '{"source": "acme"}' >/etc/portikus/certificate/settings.json
+	tmux new-session -d -s ui -x 100 -y 30 \
+		"DEBIAN_FRONTEND=dialog dpkg-reconfigure portikus 2>/tmp/install.log; touch /tmp/ui-done; sleep 600"
+	ui_first_screens portikus.example.edu
+	wait_for "How people sign in"
+	keys Enter
+	# A choice of one, the file, is not shown.
+	wait_for "Size of the storage file"
+	keys Enter
+	wait_for "Size of the Docker image cache"
+	keys Enter
+	wait_for "Save these answers and start setup?"
+	screen | grep -qF "Certificate: as set on the Certificate admin page" ||
+		fail "the summary does not say the admin page owns the certificate"
+	keys Enter
+	ui_done
+	# The root job holds the token now, so the answers keep no copy.
+	expect "$SECRETS" portikus_cloudflare_api_token null
+	check_no_leak CF-TOKEN-seeded-0123456789abcdef
+	;;
 ui-storage-default)
 	# With exactly one empty disk the suggestion is still the file, and the
-	# erase question still defaults to No.
+	# erase question still defaults to No. A normal install skips the
+	# certificate question and gets Portikus's own authority.
 	fake_one_disk
 	ui_start
 	ui_first_screens portikus.example.edu
-	wait_for "HTTPS certificate"
-	keys Down Down Enter
+	wait_for "How people sign in"
+	keys Escape
+	wait_for "Email of the Portikus administrator"
+	keys Enter
 	wait_for "How people sign in"
 	keys Enter
 	wait_for "Where to keep student files"
@@ -471,10 +542,12 @@ ui-storage-default)
 	keys Enter
 	wait_for "Save these answers and start setup?"
 	screen | grep -qF "NOT confirmed" || fail "the erase question did not default to No"
+	screen | grep -qF "Certificate: Portikus's own authority" || fail "the summary does not show the own authority"
 	keys Enter
 	ui_done
 	expect "$CONFIG" portikus_storage '"/dev/sdb"'
 	expect "$CONFIG" portikus_storage_confirm false
+	expect "$CONFIG" portikus_tls '"internal"'
 	;;
 ui-cache-small-disk)
 	# With 6 GiB free the cache question still accepts 1 GiB (setup shrinks
@@ -488,8 +561,6 @@ STUB
 	chmod 0755 /usr/local/bin/df
 	ui_start
 	ui_first_screens portikus.example.edu
-	wait_for "HTTPS certificate"
-	keys Down Down Enter
 	wait_for "How people sign in"
 	keys Enter
 	wait_for "Where to keep student files"
@@ -534,10 +605,10 @@ ui-host-full)
 ui-summary-no)
 	# No on the summary returns to the first question with every answer
 	# kept, the hidden token included.
-	ui_start
+	ui_start medium
 	ui_first_screens portikus.example.edu
 	wait_for "HTTPS certificate"
-	keys Enter
+	keys Down Enter
 	wait_for "Email for Let's Encrypt"
 	keys Enter
 	wait_for "Cloudflare API token"
@@ -595,10 +666,10 @@ ui-cert)
 	openssl req -x509 -newkey rsa:2048 -nodes -subj /CN=portikus.example.edu -days 1 \
 		-keyout /root/key.pem -out /root/cert.pem 2>/dev/null
 	openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /root/other.pem 2>/dev/null
-	ui_start
+	ui_start medium
 	ui_first_screens portikus.example.edu
 	wait_for "HTTPS certificate"
-	keys Down Enter
+	keys Down Down Enter
 	wait_for "Certificate file"
 	typed /root/junk.pem
 	keys Enter
@@ -663,18 +734,8 @@ capture)
 	wait_for "Email of the Portikus administrator"
 	shot 03-admin-email
 	keys Enter
-	# In 80 by 25 whiptail shows a long description on its own screen first.
-	wait_for "Portikus is served only over HTTPS"
-	keys Enter
-	wait_for "HTTPS certificate"
-	shot 04-https-certificate
-	keys Enter
-	wait_for "Email for Let's Encrypt"
-	keys Enter
-	wait_for "Cloudflare API token"
-	typed CF-TOKEN-example-0123456789abcdef
-	shot 05-cloudflare-token
-	keys Enter
+	# The certificate question is skipped: the site starts on Portikus's own
+	# authority. In 80 by 25 whiptail shows a long description on its own screen first.
 	wait_for "Portikus always has local accounts"
 	keys Enter
 	wait_for "How people sign in"

@@ -1,0 +1,26 @@
+---
+# The Caddyfile, put in force at once rather than by a handler: the
+# certificate tasks that follow need it running, and a flush inside the
+# portikus role would also run that role's handlers early.
+- name: Deploy the Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: /etc/caddy/Caddyfile
+    owner: root
+    group: root
+    mode: "0644"
+  register: caddy_caddyfile
+
+# `caddy reload` finds the running Caddy at the new configuration's admin
+# address, so a Caddy that still listens on port 2019 from before the admin
+# socket, or one that is not running, is restarted instead.
+- name: Put the Caddyfile in force  # noqa: no-handler
+  ansible.builtin.shell:
+    cmd: |
+      if systemctl is-active --quiet caddy && [ -S {{ caddy_admin_socket | quote }} ]; then
+        systemctl reload caddy
+      else
+        systemctl restart caddy
+      fi
+  changed_when: true
+  when: caddy_caddyfile is changed

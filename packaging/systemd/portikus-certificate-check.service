@@ -1,0 +1,31 @@
+# Portikus hourly certificate check (docs/SPEC.md section 21.12, ADR 0046).
+# Started by portikus-certificate-check.timer. It reads the certificates
+# Caddy serves and Caddy's journal, and rewrites
+# /var/lib/portikus/certificate/status.json, root.crt and the API's trust
+# bundle. It never changes the certificate in use.
+[Unit]
+Description=Portikus check of the site certificate
+After=caddy.service
+ConditionPathIsDirectory=/var/lib/portikus/certificate
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/portikus/certificate-job check
+TimeoutStartSec=10min
+UMask=0022
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+# status.json and root.crt, and the trust bundle in /etc/portikus.
+ReadWritePaths=/etc/portikus /var/lib/portikus/certificate
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+# openssl s_client reaches Caddy on loopback; systemctl and the journal need local sockets.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

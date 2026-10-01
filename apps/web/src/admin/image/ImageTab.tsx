@@ -23,6 +23,7 @@ import { useRef, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
+import { JobLog } from "../JobLog.js";
 import { errorText } from "../SettingsTab.js";
 import {
 	isActive,
@@ -431,27 +432,7 @@ function JobGroup({
 					</>
 				) : null}
 			</dl>
-			<div className="grid gap-2">
-				<h4
-					className="pk-text-compact m-0 font-semibold text-ink-muted"
-					id="image-log-title"
-				>
-					Log
-				</h4>
-				{/* A focusable region, so a keyboard user can scroll it (SPEC.md section 25.8).
-				    Plain text in <pre>: a log line is never rendered as HTML. */}
-				<section
-					className="pk-focus-inset max-h-80 overflow-auto"
-					data-testid="image-job-log"
-					aria-labelledby="image-log-title"
-					// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must take focus
-					tabIndex={0}
-				>
-					<pre className="pk-techdetail m-0 whitespace-pre-wrap break-all">
-						{log.length > 0 ? log.join("\n") : "No output yet."}
-					</pre>
-				</section>
-			</div>
+			<JobLog idPrefix="image" log={log} />
 			{made && defaultVersion ? (
 				<div className="grid gap-3" data-testid="image-job-result">
 					<h4 className="pk-text-compact m-0 font-semibold text-ink-muted">

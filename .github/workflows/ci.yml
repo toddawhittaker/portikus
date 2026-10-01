@@ -646,6 +646,9 @@ jobs:
       - name: TLS and storage settings guards
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/setup-settings-test.yml
+      - name: Certificate settings setup seeds
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: ansible-playbook infra/tests/certificate-seed-test.yml
       - name: Apt refresh failure decision
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/apt-failures-test.yml
@@ -708,6 +711,35 @@ jobs:
           fi
           "$CADDY" version
           bash infra/tests/caddy-preview-test.sh
+      # Pebble, Let's Encrypt's test ACME server, pinned by version and checksum.
+      - name: Cache Pebble
+        id: pebble
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/pebble-2.10.1
+          key: pebble-2.10.1-linux-amd64
+      # About 25 seconds: the job's unit tests, then HTTP-01, on-demand previews
+      # and EAB against Pebble with the cached Caddy (ADR 0046).
+      - name: Certificate job
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: |
+          set -euo pipefail
+          dir="$HOME/.cache/pebble-2.10.1"
+          if [ "${{ steps.pebble.outputs.cache-hit }}" != 'true' ]; then
+            mkdir -p "$dir"
+            base=https://github.com/letsencrypt/pebble/releases/download/v2.10.1
+            curl -fsSL -o /tmp/pebble.tar.gz "$base/pebble-linux-amd64.tar.gz"
+            curl -fsSL -o /tmp/challtestsrv.tar.gz "$base/pebble-challtestsrv-linux-amd64.tar.gz"
+            echo "4f2fcb5bca8c85c9cf73ad140fccfc0d2be40bd81ab99879c79b7b8a0b4f70ed  /tmp/pebble.tar.gz" | sha256sum -c -
+            echo "e93a5aa25ecdf3af2f9fbb2de32b0173e64a2eae81002a4ccfe35fa6f4f60b92  /tmp/challtestsrv.tar.gz" | sha256sum -c -
+            tar -xzf /tmp/pebble.tar.gz -C "$dir" --strip-components=3 pebble-linux-amd64/linux/amd64/pebble
+            tar -xzf /tmp/challtestsrv.tar.gz -C "$dir" --strip-components=3 \
+              pebble-challtestsrv-linux-amd64/linux/amd64/pebble-challtestsrv
+            chmod +x "$dir/pebble" "$dir/pebble-challtestsrv"
+          fi
+          PEBBLE="$dir/pebble" PEBBLE_CHALLTESTSRV="$dir/pebble-challtestsrv" CADDY="$HOME/.cache/caddy-2.11.4/caddy" \
+            python3 -B -m unittest discover -s packaging/certificate/tests
       - name: LTI platforms file
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/lti-platforms-test.sh

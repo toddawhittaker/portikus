@@ -6,6 +6,7 @@ import { gatePath, useMe } from "../useMe.js";
 import { focusAdminHeading } from "./AdminSection.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { BackupsTab } from "./backups/BackupsTab.js";
+import { CertificateTab } from "./certificate/CertificateTab.js";
 import { DockerTab } from "./docker/DockerTab.js";
 import { HealthTab } from "./health/HealthTab.js";
 import { ImageTab } from "./image/ImageTab.js";
@@ -24,6 +25,7 @@ const TAB_LABEL: Record<AdminTab, string> = {
 	network: "Network",
 	backups: "Backups",
 	image: "Workspace image",
+	certificate: "Certificate",
 	docker: "Docker",
 	settings: "Settings",
 };
@@ -101,6 +103,7 @@ export function AdminPage() {
 					{tab === "network" ? <NetworkTab /> : null}
 					{tab === "backups" ? <BackupsTab /> : null}
 					{tab === "image" ? <ImageTab /> : null}
+					{tab === "certificate" ? <CertificateTab /> : null}
 					{tab === "docker" ? <DockerTab /> : null}
 					{tab === "settings" ? <SettingsTab /> : null}
 				</div>

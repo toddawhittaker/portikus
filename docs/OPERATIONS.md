@@ -1606,6 +1606,74 @@ whose size changed, so it would plan to swap the grown disk for an empty
   or disk room for N workspaces. It removes only the users and workspaces
   it made. Destroy the rehearsal VM afterwards if it held restored data.
 
+## The site certificate
+
+After install, the administrator chooses the HTTPS certificate on the
+admin page's **Certificate** tab (docs/ADMIN-GUIDE.md, "The site
+certificate"; ADR 0046). Setup, upgrades and `dpkg-reconfigure` never
+change it.
+
+### Where certificate state lives
+
+| Path | What it holds |
+|---|---|
+| `/etc/portikus/certificate/` | The settings in use (root-owned, readable by Caddy). `settings.json` has no secrets; `secrets/` holds DNS tokens, the EAB key and a Google service-account key, one file each (root:caddy, 0640), which Caddy reads through `{file.…}` placeholders in the snippet; `files/` holds uploaded certificates and keys; `tls.caddy` is the snippet Caddy's site blocks import; `previous/` is the one earlier generation that Roll back and the reset command restore. |
+| `/var/lib/portikus/certificate/` | `status.json`, written each hour by the check: issuer, names and expiry in use, and whether the last renewal worked. `root.crt` is Caddy's internal root certificate, readable by anyone. |
+| `/var/lib/portikus/certificate-jobs/` | One directory per job (the last 20), each with `request.json` (secrets replaced by "set" flags), `status.json` and `log.txt`. |
+
+The page writes a request file and the root job `portikus-certificate-job`
+does the work. Do not edit these files by hand; Caddy and the job assume
+what they wrote. The job and the hourly check log to
+`sudo journalctl -u portikus-certificate-job -u portikus-certificate-check`.
+Caddy's own messages about getting and renewing certificates are in
+`sudo journalctl -u caddy`.
+
+### Renewal failures and expiry warnings
+
+Caddy renews ACME certificates on its own, about 30 days before they
+expire. The hourly check reads the certificate in use and Caddy's log.
+When a renewal fails, or the certificate expires within 14 days, every
+enabled administrator gets a notification in Portikus, once per
+certificate per condition. There is no email yet.
+
+On a warning, open the Certificate tab, read the error, and fix the cause:
+usually an expired or narrowed DNS token, a changed DNS record, or port 80
+blocked for HTTP-01. Then choose **Renew now**. Uploaded certificates are
+never renewed; upload new files before the old ones expire.
+
+### Recovering an unreachable site: `portikus reset-certificate`
+
+Use this when the site cannot be reached in a browser because of its
+certificate, so the Certificate tab cannot be used either. For example,
+an uploaded certificate expired, or a change left Caddy without a
+certificate it can serve.
+
+```
+sudo portikus reset-certificate
+```
+
+It switches the site back to Portikus's own certificate authority, keeps
+the settings it replaced as the previous generation, reloads Caddy, and
+prints the path of the internal root certificate:
+
+```
+The site now uses Caddy's internal certificate authority.
+Browsers must trust its root certificate: /var/lib/portikus/certificate/root.crt
+The earlier settings are kept; Roll back on the Certificate tab returns to them.
+```
+
+It also records a `reset` job, so the reset appears in the admin audit
+log. If Caddy will not reload, the command restarts it; if it still does
+not start, the job is marked failed and points at `journalctl -u caddy`.
+
+Browsers then warn, because they do not trust the internal authority.
+Either accept the warning once, or install the printed root certificate
+(infra/README.md, "Browser access"). Then sign in, open the Certificate
+tab, and either choose **Roll back** to return to the settings the reset
+replaced, after fixing what broke them, or set up a new certificate. Any
+secrets the old settings used are kept with them, so Roll back does not
+ask for them again.
+
 ## Logs
 
 The platform never logs secrets, prompts, source code or terminal bytes
@@ -1618,6 +1686,8 @@ The platform never logs secrets, prompts, source code or terminal bytes
 | `portikus-controller` | The only process that talks to Incus |
 | `portikus-dex` | Dex sign-in |
 | `caddy` | The edge and preview gateway |
+| `portikus-certificate-job` | Certificate changes from the admin page |
+| `portikus-certificate-check` | The hourly certificate check |
 | `postgresql` | The database |
 | `incus` | Containers and storage |
 

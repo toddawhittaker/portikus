@@ -79,6 +79,7 @@ export function Select({
 				<RadixSelect.Trigger
 					id={id}
 					aria-labelledby={`${id}-l ${id}`}
+					aria-describedby={hint ? `${id}-hint` : undefined}
 					className={cx(
 						"pk-select flex cursor-pointer items-center justify-between gap-2 text-left",
 						disabled ? "cursor-default opacity-60" : "",
@@ -118,7 +119,11 @@ export function Select({
 					</RadixSelect.Content>
 				</RadixSelect.Portal>
 			</RadixSelect.Root>
-			{hint ? <p className={HINT_CLASS}>{hint}</p> : null}
+			{hint ? (
+				<p className={HINT_CLASS} id={`${id}-hint`}>
+					{hint}
+				</p>
+			) : null}
 		</div>
 	);
 }

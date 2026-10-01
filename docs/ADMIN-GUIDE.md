@@ -195,6 +195,345 @@ rebuild on a new image, and saves a database dump on the backup host before
 each deploy. Nothing deletes them on its own; delete them once the change
 checks out.
 
+## The site certificate
+
+The **Certificate** tab sets the HTTPS certificate browsers see for the
+site and for student previews (`*.preview.<site>`). A fresh install uses
+Caddy's internal certificate authority. Caddy is the web server in front
+of Portikus, and a certificate authority is a service that signs
+certificates. Browsers warn about the internal one until each computer
+trusts its root certificate. Choose a trusted certificate here once the
+site is up. The installer and later setup runs never change it.
+
+![The Certificate tab: an ACME change with DNS-01 and Cloudflare](images/admin-certificate.png)
+
+### Before you start
+
+Check these before you change anything:
+
+- **A public DNS name for the site**, such as `portikus.example.edu`,
+  that points at this server. A trusted authority checks this name from
+  the internet.
+- **A wildcard DNS name for previews**, `*.preview.portikus.example.edu`,
+  pointing at the same server. Student previews live under it.
+- **A way to prove you control the name.** Pick one:
+
+| Method | Choose it when | What it needs |
+|---|---|---|
+| ACME with DNS-01 (recommended) | Your DNS is hosted by one of the nine providers below | An API token or key that can edit DNS records in the zone. Port 80 is not needed. |
+| ACME with HTTP-01 | Your DNS provider is not on the list | Port 80 open from the internet to this server, and a small class (see "Rate limits") |
+| Upload files | Your institution issues certificates for you | A certificate and key in PEM format that cover the site and the preview wildcard |
+| Internal authority | A lab or private network with no public DNS | Every computer must install the root certificate |
+
+ACME (Automatic Certificate Management Environment) is the protocol free
+certificate services such as Let's Encrypt speak. DNS-01 and HTTP-01 are
+its two ways of proving you control a name: with a temporary DNS record,
+or with a file served on port 80.
+
+**Firewall.** The site always needs its HTTPS port open. HTTP-01 also
+needs inbound port 80 to reach this server, both for the first
+certificate and for every renewal. DNS-01 needs only outbound HTTPS to
+the authority and to the DNS provider.
+
+### Read the status
+
+**Certificates in use** shows the certificate for the site and for a
+sample preview name: its source, issuer, the names it covers, when it
+expires, and when Portikus last checked. A badge says **Expires soon**
+within 14 days and **Expired** after the date. Below it, **Latest job**
+shows the last change, test, renewal or roll back with its state
+(**Waiting to start**, **Running**, **Succeeded**, **Failed** or
+**Refused**) and its log.
+
+### Walk-through: Let's Encrypt with DNS-01 and Cloudflare
+
+This is the common case. Other providers differ only in the fields of
+step 3.
+
+1. **Create a Cloudflare API token.** In the Cloudflare dashboard, open
+   My Profile, then API Tokens, then Create Token, and start from the
+   "Edit zone DNS" template. Give it two permissions: Zone, DNS, Edit and
+   Zone, Zone, Read. Under Zone Resources, include only the zone that
+   holds the site's name. Copy the token; Cloudflare shows it once. Use
+   an API token, not the older Global API Key.
+2. **Open Admin, then Certificate.** Under **Change the certificate**,
+   set **Source** to **ACME (Let's Encrypt and others)**.
+3. **Fill the form.**
+   - **ACME directory**: **Let's Encrypt**.
+   - **Account email**: an address the authority can write to about
+     problems, such as `it@example.edu`.
+   - Leave **External account binding (optional)** empty.
+   - **How the authority checks the name**: **DNS-01**.
+   - **Provider**: **Cloudflare**, then paste the token into
+     **API token**.
+4. **Press Test only.** The pre-flight checks run first and show under
+   the buttons. Then the job gets a certificate from Let's Encrypt
+   staging, a test service whose certificates browsers do not trust,
+   kept apart from the live site. Nothing in use changes. Watch the log
+   under **Latest job**; a test usually takes under a minute, and the job
+   gives up after five minutes.
+5. **When the test shows Succeeded, press Apply** and confirm. The token
+   you typed is now stored, so you can leave **API token** blank: the
+   hint **Set. Leave blank to keep it.** means a value is saved.
+6. **Check the result.** **Latest job** shows **Succeeded**, and
+   **Certificates in use** names Let's Encrypt as the issuer, with the
+   site and `*.preview.<site>` among the names. Reload the page; the
+   browser no longer warns.
+
+### DNS providers
+
+Choose the provider that hosts the zone for the site's name. The hint
+under **Provider** reminds you the credentials need permission to edit
+DNS records for the site's name. Give each credential only that right,
+and only on that zone. Fields marked secret are write-only.
+
+| Provider | Fields on the page | Minimum credential |
+|---|---|---|
+| Cloudflare | **API token** (secret) | An API token with Zone, DNS, Edit and Zone, Zone, Read for this zone only. |
+| Amazon Route 53 | **Region**, **Access key ID**, **Secret access key** (secret) | An IAM user whose policy allows `route53:ListHostedZonesByName`, `route53:ListResourceRecordSets`, `route53:ChangeResourceRecordSets` and `route53:GetChange`. Route 53 is global, so `us-east-1` works as the region. |
+| DigitalOcean | **API token** (secret) | A personal access token that can write Domains. See the [caddy-dns/digitalocean README](https://github.com/caddy-dns/digitalocean). |
+| OVH | **Endpoint**, **Application key**, **Application secret** (secret), **Consumer key** (secret) | An application and consumer key allowed `GET`, `POST`, `PUT` and `DELETE` on `/domain/zone/*`. The endpoint is your account's OVH region, such as `ovh-eu`. See the [caddy-dns/ovh README](https://github.com/caddy-dns/ovh). |
+| Hetzner Cloud DNS | **API token** (secret) | A Hetzner API token that can edit the zone. See the [caddy-dns/hetzner README](https://github.com/caddy-dns/hetzner). |
+| Gandi | **Personal access token** (secret) | A Gandi personal access token allowed to manage the domain's technical configuration. See the [caddy-dns/gandi README](https://github.com/caddy-dns/gandi). |
+| Porkbun | **API key**, **Secret API key** (secret) | An API key pair, with API Access turned on for the domain in Porkbun's domain settings. |
+| Google Cloud DNS | **Project ID**, **Service account key (JSON)** (secret) | A service account with the DNS Administrator role (`roles/dns.admin`) on the project, and its JSON key. Enter the key on one line. |
+| Azure DNS | **Tenant ID**, **Client ID**, **Client secret** (secret), **Subscription ID**, **Resource group** | A service principal (an app registration) with the DNS Zone Contributor role on the zone or its resource group. |
+
+If a provider's console does not offer what the table says, the provider
+module documents it: each is the matching repository under
+[github.com/caddy-dns](https://github.com/caddy-dns).
+
+### ACME with HTTP-01
+
+With **HTTP-01**, the authority fetches a file from this server on port
+80, so port 80 must reach the server from the internet. HTTP-01 cannot
+issue a wildcard, so each preview name gets its own certificate the first
+time someone opens it, which makes that first visit a few seconds slower.
+
+Portikus approves a preview certificate only for a port that is listening
+in a running workspace, and at most 10 new preview names per workspace in
+any hour (the count restarts when the API restarts). A preview link
+opened before its port is listening, or past that limit, gets a browser
+certificate error, such as `ERR_SSL_PROTOCOL_ERROR` in Chrome or "Secure
+Connection Failed" in Firefox. Tell the student to wait until the program
+is listening, then reload the page.
+
+### Rate limits
+
+Let's Encrypt limits how many certificates it issues. The ones that
+matter here:
+
+- **50 certificates per registered domain per week.** Under HTTP-01
+  every preview name is its own certificate, so a busy class can run out,
+  and new previews then fail until the week rolls on. DNS-01 needs one
+  wildcard and avoids this.
+- **5 duplicate certificates per week** for exactly the same set of
+  names. Pressing Apply over and over to retry a failure uses these up.
+- **5 failed validations per name per hour.** A wrong token or a closed
+  port fails fast and counts.
+
+That is why **Test only** comes first: Let's Encrypt staging has much
+higher limits, so mistakes there cost nothing. ZeroSSL and custom
+directories have no staging service, so **Test only** gets a real
+certificate from them, which counts against their limits; it is still
+kept apart and never put in use. The current limits are at
+[letsencrypt.org/docs/rate-limits](https://letsencrypt.org/docs/rate-limits/).
+
+### ZeroSSL, other authorities and EAB
+
+Choose **ZeroSSL**, or **Another ACME directory** and fill in its
+**Directory URL**. Some authorities, such as ZeroSSL or a campus
+authority, need EAB (External Account Binding): a key ID and an HMAC key
+that tie certificates to your account there. Fill in **Key ID** and
+**HMAC key** under **External account binding (optional)**, exactly as
+the authority gave them.
+
+- **ZeroSSL**: sign in, open Developer, and choose Generate under "EAB
+  Credentials for ACME Clients". The page shows the EAB KID (the key ID)
+  and the EAB HMAC Key once.
+- **Another authority**: its account or ACME page gives the directory
+  URL, and the key ID and HMAC key if it uses EAB. Ask its administrators
+  if you cannot find them.
+
+A custom authority's certificates must be trusted by this server itself,
+because Portikus calls its own address over HTTPS. If they are not, the
+job refuses the change.
+
+### Upload files
+
+Choose **Upload files** under **Source**. Under **Site certificate**,
+choose the **Certificate**, the **Private key** and, if the certificate
+file does not already hold it, the **Intermediate chain (optional)**.
+
+- Files are PEM text, which starts with `-----BEGIN`.
+- The certificate file holds the server certificate first, then its
+  intermediate certificates in order towards the root. Leave the root
+  itself out.
+- The private key must not have a passphrase.
+- The certificate must name the site and `*.preview.<site>`. If it does
+  not cover previews, tick **Use a separate wildcard certificate for
+  previews** and fill in **Preview certificate** the same way.
+
+Press **Check the certificate**. Portikus runs these checks on each
+certificate and names the one that fails; a failed upload changes
+nothing.
+
+| Check | What failed | Fix |
+|---|---|---|
+| Certificate is readable | The file is not a PEM certificate | Export it again as PEM (Base64), not DER or PFX |
+| Private key is readable | The key is missing, not PEM, or has a passphrase | Remove the passphrase, for example with `openssl pkey -in key.pem -out plain.pem` |
+| Key matches the certificate | The key belongs to another certificate | Upload the key made with this certificate's request |
+| Chain is complete | The certificate does not chain to a trusted root | Add the intermediates in order, or use **Intermediate chain (optional)** |
+| Dates are valid | It is expired or not yet valid | Get a current certificate |
+| Names cover the site | It does not name the site or the preview wildcard | Get one with both names, or add a separate preview certificate |
+
+Then press **Apply**. Uploaded certificates do not renew. Portikus warns
+you 14 days before expiry; upload new files before that date, or browsers
+will refuse the site.
+
+### Pre-flight checks
+
+Before an ACME change, the tab runs these checks from the server itself:
+
+| Check | Means |
+|---|---|
+| The site's name resolves | The site's name has a DNS address |
+| Preview names resolve | A sample preview name has an address, so the `*.preview` wildcard record exists |
+| The site's name reaches this server | Every address DNS gives for the site is this server |
+| Preview names reach this server | The same for the sample preview name |
+| Port 80 answers | `http://<site>` answers on port 80 (HTTP-01 only) |
+
+Under HTTP-01 a failed check blocks the change. Under DNS-01 it is only a
+**Warning**, because a DNS-01 certificate does not depend on these names;
+you can still test and apply.
+
+The checks have limits. They run from the server, so they cannot see a
+firewall that only blocks outside traffic; the test certificate catches
+that. On a server that uses systemd-resolved, an entry in `/etc/hosts`
+counts as an answer, so a check can pass for a name the public DNS does
+not have.
+
+### What Test only and Apply do
+
+Only one job runs at a time. While one waits or runs, the buttons are off
+and say so. Each step appears in the log under **Latest job** as it
+happens.
+
+**Test only**:
+
+1. Runs the pre-flight checks.
+2. Starts a separate, temporary Caddy that asks the authority for a
+   certificate (Let's Encrypt staging when Let's Encrypt is chosen).
+3. Reports **Succeeded**, or **Failed** with what the authority or DNS
+   provider said. The live site never changes.
+
+**Apply**:
+
+1. Runs the same test against the real directory, so the live site is
+   untouched until a certificate is in hand. This gives up after five
+   minutes; most runs take under a minute.
+2. Switches the live site to the new settings and reloads Caddy.
+3. Checks that the site and a preview name now serve the new
+   certificate.
+4. If that check fails, puts the old settings back on its own and says
+   "The previous certificate is back in use." The site keeps working
+   throughout.
+
+Error messages never contain the secrets you typed.
+
+### Troubleshooting
+
+| The log or page says | Likely cause | Fix |
+|---|---|---|
+| "Cloudflare refused the token", HTTP 401 or 403, "invalid access token" or "authentication error" | The DNS credential is wrong, expired or lacks permission | Make a new credential with the rights in "DNS providers" and enter it |
+| A pre-flight check "does not resolve in DNS" | The site or the `*.preview` wildcard record is missing | Add the record, then wait for DNS to update |
+| "does not reach this server at every address DNS gives" | A record points elsewhere, often an old IPv6 address | Fix or remove the wrong record |
+| "does not answer on port 80, which HTTP-01 needs", or an HTTP-01 test times out | Port 80 is closed in a firewall or not forwarded | Open inbound port 80 to the server, or use DNS-01 |
+| `rateLimited` or "too many certificates" | A Let's Encrypt rate limit | Wait for the time the message names; test with staging meanwhile |
+| `externalAccountRequired` | The authority needs EAB | Fill in **Key ID** and **HMAC key** |
+| "failed the check" and a check name | An upload check failed | See the table in "Upload files" |
+| "Caddy refused the new configuration; the log says why." | Caddy could not start with the new settings | Read the log line before it; the old settings stay in use |
+| "Caddy did not serve the new certificate for ..." | The new certificate did not reach the live site | Portikus put the old one back; check DNS, then try again |
+| "No certificate was obtained, and the live site is unchanged." | The authority did not issue | The text after "Caddy said:" names the reason |
+| "this authority's certificates are not trusted by this server" | A custom authority's root is not installed on the server | Ask the server's operator to install it, or choose another authority |
+
+### Renewal and notifications
+
+Caddy renews an ACME certificate on its own, about 30 days before it
+expires. Internal certificates last 12 hours and renew themselves.
+Portikus notifies every administrator when the certificate expires within
+14 days, and when a renewal fails ("A certificate did not renew").
+
+**Renew now** asks for a fresh certificate from the same service, for
+example after fixing the DNS token that made a renewal fail. It shows only
+for ACME. Uploaded files are never renewed: upload new ones before they
+expire.
+
+### Roll back and reset
+
+**Roll back** puts back the settings in use before the last change, with
+their stored secrets, and the site reloads with their certificate. The
+current settings become the previous ones, so you can roll forward again.
+Only one earlier generation is kept.
+
+If a change made the site unreachable so this tab cannot be opened, the
+server's operator runs:
+
+```
+sudo portikus reset-certificate
+```
+
+That switches to the internal authority and keeps the replaced settings
+as the previous generation (OPERATIONS.md, "The site certificate"). Open
+the tab, trusting the internal root if the browser asks, fix the cause,
+and press **Roll back** to return to those settings.
+
+### Download the root certificate
+
+**Download root certificate**, under **Internal root certificate**, gives
+the internal authority's root. Browsers trust the site under the internal
+authority only after it is installed:
+
+- **Windows**: open the file, choose Install Certificate, then Local
+  Machine, and place it in Trusted Root Certification Authorities.
+- **macOS**: open the file to add it to the System keychain, then open it
+  in Keychain Access and set Trust to Always Trust.
+- **Linux**: copy it to `/usr/local/share/ca-certificates/` with a `.crt`
+  name and run `sudo update-ca-certificates`.
+- **Firefox** keeps its own list: Settings, Privacy and Security, View
+  Certificates, Authorities, Import, then tick "Trust this CA to identify
+  websites".
+- **iPhone and iPad**: open the file in Safari and allow the download,
+  install the profile in Settings, General, VPN and Device Management,
+  then turn it on in Settings, General, About, Certificate Trust
+  Settings.
+- **Android**: Settings, Security, Encryption and credentials, Install a
+  certificate, CA certificate, then choose the file. Menu names vary by
+  maker.
+- **ChromeOS**: Settings, Privacy and security, Security, Manage
+  certificates, Authorities, Import, then tick "Trust this certificate
+  for identifying websites".
+
+Keep the root on administrators' computers even after a switch to ACME,
+because the reset command falls back to it.
+
+### Security notes
+
+- Secret fields (DNS tokens and keys, the HMAC key, an uploaded private
+  key) are write-only. Afterwards the page shows only **Set. Leave blank
+  to keep it.** or **Not set.** A blank field keeps the stored value;
+  nobody can read a secret back through the page.
+- The secrets live only on the server, in
+  `/etc/portikus/certificate/secrets/`, readable by root and Caddy. They
+  never appear in Caddy's saved configuration, a log, the audit log or an
+  error message.
+- The audit log records `certificate.job_requested` when an administrator
+  starts a test, change, renewal or roll back, and
+  `certificate.job_finished` with its result. It records who and what,
+  never a secret.
+- Give each DNS credential the least access that works, and revoke the
+  old one after you replace it.
+
 ## Health, logs and audit
 
 **Health** shows the host and the platform now and over time. Read it first
