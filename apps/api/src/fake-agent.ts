@@ -99,6 +99,8 @@ export interface FakeAgent {
 	listening: Map<string, AgentListeningService[]>;
 	/** Ports with a loopback forward open, keyed the same way. */
 	forwards: Map<string, Set<number>>;
+	/** Ports the fake was asked to TLS-probe, in order, keyed the same way (issue #957). */
+	probes: Map<string, number[]>;
 	/** While true, `POST /forwards` fails so the grant route's 409 shows. */
 	failForward: boolean;
 	/**
@@ -486,6 +488,9 @@ export async function startFakeAgent(
 	const listening = new Map<string, AgentListeningService[]>();
 	const listeningSockets = new Map<string, Set<WebSocket>>();
 	const forwards = new Map<string, Set<number>>();
+	const probes = new Map<string, number[]>();
+	/** Test apps that serve HTTPS, which only a probe reveals (issue #957). */
+	const httpsApps = new Set<number>();
 	const testApps: (Server | HttpsServer)[] = [];
 	const appHits = new Map<number, number>();
 
@@ -2154,6 +2159,35 @@ export async function startFakeAgent(
 		return { port, stopped: true };
 	});
 
+	/**
+	 * Settle a port's protocol, like the real agent (issue #957): the first
+	 * request "probes" (a test app started with https answers https; a seeded
+	 * row keeps its hint) and later ones are answered from the result.
+	 */
+	app.post("/listening/:port/probe", async (request, reply) => {
+		const port = Number.parseInt((request.params as { port: string }).port, 10);
+		const key = keyOf(request);
+		const service = listeningFor(key).find((one) => one.port === port);
+		if (!service) {
+			return reply.status(404).send({
+				error: { code: "LISTENER_NOT_FOUND", message: "nothing is listening" },
+			});
+		}
+		if (service.protocolKnown) return { service };
+		probes.set(key, [...(probes.get(key) ?? []), port]);
+		const probed: AgentListeningService = {
+			...service,
+			protocolHint: httpsApps.has(port) ? "https" : service.protocolHint,
+			protocolKnown: true,
+		};
+		listening.set(
+			key,
+			listeningFor(key).map((one) => (one.port === port ? probed : one)),
+		);
+		pushListening(key);
+		return { service: probed };
+	});
+
 	app.get("/forwards", async (request) => ({
 		forwards: [...(forwards.get(keyOf(request)) ?? new Set<number>())].map((port) => ({
 			port,
@@ -2212,6 +2246,9 @@ export async function startFakeAgent(
 				port: service.port ?? 0,
 				addresses: service.addresses ?? ["0.0.0.0"],
 				protocolHint: service.protocolHint ?? "http",
+				...(service.protocolKnown !== undefined
+					? { protocolKnown: service.protocolKnown }
+					: {}),
 				previewReachability: service.previewReachability ?? "reachable",
 				system: service.system ?? false,
 				...(service.process ? { process: service.process } : {}),
@@ -2243,13 +2280,15 @@ export async function startFakeAgent(
 			body.delayMs ?? 0,
 			body.https === true,
 		);
+		if (body.https === true) httpsApps.add(port);
 		const current = listeningFor(key).filter((one) => one.port !== port);
 		listening.set(key, [
 			...current,
 			{
 				port,
 				addresses: ["0.0.0.0"],
-				protocolHint: body.https === true ? "https" : "http",
+				// The real agent knows only after a preview asks it to probe.
+				protocolHint: "unknown",
 				previewReachability: "reachable",
 				system: false,
 				process: { pid: 4242, command: "node" },
@@ -2333,6 +2372,7 @@ export async function startFakeAgent(
 		},
 		listening,
 		forwards,
+		probes,
 		recoveryPoints,
 		recoveryDeletes,
 		recoveryFull,

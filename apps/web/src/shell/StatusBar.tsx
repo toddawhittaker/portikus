@@ -6,6 +6,7 @@ import { useGitStatus } from "../files/useGitStatus.js";
 import { formatBytes } from "../monitor/format.js";
 import { STORAGE_POLL_MS, useWorkspaceUsage } from "../monitor/usage.js";
 import { CRITICAL_AT, storageWarning } from "../recovery/storage.js";
+import { formatHoldEnd, holdActive, useStudentTimezone } from "./KeepRunning.js";
 import { useShowMonitor } from "./rightPane.js";
 import { useCountdown } from "./useCountdown.js";
 import {
@@ -105,6 +106,9 @@ export function StatusBar({
 	diskWarned.current = disk !== null && disk.level !== "ok";
 	const showMonitor = useShowMonitor();
 	const countdown = useCountdown(workspace?.shutdownDeadline ?? null);
+	const timeZone = useStudentTimezone();
+	const holdUntil =
+		running && holdActive(workspace) ? (workspace?.keepRunningUntil ?? null) : null;
 
 	return (
 		<footer className="pk-statusbar" data-testid="status-bar">
@@ -123,6 +127,18 @@ export function StatusBar({
 					Stopping in {countdown.clock}
 				</span>
 			)}
+			{holdUntil ? (
+				<button
+					type="button"
+					className="pk-statusbar-item"
+					aria-haspopup="dialog"
+					data-testid="keep-running-indicator"
+					onClick={() => setStatusOpen(true)}
+				>
+					Kept running until {formatHoldEnd(holdUntil, timeZone)}
+					<Icon name="chevron-up" size="sm" />
+				</button>
+			) : null}
 			{/* Announce a storage class or memory crossing a threshold (SPEC.md §19.2). */}
 			<span role="status" className="sr-only" data-testid="storage-warning-announce">
 				{warning?.announcement ?? ""}

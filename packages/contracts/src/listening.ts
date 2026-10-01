@@ -19,6 +19,13 @@ export const ListeningService = z.object({
 	port: PortNumber,
 	addresses: z.array(z.string()),
 	protocolHint: z.enum(["http", "https", "unknown"]),
+	/**
+	 * True once `protocolHint` is final for this socket: the agent has probed
+	 * it for TLS, or it is a port the agent never probes. The probe runs only
+	 * when a preview of the port is first asked for (issue #957), so until
+	 * then the hint is a guess from the port number.
+	 */
+	protocolKnown: z.boolean().optional(),
 	process: z
 		.object({
 			pid: z.number().int().optional(),

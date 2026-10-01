@@ -40,9 +40,6 @@ const HTTP_PORTS: ReadonlySet<number> = new Set([
 /** How long one TLS probe may take before the listener counts as not HTTPS. */
 export const TLS_PROBE_TIMEOUT_MS = 1000;
 
-/** How many TLS probes run at once. */
-export const TLS_PROBE_CONCURRENCY = 4;
-
 /** Ports below this are never probed. */
 const FIRST_PROBED_PORT = 1024;
 
@@ -51,7 +48,8 @@ export type TlsProbe = (host: string, port: number) => Promise<boolean>;
 /**
  * Whether a listener completes a TLS handshake (issue #283). Certificate
  * checks are off because a development server's certificate is self-signed;
- * nothing is sent after the handshake.
+ * nothing is sent after the handshake. A plain HTTP server logs the handshake
+ * as a bad request, so it runs only when a preview asks (issue #957).
  */
 export function probeTls(
 	host: string,
@@ -86,6 +84,12 @@ function probeAddress(address: string): string {
 	if (address === "0.0.0.0") return "127.0.0.1";
 	if (address === "::") return "::1";
 	return address;
+}
+
+/** The socket a TLS probe of one port dials. */
+interface ProbeTarget {
+	inode: string;
+	address: string;
 }
 
 /** One listening socket as `/proc/net/tcp` reports it. */
@@ -484,6 +488,10 @@ export class ListeningMonitor {
 	private readonly probe: TlsProbe;
 	/** Socket inode to whether it spoke TLS, so each listener is probed once. */
 	private tlsByInode = new Map<string, boolean>();
+	/** Probes running now, by inode, so racing preview requests share one. */
+	private readonly probing = new Map<string, Promise<boolean>>();
+	/** From the last scan: the socket a probe of each student port would dial. */
+	private probeTargets = new Map<number, ProbeTarget>();
 	private readonly listeners = new Set<Listener>();
 	private services: AgentListeningService[] = [];
 	private print = fingerprint([]);
@@ -792,7 +800,7 @@ export class ListeningMonitor {
 
 		const services: AgentListeningService[] = [];
 		/** The inode and address to probe for each student port. */
-		const probeTargets = new Map<number, { inode: string; address: string }>();
+		const probeTargets = new Map<number, ProbeTarget>();
 		for (const [port, listeners] of byPort) {
 			const addresses = [...new Set(listeners.map((entry) => entry.address))].sort();
 			const found = listeners
@@ -819,7 +827,7 @@ export class ListeningMonitor {
 			services.push({
 				port,
 				addresses,
-				protocolHint: HTTP_PORTS.has(port) ? "http" : "unknown",
+				...this.protocolOf(port, probeTargets.get(port)),
 				...(owner
 					? {
 							process: {
@@ -835,50 +843,63 @@ export class ListeningMonitor {
 				observedAt,
 			});
 		}
-		const https = await this.httpsPorts(probeTargets);
-		for (const service of services) {
-			if (https.has(service.port)) service.protocolHint = "https";
+		// A closed listener's answer goes with it.
+		const live = new Set([...probeTargets.values()].map((target) => target.inode));
+		for (const inode of this.tlsByInode.keys()) {
+			if (!live.has(inode)) this.tlsByInode.delete(inode);
 		}
+		this.probeTargets = probeTargets;
 		services.sort((left, right) => left.port - right.port);
 		return services;
 	}
 
 	/**
-	 * Which of these ports speak TLS (issue #283). Only a listener not seen
-	 * before is probed, at most four at a time; a closed listener's answer is
-	 * dropped with it.
+	 * The protocol fields for a port. A port the agent never probes is final
+	 * at once; a probed socket carries its answer; anything else is a guess
+	 * from the port number until a preview asks (issue #957).
 	 */
-	private async httpsPorts(
-		targets: Map<number, { inode: string; address: string }>,
-	): Promise<Set<number>> {
-		const next = new Map<string, boolean>();
-		const pending: { inode: string; address: string; port: number }[] = [];
-		for (const [port, target] of targets) {
-			const known = this.tlsByInode.get(target.inode);
-			if (known === undefined) pending.push({ ...target, port });
-			else next.set(target.inode, known);
-		}
-		let index = 0;
-		const worker = async () => {
-			while (index < pending.length) {
-				const target = pending[index];
-				index += 1;
-				if (!target) continue;
-				next.set(
-					target.inode,
-					await this.probe(probeAddress(target.address), target.port),
+	private protocolOf(
+		port: number,
+		target: ProbeTarget | undefined,
+	): Pick<AgentListeningService, "protocolHint" | "protocolKnown"> {
+		const guess = HTTP_PORTS.has(port) ? "http" : "unknown";
+		if (!target) return { protocolHint: guess, protocolKnown: true };
+		const https = this.tlsByInode.get(target.inode);
+		if (https === undefined) return { protocolHint: guess };
+		return { protocolHint: https ? "https" : guess, protocolKnown: true };
+	}
+
+	/**
+	 * Settle whether a port speaks TLS, probing its socket the first time a
+	 * preview asks (issues #283, #957). Only a socket the last scan found is
+	 * dialled, at its own loopback or bound address, so a caller names a port
+	 * and nothing else. Null when nothing listens there.
+	 */
+	async probeProtocol(port: number): Promise<AgentListeningService | null> {
+		await this.refresh();
+		const target = this.probeTargets.get(port);
+		if (target && !this.tlsByInode.has(target.inode)) {
+			let work = this.probing.get(target.inode);
+			if (!work) {
+				work = this.probe(probeAddress(target.address), port).finally(() => {
+					this.probing.delete(target.inode);
+				});
+				this.probing.set(target.inode, work);
+			}
+			const https = await work;
+			// The socket may have closed while the probe ran.
+			if (this.probeTargets.get(port)?.inode === target.inode) {
+				this.tlsByInode.set(target.inode, https);
+				this.publish(
+					this.services.map((service) => {
+						if (service.port !== port) return service;
+						const { protocolKnown: _known, ...rest } = service;
+						return { ...rest, ...this.protocolOf(port, target) };
+					}),
 				);
 			}
-		};
-		await Promise.all(
-			Array.from({ length: Math.min(TLS_PROBE_CONCURRENCY, pending.length) }, worker),
-		);
-		this.tlsByInode = next;
-		const https = new Set<number>();
-		for (const [port, target] of targets) {
-			if (next.get(target.inode)) https.add(port);
 		}
-		return https;
+		return this.services.find((service) => service.port === port) ?? null;
 	}
 
 	/**

@@ -44,6 +44,9 @@ function signatureOf(workspace: Workspace): string {
 		workspace.cpuThrottle,
 		workspace.idleStopAt,
 		workspace.memoryFlag,
+		// A hold set, ended, cut or expired shows at once (#955).
+		workspace.keepRunningUntil,
+		workspace.keepRunningMaxHours,
 	]);
 }
 

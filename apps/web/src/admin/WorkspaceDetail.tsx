@@ -647,6 +647,7 @@ function GuardSection({
 				windowMinutes: settings.data.guardWindowMinutes,
 				throttleSharePercent: settings.data.cpuThrottleSharePercent,
 				idleStopMinutes: settings.data.idleStopMinutes,
+				keepRunningMaxHours: settings.data.keepRunningMaxHours,
 			}
 		: null;
 

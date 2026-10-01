@@ -22,6 +22,8 @@ export interface FakeImage {
 	health?: "passed" | "failed" | null;
 	packages?: Record<string, string>;
 	nodeVersion?: string;
+	/** Written as size.json, as the root job records it (issue #936). */
+	sizeBytes?: number;
 }
 
 /** Write then rename, as the root job does, so the API never reads half a file. */
@@ -72,6 +74,12 @@ export async function putImage(image: FakeImage): Promise<void> {
 			packages: image.packages ?? { curl: "8.14.1-2", git: "1:2.47.3-0" },
 		}),
 	);
+	if (image.sizeBytes !== undefined) {
+		await writeAtomic(
+			join(dir, "size.json"),
+			JSON.stringify({ bytes: image.sizeBytes }),
+		);
+	}
 	if (image.health) {
 		await writeAtomic(
 			join(dir, "health.json"),

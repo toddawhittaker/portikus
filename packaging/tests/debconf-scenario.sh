@@ -555,7 +555,7 @@ ui-cache-small-disk)
 	fake_one_disk
 	cat >/usr/local/bin/df <<'STUB'
 #!/bin/sh
-[ "$*" = "-B1G --output=avail /" ] && { echo " Avail"; echo "6"; exit 0; }
+[ "$*" = "-B1 --output=avail /var/lib" ] && { echo " Avail"; echo "6442450944"; exit 0; }
 exec /usr/bin/df "$@"
 STUB
 	chmod 0755 /usr/local/bin/df
@@ -581,6 +581,40 @@ STUB
 	keys Enter
 	ui_done
 	expect "$CONFIG" portikus_registry_cache_gib 1
+	;;
+ui-cache-existing-file)
+	# Setup's rule: free space plus the old cache file, less 10 GiB.  With
+	# 11 GiB free and a 1 GiB file, 2 GiB is exactly the limit and 3 is over.
+	fake_one_disk
+	fallocate -l 1G /var/lib/portikus-registry.img
+	cat >/usr/local/bin/df <<'STUB'
+#!/bin/sh
+[ "$*" = "-B1 --output=avail /var/lib" ] && { echo " Avail"; echo "11811160064"; exit 0; }
+exec /usr/bin/df "$@"
+STUB
+	chmod 0755 /usr/local/bin/df
+	ui_start
+	ui_first_screens portikus.example.edu
+	wait_for "How people sign in"
+	keys Enter
+	wait_for "Where to keep student files"
+	keys Up Enter
+	wait_for "Erase /dev/sdb?"
+	keys Enter
+	wait_for "Size of the Docker image cache"
+	clear_field
+	typed 3
+	keys Enter
+	wait_for "Give a size from 1 to 2 GiB"
+	keys Enter
+	wait_for "Size of the Docker image cache"
+	clear_field
+	typed 2
+	keys Enter
+	wait_for "Save these answers and start setup?"
+	keys Enter
+	ui_done
+	expect "$CONFIG" portikus_registry_cache_gib 2
 	;;
 ui-host-short)
 	# A host name without a dot is not suggested, so typing the name works.

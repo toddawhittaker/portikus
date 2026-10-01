@@ -106,6 +106,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /workspaces/:id/start": { access: "owner-or-admin" },
 	"POST /workspaces/:id/stop": { access: "owner-or-admin" },
 	"POST /workspaces/:id/restart": { access: "owner-or-admin" },
+	"PUT /workspaces/:id/keep-running": owner,
+	"DELETE /workspaces/:id/keep-running": owner,
 	"GET /workspaces/:id/ws": { access: "owner-or-admin", websocket: true },
 
 	"GET /workspaces/:id/usage": owner,

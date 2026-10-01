@@ -60,6 +60,15 @@ export const IdleStopMinutes = z
 		message: "Must be 0 (never) or 10 to 1440 minutes",
 	});
 
+/** How many hours ahead a student may hold a workspace up; 0 turns holds off (#955). */
+export const KeepRunningMaxHours = z.number().int().min(0).max(168);
+
+/** Body of `PUT /workspaces/:id/keep-running`: the hold ends at `until` (#955). */
+export const SetKeepRunningRequest = z
+	.object({ until: z.string().datetime() })
+	.strict();
+export type SetKeepRunningRequest = z.infer<typeof SetKeepRunningRequest>;
+
 /** Quiet minutes before a throttle lifts on its own (#596). */
 export const CpuIdleLiftMinutes = z.number().int().min(1).max(60);
 
@@ -151,6 +160,10 @@ export const Workspace = z.object({
 	idleStopAt: z.string().datetime().nullable(),
 	/** The owner's last activity the API recorded. */
 	lastActivityAt: z.string().datetime().nullable(),
+	/** While set and ahead, grace and idle stop wait until then (#955). */
+	keepRunningUntil: z.string().datetime().nullable(),
+	/** How far ahead a hold may reach for this workspace, in hours; 0 means off. */
+	keepRunningMaxHours: KeepRunningMaxHours,
 	createdAt: z.string().datetime(),
 	updatedAt: z.string().datetime(),
 });
@@ -301,6 +314,8 @@ export const ApiErrorCode = z.enum([
 	"IMAGE_NOT_HEALTHY",
 	"IMAGE_ALREADY_DEFAULT",
 	"IMAGE_NO_PREVIOUS",
+	// Delete refused for the default or previous image (issue #936).
+	"IMAGE_IN_USE",
 	"CERTIFICATE_JOB_BUSY",
 	"CERTIFICATE_NO_PREVIOUS",
 	"CERTIFICATE_UPLOAD_REFUSED",
@@ -309,6 +324,8 @@ export const ApiErrorCode = z.enum([
 	// Shared Docker pull storage (issue #840).
 	"SEED_JOB_RUNNING",
 	"SEED_LIST_EMPTY",
+	// Keep running until (issue #955).
+	"KEEP_RUNNING_OFF",
 	"INTERNAL",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;

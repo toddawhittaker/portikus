@@ -182,7 +182,8 @@ jobs:
           name: portikus-deb
           path: dist/deb
       - name: Install apt-ftparchive
-        run: command -v apt-ftparchive || { sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils; }
+        timeout-minutes: 5
+        run: command -v apt-ftparchive || { sudo apt-get update -o Acquire::Retries=3 && sudo apt-get install -y -o Acquire::Retries=3 --no-install-recommends apt-utils; }
       # The live Pages site is the only state this stateless job has. Trust it
       # only through InRelease signed by our key, and fail closed otherwise.
       - name: Download the published packages

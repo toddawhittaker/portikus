@@ -178,6 +178,44 @@ test("stopping a port nothing is listening on is a 404", async () => {
 	expect(response.json().error.code).toBe("LISTENER_NOT_FOUND");
 });
 
+test("a probe request settles the port's protocol (issue #957)", async () => {
+	const response = await app.inject({
+		method: "POST",
+		url: `/listening/${echoPort}/probe`,
+		headers: auth(),
+	});
+	expect(response.statusCode).toBe(200);
+	expect(response.json().service).toMatchObject({
+		port: echoPort,
+		protocolHint: "unknown",
+		protocolKnown: true,
+	});
+});
+
+test("probing a port nothing is listening on is a 404", async () => {
+	const response = await app.inject({
+		method: "POST",
+		url: "/listening/4321/probe",
+		headers: auth(),
+	});
+	expect(response.statusCode).toBe(404);
+	expect(response.json().error.code).toBe("LISTENER_NOT_FOUND");
+});
+
+test("a probe request needs the token and a valid port", async () => {
+	const anonymous = await app.inject({
+		method: "POST",
+		url: `/listening/${echoPort}/probe`,
+	});
+	expect(anonymous.statusCode).toBe(401);
+	const invalid = await app.inject({
+		method: "POST",
+		url: "/listening/nope/probe",
+		headers: auth(),
+	});
+	expect(invalid.statusCode).toBe(400);
+});
+
 test("a stop request without a valid port is refused", async () => {
 	const response = await app.inject({
 		method: "POST",

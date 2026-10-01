@@ -15,6 +15,9 @@ test("each guard value keeps to the ranges the platform allows", () => {
 	expect(parseGuardValue("idleStopMinutes", "9")).toBeNull();
 	expect(parseGuardValue("idleStopMinutes", "1440")).toBe(1440);
 	expect(parseGuardValue("idleStopMinutes", "1441")).toBeNull();
+	expect(parseGuardValue("keepRunningMaxHours", "0")).toBe(0);
+	expect(parseGuardValue("keepRunningMaxHours", "168")).toBe(168);
+	expect(parseGuardValue("keepRunningMaxHours", "169")).toBeNull();
 	expect(parseGuardValue("memoryThresholdPercent", "9.5")).toBeNull();
 });
 
@@ -29,6 +32,7 @@ test("a blank field removes the override and a bad one names its range", () => {
 			windowMinutes: 45,
 			throttleSharePercent: null,
 			idleStopMinutes: null,
+			keepRunningMaxHours: null,
 		},
 	});
 	expect(guardRequest({ ...drafts, throttleSharePercent: "2" })).toEqual({
@@ -48,6 +52,7 @@ test("each field names its site setting in a hint tied to the field", () => {
 				windowMinutes: 30,
 				throttleSharePercent: 25,
 				idleStopMinutes: 60,
+				keepRunningMaxHours: 12,
 			}}
 			ownerName="Ada"
 			pending={false}

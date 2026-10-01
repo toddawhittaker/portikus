@@ -101,6 +101,8 @@ test.describe("admin audit", () => {
 		await expect(table).toBeVisible({ timeout: 15_000 });
 
 		const person = page.getByRole("combobox", { name: "Person" });
+		// Apply resolves names against the people list, which loads after the table.
+		await expect(page.locator(`#audit-people option[value="${name}"]`)).toBeAttached();
 		await person.fill(name.toLowerCase());
 		const apply = page.getByRole("button", { name: "Apply filters" });
 		await apply.click();

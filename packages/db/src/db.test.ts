@@ -605,6 +605,9 @@ describe("database migrations and schema", () => {
 					"0035_docker_seed_images_set",
 				);
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+					"0034_keep_running",
+				);
+				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 					"0033_ghcr_default_on",
 				);
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -712,6 +715,7 @@ describe("database migrations and schema", () => {
 					"0031_docker_cache",
 					"0032_docker_pull_days",
 					"0033_ghcr_default_on",
+					"0034_keep_running",
 					"0035_docker_seed_images_set",
 				]);
 				throw rollback;
@@ -737,6 +741,9 @@ describe("database migrations and schema", () => {
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
@@ -867,6 +874,9 @@ describe("database migrations and schema", () => {
 						"0035_docker_seed_images_set",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -953,6 +963,9 @@ describe("database migrations and schema", () => {
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
@@ -1346,6 +1359,9 @@ describe("database migrations and schema", () => {
 						"0035_docker_seed_images_set",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1445,6 +1461,9 @@ describe("database migrations and schema", () => {
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
@@ -1905,6 +1924,9 @@ describe("database migrations and schema", () => {
 						"0035_docker_seed_images_set",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2067,6 +2089,9 @@ describe("resource guard migration", () => {
 						"0035_docker_seed_images_set",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2116,6 +2141,9 @@ describe("resource guard migration", () => {
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
@@ -2297,6 +2325,8 @@ describe("resource guard migration", () => {
 			["idle_stop_minutes", -1],
 			["idle_stop_minutes", 9],
 			["idle_stop_minutes", 1441],
+			["keep_running_max_hours", -1],
+			["keep_running_max_hours", 169],
 		];
 		for (const [column, value] of bad) {
 			await expect(
@@ -2318,6 +2348,8 @@ describe("resource guard migration", () => {
 			["idle_stop_minutes", 0],
 			["idle_stop_minutes", 10],
 			["idle_stop_minutes", 1440],
+			["keep_running_max_hours", 0],
+			["keep_running_max_hours", 168],
 		];
 		for (const [column, value] of good) {
 			await t.db
@@ -2388,6 +2420,9 @@ describe("resource guard migration", () => {
 						"0035_docker_seed_images_set",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2429,11 +2464,13 @@ describe("resource guard migration", () => {
 						"0031_docker_cache",
 						"0032_docker_pull_days",
 						"0033_ghcr_default_on",
+						"0034_keep_running",
 						"0035_docker_seed_images_set",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
 					// Undo 0019, 0035 down to 0020, and 0018 (applied 0018, 0020 to 0035, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2471,6 +2508,7 @@ describe("resource guard migration", () => {
 						"0031_docker_cache",
 						"0032_docker_pull_days",
 						"0033_ghcr_default_on",
+						"0034_keep_running",
 						"0035_docker_seed_images_set",
 					]);
 					throw rollback;
@@ -2507,6 +2545,9 @@ describe("resource guard migration", () => {
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
@@ -2572,6 +2613,9 @@ describe("resource guard migration", () => {
 						"0035_docker_seed_images_set",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2625,6 +2669,9 @@ describe("resource guard migration", () => {
 						"0035_docker_seed_images_set",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2664,6 +2711,9 @@ describe("resource guard migration", () => {
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
@@ -2755,6 +2805,9 @@ describe("resource guard migration", () => {
 						"0035_docker_seed_images_set",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2844,6 +2897,9 @@ describe("resource guard migration", () => {
 						"0035_docker_seed_images_set",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2894,6 +2950,9 @@ describe("resource guard migration", () => {
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
@@ -2997,6 +3056,9 @@ describe("backups migration", () => {
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
@@ -3104,6 +3166,9 @@ describe("backups migration", () => {
 						"0035_docker_seed_images_set",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -3182,6 +3247,9 @@ describe("api request samples migration", () => {
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
@@ -3376,6 +3444,9 @@ describe("throttle hold migration", () => {
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",

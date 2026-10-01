@@ -53,6 +53,9 @@ class FakeHost:
         self.calls = []
         self.aliases = {}
         self.instances = set()
+        # name to the fingerprint it was made from, for workspaces the tests plant.
+        self.made_from = {}
+        self.sizes = {}
         self.urls = {}
         self.gpgv_rc = 0
         self.exec_results = {}
@@ -147,8 +150,14 @@ class FakeHost:
             name = args[-1].split("/")[-1].split("?")[0]
             self.aliases[name] = json.loads(args[4])["target"]
             return 0, ""
+        if args[:2] == ["query", "/1.0/images/" + args[1][len("/1.0/images/"):]] and len(args) == 2:
+            fp = args[1][len("/1.0/images/"):].split("?")[0]
+            if fp not in self.aliases.values():
+                return 1, ""
+            return 0, json.dumps({"fingerprint": fp, "size": self.sizes.get(fp, 880803840)})
         if args[:1] == ["list"]:
-            return 0, json.dumps([{"name": n} for n in sorted(self.instances)])
+            return 0, json.dumps([{"name": n, "config": {"volatile.base_image": self.made_from.get(n, "")}}
+                                  for n in sorted(self.instances | set(self.made_from))])
         if args[:1] == ["launch"]:
             self.instances.add(args[2])
             return 0, ""
@@ -639,7 +648,7 @@ class RollbackTest(Base):
 
 
 class PruneTest(Base):
-    def test_keeps_default_previous_the_two_newest_candidates_and_the_new_image(self):
+    def test_keeps_only_default_previous_and_the_new_image(self):
         for v in ("2026.09.10", "2026.09.11", "2026.09.12-local.202609280900",
                   "2026.09.12-local.202609281000", "2026.09.13", "2026.09.14"):
             self.put_image(v)
@@ -647,12 +656,12 @@ class PruneTest(Base):
         # Only on disk, never imported: removed like any old candidate.
         (self.images / "2026.09.09").mkdir()
         job = type("J", (), {"line": lambda self, t: None})()
-        self.runner.prune(job, keep="2026.09.12-local.202609280900")
+        self.runner.prune(job, keep="2026.09.14")
         kept = {p.name for p in self.images.iterdir() if p.is_dir()}
-        self.assertEqual(kept, {"2026.09.10", "2026.09.11", "2026.09.14", "2026.09.13",
-                                "2026.09.12-local.202609280900"})
+        self.assertEqual(kept, {"2026.09.10", "2026.09.11", "2026.09.14"})
         deleted = [c[-1] for c in self.host.calls if c[3:5] == ["image", "delete"]]
-        self.assertEqual(deleted, ["portikus-2026.09.12-local.202609281000"])
+        self.assertEqual(deleted, ["portikus-2026.09.12-local.202609280900",
+                                   "portikus-2026.09.12-local.202609281000", "portikus-2026.09.13"])
         self.assertEqual(self.aliases_file(), {"default": "2026.09.11", "previous": "2026.09.10"})
 
     def test_never_deletes_an_image_the_default_alias_points_at(self):
@@ -663,7 +672,8 @@ class PruneTest(Base):
         self.host.aliases["portikus"] = FP["2026.09.10"]
         job = type("J", (), {"line": lambda self, t: None})()
         self.runner.prune(job, keep="2026.09.14")
-        self.assertFalse([c for c in self.host.calls if c[3:5] == ["image", "delete"]])
+        deleted = [c[-1] for c in self.host.calls if c[3:5] == ["image", "delete"]]
+        self.assertEqual(deleted, ["portikus-2026.09.12", "portikus-2026.09.13"])
         self.assertEqual(self.host.aliases["portikus"], FP["2026.09.10"])
         self.assertTrue((self.images / "2026.09.10").exists())
 
@@ -684,6 +694,138 @@ class PruneTest(Base):
         finally:
             ij.mounts_under = original
         self.assertTrue(work.exists())
+
+
+class DeleteTest(Base):
+    def setUp(self):
+        super().setUp()
+        for v in ("2026.09.10", "2026.09.11", "2026.09.12"):
+            self.put_image(v)
+        self.set_default("2026.09.11", previous="2026.09.10")
+
+    def deletes(self):
+        return [c[-1] for c in self.host.calls if c[3:5] == ["image", "delete"]]
+
+    def test_deletes_a_candidate_from_incus_and_the_store(self):
+        self.host.made_from = {"ws-a": FP["2026.09.12"], "ws-b": FP["2026.09.12"], "ws-c": FP["2026.09.11"]}
+        self.request({"kind": "delete", "version": "2026.09.12"})
+        self.go()
+        self.assertEqual(self.status()["state"], "succeeded")
+        self.assertEqual(self.status()["version"], "2026.09.12")
+        self.assertEqual(self.deletes(), ["portikus-2026.09.12"])
+        self.assertNotIn("portikus-2026.09.12", self.host.aliases)
+        self.assertFalse((self.images / "2026.09.12").exists())
+        self.assertIn("2 workspace(s) were made from 2026.09.12", self.log())
+        # Workspaces are never touched: no instance is deleted or rebuilt.
+        self.assertFalse([c for c in self.host.calls if c[3:4] == ["delete"] and c[-1].startswith("ws-")])
+        self.assertEqual(self.aliases_file(), {"default": "2026.09.11", "previous": "2026.09.10"})
+
+    def test_refuses_the_default(self):
+        self.request({"kind": "delete", "version": "2026.09.11"})
+        self.go()
+        self.assertEqual(self.status()["state"], "refused")
+        self.assertEqual(self.status()["kind"], "delete")
+        self.assertEqual(self.deletes(), [])
+        self.assertTrue((self.images / "2026.09.11").exists())
+
+    def test_refuses_the_previous(self):
+        self.request({"kind": "delete", "version": "2026.09.10"})
+        self.go()
+        self.assertEqual(self.status()["state"], "refused")
+        self.assertIn("roll back", self.status()["message"])
+        self.assertEqual(self.deletes(), [])
+        self.assertTrue((self.images / "2026.09.10").exists())
+
+    def test_refuses_another_name_for_the_default_image(self):
+        self.host.aliases["portikus-2026.09.12"] = FP["2026.09.11"]
+        self.request({"kind": "delete", "version": "2026.09.12"})
+        self.go()
+        self.assertEqual(self.status()["state"], "refused")
+        self.assertEqual(self.deletes(), [])
+
+    def test_an_image_not_on_the_host_fails(self):
+        self.request({"kind": "delete", "version": "2026.09.14"})
+        self.go()
+        self.assertEqual(self.status()["state"], "failed")
+        self.assertEqual(self.deletes(), [])
+
+    def test_a_store_directory_with_no_incus_image_is_removed(self):
+        (self.images / "2026.09.09").mkdir()
+        self.request({"kind": "delete", "version": "2026.09.09"})
+        self.go()
+        self.assertEqual(self.status()["state"], "succeeded")
+        self.assertFalse((self.images / "2026.09.09").exists())
+
+    def test_delete_takes_exactly_kind_and_version(self):
+        self.assertEqual(ij.validate_request(json.dumps({
+            "id": ID, "requestedAt": "2026-09-28T12:00:00.000Z", "requestedBy": USER,
+            "request": {"kind": "delete", "version": "2026.09.12"}}).encode(), ID)["request"]["kind"], "delete")
+        for request in ({"kind": "delete"}, {"kind": "delete", "version": "../x"},
+                        {"kind": "delete", "version": "2026.09.12", "force": True}):
+            with self.assertRaises(ij.Refused):
+                ij.validate_request(json.dumps({
+                    "id": ID, "requestedAt": "2026-09-28T12:00:00.000Z", "requestedBy": USER,
+                    "request": request}).encode(), ID)
+
+
+class SizeTest(Base):
+    def test_every_finished_job_records_each_image_size(self):
+        for v in ("2026.09.10", "2026.09.11"):
+            self.put_image(v)
+        self.set_default("2026.09.11", previous="2026.09.10")
+        self.host.sizes[FP["2026.09.10"]] = 123
+        self.request({"kind": "rollback"})
+        self.go()
+        self.assertEqual(json.loads((self.images / "2026.09.10" / "size.json").read_text()), {"bytes": 123})
+        self.assertEqual(json.loads((self.images / "2026.09.11" / "size.json").read_text()), {"bytes": 880803840})
+
+    def test_an_image_incus_cannot_describe_gets_no_size(self):
+        self.put_image("2026.09.10")
+        self.host.sizes[FP["2026.09.10"]] = "big"
+        self.runner.record_sizes()
+        self.assertFalse((self.images / "2026.09.10" / "size.json").exists())
+
+
+class SharedLockTest(Base):
+    def test_the_command_line_runs_wait_for_the_lock_and_release_it(self):
+        held = os.open(self.lock, os.O_RDWR | os.O_CREAT)
+        fcntl.flock(held, fcntl.LOCK_EX)
+        entered = []
+
+        def try_enter():
+            with self.runner.locked_jobs_dir(str(self.lock)) as (jobs_fd, gid):
+                entered.append((os.path.samestat(os.fstat(jobs_fd), os.stat(self.jobs)), gid))
+
+        import threading
+        thread = threading.Thread(target=try_enter)
+        thread.start()
+        time.sleep(0.2)
+        self.assertEqual(entered, [])
+        os.close(held)
+        thread.join(5)
+        self.assertEqual(entered, [(True, os.stat(self.jobs).st_gid)])
+        # Released: a non-blocking lock now succeeds.
+        probe = os.open(self.lock, os.O_RDWR)
+        try:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(probe)
+
+    def test_recover_first_install_and_local_build_all_use_it(self):
+        used = []
+        original = self.runner.locked_jobs_dir
+
+        def spy(lock_path):
+            used.append(lock_path)
+            return original(lock_path)
+
+        self.runner.locked_jobs_dir = spy
+        self.runner.run_recover(str(self.lock))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.runner.run_first_install("2026.09.12", str(self.lock))
+            self.host.distrobuilder_rc = 1
+            self.runner.run_local_build(str(self.lock))
+        self.assertEqual(used, [str(self.lock)] * 3)
 
 
 class QueueTest(Base):
@@ -792,9 +934,10 @@ class FirstInstallTest(Base):
         self.assertEqual(self.aliases_file(), {"default": "2026.09.12", "previous": None})
         health = json.loads((self.images / "2026.09.12" / "health.json").read_text())
         self.assertEqual(health["result"], "passed")
-        # Incus holds the image; the store keeps only its manifest and health.
+        # Incus holds the image; the store keeps only its manifest, health and recorded size.
         self.assertEqual({p.name for p in self.images.iterdir()}, {"2026.09.12", "aliases.json"})
-        self.assertEqual({p.name for p in (self.images / "2026.09.12").iterdir()}, {"manifest.json", "health.json"})
+        self.assertEqual({p.name for p in (self.images / "2026.09.12").iterdir()},
+                         {"manifest.json", "health.json", "size.json"})
         jobs = self.jobs_by_kind()
         self.assertEqual({k: s["state"] for k, s in jobs.items()}, {"fetch": "succeeded", "activate": "succeeded"})
 

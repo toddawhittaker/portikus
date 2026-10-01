@@ -9,6 +9,7 @@ import {
 	GuardThresholdPercent,
 	GuardWindowMinutes,
 	IdleStopMinutes,
+	KeepRunningMaxHours,
 	ThrottleSharePercent,
 } from "./workspace.js";
 
@@ -43,6 +44,8 @@ export const PlatformSettings = z.object({
 	cpuThrottleHoldAfter: CpuThrottleHoldAfter,
 	cpuThrottleHoldHours: CpuThrottleHoldHours,
 	idleStopMinutes: IdleStopMinutes,
+	/** How far ahead a student may hold a workspace up; 0 turns holds off (#955). */
+	keepRunningMaxHours: KeepRunningMaxHours,
 	/** Null means the built-in DEFAULT_ACCEPTABLE_USE_TEXT. */
 	acceptableUseText: z.string().nullable(),
 	/** Read-only: goes up by one whenever the text changes. */
@@ -84,6 +87,7 @@ export const UpdatePlatformSettingsRequest = z
 		cpuThrottleHoldAfter: CpuThrottleHoldAfter.optional(),
 		cpuThrottleHoldHours: CpuThrottleHoldHours.optional(),
 		idleStopMinutes: IdleStopMinutes.optional(),
+		keepRunningMaxHours: KeepRunningMaxHours.optional(),
 		acceptableUseText: z
 			.string()
 			.trim()

@@ -581,20 +581,12 @@ echo "$before $plain $after" >&2
   check_output "a script gets the plain claude, not the clearing function" "file" \
     ws_student 'type -t claude'
 
-  # 17aa. A student's own git init starts on main, and the workspace agent
-  # seeds the coding agents' instructions from the image's template once.
+  # 17aa. A student's own git init starts on main.
   check_output "system git init.defaultBranch is main" "main" \
     ws_exec "git config --system init.defaultBranch"
   # shellcheck disable=SC2016  # expanded by the shell in the workspace
   check_output "a new repository starts on main" "main" \
     ws_student 'd=$(mktemp -d) && git -C "$d" init -q && git -C "$d" symbolic-ref --short HEAD; rm -rf "$d"'
-  check "the agent instructions template is in the image" \
-    ws_exec "test -s /usr/share/portikus/AGENTS.md"
-  # shellcheck disable=SC2016  # expanded by the shell in the workspace
-  check "the Codex AGENTS.md in the home is the template" \
-    ws_student 'for i in $(seq 1 30); do test -e ~/.claude/CLAUDE.md && break; sleep 1; done; cmp -s ~/.codex/AGENTS.md /usr/share/portikus/AGENTS.md'
-  check_output "the Claude CLAUDE.md in the home imports it" "@~/.codex/AGENTS.md" \
-    ws_student 'cat ~/.claude/CLAUDE.md'
 
   # 17ab. The clipboard shim turns a copy into an OSC 52 escape, because
   # a workspace has no X display (issue #125).  There is no terminal here,
@@ -706,17 +698,19 @@ EOF
     printf '\033[1;31mFAIL\033[0m  write persistence marker\n'
     fail=$((fail + 1))
   fi
-  ws_student "echo smoke-own-rule >> ~/.codex/AGENTS.md" >/dev/null 2>&1 || true
+  # An older agent wrote this import line; the agent removes only that line
+  # at its next start and keeps the student's own (issue #933).
+  ws_student 'mkdir -p ~/.claude && printf "@~/.codex/AGENTS.md\nsmoke-own-rule\n" > ~/.claude/CLAUDE.md' >/dev/null 2>&1 || true
   ssh_cmd "incus stop ${WS_NAME} --project ${PROJECT}" >/dev/null 2>&1 || true
   ssh_cmd "incus start ${WS_NAME} --project ${PROJECT}" >/dev/null 2>&1 || true
   sleep 5
 
   check "projects marker survives restart"      ws_student "cat ~/projects/.smoke-marker"
   check "Docker images survive restart"         ws_student "docker images -q"
-  # Wait until the agent listens, which is after it seeds the files.
+  # Wait until the agent listens, which is after it tidies the files.
   # shellcheck disable=SC2016  # expanded by the shell in the workspace
-  check "an edited AGENTS.md is not overwritten on restart" \
-    ws_student 'for i in $(seq 1 30); do ss -Hltn "sport = :7400" | grep -q . && break; sleep 1; done; grep -qx smoke-own-rule ~/.codex/AGENTS.md'
+  check "the old import line is gone and the student's rule stays" \
+    ws_student 'for i in $(seq 1 30); do ss -Hltn "sport = :7400" | grep -q . && break; sleep 1; done; [ "$(cat ~/.claude/CLAUDE.md)" = smoke-own-rule ]'
   # /run is cleared on stop, so an old exit record cannot explain anything.
   check "no exit record after the workspace restarts" \
     ws_exec "test -d /run/portikus-terminals && test ! -e /run/portikus-terminals/last-exit"
@@ -2059,6 +2053,14 @@ TERMPROBE
       # shellcheck disable=SC2016  # the shell inside the workspace expands it
       check "terminal shell runs in the default timezone" \
         term_probe "$term_id" 'echo $TZ' "America/New_York" - 30000
+
+      # The controller writes both agents' system instructions from the
+      # package's template at every start (issue #933). The agent tree is
+      # bind-mounted, so the template is visible inside the workspace.
+      check "Claude Code's system instructions are the package template" \
+        ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- sh -c 'cmp -s /opt/portikus/workspace-agent/agent-instructions.md /etc/claude-code/CLAUDE.md && [ \"\$(stat -c %U:%a /etc/claude-code/CLAUDE.md)\" = root:644 ]'"
+      check "Codex's prompt carries the platform instructions" \
+        ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- su -l student -c 'cd /tmp && codex debug prompt-input hi' | grep -q portikus-open"
 
       # A student who changes the zone gets it in the next terminal they
       # open, without restarting the workspace: the agent puts TZ in the new

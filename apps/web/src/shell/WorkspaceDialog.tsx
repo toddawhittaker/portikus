@@ -15,6 +15,7 @@ import { useState } from "react";
 import { useWorkspaceAction } from "../api/workspace.js";
 import { DialogError } from "../projects/DialogError.js";
 import { useResetDocker } from "../recovery/queries.js";
+import { KeepRunningSection } from "./KeepRunning.js";
 import { StorageMeters } from "./StorageMeters.js";
 
 /** What the status shows while a maintenance operation waits or runs (SPEC.md §27). */
@@ -114,6 +115,9 @@ export function WorkspaceDialog({
 							<p className="pk-text-body m-0 text-status-error">
 								{workspace.errorMessage}
 							</p>
+						) : null}
+						{workspace?.state === "running" ? (
+							<KeepRunningSection workspaceId={workspaceId} workspace={workspace} />
 						) : null}
 						<section
 							className="flex flex-col gap-3"

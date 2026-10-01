@@ -29,6 +29,10 @@ import {
 	WorkspaceVolumeName,
 } from "@portikus/contracts";
 import { type Logger, silentLogger } from "@portikus/observability";
+import {
+	AGENT_INSTRUCTIONS_HOST_PATH,
+	writeAgentInstructions,
+} from "./agent-instructions.js";
 import type { RunningAgent } from "./agent-restart.js";
 import {
 	CACHE_OFF_HOST_PATH,
@@ -249,6 +253,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly thinPoolStatusPath: string | undefined;
 	private readonly ghcrCaPath: string;
 	private readonly cacheOffPath: string;
+	private readonly agentInstructionsPath: string;
 
 	constructor(opts: {
 		client: IncusClient;
@@ -268,7 +273,11 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		/** The ghcr.io cache's CA on the host; tests point it elsewhere. */
 		ghcrCaPath?: string;
 		cacheOffPath?: string;
+		/** The agent instructions template on the host; tests point it elsewhere. */
+		agentInstructionsPath?: string;
 	}) {
+		this.agentInstructionsPath =
+			opts.agentInstructionsPath ?? AGENT_INSTRUCTIONS_HOST_PATH;
 		this.ghcrCaPath = opts.ghcrCaPath ?? GHCR_CA_HOST_PATH;
 		this.cacheOffPath = opts.cacheOffPath ?? CACHE_OFF_HOST_PATH;
 		this.client = opts.client;
@@ -298,7 +307,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				new Date(),
 				this.thinPoolStatusPath,
 			);
-			const fill = poolFillPercent(use);
+			let fill = poolFillPercent(use);
+			// A seeded Docker volume will fill the pool by up to the seed's size (SEC1, #840).
+			if (fill < POOL_FULL_PERCENT) {
+				const seedBytes = await this.seedBytesFor(name);
+				fill = poolFillPercent({ ...use, usedBytes: use.usedBytes + seedBytes });
+			}
 			if (fill >= POOL_FULL_PERCENT) {
 				throw new IncusError(
 					"POOL_FULL",
@@ -452,6 +466,21 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					"could not write the Docker registry settings; starting without them",
 				);
 			}
+		}
+
+		// Rewritten at every start, so an edit or deletion lasts one session (issue #933).
+		try {
+			await writeAgentInstructions(
+				this.client,
+				name,
+				this.agentInstructionsPath,
+				signal,
+			);
+		} catch (err) {
+			this.log.warn(
+				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				"could not write the coding-agent instructions; starting without them",
+			);
 		}
 
 		const recoveryAttached =
@@ -1265,6 +1294,21 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 		}
 		await this.ensureVolume(volume, dockerGiB);
+	}
+
+	/**
+	 * The seed's size when `name`'s Docker volume will be copied from it, else
+	 * 0. An unreadable seed counts as 0, as ensureDockerVolume then makes an
+	 * empty volume.
+	 */
+	private async seedBytesFor(name: string): Promise<number> {
+		try {
+			const seed = await this.seedInfo();
+			if (!seed || (await this.volumeExists(`${name}-docker`))) return 0;
+			return seed.sizeBytes;
+		} catch {
+			return 0;
+		}
 	}
 
 	async seedInfo(): Promise<SeedInfo | null> {

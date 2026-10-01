@@ -7,6 +7,7 @@ import {
 	AgentDuplicateProjectRequest,
 	AgentError as AgentErrorBody,
 	type AgentErrorCode,
+	AgentListeningService,
 	AgentProject,
 	AgentProjectList,
 	AgentRenameProjectRequest,
@@ -19,6 +20,7 @@ import {
 	ProcessStopResponse,
 	SetLogLevelRequest,
 } from "@portikus/contracts";
+import { z } from "zod";
 
 /** Error codes the API uses for agent trouble: the agent's own, or "unreachable". */
 export type AgentFailureCode = AgentErrorCode | "AGENT_UNAVAILABLE";
@@ -108,6 +110,22 @@ export class AgentClient {
 	/** Stop what holds a port inside the workspace (SPEC.md 18.2). */
 	async stopListener(port: number): Promise<void> {
 		await this.call("POST", `/listening/${port}/stop`, undefined, STOP_TIMEOUT_MS);
+	}
+
+	/**
+	 * Ask the agent to settle whether a port speaks TLS (issue #957). The
+	 * agent is untrusted, so an answer about another port is a failed agent.
+	 */
+	async probeProtocol(port: number): Promise<AgentListeningService> {
+		const payload = await this.call("POST", `/listening/${port}/probe`);
+		const parsed = z.object({ service: AgentListeningService }).safeParse(payload);
+		if (!parsed.success || parsed.data.service.port !== port) {
+			throw new AgentCallError(
+				"AGENT_UNAVAILABLE",
+				"The workspace agent sent a bad answer",
+			);
+		}
+		return parsed.data.service;
 	}
 
 	/**

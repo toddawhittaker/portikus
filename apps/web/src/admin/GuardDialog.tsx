@@ -1,8 +1,4 @@
-import type {
-	EffectiveGuard,
-	GuardConfig,
-	UpdateGuardRequest,
-} from "@portikus/contracts";
+import type { GuardConfig, UpdateGuardRequest } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./guardFields.js";
@@ -60,7 +56,7 @@ export function GuardDialog({
 	onOpenChange: (open: boolean) => void;
 	current: GuardConfig | null;
 	/** The site settings a blank field falls back to, once loaded. */
-	defaults: EffectiveGuard | null;
+	defaults: Record<GuardKey, number> | null;
 	ownerName: string;
 	pending: boolean;
 	serverError: string | null;
@@ -85,7 +81,7 @@ export function GuardDialog({
 			<Dialog
 				testId="guard-dialog"
 				title={`Resource guard for ${ownerName}'s workspace`}
-				description="When this workspace is slowed, flagged or stopped for inactivity. Leave a field blank to use the site setting."
+				description="When this workspace is slowed, flagged or stopped for inactivity, and how long its owner may keep it running. Leave a field blank to use the site setting."
 				footer={
 					<>
 						<Button onClick={() => onOpenChange(false)}>Cancel</Button>
