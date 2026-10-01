@@ -177,14 +177,32 @@ const ServiceAccountJson = z
 	.string()
 	.min(1)
 	.max(MAX_SERVICE_ACCOUNT_JSON)
-	.refine((text) => {
-		try {
-			const value: unknown = JSON.parse(text);
-			return typeof value === "object" && value !== null && !Array.isArray(value);
-		} catch {
-			return false;
-		}
-	}, "must be a JSON object");
+	.refine(isServiceAccountKey, "must be a Google service-account key file");
+
+/**
+ * A Google service-account key, and nothing Google's library would treat as
+ * an instruction to read a local file or fetch a URL as caddy (SPEC.md 24.8).
+ */
+function isServiceAccountKey(text: string): boolean {
+	let value: unknown;
+	try {
+		value = JSON.parse(text);
+	} catch {
+		return false;
+	}
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const key = value as Record<string, unknown>;
+	if (key.type !== "service_account") return false;
+	for (const name of ["project_id", "private_key_id", "private_key", "client_email"]) {
+		if (typeof key[name] !== "string" || key[name] === "") return false;
+	}
+	return !Object.keys(key).some(
+		(name) =>
+			name === "credential_source" ||
+			name === "token_url" ||
+			name.startsWith("external_account"),
+	);
+}
 
 function providerSchema<P extends DnsProvider>(provider: P) {
 	const fields = DNS_PROVIDER_FIELDS[provider];
@@ -426,6 +444,8 @@ export const CertificateStatusFile = z
 			.object({
 				ok: z.boolean(),
 				at: z.string().datetime(),
+				/** The certificate's name from Caddy's journal, when the job could read it. */
+				name: z.string().min(1).max(253).optional(),
 				/** Caddy's error, secrets scrubbed; null when ok. */
 				message: z.string().max(2000).nullable(),
 			})

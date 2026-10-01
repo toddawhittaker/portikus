@@ -1,15 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminCertificate,
 	CERTIFICATE_LOG_LINES,
 	CertificateJobId,
-	CertificateJobRecord,
 	CertificateJobRequest,
 	type CertificateJobRequestFile,
-	CertificateJobStatusFile,
 	type CertificateJobView,
 	CertificatePreflightRequest,
 	type CertificateSettings,
@@ -17,7 +15,14 @@ import {
 	DNS_PROVIDER_FIELDS,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import type { ZodType } from "zod";
+import {
+	allJobs,
+	auditSummary,
+	noteFinished,
+	queuedJobs,
+	queuedView,
+	readJob,
+} from "../certificate/jobs.js";
 import {
 	certificateStatusDirOf,
 	readCertificateStatus,
@@ -29,70 +34,12 @@ import {
 	systemNet,
 } from "../certificate/preflight.js";
 import { checkUpload } from "../certificate/upload-check.js";
+import { listDir, tailLines } from "../job-files.js";
 import type { ServerDeps } from "../server.js";
-import { tailLines } from "./admin-image.js";
 import { sendError } from "./project-scope.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
-const REQUEST_FILE = /^request-([0-9a-f-]{36})\.json$/;
-
-async function readJson<T>(path: string, schema: ZodType<T>): Promise<T | null> {
-	try {
-		const parsed = schema.safeParse(JSON.parse(await readFile(path, "utf8")));
-		return parsed.success ? parsed.data : null;
-	} catch {
-		return null;
-	}
-}
-
-async function listDir(path: string): Promise<string[]> {
-	try {
-		return await readdir(path);
-	} catch {
-		return [];
-	}
-}
-
-/** The request file's body is never read back: it may hold secrets. Only its name and age are used. */
-function queuedView(
-	id: string,
-	requestedAt: string | null,
-	kind: CertificateJobView["kind"],
-) {
-	const view: CertificateJobView = {
-		id,
-		kind,
-		state: "queued",
-		step: "Waiting to start",
-		message: null,
-		restored: false,
-		requestedAt,
-		startedAt: null,
-		finishedAt: null,
-		request: null,
-	};
-	return view;
-}
-
-function isFinished(job: CertificateJobView): boolean {
-	return job.state === "succeeded" || job.state === "failed" || job.state === "refused";
-}
-
-/** What an audit row may say about settings: never a secret (SPEC.md 24.8). */
-function auditSummary(settings: CertificateSettings | CertificateSettingsView | null) {
-	if (!settings) return { source: null, directory: null, provider: null };
-	if (settings.source !== "acme") {
-		return { source: settings.source, directory: null, provider: null };
-	}
-	const challenge = settings.challenge;
-	const provider =
-		challenge.mode === "http01"
-			? "http01"
-			: "dns" in challenge
-				? challenge.dns.provider
-				: challenge.provider;
-	return { source: "acme", directory: settings.directory, provider };
-}
+const BUSY_MESSAGE = "A certificate job is already waiting or running.";
 
 /** An empty secret field means "keep the stored one", the same as leaving it out. */
 function dropBlankSecrets(body: unknown): unknown {
@@ -189,82 +136,6 @@ export function registerAdminCertificateRoutes(
 		return true;
 	}
 
-	async function queuedJobs(dir: string): Promise<CertificateJobView[]> {
-		const jobs: CertificateJobView[] = [];
-		for (const name of await listDir(dir)) {
-			const match = REQUEST_FILE.exec(name);
-			if (!match?.[1] || !CertificateJobId.safeParse(match[1]).success) continue;
-			jobs.push(queuedView(match[1], null, null));
-		}
-		return jobs;
-	}
-
-	async function readJob(dir: string, id: string): Promise<CertificateJobView | null> {
-		const status = await readJson(
-			join(dir, id, "status.json"),
-			CertificateJobStatusFile,
-		);
-		const record = await readJson(join(dir, id, "request.json"), CertificateJobRecord);
-		if (!status) return record ? queuedView(id, null, record.kind) : null;
-		if (status.id !== id) return null;
-		return {
-			id,
-			kind: status.kind,
-			state: status.state,
-			step: status.step,
-			message: status.message,
-			restored: status.restored,
-			requestedAt: null,
-			startedAt: status.startedAt,
-			finishedAt: status.finishedAt,
-			request: record,
-		};
-	}
-
-	async function allJobs(dir: string): Promise<CertificateJobView[]> {
-		const jobs = await queuedJobs(dir);
-		for (const name of await listDir(dir)) {
-			if (!CertificateJobId.safeParse(name).success) continue;
-			const job = await readJob(dir, name);
-			if (job) jobs.push(job);
-		}
-		return jobs;
-	}
-
-	/** Write certificate.job_finished the first time the API sees each job finished, `reset` included. */
-	async function noteFinished(jobs: CertificateJobView[]): Promise<void> {
-		const finished = jobs.filter(isFinished);
-		if (finished.length === 0) return;
-		const seen = await db
-			.selectFrom("audit_events")
-			.select("target")
-			.where("action", "=", "certificate.job_finished")
-			.where(
-				"target",
-				"in",
-				finished.map((job) => job.id),
-			)
-			.execute();
-		const seenIds = new Set(seen.map((row) => row.target));
-		for (const job of finished) {
-			if (seenIds.has(job.id)) continue;
-			await db
-				.insertInto("audit_events")
-				.values({
-					actor: job.kind === "reset" ? "reset-certificate" : "certificate-job",
-					target: job.id,
-					action: "certificate.job_finished",
-					result: job.state === "succeeded" ? "ok" : "failed",
-					metadata: JSON.stringify({
-						kind: job.kind,
-						...auditSummary(job.request?.settings ?? null),
-						state: job.state,
-					}),
-				})
-				.execute();
-		}
-	}
-
 	function currentOf(jobs: CertificateJobView[]): CertificateJobView | null {
 		const active =
 			jobs.find((j) => j.state === "running") ?? jobs.find((j) => j.state === "queued");
@@ -282,7 +153,7 @@ export function registerAdminCertificateRoutes(
 	app.get("/admin/certificate", adminOnly, async (_request, reply) => {
 		if (off(reply) || !jobsDir || !statusDir) return;
 		const jobs = await allJobs(jobsDir);
-		await noteFinished(jobs);
+		await noteFinished(db, jobs);
 		const status = await readCertificateStatus(statusDir);
 		const out: AdminCertificate = {
 			siteName,
@@ -306,7 +177,7 @@ export function registerAdminCertificateRoutes(
 			(await queuedJobs(jobsDir)).find((j) => j.id === id.data) ??
 			null;
 		if (!job) return sendError(reply, 404, "NOT_FOUND", "No such job.");
-		await noteFinished([job]);
+		await noteFinished(db, [job]);
 		const log = await tailLines(
 			join(jobsDir, id.data, "log.txt"),
 			CERTIFICATE_LOG_LINES,
@@ -355,23 +226,13 @@ export function registerAdminCertificateRoutes(
 		}
 		const wanted = body.data;
 		if (writing) {
-			return sendError(
-				reply,
-				409,
-				"CERTIFICATE_JOB_BUSY",
-				"A certificate job is already waiting or running.",
-			);
+			return sendError(reply, 409, "CERTIFICATE_JOB_BUSY", BUSY_MESSAGE);
 		}
 		writing = true;
 		try {
 			const jobs = await allJobs(jobsDir);
 			if (jobs.some((j) => j.state === "queued" || j.state === "running")) {
-				return sendError(
-					reply,
-					409,
-					"CERTIFICATE_JOB_BUSY",
-					"A certificate job is already waiting or running.",
-				);
+				return sendError(reply, 409, "CERTIFICATE_JOB_BUSY", BUSY_MESSAGE);
 			}
 			const status = await readCertificateStatus(statusDir);
 			if (wanted.kind === "rollback" && !status?.previousAvailable) {

@@ -211,20 +211,53 @@ describe("secret values", () => {
 		expect(CertificateJobRequest.safeParse(withDns(dns)).success).toBe(false);
 	});
 
-	test("Google's service account is JSON object text", () => {
-		const ok = {
+	const serviceAccount = {
+		type: "service_account",
+		project_id: "demo-project",
+		private_key_id: "fake-key-id",
+		private_key: "FAKE-PRIVATE-KEY",
+		client_email: "caddy@demo-project.iam.gserviceaccount.com",
+		client_id: "123",
+	};
+	const google = (key: unknown) =>
+		withDns({
 			provider: "googleclouddns",
 			fields: {
 				gcp_project: "demo-project",
-				service_account_json: '{\n  "type": "service_account"\n}',
+				service_account_json: typeof key === "string" ? key : JSON.stringify(key),
 			},
-		};
-		expect(CertificateJobRequest.safeParse(withDns(ok)).success).toBe(true);
-		const notJson = {
-			provider: "googleclouddns",
-			fields: { gcp_project: "demo-project", service_account_json: "not json" },
-		};
-		expect(CertificateJobRequest.safeParse(withDns(notJson)).success).toBe(false);
+		});
+
+	test("Google's service account is a service-account key file", () => {
+		expect(CertificateJobRequest.safeParse(google(serviceAccount)).success).toBe(true);
+		expect(CertificateJobRequest.safeParse(google("not json")).success).toBe(false);
+	});
+
+	test("a key without the service-account fields is refused", () => {
+		expect(
+			CertificateJobRequest.safeParse(google({ type: "service_account" })).success,
+		).toBe(false);
+		const { client_email: _, ...noEmail } = serviceAccount;
+		expect(CertificateJobRequest.safeParse(google(noEmail)).success).toBe(false);
+		expect(
+			CertificateJobRequest.safeParse(
+				google({ ...serviceAccount, type: "authorized_user" }),
+			).success,
+		).toBe(false);
+	});
+
+	test("external-account fields that read files or fetch URLs are refused", () => {
+		// Google's library would read the file or fetch the URL as caddy (SPEC.md 24.8).
+		for (const extra of [
+			{ credential_source: { file: "/etc/shadow" } },
+			{ token_url: "http://169.254.169.254/" },
+			{ external_account_authorized_user: true },
+		]) {
+			expect(
+				CertificateJobRequest.safeParse(google({ ...serviceAccount, ...extra }))
+					.success,
+			).toBe(false);
+		}
 	});
 });
 

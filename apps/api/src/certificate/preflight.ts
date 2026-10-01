@@ -83,6 +83,8 @@ function probe(url: string, address: string): Promise<string | null> {
 			});
 			response.on("end", () => resolve(body.trim()));
 			response.on("error", () => resolve(null));
+			// After "end" this is a no-op; after a destroy it makes sure the probe settles.
+			response.on("close", () => resolve(null));
 		});
 		request.on("timeout", () => request.destroy());
 		request.on("error", () => resolve(null));
@@ -117,7 +119,11 @@ export async function runPreflight(options: {
 	const path = `${PREFLIGHT_PATH}${nonce}`;
 	const [siteReached, previewReached, port80] = await Promise.all([
 		reaches(`https://${site.hostname}${port}${path}`, siteAddresses),
-		reaches(`https://${sample}${port}${path}`, previewAddresses),
+		// On-demand TLS refuses portikus-check-* names, so HTTP-01 checks them over port 80.
+		reaches(
+			mode === "http01" ? `http://${sample}${path}` : `https://${sample}${port}${path}`,
+			previewAddresses,
+		),
 		mode === "http01"
 			? reaches(`http://${site.hostname}${path}`, siteAddresses)
 			: Promise.resolve(true),

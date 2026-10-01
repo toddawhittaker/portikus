@@ -9,6 +9,7 @@ import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { notifyOnce } from "../image/release-notices.js";
+import { allJobs, noteFinished } from "./jobs.js";
 
 /** The status directory sits beside the job directory: /var/lib/portikus/certificate. */
 export function certificateStatusDirOf(jobsDir: string): string {
@@ -44,7 +45,9 @@ export async function noticeCertificates(
 	now: Date = new Date(),
 ): Promise<void> {
 	const status = await readCertificateStatus(statusDir);
-	if (!status) return;
+	// Caddy's internal authority issues leaves that last about 12 hours and
+	// renews them itself, so an expiry notice would fire twice a day.
+	if (!status || status.source === "internal") return;
 	const limit = now.getTime() + CERTIFICATE_EXPIRY_WARNING_DAYS * 86_400_000;
 	for (const info of [status.site, status.preview]) {
 		if (!info || new Date(info.notAfter).getTime() > limit) continue;
@@ -58,14 +61,17 @@ export async function noticeCertificates(
 			body: "Open Admin, then Certificate, to renew it or change how it is issued.",
 		});
 	}
-	if (status.lastRenewal && !status.lastRenewal.ok && status.site) {
+	const renewal = status.lastRenewal;
+	if (renewal && !renewal.ok && status.site) {
+		const name = renewal.name ?? status.site.name;
+		const info = status.preview?.name === name ? status.preview : status.site;
 		await notifyOnce(db, {
 			action: "certificate.renewal_failure_noticed",
-			target: certificateKey(status.site),
+			target: `${name}@${info.notAfter}`,
 			actor: "certificate-check",
 			tone: "danger",
-			title: `The certificate for ${status.site.name} did not renew`,
-			body: "Open Admin, then Certificate, to see the error and try again.",
+			title: "A certificate did not renew",
+			body: `The certificate for ${name} did not renew. Open Admin, then Certificate, to see the error and try again.`,
 		});
 	}
 }
@@ -74,12 +80,15 @@ export async function noticeCertificates(
 export function startCertificateNotices(options: {
 	db: Kysely<Database>;
 	logger: Logger;
-	statusDir: string;
+	jobsDir: string;
 	intervalSeconds: number;
 }): () => void {
-	const { db, logger, statusDir, intervalSeconds } = options;
+	const { db, logger, jobsDir, intervalSeconds } = options;
+	const statusDir = certificateStatusDirOf(jobsDir);
 	const tick = async (): Promise<void> => {
 		try {
+			// Audit jobs that finished while no one had the page open, before the job prunes them.
+			await noteFinished(db, await allJobs(jobsDir));
 			await noticeCertificates(db, statusDir);
 		} catch (e) {
 			logger.error(
