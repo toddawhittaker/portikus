@@ -83,6 +83,7 @@ test("every admin tab's intro has a Help anchor to land on", () => {
 		"admin-network",
 		"admin-backups",
 		"admin-image",
+		"admin-certificate",
 		"admin-docker",
 		"admin-settings",
 		"instructor-course",

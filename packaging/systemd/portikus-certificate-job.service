@@ -1,0 +1,42 @@
+# Portikus site certificate job (docs/SPEC.md sections 21.12 and 24.8,
+# ADR 0046). Started by portikus-certificate-job.path for each request the
+# admin page's Certificate tab writes, and once at boot to mark a job the
+# host lost as failed and put back a half-applied change. It writes Caddy's
+# TLS snippets and secret files, runs a throwaway Caddy to obtain
+# certificates, and reloads the live Caddy.
+[Unit]
+Description=Portikus site certificate job
+After=caddy.service network-online.target
+Wants=network-online.target
+ConditionPathIsDirectory=/var/lib/portikus/certificate-jobs
+# The path unit starts this once per request; see portikus-image-job.service.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/portikus/certificate-job
+# Runs however the job ended, even when killed at the timeout.
+ExecStopPost=/usr/lib/portikus/certificate-job recover
+# A test and a production issuance, each stopped at 5 minutes, and the checks.
+TimeoutStartSec=30min
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+# The state directory and the API's trust bundle, the job and status
+# directories, and Caddy's storage, which new certificates are copied into.
+ReadWritePaths=/etc/portikus /var/lib/portikus/certificate-jobs /var/lib/portikus/certificate /var/lib/caddy
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+# The throwaway Caddy talks to the ACME service; systemctl and the journal need local sockets.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

@@ -20,6 +20,7 @@ PUBLIC_HOST="portikus.192.0.2.10.nip.io"
 PREVIEW_SUFFIX="preview.${PUBLIC_HOST}"
 PUBLIC_PORT=8443
 API_PORT=3000
+CHALLENGE_PORT=8796
 ADMIN_SOCKET=/var/lib/caddy/admin.sock
 
 pass=0
@@ -73,12 +74,28 @@ render() {
     -e "portikus_idp=${1}" \
     -e "caddy_admin_socket=${ADMIN_SOCKET}" \
     -e "dex_port=5556" \
+    -e "caddy_certificate_dir=${work}/certificate" \
+    -e "caddy_challenge_port=${CHALLENGE_PORT}" \
     -e "portikus_mock_idp_port=3002" "${@:3}" >"${work}/render.log" 2>&1 || {
     echo "error: rendering ${TEMPLATE} for ${1} failed" >&2
     cat "${work}/render.log" >&2
     exit 1
   }
 }
+
+# The Caddyfile imports the snippet the root job writes, so caddy validate
+# needs one: the internal authority's, as packaging/certificate's tests pin it.
+mkdir -p "${work}/certificate"
+cat >"${work}/certificate/tls.caddy" <<'EOF'
+(portikus_tls_global) {
+}
+(portikus_tls_site) {
+	tls internal
+}
+(portikus_tls_preview) {
+	tls internal
+}
+EOF
 
 rendered="${work}/Caddyfile"
 render dex "${rendered}"
@@ -143,7 +160,11 @@ has "the application virtual host keeps its own exact name" \
 echo ""
 echo "--- Preview virtual host ---"
 
-has "a wildcard certificate is issued by the internal authority" '^[[:space:]]+tls internal$' "${preview}"
+has "the preview host takes its certificate from the preview snippet" \
+  '^[[:space:]]+import portikus_tls_preview$' "${preview}"
+lacks "the preview host has no certificate of Ansible's own" '^[[:space:]]+tls [^{]' "${preview}"
+has "the pre-flight nonce is answered by the API before any authorization" \
+  'handle /\.well-known/portikus-preflight/\* \{' "${preview}"
 lacks "no compression on preview responses" 'encode gzip' "${preview}"
 lacks "no frame-ancestors policy of our own on preview" 'frame-ancestors' "${preview}"
 has "Caddy's Server banner is removed" '^[[:space:]]+-Server$' "${preview}"
@@ -164,14 +185,14 @@ for h in For Proto Host Method Uri; do
 done
 
 # The API decides which preview host a request is for from X-Forwarded-Host,
-# so the two routes that only talk to the API must throw the client's copy
-# away as well.  Each of the three routes imports the same snippet.
+# so the routes that only talk to the API must throw the client's copy
+# away as well.  Each of the four routes imports the same snippet.
 has "the forwarded headers are forgotten in one place" \
   '^\(portikus_forget_forwarded\) \{$' "${preview}"
-if [ "$(grep -c 'import portikus_forget_forwarded' "${preview}")" = "3" ]; then
-  ok "bootstrap, reset and the application path all forget them"
+if [ "$(grep -c 'import portikus_forget_forwarded' "${preview}")" = "4" ]; then
+  ok "bootstrap, reset, the pre-flight nonce and the application path all forget them"
 else
-  no "bootstrap, reset and the application path all forget them"
+  no "bootstrap, reset, the pre-flight nonce and the application path all forget them"
 fi
 
 has "every request is authorized by the API" \
@@ -394,6 +415,41 @@ has "with Dex, the mock provider's prefix is a 404" 'handle /mock-idp\* \{' "${a
 lacks "with Dex, nothing proxies to the mock provider" '127\.0\.0\.1:3002' "${app}"
 lacks "the /edge routes are never proxied on the public site" 'handle /edge' "${rendered}"
 
+# The API trusts any /edge request from loopback, and everything Caddy
+# proxies arrives from loopback.  So every route that proxies to the API
+# must have a path matcher that cannot cover /edge: this lists the handle
+# matcher above each API proxy, in all three files, and compares it with
+# the known routes.  A bare `handle {` or a broader prefix fails here.
+api_routes() {
+  awk -v api="reverse_proxy 127.0.0.1:${API_PORT}" '
+    /^\thandle / { m = $0; sub(/^\thandle /, "", m); sub(/ \{$/, "", m) }
+    index($0, api) { print m }
+  ' "$1" | sort -u
+}
+edge_open=0
+for f in "${rendered}" "${work}/Caddyfile.mock"; do
+  [ -n "$(api_routes "${f}")" ] || { no "no API route was found in $(basename "${f}")"; edge_open=1; }
+  while IFS= read -r m; do
+    case "${m}" in
+      /auth/\* | /workspaces\* | /admin\* | /lti/\* | /courses\* | /me/\* | /health | \
+        /.well-known/portikus-preflight/\* | /__portikus/bootstrap | /__portikus/reset) ;;
+      *)
+        no "the route '${m}' in $(basename "${f}") proxies to the API and could cover /edge"
+        edge_open=1
+        ;;
+    esac
+  done < <(api_routes "${f}")
+done
+[ "${edge_open}" = 1 ] || ok "every route that proxies to the API has a path that cannot cover /edge"
+# /__portikus/ports/* reaches the API only through forward_auth, whose fixed
+# uri replaces the client's path; so does every other forward_auth.
+if [ "$(grep -cE '^[[:space:]]+forward_auth .*127\.0\.0\.1:'"${API_PORT}"' \{$' "${rendered}")" = \
+  "$(grep -cE '^[[:space:]]+uri /(preview/authorize|edge/signin-throttle\?scope=(password|start))$' "${rendered}")" ]; then
+  ok "every authorization subrequest to the API names its own fixed path"
+else
+  no "every authorization subrequest to the API names its own fixed path"
+fi
+
 has "with the mock, /dex is a 404" 'handle /dex\* \{' "${work}/Caddyfile.mock"
 lacks "with the mock, nothing proxies to Dex" '127\.0\.0\.1:5556' "${work}/Caddyfile.mock"
 has "with the mock, the mock provider is served" \
@@ -407,29 +463,59 @@ has "PREVIEW_SUFFIX is written beside PUBLIC_URL" \
   "${REPO_ROOT}/infra/ansible/roles/portikus/templates/api.env.j2"
 
 echo ""
-echo "--- The TLS choice (docs/SPEC.md section 21.12) ---"
+echo "--- The certificate is the admin page's (docs/SPEC.md section 21.12) ---"
 
-render dex "${work}/Caddyfile.letsencrypt" -e portikus_tls=letsencrypt \
-  -e portikus_acme_email=ops@example.edu -e portikus_acme_ca=https://acme-v02.api.letsencrypt.org/directory
-render dex "${work}/Caddyfile.files" -e portikus_tls=files -e caddy_tls_dir=/etc/caddy/portikus-tls
-if [ "$(grep -cE '^[[:space:]]+tls internal$' "${rendered}")" = "2" ]; then
-  ok "internal: both sites use Caddy's own authority"
+# count_is LABEL N PATTERN FILE — exactly N lines of the file match PATTERN.
+count_is() {
+  if [ "$(grep -cE -- "$3" "$4")" = "$2" ]; then ok "$1"; else no "$1"; fi
+}
+
+has "the certificate snippet file is imported before the global options" \
+  "^import ${work}/certificate/tls\.caddy$" "${rendered}"
+if [ "$(grep -nE '^import .*/tls\.caddy$' "${rendered}" | cut -d: -f1)" -lt "$(grep -nE '^\{$' "${rendered}" | head -1 | cut -d: -f1)" ]; then
+  ok "the import comes first, so its snippets exist when used"
 else
-  no "internal: both sites use Caddy's own authority"
+  no "the import comes first, so its snippets exist when used"
 fi
-if [ "$(grep -cE '^[[:space:]]+dns cloudflare \{env\.CLOUDFLARE_API_TOKEN\}$' "${work}/Caddyfile.letsencrypt")" = "2" ]; then
-  ok "letsencrypt: both sites, the preview wildcard included, use the DNS-01 challenge"
-else
-  no "letsencrypt: both sites, the preview wildcard included, use the DNS-01 challenge"
-fi
-has "letsencrypt: the account email and the CA are set" \
-  '^[[:space:]]+tls ops@example\.edu \{$' "${work}/Caddyfile.letsencrypt"
-lacks "letsencrypt: no site uses the internal authority" 'tls internal' "${work}/Caddyfile.letsencrypt"
-if [ "$(grep -cE '^[[:space:]]+tls /etc/caddy/portikus-tls/site\.crt /etc/caddy/portikus-tls/site\.key$' "${work}/Caddyfile.files")" = "2" ]; then
-  ok "files: both sites use the copied certificate and key"
-else
-  no "files: both sites use the copied certificate and key"
-fi
+has "the global options take on-demand TLS from the snippet, asking the API on loopback" \
+  "^[[:space:]]+import portikus_tls_global http://127\.0\.0\.1:${API_PORT}/edge/certificate-ask$" "${rendered}"
+has "the application host takes its certificate from the site snippet" \
+  '^[[:space:]]+import portikus_tls_site$' "${app}"
+lacks "Ansible renders no tls directive of its own" '^[[:space:]]+tls [^{]' "${rendered}"
+lacks "no secret reaches Caddy through its environment" '\{env\.' "${rendered}"
+awk '/^\{$/ { on = 1 } on { print } on && /^\}$/ { exit }' "${rendered}" >"${work}/global-block"
+has "the global options keep Caddy's internal authority, so its root exists whatever the source" \
+  '^[[:space:]]+ca local$' "${work}/global-block"
+
+echo ""
+echo "--- Reloads keep WebSockets open (Epic 27 R19) ---"
+
+count_is "the API's WebSocket proxy and the preview proxies delay closing streams on a reload" 2 \
+  '^[[:space:]]+stream_close_delay 1h$' "${rendered}"
+awk '/^\thandle \/workspaces\* \{$/ { on = 1 } on { print } on && /^\t\}$/ { exit }' "${app}" >"${work}/workspaces-block"
+has "the /workspaces proxy, which carries every API WebSocket, has the delay" \
+  '^[[:space:]]+stream_close_delay 1h$' "${work}/workspaces-block"
+has "the preview proxies' shared rules have the delay" \
+  '^[[:space:]]+stream_close_delay 1h$' "${preview}"
+
+echo ""
+echo "--- Plain HTTP on port 80 ---"
+
+has "the site and the preview names have a plain HTTP block" \
+  "^http://${PUBLIC_HOST}, http://\*\.${PREVIEW_SUFFIX} \{$" "${rendered}"
+has "plain HTTP redirects to the public HTTPS port" \
+  "^[[:space:]]+redir https://\{host\}:${PUBLIC_PORT}\{uri\} 308$" "${rendered}"
+count_is "the pre-flight nonce is answered on the site, the preview names and plain HTTP" 3 \
+  'handle /\.well-known/portikus-preflight/\* \{' "${rendered}"
+has "the site answers the pre-flight nonce" 'handle /\.well-known/portikus-preflight/\* \{' "${app}"
+awk '/^http:\/\// { on = 1 } on { print } on && /^\}$/ { exit }' "${rendered}" >"${work}/plain-block"
+count_is "only plain HTTP passes ACME challenges on" 1 'handle /\.well-known/acme-challenge/\* \{' "${rendered}"
+awk '/handle \/\.well-known\/acme-challenge\/\* \{/ { on = 1; next } on && /^\t\}$/ { exit } on { print }' \
+  "${work}/plain-block" >"${work}/challenge-block"
+has "challenges Caddy did not start go to the certificate job's throwaway Caddy" \
+  "^[[:space:]]+reverse_proxy 127\.0\.0\.1:${CHALLENGE_PORT}$" "${work}/challenge-block"
+count_is "the challenge route proxies nowhere else" 1 'reverse_proxy' "${work}/challenge-block"
+lacks "plain HTTP sends nothing to the API's /edge routes" '/edge' "${work}/plain-block"
 
 if [ -z "${caddy_bin}" ]; then
   echo ""
@@ -457,11 +543,14 @@ else
   cat >"${work}/stubs.py" <<'PY'
 import base64, hashlib, http.server, ssl, sys, threading
 
-api_port, plain_port, tls_port, cert, key = sys.argv[1:6]
+api_port, plain_port, tls_port, cert, key, seen, challenge_port = sys.argv[1:8]
 UPSTREAMS = {"tls": (tls_port, "https"), "plain": (plain_port, "http"), "old": (plain_port, None)}
 
 class Api(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        # Every path the API is sent, for the /edge checks.
+        with open(seen, "a") as f:
+            f.write(self.path + "\n")
         label = self.headers.get("X-Forwarded-Host", "").split("-")[0]
         port, scheme = UPSTREAMS.get(label, (None, None))
         if not self.path.startswith("/preview/authorize") or port is None:
@@ -507,7 +596,8 @@ def upstream(name, port):
 
 servers = [http.server.ThreadingHTTPServer(("127.0.0.1", int(api_port)), Api),
            http.server.ThreadingHTTPServer(("127.0.0.1", int(plain_port)), upstream("plain", plain_port)),
-           http.server.ThreadingHTTPServer(("127.0.0.1", int(tls_port)), upstream("tls", tls_port))]
+           http.server.ThreadingHTTPServer(("127.0.0.1", int(tls_port)), upstream("tls", tls_port)),
+           http.server.ThreadingHTTPServer(("127.0.0.1", int(challenge_port)), upstream("challenge", challenge_port))]
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(cert, key)
 servers[2].socket = ctx.wrap_socket(servers[2].socket, server_side=True)
 for s in servers[:-1]:
@@ -541,11 +631,12 @@ PY
   live_api="$(free_port)"
   live_plain="$(free_port)"
   live_tls="$(free_port)"
+  live_challenge="$(free_port)"
 
   openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
     -keyout "${work}/up.key" -out "${work}/up.crt" >/dev/null 2>&1
   python3 "${work}/stubs.py" "${live_api}" "${live_plain}" "${live_tls}" \
-    "${work}/up.crt" "${work}/up.key" >"${work}/stubs.log" 2>&1 &
+    "${work}/up.crt" "${work}/up.key" "${work}/api-paths" "${live_challenge}" >"${work}/stubs.log" 2>&1 &
   stubs_pid=$!
 
   ansible localhost -c local -m ansible.builtin.template \
@@ -556,6 +647,8 @@ PY
     -e "portikus_api_port=${live_api}" \
     -e "portikus_idp=mock" \
     -e "caddy_admin_socket=${ADMIN_SOCKET}" \
+    -e "caddy_certificate_dir=${work}/certificate" \
+    -e "caddy_challenge_port=${live_challenge}" \
     -e "portikus_mock_idp_port=3002" >"${work}/render.log" 2>&1
   # Keep the test Caddy's admin, certificates and ports out of the host's
   # own, in the template's one global block.
@@ -618,6 +711,50 @@ PY
     "tls:ping" "$(python3 "${work}/ws.py" "tls-5173.${PREVIEW_SUFFIX}" "${live_public}" 2>&1)"
   expect "a WebSocket still works over the plain hop" \
     "plain:ping" "$(python3 "${work}/ws.py" "plain-5173.${PREVIEW_SUFFIX}" "${live_public}" 2>&1)"
+
+  # The API trusts any /edge request from loopback, and everything Caddy
+  # proxies comes from loopback, so no outside request may reach /edge.
+  site() {
+    local p="$1"
+    shift
+    curl -sk --max-time 5 --resolve "${PUBLIC_HOST}:${live_public}:127.0.0.1" "$@" \
+      "https://${PUBLIC_HOST}:${live_public}${p}" -o /dev/null
+  }
+  get plain /edge/certificate-ask?domain=evil.example -o /dev/null
+  get plain /workspaces/../edge/certificate-ask?domain=evil.example --path-as-is -o /dev/null
+  site /edge/certificate-ask?domain=evil.example
+  site /workspaces/../edge/certificate-ask?domain=evil.example --path-as-is
+  site /edge/signin-throttle?scope=start
+  get plain /.well-known/portikus-preflight/0123abcd -o /dev/null
+  if grep -q '/edge' "${work}/api-paths"; then
+    no "no request from outside reaches the API's /edge routes (got: $(grep '/edge' "${work}/api-paths" | head -3 | tr '\n' ' '))"
+  else
+    ok "no request from outside reaches the API's /edge routes"
+  fi
+  expect "a preview host sends the pre-flight nonce to the API as it is" \
+    "/.well-known/portikus-preflight/0123abcd" "$(cat "${work}/api-paths")"
+
+  # plain URL [CURL ARGS...] — a plain HTTP request to the port-80 block.
+  plain() {
+    local url="$1"
+    shift
+    curl -s --max-time 5 --path-as-is "$@" "http://127.0.0.1:${live_http}${url}"
+  }
+  expect "a site challenge Caddy did not start reaches the throwaway Caddy's port" \
+    "upstream=challenge path=/.well-known/acme-challenge/tok-site" \
+    "$(plain /.well-known/acme-challenge/tok-site -H "Host: ${PUBLIC_HOST}")"
+  expect "a preview challenge reaches the throwaway Caddy's port" \
+    "upstream=challenge path=/.well-known/acme-challenge/tok-preview" \
+    "$(plain /.well-known/acme-challenge/tok-preview -H "Host: plain-5173.${PREVIEW_SUFFIX}")"
+  expect "the /edge routes on plain HTTP only redirect" "308" \
+    "$(plain /edge/certificate-ask?domain=evil.example -H "Host: ${PUBLIC_HOST}" -o /dev/null -w '%{http_code}')"
+  expect "a path that climbs out of the challenge prefix only redirects" "308" \
+    "$(plain /.well-known/acme-challenge/../../edge/certificate-ask -H "Host: ${PUBLIC_HOST}" -o /dev/null -w '%{http_code}')"
+  if grep -q '/edge' "${work}/api-paths"; then
+    no "no plain HTTP request reaches the API's /edge routes"
+  else
+    ok "no plain HTTP request reaches the API's /edge routes"
+  fi
 
   if [ "${fail}" -gt 0 ]; then
     echo "--- caddy log ---" >&2

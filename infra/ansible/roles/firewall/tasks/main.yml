@@ -47,6 +47,22 @@
     home: /nonexistent
     create_home: false
 
+# The ruleset names caddy's account too.  The caddy package adds it the
+# same way when it is missing, and keeps one that exists.
+- name: Create caddy's group
+  ansible.builtin.group:
+    name: caddy
+    system: true
+
+- name: Create caddy's account
+  ansible.builtin.user:
+    name: caddy
+    group: caddy
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/caddy
+    create_home: true
+
 - name: Deploy nftables ruleset
   ansible.builtin.template:
     src: nftables.conf.j2

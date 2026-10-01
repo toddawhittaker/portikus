@@ -3,6 +3,7 @@ import type { ApiError } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
+import { fromLoopback } from "./loopback.js";
 import { createCounter, type Window } from "./rate-limit.js";
 
 /**
@@ -69,11 +70,6 @@ export function createSigninThrottle(options: {
 			return decide(window, total.count > allPasswords.limit);
 		},
 	};
-}
-
-function fromLoopback(request: FastifyRequest): boolean {
-	const address = request.raw.socket.remoteAddress ?? "";
-	return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
 }
 
 /**

@@ -63,6 +63,7 @@ test("the Network tab sits after Health and before Settings", async ({ page }) =
 		"Network",
 		"Backups",
 		"Workspace image",
+		"Certificate",
 		"Docker",
 		"Settings",
 	]);

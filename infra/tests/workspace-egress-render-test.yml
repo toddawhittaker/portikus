@@ -21,6 +21,7 @@
     incus_network_name: "{{ site_vars.incus_network_name }}"
     incus_network_cidr: "{{ site_vars.incus_network_cidr }}"
     portikus_controller_port: "{{ site_vars.portikus_controller_port }}"
+    caddy_challenge_port: "{{ site_vars.caddy_challenge_port }}"
     registry_cache_hub_port: "{{ site_vars.registry_cache_hub_port }}"
     registry_cache_ghcr_port: "{{ site_vars.registry_cache_ghcr_port }}"
     registry_cache_connections_per_source: "{{ site_vars.registry_cache_connections_per_source }}"
@@ -177,6 +178,13 @@
               'oif "lo" meta skuid "portikus-worker" ct state new tcp dport 3001 accept',
               'oif "lo" meta skuid "portikus-worker" ct state new meta l4proto tcp reject with tcp reset',
               'oif "lo" meta skuid "portikus-worker" ct state new reject']
+
+    - name: Check only caddy may answer on the HTTP-01 challenge port
+      ansible.builtin.assert:
+        that:
+          - >-
+            firewall_lines | select('search', '8796') | list == [
+              'oif "lo" tcp sport 8796 meta skuid != "caddy" drop']
 
     # ── The workspace proxy ───────────────────────────────────────
 

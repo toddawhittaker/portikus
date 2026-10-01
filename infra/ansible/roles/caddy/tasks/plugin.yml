@@ -1,10 +1,9 @@
 ---
-# A letsencrypt site needs Caddy with the caddy-dns/cloudflare plugin for
-# the DNS-01 challenge (docs/SPEC.md section 21.12).  It is built with xcaddy
-# from pinned versions, the Go module checksum database checking every
-# module, and put in place of the packaged binary with dpkg-divert, so the
-# package's unit, user and directories stay as they are.  Any other site
-# gets the packaged binary back.
+# Caddy is always built with xcaddy and the caddy-dns plugins the admin page
+# offers for the DNS-01 challenge (docs/SPEC.md section 21.12), from pinned
+# versions, the Go module checksum database checking every module.  It is
+# put in place of the packaged binary with dpkg-divert, so the package's
+# unit, user and directories stay as they are.
 
 - name: Read the installed Caddy version and plugins
   ansible.builtin.shell:
@@ -13,13 +12,18 @@
   changed_when: false
   failed_when: false
   check_mode: false
-  when: portikus_tls == 'letsencrypt'
 
-- name: Build and install Caddy with the Cloudflare plugin
-  when:
-    - portikus_tls == 'letsencrypt'
-    - not (caddy_modules.stdout.startswith(caddy_version ~ ' ')
-           and ('dns.providers.cloudflare ' ~ caddy_dns_cloudflare_version) in caddy_modules.stdout)
+# "dns.providers.<name> <version>" for each plugin, as list-modules prints them.
+- name: Name the plugins the build must have
+  ansible.builtin.set_fact:
+    caddy_wanted_modules: >-
+      {{ caddy_dns_plugins | map(attribute='name') | map('regex_replace', '^', 'dns.providers.')
+         | zip(caddy_dns_plugins | map(attribute='version')) | map('join', ' ') | list }}
+
+- name: Build and install Caddy with the DNS plugins
+  when: >-
+    not caddy_modules.stdout.startswith(caddy_version ~ ' ')
+    or caddy_wanted_modules | reject('in', caddy_modules.stdout_lines) | list | length > 0
   block:
     # Trixie's Go is only the bootstrap: GOTOOLCHAIN=auto fetches the
     # version Caddy's go.mod names, as for distrobuilder (docs/adr/0004).
@@ -44,15 +48,11 @@
         prefix: caddy-build-
       register: caddy_go_tmp
 
-    - name: Build Caddy
-      ansible.builtin.shell:
-        cmd: >-
-          go install github.com/caddyserver/xcaddy/cmd/xcaddy@{{ caddy_xcaddy_version }}
-          && {{ caddy_go_tmp.path }}/bin/xcaddy build {{ caddy_version }}
-          --with github.com/caddy-dns/cloudflare@{{ caddy_dns_cloudflare_version }}
-          --output {{ caddy_go_tmp.path }}/caddy-portikus
+    - name: Build xcaddy
+      ansible.builtin.command:
+        argv: [go, install, "github.com/caddyserver/xcaddy/cmd/xcaddy@{{ caddy_xcaddy_version }}"]
         chdir: "{{ caddy_go_tmp.path }}"
-      environment:
+      environment: &caddy_go_env
         GOBIN: "{{ caddy_go_tmp.path }}/bin"
         GOPATH: "{{ caddy_go_tmp.path }}"
         GOCACHE: "{{ caddy_go_tmp.path }}/cache"
@@ -61,12 +61,31 @@
         GOTOOLCHAIN: auto
       changed_when: true
 
-    - name: Check the build has the Cloudflare plugin
+    - name: Build Caddy
+      ansible.builtin.command:
+        argv: >-
+          {{ [caddy_go_tmp.path ~ '/bin/xcaddy', 'build', caddy_version]
+             + (['--with'] | product(caddy_dns_plugins | map(attribute='module')
+                | zip(caddy_dns_plugins | map(attribute='version')) | map('join', '@')) | flatten)
+             + ['--output', caddy_go_tmp.path ~ '/caddy-portikus'] }}
+        chdir: "{{ caddy_go_tmp.path }}"
+      environment: *caddy_go_env
+      changed_when: true
+
+    # xcaddy could fall back to another core version; only the pinned one is tested.
+    - name: Check the build is the pinned Caddy version
+      ansible.builtin.command:
+        argv: ["{{ caddy_go_tmp.path }}/caddy-portikus", version]
+      register: caddy_built_version
+      changed_when: false
+      failed_when: not caddy_built_version.stdout.startswith(caddy_version ~ ' ')
+
+    - name: Check the build has every plugin
       ansible.builtin.command:
         argv: ["{{ caddy_go_tmp.path }}/caddy-portikus", list-modules, --versions, --skip-standard]
       register: caddy_built_modules
       changed_when: false
-      failed_when: ('dns.providers.cloudflare ' ~ caddy_dns_cloudflare_version) not in caddy_built_modules.stdout
+      failed_when: caddy_wanted_modules | reject('in', caddy_built_modules.stdout_lines) | list | length > 0
 
     - name: Move the packaged binary aside
       ansible.builtin.command:
@@ -89,11 +108,3 @@
         path: "{{ caddy_go_tmp.path }}"
         state: absent
       when: caddy_go_tmp.path is defined
-
-# rm first: dpkg-divert will not rename the packaged binary over a file.
-- name: Put the packaged Caddy back
-  ansible.builtin.shell:
-    cmd: rm -f /usr/bin/caddy && dpkg-divert --local --rename --remove /usr/bin/caddy
-    removes: /usr/bin/caddy.distrib
-  when: portikus_tls != 'letsencrypt'
-  notify: Restart caddy

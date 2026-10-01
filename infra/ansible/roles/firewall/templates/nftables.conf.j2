@@ -104,6 +104,11 @@ table inet filter {
     oif "lo" meta skuid "portikus-worker" ct state new tcp dport {{ portikus_controller_port }} accept
     oif "lo" meta skuid "portikus-worker" ct state new meta l4proto tcp reject with tcp reset
     oif "lo" meta skuid "portikus-worker" ct state new reject
+
+    # Only the certificate job's throwaway Caddy, run as caddy, may answer
+    # the HTTP-01 challenges the live Caddy passes to this port, so another
+    # local account that binds it first gets no reply out (SPEC.md 21.12).
+    oif "lo" tcp sport {{ caddy_challenge_port }} meta skuid != "caddy" drop
   }
 }
 

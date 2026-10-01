@@ -1,61 +1,39 @@
 ---
 # Caddy is the only thing listening on the VM's public interface: it
 # terminates TLS and proxies to the control-plane services, which stay
-# bound to loopback (SPEC 24.3).  The certificate comes from Caddy's own
-# authority, Let's Encrypt, or files on the host (portikus_tls,
-# docs/SPEC.md section 21.12).
-# Follows the same apt-repo-with-checksum pattern as the incus role.
+# bound to loopback (SPEC 24.3).  The certificate is the admin page's: setup
+# only seeds it on first install (docs/SPEC.md section 21.12).
+# Installed from the release's .deb, pinned by checksum: Caddy's Cloudsmith
+# repository signs with a subkey that expired in 2024, which Debian 13's
+# apt refuses (base removes that repository first).
 
-- name: Create apt keyrings directory
+- name: Create the package cache directory
   ansible.builtin.file:
-    path: /etc/apt/keyrings
+    path: /var/cache/portikus
     state: directory
     owner: root
     group: root
     mode: "0755"
 
-- name: Download the Caddy signing key
+# Kept in the cache, so a rerun downloads nothing.
+- name: Download the Caddy package
   ansible.builtin.get_url:
-    url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
-    dest: /etc/apt/keyrings/caddy-stable.asc
-    checksum: "sha256:{{ caddy_gpg_checksum }}"
+    url: "https://github.com/caddyserver/caddy/releases/download/{{ caddy_version }}/{{ caddy_deb }}"
+    dest: "/var/cache/portikus/{{ caddy_deb }}"
+    checksum: "sha512:{{ caddy_deb_sha512 }}"
     owner: root
     group: root
     mode: "0644"
-  register: caddy_repo_key
-
-- name: Add the Caddy stable repository
-  ansible.builtin.deb822_repository:
-    name: caddy-stable
-    types: deb
-    uris: https://dl.cloudsmith.io/public/caddy/stable/deb/debian
-    suites: any-version
-    components: main
-    signed_by: /etc/apt/keyrings/caddy-stable.asc
-    state: present
-  register: caddy_repo
-
-# Base's refresh can be an hour old, so a rerun after a failed first
-# refresh would not see the repository's packages.
-- name: Read the installed packages
-  ansible.builtin.package_facts:
-    manager: apt
-
-# When the repository is new, or its package is not installed yet.
-- name: Refresh the apt index for the Caddy repository
-  ansible.builtin.apt:
-    update_cache: true
-  register: caddy_apt_refresh
+  register: caddy_deb_download
   retries: 3
   delay: 10
-  until: caddy_apt_refresh is succeeded
-  when: caddy_repo is changed or caddy_repo_key is changed or 'caddy' not in ansible_facts.packages
+  until: caddy_deb_download is succeeded
 
-# Pinned to the version CI tests against (.github/workflows/ci.yml); change both together.
+# Skipped when this version is installed.  The DNS plugin build below sits
+# behind a dpkg diversion, so the package's own binary goes to caddy.distrib.
 - name: Install Caddy
   ansible.builtin.apt:
-    name: "caddy={{ caddy_version | regex_replace('^v', '') }}"
-    state: present
+    deb: "/var/cache/portikus/{{ caddy_deb }}"
 
 # The API fetches the identity provider's discovery document over the public
 # host name.  This entry keeps that fetch on loopback, where the units'
@@ -85,98 +63,23 @@
     group: root
     mode: "0755"
 
-# ── Let's Encrypt through Cloudflare's DNS (ruling 9) ─────────────
-- name: Put the Caddy build with the Cloudflare plugin in place, or take it away
+# ── Caddy with the DNS plugins (docs/SPEC.md section 21.12) ───────
+- name: Put the Caddy build with the DNS plugins in place
   ansible.builtin.include_tasks: plugin.yml
 
-# Caddy reads the token from its environment when it starts, through the
-# {env.CLOUDFLARE_API_TOKEN} placeholder, so it is in no configuration
-# file, no command line, and not in Caddy's saved configuration.
-- name: Write Caddy's Cloudflare token
-  ansible.builtin.copy:
-    dest: /etc/portikus/caddy-dns.env
-    content: "CLOUDFLARE_API_TOKEN={{ portikus_cloudflare_api_token }}\n"
-    owner: root
-    group: root
-    mode: "0600"
-  no_log: true
-  when: portikus_tls == 'letsencrypt'
-  notify: Restart caddy
-
-# The packaged unit runs `caddy run --environ`, which would print the token
-# to the journal, so the start command is replaced without it.
-- name: Give Caddy the token's environment file
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/caddy.service.d/20-portikus-dns.conf
-    content: |
-      # Managed by Ansible (caddy role).
-      [Service]
-      EnvironmentFile=/etc/portikus/caddy-dns.env
-      ExecStart=
-      ExecStart=/usr/bin/caddy run --config /etc/caddy/Caddyfile
-    owner: root
-    group: root
-    mode: "0644"
-  when: portikus_tls == 'letsencrypt'
-  notify:
-    - Reload systemd for Caddy
-    - Restart caddy
-
-- name: Remove the token and its drop-in from a site without Let's Encrypt
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - /etc/portikus/caddy-dns.env
-    - /etc/systemd/system/caddy.service.d/20-portikus-dns.conf
-  when: portikus_tls != 'letsencrypt'
-  notify:
-    - Reload systemd for Caddy
-    - Restart caddy
-
-# ── Certificate files (files) ─────────────────────────────────────
-# Copied where the caddy user can read them, so the operator's own files
-# keep whatever owner and mode they have.
-- name: Create the site certificate directory
-  ansible.builtin.file:
-    path: "{{ caddy_tls_dir }}"
-    state: directory
-    owner: root
-    group: caddy
-    mode: "0750"
-  when: portikus_tls == 'files'
-
-- name: Copy the site certificate and key
-  ansible.builtin.copy:
-    src: "{{ item.src }}"
-    dest: "{{ caddy_tls_dir }}/{{ item.dest }}"
-    remote_src: true
-    owner: root
-    group: caddy
-    mode: "0640"
-  loop:
-    - { src: "{{ portikus_tls_cert }}", dest: site.crt }
-    - { src: "{{ portikus_tls_key }}", dest: site.key }
-  loop_control:
-    label: "{{ item.dest }}"
-  no_log: true
-  when: portikus_tls == 'files'
-  notify: Reload caddy
-
-- name: Remove the site certificate from a site without files
-  ansible.builtin.file:
-    path: "{{ caddy_tls_dir }}"
-    state: absent
-  when: portikus_tls != 'files'
+# ── The site ─────────────────────────────────────────────────────
+# The Caddyfile imports the certificate snippet, which the root job writes.
+# On first install there is none yet: Caddy keeps the configuration it has
+# until the portikus role, after the package and api.env, has the job seed
+# it (certificate.yml) and deploys the Caddyfile then.
+- name: Look for the certificate snippet
+  ansible.builtin.stat:
+    path: "{{ caddy_certificate_dir }}/tls.caddy"
+  register: caddy_tls_snippet
 
 - name: Deploy the Caddyfile
-  ansible.builtin.template:
-    src: Caddyfile.j2
-    dest: /etc/caddy/Caddyfile
-    owner: root
-    group: root
-    mode: "0644"
-  notify: Reload caddy
+  ansible.builtin.import_tasks: caddyfile.yml
+  when: caddy_tls_snippet.stat.exists
 
 # Workspaces may together promise more memory than the VM has; when it runs
 # out, the kernel kills workspace processes before Caddy.  Caddy faces the
@@ -205,85 +108,3 @@
     name: caddy
     enabled: true
     state: started
-
-# The certificate tasks below need the running configuration, so the reload
-# cannot wait until the end of the play.
-- name: Apply the Caddy configuration now
-  ansible.builtin.meta: flush_handlers
-
-# ── What the site's certificate chains to ────────────────────────
-# The API trusts this file so it can reach the identity provider through
-# Caddy, and the tests use it with curl.
-- name: Wait for Caddy to write its internal root certificate
-  ansible.builtin.wait_for:
-    path: "{{ caddy_root_cert }}"
-    timeout: 60
-  when: portikus_tls == 'internal'
-
-- name: Trust Caddy's internal root
-  ansible.builtin.copy:
-    src: "{{ caddy_root_cert }}"
-    dest: "{{ portikus_caddy_root_cert }}"
-    remote_src: true
-    owner: root
-    group: root
-    mode: "0644"
-  when: portikus_tls == 'internal'
-  notify: Restart a running API for the new trust
-
-- name: Trust the system's authorities
-  ansible.builtin.copy:
-    src: /etc/ssl/certs/ca-certificates.crt
-    dest: "{{ portikus_caddy_root_cert }}"
-    remote_src: true
-    owner: root
-    group: root
-    mode: "0644"
-  when: portikus_tls == 'letsencrypt'
-  notify: Restart a running API for the new trust
-
-- name: Read the system's authorities and the site certificate
-  ansible.builtin.slurp:
-    src: "{{ item }}"
-  loop:
-    - /etc/ssl/certs/ca-certificates.crt
-    - "{{ caddy_tls_dir }}/site.crt"
-  register: caddy_trust_parts
-  when: portikus_tls == 'files'
-
-# The site certificate itself, so a self-signed one is trusted too.
-- name: Trust the system's authorities and the site certificate
-  ansible.builtin.copy:
-    content: "{{ caddy_trust_parts.results | map(attribute='content') | map('b64decode') | join('\n') }}"
-    dest: "{{ portikus_caddy_root_cert }}"
-    owner: root
-    group: root
-    mode: "0644"
-  when: portikus_tls == 'files'
-  notify: Restart a running API for the new trust
-
-# Caddy asks for both certificates when it starts.  Setup waits, so a
-# token or DNS problem stops the play here rather than at a browser.
-- name: Wait for the Let's Encrypt certificates
-  when: portikus_tls == 'letsencrypt'
-  block:
-    - name: Wait for the site's and the preview wildcard's certificates
-      ansible.builtin.find:
-        paths: "/var/lib/caddy/.local/share/caddy/certificates/{{ portikus_acme_ca | regex_replace('^https://', '') | replace('/', '-') }}"
-        patterns:
-          - "{{ portikus_public_host }}.crt"
-          - "wildcard_.{{ portikus_preview_suffix }}.crt"
-        recurse: true
-      register: caddy_acme_certs
-      until: caddy_acme_certs.matched == 2
-      retries: 30
-      delay: 10
-
-  rescue:
-    - name: Say why the certificates are missing
-      ansible.builtin.fail:
-        msg: >-
-          Caddy has not got certificates for {{ portikus_public_host }} and
-          *.{{ portikus_preview_suffix }} after five minutes.  Its log says
-          why: journalctl -u caddy.  Check that the Cloudflare token may edit
-          DNS in that zone.

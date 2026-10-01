@@ -1,0 +1,157 @@
+---
+# The certificate on first install, the Caddyfile, and the API's trust
+# (docs/SPEC.md section 21.12).  The portikus role includes this after the
+# package, which ships the root job, and after api.env, which names the
+# site the job checks an uploaded certificate against.  The job writes all
+# certificate state; setup only hands it the install answer once.
+
+- name: Look for the root certificate job
+  ansible.builtin.stat:
+    path: "{{ caddy_certificate_job }}"
+  register: caddy_certificate_job_file
+
+- name: Require a package that has the root certificate job
+  ansible.builtin.assert:
+    that:
+      - caddy_certificate_job_file.stat.exists
+    fail_msg: >-
+      The installed portikus package has no {{ caddy_certificate_job }}, so the
+      certificate cannot be set up.  Install a newer package.
+
+# The job writes its state inside this directory but does not make it.
+# Caddy reads tls.caddy and the files in it.
+- name: Create the certificate state directory
+  ansible.builtin.file:
+    path: "{{ caddy_certificate_dir }}"
+    state: directory
+    owner: root
+    group: caddy
+    mode: "0750"
+
+- name: Look for the certificate state
+  ansible.builtin.import_tasks: state.yml
+
+- name: Seed the certificate state on first install
+  when: not caddy_certificate_state_exists
+  block:
+    - name: Turn the install answer into certificate settings
+      ansible.builtin.import_tasks: first_install_settings.yml
+
+    # The settings, secrets included, go on standard input: never in the
+    # arguments, where `ps` shows them, or in a log.
+    - name: Have the root job write the certificate state
+      ansible.builtin.command:
+        argv: ["{{ caddy_certificate_job }}", first-install]
+        stdin: "{{ caddy_first_install_settings | to_json }}"
+      register: caddy_first_install
+      changed_when: caddy_first_install.stdout | trim == 'changed'
+      failed_when: false
+      no_log: true
+      # The job rebuilds the trust bundle here, so the trust-bundle task below finds it unchanged.
+      notify: Restart a running API for the new trust
+
+    # The job's own messages name the check that failed and never a secret.
+    - name: Stop when the root job refused the install answer
+      ansible.builtin.fail:
+        msg: >-
+          {{ 'The certificate settings were refused' if caddy_first_install.rc == 2
+             else 'The certificate state could not be written' }}
+          (certificate-job first-install exit {{ caddy_first_install.rc }}):
+          {{ caddy_first_install.stderr | default('') }}
+      when: caddy_first_install.rc != 0
+
+# The job keeps the Cloudflare token in the state directory now, so no copy
+# stays in the install answers (docs/SPEC.md section 24.8).  Before the
+# ACME wait, so a failed wait does not leave it there.
+- name: Remove the Cloudflare token from the install answers
+  ansible.builtin.import_tasks: install_token.yml
+
+# A first install cut short after the secrets but before tls.caddy leaves
+# state that stops seeding, and a Caddyfile importing a missing file.
+- name: Look for the certificate's Caddyfile fragment
+  ansible.builtin.stat:
+    path: "{{ caddy_certificate_dir }}/tls.caddy"
+  register: caddy_tls_fragment
+
+- name: Stop when the certificate state is incomplete
+  ansible.builtin.fail:
+    msg: >-
+      The certificate state in {{ caddy_certificate_dir }} has no tls.caddy,
+      so an earlier setup stopped part way.  Run `sudo portikus
+      reset-certificate`, then run setup again.  The DNS token has been
+      removed from secrets.yaml, so enter it again on the Certificate page.
+  when: not caddy_tls_fragment.stat.exists
+
+- name: Put the Caddyfile in place
+  ansible.builtin.import_tasks: caddyfile.yml
+
+# The Caddyfile's pki option makes Caddy create its root as it loads.
+- name: Wait for Caddy's internal root certificate
+  ansible.builtin.wait_for:
+    path: "{{ caddy_root_cert }}"
+    timeout: 60
+
+# System authorities, Caddy's internal root and any uploaded certificate,
+# written only by the job; the API reads them only when it starts.
+- name: Rebuild the API's trust bundle
+  ansible.builtin.command:
+    argv: ["{{ caddy_certificate_job }}", trust-bundle]
+  register: caddy_trust_bundle
+  changed_when: caddy_trust_bundle.stdout | trim == 'changed'
+  notify: Restart a running API for the new trust
+
+# Caddy asks for the certificates when it loads them.  Every run waits while
+# the state's source is ACME, so a rerun after a failed wait fails the same
+# way; with the certificates in place the first look finds them.
+- name: Read the certificate settings
+  ansible.builtin.slurp:
+    path: "{{ caddy_certificate_dir }}/settings.json"
+  register: caddy_settings_file
+  failed_when: false
+
+- name: Wait for the ACME certificates
+  vars:
+    caddy_settings: "{{ (caddy_settings_file.content | default('e30=') | b64decode | from_json) }}"
+  when: caddy_settings.source | default('') == 'acme'
+  block:
+    # HTTP-01 cannot prove a wildcard, so the previews then get theirs on demand.
+    - name: Wait for the site's and the preview wildcard's certificates
+      ansible.builtin.find:
+        paths: "/var/lib/caddy/.local/share/caddy/certificates/{{ caddy_settings.directory | regex_replace('^https://', '') | replace('/', '-') }}"
+        patterns: >-
+          {{ [portikus_public_host | lower ~ '.crt']
+             + (['wildcard_.' ~ portikus_preview_suffix | lower ~ '.crt']
+                if caddy_settings.challenge.mode == 'dns01' else []) }}
+        recurse: true
+      register: caddy_acme_certs
+      until: caddy_acme_certs.matched == (2 if caddy_settings.challenge.mode == 'dns01' else 1)
+      retries: 30
+      delay: 10
+
+  rescue:
+    - name: Say why the certificates are missing
+      ansible.builtin.fail:
+        msg: >-
+          Caddy has not got its ACME certificates for {{ portikus_public_host }}
+          after five minutes.  Its log says why: journalctl -u caddy.  Run
+          `sudo portikus reset-certificate` to put the site back on the
+          internal authority, then fix the settings on the Certificate page.
+
+# ── What releases before the certificate page left behind ────────
+# Caddy read the token from its environment then.  The Caddyfile above no
+# longer does, so the running Caddy needs no restart.
+- name: Remove the old token file, its drop-in and the old certificate copy
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/portikus/caddy-dns.env
+    - /etc/systemd/system/caddy.service.d/20-portikus-dns.conf
+    - /etc/caddy/portikus-tls
+  register: caddy_old_tls
+
+# Now, not at the end of the play, so no restart before then reads the gone file.
+- name: Forget the old drop-in  # noqa: no-handler
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: caddy_old_tls is changed
