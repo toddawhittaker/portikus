@@ -13,7 +13,7 @@ import {
 	type TestDb,
 } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
-import { sql } from "kysely";
+import { type KyselyPlugin, sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
 
@@ -97,6 +97,51 @@ test.skipIf(skip)("an administrator lists every workspace", async () => {
 	expect(body.workspaces[0].id).toBe(aliceWorkspace.id);
 	expect(body.workspaces[0].activeConnections).toBe(0);
 });
+
+test.skipIf(skip)(
+	"the workspace list reads the settings row once, not once per workspace",
+	async () => {
+		for (const name of ["alice", "bob"]) {
+			const jar = new CookieJar();
+			await loginAs(app, name, jar);
+			await app.inject({
+				method: "POST",
+				url: "/workspaces",
+				headers: csrfHeaders(jar, PUBLIC_URL),
+			});
+		}
+		let settingsReads = 0;
+		const counter: KyselyPlugin = {
+			transformQuery(args) {
+				if (
+					args.node.kind === "SelectQueryNode" &&
+					JSON.stringify(args.node.from).includes('"name":"settings"')
+				) {
+					settingsReads += 1;
+				}
+				return args.node;
+			},
+			transformResult: async (args) => args.result,
+		};
+		const counted = buildTestServer(testDb.db.withPlugin(counter), mock.issuer);
+		await counted.ready();
+		try {
+			const carol = new CookieJar();
+			await loginAs(counted, "carol", carol);
+			settingsReads = 0;
+			const res = await counted.inject({
+				method: "GET",
+				url: "/admin/workspaces",
+				headers: { cookie: carol.cookieHeader() },
+			});
+			expect(res.statusCode).toBe(200);
+			expect(res.json().workspaces).toHaveLength(2);
+			expect(settingsReads).toBe(1);
+		} finally {
+			await counted.close();
+		}
+	},
+);
 
 // --- Platform settings and per-user overrides (SPEC.md §6.4) ---
 
@@ -649,15 +694,19 @@ test.skipIf(skip)(
 
 		const audits = await testDb.db
 			.selectFrom("audit_events")
-			.select(["action", "actor"])
+			.select(["action", "actor", "metadata"])
 			.where("target", "=", aliceId)
 			.where("action", "in", ["user.disabled", "user.enabled"])
 			.orderBy("id")
 			.execute();
 		const carolId = await userId("Carol");
 		expect(audits).toEqual([
-			{ action: "user.disabled", actor: `user:${carolId}` },
-			{ action: "user.enabled", actor: `user:${carolId}` },
+			{ action: "user.disabled", actor: `user:${carolId}`, metadata: null },
+			{
+				action: "user.enabled",
+				actor: `user:${carolId}`,
+				metadata: { ip: expect.any(String), userAgent: expect.any(String) },
+			},
 		]);
 	},
 );
@@ -901,6 +950,7 @@ test.skipIf(skip)(
 
 		const student = await adminPost(carol, `/admin/users/${aliceId}/demote`);
 		expect(student.statusCode).toBe(400);
+		expect(student.json().message).toBe("This account is not an administrator.");
 
 		await adminPost(carol, `/admin/users/${aliceId}/promote`);
 		const alice = new CookieJar();

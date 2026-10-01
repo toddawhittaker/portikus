@@ -9,7 +9,7 @@ import type { AgentClient } from "../agent-client.js";
 import type { ServerDeps } from "../server.js";
 import { createPendingWork, workspaceUpgradeGuard } from "./presence.js";
 import { type ProjectScope, scopedProject } from "./project-scope.js";
-import { pipeBackpressure, safeCloseCode } from "./terminals.js";
+import { pipeBackpressure, safeCloseCode } from "./terminal-pipe.js";
 
 /** How often an open events socket re-checks its session (SPEC.md §5.3). */
 const SESSION_CHECK_INTERVAL_MS = 1000;

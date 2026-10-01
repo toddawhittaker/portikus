@@ -29,7 +29,13 @@ import { type AgentClient, agentClientFor, readJson } from "../agent-client.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import type { ListeningRegistry } from "../preview/registry.js";
 import type { ServerDeps } from "../server.js";
-import { countActive, fromJson, toWorkspace } from "./workspace-view.js";
+import {
+	countActive,
+	fromJson,
+	loadWorkspaceSettings,
+	toWorkspace,
+	type WorkspaceRow,
+} from "./workspace-view.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 
@@ -114,40 +120,29 @@ async function loadHostCpu(
 	return { cpuCount, profileCpu: countIncusCpus(profileLimits.cpu) ?? cpuCount };
 }
 
-/** A jsonb quota column, or null when it is unset. */
-function toQuota(value: unknown): QuotaConfig | null {
-	if (value === null || value === undefined) return null;
-	const raw = typeof value === "string" ? JSON.parse(value) : value;
-	return raw as QuotaConfig;
-}
-
-function iso(value: unknown): string | null {
-	return value ? new Date(value as Date).toISOString() : null;
+function iso(value: Date | null): string | null {
+	return value ? value.toISOString() : null;
 }
 
 /** One workspace as a row of the admin list shows it. */
 export function toWorkspaceSummary(
-	row: Record<string, unknown>,
+	row: WorkspaceRow,
 	activeConnections: number,
 	facts: ImageFacts | null,
 	defaults: QuotaConfig,
 ): AdminWorkspaceSummary {
 	return {
-		id: row.id as string,
-		label: row.label as string,
-		state: row.state as string,
-		desiredState: row.desired_state as string,
+		id: row.id,
+		label: row.label,
+		state: row.state,
+		desiredState: row.desired_state,
 		activeConnections,
 		lastActiveConnectionAt: iso(row.last_active_connection_at),
-		quotaConfig: toQuota(row.quota_config) ?? defaults,
-		quotaApplied: toQuota(row.quota_applied),
-		image: toImageVersion(
-			(row.incus_instance_name as string | null) ?? null,
-			(row.image_version as string | null) ?? null,
-			facts,
-		),
+		quotaConfig: fromJson<QuotaConfig>(row.quota_config) ?? defaults,
+		quotaApplied: fromJson<QuotaConfig>(row.quota_applied),
+		image: toImageVersion(row.incus_instance_name, row.image_version, facts),
 		archivedAt: iso(row.archived_at),
-		pendingOperation: (row.pending_operation as PendingOperation | null) ?? null,
+		pendingOperation: row.pending_operation as PendingOperation | null,
 		cpuThrottle: fromJson<CpuThrottle>(row.cpu_throttle),
 		memoryFlag: fromJson<MemoryFlag>(row.memory_flag),
 	};
@@ -253,13 +248,13 @@ export function registerAdminWorkspaceRoutes(
 		dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
 	};
 
-	async function loadRow(id: string): Promise<Record<string, unknown> | null> {
+	async function loadRow(id: string): Promise<WorkspaceRow | null> {
 		const row = await db
 			.selectFrom("workspaces")
 			.selectAll()
 			.where("id", "=", id)
 			.executeTakeFirst();
-		return (row as Record<string, unknown> | undefined) ?? null;
+		return row ?? null;
 	}
 
 	app.get("/admin/workspaces/:id", adminOnly, async (request, reply) => {
@@ -302,6 +297,9 @@ export function registerAdminWorkspaceRoutes(
 				"guard_window_minutes",
 				"cpu_throttle_share_percent",
 				"idle_stop_minutes",
+				"cpu_idle_lift_minutes",
+				"cpu_idle_lift_percent",
+				"keep_running_max_hours",
 			])
 			.where("id", "=", 1)
 			.executeTakeFirst();
@@ -311,7 +309,7 @@ export function registerAdminWorkspaceRoutes(
 
 		const facts = await loadImageFacts(db);
 		const body: AdminWorkspaceDetail = {
-			workspace: await toWorkspace(db, row, await countActive(db, id, config), config),
+			workspace: toWorkspace(row, await countActive(db, id, config), config, settings),
 			owner: {
 				id: owner.id,
 				displayName: owner.display_name,
@@ -319,12 +317,8 @@ export function registerAdminWorkspaceRoutes(
 				preferredUsername: owner.preferred_username,
 				disabledAt: iso(owner.disabled_at),
 			},
-			quotaApplied: toQuota(row.quota_applied),
-			image: toImageVersion(
-				(row.incus_instance_name as string | null) ?? null,
-				(row.image_version as string | null) ?? null,
-				facts,
-			),
+			quotaApplied: fromJson<QuotaConfig>(row.quota_applied),
+			image: toImageVersion(row.incus_instance_name, row.image_version, facts),
 			agent,
 			usage,
 			storage,
@@ -390,9 +384,14 @@ export function registerAdminWorkspaceRoutes(
 				});
 			});
 		}
-		const updated = (await loadRow(id)) as Record<string, unknown>;
+		const updated = (await loadRow(id)) as WorkspaceRow;
 		reply.send(
-			await toWorkspace(db, updated, await countActive(db, id, config), config),
+			await toWorkspace(
+				updated,
+				await countActive(db, id, config),
+				config,
+				await loadWorkspaceSettings(db),
+			),
 		);
 	}
 
@@ -426,7 +425,7 @@ export function registerAdminWorkspaceRoutes(
 				"This workspace is still being created. Try again in a moment.",
 			);
 		}
-		const stored = toQuota(row.quota_config);
+		const stored = fromJson<QuotaConfig>(row.quota_config);
 		const from = stored
 			? { homeGiB: stored.homeGiB, dockerGiB: stored.dockerGiB }
 			: defaults;
@@ -471,8 +470,13 @@ export function registerAdminWorkspaceRoutes(
 				);
 			}
 		}
-		const updated = (await loadRow(id)) as Record<string, unknown>;
-		return toWorkspace(db, updated, await countActive(db, id, config), config);
+		const updated = (await loadRow(id)) as WorkspaceRow;
+		return toWorkspace(
+			updated,
+			await countActive(db, id, config),
+			config,
+			await loadWorkspaceSettings(db),
+		);
 	});
 	// PUT /admin/workspaces/:id/guard -- per-workspace guard overrides (ADR 0032).
 	app.put("/admin/workspaces/:id/guard", adminOnly, async (request, reply) => {
@@ -712,7 +716,12 @@ export function registerAdminWorkspaceRoutes(
 				"Only a workspace in error can be re-provisioned.",
 			);
 		}
-		const updated = (await loadRow(id)) as Record<string, unknown>;
-		return toWorkspace(db, updated, await countActive(db, id, config), config);
+		const updated = (await loadRow(id)) as WorkspaceRow;
+		return toWorkspace(
+			updated,
+			await countActive(db, id, config),
+			config,
+			await loadWorkspaceSettings(db),
+		);
 	});
 }

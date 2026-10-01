@@ -21,6 +21,7 @@ import {
 	findOwnedWorkspace,
 	findWorkspaceOwnedBy,
 	fromJson,
+	loadWorkspaceSettings,
 	toWorkspace,
 } from "./workspace-view.js";
 
@@ -56,11 +57,11 @@ export function registerWorkspaceRoutes(
 			.executeTakeFirst();
 
 		if (existing) {
-			const active = await countActive(db, existing.id as string, config);
+			const active = await countActive(db, existing.id, config);
 			return reply
 				.status(200)
 				.send(
-					await toWorkspace(db, existing as Record<string, unknown>, active, config),
+					await toWorkspace(existing, active, config, await loadWorkspaceSettings(db)),
 				);
 		}
 
@@ -114,10 +115,12 @@ export function registerWorkspaceRoutes(
 					.selectAll()
 					.where("owner_user_id", "=", ownerUserId)
 					.executeTakeFirstOrThrow();
-				const active = await countActive(db, row.id as string, config);
+				const active = await countActive(db, row.id, config);
 				return reply
 					.status(200)
-					.send(await toWorkspace(db, row as Record<string, unknown>, active, config));
+					.send(
+						await toWorkspace(row, active, config, await loadWorkspaceSettings(db)),
+					);
 			}
 			throw err;
 		}
@@ -136,7 +139,7 @@ export function registerWorkspaceRoutes(
 			.executeTakeFirstOrThrow();
 		return reply
 			.status(201)
-			.send(await toWorkspace(db, created as Record<string, unknown>, 0, config));
+			.send(await toWorkspace(created, 0, config, await loadWorkspaceSettings(db)));
 	});
 
 	// GET /workspaces/:id
@@ -152,7 +155,7 @@ export function registerWorkspaceRoutes(
 		}
 
 		const active = await countActive(db, params.id, config);
-		return toWorkspace(db, row, active, config);
+		return toWorkspace(row, active, config, await loadWorkspaceSettings(db));
 	});
 
 	// POST /workspaces/:id/start
@@ -244,7 +247,7 @@ export function registerWorkspaceRoutes(
 			},
 		});
 		const active = await countActive(db, params.id, config);
-		return toWorkspace(db, updated as Record<string, unknown>, active, config);
+		return toWorkspace(updated, active, config, await loadWorkspaceSettings(db));
 	});
 
 	// DELETE /workspaces/:id/keep-running -- end the hold early (#955). The
@@ -273,7 +276,12 @@ export function registerWorkspaceRoutes(
 			.returningAll()
 			.executeTakeFirst();
 		if (!updated) {
-			return toWorkspace(db, row, await countActive(db, params.id, config), config);
+			return toWorkspace(
+				row,
+				await countActive(db, params.id, config),
+				config,
+				await loadWorkspaceSettings(db),
+			);
 		}
 		await recordAudit(db, {
 			actor: `user:${user.id}`,
@@ -283,7 +291,7 @@ export function registerWorkspaceRoutes(
 			metadata: { reason: "ended_early" },
 		});
 		const active = await countActive(db, params.id, config);
-		return toWorkspace(db, updated as Record<string, unknown>, active, config);
+		return toWorkspace(updated, active, config, await loadWorkspaceSettings(db));
 	});
 
 	// Helper: set desired_state and write audit
