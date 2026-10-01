@@ -97,6 +97,64 @@ export interface ListeningRegistry {
 	stop(): Promise<void>;
 }
 
+/** How long a failed or unsettled probe stops further probes of that port. */
+export const PROBE_MEMO_MS = 30_000;
+
+/**
+ * Guards the agent's TLS probe (issue #957). The authorize route has no rate
+ * limit, so a crashed or hostile agent must cost the shared API at most one
+ * call per port per memo window, and concurrent requests share one call.
+ * Resolves to the agent's final answer, or null when the guess must stand.
+ */
+export function createProbeGuard(deps: {
+	probe(workspaceId: string, port: number): Promise<AgentListeningService>;
+	logger: Logger;
+}): (workspaceId: string, port: number) => Promise<AgentListeningService | null> {
+	const now = (): number => Date.now();
+	const inFlight = new Map<string, Promise<AgentListeningService | null>>();
+	const memoUntil = new Map<string, number>();
+
+	async function run(
+		key: string,
+		workspaceId: string,
+		port: number,
+	): Promise<AgentListeningService | null> {
+		try {
+			const answer = await deps.probe(workspaceId, port);
+			// The agent leaves it unprobed when the socket was replaced mid-probe.
+			if (answer.protocolKnown === true) return answer;
+			memoUntil.set(key, now() + PROBE_MEMO_MS);
+			return null;
+		} catch (error) {
+			memoUntil.set(key, now() + PROBE_MEMO_MS);
+			const status = error instanceof AgentCallError ? error.status : undefined;
+			const fields = {
+				workspaceId,
+				port,
+				code: error instanceof AgentCallError ? error.code : "INTERNAL",
+			};
+			// An agent older than the probe route answers 404; that is expected.
+			if (status === 404) deps.logger.debug(fields, "protocol probe not supported");
+			else deps.logger.warn(fields, "protocol probe failed");
+			return null;
+		}
+	}
+
+	return (workspaceId, port) => {
+		const key = `${workspaceId}:${port}`;
+		const until = memoUntil.get(key);
+		if (until !== undefined) {
+			if (now() < until) return Promise.resolve(null);
+			memoUntil.delete(key);
+		}
+		const already = inFlight.get(key);
+		if (already) return already;
+		const work = run(key, workspaceId, port).finally(() => inFlight.delete(key));
+		inFlight.set(key, work);
+		return work;
+	};
+}
+
 export interface RegistryDeps {
 	db: Kysely<Database>;
 	config: ApiConfig;
@@ -113,6 +171,14 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 	let poller: NodeJS.Timeout | null = null;
 	let stopped = false;
 	const pending = new Set<Promise<unknown>>();
+	const probeGuard = createProbeGuard({
+		logger,
+		probe: (workspaceId, port) => {
+			const entry = entries.get(workspaceId);
+			if (!entry) throw new AgentCallError("AGENT_UNAVAILABLE", "no agent connection");
+			return entry.client.probeProtocol(port);
+		},
+	});
 
 	function track(work: Promise<unknown>): void {
 		pending.add(work);
@@ -278,25 +344,13 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 			const entry = entries.get(workspaceId);
 			const service = entry?.services.find((one) => one.port === port);
 			if (!entry || !service || service.protocolKnown) return service;
-			let probed: AgentListeningService;
-			try {
-				probed = await entry.client.probeProtocol(port);
-			} catch (error) {
-				logger.warn(
-					{
-						workspaceId,
-						port,
-						code: error instanceof AgentCallError ? error.code : "INTERNAL",
-					},
-					"protocol probe failed",
-				);
-				return service;
-			}
+			const probed = await probeGuard(workspaceId, port);
+			if (!probed) return service;
 			// Record it now; the agent's own report follows on the events socket.
 			const settled: ListeningService = {
 				...service,
 				protocolHint: probed.protocolHint,
-				protocolKnown: probed.protocolKnown ?? true,
+				protocolKnown: true,
 			};
 			entry.services = entry.services.map((one) => (one.port === port ? settled : one));
 			return settled;
