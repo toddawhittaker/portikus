@@ -14,8 +14,10 @@ import {
 } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { MAX_LISTENING_SERVICES } from "@portikus/contracts";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
+	capServices,
 	type DockerContainer,
 	decodeHexAddress,
 	isSystemListener,
@@ -1105,4 +1107,29 @@ test("a port nothing listens on is not probed", async () => {
 	});
 	expect(await monitor.probeProtocol(5173)).toBeNull();
 	expect(probed).toEqual([]);
+});
+
+// --- the cap on listed services ---
+
+test("caps the list at the contract's maximum, student listeners first", () => {
+	const make = (port: number, system: boolean) => ({
+		port,
+		addresses: ["0.0.0.0"],
+		protocolHint: "http" as const,
+		previewReachability: "reachable" as const,
+		system,
+		observedAt: "now",
+	});
+	const system = Array.from({ length: 10 }, (_, index) => make(index + 1, true));
+	const student = Array.from({ length: MAX_LISTENING_SERVICES + 5 }, (_, index) =>
+		make(2000 + index, false),
+	);
+	const kept = capServices([...system, ...student]);
+	expect(kept).toHaveLength(MAX_LISTENING_SERVICES);
+	expect(kept.every((service) => !service.system)).toBe(true);
+	expect(kept.map((service) => service.port)).toEqual(
+		student.slice(0, MAX_LISTENING_SERVICES).map((service) => service.port),
+	);
+	const few = [make(3, true), make(1, false)];
+	expect(capServices(few)).toBe(few);
 });

@@ -265,10 +265,16 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 				return; // A malformed frame from the container is ignored.
 			}
 			const frame = AgentListeningServicesChanged.safeParse(parsed);
+			// Over-long or invalid frames are dropped and the last list kept;
+			// the socket stays open so a bad agent cannot force a reconnect loop.
 			if (!frame.success) return;
+			const previous = new Map(entry.services.map((one) => [one.port, one]));
 			for (const next of frame.data.services) {
-				const before = entry.services.find((one) => one.port === next.port);
-				if (before?.protocolHint !== next.protocolHint) {
+				const before = previous.get(next.port);
+				// A restarted server on the same port comes back unprobed with
+				// the same guessed hint, so losing "known" also clears the memo.
+				const relisted = before?.protocolKnown === true && next.protocolKnown !== true;
+				if (before?.protocolHint !== next.protocolHint || relisted) {
 					probeGuard.forgetPort(workspaceId, next.port);
 				}
 			}
