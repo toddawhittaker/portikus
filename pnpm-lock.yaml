@@ -211,6 +211,9 @@ importers:
       '@fastify/websocket':
         specifier: 11.3.1
         version: 11.3.1
+      '@portikus/agent-client':
+        specifier: workspace:*
+        version: link:../../packages/agent-client
       '@portikus/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -333,6 +336,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@portikus/agent-client':
+        specifier: workspace:*
+        version: link:../../packages/agent-client
       '@portikus/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -417,6 +423,16 @@ importers:
       tsx:
         specifier: 4.23.15
         version: 4.23.15
+
+  packages/agent-client:
+    dependencies:
+      '@portikus/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@types/node':
+        specifier: 24.19.0
+        version: 24.19.0
 
   packages/auth:
     dependencies:

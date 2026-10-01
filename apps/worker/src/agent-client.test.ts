@@ -1,7 +1,7 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { HttpRecoveryAgent } from "./agent-client.js";
+import { fetchDockerInventory, HttpRecoveryAgent } from "./agent-client.js";
 
 let handler: http.RequestListener = () => {};
 let server: http.Server;
@@ -31,7 +31,7 @@ test("a reply over 1 MiB is refused, not buffered", async () => {
 	};
 	await expect(agent().createRecoveryPoint("p", REQ)).rejects.toMatchObject({
 		code: "AGENT_UNAVAILABLE",
-		message: "Agent response too large",
+		message: "agent response too large",
 	});
 });
 
@@ -79,4 +79,54 @@ test("a good reply is parsed", async () => {
 		created: false,
 		fingerprint: "a".repeat(64),
 	});
+});
+
+test("a reply that breaks mid-body is a failed agent", async () => {
+	handler = (_req, res) => {
+		res.writeHead(200, {
+			"Content-Type": "application/json",
+			"Content-Length": "1000",
+		});
+		res.write('{"created":');
+		setTimeout(() => res.destroy(), 20);
+	};
+	await expect(agent().createRecoveryPoint("p", REQ)).rejects.toMatchObject({
+		code: "AGENT_UNAVAILABLE",
+	});
+});
+
+test("an empty reply to a delete is success", async () => {
+	handler = (_req, res) => {
+		res.writeHead(204);
+		res.end();
+	};
+	await expect(agent().deleteRecoveryPoint("a", "b")).resolves.toBeUndefined();
+});
+
+test("an agent error without a readable body is unavailable", async () => {
+	handler = (_req, res) => {
+		res.writeHead(500);
+		res.end();
+	};
+	await expect(agent().deleteRecoveryPoint("a", "b")).rejects.toMatchObject({
+		code: "AGENT_UNAVAILABLE",
+	});
+});
+
+test("the docker inventory is null on a redirect, an oversize reply or a bad shape", async () => {
+	handler = (_req, res) => {
+		res.writeHead(307, { Location: "/elsewhere" });
+		res.end();
+	};
+	await expect(fetchDockerInventory("127.0.0.1", port, "t")).resolves.toBeNull();
+	handler = (_req, res) => {
+		res.writeHead(200, { "Content-Type": "application/json" });
+		res.end(`"${"x".repeat(9 * 1024 * 1024)}"`);
+	};
+	await expect(fetchDockerInventory("127.0.0.1", port, "t")).resolves.toBeNull();
+	handler = (_req, res) => {
+		res.writeHead(200, { "Content-Type": "application/json" });
+		res.end("{}");
+	};
+	await expect(fetchDockerInventory("127.0.0.1", port, "t")).resolves.toBeNull();
 });

@@ -1,4 +1,11 @@
 import {
+	AgentCallError,
+	AgentStreamError,
+	callAgent,
+	readJson as readCappedJson,
+	throwOnRedirect,
+} from "@portikus/agent-client";
+import {
 	AgentCreateProjectRequest,
 	AgentCreateRecoveryPointRequest,
 	AgentCreateRecoveryPointResponse,
@@ -22,22 +29,24 @@ import {
 } from "@portikus/contracts";
 import { z } from "zod";
 
-/** Error codes the API uses for agent trouble: the agent's own, or "unreachable". */
-export type AgentFailureCode = AgentErrorCode | "AGENT_UNAVAILABLE";
+export { AgentCallError };
 
-/** A failed call to the workspace agent (ADR 0009; SPEC.md §9.7). */
-export class AgentCallError extends Error {
-	readonly code: AgentFailureCode;
-	/** The agent's HTTP status, when it answered with one. */
-	readonly status: number | undefined;
-
-	constructor(code: AgentFailureCode, message: string, status?: number) {
-		super(message);
-		this.name = "AgentCallError";
-		this.code = code;
-		this.status = status;
+/**
+ * Read an agent JSON body under the byte cap (SPEC.md §24.6). In the API a
+ * body that breaks mid-stream reads as undefined, so a route answers that the
+ * reply could not be read rather than failing with a 500.
+ */
+export async function readJson(response: Response): Promise<unknown> {
+	try {
+		return await readCappedJson(response);
+	} catch (error) {
+		if (error instanceof AgentStreamError) return undefined;
+		throw error;
 	}
 }
+
+/** Error codes the API uses for agent trouble: the agent's own, or "unreachable". */
+export type AgentFailureCode = AgentErrorCode | "AGENT_UNAVAILABLE";
 
 /** How long any one agent call may take before it is treated as unreachable. */
 export const AGENT_TIMEOUT_MS = 5000;
@@ -62,9 +71,6 @@ export const AGENT_RECOVERY_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
 
 /** Extracting a zip writes up to a gigabyte, as a copy does (issue #817). */
 export const AGENT_EXTRACT_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
-
-/** Most bytes the API will buffer from an agent JSON body. */
-const AGENT_JSON_LIMIT_BYTES = 1024 * 1024;
 
 /**
  * How long the agent has to send response headers for a download. The agent
@@ -387,76 +393,19 @@ export class AgentClient {
 		return response;
 	}
 
-	private async call(
+	private call(
 		method: string,
 		path: string,
 		body?: unknown,
 		timeoutMs: number = AGENT_TIMEOUT_MS,
 	): Promise<unknown> {
-		let response: Response;
-		try {
-			response = await fetch(`http://${this.address}:${this.port}${path}`, {
-				method,
-				headers: {
-					authorization: this.authHeader(),
-					...(body === undefined ? {} : { "content-type": "application/json" }),
-				},
-				body: body === undefined ? undefined : JSON.stringify(body),
-				signal: AbortSignal.timeout(timeoutMs),
-				redirect: "manual",
-			});
-		} catch {
-			throw new AgentCallError(
-				"AGENT_UNAVAILABLE",
-				"The workspace agent could not be reached",
-			);
-		}
-
-		throwOnRedirect(response);
-		const payload = await readJson(response);
-		if (!response.ok) {
-			const parsed = AgentErrorBody.safeParse(payload);
-			throw new AgentCallError(
-				parsed.success ? parsed.data.error.code : "AGENT_UNAVAILABLE",
-				parsed.success ? parsed.data.error.message : "The workspace agent failed",
-				response.status,
-			);
-		}
-		return payload;
-	}
-}
-
-/**
- * Read a JSON body with a hard byte cap. The agent runs inside the student's
- * container, so its response is untrusted and must never be buffered without
- * a limit (SPEC.md §24.6).
- */
-export async function readJson(response: Response): Promise<unknown> {
-	const body = response.body;
-	if (!body) return undefined;
-	const reader = body.getReader();
-	const chunks: Uint8Array[] = [];
-	let total = 0;
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			total += value.byteLength;
-			if (total > AGENT_JSON_LIMIT_BYTES) {
-				reader.cancel().catch(() => {});
-				throw new AgentCallError("AGENT_UNAVAILABLE", "agent response too large");
-			}
-			chunks.push(value);
-		}
-	} catch (error) {
-		if (error instanceof AgentCallError) throw error;
-		return undefined;
-	}
-	if (total === 0) return undefined;
-	try {
-		return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-	} catch {
-		return undefined;
+		return callAgent(
+			{ address: this.address, port: this.port, token: this.token },
+			method,
+			path,
+			body,
+			timeoutMs,
+		);
 	}
 }
 
@@ -482,16 +431,4 @@ export function agentClientFor(
 	if (typeof address !== "string" || typeof token !== "string") return null;
 	if (address === "" || token === "") return null;
 	return new AgentClient(address, agentPort, token);
-}
-
-/**
- * Every agent fetch uses `redirect: "manual"`: a replaced agent must not
- * steer the API to loopback or the workspace network, so a redirect is a
- * failed agent.
- */
-function throwOnRedirect(response: Response): void {
-	if (response.status >= 300 && response.status < 400) {
-		void response.body?.cancel();
-		throw new AgentCallError("AGENT_UNAVAILABLE", "The workspace agent redirected");
-	}
 }

@@ -7,6 +7,7 @@ import {
 	AGENT_TIMEOUT_MS,
 	AgentCallError,
 	AgentClient,
+	readJson,
 } from "./agent-client.js";
 
 /**
@@ -318,4 +319,36 @@ test("an agent that answers with a redirect is treated as unavailable", async ()
 		expect((error as AgentCallError).code).toBe("AGENT_UNAVAILABLE");
 	}
 	expect(followed).toBe(false);
+});
+
+/** A body that sends some bytes and then fails mid-stream, as a dropped connection does. */
+function brokenBody(): ReadableStream<Uint8Array> {
+	return new ReadableStream({
+		start(controller) {
+			controller.enqueue(new TextEncoder().encode('{"partial":'));
+			controller.error(new Error("connection reset"));
+		},
+	});
+}
+
+test("in the API a body that breaks mid-stream reads as no payload", async () => {
+	await expect(readJson(new Response(brokenBody()))).resolves.toBeUndefined();
+});
+
+test("an empty body reads as no payload", async () => {
+	await expect(readJson(new Response(""))).resolves.toBeUndefined();
+	await expect(readJson(new Response(null))).resolves.toBeUndefined();
+});
+
+test("a body that is not JSON reads as no payload", async () => {
+	await expect(readJson(new Response("not json"))).resolves.toBeUndefined();
+});
+
+test("an empty success answer resolves the call", async () => {
+	const port = await startUpstream((_request, response) => {
+		response.writeHead(204);
+		response.end();
+	});
+	const client = new AgentClient("127.0.0.1", port, "token");
+	await expect(client.setLogLevel("debug")).resolves.toBeUndefined();
 });
