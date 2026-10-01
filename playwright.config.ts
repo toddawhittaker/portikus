@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 import { BACKUP_KEY_SOCKET, BACKUP_KEY_STATE } from "./e2e/backup-key";
+import { CERTIFICATE_JOBS_DIR, CERTIFICATE_STATUS_DIR } from "./e2e/certificate-jobs";
 import { IMAGE_JOBS_DIR, IMAGES_DIR } from "./e2e/image-jobs";
 import {
 	API_ORIGIN,
@@ -70,6 +71,9 @@ const dexCerts = writeDexGrpcCerts(dexCertDir, "e2e");
 // The Workspace image section's job directory and image store (e2e/image-jobs.ts).
 mkdirSync(IMAGE_JOBS_DIR, { recursive: true });
 mkdirSync(IMAGES_DIR, { recursive: true });
+// The Certificate tab's job and status directories (e2e/certificate-jobs.ts).
+mkdirSync(CERTIFICATE_JOBS_DIR, { recursive: true });
+mkdirSync(CERTIFICATE_STATUS_DIR, { recursive: true });
 // The Docker tab's cache helper directory (e2e/registry-jobs.ts).
 mkdirSync(REGISTRY_JOBS_DIR, { recursive: true });
 
@@ -185,6 +189,9 @@ export default defineConfig({
 				JOURNALCTL_PATH: fakeJournalctl,
 				// A fake image job directory the admin-image tests play the root job in.
 				IMAGE_JOBS_DIR,
+				// A fake certificate job directory the admin-certificate tests play the root job in;
+				// the API reads the status directory beside it.
+				CERTIFICATE_JOBS_DIR,
 				// A fake cache helper directory the admin-docker tests play the helper in.
 				REGISTRY_JOBS_DIR,
 				// A server that backs itself up and holds its key (ADR 0044).

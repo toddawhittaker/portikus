@@ -163,6 +163,7 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 		"Network",
 		"Backups",
 		"Workspace image",
+		"Certificate",
 		"Docker",
 		"Settings",
 	]);
