@@ -3,6 +3,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
+import { utcDay } from "./package-survey.js";
 
 /**
  * The blocked-name counter (issue #284, ADR 0038). Our egress dnsmasq sends
@@ -73,10 +74,6 @@ export function nxdomain(msg: Buffer, questionEnd: number): Buffer {
 	out.writeUInt16BE(0, 8);
 	out.writeUInt16BE(0, 10);
 	return out;
-}
-
-function utcDay(d: Date): string {
-	return d.toISOString().slice(0, 10);
 }
 
 export interface BlockedCounterOptions {

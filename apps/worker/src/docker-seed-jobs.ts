@@ -4,9 +4,10 @@ import {
 	type SeedInfo,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { startLoop } from "./loop.js";
 
 /** How often a running seed build is polled (issue #840). */
 export const SEED_JOB_POLL_SECONDS = 5;
@@ -181,10 +182,7 @@ export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 			if (job.state === "running") await poll(job.id);
 			else await start(job);
 		} catch (e) {
-			logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"seed jobs failed",
-			);
+			logger.warn({ error: errorMessage(e) }, "seed jobs failed");
 		} finally {
 			inFlight = false;
 		}
@@ -198,10 +196,5 @@ function codeOf(e: unknown): string {
 /** Run the seed job tick every SEED_JOB_POLL_SECONDS; returns a stop function. */
 export function startSeedJobs(options: SeedJobOptions): () => void {
 	const tick = createSeedJobs(options);
-	const timer = setInterval(() => {
-		void tick();
-	}, SEED_JOB_POLL_SECONDS * 1000);
-	timer.unref();
-	void tick();
-	return () => clearInterval(timer);
+	return startLoop(tick, SEED_JOB_POLL_SECONDS * 1000);
 }

@@ -1,8 +1,9 @@
 import { type GrowVolumesRequest, QuotaConfig } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { type Database, recordAudit } from "@portikus/db";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { startLoop } from "./loop.js";
 
 /** How often the worker looks for a quota an administrator changed. */
 export const QUOTA_SYNC_SECONDS = 10;
@@ -21,25 +22,6 @@ export interface QuotaSyncOptions {
 	controller: ControllerClient;
 	logger: Logger;
 	now?: () => Date;
-}
-
-async function audit(
-	db: Kysely<Database>,
-	target: string,
-	action: string,
-	result: string,
-	metadata: Record<string, unknown>,
-): Promise<void> {
-	await db
-		.insertInto("audit_events")
-		.values({
-			actor: "worker",
-			target,
-			action,
-			result,
-			metadata: JSON.stringify(metadata),
-		})
-		.execute();
 }
 
 /**
@@ -94,10 +76,7 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 				await applyOne(row.id, row.incus_instance_name, wanted, row.quota_applied);
 			}
 		} catch (e) {
-			logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"quota sync failed",
-			);
+			logger.warn({ error: errorMessage(e) }, "quota sync failed");
 		} finally {
 			inFlight = false;
 		}
@@ -119,9 +98,15 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 			failures.set(id, { wanted: key, at: now().getTime() });
 			logger.warn({ workspaceId: id, errorCode }, "quota apply failed");
 			if (previous?.wanted !== key) {
-				await audit(db, id, "workspace.quota_apply_failed", "failed", {
-					errorCode,
-					to: wanted,
+				await recordAudit(db, {
+					actor: "worker",
+					target: id,
+					action: "workspace.quota_apply_failed",
+					result: "failed",
+					metadata: {
+						errorCode,
+						to: wanted,
+					},
 				});
 			}
 			return;
@@ -138,17 +123,18 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 		if (Number(updated.numUpdatedRows) === 0) return;
 
 		logger.info({ workspaceId: id, ...wanted }, "quota applied");
-		await audit(db, id, "workspace.quota_applied", "ok", { from: applied, to: wanted });
+		await recordAudit(db, {
+			actor: "worker",
+			target: id,
+			action: "workspace.quota_applied",
+			result: "ok",
+			metadata: { from: applied, to: wanted },
+		});
 	}
 }
 
 /** Run the quota sync now and then every QUOTA_SYNC_SECONDS; returns a stop function. */
 export function startQuotaSync(options: QuotaSyncOptions): () => void {
 	const tick = createQuotaSync(options);
-	const timer = setInterval(() => {
-		void tick();
-	}, QUOTA_SYNC_SECONDS * 1000);
-	timer.unref();
-	void tick();
-	return () => clearInterval(timer);
+	return startLoop(tick, QUOTA_SYNC_SECONDS * 1000);
 }

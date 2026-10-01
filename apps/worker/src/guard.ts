@@ -7,10 +7,11 @@ import {
 	type ThrottleHoldPlatform,
 	throttleHold,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { type Database, recordAudit } from "@portikus/db";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { startLoop } from "./loop.js";
 import { notifyAdministrators } from "./notifications.js";
 
 /** How often the guard samples every running workspace (ADR 0032). */
@@ -138,7 +139,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 					logger.warn(
 						{
 							workspaceId: row.id,
-							error: e instanceof Error ? e.message : String(e),
+							error: errorMessage(e),
 						},
 						"guard workspace check failed",
 					);
@@ -151,10 +152,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 				.where("observed_at", "<", cutoff)
 				.execute();
 		} catch (e) {
-			logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"guard tick failed",
-			);
+			logger.warn({ error: errorMessage(e) }, "guard tick failed");
 		} finally {
 			inFlight = false;
 		}
@@ -265,16 +263,13 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 				.where("workspace_id", "=", id)
 				.where("observed_at", "<=", throttledAt)
 				.execute();
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: "worker",
-					target: id,
-					action: "workspace.cpu_throttle_lifted",
-					result: "ok",
-					metadata: JSON.stringify({ reason: "idle", averagePercent }),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: "worker",
+				target: id,
+				action: "workspace.cpu_throttle_lifted",
+				result: "ok",
+				metadata: { reason: "idle", averagePercent },
+			});
 			return true;
 		});
 		if (lifted) logger.info({ workspaceId: id, averagePercent }, "cpu throttle lifted");
@@ -336,22 +331,19 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 				.where("cpu_throttle", "is", null)
 				.executeTakeFirst();
 			if (Number(updated.numUpdatedRows) === 0) return false;
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: "worker",
-					target: id,
-					action: "workspace.cpu_throttled",
-					result: "ok",
-					metadata: JSON.stringify({
-						averagePercent: throttle.averagePercent,
-						thresholdPercent: throttle.thresholdPercent,
-						windowMinutes: throttle.windowMinutes,
-						sharePercent: throttle.sharePercent,
-						allowance: throttle.allowance,
-					}),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: "worker",
+				target: id,
+				action: "workspace.cpu_throttled",
+				result: "ok",
+				metadata: {
+					averagePercent: throttle.averagePercent,
+					thresholdPercent: throttle.thresholdPercent,
+					windowMinutes: throttle.windowMinutes,
+					sharePercent: throttle.sharePercent,
+					allowance: throttle.allowance,
+				},
+			});
 			if (held) await recordHold(trx, id, held);
 			return true;
 		});
@@ -372,16 +364,13 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 		id: string,
 		held: { count: number; hours: number },
 	): Promise<void> {
-		await trx
-			.insertInto("audit_events")
-			.values({
-				actor: "worker",
-				target: id,
-				action: "workspace.cpu_throttle_held",
-				result: "ok",
-				metadata: JSON.stringify(held),
-			})
-			.execute();
+		await recordAudit(trx, {
+			actor: "worker",
+			target: id,
+			action: "workspace.cpu_throttle_held",
+			result: "ok",
+			metadata: held,
+		});
 		const owner = await trx
 			.selectFrom("workspaces")
 			.innerJoin("users", "users.id", "workspaces.owner_user_id")
@@ -455,20 +444,17 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 				.where("memory_flag", "is", null)
 				.executeTakeFirst();
 			if (Number(updated.numUpdatedRows) === 0) return false;
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: "worker",
-					target: id,
-					action: "workspace.memory_flagged",
-					result: "ok",
-					metadata: JSON.stringify({
-						averagePercent: flag.averagePercent,
-						thresholdPercent: flag.thresholdPercent,
-						windowMinutes: flag.windowMinutes,
-					}),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: "worker",
+				target: id,
+				action: "workspace.memory_flagged",
+				result: "ok",
+				metadata: {
+					averagePercent: flag.averagePercent,
+					thresholdPercent: flag.thresholdPercent,
+					windowMinutes: flag.windowMinutes,
+				},
+			});
 			return true;
 		});
 		if (written) {
@@ -498,16 +484,13 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			logger.warn({ workspaceId: id, errorCode }, "cpu allowance write failed");
 			if (!(failures.has(id) && failures.get(id) === wanted)) {
 				failures.set(id, wanted);
-				await db
-					.insertInto("audit_events")
-					.values({
-						actor: "worker",
-						target: id,
-						action: "workspace.cpu_throttle_failed",
-						result: "failed",
-						metadata: JSON.stringify({ errorCode, allowance: wanted }),
-					})
-					.execute();
+				await recordAudit(db, {
+					actor: "worker",
+					target: id,
+					action: "workspace.cpu_throttle_failed",
+					result: "failed",
+					metadata: { errorCode, allowance: wanted },
+				});
 			}
 		}
 	}
@@ -516,11 +499,5 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 /** Run the guard now and then every GUARD_SAMPLE_SECONDS; returns a stop function. */
 export function startGuard(options: GuardOptions): () => void {
 	const tick = createGuard(options);
-	const timer = setInterval(() => {
-		void tick();
-	}, GUARD_SAMPLE_SECONDS * 1000);
-	// Leave Node's default signal handling in place, as the host sampler does.
-	timer.unref();
-	void tick();
-	return () => clearInterval(timer);
+	return startLoop(tick, GUARD_SAMPLE_SECONDS * 1000);
 }

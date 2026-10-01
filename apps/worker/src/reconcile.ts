@@ -6,8 +6,8 @@ import {
 	isSystemTimezone,
 	PendingOperation,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
-import { type Logger, silentLogger } from "@portikus/observability";
+import { type Database, recordAudit } from "@portikus/db";
+import { errorMessage, type Logger, silentLogger } from "@portikus/observability";
 import { type ExpressionBuilder, type Kysely, sql } from "kysely";
 import { runReplaceHome } from "./backups.js";
 import type { ControllerClient } from "./controller-client.js";
@@ -107,26 +107,6 @@ function toControllerError(e: unknown): ControllerClientError {
 		: new ControllerClientError("OPERATION_FAILED", String(e));
 }
 
-/** Write an audit_events row. */
-async function audit(
-	db: Kysely<Database>,
-	target: string,
-	action: string,
-	result: string,
-	metadata?: Record<string, unknown>,
-): Promise<void> {
-	await db
-		.insertInto("audit_events")
-		.values({
-			actor: "worker",
-			target,
-			action,
-			result,
-			metadata: metadata ? JSON.stringify(metadata) : null,
-		})
-		.execute();
-}
-
 /**
  * Compare-and-set update: transitions a workspace from one state to
  * another only if the current state matches. Returns the updated row
@@ -215,10 +195,22 @@ async function clearGuardAtStop(db: Kysely<Database>, id: string): Promise<void>
 			.where("workspace_id", "=", id)
 			.where("observed_at", "<=", new Date(before.cpu_throttle.at))
 			.execute();
-		await audit(db, id, "workspace.cpu_throttle_lifted", "ok", { reason: "stopped" });
+		await recordAudit(db, {
+			actor: "worker",
+			target: id,
+			action: "workspace.cpu_throttle_lifted",
+			result: "ok",
+			metadata: { reason: "stopped" },
+		});
 	}
 	if (before?.memory_flag) {
-		await audit(db, id, "workspace.memory_flag_cleared", "ok", { reason: "stopped" });
+		await recordAudit(db, {
+			actor: "worker",
+			target: id,
+			action: "workspace.memory_flag_cleared",
+			result: "ok",
+			metadata: { reason: "stopped" },
+		});
 	}
 }
 
@@ -266,8 +258,14 @@ export async function settleKeepRunning(
 		returning w.id
 	`.execute(db);
 	for (const ws of off.rows) {
-		await audit(db, ws.id, "workspace.keep_running_ended", "ok", {
-			reason: "cut_by_cap",
+		await recordAudit(db, {
+			actor: "worker",
+			target: ws.id,
+			action: "workspace.keep_running_ended",
+			result: "ok",
+			metadata: {
+				reason: "cut_by_cap",
+			},
 		});
 	}
 
@@ -278,10 +276,16 @@ export async function settleKeepRunning(
 		returning w.id, w.keep_running_until as until, ${cap} as max_hours
 	`.execute(db);
 	for (const ws of cut.rows) {
-		await audit(db, ws.id, "workspace.keep_running_set", "ok", {
-			until: new Date(ws.until).toISOString(),
-			reason: "cut_by_cap",
-			maxHours: ws.max_hours,
+		await recordAudit(db, {
+			actor: "worker",
+			target: ws.id,
+			action: "workspace.keep_running_set",
+			result: "ok",
+			metadata: {
+				until: new Date(ws.until).toISOString(),
+				reason: "cut_by_cap",
+				maxHours: ws.max_hours,
+			},
 		});
 	}
 
@@ -295,53 +299,53 @@ export async function settleKeepRunning(
 		returning w.id
 	`.execute(db);
 	for (const ws of expired.rows) {
-		await audit(db, ws.id, "workspace.keep_running_ended", "ok", { reason: "expired" });
+		await recordAudit(db, {
+			actor: "worker",
+			target: ws.id,
+			action: "workspace.keep_running_ended",
+			result: "ok",
+			metadata: { reason: "expired" },
+		});
 	}
 }
 
-/**
- * Run one reconciliation sweep (ADR 0006; SPEC section 6.3-6.5, 25.3).
- *
- * Steps: (1) expire stale connections, (2) manage deadlines,
- * (3) drive state transitions, (4) periodic drift reconciliation,
- * (5) resolve timed-out starting/stopping rows.
- *
- * `controllerUnreachable` is the same field from the previous sweep, so
- * a controller outage is recorded once per failure streak (SPEC §25.4).
- */
-export async function reconcile(
-	db: Kysely<Database>,
-	controller: ControllerClient,
-	config: ReconcileConfig,
-	now: Date,
-	lastRefreshAt: Date | null = null,
-	controllerUnreachable = false,
-	log: Logger = silentLogger(),
-	createRetryDelaysMs: readonly number[] = CREATE_RETRY_DELAYS_MS,
-): Promise<SweepResult> {
-	let transitions = 0;
-	// What this sweep decided per workspace, written out as debug lines at the
-	// end so each live workspace gets exactly one line, "none" included.
-	const actions = new Map<string, string[]>();
-	const record = (id: string, action: string): void => {
-		const taken = actions.get(id);
-		if (taken) taken.push(action);
-		else actions.set(id, [action]);
-	};
-	let refreshAt = lastRefreshAt;
-	let unreachable = controllerUnreachable;
-	let refreshError: { code: string; message: string } | null = null;
+/** Optional inputs to one sweep; tests pass the last two. */
+export interface ReconcileOptions {
+	/** When the last list() refresh happened, or null for never. */
+	lastRefreshAt?: Date | null;
+	/** The same field from the previous sweep (SPEC §25.4). */
+	controllerUnreachable?: boolean;
+	log?: Logger;
+	createRetryDelaysMs?: readonly number[];
+}
 
+/** What every step of one sweep shares. */
+interface SweepContext {
+	db: Kysely<Database>;
+	controller: ControllerClient;
+	config: ReconcileConfig;
+	now: Date;
+	log: Logger;
+	createRetryDelaysMs: readonly number[];
+	transitions: number;
+	/** Note an action for the per-workspace debug line. */
+	record: (id: string, action: string) => void;
+}
+
+/** Step 1: delete stale workspace_connections rows. */
+async function expireConnections(ctx: SweepContext): Promise<void> {
+	const { db, config, now } = ctx;
 	// (1) Delete stale workspace_connections rows.
 	const ttlCutoff = new Date(now.getTime() - config.PRESENCE_TTL_SECONDS * 1000);
 	await db
 		.deleteFrom("workspace_connections")
 		.where("last_seen_at", "<", ttlCutoff)
 		.execute();
+}
 
-	// (1b) Keep running until (#955): settle holds before the timers below.
-	await settleKeepRunning(db, now);
-
+/** Step 2: track disconnection and recompute shutdown deadlines. */
+async function trackDisconnections(ctx: SweepContext): Promise<void> {
+	const { db, config, now } = ctx;
 	// (2) Track disconnection and recompute shutdown deadlines.
 	// A running workspace with no connections gets a disconnected_at stamp;
 	// one with connections loses both the stamp and any deadline.
@@ -402,26 +406,11 @@ export async function reconcile(
 		) d
 		where w.id = d.id and w.shutdown_deadline is distinct from d.new_deadline
 	`.execute(db);
+}
 
-	// Snapshot every workspace after the deadline maths, so the debug lines
-	// show the values the decisions below were made from. Only at debug: this
-	// runs every second.
-	const debugging = log.isLevelEnabled("debug");
-	const snapshot = debugging
-		? await db
-				.selectFrom("workspaces")
-				.select([
-					"id",
-					"state",
-					"desired_state",
-					"shutdown_deadline",
-					"disconnected_at",
-				])
-				.execute()
-		: [];
-
-	// (3) Drive actionable state transitions.
-
+/** Step 3a: create provisioning workspaces. */
+async function createProvisioning(ctx: SweepContext): Promise<void> {
+	const { db, controller, config, now, createRetryDelaysMs, record } = ctx;
 	// 3a: provisioning -> create -> stopped/error
 	const provisioning = await db
 		.selectFrom("workspaces")
@@ -444,11 +433,15 @@ export async function reconcile(
 			createRetryDelaysMs,
 		);
 		if (outcome) {
-			transitions++;
+			ctx.transitions++;
 			record(ws.id, outcome);
 		}
 	});
+}
 
+/** Step 3b: start stopped workspaces that should run. */
+async function startStopped(ctx: SweepContext): Promise<void> {
+	const { db, controller, config, now, record } = ctx;
 	// 3b: stopped with desired running (or restarting) -> start. A pending
 	// maintenance operation runs first (ADR 0021).
 	const toStart = await db
@@ -463,9 +456,13 @@ export async function reconcile(
 	await forEachBounded(toStart, START_CONCURRENCY, async (ws) => {
 		record(ws.id, "start");
 		const n = await startWorkspace(db, controller, config, ws, "stopped", now);
-		transitions += n;
+		ctx.transitions += n;
 	});
+}
 
+/** Step 3c: stop running workspaces that should stop or whose grace period passed. */
+async function stopRunning(ctx: SweepContext): Promise<void> {
+	const { db, controller, config, now, log, record } = ctx;
 	// 3c: running -> stopping (desired stopped/restarting, or deadline passed)
 	// First: explicit desired stopped or restarting, or archived whatever it wants.
 	const toStopExplicit = await db
@@ -484,7 +481,7 @@ export async function reconcile(
 		if (!ws.incus_instance_name) continue;
 		const moved = await casUpdate(db, ws.id, "running", { state: "stopping" }, now);
 		if (!moved) continue;
-		transitions++;
+		ctx.transitions++;
 		record(ws.id, "stop requested");
 		await endOpenTerminals(db, ws.id, now);
 		stopInBackground(db, controller, config, ws, log);
@@ -510,7 +507,7 @@ export async function reconcile(
 		}
 		const moved = await casUpdate(db, ws.id, "running", { state: "stopping" }, now);
 		if (!moved) continue;
-		transitions++;
+		ctx.transitions++;
 		record(ws.id, `stop for ${ws.pending_operation}`);
 		await endOpenTerminals(db, ws.id, now);
 		stopInBackground(db, controller, config, ws, log);
@@ -541,13 +538,17 @@ export async function reconcile(
 		.execute();
 
 	for (const ws of deadlinePassed) {
-		transitions++;
+		ctx.transitions++;
 		record(ws.id, "stop after grace period");
 		await endOpenTerminals(db, ws.id, now);
 		if (!ws.incus_instance_name) continue;
 		stopInBackground(db, controller, config, ws, log);
 	}
+}
 
+/** Idle stop: warn, then stop a workspace idle for too long. */
+async function stopIdle(ctx: SweepContext): Promise<void> {
+	const { db, controller, config, now, log, record } = ctx;
 	// Idle stop (ADR 0032): a workspace override wins over the platform value,
 	// and 0 means never. It runs whether or not a browser is connected; the
 	// grace period above may still stop a workspace first.
@@ -587,16 +588,26 @@ export async function reconcile(
 	`.execute(db);
 
 	for (const ws of idlePassed.rows) {
-		transitions++;
+		ctx.transitions++;
 		record(ws.id, "stop after idle");
-		await audit(db, ws.id, "workspace.idle_stopped", "ok", {
-			idleMinutes: ws.idle_minutes,
+		await recordAudit(db, {
+			actor: "worker",
+			target: ws.id,
+			action: "workspace.idle_stopped",
+			result: "ok",
+			metadata: {
+				idleMinutes: ws.idle_minutes,
+			},
 		});
 		await endOpenTerminals(db, ws.id, now);
 		if (!ws.incus_instance_name) continue;
 		stopInBackground(db, controller, config, ws, log);
 	}
+}
 
+/** Step 3d: retry a start for an errored workspace that should run. */
+async function retryErrored(ctx: SweepContext): Promise<void> {
+	const { db, controller, config, now, record } = ctx;
 	// 3d: error with desired running (or restarting) -> retry a start, but
 	// only after a short rest so a broken controller is not hammered.
 	const retryCutoff = new Date(now.getTime() - ERROR_RETRY_SECONDS * 1000);
@@ -613,11 +624,15 @@ export async function reconcile(
 	await forEachBounded(errorRetryStart, START_CONCURRENCY, async (ws) => {
 		record(ws.id, "retry start");
 		const n = await startWorkspace(db, controller, config, ws, "error", now);
-		transitions += n;
+		ctx.transitions += n;
 	});
 
 	// Note: error with desired=stopped is at rest (nothing to retry).
+}
 
+/** Step 3e: run a pending maintenance operation. */
+async function runMaintenance(ctx: SweepContext): Promise<void> {
+	const { db, controller, config, now, record } = ctx;
 	// 3e: run a pending maintenance operation on a stopped or errored
 	// workspace. Step 3b restarts it on the next sweep if it should run.
 	const toMaintain = await db
@@ -641,7 +656,7 @@ export async function reconcile(
 		record(ws.id, ws.pending_operation);
 		// Replace home spans several sweeps while the host imports (ADR 0040).
 		if (ws.pending_operation === "replace-home") {
-			transitions += await runReplaceHome(
+			ctx.transitions += await runReplaceHome(
 				db,
 				controller,
 				{
@@ -656,7 +671,7 @@ export async function reconcile(
 			);
 			continue;
 		}
-		transitions += await runOperation(
+		ctx.transitions += await runOperation(
 			db,
 			controller,
 			{
@@ -671,7 +686,18 @@ export async function reconcile(
 			now,
 		);
 	}
+}
 
+/** Steps 4 and 5: reconcile drift from list() and resolve stale starting and stopping rows. */
+async function refreshFromList(
+	ctx: SweepContext,
+	lastRefreshAt: Date | null,
+	controllerUnreachable: boolean,
+): Promise<Omit<SweepResult, "transitions">> {
+	const { db, controller, config, now, log, record } = ctx;
+	let refreshAt = lastRefreshAt;
+	let unreachable = controllerUnreachable;
+	let refreshError: { code: string; message: string } | null = null;
 	// (4) Periodic drift reconciliation from list().
 	const shouldRefresh =
 		refreshAt === null ||
@@ -692,8 +718,14 @@ export async function reconcile(
 			if (!unreachable) {
 				// Record the start of a failure streak once (SPEC §25.4).
 				log.error({ errorCode: err.code }, "controller unreachable");
-				await audit(db, "controller", "controller.unreachable", "failed", {
-					errorCode: err.code,
+				await recordAudit(db, {
+					actor: "worker",
+					target: "controller",
+					action: "controller.unreachable",
+					result: "failed",
+					metadata: {
+						errorCode: err.code,
+					},
 				});
 			}
 			unreachable = true;
@@ -742,12 +774,18 @@ export async function reconcile(
 						now,
 					);
 					if (updated) {
-						transitions++;
+						ctx.transitions++;
 						await endOpenTerminals(db, ws.id, now);
 						await clearGuardAtStop(db, ws.id);
 						record(ws.id, "instance missing");
-						await audit(db, ws.id, "workspace.instance_missing", "failed", {
-							instanceName: ws.incus_instance_name,
+						await recordAudit(db, {
+							actor: "worker",
+							target: ws.id,
+							action: "workspace.instance_missing",
+							result: "failed",
+							metadata: {
+								instanceName: ws.incus_instance_name,
+							},
 						});
 					}
 					continue;
@@ -777,11 +815,16 @@ export async function reconcile(
 						now,
 					);
 					if (updated) {
-						transitions++;
+						ctx.transitions++;
 						await endOpenTerminals(db, ws.id, now);
 						await clearGuardAtStop(db, ws.id);
 						record(ws.id, "observed stopped");
-						await audit(db, ws.id, "workspace.observed_stopped", "ok");
+						await recordAudit(db, {
+							actor: "worker",
+							target: ws.id,
+							action: "workspace.observed_stopped",
+							result: "ok",
+						});
 					}
 				}
 
@@ -799,9 +842,14 @@ export async function reconcile(
 						now,
 					);
 					if (updated) {
-						transitions++;
+						ctx.transitions++;
 						record(ws.id, "observed running");
-						await audit(db, ws.id, "workspace.observed_running", "ok");
+						await recordAudit(db, {
+							actor: "worker",
+							target: ws.id,
+							action: "workspace.observed_running",
+							result: "ok",
+						});
 					}
 				}
 
@@ -816,10 +864,16 @@ export async function reconcile(
 							now,
 						);
 						if (updated) {
-							transitions++;
+							ctx.transitions++;
 							record(ws.id, "start resolved as running");
-							await audit(db, ws.id, "workspace.start", "ok", {
-								resolvedFromList: true,
+							await recordAudit(db, {
+								actor: "worker",
+								target: ws.id,
+								action: "workspace.start",
+								result: "ok",
+								metadata: {
+									resolvedFromList: true,
+								},
 							});
 						}
 					} else if (inst.status === "Stopped") {
@@ -835,11 +889,17 @@ export async function reconcile(
 							now,
 						);
 						if (updated) {
-							transitions++;
+							ctx.transitions++;
 							await endOpenTerminals(db, ws.id, now);
 							record(ws.id, "start resolved as failed");
-							await audit(db, ws.id, "workspace.start_failed", "failed", {
-								resolvedFromList: true,
+							await recordAudit(db, {
+								actor: "worker",
+								target: ws.id,
+								action: "workspace.start_failed",
+								result: "failed",
+								metadata: {
+									resolvedFromList: true,
+								},
 							});
 						}
 					}
@@ -859,12 +919,18 @@ export async function reconcile(
 							now,
 						);
 						if (updated) {
-							transitions++;
+							ctx.transitions++;
 							await endOpenTerminals(db, ws.id, now);
 							await clearGuardAtStop(db, ws.id);
 							record(ws.id, "stop resolved as stopped");
-							await audit(db, ws.id, "workspace.stop", "ok", {
-								resolvedFromList: true,
+							await recordAudit(db, {
+								actor: "worker",
+								target: ws.id,
+								action: "workspace.stop",
+								result: "ok",
+								metadata: {
+									resolvedFromList: true,
+								},
 							});
 						}
 					} else if (inst.status === "Running") {
@@ -876,10 +942,16 @@ export async function reconcile(
 							now,
 						);
 						if (updated) {
-							transitions++;
+							ctx.transitions++;
 							record(ws.id, "stop resolved as running");
-							await audit(db, ws.id, "workspace.observed_running", "ok", {
-								resolvedFromList: true,
+							await recordAudit(db, {
+								actor: "worker",
+								target: ws.id,
+								action: "workspace.observed_running",
+								result: "ok",
+								metadata: {
+									resolvedFromList: true,
+								},
 							});
 						}
 					}
@@ -887,6 +959,81 @@ export async function reconcile(
 			}
 		}
 	}
+
+	return { lastRefreshAt: refreshAt, controllerUnreachable: unreachable, refreshError };
+}
+
+/**
+ * Run one reconciliation sweep (ADR 0006; SPEC section 6.3-6.5, 25.3).
+ *
+ * Steps: (1) expire stale connections, (2) manage deadlines,
+ * (3) drive state transitions, (4) periodic drift reconciliation,
+ * (5) resolve timed-out starting/stopping rows.
+ *
+ * `controllerUnreachable` is the same field from the previous sweep, so
+ * a controller outage is recorded once per failure streak (SPEC §25.4).
+ */
+export async function reconcile(
+	db: Kysely<Database>,
+	controller: ControllerClient,
+	config: ReconcileConfig,
+	now: Date,
+	options: ReconcileOptions = {},
+): Promise<SweepResult> {
+	const log = options.log ?? silentLogger();
+	// What this sweep decided per workspace, written out as debug lines at the
+	// end so each live workspace gets exactly one line, "none" included.
+	const actions = new Map<string, string[]>();
+	const ctx: SweepContext = {
+		db,
+		controller,
+		config,
+		now,
+		log,
+		createRetryDelaysMs: options.createRetryDelaysMs ?? CREATE_RETRY_DELAYS_MS,
+		transitions: 0,
+		record: (id, action) => {
+			const taken = actions.get(id);
+			if (taken) taken.push(action);
+			else actions.set(id, [action]);
+		},
+	};
+
+	await expireConnections(ctx);
+	// (1b) Keep running until: settle holds before the timers below.
+	await settleKeepRunning(db, now);
+	await trackDisconnections(ctx);
+
+	// Snapshot every workspace after the deadline maths, so the debug lines
+	// show the values the decisions below were made from. Only at debug: this
+	// runs every second.
+	const debugging = log.isLevelEnabled("debug");
+	const snapshot = debugging
+		? await db
+				.selectFrom("workspaces")
+				.select([
+					"id",
+					"state",
+					"desired_state",
+					"shutdown_deadline",
+					"disconnected_at",
+				])
+				.execute()
+		: [];
+
+	// (3) Drive actionable state transitions.
+	await createProvisioning(ctx);
+	await startStopped(ctx);
+	await stopRunning(ctx);
+	await stopIdle(ctx);
+	await retryErrored(ctx);
+	await runMaintenance(ctx);
+
+	const refresh = await refreshFromList(
+		ctx,
+		options.lastRefreshAt ?? null,
+		options.controllerUnreachable ?? false,
+	);
 
 	if (debugging) {
 		for (const ws of snapshot) {
@@ -904,12 +1051,7 @@ export async function reconcile(
 		}
 	}
 
-	return {
-		transitions,
-		lastRefreshAt: refreshAt,
-		controllerUnreachable: unreachable,
-		refreshError,
-	};
+	return { transitions: ctx.transitions, ...refresh };
 }
 
 /**
@@ -988,10 +1130,16 @@ async function createWorkspace(
 				now,
 			);
 			if (!updated) return null;
-			await audit(db, ws.id, "workspace.provisioned", "ok", {
-				imageFingerprint: result.imageFingerprint,
-				created: result.created,
-				attempts: attempt + 1,
+			await recordAudit(db, {
+				actor: "worker",
+				target: ws.id,
+				action: "workspace.provisioned",
+				result: "ok",
+				metadata: {
+					imageFingerprint: result.imageFingerprint,
+					created: result.created,
+					attempts: attempt + 1,
+				},
 			});
 			return result.created ? "created" : "adopted existing instance";
 		} catch (e) {
@@ -1012,8 +1160,14 @@ async function createWorkspace(
 					now,
 				);
 				if (!refused) return null;
-				await audit(db, ws.id, "workspace.provision_refused", "refused", {
-					errorCode: err.code,
+				await recordAudit(db, {
+					actor: "worker",
+					target: ws.id,
+					action: "workspace.provision_refused",
+					result: "refused",
+					metadata: {
+						errorCode: err.code,
+					},
 				});
 				return "create refused: storage pool full";
 			}
@@ -1029,10 +1183,16 @@ async function createWorkspace(
 				now,
 			);
 			if (!updated) return null;
-			await audit(db, ws.id, "workspace.provision_failed", "failed", {
-				errorCode: err.code,
-				message: err.message,
-				attempts: attempt + 1,
+			await recordAudit(db, {
+				actor: "worker",
+				target: ws.id,
+				action: "workspace.provision_failed",
+				result: "failed",
+				metadata: {
+					errorCode: err.code,
+					message: err.message,
+					attempts: attempt + 1,
+				},
 			});
 			return "create failed";
 		}
@@ -1102,7 +1262,13 @@ async function startWorkspace(
 		);
 		if (updated) {
 			transitions++;
-			await audit(db, ws.id, "workspace.start", "ok", { ipv4: result.ipv4 });
+			await recordAudit(db, {
+				actor: "worker",
+				target: ws.id,
+				action: "workspace.start",
+				result: "ok",
+				metadata: { ipv4: result.ipv4 },
+			});
 		}
 	} catch (e) {
 		const err = toControllerError(e);
@@ -1118,9 +1284,15 @@ async function startWorkspace(
 			now,
 		);
 		if (updated) transitions++;
-		await audit(db, ws.id, "workspace.start_failed", "failed", {
-			errorCode: err.code,
-			message: err.message,
+		await recordAudit(db, {
+			actor: "worker",
+			target: ws.id,
+			action: "workspace.start_failed",
+			result: "failed",
+			metadata: {
+				errorCode: err.code,
+				message: err.message,
+			},
 		});
 	}
 
@@ -1145,7 +1317,7 @@ function stopInBackground(
 	const running = doStop(db, controller, config, ws)
 		.catch((e: unknown) => {
 			log.error(
-				{ workspaceId: ws.id, error: e instanceof Error ? e.message : String(e) },
+				{ workspaceId: ws.id, error: errorMessage(e) },
 				"background stop failed",
 			);
 		})
@@ -1191,10 +1363,21 @@ export async function doStop(
 		);
 		// The stop happened, so record it even if another pass already
 		// moved the row out of 'stopping' (SPEC.md §6.5).
-		await audit(db, ws.id, "workspace.stop", "ok", { forced: result.forced });
+		await recordAudit(db, {
+			actor: "worker",
+			target: ws.id,
+			action: "workspace.stop",
+			result: "ok",
+			metadata: { forced: result.forced },
+		});
 		await clearGuardAtStop(db, ws.id);
 		if (result.forced) {
-			await audit(db, ws.id, "workspace.force_stop", "ok");
+			await recordAudit(db, {
+				actor: "worker",
+				target: ws.id,
+				action: "workspace.force_stop",
+				result: "ok",
+			});
 		}
 	} catch (e) {
 		const err = toControllerError(e);
@@ -1210,9 +1393,15 @@ export async function doStop(
 			// The stop may have taken minutes; stamp when it ended.
 			new Date(),
 		);
-		await audit(db, ws.id, "workspace.stop_failed", "failed", {
-			errorCode: err.code,
-			message: err.message,
+		await recordAudit(db, {
+			actor: "worker",
+			target: ws.id,
+			action: "workspace.stop_failed",
+			result: "failed",
+			metadata: {
+				errorCode: err.code,
+				message: err.message,
+			},
 		});
 	}
 }
@@ -1284,13 +1473,13 @@ async function runOperation(
 			},
 			now,
 		);
-		await audit(
-			db,
-			ws.id,
-			isReset ? "workspace.docker_reset" : "workspace.rebuilt",
-			"ok",
-			imageFingerprint ? { ...metadata, imageFingerprint } : metadata,
-		);
+		await recordAudit(db, {
+			actor: "worker",
+			target: ws.id,
+			action: isReset ? "workspace.docker_reset" : "workspace.rebuilt",
+			result: "ok",
+			metadata: imageFingerprint ? { ...metadata, imageFingerprint } : metadata,
+		});
 		return updated && ws.state !== "stopped" ? 1 : 0;
 	} catch (e) {
 		const err = toControllerError(e);
@@ -1306,13 +1495,13 @@ async function runOperation(
 			},
 			now,
 		);
-		await audit(
-			db,
-			ws.id,
-			isReset ? "workspace.docker_reset_failed" : "workspace.rebuild_failed",
-			"failed",
-			{ ...metadata, errorCode: err.code },
-		);
+		await recordAudit(db, {
+			actor: "worker",
+			target: ws.id,
+			action: isReset ? "workspace.docker_reset_failed" : "workspace.rebuild_failed",
+			result: "failed",
+			metadata: { ...metadata, errorCode: err.code },
+		});
 		return updated && ws.state !== "error" ? 1 : 0;
 	}
 }

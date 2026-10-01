@@ -861,7 +861,7 @@ test.skipIf(skip)(
 			.returning("id")
 			.executeTakeFirstOrThrow();
 		const sweepAt = async (at: Date) => {
-			await reconcile(tdb.db, fake, cfg, at, at, false);
+			await reconcile(tdb.db, fake, cfg, at, { lastRefreshAt: at });
 			await settleStops();
 		};
 
