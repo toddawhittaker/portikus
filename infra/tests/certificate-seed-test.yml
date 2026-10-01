@@ -129,7 +129,8 @@
           - seed_test_job_call['ansible.builtin.command'].argv[1:] == ['first-install']
           - "'caddy_first_install_settings' in seed_test_job_call['ansible.builtin.command'].stdin"
           - seed_test_job_call.no_log
-          - seed_test_token_cleanup.no_log
+          - seed_test_token_cleanup['ansible.builtin.import_tasks'] == 'install_token.yml'
+          - (lookup('file', seed_test_tasks ~ '/install_token.yml') | from_yaml | selectattr('name', 'search', 'Read|Parse|Write') | rejectattr('no_log', 'defined') | list | length) == 0
           - seed_test_settings_tasks | rejectattr('no_log', 'defined') | list | length == 0
           - seed_test_settings_tasks | selectattr('no_log', 'defined') | rejectattr('no_log') | list | length == 0
 
@@ -165,6 +166,32 @@
           - seed_test_certificate_names.index('Seed the certificate state on first install') < seed_test_certificate_names.index('Remove the Cloudflare token from the install answers')
           - seed_test_certificate_names.index('Stop when the certificate state is incomplete') < seed_test_certificate_names.index('Put the Caddyfile in place')
           - "'reset-certificate' in (seed_test_certificate_tasks | selectattr('name', 'equalto', 'Stop when the certificate state is incomplete') | first)['ansible.builtin.fail'].msg"
+
+    # ── The token leaves the install answers, and they stay a mapping ──
+    - name: Write install answers with the token and another secret, and with the token alone
+      ansible.builtin.copy:
+        dest: "{{ seed_test_dir.path }}/{{ item.name }}"
+        content: "{{ item.content }}"
+        mode: "0600"
+      loop:
+        - {name: both.yaml, content: "# header\nportikus_cloudflare_api_token: {{ seed_test_token }}\nportikus_dex_client_secret: kept-secret\n"}
+        - {name: alone.yaml, content: "# header\nportikus_cloudflare_api_token: {{ seed_test_token }}\n"}
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Remove the token from each
+      ansible.builtin.include_tasks: "{{ seed_test_tasks }}/install_token.yml"
+      vars:
+        caddy_install_secrets_path: "{{ seed_test_dir.path }}/{{ item }}"
+      loop: [both.yaml, alone.yaml, missing.yaml]
+
+    - name: Require the token gone, the other secret kept, and a mapping left
+      ansible.builtin.assert:
+        that:
+          - "lookup('file', seed_test_dir.path ~ '/both.yaml') | from_yaml == {'portikus_dex_client_secret': 'kept-secret'}"
+          - "lookup('file', seed_test_dir.path ~ '/alone.yaml') | from_yaml == {}"
+          - seed_test_token not in lookup('file', seed_test_dir.path ~ '/both.yaml')
+          - seed_test_token not in lookup('file', seed_test_dir.path ~ '/alone.yaml')
 
     - name: Remove the scratch directory
       ansible.builtin.file:

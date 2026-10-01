@@ -1,0 +1,36 @@
+---
+# Removes the Cloudflare token from the install answers' secrets, which
+# `portikus setup` hands Ansible as a mapping (docs/SPEC.md section 24.8).
+# A VM set up from a workstation has no such file.
+- name: Look for the install answers' secrets
+  ansible.builtin.stat:
+    path: "{{ caddy_install_secrets_path }}"
+  register: caddy_install_secrets_file
+
+- name: Read the install answers' secrets
+  ansible.builtin.slurp:
+    path: "{{ caddy_install_secrets_path }}"
+  register: caddy_install_secrets
+  when: caddy_install_secrets_file.stat.exists
+  no_log: true
+
+- name: Parse the install answers' secrets
+  ansible.builtin.set_fact:
+    caddy_install_secrets_map: "{{ (caddy_install_secrets.content | b64decode | from_yaml) or {} }}"
+  when: caddy_install_secrets_file.stat.exists
+  no_log: true
+
+# Rewritten whole, as postinst writes it, so a file left with no key is
+# still a mapping.
+- name: Write the secrets back without the token
+  ansible.builtin.copy:
+    dest: "{{ caddy_install_secrets_path }}"
+    content: |
+      # Portikus secrets, readable by root only. Written by `dpkg-reconfigure portikus`.
+      {{ caddy_install_secrets_map | dict2items | rejectattr('key', 'equalto', 'portikus_cloudflare_api_token')
+         | items2dict | to_nice_yaml if caddy_install_secrets_map | length > 1 else '{}' }}
+    mode: "0600"
+  when:
+    - caddy_install_secrets_file.stat.exists
+    - "'portikus_cloudflare_api_token' in caddy_install_secrets_map"
+  no_log: true

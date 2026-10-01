@@ -64,11 +64,7 @@
 # stays in the install answers (docs/SPEC.md section 24.8).  Before the
 # ACME wait, so a failed wait does not leave it there.
 - name: Remove the Cloudflare token from the install answers
-  ansible.builtin.lineinfile:
-    path: /etc/portikus/secrets.yaml
-    regexp: '^portikus_cloudflare_api_token:'
-    state: absent
-  no_log: true
+  ansible.builtin.import_tasks: install_token.yml
 
 # A first install cut short after the secrets but before tls.caddy leaves
 # state that stops seeding, and a Caddyfile importing a missing file.
