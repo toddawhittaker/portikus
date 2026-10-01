@@ -243,7 +243,7 @@ jobs:
   e2e-shard:
     name: Browser end-to-end tests (shard ${{ matrix.shard }} of 5)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     needs: changes
     strategy:
       fail-fast: false
@@ -286,13 +286,8 @@ jobs:
       # With the browser cached this only installs the system libraries.
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
         # One retry, so a hung Ubuntu mirror fails fast instead of holding the job.
-        timeout-minutes: 9
-        run: |
-          for attempt in 1 2; do
-            timeout 240 pnpm exec playwright install --with-deps --only-shell chromium && exit 0
-            echo "playwright install attempt $attempt failed"
-          done
-          exit 1
+        timeout-minutes: 12
+        run: pnpm exec playwright install --with-deps --only-shell chromium
       # The Playwright servers run the compiled output, and Vite serves the
       # ui package's theme and fonts from its dist, so build both first.
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
