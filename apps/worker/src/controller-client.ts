@@ -23,9 +23,11 @@ import {
 	AddedPackagesResponse as AddedPackagesResponseSchema,
 	ControllerError,
 	CreateInstanceResponse as CreateInstanceResponseSchema,
+	EGRESS_HELPER_TIMEOUT_MS,
 	EgressApplyStatus,
 	GrowVolumesResponse,
 	HostSnapshot,
+	INSTANCE_CREATE_WAIT_SECONDS,
 	InstanceProcessesResponse,
 	InstanceUsageResponse,
 	KeptVolumesResponse,
@@ -40,10 +42,11 @@ import {
 
 /** Time budgets for each call (ADR 0034 ruling 7), so a hung controller never hangs the worker. */
 const SHORT_BUDGET_MS = 30_000;
-const CREATE_BUDGET_MS = 300_000;
+/** The controller's instance create wait plus a 60 s margin. */
+export const CREATE_BUDGET_MS = INSTANCE_CREATE_WAIT_SECONDS * 1000 + 60_000;
 const MAINTENANCE_BUDGET_MS = 15 * 60_000;
-/** The controller waits up to 30 s for the egress helper. */
-const EGRESS_BUDGET_MS = 45_000;
+/** The controller's egress helper wait plus 15 s margin. */
+export const EGRESS_BUDGET_MS = EGRESS_HELPER_TIMEOUT_MS + 15_000;
 
 /** A stop may take a graceful and a forced try, the controller's settle poll (up to 10 s), plus margin. */
 export function stopBudgetMs(timeoutSeconds: number): number {

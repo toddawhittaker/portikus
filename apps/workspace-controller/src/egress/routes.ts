@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { EgressApplyPolicy, type EgressApplyStatus } from "@portikus/contracts";
+import {
+	EGRESS_HELPER_TIMEOUT_MS,
+	EgressApplyPolicy,
+	type EgressApplyStatus,
+} from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import type { AppliedFile, HelperStatus } from "./helper.js";
 import { EGRESS_PATHS, STATE_FILES } from "./paths.js";
@@ -34,7 +38,7 @@ export function registerEgressRoutes(
 ): void {
 	const requestPath = opts.requestPath ?? EGRESS_PATHS.request;
 	const stateDir = opts.stateDir ?? EGRESS_PATHS.stateDir;
-	const timeoutMs = opts.timeoutMs ?? 30_000;
+	const timeoutMs = opts.timeoutMs ?? EGRESS_HELPER_TIMEOUT_MS;
 	const pollMs = opts.pollMs ?? 200;
 	// One request at a time: the helper answers the newest request file only.
 	let queue: Promise<unknown> = Promise.resolve();
