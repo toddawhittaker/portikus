@@ -4,7 +4,7 @@ export {
 	ConfirmDialogRoot,
 	ConfirmDialogTrigger,
 } from "./confirm-dialog";
-export { Dialog, type DialogProps, DialogRoot, DialogTrigger } from "./dialog";
+export { Dialog, type DialogProps, DialogRoot } from "./dialog";
 export {
 	ContextMenu,
 	type ContextMenuProps,

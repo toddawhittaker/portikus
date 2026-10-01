@@ -112,7 +112,7 @@ test.describe("file viewer", () => {
 		await expect(page.getByTestId("file-image-dimensions")).toHaveText(
 			"64 × 40 pixels",
 		);
-		await expect(page.getByText(`${bytes.length} bytes`)).toBeVisible();
+		await expect(page.getByText(`${bytes.length} B`)).toBeVisible();
 		await expect(page.getByText("Not a text file")).toHaveCount(0);
 		await expect(page.getByTestId(`editor-${path}`)).toHaveCount(0);
 		// Download is still one press away.

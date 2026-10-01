@@ -8,23 +8,20 @@ import { Skeleton, Toggletip } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ApiError } from "../../api/request.js";
-import { formatBytes } from "../../monitor/format.js";
+import { formatBytes, WARN_AT } from "../../monitor/format.js";
+import { shortTime } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
-import { shortTime } from "../shortTime.js";
 import { KNOWN_STATES, WorkspaceStateBadge } from "../WorkspacesTab.js";
 import { PackagesSection } from "./PackagesSection.js";
 import { useHealth } from "./queries.js";
 import { TrendsCard } from "./TrendsCard.js";
-
-/** Memory use at or above this share gets a warning (SPEC.md §19.2). */
-export const WARN_RATIO = 0.8;
 
 export function usedPercent(used: number, total: number): number {
 	return total > 0 ? Math.round((used / total) * 100) : 0;
 }
 
 export function isNearlyFull(used: number, total: number): boolean {
-	return total > 0 && used / total >= WARN_RATIO;
+	return total > 0 && used / total >= WARN_AT;
 }
 
 /** "3 minutes ago", for the age of the newest sample. */
@@ -84,7 +81,7 @@ export function HealthTab() {
 				<HealthView
 					report={health.data}
 					now={Date.now()}
-					trends={<TrendsCard warnPercent={Math.round(WARN_RATIO * 100)} />}
+					trends={<TrendsCard warnPercent={Math.round(WARN_AT * 100)} />}
 				/>
 			) : (
 				<div aria-busy="true" data-testid="health-loading">

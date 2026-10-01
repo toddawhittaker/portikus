@@ -813,14 +813,6 @@ button.pk-statusbar-item:hover {
 	display: grid;
 	gap: 6px;
 }
-.pk-meter-head {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: var(--space-3);
-	font-size: 13px;
-	line-height: 18px;
-}
 .pk-meter-label {
 	font-weight: 500;
 	color: var(--ink);
@@ -842,19 +834,56 @@ button.pk-statusbar-item:hover {
 	height: 100%;
 	background: var(--accent);
 }
-.pk-meter--warning .pk-meter-fill {
-	background: var(--status-warning);
-}
 .pk-meter--warning .pk-meter-value {
 	color: var(--status-warning);
 	font-weight: 600;
 }
-.pk-meter--full .pk-meter-fill {
-	background: var(--status-error);
-}
 .pk-meter--full .pk-meter-value {
 	color: var(--status-error);
 	font-weight: 600;
+}
+/* The storage meters' ui Meter: warning text as above, and the error colour at the critical level. */
+.pk-meter--warning .pk-meter-figure,
+.pk-meter--full .pk-meter-figure {
+	font-weight: 600;
+}
+.pk-meter--warning .pk-meter-figure {
+	color: var(--status-warning);
+}
+.pk-meter--full .pk-meter-figure,
+.pk-meter--full .pk-meter-alert {
+	color: var(--status-error);
+}
+.pk-meter--full .pk-meter-bar::-webkit-meter-suboptimum-value,
+.pk-meter--full .pk-meter-bar::-webkit-meter-even-less-good-value {
+	background: var(--status-error);
+}
+.pk-meter--full .pk-meter-bar:-moz-meter-sub-optimum::-moz-meter-bar,
+.pk-meter--full .pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
+	background: var(--status-error);
+}
+.pk-meters .pk-meter-wrap {
+	max-width: none;
+}
+.pk-meters .pk-meter-label {
+	font-size: 13px;
+	line-height: 18px;
+	font-weight: 500;
+}
+.pk-meters .pk-meter-figure {
+	color: var(--ink-muted);
+}
+.pk-meters .pk-meter--warning .pk-meter-figure {
+	color: var(--status-warning);
+}
+.pk-meters .pk-meter--full .pk-meter-figure {
+	color: var(--status-error);
+}
+/* The next step under a full meter: short, muted, below the bar. */
+.pk-meter-step {
+	font-size: 13px;
+	line-height: 18px;
+	color: var(--ink-muted);
 }
 
 /* The status bar's always-visible memory and disk meters (SPEC.md §19.2). No transition, so reduced motion needs nothing. */
@@ -875,6 +904,12 @@ button.pk-statusbar-item:hover {
 }
 .pk-statusbar-meter .pk-meter-fill {
 	display: block;
+}
+.pk-statusbar-meter.pk-meter--warning .pk-meter-fill {
+	background: var(--status-warning);
+}
+.pk-statusbar-meter.pk-meter--full .pk-meter-fill {
+	background: var(--status-error);
 }
 /* When space is tight the project path gives way first, then the Git line, each with an ellipsis; the buttons never shrink. */
 .pk-statusbar-path,

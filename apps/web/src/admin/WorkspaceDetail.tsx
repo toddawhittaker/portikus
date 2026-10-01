@@ -26,8 +26,12 @@ import {
 import { Link } from "@tanstack/react-router";
 import type * as React from "react";
 import { useEffect, useRef, useState } from "react";
+import { errorText } from "../api/request.js";
 import { formatBytes, formatCpu } from "../monitor/format.js";
+import { STORAGE_CLASSES } from "../recovery/storage.js";
 import { PENDING_LABEL } from "../shell/StatusBar.js";
+import { StorageMeterRow } from "../shell/StorageMeters.js";
+import { shortTime, timeAgo } from "../text.js";
 import { RestoreFromBackupDialog } from "./backups/BackupDialogs.js";
 import { ConfirmByLabelDialog } from "./ConfirmByLabelDialog.js";
 import { DexUserActions } from "./DexUserDialogs.js";
@@ -62,14 +66,7 @@ import {
 	useUpdateQuota,
 	useUpdateUserSettings,
 } from "./queries.js";
-import { errorText } from "./SettingsTab.js";
-import { shortTime } from "./shortTime.js";
-import {
-	KNOWN_STATES,
-	storageText,
-	timeAgo,
-	WorkspaceStateBadge,
-} from "./WorkspacesTab.js";
+import { KNOWN_STATES, storageText, WorkspaceStateBadge } from "./WorkspacesTab.js";
 
 /** Every section heading in the panel: small, bold and quiet (Epic 25, S5). */
 export const SECTION_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
@@ -142,9 +139,6 @@ function WithTip({
 		</span>
 	);
 }
-
-/** A storage class at or above this share of its limit is flagged (SPEC.md §19.2). */
-export const STORAGE_WARN_RATIO = 0.8;
 
 /** True while the worker has not yet applied the sizes an administrator asked for. */
 export function quotaPending(
@@ -803,50 +797,20 @@ function GuardSection({
 	);
 }
 
-const STORAGE_LABEL: Record<keyof AdminStorage, string> = {
-	home: "Projects and home",
-	docker: "Docker",
-	recovery: "Recovery",
-};
-
+/** One meter per storage class against its limit (SPEC.md §18.3, §20.1). */
 function StorageMeters({ storage }: { storage: AdminStorage }) {
 	return (
 		<div className="pk-meters">
-			{(Object.keys(STORAGE_LABEL) as (keyof AdminStorage)[]).map((key) => {
-				const { usedBytes, limitBytes } = storage[key];
-				const ratio = limitBytes > 0 ? usedBytes / limitBytes : 0;
-				const warn = ratio >= STORAGE_WARN_RATIO;
-				const text = `${formatBytes(usedBytes)} of ${formatBytes(limitBytes)}${
-					warn ? ", nearly full" : ""
-				}`;
-				const id = `storage-${key}`;
-				return (
-					<div key={key} className={warn ? "pk-meter pk-meter--warning" : "pk-meter"}>
-						<div className="pk-meter-head">
-							<label htmlFor={id} className="pk-meter-label">
-								{STORAGE_LABEL[key]}
-							</label>
-							<span className="pk-meter-value">{text}</span>
-						</div>
-						{/* The native meter carries the value for screen readers; the track is drawn. */}
-						<meter
-							id={id}
-							className="sr-only"
-							min={0}
-							max={Math.max(limitBytes, 1)}
-							high={limitBytes * STORAGE_WARN_RATIO}
-							value={usedBytes}
-							aria-valuetext={text}
-						/>
-						<div className="pk-meter-track" aria-hidden="true">
-							<div
-								className="pk-meter-fill"
-								style={{ width: `${Math.min(100, Math.round(ratio * 100))}%` }}
-							/>
-						</div>
-					</div>
-				);
-			})}
+			{STORAGE_CLASSES.map((key) => (
+				<StorageMeterRow
+					key={key}
+					storageClass={key}
+					figure={{
+						usedBytes: storage[key].usedBytes,
+						totalBytes: storage[key].limitBytes,
+					}}
+				/>
+			))}
 		</div>
 	);
 }
@@ -1403,13 +1367,89 @@ export function roleChangeNote(user: AdminUser, isSelf: boolean): string | null 
 
 /** Promote to administrator, or demote a granted one (docs/archive/epics/EPIC-13-1.md ruling 23). */
 function RoleChange({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
-	const toast = useToast();
 	const change = useSetGrantedAdmin();
-	const [confirming, setConfirming] = useState(false);
 	const promote = user.role !== "administrator";
-	const note = roleChangeNote(user, isSelf);
-	const noteId = `role-note-${user.id}`;
 	const name = user.displayName;
+	return (
+		<GrantChange
+			change={change}
+			variables={{ userId: user.id, admin: promote }}
+			note={roleChangeNote(user, isSelf)}
+			noteId={`role-note-${user.id}`}
+			tipLabel={promote ? "Promote" : "Demote"}
+			tip={promote ? PANEL_HELP.promote : null}
+			testId={promote ? "detail-promote" : "detail-demote"}
+			ariaLabel={promote ? `Promote ${name} to administrator` : `Demote ${name}`}
+			buttonText={promote ? "Promote…" : "Demote…"}
+			dialogId={promote ? "promote-dialog" : "demote-dialog"}
+			title={promote ? `Make ${name} an administrator?` : `Demote ${name}?`}
+			description={
+				promote
+					? "They can see every account and workspace and change platform settings, from their next page load."
+					: `They go back to ${roleText({ role: user.providerRole, grantedRole: null })}, from their next page load.`
+			}
+			errorTestId="role-change-error"
+			confirmLabel={promote ? "Promote" : "Demote"}
+			destructive={!promote}
+			successTitle={
+				promote
+					? `${name} is now an administrator`
+					: `${name} is no longer an administrator`
+			}
+		/>
+	);
+}
+
+/** The mutation a role button runs; only these parts of a TanStack mutation are used. */
+interface GrantMutation<V> {
+	mutate: (variables: V, options: { onSuccess: () => void }) => void;
+	reset: () => void;
+	isPending: boolean;
+	error: unknown;
+}
+
+/**
+ * A button that grants or removes a role after a confirm dialog, with the
+ * reason it is off shown beneath it (SPEC.md §20.1). The caller supplies the
+ * wording and the mutation.
+ */
+function GrantChange<V>({
+	change,
+	variables,
+	note,
+	noteId,
+	tipLabel,
+	tip,
+	testId,
+	ariaLabel,
+	buttonText,
+	dialogId,
+	title,
+	description,
+	errorTestId,
+	confirmLabel,
+	destructive,
+	successTitle,
+}: {
+	change: GrantMutation<V>;
+	variables: V;
+	note: string | null;
+	noteId: string;
+	tipLabel: string;
+	tip: string | null;
+	testId: string;
+	ariaLabel: string;
+	buttonText: string;
+	dialogId: string;
+	title: string;
+	description: string;
+	errorTestId: string;
+	confirmLabel: string;
+	destructive: boolean;
+	successTitle: string;
+}) {
+	const toast = useToast();
+	const [confirming, setConfirming] = useState(false);
 
 	function open(next: boolean) {
 		change.reset();
@@ -1418,37 +1458,26 @@ function RoleChange({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 
 	function run() {
 		if (change.isPending) return;
-		change.mutate(
-			{ userId: user.id, admin: promote },
-			{
-				onSuccess: () => {
-					toast.show({
-						tone: "success",
-						title: promote
-							? `${name} is now an administrator`
-							: `${name} is no longer an administrator`,
-					});
-					setConfirming(false);
-				},
+		change.mutate(variables, {
+			onSuccess: () => {
+				toast.show({ tone: "success", title: successTitle });
+				setConfirming(false);
 			},
-		);
+		});
 	}
 
 	return (
 		<>
-			<WithTip
-				label={promote ? "Promote" : "Demote"}
-				tip={promote ? PANEL_HELP.promote : null}
-			>
+			<WithTip label={tipLabel} tip={tip}>
 				<Button
 					size="sm"
-					data-testid={promote ? "detail-promote" : "detail-demote"}
-					aria-label={promote ? `Promote ${name} to administrator` : `Demote ${name}`}
+					data-testid={testId}
+					aria-label={ariaLabel}
 					aria-describedby={note ? noteId : undefined}
 					aria-disabled={note ? true : undefined}
 					onClick={() => (note ? undefined : open(true))}
 				>
-					{promote ? "Promote…" : "Demote…"}
+					{buttonText}
 				</Button>
 			</WithTip>
 			{note ? (
@@ -1458,29 +1487,25 @@ function RoleChange({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 			) : null}
 			<ConfirmDialogRoot open={confirming} onOpenChange={open}>
 				<ConfirmDialog
-					id={promote ? "promote-dialog" : "demote-dialog"}
-					testId={promote ? "promote-dialog" : "demote-dialog"}
-					title={promote ? `Make ${name} an administrator?` : `Demote ${name}?`}
+					id={dialogId}
+					testId={dialogId}
+					title={title}
 					description={
 						<>
-							<span className="block">
-								{promote
-									? "They can see every account and workspace and change platform settings, from their next page load."
-									: `They go back to ${roleText({ role: user.providerRole, grantedRole: null })}, from their next page load.`}
-							</span>
+							<span className="block">{description}</span>
 							{change.error ? (
 								<span
 									className="mt-2 block text-status-error"
 									role="alert"
-									data-testid="role-change-error"
+									data-testid={errorTestId}
 								>
 									{errorText(change.error)}
 								</span>
 							) : null}
 						</>
 					}
-					confirmLabel={promote ? "Promote" : "Demote"}
-					destructive={!promote}
+					confirmLabel={confirmLabel}
+					destructive={destructive}
 					pending={change.isPending}
 					onConfirm={run}
 				/>
@@ -1504,91 +1529,34 @@ export function instructorChangeNote(user: AdminUser): string | null {
 
 /** Make instructor, or remove a granted instructor role (docs/archive/epics/EPIC-14.md ruling 14). */
 function InstructorChange({ user }: { user: AdminUser }) {
-	const toast = useToast();
 	const change = useSetGrantedInstructor();
-	const [confirming, setConfirming] = useState(false);
 	const make = user.grantedRole !== "instructor";
-	const note = instructorChangeNote(user);
-	const noteId = `instructor-note-${user.id}`;
 	const name = user.displayName;
-
-	function open(next: boolean) {
-		change.reset();
-		setConfirming(next);
-	}
-
-	function run() {
-		if (change.isPending) return;
-		change.mutate(
-			{ userId: user.id, instructor: make },
-			{
-				onSuccess: () => {
-					toast.show({
-						tone: "success",
-						title: make
-							? `${name} is now an instructor`
-							: `${name} is no longer an instructor`,
-					});
-					setConfirming(false);
-				},
-			},
-		);
-	}
-
 	return (
-		<>
-			<WithTip
-				label={make ? "Make instructor" : "Remove instructor"}
-				tip={make ? PANEL_HELP.makeInstructor : null}
-			>
-				<Button
-					size="sm"
-					data-testid={make ? "detail-make-instructor" : "detail-remove-instructor"}
-					aria-label={make ? `Make instructor: ${name}` : `Remove instructor: ${name}`}
-					aria-describedby={note ? noteId : undefined}
-					aria-disabled={note ? true : undefined}
-					onClick={() => (note ? undefined : open(true))}
-				>
-					{make ? "Make instructor…" : "Remove instructor…"}
-				</Button>
-			</WithTip>
-			{note ? (
-				<p id={noteId} className="pk-text-compact pk-muted m-0 w-full">
-					{note}
-				</p>
-			) : null}
-			<ConfirmDialogRoot open={confirming} onOpenChange={open}>
-				<ConfirmDialog
-					id={make ? "make-instructor-dialog" : "remove-instructor-dialog"}
-					testId={make ? "make-instructor-dialog" : "remove-instructor-dialog"}
-					title={
-						make ? `Make ${name} an instructor?` : `Remove instructor from ${name}?`
-					}
-					description={
-						<>
-							<span className="block">
-								{make
-									? "They can open the Course pages of courses they teach, from their next page load."
-									: `They go back to ${roleText({ role: user.providerRole, grantedRole: null })}, from their next page load.`}
-							</span>
-							{change.error ? (
-								<span
-									className="mt-2 block text-status-error"
-									role="alert"
-									data-testid="instructor-change-error"
-								>
-									{errorText(change.error)}
-								</span>
-							) : null}
-						</>
-					}
-					confirmLabel={make ? "Make instructor" : "Remove instructor"}
-					destructive={false}
-					pending={change.isPending}
-					onConfirm={run}
-				/>
-			</ConfirmDialogRoot>
-		</>
+		<GrantChange
+			change={change}
+			variables={{ userId: user.id, instructor: make }}
+			note={instructorChangeNote(user)}
+			noteId={`instructor-note-${user.id}`}
+			tipLabel={make ? "Make instructor" : "Remove instructor"}
+			tip={make ? PANEL_HELP.makeInstructor : null}
+			testId={make ? "detail-make-instructor" : "detail-remove-instructor"}
+			ariaLabel={make ? `Make instructor: ${name}` : `Remove instructor: ${name}`}
+			buttonText={make ? "Make instructor…" : "Remove instructor…"}
+			dialogId={make ? "make-instructor-dialog" : "remove-instructor-dialog"}
+			title={make ? `Make ${name} an instructor?` : `Remove instructor from ${name}?`}
+			description={
+				make
+					? "They can open the Course pages of courses they teach, from their next page load."
+					: `They go back to ${roleText({ role: user.providerRole, grantedRole: null })}, from their next page load.`
+			}
+			errorTestId="instructor-change-error"
+			confirmLabel={make ? "Make instructor" : "Remove instructor"}
+			destructive={false}
+			successTitle={
+				make ? `${name} is now an instructor` : `${name} is no longer an instructor`
+			}
+		/>
 	);
 }
 

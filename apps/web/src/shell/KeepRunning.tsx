@@ -3,8 +3,8 @@ import { Button, Select } from "@portikus/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { request } from "../api/request.js";
+import { DialogError } from "../common/DialogError.js";
 import { editorSettingsKey } from "../editor/settingsQueries.js";
-import { DialogError } from "../projects/DialogError.js";
 
 /** The lengths a student can pick, in hours; only those within the cap are offered. */
 const STEPS = [1, 2, 3, 4, 6, 8, 12, 24, 48, 72, 168];

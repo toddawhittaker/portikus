@@ -13,8 +13,8 @@ import {
 } from "@portikus/ui";
 import { useState } from "react";
 import { flushSync } from "react-dom";
+import { errorText } from "../api/request.js";
 import { useAddDexUser, useRemoveDexUser, useResetDexPassword } from "./queries.js";
-import { errorText } from "./SettingsTab.js";
 
 /** Standalone Dex users in the Users view (docs/archive/epics/EPIC-14.md rulings 21 and 22). */
 

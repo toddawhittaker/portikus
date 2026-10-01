@@ -61,7 +61,7 @@ test("the dialog lists Projects and home, Docker and Recovery", async ({
 	await expect(page.getByTestId("storage-warning")).toHaveCount(0);
 	// One meter per class; the bar is drawn only where there is a figure.
 	await expect(dialog.locator(".pk-meter")).toHaveCount(3);
-	await expect(dialog.locator(".pk-meter-track")).toHaveCount(2);
+	await expect(dialog.getByRole("meter")).toHaveCount(2);
 });
 
 test("the dialog's actions come first, and the technical details are folded away", async ({

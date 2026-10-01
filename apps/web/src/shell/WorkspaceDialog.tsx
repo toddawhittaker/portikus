@@ -13,7 +13,7 @@ import {
 } from "@portikus/ui";
 import { useState } from "react";
 import { useWorkspaceAction } from "../api/workspace.js";
-import { DialogError } from "../projects/DialogError.js";
+import { DialogError } from "../common/DialogError.js";
 import { useResetDocker } from "../recovery/queries.js";
 import { KeepRunningSection } from "./KeepRunning.js";
 import { StorageMeters } from "./StorageMeters.js";

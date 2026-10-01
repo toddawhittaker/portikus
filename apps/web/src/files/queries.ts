@@ -14,7 +14,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { z } from "zod";
-import { request, toApiError } from "../api/request.js";
+import { postJson, request, toApiError } from "../api/request.js";
 import { isFileExists } from "./errors.js";
 import { isDescendant, parentOf } from "./paths.js";
 
@@ -209,22 +209,14 @@ export function useFileMutations(
 	const createDirectory = useMutation({
 		mutationKey,
 		mutationFn: (path: string) =>
-			request(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ path }),
-			}),
+			postJson(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, { path }),
 		onSuccess: (_data, path) => invalidate(parentOf(path)),
 	});
 
 	const move = useMutation({
 		mutationKey,
 		mutationFn: ({ from, to }: { from: string; to: string }) =>
-			request(z.undefined(), `${base(workspaceId, projectId)}/move`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ from, to }),
-			}),
+			postJson(z.undefined(), `${base(workspaceId, projectId)}/move`, { from, to }),
 		onSuccess: (_data, { from, to }) => {
 			forgetSubtree(from);
 			invalidateOpenFiles(from);
@@ -273,11 +265,7 @@ export function useFileMutations(
 	const extract = useMutation({
 		mutationKey,
 		mutationFn: (path: string) =>
-			request(ExtractResponse, `${base(workspaceId, projectId)}/extract`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ path }),
-			}),
+			postJson(ExtractResponse, `${base(workspaceId, projectId)}/extract`, { path }),
 		onSuccess: (_data, path) => invalidate(parentOf(path)),
 	});
 
@@ -442,10 +430,8 @@ export async function savePastedImage(
 ): Promise<string> {
 	for (const dir of [".portikus", ".portikus/pastes"]) {
 		try {
-			await request(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ path: dir }),
+			await postJson(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, {
+				path: dir,
 			});
 		} catch (error) {
 			if (!isFileExists(error)) throw error;

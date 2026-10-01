@@ -1,8 +1,8 @@
 import type { GuardConfig, UpdateGuardRequest } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
+import { announced } from "../common/announced.js";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./guardFields.js";
-import { announced } from "./SettingsTab.js";
 
 export type { GuardKey } from "./guardFields.js";
 

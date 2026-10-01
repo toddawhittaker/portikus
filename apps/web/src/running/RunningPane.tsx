@@ -27,6 +27,7 @@ import { formatBytes, formatCpu } from "../monitor/format.js";
 import { useWorkspaceUsage } from "../monitor/usage.js";
 import { openPreviewInNewTab } from "../preview/grants.js";
 import "../preview/preview.css";
+import { PORT_REFUSED_TEXT } from "../links.js";
 import { PaneSplit } from "../shell/paneSplit.js";
 import {
 	isDocker,
@@ -176,9 +177,7 @@ export function RunningPane({
 						<span className="pk-portrow-actions">
 							{service.previewReachability === "denied" && !service.system ? (
 								<Toggletip label={`Can't be previewed, port ${service.port}`}>
-									Ports below 1024, and a few kept for services such as SSH, Docker and
-									PostgreSQL, cannot be opened as a preview. Run your web app on a port
-									from 1024 up, such as 3000 or 5173.
+									{PORT_REFUSED_TEXT}
 								</Toggletip>
 							) : null}
 							{commandLine !== undefined ? (

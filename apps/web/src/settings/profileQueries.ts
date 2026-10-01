@@ -8,7 +8,7 @@ import {
 	type UpdateProfileRequest,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { request } from "../api/request.js";
+import { postJson, request } from "../api/request.js";
 
 export const profileKey = ["me", "profile"] as const;
 
@@ -31,11 +31,7 @@ function useProfileMutation<T>(send: (input: T) => Promise<Profile>) {
 
 export function useUpdateProfile() {
 	return useProfileMutation((body: UpdateProfileRequest) =>
-		request(Profile, "/me/profile", {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(body),
-		}),
+		postJson(Profile, "/me/profile", body, "PUT"),
 	);
 }
 

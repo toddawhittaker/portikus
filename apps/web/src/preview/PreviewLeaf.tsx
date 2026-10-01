@@ -22,7 +22,8 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError } from "../api/request.js";
+import { ApiError, errorText } from "../api/request.js";
+import { PORT_REFUSED_TEXT } from "../links.js";
 import { useListening } from "../running/services.js";
 import {
 	clearPreviewOriginData,
@@ -264,10 +265,7 @@ export function PreviewLeaf({
 			}
 			setState({
 				status: "error",
-				message:
-					error instanceof ApiError
-						? error.message
-						: "Something went wrong. Please try again.",
+				message: errorText(error),
 			});
 		}
 	}, [workspaceId, port]);
@@ -568,11 +566,7 @@ export function PreviewLeaf({
 								</button>
 							}
 						>
-							<span data-testid="preview-port-refused">
-								Ports below 1024, and a few kept for services such as SSH, Docker and
-								PostgreSQL, cannot be opened as a preview. Run your app on a port from
-								1024 up, such as 3000 or 5173.
-							</span>
+							<span data-testid="preview-port-refused">{PORT_REFUSED_TEXT}</span>
 						</EmptyState>
 					</div>
 				) : null}

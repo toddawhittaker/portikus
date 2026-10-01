@@ -15,10 +15,11 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { errorText } from "../../api/request.js";
 import { formatBytes } from "../../monitor/format.js";
+import { plural } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
 import { sampleAge } from "../health/HealthTab.js";
-import { errorText } from "../SettingsTab.js";
 import {
 	DeleteDialog,
 	type DeleteTarget,
@@ -748,10 +749,6 @@ function RestoresGroup({
 	);
 }
 
-function count(n: number, one: string, many: string): string {
-	return `${n} ${n === 1 ? one : many}`;
-}
-
 /**
  * Snapshots, kept homes and dumps, which only need a look now and then, so the
  * group is closed while all three are empty.
@@ -766,9 +763,9 @@ function CleanUpGroup({
 	onDelete: (target: DeleteTarget) => void;
 }) {
 	const { vm } = data;
-	const dumps = count(host.dumps.length, "dump", "dumps");
+	const dumps = plural(host.dumps.length, "dump");
 	const summary = vm
-		? `${count(vm.snapshots.length, "snapshot", "snapshots")}, ${count(vm.keptHomes.length, "kept home", "kept homes")}, ${dumps}`
+		? `${plural(vm.snapshots.length, "snapshot")}, ${plural(vm.keptHomes.length, "kept home")}, ${dumps}`
 		: `${dumps}; snapshots and kept homes not listed yet`;
 	const anything =
 		host.dumps.length > 0 ||

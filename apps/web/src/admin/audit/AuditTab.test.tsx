@@ -8,7 +8,7 @@ import {
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
-import { shortTime } from "../shortTime.js";
+import { shortTime } from "../../text.js";
 import {
 	AuditTab,
 	filtersFromSearch,

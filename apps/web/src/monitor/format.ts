@@ -2,6 +2,9 @@
 
 const UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 
+/** A meter warns at this share of its capacity (SPEC.md §19.2). */
+export const WARN_AT = 0.8;
+
 export function formatBytes(bytes: number): string {
 	let value = bytes;
 	let unit = 0;

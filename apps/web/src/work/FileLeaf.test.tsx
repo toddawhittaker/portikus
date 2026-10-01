@@ -657,7 +657,7 @@ test("a binary image is shown fit to the tab, not offered as a download (#816)",
 		`/workspaces/${WORKSPACE}/projects/${PROJECT}/file?path=assets%2Flogo.png&inline=1&v=etag-img`,
 	);
 	expect(screen.queryByText("Not a text file")).toBeNull();
-	expect(screen.getByText("4 bytes")).not.toBeNull();
+	expect(screen.getByText("4 B")).not.toBeNull();
 	expect(screen.getByTestId("file-download")).not.toBeNull();
 	// An image is looked at, so the first view button says View.
 	expect(screen.getByTestId("file-view-edit-assets/logo.png").textContent).toBe("View");

@@ -4,7 +4,7 @@
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { formatSize, ImageView, MAX_PDF_VIEW_BYTES, PdfView } from "./FileViewer.js";
+import { ImageView, MAX_PDF_VIEW_BYTES, PdfView } from "./FileViewer.js";
 
 afterEach(() => {
 	cleanup();
@@ -32,7 +32,7 @@ test("an image shows its dimensions once loaded, and its size", () => {
 	expect(screen.getByTestId("file-image-dimensions").textContent).toBe(
 		"640 × 480 pixels",
 	);
-	expect(screen.getByText("2 KB")).not.toBeNull();
+	expect(screen.getByText("2.0 KB")).not.toBeNull();
 	// Only the facts name the figure; Download sits beside the caption, not in it.
 	const figure = image.closest("figure");
 	const caption = figure?.querySelector("figcaption");
@@ -103,10 +103,4 @@ test("a PDF shows a loading line until its copy is ready", () => {
 	);
 	render(<PdfView url="/b.pdf" path="b.pdf" download={null} fallback={fallback} />);
 	expect(screen.getByText("Loading…")).not.toBeNull();
-});
-
-test("sizes read in bytes, KB and MB", () => {
-	expect(formatSize(12)).toBe("12 bytes");
-	expect(formatSize(12 * 1024)).toBe("12 KB");
-	expect(formatSize(3.5 * 1024 * 1024)).toBe("3.5 MB");
 });

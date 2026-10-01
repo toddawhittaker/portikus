@@ -5,7 +5,7 @@ import {
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { request } from "../api/request.js";
+import { postJson, request } from "../api/request.js";
 import {
 	markThemeCarriedOver,
 	readThemePreference,
@@ -48,11 +48,7 @@ export function useEditorSettings() {
 }
 
 function saveEditorSettings(body: UpdateEditorSettingsRequest) {
-	return request(MeSettings, "/me/settings", {
-		method: "PUT",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify(body),
-	});
+	return postJson(MeSettings, "/me/settings", body, "PUT");
 }
 
 /** Change some of them; the server merges and returns the whole set. */

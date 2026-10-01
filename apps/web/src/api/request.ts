@@ -1,6 +1,9 @@
 import { ApiError as ApiErrorBody } from "@portikus/contracts";
 import type { ZodType } from "zod";
 
+/** The fallback sentence when an error carries no message of its own (SPEC.md §28). */
+export const SOMETHING_WENT_WRONG = "Something went wrong. Please try again.";
+
 /** Thrown when the API says the session is gone (401), so the app must log in again. */
 export class SessionEndedError extends Error {
 	constructor() {
@@ -29,7 +32,7 @@ export async function toApiError(response: Response): Promise<Error> {
 	const parsed = ApiErrorBody.safeParse(body);
 	return new ApiError(
 		response.status,
-		parsed.success ? parsed.data.message : "Something went wrong. Please try again.",
+		parsed.success ? parsed.data.message : SOMETHING_WENT_WRONG,
 		parsed.success ? parsed.data.code : undefined,
 	);
 }
@@ -55,4 +58,24 @@ export async function request<T>(
 	}
 
 	return schema.parse(await response.json());
+}
+
+/** Send `body` as JSON and parse the response through `schema`, as `request` does. */
+export function postJson<T>(
+	schema: ZodType<T>,
+	input: string,
+	body: unknown,
+	method: "POST" | "PUT" | "PATCH" | "DELETE" = "POST",
+): Promise<T> {
+	return request(schema, input, {
+		method,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
+}
+
+/** What to show for a failed call: the API's own sentence, or the fallback. */
+export function errorText(error: unknown): string {
+	if (error instanceof ApiError) return error.message;
+	return SOMETHING_WENT_WRONG;
 }
