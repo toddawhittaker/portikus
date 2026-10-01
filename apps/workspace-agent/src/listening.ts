@@ -12,7 +12,10 @@ import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { connect as tlsConnect } from "node:tls";
-import type { AgentListeningService } from "@portikus/contracts";
+import {
+	type AgentListeningService,
+	MAX_LISTENING_SERVICES,
+} from "@portikus/contracts";
 import type { FastifyBaseLogger } from "fastify";
 import { ownedByStudent, parseStatusUids, readCommandLine } from "./processes.js";
 
@@ -462,6 +465,23 @@ function isGone(error: unknown): boolean {
 	return (error as NodeJS.ErrnoException | undefined)?.code === "ESRCH";
 }
 
+/**
+ * Keeps at most MAX_LISTENING_SERVICES, student listeners first and then by
+ * port, so the control plane never rejects an honest frame.
+ */
+export function capServices(
+	services: AgentListeningService[],
+): AgentListeningService[] {
+	if (services.length <= MAX_LISTENING_SERVICES) return services;
+	return [...services]
+		.sort(
+			(left, right) =>
+				Number(left.system) - Number(right.system) || left.port - right.port,
+		)
+		.slice(0, MAX_LISTENING_SERVICES)
+		.sort((left, right) => left.port - right.port);
+}
+
 /** Everything about a service except when it was observed. */
 function fingerprint(services: AgentListeningService[]): string {
 	return JSON.stringify(services.map(({ observedAt: _observedAt, ...rest }) => rest));
@@ -495,6 +515,7 @@ export class ListeningMonitor {
 	private readonly listeners = new Set<Listener>();
 	private services: AgentListeningService[] = [];
 	private print = fingerprint([]);
+	private warnedTruncation = false;
 	private timer: NodeJS.Timeout | null = null;
 	private dockerCache: { at: number; containers: DockerContainer[] } | null = null;
 	/** Open `/listening/events` sockets; the in-process subscribers do not count. */
@@ -772,7 +793,15 @@ export class ListeningMonitor {
 		}
 	}
 
-	private publish(services: AgentListeningService[]): AgentListeningService[] {
+	private publish(scanned: AgentListeningService[]): AgentListeningService[] {
+		const services = capServices(scanned);
+		if (services.length < scanned.length && !this.warnedTruncation) {
+			this.warnedTruncation = true;
+			this.logger?.warn(
+				{ listeners: scanned.length, kept: services.length },
+				"too many listening services; reporting only the first ones",
+			);
+		}
 		const print = fingerprint(services);
 		if (print === this.print) return this.services;
 		this.print = print;

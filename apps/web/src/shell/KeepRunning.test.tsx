@@ -1,6 +1,9 @@
 import type { Workspace } from "@portikus/contracts";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { Dialog, DialogRoot, ToastProvider } from "@portikus/ui";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { createQueryClient } from "../api/queryClient.js";
 import { json, renderWithQuery, stubFetch, WORKSPACE } from "../test-utils.js";
 import {
 	formatHoldEnd,
@@ -33,6 +36,15 @@ test("the end time is shown in the student's timezone", () => {
 	expect(formatHoldEnd(at, "Not/AZone")).toMatch(/\d:30/);
 });
 
+test("an end six days or more ahead also names its date, so a week is not read as today", () => {
+	const now = Date.parse("2026-10-01T12:00:00.000Z");
+	const week = new Date(now + 168 * 3_600_000).toISOString();
+	const soon = new Date(now + 8 * 3_600_000).toISOString();
+	expect(formatHoldEnd(week, "UTC", now)).toMatch(/Oct 8/);
+	expect(formatHoldEnd(soon, "UTC", now)).not.toMatch(/Oct/);
+	expect(formatHoldEnd(soon, "UTC", now)).toMatch(/8:00/);
+});
+
 test("a hold is active only while its end is ahead", () => {
 	expect(holdActive({ keepRunningUntil: null })).toBe(false);
 	expect(holdActive({ keepRunningUntil: inHours(1) })).toBe(true);
@@ -47,7 +59,10 @@ function stubKeepRunning(): { method: string; body: unknown }[] {
 				method: init?.method ?? "GET",
 				body: init?.body ? JSON.parse(String(init.body)) : null,
 			});
-			return json(200, WORKSPACE);
+			const until = init?.body
+				? (JSON.parse(String(init.body)) as { until: string }).until
+				: null;
+			return json(200, { ...WORKSPACE, keepRunningUntil: until });
 		}
 		return json(404, { code: "NOT_FOUND", message: "no" });
 	});
@@ -62,6 +77,10 @@ test("with no hold, Keep running asks for a time within the cap", async () => {
 
 	expect(screen.getByRole("heading", { name: "Keep running" })).toBeDefined();
 	expect(screen.queryByTestId("keep-running-end")).toBeNull();
+	// The button names its result: the end time eight hours ahead.
+	expect(screen.getByTestId("keep-running-set").textContent).toMatch(
+		/^Keep running until \w{3} \d{1,2}:\d{2}/,
+	);
 	const before = Date.now();
 	fireEvent.click(screen.getByTestId("keep-running-set"));
 	await waitFor(() => expect(calls.length).toBe(1));
@@ -71,9 +90,15 @@ test("with no hold, Keep running asks for a time within the cap", async () => {
 	// Eight hours is picked first; it never passes the 12-hour cap.
 	expect(until).toBeGreaterThanOrEqual(before + 8 * 3_600_000);
 	expect(until).toBeLessThanOrEqual(Date.now() + 12 * 3_600_000);
+	// The saved end is announced, since nothing else on screen changes until the socket says so.
+	await waitFor(() =>
+		expect(screen.getByRole("status").textContent).toBe(
+			`Kept running until ${formatHoldEnd(sent?.until ?? "")}.`,
+		),
+	);
 });
 
-test("with a hold, the end time shows and End hold ends it", async () => {
+test("with a hold, the end time shows and Don't keep running ends it", async () => {
 	const calls = stubKeepRunning();
 	const workspace: Workspace = { ...WORKSPACE, keepRunningUntil: inHours(3) };
 	renderWithQuery(
@@ -83,9 +108,90 @@ test("with a hold, the end time shows and End hold ends it", async () => {
 	expect(screen.getByTestId("keep-running-status").textContent).toContain(
 		formatHoldEnd(workspace.keepRunningUntil as string),
 	);
-	expect(screen.getByTestId("keep-running-set").textContent).toBe("Change");
-	fireEvent.click(screen.getByTestId("keep-running-end"));
+	expect(screen.getByTestId("keep-running-set").textContent).toMatch(
+		/^Keep running until /,
+	);
+	const end = screen.getByRole("button", { name: "Don't keep running" });
+	expect(end.getAttribute("data-testid")).toBe("keep-running-end");
+	expect(screen.getByRole("status").textContent).toBe("");
+	end.focus();
+	fireEvent.click(end);
 	await waitFor(() => expect(calls).toEqual([{ method: "DELETE", body: null }]));
+	await waitFor(() =>
+		expect(screen.getByRole("status").textContent).toBe("Keep running ended."),
+	);
+	// Its button is about to go; focus moves to the button that sets a new hold.
+	expect(document.activeElement).toBe(screen.getByTestId("keep-running-set"));
+});
+
+test("ending a hold under a cap of 0 announces it and focuses the dialog heading", async () => {
+	stubKeepRunning();
+	const props = {
+		workspaceId: WORKSPACE.id,
+		workspace: { ...WORKSPACE, keepRunningMaxHours: 0, keepRunningUntil: inHours(1) },
+	};
+	renderWithQuery(
+		<DialogRoot open>
+			<Dialog title="Your workspace">
+				<KeepRunningSection {...props} />
+			</Dialog>
+		</DialogRoot>,
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Don't keep running" }));
+	await waitFor(() =>
+		expect(screen.getByRole("status").textContent).toBe("Keep running ended."),
+	);
+	expect(document.activeElement).toBe(
+		screen.getByRole("heading", { name: "Your workspace" }),
+	);
+});
+
+test("setting the same end twice in a row is announced both times", async () => {
+	stubKeepRunning();
+	renderWithQuery(
+		<KeepRunningSection workspaceId={WORKSPACE.id} workspace={WORKSPACE} />,
+	);
+	const status = screen.getByRole("status");
+	fireEvent.click(screen.getByTestId("keep-running-set"));
+	await waitFor(() => expect(status.textContent).toMatch(/^Kept running until /));
+	const first = status.textContent;
+	fireEvent.click(screen.getByTestId("keep-running-set"));
+	// Emptied first, so a screen reader hears the same words again.
+	expect(status.textContent).toBe("");
+	await waitFor(() => expect(status.textContent).toBe(first));
+});
+
+test("the status region is the same node when the section goes, so nothing remounts", () => {
+	stubKeepRunning();
+	const client = createQueryClient(() => {});
+	const held = { ...WORKSPACE, keepRunningMaxHours: 0, keepRunningUntil: inHours(1) };
+	const view = (workspace: Workspace) => (
+		<QueryClientProvider client={client}>
+			<ToastProvider>
+				<KeepRunningSection workspaceId={WORKSPACE.id} workspace={workspace} />
+			</ToastProvider>
+		</QueryClientProvider>
+	);
+	const { rerender } = render(view(held));
+	const status = screen.getByRole("status");
+	expect(screen.getByRole("heading", { name: "Keep running" })).toBeDefined();
+	// The socket says the hold ended; under a cap of 0 the section leaves.
+	rerender(view({ ...held, keepRunningUntil: null }));
+	expect(screen.queryByRole("heading", { name: "Keep running" })).toBeNull();
+	expect(screen.getByRole("status")).toBe(status);
+});
+
+test("a hold set before the cap went to 0 can still be ended, with nothing new offered", () => {
+	stubKeepRunning();
+	renderWithQuery(
+		<KeepRunningSection
+			workspaceId={WORKSPACE.id}
+			workspace={{ ...WORKSPACE, keepRunningMaxHours: 0, keepRunningUntil: inHours(1) }}
+		/>,
+	);
+	expect(screen.getByTestId("keep-running-status")).toBeDefined();
+	expect(screen.queryByTestId("keep-running-set")).toBeNull();
+	expect(screen.getByRole("button", { name: "Don't keep running" })).toBeDefined();
 });
 
 test("a cap of 0 shows nothing", () => {
@@ -97,6 +203,8 @@ test("a cap of 0 shows nothing", () => {
 		/>,
 	);
 	expect(screen.queryByRole("heading", { name: "Keep running" })).toBeNull();
+	// The announcement region stays mounted, so ending a hold under this cap is still heard.
+	expect(screen.getByRole("status").textContent).toBe("");
 });
 
 test("the status bar shows an active hold and opens the workspace dialog", () => {

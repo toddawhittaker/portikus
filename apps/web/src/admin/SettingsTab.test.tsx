@@ -94,7 +94,7 @@ test("the grace period, idle stop and keep-running cap sit side by side, each wi
 		within(stop).getByRole("textbox", { name: "Idle stop (minutes)" }),
 	).toBeDefined();
 	expect(
-		within(stop).getByRole("textbox", { name: "Keep running, longest (hours)" }),
+		within(stop).getByRole("textbox", { name: "Longest keep running (hours)" }),
 	).toBeDefined();
 	expect(within(stop).getAllByRole("button", { name: "Save" })).toHaveLength(3);
 	expect(within(stop).getByText("0 means never.")).toBeDefined();

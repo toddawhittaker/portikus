@@ -24,10 +24,15 @@ import {
 	useSeedJobs,
 } from "./queries.js";
 import {
+	type DriftPart,
 	downloadSize,
-	driftText,
+	driftActionSentence,
+	driftOverSentence,
+	driftParts,
+	driftSentence,
 	listSizeText,
 	parseSeedMaxGiB,
+	type Segment,
 	seedListError,
 	seedUseText,
 } from "./text.js";
@@ -65,6 +70,7 @@ export function SeedCard({ data }: { data: DockerAdminResponse }) {
 	}, [busy, client]);
 
 	const listError = seedListError(data.seedImages, data.ghcrEnabled);
+	const drift = driftParts(data.seedImages, data.match);
 	const off = busy
 		? "A rebuild is waiting or running. Wait until it finishes."
 		: data.seedImages.length === 0
@@ -116,16 +122,26 @@ export function SeedCard({ data }: { data: DockerAdminResponse }) {
 					{off}
 				</p>
 			) : null}
-			<CurrentSeed data={data} />
+			<CurrentSeed data={data} drifting={drift !== null} />
 			<LatestRebuild job={latest} loaded={jobs.data !== undefined} />
-			<MatchNotice data={data} busy={busy} />
-			<ImageList data={data} error={listError} />
+			<ImageList
+				data={data}
+				error={listError}
+				notice={drift ? <MatchNotice data={data} busy={busy} parts={drift} /> : null}
+			/>
 			<SizeLimit data={data} />
 		</AdminGroup>
 	);
 }
 
-function CurrentSeed({ data }: { data: DockerAdminResponse }) {
+function CurrentSeed({
+	data,
+	drifting,
+}: {
+	data: DockerAdminResponse;
+	/** The drift notice's button rebuilds too, so this notice would repeat it. */
+	drifting: boolean;
+}) {
 	const seed = data.seed;
 	// Only to say when the seed's Docker no longer matches new workspaces.
 	const image = useAdminImage();
@@ -138,7 +154,7 @@ function CurrentSeed({ data }: { data: DockerAdminResponse }) {
 			{seed ? (
 				<>
 					<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
-						<dt className="pk-muted">Size on disk</dt>
+						<dt className="pk-muted">Seed size</dt>
 						<dd className="m-0" data-testid="docker-seed-size">
 							<Meter
 								label="Seed size"
@@ -161,7 +177,7 @@ function CurrentSeed({ data }: { data: DockerAdminResponse }) {
 						names={seed.images}
 						sizes={data.imageSizes}
 					/>
-					{defaultVersion && defaultVersion !== seed.imageVersion ? (
+					{!drifting && defaultVersion && defaultVersion !== seed.imageVersion ? (
 						<Notice tone="warning" testId="docker-seed-stale">
 							The default workspace image is now {defaultVersion}. Rebuild the seed so
 							its images match the Docker in new workspaces.
@@ -178,25 +194,53 @@ function CurrentSeed({ data }: { data: DockerAdminResponse }) {
 	);
 }
 
+/** Image names in a notice, set as code like the tables around it. */
+function Segments({ parts }: { parts: Segment[] }) {
+	return (
+		<>
+			{parts.map((part) =>
+				typeof part === "string" ? (
+					part
+				) : (
+					// An image name appears once in a sentence.
+					<code key={part.code} className="pk-mono-small">
+						{part.code}
+					</code>
+				),
+			)}
+		</>
+	);
+}
+
 /**
  * The seed list lacks the images matching the default workspace image
  * (issue #932). One button swaps them in and rebuilds, unless the estimate
  * says the seed would pass its limit; nothing changes without the click.
  */
-function MatchNotice({ data, busy }: { data: DockerAdminResponse; busy: boolean }) {
+function MatchNotice({
+	data,
+	busy,
+	parts,
+}: {
+	data: DockerAdminResponse;
+	busy: boolean;
+	parts: DriftPart[];
+}) {
 	const match = useMatchSeed();
 	const toast = useToast();
-	const text = driftText(data.seedImages, data.match);
 	const drift = data.match ? seedDrift(data.seedImages, data.match) : null;
-	if (!text || !drift) return null;
+	if (!drift) return null;
 	const over = overSeedCap(drift.next, data.imageSizes, data.seedMaxGiB);
 	const off = busy ? "A rebuild is waiting or running. Wait until it finishes." : null;
 
 	function update() {
 		if (off) return;
 		match.mutate(undefined, {
-			onSuccess: () =>
-				toast.show({ tone: "success", title: "Seed list updated, rebuild requested" }),
+			onSuccess: () => {
+				toast.show({ tone: "success", title: "Seed list updated, rebuild requested" });
+				// This notice and its button go away; the list it changed keeps the place.
+				document.getElementById("docker-seed-list-title")?.focus();
+			},
 			onError: (error) =>
 				toast.show({
 					tone: "danger",
@@ -209,31 +253,36 @@ function MatchNotice({ data, busy }: { data: DockerAdminResponse; busy: boolean 
 	return (
 		<Notice tone="warning" testId="docker-seed-drift">
 			<span className="grid gap-2">
-				<span>{text}</span>
+				<span>
+					<Segments parts={driftSentence(parts)} />
+				</span>
 				{over ? (
 					<span data-testid="docker-seed-drift-over">
-						Adding {drift.missing.join(" and ")} would take the seed past its{" "}
-						{data.seedMaxGiB} GiB limit, by estimated download size, so they are not
-						added. Raise the limit or remove images first.
+						<Segments parts={driftOverSentence(parts, data.seedMaxGiB)} />
 					</span>
 				) : (
-					<span className="flex flex-wrap items-center gap-3">
-						<Button
-							size="sm"
-							data-testid="docker-seed-drift-apply"
-							aria-disabled={off ? true : undefined}
-							aria-describedby={off ? "docker-seed-drift-note" : undefined}
-							loading={match.isPending}
-							onClick={update}
-						>
-							Use {drift.missing.join(" and ")} and rebuild
-						</Button>
-						{off ? (
-							<span id="docker-seed-drift-note" className="pk-muted">
-								{off}
-							</span>
-						) : null}
-					</span>
+					<>
+						<span>
+							<Segments parts={driftActionSentence(parts)} />
+						</span>
+						<span className="flex flex-wrap items-center gap-3">
+							<Button
+								size="sm"
+								data-testid="docker-seed-drift-apply"
+								aria-disabled={off ? true : undefined}
+								aria-describedby={off ? "docker-seed-drift-note" : undefined}
+								loading={match.isPending}
+								onClick={update}
+							>
+								Update list and rebuild
+							</Button>
+							{off ? (
+								<span id="docker-seed-drift-note" className="pk-muted">
+									{off}
+								</span>
+							) : null}
+						</span>
+					</>
 				)}
 			</span>
 		</Notice>
@@ -296,9 +345,12 @@ function LatestRebuild({ job, loaded }: { job: SeedJob | null; loaded: boolean }
 function ImageList({
 	data,
 	error,
+	notice,
 }: {
 	data: DockerAdminResponse;
 	error: string | null;
+	/** The drift notice, under the heading of the list it changes. */
+	notice: ReactNode;
 }) {
 	const save = useSaveSeedImages();
 	const toast = useToast();
@@ -359,6 +411,7 @@ function ImageList({
 					{list.length} of {SEED_IMAGES_MAX}
 				</span>
 			</div>
+			{notice}
 			{error ? (
 				<Notice tone="error" testId="docker-seed-list-error">
 					{error}

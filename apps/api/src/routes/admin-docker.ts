@@ -259,10 +259,15 @@ export function registerAdminDockerRoutes(
 		const match = await readMatch(imagesDir);
 		let settings = await readSettings(db);
 		const defaults = matchedImages(match);
+		// The image manifest is outside the API, so its names get the same check as PUT.
+		const defaultsValid = seedImageListFor(settings.ghcrEnabled).safeParse(
+			defaults,
+		).success;
 		if (
 			!settings.seedImagesSet &&
 			settings.seedImages.length === 0 &&
-			defaults.length > 0
+			defaults.length > 0 &&
+			defaultsValid
 		) {
 			// The default seed for a list no administrator has set (ruling R4).
 			const applied = await db

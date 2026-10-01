@@ -125,7 +125,11 @@ describe("keep running until (#955)", () => {
 		expect(keepRunningRefusal(now, now, 12)).toBe("past");
 		expect(keepRunningRefusal(hours(-1), now, 12)).toBe("past");
 		expect(keepRunningRefusal(hours(12), now, 12)).toBeNull();
-		expect(keepRunningRefusal(new Date(hours(12).getTime() + 1), now, 12)).toBe(
+		// Five minutes of clock skew past the cap is allowed; the caller clamps it.
+		expect(
+			keepRunningRefusal(new Date(hours(12).getTime() + 300_000), now, 12),
+		).toBeNull();
+		expect(keepRunningRefusal(new Date(hours(12).getTime() + 300_001), now, 12)).toBe(
 			"too-far",
 		);
 		expect(keepRunningRefusal(hours(0.5), now, 12)).toBeNull();

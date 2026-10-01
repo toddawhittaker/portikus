@@ -81,7 +81,8 @@ function StopSection() {
 					When workspaces stop
 				</h3>
 				<p className="pk-text-body pk-muted m-0 mt-1">
-					A running workspace stops when either time runs out, whichever comes first.
+					A running workspace stops when the disconnect grace or idle stop runs out,
+					whichever comes first, unless its owner chose Keep running.
 				</p>
 			</div>
 			<div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] items-start gap-6">
@@ -296,7 +297,7 @@ function KeepRunningField() {
 			<TextField
 				className="w-56"
 				id="keep-running-max-hours"
-				label="Keep running, longest (hours)"
+				label="Longest keep running (hours)"
 				help={
 					<Toggletip label="Keep running">
 						A student can keep their workspace running for up to this many hours, for
