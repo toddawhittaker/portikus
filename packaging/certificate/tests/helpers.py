@@ -96,7 +96,7 @@ class HostTree:
         Path(self.root + cj.API_ENV).write_text(
             "# test\nPORT=3000\nPUBLIC_URL=https://portikus.example.test:8443\n"
             "PREVIEW_SUFFIX=preview.portikus.example.test\nOTHER=x=y\n")
-        Path(self.root + cj.SYSTEM_CAS).write_text(certs.pem("root"))
+        Path(self.root + cj.SYSTEM_CAS).write_text(certs.pem("root") + certs.pem("acmeroot"))
         Path(self.root + cj.CADDY_ROOT).write_text(certs.pem("caddyroot"))
         Path(self.root + cj.CADDYFILE).write_text("# test\n")
 

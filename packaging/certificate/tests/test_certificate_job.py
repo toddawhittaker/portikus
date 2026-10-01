@@ -117,10 +117,12 @@ class JobTest(unittest.TestCase):
         self.runner = cj.Runner(root=self.tree.root, run_=self.fake, sleep=self.clock.sleep, clock=self.clock)
         self.throwaway_calls = []
         self.throwaway_error = None
+        self.throwaway_cert = "acme2"
         self.runner.issue_with_throwaway_caddy = self.fake_throwaway
         self.addCleanup(shutil.rmtree, self.tree.root, ignore_errors=True)
         self.first_install({"source": "internal"})
         self.fake.serve("internal")
+        self.fake.calls.clear()
 
     def first_install(self, settings):
         with contextlib.redirect_stdout(io.StringIO()) as out:
@@ -140,7 +142,7 @@ class JobTest(unittest.TestCase):
         for name in names:
             folder = os.path.join(work, "storage", "certificates", "acme-v02.example-directory", cj.storage_name(name))
             os.makedirs(folder)
-            Path(folder, cj.storage_name(name) + ".crt").write_text(CERTS.pem("acme2"))
+            Path(folder, cj.storage_name(name) + ".crt").write_text(CERTS.pem(self.throwaway_cert))
         return work
 
     def submit(self, request, job_id=ID):
@@ -407,6 +409,27 @@ class FirstInstall(JobTest):
         self.assertNotIn(TOKEN, Path(self.tree.state("tls.caddy")).read_text() + json.dumps(view))
         self.assertFalse(os.path.exists(self.tree.state("secrets.env")))
 
+    def test_any_state_at_all_is_left_alone(self):
+        for leftover in ("tls.caddy", "secrets"):
+            with self.subTest(leftover=leftover):
+                shutil.rmtree(self.runner.state_dir)
+                os.makedirs(self.tree.state("secrets") if leftover == "secrets" else self.runner.state_dir)
+                if leftover == "tls.caddy":
+                    Path(self.tree.state("tls.caddy")).write_text("# by hand\n")
+                self.assertEqual(self.first_install(acme()), (0, "unchanged"))
+                self.assertFalse(os.path.exists(self.tree.state("settings.json")))
+
+    def test_first_install_reloads_a_running_caddy_and_writes_trust_and_status(self):
+        shutil.rmtree(self.runner.state_dir)
+        os.mkdir(self.runner.state_dir, 0o750)
+        self.fake.calls.clear()
+        self.assertEqual(self.first_install({"source": "internal"}), (0, "changed"))
+        self.assertEqual(self.fake.ran("systemctl", "try-reload-or-restart", "caddy"),
+                         [["systemctl", "try-reload-or-restart", "caddy"]])
+        self.assertEqual(self.fake.ran("systemctl", "try-restart"), [])
+        self.assertIn(CERTS.pem("caddyroot"), Path(self.runner.trust_bundle).read_text())
+        self.assertTrue(Path(self.runner.status_dir, "status.json").exists())
+
     def test_refused_settings_write_nothing(self):
         shutil.rmtree(self.runner.state_dir)
         os.mkdir(self.runner.state_dir, 0o750)
@@ -491,22 +514,29 @@ class Apply(JobTest):
         self.assertTrue(status["restored"])
         self.assertEqual(self.settings(), {"source": "internal"})
 
-    def test_http01_is_obtained_by_the_live_caddy_with_a_longer_wait(self):
-        self.fake.serve("internal")
-        self.fake.on_reload = lambda verb: self.fake.serve("acme")
+    def test_http01_is_obtained_by_the_throwaway_too(self):
+        self.fake.serve("acme")
         status = self.submit({"kind": "apply", "settings": acme(mode="http01")})
         self.assertEqual(status["state"], "succeeded", status)
-        self.assertEqual(self.throwaway_calls, [])
+        self.assertEqual([(c["directory"], c["names"]) for c in self.throwaway_calls],
+                         [(STAGING, [SITE]), (PRODUCTION, [SITE])])
+        self.assertTrue(Path(self.runner.caddy_data, "certificates", "acme-v02.example-directory", SITE).is_dir())
         # The sample preview name is never asked for: under HTTP-01 that would issue it a certificate.
         self.assertEqual([c for c in self.fake.ran("openssl", "s_client") if SAMPLE in c], [])
         self.assertIn("on_demand_tls", Path(self.tree.state("tls.caddy")).read_text())
+        # The live snippet answers its own challenges on port 80; only the throwaway's uses the side port.
+        self.assertNotIn("alt_http_port", Path(self.tree.state("tls.caddy")).read_text())
 
-    def test_http01_failure_waits_the_longer_time_then_restores(self):
-        start = self.clock.now
-        status = self.submit({"kind": "apply", "settings": acme(mode="http01")})
-        self.assertEqual(status["state"], "failed")
-        self.assertTrue(status["restored"])
-        self.assertGreaterEqual(self.clock.now - start, cj.HTTP01_TIMEOUT)
+    def test_an_untrusted_chain_is_refused_before_the_swap(self):
+        """Let's Encrypt staging applied by mistake would break the API's own calls through Caddy."""
+        self.throwaway_cert = "site"
+        before = Path(self.tree.state("tls.caddy")).read_text()
+        status = self.submit({"kind": "apply", "settings": acme(directory="https://acme.example.test/dir")})
+        self.assertEqual(status["state"], "refused", status)
+        self.assertIn("not trusted by this server; use Test only for staging", status["message"])
+        self.assertEqual(Path(self.tree.state("tls.caddy")).read_text(), before)
+        self.assertEqual(list(Path(self.runner.caddy_data).glob("certificates/acme-v02.example-directory/*")), [])
+        self.assertEqual(self.fake.ran("systemctl", "reload"), [])
 
     def test_blank_secrets_keep_the_stored_ones_for_the_same_provider(self):
         self.fake.serve("acme")
@@ -631,10 +661,16 @@ class Test(JobTest):
         self.assertEqual(self.throwaway_calls[0]["directory"], "https://acme.zerossl.com/v2/DV90")
         self.assertIn("real certificate", status["message"])
 
-    def test_http01_cannot_be_tested_apart_from_the_live_site(self):
+    def test_http01_is_tested_through_the_throwaway(self):
         status = self.submit({"kind": "test", "settings": acme(mode="http01")})
-        self.assertEqual(status["state"], "refused")
-        self.assertIn("port 80", status["message"])
+        self.assertEqual(status["state"], "succeeded", status)
+        self.assertEqual([(c["directory"], c["names"], c["seed"]) for c in self.throwaway_calls],
+                         [(STAGING, [SITE], False)])
+
+    def test_the_throwaway_answers_http01_on_the_challenge_port(self):
+        tls = cj.snippets(acme(mode="http01"), "/b", alt_http_port=cj.CHALLENGE_PORT)
+        site = tls.split("(portikus_tls_site)")[1].split("(portikus_tls_preview)")[0]
+        self.assertIn("\t\t\talt_http_port 8796\n", site)
 
 
 class Rollback(JobTest):
@@ -713,7 +749,7 @@ class Renew(JobTest):
         self.assertFalse(Path(self.runner.caddy_data, "certificates", "local", SITE).exists())
         self.assertEqual(self.throwaway_calls, [])
 
-    def test_files_and_http01_are_refused(self):
+    def test_an_uploaded_certificate_is_refused(self):
         self.fake.serve("site")
         self.submit({"kind": "apply", "settings": files()}, ID)
         status = self.submit({"kind": "renew"}, ID2)
@@ -767,12 +803,44 @@ class Check(JobTest):
         self.runner.run_check()
         self.assertEqual(len(self.fake.ran("systemctl", "try-restart", "portikus-api.service")), 1)
 
+    def test_the_trust_bundle_command_for_setup(self):
+        os.unlink(self.runner.caddy_root)
+        Path(self.runner.trust_bundle).unlink(missing_ok=True)
+        out = io.StringIO()
+        self.assertEqual(self.runner.run_trust_bundle(out), 0)
+        self.assertEqual(out.getvalue(), "changed\n")
+        self.assertNotIn(CERTS.pem("caddyroot"), Path(self.runner.trust_bundle).read_text())
+        out = io.StringIO()
+        self.runner.run_trust_bundle(out)
+        self.assertEqual(out.getvalue(), "unchanged\n")
+        # Once Caddy has written its internal root, the bundle includes it.
+        Path(self.runner.caddy_root).write_text(CERTS.pem("caddyroot"))
+        out = io.StringIO()
+        self.runner.run_trust_bundle(out)
+        self.assertEqual(out.getvalue(), "changed\n")
+        self.assertIn(CERTS.pem("caddyroot").strip(), Path(self.runner.trust_bundle).read_text())
+        self.assertEqual(self.fake.ran("systemctl", "try-restart"), [])
+
+    def test_a_switch_to_internal_puts_its_root_in_the_bundle(self):
+        os.unlink(self.runner.caddy_root)
+        self.fake.serve("site")
+        self.submit({"kind": "apply", "settings": files()}, ID)
+        self.assertNotIn(CERTS.pem("caddyroot").strip(), Path(self.runner.trust_bundle).read_text())
+        Path(self.runner.caddy_root).write_text(CERTS.pem("caddyroot"))
+        self.fake.serve("internal")
+        self.assertEqual(self.submit({"kind": "apply", "settings": {"source": "internal"}}, ID2)["state"],
+                         "succeeded")
+        bundle = Path(self.runner.trust_bundle).read_text()
+        self.assertIn(CERTS.pem("caddyroot").strip(), bundle)
+        self.assertNotIn(CERTS.pem("site").strip(), bundle)
+
     def test_a_check_request(self):
         status = self.submit({"kind": "check"})
         self.assertEqual(status["state"], "succeeded")
         self.assertTrue(Path(self.runner.status_dir, "status.json").exists())
 
     def test_check_skips_while_a_job_holds_the_lock(self):
+        Path(self.runner.status_dir, "status.json").unlink()
         fd = self.runner.locked(blocking=True)
         try:
             with contextlib.redirect_stderr(io.StringIO()):

@@ -22,8 +22,13 @@ Usage:
                              (portikus reset-certificate)
   certificate-job first-install
                              setup's first install: read CertificateSettings
-                             JSON on standard input and write the state
-                             directory, unless it exists already
+                             JSON (secrets included) on standard input and
+                             write the state directory, unless it holds any
+                             state already; prints changed or unchanged
+  certificate-job trust-bundle
+                             rebuild the API's trust bundle; prints changed
+                             or unchanged and leaves restarting the API to
+                             setup
 """
 
 import datetime
@@ -86,11 +91,13 @@ PATH_SECRET_FIELDS = {("googleclouddns", "service_account_json"): "gcp_applicati
 ISSUE_TIMEOUT = 300
 # How long the live Caddy gets to serve certificates already in its storage.
 SERVE_TIMEOUT = 30
-# HTTP-01 is obtained by the live Caddy itself (see apply), so it gets longer.
-HTTP01_TIMEOUT = 300
+# The live Caddy's port-80 block passes /.well-known/acme-challenge/* here, so the throwaway Caddy
+# answers HTTP-01 for the certificates it obtains (setup's Caddyfile; Epic 27 R11 as amended).
+CHALLENGE_PORT = 8796
 POLL_SECONDS = 2
 
-GENERATION = ("settings.json", "tls.caddy", "files", "secrets")
+# Installed in this order, so settings.json, written last, never names a file not yet in place.
+GENERATION = ("secrets", "files", "tls.caddy", "settings.json")
 KEEP_JOBS = 20
 MAX_REQUEST_BYTES = 512 * 1024
 MAX_PEM_LENGTH = 64 * 1024
@@ -580,7 +587,7 @@ def secret_file(owner, field):
     return f"{owner}_{field}"
 
 
-def tls_lines(settings, base, preview=False):
+def tls_lines(settings, base, preview=False, alt_http_port=None):
     """The `tls` directive for one site block, naming files under base (a generation's directory).
 
     Secrets appear only as {file.path} placeholders, so they never reach
@@ -612,14 +619,17 @@ def tls_lines(settings, base, preview=False):
         lines.append("\t}")
     else:
         # Port 80 only: the site's own port need not be 443.
-        lines += ["\t\tdisable_tlsalpn_challenge", "\t}"]
+        lines.append("\t\tdisable_tlsalpn_challenge")
+        if alt_http_port:
+            lines.append(f"\t\talt_http_port {alt_http_port}")
+        lines.append("\t}")
         if preview:
             lines.append("\ton_demand")
     lines.append("}")
     return lines
 
 
-def snippets(settings, base):
+def snippets(settings, base, alt_http_port=None):
     """tls.caddy for settings: the snippets portikus_tls_global, portikus_tls_site and portikus_tls_preview.
 
     The Caddyfile imports tls.caddy first, the global snippet in its global
@@ -633,7 +643,7 @@ def snippets(settings, base):
     if http01:
         text += "\ton_demand_tls {\n\t\task {args[0]}\n\t}\n"
     text += "}\n\n(portikus_tls_site) {\n"
-    text += "".join(f"\t{line}\n" for line in tls_lines(settings, base))
+    text += "".join(f"\t{line}\n" for line in tls_lines(settings, base, alt_http_port=alt_http_port))
     text += "}\n\n(portikus_tls_preview) {\n"
     text += "".join(f"\t{line}\n" for line in tls_lines(settings, base, preview=True))
     return text + "}\n"
@@ -711,7 +721,7 @@ class Runner:
         # Only the Pebble test sets these: its CA bundle and Pebble's HTTP-01 port.
         self.test_env = test_env or {}
         self.test_http_port = test_http_port
-        self.timeouts = {"issue": ISSUE_TIMEOUT, "serve": SERVE_TIMEOUT, "http01": HTTP01_TIMEOUT,
+        self.timeouts = {"issue": ISSUE_TIMEOUT, "serve": SERVE_TIMEOUT,
                          **(timeouts or {})}
         self.host = Host()
 
@@ -1061,11 +1071,13 @@ class Runner:
         os.mkdir(storage, 0o700)
         if seed and os.path.isdir(os.path.join(self.caddy_data, "acme")):
             copy_entry(os.path.join(self.caddy_data, "acme"), os.path.join(storage, "acme"))
-        tls = snippets(settings, base)
+        http01 = settings["challenge"]["mode"] == "http01"
+        http_port = (self.test_http_port or CHALLENGE_PORT) if http01 else free_port()
+        tls = snippets(settings, base, alt_http_port=http_port if http01 else None)
         config = (
             "{\n\tadmin off\n\tpersist_config off\n\tskip_install_trust\n"
             f"\tstorage file_system {{\n\t\troot {storage}\n\t}}\n"
-            f"\thttp_port {self.test_http_port or free_port()}\n\thttps_port {free_port()}\n"
+            f"\thttp_port {http_port}\n\thttps_port {free_port()}\n"
             "\tauto_https disable_redirects\n\tdefault_bind 127.0.0.1\n}\n\n"
             + tls.replace(SNIPPET_HEADER, "")
             + f"\n{', '.join(f'https://{n}' for n in names)} {{\n"
@@ -1115,6 +1127,25 @@ class Runner:
             raise JobFailed(f"No certificate was obtained, and the live site is unchanged. Caddy said: {said}")
         return work
 
+    def verify_chain(self, work, names, kind):
+        """Refuse certificates the system authorities do not trust: the API calls itself (and Dex)
+        through Caddy, so an untrusted chain such as Let's Encrypt staging would break it."""
+        for name in names:
+            for crt in glob.glob(os.path.join(work, "storage", "certificates", "*", storage_name(name),
+                                              storage_name(name) + ".crt")):
+                blocks = split_certificates((read_bytes(crt) or b"").decode("utf-8", "replace"))
+                leaf, chain = os.path.join(work, "leaf.pem"), os.path.join(work, "chain.pem")
+                with open(leaf, "w", encoding="utf-8") as f:
+                    f.write(blocks[0] if blocks else "")
+                with open(chain, "w", encoding="utf-8") as f:
+                    f.write("".join(blocks[1:]))
+                argv = ["openssl", "verify", "-CAfile", self.system_cas, "-no-CApath", "-purpose", "sslserver"]
+                if len(blocks) > 1:
+                    argv += ["-untrusted", chain]
+                if not blocks or self.run([*argv, leaf], capture=True, timeout=30)[0] != 0:
+                    raise Refused("this authority's certificates are not trusted by this server; "
+                                  "use Test only for staging", kind)
+
     def copy_certificates_live(self, work, names):
         """Copy the throwaway's new certificates into the live storage, as Caddy keeps its own."""
         uid, gid = self.host.caddy_uid, self.host.caddy_gid
@@ -1136,8 +1167,12 @@ class Runner:
 
     # -- the trust bundle and root.crt (Epic 27 R13, R14) --
 
-    def sync_trust(self, job=None):
-        """System authorities, Caddy's internal root and any uploaded certificates, for the API."""
+    def sync_trust(self, job=None, restart=True):
+        """System authorities, Caddy's internal root and any uploaded certificates, for the API.
+
+        Returns True when the bundle changed. With restart, a running API is
+        restarted then; setup passes restart=False and restarts it itself.
+        """
         parts = [read_bytes(self.system_cas) or b""]
         root = read_bytes(self.caddy_root)
         if root:
@@ -1148,10 +1183,13 @@ class Runner:
             parts.append(read_bytes(path) or b"")
         # The same bytes in the same order as setup writes (system, Caddy's root, uploads by name).
         bundle = b"\n".join(p.strip() for p in parts) + b"\n"
-        if read_bytes(self.trust_bundle) != bundle:
-            write_file(self.trust_bundle, bundle, 0o644, self.host)
+        if read_bytes(self.trust_bundle) == bundle:
+            return False
+        write_file(self.trust_bundle, bundle, 0o644, self.host)
+        if restart:
             # NODE_EXTRA_CA_CERTS is read only when the API starts.
             self.run(["systemctl", "try-restart", "portikus-api.service"], log=job, timeout=180)
+        return True
 
     # -- status.json (Epic 27 R12) --
 
@@ -1211,10 +1249,6 @@ class Runner:
         settings = request["settings"]
         secrets, _, view = self.take_settings(job, settings)
         job.save_record({"kind": "test", "settings": view})
-        if settings["challenge"]["mode"] == "http01":
-            # Only the live Caddy, on port 80, could answer the challenge (Epic 27 spike, section 7).
-            raise Refused("an HTTP-01 test needs port 80, which the live site holds; Apply checks the "
-                          "certificate and puts the previous one back if it does not come", "test")
         new = self.state(".new")
         remove(new)
         try:
@@ -1246,8 +1280,7 @@ class Runner:
         remove(new)
         work = None
         try:
-            timeout = None
-            if settings["source"] == "acme" and settings["challenge"]["mode"] == "dns01":
+            if settings["source"] == "acme":
                 # Until it is installed, the snippet names the new generation's own secrets.
                 self.build_generation(new, settings, secrets, uploads, view, base=new)
                 names = self.acme_names(settings)
@@ -1255,15 +1288,12 @@ class Runner:
                     self.test_issuance(job, settings, new)
                 job.status("running", "Obtaining the certificates away from the live site")
                 work = self.issue_with_throwaway_caddy(job, settings, names, new)
+                self.verify_chain(work, names, "apply")
                 job.status("running", "Copying the certificates into Caddy's storage")
                 self.copy_certificates_live(work, names)
                 remove(new)
-            elif settings["source"] == "acme":
-                # Only the live Caddy holds port 80, so it obtains an HTTP-01 certificate itself, and
-                # the site is unserved until it comes (Epic 27 spike, sections 4 and 7).
-                timeout = self.timeouts["http01"]
             self.build_generation(new, settings, secrets, uploads, view)
-            self.put_in_force(job, new, timeout=timeout)
+            self.put_in_force(job, new)
         finally:
             remove(new)
             if work:
@@ -1300,12 +1330,10 @@ class Runner:
         current = self.current_settings()
         if not current or current["source"] == "files":
             raise Refused("an uploaded certificate cannot be renewed here; upload a new one", "renew")
-        if current["source"] == "acme" and current["challenge"]["mode"] != "dns01":
-            raise Refused("Caddy renews an HTTP-01 certificate itself; renewing early needs port 80, "
-                          "which the live site holds", "renew")
         job.secrets = self.all_secrets()
         site, port, suffix = read_api_env(self.api_env)
-        names = [site, f"*.{suffix}"]
+        names = self.acme_names(self.settings_from_view(current)) if current["source"] == "acme" \
+            else [site, f"*.{suffix}"]
         old = {"site": (self.served(port, site) or {}).get("fingerprint"),
                "preview": (self.served(port, f"{SAMPLE_PREVIEW_LABEL}.{suffix}") or {}).get("fingerprint")}
         work = None
@@ -1319,6 +1347,7 @@ class Runner:
                 job.status("running", "Obtaining new certificates away from the live site")
                 work = self.issue_with_throwaway_caddy(job, self.settings_from_view(current), names,
                                                        self.state_dir)
+                self.verify_chain(work, names, "renew")
             for index, path in enumerate(live):
                 copy_entry(path, os.path.join(aside, str(index)))
             try:
@@ -1606,10 +1635,10 @@ class Runner:
             os.close(lock_fd)
         return 0
 
-    def run_reset(self, out=sys.stdout):
+    def run_reset(self, out=None):
         """portikus reset-certificate (Epic 27 R15): Caddy's internal authority, the old settings kept
         as previous, and a `reset` job directory the API audits."""
-        return self.with_jobs_dir(True, lambda jobs_fd, gid: self.reset(jobs_fd, gid, out))
+        return self.with_jobs_dir(True, lambda jobs_fd, gid: self.reset(jobs_fd, gid, out or sys.stdout))
 
     def reset(self, jobs_fd, gid, out):
         self.recover(jobs_fd, gid)
@@ -1653,14 +1682,26 @@ class Runner:
         print("The earlier settings are kept; Roll back on the Certificate tab returns to them.", file=out)
         return 0 if code == 0 else 1
 
-    def run_first_install(self, stdin=sys.stdin):
-        """Setup's first install: write the state directory from settings JSON, only if it does not exist.
+    def run_trust_bundle(self, out=None):
+        """Setup's trust bundle: rebuild it and print "changed" or "unchanged"; setup restarts the API."""
+        lock_fd = self.locked(blocking=True)
+        try:
+            print("changed" if self.sync_trust(restart=False) else "unchanged", file=out or sys.stdout)
+        finally:
+            os.close(lock_fd)
+        return 0
 
-        Prints "changed" or "unchanged" for Ansible. Caddy is not reloaded:
-        setup starts it afterwards.
+    def run_first_install(self, stdin=None, out=None):
+        """Setup's first install: CertificateSettings JSON, secrets included, on standard input.
+
+        Does nothing when the state directory holds any state already. Else
+        writes secrets/ and files/ first, tls.caddy next and settings.json
+        last, reloads a running Caddy, and refreshes the trust bundle (without
+        restarting the API) and status.json. Prints "changed" or "unchanged".
         """
-        if os.path.isfile(self.state("settings.json")):
-            print("unchanged")
+        out, stdin = out or sys.stdout, stdin or sys.stdin
+        if any(os.path.lexists(self.state(name)) for name in ("settings.json", "tls.caddy", "secrets")):
+            print("unchanged", file=out)
             return 0
         try:
             settings = validate_settings(json.loads(stdin.read(), object_pairs_hook=_no_duplicates))
@@ -1672,20 +1713,29 @@ class Runner:
             return 2
         lock_fd = self.locked(blocking=True)
         try:
-            site, _, suffix = read_api_env(self.api_env)
             secrets = self.resolve_secrets(settings)
-            uploads = self.check_uploads(settings, site, suffix) if settings["source"] == "files" else None
+            uploads = None
+            if settings["source"] == "files":
+                site, _, suffix = read_api_env(self.api_env)
+                uploads = self.check_uploads(settings, site, suffix)
             new = self.state(".new")
             remove(new)
             self.build_generation(new, settings, secrets, uploads, self.view(settings, secrets, uploads))
             self.install(new)
             remove(new)
+            # The unit's reload is `caddy reload --force`; a Caddy not running yet is left alone.
+            self.run(["systemctl", "try-reload-or-restart", "caddy"], timeout=180)
+            self.sync_trust(restart=False)
+            try:
+                self.write_status()
+            except JobFailed as err:
+                journal(f"first-install: no status yet: {err}")
         except (Refused, JobFailed) as err:
             journal(f"first-install: {err}")
             return 1
         finally:
             os.close(lock_fd)
-        print("changed")
+        print("changed", file=out)
         return 0
 
 
@@ -1696,6 +1746,8 @@ def main(argv):
         return Runner().run_check()
     if argv[1:] == ["reset"]:
         return Runner().run_reset()
+    if argv[1:] == ["trust-bundle"]:
+        return Runner().run_trust_bundle()
     if argv[1:] == ["first-install"]:
         return Runner().run_first_install()
     if argv[1:] in ([], ["run"]):

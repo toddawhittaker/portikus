@@ -17,12 +17,14 @@ import json
 import os
 import shutil
 import socket
+import ssl
 import subprocess
 import tempfile
 import threading
 import time
 import unittest
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from helpers import cj
@@ -87,7 +89,7 @@ class Pebble(unittest.TestCase):
                         "-days", "30", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1"],
                        check=True, capture_output=True)
         cls.ports = {name: free_port() for name in ("acme", "management", "http", "tls", "challtest", "https",
-                                                   "ask")}
+                                                   "ask", "challenge")}
         cls.ports["dns"] = free_port(socket.SOCK_DGRAM)
         Path(d, "pebble.json").write_text(json.dumps({"pebble": {
             "listenAddress": f"127.0.0.1:{cls.ports['acme']}",
@@ -107,6 +109,16 @@ class Pebble(unittest.TestCase):
                   env={"PEBBLE_VA_NOSLEEP": "1", "PEBBLE_WFE_NONCEREJECT": "0"})
         wait_for_port(cls.ports["acme"])
         cls.directory = f"https://127.0.0.1:{cls.ports['acme']}/dir"
+        # Pebble's roots, which the job's chain check needs among the system authorities.
+        context = ssl.create_default_context(cafile=f"{d}/listener.crt")
+        url = f"https://127.0.0.1:{cls.ports['management']}/roots/0"
+        for _ in range(50):
+            try:
+                with urllib.request.urlopen(url, context=context) as answer:
+                    cls.pebble_root = answer.read().decode()
+                break
+            except OSError:
+                time.sleep(0.1)
         cls.ask = http.server.ThreadingHTTPServer(("127.0.0.1", cls.ports["ask"]), Ask)
         threading.Thread(target=cls.ask.serve_forever, daemon=True).start()
 
@@ -129,7 +141,7 @@ class Pebble(unittest.TestCase):
             os.makedirs(self.root + path)
         Path(self.root + cj.API_ENV).write_text(f"PUBLIC_URL=https://{SITE}:{self.ports['https']}\n"
                                                 f"PREVIEW_SUFFIX={SUFFIX}\nPORT={self.ports['ask']}\n")
-        Path(self.root + cj.SYSTEM_CAS).write_text(Path(self.dir, "listener.crt").read_text())
+        Path(self.root + cj.SYSTEM_CAS).write_text(Path(self.dir, "listener.crt").read_text() + self.pebble_root)
         self.socket = os.path.join(self.root, "admin.sock")
         self.caddyfile = self.root + cj.CADDYFILE
         state = self.root + cj.STATE_DIR
@@ -148,6 +160,13 @@ class Pebble(unittest.TestCase):
 	import portikus_tls_global http://127.0.0.1:{self.ports['ask']}/edge/certificate-ask
 }}
 
+# As setup's port-80 block: challenges the live Caddy is not solving go to the throwaway.
+http://{SITE} {{
+	handle /.well-known/acme-challenge/* {{
+		reverse_proxy 127.0.0.1:{self.ports['challenge']}
+	}}
+}}
+
 https://{SITE} {{
 	import portikus_tls_site
 	respond "site"
@@ -162,7 +181,7 @@ https://*.{SUFFIX} {{
                     "XDG_CONFIG_HOME": self.root, "SSL_CERT_FILE": f"{self.dir}/listener.crt"}
         self.runner = cj.Runner(root=self.root, run_=self.run_, caddy=CADDY,
                                 test_env={"SSL_CERT_FILE": f"{self.dir}/listener.crt"},
-                                test_http_port=self.ports["http"], timeouts={"issue": 60, "serve": 20, "http01": 20})
+                                test_http_port=self.ports["challenge"], timeouts={"issue": 30, "serve": 20})
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(self.runner.run_first_install(io.StringIO('{"source": "internal"}')), 0)
         self.live_log = open(os.path.join(self.root, "live.log"), "wb")
@@ -202,8 +221,7 @@ https://*.{SUFFIX} {{
         return self.runner.served(self.ports["https"], name)
 
     def test_the_throwaway_caddy_obtains_by_http01_with_eab(self):
-        # The throwaway answers Pebble's HTTP-01 on Pebble's port, which the live Caddy holds here.
-        self.tearDown()
+        # Pebble validates against the live Caddy, which passes the challenge to the throwaway.
         new = self.runner.state(".new")
         settings = self.settings(HMAC)
         self.runner.build_generation(new, settings, {("eab", "hmacKey"): HMAC}, None, {}, base=new)
@@ -227,10 +245,10 @@ https://*.{SUFFIX} {{
         self.assertNotIn(HMAC, Path(self.runner.jobs_dir, ID, "log.txt").read_text())
 
     def test_http01_apply_with_eab_and_on_demand_previews(self):
-        # A wrong EAB key: Pebble refuses the account, and the job puts Caddy's authority back.
+        # A wrong EAB key: Pebble refuses the account in the throwaway, and nothing live changes.
         status = self.submit(self.settings(WRONG_HMAC), ID)
         self.assertEqual(status["state"], "failed", status)
-        self.assertTrue(status["restored"])
+        self.assertFalse(status["restored"])
         self.assertIn(cj.INTERNAL_ISSUER, self.served(SITE)["issuer"])
         self.assertEqual(json.loads(Path(self.runner.state("settings.json")).read_text()), {"source": "internal"})
 
