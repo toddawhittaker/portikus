@@ -19,7 +19,7 @@
 		"@portikus/observability": "workspace:*",
 		"fastify": "5.12.5",
 		"kysely": "0.29.6",
-		"ws": "8.21.3",
+		"ws": "8.22.0",
 		"zod": "4.6.5"
 	},
 	"devDependencies": {

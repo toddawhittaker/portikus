@@ -34,7 +34,7 @@
 		"@radix-ui/react-tooltip": "1.2.16",
 		"react": "19.3.0",
 		"react-dom": "19.3.0",
-		"react-resizable-panels": "4.13.3"
+		"react-resizable-panels": "4.14.1"
 	},
 	"devDependencies": {
 		"@testing-library/react": "16.3.3",
