@@ -260,6 +260,21 @@ describe("writeDockerConfig", () => {
 		expect(files.pushes).toEqual([]);
 	});
 
+	test("a named pipe at the ghcr.io CA is deleted then written, never opened", async () => {
+		files.files.set(GHCR_CERT_PATH, { type: "fifo", content: "" });
+		await writeDockerConfig(
+			files,
+			"ws-a",
+			{ hubMirror: true, ghcr: true },
+			{ caPath, log },
+		);
+		expect(files.deletes).toContain(GHCR_CERT_PATH);
+		expect(files.files.get(GHCR_CERT_PATH)).toEqual({
+			type: "file",
+			content: "-----BEGIN CERTIFICATE-----\nx\n",
+		});
+	});
+
 	test("a missing daemon.json is written with the pin", async () => {
 		files.files.delete("/etc/docker/daemon.json");
 		await writeDockerConfig(

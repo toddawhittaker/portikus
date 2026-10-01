@@ -5,6 +5,7 @@ import {
 	type WorkspaceDockerConfig,
 } from "@portikus/contracts";
 import type { Logger } from "@portikus/observability";
+import { replaceFile } from "./agent-instructions.js";
 import { type IncusClient, IncusError } from "./incus.js";
 
 /**
@@ -163,7 +164,7 @@ export async function writeDockerConfig(
 				signal,
 			);
 		}
-		await client.pushFile(name, GHCR_CERT_PATH, ca, ROOT_FILE, signal);
+		await replaceFile(client, name, GHCR_CERT_PATH, ca, signal);
 	} else {
 		try {
 			await client.deleteFile(name, GHCR_CERT_PATH, signal);

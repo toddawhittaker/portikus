@@ -71,8 +71,17 @@ export async function returnHomeInstructions(
 		}
 	}
 
+	// The import line stays while a student's Codex file does, so Claude Code keeps reading it.
+	const codexGone = await lstat(codex).then(
+		() => false,
+		(error: NodeJS.ErrnoException) => {
+			if (error.code === "ENOENT") return true;
+			throw error;
+		},
+	);
+
 	const claude = join(homeDir, CLAUDE_INSTRUCTIONS);
-	const claudeText = await readPlainFile(claude);
+	const claudeText = codexGone ? await readPlainFile(claude) : null;
 	if (claudeText !== null) {
 		const lines = claudeText.split("\n");
 		const kept = lines.filter((line) => line !== CLAUDE_IMPORT_LINE);

@@ -16,13 +16,23 @@ import { IncusError } from "./incus.js";
 
 type Entry = { type: string; content: string; mode?: string; uid?: number };
 
+/**
+ * A container's files as the Incus files API treats them. It has no
+ * readFile on purpose: opening a named pipe would block the controller.
+ */
 class FakeFiles {
 	files = new Map<string, Entry>();
+	ops: string[] = [];
 
-	async readFile(_instance: string, path: string) {
+	async deleteFile(_instance: string, path: string) {
 		const entry = this.files.get(path);
 		if (!entry) throw new IncusError("NOT_FOUND", "not found");
-		return { type: entry.type, content: Buffer.from(entry.content), tooLarge: false };
+		const children = [...this.files.keys()].some((p) => p.startsWith(`${path}/`));
+		if (entry.type === "directory" && children) {
+			throw new IncusError("OPERATION_FAILED", "directory not empty");
+		}
+		this.ops.push(`DELETE ${path}`);
+		this.files.delete(path);
 	}
 
 	async pushFile(
@@ -31,6 +41,14 @@ class FakeFiles {
 		body: string,
 		opts: { uid: number; mode: string; type?: "file" | "directory" },
 	) {
+		const entry = this.files.get(path);
+		if (opts.type === "directory" && entry && entry.type !== "directory") {
+			throw new IncusError("OPERATION_FAILED", "not a directory");
+		}
+		if (opts.type !== "directory" && entry && entry.type !== "file") {
+			throw new Error(`test: pushed onto a ${entry.type}, which would block or follow`);
+		}
+		this.ops.push(`POST ${path}`);
 		this.files.set(path, {
 			type: opts.type ?? "file",
 			content: body,
@@ -94,14 +112,35 @@ describe("writeAgentInstructions", () => {
 		expect(files.files.has(CLAUDE_SYSTEM_PATH)).toBe(false);
 	});
 
-	test("a symbolic link is refused, not written through", async () => {
-		files.files.set(CLAUDE_SYSTEM_PATH, { type: "symlink", content: "/etc/shadow" });
-		await expect(writeAgentInstructions(files, "ws-a", templatePath)).rejects.toThrow(
-			/not a regular file/,
-		);
-		expect(files.files.get(CLAUDE_SYSTEM_PATH)?.content).toBe("/etc/shadow");
+	test("a named pipe, link or other type is deleted then written, never opened", async () => {
+		for (const type of ["fifo", "symlink", "socket"]) {
+			files.ops = [];
+			files.files.set(CLAUDE_SYSTEM_PATH, { type, content: "" });
+			files.files.set(CODEX_SYSTEM_PATH, { type, content: "" });
+			expect(await writeAgentInstructions(files, "ws-a", templatePath)).toBe(true);
+			expect(files.ops).toEqual([
+				"POST /etc/claude-code",
+				`DELETE ${CLAUDE_SYSTEM_PATH}`,
+				`POST ${CLAUDE_SYSTEM_PATH}`,
+				"POST /etc/codex",
+				`DELETE ${CODEX_SYSTEM_PATH}`,
+				`POST ${CODEX_SYSTEM_PATH}`,
+			]);
+			expect(files.files.get(CLAUDE_SYSTEM_PATH)?.content).toBe(TEMPLATE);
+		}
+	});
 
-		files.files.set("/etc/claude-code", { type: "symlink", content: "/tmp" });
+	test("a directory at the file path is refused", async () => {
+		files.files.set(CLAUDE_SYSTEM_PATH, { type: "directory", content: "" });
+		files.files.set(`${CLAUDE_SYSTEM_PATH}/x`, { type: "file", content: "" });
+		await expect(writeAgentInstructions(files, "ws-a", templatePath)).rejects.toThrow(
+			/cannot be replaced/,
+		);
+		expect(files.files.get(CLAUDE_SYSTEM_PATH)?.type).toBe("directory");
+	});
+
+	test("a pipe where the folder belongs is refused", async () => {
+		files.files.set("/etc/claude-code", { type: "fifo", content: "" });
 		await expect(writeAgentInstructions(files, "ws-a", templatePath)).rejects.toThrow(
 			/not a directory/,
 		);

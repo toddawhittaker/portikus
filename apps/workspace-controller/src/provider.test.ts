@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
+import { collectingLogger } from "@portikus/observability/testing";
 import {
 	afterAll,
 	afterEach,
@@ -1172,6 +1173,11 @@ function serveIncus(state: FakeIncus): void {
 			}
 			if (method === "POST") {
 				const type = String(req.headers["x-incus-type"] ?? "file");
+				const existing = state.files.get(path);
+				if (type === "directory" && existing && existing.type !== "directory") {
+					incusError(res, 400, "not a directory");
+					return;
+				}
 				state.files.set(path, { type, content: body });
 			}
 			respond(res, 200, sync({}));
@@ -2608,6 +2614,24 @@ describe("the Docker seed", () => {
 		expect(await provider.seedInfo()).toBeNull();
 		withSeed(state);
 		expect(await provider.seedInfo()).toEqual(SEED);
+	});
+
+	test("start warns when the agent instructions template is missing", async () => {
+		const state = fakeIncus();
+		const { logger, lines } = collectingLogger();
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			agentInstructionsPath: path.join(os.tmpdir(), "no-such-e28-template.md"),
+			logger,
+		});
+		serveIncus(state);
+		await own.start("ws-test", START);
+		expect(lines.some((l) => String(l.msg).includes("template is missing"))).toBe(true);
 	});
 
 	test("start rewrites the agents' system instructions, and a refusal does not stop it", async () => {
