@@ -3,7 +3,6 @@ import {
 	type AdminImageVersion,
 	type AdminWorkspaceDetail,
 	type AdminWorkspaceSummary,
-	type ApiError,
 	type AuditEvent,
 	allowanceFor,
 	type CpuThrottle,
@@ -23,16 +22,14 @@ import {
 	type WorkspaceLimits,
 	WorkspaceUsage,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
-import { z } from "zod";
 import { type AgentClient, agentClientFor, readJson } from "../agent-client.js";
+import { parseOr400, sendError, UuidParam } from "../http.js";
 import type { ListeningRegistry } from "../preview/registry.js";
 import type { ServerDeps } from "../server.js";
 import { countActive, fromJson, toWorkspace } from "./workspace-view.js";
-
-const UuidParam = z.object({ id: z.string().uuid() });
 
 const adminOnly = { preHandler: requireRole("administrator") };
 
@@ -45,15 +42,6 @@ const RECENT_AUDIT_LIMIT = 10;
 /** Epic 10's routes; the admin buttons are on when they are registered. */
 const REBUILD_ROUTE = "/admin/workspaces/:id/rebuild";
 const RESET_DOCKER_ROUTE = "/workspaces/:id/reset-docker";
-
-function sendError(
-	reply: FastifyReply,
-	statusCode: number,
-	code: ApiError["code"],
-	message: string,
-): void {
-	reply.status(statusCode).send({ code, message });
-}
 
 /** What the newest health sample says about images, or null without one. */
 export interface ImageFacts {
@@ -275,11 +263,9 @@ export function registerAdminWorkspaceRoutes(
 	}
 
 	app.get("/admin/workspaces/:id", adminOnly, async (request, reply) => {
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		const row = await loadRow(id);
 		if (!row) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
@@ -375,11 +361,9 @@ export function registerAdminWorkspaceRoutes(
 		archive: boolean,
 	): Promise<void> {
 		const actor = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		const row = await loadRow(id);
 		if (!row) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
@@ -398,15 +382,12 @@ export function registerAdminWorkspaceRoutes(
 					)
 					.where("id", "=", id)
 					.execute();
-				await trx
-					.insertInto("audit_events")
-					.values({
-						actor: `user:${actor.id}`,
-						target: id,
-						action: archive ? "workspace.archived" : "workspace.unarchived",
-						result: "ok",
-					})
-					.execute();
+				await recordAudit(trx, {
+					actor: `user:${actor.id}`,
+					target: id,
+					action: archive ? "workspace.archived" : "workspace.unarchived",
+					result: "ok",
+				});
 			});
 		}
 		const updated = (await loadRow(id)) as Record<string, unknown>;
@@ -426,15 +407,13 @@ export function registerAdminWorkspaceRoutes(
 	// PUT /admin/workspaces/:id/quota -- grow home or Docker; the worker applies it.
 	app.put("/admin/workspaces/:id/quota", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
 		const body = UpdateQuotaRequest.safeParse(request.body ?? {});
 		if (!body.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
-		const id = params.data.id;
+		const id = params.id;
 		const row = await loadRow(id);
 		if (!row) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
@@ -474,16 +453,13 @@ export function registerAdminWorkspaceRoutes(
 					)
 					.executeTakeFirst();
 				if (Number(updated.numUpdatedRows) === 0) return false;
-				await trx
-					.insertInto("audit_events")
-					.values({
-						actor: `user:${actor.id}`,
-						target: id,
-						action: "workspace.quota_updated",
-						result: "ok",
-						metadata: JSON.stringify({ from, to }),
-					})
-					.execute();
+				await recordAudit(trx, {
+					actor: `user:${actor.id}`,
+					target: id,
+					action: "workspace.quota_updated",
+					result: "ok",
+					metadata: { from, to },
+				});
 				return true;
 			});
 			if (!changed) {
@@ -501,15 +477,13 @@ export function registerAdminWorkspaceRoutes(
 	// PUT /admin/workspaces/:id/guard -- per-workspace guard overrides (ADR 0032).
 	app.put("/admin/workspaces/:id/guard", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
 		const body = UpdateGuardRequest.safeParse(request.body ?? {});
 		if (!body.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
-		const id = params.data.id;
+		const id = params.id;
 		const found = await db.transaction().execute(async (trx) => {
 			// Locked, so two administrators' edits merge rather than overwrite.
 			const row = await trx
@@ -536,16 +510,13 @@ export function registerAdminWorkspaceRoutes(
 				})
 				.where("id", "=", id)
 				.execute();
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${actor.id}`,
-					target: id,
-					action: "workspace.guard_updated",
-					result: "ok",
-					metadata: JSON.stringify({ from, to }),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: `user:${actor.id}`,
+				target: id,
+				action: "workspace.guard_updated",
+				result: "ok",
+				metadata: { from, to },
+			});
 			return true;
 		});
 		if (!found) {
@@ -565,11 +536,9 @@ export function registerAdminWorkspaceRoutes(
 		mark: "cpu_throttle" | "memory_flag",
 	) {
 		const actor = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		const outcome = await db.transaction().execute(async (trx) => {
 			const cleared = await trx
 				.updateTable("workspaces")
@@ -589,19 +558,16 @@ export function registerAdminWorkspaceRoutes(
 				.deleteFrom("workspace_usage_samples")
 				.where("workspace_id", "=", id)
 				.execute();
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${actor.id}`,
-					target: id,
-					action:
-						mark === "cpu_throttle"
-							? "workspace.cpu_throttle_lifted"
-							: "workspace.memory_flag_cleared",
-					result: "ok",
-					metadata: JSON.stringify({ reason: "administrator" }),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: `user:${actor.id}`,
+				target: id,
+				action:
+					mark === "cpu_throttle"
+						? "workspace.cpu_throttle_lifted"
+						: "workspace.memory_flag_cleared",
+				result: "ok",
+				metadata: { reason: "administrator" },
+			});
 			return "cleared";
 		});
 		if (outcome === "not_found") {
@@ -631,15 +597,13 @@ export function registerAdminWorkspaceRoutes(
 	 */
 	app.put("/admin/workspaces/:id/limits", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
 		const body = UpdateLimitsRequest.safeParse(request.body ?? {});
 		if (!body.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
-		const id = params.data.id;
+		const id = params.id;
 		const host = await loadHostCpu(db);
 		if (body.data.cpu !== null && host && body.data.cpu > host.cpuCount) {
 			return sendError(
@@ -682,16 +646,13 @@ export function registerAdminWorkspaceRoutes(
 				});
 			}
 			await trx.updateTable("workspaces").set(changes).where("id", "=", id).execute();
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${actor.id}`,
-					target: id,
-					action: "workspace.limits_updated",
-					result: "ok",
-					metadata: JSON.stringify({ from, to }),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: `user:${actor.id}`,
+				target: id,
+				action: "workspace.limits_updated",
+				result: "ok",
+				metadata: { from, to },
+			});
 			return true;
 		});
 		if (!found) {
@@ -707,11 +668,9 @@ export function registerAdminWorkspaceRoutes(
 	 */
 	app.post("/admin/workspaces/:id/reprovision", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		const outcome = await db.transaction().execute(async (trx) => {
 			const moved = await trx
 				.updateTable("workspaces")
@@ -734,15 +693,12 @@ export function registerAdminWorkspaceRoutes(
 					.executeTakeFirst();
 				return exists ? "not_in_error" : "not_found";
 			}
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${actor.id}`,
-					target: id,
-					action: "workspace.reprovision_requested",
-					result: "ok",
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: `user:${actor.id}`,
+				target: id,
+				action: "workspace.reprovision_requested",
+				result: "ok",
+			});
 			return "moved";
 		});
 		if (outcome === "not_found") {

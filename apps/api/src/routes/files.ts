@@ -21,6 +21,7 @@ import {
 	readAgentError,
 	readJson,
 } from "../agent-client.js";
+import { sendError } from "../http.js";
 import type { UserLimit } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 import {
@@ -29,7 +30,6 @@ import {
 	releaseLongOperation,
 	scopedProject,
 	sendAgentError,
-	sendError,
 } from "./project-scope.js";
 
 /**

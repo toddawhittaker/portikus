@@ -6,11 +6,12 @@ import {
 	type RecoveryReason,
 	RestoreRecoveryPointRequest,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, type Selectable, sql } from "kysely";
 import { z } from "zod";
 import { AgentCallError, type AgentClient } from "../agent-client.js";
+import { ProjectParam, parseOr400, sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
 import {
 	claimLongOperation,
@@ -20,12 +21,10 @@ import {
 	releaseLongOperation,
 	requireAgent,
 	sendAgentError,
-	sendError,
 } from "./project-scope.js";
 
 type RecoveryPointRow = Selectable<Database["recovery_points"]>;
 
-const ProjectParam = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
 const PointParam = ProjectParam.extend({ rpid: z.string().uuid() });
 
 const GIB = 1024 ** 3;
@@ -248,10 +247,8 @@ export function registerRecoveryRoutes(
 		"/workspaces/:id/projects/:pid/recovery-points/:rpid/restore",
 		async (request, reply) => {
 			const user = requireUser(request);
-			const params = PointParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-			}
+			const params = parseOr400(PointParam, request.params, reply);
+			if (!params) return;
 			const body = RestoreRecoveryPointRequest.safeParse(request.body ?? {});
 			if (!body.success) {
 				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
@@ -264,7 +261,7 @@ export function registerRecoveryRoutes(
 			const point = await db
 				.selectFrom("recovery_points")
 				.selectAll()
-				.where("id", "=", params.data.rpid)
+				.where("id", "=", params.rpid)
 				.where("project_id", "=", project.id)
 				.where("workspace_id", "=", scope.workspaceId)
 				.executeTakeFirst();
@@ -381,20 +378,17 @@ export function registerRecoveryRoutes(
 		safetyPointId: string | null,
 		result: "ok" | "failed",
 	): Promise<void> {
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: `user:${input.userId}`,
-				target: input.project.id,
-				action: "recovery.restored",
-				result,
-				metadata: JSON.stringify({
-					pointId: input.point.id,
-					reason: input.point.reason,
-					safetyPointId,
-					ip: request.ip,
-				}),
-			})
-			.execute();
+		await recordAudit(db, {
+			actor: `user:${input.userId}`,
+			target: input.project.id,
+			action: "recovery.restored",
+			result,
+			metadata: {
+				pointId: input.point.id,
+				reason: input.point.reason,
+				safetyPointId,
+				ip: request.ip,
+			},
+		});
 	}
 }

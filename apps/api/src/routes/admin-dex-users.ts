@@ -12,16 +12,12 @@ import {
 	type CreateDexUserResponse,
 	type DexPasswordResponse,
 } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { parseOr400, sendError, UuidParam } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import {
-	disableUser,
-	loadAdminUser,
-	sendDisableRefusal,
-	sendError,
-	UuidParam,
-} from "./admin.js";
-import { audit, requestMetadata } from "./start-session.js";
+import { disableUser, loadAdminUser, sendDisableRefusal } from "./admin.js";
+import { requestMetadata } from "./start-session.js";
 
 /** Thrown inside a transaction to roll it back when Dex refuses the email. */
 class DexEmailTaken extends Error {}
@@ -137,9 +133,15 @@ export function registerAdminDexUserRoutes(
 					// The person chooses their own at first sign-in (SPEC.md section 5.2).
 					mustChangePassword: true,
 				});
-				await audit(trx, "dex_user.created", `user:${actor.id}`, newId, "ok", {
-					role,
-					...requestMetadata(request),
+				await recordAudit(trx, {
+					actor: `user:${actor.id}`,
+					target: newId,
+					action: "dex_user.created",
+					result: "ok",
+					metadata: {
+						role,
+						...requestMetadata(request),
+					},
 				});
 				const created = await viaDex(
 					dex.createPassword({ email, username, userId: dexUserId, hash }),
@@ -171,11 +173,9 @@ export function registerAdminDexUserRoutes(
 		const actor = requireUser(request);
 		const dex = dexOr404(reply);
 		if (!dex) return reply;
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		// Resetting it would end the caller's own session before they saw the password.
 		if (id === actor.id) {
 			return sendError(
@@ -207,8 +207,14 @@ export function registerAdminDexUserRoutes(
 					.where("user_id", "=", id)
 					.where("revoked_at", "is", null)
 					.execute();
-				await audit(trx, "dex_user.password_reset", `user:${actor.id}`, id, "ok", {
-					...requestMetadata(request),
+				await recordAudit(trx, {
+					actor: `user:${actor.id}`,
+					target: id,
+					action: "dex_user.password_reset",
+					result: "ok",
+					metadata: {
+						...requestMetadata(request),
+					},
 				});
 				return viaDex(dex.updatePassword(found.email, hash));
 			});
@@ -225,11 +231,9 @@ export function registerAdminDexUserRoutes(
 		const actor = requireUser(request);
 		const dex = dexOr404(reply);
 		if (!dex) return reply;
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		try {
 			const found = await findDexPassword(dex, id);
 			if (found.found === "no_account") {
@@ -241,8 +245,14 @@ export function registerAdminDexUserRoutes(
 				actorId: actor.id,
 				targetId: id,
 				alsoInTransaction: async (trx) => {
-					await audit(trx, "dex_user.removed", `user:${actor.id}`, id, "ok", {
-						...requestMetadata(request),
+					await recordAudit(trx, {
+						actor: `user:${actor.id}`,
+						target: id,
+						action: "dex_user.removed",
+						result: "ok",
+						metadata: {
+							...requestMetadata(request),
+						},
 					});
 					await viaDex(dex.deletePassword(found.email));
 				},

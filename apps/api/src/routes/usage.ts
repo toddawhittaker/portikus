@@ -1,13 +1,9 @@
 import { WorkspaceUsage } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { AGENT_TIMEOUT_MS, readAgentError, readJson } from "../agent-client.js";
+import { sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import {
-	ownedScope,
-	requireAgent,
-	sendAgentError,
-	sendError,
-} from "./project-scope.js";
+import { ownedScope, requireAgent, sendAgentError } from "./project-scope.js";
 
 /**
  * The workspace's CPU, memory, disk, network and processes (SPEC.md §18.2,

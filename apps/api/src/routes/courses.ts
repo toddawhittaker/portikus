@@ -1,15 +1,15 @@
 import { requireUser } from "@portikus/auth";
 import {
-	type ApiError,
 	CourseMemberRole,
 	type CourseMembersResponse,
 	type CoursesResponse,
 	WorkspaceState,
 } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import { audit } from "./start-session.js";
 
 const CourseParam = z.object({ courseId: z.string().uuid() });
 const MemberParam = z.object({
@@ -44,9 +44,8 @@ export function registerCourseRoutes(app: FastifyInstance, { db }: ServerDeps): 
 
 	app.get("/courses/:courseId/members", async (request, reply) => {
 		const user = requireUser(request);
-		const notFound: ApiError = { code: "NOT_FOUND", message: "Not found." };
 		const params = CourseParam.safeParse(request.params);
-		if (!params.success) return reply.status(404).send(notFound);
+		if (!params.success) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		const { courseId } = params.data;
 
 		const course = await db
@@ -57,7 +56,7 @@ export function registerCourseRoutes(app: FastifyInstance, { db }: ServerDeps): 
 			.where("lti_memberships.user_id", "=", user.id)
 			.where("lti_memberships.role", "=", "instructor")
 			.executeTakeFirst();
-		if (!course) return reply.status(404).send(notFound);
+		if (!course) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 
 		const members = await db
 			.selectFrom("lti_memberships")
@@ -95,9 +94,8 @@ export function registerCourseRoutes(app: FastifyInstance, { db }: ServerDeps): 
 	// Deletes one membership row and nothing else; a relaunch from the LMS adds it back.
 	app.post("/courses/:courseId/members/:userId/remove", async (request, reply) => {
 		const user = requireUser(request);
-		const notFound: ApiError = { code: "NOT_FOUND", message: "Not found." };
 		const params = MemberParam.safeParse(request.params);
-		if (!params.success) return reply.status(404).send(notFound);
+		if (!params.success) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		const { courseId, userId } = params.data;
 
 		const teaches = await db
@@ -107,13 +105,14 @@ export function registerCourseRoutes(app: FastifyInstance, { db }: ServerDeps): 
 			.where("user_id", "=", user.id)
 			.where("role", "=", "instructor")
 			.executeTakeFirst();
-		if (!teaches) return reply.status(404).send(notFound);
+		if (!teaches) return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		if (userId === user.id) {
-			const self: ApiError = {
-				code: "VALIDATION_FAILED",
-				message: "You cannot remove yourself from a course.",
-			};
-			return reply.status(400).send(self);
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"You cannot remove yourself from a course.",
+			);
 		}
 
 		const removed = await db.transaction().execute(async (trx) => {
@@ -133,19 +132,26 @@ export function registerCourseRoutes(app: FastifyInstance, { db }: ServerDeps): 
 				.where("user_id", "=", userId)
 				.execute();
 			// Ids only: no names, emails or subjects (ADR 0012).
-			await audit(trx, "course.member_removed", `user:${user.id}`, userId, "ok", {
-				contextId: courseId,
+			await recordAudit(trx, {
+				actor: `user:${user.id}`,
+				target: userId,
+				action: "course.member_removed",
+				result: "ok",
+				metadata: {
+					contextId: courseId,
+				},
 			});
 			return "removed";
 		});
-		if (removed === "not_found") return reply.status(404).send(notFound);
+		if (removed === "not_found")
+			return sendError(reply, 404, "NOT_FOUND", "Not found.");
 		if (removed === "instructor") {
-			const refusal: ApiError = {
-				code: "VALIDATION_FAILED",
-				message:
-					"Only students can be removed from a course. Instructors are managed in the LMS.",
-			};
-			return reply.status(400).send(refusal);
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"Only students can be removed from a course. Instructors are managed in the LMS.",
+			);
 		}
 		return reply.send({});
 	});

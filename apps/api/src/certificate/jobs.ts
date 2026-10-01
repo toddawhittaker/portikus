@@ -7,7 +7,7 @@ import {
 	type CertificateSettings,
 	type CertificateSettingsView,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, recordAudit } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 import { listDir, readJson } from "../job-files.js";
 
@@ -129,20 +129,17 @@ export async function noteFinished(
 		const seenIds = new Set(seen.map((row) => row.target));
 		for (const job of finished) {
 			if (seenIds.has(job.id)) continue;
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: job.kind === "reset" ? "reset-certificate" : "certificate-job",
-					target: job.id,
-					action: "certificate.job_finished",
-					result: job.state === "succeeded" ? "ok" : "failed",
-					metadata: JSON.stringify({
-						kind: job.kind,
-						...auditSummary(job.request?.settings ?? null),
-						state: job.state,
-					}),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: job.kind === "reset" ? "reset-certificate" : "certificate-job",
+				target: job.id,
+				action: "certificate.job_finished",
+				result: job.state === "succeeded" ? "ok" : "failed",
+				metadata: {
+					kind: job.kind,
+					...auditSummary(job.request?.settings ?? null),
+					state: job.state,
+				},
+			});
 		}
 	});
 }

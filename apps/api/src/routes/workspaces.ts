@@ -1,6 +1,5 @@
 import { isCourseIssuer, requireUser } from "@portikus/auth";
 import {
-	type ApiError,
 	CreateWorkspaceRequest,
 	DEFAULT_KEEP_RUNNING_MAX_HOURS,
 	type DesiredState,
@@ -11,10 +10,10 @@ import {
 	MAX_WORKSPACE_LABEL_LENGTH,
 	SetKeepRunningRequest,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Insertable, sql } from "kysely";
-import { z } from "zod";
+import { parseOr400, sendError, UuidParam } from "../http.js";
 import { lifecycleLimit } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 import {
@@ -25,22 +24,11 @@ import {
 	toWorkspace,
 } from "./workspace-view.js";
 
-const UuidParam = z.object({ id: z.string().uuid() });
-
 /** Eight random hex characters for the fallback workspace label. */
 function randomHex8(): string {
 	return Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) =>
 		b.toString(16).padStart(2, "0"),
 	).join("");
-}
-
-function sendError(
-	reply: FastifyReply,
-	statusCode: number,
-	code: ApiError["code"],
-	message: string,
-): void {
-	reply.status(statusCode).send({ code, message });
 }
 
 export function registerWorkspaceRoutes(
@@ -134,15 +122,12 @@ export function registerWorkspaceRoutes(
 			throw err;
 		}
 
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: `user:${user.id}`,
-				target: id,
-				action: "workspace.provision_requested",
-				result: "ok",
-			})
-			.execute();
+		await recordAudit(db, {
+			actor: `user:${user.id}`,
+			target: id,
+			action: "workspace.provision_requested",
+			result: "ok",
+		});
 
 		const created = await db
 			.selectFrom("workspaces")
@@ -158,17 +143,15 @@ export function registerWorkspaceRoutes(
 	app.get("/workspaces/:id", async (request, reply) => {
 		const user = requireUser(request);
 
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
 
-		const row = await findOwnedWorkspace(db, user, params.data.id);
+		const row = await findOwnedWorkspace(db, user, params.id);
 		if (!row) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 
-		const active = await countActive(db, params.data.id, config);
+		const active = await countActive(db, params.id, config);
 		return toWorkspace(db, row, active, config);
 	});
 
@@ -191,11 +174,9 @@ export function registerWorkspaceRoutes(
 	// (#955). Only the owner: an administrator's hold would be impersonation.
 	app.put("/workspaces/:id/keep-running", async (request, reply) => {
 		const user = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const row = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const row = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!row) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
@@ -248,24 +229,21 @@ export function registerWorkspaceRoutes(
 				idle_stop_at: null,
 				updated_at: now.toISOString(),
 			})
-			.where("id", "=", params.data.id)
+			.where("id", "=", params.id)
 			.returningAll()
 			.executeTakeFirstOrThrow();
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: `user:${user.id}`,
-				target: params.data.id,
-				action: "workspace.keep_running_set",
-				result: "ok",
-				metadata: JSON.stringify({
-					until: until.toISOString(),
-					previousUntil:
-						previous && previous > now ? new Date(previous).toISOString() : null,
-				}),
-			})
-			.execute();
-		const active = await countActive(db, params.data.id, config);
+		await recordAudit(db, {
+			actor: `user:${user.id}`,
+			target: params.id,
+			action: "workspace.keep_running_set",
+			result: "ok",
+			metadata: {
+				until: until.toISOString(),
+				previousUntil:
+					previous && previous > now ? new Date(previous).toISOString() : null,
+			},
+		});
+		const active = await countActive(db, params.id, config);
 		return toWorkspace(db, updated as Record<string, unknown>, active, config);
 	});
 
@@ -274,11 +252,9 @@ export function registerWorkspaceRoutes(
 	// hold left (it may have just expired) nothing changes.
 	app.delete("/workspaces/:id/keep-running", async (request, reply) => {
 		const user = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const row = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const row = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!row) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
@@ -292,29 +268,21 @@ export function registerWorkspaceRoutes(
 				disconnected_at: sql`case when disconnected_at is null then null else ${now.toISOString()}::timestamptz end`,
 				updated_at: now.toISOString(),
 			})
-			.where("id", "=", params.data.id)
+			.where("id", "=", params.id)
 			.where("keep_running_until", ">", now)
 			.returningAll()
 			.executeTakeFirst();
 		if (!updated) {
-			return toWorkspace(
-				db,
-				row,
-				await countActive(db, params.data.id, config),
-				config,
-			);
+			return toWorkspace(db, row, await countActive(db, params.id, config), config);
 		}
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: `user:${user.id}`,
-				target: params.data.id,
-				action: "workspace.keep_running_ended",
-				result: "ok",
-				metadata: JSON.stringify({ reason: "ended_early" }),
-			})
-			.execute();
-		const active = await countActive(db, params.data.id, config);
+		await recordAudit(db, {
+			actor: `user:${user.id}`,
+			target: params.id,
+			action: "workspace.keep_running_ended",
+			result: "ok",
+			metadata: { reason: "ended_early" },
+		});
+		const active = await countActive(db, params.id, config);
 		return toWorkspace(db, updated as Record<string, unknown>, active, config);
 	});
 
@@ -328,12 +296,10 @@ export function registerWorkspaceRoutes(
 		const user = requireUser(request);
 		if (!(await limitLifecycle(request, reply))) return;
 
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
 
-		const row = await findOwnedWorkspace(db, user, params.data.id);
+		const row = await findOwnedWorkspace(db, user, params.id);
 		if (!row) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
@@ -354,18 +320,15 @@ export function registerWorkspaceRoutes(
 				desired_state: desired,
 				updated_at: new Date().toISOString(),
 			})
-			.where("id", "=", params.data.id)
+			.where("id", "=", params.id)
 			.execute();
 
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: `user:${user.id}`,
-				target: params.data.id,
-				action,
-				result: "ok",
-			})
-			.execute();
+		await recordAudit(db, {
+			actor: `user:${user.id}`,
+			target: params.id,
+			action,
+			result: "ok",
+		});
 
 		reply.status(202).send({ ok: true });
 	}
@@ -411,23 +374,8 @@ async function insertWithLabel(
 				.execute();
 			return;
 		} catch (err: unknown) {
-			if (!isUniqueViolationOn(err, LABEL_INDEX)) throw err;
+			if (!isUniqueViolation(err, LABEL_INDEX)) throw err;
 		}
 	}
 	throw new Error(`could not find a free workspace label starting from ${baseLabel}`);
-}
-
-function isUniqueViolationOn(err: unknown, constraint: string): boolean {
-	return (
-		isUniqueViolation(err) && (err as { constraint?: string }).constraint === constraint
-	);
-}
-
-function isUniqueViolation(err: unknown): boolean {
-	return (
-		typeof err === "object" &&
-		err !== null &&
-		"code" in err &&
-		(err as { code: string }).code === "23505"
-	);
 }

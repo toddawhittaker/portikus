@@ -13,15 +13,14 @@ import {
 	EgressPresetId,
 	EgressPresetsRequest,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { type Kysely, sql, type Transaction } from "kysely";
-import { z } from "zod";
+import type { z } from "zod";
+import { parseOr400, sendError, UuidParam } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import { sendError } from "./project-scope.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
-const UuidParam = z.object({ id: z.string().uuid() });
 
 /** Thrown inside a write's transaction to roll it back with an answer. */
 class Refusal extends Error {
@@ -141,16 +140,13 @@ async function audit(
 	action: string,
 	metadata: Record<string, unknown>,
 ): Promise<void> {
-	await trx
-		.insertInto("audit_events")
-		.values({
-			actor: `user:${actorId}`,
-			target,
-			action,
-			result: "ok",
-			metadata: JSON.stringify(metadata),
-		})
-		.execute();
+	await recordAudit(trx, {
+		actor: `user:${actorId}`,
+		target,
+		action,
+		result: "ok",
+		metadata: metadata,
+	});
 }
 
 async function countKind(trx: Transaction<Database>, kind: string): Promise<number> {
@@ -160,10 +156,6 @@ async function countKind(trx: Transaction<Database>, kind: string): Promise<numb
 		.where("kind", "=", kind)
 		.executeTakeFirstOrThrow();
 	return row.n;
-}
-
-function isUniqueViolation(err: unknown): boolean {
-	return (err as { code?: string } | null)?.code === "23505";
 }
 
 /**
@@ -296,9 +288,8 @@ export function registerAdminEgressRoutes(
 
 	app.put("/admin/egress/entries/:id", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success)
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid entry id");
+		const params = parseOr400(UuidParam, request.params, reply, "invalid entry id");
+		if (!params) return;
 		const body = EgressEntryRequest.safeParse(request.body);
 		if (!body.success) return invalid(reply, body.error);
 		const { kind, value, label, version } = body.data;
@@ -307,7 +298,7 @@ export function registerAdminEgressRoutes(
 			const before = await trx
 				.selectFrom("egress_entries")
 				.select(["kind", "value", "label"])
-				.where("id", "=", params.data.id)
+				.where("id", "=", params.id)
 				.executeTakeFirst();
 			if (!before) throw new Refusal(404, "NOT_FOUND", "Entry not found");
 			if (
@@ -320,9 +311,9 @@ export function registerAdminEgressRoutes(
 			await trx
 				.updateTable("egress_entries")
 				.set({ kind, value, label, updated_at: new Date().toISOString() })
-				.where("id", "=", params.data.id)
+				.where("id", "=", params.id)
 				.execute();
-			await audit(trx, admin.id, params.data.id, "egress.entry_updated", {
+			await audit(trx, admin.id, params.id, "egress.entry_updated", {
 				from: before,
 				to: { kind, value, label },
 			});
@@ -331,20 +322,19 @@ export function registerAdminEgressRoutes(
 
 	app.delete("/admin/egress/entries/:id", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success)
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid entry id");
+		const params = parseOr400(UuidParam, request.params, reply, "invalid entry id");
+		if (!params) return;
 		const query = EgressDeleteQuery.safeParse(request.query);
 		if (!query.success) return invalid(reply, query.error);
 		return write(reply, async (trx) => {
 			await bumpVersion(trx, query.data.version);
 			const gone = await trx
 				.deleteFrom("egress_entries")
-				.where("id", "=", params.data.id)
+				.where("id", "=", params.id)
 				.returning(["kind", "value", "label"])
 				.executeTakeFirst();
 			if (!gone) throw new Refusal(404, "NOT_FOUND", "Entry not found");
-			await audit(trx, admin.id, params.data.id, "egress.entry_removed", gone);
+			await audit(trx, admin.id, params.id, "egress.entry_removed", gone);
 		});
 	});
 	// Blocked sites: refused in open mode only (ADR 0043).
@@ -382,9 +372,8 @@ export function registerAdminEgressRoutes(
 
 	app.put("/admin/egress/blocked-sites/:id", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success)
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid entry id");
+		const params = parseOr400(UuidParam, request.params, reply, "invalid entry id");
+		if (!params) return;
 		const body = EgressBlockedSiteRequest.safeParse(request.body);
 		if (!body.success) return invalid(reply, body.error);
 		const { value, label, version } = body.data;
@@ -395,15 +384,15 @@ export function registerAdminEgressRoutes(
 				const before = await trx
 					.selectFrom("egress_blocked_entries")
 					.select(["value", "label"])
-					.where("id", "=", params.data.id)
+					.where("id", "=", params.id)
 					.executeTakeFirst();
 				if (!before) throw new Refusal(404, "NOT_FOUND", "Blocked site not found");
 				await trx
 					.updateTable("egress_blocked_entries")
 					.set({ value, label, updated_at: new Date().toISOString() })
-					.where("id", "=", params.data.id)
+					.where("id", "=", params.id)
 					.execute();
-				await audit(trx, admin.id, params.data.id, "egress.block_updated", {
+				await audit(trx, admin.id, params.id, "egress.block_updated", {
 					from: before,
 					to: { value, label },
 				});
@@ -414,20 +403,19 @@ export function registerAdminEgressRoutes(
 
 	app.delete("/admin/egress/blocked-sites/:id", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success)
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid entry id");
+		const params = parseOr400(UuidParam, request.params, reply, "invalid entry id");
+		if (!params) return;
 		const query = EgressDeleteQuery.safeParse(request.query);
 		if (!query.success) return invalid(reply, query.error);
 		return write(reply, async (trx) => {
 			await bumpVersion(trx, query.data.version);
 			const gone = await trx
 				.deleteFrom("egress_blocked_entries")
-				.where("id", "=", params.data.id)
+				.where("id", "=", params.id)
 				.returning(["value", "label"])
 				.executeTakeFirst();
 			if (!gone) throw new Refusal(404, "NOT_FOUND", "Blocked site not found");
-			await audit(trx, admin.id, params.data.id, "egress.block_removed", gone);
+			await audit(trx, admin.id, params.id, "egress.block_removed", gone);
 		});
 	});
 }

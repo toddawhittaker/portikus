@@ -4,11 +4,11 @@ import {
 	AcceptUseRequest,
 	DEFAULT_ACCEPTABLE_USE_TEXT,
 } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
+import { sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import { sendError } from "./admin.js";
-import { audit } from "./start-session.js";
 
 /** The settings row's version; with no row yet it is the column default, 1. */
 const CURRENT_VERSION = sql<number>`coalesce((select acceptable_use_version from settings where id = 1), 1)`;
@@ -60,16 +60,15 @@ export function registerAcceptableUseRoutes(
 				.where(sql<boolean>`${version} = ${CURRENT_VERSION}`)
 				.executeTakeFirst();
 			if (updated.numUpdatedRows === 0n) return false;
-			await audit(
-				trx,
-				"user.acceptable_use_accepted",
-				`user:${user.id}`,
-				user.id,
-				"ok",
-				{
+			await recordAudit(trx, {
+				actor: `user:${user.id}`,
+				target: user.id,
+				action: "user.acceptable_use_accepted",
+				result: "ok",
+				metadata: {
 					version,
 				},
-			);
+			});
 			return true;
 		});
 		if (!accepted) {

@@ -6,13 +6,7 @@
  * code.
  */
 
-function escapeHtml(text: string): string {
-	return text
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;");
-}
+import { escapeHtml } from "../http.js";
 
 /** A minimal self-contained page; previews load no Portikus subresources. */
 export function previewPage(title: string, body: string): string {

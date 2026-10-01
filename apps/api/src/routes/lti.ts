@@ -19,9 +19,10 @@ import {
 	validateLaunchToken,
 } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
-import type { ApiError } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
+import { escapeHtml, sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
 import { completeSignIn, requestMetadata, startSession } from "./start-session.js";
 
@@ -67,15 +68,6 @@ const ADMIN_BY_SSO =
 	"This account is an administrator account. Administrators sign in with SSO, not from a course.";
 const BAD_LOGIN =
 	"Portikus did not recognise this link from your course. Ask your instructor to check how Portikus is set up.";
-
-function escapeHtml(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&#39;");
-}
 
 /**
  * A small server-rendered page that works inside an LMS frame: no script,
@@ -214,8 +206,7 @@ export function registerLtiRoutes(
 	const jwksCsp = cspFor("'none'");
 
 	function notFound(reply: FastifyReply) {
-		const body: ApiError = { code: "NOT_FOUND", message: "Not found." };
-		return reply.status(404).send(body);
+		return sendError(reply, 404, "NOT_FOUND", "Not found.");
 	}
 
 	function html(reply: FastifyReply, status: number, body: string) {
@@ -229,10 +220,7 @@ export function registerLtiRoutes(
 		result: string,
 		metadata: Record<string, unknown>,
 	): Promise<void> {
-		await db
-			.insertInto("audit_events")
-			.values({ actor, target, action, result, metadata: JSON.stringify(metadata) })
-			.execute();
+		await recordAudit(db, { actor, target, action, result, metadata: metadata });
 	}
 
 	/**

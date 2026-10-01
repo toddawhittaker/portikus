@@ -7,10 +7,11 @@ import {
 	type BackupKeyUploadResult,
 	BackupRecipient,
 } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
+import { sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import { sendError } from "./project-scope.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 const HELPER_TIMEOUT_MS = 10_000;
@@ -157,16 +158,13 @@ export function registerAdminBackupKeyRoutes(
 		result: string,
 		metadata: Record<string, unknown>,
 	) {
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: `user:${adminId}`,
-				target: "backup-key",
-				action,
-				result,
-				metadata: JSON.stringify(metadata),
-			})
-			.execute();
+		await recordAudit(db, {
+			actor: `user:${adminId}`,
+			target: "backup-key",
+			action,
+			result,
+			metadata: metadata,
+		});
 	}
 
 	app.get("/admin/backups/key", adminOnly, async (_request, reply) => {

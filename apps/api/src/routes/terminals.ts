@@ -1,7 +1,6 @@
 import type { WebSocket } from "@fastify/websocket";
 import { loadSession, requireUser, sessionGate } from "@portikus/auth";
 import {
-	type ApiError,
 	CreateTerminalRequest,
 	MAX_TERMINALS_PER_WORKSPACE,
 	type Terminal,
@@ -11,16 +10,12 @@ import {
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { TerminalGoneReason, TerminalServerMessage } from "@portikus/events";
-import type {
-	FastifyBaseLogger,
-	FastifyInstance,
-	FastifyReply,
-	FastifyRequest,
-} from "fastify";
+import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import WebSocketClient, { type RawData } from "ws";
 import { z } from "zod";
 import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
+import { parseOr400, sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
 import { toEditorSettings } from "./me.js";
 import {
@@ -86,15 +81,6 @@ const AGENT_SESSION_POINT_TIMEOUT_MS = 30_000;
 
 /** How long the agent socket may take to answer the upgrade. */
 const AGENT_HANDSHAKE_TIMEOUT_MS = 5000;
-
-function sendError(
-	reply: FastifyReply,
-	statusCode: number,
-	code: ApiError["code"],
-	message: string,
-): void {
-	reply.status(statusCode).send({ code, message });
-}
 
 /** Full object id, SHA-1 or SHA-256. Anything else is not a baseline. */
 const GIT_OBJECT_ID = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
@@ -244,11 +230,9 @@ export function registerTerminalRoutes(
 	// GET /workspaces/:id/terminals -- durable metadata only, never the agent.
 	app.get("/workspaces/:id/terminals", async (request, reply) => {
 		const user = requireUser(request);
-		const params = WorkspaceParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const params = parseOr400(WorkspaceParam, request.params, reply);
+		if (!params) return;
+		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
@@ -259,7 +243,7 @@ export function registerTerminalRoutes(
 		}
 		const projectId = filter.data.projectId;
 
-		let openQuery = listTerminalRows(db, params.data.id).where("ended_at", "is", null);
+		let openQuery = listTerminalRows(db, params.id).where("ended_at", "is", null);
 		if (projectId) openQuery = openQuery.where("project_id", "=", projectId);
 		const open = await openQuery.execute();
 
@@ -267,7 +251,7 @@ export function registerTerminalRoutes(
 		let endedQuery = db
 			.selectFrom("terminals")
 			.selectAll()
-			.where("workspace_id", "=", params.data.id)
+			.where("workspace_id", "=", params.id)
 			.where("ended_at", "is not", null);
 		if (projectId) endedQuery = endedQuery.where("project_id", "=", projectId);
 		const ended = await endedQuery
@@ -286,16 +270,14 @@ export function registerTerminalRoutes(
 	// POST /workspaces/:id/terminals
 	app.post("/workspaces/:id/terminals", async (request, reply) => {
 		const user = requireUser(request);
-		const params = WorkspaceParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(WorkspaceParam, request.params, reply);
+		if (!params) return;
 		const body = CreateTerminalRequest.safeParse(request.body ?? {});
 		if (!body.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
 
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
@@ -310,7 +292,7 @@ export function registerTerminalRoutes(
 			);
 		}
 
-		const rows = await listTerminalRows(db, params.data.id).execute();
+		const rows = await listTerminalRows(db, params.id).execute();
 		const open = rows.filter((row) => row.ended_at === null);
 		if (open.length >= MAX_TERMINALS_PER_WORKSPACE) {
 			return sendError(
@@ -328,7 +310,7 @@ export function registerTerminalRoutes(
 				.selectFrom("projects")
 				.select(["id", "slug", "path"])
 				.where("id", "=", body.data.projectId)
-				.where("workspace_id", "=", params.data.id)
+				.where("workspace_id", "=", params.id)
 				.executeTakeFirst();
 			if (!row) {
 				return sendError(reply, 404, "PROJECT_NOT_FOUND", "Project not found");
@@ -355,12 +337,12 @@ export function registerTerminalRoutes(
 				if ((await countProjectPoints(db, project.id)) >= MAX_POINTS_PER_PROJECT) {
 					// Ids only (ADR 0012); the student is not told (docs/archive/epics/EPIC-10.md decisions).
 					request.log.warn(
-						{ workspaceId: params.data.id, projectId: project.id },
+						{ workspaceId: params.id, projectId: project.id },
 						"agent-session recovery point skipped: point cap",
 					);
 				} else {
 					const point = await makeRecoveryPoint(db, config, agent, {
-						workspaceId: params.data.id,
+						workspaceId: params.id,
 						project,
 						reason: "agent-session",
 						createdBy: user.id,
@@ -371,7 +353,7 @@ export function registerTerminalRoutes(
 			} catch (error) {
 				request.log.warn(
 					{
-						workspaceId: params.data.id,
+						workspaceId: params.id,
 						projectId: project.id,
 						code: error instanceof AgentCallError ? error.code : "INTERNAL",
 					},
@@ -384,7 +366,7 @@ export function registerTerminalRoutes(
 			.insertInto("terminals")
 			.values({
 				id,
-				workspace_id: params.data.id,
+				workspace_id: params.id,
 				name,
 				cwd,
 				position,
@@ -444,16 +426,14 @@ export function registerTerminalRoutes(
 	// the shell that is already running keeps the COLORFGBG it started with.
 	app.patch("/workspaces/:id/terminals/:tid", async (request, reply) => {
 		const user = requireUser(request);
-		const params = TerminalParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(TerminalParam, request.params, reply);
+		if (!params) return;
 		const body = UpdateTerminalRequest.safeParse(request.body ?? {});
 		if (!body.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
 
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
@@ -464,8 +444,8 @@ export function registerTerminalRoutes(
 				...(body.data.name === undefined ? {} : { name: body.data.name }),
 				...(body.data.theme === undefined ? {} : { theme: body.data.theme }),
 			})
-			.where("id", "=", params.data.tid)
-			.where("workspace_id", "=", params.data.id)
+			.where("id", "=", params.tid)
+			.where("workspace_id", "=", params.id)
 			.returningAll()
 			.executeTakeFirst();
 		if (!updated) {
@@ -479,12 +459,10 @@ export function registerTerminalRoutes(
 	// terminals the platform ended, which the worker marks (SPEC.md §9.7).
 	app.delete("/workspaces/:id/terminals/:tid", async (request, reply) => {
 		const user = requireUser(request);
-		const params = TerminalParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(TerminalParam, request.params, reply);
+		if (!params) return;
 
-		const workspace = await findWorkspaceOwnedBy(db, params.data.id, user.id);
+		const workspace = await findWorkspaceOwnedBy(db, params.id, user.id);
 		if (!workspace) {
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
@@ -492,8 +470,8 @@ export function registerTerminalRoutes(
 		const row = await db
 			.selectFrom("terminals")
 			.selectAll()
-			.where("id", "=", params.data.tid)
-			.where("workspace_id", "=", params.data.id)
+			.where("id", "=", params.tid)
+			.where("workspace_id", "=", params.id)
 			.executeTakeFirst();
 		if (!row) {
 			return sendError(reply, 404, "TERMINAL_NOT_FOUND", "Terminal not found");

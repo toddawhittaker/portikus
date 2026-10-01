@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { rename, statfs, writeFile } from "node:fs/promises";
+import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
@@ -19,12 +19,13 @@ import {
 	type ImageView,
 	newerPublishedImage,
 } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { sendError } from "../http.js";
 import { diffManifests } from "../image/manifest-diff.js";
 import { imagesDirOf, readPublished } from "../image/release-notices.js";
-import { listDir, readJson, tailLines } from "../job-files.js";
+import { listDir, readJson, tailLines, writeRequestFile } from "../job-files.js";
 import type { ServerDeps } from "../server.js";
-import { sendError } from "./project-scope.js";
 
 /** The disk the image store is on, which also holds Incus's image files on a standard install. */
 async function diskOf(path: string): Promise<AdminImage["disk"]> {
@@ -139,20 +140,17 @@ export function registerAdminImageRoutes(
 			.where("target", "=", job.id)
 			.executeTakeFirst();
 		if (seen) return;
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: "image-job",
-				target: job.id,
-				action: "image.job_finished",
-				result: job.state === "succeeded" ? "ok" : "failed",
-				metadata: JSON.stringify({
-					kind: job.kind,
-					result: job.state,
-					version: job.version,
-				}),
-			})
-			.execute();
+		await recordAudit(db, {
+			actor: "image-job",
+			target: job.id,
+			action: "image.job_finished",
+			result: job.state === "succeeded" ? "ok" : "failed",
+			metadata: {
+				kind: job.kind,
+				result: job.state,
+				version: job.version,
+			},
+		});
 	}
 
 	/** The queued or running job, else the one started last. */
@@ -368,20 +366,14 @@ export function registerAdminImageRoutes(
 				requestedBy: admin.id,
 				request: wanted,
 			};
-			// Write aside, then rename, so the path unit never reads half a file.
-			const temp = join(jobsDir, `.request-${id}.tmp`);
-			await writeFile(temp, `${JSON.stringify(file)}\n`, { flag: "wx", mode: 0o640 });
-			await rename(temp, join(jobsDir, `request-${id}.json`));
-			await db
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${admin.id}`,
-					target: id,
-					action: "image.job_requested",
-					result: "ok",
-					metadata: JSON.stringify(wanted),
-				})
-				.execute();
+			await writeRequestFile(jobsDir, file, 0o640);
+			await recordAudit(db, {
+				actor: `user:${admin.id}`,
+				target: id,
+				action: "image.job_requested",
+				result: "ok",
+				metadata: wanted,
+			});
 			return reply.status(202).send(queuedView(file));
 		} finally {
 			writing = false;

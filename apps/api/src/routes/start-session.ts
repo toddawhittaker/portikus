@@ -7,7 +7,7 @@ import {
 	sessionCookieOptions,
 	upsertUser,
 } from "@portikus/auth";
-import type { Database } from "@portikus/db";
+import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 
@@ -62,35 +62,38 @@ export async function completeSignIn(
 	// `role` is what the provider gave; the audit follows the effective role (ruling 20).
 	if (user.previousRole !== null && user.previousRole !== user.role) {
 		// Roles come from identity-provider groups or LTI roles (SPEC.md §24.11).
-		await audit(db, "user.role_changed", "identity-provider", user.id, "ok", {
-			from: user.previousRole,
-			to: user.role,
-			...input.roleChangeMetadata,
+		await recordAudit(db, {
+			actor: "identity-provider",
+			target: user.id,
+			action: "user.role_changed",
+			result: "ok",
+			metadata: {
+				from: user.previousRole,
+				to: user.role,
+				...input.roleChangeMetadata,
+			},
 		});
 	}
 	if (user.disabledAt) {
-		await audit(db, "auth.login", `user:${user.id}`, user.id, "denied", loginMetadata);
+		await recordAudit(db, {
+			actor: `user:${user.id}`,
+			target: user.id,
+			action: "auth.login",
+			result: "denied",
+			metadata: loginMetadata,
+		});
 		return { ok: false, userId: user.id };
 	}
 	await startSession(db, auth, reply, user.id, {
 		method: input.method,
 		courseUserId: null,
 	});
-	await audit(db, "auth.login", `user:${user.id}`, user.id, "ok", loginMetadata);
+	await recordAudit(db, {
+		actor: `user:${user.id}`,
+		target: user.id,
+		action: "auth.login",
+		result: "ok",
+		metadata: loginMetadata,
+	});
 	return { ok: true, userId: user.id };
-}
-
-/** Write one audit row; the caller keeps secrets and personal data out of `metadata`. */
-export async function audit(
-	db: Kysely<Database>,
-	action: string,
-	actor: string,
-	target: string,
-	result: string,
-	metadata: Record<string, unknown>,
-): Promise<void> {
-	await db
-		.insertInto("audit_events")
-		.values({ actor, target, action, result, metadata: JSON.stringify(metadata) })
-		.execute();
 }

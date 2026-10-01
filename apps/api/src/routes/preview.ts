@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { recordActivity } from "../activity.js";
 import { AgentCallError } from "../agent-client.js";
+import { sendError } from "../http.js";
 import { fromLoopback } from "../loopback.js";
 import {
 	createPreviewDeniedAudit,
@@ -204,15 +205,11 @@ export function registerPreviewRoutes(
 		const user = requireUser(request);
 		const params = IdParams.safeParse(request.params);
 		if (!params.success) {
-			return reply
-				.status(400)
-				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
 		}
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return reply
-				.status(404)
-				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 		return reply.send({ services: servicesOf(params.data.id) });
 	});
@@ -227,21 +224,19 @@ export function registerPreviewRoutes(
 		const params = IdParams.safeParse(request.params);
 		const port = PortInput.safeParse(request.params);
 		if (!params.success || !port.success) {
-			return reply
-				.status(400)
-				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id or port" });
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id or port");
 		}
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return reply
-				.status(404)
-				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 		if (workspace.state !== "running") {
-			return reply.status(409).send({
-				code: "WORKSPACE_NOT_RUNNING",
-				message: "The workspace is not running",
-			});
+			return sendError(
+				reply,
+				409,
+				"WORKSPACE_NOT_RUNNING",
+				"The workspace is not running",
+			);
 		}
 		// Stopping makes the control plane work on the student's behalf, just
 		// as a grant or a probe does, so it comes out of the same budget.
@@ -250,31 +245,34 @@ export function registerPreviewRoutes(
 				{ workspaceId: params.data.id },
 				"stop listener rate limit reached",
 			);
-			return reply.status(429).send({
-				code: "PREVIEW_RATE_LIMITED",
-				message: "Too many previews were opened just now. Wait a moment.",
-			});
+			return sendError(
+				reply,
+				429,
+				"PREVIEW_RATE_LIMITED",
+				"Too many previews were opened just now. Wait a moment.",
+			);
 		}
 		if (stopping.has(params.data.id)) {
-			return reply.status(409).send({
-				code: "STOP_IN_PROGRESS",
-				message: "A service in this workspace is already being stopped",
-			});
+			return sendError(
+				reply,
+				409,
+				"STOP_IN_PROGRESS",
+				"A service in this workspace is already being stopped",
+			);
 		}
 		stopping.add(params.data.id);
 		try {
 			await registry.stopListener(params.data.id, port.data.port);
 		} catch (error) {
 			if (error instanceof AgentCallError) {
+				// The agent's stop codes are not ApiError codes, so this body is built by hand.
 				return reply.status(stopStatusFor(error.code)).send({
 					code: error.code,
 					message: stopMessageFor(error.code),
 				});
 			}
 			request.log.error({ err: error }, "stop listener failed");
-			return reply
-				.status(502)
-				.send({ code: "AGENT_UNAVAILABLE", message: "The workspace did not answer" });
+			return sendError(reply, 502, "AGENT_UNAVAILABLE", "The workspace did not answer");
 		} finally {
 			stopping.delete(params.data.id);
 		}
@@ -285,44 +283,44 @@ export function registerPreviewRoutes(
 		const user = requireUser(request);
 		const params = IdParams.safeParse(request.params);
 		if (!params.success) {
-			return reply
-				.status(400)
-				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
 		}
 		const body = PreviewGrantRequest.safeParse(request.body);
 		if (!body.success) {
-			return reply
-				.status(400)
-				.send({ code: "VALIDATION_FAILED", message: "invalid grant request" });
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid grant request");
 		}
 
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return reply
-				.status(404)
-				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 		if (workspace.state !== "running") {
-			return reply.status(409).send({
-				code: "WORKSPACE_NOT_RUNNING",
-				message: "Start the workspace before opening a preview",
-			});
+			return sendError(
+				reply,
+				409,
+				"WORKSPACE_NOT_RUNNING",
+				"Start the workspace before opening a preview",
+			);
 		}
 		if (!portAllowed(config, body.data.port)) {
-			return reply.status(403).send({
-				code: "PREVIEW_PORT_NOT_ALLOWED",
-				message: `Port ${body.data.port} cannot be previewed`,
-			});
+			return sendError(
+				reply,
+				403,
+				"PREVIEW_PORT_NOT_ALLOWED",
+				`Port ${body.data.port} cannot be previewed`,
+			);
 		}
 		if (overPreviewLimit(user.id)) {
 			request.log.warn(
 				{ workspaceId: params.data.id },
 				"preview grant rate limit reached",
 			);
-			return reply.status(429).send({
-				code: "PREVIEW_RATE_LIMITED",
-				message: "Too many previews were opened just now. Wait a moment.",
-			});
+			return sendError(
+				reply,
+				429,
+				"PREVIEW_RATE_LIMITED",
+				"Too many previews were opened just now. Wait a moment.",
+			);
 		}
 
 		// A service bound only to loopback needs the agent's forward before the
@@ -340,12 +338,13 @@ export function registerPreviewRoutes(
 					},
 					"loopback forward could not be opened",
 				);
-				return reply.status(409).send({
-					code: "PREVIEW_FORWARD_FAILED",
-					message:
-						`Portikus could not reach port ${body.data.port} inside the ` +
+				return sendError(
+					reply,
+					409,
+					"PREVIEW_FORWARD_FAILED",
+					`Portikus could not reach port ${body.data.port} inside the ` +
 						"workspace. Try again, or bind the application to 0.0.0.0.",
-				});
+				);
 			}
 		}
 
@@ -389,32 +388,32 @@ export function registerPreviewRoutes(
 		const params = IdParams.safeParse(request.params);
 		const query = PortInput.safeParse(request.query);
 		if (!params.success || !query.success) {
-			return reply
-				.status(400)
-				.send({ code: "VALIDATION_FAILED", message: "invalid workspace or port" });
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace or port");
 		}
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return reply
-				.status(404)
-				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 		const port = query.data.port;
 		if (!portAllowed(config, port)) {
-			return reply.status(403).send({
-				code: "PREVIEW_PORT_NOT_ALLOWED",
-				message: `Port ${port} cannot be previewed`,
-			});
+			return sendError(
+				reply,
+				403,
+				"PREVIEW_PORT_NOT_ALLOWED",
+				`Port ${port} cannot be previewed`,
+			);
 		}
 		if (overPreviewLimit(user.id)) {
 			request.log.warn(
 				{ workspaceId: params.data.id },
 				"preview probe rate limit reached",
 			);
-			return reply.status(429).send({
-				code: "PREVIEW_RATE_LIMITED",
-				message: "Too many previews were opened just now. Wait a moment.",
-			});
+			return sendError(
+				reply,
+				429,
+				"PREVIEW_RATE_LIMITED",
+				"Too many previews were opened just now. Wait a moment.",
+			);
 		}
 
 		const unreachable: PreviewEmbeddableResponse = {
@@ -453,15 +452,11 @@ export function registerPreviewRoutes(
 		const user = requireUser(request);
 		const params = IdParams.safeParse(request.params);
 		if (!params.success) {
-			return reply
-				.status(400)
-				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
 		}
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return reply
-				.status(404)
-				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 		await revokeWorkspacePreviewSessions(db, params.data.id);
 		// A reset in this process takes effect at once, not two seconds late.

@@ -22,11 +22,12 @@ import type {
 	StartLinkResponse,
 	UnlinkResponse,
 } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { toAuthOptions } from "../auth-options.js";
 import type { ServerDeps } from "../server.js";
-import { audit, requestMetadata, startSession } from "./start-session.js";
+import { requestMetadata, startSession } from "./start-session.js";
 
 const CourseUserParam = z.object({ courseUserId: z.string().uuid() });
 
@@ -164,20 +165,25 @@ export function registerLinkRoutes(
 				return { kind: "refused" as const, intent, reason: linked.reason };
 
 			const ssoActor = `user:${intent.userId}`;
-			await audit(trx, "user.linked", ssoActor, intent.userId, "ok", {
-				platform: platformName(linked.platformIssuer),
-				courseUserId: intent.courseUserId,
-				...requestMetadata(request),
+			await recordAudit(trx, {
+				actor: ssoActor,
+				target: intent.userId,
+				action: "user.linked",
+				result: "ok",
+				metadata: {
+					platform: platformName(linked.platformIssuer),
+					courseUserId: intent.courseUserId,
+					...requestMetadata(request),
+				},
 			});
 			if (linked.archivedWorkspaceId) {
-				await audit(
-					trx,
-					"workspace.archived",
-					ssoActor,
-					linked.archivedWorkspaceId,
-					"ok",
-					{ reason: "account_linked" },
-				);
+				await recordAudit(trx, {
+					actor: ssoActor,
+					target: linked.archivedWorkspaceId,
+					action: "workspace.archived",
+					result: "ok",
+					metadata: { reason: "account_linked" },
+				});
 			}
 			return { kind: "linked" as const, intent };
 		});
@@ -188,10 +194,16 @@ export function registerLinkRoutes(
 		const { intent } = outcome;
 		if (outcome.kind !== "linked") {
 			const reason = outcome.kind === "too_late" ? "expired" : outcome.reason;
-			await audit(db, "user.linked", `user:${intent.userId}`, intent.userId, "denied", {
-				reason,
-				courseUserId: intent.courseUserId,
-				...requestMetadata(request),
+			await recordAudit(db, {
+				actor: `user:${intent.userId}`,
+				target: intent.userId,
+				action: "user.linked",
+				result: "denied",
+				metadata: {
+					reason,
+					courseUserId: intent.courseUserId,
+					...requestMetadata(request),
+				},
 			});
 			const message =
 				outcome.kind === "too_late"
@@ -206,9 +218,15 @@ export function registerLinkRoutes(
 			method: "link",
 			courseUserId: null,
 		});
-		await audit(db, "auth.login", `user:${intent.userId}`, intent.userId, "ok", {
-			method: "link",
-			...requestMetadata(request),
+		await recordAudit(db, {
+			actor: `user:${intent.userId}`,
+			target: intent.userId,
+			action: "auth.login",
+			result: "ok",
+			metadata: {
+				method: "link",
+				...requestMetadata(request),
+			},
 		});
 		return {};
 	});
@@ -233,21 +251,26 @@ export function registerLinkRoutes(
 			const unlinked = await unlinkAccount(trx, { userId: user.id, courseUserId });
 			if (!unlinked) return false;
 			const actor = courseSide ? `user:${courseUserId}` : `user:${user.id}`;
-			await audit(trx, "user.unlinked", actor, user.id, "ok", {
-				platform: platformName(unlinked.platformIssuer),
-				courseUserId,
-				side: courseSide ? "course" : "sso",
-				...requestMetadata(request),
+			await recordAudit(trx, {
+				actor: actor,
+				target: user.id,
+				action: "user.unlinked",
+				result: "ok",
+				metadata: {
+					platform: platformName(unlinked.platformIssuer),
+					courseUserId,
+					side: courseSide ? "course" : "sso",
+					...requestMetadata(request),
+				},
 			});
 			if (unlinked.unarchivedWorkspaceId) {
-				await audit(
-					trx,
-					"workspace.unarchived",
-					actor,
-					unlinked.unarchivedWorkspaceId,
-					"ok",
-					{ reason: "account_unlinked" },
-				);
+				await recordAudit(trx, {
+					actor: actor,
+					target: unlinked.unarchivedWorkspaceId,
+					action: "workspace.unarchived",
+					result: "ok",
+					metadata: { reason: "account_unlinked" },
+				});
 			}
 			return true;
 		});
