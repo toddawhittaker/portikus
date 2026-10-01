@@ -151,6 +151,26 @@ contents:
       owner: root
       group: root
       mode: 0755
+  # The root site certificate job, its trigger and the hourly check (ADR 0046).
+  # Enabled by Ansible, which creates the directories they need.
+  - src: ./packaging/systemd/portikus-certificate-job.path
+    dst: /usr/lib/systemd/system/portikus-certificate-job.path
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-certificate-job.service
+    dst: /usr/lib/systemd/system/portikus-certificate-job.service
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-certificate-check.service
+    dst: /usr/lib/systemd/system/portikus-certificate-check.service
+    file_info: *unit_info
+  - src: ./packaging/systemd/portikus-certificate-check.timer
+    dst: /usr/lib/systemd/system/portikus-certificate-check.timer
+    file_info: *unit_info
+  - src: ./packaging/certificate/certificate-job
+    dst: /usr/lib/portikus/certificate-job
+    file_info:
+      owner: root
+      group: root
+      mode: 0755
   # The Docker pull-through caches and their root helper (issue #840).
   # Enabled by Ansible, which installs docker-registry and makes their
   # filesystem, user and certificates.

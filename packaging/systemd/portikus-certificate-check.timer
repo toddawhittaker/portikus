@@ -1,0 +1,12 @@
+# Portikus hourly certificate check (ADR 0046): runs portikus-certificate-check.service.
+[Unit]
+Description=Hourly Portikus check of the site certificate
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+OnBootSec=5min
+
+[Install]
+WantedBy=timers.target

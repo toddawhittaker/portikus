@@ -1,0 +1,1981 @@
+#!/usr/bin/python3
+"""The site certificate job, run as root by portikus-certificate-job.service.
+
+It takes the request files the admin page's Certificate tab writes into the
+job directory and runs one fixed job per request: test, apply, renew,
+rollback or check (docs/SPEC.md sections 21.12 and 24.8, ADR 0046). The file
+contract is the comment at the top of packages/contracts/src/certificate.ts.
+Caddy stays the only ACME client: this job writes Caddy's TLS snippets and
+secret files, runs a throwaway Caddy to obtain certificates away from the
+live site, reloads the live Caddy and reads what it serves.
+
+Python standard library only, as the image job (ADR 0030): strict JSON
+validation, atomic writes, a lock and argument-list subprocesses.
+
+Usage:
+  certificate-job            take and run pending requests (the path unit)
+  certificate-job recover    mark a job the host lost as failed and put back
+                             a half-applied change (ExecStopPost)
+  certificate-job check      rewrite status.json, root.crt and the API's
+                             trust bundle (the hourly timer)
+  certificate-job reset      put Caddy's internal authority in force
+                             (portikus reset-certificate)
+  certificate-job first-install
+                             setup's first install: read CertificateSettings
+                             JSON (secrets included) on standard input and
+                             write the state directory, unless it holds any
+                             state already; prints changed or unchanged
+  certificate-job trust-bundle
+                             rebuild the API's trust bundle; prints changed
+                             or unchanged and leaves restarting the API to
+                             setup
+"""
+
+import datetime
+import fcntl
+import glob
+import grp
+import json
+import os
+import pwd
+import re
+import shutil
+import socket
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.parse
+import uuid
+
+JOBS_DIR = "/var/lib/portikus/certificate-jobs"
+STATE_DIR = "/etc/portikus/certificate"
+STATUS_DIR = "/var/lib/portikus/certificate"
+API_ENV = "/etc/portikus/api.env"
+CADDYFILE = "/etc/caddy/Caddyfile"
+CADDY_DATA = "/var/lib/caddy/.local/share/caddy"
+CADDY_ROOT = CADDY_DATA + "/pki/authorities/local/root.crt"
+# The bundle the API trusts (NODE_EXTRA_CA_CERTS), so it can call itself through Caddy.
+TRUST_BUNDLE = "/etc/portikus/caddy-root.crt"
+SYSTEM_CAS = "/etc/ssl/certs/ca-certificates.crt"
+
+LE_PRODUCTION = "https://acme-v02.api.letsencrypt.org/directory"
+LE_STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory"
+# A preview name no workspace uses, for reading the preview certificate.
+SAMPLE_PREVIEW_LABEL = "portikus-certificate-check"
+INTERNAL_ISSUER = "Caddy Local Authority"
+
+# The nine caddy-dns plugins and their Caddyfile fields, mirroring
+# DNS_PROVIDER_FIELDS in packages/contracts/src/certificate.ts; a test reads
+# that table so the two cannot drift.
+DNS_PROVIDER_FIELDS = {
+    "cloudflare": {"plain": [], "secret": ["api_token"]},
+    "route53": {"plain": ["region", "access_key_id"], "secret": ["secret_access_key"]},
+    "digitalocean": {"plain": [], "secret": ["api_token"]},
+    "ovh": {"plain": ["endpoint", "application_key"], "secret": ["application_secret", "consumer_key"]},
+    "hetzner": {"plain": [], "secret": ["api_token"]},
+    "gandi": {"plain": [], "secret": ["bearer_token"]},
+    "porkbun": {"plain": ["api_key"], "secret": ["api_secret_key"]},
+    "googleclouddns": {"plain": ["gcp_project"], "secret": ["service_account_json"]},
+    "azure": {
+        "plain": ["tenant_id", "client_id", "subscription_id", "resource_group_name"],
+        "secret": ["client_secret"],
+    },
+}
+# A secret whose plugin takes a file path rather than the value: the field
+# and the directive that names the file (Google's service-account JSON).
+PATH_SECRET_FIELDS = {("googleclouddns", "service_account_json"): "gcp_application_default"}
+
+# How long the throwaway Caddy gets to obtain certificates; it never gives up by itself.
+ISSUE_TIMEOUT = 300
+# How long the live Caddy gets to serve certificates already in its storage.
+SERVE_TIMEOUT = 30
+# The live Caddy's port-80 block passes /.well-known/acme-challenge/* here, so the throwaway Caddy
+# answers HTTP-01 for the certificates it obtains (setup's Caddyfile; Epic 27 R11 as amended).
+CHALLENGE_PORT = 8796
+POLL_SECONDS = 2
+
+# Installed in this order, so settings.json, written last, never names a file not yet in place.
+GENERATION = ("secrets", "files", "tls.caddy", "settings.json")
+KEEP_JOBS = 20
+# In the status directory: when Renew now last succeeded, so older journal results are not shown.
+RENEWED = "renewed.json"
+MAX_REQUEST_BYTES = 512 * 1024
+MAX_PEM_LENGTH = 64 * 1024
+MAX_SECRET_LENGTH = 1024
+MAX_SERVICE_ACCOUNT_JSON = 16 * 1024
+
+UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)
+DATETIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z", re.ASCII)
+REQUEST_NAME_RE = re.compile(r"request-(.*)\.json", re.ASCII | re.DOTALL)
+# Narrower than zod's URL check: nothing that could break out of a Caddyfile token.
+HTTPS_URL_RE = re.compile(r"https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~%/+=-]*)?", re.ASCII)
+# zod's email pattern.
+EMAIL_RE = re.compile(
+    r"(?!\.)(?!.*\.\.)[A-Za-z0-9_'+.-]*[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9-]*\.)+[A-Za-z]{2,}", re.ASCII)
+PLAIN_RE = re.compile(r"[A-Za-z0-9._:/@-]{1,200}", re.ASCII)
+EAB_KEY_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,200}", re.ASCII)
+EAB_HMAC_RE = re.compile(r"[A-Za-z0-9_=-]{1,200}", re.ASCII)
+HOST_RE = re.compile(r"(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?",
+                     re.ASCII)
+PEM_BLOCK_RE = re.compile(r"-----BEGIN CERTIFICATE-----\r?\n.*?-----END CERTIFICATE-----", re.DOTALL)
+
+
+class Refused(Exception):
+    """A request the job will not run. `kind` is set once the kind is known good."""
+
+    def __init__(self, message, kind=None):
+        super().__init__(message)
+        self.kind = kind
+
+
+class JobFailed(Exception):
+    """A job that started and could not finish; the message is shown to the admin."""
+
+    def __init__(self, message, restored=False):
+        super().__init__(message)
+        self.restored = restored
+
+
+def now_iso(clock=time.time):
+    stamp = datetime.datetime.fromtimestamp(clock(), datetime.timezone.utc)
+    return stamp.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def journal(message):
+    print(f"certificate-job: {message}", file=sys.stderr, flush=True)
+
+
+# An Authorization value runs to the end of the line or a closing quote or bracket, so a
+# JSON array ("Authorization":["Bearer x"]) and a SigV4 header are covered whole.
+AUTHORIZATION_RE = re.compile(r"(?i)(authorization[\"']?\s*[:=]\s*\[?\s*[\"']?)[^\"'\]\r\n]+")
+SIGNATURE_RE = re.compile(r"(?i)(signature=)[^\s\"'\],;&]+")
+
+
+def scrub(text, secrets):
+    """Replace every secret, as written and as escaped in JSON or a URL, with [secret] (SPEC.md 24.8).
+
+    Any Authorization header value is replaced too, whether or not the job knows it.
+    """
+    text = AUTHORIZATION_RE.sub(lambda m: m.group(1) + "[secret]", text)
+    text = SIGNATURE_RE.sub(lambda m: m.group(1) + "[secret]", text)
+    for value in sorted(secrets, key=len, reverse=True):
+        if not value or len(value) < 4:
+            continue
+        for form in {value, value.strip(), json.dumps(value)[1:-1], urllib.parse.quote(value, safe=""),
+                     urllib.parse.quote_plus(value)}:
+            if len(form) >= 4:
+                text = text.replace(form, "[secret]")
+    return text
+
+
+def secret_words(value):
+    """A secret, and for a multi-line one (a key, a JSON file) each long line or string in it."""
+    words = [value]
+    for line in value.splitlines():
+        if len(line.strip()) >= 16:
+            words.append(line.strip())
+    words += [s for s in re.findall(r'"([^"]{16,})"', value)]
+    return words
+
+
+# ---- Validation (mirrors the zod schemas in packages/contracts/src/certificate.ts) ----
+
+def _no_duplicates(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError("duplicate key")
+        out[key] = value
+    return out
+
+
+def _keys(obj, required, optional=(), what="the request"):
+    if not isinstance(obj, dict):
+        raise Refused(f"{what} is not an object")
+    keys = set(obj)
+    if not set(required) <= keys or not keys <= set(required) | set(optional):
+        raise Refused(f"{what} has missing or extra fields")
+
+
+def _string(value, pattern, what, max_length=None):
+    if not isinstance(value, str) or (max_length and len(value) > max_length) or not pattern.fullmatch(value):
+        raise Refused(f"{what} is malformed")
+    return value
+
+
+def _pem(value, what):
+    if not isinstance(value, str) or not value or len(value) > MAX_PEM_LENGTH or "-----BEGIN " not in value:
+        raise Refused(f"{what} is not PEM text")
+    return value
+
+
+# A service account key's fields. An external_account credential would make Google's
+# library read local files (credential_source) and send them to a URL of its choice.
+SERVICE_ACCOUNT_REQUIRED = {"type", "project_id", "private_key_id", "private_key", "client_email"}
+SERVICE_ACCOUNT_KEYS = SERVICE_ACCOUNT_REQUIRED | {
+    "client_id", "auth_uri", "token_uri", "auth_provider_x509_cert_url", "client_x509_cert_url", "universe_domain"}
+
+
+GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+GOOGLE_UNIVERSE = "googleapis.com"
+# go-ovh's named endpoints: a kept consumer key is never sent to any other URL.
+OVH_ENDPOINTS = {"ovh-eu", "ovh-ca", "ovh-us", "kimsufi-eu", "kimsufi-ca", "soyoustart-eu", "soyoustart-ca"}
+
+
+def _service_account(text):
+    try:
+        doc = json.loads(text, object_pairs_hook=_no_duplicates)
+    except ValueError:
+        return False
+    # Google's library posts a signed assertion to token_uri, so only Google's own is allowed.
+    return (isinstance(doc, dict) and SERVICE_ACCOUNT_REQUIRED <= set(doc) <= SERVICE_ACCOUNT_KEYS
+            and doc["type"] == "service_account" and all(isinstance(v, str) for v in doc.values())
+            and all(doc[k] for k in SERVICE_ACCOUNT_REQUIRED)
+            and doc.get("token_uri", GOOGLE_TOKEN_URI) == GOOGLE_TOKEN_URI
+            and doc.get("universe_domain", GOOGLE_UNIVERSE) == GOOGLE_UNIVERSE)
+
+
+def validate_settings(settings, acme_only=False):
+    if not isinstance(settings, dict):
+        raise Refused("the settings are not an object")
+    source = settings.get("source")
+    if acme_only and source != "acme":
+        raise Refused("a test takes ACME settings only")
+    if source == "internal":
+        _keys(settings, ["source"], what="internal settings")
+    elif source == "acme":
+        _keys(settings, ["source", "directory", "email", "challenge"], ["eab"], "ACME settings")
+        _string(settings["directory"], HTTPS_URL_RE, "the ACME directory URL", 500)
+        _string(settings["email"], EMAIL_RE, "the email", 200)
+        if "eab" in settings:
+            _keys(settings["eab"], ["keyId"], ["hmacKey"], "the external account binding")
+            _string(settings["eab"]["keyId"], EAB_KEY_ID_RE, "the EAB key ID")
+            if "hmacKey" in settings["eab"]:
+                _string(settings["eab"]["hmacKey"], EAB_HMAC_RE, "the EAB HMAC key")
+        challenge = settings["challenge"]
+        _keys(challenge, ["mode"], ["dns"], "the challenge")
+        if challenge["mode"] == "http01":
+            _keys(challenge, ["mode"], what="the HTTP-01 challenge")
+        elif challenge["mode"] == "dns01":
+            _keys(challenge, ["mode", "dns"], what="the DNS-01 challenge")
+            dns = challenge["dns"]
+            _keys(dns, ["provider", "fields"], what="the DNS provider")
+            provider = dns["provider"]
+            if not isinstance(provider, str) or provider not in DNS_PROVIDER_FIELDS:
+                raise Refused("unknown DNS provider")
+            plain = DNS_PROVIDER_FIELDS[provider]["plain"]
+            secret = DNS_PROVIDER_FIELDS[provider]["secret"]
+            _keys(dns["fields"], plain, secret, f"the {provider} fields")
+            for name in plain:
+                _string(dns["fields"][name], PLAIN_RE, f"the {provider} field {name}")
+            if provider == "ovh" and dns["fields"]["endpoint"] not in OVH_ENDPOINTS:
+                raise Refused("the ovh field endpoint must be one of " + ", ".join(sorted(OVH_ENDPOINTS)))
+            for name in secret:
+                value = dns["fields"].get(name)
+                if value is None:
+                    continue
+                if (provider, name) in PATH_SECRET_FIELDS:
+                    if not isinstance(value, str) or not 1 <= len(value) <= MAX_SERVICE_ACCOUNT_JSON \
+                            or not _service_account(value):
+                        raise Refused(f"the {provider} secret {name} is not a service account key")
+                elif not isinstance(value, str) or not 1 <= len(value) <= MAX_SECRET_LENGTH \
+                        or "\n" in value or "\r" in value:
+                    raise Refused(f"the {provider} secret {name} is not one line of at most "
+                                  f"{MAX_SECRET_LENGTH} characters")
+        else:
+            raise Refused("unknown challenge mode")
+    elif source == "files":
+        _keys(settings, ["source", "site"], ["preview"], "uploaded-files settings")
+        for part in ("site", "preview"):
+            if part in settings:
+                _keys(settings[part], ["certificate"], ["privateKey"], f"the {part} upload")
+                _pem(settings[part]["certificate"], f"the {part} certificate")
+                if "privateKey" in settings[part]:
+                    _pem(settings[part]["privateKey"], f"the {part} private key")
+    else:
+        raise Refused("unknown certificate source")
+    return settings
+
+
+def validate_request(raw, file_id):
+    """Return the request file's document, or raise Refused. Trusts nothing the API checked."""
+    try:
+        doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)
+    except (UnicodeDecodeError, ValueError):
+        raise Refused("the request is not valid JSON")
+    _keys(doc, ["id", "requestedAt", "requestedBy", "request"], what="the request file")
+    if doc["id"] != file_id:
+        raise Refused("the request id does not match its file name")
+    if not isinstance(doc["requestedAt"], str) or not DATETIME_RE.fullmatch(doc["requestedAt"]):
+        raise Refused("requestedAt is not a time")
+    if not isinstance(doc["requestedBy"], str) or not UUID_RE.fullmatch(doc["requestedBy"]):
+        raise Refused("requestedBy is not a user id")
+    request = doc["request"]
+    if not isinstance(request, dict):
+        raise Refused("the request is not an object")
+    kind = request.get("kind")
+    if kind in ("renew", "rollback", "check"):
+        if set(request) != {"kind"}:
+            raise Refused(f"a {kind} request has extra fields", kind)
+    elif kind in ("test", "apply"):
+        if set(request) != {"kind", "settings"}:
+            raise Refused(f"a {kind} request has missing or extra fields", kind)
+        try:
+            validate_settings(request["settings"], acme_only=kind == "test")
+        except Refused as err:
+            raise Refused(str(err), kind)
+    else:
+        # `reset` comes only from portikus reset-certificate, never from a request file.
+        raise Refused("unknown kind")
+    return doc
+
+
+# ---- Commands ----
+
+def run(argv, log=None, capture=False, timeout=None, env=None, input=None):
+    """Run argv without a shell. Returns (exit code, stdout when captured).
+
+    With `log` (a Job), the command line and its error output go to log.txt.
+    A command that cannot start or times out returns 127 or 124.
+    """
+    if log is not None:
+        log.line("$ " + " ".join(argv))
+    env = env or {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"}
+    try:
+        done = subprocess.run(
+            argv, input=input, stdin=None if input is not None else subprocess.DEVNULL,
+            capture_output=True, text=True, errors="replace", timeout=timeout, env=env,
+        )
+        if log is not None and done.stderr:
+            log.write(done.stderr if done.stderr.endswith("\n") else done.stderr + "\n")
+        return done.returncode, done.stdout if capture else ""
+    except subprocess.TimeoutExpired:
+        if log is not None:
+            log.line(f"timed out after {timeout} seconds")
+        return 124, ""
+    except OSError as err:
+        if log is not None:
+            log.line(f"could not run {argv[0]}: {err.strerror}")
+        return 127, ""
+
+
+# ---- Certificates through openssl (argument lists; PEM through files or stdin) ----
+
+def parse_openssl_date(text):
+    stamp = datetime.datetime.strptime(text.strip(), "%b %d %H:%M:%S %Y %Z")
+    return stamp.replace(tzinfo=datetime.timezone.utc)
+
+
+def iso(stamp):
+    return stamp.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def certificate_info(run_, pem):
+    """{issuer, names, notBefore, notAfter, fingerprint} of the first certificate in pem, or None."""
+    code, out = run_(["openssl", "x509", "-noout", "-issuer", "-startdate", "-enddate",
+                      "-fingerprint", "-sha256", "-ext", "subjectAltName", "-nameopt", "RFC2253"],
+                     capture=True, timeout=30, input=pem)
+    if code != 0:
+        return None
+    info = {"issuer": "", "names": [], "notBefore": None, "notAfter": None, "fingerprint": ""}
+    lines = out.splitlines()
+    try:
+        for index, line in enumerate(lines):
+            if line.startswith("issuer="):
+                info["issuer"] = line[len("issuer="):].strip()[:500]
+            elif line.startswith("notBefore="):
+                info["notBefore"] = parse_openssl_date(line.split("=", 1)[1])
+            elif line.startswith("notAfter="):
+                info["notAfter"] = parse_openssl_date(line.split("=", 1)[1])
+            elif "Fingerprint=" in line:
+                info["fingerprint"] = line.split("=", 1)[1].strip().replace(":", "").lower()
+            elif "Subject Alternative Name" in line and index + 1 < len(lines):
+                for part in lines[index + 1].split(","):
+                    part = part.strip()
+                    if part.startswith("DNS:"):
+                        info["names"].append(part[4:].lower()[:253])
+    except ValueError:
+        return None
+    if info["notBefore"] is None or info["notAfter"] is None:
+        return None
+    info["names"] = info["names"][:100]
+    return info
+
+
+def covers(names, host):
+    """True when a certificate's names include host itself or a one-label wildcard over it."""
+    host = host.lower()
+    for name in names:
+        if name == host:
+            return True
+        if name.startswith("*.") and "." in host and host.split(".", 1)[1] == name[2:]:
+            return True
+    return False
+
+
+def view_info(info, name=None):
+    out = {"issuer": info["issuer"], "names": info["names"],
+           "notBefore": iso(info["notBefore"]), "notAfter": iso(info["notAfter"])}
+    return {"name": name, **out} if name is not None else out
+
+
+def split_certificates(pem):
+    return [block + "\n" for block in PEM_BLOCK_RE.findall(pem)]
+
+
+def storage_name(name):
+    """The folder Caddy keeps a name's certificate in."""
+    return name.replace("*", "wildcard_").lower()
+
+
+# ---- Caddy's journal (Epic 27 R12, from the spike) ----
+
+# Errors no retry can fix: the authority refused the account or the name, or the DNS provider
+# refused the credentials (Epic 27, spike section 3).
+DEFINITIVE_ERRORS = (
+    "urn:ietf:params:acme:error:unauthorized",
+    "urn:ietf:params:acme:error:externalaccountrequired",
+    "urn:ietf:params:acme:error:rejectedidentifier",
+    "urn:ietf:params:acme:error:accountdoesnotexist",
+    "http 401",
+    "http 403",
+    "invalid access token",
+    "authentication error",
+)
+
+
+def definitive_refusal(message):
+    text = message.lower()
+    return any(marker in text for marker in DEFINITIVE_ERRORS)
+
+
+def choose_renewal(events, site):
+    """The renewal result to show: the newest failure no later success for its name has cleared,
+    else the site's newest result, else the newest of any name."""
+    latest = {}
+    for event in events:
+        latest[event["name"]] = event
+    failing = [e for e in latest.values() if not e["ok"]]
+    if failing:
+        return max(failing, key=lambda e: e["at"])
+    if site in latest:
+        return latest[site]
+    return events[-1] if events else None
+
+
+def parse_caddy_events(text):
+    """Certificate obtain and renew results, oldest first, as {ok, at, message}.
+
+    Reads `journalctl -o json` lines: MESSAGE holds Caddy's own JSON line.
+    "will retry" is skipped (the "could not get" line before it names the
+    certificate), as are the internal authority and the "context canceled"
+    errors a reload leaves behind.
+    """
+    events = []
+    for line in (text or "").splitlines():
+        try:
+            record = json.loads(line)
+            entry = json.loads(record["MESSAGE"]) if isinstance(record, dict) and "MESSAGE" in record else record
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(entry, dict) or entry.get("logger") not in ("tls.obtain", "tls.renew"):
+            continue
+        if entry.get("issuer") == "local":
+            continue
+        msg = str(entry.get("msg", ""))
+        error = str(entry.get("error", ""))
+        if msg in ("certificate obtained successfully", "certificate renewed successfully"):
+            ok = True
+        elif msg == "could not get certificate from issuer" and "context canceled" not in error:
+            ok = False
+        else:
+            continue
+        try:
+            at = iso(datetime.datetime.fromtimestamp(float(entry.get("ts")), datetime.timezone.utc))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        name = str(entry.get("identifier", "")).lower()
+        message = f"{name}: {error or msg}".strip(": ")
+        events.append({"ok": ok, "at": at, "name": name if HOST_RE.fullmatch(name.replace("*.", "", 1)) else None,
+                       "message": message[:2000]})
+    return events
+
+
+# ---- Files ----
+
+class Host:
+    """Who owns what: root and the caddy account on a server, the current user in tests."""
+
+    def __init__(self):
+        self.root = os.geteuid() == 0
+        try:
+            self.caddy_gid = grp.getgrnam("caddy").gr_gid
+            self.caddy_uid = pwd.getpwnam("caddy").pw_uid
+        except KeyError:
+            self.caddy_gid = self.caddy_uid = -1
+        try:
+            # Only the API writes requests; in tests, the user running them.
+            self.api_uid = pwd.getpwnam("portikus").pw_uid if self.root else os.geteuid()
+        except KeyError:
+            self.api_uid = None
+
+    def own(self, fd, uid, gid):
+        if self.root:
+            os.fchown(fd, uid, gid)
+
+
+def write_at(dir_fd, name, data, mode, host, uid=0, gid=0):
+    """Write name inside dir_fd atomically (temporary file, then rename), never following a link."""
+    temp = f".{name}.tmp"
+    try:
+        os.unlink(temp, dir_fd=dir_fd)
+    except FileNotFoundError:
+        pass
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=dir_fd)
+    try:
+        host.own(fd, uid, gid)
+        os.fchmod(fd, mode)
+        os.write(fd, data if isinstance(data, bytes) else data.encode())
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.rename(temp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+
+
+def write_file(path, data, mode, host):
+    fd = os.open(os.path.dirname(path), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        write_at(fd, os.path.basename(path), data, mode, host)
+    finally:
+        os.close(fd)
+
+
+def read_bytes(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def read_json(path):
+    data = read_bytes(path)
+    try:
+        return json.loads(data) if data is not None else None
+    except ValueError:
+        return None
+
+
+def copy_entry(src, dst, uid=None, gid=None, dir_mode=None, file_mode=None):
+    """Copy a file or directory tree; keeps each mode and owner unless they are given."""
+    st = os.lstat(src)
+    if stat.S_ISDIR(st.st_mode):
+        os.mkdir(dst, 0o700)
+        for name in os.listdir(src):
+            copy_entry(os.path.join(src, name), os.path.join(dst, name), uid, gid, dir_mode, file_mode)
+        mode = dir_mode
+    elif stat.S_ISREG(st.st_mode):
+        shutil.copyfile(src, dst)
+        mode = file_mode
+    else:
+        return
+    os.chmod(dst, stat.S_IMODE(st.st_mode) if mode is None else mode)
+    if os.geteuid() == 0:
+        os.chown(dst, st.st_uid if uid is None else uid, st.st_gid if gid is None else gid)
+
+
+def remove(path):
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+    elif os.path.lexists(path):
+        os.unlink(path)
+
+
+def open_nofollow(path, flags=os.O_RDONLY, directory=False):
+    """Open an absolute path one component at a time, refusing a symbolic link anywhere on it.
+
+    Caddy's storage and the throwaway's folder belong to the caddy account,
+    which could swap any part for a link to a root-only file.
+    """
+    parts = [part for part in path.split("/") if part]
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for index, part in enumerate(parts):
+            last = index == len(parts) - 1
+            mode = flags if last and not directory else os.O_RDONLY | os.O_DIRECTORY
+            following = os.open(part, mode | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+            os.close(fd)
+            fd = following
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def read_at(dir_fd, name, limit=1024 * 1024):
+    """A regular file's bytes inside dir_fd, or None for anything else, a link included."""
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        data = os.read(fd, limit + 1)
+        return data if len(data) <= limit else None
+    finally:
+        os.close(fd)
+
+
+def read_nofollow(path, limit=1024 * 1024):
+    try:
+        fd = open_nofollow(os.path.dirname(path), directory=True)
+    except OSError:
+        return None
+    try:
+        return read_at(fd, os.path.basename(path), limit)
+    finally:
+        os.close(fd)
+
+
+def remove_at(dir_fd, name):
+    """Remove name inside dir_fd without following a link."""
+    try:
+        st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if stat.S_ISDIR(st.st_mode):
+        shutil.rmtree(name, dir_fd=dir_fd)
+    else:
+        os.unlink(name, dir_fd=dir_fd)
+
+
+def read_certificates(storage, names):
+    """{(ca folder, name folder): {file: bytes}} for names in a Caddy storage, never through a link."""
+    folders = {storage_name(n) for n in names}
+    out = {}
+    try:
+        top = open_nofollow(os.path.join(storage, "certificates"), directory=True)
+    except OSError:
+        return out
+    try:
+        with os.scandir(top) as cas:
+            ca_names = [e.name for e in cas if e.is_dir(follow_symlinks=False)]
+        for ca in ca_names:
+            try:
+                ca_fd = os.open(ca, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=top)
+            except OSError:
+                continue
+            try:
+                for folder in folders:
+                    try:
+                        name_fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=ca_fd)
+                    except OSError:
+                        continue
+                    try:
+                        with os.scandir(name_fd) as entries:
+                            files = [e.name for e in entries if e.is_file(follow_symlinks=False)]
+                        contents = {f: read_at(name_fd, f) for f in files}
+                        out[(ca, folder)] = {f: data for f, data in contents.items() if data is not None}
+                    finally:
+                        os.close(name_fd)
+            finally:
+                os.close(ca_fd)
+    finally:
+        os.close(top)
+    return out
+
+
+def copy_tree_at(src_fd, dst):
+    """Copy the directories and regular files under src_fd to the new path dst, skipping links."""
+    os.mkdir(dst, 0o700)
+    with os.scandir(src_fd) as entries:
+        listed = [(e.name, e.is_dir(follow_symlinks=False), e.is_file(follow_symlinks=False)) for e in entries]
+    for name, is_dir, is_file in listed:
+        if is_dir:
+            try:
+                fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=src_fd)
+            except OSError:
+                continue
+            try:
+                copy_tree_at(fd, os.path.join(dst, name))
+            finally:
+                os.close(fd)
+        elif is_file:
+            data = read_at(src_fd, name)
+            if data is not None:
+                with os.fdopen(os.open(os.path.join(dst, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600),
+                               "wb") as f:
+                    f.write(data)
+
+
+def read_api_env(path):
+    """(site host, port, preview suffix) from the API's settings, which setup writes."""
+    values = {}
+    for line in (read_bytes(path) or b"").decode("utf-8", "replace").splitlines():
+        if "=" in line and not line.startswith("#"):
+            key, _, value = line.partition("=")
+            values[key.strip()] = value.strip()
+    url = urllib.parse.urlsplit(values.get("PUBLIC_URL", ""))
+    site = (url.hostname or "").lower()
+    suffix = values.get("PREVIEW_SUFFIX", "").lower()
+    try:
+        port = url.port or 443
+    except ValueError:
+        port = None
+    if url.scheme != "https" or not HOST_RE.fullmatch(site) or not HOST_RE.fullmatch(suffix) \
+            or port is None:
+        raise JobFailed(f"{path} does not name the site and its preview suffix.")
+    return site, port, suffix
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+# ---- Caddy snippets (Epic 27 R5, R8) ----
+
+SNIPPET_HEADER = (
+    "# Written by the certificate job for the admin page's Certificate tab\n"
+    "# (docs/SPEC.md section 21.12). Do not edit; `portikus reset-certificate`\n"
+    "# puts Caddy's internal authority back.\n"
+)
+
+
+def secret_file(owner, field):
+    """The file in secrets/ that holds one secret."""
+    if owner == "eab":
+        return "eab_hmac_key"
+    if (owner, field) in PATH_SECRET_FIELDS:
+        return f"{owner}_{field}.json"
+    return f"{owner}_{field}"
+
+
+def tls_lines(settings, base, preview=False, alt_http_port=None):
+    """The `tls` directive for one site block, naming files under base (a generation's directory).
+
+    Secrets appear only as {file.path} placeholders, so they never reach
+    Caddy's autosave (Epic 27 R8 as amended after the spike).
+    """
+    files_dir, secrets_dir = f"{base}/files", f"{base}/secrets"
+    source = settings["source"]
+    if source == "internal":
+        return ["tls internal"]
+    if source == "files":
+        part = "preview" if preview and settings.get("preview") else "site"
+        return [f"tls {files_dir}/{part}.crt {files_dir}/{part}.key"]
+    # An explicit issuer: only this directory, never Caddy's default fallback to another.
+    lines = ["tls {", "\tissuer acme {", f"\t\tdir {settings['directory']}", f"\t\temail {settings['email']}"]
+    if settings.get("eab"):
+        lines.append(f"\t\teab {settings['eab']['keyId']} {{file.{secrets_dir}/{secret_file('eab', '')}}}")
+    challenge = settings["challenge"]
+    if challenge["mode"] == "dns01":
+        provider = challenge["dns"]["provider"]
+        fields = challenge["dns"]["fields"]
+        lines.append(f"\t\tdns {provider} {{")
+        for name in DNS_PROVIDER_FIELDS[provider]["plain"]:
+            lines.append(f"\t\t\t{name} {fields[name]}")
+        for name in DNS_PROVIDER_FIELDS[provider]["secret"]:
+            path = f"{secrets_dir}/{secret_file(provider, name)}"
+            directive = PATH_SECRET_FIELDS.get((provider, name))
+            lines.append(f"\t\t\t{directive} {path}" if directive else f"\t\t\t{name} {{file.{path}}}")
+        lines.append("\t\t}")
+        lines.append("\t}")
+    else:
+        # Port 80 only: the site's own port need not be 443.
+        lines.append("\t\tdisable_tlsalpn_challenge")
+        if alt_http_port:
+            lines.append(f"\t\talt_http_port {alt_http_port}")
+        lines.append("\t}")
+        if preview:
+            lines.append("\ton_demand")
+    lines.append("}")
+    return lines
+
+
+def snippets(settings, base, alt_http_port=None):
+    """tls.caddy for settings: the snippets portikus_tls_global, portikus_tls_site and portikus_tls_preview.
+
+    The Caddyfile imports tls.caddy first, the global snippet in its global
+    options with the on-demand ask URL as its argument, and the other two in
+    the site and preview blocks. Only HTTP-01 puts anything in the global one:
+    Caddy asks the API before each preview name, so no stranger's name gets a
+    certificate.
+    """
+    http01 = settings["source"] == "acme" and settings["challenge"]["mode"] == "http01"
+    text = SNIPPET_HEADER + "\n(portikus_tls_global) {\n"
+    if http01:
+        text += "\ton_demand_tls {\n\t\task {args[0]}\n\t}\n"
+    text += "}\n\n(portikus_tls_site) {\n"
+    text += "".join(f"\t{line}\n" for line in tls_lines(settings, base, alt_http_port=alt_http_port))
+    text += "}\n\n(portikus_tls_preview) {\n"
+    text += "".join(f"\t{line}\n" for line in tls_lines(settings, base, preview=True))
+    return text + "}\n"
+
+
+# ---- A job's directory, status and log ----
+
+class Job:
+    def __init__(self, jobs_fd, job_id, gid, host, clock=time.time):
+        os.mkdir(job_id, 0o750, dir_fd=jobs_fd)
+        self.fd_dir = os.open(job_id, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=jobs_fd)
+        self.gid = gid
+        self.host = host
+        self.clock = clock
+        host.own(self.fd_dir, 0, gid)
+        os.fchmod(self.fd_dir, 0o750)
+        self.fd = os.open("log.txt", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_APPEND,
+                          0o640, dir_fd=self.fd_dir)
+        host.own(self.fd, 0, gid)
+        os.fchmod(self.fd, 0o640)
+        self.id = job_id
+        self.kind = None
+        self.secrets = []
+        self.started = now_iso(clock)
+
+    def write(self, text):
+        os.write(self.fd, scrub(text, self.secrets).encode("utf-8", "replace"))
+
+    def line(self, text):
+        self.write(f"{now_iso(self.clock)} {text}\n")
+
+    def save_record(self, record):
+        write_at(self.fd_dir, "request.json", json.dumps(record, indent=2) + "\n", 0o640, self.host, 0, self.gid)
+
+    def status(self, state, step, message=None, restored=False):
+        finished = None if state == "running" else now_iso(self.clock)
+        message = scrub(message, self.secrets)[:2000] if message else None
+        write_at(self.fd_dir, "status.json", json.dumps({
+            "id": self.id,
+            "kind": self.kind,
+            "state": state,
+            "step": step[:200],
+            "message": message,
+            "restored": restored,
+            "startedAt": self.started,
+            "finishedAt": finished,
+        }, indent=2) + "\n", 0o640, self.host, 0, self.gid)
+        if state == "running":
+            self.line(step)
+
+    def close(self):
+        os.close(self.fd)
+        os.close(self.fd_dir)
+
+
+# ---- The jobs ----
+
+class Runner:
+    def __init__(self, root="", run_=run, sleep=time.sleep, clock=time.time, caddy="caddy",
+                 test_env=None, test_http_port=None, timeouts=None):
+        self.jobs_dir = root + JOBS_DIR
+        self.state_dir = root + STATE_DIR
+        self.status_dir = root + STATUS_DIR
+        self.api_env = root + API_ENV
+        self.caddyfile = root + CADDYFILE
+        self.caddy_data = root + CADDY_DATA
+        self.caddy_root = root + CADDY_ROOT
+        self.trust_bundle = root + TRUST_BUNDLE
+        self.system_cas = root + SYSTEM_CAS
+        self.lock_path = os.path.join(self.status_dir, ".lock")
+        self.run = run_
+        self.sleep = sleep
+        self.clock = clock
+        self.caddy = caddy
+        # Only the Pebble test sets these: its CA bundle and Pebble's HTTP-01 port.
+        self.test_env = test_env or {}
+        self.test_http_port = test_http_port
+        self.timeouts = {"issue": ISSUE_TIMEOUT, "serve": SERVE_TIMEOUT,
+                         **(timeouts or {})}
+        self.host = Host()
+
+    def state(self, name):
+        return os.path.join(self.state_dir, name)
+
+    # -- what is in force --
+
+    def current_settings(self):
+        view = read_json(self.state("settings.json"))
+        return view if isinstance(view, dict) and view.get("source") in ("internal", "acme", "files") else None
+
+    def stored_secrets(self, settings):
+        """Stored secrets new settings may keep: only for the same DNS provider, and the same EAB key ID."""
+        current = self.current_settings()
+        kept = {}
+        if not current or current["source"] != "acme" or settings["source"] != "acme":
+            return kept
+        cur_challenge = current.get("challenge") or {}
+        challenge = settings["challenge"]
+        if challenge["mode"] == "dns01" and cur_challenge.get("mode") == "dns01" \
+                and cur_challenge.get("provider") == challenge["dns"]["provider"]:
+            provider = challenge["dns"]["provider"]
+            for name in DNS_PROVIDER_FIELDS[provider]["secret"]:
+                data = read_bytes(self.state(f"secrets/{secret_file(provider, name)}"))
+                if data:
+                    kept[(provider, name)] = data.decode("utf-8", "replace")
+        eab = current.get("eab")
+        if settings.get("eab") and eab and eab.get("keyId") == settings["eab"]["keyId"]:
+            data = read_bytes(self.state(f"secrets/{secret_file('eab', '')}"))
+            if data:
+                kept[("eab", "hmacKey")] = data.decode("utf-8", "replace")
+        return kept
+
+    def resolve_secrets(self, settings):
+        """{(owner, field): value} for every secret the settings need: given now, or kept (Epic 27 R8)."""
+        if settings["source"] != "acme":
+            return {}
+        kept = self.stored_secrets(settings)
+        secrets = {}
+        if settings["challenge"]["mode"] == "dns01":
+            provider = settings["challenge"]["dns"]["provider"]
+            for name in DNS_PROVIDER_FIELDS[provider]["secret"]:
+                value = settings["challenge"]["dns"]["fields"].get(name, kept.get((provider, name)))
+                if value is None:
+                    raise Refused(f"the {provider} secret {name} is not set")
+                secrets[(provider, name)] = value
+        if settings.get("eab"):
+            value = settings["eab"].get("hmacKey", kept.get(("eab", "hmacKey")))
+            if value is None:
+                raise Refused("the EAB HMAC key is not set")
+            secrets[("eab", "hmacKey")] = value
+        return secrets
+
+    def view(self, settings, secrets, uploads=None):
+        """The settings as settings.json and the job record hold them: never a secret, only whether one is set."""
+        source = settings["source"]
+        if source == "internal":
+            return {"source": "internal"}
+        if source == "files":
+            def part(name):
+                return {"certificate": view_info(uploads[name]["info"]), "privateKeySet": True}
+            return {"source": "files", "site": part("site"),
+                    "preview": part("preview") if "preview" in uploads else None}
+        challenge = settings["challenge"]
+        if challenge["mode"] == "dns01":
+            provider = challenge["dns"]["provider"]
+            challenge_view = {
+                "mode": "dns01",
+                "provider": provider,
+                "fields": {n: challenge["dns"]["fields"][n] for n in DNS_PROVIDER_FIELDS[provider]["plain"]},
+                "secretsSet": {n: (provider, n) in secrets for n in DNS_PROVIDER_FIELDS[provider]["secret"]},
+            }
+        else:
+            challenge_view = {"mode": "http01"}
+        eab = settings.get("eab")
+        return {
+            "source": "acme",
+            "directory": settings["directory"],
+            "email": settings["email"],
+            "eab": {"keyId": eab["keyId"], "hmacKeySet": ("eab", "hmacKey") in secrets} if eab else None,
+            "challenge": challenge_view,
+        }
+
+    def all_secrets(self):
+        """Every stored secret, current and previous, so nothing the job shows can carry one."""
+        words = []
+        for pattern in ("secrets/*", "files/*.key", "previous/secrets/*", "previous/files/*.key"):
+            for path in glob.glob(self.state(pattern)):
+                data = read_bytes(path)
+                if data:
+                    words += secret_words(data.decode("utf-8", "replace"))
+        return words
+
+    # -- upload checks (Epic 27 R9): each failure names its check --
+
+    def check_uploads(self, settings, site, suffix, job=None):
+        """{part: {info, pem, key}} for an upload, or Refused naming the check that failed."""
+        current = self.current_settings()
+        out = {}
+        work = tempfile.mkdtemp(prefix=".upload-", dir=self.state_dir)
+        try:
+            for part in ("site", "preview"):
+                if part not in settings:
+                    continue
+                key = settings[part].get("privateKey")
+                if key is None and current and current["source"] == "files" \
+                        and (part == "site" or current.get("preview")):
+                    key = (read_bytes(self.state(f"files/{part}.key")) or b"").decode() or None
+                if key is None:
+                    raise Refused(f"check 'key-readable' failed: no {part} private key is set")
+                out[part] = self.check_one_upload(work, part, settings[part]["certificate"], key, job)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        if not covers(out["site"]["info"]["names"], site):
+            raise Refused(f"check 'names-cover' failed: the site certificate does not name {site}")
+        wildcard = f"*.{suffix}"
+        which = "preview" if "preview" in out else "site"
+        if wildcard not in out[which]["info"]["names"]:
+            raise Refused(f"check 'names-cover' failed: the {which} certificate does not name {wildcard}; "
+                          "upload a preview wildcard that does")
+        return out
+
+    def check_one_upload(self, work, part, pem, key, job):
+        blocks = split_certificates(pem)
+        info = certificate_info(self.run, blocks[0]) if blocks else None
+        if info is None:
+            raise Refused(f"check 'certificate-readable' failed: the {part} certificate cannot be read")
+        key_path = os.path.join(work, f"{part}.key")
+        with os.fdopen(os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as f:
+            f.write(key)
+        # -passin keeps openssl from waiting for the passphrase of an encrypted key.
+        code, key_pub = self.run(["openssl", "pkey", "-in", key_path, "-pubout", "-passin", "pass:"],
+                                 capture=True, timeout=30)
+        if code != 0:
+            raise Refused(f"check 'key-readable' failed: the {part} private key cannot be read "
+                          "(it must be an unencrypted PEM key)")
+        now = datetime.datetime.fromtimestamp(self.clock(), datetime.timezone.utc)
+        if not info["notBefore"] <= now < info["notAfter"]:
+            raise Refused(f"check 'dates-valid' failed: the {part} certificate is valid only from "
+                          f"{iso(info['notBefore'])} to {iso(info['notAfter'])}")
+        code, cert_pub = self.run(["openssl", "x509", "-noout", "-pubkey"], capture=True, timeout=30,
+                                  input=blocks[0])
+        if code != 0 or cert_pub.strip() != key_pub.strip():
+            raise Refused(f"check 'key-matches' failed: the {part} private key does not belong to its certificate")
+        # Complete to a root in the system store or to a self-signed root included in the upload,
+        # which may be the certificate itself.
+        included_roots = [b for b in blocks if self.self_signed(b)]
+        intermediates = [b for b in blocks[1:] if b not in included_roots]
+        roots = os.path.join(work, f"{part}-roots.pem")
+        chain = os.path.join(work, f"{part}-chain.pem")
+        leaf = os.path.join(work, f"{part}-leaf.pem")
+        with open(roots, "w", encoding="utf-8") as f:
+            f.write((read_bytes(self.system_cas) or b"").decode("utf-8", "replace") + "\n" + "".join(included_roots))
+        with open(chain, "w", encoding="utf-8") as f:
+            f.write("".join(intermediates))
+        with open(leaf, "w", encoding="utf-8") as f:
+            f.write(blocks[0])
+        argv = ["openssl", "verify", "-CAfile", roots, "-no-CApath", "-purpose", "sslserver",
+                "-attime", str(int(self.clock()))]
+        if intermediates:
+            argv += ["-untrusted", chain]
+        code, _ = self.run([*argv, leaf], capture=True, timeout=30, log=job)
+        if code != 0:
+            raise Refused(f"check 'chain-complete' failed: the {part} certificate does not chain to a trusted root; "
+                          "add the intermediate certificates after it")
+        return {"info": info, "pem": "".join(blocks), "key": key}
+
+    def self_signed(self, block):
+        code, out = self.run(["openssl", "x509", "-noout", "-subject", "-issuer", "-nameopt", "RFC2253"],
+                             capture=True, timeout=30, input=block)
+        fields = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+        return code == 0 and fields.get("subject") == fields.get("issuer")
+
+    # -- generations: settings.json, the two snippets, files/ and secrets/ --
+
+    def build_generation(self, path, settings, secrets, uploads, view, base=None):
+        """Write a complete generation into the new directory path; its snippets name files under base,
+        the state directory unless given."""
+        host, uid, gid = self.host, 0, self.host.caddy_gid
+        os.mkdir(path, 0o750)
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            host.own(fd, uid, gid)
+            write_at(fd, "settings.json", json.dumps(view, indent=2) + "\n", 0o640, host, uid, gid)
+            write_at(fd, "tls.caddy", snippets(settings, base or self.state_dir), 0o640, host, uid, gid)
+            # root:caddy 0640 in root:caddy 0750: Caddy reads them, the API cannot (Epic 27 R8).
+            contents = {
+                "files": {name: data for part, upload in (uploads or {}).items()
+                          for name, data in ((f"{part}.crt", upload["pem"]), (f"{part}.key", upload["key"]))},
+                "secrets": {secret_file(owner, name): value for (owner, name), value in secrets.items()},
+            }
+            for sub, entries in contents.items():
+                os.mkdir(sub, 0o750, dir_fd=fd)
+                sub_fd = os.open(sub, os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)
+                try:
+                    host.own(sub_fd, uid, gid)
+                    os.fchmod(sub_fd, 0o750)
+                    for name, data in entries.items():
+                        write_at(sub_fd, name, data, 0o640, host, uid, gid)
+                finally:
+                    os.close(sub_fd)
+        finally:
+            os.close(fd)
+
+    def snapshot(self, dest):
+        """Copy the generation in force to dest."""
+        remove(dest)
+        os.mkdir(dest, 0o750)
+        for name in GENERATION:
+            if os.path.lexists(self.state(name)):
+                copy_entry(self.state(name), os.path.join(dest, name))
+
+    def install(self, src):
+        """Put the generation in src in force, one rename per entry; src is left as it was."""
+        for name in GENERATION:
+            target = self.state(name)
+            temp = self.state(f".{name}.new")
+            remove(temp)
+            if not os.path.lexists(os.path.join(src, name)):
+                remove(target)
+                continue
+            copy_entry(os.path.join(src, name), temp)
+            if os.path.isdir(temp):
+                old = self.state(f".{name}.old")
+                remove(old)
+                if os.path.lexists(target):
+                    os.rename(target, old)
+                os.rename(temp, target)
+                remove(old)
+            else:
+                os.rename(temp, target)
+
+    # -- the live Caddy --
+
+    def reload_caddy(self, job):
+        """Validate as the caddy user, which also proves it can read every file, then reload.
+
+        The packaged unit's reload is `caddy reload --force`, so changed
+        certificate and secret files are read again even when the
+        configuration text is the same (spike, section 8).
+        """
+        code, _ = self.run(["runuser", "-u", "caddy", "--", self.caddy, "validate", "--config", self.caddyfile,
+                            "--adapter", "caddyfile"], log=job, timeout=120)
+        if code != 0:
+            raise JobFailed("Caddy refused the new configuration; the log says why.")
+        code, _ = self.run(["systemctl", "reload", "caddy"], log=job, timeout=180)
+        if code != 0:
+            raise JobFailed("Caddy did not take the new configuration; the log says why.")
+
+    def served(self, port, name):
+        """The certificate Caddy serves for name, from a handshake on this host's loopback, or None."""
+        _, out = self.run(["openssl", "s_client", "-connect", f"127.0.0.1:{port}", "-servername", name,
+                           "-showcerts"], capture=True, timeout=20, input="")
+        blocks = split_certificates(out or "")
+        return certificate_info(self.run, blocks[0]) if blocks else None
+
+    def serves(self, info, view, part, name, not_fingerprint=None):
+        """True when info is the certificate view should give name."""
+        if info is None:
+            return False
+        now = datetime.datetime.fromtimestamp(self.clock(), datetime.timezone.utc)
+        if not info["notBefore"] <= now < info["notAfter"] or not covers(info["names"], name):
+            return False
+        if not_fingerprint and info["fingerprint"] == not_fingerprint:
+            return False
+        if view["source"] == "internal":
+            return INTERNAL_ISSUER in info["issuer"]
+        if view["source"] == "files":
+            pem = read_bytes(self.state(f"files/{part if view.get(part) else 'site'}.crt"))
+            expected = certificate_info(self.run, pem.decode()) if pem else None
+            return expected is not None and info["fingerprint"] == expected["fingerprint"]
+        return INTERNAL_ISSUER not in info["issuer"]
+
+    def wait_served(self, job, view, timeout, not_fingerprints=None):
+        """Wait until the live Caddy serves view's certificates on loopback, else JobFailed."""
+        site, port, suffix = read_api_env(self.api_env)
+        sample = f"{SAMPLE_PREVIEW_LABEL}.{suffix}"
+        # Under HTTP-01 a handshake for the sample name would issue it a certificate.
+        http01 = view["source"] == "acme" and view["challenge"]["mode"] == "http01"
+        not_fingerprints = not_fingerprints or {}
+        started = self.clock()
+        while True:
+            site_ok = self.serves(self.served(port, site), view, "site", site, not_fingerprints.get("site"))
+            preview_ok = http01 or self.serves(self.served(port, sample), view, "preview", sample,
+                                               not_fingerprints.get("preview"))
+            if site_ok and preview_ok:
+                return
+            if self.clock() - started >= timeout:
+                break
+            self.sleep(POLL_SECONDS)
+        which = "the site" if not site_ok else "previews"
+        said = self.caddy_errors(started)
+        raise JobFailed(f"Caddy did not serve the new certificate for {which}."
+                        + (f" Caddy said: {said}" if said else ""))
+
+    def caddy_journal(self, since):
+        code, out = self.run(["journalctl", "-u", "caddy", "--since", f"@{int(since)}", "-o", "json",
+                              "--no-pager", "-q"], capture=True, timeout=60)
+        return parse_caddy_events(out) if code == 0 else []
+
+    def caddy_errors(self, since):
+        errors = [e["message"] for e in self.caddy_journal(since) if not e["ok"]]
+        return " | ".join(errors[-3:])[:1500]
+
+    def put_in_force(self, job, new_dir, not_fingerprints=None, timeout=None):
+        """Make new_dir the generation in force; if Caddy does not serve it, put the one before back."""
+        before = self.state(".before")
+        self.snapshot(before)
+        self.install(new_dir)
+        view = self.current_settings()
+        try:
+            job.status("running", "Reloading Caddy")
+            self.reload_caddy(job)
+            job.status("running", "Checking the certificate Caddy serves")
+            self.wait_served(job, view, timeout or self.timeouts["serve"], not_fingerprints)
+        except Exception as err:  # noqa: BLE001  any failure puts the generation before back
+            said = str(err) if isinstance(err, JobFailed) else "The job stopped on an unexpected error."
+            job.line(f"Failed: {said}")
+            job.status("running", "Putting the previous certificate back")
+            restored = self.restore(job, before)
+            raise JobFailed(said + (" The previous certificate is back in use." if restored else
+                                    " The previous settings are back, but Caddy did not reload; "
+                                    "see: journalctl -u caddy"), restored=restored)
+        previous = self.state("previous")
+        remove(previous)
+        os.rename(before, previous)
+        self.sync_trust(job)
+
+    def restore(self, job, before):
+        """Put the generation in before back in force. True when Caddy reloaded or restarted with it."""
+        self.install(before)
+        remove(before)
+        code, _ = self.run(["systemctl", "reload", "caddy"], log=job, timeout=180)
+        if code != 0:
+            code, _ = self.run(["systemctl", "restart", "caddy"], log=job, timeout=180)
+        self.sync_trust(job)
+        return code == 0
+
+    # -- the throwaway Caddy (Epic 27 R11 as amended after the spike) --
+
+    def issue_with_throwaway_caddy(self, job, settings, names, base, seed=True):
+        """Obtain certificates for names with a second Caddy and its own storage, reading the secrets
+        of the generation in base. Returns {(ca folder, name folder): {file: bytes}}; on failure
+        raises JobFailed. Nothing live changes.
+
+        With seed, the storage starts with a copy of the live ACME accounts,
+        so a production issuance uses the site's own account. The throwaway
+        listens on loopback only; Caddy never gives up by itself, so it is
+        stopped at a deadline.
+        """
+        work = tempfile.mkdtemp(prefix=".throwaway-", dir=self.state_dir)
+        try:
+            return self.run_throwaway(job, settings, names, base, seed, work)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def run_throwaway(self, job, settings, names, base, seed, work):
+        storage = os.path.join(work, "storage")
+        os.mkdir(storage, 0o700)
+        if seed:
+            try:
+                acme_fd = open_nofollow(os.path.join(self.caddy_data, "acme"), directory=True)
+            except OSError:
+                acme_fd = None
+            if acme_fd is not None:
+                try:
+                    copy_tree_at(acme_fd, os.path.join(storage, "acme"))
+                finally:
+                    os.close(acme_fd)
+        http01 = settings["challenge"]["mode"] == "http01"
+        # No server of the throwaway's own listens on the challenge port: Caddy's solver binds it
+        # itself, before it tells the authority the challenge is ready, so validation cannot arrive
+        # before the listener does.
+        challenge_port = self.test_http_port or CHALLENGE_PORT
+        http_port = free_port()
+        tls = snippets(settings, base, alt_http_port=challenge_port if http01 else None)
+        config = (
+            "{\n\tadmin off\n\tpersist_config off\n\tskip_install_trust\n"
+            f"\tstorage file_system {{\n\t\troot {storage}\n\t}}\n"
+            f"\thttp_port {http_port}\n\thttps_port {free_port()}\n"
+            "\tauto_https disable_redirects\n\tdefault_bind 127.0.0.1\n}\n\n"
+            + tls.replace(SNIPPET_HEADER, "")
+            + f"\n{', '.join(f'https://{n}' for n in names)} {{\n"
+            "\timport portikus_tls_site\n\trespond \"portikus certificate test\"\n}\n"
+        )
+        with open(os.path.join(work, "Caddyfile"), "w", encoding="utf-8") as f:
+            f.write(config)
+        user = {}
+        if self.host.root and self.host.caddy_uid < 0:
+            raise JobFailed("There is no caddy account to run the test Caddy as.")
+        if self.host.root:
+            # The caddy account, not root, talks to the ACME service. Nothing runs as caddy yet.
+            for dirpath, dirnames, filenames in os.walk(work):
+                for path in [dirpath, *(os.path.join(dirpath, n) for n in filenames)]:
+                    os.chown(path, self.host.caddy_uid, self.host.caddy_gid, follow_symlinks=False)
+            user = {"user": "caddy", "group": "caddy"}
+        env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": work, "XDG_DATA_HOME": work,
+               "XDG_CONFIG_HOME": work, **self.test_env}
+        # Caddy writes a certificate's .json last, so its presence means the files are complete.
+        wanted = [os.path.join(storage, "certificates", "*", storage_name(n), storage_name(n) + ".json")
+                  for n in names]
+        started = self.clock()
+        # Root keeps this descriptor, so the log is read from it even if the folder changes under it.
+        with tempfile.TemporaryFile(dir=self.state_dir) as caddy_log:
+            proc = subprocess.Popen(
+                [self.caddy, "run", "--config", os.path.join(work, "Caddyfile"), "--adapter", "caddyfile"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=caddy_log, env=env, cwd=work, **user)
+            try:
+                while not all(glob.glob(pattern) for pattern in wanted):
+                    if proc.poll() is not None or self.clock() - started > self.timeouts["issue"]:
+                        break
+                    # Caddy retries a refusal forever; a definitive one ends the wait at once.
+                    so_far = os.pread(caddy_log.fileno(), 4 * 1024 * 1024, 0).decode("utf-8", "replace")
+                    if any(definitive_refusal(e["message"]) for e in parse_caddy_events(so_far) if not e["ok"]):
+                        break
+                    self.sleep(POLL_SECONDS)
+            finally:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+            # Take the folder back before reading anything in it.
+            work_fd = os.open(work, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                if self.host.root:
+                    os.fchown(work_fd, 0, 0)
+                os.fchmod(work_fd, 0o700)
+            finally:
+                os.close(work_fd)
+            caddy_log.seek(0)
+            log = caddy_log.read()[-200000:].decode("utf-8", "replace")
+        job.write(log[-20000:])
+        certificates = read_certificates(storage, names)
+        found = {folder for (_, folder), files in certificates.items()
+                 if f"{folder}.crt" in files and f"{folder}.json" in files}
+        if not {storage_name(n) for n in names} <= found:
+            errors = [e["message"] for e in parse_caddy_events(log) if not e["ok"]]
+            said = " | ".join(errors[-3:])[:1500] or "nothing; the log has its output"
+            raise JobFailed(f"No certificate was obtained, and the live site is unchanged. Caddy said: {said}")
+        return certificates
+
+    def verify_chain(self, certificates, kind):
+        """Refuse certificates the system authorities do not trust: the API calls itself (and Dex)
+        through Caddy, so an untrusted chain such as Let's Encrypt staging would break it."""
+        work = tempfile.mkdtemp(prefix=".verify-", dir=self.state_dir)
+        try:
+            for (_, folder), files in certificates.items():
+                blocks = split_certificates(files.get(f"{folder}.crt", b"").decode("utf-8", "replace"))
+                leaf, chain = os.path.join(work, "leaf.pem"), os.path.join(work, "chain.pem")
+                with open(leaf, "w", encoding="utf-8") as f:
+                    f.write(blocks[0] if blocks else "")
+                with open(chain, "w", encoding="utf-8") as f:
+                    f.write("".join(blocks[1:]))
+                argv = ["openssl", "verify", "-CAfile", self.system_cas, "-no-CApath", "-purpose", "sslserver"]
+                if len(blocks) > 1:
+                    argv += ["-untrusted", chain]
+                if not blocks or self.run([*argv, leaf], capture=True, timeout=30)[0] != 0:
+                    raise Refused("this authority's certificates are not trusted by this server; "
+                                  "use Test only for staging", kind)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def write_live_certificates(self, certificates):
+        """Put certificates into the live storage as Caddy keeps its own, never through a link:
+        each name's folder is written beside the old one and renamed over it."""
+        uid, gid = self.host.caddy_uid, self.host.caddy_gid
+
+        def subdir(parent_fd, name):
+            try:
+                os.mkdir(name, 0o700, dir_fd=parent_fd)
+                created = True
+            except FileExistsError:
+                created = False
+            fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+            if created:
+                self.host.own(fd, uid, gid)
+            return fd
+
+        data_fd = open_nofollow(self.caddy_data, directory=True)
+        try:
+            top = subdir(data_fd, "certificates")
+            try:
+                for (ca, folder), files in certificates.items():
+                    ca_fd = subdir(top, ca)
+                    try:
+                        temp = folder + ".portikus-new"
+                        remove_at(ca_fd, temp)
+                        new_fd = subdir(ca_fd, temp)
+                        try:
+                            self.host.own(new_fd, uid, gid)
+                            for name, data in files.items():
+                                write_at(new_fd, name, data, 0o600, self.host, uid, gid)
+                        finally:
+                            os.close(new_fd)
+                        remove_at(ca_fd, folder)
+                        os.rename(temp, folder, src_dir_fd=ca_fd, dst_dir_fd=ca_fd)
+                    finally:
+                        os.close(ca_fd)
+            finally:
+                os.close(top)
+        finally:
+            os.close(data_fd)
+
+    def sync_trust(self, job=None, restart=True):
+        """System authorities, Caddy's internal root and any uploaded certificates, for the API.
+
+        Returns True when the bundle changed. With restart, a running API is
+        restarted then; setup passes restart=False and restarts it itself.
+        """
+        parts = [read_bytes(self.system_cas) or b""]
+        root = read_nofollow(self.caddy_root)
+        if root:
+            parts.append(root)
+            if read_bytes(os.path.join(self.status_dir, "root.crt")) != root:
+                write_file(os.path.join(self.status_dir, "root.crt"), root, 0o644, self.host)
+        for path in sorted(glob.glob(self.state("files/*.crt"))):
+            parts.append(read_bytes(path) or b"")
+        # The same bytes in the same order as setup writes (system, Caddy's root, uploads by name).
+        bundle = b"\n".join(p.strip() for p in parts) + b"\n"
+        if read_bytes(self.trust_bundle) == bundle:
+            return False
+        write_file(self.trust_bundle, bundle, 0o644, self.host)
+        if restart:
+            # NODE_EXTRA_CA_CERTS is read only when the API starts.
+            self.run(["systemctl", "try-restart", "portikus-api.service"], log=job, timeout=180)
+        return True
+
+    # -- status.json (Epic 27 R12) --
+
+    def write_status(self):
+        site, port, suffix = read_api_env(self.api_env)
+        current = self.current_settings() or {"source": "internal"}
+        http01 = current["source"] == "acme" and (current.get("challenge") or {}).get("mode") == "http01"
+        sample = f"{SAMPLE_PREVIEW_LABEL}.{suffix}"
+        site_info = self.served(port, site)
+        # Under HTTP-01 a handshake for the sample name would issue it a certificate.
+        preview_info = None if http01 else self.served(port, sample)
+        try:
+            since = os.stat(self.state("settings.json")).st_mtime
+        except OSError:
+            since = 0
+        renewed = read_json(os.path.join(self.status_dir, RENEWED))
+        renewed_at = None
+        if isinstance(renewed, dict) and isinstance(renewed.get("at"), str) and DATETIME_RE.fullmatch(renewed["at"]):
+            renewed_at = datetime.datetime.fromisoformat(renewed["at"].replace("Z", "+00:00")).timestamp()
+            if renewed_at < since:
+                renewed_at = None
+        events = self.caddy_journal(max(since, renewed_at or 0))
+        if renewed_at is not None:
+            events.insert(0, {"ok": True, "at": iso(datetime.datetime.fromtimestamp(renewed_at, datetime.timezone.utc)),
+                              "name": site, "message": ""})
+        last = choose_renewal(events, site)
+        status = {
+            "checkedAt": now_iso(self.clock),
+            "source": current["source"],
+            # The API cannot read the state directory, so it learns both here.
+            "settings": current,
+            "previousAvailable": os.path.isfile(self.state("previous/settings.json")),
+            "site": view_info(site_info, site) if site_info else None,
+            "preview": view_info(preview_info, sample) if preview_info else None,
+            "lastRenewal": {
+                "ok": last["ok"], "at": last["at"],
+                **({"name": last["name"]} if last["name"] else {}),
+                "message": None if last["ok"] else scrub(last["message"], self.all_secrets())[:2000],
+            } if last else None,
+        }
+        write_file(os.path.join(self.status_dir, "status.json"), json.dumps(status, indent=2) + "\n",
+                   0o644, self.host)
+
+    # -- kinds --
+
+    def take_settings(self, job, settings):
+        """Resolve secrets and check uploads; record the request without secrets."""
+        site, _, suffix = read_api_env(self.api_env)
+        secrets = self.resolve_secrets(settings)
+        for value in secrets.values():
+            job.secrets += secret_words(value)
+        uploads = None
+        if settings["source"] == "files":
+            job.status("running", "Checking the uploaded files")
+            for part in ("site", "preview"):
+                if settings.get(part, {}).get("privateKey"):
+                    job.secrets += secret_words(settings[part]["privateKey"])
+            uploads = self.check_uploads(settings, site, suffix, job)
+        return secrets, uploads, self.view(settings, secrets, uploads)
+
+    def acme_names(self, settings):
+        site, _, suffix = read_api_env(self.api_env)
+        return [site] if settings["challenge"]["mode"] == "http01" else [site, f"*.{suffix}"]
+
+    def test(self, job, request):
+        settings = request["settings"]
+        secrets, _, view = self.take_settings(job, settings)
+        job.save_record({"kind": "test", "settings": view})
+        new = self.state(".new")
+        remove(new)
+        try:
+            self.build_generation(new, settings, secrets, None, view, base=new)
+            return self.test_issuance(job, settings, new)
+        finally:
+            remove(new)
+
+    def test_issuance(self, job, settings, base):
+        """The test step: Let's Encrypt staging for Let's Encrypt, else the chosen directory (R11)."""
+        staging = settings["directory"] in (LE_PRODUCTION, LE_STAGING)
+        job.status("running", "Testing with Let's Encrypt's staging service" if staging
+                   else "Testing with the chosen directory")
+        # An empty storage: a test never uses or changes the live ACME account.
+        directory = LE_STAGING if staging else settings["directory"]
+        self.issue_with_throwaway_caddy(job, dict(settings, directory=directory), self.acme_names(settings),
+                                        base, seed=False)
+        if staging:
+            return "The staging test obtained a certificate; the live site is unchanged."
+        return ("The test obtained a real certificate from this directory and threw it away; "
+                "the live site is unchanged.")
+
+    def apply(self, job, request):
+        settings = request["settings"]
+        secrets, uploads, view = self.take_settings(job, settings)
+        job.save_record({"kind": "apply", "settings": view})
+        new = self.state(".new")
+        remove(new)
+        try:
+            if settings["source"] == "acme":
+                # Until it is installed, the snippet names the new generation's own secrets.
+                self.build_generation(new, settings, secrets, uploads, view, base=new)
+                names = self.acme_names(settings)
+                if settings["directory"] == LE_PRODUCTION:
+                    self.test_issuance(job, settings, new)
+                job.status("running", "Obtaining the certificates away from the live site")
+                certificates = self.issue_with_throwaway_caddy(job, settings, names, new)
+                self.verify_chain(certificates, "apply")
+                job.status("running", "Copying the certificates into Caddy's storage")
+                self.write_live_certificates(certificates)
+                remove(new)
+            self.build_generation(new, settings, secrets, uploads, view)
+            self.put_in_force(job, new)
+        finally:
+            remove(new)
+
+    def rollback(self, job, request):
+        job.save_record({"kind": "rollback", "settings": None})
+        previous = self.state("previous")
+        if not os.path.isfile(os.path.join(previous, "settings.json")):
+            raise Refused("there is no previous certificate to roll back to", "rollback")
+        job.secrets = self.all_secrets()
+        job.status("running", "Rolling back")
+        swap = self.state(".rollback")
+        remove(swap)
+        os.rename(previous, swap)
+        try:
+            self.put_in_force(job, swap)
+        except JobFailed:
+            os.rename(swap, previous)
+            raise
+        finally:
+            remove(swap)
+
+    def renew(self, job, request):
+        """Renew now (Epic 27 R7 as amended after the spike), for an ACME certificate only.
+
+        A live certificate is never deleted first: the throwaway Caddy gets
+        the new one, the job copies it into the live storage, and a reload to
+        the internal authority and back makes Caddy read it. An internal
+        certificate lives 12 hours and renews itself.
+        """
+        job.save_record({"kind": "renew", "settings": None})
+        current = self.current_settings()
+        if not current or current["source"] == "files":
+            raise Refused("an uploaded certificate cannot be renewed here; upload a new one", "renew")
+        if current["source"] == "internal":
+            raise Refused("Caddy's own certificates last 12 hours and renew themselves", "renew")
+        job.secrets = self.all_secrets()
+        site, port, suffix = read_api_env(self.api_env)
+        settings = self.settings_from_view(current)
+        names = self.acme_names(settings)
+        old = {"site": (self.served(port, site) or {}).get("fingerprint")}
+        # Under HTTP-01 a handshake for the sample name would issue it a certificate.
+        if settings["challenge"]["mode"] != "http01":
+            old["preview"] = (self.served(port, f"{SAMPLE_PREVIEW_LABEL}.{suffix}") or {}).get("fingerprint")
+        job.status("running", "Obtaining new certificates away from the live site")
+        certificates = self.issue_with_throwaway_caddy(job, settings, names, self.state_dir)
+        self.verify_chain(certificates, "renew")
+        previous_certificates = read_certificates(self.caddy_data, names)
+        # recover() puts the snippet back from here if the job stops between the two reloads.
+        before = self.state(".before")
+        self.snapshot(before)
+        try:
+            job.status("running", "Copying the certificates into Caddy's storage")
+            self.write_live_certificates(certificates)
+            job.status("running", "Reloading Caddy to read them")
+            self.reload_away_and_back(job, before)
+            job.status("running", "Checking the certificate Caddy serves")
+            self.wait_served(job, current, self.timeouts["serve"], old)
+        except Exception as err:  # noqa: BLE001  any failure puts the old certificate back
+            said = str(err) if isinstance(err, JobFailed) else "The job stopped on an unexpected error."
+            job.status("running", "Putting the previous certificate back")
+            self.write_live_certificates(previous_certificates)
+            try:
+                self.reload_away_and_back(job, before)
+                remove(before)
+                restored = True
+            except JobFailed:
+                restored = self.restore(job, before)
+            raise JobFailed(said + (" The previous certificate is back in use." if restored else ""),
+                            restored=restored)
+        remove(before)
+        # The journal before this holds the old certificate's renewal results (Epic 27 R12).
+        write_file(os.path.join(self.status_dir, RENEWED), json.dumps({"at": now_iso(self.clock), "name": site}),
+                   0o644, self.host)
+
+    def reload_away_and_back(self, job, before):
+        """Reload with the internal authority's snippet, then the one in before (the one in force),
+        so Caddy reads the certificates in its storage again (Epic 27 spike, section 5)."""
+        in_force = read_bytes(os.path.join(before, "tls.caddy"))
+        fd = os.open(self.state_dir, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for contents in (snippets({"source": "internal"}, self.state_dir), in_force):
+                write_at(fd, "tls.caddy", contents, 0o640, self.host, 0, self.host.caddy_gid)
+                if self.run(["systemctl", "reload", "caddy"], log=job, timeout=180)[0] != 0:
+                    write_at(fd, "tls.caddy", in_force, 0o640, self.host, 0, self.host.caddy_gid)
+                    raise JobFailed("Caddy did not reload.")
+        finally:
+            os.close(fd)
+
+    def settings_from_view(self, view):
+        """ACME settings rebuilt from settings.json for the renew throwaway; the secrets stay in secrets/."""
+        settings = {"source": "acme", "directory": view["directory"], "email": view["email"],
+                    "challenge": {"mode": view["challenge"]["mode"]}}
+        if view.get("eab"):
+            settings["eab"] = {"keyId": view["eab"]["keyId"]}
+        if view["challenge"]["mode"] == "dns01":
+            settings["challenge"]["dns"] = {"provider": view["challenge"]["provider"],
+                                            "fields": dict(view["challenge"]["fields"])}
+        return settings
+
+    def check(self, job, request):
+        job.save_record({"kind": "check", "settings": None})
+        job.status("running", "Reading the certificates in use")
+        self.sync_trust(job)
+
+    # -- the queue (as the image job) --
+
+    def pending(self, jobs_fd):
+        names = []
+        for name in os.listdir(jobs_fd):
+            if REQUEST_NAME_RE.fullmatch(name):
+                try:
+                    st = os.stat(name, dir_fd=jobs_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISREG(st.st_mode) or stat.S_ISLNK(st.st_mode):
+                    names.append((st.st_mtime_ns, name))
+        return sorted(names)
+
+    def take(self, jobs_fd, name, gid, refuse_reason=None):
+        """Read one request file and delete it at once. Returns (job, doc) to run, or None."""
+        file_id = REQUEST_NAME_RE.fullmatch(name).group(1)
+        raw = None
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=jobs_fd)
+            try:
+                st = os.fstat(fd)
+                if stat.S_ISREG(st.st_mode) and st.st_uid == self.host.api_uid:
+                    raw = os.read(fd, MAX_REQUEST_BYTES + 1)
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+        # The request may hold secrets, so it leaves the job directory before anything else.
+        try:
+            os.unlink(name, dir_fd=jobs_fd)
+        except OSError:
+            pass
+        if not UUID_RE.fullmatch(file_id):
+            journal("dropped a request file whose name is not a job id")
+            return None
+        try:
+            job = Job(jobs_fd, file_id, gid, self.host, self.clock)
+        except FileExistsError:
+            journal(f"dropped request {file_id}: its job directory already exists")
+            return None
+        job.secrets = self.all_secrets()
+        try:
+            if raw is None:
+                raise Refused("the request is not a regular file the API wrote")
+            if len(raw) > MAX_REQUEST_BYTES:
+                raise Refused("the request file is too large")
+            doc = validate_request(raw, file_id)
+            job.kind = doc["request"]["kind"]
+            if refuse_reason:
+                raise Refused(refuse_reason, job.kind)
+            return job, doc
+        except Refused as err:
+            job.kind = err.kind or job.kind
+            self.refuse(job, str(err))
+            job.close()
+            return None
+
+    def refuse(self, job, reason):
+        journal(f"refused request {job.id}: {scrub(reason, job.secrets)}")
+        job.line(f"Refused: {reason}")
+        job.status("refused", "Refused", message=f"The request was refused: {reason}.")
+
+    def perform(self, job, request):
+        """Run one job to its end, then refresh status.json. Returns the final state."""
+        state = "failed"
+        try:
+            job.status("running", "Starting")
+            message = getattr(self, job.kind)(job, request)
+            job.status("succeeded", "Done", message=message)
+            journal(f"{job.kind} job {job.id} succeeded")
+            state = "succeeded"
+        except Refused as err:
+            self.refuse(job, str(err))
+            state = "refused"
+        except JobFailed as err:
+            job.line(f"Failed: {err}")
+            job.status("failed", "Failed", message=str(err), restored=err.restored)
+            journal(f"{job.kind} job {job.id} failed")
+        except Exception as err:  # noqa: BLE001  the page must never be left saying "running"
+            job.line(f"Failed: {type(err).__name__}")
+            job.status("failed", "Failed", message="The job stopped on an unexpected error; the log says where.")
+            journal(f"{job.kind} job {job.id} crashed: {type(err).__name__}")
+        finally:
+            job.close()
+            try:
+                self.write_status()
+            except Exception as err:  # noqa: BLE001  a status refresh never changes the job's result
+                journal(f"could not refresh status.json: {type(err).__name__}")
+        return state
+
+    def recover(self, jobs_fd, gid):
+        """Mark a job the host lost as failed, put back a half-applied change, drop old jobs."""
+        self.drop_old_jobs(jobs_fd)
+        restored = False
+        if os.path.isfile(self.state(".rollback/settings.json")) and not os.path.lexists(self.state("previous")):
+            os.rename(self.state(".rollback"), self.state("previous"))
+        if os.path.isfile(self.state(".before/settings.json")):
+            journal("putting back the certificate settings a stopped job had replaced")
+            restored = self.restore(None, self.state(".before"))
+        for name in (".new", ".rollback", ".before"):
+            remove(self.state(name))
+        for path in glob.glob(self.state(".throwaway-*")) + glob.glob(self.state(".upload-*")) + glob.glob(self.state(".verify-*")):
+            remove(path)
+        for name in os.listdir(jobs_fd):
+            if not UUID_RE.fullmatch(name):
+                continue
+            try:
+                dir_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=jobs_fd)
+            except OSError:
+                continue
+            try:
+                if os.fstat(dir_fd).st_uid != os.geteuid():
+                    continue
+                try:
+                    fd = os.open("status.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+                    with os.fdopen(fd, encoding="utf-8") as f:
+                        status = json.load(f)
+                except (OSError, ValueError):
+                    continue
+                if not isinstance(status, dict) or status.get("state") != "running":
+                    continue
+                status.update(state="failed", step="Failed", finishedAt=now_iso(self.clock), restored=restored,
+                              message="The job stopped before it finished (the host restarted or the job was "
+                                      "stopped)." + (" The previous certificate is back in use." if restored else ""))
+                write_at(dir_fd, "status.json", json.dumps(status, indent=2) + "\n", 0o640, self.host, 0, gid)
+                journal(f"marked interrupted job {name} as failed")
+            finally:
+                os.close(dir_fd)
+
+    def drop_old_jobs(self, jobs_fd):
+        jobs = []
+        for name in os.listdir(jobs_fd):
+            if not UUID_RE.fullmatch(name):
+                continue
+            try:
+                st = os.stat(name, dir_fd=jobs_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if stat.S_ISDIR(st.st_mode) and st.st_uid == os.geteuid():
+                jobs.append((st.st_mtime_ns, name))
+        for _, name in sorted(jobs, reverse=True)[KEEP_JOBS:]:
+            shutil.rmtree(os.path.join(self.jobs_dir, name), ignore_errors=True)
+
+    def locked(self, blocking):
+        """The lock's descriptor, or None when another job holds it and blocking is False."""
+        fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        except BlockingIOError:
+            os.close(fd)
+            return None
+        return fd
+
+    def run_pending(self):
+        lock_fd = self.locked(blocking=False)
+        if lock_fd is None:
+            # The job holding the lock refuses or runs whatever waits when it finishes.
+            journal("another certificate job is running")
+            return 0
+        try:
+            jobs_fd = os.open(self.jobs_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                gid = os.fstat(jobs_fd).st_gid
+                self.recover(jobs_fd, gid)
+                last_finish = 0
+                taken_names = set()
+                while True:
+                    pending = [(mtime, n) for mtime, n in self.pending(jobs_fd) if n not in taken_names]
+                    if not pending:
+                        return 0
+                    # Anything written before the last job finished arrived while one ran.
+                    for mtime, name in pending:
+                        if mtime < last_finish:
+                            taken_names.add(name)
+                            self.take(jobs_fd, name, gid,
+                                      refuse_reason="another certificate job was waiting or running")
+                    fresh = [n for mtime, n in pending if mtime >= last_finish]
+                    if not fresh:
+                        continue
+                    taken_names.add(fresh[0])
+                    taken = self.take(jobs_fd, fresh[0], gid)
+                    if taken:
+                        job, doc = taken
+                        journal(f"running {job.kind} job {job.id} requested by {doc['requestedBy']}")
+                        self.perform(job, doc["request"])
+                        last_finish = time.time_ns()
+            finally:
+                os.close(jobs_fd)
+        finally:
+            os.close(lock_fd)
+
+    def with_jobs_dir(self, blocking, action):
+        lock_fd = self.locked(blocking)
+        if lock_fd is None:
+            return None
+        try:
+            jobs_fd = os.open(self.jobs_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                return action(jobs_fd, os.fstat(jobs_fd).st_gid)
+            finally:
+                os.close(jobs_fd)
+        finally:
+            os.close(lock_fd)
+
+    def run_recover(self):
+        self.with_jobs_dir(True, self.recover)
+        return 0
+
+    def run_check(self):
+        """The hourly check: root.crt, the trust bundle and status.json. Skipped while a job runs."""
+        lock_fd = self.locked(blocking=False)
+        if lock_fd is None:
+            journal("check: a certificate job is running; it refreshes the status when it ends")
+            return 0
+        try:
+            self.sync_trust()
+            self.write_status()
+        finally:
+            os.close(lock_fd)
+        return 0
+
+    def run_reset(self, out=None):
+        """portikus reset-certificate (Epic 27 R15): Caddy's internal authority, the old settings kept
+        as previous, and a `reset` job directory the API audits."""
+        return self.with_jobs_dir(True, lambda jobs_fd, gid: self.reset(jobs_fd, gid, out or sys.stdout))
+
+    def reset(self, jobs_fd, gid, out):
+        self.recover(jobs_fd, gid)
+        read_api_env(self.api_env)
+        job = Job(jobs_fd, str(uuid.uuid4()), gid, self.host, self.clock)
+        job.kind = "reset"
+        job.secrets = self.all_secrets()
+        job.save_record({"kind": "reset", "settings": {"source": "internal"}})
+        job.status("running", "Putting Caddy's internal authority in force")
+        new, before = self.state(".new"), self.state(".before")
+        remove(new)
+        self.snapshot(before)
+        self.build_generation(new, {"source": "internal"}, {}, None, {"source": "internal"})
+        self.install(new)
+        remove(new)
+        if os.path.isfile(os.path.join(before, "settings.json")):
+            remove(self.state("previous"))
+            os.rename(before, self.state("previous"))
+        remove(before)
+        code, _ = self.run(["systemctl", "reload", "caddy"], log=job, timeout=180)
+        if code != 0:
+            # A Caddy the page broke may not be running at all.
+            code, _ = self.run(["systemctl", "restart", "caddy"], log=job, timeout=180)
+        for _ in range(30):
+            if os.path.exists(self.caddy_root):
+                break
+            self.sleep(2)
+        self.sync_trust(job)
+        if code == 0:
+            job.status("succeeded", "Done", message="Reset to Caddy's internal authority from the server.")
+        else:
+            job.status("failed", "Failed", message="The settings were reset, but Caddy did not start; "
+                                                   "see: journalctl -u caddy")
+        job.close()
+        try:
+            self.write_status()
+        except Exception as err:  # noqa: BLE001  the reset itself is done
+            journal(f"could not refresh status.json: {type(err).__name__}")
+        print("The site now uses Caddy's internal certificate authority.", file=out)
+        print(f"Browsers must trust its root certificate: {STATUS_DIR}/root.crt", file=out)
+        print("The earlier settings are kept; Roll back on the Certificate tab returns to them.", file=out)
+        return 0 if code == 0 else 1
+
+    def run_trust_bundle(self, out=None):
+        """Setup's trust bundle: rebuild it and print "changed" or "unchanged"; setup restarts the API."""
+        lock_fd = self.locked(blocking=True)
+        try:
+            print("changed" if self.sync_trust(restart=False) else "unchanged", file=out or sys.stdout)
+        finally:
+            os.close(lock_fd)
+        return 0
+
+    def run_first_install(self, stdin=None, out=None):
+        """Setup's first install: CertificateSettings JSON, secrets included, on standard input.
+
+        Does nothing when the state directory holds any state already. Else
+        writes secrets/ and files/ first, tls.caddy next and settings.json
+        last, reloads a running Caddy, and refreshes the trust bundle (without
+        restarting the API) and status.json. Prints "changed" or "unchanged".
+        """
+        out, stdin = out or sys.stdout, stdin or sys.stdin
+        if any(os.path.lexists(self.state(name)) for name in ("settings.json", "tls.caddy", "secrets")):
+            print("unchanged", file=out)
+            return 0
+        try:
+            settings = validate_settings(json.loads(stdin.read(), object_pairs_hook=_no_duplicates))
+        except ValueError:
+            journal("first-install: the settings are not JSON")
+            return 2
+        except Refused as err:
+            journal(f"first-install: the settings are refused: {err}")
+            return 2
+        lock_fd = self.locked(blocking=True)
+        try:
+            secrets = self.resolve_secrets(settings)
+            uploads = None
+            if settings["source"] == "files":
+                site, _, suffix = read_api_env(self.api_env)
+                uploads = self.check_uploads(settings, site, suffix)
+            new = self.state(".new")
+            remove(new)
+            self.build_generation(new, settings, secrets, uploads, self.view(settings, secrets, uploads))
+            self.install(new)
+            remove(new)
+            # The unit's reload is `caddy reload --force`; a Caddy not running yet is left alone.
+            self.run(["systemctl", "try-reload-or-restart", "caddy"], timeout=180)
+            self.sync_trust(restart=False)
+            try:
+                self.write_status()
+            except JobFailed as err:
+                journal(f"first-install: no status yet: {err}")
+        except (Refused, JobFailed) as err:
+            journal(f"first-install: {err}")
+            return 1
+        finally:
+            os.close(lock_fd)
+        print("changed", file=out)
+        return 0
+
+
+def main(argv):
+    if argv[1:] == ["recover"]:
+        return Runner().run_recover()
+    if argv[1:] == ["check"]:
+        return Runner().run_check()
+    if argv[1:] == ["reset"]:
+        return Runner().run_reset()
+    if argv[1:] == ["trust-bundle"]:
+        return Runner().run_trust_bundle()
+    if argv[1:] == ["first-install"]:
+        return Runner().run_first_install()
+    if argv[1:] in ([], ["run"]):
+        return Runner().run_pending()
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
