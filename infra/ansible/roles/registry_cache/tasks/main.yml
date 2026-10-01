@@ -207,13 +207,22 @@
           registries.  Free some space and run portikus setup again to turn it on.
 
     # The units' condition skips them from here on, so nothing points at an absent cache.
-    - name: Mark the cache off
+    # The cache helper shows the marker's one line on the admin Docker tab (issue #931).
+    - name: Mark the cache off, with the reason
       ansible.builtin.copy:
         dest: "{{ registry_cache_off_marker }}"
-        content: "off\n"
+        content: "When setup last ran, the main disk had {{ registry_cache_off_free_gib }} GiB free, and setup
+          keeps {{ registry_cache_spare_bytes | int // 1073741824 }} GiB of it free, so not even a 1 GiB
+          cache fits.\n"
         owner: root
         group: root
         mode: "0644"
+      vars:
+        # The free space the size decision counted, the old cache file's included.
+        registry_cache_off_free_gib: >-
+          {{ ((registry_cache_free.stdout_lines | last | int
+          + (registry_cache_image_stat.stat.blocks | default(0) | int) * 512)
+          / 1073741824) | round(1, 'floor') }}
 
     - name: Stop and disable the caches and their filesystem
       ansible.builtin.systemd_service:

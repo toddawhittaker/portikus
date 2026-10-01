@@ -20,6 +20,9 @@ export interface FakeRegistryStatus {
 	hubCredentialSet?: boolean;
 	lastClearedAt?: string | null;
 	lastClearReason?: "admin" | "full" | "credential" | null;
+	lastClearError?: string | null;
+	cacheOff?: string | null;
+	imageSizes?: Record<string, { bytes: number; seenAt: string }>;
 }
 
 /** Empty the directory, as a fresh install leaves it. */

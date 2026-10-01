@@ -178,6 +178,14 @@ export const INVENTORY_DIGESTS_MAX = 50;
 
 /** Rows the usage report returns per table, most workspaces first (ruling S7). */
 export const USAGE_ROWS_MAX = 200;
+/**
+ * The usage report's window in calendar days, today included: about one
+ * semester (issue #934). The worker keeps usage rows at least this long.
+ */
+export const USAGE_WINDOW_DAYS = 120;
+
+/** Download sizes the cache helper keeps in its status file, newest first (issue #931). */
+export const IMAGE_SIZES_MAX = 1000;
 
 // ---------------------------------------------------------------------------
 // Admin API: GET /admin/docker, PUT /admin/docker/settings,
@@ -201,9 +209,31 @@ export const RegistryStatusFile = z.object({
 	lastClearReason: z.enum(["admin", "full", "credential"]).nullable(),
 	/** Why the last clear failed; while set after a credential change the Hub cache stays stopped. */
 	lastClearError: z.string().max(1000).nullable().optional(),
+	/** Why setup turned the cache off for lack of disk (SPEC.md section 16.6); null while it is on. */
+	cacheOff: z.string().max(300).nullable().optional(),
+	/**
+	 * Compressed (download) sizes of the images the caches held, by canonical
+	 * name, for this host's platform, each with when the cache last held it.
+	 * The helper keeps an entry 120 days, so a size outlives the cache's
+	 * week-long expiry and a clear.
+	 */
+	imageSizes: z
+		.record(
+			z.string().max(SEED_IMAGE_MAX_LENGTH),
+			z.object({
+				bytes: z.number().int().nonnegative(),
+				seenAt: z.string().datetime(),
+			}),
+		)
+		.refine((sizes) => Object.keys(sizes).length <= IMAGE_SIZES_MAX)
+		.optional(),
 	updatedAt: z.string().datetime(),
 });
 export type RegistryStatusFile = z.infer<typeof RegistryStatusFile>;
+
+/** The cache's status as the admin page gets it: the sizes go out per image instead. */
+export const DockerCacheStatus = RegistryStatusFile.omit({ imageSizes: true });
+export type DockerCacheStatus = z.infer<typeof DockerCacheStatus>;
 
 /** The current seed, as the controller reports it (`GET /docker-seed` on the controller). */
 export const SeedInfo = z.object({
@@ -217,7 +247,7 @@ export type SeedInfo = z.infer<typeof SeedInfo>;
 
 /** `GET /admin/docker`. `cache` is null while the helper has not written its status file. */
 export const DockerAdminResponse = z.object({
-	cache: RegistryStatusFile.nullable(),
+	cache: DockerCacheStatus.nullable(),
 	/** The saved setting; the cache follows it once the helper applies it. */
 	ghcrEnabled: z.boolean(),
 	seedMaxGiB: z.number().int().min(1).max(SEED_MAX_GIB_LIMIT),
@@ -227,6 +257,14 @@ export const DockerAdminResponse = z.object({
 	seedImages: SeedImageList,
 	/** The built seed, or null when none exists yet. */
 	seed: SeedInfo.nullable(),
+	/**
+	 * Download sizes in bytes of the images in `seedImages` and `seed`, keyed
+	 * by `canonicalImageName`. An image the cache never held is missing.
+	 */
+	imageSizes: z.record(
+		z.string().max(SEED_IMAGE_MAX_LENGTH),
+		z.number().int().nonnegative(),
+	),
 });
 export type DockerAdminResponse = z.infer<typeof DockerAdminResponse>;
 
@@ -288,6 +326,8 @@ export const DockerImageUsage = z.object({
 	pulls: z.number().int().nonnegative(),
 	workspaces: z.number().int().nonnegative(),
 	lastSeen: z.string().datetime().nullable(),
+	/** Download size in bytes from the pull cache, or null when the cache never held it. */
+	downloadBytes: z.number().int().nonnegative().nullable(),
 });
 export type DockerImageUsage = z.infer<typeof DockerImageUsage>;
 
