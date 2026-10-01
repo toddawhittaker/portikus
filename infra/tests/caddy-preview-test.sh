@@ -14,6 +14,7 @@ caddy_bin="${CADDY:-$(command -v caddy || true)}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEMPLATE="${REPO_ROOT}/infra/ansible/roles/caddy/templates/Caddyfile.j2"
+SEED_TEMPLATE="${REPO_ROOT}/infra/ansible/roles/caddy/templates/tls.caddy.j2"
 SITE_YML="${REPO_ROOT}/infra/ansible/site.yml"
 
 PUBLIC_HOST="portikus.192.0.2.10.nip.io"
@@ -73,12 +74,30 @@ render() {
     -e "portikus_idp=${1}" \
     -e "caddy_admin_socket=${ADMIN_SOCKET}" \
     -e "dex_port=5556" \
+    -e "caddy_certificate_dir=${work}/certificate" \
     -e "portikus_mock_idp_port=3002" "${@:3}" >"${work}/render.log" 2>&1 || {
     echo "error: rendering ${TEMPLATE} for ${1} failed" >&2
     cat "${work}/render.log" >&2
     exit 1
   }
 }
+
+# render_seed TLS DEST [ARGS...] — the certificate snippet setup seeds on
+# first install for that TLS answer (internal, letsencrypt or files).
+render_seed() {
+  ansible localhost -c local -m ansible.builtin.template \
+    -a "src=${SEED_TEMPLATE} dest=${2} mode=0644" \
+    -e "portikus_tls=${1}" \
+    -e "caddy_certificate_dir=/etc/portikus/certificate" "${@:3}" >"${work}/render.log" 2>&1 || {
+    echo "error: rendering ${SEED_TEMPLATE} for ${1} failed" >&2
+    cat "${work}/render.log" >&2
+    exit 1
+  }
+}
+
+# The Caddyfile imports the seeded snippet, so caddy validate needs one.
+mkdir -p "${work}/certificate"
+render_seed internal "${work}/certificate/tls.caddy"
 
 rendered="${work}/Caddyfile"
 render dex "${rendered}"
@@ -143,7 +162,11 @@ has "the application virtual host keeps its own exact name" \
 echo ""
 echo "--- Preview virtual host ---"
 
-has "a wildcard certificate is issued by the internal authority" '^[[:space:]]+tls internal$' "${preview}"
+has "the preview host takes its certificate from the preview snippet" \
+  '^[[:space:]]+import portikus_tls_preview$' "${preview}"
+lacks "the preview host has no certificate of Ansible's own" '^[[:space:]]+tls [^{]' "${preview}"
+has "the pre-flight nonce is answered by the API before any authorization" \
+  'handle /\.well-known/portikus-preflight/\* \{' "${preview}"
 lacks "no compression on preview responses" 'encode gzip' "${preview}"
 lacks "no frame-ancestors policy of our own on preview" 'frame-ancestors' "${preview}"
 has "Caddy's Server banner is removed" '^[[:space:]]+-Server$' "${preview}"
@@ -164,14 +187,14 @@ for h in For Proto Host Method Uri; do
 done
 
 # The API decides which preview host a request is for from X-Forwarded-Host,
-# so the two routes that only talk to the API must throw the client's copy
-# away as well.  Each of the three routes imports the same snippet.
+# so the routes that only talk to the API must throw the client's copy
+# away as well.  Each of the four routes imports the same snippet.
 has "the forwarded headers are forgotten in one place" \
   '^\(portikus_forget_forwarded\) \{$' "${preview}"
-if [ "$(grep -c 'import portikus_forget_forwarded' "${preview}")" = "3" ]; then
-  ok "bootstrap, reset and the application path all forget them"
+if [ "$(grep -c 'import portikus_forget_forwarded' "${preview}")" = "4" ]; then
+  ok "bootstrap, reset, the pre-flight nonce and the application path all forget them"
 else
-  no "bootstrap, reset and the application path all forget them"
+  no "bootstrap, reset, the pre-flight nonce and the application path all forget them"
 fi
 
 has "every request is authorized by the API" \
@@ -407,29 +430,71 @@ has "PREVIEW_SUFFIX is written beside PUBLIC_URL" \
   "${REPO_ROOT}/infra/ansible/roles/portikus/templates/api.env.j2"
 
 echo ""
-echo "--- The TLS choice (docs/SPEC.md section 21.12) ---"
+echo "--- The certificate is the admin page's (docs/SPEC.md section 21.12) ---"
 
-render dex "${work}/Caddyfile.letsencrypt" -e portikus_tls=letsencrypt \
+# count_is LABEL N PATTERN FILE — exactly N lines of the file match PATTERN.
+count_is() {
+  if [ "$(grep -cE -- "$3" "$4")" = "$2" ]; then ok "$1"; else no "$1"; fi
+}
+
+has "the certificate snippet file is imported before the global options" \
+  "^import ${work}/certificate/tls\.caddy$" "${rendered}"
+if [ "$(grep -nE '^import .*/tls\.caddy$' "${rendered}" | cut -d: -f1)" -lt "$(grep -nE '^\{$' "${rendered}" | head -1 | cut -d: -f1)" ]; then
+  ok "the import comes first, so its snippets exist when used"
+else
+  no "the import comes first, so its snippets exist when used"
+fi
+has "the global options take on-demand TLS from the snippet, asking the API on loopback" \
+  "^[[:space:]]+import portikus_tls_global http://127\.0\.0\.1:${API_PORT}/edge/certificate-ask$" "${rendered}"
+has "the application host takes its certificate from the site snippet" \
+  '^[[:space:]]+import portikus_tls_site$' "${app}"
+lacks "Ansible renders no tls directive of its own" '^[[:space:]]+tls [^{]' "${rendered}"
+lacks "no secret reaches Caddy through its environment" '\{env\.' "${rendered}"
+
+echo ""
+echo "--- Reloads keep WebSockets open (Epic 27 R19) ---"
+
+count_is "the API's WebSocket proxy and the preview proxies delay closing streams on a reload" 2 \
+  '^[[:space:]]+stream_close_delay 1h$' "${rendered}"
+awk '/^\thandle \/workspaces\* \{$/ { on = 1 } on { print } on && /^\t\}$/ { exit }' "${app}" >"${work}/workspaces-block"
+has "the /workspaces proxy, which carries every API WebSocket, has the delay" \
+  '^[[:space:]]+stream_close_delay 1h$' "${work}/workspaces-block"
+has "the preview proxies' shared rules have the delay" \
+  '^[[:space:]]+stream_close_delay 1h$' "${preview}"
+
+echo ""
+echo "--- Plain HTTP on port 80 ---"
+
+has "the site and the preview names have a plain HTTP block" \
+  "^http://${PUBLIC_HOST}, http://\*\.${PREVIEW_SUFFIX} \{$" "${rendered}"
+has "plain HTTP redirects to the public HTTPS port" \
+  "^[[:space:]]+redir https://\{host\}:${PUBLIC_PORT}\{uri\} 308$" "${rendered}"
+count_is "the pre-flight nonce is answered on the site, the preview names and plain HTTP" 3 \
+  'handle /\.well-known/portikus-preflight/\* \{' "${rendered}"
+has "the site answers the pre-flight nonce" 'handle /\.well-known/portikus-preflight/\* \{' "${app}"
+
+echo ""
+echo "--- The certificate setup seeds on first install ---"
+
+render_seed letsencrypt "${work}/tls.letsencrypt" \
   -e portikus_acme_email=ops@example.edu -e portikus_acme_ca=https://acme-v02.api.letsencrypt.org/directory
-render dex "${work}/Caddyfile.files" -e portikus_tls=files -e caddy_tls_dir=/etc/caddy/portikus-tls
-if [ "$(grep -cE '^[[:space:]]+tls internal$' "${rendered}")" = "2" ]; then
-  ok "internal: both sites use Caddy's own authority"
-else
-  no "internal: both sites use Caddy's own authority"
-fi
-if [ "$(grep -cE '^[[:space:]]+dns cloudflare \{env\.CLOUDFLARE_API_TOKEN\}$' "${work}/Caddyfile.letsencrypt")" = "2" ]; then
-  ok "letsencrypt: both sites, the preview wildcard included, use the DNS-01 challenge"
-else
-  no "letsencrypt: both sites, the preview wildcard included, use the DNS-01 challenge"
-fi
-has "letsencrypt: the account email and the CA are set" \
-  '^[[:space:]]+tls ops@example\.edu \{$' "${work}/Caddyfile.letsencrypt"
-lacks "letsencrypt: no site uses the internal authority" 'tls internal' "${work}/Caddyfile.letsencrypt"
-if [ "$(grep -cE '^[[:space:]]+tls /etc/caddy/portikus-tls/site\.crt /etc/caddy/portikus-tls/site\.key$' "${work}/Caddyfile.files")" = "2" ]; then
-  ok "files: both sites use the copied certificate and key"
-else
-  no "files: both sites use the copied certificate and key"
-fi
+render_seed files "${work}/tls.files"
+for snippet in portikus_tls_global portikus_tls_site portikus_tls_preview; do
+  has "internal: the seed defines ${snippet}" "^\(${snippet}\) \{$" "${work}/certificate/tls.caddy"
+done
+count_is "internal: both sites use Caddy's own authority" 2 '^[[:space:]]+tls internal$' "${work}/certificate/tls.caddy"
+count_is "letsencrypt: both sites, the preview wildcard included, use the DNS-01 challenge" 2 \
+  '^[[:space:]]+dns cloudflare \{file\./etc/portikus/certificate/secrets/cloudflare_api_token\}$' "${work}/tls.letsencrypt"
+count_is "letsencrypt: the account email is set for both sites" 2 '^[[:space:]]+tls ops@example\.edu \{$' "${work}/tls.letsencrypt"
+count_is "letsencrypt: the directory is set for both sites" 2 \
+  '^[[:space:]]+ca https://acme-v02\.api\.letsencrypt\.org/directory$' "${work}/tls.letsencrypt"
+lacks "letsencrypt: no site uses the internal authority" 'tls internal' "${work}/tls.letsencrypt"
+lacks "letsencrypt: the token is read from a file, never the environment" '\{env\.' "${work}/tls.letsencrypt"
+count_is "files: both sites use the copied certificate and key" 2 \
+  '^[[:space:]]+tls /etc/portikus/certificate/files/site\.crt /etc/portikus/certificate/files/site\.key$' "${work}/tls.files"
+for seed in "${work}/certificate/tls.caddy" "${work}/tls.letsencrypt" "${work}/tls.files"; do
+  lacks "no seed turns on-demand TLS on ($(basename "${seed}"))" 'on_demand' "${seed}"
+done
 
 if [ -z "${caddy_bin}" ]; then
   echo ""
@@ -556,6 +621,7 @@ PY
     -e "portikus_api_port=${live_api}" \
     -e "portikus_idp=mock" \
     -e "caddy_admin_socket=${ADMIN_SOCKET}" \
+    -e "caddy_certificate_dir=${work}/certificate" \
     -e "portikus_mock_idp_port=3002" >"${work}/render.log" 2>&1
   # Keep the test Caddy's admin, certificates and ports out of the host's
   # own, in the template's one global block.

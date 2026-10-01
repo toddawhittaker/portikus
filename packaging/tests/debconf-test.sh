@@ -50,8 +50,8 @@ fi
 
 cp "$repo_root/packaging/tests/debconf-scenario.sh" "$work/"
 failed=0
-for scenario in dex-file entra-vg google-disk ldap-unconfirmed oidc-missing-secret reconfigure no-debconf-keys unanswered unconfigured-secret setup-running worker-account \
-	ui-storage-default ui-cache-small-disk ui-host-short ui-host-full ui-summary-no ui-cert; do
+for scenario in dex-file entra-vg google-disk ldap-unconfirmed oidc-missing-secret reconfigure no-debconf-keys unanswered unconfigured-secret setup-running worker-account tls-default seeded-certificate \
+	ui-storage-default ui-cache-small-disk ui-host-short ui-host-full ui-summary-no ui-cert ui-reconfigure-seeded; do
 	# The container's host name is what the web address question suggests.
 	hostname=portikus
 	[ "$scenario" != ui-host-full ] || hostname=lab.example.edu

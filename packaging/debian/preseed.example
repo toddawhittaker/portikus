@@ -19,15 +19,17 @@ portikus portikus/public_host string portikus.example.edu
 # portikus_admin_email
 portikus portikus/admin_email string admin@example.edu
 
-# The HTTPS certificate: letsencrypt, files or internal.
+# The first HTTPS certificate: internal (default), letsencrypt or files.
+# Setup uses it only on first install; after that the Certificate page of
+# the administration screen owns the certificate.
 # portikus_tls
-portikus portikus/tls select letsencrypt
+portikus portikus/tls select internal
 
 # For letsencrypt: the account email (portikus_acme_email) and a Cloudflare
 # API token with "Edit zone DNS" permission, for the preview wildcard
 # (secrets.yaml: portikus_cloudflare_api_token).
-portikus portikus/acme_email string admin@example.edu
-portikus portikus/cloudflare_api_token password REPLACE-WITH-CLOUDFLARE-TOKEN
+#portikus portikus/acme_email string admin@example.edu
+#portikus portikus/cloudflare_api_token password REPLACE-WITH-CLOUDFLARE-TOKEN
 
 # For files: PEM certificate and key paths on this host
 # (portikus_tls_cert, portikus_tls_key).

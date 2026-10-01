@@ -1,9 +1,8 @@
 ---
 # Caddy is the only thing listening on the VM's public interface: it
 # terminates TLS and proxies to the control-plane services, which stay
-# bound to loopback (SPEC 24.3).  The certificate comes from Caddy's own
-# authority, Let's Encrypt, or files on the host (portikus_tls,
-# docs/SPEC.md section 21.12).
+# bound to loopback (SPEC 24.3).  The certificate is the admin page's: setup
+# only seeds it on first install (docs/SPEC.md section 21.12).
 # Follows the same apt-repo-with-checksum pattern as the incus role.
 
 - name: Create apt keyrings directory
@@ -85,89 +84,35 @@
     group: root
     mode: "0755"
 
-# ── Let's Encrypt through Cloudflare's DNS (ruling 9) ─────────────
-- name: Put the Caddy build with the Cloudflare plugin in place, or take it away
+# ── Caddy with the DNS plugins (docs/SPEC.md section 21.12) ───────
+- name: Put the Caddy build with the DNS plugins in place
   ansible.builtin.include_tasks: plugin.yml
 
-# Caddy reads the token from its environment when it starts, through the
-# {env.CLOUDFLARE_API_TOKEN} placeholder, so it is in no configuration
-# file, no command line, and not in Caddy's saved configuration.
-- name: Write Caddy's Cloudflare token
-  ansible.builtin.copy:
-    dest: /etc/portikus/caddy-dns.env
-    content: "CLOUDFLARE_API_TOKEN={{ portikus_cloudflare_api_token }}\n"
-    owner: root
-    group: root
-    mode: "0600"
-  no_log: true
-  when: portikus_tls == 'letsencrypt'
-  notify: Restart caddy
+# ── The certificate's state ──────────────────────────────────────
+# Seeded once from the install answer; after that only the admin page's
+# root job and `portikus reset-certificate` change it.
+- name: Look for the certificate state
+  ansible.builtin.stat:
+    path: "{{ caddy_certificate_dir }}/settings.json"
+  register: caddy_certificate_state
 
-# The packaged unit runs `caddy run --environ`, which would print the token
-# to the journal, so the start command is replaced without it.
-- name: Give Caddy the token's environment file
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/caddy.service.d/20-portikus-dns.conf
-    content: |
-      # Managed by Ansible (caddy role).
-      [Service]
-      EnvironmentFile=/etc/portikus/caddy-dns.env
-      ExecStart=
-      ExecStart=/usr/bin/caddy run --config /etc/caddy/Caddyfile
-    owner: root
-    group: root
-    mode: "0644"
-  when: portikus_tls == 'letsencrypt'
-  notify:
-    - Reload systemd for Caddy
-    - Restart caddy
+- name: Seed the certificate state on first install
+  ansible.builtin.include_tasks: seed.yml
+  when: not caddy_certificate_state.stat.exists
 
-- name: Remove the token and its drop-in from a site without Let's Encrypt
+# Releases before the certificate page gave Caddy the Cloudflare token
+# through an environment file; seeding moved it into the state directory.
+# The running Caddy no longer reads its environment, so a reload of the new
+# Caddyfile is enough and nobody's connection is cut by a restart.
+- name: Remove the old token file, its drop-in and the old certificate copy
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
   loop:
     - /etc/portikus/caddy-dns.env
     - /etc/systemd/system/caddy.service.d/20-portikus-dns.conf
-  when: portikus_tls != 'letsencrypt'
-  notify:
-    - Reload systemd for Caddy
-    - Restart caddy
-
-# ── Certificate files (files) ─────────────────────────────────────
-# Copied where the caddy user can read them, so the operator's own files
-# keep whatever owner and mode they have.
-- name: Create the site certificate directory
-  ansible.builtin.file:
-    path: "{{ caddy_tls_dir }}"
-    state: directory
-    owner: root
-    group: caddy
-    mode: "0750"
-  when: portikus_tls == 'files'
-
-- name: Copy the site certificate and key
-  ansible.builtin.copy:
-    src: "{{ item.src }}"
-    dest: "{{ caddy_tls_dir }}/{{ item.dest }}"
-    remote_src: true
-    owner: root
-    group: caddy
-    mode: "0640"
-  loop:
-    - { src: "{{ portikus_tls_cert }}", dest: site.crt }
-    - { src: "{{ portikus_tls_key }}", dest: site.key }
-  loop_control:
-    label: "{{ item.dest }}"
-  no_log: true
-  when: portikus_tls == 'files'
-  notify: Reload caddy
-
-- name: Remove the site certificate from a site without files
-  ansible.builtin.file:
-    path: "{{ caddy_tls_dir }}"
-    state: absent
-  when: portikus_tls != 'files'
+    - /etc/caddy/portikus-tls
+  notify: Reload systemd for Caddy
 
 - name: Deploy the Caddyfile
   ansible.builtin.template:
@@ -211,61 +156,59 @@
 - name: Apply the Caddy configuration now
   ansible.builtin.meta: flush_handlers
 
-# ── What the site's certificate chains to ────────────────────────
-# The API trusts this file so it can reach the identity provider through
-# Caddy, and the tests use it with curl.
+- name: Read the certificate settings in force
+  ansible.builtin.slurp:
+    src: "{{ caddy_certificate_dir }}/settings.json"
+  register: caddy_settings_file
+
+- name: Note the certificate's source
+  ansible.builtin.set_fact:
+    caddy_certificate_source: "{{ (caddy_settings_file.content | b64decode | from_json).source }}"
+
+# ── What the API trusts (Epic 27 R14) ────────────────────────────
+# The system's authorities, Caddy's internal root and any uploaded
+# certificate (so a self-signed one is trusted too), whatever the source,
+# so a change on the admin page never breaks the API's own calls through
+# Caddy.  The root job writes the same file in the same order.
 - name: Wait for Caddy to write its internal root certificate
   ansible.builtin.wait_for:
     path: "{{ caddy_root_cert }}"
     timeout: 60
-  when: portikus_tls == 'internal'
+  when: caddy_certificate_source == 'internal'
 
-- name: Trust Caddy's internal root
-  ansible.builtin.copy:
-    src: "{{ caddy_root_cert }}"
-    dest: "{{ portikus_caddy_root_cert }}"
-    remote_src: true
-    owner: root
-    group: root
-    mode: "0644"
-  when: portikus_tls == 'internal'
-  notify: Restart a running API for the new trust
+- name: Find the uploaded certificates
+  ansible.builtin.find:
+    paths: "{{ caddy_certificate_dir }}/files"
+    patterns: "*.crt"
+  register: caddy_uploaded_certs
 
-- name: Trust the system's authorities
-  ansible.builtin.copy:
-    src: /etc/ssl/certs/ca-certificates.crt
-    dest: "{{ portikus_caddy_root_cert }}"
-    remote_src: true
-    owner: root
-    group: root
-    mode: "0644"
-  when: portikus_tls == 'letsencrypt'
-  notify: Restart a running API for the new trust
+- name: Look for Caddy's internal root
+  ansible.builtin.stat:
+    path: "{{ caddy_root_cert }}"
+  register: caddy_root_cert_stat
 
-- name: Read the system's authorities and the site certificate
+- name: Read the parts of the trust bundle
   ansible.builtin.slurp:
     src: "{{ item }}"
-  loop:
-    - /etc/ssl/certs/ca-certificates.crt
-    - "{{ caddy_tls_dir }}/site.crt"
+  loop: >-
+    {{ ['/etc/ssl/certs/ca-certificates.crt']
+       + ([caddy_root_cert] if caddy_root_cert_stat.stat.exists else [])
+       + (caddy_uploaded_certs.files | map(attribute='path') | sort) }}
   register: caddy_trust_parts
-  when: portikus_tls == 'files'
 
-# The site certificate itself, so a self-signed one is trusted too.
-- name: Trust the system's authorities and the site certificate
+- name: Write the trust bundle
   ansible.builtin.copy:
-    content: "{{ caddy_trust_parts.results | map(attribute='content') | map('b64decode') | join('\n') }}"
+    content: "{{ caddy_trust_parts.results | map(attribute='content') | map('b64decode') | map('trim') | join('\n') }}\n"
     dest: "{{ portikus_caddy_root_cert }}"
     owner: root
     group: root
     mode: "0644"
-  when: portikus_tls == 'files'
   notify: Restart a running API for the new trust
 
-# Caddy asks for both certificates when it starts.  Setup waits, so a
-# token or DNS problem stops the play here rather than at a browser.
-- name: Wait for the Let's Encrypt certificates
-  when: portikus_tls == 'letsencrypt'
+# Caddy asks for both certificates when it starts.  A first install waits,
+# so a token or DNS problem stops the play here rather than at a browser.
+- name: Wait for the ACME certificates
+  when: caddy_seeded | default(false) and caddy_certificate_source == 'acme'
   block:
     - name: Wait for the site's and the preview wildcard's certificates
       ansible.builtin.find:
