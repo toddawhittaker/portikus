@@ -59,7 +59,7 @@ An administrator chooses and changes the site's certificate from an admin tab wi
 
 ## Spike placeholders
 
-The pilot spike answers these; the orchestrator fills them in before T1 and T2 start.
+The pilot spike answers these. The orchestrator sends the findings to the owning tasks by message; this plan is not updated.
 
 - **S1** How the staging test runs (throwaway Caddy command line, storage path, timeout), how `renew` forces a renewal, and how the job knows the live certificate has appeared.
 - **S2** Each plugin's Caddyfile field names, and which are secrets.
@@ -69,7 +69,7 @@ The pilot spike answers these; the orchestrator fills them in before T1 and T2 s
 
 ## Tasks
 
-No two tasks edit the same file. T1 to T4 run in parallel from the epic head; V runs after they land; F runs last.
+No two tasks edit the same file (see "Parallelism and file ownership"). T1 to T4 and D run in parallel from the epic head; V runs after they land; F runs last.
 
 | Task | Agent | Files in scope | Done looks like | Depends on |
 |---|---|---|---|---|
@@ -78,7 +78,30 @@ No two tasks edit the same file. T1 to T4 run in parallel from the epic head; V 
 | **T3** API | builder | `apps/api/src/routes/admin-certificate.ts` and its tests, the on-demand ask endpoint, pre-flight, upload checks, status-to-notification logic in the worker or API (wherever the image page's `published.json` is read today), audit, root certificate download; `packages/contracts` additions beyond `certificate.ts` | Unit tests for: refusing a second job, writing the request file 0600 by rename, keeping stored secrets on blank fields, every upload check by name, pre-flight blocking for HTTP-01 and warning for DNS-01, the ask endpoint answering only for the site and `*.<preview suffix>`, notifications once per certificate per condition, audit rows without secrets, the download route admin-only; no secret in any response (asserted) | contract |
 | **T4** Web | ui-designer | `apps/web/src/admin/` (Certificate tab, `tabs.ts`), its help text, `e2e/admin-certificate.spec.ts`, `e2e/certificate-jobs.ts` (fake job, like `e2e/image-jobs.ts`) | The tab shows the current certificate and expiry, the source form with write-only secret fields ("set" or "not set"), pre-flight results, Test only, Apply, Renew now, Roll back, job progress and scrubbed errors, root download; Playwright covers each flow with the fake job, a failed apply with the old certificate kept, a refused upload naming the failed check, and an axe scan of the tab with no violations | contract |
 | **V** Pilot verification | infra | the pilot only; no repo files except fixes it hands back | Every step in "Pilot verification" below passes, with evidence in the report | T1 to T4 landed |
-| **F** Fold | builder | `docs/SPEC.md` (20.1, 21.12, 22.4 sibling section, 24.8, 24.10, 24.11), `docs/adr/0046-*.md`, `docs/INSTALL.md`, `docs/OPERATIONS.md`, `docs/ADMIN-GUIDE.md`, `docs/STATUS.md`, `docs/BACKLOG.md` (email for #918, real HTTP-01 and EAB tests), delete this plan | Lasting rules folded in a sentence or two each; STATUS written once from the task PR bodies; the plan is gone | V |
+| **D** Docs draft | builder | `docs/adr/0046-*.md`, `docs/INSTALL.md`, `docs/OPERATIONS.md`, `docs/ADMIN-GUIDE.md` | ADR 0046 records R2, R3, R4, R7 and R8; INSTALL.md covers the new default and that setup never touches the certificate again; OPERATIONS.md covers `portikus reset-certificate`; ADMIN-GUIDE.md covers the tab | plan |
+| **F** Fold | builder | `docs/SPEC.md` (20.1, 21.12, 22.4 sibling section, 24.8, 24.10, 24.11), `docs/STATUS.md`, `docs/BACKLOG.md` (email for #918, real HTTP-01 and EAB tests), delete this plan | Lasting rules folded in a sentence or two each; D's docs checked against the final code; STATUS written once from the task PR bodies; the plan is gone | V |
+
+## Parallelism and file ownership
+
+Todd approved wide parallelism with as few merge conflicts as possible, because conflicts serialize CI. The plan lands with S1 to S5 still open. The orchestrator sends spike findings straight to the builders, and the task that owns a file fixes it.
+
+1. T1 to T4 and D start as soon as this plan merges; they need only the contract. After that, `packages/contracts/src/certificate.ts` and `packages/contracts/src/index.ts` belong to T3 alone. If the spike changes `DNS_PROVIDER_FIELDS`, T3 changes it. T1 mirrors the names in Python, with a test that reads the contract's table (or a shared JSON fixture owned by T3), so the two cannot drift.
+2. Task D (docs draft, builder) writes `docs/adr/0046-*.md`, `docs/INSTALL.md`, `docs/OPERATIONS.md` (including `portikus reset-certificate`) and `docs/ADMIN-GUIDE.md` from the rulings during the build. No other task edits those four. F keeps only SPEC.md, STATUS.md and BACKLOG.md, deletes the plan, and checks D's docs against the final code with small edits.
+3. Early reviews run as tasks merge: security-reviewer on T1 as soon as it lands, code-reviewer on each task as it lands, a11y-reviewer on T4. They are read-only. Each fix goes in a fix PR for the owning directory, never one that crosses directories.
+4. One owner per path:
+
+| Owner | Paths |
+|---|---|
+| T1 | `packaging/certificate/`, `packaging/systemd/portikus-certificate-*`, `packaging/bin/portikus`, `packaging/nfpm.yaml`, any CI workflow change for Pebble |
+| T2 | `infra/ansible/**`, `packaging/debian/**`, `packaging/scripts/**` |
+| T3 | `apps/api/**`, `packages/contracts/**`, `packages/db/**` (migration 0034 only if needed) |
+| T4 | `apps/web/**`, `packages/ui/**` if needed, `e2e/admin-certificate.spec.ts`, `e2e/certificate-jobs.ts`, `playwright.config.ts` |
+| D | `docs/adr/0046-*.md`, `docs/INSTALL.md`, `docs/OPERATIONS.md`, `docs/ADMIN-GUIDE.md` |
+| V | `infra/tests/smoke-test.sh` |
+| F | `docs/SPEC.md`, `docs/STATUS.md`, `docs/BACKLOG.md`, this plan |
+
+   A task that needs a change in another task's path asks the orchestrator instead of editing it. No task but F edits `docs/STATUS.md`.
+5. One PR per task, plus at most one fix PR per directory. Merger lands them in the order T3, T1, T2, T4, D, so the contract's owner lands first.
 
 ## Pilot verification
 
