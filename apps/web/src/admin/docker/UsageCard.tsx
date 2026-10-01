@@ -54,7 +54,7 @@ export function UsageCard({ data }: { data: DockerAdminResponse }) {
 			help={
 				<Toggletip label="image use">
 					Counts come from the cache's pulls and from a look at each running workspace
-					every 6 hours. They never say which workspace or person.
+					every hour. They never say which workspace or person.
 				</Toggletip>
 			}
 		>
