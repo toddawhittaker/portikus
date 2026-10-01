@@ -120,9 +120,22 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
 	// Before the auth plugin, so its hook runs first (issue #398).
 	registerSigninThrottle(app, deps);
+	// One websocket per running workspace tells the control plane what is
+	// listening inside it (BROWSER-HANDLING.md §11.1).
+	const registry = createListeningRegistry({
+		db: deps.db,
+		config: deps.config,
+		logger: deps.logger,
+		...(deps.previewPollIntervalMs === undefined
+			? {}
+			: { pollIntervalMs: deps.previewPollIntervalMs }),
+	});
+	app.addHook("onReady", async () => registry.start());
+	app.addHook("onClose", async () => registry.stop());
+
 	// Caddy's certificate asks and pre-flight probes carry no session (SPEC.md 20.1).
 	const nonces = new NonceStore();
-	registerCertificateEdge(app, { db: deps.db, config: deps.config, nonces });
+	registerCertificateEdge(app, { db: deps.db, config: deps.config, nonces, registry });
 
 	app.register(authPlugin, { db: deps.db, auth: toAuthOptions(deps.config) });
 
@@ -198,19 +211,6 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		const body: ApiError = { code: "NOT_FOUND", message: "Not found." };
 		reply.status(404).send(body);
 	});
-
-	// One websocket per running workspace tells the control plane what is
-	// listening inside it (BROWSER-HANDLING.md §11.1).
-	const registry = createListeningRegistry({
-		db: deps.db,
-		config: deps.config,
-		logger: deps.logger,
-		...(deps.previewPollIntervalMs === undefined
-			? {}
-			: { pollIntervalMs: deps.previewPollIntervalMs }),
-	});
-	app.addHook("onReady", async () => registry.start());
-	app.addHook("onClose", async () => registry.stop());
 
 	const routeDeps = { ...deps, registry };
 

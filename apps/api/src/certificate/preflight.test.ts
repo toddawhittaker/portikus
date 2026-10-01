@@ -92,6 +92,28 @@ describe("runPreflight", () => {
 		]);
 	});
 
+	test("HTTP-01 probes the preview check name over plain http on port 80", async () => {
+		// On-demand TLS refuses portikus-check-* names, so https could never pass.
+		const nonces = new NonceStore();
+		const net = fakeNet(() => ["192.0.2.10"], honest, nonces);
+		await runPreflight({ config, net, nonces, mode: "http01" });
+		const preview = net.urls.filter((u) => u.includes("portikus-check-"));
+		expect(preview).toHaveLength(1);
+		expect(preview[0]).toMatch(
+			/^http:\/\/portikus-check-[0-9a-f]{8}\.preview\.example\.edu\//,
+		);
+	});
+
+	test("DNS-01 probes the preview check name over https", async () => {
+		const nonces = new NonceStore();
+		const net = fakeNet(() => ["192.0.2.10"], honest, nonces);
+		await runPreflight({ config, net, nonces, mode: "dns01" });
+		const preview = net.urls.filter((u) => u.includes("portikus-check-"));
+		expect(preview[0]).toMatch(
+			/^https:\/\/portikus-check-[0-9a-f]{8}\.preview\.example\.edu:8443\//,
+		);
+	});
+
 	test("a name pointing elsewhere at one address fails reach", async () => {
 		const nonces = new NonceStore();
 		const net = fakeNet(
@@ -118,7 +140,11 @@ describe("NonceStore", () => {
 describe("systemNet.probe", () => {
 	let server: Server | undefined;
 	afterEach(
-		() => new Promise<void>((done) => (server ? server.close(() => done()) : done())),
+		() =>
+			new Promise<void>((done) => {
+				server?.closeAllConnections();
+				return server ? server.close(() => done()) : done();
+			}),
 	);
 
 	test("connects to the given address and sends the URL's host name", async () => {
@@ -132,6 +158,20 @@ describe("systemNet.probe", () => {
 		const body = await systemNet.probe(`http://site.invalid:${port}/x`, "127.0.0.1");
 		expect(body).toBe("abc");
 		expect(seen).toEqual([`site.invalid:${port}`]);
+	});
+
+	test("an oversized body that never ends answers null promptly", async () => {
+		server = createServer((_request, response) => {
+			response.writeHead(200);
+			response.write("x".repeat(1024));
+		});
+		await new Promise<void>((done) => server?.listen(0, "127.0.0.1", done));
+		const { port } = server.address() as AddressInfo;
+		const started = Date.now();
+		expect(
+			await systemNet.probe(`http://site.invalid:${port}/x`, "127.0.0.1"),
+		).toBeNull();
+		expect(Date.now() - started).toBeLessThan(2_000);
 	});
 
 	test("answers null when nothing listens", async () => {

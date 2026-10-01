@@ -504,7 +504,7 @@ describe.skipIf(skip)("GET /edge/certificate-ask", () => {
 			remoteAddress,
 		});
 
-	test("allows the site and existing workspaces' preview hosts only", async () => {
+	test("allows the site; a preview host with nothing listening is refused", async () => {
 		const ws = await send(alice, "POST", "/workspaces");
 		const { label } = await testDb.db
 			.selectFrom("workspaces")
@@ -512,8 +512,8 @@ describe.skipIf(skip)("GET /edge/certificate-ask", () => {
 			.where("id", "=", ws.json().id)
 			.executeTakeFirstOrThrow();
 		expect((await ask(SITE)).statusCode).toBe(200);
-		expect((await ask(`${label}-3000.preview.localhost`)).statusCode).toBe(200);
-		expect((await ask(`${label}-3000.PREVIEW.localhost`)).statusCode).toBe(200);
+		expect((await ask(`${label}-3000.preview.localhost`)).statusCode).toBe(404);
+		expect((await ask(`${label}-3000.PREVIEW.localhost`)).statusCode).toBe(404);
 		expect((await ask(`nobody-3000.preview.localhost`)).statusCode).toBe(404);
 		expect((await ask(`${label}-22.preview.localhost`)).statusCode).toBe(404);
 		expect((await ask(`x.${label}-3000.preview.localhost`)).statusCode).toBe(404);
