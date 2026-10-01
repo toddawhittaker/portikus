@@ -7,6 +7,7 @@ import {
 	openToggletip,
 	query,
 	settledAxe,
+	toast,
 	WCAG_TAGS,
 	WEB_ORIGIN,
 } from "./helpers";
@@ -789,12 +790,16 @@ test("the drift notice's button asks the API to swap the images and rebuild", as
 	await open(page);
 	const notice = page.getByTestId("docker-seed-drift");
 	await expect(notice).toContainText(
-		"The default workspace image runs Node 26 and Python 3.14; the seed list has node:24-slim and python:3.13-slim.",
+		"The default workspace image runs Node 26 and Python 3.14, but the seed list has node:24-slim and python:3.13-slim.",
 	);
-	await notice
-		.getByRole("button", { name: "Use node:26-slim and python:3.14-slim and rebuild" })
-		.click();
-	await expect(page.getByText("Seed list updated, rebuild requested")).toBeVisible();
+	// It sits under the heading of the list it changes.
+	await expect(
+		page
+			.getByRole("region", { name: /Images for the next rebuild/ })
+			.getByTestId("docker-seed-drift"),
+	).toBeVisible();
+	await notice.getByRole("button", { name: "Update list and rebuild" }).click();
+	await expect(toast(page, "Seed list updated, rebuild requested")).toBeVisible();
 	// The list reread holds the new images, so the notice goes.
 	await expect(notice).toHaveCount(0);
 	expect(posted).toBe(1);
@@ -817,7 +822,7 @@ test("over the size limit the drift notice says so and offers no button", async 
 	await open(page);
 	const notice = page.getByTestId("docker-seed-drift");
 	await expect(notice.getByTestId("docker-seed-drift-over")).toContainText(
-		"would take the seed past its 1 GiB limit, by estimated download size, so they are not added",
+		"would take the list past the 1.0 GB limit. That is an estimate from download sizes",
 	);
 	await expect(notice.getByRole("button")).toHaveCount(0);
 	expect(await seedList()).toEqual(["redis:7"]);

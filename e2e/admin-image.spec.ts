@@ -284,7 +284,7 @@ test("delete an old image: the confirmation counts its workspaces, then it is go
 	await expect(confirmDialog(page)).toContainText(
 		"2 workspaces were made from this image. They keep working",
 	);
-	await confirmDialog(page).getByRole("button", { name: "Delete" }).click();
+	await confirmDialog(page).getByRole("button", { name: "Delete image" }).click();
 
 	const { id, request } = await takeRequest();
 	expect(request).toEqual({ kind: "delete", version: NEWEST });
@@ -317,8 +317,8 @@ test("the default and the previous image cannot be deleted, in the page or the A
 }) => {
 	await open(page);
 	for (const [version, reason] of [
-		[CURRENT, "The default image cannot be deleted."],
-		[OLD, "The previous image is kept so you can roll back."],
+		[CURRENT, "The default image is never deleted."],
+		[OLD, "Kept so you can roll back."],
 	] as const) {
 		const button = page.getByRole("button", { name: `Delete: ${version}` });
 		await expect(button).toHaveAttribute("aria-disabled", "true");
@@ -346,10 +346,14 @@ test("shows each image's compressed size and the main disk's free space (issue #
 	});
 	await open(page);
 	await expect(page.getByTestId(`image-size-${CURRENT}`)).toHaveText("840 MB");
-	await expect(page.getByTestId(`image-size-${OLD}`)).toHaveText("Not measured yet");
-	await expect(page.getByTestId("image-disk-free")).toHaveText(
-		/^Free space on the main disk: [0-9.]+ [KMGT]?B of [0-9.]+ [KMGT]?B\.$/,
+	// A dash on screen, read out as "Not measured yet".
+	await expect(page.getByTestId(`image-size-${OLD}`)).toHaveText("—Not measured yet");
+	const disk = page.getByRole("meter", { name: "Main disk space" });
+	await expect(disk).toHaveAttribute(
+		"aria-valuetext",
+		/^[0-9.]+ [KMGT]?B of [0-9.]+ [KMGT]?B used, [0-9.]+ [KMGT]?B free$/,
 	);
+	await expect(page.getByTestId("image-disk-free")).toContainText(" free");
 });
 
 test("a second request while one waits is refused", async ({ page }) => {
