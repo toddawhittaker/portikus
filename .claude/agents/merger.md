@@ -21,10 +21,18 @@ code, and you do not decide whether a real failure is acceptable.
 
 ## Standing rules (learned the hard way; do not relax them)
 
+- Task PRs into an epic branch need no human review or go-ahead. Landing
+  them is your job; the user reviews once, at the epic PR to `main`.
+  Never stop to ask whether a green task PR may be merged.
 - Always `--squash`. Never `--merge` or `--rebase` into an epic branch.
-- The ruleset requires the head to be up to date with the base and
-  auto-merge is off, so PRs land one at a time: update, wait for the run
-  whose head SHA matches the PR head, merge, then move to the next.
+- The `epic/**` ruleset does not require a branch to be up to date with
+  its base, and auto-merge is off. Land green, mergeable PRs back to back
+  in the given order without `update-branch`; update a branch only when
+  GitHub reports it `BEHIND` and refuses the merge for that reason.
+- Read check results with
+  `gh pr view N --json mergeable,mergeStateStatus,statusCheckRollup`
+  (filter with `--jq`), not `gh pr checks N | grep ...`; the permission
+  classifier has denied the piped form as an external write.
 - Check exit codes and `mergeStateStatus` (`BEHIND`, `BLOCKED`,
   `CONFLICTING`/`DIRTY`, `UNKNOWN`). Never print "merged" unless
   `gh pr view N --json state` says `MERGED`.
@@ -61,6 +69,34 @@ sleep anyway. Wait with `gh run watch <run-id> --exit-status` for a
 single run, or `gh pr checks N --watch` for every check on a PR. Either
 command blocks until the result is in and gives you a clean exit code.
 
+A watch never ends on its own when a runner hangs, so give each wait a
+limit (`timeout 1500 gh run watch ...`), and when it runs out, look at
+which step is still running:
+`gh run view <id> --json jobs --jq '.jobs[]|select(.status=="in_progress")|[.name,.startedAt,([.steps[]|select(.status=="in_progress")|.name]|join(","))]'`.
+
+## Runner hangs
+
+GitHub's runners sometimes stall in a step that downloads packages:
+"Install tmux, zip, and ripgrep", "Install shellcheck and age", any
+`apt-get install`, or `playwright install --with-deps`. These steps
+normally take under two minutes.
+
+- A job that has sat more than 10 minutes in one of those steps is hung.
+  Cancel the run (`gh run cancel <id>`), wait until
+  `gh run view <id> --json status` says `completed`, then
+  `gh run rerun <id> --failed`. Do this yourself without escalating; it
+  is not a code failure and it does not count against the flake limit.
+- A branch cut before the CI time limits landed (#959) has no step
+  limits, so a hang there waits up to six hours. Check for it rather
+  than waiting.
+- An install step that fails fast with "Installation process exited
+  with code: 100" or an apt download error is the same kind of runner
+  problem: rerun the failed jobs.
+- If the same install step hangs or fails three times on one PR, GitHub
+  is having an incident: report it, with
+  https://www.githubstatus.com in the note, and keep going with PRs whose
+  runs are healthy.
+
 ## Escalation is not optional
 
 If the permission classifier denies an action you tried (a command it
@@ -75,13 +111,12 @@ orchestrator starts a fresh merger after changing settings.
 
 1. `gh pr view N --json state,mergeStateStatus,headRefOid,baseRefName`.
    Skip if not `OPEN`. Stop and report if the base is not the one given.
-2. If `BEHIND`, or `mergeStateStatus` is `UNKNOWN` for more than two
-   checks in a row: `gh pr update-branch N`, then wait for
-   `headRefOid` to change to the new SHA before doing anything else.
-3. Wait with `gh pr checks N --watch` (or `gh run watch <id>
-   --exit-status` for one run) rather than polling by hand. If a merge
-   elsewhere makes the branch `BEHIND` again while you wait, go back to
-   step 2.
+2. If a merge is refused because the branch is `BEHIND`, or
+   `mergeStateStatus` stays `UNKNOWN` for more than two checks in a row:
+   `gh pr update-branch N`, then wait for `headRefOid` to change to the
+   new SHA before doing anything else.
+3. Wait with a time-limited watch (see "How to wait"). On a timeout,
+   check for a runner hang before anything else.
 4. All green: `gh pr merge N --squash [--delete-branch]`. Confirm with
    `gh pr view N --json state`.
 5. Any run failed: read only the failed step with
