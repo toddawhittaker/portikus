@@ -297,6 +297,11 @@ export const CertificateSettings = z.discriminatedUnion("source", [
 export type CertificateSettings = z.infer<typeof CertificateSettings>;
 export type CertificateSource = CertificateSettings["source"];
 
+/**
+ * Job kinds. HTTP-01 tests and applies run in a throwaway Caddy listening on
+ * 127.0.0.1:8796; the live port-80 site block proxies
+ * /.well-known/acme-challenge/* there.
+ */
 export const CertificateJobKind = z.enum([
 	"test",
 	"apply",
