@@ -1,7 +1,9 @@
 import {
 	type DockerAdminResponse,
+	overSeedCap,
 	SEED_IMAGES_MAX,
 	type SeedJob,
+	seedDrift,
 } from "@portikus/contracts";
 import { Button, Meter, TextField, Toggletip, useToast } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,6 +17,7 @@ import { Notice } from "./Notice.js";
 import {
 	dockerKey,
 	isActive,
+	useMatchSeed,
 	useRebuildSeed,
 	useSaveDockerSettings,
 	useSaveSeedImages,
@@ -22,6 +25,7 @@ import {
 } from "./queries.js";
 import {
 	downloadSize,
+	driftText,
 	listSizeText,
 	parseSeedMaxGiB,
 	seedListError,
@@ -114,6 +118,7 @@ export function SeedCard({ data }: { data: DockerAdminResponse }) {
 			) : null}
 			<CurrentSeed data={data} />
 			<LatestRebuild job={latest} loaded={jobs.data !== undefined} />
+			<MatchNotice data={data} busy={busy} />
 			<ImageList data={data} error={listError} />
 			<SizeLimit data={data} />
 		</AdminGroup>
@@ -170,6 +175,68 @@ function CurrentSeed({ data }: { data: DockerAdminResponse }) {
 				</p>
 			)}
 		</section>
+	);
+}
+
+/**
+ * The seed list lacks the images matching the default workspace image
+ * (issue #932). One button swaps them in and rebuilds, unless the estimate
+ * says the seed would pass its limit; nothing changes without the click.
+ */
+function MatchNotice({ data, busy }: { data: DockerAdminResponse; busy: boolean }) {
+	const match = useMatchSeed();
+	const toast = useToast();
+	const text = driftText(data.seedImages, data.match);
+	const drift = data.match ? seedDrift(data.seedImages, data.match) : null;
+	if (!text || !drift) return null;
+	const over = overSeedCap(drift.next, data.imageSizes, data.seedMaxGiB);
+	const off = busy ? "A rebuild is waiting or running. Wait until it finishes." : null;
+
+	function update() {
+		if (off) return;
+		match.mutate(undefined, {
+			onSuccess: () =>
+				toast.show({ tone: "success", title: "Seed list updated, rebuild requested" }),
+			onError: (error) =>
+				toast.show({
+					tone: "danger",
+					title: "Could not update the seed",
+					children: errorText(error),
+				}),
+		});
+	}
+
+	return (
+		<Notice tone="warning" testId="docker-seed-drift">
+			<span className="grid gap-2">
+				<span>{text}</span>
+				{over ? (
+					<span data-testid="docker-seed-drift-over">
+						Adding {drift.missing.join(" and ")} would take the seed past its{" "}
+						{data.seedMaxGiB} GiB limit, by estimated download size, so they are not
+						added. Raise the limit or remove images first.
+					</span>
+				) : (
+					<span className="flex flex-wrap items-center gap-3">
+						<Button
+							size="sm"
+							data-testid="docker-seed-drift-apply"
+							aria-disabled={off ? true : undefined}
+							aria-describedby={off ? "docker-seed-drift-note" : undefined}
+							loading={match.isPending}
+							onClick={update}
+						>
+							Use {drift.missing.join(" and ")} and rebuild
+						</Button>
+						{off ? (
+							<span id="docker-seed-drift-note" className="pk-muted">
+								{off}
+							</span>
+						) : null}
+					</span>
+				)}
+			</span>
+		</Notice>
 	);
 }
 

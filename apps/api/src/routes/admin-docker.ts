@@ -10,7 +10,11 @@ import {
 	DockerSettingsRequest,
 	type DockerUsageResponse,
 	HubCredentialRequest,
+	ImageAliasesFile,
+	ImageManifest,
+	matchingSeedImages,
 	OTHER_IMAGES_LABEL,
+	overSeedCap,
 	type RegistryJobRequest,
 	type RegistryJobRequestFile,
 	RegistryStatusFile,
@@ -18,6 +22,8 @@ import {
 	SeedImagesRequest,
 	type SeedJob,
 	SeedJobState,
+	type SeedMatch,
+	seedDrift,
 	seedImageListFor,
 	USAGE_ROWS_MAX,
 	USAGE_WINDOW_DAYS,
@@ -25,6 +31,8 @@ import {
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { type Kysely, sql } from "kysely";
+import { imagesDirOf } from "../image/release-notices.js";
+import { readJson } from "../job-files.js";
 import type { ServerDeps } from "../server.js";
 import { sendError } from "./project-scope.js";
 
@@ -41,12 +49,19 @@ interface DockerSettings {
 	ghcrEnabled: boolean;
 	seedMaxGiB: number;
 	seedImages: string[];
+	/** False until an administrator first saves the list (issue #932). */
+	seedImagesSet: boolean;
 }
 
 async function readSettings(db: Kysely<Database>): Promise<DockerSettings> {
 	const row = await db
 		.selectFrom("settings")
-		.select(["docker_ghcr_enabled", "docker_seed_max_gib", "docker_seed_images"])
+		.select([
+			"docker_ghcr_enabled",
+			"docker_seed_max_gib",
+			"docker_seed_images",
+			"docker_seed_images_set",
+		])
 		.where("id", "=", 1)
 		.executeTakeFirst();
 	// The worker seeds the settings row; until then the column defaults apply.
@@ -54,7 +69,26 @@ async function readSettings(db: Kysely<Database>): Promise<DockerSettings> {
 		ghcrEnabled: row?.docker_ghcr_enabled ?? true,
 		seedMaxGiB: row?.docker_seed_max_gib ?? 8,
 		seedImages: SeedImageList.safeParse(row?.docker_seed_images).data ?? [],
+		seedImagesSet: row?.docker_seed_images_set ?? false,
 	};
+}
+
+/** The slim images matching the default workspace image, or null when its manifest is unreadable. */
+async function readMatch(imagesDir: string | null): Promise<SeedMatch | null> {
+	if (!imagesDir) return null;
+	const aliases = await readJson(join(imagesDir, "aliases.json"), ImageAliasesFile);
+	if (!aliases?.default) return null;
+	const manifest = await readJson(
+		join(imagesDir, aliases.default, "manifest.json"),
+		ImageManifest,
+	);
+	return manifest ? matchingSeedImages(manifest) : null;
+}
+
+function matchedImages(match: SeedMatch | null): string[] {
+	return [match?.node?.image, match?.python?.image].filter(
+		(each): each is string => each !== undefined,
+	);
 }
 
 type ImageSizes = NonNullable<RegistryStatusFile["imageSizes"]>;
@@ -99,7 +133,7 @@ async function readSeed(db: Kysely<Database>): Promise<DockerAdminResponse["seed
 	};
 }
 
-function jobView(row: {
+interface JobRow {
 	id: string;
 	state: string;
 	step: string;
@@ -107,7 +141,43 @@ function jobView(row: {
 	message: string | null;
 	requested_at: Date;
 	finished_at: Date | null;
-}): SeedJob {
+}
+
+function insertJob(
+	db: Kysely<Database>,
+	images: string[],
+	requestedBy: string,
+): Promise<JobRow> {
+	return db
+		.insertInto("docker_seed_jobs")
+		.values({ images: JSON.stringify(images), requested_by: requestedBy })
+		.returning([
+			"id",
+			"state",
+			"step",
+			"images",
+			"message",
+			"requested_at",
+			"finished_at",
+		])
+		.executeTakeFirstOrThrow();
+}
+
+/** The partial unique index allows one queued or running job. */
+function isUniqueViolation(e: unknown): boolean {
+	return (e as { code?: string }).code === "23505";
+}
+
+function jobRunning(reply: FastifyReply): void {
+	sendError(
+		reply,
+		409,
+		"SEED_JOB_RUNNING",
+		"A seed rebuild is already waiting or running.",
+	);
+}
+
+function jobView(row: JobRow): SeedJob {
 	return {
 		id: row.id,
 		state: SeedJobState.parse(row.state),
@@ -159,6 +229,7 @@ export function registerAdminDockerRoutes(
 	{ db, config }: ServerDeps,
 ): void {
 	const jobsDir = config.REGISTRY_JOBS_DIR;
+	const imagesDir = config.IMAGE_JOBS_DIR ? imagesDirOf(config.IMAGE_JOBS_DIR) : null;
 
 	function off(reply: FastifyReply): boolean {
 		if (jobsDir) return false;
@@ -185,7 +256,38 @@ export function registerAdminDockerRoutes(
 
 	app.get("/admin/docker", adminOnly, async (_request, reply) => {
 		if (off(reply) || !jobsDir) return;
-		const settings = await readSettings(db);
+		const match = await readMatch(imagesDir);
+		let settings = await readSettings(db);
+		const defaults = matchedImages(match);
+		if (
+			!settings.seedImagesSet &&
+			settings.seedImages.length === 0 &&
+			defaults.length > 0
+		) {
+			// The default seed for a list no administrator has set (ruling R4).
+			const applied = await db
+				.updateTable("settings")
+				.set({
+					docker_seed_images: JSON.stringify(defaults),
+					docker_seed_images_set: true,
+				})
+				.where("id", "=", 1)
+				.where("docker_seed_images_set", "=", false)
+				.executeTakeFirst();
+			if (Number(applied.numUpdatedRows) > 0) {
+				await db
+					.insertInto("audit_events")
+					.values({
+						actor: "platform",
+						target: "docker",
+						action: "docker.seed_images_defaulted",
+						result: "ok",
+						metadata: JSON.stringify({ to: defaults }),
+					})
+					.execute();
+			}
+			settings = await readSettings(db);
+		}
 		const status = await readStatus(join(jobsDir, "status.json"));
 		const seed = await readSeed(db);
 		const out: DockerAdminResponse = {
@@ -196,9 +298,10 @@ export function registerAdminDockerRoutes(
 			seedImages: settings.seedImages,
 			seed,
 			imageSizes: sizesOf(
-				[...settings.seedImages, ...(seed?.images ?? [])],
+				[...settings.seedImages, ...(seed?.images ?? []), ...defaults],
 				status?.imageSizes ?? {},
 			),
+			match,
 		};
 		return reply.header("cache-control", "no-store").send(out);
 	});
@@ -321,7 +424,10 @@ export function registerAdminDockerRoutes(
 		}
 		const updated = await db
 			.updateTable("settings")
-			.set({ docker_seed_images: JSON.stringify(allowed.data) })
+			.set({
+				docker_seed_images: JSON.stringify(allowed.data),
+				docker_seed_images_set: true,
+			})
 			.where("id", "=", 1)
 			.executeTakeFirst();
 		if (Number(updated.numUpdatedRows) === 0) return notReady(reply);
@@ -344,36 +450,88 @@ export function registerAdminDockerRoutes(
 				"Add at least one image before rebuilding the seed.",
 			);
 		}
-		const running = (): void =>
-			sendError(
-				reply,
-				409,
-				"SEED_JOB_RUNNING",
-				"A seed rebuild is already waiting or running.",
-			);
-		let row: Parameters<typeof jobView>[0];
+		let row: JobRow;
 		try {
-			row = await db
-				.insertInto("docker_seed_jobs")
-				.values({ images: JSON.stringify(seedImages), requested_by: admin.id })
-				.returning([
-					"id",
-					"state",
-					"step",
-					"images",
-					"message",
-					"requested_at",
-					"finished_at",
-				])
-				.executeTakeFirstOrThrow();
+			row = await insertJob(db, seedImages, admin.id);
 		} catch (e) {
-			// The partial unique index allows one queued or running job.
-			if ((e as { code?: string }).code === "23505") return running();
+			if (isUniqueViolation(e)) return jobRunning(reply);
 			throw e;
 		}
 		await audit(admin.id, "docker.seed_job_requested", {
 			jobId: row.id,
 			images: seedImages.length,
+		});
+		return reply.status(202).send(jobView(row));
+	});
+
+	// The drift notice's button (issue #932): swap the old matched tags for the
+	// default image's, then rebuild, both or neither.
+	app.post("/admin/docker/seed/match", adminOnly, async (request, reply) => {
+		if (off(reply) || !jobsDir) return;
+		const admin = requireUser(request);
+		const match = await readMatch(imagesDir);
+		if (!match) {
+			return sendError(
+				reply,
+				404,
+				"NOT_FOUND",
+				"The default workspace image's versions are not known.",
+			);
+		}
+		const { ghcrEnabled, seedImages, seedMaxGiB } = await readSettings(db);
+		const drift = seedDrift(seedImages, match);
+		if (!drift) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"The seed list already holds the images that match the workspace image.",
+			);
+		}
+		const status = await readStatus(join(jobsDir, "status.json"));
+		const sizes = sizesOf(drift.next, status?.imageSizes ?? {});
+		if (overSeedCap(drift.next, sizes, seedMaxGiB)) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				"The matching images would push the seed past its size limit, by estimated download size.",
+			);
+		}
+		const allowed = seedImageListFor(ghcrEnabled).safeParse(drift.next);
+		if (!allowed.success) {
+			return sendError(
+				reply,
+				400,
+				"VALIDATION_FAILED",
+				allowed.error.issues[0]?.message ?? "Invalid image list.",
+			);
+		}
+		let row: JobRow;
+		try {
+			row = await db.transaction().execute(async (trx) => {
+				await trx
+					.updateTable("settings")
+					.set({
+						docker_seed_images: JSON.stringify(allowed.data),
+						docker_seed_images_set: true,
+					})
+					.where("id", "=", 1)
+					.execute();
+				return insertJob(trx, allowed.data, admin.id);
+			});
+		} catch (e) {
+			if (isUniqueViolation(e)) return jobRunning(reply);
+			throw e;
+		}
+		await audit(admin.id, "docker.seed_images_changed", {
+			from: seedImages,
+			to: allowed.data,
+			reason: "match-image",
+		});
+		await audit(admin.id, "docker.seed_job_requested", {
+			jobId: row.id,
+			images: allowed.data.length,
 		});
 		return reply.status(202).send(jobView(row));
 	});

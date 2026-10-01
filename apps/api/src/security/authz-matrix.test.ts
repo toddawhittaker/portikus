@@ -112,6 +112,7 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/docker/cache/clear": 404,
 	"PUT /admin/docker/seed/images": 404,
 	"POST /admin/docker/seed/jobs": 404,
+	"POST /admin/docker/seed/match": 404,
 	"GET /admin/docker/seed/jobs": 404,
 	"HEAD /admin/docker/seed/jobs": 404,
 	"GET /admin/docker/usage": 404,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ImageManifest } from "./image.js";
 
 /**
  * Shared Docker pull storage (issue #840): a pull-through registry cache on
@@ -115,6 +116,123 @@ export function seedImageListFor(ghcrEnabled: boolean) {
 		(list) => ghcrEnabled || !list.some((name) => name.startsWith("ghcr.io/")),
 		{ message: "Turn on the ghcr.io cache before seeding ghcr.io images" },
 	);
+}
+
+// ---------------------------------------------------------------------------
+// Seed images that match the workspace image (issue #932, ruling R4)
+// ---------------------------------------------------------------------------
+
+/** The languages whose official slim images follow the workspace image. */
+export const MATCHED_LANGUAGES = ["node", "python"] as const;
+export type MatchedLanguage = (typeof MATCHED_LANGUAGES)[number];
+
+/**
+ * Rough download sizes of a slim image, used only when the pull cache has
+ * not held it yet (issue #932: about 200 MB for Node, 130 MB for Python).
+ */
+export const SLIM_ESTIMATE_BYTES: Record<MatchedLanguage, number> = {
+	node: 200 * 1000 ** 2,
+	python: 130 * 1000 ** 2,
+};
+
+/** One language's match: the version as people say it ("24", "3.14") and its tag. */
+export const MatchedImage = z.object({
+	version: z.string().min(1).max(20),
+	image: z.string().min(1).max(SEED_IMAGE_MAX_LENGTH),
+});
+export type MatchedImage = z.infer<typeof MatchedImage>;
+
+export const SeedMatch = z.object({
+	node: MatchedImage.nullable(),
+	python: MatchedImage.nullable(),
+});
+export type SeedMatch = z.infer<typeof SeedMatch>;
+
+/**
+ * The official slim images matching an image's Node (major) and Python
+ * (major.minor). With uv 3.14 the image's newest Python is 3.14; otherwise
+ * Debian's `python3`. A version that cannot be read gives nothing.
+ */
+export function matchingSeedImages(
+	manifest: Pick<ImageManifest, "parameters" | "tools">,
+): SeedMatch {
+	const node = /^v(\d+)\./.exec(manifest.tools.node ?? "")?.[1];
+	const python =
+		manifest.parameters.python === "uv-3.14"
+			? "3.14"
+			: /^Python (\d+\.\d+)\./.exec(manifest.tools.python3 ?? "")?.[1];
+	return {
+		node: node ? { version: node, image: `node:${node}-slim` } : null,
+		python: python ? { version: python, image: `python:${python}-slim` } : null,
+	};
+}
+
+const MATCHED_TAG: Record<MatchedLanguage, RegExp> = {
+	node: /^docker\.io\/library\/node:\d+-slim$/,
+	python: /^docker\.io\/library\/python:\d+\.\d+-slim$/,
+};
+
+/** Whether a seed name is a version-matched slim image for the language. */
+export function isMatchedTag(name: string, language: MatchedLanguage): boolean {
+	return MATCHED_TAG[language].test(canonicalImageName(name));
+}
+
+/** The matched images missing from the seed list, the old ones to drop, and the new list. */
+export interface SeedDrift {
+	missing: string[];
+	old: string[];
+	next: string[];
+}
+
+/**
+ * How far `list` is from `match`, or null when it holds every matched image.
+ * Only a language whose match is missing has its other matched tags
+ * replaced; the rest of the list keeps its order.
+ */
+export function seedDrift(list: readonly string[], match: SeedMatch): SeedDrift | null {
+	const has = (image: string): boolean =>
+		list.some((each) => canonicalImageName(each) === canonicalImageName(image));
+	const missing: string[] = [];
+	const old: string[] = [];
+	for (const language of MATCHED_LANGUAGES) {
+		const want = match[language];
+		if (!want || has(want.image)) continue;
+		missing.push(want.image);
+		old.push(...list.filter((each) => isMatchedTag(each, language)));
+	}
+	if (missing.length === 0) return null;
+	return {
+		missing,
+		old,
+		next: [...list.filter((each) => !old.includes(each)), ...missing],
+	};
+}
+
+/**
+ * A list's estimated download in bytes: the pull cache's size where known,
+ * the slim estimate for a matched tag it has not held, else nothing.
+ */
+export function estimatedListBytes(
+	list: readonly string[],
+	sizes: Record<string, number>,
+): number {
+	let total = 0;
+	for (const name of list) {
+		const known = sizes[canonicalImageName(name)];
+		if (known !== undefined) total += known;
+		else if (isMatchedTag(name, "node")) total += SLIM_ESTIMATE_BYTES.node;
+		else if (isMatchedTag(name, "python")) total += SLIM_ESTIMATE_BYTES.python;
+	}
+	return total;
+}
+
+/** Whether a list's estimated download goes past the seed's limit. */
+export function overSeedCap(
+	list: readonly string[],
+	sizes: Record<string, number>,
+	seedMaxGiB: number,
+): boolean {
+	return estimatedListBytes(list, sizes) > seedMaxGiB * 1024 ** 3;
 }
 
 // ---------------------------------------------------------------------------
@@ -265,6 +383,11 @@ export const DockerAdminResponse = z.object({
 		z.string().max(SEED_IMAGE_MAX_LENGTH),
 		z.number().int().nonnegative(),
 	),
+	/**
+	 * The slim images matching the default workspace image (issue #932), or
+	 * null when no image manifest can be read. `imageSizes` covers them too.
+	 */
+	match: SeedMatch.nullable(),
 });
 export type DockerAdminResponse = z.infer<typeof DockerAdminResponse>;
 

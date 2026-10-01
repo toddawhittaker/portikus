@@ -277,6 +277,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/docker/cache/clear": { access: "admin" },
 	"PUT /admin/docker/seed/images": { access: "admin" },
 	"POST /admin/docker/seed/jobs": { access: "admin" },
+	"POST /admin/docker/seed/match": { access: "admin" },
 	"GET /admin/docker/seed/jobs": { access: "admin" },
 	"HEAD /admin/docker/seed/jobs": { access: "admin" },
 	"GET /admin/docker/usage": { access: "admin" },

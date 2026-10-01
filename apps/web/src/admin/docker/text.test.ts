@@ -7,6 +7,7 @@ import {
 	clearErrorText,
 	credentialErrors,
 	downloadSize,
+	driftText,
 	listHas,
 	listSizeText,
 	parseSeedMaxGiB,
@@ -178,4 +179,23 @@ test("the meters' figures: the seed against its limit, the cache's auto-clear ti
 		updatedAt: "2026-09-30T10:00:00.000Z",
 	};
 	expect(autoClearBytes(cache)).toBe(18 * 1024 ** 3);
+});
+
+const MATCH_26_314 = {
+	node: { version: "26", image: "node:26-slim" },
+	python: { version: "3.14", image: "python:3.14-slim" },
+};
+
+test("the drift sentence names the image's versions and the old tags (issue #932)", () => {
+	expect(driftText(["node:24-slim", "redis:7", "python:3.13-slim"], MATCH_26_314)).toBe(
+		"The default workspace image runs Node 26 and Python 3.14; the seed list has node:24-slim and python:3.13-slim.",
+	);
+	expect(driftText(["redis:7", "python:3.14-slim"], MATCH_26_314)).toBe(
+		"The default workspace image runs Node 26; the seed list does not have node:26-slim.",
+	);
+});
+
+test("no drift sentence when the list matches or no image is known", () => {
+	expect(driftText(["node:26-slim", "python:3.14-slim"], MATCH_26_314)).toBeNull();
+	expect(driftText(["node:24-slim"], null)).toBeNull();
 });
