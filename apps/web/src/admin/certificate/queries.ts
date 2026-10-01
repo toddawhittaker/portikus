@@ -32,8 +32,12 @@ export function useAdminCertificate() {
 	});
 }
 
-/** One job's status and the tail of its log. */
-export function useCertificateJob(id: string) {
+/**
+ * One job's status and the tail of its log. Until the first answer arrives,
+ * `pageState` (the job's state on the page) decides the polling, so a first
+ * 404 does not freeze the log of a job that is still running.
+ */
+export function useCertificateJob(id: string, pageState: CertificateJobState) {
 	return useQuery({
 		queryKey: [...certificateKey, "job", id],
 		queryFn: () =>
@@ -42,7 +46,7 @@ export function useCertificateJob(id: string) {
 				`/admin/certificate/jobs/${encodeURIComponent(id)}`,
 			),
 		refetchInterval: (query) =>
-			isActive(query.state.data?.job.state) ? CERTIFICATE_POLL_MS : false,
+			isActive(query.state.data?.job.state ?? pageState) ? CERTIFICATE_POLL_MS : false,
 	});
 }
 
@@ -58,9 +62,11 @@ export function usePreflight() {
 	});
 }
 
+/** A request may carry secrets: the caller resets it once done, and gcTime 0 drops it from the cache then. */
 export function useRequestCertificateJob() {
 	const client = useQueryClient();
 	return useMutation({
+		gcTime: 0,
 		mutationFn: (body: CertificateJobRequest) =>
 			request(CertificateJobView, "/admin/certificate/jobs", {
 				method: "POST",

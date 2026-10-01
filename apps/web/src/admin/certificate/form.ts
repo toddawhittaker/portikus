@@ -82,12 +82,18 @@ export const PROVIDER_LABEL: Record<DnsProvider, string> = {
 
 export const PROVIDERS = Object.keys(DNS_PROVIDER_FIELDS) as DnsProvider[];
 
-const FIELD_LABEL: Record<string, string> = {
+type ProviderFields = (typeof DNS_PROVIDER_FIELDS)[DnsProvider];
+/** Every field name any provider asks for. */
+export type ProviderField =
+	| ProviderFields["plain"][number]
+	| ProviderFields["secret"][number];
+
+// Typed from the contract, so a new provider field fails the build until it has a label.
+const FIELD_LABEL: Record<ProviderField, string> = {
 	api_token: "API token",
 	region: "Region",
 	access_key_id: "Access key ID",
 	secret_access_key: "Secret access key",
-	auth_token: "API token",
 	endpoint: "Endpoint",
 	application_key: "Application key",
 	application_secret: "Application secret",
@@ -104,12 +110,8 @@ const FIELD_LABEL: Record<string, string> = {
 	client_secret: "Client secret",
 };
 
-/** A provider field's label; a name the table does not know yet reads as words. */
-export function fieldLabel(name: string): string {
-	const known = FIELD_LABEL[name];
-	if (known) return known;
-	const words = name.replace(/_/g, " ");
-	return words.charAt(0).toUpperCase() + words.slice(1);
+export function fieldLabel(name: ProviderField): string {
+	return FIELD_LABEL[name];
 }
 
 export const PREFLIGHT_LABEL: Record<PreflightCheck["name"], string> = {
@@ -266,7 +268,7 @@ const MAX_SECRET = 1024;
  * is one line.
  */
 export function secretProblem(
-	name: string,
+	name: ProviderField,
 	value: string,
 	stored: boolean,
 ): string | null {
@@ -306,6 +308,29 @@ export function uploadRefusalText(message: string): string {
 		const label = CHECK_LABEL[id as CertificateUploadCheck];
 		return label ? `failed the check "${label}".` : whole;
 	});
+}
+
+/** The file each upload check reads, so a refusal shows under that field. */
+const CHECK_PART: Record<CertificateUploadCheck, keyof UploadDraft> = {
+	"certificate-readable": "certificate",
+	"key-readable": "privateKey",
+	"key-matches": "privateKey",
+	"chain-complete": "chain",
+	"dates-valid": "certificate",
+	"names-cover": "certificate",
+};
+
+/**
+ * The file field a refused upload points at, from the API's "Site
+ * certificate: the key-matches check failed." message, or null.
+ */
+export function uploadRefusalField(message: string): string | null {
+	const found = /^(Site|Preview) certificate: the ([a-z-]+) check failed\./.exec(
+		message,
+	);
+	const part = found ? CHECK_PART[found[2] as CertificateUploadCheck] : undefined;
+	if (!found || !part) return null;
+	return FIELD_ID.upload(found[1] === "Site" ? "site" : "preview", part);
 }
 
 /** Why a chosen file cannot be used, or null. "" means no file was chosen. */

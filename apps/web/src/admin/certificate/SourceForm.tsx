@@ -44,6 +44,7 @@ import {
 	testIsReal,
 	toSettings,
 	type UploadDraft,
+	uploadRefusalField,
 	uploadRefusalText,
 	validate,
 	withPlain,
@@ -101,6 +102,15 @@ export function SourceForm({ data, busy }: { data: AdminCertificate; busy: boole
 	// File inputs keep their own choice; a new key empties them after an apply.
 	const [uploadKey, setUploadKey] = useState(0);
 	const focusError = useRef(false);
+	// New settings in force (an apply or roll back finished): start the form from them.
+	const [shownSettings, setShownSettings] = useState(settings);
+	if (shownSettings !== settings) {
+		setShownSettings(settings);
+		setFormState(initialForm(settings));
+		setErrors({});
+		setChecks(null);
+		setFailure(null);
+	}
 
 	useEffect(() => {
 		if (!focusError.current) return;
@@ -158,15 +168,21 @@ export function SourceForm({ data, busy }: { data: AdminCertificate; busy: boole
 					title: body.kind === "test" ? "Test requested" : "Change requested",
 				});
 				done();
+				// The request held the secrets; the mutation must not keep them.
+				ask.reset();
 			},
 			// The API names the upload check that failed (Epic 27 R9).
 			onError: (error) => {
-				setFailure(
-					error instanceof ApiError && error.code === "CERTIFICATE_UPLOAD_REFUSED"
-						? uploadRefusalText(error.message)
-						: errorText(error),
-				);
+				if (error instanceof ApiError && error.code === "CERTIFICATE_UPLOAD_REFUSED") {
+					const text = uploadRefusalText(error.message);
+					const field = uploadRefusalField(error.message);
+					setFailure(text);
+					if (field) setErrors({ [field]: text });
+				} else {
+					setFailure(errorText(error));
+				}
 				done();
+				ask.reset();
 			},
 		});
 	}
@@ -434,22 +450,30 @@ function Choice<T extends string>({
 	return (
 		<fieldset className="m-0 grid gap-2 border-0 p-0">
 			<legend className="mb-2 p-0 font-medium text-[13px] text-ink">{legend}</legend>
-			{choices.map((choice) => (
-				<label key={choice.value} className="flex items-start gap-2 text-[13px]">
-					<input
-						type="radio"
-						name={name}
-						className="pk-focus-ring mt-0.5"
-						checked={value === choice.value}
-						data-testid={`${name}-${choice.value}`}
-						onChange={() => onChange(choice.value)}
-					/>
-					<span>
-						{choice.label}
-						<span className="block text-ink-muted">{choice.text}</span>
-					</span>
-				</label>
-			))}
+			{choices.map((choice) => {
+				const id = `${name}-${choice.value}`;
+				// The whole row stays clickable; the name is the short label, the sentence its description.
+				return (
+					<label key={choice.value} className="flex items-start gap-2 text-[13px]">
+						<input
+							type="radio"
+							name={name}
+							className="pk-focus-ring mt-0.5"
+							checked={value === choice.value}
+							data-testid={id}
+							aria-labelledby={`${id}-label`}
+							aria-describedby={`${id}-text`}
+							onChange={() => onChange(choice.value)}
+						/>
+						<span>
+							<span id={`${id}-label`}>{choice.label}</span>
+							<span className="block text-ink-muted" id={`${id}-text`}>
+								{choice.text}
+							</span>
+						</span>
+					</label>
+				);
+			})}
 		</fieldset>
 	);
 }
@@ -772,7 +796,12 @@ function FileField({
 				}}
 			/>
 			{shown ? (
-				<p className="m-0 text-[12px] text-status-error leading-4" id={`${id}-err`}>
+				<p
+					className="m-0 text-[12px] text-status-error leading-4"
+					id={`${id}-err`}
+					// A problem found on picking is read out at once (SPEC.md section 25.8).
+					role={problem ? "alert" : undefined}
+				>
 					{shown}
 				</p>
 			) : null}
