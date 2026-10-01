@@ -1,0 +1,60 @@
+---
+# One Go build in a scratch directory that is always removed afterwards,
+# shared by the caddy, dex and image_builder roles (docs/adr/0004).  Each
+# command writes its output outside the scratch directory.  Callers use
+# import_tasks by path, so the tasks keep the caller's tags and conditions.
+#
+#   go_build_name      names the scratch directory and the tasks
+#   go_build_commands  argv lists, run in order; go_build_dir is the scratch path
+#   go_build_chdir     where they run (default the scratch directory)
+#   go_build_gobin     GOBIN (default <scratch>/bin)
+
+# Trixie's Go is only the bootstrap: GOTOOLCHAIN=auto fetches the version
+# go.mod names, verified against Go's checksum database (docs/adr/0004).
+- name: Install Go
+  ansible.builtin.apt:
+    name: golang-go
+    state: present
+
+- name: Create the Go build directory
+  ansible.builtin.file:
+    path: /root/go
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Build {{ go_build_name }}
+  block:
+    # Several GiB of module and build cache, removed after the build.
+    - name: Make a scratch directory for the Go caches of {{ go_build_name }}
+      ansible.builtin.tempfile:
+        state: directory
+        path: /root/go
+        prefix: "{{ go_build_name }}-build-"
+      register: go_build_tmp
+
+    - name: Name the scratch directory of {{ go_build_name }}
+      ansible.builtin.set_fact:
+        go_build_dir: "{{ go_build_tmp.path }}"
+
+    - name: Compile {{ go_build_name }}
+      ansible.builtin.command:
+        argv: "{{ item }}"
+        chdir: "{{ go_build_chdir | default(go_build_dir) }}"
+      environment:
+        GOBIN: "{{ go_build_gobin | default(go_build_dir ~ '/bin') }}"
+        GOPATH: "{{ go_build_dir }}"
+        GOCACHE: "{{ go_build_dir }}/cache"
+        GOMODCACHE: "{{ go_build_dir }}/pkg/mod"
+        GOFLAGS: -buildvcs=false
+        GOTOOLCHAIN: auto
+      loop: "{{ go_build_commands }}"
+      changed_when: true
+
+  always:
+    - name: Remove the Go caches of {{ go_build_name }}
+      ansible.builtin.file:
+        path: "{{ go_build_tmp.path }}"
+        state: absent
+      when: go_build_tmp.path is defined

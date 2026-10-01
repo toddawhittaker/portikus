@@ -6,12 +6,11 @@
 - name: Install and run Dex
   when: portikus_idp == 'dex'
   block:
-    # The role installs its own toolchain so it does not depend on image_builder
+    # Go comes with go_build, so this does not depend on image_builder
     # running first.  Dex links SQLite through cgo, hence build-essential.
     - name: Install the Dex build prerequisites
       ansible.builtin.apt:
         name:
-          - golang-go
           - git
           - build-essential
         state: present
@@ -81,37 +80,20 @@
               - dex_checked_out.stdout | trim == dex_commit
             fail_msg: "Checked out {{ dex_checked_out.stdout }}, expected {{ dex_commit }}."
 
-        # Several GiB of module and build cache, removed after the build below.
-        - name: Make a scratch directory for the Go caches
-          ansible.builtin.tempfile:
-            state: directory
-            path: /root/go
-            prefix: dex-build-
-          register: dex_go_tmp
-
         - name: Remove a half-built binary from an earlier failed run
           ansible.builtin.file:
             path: /usr/local/bin/dex.new
             state: absent
 
-        # The same environment as distrobuilder (ADR 0004).  GOTOOLCHAIN=auto
-        # fetches the Go version go.mod names, verified against Go's checksum
-        # database; go.sum verifies every module.  A failure here stops the
-        # play with the old binary and marker still in place.
+        # go.sum verifies every module.  A failure here stops the play with
+        # the old binary and marker still in place.
         - name: Compile Dex
-          ansible.builtin.command:
-            cmd: >-
-              go build -trimpath
-              -ldflags "-w -X main.version={{ dex_version }}"
-              -o /usr/local/bin/dex.new ./cmd/dex
-            chdir: "{{ dex_src_dir }}"
-          environment:
-            GOPATH: "{{ dex_go_tmp.path }}"
-            GOCACHE: "{{ dex_go_tmp.path }}/cache"
-            GOMODCACHE: "{{ dex_go_tmp.path }}/pkg/mod"
-            GOFLAGS: -buildvcs=false
-            GOTOOLCHAIN: auto
-          changed_when: true
+          ansible.builtin.import_tasks: ../../go_build/tasks/main.yml
+          vars:
+            go_build_name: dex
+            go_build_chdir: "{{ dex_src_dir }}"
+            go_build_commands:
+              - [go, build, -trimpath, -ldflags, "-w -X main.version={{ dex_version }}", -o, /usr/local/bin/dex.new, ./cmd/dex]
 
         - name: Check that the new binary reports the pinned version
           ansible.builtin.command:
@@ -167,13 +149,6 @@
             owner: root
             group: root
             mode: "0644"
-
-      always:
-        - name: Remove the Go caches of the Dex build
-          ansible.builtin.file:
-            path: "{{ dex_go_tmp.path }}"
-            state: absent
-          when: dex_go_tmp.path is defined
 
     # The Portikus theme and template patches, re-applied after every build.
     - name: Install the Portikus look for the Dex pages

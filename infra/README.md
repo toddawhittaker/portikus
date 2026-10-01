@@ -408,8 +408,7 @@ docs/OPERATIONS.md, "Sign-in providers", which says how to register Dex
 with each provider and which settings to pass. Only the chosen provider
 runs. Ansible stops and disables the other and removes its configuration
 and secrets, and Caddy answers `/dex` or `/mock-idp` with 404 when it is
-not the provider. The old `PORTIKUS_MOCK_IDP=true` is refused with a
-message; use `PORTIKUS_IDP=mock`.
+not the provider.
 
 The settings, all read from the environment by `make configure-vm`:
 

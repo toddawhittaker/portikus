@@ -145,6 +145,7 @@ mkdir -p "$lib"
 cp "${repo}/infra/host/backup.sh" "${lib}/portikus-backup"
 cp "${repo}/infra/host/portikus-backup-export" "${lib}/portikus-backup-export"
 cp "${repo}/infra/host/portikus-backup-mac" "${lib}/portikus-backup-mac"
+cp "${repo}/infra/host/portikus-backup-lib.sh" "${lib}/portikus-backup-lib.sh"
 mkdir -p "$sets"
 chmod 0700 "$backups"
 run_backup() {

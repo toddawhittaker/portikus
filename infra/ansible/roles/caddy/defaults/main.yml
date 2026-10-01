@@ -10,3 +10,5 @@ caddy_admin_socket: /var/lib/caddy/admin.sock
 caddy_certificate_job: /usr/lib/portikus/certificate-job
 # The release package; amd64 is the only architecture Portikus supports.
 caddy_deb: "caddy_{{ caddy_version | regex_replace('^v', '') }}_linux_amd64.deb"
+# The xcaddy build, checked here before it replaces /usr/bin/caddy.
+caddy_build_output: /root/go/caddy.new

@@ -58,6 +58,8 @@ MAX_VOLUMES=8000
 # The VM half, sent with every command rather than installed on the VM.
 EXPORT_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-export"
 MAC_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-mac"
+# shellcheck source=/dev/null
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-lib.sh"
 SET_PATTERN='^[0-9]{8}T[0-9]{6}Z$'
 # The VM is not trusted: everything it says must match one of these before
 # it reaches a file name or the MANIFEST (restore.sh checks the same forms).
@@ -253,13 +255,9 @@ if [ ! -d "$BACKUP_DIR" ] || [ ! -w "$BACKUP_DIR" ]; then
   die "${BACKUP_DIR} is missing or not writable (make backup creates it)"
 fi
 
-vm() { ssh -n -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=4 "deploy@${VM}" "$@"; }
 if [ "$local_mode" = yes ]; then
   [ "$(id -u)" = 0 ] || die "--local must run as root"
-  # The same commands as over SSH, run here; this is already root, so sudo is a no-op.
-  sudo() { "$@"; }
-  export -f sudo
-  vm() { bash -c "$*" </dev/null; }
+  use_local_vm
 fi
 # Base64 keeps the script intact through the remote shell, whatever it is.
 export_b64=$(base64 -w0 "$EXPORT_SCRIPT")
