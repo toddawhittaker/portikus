@@ -3785,7 +3785,8 @@ Gaps:
 Built on `epic/28-fix-batch` for issues #928, #931 to #934, #936, #955,
 #957 and #959 and five backlog items (plan #960, task PRs #961 to #970,
 review fixes #971 to #974, #977, #980 and #984, UI review fixes #976 and
-#979, accessibility fixes #982, test and CI fixes #981 and #983, merger
+#979, accessibility fixes #982, test and CI fixes #981 and #983, a
+refusal-message fix #985, merger
 rules #975, this fold #978).
 Migrations 0034 and 0035. SPEC.md sections 3, 6.4, 14.5, 16.6, 19.4,
 22.4, 24.5, 25.8 and 29, and ADR 0045.
@@ -3857,7 +3858,8 @@ undone at start, the old import line and old template copy are removed
 while the student's lines are kept, and a start with `/etc/claude-code`
 broken still works. The #936 checks passed: 2026.09.12 was deleted, a
 workspace built from it still starts, and the default and previous images
-are refused by both the API and the job. Smoke test: 238 passed, 0
+are refused by both the API and the job. The pilot run found a doubled
+period in the image refusal messages, fixed in #985. Smoke test: 238 passed, 0
 failed.
 
 Gaps:
