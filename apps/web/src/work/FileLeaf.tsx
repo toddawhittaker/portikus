@@ -21,7 +21,7 @@ import {
 	useSaveFile,
 } from "../files/queries.js";
 import { viewerKind } from "../files/viewable.js";
-import { useEditorViewState } from "../layout/store.js";
+import { type PendingView, useEditorViewState } from "../layout/store.js";
 import { formatBytes } from "../monitor/format.js";
 import { DiffLeaf } from "./DiffLeaf.js";
 import { ImageView, PdfView } from "./FileViewer.js";
@@ -86,18 +86,10 @@ export interface FileLeafProps {
 	projectId: string;
 	/** Close this tab: offered when the file is gone (SPEC.md §13.3). */
 	onClose: () => void;
-	/** The line this tab was last asked to open at, or undefined for none. */
-	pendingLine?: number;
-	/** Take that line from the layout store, so it is acted on only once. */
-	consumePendingLine?: () => number | undefined;
-	/** Counts the times this tab was asked to show its diff (issue #160). */
-	pendingDiff?: number;
-	/** Take that request from the layout store, so it is acted on once. */
-	consumePendingDiff?: () => boolean;
-	/** Counts the times this tab was asked to show the editor again. */
-	pendingEdit?: number;
-	/** Take that request from the layout store, so it is acted on once. */
-	consumePendingEdit?: () => boolean;
+	/** What this tab was last asked to show: diff or editor, maybe at a line. */
+	pendingView?: PendingView;
+	/** Take that request from the layout store, so it is acted on only once. */
+	consumePendingView?: () => PendingView | undefined;
 	/** False while this tab is in the background. */
 	visible?: boolean;
 	/** Tells the tab strip whether this file has unsaved edits (issue #240). */
@@ -111,12 +103,8 @@ export function FileLeaf({
 	workspaceId,
 	projectId,
 	onClose,
-	pendingLine,
-	consumePendingLine,
-	pendingDiff,
-	consumePendingDiff,
-	pendingEdit,
-	consumePendingEdit,
+	pendingView,
+	consumePendingView,
 	visible = true,
 	onUnsavedChange,
 	baseline,
@@ -211,39 +199,26 @@ export function FileLeaf({
 	// editor would see its own text as someone else's edit (issue #157).
 	const sent = useRef<string[]>([]);
 
-	// A file can be opened at a line again while its tab is already there, so
-	// the pending line is taken every time the store gets a new one, not only
-	// on mount. The nonce makes a repeat of the same line a new request.
+	// A file can be opened again while its tab is already there, so the
+	// request is taken every time the store gets a new one, not only on mount.
+	// Clicking a file in the Changes list shows its diff; opening it from the
+	// tree or a terminal link takes the tab back to the editor. The nonce
+	// makes a repeat of the same line a new jump.
 	const [reveal, setReveal] = useState<{ line: number; nonce: number } | null>(null);
 	const [revealReady, setRevealReady] = useState(false);
-	const consume = useRef(consumePendingLine);
-	consume.current = consumePendingLine;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: pendingLine is the trigger
+	const consume = useRef(consumePendingView);
+	consume.current = consumePendingView;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the request's seq is the trigger
 	useEffect(() => {
-		const line = consume.current?.();
+		const request = consume.current?.();
+		const line = request?.line;
 		if (line !== undefined) {
 			setReveal((current) => ({ line, nonce: (current?.nonce ?? 0) + 1 }));
 		}
+		if (request?.mode === "diff") setView("diff");
+		else if (request?.mode === "edit") setView(firstView);
 		setRevealReady(true);
-	}, [pendingLine]);
-
-	// Clicking a file in the Changes list puts its tab in diff view, whether
-	// the tab was already open or not, so one path never has two tabs.
-	const consumeDiff = useRef(consumePendingDiff);
-	consumeDiff.current = consumePendingDiff;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: pendingDiff is the trigger
-	useEffect(() => {
-		if (consumeDiff.current?.()) setView("diff");
-	}, [pendingDiff]);
-
-	// Opening the file again from the tree or a terminal link takes a tab that
-	// was left in diff view back to the editor.
-	const consumeEdit = useRef(consumePendingEdit);
-	consumeEdit.current = consumePendingEdit;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: pendingEdit is the trigger
-	useEffect(() => {
-		if (consumeEdit.current?.()) setView(firstView);
-	}, [pendingEdit]);
+	}, [pendingView?.seq]);
 
 	// The save reads the newest text and etag, not the ones captured when the
 	// timer was set.
