@@ -893,6 +893,20 @@ class Hardening(JobTest):
         self.assertEqual(self.fake.ran("systemctl", "restart", "caddy")[-1], ["systemctl", "restart", "caddy"])
 
 
+class DefinitiveRefusals(unittest.TestCase):
+    def test_refusals_no_retry_can_fix(self):
+        for message in ("HTTP 403 urn:ietf:params:acme:error:unauthorized - EAB key mismatch",
+                        "urn:ietf:params:acme:error:rejectedIdentifier: name not allowed",
+                        "HTTP 403: [{Code:9109 Message:Invalid access token}]",
+                        "urn:ietf:params:acme:error:externalAccountRequired"):
+            self.assertTrue(cj.definitive_refusal(message), message)
+
+    def test_passing_trouble_is_retried(self):
+        for message in ("HTTP 400 urn:ietf:params:acme:error:connection - connection refused",
+                        "urn:ietf:params:acme:error:rateLimited", "context deadline exceeded"):
+            self.assertFalse(cj.definitive_refusal(message), message)
+
+
 class RenewalChoice(unittest.TestCase):
     def test_an_open_failure_wins_then_the_site(self):
         ev = [{"ok": True, "at": "2026-09-30T01:00:00Z", "name": SITE, "message": ""},

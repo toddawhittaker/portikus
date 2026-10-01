@@ -716,7 +716,7 @@ jobs:
         with:
           path: ~/.cache/pebble-2.10.1
           key: pebble-2.10.1-linux-amd64
-      # About two minutes: the job's unit tests, then HTTP-01, on-demand previews
+      # About 25 seconds: the job's unit tests, then HTTP-01, on-demand previews
       # and EAB against Pebble with the cached Caddy (ADR 0046).
       - name: Certificate job
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'

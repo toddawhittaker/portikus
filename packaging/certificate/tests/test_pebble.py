@@ -43,10 +43,19 @@ ID2 = "1b8d7c1e-3f4a-4b5c-8d9e-0f1a2b3c4d5e"
 USER = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
 
 
-def free_port(kind=socket.SOCK_STREAM):
-    with socket.socket(socket.AF_INET, kind) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def free_ports(count, kind=socket.SOCK_STREAM):
+    """count different free ports. All are held open until all are chosen: ports chosen one at a
+    time can repeat, which once sent the challenge to Pebble's own API port."""
+    sockets = []
+    try:
+        for _ in range(count):
+            s = socket.socket(socket.AF_INET, kind)
+            sockets.append(s)
+            s.bind(("127.0.0.1", 0))
+        return [s.getsockname()[1] for s in sockets]
+    finally:
+        for s in sockets:
+            s.close()
 
 
 def wait_for_port(port, seconds=20):
@@ -88,9 +97,9 @@ class Pebble(unittest.TestCase):
                         "-keyout", f"{d}/listener.key", "-out", f"{d}/listener.crt", "-subj", "/CN=pebble",
                         "-days", "30", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1"],
                        check=True, capture_output=True)
-        cls.ports = {name: free_port() for name in ("acme", "management", "http", "tls", "challtest", "https",
-                                                   "ask", "challenge")}
-        cls.ports["dns"] = free_port(socket.SOCK_DGRAM)
+        names = ("acme", "management", "http", "tls", "challtest", "https", "ask", "challenge")
+        cls.ports = dict(zip(names, free_ports(len(names))))
+        cls.ports["dns"] = free_ports(1, socket.SOCK_DGRAM)[0]
         Path(d, "pebble.json").write_text(json.dumps({"pebble": {
             "listenAddress": f"127.0.0.1:{cls.ports['acme']}",
             "managementListenAddress": f"127.0.0.1:{cls.ports['management']}",
@@ -181,7 +190,7 @@ https://*.{SUFFIX} {{
                     "XDG_CONFIG_HOME": self.root, "SSL_CERT_FILE": f"{self.dir}/listener.crt"}
         self.runner = cj.Runner(root=self.root, run_=self.run_, caddy=CADDY,
                                 test_env={"SSL_CERT_FILE": f"{self.dir}/listener.crt"},
-                                test_http_port=self.ports["challenge"], timeouts={"issue": 90, "serve": 20})
+                                test_http_port=self.ports["challenge"], timeouts={"issue": 30, "serve": 20})
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(self.runner.run_first_install(io.StringIO('{"source": "internal"}')), 0)
         self.live_log = open(os.path.join(self.root, "live.log"), "wb")
@@ -215,7 +224,8 @@ https://*.{SUFFIX} {{
                "request": {"kind": "apply", "settings": settings}}
         Path(self.runner.jobs_dir, f"request-{job_id}.json").write_text(json.dumps(doc))
         self.runner.run_pending()
-        return json.loads(Path(self.runner.jobs_dir, job_id, "status.json").read_text())
+        status = json.loads(Path(self.runner.jobs_dir, job_id, "status.json").read_text())
+        return status
 
     def served(self, name):
         return self.runner.served(self.ports["https"], name)
@@ -245,9 +255,13 @@ https://*.{SUFFIX} {{
 
     def test_http01_apply_with_eab_and_on_demand_previews(self):
         # A wrong EAB key: Pebble refuses the account in the throwaway, and nothing live changes.
+        started = time.monotonic()
         status = self.submit(self.settings(WRONG_HMAC), ID)
         self.assertEqual(status["state"], "failed", status)
         self.assertFalse(status["restored"])
+        # A definitive refusal ends the throwaway at once rather than at its deadline.
+        self.assertIn("urn:ietf:params:acme:error", status["message"])
+        self.assertLess(time.monotonic() - started, 15)
         self.assertIn(cj.INTERNAL_ISSUER, self.served(SITE)["issuer"])
         self.assertEqual(json.loads(Path(self.runner.state("settings.json")).read_text()), {"source": "internal"})
 

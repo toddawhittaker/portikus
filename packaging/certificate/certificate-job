@@ -432,6 +432,25 @@ def storage_name(name):
 
 # ---- Caddy's journal (Epic 27 R12, from the spike) ----
 
+# Errors no retry can fix: the authority refused the account or the name, or the DNS provider
+# refused the credentials (Epic 27, spike section 3).
+DEFINITIVE_ERRORS = (
+    "urn:ietf:params:acme:error:unauthorized",
+    "urn:ietf:params:acme:error:externalaccountrequired",
+    "urn:ietf:params:acme:error:rejectedidentifier",
+    "urn:ietf:params:acme:error:accountdoesnotexist",
+    "http 401",
+    "http 403",
+    "invalid access token",
+    "authentication error",
+)
+
+
+def definitive_refusal(message):
+    text = message.lower()
+    return any(marker in text for marker in DEFINITIVE_ERRORS)
+
+
 def choose_renewal(events, site):
     """The renewal result to show: the newest failure no later success for its name has cleared,
     else the site's newest result, else the newest of any name."""
@@ -1242,8 +1261,12 @@ class Runner:
                 finally:
                     os.close(acme_fd)
         http01 = settings["challenge"]["mode"] == "http01"
-        http_port = (self.test_http_port or CHALLENGE_PORT) if http01 else free_port()
-        tls = snippets(settings, base, alt_http_port=http_port if http01 else None)
+        # No server of the throwaway's own listens on the challenge port: Caddy's solver binds it
+        # itself, before it tells the authority the challenge is ready, so validation cannot arrive
+        # before the listener does.
+        challenge_port = self.test_http_port or CHALLENGE_PORT
+        http_port = free_port()
+        tls = snippets(settings, base, alt_http_port=challenge_port if http01 else None)
         config = (
             "{\n\tadmin off\n\tpersist_config off\n\tskip_install_trust\n"
             f"\tstorage file_system {{\n\t\troot {storage}\n\t}}\n"
@@ -1278,6 +1301,10 @@ class Runner:
             try:
                 while not all(glob.glob(pattern) for pattern in wanted):
                     if proc.poll() is not None or self.clock() - started > self.timeouts["issue"]:
+                        break
+                    # Caddy retries a refusal forever; a definitive one ends the wait at once.
+                    so_far = os.pread(caddy_log.fileno(), 4 * 1024 * 1024, 0).decode("utf-8", "replace")
+                    if any(definitive_refusal(e["message"]) for e in parse_caddy_events(so_far) if not e["ok"]):
                         break
                     self.sleep(POLL_SECONDS)
             finally:
