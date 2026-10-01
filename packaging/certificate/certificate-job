@@ -1282,7 +1282,7 @@ class Runner:
         if self.host.root and self.host.caddy_uid < 0:
             raise JobFailed("There is no caddy account to run the test Caddy as.")
         if self.host.root:
-            # The caddy account, not root, talks to the ACME service. Nothing runs as caddy yet.
+            # The caddy account, not root, talks to the ACME service, as the live Caddy does.
             for dirpath, dirnames, filenames in os.walk(work):
                 for path in [dirpath, *(os.path.join(dirpath, n) for n in filenames)]:
                     os.chown(path, self.host.caddy_uid, self.host.caddy_gid, follow_symlinks=False)

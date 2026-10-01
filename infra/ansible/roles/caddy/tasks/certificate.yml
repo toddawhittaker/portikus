@@ -78,7 +78,8 @@
     msg: >-
       The certificate state in {{ caddy_certificate_dir }} has no tls.caddy,
       so an earlier setup stopped part way.  Run `sudo portikus
-      reset-certificate`, then run setup again.
+      reset-certificate`, then run setup again.  The DNS token has been
+      removed from secrets.yaml, so enter it again on the Certificate page.
   when: not caddy_tls_fragment.stat.exists
 
 - name: Put the Caddyfile in place
@@ -99,20 +100,31 @@
   changed_when: caddy_trust_bundle.stdout | trim == 'changed'
   notify: Restart a running API for the new trust
 
-# Caddy asks for both certificates when it loads them.  A first install
-# waits, so a token or DNS problem stops setup here rather than at a browser.
+# Caddy asks for the certificates when it loads them.  Every run waits while
+# the state's source is ACME, so a rerun after a failed wait fails the same
+# way; with the certificates in place the first look finds them.
+- name: Read the certificate settings
+  ansible.builtin.slurp:
+    path: "{{ caddy_certificate_dir }}/settings.json"
+  register: caddy_settings_file
+  failed_when: false
+
 - name: Wait for the ACME certificates
-  when: caddy_first_install is changed and portikus_tls == 'letsencrypt'
+  vars:
+    caddy_settings: "{{ (caddy_settings_file.content | default('e30=') | b64decode | from_json) }}"
+  when: caddy_settings.source | default('') == 'acme'
   block:
+    # HTTP-01 cannot prove a wildcard, so the previews then get theirs on demand.
     - name: Wait for the site's and the preview wildcard's certificates
       ansible.builtin.find:
-        paths: "/var/lib/caddy/.local/share/caddy/certificates/{{ portikus_acme_ca | regex_replace('^https://', '') | replace('/', '-') }}"
-        patterns:
-          - "{{ portikus_public_host }}.crt"
-          - "wildcard_.{{ portikus_preview_suffix }}.crt"
+        paths: "/var/lib/caddy/.local/share/caddy/certificates/{{ caddy_settings.directory | regex_replace('^https://', '') | replace('/', '-') }}"
+        patterns: >-
+          {{ [portikus_public_host | lower ~ '.crt']
+             + (['wildcard_.' ~ portikus_preview_suffix | lower ~ '.crt']
+                if caddy_settings.challenge.mode == 'dns01' else []) }}
         recurse: true
       register: caddy_acme_certs
-      until: caddy_acme_certs.matched == 2
+      until: caddy_acme_certs.matched == (2 if caddy_settings.challenge.mode == 'dns01' else 1)
       retries: 30
       delay: 10
 
@@ -120,10 +132,10 @@
     - name: Say why the certificates are missing
       ansible.builtin.fail:
         msg: >-
-          Caddy has not got certificates for {{ portikus_public_host }} and
-          *.{{ portikus_preview_suffix }} after five minutes.  Its log says
-          why: journalctl -u caddy.  Check that the Cloudflare token may edit
-          DNS in that zone.
+          Caddy has not got its ACME certificates for {{ portikus_public_host }}
+          after five minutes.  Its log says why: journalctl -u caddy.  Run
+          `sudo portikus reset-certificate` to put the site back on the
+          internal authority, then fix the settings on the Certificate page.
 
 # ── What releases before the certificate page left behind ────────
 # Caddy read the token from its environment then.  The Caddyfile above no

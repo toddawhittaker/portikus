@@ -289,8 +289,6 @@
     # a port may be previewed; the network ACL only has to be no narrower.
     portikus_preview_port_min: 1024
     portikus_preview_port_max: 65535
-    # Caddy signing key from Cloudsmith, verified 2026-09-16.
-    caddy_gpg_checksum: "783dfee04b19e851a928cd87b34710213ebbe7628f98d9f34595ab83be578c00"
     # Caddy's internal certificate authority root, written on first start.
     caddy_root_cert: /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
     # What the API trusts when it calls the site through Caddy, and what the
@@ -316,7 +314,10 @@
     portikus_tls_key: ""
     # Caddy is always built with xcaddy and the DNS plugins the admin page
     # offers (packages/contracts/src/certificate.ts, DNS_PROVIDER_FIELDS).
+    # CI's Caddy tests run this version too (.github/workflows/ci.yml); change both together.
     caddy_version: v2.11.4
+    # caddy_2.11.4_linux_amd64.deb, from the release's caddy_2.11.4_checksums.txt.
+    caddy_deb_sha512: "1c6f5404f3622e46d401d81f4af59677d46b886229c6694d60fd936b87c72d3bb5d1fcf42b55c8d555769fa75acf434ab618fc7e0df2c79cf8512ee580d38d06"
     caddy_xcaddy_version: v0.4.7
     caddy_dns_plugins:
       - { name: cloudflare, module: github.com/caddy-dns/cloudflare, version: v0.2.4 }
