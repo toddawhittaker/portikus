@@ -138,12 +138,9 @@ class JobTest(unittest.TestCase):
                                      if os.path.isdir(os.path.join(base, "secrets")) else []})
         if self.throwaway_error:
             raise cj.JobFailed(self.throwaway_error)
-        work = os.path.join(self.runner.state_dir, ".throwaway-test")
-        for name in names:
-            folder = os.path.join(work, "storage", "certificates", "acme-v02.example-directory", cj.storage_name(name))
-            os.makedirs(folder)
-            Path(folder, cj.storage_name(name) + ".crt").write_text(CERTS.pem(self.throwaway_cert))
-        return work
+        return {("acme-v02.example-directory", cj.storage_name(n)): {
+            cj.storage_name(n) + ".crt": CERTS.pem(self.throwaway_cert).encode(),
+            cj.storage_name(n) + ".json": b"{}"} for n in names}
 
     def submit(self, request, job_id=ID):
         doc = {"id": job_id, "requestedAt": "2026-09-30T10:00:00.000Z", "requestedBy": USER, "request": request}
@@ -507,7 +504,7 @@ class Apply(JobTest):
         self.assertEqual(len(self.fake.ran("systemctl", "reload", "caddy")), 2)
         self.assertFalse(os.path.exists(self.tree.state(".before")))
 
-    def test_caddy_refusing_the_configuration_restores_without_reloading_it(self):
+    def test_caddy_refusing_the_configuration_puts_the_previous_settings_back(self):
         self.fake.rc["validate"] = 1
         status = self.submit({"kind": "apply", "settings": acme(directory="https://acme.example.test/dir")})
         self.assertEqual(status["state"], "failed")
@@ -707,15 +704,15 @@ class Renew(JobTest):
         folder.mkdir(parents=True, exist_ok=True)
         Path(folder, cj.storage_name(name) + ".crt").write_text(text)
 
-    def apply_dns01(self):
+    def apply_acme(self, mode="dns01"):
         self.fake.serve("acme")
-        self.assertEqual(self.submit({"kind": "apply", "settings": acme(directory="https://acme.example.test/dir")},
-                                     ID)["state"], "succeeded")
+        self.assertEqual(self.submit({"kind": "apply", "settings": acme(directory="https://acme.example.test/dir",
+                                                                       mode=mode)}, ID)["state"], "succeeded")
         self.throwaway_calls.clear()
         self.fake.calls.clear()
 
     def test_dns01_renews_through_the_throwaway_and_reloads_away_and_back(self):
-        self.apply_dns01()
+        self.apply_acme()
         self.live_cert("acme-v02.example-directory", SITE, "old")
         snippets = []
         self.fake.on_reload = lambda verb: (snippets.append(Path(self.tree.state("tls.caddy")).read_text()),
@@ -729,9 +726,10 @@ class Renew(JobTest):
         self.assertIn("dns cloudflare", Path(self.tree.state("tls.caddy")).read_text())
         self.assertEqual(Path(self.runner.caddy_data, "certificates", "acme-v02.example-directory", SITE,
                               f"{SITE}.crt").read_text(), CERTS.pem("acme2"))
+        self.assertFalse(os.path.exists(self.tree.state(".before")))
 
     def test_a_renewal_caddy_does_not_serve_puts_the_old_certificate_back(self):
-        self.apply_dns01()
+        self.apply_acme()
         self.live_cert("acme-v02.example-directory", SITE, "old")
         status = self.submit({"kind": "renew"}, ID2)
         self.assertEqual(status["state"], "failed", status)
@@ -739,22 +737,171 @@ class Renew(JobTest):
         self.assertEqual(Path(self.runner.caddy_data, "certificates", "acme-v02.example-directory", SITE,
                               f"{SITE}.crt").read_text(), "old")
         self.assertIn("dns cloudflare", Path(self.tree.state("tls.caddy")).read_text())
-        self.assertEqual(self.fake.ran("systemctl", "restart", "caddy")[-1], ["systemctl", "restart", "caddy"])
+        self.assertFalse(os.path.exists(self.tree.state(".before")))
 
-    def test_internal_restarts_caddy_to_issue_again(self):
-        self.live_cert("local", SITE, "old")
-        self.fake.on_reload = lambda verb: self.fake.serve("internal2")
-        status = self.submit({"kind": "renew"})
-        self.assertEqual(status["state"], "succeeded", status)
-        self.assertFalse(Path(self.runner.caddy_data, "certificates", "local", SITE).exists())
-        self.assertEqual(self.throwaway_calls, [])
+    def test_a_crash_between_the_two_reloads_is_put_back_by_recover(self):
+        """C7: the internal snippet must never stay in force after a job dies mid-renew."""
+        self.apply_acme()
+        in_force = Path(self.tree.state("tls.caddy")).read_text()
 
-    def test_an_uploaded_certificate_is_refused(self):
-        self.fake.serve("site")
-        self.submit({"kind": "apply", "settings": files()}, ID)
+        def die(verb):
+            if "tls internal" in Path(self.tree.state("tls.caddy")).read_text():
+                raise SystemExit("killed")
+        self.fake.on_reload = die
+        with self.assertRaises(SystemExit):
+            self.submit({"kind": "renew"}, ID2)
+        self.assertIn("tls internal", Path(self.tree.state("tls.caddy")).read_text())
+        self.fake.on_reload = None
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.runner.run_recover()
+        self.assertEqual(Path(self.tree.state("tls.caddy")).read_text(), in_force)
+
+    def test_http01_renew_never_asks_for_the_sample_preview_name(self):
+        self.apply_acme(mode="http01")
+        self.fake.on_reload = lambda verb: self.fake.serve("acme2")
         status = self.submit({"kind": "renew"}, ID2)
+        self.assertEqual(status["state"], "succeeded", status)
+        self.assertEqual(self.throwaway_calls[0]["names"], [SITE])
+        self.assertEqual([c for c in self.fake.ran("openssl", "s_client") if SAMPLE in c], [])
+
+    def test_a_successful_renewal_clears_an_earlier_failure(self):
+        self.apply_acme()
+        failed = {"level": "error", "ts": self.clock.now - 10, "logger": "tls.renew",
+                  "msg": "could not get certificate from issuer", "identifier": SITE, "error": "HTTP 500"}
+        self.fake.journal = json.dumps({"MESSAGE": json.dumps(failed)})
+        self.runner.run_check()
+        self.assertFalse(json.loads(Path(self.runner.status_dir, "status.json").read_text())["lastRenewal"]["ok"])
+        self.fake.on_reload = lambda verb: self.fake.serve("acme2")
+        self.clock.now += 60
+        self.fake.journal = ""
+        self.assertEqual(self.submit({"kind": "renew"}, ID2)["state"], "succeeded")
+        last = json.loads(Path(self.runner.status_dir, "status.json").read_text())["lastRenewal"]
+        self.assertEqual((last["ok"], last["name"], last["message"]), (True, SITE, None))
+
+    def test_internal_and_uploaded_certificates_are_refused(self):
+        status = self.submit({"kind": "renew"}, ID)
+        self.assertEqual(status["state"], "refused")
+        self.assertIn("renew themselves", status["message"])
+        self.assertEqual(self.fake.ran("systemctl"), [])
+        self.fake.serve("site")
+        self.submit({"kind": "apply", "settings": files()}, ID2)
+        status = self.submit({"kind": "renew"}, "2b8d7c1e-3f4a-4b5c-8d9e-0f1a2b3c4d5e")
         self.assertEqual(status["state"], "refused")
         self.assertIn("upload a new one", status["message"])
+
+
+class Hardening(JobTest):
+    """The caddy account owns Caddy's storage and the throwaway's folder; root never follows its links."""
+
+    def test_a_linked_internal_root_is_not_copied(self):
+        os.unlink(self.runner.caddy_root)
+        secret = Path(self.tree.root, "shadow")
+        secret.write_text("root-only-contents")
+        os.symlink(secret, self.runner.caddy_root)
+        Path(self.runner.status_dir, "root.crt").unlink(missing_ok=True)
+        self.runner.run_check()
+        self.assertFalse(Path(self.runner.status_dir, "root.crt").exists())
+        self.assertNotIn("root-only-contents", Path(self.runner.trust_bundle).read_text())
+
+    def test_a_linked_folder_in_the_storage_path_is_refused(self):
+        moved = Path(self.tree.root, "elsewhere")
+        local = Path(self.runner.caddy_root).parent
+        shutil.move(str(local), moved)
+        os.symlink(moved, local)
+        self.assertIsNone(cj.read_nofollow(self.runner.caddy_root))
+
+    def test_live_certificates_are_never_written_through_a_link(self):
+        target = Path(self.tree.root, "etc-portikus")
+        target.mkdir()
+        os.symlink(target, Path(self.runner.caddy_data, "certificates"))
+        with self.assertRaises(OSError):
+            self.runner.write_live_certificates({("ca", SITE): {f"{SITE}.crt": b"x"}})
+        self.assertEqual(list(target.iterdir()), [])
+
+    def test_a_linked_certificate_folder_is_replaced_not_followed(self):
+        target = Path(self.tree.root, "victim")
+        target.mkdir()
+        Path(target, "keep").write_text("keep")
+        ca = Path(self.runner.caddy_data, "certificates", "ca")
+        ca.mkdir(parents=True)
+        os.symlink(target, ca / SITE)
+        self.runner.write_live_certificates({("ca", SITE): {f"{SITE}.crt": b"new"}})
+        self.assertEqual(Path(target, "keep").read_text(), "keep")
+        self.assertFalse((ca / SITE).is_symlink())
+        self.assertEqual((ca / SITE / f"{SITE}.crt").read_bytes(), b"new")
+
+    def test_the_throwaway_storage_is_read_without_following_links(self):
+        storage = Path(self.tree.root, "storage")
+        folder = storage / "certificates" / "ca" / SITE
+        folder.mkdir(parents=True)
+        (folder / f"{SITE}.json").write_text("{}")
+        os.symlink(self.runner.trust_bundle if os.path.exists(self.runner.trust_bundle) else "/etc/hostname",
+                   folder / f"{SITE}.crt")
+        os.symlink(folder, storage / "certificates" / "linked")
+        self.assertEqual(cj.read_certificates(str(storage), [SITE]), {("ca", SITE): {f"{SITE}.json": b"{}"}})
+
+    def test_the_acme_account_is_seeded_without_following_links(self):
+        src = Path(self.tree.root, "acme-src")
+        (src / "account").mkdir(parents=True)
+        (src / "account" / "key").write_text("account")
+        os.symlink("/etc/hostname", src / "account" / "stolen")
+        fd = os.open(src, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            cj.copy_tree_at(fd, str(Path(self.tree.root, "acme-dst")))
+        finally:
+            os.close(fd)
+        self.assertEqual(sorted(p.name for p in Path(self.tree.root, "acme-dst", "account").iterdir()), ["key"])
+
+    def test_ovh_only_takes_its_named_endpoints(self):
+        fields = {"endpoint": "https://evil.example.test/1.0", "application_key": "k",
+                  "application_secret": "s", "consumer_key": "c"}
+        status = self.submit({"kind": "apply", "settings": acme(provider="ovh", fields=fields)})
+        self.assertEqual(status["state"], "refused")
+        self.assertIn("endpoint must be one of", status["message"])
+        fields["endpoint"] = "ovh-eu"
+        self.fake.serve("acme")
+        self.assertEqual(self.submit({"kind": "apply", "settings": acme(provider="ovh", fields=fields)},
+                                     ID2)["state"], "succeeded")
+
+    def test_google_keys_must_use_googles_token_endpoint(self):
+        base = {"type": "service_account", "project_id": "p", "private_key_id": "i", "client_email": "a@b.test",
+                "private_key": "k"}
+        self.assertTrue(cj._service_account(json.dumps(dict(base, token_uri=cj.GOOGLE_TOKEN_URI,
+                                                            universe_domain="googleapis.com"))))
+        self.assertFalse(cj._service_account(json.dumps(dict(base, token_uri="https://evil.example.test/token"))))
+        self.assertFalse(cj._service_account(json.dumps(dict(base, universe_domain="evil.example.test"))))
+
+    def test_an_unexpected_error_during_apply_still_restores(self):
+        """C3: put_in_force restores on any error, so run_pending never meets a stale .before."""
+        def boom(job, view, timeout, not_fingerprints=None):
+            raise KeyError("boom")
+        self.runner.wait_served = boom
+        status = self.submit({"kind": "apply", "settings": files()})
+        self.assertEqual(status["state"], "failed", status)
+        self.assertTrue(status["restored"])
+        self.assertEqual(self.settings(), {"source": "internal"})
+        self.assertFalse(os.path.exists(self.tree.state(".before")))
+
+    def test_restored_is_claimed_only_when_caddy_took_it(self):
+        """C4: reload, then restart; if neither works the page must not say the old one is back."""
+        self.fake.rc["reload"] = 1
+        self.fake.rc["restart"] = 1
+        status = self.submit({"kind": "apply", "settings": acme(directory="https://acme.example.test/dir")})
+        self.assertEqual(status["state"], "failed", status)
+        self.assertFalse(status["restored"])
+        self.assertEqual(self.settings(), {"source": "internal"})
+        self.assertEqual(self.fake.ran("systemctl", "restart", "caddy")[-1], ["systemctl", "restart", "caddy"])
+
+
+class RenewalChoice(unittest.TestCase):
+    def test_an_open_failure_wins_then_the_site(self):
+        ev = [{"ok": True, "at": "2026-09-30T01:00:00Z", "name": SITE, "message": ""},
+              {"ok": False, "at": "2026-09-30T02:00:00Z", "name": "good-3000." + SUFFIX, "message": "x"},
+              {"ok": True, "at": "2026-09-30T03:00:00Z", "name": "other." + SUFFIX, "message": ""}]
+        self.assertEqual(cj.choose_renewal(ev, SITE)["name"], "good-3000." + SUFFIX)
+        ev.append({"ok": True, "at": "2026-09-30T04:00:00Z", "name": "good-3000." + SUFFIX, "message": ""})
+        self.assertEqual(cj.choose_renewal(ev, SITE)["name"], SITE)
+        self.assertIsNone(cj.choose_renewal([], SITE))
 
 
 class Check(JobTest):
@@ -868,7 +1015,17 @@ class Scrubbing(unittest.TestCase):
         out = cj.scrub('request failed: Authorization: Bearer abc.def-123 "authorization":"Basic Zm9vOmJhcg=="', [])
         self.assertNotIn("abc.def-123", out)
         self.assertNotIn("Zm9vOmJhcg", out)
-        self.assertIn("Authorization: Bearer [secret]", out)
+        self.assertIn("Authorization: [secret]", out)
+
+    def test_authorization_arrays_and_sigv4_are_scrubbed_whole(self):
+        out = cj.scrub('{"Authorization":["Bearer abc def-123"]} x-amz: AWS4-HMAC-SHA256 '
+                       'Credential=AKIDEXAMPLE/20260930/us-east-1/route53/aws4_request, '
+                       'SignedHeaders=host, Signature=fe5f80f77d5fa3beca038a248ff027d0445342fe2855ddc963176630326f1024\n'
+                       'next line', [])
+        self.assertNotIn("abc", out)
+        self.assertNotIn("def-123", out)
+        self.assertNotIn("fe5f80f77d", out)
+        self.assertIn("next line", out)
 
     def test_short_values_are_left_alone(self):
         self.assertEqual(cj.scrub("a b c", ["a"]), "a b c")

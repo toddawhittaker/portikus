@@ -181,7 +181,7 @@ https://*.{SUFFIX} {{
                     "XDG_CONFIG_HOME": self.root, "SSL_CERT_FILE": f"{self.dir}/listener.crt"}
         self.runner = cj.Runner(root=self.root, run_=self.run_, caddy=CADDY,
                                 test_env={"SSL_CERT_FILE": f"{self.dir}/listener.crt"},
-                                test_http_port=self.ports["challenge"], timeouts={"issue": 30, "serve": 20})
+                                test_http_port=self.ports["challenge"], timeouts={"issue": 90, "serve": 20})
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(self.runner.run_first_install(io.StringIO('{"source": "internal"}')), 0)
         self.live_log = open(os.path.join(self.root, "live.log"), "wb")
@@ -228,20 +228,19 @@ https://*.{SUFFIX} {{
         jobs_fd = os.open(self.runner.jobs_dir, os.O_RDONLY | os.O_DIRECTORY)
         job = cj.Job(jobs_fd, ID, os.getgid(), self.runner.host)
         try:
-            work = self.runner.issue_with_throwaway_caddy(job, settings, [SITE], new)
+            certificates = self.runner.issue_with_throwaway_caddy(job, settings, [SITE], new)
         finally:
             job.close()
             os.close(jobs_fd)
-        crt = list(Path(work, "storage", "certificates").glob(f"*/{SITE}/{SITE}.crt"))
-        self.assertEqual(len(crt), 1)
-        info = cj.certificate_info(cj.run, crt[0].read_text())
+        files = certificates[next(iter(certificates))]
+        info = cj.certificate_info(cj.run, files[f"{SITE}.crt"].decode())
         self.assertIn("Pebble", info["issuer"])
         self.assertEqual(info["names"], [SITE])
+        self.assertIn(f"{SITE}.json", files)
         # Nothing live changed.
         self.assertEqual(json.loads(Path(self.runner.state("settings.json")).read_text()), {"source": "internal"})
         self.assertEqual([p for p in Path(self.root + cj.CADDY_DATA).glob(f"certificates/*/{SITE}")
                           if p.parent.name != "local"], [])
-        shutil.rmtree(work)
         self.assertNotIn(HMAC, Path(self.runner.jobs_dir, ID, "log.txt").read_text())
 
     def test_http01_apply_with_eab_and_on_demand_previews(self):

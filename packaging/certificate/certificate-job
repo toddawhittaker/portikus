@@ -99,6 +99,8 @@ POLL_SECONDS = 2
 # Installed in this order, so settings.json, written last, never names a file not yet in place.
 GENERATION = ("secrets", "files", "tls.caddy", "settings.json")
 KEEP_JOBS = 20
+# In the status directory: when Renew now last succeeded, so older journal results are not shown.
+RENEWED = "renewed.json"
 MAX_REQUEST_BYTES = 512 * 1024
 MAX_PEM_LENGTH = 64 * 1024
 MAX_SECRET_LENGTH = 1024
@@ -145,7 +147,10 @@ def journal(message):
     print(f"certificate-job: {message}", file=sys.stderr, flush=True)
 
 
-AUTHORIZATION_RE = re.compile(r"(?i)(authorization[\"']?\s*[:=]\s*[\"']?)(bearer\s+|basic\s+)?[^\s\"',;]+")
+# An Authorization value runs to the end of the line or a closing quote or bracket, so a
+# JSON array ("Authorization":["Bearer x"]) and a SigV4 header are covered whole.
+AUTHORIZATION_RE = re.compile(r"(?i)(authorization[\"']?\s*[:=]\s*\[?\s*[\"']?)[^\"'\]\r\n]+")
+SIGNATURE_RE = re.compile(r"(?i)(signature=)[^\s\"'\],;&]+")
 
 
 def scrub(text, secrets):
@@ -153,7 +158,8 @@ def scrub(text, secrets):
 
     Any Authorization header value is replaced too, whether or not the job knows it.
     """
-    text = AUTHORIZATION_RE.sub(lambda m: m.group(1) + (m.group(2) or "") + "[secret]", text)
+    text = AUTHORIZATION_RE.sub(lambda m: m.group(1) + "[secret]", text)
+    text = SIGNATURE_RE.sub(lambda m: m.group(1) + "[secret]", text)
     for value in sorted(secrets, key=len, reverse=True):
         if not value or len(value) < 4:
             continue
@@ -212,14 +218,23 @@ SERVICE_ACCOUNT_KEYS = SERVICE_ACCOUNT_REQUIRED | {
     "client_id", "auth_uri", "token_uri", "auth_provider_x509_cert_url", "client_x509_cert_url", "universe_domain"}
 
 
+GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+GOOGLE_UNIVERSE = "googleapis.com"
+# go-ovh's named endpoints: a kept consumer key is never sent to any other URL.
+OVH_ENDPOINTS = {"ovh-eu", "ovh-ca", "ovh-us", "kimsufi-eu", "kimsufi-ca", "soyoustart-eu", "soyoustart-ca"}
+
+
 def _service_account(text):
     try:
         doc = json.loads(text, object_pairs_hook=_no_duplicates)
     except ValueError:
         return False
+    # Google's library posts a signed assertion to token_uri, so only Google's own is allowed.
     return (isinstance(doc, dict) and SERVICE_ACCOUNT_REQUIRED <= set(doc) <= SERVICE_ACCOUNT_KEYS
             and doc["type"] == "service_account" and all(isinstance(v, str) for v in doc.values())
-            and all(doc[k] for k in SERVICE_ACCOUNT_REQUIRED))
+            and all(doc[k] for k in SERVICE_ACCOUNT_REQUIRED)
+            and doc.get("token_uri", GOOGLE_TOKEN_URI) == GOOGLE_TOKEN_URI
+            and doc.get("universe_domain", GOOGLE_UNIVERSE) == GOOGLE_UNIVERSE)
 
 
 def validate_settings(settings, acme_only=False):
@@ -255,6 +270,8 @@ def validate_settings(settings, acme_only=False):
             _keys(dns["fields"], plain, secret, f"the {provider} fields")
             for name in plain:
                 _string(dns["fields"][name], PLAIN_RE, f"the {provider} field {name}")
+            if provider == "ovh" and dns["fields"]["endpoint"] not in OVH_ENDPOINTS:
+                raise Refused("the ovh field endpoint must be one of " + ", ".join(sorted(OVH_ENDPOINTS)))
             for name in secret:
                 value = dns["fields"].get(name)
                 if value is None:
@@ -415,6 +432,20 @@ def storage_name(name):
 
 # ---- Caddy's journal (Epic 27 R12, from the spike) ----
 
+def choose_renewal(events, site):
+    """The renewal result to show: the newest failure no later success for its name has cleared,
+    else the site's newest result, else the newest of any name."""
+    latest = {}
+    for event in events:
+        latest[event["name"]] = event
+    failing = [e for e in latest.values() if not e["ok"]]
+    if failing:
+        return max(failing, key=lambda e: e["at"])
+    if site in latest:
+        return latest[site]
+    return events[-1] if events else None
+
+
 def parse_caddy_events(text):
     """Certificate obtain and renew results, oldest first, as {ok, at, message}.
 
@@ -541,6 +572,124 @@ def remove(path):
         shutil.rmtree(path)
     elif os.path.lexists(path):
         os.unlink(path)
+
+
+def open_nofollow(path, flags=os.O_RDONLY, directory=False):
+    """Open an absolute path one component at a time, refusing a symbolic link anywhere on it.
+
+    Caddy's storage and the throwaway's folder belong to the caddy account,
+    which could swap any part for a link to a root-only file.
+    """
+    parts = [part for part in path.split("/") if part]
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for index, part in enumerate(parts):
+            last = index == len(parts) - 1
+            mode = flags if last and not directory else os.O_RDONLY | os.O_DIRECTORY
+            following = os.open(part, mode | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+            os.close(fd)
+            fd = following
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def read_at(dir_fd, name, limit=1024 * 1024):
+    """A regular file's bytes inside dir_fd, or None for anything else, a link included."""
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        data = os.read(fd, limit + 1)
+        return data if len(data) <= limit else None
+    finally:
+        os.close(fd)
+
+
+def read_nofollow(path, limit=1024 * 1024):
+    try:
+        fd = open_nofollow(os.path.dirname(path), directory=True)
+    except OSError:
+        return None
+    try:
+        return read_at(fd, os.path.basename(path), limit)
+    finally:
+        os.close(fd)
+
+
+def remove_at(dir_fd, name):
+    """Remove name inside dir_fd without following a link."""
+    try:
+        st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if stat.S_ISDIR(st.st_mode):
+        shutil.rmtree(name, dir_fd=dir_fd)
+    else:
+        os.unlink(name, dir_fd=dir_fd)
+
+
+def read_certificates(storage, names):
+    """{(ca folder, name folder): {file: bytes}} for names in a Caddy storage, never through a link."""
+    folders = {storage_name(n) for n in names}
+    out = {}
+    try:
+        top = open_nofollow(os.path.join(storage, "certificates"), directory=True)
+    except OSError:
+        return out
+    try:
+        with os.scandir(top) as cas:
+            ca_names = [e.name for e in cas if e.is_dir(follow_symlinks=False)]
+        for ca in ca_names:
+            try:
+                ca_fd = os.open(ca, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=top)
+            except OSError:
+                continue
+            try:
+                for folder in folders:
+                    try:
+                        name_fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=ca_fd)
+                    except OSError:
+                        continue
+                    try:
+                        with os.scandir(name_fd) as entries:
+                            files = [e.name for e in entries if e.is_file(follow_symlinks=False)]
+                        contents = {f: read_at(name_fd, f) for f in files}
+                        out[(ca, folder)] = {f: data for f, data in contents.items() if data is not None}
+                    finally:
+                        os.close(name_fd)
+            finally:
+                os.close(ca_fd)
+    finally:
+        os.close(top)
+    return out
+
+
+def copy_tree_at(src_fd, dst):
+    """Copy the directories and regular files under src_fd to the new path dst, skipping links."""
+    os.mkdir(dst, 0o700)
+    with os.scandir(src_fd) as entries:
+        listed = [(e.name, e.is_dir(follow_symlinks=False), e.is_file(follow_symlinks=False)) for e in entries]
+    for name, is_dir, is_file in listed:
+        if is_dir:
+            try:
+                fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=src_fd)
+            except OSError:
+                continue
+            try:
+                copy_tree_at(fd, os.path.join(dst, name))
+            finally:
+                os.close(fd)
+        elif is_file:
+            data = read_at(src_fd, name)
+            if data is not None:
+                with os.fdopen(os.open(os.path.join(dst, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600),
+                               "wb") as f:
+                    f.write(data)
 
 
 def read_api_env(path):
@@ -1038,27 +1187,34 @@ class Runner:
             self.reload_caddy(job)
             job.status("running", "Checking the certificate Caddy serves")
             self.wait_served(job, view, timeout or self.timeouts["serve"], not_fingerprints)
-        except JobFailed as err:
-            job.line(f"Failed: {err}")
+        except Exception as err:  # noqa: BLE001  any failure puts the generation before back
+            said = str(err) if isinstance(err, JobFailed) else "The job stopped on an unexpected error."
+            job.line(f"Failed: {said}")
             job.status("running", "Putting the previous certificate back")
-            self.restore(job, before)
-            raise JobFailed(f"{err} The previous certificate is back in use.", restored=True)
+            restored = self.restore(job, before)
+            raise JobFailed(said + (" The previous certificate is back in use." if restored else
+                                    " The previous settings are back, but Caddy did not reload; "
+                                    "see: journalctl -u caddy"), restored=restored)
         previous = self.state("previous")
         remove(previous)
         os.rename(before, previous)
         self.sync_trust(job)
 
     def restore(self, job, before):
+        """Put the generation in before back in force. True when Caddy reloaded or restarted with it."""
         self.install(before)
-        self.run(["systemctl", "reload", "caddy"], log=job, timeout=180)
         remove(before)
+        code, _ = self.run(["systemctl", "reload", "caddy"], log=job, timeout=180)
+        if code != 0:
+            code, _ = self.run(["systemctl", "restart", "caddy"], log=job, timeout=180)
         self.sync_trust(job)
+        return code == 0
 
     # -- the throwaway Caddy (Epic 27 R11 as amended after the spike) --
 
     def issue_with_throwaway_caddy(self, job, settings, names, base, seed=True):
         """Obtain certificates for names with a second Caddy and its own storage, reading the secrets
-        of the generation in base. Returns its work directory, which the caller removes; on failure
+        of the generation in base. Returns {(ca folder, name folder): {file: bytes}}; on failure
         raises JobFailed. Nothing live changes.
 
         With seed, the storage starts with a copy of the live ACME accounts,
@@ -1067,10 +1223,24 @@ class Runner:
         stopped at a deadline.
         """
         work = tempfile.mkdtemp(prefix=".throwaway-", dir=self.state_dir)
+        try:
+            return self.run_throwaway(job, settings, names, base, seed, work)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def run_throwaway(self, job, settings, names, base, seed, work):
         storage = os.path.join(work, "storage")
         os.mkdir(storage, 0o700)
-        if seed and os.path.isdir(os.path.join(self.caddy_data, "acme")):
-            copy_entry(os.path.join(self.caddy_data, "acme"), os.path.join(storage, "acme"))
+        if seed:
+            try:
+                acme_fd = open_nofollow(os.path.join(self.caddy_data, "acme"), directory=True)
+            except OSError:
+                acme_fd = None
+            if acme_fd is not None:
+                try:
+                    copy_tree_at(acme_fd, os.path.join(storage, "acme"))
+                finally:
+                    os.close(acme_fd)
         http01 = settings["challenge"]["mode"] == "http01"
         http_port = (self.test_http_port or CHALLENGE_PORT) if http01 else free_port()
         tls = snippets(settings, base, alt_http_port=http_port if http01 else None)
@@ -1087,53 +1257,63 @@ class Runner:
             f.write(config)
         user = {}
         if self.host.root and self.host.caddy_uid < 0:
-            shutil.rmtree(work, ignore_errors=True)
             raise JobFailed("There is no caddy account to run the test Caddy as.")
         if self.host.root:
-            # The caddy account, not root, talks to the ACME service.
+            # The caddy account, not root, talks to the ACME service. Nothing runs as caddy yet.
             for dirpath, dirnames, filenames in os.walk(work):
                 for path in [dirpath, *(os.path.join(dirpath, n) for n in filenames)]:
-                    os.chown(path, self.host.caddy_uid, self.host.caddy_gid)
+                    os.chown(path, self.host.caddy_uid, self.host.caddy_gid, follow_symlinks=False)
             user = {"user": "caddy", "group": "caddy"}
         env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": work, "XDG_DATA_HOME": work,
                "XDG_CONFIG_HOME": work, **self.test_env}
-        wanted = [os.path.join(storage, "certificates", "*", storage_name(n), storage_name(n) + ".crt")
+        # Caddy writes a certificate's .json last, so its presence means the files are complete.
+        wanted = [os.path.join(storage, "certificates", "*", storage_name(n), storage_name(n) + ".json")
                   for n in names]
-        caddy_log = os.path.join(work, "caddy.log")
         started = self.clock()
-        with open(caddy_log, "wb") as stderr:
+        # Root keeps this descriptor, so the log is read from it even if the folder changes under it.
+        with tempfile.TemporaryFile(dir=self.state_dir) as caddy_log:
             proc = subprocess.Popen(
                 [self.caddy, "run", "--config", os.path.join(work, "Caddyfile"), "--adapter", "caddyfile"],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=stderr, env=env, cwd=work, **user)
-        try:
-            while not all(glob.glob(pattern) for pattern in wanted):
-                if proc.poll() is not None or self.clock() - started > self.timeouts["issue"]:
-                    break
-                self.sleep(POLL_SECONDS)
-            ok = all(glob.glob(pattern) for pattern in wanted)
-        finally:
-            proc.terminate()
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=caddy_log, env=env, cwd=work, **user)
             try:
-                proc.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-        log = (read_bytes(caddy_log) or b"").decode("utf-8", "replace")
+                while not all(glob.glob(pattern) for pattern in wanted):
+                    if proc.poll() is not None or self.clock() - started > self.timeouts["issue"]:
+                        break
+                    self.sleep(POLL_SECONDS)
+            finally:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+            # Take the folder back before reading anything in it.
+            work_fd = os.open(work, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                if self.host.root:
+                    os.fchown(work_fd, 0, 0)
+                os.fchmod(work_fd, 0o700)
+            finally:
+                os.close(work_fd)
+            caddy_log.seek(0)
+            log = caddy_log.read()[-200000:].decode("utf-8", "replace")
         job.write(log[-20000:])
-        if not ok:
-            shutil.rmtree(work, ignore_errors=True)
+        certificates = read_certificates(storage, names)
+        found = {folder for (_, folder), files in certificates.items()
+                 if f"{folder}.crt" in files and f"{folder}.json" in files}
+        if not {storage_name(n) for n in names} <= found:
             errors = [e["message"] for e in parse_caddy_events(log) if not e["ok"]]
             said = " | ".join(errors[-3:])[:1500] or "nothing; the log has its output"
             raise JobFailed(f"No certificate was obtained, and the live site is unchanged. Caddy said: {said}")
-        return work
+        return certificates
 
-    def verify_chain(self, work, names, kind):
+    def verify_chain(self, certificates, kind):
         """Refuse certificates the system authorities do not trust: the API calls itself (and Dex)
         through Caddy, so an untrusted chain such as Let's Encrypt staging would break it."""
-        for name in names:
-            for crt in glob.glob(os.path.join(work, "storage", "certificates", "*", storage_name(name),
-                                              storage_name(name) + ".crt")):
-                blocks = split_certificates((read_bytes(crt) or b"").decode("utf-8", "replace"))
+        work = tempfile.mkdtemp(prefix=".verify-", dir=self.state_dir)
+        try:
+            for (_, folder), files in certificates.items():
+                blocks = split_certificates(files.get(f"{folder}.crt", b"").decode("utf-8", "replace"))
                 leaf, chain = os.path.join(work, "leaf.pem"), os.path.join(work, "chain.pem")
                 with open(leaf, "w", encoding="utf-8") as f:
                     f.write(blocks[0] if blocks else "")
@@ -1145,27 +1325,49 @@ class Runner:
                 if not blocks or self.run([*argv, leaf], capture=True, timeout=30)[0] != 0:
                     raise Refused("this authority's certificates are not trusted by this server; "
                                   "use Test only for staging", kind)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
 
-    def copy_certificates_live(self, work, names):
-        """Copy the throwaway's new certificates into the live storage, as Caddy keeps its own."""
+    def write_live_certificates(self, certificates):
+        """Put certificates into the live storage as Caddy keeps its own, never through a link:
+        each name's folder is written beside the old one and renamed over it."""
         uid, gid = self.host.caddy_uid, self.host.caddy_gid
-        for name in names:
-            for src in glob.glob(os.path.join(work, "storage", "certificates", "*", storage_name(name))):
-                ca_dir = os.path.basename(os.path.dirname(src))
-                parent = os.path.join(self.caddy_data, "certificates", ca_dir)
-                os.makedirs(parent, mode=0o700, exist_ok=True)
-                if self.host.root:
-                    os.chown(os.path.join(self.caddy_data, "certificates"), uid, gid)
-                    os.chown(parent, uid, gid)
-                dest = os.path.join(parent, storage_name(name))
-                temp = dest + ".portikus-new"
-                remove(temp)
-                copy_entry(src, temp, uid if self.host.root else None, gid if self.host.root else None,
-                           0o700, 0o600)
-                remove(dest)
-                os.rename(temp, dest)
 
-    # -- the trust bundle and root.crt (Epic 27 R13, R14) --
+        def subdir(parent_fd, name):
+            try:
+                os.mkdir(name, 0o700, dir_fd=parent_fd)
+                created = True
+            except FileExistsError:
+                created = False
+            fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+            if created:
+                self.host.own(fd, uid, gid)
+            return fd
+
+        data_fd = open_nofollow(self.caddy_data, directory=True)
+        try:
+            top = subdir(data_fd, "certificates")
+            try:
+                for (ca, folder), files in certificates.items():
+                    ca_fd = subdir(top, ca)
+                    try:
+                        temp = folder + ".portikus-new"
+                        remove_at(ca_fd, temp)
+                        new_fd = subdir(ca_fd, temp)
+                        try:
+                            self.host.own(new_fd, uid, gid)
+                            for name, data in files.items():
+                                write_at(new_fd, name, data, 0o600, self.host, uid, gid)
+                        finally:
+                            os.close(new_fd)
+                        remove_at(ca_fd, folder)
+                        os.rename(temp, folder, src_dir_fd=ca_fd, dst_dir_fd=ca_fd)
+                    finally:
+                        os.close(ca_fd)
+            finally:
+                os.close(top)
+        finally:
+            os.close(data_fd)
 
     def sync_trust(self, job=None, restart=True):
         """System authorities, Caddy's internal root and any uploaded certificates, for the API.
@@ -1174,7 +1376,7 @@ class Runner:
         restarted then; setup passes restart=False and restarts it itself.
         """
         parts = [read_bytes(self.system_cas) or b""]
-        root = read_bytes(self.caddy_root)
+        root = read_nofollow(self.caddy_root)
         if root:
             parts.append(root)
             if read_bytes(os.path.join(self.status_dir, "root.crt")) != root:
@@ -1205,8 +1407,17 @@ class Runner:
             since = os.stat(self.state("settings.json")).st_mtime
         except OSError:
             since = 0
-        events = self.caddy_journal(since)
-        last = events[-1] if events else None
+        renewed = read_json(os.path.join(self.status_dir, RENEWED))
+        renewed_at = None
+        if isinstance(renewed, dict) and isinstance(renewed.get("at"), str) and DATETIME_RE.fullmatch(renewed["at"]):
+            renewed_at = datetime.datetime.fromisoformat(renewed["at"].replace("Z", "+00:00")).timestamp()
+            if renewed_at < since:
+                renewed_at = None
+        events = self.caddy_journal(max(since, renewed_at or 0))
+        if renewed_at is not None:
+            events.insert(0, {"ok": True, "at": iso(datetime.datetime.fromtimestamp(renewed_at, datetime.timezone.utc)),
+                              "name": site, "message": ""})
+        last = choose_renewal(events, site)
         status = {
             "checkedAt": now_iso(self.clock),
             "source": current["source"],
@@ -1264,9 +1475,8 @@ class Runner:
                    else "Testing with the chosen directory")
         # An empty storage: a test never uses or changes the live ACME account.
         directory = LE_STAGING if staging else settings["directory"]
-        work = self.issue_with_throwaway_caddy(job, dict(settings, directory=directory),
-                                               self.acme_names(settings), base, seed=False)
-        shutil.rmtree(work, ignore_errors=True)
+        self.issue_with_throwaway_caddy(job, dict(settings, directory=directory), self.acme_names(settings),
+                                        base, seed=False)
         if staging:
             return "The staging test obtained a certificate; the live site is unchanged."
         return ("The test obtained a real certificate from this directory and threw it away; "
@@ -1278,7 +1488,6 @@ class Runner:
         job.save_record({"kind": "apply", "settings": view})
         new = self.state(".new")
         remove(new)
-        work = None
         try:
             if settings["source"] == "acme":
                 # Until it is installed, the snippet names the new generation's own secrets.
@@ -1287,17 +1496,15 @@ class Runner:
                 if settings["directory"] == LE_PRODUCTION:
                     self.test_issuance(job, settings, new)
                 job.status("running", "Obtaining the certificates away from the live site")
-                work = self.issue_with_throwaway_caddy(job, settings, names, new)
-                self.verify_chain(work, names, "apply")
+                certificates = self.issue_with_throwaway_caddy(job, settings, names, new)
+                self.verify_chain(certificates, "apply")
                 job.status("running", "Copying the certificates into Caddy's storage")
-                self.copy_certificates_live(work, names)
+                self.write_live_certificates(certificates)
                 remove(new)
             self.build_generation(new, settings, secrets, uploads, view)
             self.put_in_force(job, new)
         finally:
             remove(new)
-            if work:
-                shutil.rmtree(work, ignore_errors=True)
 
     def rollback(self, job, request):
         job.save_record({"kind": "rollback", "settings": None})
@@ -1318,80 +1525,68 @@ class Runner:
             remove(swap)
 
     def renew(self, job, request):
-        """Renew now (Epic 27 R7 as amended after the spike).
+        """Renew now (Epic 27 R7 as amended after the spike), for an ACME certificate only.
 
-        A live ACME certificate is never deleted first: the throwaway Caddy
-        gets the new one, the job copies it into the live storage, and a
-        reload to the internal authority and back makes Caddy read it. An
-        internal certificate is issued again at once by Caddy's own
-        authority when Caddy restarts.
+        A live certificate is never deleted first: the throwaway Caddy gets
+        the new one, the job copies it into the live storage, and a reload to
+        the internal authority and back makes Caddy read it. An internal
+        certificate lives 12 hours and renews itself.
         """
         job.save_record({"kind": "renew", "settings": None})
         current = self.current_settings()
         if not current or current["source"] == "files":
             raise Refused("an uploaded certificate cannot be renewed here; upload a new one", "renew")
+        if current["source"] == "internal":
+            raise Refused("Caddy's own certificates last 12 hours and renew themselves", "renew")
         job.secrets = self.all_secrets()
         site, port, suffix = read_api_env(self.api_env)
-        names = self.acme_names(self.settings_from_view(current)) if current["source"] == "acme" \
-            else [site, f"*.{suffix}"]
-        old = {"site": (self.served(port, site) or {}).get("fingerprint"),
-               "preview": (self.served(port, f"{SAMPLE_PREVIEW_LABEL}.{suffix}") or {}).get("fingerprint")}
-        work = None
-        aside = self.state(".renew-aside")
-        remove(aside)
-        os.mkdir(aside, 0o700)
-        live = [path for name in names
-                for path in glob.glob(os.path.join(self.caddy_data, "certificates", "*", storage_name(name)))]
+        settings = self.settings_from_view(current)
+        names = self.acme_names(settings)
+        old = {"site": (self.served(port, site) or {}).get("fingerprint")}
+        # Under HTTP-01 a handshake for the sample name would issue it a certificate.
+        if settings["challenge"]["mode"] != "http01":
+            old["preview"] = (self.served(port, f"{SAMPLE_PREVIEW_LABEL}.{suffix}") or {}).get("fingerprint")
+        job.status("running", "Obtaining new certificates away from the live site")
+        certificates = self.issue_with_throwaway_caddy(job, settings, names, self.state_dir)
+        self.verify_chain(certificates, "renew")
+        previous_certificates = read_certificates(self.caddy_data, names)
+        # recover() puts the snippet back from here if the job stops between the two reloads.
+        before = self.state(".before")
+        self.snapshot(before)
         try:
-            if current["source"] == "acme":
-                job.status("running", "Obtaining new certificates away from the live site")
-                work = self.issue_with_throwaway_caddy(job, self.settings_from_view(current), names,
-                                                       self.state_dir)
-                self.verify_chain(work, names, "renew")
-            for index, path in enumerate(live):
-                copy_entry(path, os.path.join(aside, str(index)))
+            job.status("running", "Copying the certificates into Caddy's storage")
+            self.write_live_certificates(certificates)
+            job.status("running", "Reloading Caddy to read them")
+            self.reload_away_and_back(job, before)
+            job.status("running", "Checking the certificate Caddy serves")
+            self.wait_served(job, current, self.timeouts["serve"], old)
+        except Exception as err:  # noqa: BLE001  any failure puts the old certificate back
+            said = str(err) if isinstance(err, JobFailed) else "The job stopped on an unexpected error."
+            job.status("running", "Putting the previous certificate back")
+            self.write_live_certificates(previous_certificates)
             try:
-                if current["source"] == "acme":
-                    job.status("running", "Copying the certificates into Caddy's storage")
-                    self.copy_certificates_live(work, names)
-                    job.status("running", "Reloading Caddy to read them")
-                    self.reload_away_and_back(job)
-                else:
-                    job.status("running", "Restarting Caddy to issue new certificates")
-                    for path in live:
-                        if os.path.basename(os.path.dirname(path)) == "local":
-                            remove(path)
-                    if self.run(["systemctl", "restart", "caddy"], log=job, timeout=180)[0] != 0:
-                        raise JobFailed("Caddy did not restart.")
-                job.status("running", "Checking the certificate Caddy serves")
-                self.wait_served(job, current, self.timeouts["serve"], old)
-            except JobFailed as err:
-                job.status("running", "Putting the previous certificate back")
-                for index, path in enumerate(live):
-                    remove(path)
-                    copy_entry(os.path.join(aside, str(index)), path)
-                self.run(["systemctl", "restart", "caddy"], log=job, timeout=180)
-                raise JobFailed(f"{err} The previous certificate is back in use.", restored=True)
-        finally:
-            remove(aside)
-            if work:
-                shutil.rmtree(work, ignore_errors=True)
+                self.reload_away_and_back(job, before)
+                remove(before)
+                restored = True
+            except JobFailed:
+                restored = self.restore(job, before)
+            raise JobFailed(said + (" The previous certificate is back in use." if restored else ""),
+                            restored=restored)
+        remove(before)
+        # The journal before this holds the old certificate's renewal results (Epic 27 R12).
+        write_file(os.path.join(self.status_dir, RENEWED), json.dumps({"at": now_iso(self.clock), "name": site}),
+                   0o644, self.host)
 
-    def reload_away_and_back(self, job):
-        """Reload with the internal authority's snippets, then the ones in force, so Caddy reads
-        the certificates in its storage again (Epic 27 spike, section 5)."""
-        names = ("tls.caddy",)
-        in_force = {name: read_bytes(self.state(name)) for name in names}
-        internal = {"tls.caddy": snippets({"source": "internal"}, self.state_dir)}
+    def reload_away_and_back(self, job, before):
+        """Reload with the internal authority's snippet, then the one in before (the one in force),
+        so Caddy reads the certificates in its storage again (Epic 27 spike, section 5)."""
+        in_force = read_bytes(os.path.join(before, "tls.caddy"))
         fd = os.open(self.state_dir, os.O_RDONLY | os.O_DIRECTORY)
         try:
-            for contents in (internal, in_force):
-                for name in names:
-                    write_at(fd, name, contents[name], 0o640, self.host, 0, self.host.caddy_gid)
-                if self.run(["systemctl", "reload", "caddy"], log=job, timeout=180)[0] != 0 \
-                        and contents is internal:
-                    for name in names:
-                        write_at(fd, name, in_force[name], 0o640, self.host, 0, self.host.caddy_gid)
+            for contents in (snippets({"source": "internal"}, self.state_dir), in_force):
+                write_at(fd, "tls.caddy", contents, 0o640, self.host, 0, self.host.caddy_gid)
+                if self.run(["systemctl", "reload", "caddy"], log=job, timeout=180)[0] != 0:
+                    write_at(fd, "tls.caddy", in_force, 0o640, self.host, 0, self.host.caddy_gid)
                     raise JobFailed("Caddy did not reload.")
         finally:
             os.close(fd)
@@ -1511,11 +1706,10 @@ class Runner:
             os.rename(self.state(".rollback"), self.state("previous"))
         if os.path.isfile(self.state(".before/settings.json")):
             journal("putting back the certificate settings a stopped job had replaced")
-            self.restore(None, self.state(".before"))
-            restored = True
-        for name in (".new", ".rollback", ".renew-aside", ".before"):
+            restored = self.restore(None, self.state(".before"))
+        for name in (".new", ".rollback", ".before"):
             remove(self.state(name))
-        for path in glob.glob(self.state(".throwaway-*")) + glob.glob(self.state(".upload-*")):
+        for path in glob.glob(self.state(".throwaway-*")) + glob.glob(self.state(".upload-*")) + glob.glob(self.state(".verify-*")):
             remove(path)
         for name in os.listdir(jobs_fd):
             if not UUID_RE.fullmatch(name):
