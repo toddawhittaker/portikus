@@ -7,6 +7,8 @@ import {
 	SEED_IMAGE_MAX_LENGTH,
 	SEED_IMAGES_MAX,
 	SEED_MAX_GIB_LIMIT,
+	type SeedMatch,
+	seedDrift,
 	seedImageListFor,
 } from "@portikus/contracts";
 import { formatBytes } from "../../monitor/format.js";
@@ -107,6 +109,28 @@ export function listSizeText(
 			? ""
 			: `, not counting ${unknown} ${unknown === 1 ? "image" : "images"} the pull cache has not held`;
 	return `These images download as ${formatBytes(total)}${rest}. ${limit}`;
+}
+
+/**
+ * The drift notice's sentence (issue #932), or null when the list holds
+ * every image matching the default workspace image.
+ */
+export function driftText(
+	list: readonly string[],
+	match: SeedMatch | null,
+): string | null {
+	const drift = match ? seedDrift(list, match) : null;
+	if (!match || !drift) return null;
+	const versions: string[] = [];
+	if (match.node && drift.missing.includes(match.node.image))
+		versions.push(`Node ${match.node.version}`);
+	if (match.python && drift.missing.includes(match.python.image))
+		versions.push(`Python ${match.python.version}`);
+	const has =
+		drift.old.length === 0
+			? `the seed list does not have ${drift.missing.join(" or ")}`
+			: `the seed list has ${drift.old.join(" and ")}`;
+	return `The default workspace image runs ${versions.join(" and ")}; ${has}.`;
 }
 
 /** "Showing 200 of 340" when the API capped the rows, or null when all are shown. */

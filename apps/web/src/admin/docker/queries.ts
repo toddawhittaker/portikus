@@ -108,6 +108,13 @@ export function useSaveSeedImages() {
 	);
 }
 
+/** Swap the list's matched images for the default image's and rebuild (issue #932). */
+export function useMatchSeed() {
+	return useDockerWrite<void>(() =>
+		request(SeedJob, "/admin/docker/seed/match", { method: "POST" }),
+	);
+}
+
 export function useRebuildSeed() {
 	return useDockerWrite<void>(() =>
 		request(SeedJob, "/admin/docker/seed/jobs", { method: "POST" }),

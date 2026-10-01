@@ -282,6 +282,7 @@ export interface SettingsTable {
 	docker_ghcr_enabled: Generated<boolean>;
 	docker_seed_max_gib: Generated<number>;
 	docker_seed_images: ColumnType<string[], string | undefined, string>;
+	docker_seed_images_set: Generated<boolean>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 	updated_by: string | null;
 }

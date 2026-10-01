@@ -33,7 +33,7 @@ test.beforeEach(async () => {
 	);
 	await query(
 		`update settings set docker_ghcr_enabled = false, docker_seed_max_gib = 8,
-		 docker_seed_images = '[]' where id = 1`,
+		 docker_seed_images = '[]', docker_seed_images_set = true where id = 1`,
 	);
 	await query("delete from docker_seed_jobs");
 	await query("delete from docker_seed");
@@ -739,6 +739,113 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await open(page);
 		await expect(page.getByTestId("docker-cache-off")).toBeVisible();
 		await expect(page.getByRole("meter", { name: "Seed size" })).toBeVisible();
+		await expectNoViolations(page);
+	});
+}
+
+/**
+ * The drift notice (issue #932, ruling R4). The API reads the default image's
+ * manifest from the image store, which admin-image.spec.ts resets while this
+ * file runs, so these tests add the image's match to the real answer in the
+ * browser. The API tests cover reading the manifest, the default list and the
+ * button's route against the database.
+ */
+const MATCH_26_314 = {
+	node: { version: "26", image: "node:26-slim" },
+	python: { version: "3.14", image: "python:3.14-slim" },
+};
+
+async function withMatch(page: Page) {
+	await page.route("**/admin/docker", async (route) => {
+		const response = await route.fetch();
+		const body = await response.json();
+		await route.fulfill({ response, json: { ...body, match: MATCH_26_314 } });
+	});
+}
+
+test("the drift notice's button asks the API to swap the images and rebuild", async ({
+	page,
+}) => {
+	await setSeedList(["node:24-slim", "redis:7", "python:3.13-slim"]);
+	await withMatch(page);
+	let posted = 0;
+	await page.route("**/admin/docker/seed/match", async (route) => {
+		posted += 1;
+		const next = ["redis:7", "node:26-slim", "python:3.14-slim"];
+		await setSeedList(next);
+		await route.fulfill({
+			status: 202,
+			json: {
+				id: randomUUID(),
+				state: "queued",
+				step: "Waiting to start",
+				images: next,
+				message: null,
+				requestedAt: new Date().toISOString(),
+				finishedAt: null,
+			},
+		});
+	});
+	await open(page);
+	const notice = page.getByTestId("docker-seed-drift");
+	await expect(notice).toContainText(
+		"The default workspace image runs Node 26 and Python 3.14; the seed list has node:24-slim and python:3.13-slim.",
+	);
+	await notice
+		.getByRole("button", { name: "Use node:26-slim and python:3.14-slim and rebuild" })
+		.click();
+	await expect(page.getByText("Seed list updated, rebuild requested")).toBeVisible();
+	// The list reread holds the new images, so the notice goes.
+	await expect(notice).toHaveCount(0);
+	expect(posted).toBe(1);
+});
+
+test("over the size limit the drift notice says so and offers no button", async ({
+	page,
+}) => {
+	await query("update settings set docker_seed_max_gib = 1 where id = 1");
+	await setSeedList(["redis:7"]);
+	await writeRegistryStatus({
+		imageSizes: {
+			"docker.io/library/redis:7": {
+				bytes: 1024 ** 3,
+				seenAt: new Date().toISOString(),
+			},
+		},
+	});
+	await withMatch(page);
+	await open(page);
+	const notice = page.getByTestId("docker-seed-drift");
+	await expect(notice.getByTestId("docker-seed-drift-over")).toContainText(
+		"would take the seed past its 1 GiB limit, by estimated download size, so they are not added",
+	);
+	await expect(notice.getByRole("button")).toHaveCount(0);
+	expect(await seedList()).toEqual(["redis:7"]);
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`the drift notice has no accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await setSeedList(["node:24-slim", "python:3.13-slim"]);
+		await withMatch(page);
+		await page.emulateMedia({ colorScheme });
+		await open(page);
+		await expect(page.getByTestId("docker-seed-drift")).toBeVisible();
+		await expectNoViolations(page);
+		// The over-limit wording too.
+		await query("update settings set docker_seed_max_gib = 1 where id = 1");
+		await setSeedList(["node:24-slim", "python:3.13-slim", "redis:7"]);
+		await writeRegistryStatus({
+			imageSizes: {
+				"docker.io/library/redis:7": {
+					bytes: 1024 ** 3,
+					seenAt: new Date().toISOString(),
+				},
+			},
+		});
+		await page.reload();
+		await expect(page.getByTestId("docker-seed-drift-over")).toBeVisible();
 		await expectNoViolations(page);
 	});
 }

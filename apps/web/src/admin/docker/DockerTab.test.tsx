@@ -36,6 +36,7 @@ function data(over: Partial<DockerAdminResponse> = {}): DockerAdminResponse {
 			builtAt: "2026-09-29T09:00:00.000Z",
 		},
 		imageSizes: { "docker.io/library/python:3.12": 60 * 1024 ** 2 },
+		match: null,
 		...over,
 	};
 }
@@ -615,4 +616,69 @@ test("a Docker Hub account saved while the cache is off does not claim the cache
 		),
 	).toBeTruthy();
 	expect(screen.queryByText("Docker Hub account sent to the cache")).toBeNull();
+});
+
+const MATCH_26_314 = {
+	node: { version: "26", image: "node:26-slim" },
+	python: { version: "3.14", image: "python:3.14-slim" },
+};
+
+test("no drift notice when the list holds the matching images (issue #932)", async () => {
+	serve(
+		data({ seedImages: ["node:26-slim", "python:3.14-slim"], match: MATCH_26_314 }),
+	);
+	renderWithQuery(<DockerTab />);
+	await screen.findByTestId("docker-seed-list");
+	expect(screen.queryByTestId("docker-seed-drift")).toBeNull();
+});
+
+test("the drift notice's button posts the match and starts a rebuild", async () => {
+	const fetch = serve(
+		data({ seedImages: ["node:24-slim", "python:3.13-slim"], match: MATCH_26_314 }),
+		[],
+		(url, init) =>
+			url === "/admin/docker/seed/match" && init?.method === "POST"
+				? json(
+						202,
+						job({ state: "queued", images: ["node:26-slim", "python:3.14-slim"] }),
+					)
+				: undefined,
+	);
+	renderWithQuery(<DockerTab />);
+	const notice = await screen.findByTestId("docker-seed-drift");
+	expect(notice.textContent).toContain(
+		"The default workspace image runs Node 26 and Python 3.14; the seed list has node:24-slim and python:3.13-slim.",
+	);
+	fireEvent.click(
+		within(notice).getByRole("button", {
+			name: "Use node:26-slim and python:3.14-slim and rebuild",
+		}),
+	);
+	await waitFor(() =>
+		expect(
+			fetch.mock.calls.some(
+				([u, init]) =>
+					String(u) === "/admin/docker/seed/match" && init?.method === "POST",
+			),
+		).toBe(true),
+	);
+	// Nothing else writes the list.
+	expect(bodyOf(fetch, "PUT", "/admin/docker/seed/images")).toBeUndefined();
+});
+
+test("over the size limit the notice says so and offers no button", async () => {
+	serve(
+		data({
+			seedMaxGiB: 1,
+			seedImages: ["python:3.12"],
+			imageSizes: { "docker.io/library/python:3.12": 1024 ** 3 },
+			match: MATCH_26_314,
+		}),
+	);
+	renderWithQuery(<DockerTab />);
+	const notice = await screen.findByTestId("docker-seed-drift");
+	expect(within(notice).getByTestId("docker-seed-drift-over").textContent).toContain(
+		"would take the seed past its 1 GiB limit, by estimated download size, so they are not added.",
+	);
+	expect(within(notice).queryByRole("button")).toBeNull();
 });

@@ -3,7 +3,15 @@
  * audited without the token, helper requests written atomically with mode
  * 0600, and a usage report that carries counts only (rulings S5, S7, S8).
  */
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -131,6 +139,7 @@ describe.skipIf(skip)("access", () => {
 			["POST", "/admin/docker/cache/clear"],
 			["PUT", "/admin/docker/seed/images"],
 			["POST", "/admin/docker/seed/jobs"],
+			["POST", "/admin/docker/seed/match"],
 			["GET", "/admin/docker/seed/jobs"],
 			["GET", "/admin/docker/usage"],
 		] as const) {
@@ -154,6 +163,7 @@ describe.skipIf(skip)("GET /admin/docker", () => {
 			seedImages: [],
 			seed: null,
 			imageSizes: {},
+			match: null,
 		});
 	});
 
@@ -723,5 +733,197 @@ describe.skipIf(skip)("GET /admin/docker/usage (ruling S7)", () => {
 		const body = await usageReport(testDb.db, new Date());
 		expect(body.notInSeed).toHaveLength(USAGE_ROWS_MAX);
 		expect(body.notInSeedTotal).toBe(n);
+	});
+});
+
+describe.skipIf(skip)("seed images matching the workspace image (issue #932)", () => {
+	let imageRoot: string;
+
+	/** Makes `version` the default image, with the given tool versions. */
+	async function activeImage(
+		version: string,
+		node: string,
+		python3: string,
+		python = "debian",
+	) {
+		const images = join(imageRoot, "images");
+		await mkdir(join(images, version), { recursive: true });
+		await writeFile(
+			join(images, "aliases.json"),
+			JSON.stringify({ default: version, previous: null }),
+		);
+		await writeFile(
+			join(images, version, "manifest.json"),
+			JSON.stringify({
+				schema: 1,
+				version,
+				recipeVersion: "2026.09",
+				source: "local",
+				builtAt: "2026-09-30T10:00:00.000Z",
+				fingerprint: null,
+				parameters: { node: node.slice(1, 3), python },
+				tools: {
+					node,
+					npm: null,
+					python3,
+					git: null,
+					docker: null,
+					claude: null,
+					codex: null,
+				},
+				packages: {},
+			}),
+		);
+	}
+
+	async function seedList(): Promise<string[]> {
+		return DockerAdminResponse.parse((await send(carol, "GET", "/admin/docker")).json())
+			.seedImages;
+	}
+
+	async function jobCount(): Promise<number> {
+		return (await testDb.db.selectFrom("docker_seed_jobs").select("id").execute())
+			.length;
+	}
+
+	beforeEach(async () => {
+		imageRoot = await mkdtemp(join(tmpdir(), "portikus-images-"));
+		await mkdir(join(imageRoot, "image-jobs"));
+		await app.close();
+		app = buildTestServer(testDb.db, mock.issuer, {
+			REGISTRY_JOBS_DIR: jobsDir,
+			IMAGE_JOBS_DIR: join(imageRoot, "image-jobs"),
+		});
+		await app.listen({ port: 0, host: "127.0.0.1" });
+		return async () => {
+			await rm(imageRoot, { recursive: true, force: true });
+		};
+	});
+
+	test("a list no one has set starts with the matching slim images, audited once", async () => {
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		const body = DockerAdminResponse.parse(
+			(await send(carol, "GET", "/admin/docker")).json(),
+		);
+		expect(body.seedImages).toEqual(["node:24-slim", "python:3.13-slim"]);
+		expect(body.match).toEqual({
+			node: { version: "24", image: "node:24-slim" },
+			python: { version: "3.13", image: "python:3.13-slim" },
+		});
+		await send(carol, "GET", "/admin/docker");
+		const audits = (await dockerAudits()).filter(
+			(a) => a.action === "docker.seed_images_defaulted",
+		);
+		expect(audits).toHaveLength(1);
+		expect(audits[0]).toMatchObject({
+			actor: "platform",
+			metadata: { to: ["node:24-slim", "python:3.13-slim"] },
+		});
+	});
+
+	test("a list an administrator emptied stays empty, even after an image change", async () => {
+		await send(carol, "PUT", "/admin/docker/seed/images", { images: [] });
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		expect(await seedList()).toEqual([]);
+		await activeImage(
+			"2026.09.16-local.202609301000",
+			"v26.0.0",
+			"Python 3.13.5",
+			"uv-3.14",
+		);
+		expect(await seedList()).toEqual([]);
+		expect(
+			(await dockerAudits()).some((a) => a.action === "docker.seed_images_defaulted"),
+		).toBe(false);
+	});
+
+	test("a new default image never edits the list on its own", async () => {
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		expect(await seedList()).toEqual(["node:24-slim", "python:3.13-slim"]);
+		await activeImage(
+			"2026.09.16-local.202609301000",
+			"v26.0.0",
+			"Python 3.13.5",
+			"uv-3.14",
+		);
+		expect(await seedList()).toEqual(["node:24-slim", "python:3.13-slim"]);
+		expect(await jobCount()).toBe(0);
+	});
+
+	test("the match button swaps the old tags for the new and starts a rebuild", async () => {
+		await send(carol, "PUT", "/admin/docker/seed/images", {
+			images: ["node:24-slim", "redis:7", "python:3.13-slim"],
+		});
+		await activeImage(
+			"2026.09.16-local.202609301000",
+			"v26.0.0",
+			"Python 3.13.5",
+			"uv-3.14",
+		);
+		const res = await send(carol, "POST", "/admin/docker/seed/match");
+		expect(res.statusCode).toBe(202);
+		const next = ["redis:7", "node:26-slim", "python:3.14-slim"];
+		expect(SeedJob.parse(res.json())).toMatchObject({ state: "queued", images: next });
+		expect(await seedList()).toEqual(next);
+		const audits = await dockerAudits();
+		expect(audits.at(-2)).toMatchObject({
+			action: "docker.seed_images_changed",
+			metadata: {
+				from: ["node:24-slim", "redis:7", "python:3.13-slim"],
+				to: next,
+				reason: "match-image",
+			},
+		});
+		expect(audits.at(-1)?.action).toBe("docker.seed_job_requested");
+
+		const again = await send(carol, "POST", "/admin/docker/seed/match");
+		expect(again.statusCode).toBe(400);
+	});
+
+	test("the button adds nothing that would pass the size limit", async () => {
+		await send(carol, "PUT", "/admin/docker/settings", { seedMaxGiB: 1 });
+		await send(carol, "PUT", "/admin/docker/seed/images", { images: ["redis:7"] });
+		await writeFile(
+			join(jobsDir, "status.json"),
+			JSON.stringify(
+				status({
+					imageSizes: {
+						"docker.io/library/redis:7": {
+							bytes: 1024 ** 3,
+							seenAt: "2026-09-30T10:00:00.000Z",
+						},
+					},
+				}),
+			),
+		);
+		await activeImage("2026.09.15", "v24.11.1", "Python 3.13.5");
+		const res = await send(carol, "POST", "/admin/docker/seed/match");
+		expect(res.statusCode).toBe(400);
+		expect(res.json().message).toContain("size limit");
+		expect(await seedList()).toEqual(["redis:7"]);
+		expect(await jobCount()).toBe(0);
+	});
+
+	test("while a rebuild runs the button changes nothing", async () => {
+		await send(carol, "PUT", "/admin/docker/seed/images", { images: ["node:24-slim"] });
+		await testDb.db
+			.insertInto("docker_seed_jobs")
+			.values({ images: JSON.stringify(["node:24-slim"]) })
+			.execute();
+		await activeImage("2026.09.16-local.202609301000", "v26.0.0", "Python 3.13.5");
+		const res = await send(carol, "POST", "/admin/docker/seed/match");
+		expect(res.statusCode).toBe(409);
+		expect(await seedList()).toEqual(["node:24-slim"]);
+	});
+
+	test("with no readable image manifest there is no match and the button is 404", async () => {
+		const body = DockerAdminResponse.parse(
+			(await send(carol, "GET", "/admin/docker")).json(),
+		);
+		expect(body.match).toBe(null);
+		expect(body.seedImages).toEqual([]);
+		expect((await send(carol, "POST", "/admin/docker/seed/match")).statusCode).toBe(
+			404,
+		);
 	});
 });
