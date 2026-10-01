@@ -1,7 +1,7 @@
 import { type Kysely, sql } from "kysely";
 
 /**
- * The workspace egress policy (issue #284; SPEC.md section 24.9). Blocked-name
+ * The workspace egress policy (SPEC.md section 24.9). Blocked-name
  * counts are site-wide aggregates with no workspace, user or address column.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {

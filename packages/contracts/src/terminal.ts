@@ -48,11 +48,11 @@ export const Terminal = z.object({
 	projectId: z.string().uuid().nullable(),
 	createdAt: z.string().datetime(),
 	endedAt: z.string().datetime().nullable(),
-	/** This terminal's own colour scheme (issue #268). */
+	/** This terminal's own colour scheme. */
 	theme: TerminalTheme,
 	/**
 	 * Set when a launcher started a coding agent here (SPEC.md §10.8).
-	 * Absent on rows written before Epic 9.
+	 * Absent on rows written before terminals carried a theme.
 	 */
 	agent: CodingAgent.nullable().optional(),
 	/** Object id from `git stash create` before the agent ran (SPEC.md §10.9). */
@@ -74,7 +74,7 @@ export const CreateTerminalRequest = z
 		name: z.string().min(1).max(64).optional(),
 		cwd: z.string().min(1).optional(),
 		projectId: z.string().uuid().optional(),
-		/** Defaults to the user's terminal colour scheme (issue #268). */
+		/** Defaults to the user's terminal colour scheme. */
 		theme: TerminalTheme.optional(),
 		/**
 		 * Present when the center-pane launcher is starting Claude or Codex

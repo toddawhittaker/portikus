@@ -12,7 +12,7 @@ import type { Role } from "./types.js";
 export type RoleChange = { from: Role; to: Role };
 
 /**
- * Grant administrator to an SSO account (ruling 23). Run inside the
+ * Grant administrator to an SSO account. Run inside the
  * caller's transaction. `changed` is false when the account is already an
  * administrator, in which case nothing is written.
  */
@@ -48,7 +48,7 @@ export async function grantAdministrator(
 }
 
 /**
- * Remove a granted administrator role (ruling 23). Locks the target and every
+ * Remove a granted administrator role. Locks the target and every
  * enabled administrator, in id order, so two administrators demoting each
  * other at once cannot both succeed. Run inside the caller's transaction.
  */
@@ -102,7 +102,7 @@ export async function revokeAdministrator(
 }
 
 /**
- * Grant instructor to an SSO account (docs/archive/epics/EPIC-14.md ruling 14). Run inside
+ * Grant instructor to an SSO account (SPEC.md section 5.2). Run inside
  * the caller's transaction. An administrator grant is never touched, and an
  * account already instructor or higher is left as it is (`changed` false).
  */
@@ -136,7 +136,7 @@ export async function grantInstructor(
 }
 
 /**
- * Remove a granted instructor role (docs/archive/epics/EPIC-14.md ruling 14): the account
+ * Remove a granted instructor role (SPEC.md section 5.2): the account
  * falls back to its provider role. Only an instructor grant is removed.
  */
 export async function revokeInstructor(

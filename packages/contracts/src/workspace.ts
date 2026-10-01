@@ -60,16 +60,16 @@ export const IdleStopMinutes = z
 		message: "Must be 0 (never) or 10 to 1440 minutes",
 	});
 
-/** How many hours ahead a student may hold a workspace up; 0 turns holds off (#955). */
+/** How many hours ahead a student may hold a workspace up; 0 turns holds off. */
 export const KeepRunningMaxHours = z.number().int().min(0).max(168);
 
-/** Body of `PUT /workspaces/:id/keep-running`: the hold ends at `until` (#955). */
+/** Body of `PUT /workspaces/:id/keep-running`: the hold ends at `until`. */
 export const SetKeepRunningRequest = z
 	.object({ until: z.string().datetime() })
 	.strict();
 export type SetKeepRunningRequest = z.infer<typeof SetKeepRunningRequest>;
 
-/** Quiet minutes before a throttle lifts on its own (#596). */
+/** Quiet minutes before a throttle lifts on its own. */
 export const CpuIdleLiftMinutes = z.number().int().min(1).max(60);
 
 /** CPU percent below which a throttled workspace counts as quiet; 0 turns lifting off. */
@@ -131,7 +131,7 @@ export type MemoryFlag = z.infer<typeof MemoryFlag>;
 export const Workspace = z.object({
 	id: z.string().uuid(),
 	ownerUserId: z.string().uuid(),
-	/** DNS label naming the container hostname and preview hosts (Epic 8). */
+	/** DNS label naming the container hostname and preview hosts. */
 	label: z.string().min(1),
 	state: WorkspaceState,
 	desiredState: DesiredState,
@@ -140,7 +140,7 @@ export const Workspace = z.object({
 	quotaConfig: z.object({
 		homeGiB: z.number().int().positive(),
 		dockerGiB: z.number().int().positive(),
-		/** Absent on rows written before Epic 10. */
+		/** Absent on rows written before this field existed. */
 		recoveryGiB: z.number().int().positive().optional(),
 	}),
 	/** Set while a Reset Docker or Rebuild is waiting or running. */
@@ -160,7 +160,7 @@ export const Workspace = z.object({
 	idleStopAt: z.string().datetime().nullable(),
 	/** The owner's last activity the API recorded. */
 	lastActivityAt: z.string().datetime().nullable(),
-	/** While set and ahead, grace and idle stop wait until then (#955). */
+	/** While set and ahead, grace and idle stop wait until then. */
 	keepRunningUntil: z.string().datetime().nullable(),
 	/** How far ahead a hold may reach for this workspace, in hours; 0 means off. */
 	keepRunningMaxHours: KeepRunningMaxHours,
@@ -169,12 +169,12 @@ export const Workspace = z.object({
 });
 export type Workspace = z.infer<typeof Workspace>;
 
-/** Longest a workspace label may be (SPEC.md Epic 8). */
+/** Longest a workspace label may be (SPEC.md section 14.3). */
 export const MAX_WORKSPACE_LABEL_LENGTH = 40;
 
 /**
  * Derive a workspace label from the identity provider's
- * `preferred_username` (SPEC.md Epic 8, BROWSER-HANDLING.md §8).
+ * `preferred_username` (SPEC.md section 14.3, BROWSER-HANDLING.md §8).
  *
  * The label names the container hostname and every preview host, so it must
  * be a valid DNS label: lowercase, only letters, digits, and single hyphens,
@@ -265,7 +265,7 @@ export const ApiErrorCode = z.enum([
 	"PROCESS_NOT_FOUND",
 	"PROCESS_CHANGED",
 	"PROCESS_PROTECTED",
-	// Too many sign-in attempts from one address (#398).
+	// Too many sign-in attempts from one address.
 	"RATE_LIMITED",
 	"CHECK_NOT_FOUND",
 	"CHECK_RUNNING",
@@ -277,7 +277,7 @@ export const ApiErrorCode = z.enum([
 	"BUSY",
 	"WORKSPACE_ARCHIVED",
 	"NOT_IMPLEMENTED",
-	// Dex user management (docs/archive/epics/EPIC-14.md rulings 21 and 22).
+	// Dex user management (ADR 0028).
 	"DEX_USER_EXISTS",
 	"DEX_UNAVAILABLE",
 	// Lift throttle or clear memory flag with nothing set (ADR 0032).
@@ -303,9 +303,9 @@ export const ApiErrorCode = z.enum([
 	"BACKUP_KEY_INVALID",
 	"BACKUP_KEY_EXISTS",
 	"BACKUP_KEY_UNAVAILABLE",
-	// The database pool had no free connection in time (ADR 0034 ruling 14).
+	// The database pool had no free connection in time (ADR 0034).
 	"SERVICE_BUSY",
-	// The workspace egress policy (issue #284).
+	// The workspace egress policy.
 	"EGRESS_VERSION_STALE",
 	"EGRESS_ENTRY_EXISTS",
 	"EGRESS_LIMIT_REACHED",
@@ -314,17 +314,17 @@ export const ApiErrorCode = z.enum([
 	"IMAGE_NOT_HEALTHY",
 	"IMAGE_ALREADY_DEFAULT",
 	"IMAGE_NO_PREVIOUS",
-	// Delete refused for the default or previous image (issue #936).
+	// Delete refused for the default or previous image.
 	"IMAGE_IN_USE",
 	"CERTIFICATE_JOB_BUSY",
 	"CERTIFICATE_NO_PREVIOUS",
 	"CERTIFICATE_UPLOAD_REFUSED",
 	"CERTIFICATE_PREFLIGHT_FAILED",
 	"CERTIFICATE_SECRET_REQUIRED",
-	// Shared Docker pull storage (issue #840).
+	// Shared Docker pull storage.
 	"SEED_JOB_RUNNING",
 	"SEED_LIST_EMPTY",
-	// Keep running until (issue #955).
+	// Keep running until.
 	"KEEP_RUNNING_OFF",
 	"INTERNAL",
 ]);

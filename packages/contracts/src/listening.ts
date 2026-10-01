@@ -22,7 +22,7 @@ export const ListeningService = z.object({
 	/**
 	 * True once `protocolHint` is final for this socket: the agent has probed
 	 * it for TLS, or it is a port the agent never probes. The probe runs only
-	 * when a preview of the port is first asked for (issue #957), so until
+	 * when a preview of the port is first asked for, so until
 	 * then the hint is a guess from the port number.
 	 */
 	protocolKnown: z.boolean().optional(),

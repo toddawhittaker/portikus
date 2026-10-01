@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * The workspace egress policy (issue #284; SPEC.md sections 23.1 and 24.9).
+ * The workspace egress policy (SPEC.md sections 23.1 and 24.9).
  * Allow-list mode decides by host name, never by URL; administrator CIDR
  * ranges are the one address rule. Open mode is the default.
  */

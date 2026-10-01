@@ -33,7 +33,7 @@ export function slugify(name: string): string {
 
 /**
  * The display name of a project discovered on disk, or of one whose folder
- * the student renamed in a shell (issue #269). Words are split on hyphens
+ * the student renamed in a shell. Words are split on hyphens
  * and underscores and capitalised, so `project-name` reads `Project Name`.
  * A directory name with nothing to capitalise is used as it stands.
  */
@@ -74,7 +74,7 @@ function readmeHeading(markdown: string): string | undefined {
 			.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
 			.replace(/<[^>]*>/g, "")
 			.replace(/[*_`~]+/g, "")
-			// Emoji decorate a heading but make a poor project name (#883).
+			// Emoji decorate a heading but make a poor project name.
 			.replace(
 				/(?![\u{A9}\u{AE}\u{2122}])\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Modifier}|\u{FE0E}|\u{FE0F}|\u{200D}|\u{20E3}/gu,
 				"",
@@ -123,7 +123,7 @@ function pyprojectName(text: string): string | undefined {
 }
 
 /**
- * The name a cloned repository gives itself (issue #846): the README's first
+ * The name a cloned repository gives itself: the README's first
  * heading, else package.json, else pyproject.toml. Undefined when none of
  * them names it, so the caller falls back to the folder name.
  */
@@ -270,7 +270,7 @@ export const CreateProjectRequest = z
 		url: CloneUrl.optional(),
 		template: z.string().min(1).optional(),
 		gitInit: z.boolean().default(true),
-		/** Clone only: store the name the repository gives itself, if any (#846). */
+		/** Clone only: store the name the repository gives itself, if any. */
 		nameFromRepository: z.boolean().optional(),
 	})
 	.strict()
@@ -425,7 +425,7 @@ export function documentTabId(node: SplitNode): string | null {
 
 /**
  * The saved layout of one project (SPEC.md §7.5). There is no cap on the
- * number of tabs (issue #240): the strip shrinks and then scrolls instead.
+ * number of tabs: the strip shrinks and then scrolls instead.
  * The browser writes this column and the whole tree is attacker-controlled
  * JSON the API stores and hands back, so its size is still bounded, by
  * Fastify's 1 MiB body limit on the request that saves it and by the length

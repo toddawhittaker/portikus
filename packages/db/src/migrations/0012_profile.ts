@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
-	// The optional profile a student fills in (issue #300). None of it is
+	// The optional profile a student fills in. None of it is
 	// used for authorization. The picture is small and capped by the API.
 	await db.schema.alterTable("users").addColumn("profile_github", "text").execute();
 	await db.schema.alterTable("users").addColumn("profile_website", "text").execute();

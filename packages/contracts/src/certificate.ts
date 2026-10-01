@@ -108,10 +108,10 @@ export const ACME_DIRECTORY_PRESETS = {
 export type AcmeDirectoryPreset = keyof typeof ACME_DIRECTORY_PRESETS;
 
 /**
- * The nine caddy-dns plugins Caddy is built with (Epic 27 A1), each with
+ * The nine caddy-dns plugins Caddy is built with, each with
  * the plugin's own Caddyfile field names, split into plain fields (shown on
  * the page) and secret fields (write-only); every field is required.
- * Confirmed against the plugins by the Epic 27 spike. One exception:
+ * Confirmed against the plugins by testing. One exception:
  * Google's `service_account_json` is the JSON text itself; the job writes
  * it to a file and gives the plugin that path as `gcp_application_default`.
  * Hetzner is the v2 plugin (the Hetzner Cloud DNS API).
@@ -249,7 +249,7 @@ export type DnsChallenge = z.infer<typeof DnsChallenge>;
 
 export const AcmeChallenge = z.discriminatedUnion("mode", [
 	z.object({ mode: z.literal("dns01"), dns: DnsChallenge }).strict(),
-	/** HTTP-01 for the site, on-demand TLS for each preview name (Epic 27 A2). */
+	/** HTTP-01 for the site, on-demand TLS for each preview name. */
 	z.object({ mode: z.literal("http01") }).strict(),
 ]);
 export type AcmeChallenge = z.infer<typeof AcmeChallenge>;
@@ -501,7 +501,7 @@ export const CertificateJobView = z
 	.strict();
 export type CertificateJobView = z.infer<typeof CertificateJobView>;
 
-/** One pre-flight check (Epic 27 R10). A warning does not block. */
+/** One pre-flight check. A warning does not block. */
 export const PreflightCheck = z
 	.object({
 		name: z.enum([
@@ -523,7 +523,7 @@ export const CertificatePreflightRequest = z
 	.strict();
 export type CertificatePreflightRequest = z.infer<typeof CertificatePreflightRequest>;
 
-/** The upload checks the API runs with node:crypto (Epic 27 R9); a refusal names one. */
+/** The upload checks the API runs with node:crypto; a refusal names one. */
 export const CertificateUploadCheck = z.enum([
 	"certificate-readable",
 	"key-readable",
@@ -569,5 +569,5 @@ export type CertificateJobDetail = z.infer<typeof CertificateJobDetail>;
 
 export const CERTIFICATE_LOG_LINES = 500;
 
-/** Days before expiry when administrators are notified (Epic 27 R12). */
+/** Days before expiry when administrators are notified. */
 export const CERTIFICATE_EXPIRY_WARNING_DAYS = 14;

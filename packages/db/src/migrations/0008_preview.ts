@@ -2,7 +2,7 @@ import type { Kysely } from "kysely";
 import { sql } from "kysely";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
-	// The login username the workspace label is derived from (SPEC.md Epic 8).
+	// The login username the workspace label is derived from (SPEC.md section 14.3).
 	// Nullable: not every identity provider sends `preferred_username`.
 	await db.schema.alterTable("users").addColumn("preferred_username", "text").execute();
 

@@ -38,13 +38,13 @@ export const AgentCreateTerminalRequest = z
 		id: TerminalId,
 		cwd: z.string().min(1),
 		/**
-		 * The terminal's colour scheme (issue #267). The agent turns it into
+		 * The terminal's colour scheme. The agent turns it into
 		 * COLORFGBG in the shell's environment so a program that auto-detects,
 		 * such as Claude Code, picks a matching theme.
 		 */
 		theme: TerminalTheme,
 		/**
-		 * The owner's timezone (issue #287). The agent sets TZ in the shell's
+		 * The owner's timezone. The agent sets TZ in the shell's
 		 * environment, so a terminal opened after the setting changed reads the
 		 * new zone without waiting for a workspace restart.
 		 */
@@ -90,11 +90,11 @@ export const AgentProject = z.object({
 	/**
 	 * A stable identity for the directory itself: its inode number, as a
 	 * decimal string. `mv` keeps it, so a project renamed in the shell can be
-	 * reconnected to its old row rather than becoming a new one (issue #238).
+	 * reconnected to its old row rather than becoming a new one.
 	 * Optional because an older agent does not report it.
 	 */
 	directoryId: z.string().min(1).max(32).optional(),
-	/** After a clone: the name the repository gives itself, if any (#846). */
+	/** After a clone: the name the repository gives itself, if any. */
 	suggestedName: z.string().min(1).max(MAX_PROJECT_NAME_LENGTH).optional(),
 });
 export type AgentProject = z.infer<typeof AgentProject>;
@@ -196,7 +196,7 @@ export const AgentErrorCode = z.enum([
 	"RECOVERY_POINT_INVALID",
 	"RESTORE_INCOMPLETE",
 	"ROLLBACK_COPY_EXISTS",
-	// A zip that is damaged, locked, or unsafe to extract (issue #817).
+	// A zip that is damaged, locked, or unsafe to extract.
 	"ARCHIVE_INVALID",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;

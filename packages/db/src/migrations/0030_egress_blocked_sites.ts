@@ -1,7 +1,7 @@
 import { type Kysely, sql } from "kysely";
 
 /**
- * Blocked sites for open mode (issue #284, ADR 0043). Their own table rather
+ * Blocked sites for open mode (ADR 0043). Their own table rather
  * than a kind on egress_entries, so the allow-list's unique names, limits and
  * code stay untouched. Created empty: open mode stays as it was until an
  * administrator blocks a site.

@@ -65,7 +65,7 @@ export interface UsersTable {
 	/** Editor preferences the user has changed; the API fills in the rest. */
 	editor_settings: ColumnType<Record<string, unknown>, string | undefined, string>;
 	last_login_at: ColumnType<Date | null, string | null, string | null>;
-	/** Optional profile links (issue #300); never used for authorization. */
+	/** Optional profile links; never used for authorization. */
 	profile_github: string | null;
 	profile_website: string | null;
 	/** The profile picture, png or jpeg, capped by the API. */
@@ -101,7 +101,7 @@ export interface SessionsTable {
 export interface WorkspacesTable {
 	id: Generated<string>;
 	owner_user_id: string;
-	/** DNS label naming the container hostname and preview hosts (Epic 8). */
+	/** DNS label naming the container hostname and preview hosts. */
 	label: string;
 	incus_instance_name: string | null;
 	state: string;
@@ -193,7 +193,7 @@ export interface WorkspacesTable {
 	last_activity_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	/** When the idle stop happens unless the student answers. */
 	idle_stop_at: ColumnType<Date | null, string | null | undefined, string | null>;
-	/** The student's hold over grace and idle stop ends then (issue #955). */
+	/** The student's hold over grace and idle stop ends then. */
 	keep_running_until: ColumnType<Date | null, string | null | undefined, string | null>;
 	/** The UTC day the package survey last read this workspace (ADR 0042). */
 	package_surveyed_on: ColumnType<
@@ -212,7 +212,7 @@ export interface TerminalsTable {
 	cwd: string;
 	position: Generated<number>;
 	project_id: string | null;
-	/** This terminal's own colour scheme, "dark" or "light" (issue #268). */
+	/** This terminal's own colour scheme, "dark" or "light". */
 	theme: Generated<string>;
 	/** "claude" or "codex" when a launcher started it; null for a shell. */
 	agent: string | null;
@@ -236,7 +236,7 @@ export interface ProjectsTable {
 	source: string;
 	/**
 	 * The identity of the directory this project lives in, as the agent
-	 * reports it (issue #238). Null until a listing fills it in.
+	 * reports it. Null until a listing fills it in.
 	 */
 	directory_id: string | null;
 	layout: ColumnType<Record<string, unknown> | null, string | null, string | null>;
@@ -258,19 +258,19 @@ export interface SettingsTable {
 	cpu_throttle_share_percent: Generated<number>;
 	/** 0 means never stop by idle. */
 	idle_stop_minutes: Generated<number>;
-	/** Quiet minutes before a throttle lifts on its own (#596). */
+	/** Quiet minutes before a throttle lifts on its own. */
 	cpu_idle_lift_minutes: Generated<number>;
 	/** CPU percent below which a throttled workspace counts as quiet; 0 turns lifting off. */
 	cpu_idle_lift_percent: Generated<number>;
 	/** Throttles within the hold hours that make one survive a restart; 0 turns it off. */
 	cpu_throttle_hold_after: Generated<number>;
 	cpu_throttle_hold_hours: Generated<number>;
-	/** How far ahead a student may hold a workspace up; 0 turns holds off (#955). */
+	/** How far ahead a student may hold a workspace up; 0 turns holds off. */
 	keep_running_max_hours: Generated<number>;
 	/** Null means the built-in default statement. */
 	acceptable_use_text: string | null;
 	acceptable_use_version: Generated<number>;
-	/** Workspace egress policy (issue #284); the version rises with every write. */
+	/** Workspace egress policy; the version rises with every write. */
 	egress_mode: Generated<string>;
 	egress_presets: Generated<string[]>;
 	egress_ports: Generated<number[]>;
@@ -278,7 +278,7 @@ export interface SettingsTable {
 	egress_applied_version: number | null;
 	egress_applied_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	egress_apply_error: string | null;
-	/** Shared Docker pull storage (issue #840). */
+	/** Shared Docker pull storage. */
 	docker_ghcr_enabled: Generated<boolean>;
 	docker_seed_max_gib: Generated<number>;
 	docker_seed_images: ColumnType<string[], string | undefined, string>;
@@ -453,7 +453,7 @@ export interface ApiRequestSamplesTable {
 	latency_buckets: number[];
 }
 
-/** One administrator egress entry: a host name or an IPv4 range (issue #284). */
+/** One administrator egress entry: a host name or an IPv4 range. */
 export interface EgressEntriesTable {
 	id: Generated<string>;
 	kind: string;
@@ -522,7 +522,7 @@ export interface PackageSurveyCountsTable {
 	workspaces: number;
 }
 
-/** The one current seed volume (issue #840); no row means no seed. */
+/** The one current seed volume; no row means no seed. */
 export interface DockerSeedTable {
 	id: ColumnType<number, number | undefined, never>;
 	images: ColumnType<string[], string, string>;

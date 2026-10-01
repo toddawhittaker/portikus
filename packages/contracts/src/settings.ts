@@ -44,7 +44,7 @@ export const PlatformSettings = z.object({
 	cpuThrottleHoldAfter: CpuThrottleHoldAfter,
 	cpuThrottleHoldHours: CpuThrottleHoldHours,
 	idleStopMinutes: IdleStopMinutes,
-	/** How far ahead a student may hold a workspace up; 0 turns holds off (#955). */
+	/** How far ahead a student may hold a workspace up; 0 turns holds off. */
 	keepRunningMaxHours: KeepRunningMaxHours,
 	/** Null means the built-in DEFAULT_ACCEPTABLE_USE_TEXT. */
 	acceptableUseText: z.string().nullable(),
@@ -116,7 +116,7 @@ export const AdminUser = z.object({
 	id: z.string().uuid(),
 	displayName: z.string().min(1),
 	email: z.string().nullable(),
-	/** The effective role: the higher of the two below (docs/archive/epics/EPIC-13-1.md ruling 20). */
+	/** The effective role: the higher of the two below (ADR 0026). */
 	role: Role,
 	/** The role the account's own sign-in gave last time. */
 	providerRole: Role,
@@ -125,7 +125,6 @@ export const AdminUser = z.object({
 	disabledAt: z.string().datetime().nullable(),
 	/** Per-user override; null means use the platform-wide value. */
 	shutdownGraceSeconds: graceSeconds.nullable(),
-	// Epic 11 (issue #302).
 	preferredUsername: z.string().nullable(),
 	issuer: z.string().nullable(),
 	lastLoginAt: z.string().datetime().nullable(),
@@ -139,7 +138,7 @@ export type AdminUser = z.infer<typeof AdminUser>;
 
 export const AdminUserList = z.object({
 	users: z.array(AdminUser),
-	/** True when the site runs Dex's gRPC API, so Add user is offered (docs/archive/epics/EPIC-14.md ruling 24). */
+	/** True when the site runs Dex's gRPC API, so Add user is offered (ADR 0028). */
 	dexUsers: z.boolean(),
 });
 export type AdminUserList = z.infer<typeof AdminUserList>;
@@ -147,7 +146,7 @@ export type AdminUserList = z.infer<typeof AdminUserList>;
 /** A Dex username: letters, digits, dot, dash and underscore. */
 const DEX_USERNAME = /^[A-Za-z0-9._-]{1,64}$/;
 
-/** Request body for `POST /admin/dex-users` (docs/archive/epics/EPIC-14.md ruling 21). */
+/** Request body for `POST /admin/dex-users` (ADR 0028). */
 export const CreateDexUserRequest = z
 	.object({
 		email: z.string().trim().toLowerCase().email().max(254),
@@ -183,18 +182,18 @@ export type UpdateAdminUserSettingsRequest = z.infer<
 >;
 
 /**
- * One user's editor and terminal preferences (issues #159 and #239). Every
+ * One user's editor and terminal preferences. Every
  * field has a default, so a user who has never changed anything still gets a
  * complete object.
  */
 export const TERMINAL_THEMES = ["dark", "light"] as const;
 
-/** The colour scheme a student's terminals use (issue #239). */
+/** The colour scheme a student's terminals use. */
 export const TerminalTheme = z.enum(TERMINAL_THEMES);
 export type TerminalTheme = z.infer<typeof TerminalTheme>;
 
 /**
- * The IANA zone names this build knows (issue #287). This is the server's
+ * The IANA zone names this build knows. This is the server's
  * list: a browser's own list can differ, so the browser is handed this one by
  * `GET /me/settings` instead of building its own. It is both the whole list
  * the student chooses from and the only list a zone name is accepted from, so
@@ -213,7 +212,7 @@ export function isSystemTimezone(value: unknown): value is string {
 	return typeof value === "string" && systemTimezoneSet.has(value);
 }
 
-/** The zone a workspace runs in until the student picks another (issue #287). */
+/** The zone a workspace runs in until the student picks another. */
 export const DEFAULT_TIMEZONE = "America/New_York";
 
 /**
@@ -226,7 +225,7 @@ export const Timezone = z.string().refine(isSystemTimezone, {
 });
 export type Timezone = z.infer<typeof Timezone>;
 
-/** The page appearance: follow the computer, or always light or dark (issue #300). */
+/** The page appearance: follow the computer, or always light or dark. */
 export const APPEARANCES = ["system", "light", "dark"] as const;
 export const Appearance = z.enum(APPEARANCES);
 export type Appearance = z.infer<typeof Appearance>;
@@ -237,15 +236,15 @@ export const EditorSettings = z.object({
 	wordWrap: z.boolean(),
 	terminalTheme: TerminalTheme,
 	/**
-	 * The IANA zone the student's workspace runs in (issue #287). A plain
+	 * The IANA zone the student's workspace runs in. A plain
 	 * string here because the browser parses this schema too and knows a
 	 * different set of zone names; the server checks the value against its
 	 * own list whenever one is written.
 	 */
 	timezone: z.string().min(1),
-	/** Page appearance, separate from the terminal colours (issue #300). */
+	/** Page appearance, separate from the terminal colours. */
 	appearance: Appearance,
-	/** Turns on xterm's screen-reader mode in every terminal (issue #357). */
+	/** Turns on xterm's screen-reader mode in every terminal. */
 	screenReaderMode: z.boolean(),
 });
 export type EditorSettings = z.infer<typeof EditorSettings>;
@@ -280,7 +279,7 @@ export type UpdateEditorSettingsRequest = z.infer<typeof UpdateEditorSettingsReq
 /**
  * The body of `GET /me/settings`: the settings plus every zone name the
  * server will accept, so the dialog offers exactly what the API takes
- * (issue #287).
+ *.
  */
 export const MeSettings = EditorSettings.extend({
 	timezones: z.array(z.string()),
@@ -289,7 +288,7 @@ export const MeSettings = EditorSettings.extend({
 });
 export type MeSettings = z.infer<typeof MeSettings>;
 
-/** Largest profile picture the API stores on the users row (issue #300). */
+/** Largest profile picture the API stores on the users row. */
 export const MAX_PROFILE_PICTURE_BYTES = 1024 * 1024;
 
 /** What the student is told when a picture is over the cap, by the API or the browser. */
@@ -316,7 +315,7 @@ export function isHttpsUrl(value: string): boolean {
 	}
 }
 
-/** GitHub: a bare username or an https link to a profile (issue #300). */
+/** GitHub: a bare username or an https link to a profile. */
 export const GithubLink = z
 	.string()
 	.trim()
@@ -336,7 +335,7 @@ export function githubHref(value: string): string {
 }
 
 /**
- * The student's profile (issue #300). Name, email, and workspace label come
+ * The student's profile. Name, email, and workspace label come
  * from the institution sign-in; the rest is optional and never used for
  * authorization. `picture` is the owner-only picture URL, or null.
  */

@@ -436,7 +436,7 @@ test("ProjectLayout caps how deep a split tree may nest", () => {
 	).toBe(false);
 });
 
-/** Issue #269: a folder name becomes the project's display name. */
+/** A folder name becomes the project's display name. */
 test("displayNameFromDirectory capitalises the words of a directory name", () => {
 	expect(displayNameFromDirectory("project-name")).toBe("Project Name");
 	expect(displayNameFromDirectory("my_site2")).toBe("My Site2");

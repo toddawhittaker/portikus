@@ -13,8 +13,7 @@ import { type LtiRole, mapLtiRoles } from "./roles.js";
 import type { LtiLoginState } from "./state.js";
 
 /**
- * Every reason a launch is refused, one per check (docs/archive/epics/EPIC-13.md ruling
- * 19). `state_missing` and `state_mismatch` come from `checkLaunchState`
+ * Every reason a launch is refused, one per check (ADR 0025). `state_missing` and `state_mismatch` come from `checkLaunchState`
  * and `consumeLoginState`; the rest from {@link validateLaunchToken}.
  */
 export type LtiRefusal =
@@ -40,11 +39,11 @@ export type LtiRefusal =
 export interface LtiLaunch {
 	platform: LtiPlatform;
 	subject: string;
-	/** `name`, else given and family name, else "LTI user" (ruling 20). */
+	/** `name`, else given and family name, else "LTI user". */
 	displayName: string;
 	/** For the profile only; never used to find or link an account. */
 	email: string | null;
-	/** `preferred_username`, else the custom claim `username`; names the workspace (SPEC.md, Epic 8). */
+	/** `preferred_username`, else the custom claim `username`; names the workspace (SPEC.md section 14.3). */
 	username: string | null;
 	role: LtiRole;
 	/** Absent when the launch had no context claim: sign in, record no membership. */
@@ -65,8 +64,8 @@ const CLOCK_SKEW_SECONDS = 60;
 /**
  * One remote JWKS per keyset URL, kept for the life of the process: keys
  * cached 10 minutes, an unknown `kid` refetches at most every 30 seconds,
- * each fetch times out after 5 seconds (ruling 19). With a proxy URL the
- * fetches go through the forward proxy (docs/archive/epics/EPIC-14.md ruling 27).
+ * each fetch times out after 5 seconds. With a proxy URL the
+ * fetches go through the forward proxy (ADR 0027).
  */
 export function createKeySetSource(proxyUrl?: string | null): KeySetSource {
 	const outboundFetch = createOutboundFetch(proxyUrl);

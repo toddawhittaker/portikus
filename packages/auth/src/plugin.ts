@@ -88,7 +88,7 @@ export function loginCookieOptions(auth: AuthOptions): CookieSerializeOptions {
 
 /**
  * The two cross-site POSTs an LMS makes during an LTI launch. The id_token
- * signature, state and nonce protect them instead (docs/archive/epics/EPIC-13.md ruling 7).
+ * signature, state and nonce protect them instead (ADR 0025).
  */
 function isCsrfExempt(request: FastifyRequest): boolean {
 	const url = request.routeOptions.url;

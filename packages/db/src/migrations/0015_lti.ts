@@ -1,7 +1,7 @@
 import { type Kysely, sql } from "kysely";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
-	// The first role between student and administrator (SPEC.md §5.2, Epic 13).
+	// The first role between student and administrator (SPEC.md §5.2).
 	await sql`alter table users drop constraint users_role_check`.execute(db);
 	await sql`alter table users add constraint users_role_check check (role in ('student','instructor','administrator'))`.execute(
 		db,

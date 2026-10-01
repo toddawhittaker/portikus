@@ -78,7 +78,7 @@ export const StartInstanceRequest = z.object({
 	// API can authenticate to the agent (SPEC.md §23.5).
 	agentToken: z.string().regex(/^[0-9a-f]{64}$/, "Must be 64 hex characters"),
 	// The workspace label, set as the container hostname at every start so
-	// the shell prompt reads `student@<label>` (SPEC.md Epic 8).
+	// the shell prompt reads `student@<label>` (SPEC.md section 14.3).
 	hostname: z
 		.string()
 		.regex(
@@ -87,8 +87,8 @@ export const StartInstanceRequest = z.object({
 		)
 		.max(40),
 	// The preview host suffix, pushed into the container on every start so
-	// shells and dev servers can name the preview host (issue #263,
-	// BROWSER-HANDLING.md section 14). Never carries a credential.
+	// shells and dev servers can name the preview host
+	// (BROWSER-HANDLING.md section 14). Never carries a credential.
 	previewHostSuffix: z
 		.string()
 		.regex(
@@ -97,7 +97,7 @@ export const StartInstanceRequest = z.object({
 		)
 		.max(253),
 	// The owner's timezone, set on the container at every start so shells,
-	// logs, and Git commits read in the student's own clock (issue #287).
+	// logs, and Git commits read in the student's own clock.
 	timezone: Timezone,
 	// Size of the Docker volume to put back when a failed Reset Docker left
 	// it off (ADR 0021). When absent the controller skips that step.
@@ -109,7 +109,7 @@ export const StartInstanceRequest = z.object({
 	// never gives it a moment at full speed. When absent any allowance is removed.
 	cpuAllowance: CpuAllowance.optional(),
 	// Registry cache and ghcr settings written into the workspace before it
-	// runs (issue #840). When absent the controller leaves Docker's config alone.
+	// runs. When absent the controller leaves Docker's config alone.
 	docker: WorkspaceDockerConfig.optional(),
 });
 export type StartInstanceRequest = z.infer<typeof StartInstanceRequest>;

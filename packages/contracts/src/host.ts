@@ -62,7 +62,7 @@ export const HostSnapshot = z.object({
 			imageSerial: z.string().nullable(),
 		}),
 	),
-	/** Null in samples written before Epic 19. */
+	/** Null in older samples. */
 	rates: HostRates.nullable().default(null),
 });
 export type HostSnapshot = z.infer<typeof HostSnapshot>;
@@ -97,7 +97,7 @@ export const HealthSample = z.object({
 		errorCode: z.string().nullable(),
 	}),
 	host: HostSnapshot.nullable(),
-	/** Workspaces the database says are running; null in samples before Epic 19. */
+	/** Workspaces the database says are running; null in older samples. */
 	runningWorkspaces: z.number().int().nonnegative().nullable().default(null),
 });
 export type HealthSample = z.infer<typeof HealthSample>;

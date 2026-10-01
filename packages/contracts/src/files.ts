@@ -73,7 +73,7 @@ export type MkdirRequest = z.infer<typeof MkdirRequest>;
 export const MoveRequest = z.object({ from: ProjectPath, to: ProjectPath }).strict();
 export type MoveRequest = z.infer<typeof MoveRequest>;
 
-/** Request body for "Extract here" on a zip file (issue #817). */
+/** Request body for "Extract here" on a zip file. */
 export const ExtractRequest = z.object({ path: ProjectPath }).strict();
 export type ExtractRequest = z.infer<typeof ExtractRequest>;
 
@@ -97,13 +97,13 @@ export const MAX_EDITOR_FILE_BYTES = 2 * 1024 * 1024;
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 /**
- * Largest file, folder or project a download serves (#399). A folder counts
+ * Largest file, folder or project a download serves. A folder counts
  * the apparent size of its regular files. A tenth of the workspace root
  * disk, where the zip is staged.
  */
 export const MAX_DOWNLOAD_BYTES = 1024 * 1024 * 1024;
 
-/** What the API relays past MAX_DOWNLOAD_BYTES, for zip headers (#399). */
+/** What the API relays past MAX_DOWNLOAD_BYTES, for zip headers. */
 export const ZIP_OVERHEAD_BYTES = 64 * 1024 * 1024;
 
 /** Generated and dependency directories the tree hides by default (SPEC.md §11.3). */

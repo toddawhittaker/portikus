@@ -1,7 +1,7 @@
 import { type Kysely, sql } from "kysely";
 
 /**
- * Keep running until (issue #955, Epic 28 ruling R1): a student's hold over
+ * Keep running until (SPEC.md section 6.4): a student's hold over
  * the disconnect grace and idle stop, and the site cap on how far ahead it
  * may reach, in hours (0 turns holds off).
  */
