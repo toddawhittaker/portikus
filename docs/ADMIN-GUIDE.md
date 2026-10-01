@@ -82,6 +82,78 @@ last 7 days, for the whole site, never per student.
 
 ![The Network tab in allow-list mode, with presets for npm, Python, apt, GitHub and Claude turned on](images/admin-network.png)
 
+## Docker images and the pull cache
+
+Workspaces pull Docker Hub and ghcr.io images through a pull cache on the
+server. The **Docker** tab shows its size and use, and **Clear cache**
+empties it. The **seed** is a set of images that new workspaces and Reset
+Docker start with.
+
+The ghcr.io cache is on by default. Students build and push their images
+in GitHub Actions, which runs on GitHub's machines and pushes to the real
+ghcr.io with the repository's `GITHUB_TOKEN`; the cache does not touch that.
+In a workspace they only pull those images, through the cache, with no
+`docker login`. A minimal workflow:
+
+```yaml
+name: image
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: ghcr.io/${{ github.repository }}:latest
+```
+
+The student then makes the package public on GitHub and runs
+`docker pull ghcr.io/<owner>/<image>:<tag>`, or uses it in `FROM`. While the
+cache is on, inside workspaces:
+
+- `docker push` to ghcr.io does not work. Push from GitHub Actions instead.
+- Private ghcr.io images cannot be pulled. Make the package public.
+- `docker login ghcr.io` reports success without checking anything.
+- Tools other than Docker, such as curl, `gh` and ORAS, get certificate
+  errors for ghcr.io.
+
+To turn it off, clear **Cache ghcr.io images** on the **Docker** tab. A
+change reaches each workspace when it next starts.
+
+Security: the ghcr.io cache uses a certificate authority made on the server
+that may sign only `ghcr.io`. Its key is readable by root alone. Only Docker
+inside workspaces trusts it; the workspace system, browsers and other tools
+do not.
+
+### What saves disk and what saves bandwidth
+
+The pull cache saves download bandwidth, pull time and the shared Docker
+Hub rate limit. It does not save disk: every student who pulls an image
+still has a full unpacked copy in their own Docker storage. The cache adds
+one fixed-size file on the server, sized by an install question (20 GiB by
+default) and reserved when it is made. The first fetch of an image
+downloads about twice its size, a quirk of the registry; later pulls
+download almost nothing (measured: 88 MB, then 8 KB).
+
+Seeds are what save disk. A seed image is stored once and shared,
+copy-on-write, by every workspace made or reset from the seed, so it costs a
+student only what they change. For example, four images of 2.9 GB shared by
+30 students take 2.9 GB instead of about 87 GB. Use **Image use** to move
+popular pulled images into the seed. Existing workspaces take a new seed
+only when the student uses Reset Docker; Docker storage is never swapped
+behind a student's back. The net disk cost of the cache is that one capped
+file, which `sudo dpkg-reconfigure portikus` can size down.
+
 ## Backups and restores
 
 Each night the platform database and every workspace's home and recovery

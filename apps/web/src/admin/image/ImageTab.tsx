@@ -19,9 +19,9 @@ import {
 	Toggletip,
 	useToast,
 } from "@portikus/ui";
-import { type ReactNode, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { ApiError } from "../../api/request.js";
-import { AdminSection } from "../AdminSection.js";
+import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { errorText } from "../SettingsTab.js";
 import {
@@ -307,42 +307,6 @@ function confirmLabel(c: Confirming): string {
 	if (c.kind === "fetch") return "Update";
 	if (c.kind === "rollback") return "Roll back";
 	return "Make default";
-}
-
-/** One of the page's h3 groups, drawn as a card, as on the Backups tab. */
-function Group({
-	id,
-	title,
-	help,
-	actions,
-	children,
-	testId,
-}: {
-	id: string;
-	title: string;
-	help?: ReactNode;
-	actions?: ReactNode;
-	children: ReactNode;
-	testId?: string;
-}) {
-	return (
-		<section
-			className="pk-card @container grid gap-5 p-6"
-			aria-labelledby={id}
-			data-testid={testId}
-		>
-			<div className="flex flex-wrap items-start gap-x-4 gap-y-2">
-				<div className="flex min-w-0 flex-1 items-center gap-1">
-					<h3 className="pk-text-heading m-0" id={id} tabIndex={-1}>
-						{title}
-					</h3>
-					{help}
-				</div>
-				{actions}
-			</div>
-			{children}
-		</section>
-	);
 }
 
 function toolsText(image: ImageView | null): { node: string; python: string } {

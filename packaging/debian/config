@@ -18,7 +18,7 @@ tls_cert tls_key provider entra_tenant_id google_domains oidc_issuer client_id
 client_secret oidc_groups_claim ldap_host ldap_schema ldap_ip_allow
 ldap_bind_dn ldap_bind_password ldap_user_base_dn ldap_user_filter
 ldap_group_base_dn ldap_root_ca student_group instructor_group admin_group
-storage storage_confirm storage_size summary"
+storage storage_confirm storage_size registry_cache_gib summary"
 # shellcheck disable=SC2086
 LAST=$(set -- $STEPS; echo $#)
 
@@ -47,6 +47,7 @@ names = {
     "portikus_oidc_instructor_group": "instructor_group",
     "portikus_oidc_admin_group": "admin_group", "portikus_storage": "storage",
     "portikus_storage_confirm": "storage_confirm", "portikus_storage_size": "storage_size",
+    "portikus_registry_cache_gib": "registry_cache_gib",
 }
 try:
     with open(sys.argv[1]) as f:
@@ -289,6 +290,9 @@ prepare() {
 			db_set portikus/storage_size "$(($(root_free_gib) / 2))"
 		fi
 		;;
+	registry_cache_gib)
+		db_subst portikus/registry_cache_gib free "$(root_free_gib)"
+		;;
 	summary)
 		summary
 		db_subst portikus/summary summary "$SUMMARY"
@@ -363,6 +367,8 @@ summary() {
 		;;
 	*) line "Student files: LVM volume group $RET" ;;
 	esac
+	db_get portikus/registry_cache_gib
+	line "Docker image cache: $RET GiB on the main disk"
 	SUMMARY=$out
 }
 
@@ -521,6 +527,22 @@ check() {
 			return 1
 		fi
 		;;
+	registry_cache_gib)
+		# A cache made on an earlier run already uses its space.
+		[ "$value" = "$ORIGINAL_CACHE" ] && [ -n "$value" ] && return 0
+		case "$value" in '' | *[!0-9]*)
+			PROBLEM="Give a whole number of GiB, such as 20."
+			return 1
+			;;
+		esac
+		max=$(max_file_gib)
+		# Setup shrinks or turns off a cache the disk has no room for, so 1 is always a valid answer.
+		[ "$max" -ge 1 ] || max=1
+		if [ "$value" -lt 1 ] || [ "$value" -gt "$max" ]; then
+			PROBLEM="Give a size from 1 to $max GiB, so the main disk keeps room to spare."
+			return 1
+		fi
+		;;
 	esac
 	return 0
 }
@@ -529,6 +551,8 @@ import_config_file
 
 db_get portikus/storage_size
 ORIGINAL_SIZE=$RET
+db_get portikus/registry_cache_gib
+ORIGINAL_CACHE=$RET
 SHOWN_ANY=0
 STATE=1
 DIR=1

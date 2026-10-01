@@ -1,0 +1,56 @@
+# Portikus ghcr.io pull-through cache (issue #840, security rulings S1 and S3).
+# Off by default: the root cache helper enables it when an administrator
+# turns the ghcr.io cache on. TLS on 10.200.0.1:5001, with a certificate for
+# ghcr.io from the site's own name-constrained authority.
+[Unit]
+Description=Portikus ghcr.io pull-through cache
+# The gateway address exists once Incus has made the bridge; the egress
+# helper loads its gate on the cache ports first (ruling S2).
+After=network-online.target incus.service portikus-egress-apply.service
+Wants=network-online.target
+RequiresMountsFor=/var/lib/portikus-registry
+ConditionPathIsDirectory=/etc/portikus/registry
+# Setup turns the cache off when the main disk has no room for it.
+ConditionPathExists=!/etc/portikus/registry/cache-off
+
+[Service]
+Type=simple
+User=portikus-registry
+Group=portikus-registry
+# As root: the config from the helper's state, and the storage directory.
+ExecStartPre=+/usr/lib/portikus/registry-job render ghcr
+ExecStart=/usr/bin/docker-registry serve /etc/portikus/registry/ghcr.yml
+# The bridge may come up after this unit at boot.
+Restart=always
+RestartSec=5
+MemoryMax=512M
+TasksMax=256
+UMask=0077
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/portikus-registry
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

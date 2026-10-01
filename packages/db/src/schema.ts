@@ -5,7 +5,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots, 0025_egress, 0026_backups, 0028_throttle_hold, 0029_package_survey and 0030_egress_blocked_sites
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots, 0025_egress, 0026_backups, 0028_throttle_hold, 0029_package_survey, 0030_egress_blocked_sites, 0031_docker_cache and 0032_docker_pull_days
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -37,6 +37,10 @@ export interface Database {
 	backup_status: BackupStatusTable;
 	package_survey_days: PackageSurveyDaysTable;
 	package_survey_counts: PackageSurveyCountsTable;
+	docker_seed: DockerSeedTable;
+	docker_seed_jobs: DockerSeedJobsTable;
+	docker_image_pulls: DockerImagePullsTable;
+	docker_image_presence: DockerImagePresenceTable;
 }
 
 export interface UsersTable {
@@ -270,6 +274,10 @@ export interface SettingsTable {
 	egress_applied_version: number | null;
 	egress_applied_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	egress_apply_error: string | null;
+	/** Shared Docker pull storage (issue #840). */
+	docker_ghcr_enabled: Generated<boolean>;
+	docker_seed_max_gib: Generated<number>;
+	docker_seed_images: ColumnType<string[], string | undefined, string>;
 	updated_at: ColumnType<Date, string | undefined, string>;
 	updated_by: string | null;
 }
@@ -507,4 +515,45 @@ export interface PackageSurveyCountsTable {
 	day: ColumnType<Date, string, string>;
 	package: string;
 	workspaces: number;
+}
+
+/** The one current seed volume (issue #840); no row means no seed. */
+export interface DockerSeedTable {
+	id: ColumnType<number, number | undefined, never>;
+	images: ColumnType<string[], string, string>;
+	size_bytes: ColumnType<string, number, number>;
+	image_version: string;
+	built_at: ColumnType<Date, string, string>;
+}
+
+/** One seed rebuild the admin page asked for; the worker drives it. */
+export interface DockerSeedJobsTable {
+	id: Generated<string>;
+	state: ColumnType<string, string | undefined, string>;
+	step: ColumnType<string, string | undefined, string>;
+	images: ColumnType<string[], string, string>;
+	message: ColumnType<string | null, string | null | undefined, string | null>;
+	requested_by: string | null;
+	requested_at: ColumnType<Date, string | undefined, string>;
+	finished_at: ColumnType<Date | null, string | null | undefined, string | null>;
+}
+
+/** Registry pulls per canonical image, workspace and UTC day; the report returns counts only. */
+export interface DockerImagePullsTable {
+	image: string;
+	workspace_id: string;
+	/** The UTC day, as YYYY-MM-DD on insert. */
+	day: ColumnType<Date, string, string>;
+	pulls: number;
+	first_seen: ColumnType<Date, string | undefined, string>;
+	last_seen: ColumnType<Date, string | undefined, string>;
+}
+
+/** The last inventory of a workspace: which images it holds and whether a seed image is used. */
+export interface DockerImagePresenceTable {
+	workspace_id: string;
+	image: string;
+	in_seed: boolean;
+	used: boolean;
+	sampled_at: ColumnType<Date, string | undefined, string>;
 }

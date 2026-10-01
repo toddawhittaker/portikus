@@ -1955,11 +1955,85 @@ puts the device back; each step can be retried. The home and recovery
 volumes are never touched. The request and its result are audited as
 `workspace.docker_reset_requested`, then `workspace.docker_reset` or
 `workspace.docker_reset_failed`. A second request while one is pending gets
-409 `OPERATION_PENDING`.
+409 `OPERATION_PENDING`. Since Epic 26 the new volume is a copy of the
+current seed when there is one (section 16.6).
 
 ### 16.5 Docker status
 
 The UI should expose understandable Docker resource/status information without requiring the student to parse daemon internals.
+
+### 16.6 Docker pull cache and seed
+
+Added by Epic 26 (issue #840, ADR 0045). Two things share Docker's cost
+across workspaces.
+
+**Pull cache.** Workspaces pull Docker Hub images through a pull-through
+cache on the Portikus VM: Debian's `docker-registry` 2.8 in proxy mode on
+the workspace gateway, `10.200.0.1:5000`. The second student to pull an
+image downloads almost nothing from the internet, and the site stays under
+Docker Hub's anonymous rate limit. The cache's storage is its own
+fixed-size ext4 file at `/var/lib/portikus-registry`, sized by the install
+question `portikus/registry-cache-gib` (default 20 GiB). Registry 2.8 has
+no size cap; it expires blobs 7 days after first fetch, and the status
+timer clears the whole cache when it passes 90 percent full. An
+administrator can also clear it from the Docker tab (section 20.1).
+The cache is an optimisation and never fails setup: when the answered size
+would leave less than 10 GiB free on the main disk, setup makes the largest
+whole-GiB cache that keeps the 10 GiB, and when not even 1 GiB fits it turns
+the cache off (the file `/etc/portikus/registry/cache-off`), warns in its
+output, and workspaces get no mirror. A workspace already running when the
+cache turns off keeps its cache settings until its next restart; meanwhile
+the gateway no longer redirects ghcr.io traffic, so its pulls fail plainly.
+The cache file's space is reserved in full: setup and a clear reserve any
+holes again, and the weekly fstrim leaves it alone because it trims only
+the file systems in `/etc/fstab`.
+
+**ghcr.io cache, on by default.** A second registry on `10.200.0.1:5001`
+caches ghcr.io (GitHub's container registry). It is on by default (Todd's
+ruling of 2026-09-30, migration 0033), because students push images from
+GitHub Actions to the real ghcr.io and only pull public images inside
+workspaces. While it is on, a workspace's `/etc/hosts` points `ghcr.io` at
+the gateway and Docker trusts an internal certificate for it, so inside
+workspaces `docker push` to ghcr.io, private ghcr.io images, and tools
+other than Docker that talk to ghcr.io (curl, `gh`, ORAS) do not work, and
+`docker login ghcr.io` reports success without checking. An administrator
+can turn it off; the change reaches each workspace at its next start.
+
+**Workspace Docker settings.** Before each start the worker tells the
+controller whether to use the Hub mirror and the ghcr.io cache, each only
+when the egress policy lets that registry's names through (section 23.6).
+The controller, with the container stopped, writes `/etc/docker/daemon.json`
+(keeping the overlay2 pin of section 16.2 and whatever else the image put
+there, adding `registry-mirrors` only for the Hub mirror), and adds or
+removes the ghcr.io hosts line and certificate. If the cache is down,
+Docker falls back to Docker Hub directly.
+
+**Seed.** One global seed volume, `portikus-docker-seed`, holds a list of
+images an administrator chooses (at most 30, total size capped by a
+setting, default 8 GiB). A new workspace, a student's Reset Docker
+(section 16.4) and an admin rebuild with Reset Docker get a Docker volume
+that is an LVM-thin copy of the current seed: it costs no disk until
+changed. The copy is sized at the configured Docker size plus the seed's
+size (never below the seed volume's own size), and the seed's share is
+recorded on the volume in the `user.portikus.seed-gib` key so later quota
+changes count it. Only those three moments take the current seed; an
+existing volume is never replaced behind a student's back. With no seed,
+or when the copy fails, the workspace gets an empty volume as before and
+the controller logs a warning.
+
+A seed rebuild runs in an ordinary unprivileged workspace container from
+the current default image, pulls each image through the cache, removes
+containers and build cache, stops dockerd cleanly, and swaps the new
+volume in. A seed over the size cap fails the build and the old seed
+stays. Workspaces already copied from the old seed are not affected.
+
+**Usage report.** The registry's notification webhook tells the worker
+about each pull, and every hour the worker asks each running
+workspace's agent for its Docker inventory (`GET /docker/inventory`). A
+seed image counts as used in a workspace when a container references it or
+another local image is built on it. The Docker tab shows, over 30 days and
+as counts only, images pulled that are not in the seed and seed images
+nobody uses. Rows are kept 90 days.
 
 ## 17. Workspace reset and rebuild
 
@@ -2509,6 +2583,20 @@ Changed by Epic 25 (UI polish and help):
 - **Course page.** It has an intro, and **Remove** is offered only on
   students; the API refuses removing an instructor, whose membership
   belongs to the learning system.
+
+Added by Epic 26 (section 16.6, ADR 0045): a **Docker** tab after
+Image. It shows the pull cache's size and use, the last clear and any
+clear error, and **Clear cache**. It holds an optional Docker Hub
+credential, write-only, which the page asks to be a personal access token
+with "Public Repo Read-only" scope from an account with no private
+repositories, because every student could pull them; the page shows only
+whether one is set and says a change clears the cache. It has the
+**Cache ghcr.io images** switch with the list of what breaks while it is
+on; the seed image list, the seed size cap, **Rebuild seed** with
+progress, and the current seed's size, images and image version; and the
+Image use report, with **Add to seed** and **Remove from seed**. Every
+change writes an audit row, and the credential's row says only "set" or
+"cleared". The report lists at most 200 rows per table, with a total.
 
 ### 20.2 User impersonation
 
@@ -3214,6 +3302,26 @@ stores an address. dnsmasq's query log stays off.
 host" and a refused HTTPS connection as a reset, the tools' usual
 errors.
 
+**Registry cache gate (Epic 26).** The pull cache must not bypass the
+policy. The egress helper renders an input-hook chain in `inet
+portikus_egress` that drops every packet to the gateway's ports 5000 and
+5001, with no "established" accept ahead of it, unless the policy's own
+name matcher allows fixed names: for Docker Hub `registry-1.docker.io`,
+`auth.docker.io` and `production.cloudflare.docker.com`; for ghcr.io
+`ghcr.io` and `pkg-containers.githubusercontent.com`. This covers
+allow-list mode and open mode's blocked sites alike. While the ghcr.io
+cache is on, the helper also renders the redirect of gateway TCP 443 to
+5001 behind the same gate. The Incus ACL opens only 5000 and 5001 on the
+gateway, never 443. `egress-drop-all.nft` and the guard table drop both
+ports, so a failure closes them. The worker leaves a mirror out of the
+workspace's Docker settings when the policy would drop its names. The
+name lists live in `packages/contracts` beside the ports, shared by the
+worker and the render. When the registry helper changes the ghcr.io
+switch it starts the egress helper with no request, which re-renders the
+policy already applied (or the default open policy). Setup starts it the
+same way after it sets the switch, so the table follows the switch without
+a reboot.
+
 **Rulings behind this design.** After the Epic 24 spike the orchestrator
 ruled (E1 to E10, recorded in ADR 0038): our own dnsmasq rather than
 `raw.dnsmasq` (E1); its exact configuration, with the upstream, gateway
@@ -3291,6 +3399,65 @@ Root inside an inner Docker container must not imply root on:
 - the outer LXC host mapping;
 - the platform VM;
 - the Pop!_OS host.
+
+**Registry cache (Epic 26, ADR 0045).** The pull cache is a new
+service that every workspace can reach. Rulings S1 to S8 of the design
+review, as built:
+
+- **S1, the cache process.** Each registry runs as its own system user
+  under a systemd sandbox with `MemoryMax=` and `TasksMax=`, and listens
+  only on the workspace gateway; the host firewall accepts 5000 and 5001
+  only from the workspace bridge, with a per-source connection cap.
+  Debian's own `docker-registry.service`, which listens on every
+  interface, is masked. The access log is off, the log level is info or
+  lower, and there is no debug listener. Clearing the cache stops the
+  registries, makes a fresh filesystem on the loop file and starts them
+  again; root never deletes inside a directory the registry user owns.
+  Push and delete answer 405.
+- **S2, the egress gate.** Section 23.6, "Registry cache gate".
+- **S3, ghcr.io.** The certificate authority may sign only `ghcr.io`, its
+  key is readable by root alone, and only Docker in workspaces trusts it,
+  through `/etc/docker/certs.d`. Port 443 on the gateway is never opened
+  in the ACL; only the rendered redirect reaches 5001.
+- **S4, shifted volumes.** The seed and its copies use
+  `security.shifted=true`, set from the start of the build. One shifted
+  volume is never attached to two workspaces. The smoke test checks that
+  the `portikus` and `nobody` accounts cannot reach into the Incus custom
+  volume paths.
+- **S5, the Hub credential.** It should be a personal access token with
+  public-repository read-only scope. The API writes a mode 0600 request
+  file that a root helper reads and deletes; the API keeps no copy and
+  answers only whether one is set. Setting, changing or clearing it
+  clears the cache, so nothing fetched with one account is served under
+  another; if that clear fails the Hub cache stays stopped until a clear
+  succeeds.
+- **S6, the catalog.** Every workspace can list what is cached through
+  `/v2/_catalog`. Accepted; no proxy goes in front.
+- **S7, usage data.** A pull event's address can carry a student's
+  `X-Forwarded-For` value, so it is a hint: it is kept only as a single
+  IPv4 address inside the bridge range and never used for anything per
+  student. The worker's webhook listens on 127.0.0.1 and requires a header
+  token from a root-generated file readable only by the registry and
+  worker users. At most 2,000 image names a day are stored; the rest count
+  as "(other images)". Names must match Docker's reference grammar and
+  are shown as text. The agent's inventory runs `/usr/bin/docker` by
+  absolute path with a timeout, an output size cap and an item cap, and a
+  reply that fails the schema counts as no data.
+- **S8, the seed build.** The builder is an ordinary unprivileged
+  workspace container behind the workspace ACL. Image names follow a
+  strict pattern (Docker Hub, or ghcr.io only while that cache is on; no
+  other host or port; an optional `@sha256` digest), at most 30, passed
+  as separate arguments with no shell. The seed has a size cap.
+- **Accepted overcommit (ruling SEC1).** The resource guard adds no
+  admission check for the seed's size. Thin-pool overcommit already exists
+  for home and Docker quotas, a thin copy costs nothing until written, and
+  the seed adds at most the seed cap to each workspace. The controller's
+  refusal to fill the pool past 90 percent, the Health tab's pool usage,
+  and the seed cap are the protection.
+- **Shared cache availability (SEC5).** Clearing is an administrator's
+  action, but one student can fill the shared cache past 90 percent and so
+  set off the automatic clear, which wipes it for everyone. That costs
+  only download time, never data; accepted.
 
 ### 24.6 File API security
 
@@ -4907,6 +5074,28 @@ Acceptance:
 
 - every help button works the same by keyboard, mouse and touch, and axe passes in both themes;
 - an administrator can stop or start a workspace stuck in a transition.
+
+### Epic 26 — Shared Docker pull storage
+
+See sections 16.6, 20.1, 23.6 and 24.5, and ADR 0045; built on
+`epic/26-docker-cache` (issue #840). Migrations 0031 to 0033.
+
+Includes:
+
+- a Docker Hub pull-through cache on the workspace gateway, and a ghcr.io
+  cache that is on by default;
+- a global seed volume copied as a thin snapshot into new workspaces,
+  Reset Docker and admin rebuilds;
+- a Docker admin tab with the cache, the Hub credential, the ghcr.io
+  switch, the seed and an image use report.
+
+Acceptance:
+
+- a second pull of an image from any workspace downloads almost nothing
+  from the internet;
+- the cache ports are closed to the management network and to any
+  workspace whose egress policy does not allow the registry's names;
+- a seeded workspace's files have real owners and `docker run` works.
 
 ### Estimated total
 

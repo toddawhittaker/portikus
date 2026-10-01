@@ -497,6 +497,22 @@ test("a request logs one line, and an Incus failure names the reason", async () 
 	}
 });
 
+test("the minute seed poll with no seed logs at debug only", async () => {
+	const { logged, requests } = buildLogging("debug");
+	try {
+		const res = await logged.inject({
+			method: "GET",
+			url: "/docker-seed",
+			headers: auth(),
+		});
+		expect(res.statusCode).toBe(404);
+		expect(res.json().code).toBe("NOT_FOUND");
+		expect(requests().map((l) => l.level)).toEqual(["debug"]);
+	} finally {
+		await logged.close();
+	}
+});
+
 // Maintenance operations (ADR 0021).
 
 async function createStopped(name = "ws-abc") {
@@ -1210,4 +1226,104 @@ test("replace-home refuses a running instance and a missing import", async () =>
 		headers: auth(),
 	});
 	expect(missing.statusCode).toBe(404);
+});
+
+// The Docker seed and registry settings (issue #840).
+
+const BUILD_ID = "3f0e6c1a-4b1d-4c2e-9a55-0c8f5b2d1e01";
+
+function seedBuild(payload: Record<string, unknown> = {}) {
+	return app.inject({
+		method: "POST",
+		url: "/docker-seed/builds",
+		headers: auth(),
+		payload: {
+			id: BUILD_ID,
+			images: ["python:3.12"],
+			ghcrEnabled: false,
+			maxBytes: 8 * 1024 ** 3,
+			...payload,
+		},
+	});
+}
+
+test("the seed routes require the token", async () => {
+	for (const [method, url] of [
+		["POST", "/docker-seed/builds"],
+		["GET", `/docker-seed/builds/${BUILD_ID}`],
+		["GET", "/docker-seed"],
+	] as const) {
+		expect((await app.inject({ method, url })).statusCode).toBe(401);
+	}
+});
+
+test("a seed build answers 202, then its status by id, then the seed", async () => {
+	expect(
+		(await app.inject({ method: "GET", url: "/docker-seed", headers: auth() }))
+			.statusCode,
+	).toBe(404);
+	const started = await seedBuild();
+	expect(started.statusCode).toBe(202);
+	expect(started.json()).toMatchObject({ id: BUILD_ID, state: "running" });
+	await new Promise((r) => setTimeout(r, 10));
+	const status = await app.inject({
+		method: "GET",
+		url: `/docker-seed/builds/${BUILD_ID}`,
+		headers: auth(),
+	});
+	expect(status.json()).toMatchObject({ state: "succeeded" });
+	const seed = await app.inject({
+		method: "GET",
+		url: "/docker-seed",
+		headers: auth(),
+	});
+	expect(seed.statusCode).toBe(200);
+	expect(seed.json().images).toEqual(["python:3.12"]);
+});
+
+test("a second build while one runs is 409", async () => {
+	provider.seedPrepareGate = new Promise(() => {});
+	expect((await seedBuild()).statusCode).toBe(202);
+	const second = await seedBuild({ id: "3f0e6c1a-4b1d-4c2e-9a55-0c8f5b2d1e02" });
+	expect(second.statusCode).toBe(409);
+});
+
+test("a bad seed build request is 400, and a ghcr.io name while ghcr is off too", async () => {
+	expect((await seedBuild({ images: ["localhost:5000/x"] })).statusCode).toBe(400);
+	expect((await seedBuild({ images: [] })).statusCode).toBe(400);
+	expect((await seedBuild({ maxBytes: 0 })).statusCode).toBe(400);
+	const ghcr = await seedBuild({ images: ["ghcr.io/o/t:1"] });
+	expect(ghcr.statusCode).toBe(400);
+	expect(ghcr.json().message).toMatch(/ghcr\.io cache/);
+});
+
+test("an unknown seed build is 404", async () => {
+	const res = await app.inject({
+		method: "GET",
+		url: `/docker-seed/builds/${BUILD_ID}`,
+		headers: auth(),
+	});
+	expect(res.statusCode).toBe(404);
+});
+
+test("start passes the Docker registry settings to the provider", async () => {
+	await provider.create("ws-abc", { homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 });
+	const res = await app.inject({
+		method: "POST",
+		url: "/instances/ws-abc/start",
+		headers: auth(),
+		payload: {
+			timeoutSeconds: 10,
+			agentToken: AGENT_TOKEN,
+			hostname: "tw7",
+			previewHostSuffix: "preview.example.edu",
+			timezone: "America/New_York",
+			docker: { hubMirror: true, ghcr: false },
+		},
+	});
+	expect(res.statusCode).toBe(200);
+	expect(provider.instances.get("ws-abc")?.docker).toEqual({
+		hubMirror: true,
+		ghcr: false,
+	});
 });

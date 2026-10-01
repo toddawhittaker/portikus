@@ -11,6 +11,7 @@ import { type ExpressionBuilder, type Kysely, sql } from "kysely";
 import { runReplaceHome } from "./backups.js";
 import type { ControllerClient } from "./controller-client.js";
 import { ControllerClientError } from "./controller-client.js";
+import { dockerStartConfig } from "./docker-start.js";
 import { rebuildPointsDone } from "./recovery.js";
 
 /** Config values the reconciler reads. */
@@ -1026,6 +1027,7 @@ async function startWorkspace(
 			dockerGiB: dockerGiBOf(ws.quota_config, config),
 			recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
 			cpuAllowance: await heldAllowance(db, ws.id),
+			docker: await dockerStartConfig(db),
 		});
 		const updated = await casUpdate(
 			db,

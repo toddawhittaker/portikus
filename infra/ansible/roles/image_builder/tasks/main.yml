@@ -47,27 +47,71 @@
       {{ (image_builder_marker.content | default('') | b64decode | trim)
          if image_builder_marker.content is defined else '' }}
 
-- name: Clone distrobuilder at the pinned commit
-  ansible.builtin.git:
-    repo: https://github.com/lxc/distrobuilder.git
-    dest: /root/go/src/distrobuilder
-    version: "{{ image_builder_distrobuilder_commit }}"
-    depth: 1
+- name: Build distrobuilder at the pinned commit
   when: image_builder_installed_commit != image_builder_distrobuilder_commit
+  block:
+    - name: Clone distrobuilder at the pinned commit
+      ansible.builtin.git:
+        repo: https://github.com/lxc/distrobuilder.git
+        dest: /root/go/src/distrobuilder
+        version: "{{ image_builder_distrobuilder_commit }}"
+        depth: 1
 
-- name: Build and install distrobuilder
-  ansible.builtin.command:
-    cmd: go install ./distrobuilder
-    chdir: /root/go/src/distrobuilder
-  environment:
-    GOBIN: /usr/local/bin
-    GOPATH: /root/go
-    GOCACHE: /root/go/cache
-    GOMODCACHE: /root/go/pkg/mod
-    GOFLAGS: -buildvcs=false
-    GOTOOLCHAIN: auto
-  when: image_builder_installed_commit != image_builder_distrobuilder_commit
-  changed_when: true
+    # Several GiB of module and build cache, removed after the build.
+    - name: Make a scratch directory for the Go caches
+      ansible.builtin.tempfile:
+        state: directory
+        path: /root/go
+        prefix: distrobuilder-build-
+      register: image_builder_go_tmp
+
+    - name: Build and install distrobuilder
+      ansible.builtin.command:
+        cmd: go install ./distrobuilder
+        chdir: /root/go/src/distrobuilder
+      environment:
+        GOBIN: /usr/local/bin
+        GOPATH: "{{ image_builder_go_tmp.path }}"
+        GOCACHE: "{{ image_builder_go_tmp.path }}/cache"
+        GOMODCACHE: "{{ image_builder_go_tmp.path }}/pkg/mod"
+        GOFLAGS: -buildvcs=false
+        GOTOOLCHAIN: auto
+      changed_when: true
+
+  always:
+    - name: Remove the Go caches of the distrobuilder build
+      ansible.builtin.file:
+        path: "{{ image_builder_go_tmp.path }}"
+        state: absent
+      when: image_builder_go_tmp.path is defined
+
+# Earlier builds kept their caches here; they took several GiB of the main disk.
+- name: Remove the Go caches of earlier builds
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /root/go/pkg
+    - /root/go/cache
+    - /root/go/dex-cache
+    - /root/go/bin
+    - /root/go/caddy-portikus
+
+# A build killed outright skips its cleanup and leaves its scratch directory.
+- name: Find scratch directories of interrupted Go builds
+  ansible.builtin.find:
+    paths: /root/go
+    patterns: "*-build-*"
+    file_type: directory
+  register: image_builder_stale_builds
+
+- name: Remove scratch directories of interrupted Go builds
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ image_builder_stale_builds.files }}"
+  loop_control:
+    label: "{{ item.path }}"
 
 - name: Create the marker directory
   ansible.builtin.file:

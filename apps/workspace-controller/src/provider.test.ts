@@ -18,6 +18,10 @@ import {
 	INSTANCE_CREATE_WAIT_SECONDS,
 	IncusWorkspaceProvider,
 	InstanceNotStoppedError,
+	SEED_BUILD_VOLUME,
+	SEED_BUILDER,
+	SEED_INFO_KEY,
+	SEED_OLD_VOLUME,
 	VOLUME_CREATE_TIMEOUT_MS,
 	VolumeInUseError,
 } from "./provider.js";
@@ -216,8 +220,8 @@ test("volume creates get their own longer bound than the 30 s default", async ()
 	});
 	handler = poolAt(10, []);
 	await own.create("ws-test", SIZES);
-	const volumeCalls = spy.mock.calls.filter((c) =>
-		String(c[1]).includes("/volumes/custom"),
+	const volumeCalls = spy.mock.calls.filter(
+		(c) => c[0] === "POST" && String(c[1]).includes("/volumes/custom"),
 	);
 	expect(volumeCalls).toHaveLength(3);
 	for (const call of volumeCalls) expect(call[5]).toBe(VOLUME_CREATE_TIMEOUT_MS);
@@ -925,6 +929,21 @@ interface FakeIncus {
 	failVolumeCreate: boolean;
 	/** Answer the next PUT with 412, as Incus does for a stale ETag. */
 	staleEtag: boolean;
+	/** Every volume create body, in order. */
+	volumeBodies: Array<Record<string, unknown>>;
+	/** Custom volume config, by volume name. */
+	volumeConfigs: Map<string, Record<string, string>>;
+	/** Fail a volume create that copies from another volume. */
+	failCopy: boolean;
+	/** The container's files as the files API shows them. */
+	files: Map<string, { type: string; content: string }>;
+	/** Files API writes and deletes, in order, as "POST path" or "DELETE path". */
+	fileOps: string[];
+	/** Rewrite /etc/hosts at the next start, as the image's create/copy template does. */
+	hostsTemplate: string | null;
+	/** Every request, as "METHOD path", in order. */
+	log: string[];
+	instanceCreates: Array<{ devices: Record<string, Record<string, string>> }>;
 }
 
 function disk(source: string, diskPath: string): Record<string, string> {
@@ -954,6 +973,25 @@ function fakeIncus(): FakeIncus {
 		execs: [],
 		failVolumeCreate: false,
 		staleEtag: false,
+		volumeBodies: [],
+		volumeConfigs: new Map(),
+		failCopy: false,
+		files: new Map([
+			["/etc/docker", { type: "directory", content: "" }],
+			[
+				"/etc/docker/daemon.json",
+				{
+					type: "file",
+					content:
+						'{"storage-driver":"overlay2","features":{"containerd-snapshotter":false}}',
+				},
+			],
+			["/etc/hosts", { type: "file", content: "127.0.0.1 localhost\n" }],
+		]),
+		fileOps: [],
+		hostsTemplate: null,
+		log: [],
+		instanceCreates: [],
 	};
 }
 
@@ -975,6 +1013,7 @@ function serveIncus(state: FakeIncus): void {
 		const method = req.method ?? "";
 		const etag = `"e${state.etagSeq}"`;
 		const volumePrefix = "/1.0/storage-pools/mypool/volumes/custom";
+		state.log.push(`${method} ${p}`);
 
 		if (p === "/1.0/instances/ws-test" && method === "GET") {
 			res.writeHead(200, { "Content-Type": "application/json", ETag: etag });
@@ -1021,12 +1060,51 @@ function serveIncus(state: FakeIncus): void {
 				incusError(res, 500, "lvcreate failed");
 				return;
 			}
+			state.volumeBodies.push(parsed);
 			if (state.volumes.has(parsed.name)) {
 				incusError(res, 409, "Volume by that name already exists");
 				return;
 			}
+			if (parsed.source && state.failCopy) {
+				incusError(res, 500, "copy failed");
+				return;
+			}
 			state.createdVolumes.push(parsed.name);
 			state.volumes.set(parsed.name, parsed.config.size);
+			state.volumeConfigs.set(parsed.name, parsed.config);
+			respond(res, 200, sync({}));
+		} else if (p.startsWith(`${volumePrefix}/`) && method === "GET") {
+			const name = decodeURIComponent(p.slice(volumePrefix.length + 1));
+			if (!state.volumes.has(name)) {
+				incusError(res, 404, "Storage volume not found");
+				return;
+			}
+			respond(
+				res,
+				200,
+				sync({ name, config: state.volumeConfigs.get(name) ?? {}, used_by: [] }),
+			);
+		} else if (p === "/1.0/instances/ws-test/files") {
+			const path = url.searchParams.get("path") ?? "";
+			if (method === "GET") {
+				const file = state.files.get(path);
+				if (!file) {
+					incusError(res, 404, "not found");
+					return;
+				}
+				res.writeHead(200, { "X-Incus-type": file.type });
+				res.end(file.content);
+				return;
+			}
+			state.fileOps.push(`${method} ${path}`);
+			if (method === "DELETE" && !state.files.delete(path)) {
+				incusError(res, 404, "not found");
+				return;
+			}
+			if (method === "POST") {
+				const type = String(req.headers["x-incus-type"] ?? "file");
+				state.files.set(path, { type, content: body });
+			}
 			respond(res, 200, sync({}));
 		} else if (p.startsWith(`${volumePrefix}/`) && method === "DELETE") {
 			const name = decodeURIComponent(p.slice(volumePrefix.length + 1));
@@ -1053,13 +1131,18 @@ function serveIncus(state: FakeIncus): void {
 			respond(res, 200, sync({}));
 		} else if (p === "/1.0/instances/ws-test/state" && method === "PUT") {
 			state.status = "Running";
+			if (state.hostsTemplate !== null) {
+				state.files.set("/etc/hosts", { type: "file", content: state.hostsTemplate });
+				state.hostsTemplate = null;
+			}
 			respond(res, 200, sync({}));
 		} else if (p === "/1.0/instances/ws-test/state" && method === "GET") {
 			respond(res, 200, sync(runningWithAddress("127.0.0.1")));
 		} else if (p === "/1.0/instances/ws-test/exec") {
 			state.execs.push(JSON.parse(body).command);
 			respond(res, 200, sync({}));
-		} else if (p === "/1.0/instances/ws-test/files") {
+		} else if (p === "/1.0/instances" && method === "POST") {
+			state.instanceCreates.push(JSON.parse(body));
 			respond(res, 200, sync({}));
 		} else {
 			incusError(res, 404, `unexpected ${method} ${p}`);
@@ -2294,5 +2377,492 @@ describe("restarting outdated agents", () => {
 		await expect(hostProvider().restartAgent("../x")).rejects.toMatchObject({
 			code: "INVALID_NAME",
 		});
+	});
+});
+
+// Shared Docker pull storage (issue #840): seed copies, the registry
+// settings written before a start, and the seed builder.
+describe("the Docker seed", () => {
+	const GIB = 1024 ** 3;
+	const SEED = {
+		images: ["python:3.12"],
+		sizeBytes: 2.5 * GIB,
+		imageVersion: "2026.09.9",
+		builtAt: "2026-09-30T12:00:00.000Z",
+	};
+
+	function withSeed(state: FakeIncus): FakeIncus {
+		state.volumes.set("portikus-docker-seed", "12GiB");
+		state.volumeConfigs.set("portikus-docker-seed", {
+			size: "12GiB",
+			[SEED_INFO_KEY]: JSON.stringify(SEED),
+			"security.shifted": "true",
+		});
+		return state;
+	}
+
+	function freshCreate(): FakeIncus {
+		const state = fakeIncus();
+		state.volumes.clear();
+		state.devices = {};
+		return state;
+	}
+
+	test("create copies the seed into the Docker volume, sized at Docker plus the seed", async () => {
+		const state = withSeed(freshCreate());
+		serveIncus(state);
+		await provider.create("ws-test", SIZES);
+		const docker = state.volumeBodies.find((b) => b.name === "ws-test-docker");
+		expect(docker).toEqual({
+			name: "ws-test-docker",
+			config: {
+				size: "23GiB",
+				"security.shifted": "true",
+				"user.portikus.seed-gib": "3",
+			},
+			source: { type: "copy", pool: "mypool", name: "portikus-docker-seed" },
+		});
+		// Home and recovery are never copies.
+		for (const name of ["ws-test-home", "ws-test-recovery"]) {
+			expect(state.volumeBodies.find((b) => b.name === name)).not.toHaveProperty(
+				"source",
+			);
+		}
+	});
+
+	test("a copy is never smaller than the seed volume it copies (F4)", async () => {
+		const state = withSeed(freshCreate());
+		state.volumes.set("portikus-docker-seed", "30GiB");
+		state.volumeConfigs.set("portikus-docker-seed", {
+			size: "30GiB",
+			[SEED_INFO_KEY]: JSON.stringify(SEED),
+		});
+		serveIncus(state);
+		await provider.create("ws-test", SIZES);
+		const docker = state.volumeBodies.find((b) => b.name === "ws-test-docker");
+		expect(docker?.config).toEqual({
+			size: "30GiB",
+			"security.shifted": "true",
+			"user.portikus.seed-gib": "10",
+		});
+	});
+
+	test("the seed itself is never attached to an instance, only its copy to its own", async () => {
+		const state = withSeed(freshCreate());
+		serveIncus(state);
+		await provider.create("ws-test", SIZES);
+		const devices = state.instanceCreates[0]?.devices ?? {};
+		const sources = Object.values(devices).map((d) => d.source);
+		expect(sources).not.toContain("portikus-docker-seed");
+		expect(devices.docker?.source).toBe("ws-test-docker");
+	});
+
+	test("no seed means today's empty volume", async () => {
+		const state = freshCreate();
+		serveIncus(state);
+		await provider.create("ws-test", SIZES);
+		expect(state.volumeBodies.find((b) => b.name === "ws-test-docker")).toEqual({
+			name: "ws-test-docker",
+			config: { size: "20GiB" },
+		});
+	});
+
+	test("a seed with unreadable info is treated as no seed", async () => {
+		const state = withSeed(freshCreate());
+		state.volumeConfigs.set("portikus-docker-seed", { [SEED_INFO_KEY]: "{broken" });
+		serveIncus(state);
+		await provider.create("ws-test", SIZES);
+		expect(
+			state.volumeBodies.find((b) => b.name === "ws-test-docker"),
+		).not.toHaveProperty("source");
+	});
+
+	test("a failed copy falls back to an empty volume", async () => {
+		const state = withSeed(freshCreate());
+		state.failCopy = true;
+		serveIncus(state);
+		await provider.create("ws-test", SIZES);
+		const docker = state.volumeBodies.filter((b) => b.name === "ws-test-docker");
+		expect(docker).toHaveLength(2);
+		expect(docker[0]).toHaveProperty("source");
+		expect(docker[1]).toEqual({ name: "ws-test-docker", config: { size: "20GiB" } });
+		expect(state.volumes.get("ws-test-docker")).toBe("20GiB");
+	});
+
+	test("an existing Docker volume is kept, never replaced by a copy", async () => {
+		const state = withSeed(freshCreate());
+		state.volumes.set("ws-test-docker", "20GiB");
+		serveIncus(state);
+		await provider.create("ws-test", SIZES);
+		expect(state.deleted).toEqual([]);
+		expect(state.createdVolumes).not.toContain("ws-test-docker");
+	});
+
+	test("start never touches an attached Docker volume, seed or not", async () => {
+		const state = withSeed(fakeIncus());
+		serveIncus(state);
+		await provider.start("ws-test", { ...START, dockerGiB: 20 });
+		expect(state.volumeBodies).toEqual([]);
+		expect(state.deleted).toEqual([]);
+	});
+
+	test("Reset Docker makes the new volume as a copy of the seed", async () => {
+		const state = withSeed(fakeIncus());
+		serveIncus(state);
+		await provider.resetDocker("ws-test", { dockerGiB: 30 });
+		expect(state.deleted).toEqual(["ws-test-docker"]);
+		expect(state.volumeBodies).toEqual([
+			{
+				name: "ws-test-docker",
+				config: {
+					size: "33GiB",
+					"security.shifted": "true",
+					"user.portikus.seed-gib": "3",
+				},
+				source: { type: "copy", pool: "mypool", name: "portikus-docker-seed" },
+			},
+		]);
+	});
+
+	test("rebuild with Reset Docker copies the seed; without it the volume stays", async () => {
+		const state = withSeed(fakeIncus());
+		serveIncus(state);
+		await provider.rebuild("ws-test", { resetDocker: false, dockerGiB: 20 });
+		expect(state.volumeBodies).toEqual([]);
+		await provider.rebuild("ws-test", { resetDocker: true, dockerGiB: 20 });
+		expect(state.volumeBodies[0]).toHaveProperty("source.name", "portikus-docker-seed");
+	});
+
+	test("seedInfo reads back what was stored, and null without a seed", async () => {
+		const state = fakeIncus();
+		serveIncus(state);
+		expect(await provider.seedInfo()).toBeNull();
+		withSeed(state);
+		expect(await provider.seedInfo()).toEqual(SEED);
+	});
+
+	test("start writes the registry settings before the instance starts", async () => {
+		const state = fakeIncus();
+		const ca = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ca-")), "ca.crt");
+		fs.writeFileSync(ca, "CERT\n");
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			ghcrCaPath: ca,
+		});
+		serveIncus(state);
+		await own.start("ws-test", { ...START, docker: { hubMirror: true, ghcr: true } });
+		const daemonAt = state.log.indexOf("POST /1.0/instances/ws-test/files");
+		const startAt = state.log.indexOf("PUT /1.0/instances/ws-test/state");
+		expect(daemonAt).toBeGreaterThanOrEqual(0);
+		expect(daemonAt).toBeLessThan(startAt);
+		const daemon = JSON.parse(
+			state.files.get("/etc/docker/daemon.json")?.content ?? "",
+		);
+		expect(daemon).toEqual({
+			"storage-driver": "overlay2",
+			features: { "containerd-snapshotter": false },
+			"registry-mirrors": ["http://10.200.0.1:5000"],
+		});
+		expect(state.files.get("/etc/docker/certs.d/ghcr.io/ca.crt")?.content).toBe(
+			"CERT\n",
+		);
+		expect(state.files.get("/etc/hosts")?.content).toMatch(/^10\.200\.0\.1 ghcr\.io /m);
+
+		await own.start("ws-test", { ...START, docker: { hubMirror: false, ghcr: false } });
+		expect(state.files.has("/etc/docker/certs.d/ghcr.io/ca.crt")).toBe(false);
+		expect(state.files.get("/etc/hosts")?.content).toBe("127.0.0.1 localhost\n");
+	});
+
+	test("the ghcr.io hosts line survives the first start's /etc/hosts template", async () => {
+		const state = fakeIncus();
+		const ca = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ca-")), "ca.crt");
+		fs.writeFileSync(ca, "CERT\n");
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			ghcrCaPath: ca,
+		});
+		serveIncus(state);
+		const ghcrLines = () =>
+			(state.files.get("/etc/hosts")?.content ?? "")
+				.split("\n")
+				.filter((l) => l.includes("ghcr.io"));
+
+		state.hostsTemplate = "127.0.0.1 localhost\n127.0.1.1 ws-test\n";
+		await own.start("ws-test", { ...START, docker: { hubMirror: true, ghcr: true } });
+		expect(ghcrLines()).toHaveLength(1);
+		expect(ghcrLines()[0]).toMatch(/^10\.200\.0\.1 ghcr\.io /);
+
+		state.status = "Stopped";
+		await own.start("ws-test", { ...START, docker: { hubMirror: true, ghcr: true } });
+		expect(ghcrLines()).toHaveLength(1);
+
+		state.status = "Stopped";
+		await own.start("ws-test", { ...START, docker: { hubMirror: true, ghcr: false } });
+		expect(ghcrLines()).toEqual([]);
+	});
+
+	test("start without Docker settings leaves Docker's config alone", async () => {
+		const state = fakeIncus();
+		serveIncus(state);
+		await provider.start("ws-test", START);
+		expect(state.fileOps.filter((op) => op.includes("docker"))).toEqual([]);
+	});
+
+	test("a symbolic link at /etc/docker writes nothing there, and the workspace still starts", async () => {
+		const state = fakeIncus();
+		state.files.set("/etc/docker", { type: "symlink", content: "/home/student/d" });
+		serveIncus(state);
+		await provider.start("ws-test", {
+			...START,
+			docker: { hubMirror: true, ghcr: false },
+		});
+		expect(state.fileOps.filter((op) => /docker|hosts/.test(op))).toEqual([]);
+		expect(state.status).toBe("Running");
+	});
+});
+
+describe("the seed builder", () => {
+	interface Builder {
+		log: string[];
+		bodies: Map<string, unknown[]>;
+		exists: boolean;
+		volumes: Set<string>;
+		usedBy: string[];
+		used: number;
+		/** A volume whose rename Incus refuses. */
+		failRename?: string;
+	}
+
+	function serveBuilder(): Builder {
+		const b: Builder = {
+			log: [],
+			bodies: new Map(),
+			exists: false,
+			volumes: new Set(),
+			usedBy: [],
+			used: 3 * 1024 ** 3,
+		};
+		const vol = "/1.0/storage-pools/mypool/volumes/custom";
+		handler = async (req, res) => {
+			const body = await readBody(req);
+			const url = new URL(req.url ?? "/", "http://incus");
+			const p = url.pathname;
+			const m = req.method ?? "";
+			const key = `${m} ${p}${p.endsWith("/files") ? `?${url.searchParams.get("path")}` : ""}`;
+			b.log.push(key);
+			if (body && !p.endsWith("/files")) {
+				b.bodies.set(key, [...(b.bodies.get(key) ?? []), JSON.parse(body)]);
+			}
+			const inst = `/1.0/instances/${SEED_BUILDER}`;
+			const notFound = () => incusError(res, 404, "not found");
+			if (p === "/1.0/instances" && m === "POST") {
+				b.exists = true;
+				respond(res, 200, sync({}));
+			} else if (p === inst && m === "DELETE") {
+				if (!b.exists) return notFound();
+				b.exists = false;
+				respond(res, 200, sync({}));
+			} else if (p === `${inst}/state` && m === "PUT") {
+				if (!b.exists) return notFound();
+				respond(res, 200, sync({}));
+			} else if (p === `${inst}/state` && m === "GET") {
+				respond(res, 200, sync(runningWithAddress("10.200.0.50")));
+			} else if (p === `${inst}/exec`) {
+				respond(res, 200, sync({ metadata: { return: 0 } }));
+			} else if (p === `${inst}/files` && m === "GET") {
+				if (url.searchParams.get("path") !== "/etc/docker") return notFound();
+				res.writeHead(200, { "X-Incus-type": "directory" });
+				res.end("");
+			} else if (p === `${inst}/files`) {
+				if (m === "DELETE") return notFound();
+				respond(res, 200, sync({}));
+			} else if (p === vol && m === "POST") {
+				b.volumes.add(JSON.parse(body).name);
+				respond(res, 200, sync({}));
+			} else if (p.startsWith(`${vol}/`)) {
+				const rest = decodeURIComponent(p.slice(vol.length + 1));
+				const name = rest.replace(/\/state$/, "");
+				if (!b.volumes.has(name)) return notFound();
+				if (rest.endsWith("/state")) {
+					respond(res, 200, sync({ usage: { used: b.used } }));
+				} else if (m === "GET") {
+					respond(res, 200, sync({ name, config: {}, used_by: b.usedBy }));
+				} else if (m === "DELETE") {
+					b.volumes.delete(name);
+					respond(res, 200, sync({}));
+				} else if (m === "POST") {
+					if (name === b.failRename) return incusError(res, 500, "rename failed");
+					b.volumes.delete(name);
+					b.volumes.add(JSON.parse(body).name);
+					respond(res, 200, sync({}));
+				} else {
+					respond(res, 200, sync({}));
+				}
+			} else if (p === "/1.0/images/aliases/portikus") {
+				respond(res, 200, sync({ target: "fp1" }));
+			} else if (p === "/1.0/images/fp1") {
+				respond(res, 200, sync({ properties: { serial: "2026.09.15" } }));
+			} else {
+				incusError(res, 404, `unexpected ${m} ${p}`);
+			}
+		};
+		return b;
+	}
+
+	test("the builder is an ordinary workspace container with only a fresh Docker volume", async () => {
+		const b = serveBuilder();
+		await provider.prepareSeedBuilder({ maxBytes: 8 * 1024 ** 3, ghcr: false });
+		const [create] = (b.bodies.get("POST /1.0/instances") ?? []) as Array<
+			Record<string, unknown>
+		>;
+		expect(create).toEqual({
+			name: SEED_BUILDER,
+			source: { type: "image", alias: "portikus" },
+			profiles: ["workspace"],
+			devices: {
+				docker: {
+					type: "disk",
+					pool: "mypool",
+					source: SEED_BUILD_VOLUME,
+					path: "/var/lib/docker",
+				},
+			},
+		});
+		// Nothing loosens the profile: no privileged or nesting keys of its own.
+		expect(create).not.toHaveProperty("config");
+		const [volume] =
+			b.bodies.get("POST /1.0/storage-pools/mypool/volumes/custom") ?? [];
+		// Shifted before the builder writes, so copies show real owners, not nobody.
+		expect(volume).toEqual({
+			name: SEED_BUILD_VOLUME,
+			config: { size: "9GiB", "security.shifted": "true" },
+		});
+	});
+
+	test("the builder gets the Hub mirror before it starts, and dockerd must answer", async () => {
+		const b = serveBuilder();
+		await provider.prepareSeedBuilder({ maxBytes: 8 * 1024 ** 3, ghcr: false });
+		const push = b.log.indexOf(
+			`POST /1.0/instances/${SEED_BUILDER}/files?/etc/docker/daemon.json`,
+		);
+		const start = b.log.indexOf(`PUT /1.0/instances/${SEED_BUILDER}/state`, 2);
+		expect(push).toBeGreaterThan(0);
+		expect(push).toBeLessThan(start);
+		const execs = b.bodies.get(`POST /1.0/instances/${SEED_BUILDER}/exec`) as Array<{
+			command: string[];
+		}>;
+		expect(execs.at(-1)?.command).toEqual(["/usr/bin/docker", "info"]);
+	});
+
+	test("a builder left by an earlier build is removed first", async () => {
+		const b = serveBuilder();
+		b.exists = true;
+		b.volumes.add(SEED_BUILD_VOLUME);
+		await provider.prepareSeedBuilder({ maxBytes: 1024 ** 3, ghcr: false });
+		expect(b.log.slice(0, 3)).toEqual([
+			`PUT /1.0/instances/${SEED_BUILDER}/state`,
+			`DELETE /1.0/instances/${SEED_BUILDER}`,
+			`DELETE /1.0/storage-pools/mypool/volumes/custom/${SEED_BUILD_VOLUME}`,
+		]);
+	});
+
+	test("commands run with no shell, one argument each", async () => {
+		const b = serveBuilder();
+		b.exists = true;
+		expect(
+			await provider.execInSeedBuilder(["/usr/bin/docker", "pull", "python:3.12"], 60),
+		).toBe(0);
+		const [exec] = b.bodies.get(`POST /1.0/instances/${SEED_BUILDER}/exec`) as Array<{
+			command: string[];
+		}>;
+		expect(exec?.command).toEqual(["/usr/bin/docker", "pull", "python:3.12"]);
+	});
+
+	test("finish measures the volume, then stops and deletes the builder", async () => {
+		const b = serveBuilder();
+		b.exists = true;
+		b.volumes.add(SEED_BUILD_VOLUME);
+		expect(await provider.finishSeedBuilder()).toBe(3 * 1024 ** 3);
+		const measured = b.log.indexOf(
+			`GET /1.0/storage-pools/mypool/volumes/custom/${SEED_BUILD_VOLUME}/state`,
+		);
+		expect(measured).toBe(0);
+		expect(b.exists).toBe(false);
+	});
+
+	test("install puts the old seed back when the new one cannot take its name (F5)", async () => {
+		const b = serveBuilder();
+		b.volumes.add(SEED_BUILD_VOLUME);
+		b.volumes.add("portikus-docker-seed");
+		b.failRename = SEED_BUILD_VOLUME;
+		await expect(
+			provider.installSeed({
+				images: ["node:22"],
+				sizeBytes: 5,
+				imageVersion: "x",
+				builtAt: "2026-09-30T12:00:00.000Z",
+			}),
+		).rejects.toThrow();
+		expect(b.volumes.has("portikus-docker-seed")).toBe(true);
+		expect(b.volumes.has(SEED_OLD_VOLUME)).toBe(false);
+	});
+
+	test("install stores its info on the volume and swaps it in for the old seed", async () => {
+		const b = serveBuilder();
+		b.volumes.add(SEED_BUILD_VOLUME);
+		b.volumes.add("portikus-docker-seed");
+		const info = {
+			images: ["node:22"],
+			sizeBytes: 5,
+			imageVersion: "2026.09.15",
+			builtAt: "2026-09-30T12:00:00.000Z",
+		};
+		await provider.installSeed(info);
+		const [patch] = b.bodies.get(
+			`PATCH /1.0/storage-pools/mypool/volumes/custom/${SEED_BUILD_VOLUME}`,
+		) as Array<{ config: Record<string, string> }>;
+		expect(JSON.parse(patch?.config[SEED_INFO_KEY] ?? "")).toEqual(info);
+		expect([...b.volumes]).toEqual(["portikus-docker-seed"]);
+		const renames = b.log.filter((l) => l.startsWith("POST /1.0/storage-pools"));
+		expect(renames).toEqual([
+			"POST /1.0/storage-pools/mypool/volumes/custom/portikus-docker-seed",
+			`POST /1.0/storage-pools/mypool/volumes/custom/${SEED_BUILD_VOLUME}`,
+		]);
+		expect(b.log.at(-1)).toBe(
+			`DELETE /1.0/storage-pools/mypool/volumes/custom/${SEED_OLD_VOLUME}`,
+		);
+	});
+
+	test("install refuses a build volume anything still uses (S4)", async () => {
+		const b = serveBuilder();
+		b.volumes.add(SEED_BUILD_VOLUME);
+		b.volumes.add("portikus-docker-seed");
+		b.usedBy = [`/1.0/instances/${SEED_BUILDER}`];
+		await expect(
+			provider.installSeed({
+				images: ["node:22"],
+				sizeBytes: 5,
+				imageVersion: "x",
+				builtAt: "2026-09-30T12:00:00.000Z",
+			}),
+		).rejects.toBeInstanceOf(VolumeInUseError);
+		expect(b.log.some((l) => l.startsWith("PATCH") || l.startsWith("POST"))).toBe(
+			false,
+		);
+	});
+
+	test("the image version is the default image's serial", async () => {
+		serveBuilder();
+		expect(await provider.seedImageVersion()).toBe("2026.09.15");
 	});
 });

@@ -3,6 +3,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -120,6 +121,8 @@ beforeEach(() => {
 		requestPath: join(dir, "request", "request.json"),
 		stateDir: join(dir, "state"),
 		envPath: join(dir, "egress.env"),
+		ghcrEnabledPath: join(dir, "ghcr-enabled"),
+		cacheOffPath: join(dir, "cache-off"),
 		now: () => new Date("2026-09-27T12:00:00Z"),
 		allowAnyOwner: true,
 		run: async (file, args, input) => {
@@ -386,10 +389,64 @@ describe("a request (ADR 0038)", () => {
 		expect(status()).toMatchObject({ requestId: "req-1", ok: false });
 	});
 
-	test("no request and a loaded table: nothing happens", async () => {
+	test("no request, table loaded, no applied.json: the loaded table is left alone", async () => {
+		writeFileSync(deps.ghcrEnabledPath, "on\n");
 		expect(await runHelper(deps)).toBe(0);
-		expect(calls.map((c) => c.args[0])).toEqual(["list"]);
+		expect(loads()).toEqual([]);
+		expect(systemctls()).toEqual([]);
 		expect(read("status.json")).toBeNull();
+	});
+
+	test("a site that never applied: boot marks the default table, and a later switch re-renders it", async () => {
+		tableLoadedNow = false;
+		expect(await runHelper(deps)).toBe(0);
+		expect(read("default-open")).toBe("");
+		expect(loads()[0]).not.toMatch(/redirect to :5001/);
+		calls = [];
+		writeFileSync(deps.ghcrEnabledPath, "on\n");
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()).toHaveLength(1);
+		expect(loads()[0]).toMatch(/tcp dport 443 redirect to :5001/);
+		expect(loads()[0]).not.toMatch(/forward .*drop/);
+		expect(read("applied.json")).toBeNull();
+	});
+
+	test("the cache-off marker drops the ghcr redirect even with the switch on", async () => {
+		writeFileSync(deps.ghcrEnabledPath, "on\n");
+		writeFileSync(deps.cacheOffPath, "off\n");
+		writeRequest(policy());
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()).toHaveLength(1);
+		expect(loads()[0]).not.toMatch(/redirect to :5001/);
+	});
+
+	test("a real policy apply removes the default-open marker", async () => {
+		tableLoadedNow = false;
+		expect(await runHelper(deps)).toBe(0);
+		expect(read("default-open")).toBe("");
+		writeRequest(policy());
+		expect(await runHelper(deps)).toBe(0);
+		expect(read("default-open")).toBeNull();
+		// Losing applied.json now leaves the restrictive table alone.
+		rmSync(state("applied.json"));
+		calls = [];
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()).toEqual([]);
+	});
+
+	test("no request after a policy applied: its table again, names kept, ghcr redirect gone when off", async () => {
+		writeFileSync(deps.ghcrEnabledPath, "on\n");
+		writeRequest(policy());
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()[0]).toMatch(/redirect to :5001/);
+		calls = [];
+		writeFileSync(deps.ghcrEnabledPath, "off\n");
+		expect(await runHelper(deps)).toBe(0);
+		expect(loads()).toHaveLength(1);
+		expect(loads()[0]).toMatch(/forward iifname "portikus-ws" drop/);
+		expect(loads()[0]).not.toMatch(/redirect to :5001/);
+		expect(loads()[0]).not.toMatch(/flush set inet portikus_egress names_v4/);
+		expect(read("applied.json")).toMatch(/"version":3/);
 	});
 });
 
@@ -547,6 +604,7 @@ describe("at boot, when the table is missing", () => {
 		const [first, second] = loads();
 		expect(first).toMatch(/redirect to :5300/);
 		expect(second?.split("\n").filter((l) => l.startsWith("add rule"))).toEqual([
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
 			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
 		]);
 		expect(status().error).toMatch(/workspace forwarding is dropped/);
@@ -561,7 +619,10 @@ describe("at boot, when the table is missing", () => {
 			loads()[0]
 				?.split("\n")
 				.filter((l) => l.startsWith("add rule")),
-		).toEqual(['add rule inet portikus_egress forward iifname "portikus-ws" drop']);
+		).toEqual([
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
+			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
+		]);
 	});
 
 	test("the last applied open mode loads empty chains and starts no dnsmasq", async () => {
@@ -593,10 +654,12 @@ describe("at boot, when the table is missing", () => {
 		expect(read("blocked.txt")).toBe("");
 	});
 
-	test("a site that never applied stays open and loads nothing", async () => {
+	test("a site that never applied loads the default open table at boot", async () => {
 		tableLoadedNow = false;
 		expect(await runHelper(deps)).toBe(0);
-		expect(loads()).toEqual([]);
+		expect(loads()).toHaveLength(1);
+		expect(loads()[0]).not.toMatch(/forward .*drop/);
+		expect(read("applied.json")).toBeNull();
 	});
 
 	test("an unusable egress.env after an allow-list drops forwarding on the recorded bridge", async () => {
@@ -608,7 +671,10 @@ describe("at boot, when the table is missing", () => {
 			loads()[0]
 				?.split("\n")
 				.filter((l) => l.startsWith("add rule")),
-		).toEqual(['add rule inet portikus_egress forward iifname "portikus-ws" drop']);
+		).toEqual([
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
+			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
+		]);
 		expect(status().error).toMatch(/workspace forwarding is dropped/);
 	});
 
@@ -650,6 +716,7 @@ describe("at boot, when the table is missing", () => {
 		expect(await runHelper(deps)).toBe(1);
 		expect(loads()).toHaveLength(1);
 		expect(droppedRules()).toEqual([
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
 			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
 		]);
 	});
@@ -661,6 +728,7 @@ describe("at boot, when the table is missing", () => {
 		writeFileSync(deps.envPath, "garbage\n");
 		expect(await runHelper(deps)).toBe(1);
 		expect(droppedRules()).toEqual([
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
 			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
 		]);
 		expect(status().error).toMatch(/workspace forwarding is dropped/);
@@ -672,6 +740,7 @@ describe("at boot, when the table is missing", () => {
 		writeFileSync(deps.envPath, "garbage\n");
 		expect(await runHelper(deps)).toBe(1);
 		expect(droppedRules()).toEqual([
+			'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
 			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
 		]);
 		expect(status().error).toMatch(/workspace forwarding is dropped/);

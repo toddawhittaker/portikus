@@ -80,6 +80,18 @@
     workspace_egress_http_port: 3129
     workspace_egress_https_port: 3130
     workspace_egress_dns_port: 5300
+    # The Docker pull-through caches on the bridge gateway (issue #840):
+    # Docker Hub always, ghcr.io when an administrator turns it on.  Fixed
+    # in packages/contracts/src/docker-cache.ts.
+    registry_cache_hub_port: 5000
+    registry_cache_ghcr_port: 5001
+    # Open connections one workspace may hold to each cache (ruling S1).
+    registry_cache_connections_per_source: 256
+    # The size in GiB of the caches' own filesystem, a file on the main
+    # disk.  A new size remakes it empty (docs/SPEC.md section 21.12).
+    portikus_registry_cache_gib: 20
+    # The worker's listener for the caches' notifications, on 127.0.0.1.
+    portikus_registry_events_port: 8792
 
     # ── Node.js runtime ──────────────────────────────────────────
     # The Node the package bundles (docs/SPEC.md section 21.12), which the
@@ -467,6 +479,10 @@
     # which creates the controller's group.
     - role: workspace_egress
       tags: workspace_egress
+    # After portikus, whose package ships the units and the helper, and after
+    # workspace_egress, whose helper gates the cache ports.
+    - role: registry_cache
+      tags: registry_cache
     # After portikus, whose package ships the image job and its keyring, and
     # after workspace_egress, so the health check's container starts on a
     # workspace network set up as the admin page's jobs see it.

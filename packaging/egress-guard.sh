@@ -2,7 +2,8 @@
 # Runs after every egress helper run (ExecStopPost, ADR 0038), without Node.
 # If the helper died before loading any table (a crash, a failed import,
 # the memory cap, the start timeout), the missing table would leave the last
-# allow-list open.  Then drop all workspace forwarding, unless applied.json
+# allow-list open.  Then drop all workspace forwarding and the Docker cache
+# ports on the gateway (issue #840, ruling S2), unless applied.json
 # is absent (a site that never applied a policy) or plainly records open mode
 # with no blocked site (ADR 0043).
 # The arguments exist for the tests.
@@ -26,5 +27,5 @@ if [ -f "$applied" ] && [ -r "$applied" ] &&
       grep -q '"blocked":\[\][,}]' "$applied"; }; }; then
   exit 0
 fi
-echo "egress helper left no table after an allow-list; dropping workspace forwarding" >&2
+echo "egress helper left no table after an allow-list; dropping workspace forwarding and the Docker caches" >&2
 exec nft -f "$drop_all"

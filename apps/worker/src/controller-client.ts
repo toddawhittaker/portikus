@@ -13,6 +13,7 @@ import type {
 	RebuildInstanceResponse,
 	ReplaceHomeResponse,
 	ResetDockerRequest,
+	SeedBuildRequest,
 	SetInstanceLimitsRequest,
 	StartInstanceRequest,
 	StartInstanceResponse,
@@ -31,6 +32,8 @@ import {
 	ListInstancesResponse as ListInstancesResponseSchema,
 	RebuildInstanceResponse as RebuildInstanceResponseSchema,
 	ReplaceHomeResponse as ReplaceHomeResponseSchema,
+	SeedBuildStatus,
+	SeedInfo,
 	StartInstanceResponse as StartInstanceResponseSchema,
 	StopInstanceResponse as StopInstanceResponseSchema,
 } from "@portikus/contracts";
@@ -98,6 +101,12 @@ export interface ControllerClient {
 	replaceHome(name: string): Promise<ReplaceHomeResponse>;
 	/** Hand the expanded egress policy to the root helper and wait for it (ADR 0038). */
 	applyEgressPolicy(policy: EgressApplyPolicy): Promise<EgressApplyStatus>;
+	/** Start a Docker seed build; one at a time (issue #840). */
+	startSeedBuild(req: SeedBuildRequest): Promise<SeedBuildStatus>;
+	/** A seed build's progress; NOT_FOUND when the controller forgot it. */
+	seedBuild(id: string): Promise<SeedBuildStatus>;
+	/** The seed the controller holds now, or null when it has none. */
+	seed(): Promise<SeedInfo | null>;
 }
 
 /**
@@ -332,5 +341,30 @@ export class HttpControllerClient implements ControllerClient {
 	async applyEgressPolicy(policy: EgressApplyPolicy): Promise<EgressApplyStatus> {
 		const res = await this.request("PUT", "/egress-policy", policy, EGRESS_BUDGET_MS);
 		return EgressApplyStatus.parse(res);
+	}
+
+	async startSeedBuild(req: SeedBuildRequest): Promise<SeedBuildStatus> {
+		const res = await this.request("POST", "/docker-seed/builds", req, SHORT_BUDGET_MS);
+		return SeedBuildStatus.parse(res);
+	}
+
+	async seedBuild(id: string): Promise<SeedBuildStatus> {
+		const res = await this.request(
+			"GET",
+			`/docker-seed/builds/${encodeURIComponent(id)}`,
+			undefined,
+			SHORT_BUDGET_MS,
+		);
+		return SeedBuildStatus.parse(res);
+	}
+
+	async seed(): Promise<SeedInfo | null> {
+		try {
+			const res = await this.request("GET", "/docker-seed", undefined, SHORT_BUDGET_MS);
+			return SeedInfo.parse(res);
+		} catch (e) {
+			if (e instanceof ControllerClientError && e.code === "NOT_FOUND") return null;
+			throw e;
+		}
 	}
 }

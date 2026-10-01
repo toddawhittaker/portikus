@@ -301,6 +301,9 @@ export const ApiErrorCode = z.enum([
 	"IMAGE_NOT_HEALTHY",
 	"IMAGE_ALREADY_DEFAULT",
 	"IMAGE_NO_PREVIOUS",
+	// Shared Docker pull storage (issue #840).
+	"SEED_JOB_RUNNING",
+	"SEED_LIST_EMPTY",
 	"INTERNAL",
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;

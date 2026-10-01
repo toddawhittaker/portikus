@@ -133,25 +133,48 @@ export class IncusClient {
 		instance: string,
 		filePath: string,
 		body: string,
-		opts: { uid: number; gid: number; mode: string },
+		opts: { uid: number; gid: number; mode: string; type?: "file" | "directory" },
 		signal?: AbortSignal,
 	): Promise<void> {
-		const path =
+		await this.rawRequest(
+			"POST",
+			this.filesPath(instance, filePath),
+			undefined,
+			signal,
+			{
+				headers: {
+					"Content-Type": "application/octet-stream",
+					"X-Incus-uid": String(opts.uid),
+					"X-Incus-gid": String(opts.gid),
+					"X-Incus-mode": opts.mode,
+					"X-Incus-type": opts.type ?? "file",
+					"X-Incus-write": "overwrite",
+				},
+				body,
+			},
+		);
+	}
+
+	/** Delete a file inside an instance through the Incus files API. */
+	async deleteFile(
+		instance: string,
+		filePath: string,
+		signal?: AbortSignal,
+	): Promise<void> {
+		await this.rawRequest(
+			"DELETE",
+			this.filesPath(instance, filePath),
+			undefined,
+			signal,
+		);
+	}
+
+	private filesPath(instance: string, filePath: string): string {
+		return (
 			`/1.0/instances/${encodeURIComponent(instance)}/files` +
 			`?path=${encodeURIComponent(filePath)}` +
-			`&project=${encodeURIComponent(this.project)}`;
-
-		await this.rawRequest("POST", path, undefined, signal, {
-			headers: {
-				"Content-Type": "application/octet-stream",
-				"X-Incus-uid": String(opts.uid),
-				"X-Incus-gid": String(opts.gid),
-				"X-Incus-mode": opts.mode,
-				"X-Incus-type": "file",
-				"X-Incus-write": "overwrite",
-			},
-			body,
-		});
+			`&project=${encodeURIComponent(this.project)}`
+		);
 	}
 
 	/**

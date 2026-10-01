@@ -3,7 +3,8 @@ import type { HelpPart } from "./part.js";
 /**
  * For administrators. Each admin tab's intro links to one of these anchors
  * ("More in Help"), so keep the ids stable: admin-users, admin-health,
- * admin-logs, admin-audit, admin-network, admin-backups, admin-image, admin-settings.
+ * admin-logs, admin-audit, admin-network, admin-backups, admin-image, admin-docker,
+ * admin-settings.
  */
 export const ADMIN_HELP: HelpPart = {
 	id: "admin",
@@ -203,6 +204,68 @@ export const ADMIN_HELP: HelpPart = {
 						becomes the previous image, and <strong>Roll back</strong> swaps them again.
 						Existing workspaces keep the image they were made from until you rebuild
 						each one; the list shows how many workspaces run each image.
+					</p>
+				</>
+			),
+		},
+		{
+			id: "admin-docker",
+			title: "Docker images and the pull cache",
+			body: (
+				<>
+					<p>
+						Workspaces pull Docker Hub images through a <strong>pull cache</strong> on
+						this server, so an image one student pulled comes from here for the next,
+						and the server stays under Docker Hub's limit on anonymous pulls. The{" "}
+						<strong>Docker</strong> tab shows the space the cache uses.{" "}
+						<strong>Clear cache</strong> empties it; images already in workspaces stay.
+						An optional <strong>Docker Hub account</strong>, given as a personal access
+						token with the "Public Repo Read-only" scope, raises the limit. Every
+						student can pull what that account can read, so use one with no private
+						repositories. Saving or removing it empties the cache.
+					</p>
+					<p>
+						The <strong>ghcr.io cache</strong> is on by default. Students build and push
+						their images from GitHub Actions, which runs on GitHub's machines and pushes
+						to the real ghcr.io with the repository's{" "}
+						<code className="pk-mono-body">GITHUB_TOKEN</code>. In a workspace they only
+						pull those images, through the cache, with no{" "}
+						<code className="pk-mono-body">docker login</code>. While it is on, inside
+						workspaces: <code className="pk-mono-body">docker push</code> to ghcr.io
+						does not work, private ghcr.io images cannot be pulled (students make the
+						package public), <code className="pk-mono-body">docker login ghcr.io</code>{" "}
+						reports success without checking, and tools other than Docker, such as curl,
+						gh and ORAS, get certificate errors for ghcr.io. Turn it off on the{" "}
+						<strong>Docker</strong> tab; a change reaches each workspace when it next
+						starts.
+					</p>
+					<p>
+						For this, the server has its own certificate authority that may sign only
+						ghcr.io. Only Docker inside workspaces trusts it; the workspace system,
+						browsers and other tools do not, and its key never leaves the server.
+					</p>
+					<p>
+						<strong>What saves disk and what saves bandwidth.</strong> The pull cache
+						saves download bandwidth, pull time and the shared Docker Hub limit, not
+						disk: every student who pulls an image still has a full unpacked copy in
+						their own Docker storage. The cache is one fixed-size file on the server,
+						sized at install (20 GiB by default) and reserved when created. The first
+						fetch of an image downloads about twice its size; later pulls download
+						almost nothing (measured: 88 MB, then 8 KB). The seed is what saves disk: a
+						seed image is stored once and shared by every workspace made or reset from
+						the seed, costing a student only what they change. For example, four images
+						of 2.9 GB shared by 30 students instead of about 87 GB. Use{" "}
+						<strong>Image use</strong> to move popular pulled images into the seed.
+						Existing workspaces take a new seed only when the student uses Reset Docker;
+						Docker storage is never swapped behind a student's back.
+					</p>
+					<p>
+						The <strong>seed</strong> is a set of images that new workspaces, Reset
+						Docker and a rebuild with Reset Docker start with. List the images and press{" "}
+						<strong>Rebuild seed</strong>; the page shows each step. Existing Docker
+						storage keeps what it has. <strong>Image use</strong> lists images
+						workspaces used that the seed does not hold, and seed images nobody used, so
+						you can add or remove them.
 					</p>
 				</>
 			),

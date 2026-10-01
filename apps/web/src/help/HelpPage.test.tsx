@@ -83,6 +83,7 @@ test("every admin tab's intro has a Help anchor to land on", () => {
 		"admin-network",
 		"admin-backups",
 		"admin-image",
+		"admin-docker",
 		"admin-settings",
 		"instructor-course",
 	]) {
@@ -102,6 +103,7 @@ test("the student part has one anchored topic per section, keyboard included", (
 		"student-terminals",
 		"student-files",
 		"student-previews",
+		"student-container-images",
 		"student-checks",
 		"student-settings",
 		"student-keyboard",

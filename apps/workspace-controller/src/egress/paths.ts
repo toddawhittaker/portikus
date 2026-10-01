@@ -1,3 +1,5 @@
+import { CACHE_OFF_HOST_PATH } from "../docker-config.js";
+
 /** The file interface between the controller, the root helper and Ansible (ADR 0038). */
 export const EGRESS_PATHS = {
 	/** Written by the controller; directory root:portikus-controller 0770. */
@@ -6,6 +8,10 @@ export const EGRESS_PATHS = {
 	stateDir: "/var/lib/portikus/egress-state",
 	/** Root-owned, written by Ansible. */
 	env: "/etc/portikus/egress.env",
+	/** Root-owned, written by the registry cache helper: "on" while the ghcr.io cache runs. */
+	ghcrEnabled: "/etc/portikus/registry/ghcr-enabled",
+	/** Root-owned, written by setup while the pull cache is off; overrides ghcrEnabled. */
+	cacheOff: CACHE_OFF_HOST_PATH,
 } as const;
 
 /** File names inside the state directory. */
@@ -20,6 +26,8 @@ export const STATE_FILES = {
 	dnsmasq: "dnsmasq.conf",
 	/** Where the helper moves a request before reading it. */
 	processing: "request.processing",
+	/** Present while the default open table is loaded because no policy ever applied. */
+	defaultOpen: "default-open",
 } as const;
 
 /** The two services the helper may reload, restart or stop, and nothing else. */

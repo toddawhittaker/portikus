@@ -1,0 +1,582 @@
+#!/usr/bin/python3
+"""The root cache helper for the Docker pull-through caches (issue #840).
+
+Run as root by portikus-registry-job.service, which its path unit starts
+when the API writes a request file, and by portikus-registry-status.timer.
+The file contract is RegistryJobRequestFile in
+packages/contracts/src/docker-cache.ts; the pattern is ADR 0030's.
+
+Usage:
+  registry-job              take and apply every pending request (the path unit)
+  registry-job status       write the status file, and clear the cache when it
+                            is over REGISTRY_AUTO_CLEAR_PERCENT full (the timer)
+  registry-job render NAME  write NAME's registry config, hub or ghcr
+                            (ExecStartPre of each registry unit)
+
+Security rulings S1 and S5: clearing remakes the cache's own filesystem
+rather than deleting inside a directory the registry user owns; a request
+file is read and deleted before anything acts on it; the Hub token is
+written only into the Hub config, and only the request kind is logged.
+Standard library only; the configs are JSON, which the registry reads as YAML.
+"""
+
+import datetime
+import fcntl
+import json
+import os
+import re
+import ssl
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+JOBS_DIR = "/var/lib/portikus/registry-jobs"
+STATUS_NAME = "status.json"
+CONFIG_DIR = "/etc/portikus/registry"
+CREDENTIAL_FILE = CONFIG_DIR + "/hub-credential.json"
+TOKEN_FILE = CONFIG_DIR + "/events-token"
+GHCR_STATE_FILE = CONFIG_DIR + "/ghcr-enabled"
+GHCR_CERT = CONFIG_DIR + "/ghcr.crt"
+GHCR_KEY = CONFIG_DIR + "/ghcr.key"
+WORKER_ENV = "/etc/portikus/worker.env"
+EGRESS_APPLY_UNIT = "portikus-egress-apply.service"
+LOCK_FILE = "/run/portikus-registry-job.lock"
+
+IMAGE_FILE = "/var/lib/portikus-registry.img"
+MOUNT_POINT = "/var/lib/portikus-registry"
+MOUNT_UNIT = "var-lib-portikus\\x2dregistry.mount"
+REGISTRY_USER = "portikus-registry"
+
+# The contracts' REGISTRY_GATEWAY_ADDR, HUB_CACHE_PORT and GHCR_CACHE_PORT.
+GATEWAY = "10.200.0.1"
+CACHES = {
+    "hub": {"port": 5000, "remote": "https://registry-1.docker.io",
+            "unit": "portikus-registry-hub.service"},
+    "ghcr": {"port": 5001, "remote": "https://ghcr.io",
+             "unit": "portikus-registry-ghcr.service"},
+}
+EVENTS_DEFAULT_PORT = 8792
+EVENTS_PATH = "/registry/events"
+EVENTS_TOKEN_HEADER = "X-Portikus-Registry-Token"
+AUTO_CLEAR_PERCENT = 90
+
+MAX_REQUEST_BYTES = 4096
+REQUEST_NAME_RE = re.compile(r"request-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json")
+UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+DATETIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z")
+USERNAME_RE = re.compile(r"[a-z0-9]{4,30}")
+TOKEN_RE = re.compile(r"[\x21-\x7e]{8,200}")
+REQUEST_KEYS = {
+    "clear": {"kind"},
+    "set-ghcr": {"kind", "enabled"},
+    "set-hub-credential": {"kind", "username", "token"},
+    "remove-hub-credential": {"kind"},
+}
+
+
+class Refused(Exception):
+    """A request file the helper will not act on."""
+
+
+def journal(message):
+    print(f"registry-job: {message}", file=sys.stderr, flush=True)
+
+
+def now_iso():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+# ---- Validation ----
+
+def _no_duplicates(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError("duplicate key")
+        out[key] = value
+    return out
+
+
+def validate_request(raw, file_id):
+    """Return the checked `request` object, or raise Refused. Mirrors RegistryJobRequestFile."""
+    try:
+        doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)
+    except (UnicodeDecodeError, ValueError):
+        raise Refused("the request is not valid JSON")
+    if not isinstance(doc, dict) or set(doc) != {"id", "requestedAt", "requestedBy", "request"}:
+        raise Refused("the request file has missing or extra fields")
+    if doc["id"] != file_id:
+        raise Refused("the request id does not match its file name")
+    if not isinstance(doc["requestedAt"], str) or not DATETIME_RE.fullmatch(doc["requestedAt"]):
+        raise Refused("requestedAt is not a time")
+    if not isinstance(doc["requestedBy"], str) or not UUID_RE.fullmatch(doc["requestedBy"]):
+        raise Refused("requestedBy is not a user id")
+    request = doc["request"]
+    if not isinstance(request, dict):
+        raise Refused("the request is not an object")
+    kind = request.get("kind")
+    if not isinstance(kind, str) or kind not in REQUEST_KEYS:
+        raise Refused("unknown kind")
+    if set(request) != REQUEST_KEYS[kind]:
+        raise Refused(f"a {kind} request has missing or extra fields")
+    if kind == "set-ghcr" and not isinstance(request["enabled"], bool):
+        raise Refused("enabled is not true or false")
+    if kind == "set-hub-credential":
+        if not isinstance(request["username"], str) or not USERNAME_RE.fullmatch(request["username"]):
+            raise Refused("the username is not a Docker Hub username")
+        if not isinstance(request["token"], str) or not TOKEN_RE.fullmatch(request["token"]):
+            raise Refused("the token is not an access token")
+    return request
+
+
+# ---- Files ----
+
+def write_file(path, data, mode, gid=0):
+    """Write path atomically with a fresh temporary file, never following a planted link."""
+    directory, name = os.path.split(path)
+    fd, temp = tempfile.mkstemp(prefix=f".{name}.", dir=directory)
+    try:
+        os.fchmod(fd, mode)
+        if os.geteuid() == 0:
+            os.fchown(fd, 0, gid)
+        os.write(fd, data.encode() if isinstance(data, str) else data)
+        os.fsync(fd)
+        os.close(fd)
+        fd = None
+        os.rename(temp, path)
+    except BaseException:
+        if fd is not None:
+            os.close(fd)
+        try:
+            os.unlink(temp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def read_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def read_text(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+class Host:
+    """What the helper does to the host, replaced in the tests."""
+
+    def systemctl(self, *args):
+        return subprocess.run(["systemctl", *args], stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True).returncode
+
+    def is_active(self, unit):
+        return self.systemctl("is-active", "--quiet", unit) == 0
+
+    def mkfs(self, image):
+        # Reserve any holes first (an old file made before nodiscard has them); nodiscard keeps them reserved.
+        subprocess.run(["fallocate", "--length", str(os.path.getsize(image)), image],
+                       stdin=subprocess.DEVNULL, capture_output=True, check=True)
+        subprocess.run(["mkfs.ext4", "-q", "-F", "-m", "0", "-E", "nodiscard", "-L", "portikus-registry", image],
+                       stdin=subprocess.DEVNULL, capture_output=True, check=True)
+
+    def is_mount(self, path):
+        return os.path.ismount(path)
+
+    def statvfs(self, path):
+        return os.statvfs(path)
+
+    def registry_gid(self):
+        import grp
+        return grp.getgrnam(REGISTRY_USER).gr_gid
+
+    def registry_uid(self):
+        import pwd
+        return pwd.getpwnam(REGISTRY_USER).pw_uid
+
+    def sleep(self, seconds):
+        time.sleep(seconds)
+
+    def answers(self, name):
+        """Whether the cache answers GET /v2/ with 200."""
+        port = CACHES[name]["port"]
+        scheme = "https" if name == "ghcr" else "http"
+        # Liveness only: the certificate names ghcr.io, not the gateway address.
+        context = ssl._create_unverified_context() if name == "ghcr" else None
+        try:
+            with urllib.request.urlopen(f"{scheme}://{GATEWAY}:{port}/v2/", timeout=3, context=context) as r:
+                return r.status == 200
+        except (urllib.error.URLError, OSError, ValueError):
+            return False
+
+
+class Helper:
+    def __init__(self, host=None, jobs_dir=JOBS_DIR, config_dir=CONFIG_DIR, mount_point=MOUNT_POINT,
+                 image_file=IMAGE_FILE, worker_env=WORKER_ENV):
+        self.host = host or Host()
+        self.jobs_dir = jobs_dir
+        self.config_dir = config_dir
+        self.mount_point = mount_point
+        self.image_file = image_file
+        self.worker_env = worker_env
+
+    def path(self, name):
+        return os.path.join(self.config_dir, name)
+
+    # -- state --
+
+    def ghcr_enabled(self):
+        return read_text(self.path("ghcr-enabled")) == "on"
+
+    def cache_off(self):
+        """Setup found no room on the main disk for the cache (SPEC.md section 16.6)."""
+        return os.path.exists(self.path("cache-off"))
+
+    def hub_held(self):
+        """A clear after a credential change failed; the Hub cache stays stopped (S3)."""
+        return os.path.exists(self.path("hub-held"))
+
+    def credential(self):
+        doc = read_json(self.path("hub-credential.json"))
+        if isinstance(doc, dict) and isinstance(doc.get("username"), str) and isinstance(doc.get("token"), str):
+            return doc
+        return None
+
+    def events_port(self):
+        """The worker's REGISTRY_EVENTS_PORT, so the two never disagree."""
+        try:
+            with open(self.worker_env, encoding="utf-8") as f:
+                for line in f:
+                    key, _, value = line.strip().partition("=")
+                    if key == "REGISTRY_EVENTS_PORT" and value.isdigit() and 0 < int(value) < 65536:
+                        return int(value)
+        except OSError:
+            pass
+        return EVENTS_DEFAULT_PORT
+
+    # -- configs --
+
+    def config_for(self, name):
+        cache = CACHES[name]
+        config = {
+            "version": "0.1",
+            # Warn, not info: info logs every request with its client address and path (S1).
+            "log": {"level": "warn", "accesslog": {"disabled": True},
+                    "fields": {"service": f"portikus-registry-{name}"}},
+            "storage": {
+                "filesystem": {"rootdirectory": os.path.join(self.mount_point, name)},
+                "cache": {"blobdescriptor": "inmemory"},
+                "delete": {"enabled": True},
+            },
+            # No http.debug: the debug listener would expose metrics and pprof (S1).
+            "http": {"addr": f"{GATEWAY}:{cache['port']}",
+                     "headers": {"X-Content-Type-Options": ["nosniff"]}},
+            "proxy": {"remoteurl": cache["remote"]},
+        }
+        if name == "ghcr":
+            config["http"]["tls"] = {"certificate": self.path("ghcr.crt"), "key": self.path("ghcr.key")}
+        if name == "hub":
+            credential = self.credential()
+            if credential:
+                config["proxy"]["username"] = credential["username"]
+                config["proxy"]["password"] = credential["token"]
+        token = read_text(self.path("events-token"))
+        if token:
+            # An event does not say which registry sent it, so ghcr's URL does.
+            url = f"http://127.0.0.1:{self.events_port()}{EVENTS_PATH}"
+            if name == "ghcr":
+                url += "?registry=ghcr.io"
+            config["notifications"] = {
+                "events": {"includereferences": True},
+                "endpoints": [{
+                    "name": "portikus-worker",
+                    "url": url,
+                    "headers": {EVENTS_TOKEN_HEADER: [token]},
+                    "timeout": "2s",
+                    "threshold": 5,
+                    "backoff": "30s",
+                    # Only manifest pulls count (ruling 7); layers are octet-stream.
+                    "ignore": {"mediatypes": ["application/octet-stream"], "actions": ["push", "delete"]},
+                }],
+            }
+        return config
+
+    def render(self, name):
+        """Write NAME's config (root, readable by the registry group) and its storage directory."""
+        if name not in CACHES:
+            raise SystemExit(f"registry-job: unknown cache {name!r}")
+        if name == "hub" and self.hub_held():
+            # Its data was pulled with the old credential; only a clear that works releases it.
+            raise SystemExit("registry-job: the Hub cache stays stopped until a clear succeeds")
+        header = "# Written by /usr/lib/portikus/registry-job render; edits are lost.\n"
+        body = json.dumps(self.config_for(name), indent=2) + "\n"
+        write_file(self.path(f"{name}.yml"), header + body, 0o640, self.host.registry_gid())
+        self.ensure_storage(name)
+        return 0
+
+    def ensure_storage(self, name):
+        """The cache's directory on the mounted filesystem, which root owns (S1)."""
+        if not self.host.is_mount(self.mount_point):
+            raise SystemExit(f"registry-job: {self.mount_point} is not mounted")
+        top = os.open(self.mount_point, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            try:
+                os.mkdir(name, 0o700, dir_fd=top)
+            except FileExistsError:
+                pass
+            try:
+                fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=top)
+            except OSError:
+                raise SystemExit(f"registry-job: {self.mount_point}/{name} is not a directory")
+            try:
+                if os.geteuid() == 0:
+                    os.fchown(fd, self.host.registry_uid(), self.host.registry_gid())
+                os.fchmod(fd, 0o700)
+            finally:
+                os.close(fd)
+        finally:
+            os.close(top)
+
+    # -- actions --
+
+    def clear(self, reason):
+        """Stop both caches, remake the filesystem, and start what is configured (S1)."""
+        if self.cache_off():
+            journal("the cache is off, so there is nothing to clear")
+            return True
+        journal(f"clearing the cache ({reason})")
+        for cache in ("ghcr", "hub"):
+            self.host.systemctl("stop", CACHES[cache]["unit"])
+        failed = None
+        if self.host.systemctl("stop", MOUNT_UNIT) != 0 or self.host.is_mount(self.mount_point):
+            failed = "could not unmount the cache"
+        else:
+            try:
+                self.host.mkfs(self.image_file)
+            except (OSError, subprocess.CalledProcessError):
+                failed = "could not make a new filesystem"
+            if self.host.systemctl("start", MOUNT_UNIT) != 0:
+                failed = failed or "could not mount the cache"
+        status = read_json(os.path.join(self.jobs_dir, STATUS_NAME)) or {}
+        if failed:
+            if reason == "credential" and not self.hub_held():
+                write_file(self.path("hub-held"), "held\n", 0o600)
+            status["lastClearError"] = failed
+        else:
+            try:
+                os.unlink(self.path("hub-held"))
+            except FileNotFoundError:
+                pass
+            status["lastClearedAt"] = now_iso()
+            status["lastClearReason"] = reason
+            status["lastClearError"] = None
+        self.start_configured()
+        self.write_status(status)
+        if failed:
+            journal(failed)
+            return False
+        return True
+
+    def start_configured(self):
+        if self.ghcr_enabled():
+            self.host.systemctl("start", CACHES["ghcr"]["unit"])
+        if self.hub_held():
+            journal("the Hub cache stays stopped until a clear succeeds")
+            return
+        self.host.systemctl("start", CACHES["hub"]["unit"])
+        # So the status written next says up, not "starting".
+        for _ in range(15):
+            if self.host.answers("hub"):
+                break
+            self.host.sleep(1)
+
+    def set_ghcr(self, enabled):
+        write_file(self.path("ghcr-enabled"), "on\n" if enabled else "off\n", 0o644)
+        unit = CACHES["ghcr"]["unit"]
+        if enabled:
+            self.host.systemctl("enable", "--now", unit)
+        else:
+            self.host.systemctl("disable", "--now", unit)
+        # With no request the egress helper reloads its applied table, now with or without the redirect.
+        # A start while a run is in progress only waits for that run, which may have read the old
+        # switch; the second start is a fresh run that reads the new one.
+        self.host.systemctl("start", EGRESS_APPLY_UNIT)
+        self.host.systemctl("start", EGRESS_APPLY_UNIT)
+        return True
+
+    def set_credential(self, username, token):
+        write_file(self.path("hub-credential.json"), json.dumps({"username": username, "token": token}), 0o600)
+        return self.clear("credential")
+
+    def remove_credential(self):
+        try:
+            os.unlink(self.path("hub-credential.json"))
+        except FileNotFoundError:
+            pass
+        return self.clear("credential")
+
+    def apply(self, request):
+        kind = request["kind"]
+        if kind == "clear":
+            return self.clear("admin")
+        if kind == "set-ghcr":
+            return self.set_ghcr(request["enabled"])
+        if kind == "set-hub-credential":
+            return self.set_credential(request["username"], request["token"])
+        return self.remove_credential()
+
+    # -- the queue --
+
+    def pending(self, jobs_fd):
+        names = []
+        for name in os.listdir(jobs_fd):
+            if not name.startswith("request-") or not name.endswith(".json"):
+                continue
+            try:
+                st = os.stat(name, dir_fd=jobs_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if stat.S_ISREG(st.st_mode) or stat.S_ISLNK(st.st_mode):
+                names.append((st.st_mtime_ns, name))
+        return [name for _, name in sorted(names)]
+
+    def take(self, jobs_fd, name):
+        """Read and delete one request file. Returns the checked request, or None."""
+        raw = None
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=jobs_fd)
+            try:
+                st = os.fstat(fd)
+                if stat.S_ISREG(st.st_mode) and st.st_nlink == 1:
+                    raw = os.read(fd, MAX_REQUEST_BYTES + 1)
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(name, dir_fd=jobs_fd)
+        except OSError:
+            pass
+        match = REQUEST_NAME_RE.fullmatch(name)
+        try:
+            if not match:
+                raise Refused("the file name is not request-<id>.json")
+            if raw is None:
+                raise Refused("the request is not a regular file")
+            if len(raw) > MAX_REQUEST_BYTES:
+                raise Refused("the request file is too large")
+            return validate_request(raw, match.group(1))
+        except Refused as err:
+            journal(f"refused a request: {err}")
+            return None
+
+    def run_pending(self, lock_path=LOCK_FILE):
+        with Lock(lock_path, wait=True):
+            jobs_fd = os.open(self.jobs_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            ok = True
+            try:
+                taken = set()
+                while True:
+                    names = [n for n in self.pending(jobs_fd) if n not in taken]
+                    if not names:
+                        break
+                    taken.add(names[0])
+                    request = self.take(jobs_fd, names[0])
+                    if request is None:
+                        continue
+                    journal(f"applying {request['kind']}")
+                    ok = self.apply(request) and ok
+            finally:
+                os.close(jobs_fd)
+            self.write_status()
+            return 0 if ok else 1
+
+    # -- status --
+
+    def usage(self):
+        if not self.host.is_mount(self.mount_point):
+            return 0, 0
+        st = self.host.statvfs(self.mount_point)
+        size = st.f_blocks * st.f_frsize
+        return size, size - st.f_bfree * st.f_frsize
+
+    def write_status(self, previous=None):
+        previous = previous if previous is not None else (read_json(os.path.join(self.jobs_dir, STATUS_NAME)) or {})
+        size, used = self.usage()
+        ghcr = self.ghcr_enabled()
+        status = {
+            "sizeBytes": size,
+            "usedBytes": used,
+            "hubUp": self.host.answers("hub"),
+            "ghcrEnabled": ghcr,
+            "ghcrUp": ghcr and self.host.answers("ghcr"),
+            "hubCredentialSet": self.credential() is not None,
+            "lastClearedAt": previous.get("lastClearedAt") if isinstance(previous.get("lastClearedAt"), str) else None,
+            "lastClearReason": previous.get("lastClearReason")
+            if previous.get("lastClearReason") in ("admin", "full", "credential") else None,
+            "lastClearError": previous.get("lastClearError")
+            if isinstance(previous.get("lastClearError"), str) else None,
+            "updatedAt": now_iso(),
+        }
+        # Readable by the API through the directory's group; root-owned, so only the helper writes it.
+        write_file(os.path.join(self.jobs_dir, STATUS_NAME), json.dumps(status, indent=2) + "\n", 0o644)
+        return status
+
+    def run_status(self, lock_path=LOCK_FILE):
+        with Lock(lock_path, wait=False) as lock:
+            if not lock.held:
+                return 0
+            size, used = self.usage()
+            if size > 0 and used * 100 > size * AUTO_CLEAR_PERCENT:
+                self.clear("full")
+            self.write_status()
+            return 0
+
+
+class Lock:
+    def __init__(self, path, wait):
+        self.path = path
+        self.wait = wait
+        self.fd = None
+        self.held = False
+
+    def __enter__(self):
+        self.fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(self.fd, fcntl.LOCK_EX | (0 if self.wait else fcntl.LOCK_NB))
+            self.held = True
+        except BlockingIOError:
+            pass
+        return self
+
+    def __exit__(self, *exc):
+        os.close(self.fd)
+        return False
+
+
+def main(argv):
+    helper = Helper()
+    if not argv:
+        return helper.run_pending()
+    if argv == ["status"]:
+        return helper.run_status()
+    if len(argv) == 2 and argv[0] == "render":
+        return helper.render(argv[1])
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    os.umask(0o077)
+    sys.exit(main(sys.argv[1:]))

@@ -15,7 +15,8 @@ ANSIBLE_DIR=/usr/share/portikus/ansible
 CONFIG_FILE=/etc/portikus/portikus.yaml
 SECRETS_FILE=/etc/portikus/secrets.yaml
 SETUP_UNIT=portikus-setup.service
-UNITS="portikus-setup portikus-api portikus-worker portikus-controller portikus-egress-apply.path"
+UNITS="portikus-setup portikus-api portikus-worker portikus-controller portikus-egress-apply.path
+portikus-registry-hub portikus-registry-ghcr portikus-registry-job.path portikus-registry-status.timer"
 READ_LINE="Read the local administrator's one-time password with: sudo cat ${PASSWORD_FILE}"
 
 usage() {
@@ -133,7 +134,7 @@ status() {
   echo "portikus $(dpkg-query -W -f '${Version}' portikus 2>/dev/null || echo unknown)"
   echo "node $("${NODE}" --version 2>/dev/null || echo missing)"
   for unit in ${UNITS}; do
-    printf '%-28s %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
+    printf '%-32s %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
   done
 }
 

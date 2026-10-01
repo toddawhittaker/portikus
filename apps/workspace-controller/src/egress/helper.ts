@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { constants as fsc } from "node:fs";
 import {
+	access,
 	lstat,
 	mkdir,
 	open,
@@ -31,7 +32,8 @@ import {
 
 /**
  * The root helper (ADR 0038, the pattern of ADR 0030). systemd starts it
- * when the controller writes a request, and once at boot. It trusts
+ * when the controller writes a request, once at boot, and when the registry
+ * helper switches the ghcr.io cache (no request: reload the table). It trusts
  * nothing the controller wrote: the request is moved aside, read without
  * following links, capped in size and checked strictly before any value
  * reaches the firewall or a configuration file.
@@ -54,6 +56,10 @@ export interface HelperDeps {
 	requestPath: string;
 	stateDir: string;
 	envPath: string;
+	/** The registry helper's ghcr.io switch; anything but "on", or no file, is off. */
+	ghcrEnabledPath: string;
+	/** Setup's cache-off marker; while it exists the ghcr.io cache counts as off. */
+	cacheOffPath: string;
 	now: () => Date;
 	/** Skip the root-ownership checks on the configuration file (tests only). */
 	allowAnyOwner?: boolean;
@@ -88,6 +94,16 @@ export const MAX_REQUEST_BYTES = 256 * 1024;
 
 const RequestId = /^[A-Za-z0-9-]{1,64}$/;
 
+/** What a site that never applied a policy runs: open, nothing blocked. */
+const DEFAULT_OPEN_POLICY: EgressApplyPolicy = {
+	version: 0,
+	mode: "open",
+	names: [],
+	ranges: [],
+	ports: [80, 443],
+	blocked: [],
+};
+
 export function defaultRunner(): Runner {
 	return (file, args, input) =>
 		new Promise((resolve) => {
@@ -108,8 +124,26 @@ export function defaultDeps(): HelperDeps {
 		requestPath: EGRESS_PATHS.request,
 		stateDir: EGRESS_PATHS.stateDir,
 		envPath: EGRESS_PATHS.env,
+		ghcrEnabledPath: EGRESS_PATHS.ghcrEnabled,
+		cacheOffPath: EGRESS_PATHS.cacheOff,
 		now: () => new Date(),
 	};
+}
+
+/** Whether the ghcr.io cache is on (S3). A missing or unreadable file, or the cache-off marker, means off. */
+async function readGhcrEnabled(deps: HelperDeps): Promise<boolean> {
+	// With the cache off nothing listens on the cache port, so redirecting there would only refuse pulls.
+	try {
+		await access(deps.cacheOffPath);
+		return false;
+	} catch {
+		// No marker: the switch decides.
+	}
+	try {
+		return (await readFile(deps.ghcrEnabledPath, "utf8")).trim() === "on";
+	} catch {
+		return false;
+	}
 }
 
 /** Read the root-owned configuration, refusing a link or a file others could write. */
@@ -351,7 +385,7 @@ async function applyPolicy(
 
 	if (servicesFirst) await dns();
 	if (squidFirst) await squid();
-	await loadTable(deps, renderTable(policy, env, flush));
+	await loadTable(deps, renderTable(policy, env, flush, await readGhcrEnabled(deps)));
 	if (!servicesFirst) await dns();
 	if (!squidFirst) await squid();
 
@@ -365,6 +399,17 @@ async function applyPolicy(
 		gateway: env.gateway,
 	};
 	await writeState(deps, STATE_FILES.applied, `${JSON.stringify(applied)}\n`);
+	await unlink(join(deps.stateDir, STATE_FILES.defaultOpen)).catch(() => undefined);
+}
+
+/** Whether the default open table was loaded on purpose, as opposed to applied.json being lost. */
+async function defaultOpenMarked(deps: HelperDeps): Promise<boolean> {
+	try {
+		await lstat(join(deps.stateDir, STATE_FILES.defaultOpen));
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -382,10 +427,11 @@ async function restoreAtBoot(deps: HelperDeps, env: EgressEnv): Promise<void> {
 		await loadTable(deps, renderDropAll(env));
 		throw new Error("applied.json could not be read; workspace forwarding is dropped");
 	}
-	if (!applied) return; // Never applied: open mode, as a fresh site has always been.
-	const { policy } = applied;
+	// Never applied: the default open table, which still carries the ghcr.io redirect.
+	const policy = applied?.policy ?? DEFAULT_OPEN_POLICY;
 	try {
-		await loadTable(deps, renderTable(policy, env, true));
+		await loadTable(deps, renderTable(policy, env, true, await readGhcrEnabled(deps)));
+		if (!applied) await writeState(deps, STATE_FILES.defaultOpen, "");
 	} catch (e) {
 		if (usesOurResolver(policy)) {
 			await loadTable(deps, renderDropAll(env));
@@ -424,6 +470,27 @@ async function dropWithoutEnv(deps: HelperDeps): Promise<string | null> {
 	if (await tableLoaded(deps)) return null;
 	await loadTable(deps, renderDropAll({ bridge }));
 	return "workspace forwarding is dropped until egress.env is fixed";
+}
+
+/**
+ * A run with no request while the table is loaded: the registry helper
+ * switched the ghcr.io cache, so load the applied policy's table again.
+ * Learned names are kept. A site that never applied (the default-open
+ * marker) gets the default open table again. With neither file the table
+ * stays as it is: lost state must never swap a restrictive table for the open one.
+ */
+async function rerenderTable(deps: HelperDeps, env: EgressEnv): Promise<void> {
+	const applied = await readApplied(deps);
+	let policy: EgressApplyPolicy;
+	if (applied) policy = applied.policy;
+	else if (await defaultOpenMarked(deps)) policy = DEFAULT_OPEN_POLICY;
+	else {
+		process.stderr.write(
+			"egress apply: no applied.json while the table is loaded; left the table as it is\n",
+		);
+		return;
+	}
+	await loadTable(deps, renderTable(policy, env, false, await readGhcrEnabled(deps)));
 }
 
 async function tableLoaded(deps: HelperDeps): Promise<boolean> {
@@ -488,7 +555,21 @@ export async function runHelper(deps: HelperDeps): Promise<number> {
 		});
 		return 1;
 	}
-	if (text === null) return 0;
+	if (text === null) {
+		if (boot) return 0;
+		try {
+			await rerenderTable(deps, env);
+		} catch (e) {
+			await status({
+				requestId: null,
+				version: null,
+				ok: false,
+				error: (e as Error).message,
+			});
+			return 1;
+		}
+		return 0;
+	}
 
 	let request: { requestId: string; policy: EgressApplyPolicy };
 	try {

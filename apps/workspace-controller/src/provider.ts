@@ -20,24 +20,38 @@ import {
 	poolFillPercent,
 	type RebuildInstanceResponse,
 	type ReplaceHomeResponse,
+	SEED_VOLUME_NAME,
+	SeedInfo,
 	type SetInstanceLimitsRequest,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
+	type WorkspaceDockerConfig,
 	WorkspaceVolumeName,
 } from "@portikus/contracts";
 import { type Logger, silentLogger } from "@portikus/observability";
 import type { RunningAgent } from "./agent-restart.js";
 import {
+	CACHE_OFF_HOST_PATH,
+	GHCR_CA_HOST_PATH,
+	writeDockerConfig,
+	writeGhcrHosts,
+} from "./docker-config.js";
+import type { SeedBuildHost } from "./docker-seed.js";
+import {
 	growVolumes,
 	parseIncusSize,
+	readCurrentImage,
 	readHostSnapshot,
 	readInactiveFileBytes,
 	readPoolUse,
+	SEED_SHARE_KEY,
 } from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
 import { parseIdmap, readInstanceProcesses, readUnitStartTime } from "./processes.js";
 
-export interface WorkspaceProvider {
+export interface WorkspaceProvider extends SeedBuildHost {
+	/** The current Docker seed, or null when none is built (issue #840). */
+	seedInfo(): Promise<SeedInfo | null>;
 	create(
 		name: string,
 		sizes: { homeGiB: number; dockerGiB: number; recoveryGiB: number },
@@ -53,6 +67,7 @@ export interface WorkspaceProvider {
 			dockerGiB?: number;
 			recoveryGiB?: number;
 			cpuAllowance?: string;
+			docker?: WorkspaceDockerConfig;
 		},
 	): Promise<StartInstanceResponse>;
 	stop(name: string, opts: { timeoutSeconds: number }): Promise<StopInstanceResponse>;
@@ -136,6 +151,16 @@ export const RECOVERY_PATH = "/var/lib/portikus/recovery";
 
 /** How long to wait for Incus to replace a root filesystem. */
 const REBUILD_TIMEOUT_SECONDS = 600;
+
+/** The seed volume's config key holding its `SeedInfo` as JSON (issue #840). */
+export const SEED_INFO_KEY = "user.portikus.seed";
+/** The seed builder container and its Docker volume, while a build runs. */
+export const SEED_BUILDER = "portikus-seed-builder";
+export const SEED_BUILD_VOLUME = "portikus-docker-seed-build";
+/** The previous seed during the swap. */
+export const SEED_OLD_VOLUME = "portikus-docker-seed-old";
+/** How long the builder has to run with dockerd answering. */
+const SEED_BUILDER_START_SECONDS = 120;
 
 /** The Incus key the resource guard throttles with (ADR 0032). */
 const CPU_ALLOWANCE_KEY = "limits.cpu.allowance";
@@ -222,6 +247,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private readonly procRoot: string;
 	private readonly hostCpuCount: number;
 	private readonly thinPoolStatusPath: string | undefined;
+	private readonly ghcrCaPath: string;
+	private readonly cacheOffPath: string;
 
 	constructor(opts: {
 		client: IncusClient;
@@ -238,7 +265,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		hostCpuCount?: number;
 		/** The lvm role's status file; tests point it elsewhere. */
 		thinPoolStatusPath?: string;
+		/** The ghcr.io cache's CA on the host; tests point it elsewhere. */
+		ghcrCaPath?: string;
+		cacheOffPath?: string;
 	}) {
+		this.ghcrCaPath = opts.ghcrCaPath ?? GHCR_CA_HOST_PATH;
+		this.cacheOffPath = opts.cacheOffPath ?? CACHE_OFF_HOST_PATH;
 		this.client = opts.client;
 		this.pool = opts.pool;
 		this.profile = opts.profile;
@@ -276,7 +308,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 
 		await this.ensureVolume(`${name}-home`, sizes.homeGiB);
-		await this.ensureVolume(`${name}-docker`, sizes.dockerGiB);
+		await this.ensureDockerVolume(name, sizes.dockerGiB);
 		await this.ensureVolume(`${name}-recovery`, sizes.recoveryGiB);
 
 		const imageFingerprint = await this.imageFingerprint();
@@ -375,6 +407,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			dockerGiB?: number;
 			recoveryGiB?: number;
 			cpuAllowance?: string;
+			docker?: WorkspaceDockerConfig;
 		},
 	): Promise<StartInstanceResponse> {
 		validateName(name);
@@ -400,6 +433,25 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 		if (opts.dockerGiB !== undefined) {
 			await this.ensureDockerDevice(name, opts.dockerGiB, signal);
+		}
+
+		// Written before the start, so dockerd reads it; never fatal (issue #840).
+		let ghcr: boolean | null = null;
+		if (opts.docker !== undefined) {
+			try {
+				ghcr = await writeDockerConfig(
+					this.client,
+					name,
+					opts.docker,
+					{ caPath: this.ghcrCaPath, cacheOffPath: this.cacheOffPath, log: this.log },
+					signal,
+				);
+			} catch (err) {
+				this.log.warn(
+					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					"could not write the Docker registry settings; starting without them",
+				);
+			}
 		}
 
 		const recoveryAttached =
@@ -446,6 +498,19 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		await this.setHostname(name, opts.hostname, signal, opts.timeoutSeconds);
 
 		await this.setTimezone(name, opts.timezone, signal, opts.timeoutSeconds);
+
+		// Again after the start: a first start after create or copy runs the
+		// image's /etc/hosts template, which drops the line written above.
+		if (ghcr !== null) {
+			try {
+				await writeGhcrHosts(this.client, name, ghcr, signal);
+			} catch (err) {
+				this.log.warn(
+					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					"could not write the ghcr.io hosts line",
+				);
+			}
+		}
 
 		await this.client.pushFile(
 			name,
@@ -497,7 +562,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		if (inst.devices?.docker) {
 			return;
 		}
-		await this.ensureVolume(`${name}-docker`, sizeGiB);
+		await this.ensureDockerVolume(name, sizeGiB);
 		// PATCH merges devices, so it adds this one and cannot drop another.
 		await this.client.request(
 			"PATCH",
@@ -925,7 +990,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 		}
 
-		await this.ensureVolume(dockerVolume, opts.dockerGiB);
+		await this.ensureDockerVolume(name, opts.dockerGiB);
 
 		await this.client.request("PATCH", path, {
 			devices: { docker: this.dockerDevice(name) },
@@ -1115,14 +1180,18 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 	}
 
-	private async ensureVolume(volName: string, sizeGiB: number): Promise<void> {
+	private async ensureVolume(
+		volName: string,
+		sizeGiB: number,
+		extraConfig: Record<string, string> = {},
+	): Promise<void> {
 		try {
 			await this.client.request(
 				"POST",
 				`/1.0/storage-pools/${enc(this.pool)}/volumes/custom`,
 				{
 					name: volName,
-					config: { size: `${sizeGiB}GiB` },
+					config: { size: `${sizeGiB}GiB`, ...extraConfig },
 				},
 				undefined,
 				undefined,
@@ -1133,6 +1202,276 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				return;
 			}
 			throw err;
+		}
+	}
+
+	/**
+	 * Make `<name>-docker` as a thin copy of the seed when one exists, sized
+	 * at the Docker size plus the seed's, else empty (issue #840). A volume
+	 * that already exists is kept, never replaced. A copy that fails falls
+	 * back to an empty volume, so a broken seed never blocks a workspace.
+	 * The copy is only ever attached as this one instance's Docker device.
+	 */
+	private async ensureDockerVolume(name: string, dockerGiB: number): Promise<void> {
+		const volume = `${name}-docker`;
+		let seed: SeedInfo | null = null;
+		try {
+			seed = await this.seedInfo();
+		} catch (err) {
+			this.log.warn(
+				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				"could not read the Docker seed; making an empty Docker volume",
+			);
+		}
+		if (seed) {
+			try {
+				// A copy cannot be smaller than its source, which is the build volume's size.
+				const source = (await this.client.request(
+					"GET",
+					this.volumePath(SEED_VOLUME_NAME),
+				)) as { config?: Record<string, unknown> };
+				const sourceGiB = Math.ceil(
+					(parseIncusSize(source.config?.size) ?? 0) / 2 ** 30,
+				);
+				const totalGiB = Math.max(
+					dockerGiB + Math.ceil(seed.sizeBytes / 1024 ** 3),
+					sourceGiB,
+				);
+				await this.client.request(
+					"POST",
+					`/1.0/storage-pools/${enc(this.pool)}/volumes/custom`,
+					{
+						name: volume,
+						config: {
+							size: `${totalGiB}GiB`,
+							"security.shifted": "true",
+							[SEED_SHARE_KEY]: String(totalGiB - dockerGiB),
+						},
+						source: { type: "copy", pool: this.pool, name: SEED_VOLUME_NAME },
+					},
+					undefined,
+					undefined,
+					VOLUME_CREATE_TIMEOUT_MS,
+				);
+				return;
+			} catch (err) {
+				if (err instanceof IncusError && err.code === "ALREADY_EXISTS") return;
+				this.log.warn(
+					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					"could not copy the Docker seed; making an empty Docker volume",
+				);
+				// A half-made copy would otherwise be adopted below.
+				await this.client.request("DELETE", this.volumePath(volume)).catch(() => {});
+			}
+		}
+		await this.ensureVolume(volume, dockerGiB);
+	}
+
+	async seedInfo(): Promise<SeedInfo | null> {
+		let volume: { config?: Record<string, string> };
+		try {
+			volume = (await this.client.request(
+				"GET",
+				this.volumePath(SEED_VOLUME_NAME),
+			)) as { config?: Record<string, string> };
+		} catch (err) {
+			if (err instanceof IncusError && err.code === "NOT_FOUND") return null;
+			throw err;
+		}
+		const raw = volume?.config?.[SEED_INFO_KEY];
+		if (!raw) return null;
+		try {
+			const parsed = SeedInfo.safeParse(JSON.parse(raw));
+			return parsed.success ? parsed.data : null;
+		} catch {
+			return null;
+		}
+	}
+
+	async prepareSeedBuilder(opts: { maxBytes: number; ghcr: boolean }): Promise<void> {
+		// A build the controller forgot (a restart) leaves these behind.
+		await this.discardSeedBuild();
+		// One GiB over the cap, so an oversize seed fails the size check with a
+		// clear message rather than filling the volume.
+		// Shifted from the start, so files keep real owners when copies are attached elsewhere.
+		await this.ensureVolume(
+			SEED_BUILD_VOLUME,
+			Math.ceil(opts.maxBytes / 1024 ** 3) + 1,
+			{
+				"security.shifted": "true",
+			},
+		);
+		// An ordinary workspace container: the workspace profile (network, ACL,
+		// unprivileged, isolated idmap) and nothing that loosens it (S8).
+		await this.client.request(
+			"POST",
+			"/1.0/instances",
+			{
+				name: SEED_BUILDER,
+				source: { type: "image", alias: this.imageAlias },
+				profiles: [this.profile],
+				devices: {
+					docker: {
+						type: "disk",
+						pool: this.pool,
+						source: SEED_BUILD_VOLUME,
+						path: "/var/lib/docker",
+					},
+				},
+			},
+			undefined,
+			INSTANCE_CREATE_WAIT_SECONDS,
+		);
+		const seedGhcr = await writeDockerConfig(
+			this.client,
+			SEED_BUILDER,
+			{ hubMirror: true, ghcr: opts.ghcr },
+			{ caPath: this.ghcrCaPath, cacheOffPath: this.cacheOffPath, log: this.log },
+		);
+		await this.client.request(
+			"PUT",
+			`/1.0/instances/${SEED_BUILDER}/state`,
+			{ action: "start" },
+			undefined,
+			SEED_BUILDER_START_SECONDS,
+		);
+		const deadline = Date.now() + SEED_BUILDER_START_SECONDS * 1000;
+		await this.waitForAddress(
+			SEED_BUILDER,
+			deadline,
+			AbortSignal.timeout(SEED_BUILDER_START_SECONDS * 1000),
+		);
+		// The first start ran the image's /etc/hosts template over our line.
+		await writeGhcrHosts(this.client, SEED_BUILDER, seedGhcr);
+		while ((await this.execInSeedBuilder(["/usr/bin/docker", "info"], 30)) !== 0) {
+			if (Date.now() >= deadline) {
+				throw new IncusError("TIMEOUT", "dockerd in the seed builder did not start");
+			}
+			await new Promise((r) => setTimeout(r, 1000));
+		}
+	}
+
+	async execInSeedBuilder(command: string[], timeoutSeconds: number): Promise<number> {
+		const result = await this.client.request(
+			"POST",
+			`/1.0/instances/${SEED_BUILDER}/exec`,
+			{
+				command,
+				"wait-for-websocket": false,
+				"record-output": false,
+				interactive: false,
+			},
+			undefined,
+			timeoutSeconds,
+		);
+		// No reported status is not a success for a build step.
+		return execExitStatus(result) ?? -1;
+	}
+
+	async seedImageVersion(): Promise<string> {
+		const image = await readCurrentImage(this.client, this.imageAlias);
+		const version = image.serial ?? image.fingerprint;
+		if (!version) throw new IncusError("IMAGE_NOT_FOUND", "no workspace image");
+		return version.slice(0, 100);
+	}
+
+	async finishSeedBuilder(): Promise<number> {
+		const state = (await this.client.request(
+			"GET",
+			`${this.volumePath(SEED_BUILD_VOLUME)}/state`,
+		)) as { usage?: { used?: number } } | undefined;
+		const used = state?.usage?.used;
+		if (typeof used !== "number" || !(used >= 0)) {
+			throw new IncusError("OPERATION_FAILED", "Incus did not report the seed's size");
+		}
+		// dockerd is already stopped, so a clean stop is quick.
+		await this.stop(SEED_BUILDER, { timeoutSeconds: 60 });
+		await this.client.request("DELETE", `/1.0/instances/${SEED_BUILDER}`);
+		return Math.trunc(used);
+	}
+
+	async installSeed(info: SeedInfo): Promise<void> {
+		// A shifted volume must never be attached to two instances (S4); the
+		// builder is gone, so nothing may still use the build volume.
+		const build = (await this.client.request(
+			"GET",
+			this.volumePath(SEED_BUILD_VOLUME),
+		)) as { used_by?: string[] };
+		if ((build.used_by ?? []).length > 0) {
+			throw new VolumeInUseError(SEED_BUILD_VOLUME);
+		}
+		await this.client.request("PATCH", this.volumePath(SEED_BUILD_VOLUME), {
+			config: { [SEED_INFO_KEY]: JSON.stringify(info) },
+		});
+		// Copies already made are independent of the old seed (spike #840).
+		await this.deleteVolumeIfPresent(SEED_OLD_VOLUME);
+		const hadSeed = await this.volumeExists(SEED_VOLUME_NAME);
+		if (hadSeed) {
+			await this.client.request("POST", this.volumePath(SEED_VOLUME_NAME), {
+				name: SEED_OLD_VOLUME,
+			});
+		}
+		try {
+			await this.client.request("POST", this.volumePath(SEED_BUILD_VOLUME), {
+				name: SEED_VOLUME_NAME,
+			});
+		} catch (err) {
+			// Put the old seed back, so new workspaces still get one.
+			if (hadSeed) {
+				await this.client
+					.request("POST", this.volumePath(SEED_OLD_VOLUME), { name: SEED_VOLUME_NAME })
+					.catch((restoreErr: unknown) =>
+						this.log.warn(
+							{
+								err:
+									restoreErr instanceof Error ? restoreErr.message : String(restoreErr),
+							},
+							"could not restore the previous Docker seed",
+						),
+					);
+			}
+			throw err;
+		}
+		try {
+			await this.deleteVolumeIfPresent(SEED_OLD_VOLUME);
+		} catch (err) {
+			this.log.warn(
+				{ err: err instanceof Error ? err.message : String(err) },
+				"could not delete the previous Docker seed; the next build retries",
+			);
+		}
+		this.log.info({ sizeBytes: info.sizeBytes }, "docker seed installed");
+	}
+
+	async discardSeedBuild(): Promise<void> {
+		try {
+			await this.client.request(
+				"PUT",
+				`/1.0/instances/${SEED_BUILDER}/state`,
+				{ action: "stop", force: true, timeout: 30 },
+				undefined,
+				60,
+			);
+		} catch (err) {
+			if (err instanceof IncusError && err.code === "NOT_FOUND") {
+				await this.deleteVolumeIfPresent(SEED_BUILD_VOLUME);
+				return;
+			}
+			// Already stopped: Incus refuses to stop it again; the delete decides.
+		}
+		try {
+			await this.client.request("DELETE", `/1.0/instances/${SEED_BUILDER}`);
+		} catch (err) {
+			if (!(err instanceof IncusError && err.code === "NOT_FOUND")) throw err;
+		}
+		await this.deleteVolumeIfPresent(SEED_BUILD_VOLUME);
+	}
+
+	private async deleteVolumeIfPresent(volume: string): Promise<void> {
+		try {
+			await this.client.request("DELETE", this.volumePath(volume));
+		} catch (err) {
+			if (!(err instanceof IncusError && err.code === "NOT_FOUND")) throw err;
 		}
 	}
 

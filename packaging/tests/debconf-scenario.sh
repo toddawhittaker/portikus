@@ -188,6 +188,7 @@ EOF
 	expect "$CONFIG" portikus_storage '"file"'
 	expect "$CONFIG" portikus_storage_size 1
 	expect "$CONFIG" portikus_storage_confirm null
+	expect "$CONFIG" portikus_registry_cache_gib 20
 	expect "$CONFIG" portikus_dex_upstream_client_id null
 	[ "$(python3 -c 'import yaml; print(yaml.safe_load(open("/etc/portikus/secrets.yaml")))')" = "{}" ] ||
 		fail "secrets.yaml is not empty for a local-accounts site"
@@ -210,8 +211,10 @@ portikus portikus/entra_tenant_id string 12345678-90ab-cdef-1234-567890abcdef
 portikus portikus/client_id string entra-client-id
 portikus portikus/client_secret password ENTRA-SECRET-0123456789abcdef
 portikus portikus/storage select data-vg
+portikus portikus/registry_cache_gib string 12
 EOF
 	check_modes
+	expect "$CONFIG" portikus_registry_cache_gib 12
 	expect "$CONFIG" portikus_admin_email '"admin@portikus.example.edu"'
 	expect "$CONFIG" portikus_tls '"letsencrypt"'
 	expect "$CONFIG" portikus_acme_email '"certs@example.edu"'
@@ -464,12 +467,49 @@ ui-storage-default)
 	keys Up Enter
 	wait_for "Erase /dev/sdb?"
 	keys Enter
+	wait_for "Size of the Docker image cache"
+	keys Enter
 	wait_for "Save these answers and start setup?"
 	screen | grep -qF "NOT confirmed" || fail "the erase question did not default to No"
 	keys Enter
 	ui_done
 	expect "$CONFIG" portikus_storage '"/dev/sdb"'
 	expect "$CONFIG" portikus_storage_confirm false
+	;;
+ui-cache-small-disk)
+	# With 6 GiB free the cache question still accepts 1 GiB (setup shrinks
+	# or turns off what does not fit), and refuses more.
+	fake_one_disk
+	cat >/usr/local/bin/df <<'STUB'
+#!/bin/sh
+[ "$*" = "-B1G --output=avail /" ] && { echo " Avail"; echo "6"; exit 0; }
+exec /usr/bin/df "$@"
+STUB
+	chmod 0755 /usr/local/bin/df
+	ui_start
+	ui_first_screens portikus.example.edu
+	wait_for "HTTPS certificate"
+	keys Down Down Enter
+	wait_for "How people sign in"
+	keys Enter
+	wait_for "Where to keep student files"
+	keys Up Enter
+	wait_for "Erase /dev/sdb?"
+	keys Enter
+	wait_for "Size of the Docker image cache"
+	clear_field
+	typed 2
+	keys Enter
+	wait_for "Give a size from 1 to 1 GiB"
+	keys Enter
+	wait_for "Size of the Docker image cache"
+	clear_field
+	typed 1
+	keys Enter
+	wait_for "Save these answers and start setup?"
+	keys Enter
+	ui_done
+	expect "$CONFIG" portikus_registry_cache_gib 1
 	;;
 ui-host-short)
 	# A host name without a dot is not suggested, so typing the name works.
@@ -514,6 +554,8 @@ ui-summary-no)
 	clear_field
 	typed 1
 	keys Enter
+	wait_for "Size of the Docker image cache"
+	keys Enter
 	wait_for "Save these answers and start setup?"
 	keys Tab Enter
 	wait_for "Web address of this server"
@@ -533,6 +575,8 @@ ui-summary-no)
 	wait_for "How people sign in"
 	keys Enter
 	wait_for "Size of the storage file"
+	keys Enter
+	wait_for "Size of the Docker image cache"
 	keys Enter
 	wait_for "Save these answers and start setup?"
 	screen | grep -qF "https://lab.example.edu" || fail "the summary does not show the new web address"
@@ -584,6 +628,8 @@ ui-cert)
 	wait_for "Size of the storage file"
 	clear_field
 	typed 1
+	keys Enter
+	wait_for "Size of the Docker image cache"
 	keys Enter
 	wait_for "Save these answers and start setup?"
 	keys Enter
@@ -639,6 +685,8 @@ capture)
 	keys Enter
 	wait_for "Size of the storage file"
 	shot 08-storage-size
+	keys Enter
+	wait_for "Size of the Docker image cache"
 	keys Enter
 	wait_for "Save these answers and start setup?"
 	shot 09-summary

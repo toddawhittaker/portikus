@@ -11,6 +11,7 @@ export const ADMIN_TABS = [
 	"network",
 	"backups",
 	"image",
+	"docker",
 	"settings",
 ] as const;
 export type AdminTab = (typeof ADMIN_TABS)[number];

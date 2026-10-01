@@ -652,6 +652,9 @@ jobs:
       - name: Workspace image first-install decision
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/workspace-image-test.yml
+      - name: Docker cache size decision
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: ansible-playbook infra/tests/registry-cache-size-test.yml
       - name: Dex theme font matches the app font
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: |
@@ -680,6 +683,10 @@ jobs:
       - name: Workspace image job
         if: needs.changes.outputs.infra == 'true'
         run: python3 -B -m unittest discover -s packaging/image/tests
+      # systemctl, mkfs and the health probes are stubbed.
+      - name: Docker cache helper
+        if: needs.changes.outputs.infra == 'true'
+        run: python3 -B -m unittest discover -s packaging/registry/tests
       # The pilot's Caddy version, so the live preview checks run what the pilot runs.
       - name: Cache Caddy
         id: caddy

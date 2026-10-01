@@ -1075,3 +1075,46 @@ button.pk-statusbar-item:hover {
 .pk-help-article kbd {
 	font-size: 13px;
 }
+
+/* An on/off setting: the Settings dialog's light terminal, the Docker tab's ghcr.io cache. */
+.pk-switch {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	width: fit-content;
+	cursor: pointer;
+	color: var(--ink);
+}
+
+/* The input is the visible control. A hidden input is not clickable in the
+   browser tests, which wait until the switch is visible. */
+.pk-switch input {
+	appearance: none;
+	width: 36px;
+	height: 20px;
+	margin: 0;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-full);
+	background-color: var(--surface-sunken);
+	background-image: radial-gradient(
+		circle at 10px 50%,
+		var(--ink-muted) 6px,
+		transparent 7px
+	);
+	cursor: pointer;
+}
+
+.pk-switch input:checked {
+	border-color: var(--accent);
+	background-color: var(--accent);
+	background-image: radial-gradient(
+		circle at 26px 50%,
+		var(--on-accent) 6px,
+		transparent 7px
+	);
+}
+
+.pk-switch input:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: 2px;
+}

@@ -20,6 +20,7 @@ import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
 import { registerAdminBackupKeyRoutes } from "./routes/admin-backup-key.js";
 import { registerAdminBackupRoutes } from "./routes/admin-backups.js";
 import { registerAdminDexUserRoutes } from "./routes/admin-dex-users.js";
+import { registerAdminDockerRoutes } from "./routes/admin-docker.js";
 import { registerAdminEgressRoutes } from "./routes/admin-egress.js";
 import { registerAdminHealthRoutes } from "./routes/admin-health.js";
 import { registerAdminImageRoutes } from "./routes/admin-image.js";
@@ -249,6 +250,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerAdminBackupKeyRoutes(instance, deps);
 		registerAdminPackageRoutes(instance, deps);
 		registerAdminImageRoutes(instance, deps);
+		registerAdminDockerRoutes(instance, deps);
 		registerReinstallNoteRoutes(instance, deps);
 	});
 

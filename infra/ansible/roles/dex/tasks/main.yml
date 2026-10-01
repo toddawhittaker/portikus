@@ -81,6 +81,14 @@
               - dex_checked_out.stdout | trim == dex_commit
             fail_msg: "Checked out {{ dex_checked_out.stdout }}, expected {{ dex_commit }}."
 
+        # Several GiB of module and build cache, removed after the build below.
+        - name: Make a scratch directory for the Go caches
+          ansible.builtin.tempfile:
+            state: directory
+            path: /root/go
+            prefix: dex-build-
+          register: dex_go_tmp
+
         - name: Remove a half-built binary from an earlier failed run
           ansible.builtin.file:
             path: /usr/local/bin/dex.new
@@ -98,9 +106,9 @@
               -o /usr/local/bin/dex.new ./cmd/dex
             chdir: "{{ dex_src_dir }}"
           environment:
-            GOPATH: /root/go
-            GOCACHE: "{{ dex_gocache }}"
-            GOMODCACHE: /root/go/pkg/mod
+            GOPATH: "{{ dex_go_tmp.path }}"
+            GOCACHE: "{{ dex_go_tmp.path }}/cache"
+            GOMODCACHE: "{{ dex_go_tmp.path }}/pkg/mod"
             GOFLAGS: -buildvcs=false
             GOTOOLCHAIN: auto
           changed_when: true
@@ -160,11 +168,12 @@
             group: root
             mode: "0644"
 
-        # About a gigabyte on a 20 GiB disk; the module cache stays for the next build.
-        - name: Clear the Dex build cache
+      always:
+        - name: Remove the Go caches of the Dex build
           ansible.builtin.file:
-            path: "{{ dex_gocache }}"
+            path: "{{ dex_go_tmp.path }}"
             state: absent
+          when: dex_go_tmp.path is defined
 
     # The Portikus theme and template patches, re-applied after every build.
     - name: Install the Portikus look for the Dex pages
