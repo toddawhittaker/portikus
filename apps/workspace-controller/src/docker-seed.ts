@@ -4,7 +4,7 @@ import {
 	type SeedInfo,
 	seedImageListFor,
 } from "@portikus/contracts";
-import { type Logger, silentLogger } from "@portikus/observability";
+import { errorMessage, type Logger, silentLogger } from "@portikus/observability";
 import { IncusError } from "./incus.js";
 
 /**
@@ -150,14 +150,14 @@ export class SeedBuilds {
 			status.seed = seed;
 			this.log.info({ images: request.images.length, sizeBytes }, "docker seed built");
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
+			const message = errorMessage(err);
 			this.log.warn({ err: message, step: status.step }, "docker seed build failed");
 			try {
 				await this.host.discardSeedBuild();
 			} catch (cleanupErr) {
 				this.log.warn(
 					{
-						err: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+						err: errorMessage(cleanupErr),
 					},
 					"could not remove the seed builder",
 				);

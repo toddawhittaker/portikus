@@ -6,6 +6,7 @@
  * is best effort: a `/proc` entry we cannot read is left out rather than
  * failing the scan.
  */
+
 import { access, readdir, readFile, readlink } from "node:fs/promises";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
@@ -15,6 +16,7 @@ import {
 	type AgentListeningService,
 	MAX_LISTENING_SERVICES,
 } from "@portikus/contracts";
+import { errorMessage } from "@portikus/observability";
 import type { FastifyBaseLogger } from "fastify";
 import {
 	type DockerContainer,
@@ -614,10 +616,7 @@ export class ListeningMonitor {
 		try {
 			return await this.scan();
 		} catch (error) {
-			this.logger?.debug(
-				{ error: error instanceof Error ? error.message : String(error) },
-				"listening scan failed",
-			);
+			this.logger?.debug({ error: errorMessage(error) }, "listening scan failed");
 			return null;
 		}
 	}

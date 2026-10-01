@@ -1,4 +1,4 @@
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 
 /**
  * The installed agent's entry point on the host. dpkg writes every file of
@@ -59,7 +59,7 @@ export async function restartOutdatedAgents(opts: {
 		} catch (err) {
 			// The workspace may have stopped meanwhile; its next start runs the new agent.
 			logger.warn(
-				{ instance: agent.name, err: err instanceof Error ? err.message : String(err) },
+				{ instance: agent.name, err: errorMessage(err) },
 				"could not restart the workspace agent after an upgrade",
 			);
 		}

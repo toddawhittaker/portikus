@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { errorMessage } from "@portikus/observability";
 import type { IncusClient } from "./incus.js";
 import { IncusError } from "./incus.js";
 
@@ -87,7 +88,7 @@ export async function writeAgentInstructions(
 			await client.pushFile(name, dir, "", ROOT_DIR, signal);
 			await replaceFile(client, name, path, body, signal);
 		} catch (err) {
-			failures.push(`${path}: ${err instanceof Error ? err.message : String(err)}`);
+			failures.push(`${path}: ${errorMessage(err)}`);
 		}
 	}
 	if (failures.length > 0) throw new Error(failures.join("; "));

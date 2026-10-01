@@ -31,7 +31,7 @@ import {
 	type WorkspaceDockerConfig,
 	WorkspaceVolumeName,
 } from "@portikus/contracts";
-import { type Logger, silentLogger } from "@portikus/observability";
+import { errorMessage, type Logger, silentLogger } from "@portikus/observability";
 import {
 	AGENT_INSTRUCTIONS_HOST_PATH,
 	writeAgentInstructions,
@@ -459,7 +459,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				);
 			} catch (err) {
 				this.log.warn(
-					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					{ instance: name, err: errorMessage(err) },
 					"could not write the Docker registry settings; starting without them",
 				);
 			}
@@ -481,7 +481,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 		} catch (err) {
 			this.log.warn(
-				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				{ instance: name, err: errorMessage(err) },
 				"could not write the coding-agent instructions; starting without them",
 			);
 		}
@@ -538,7 +538,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				await writeGhcrHosts(this.client, name, ghcr, signal);
 			} catch (err) {
 				this.log.warn(
-					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					{ instance: name, err: errorMessage(err) },
 					"could not write the ghcr.io hosts line",
 				);
 			}
@@ -637,7 +637,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			return true;
 		} catch (err) {
 			this.log.warn(
-				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				{ instance: name, err: errorMessage(err) },
 				"could not attach the recovery volume; starting without it",
 			);
 			return false;
@@ -677,7 +677,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				}
 			} catch (err) {
 				this.log.warn(
-					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					{ instance: name, err: errorMessage(err) },
 					"could not prepare the recovery mount",
 				);
 				return;
@@ -1205,7 +1205,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			return Math.max(0, Math.trunc(usage - inactive));
 		} catch (err) {
 			this.log.warn(
-				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				{ instance: name, err: errorMessage(err) },
 				"could not read the instance's memory.stat; reporting usage with cache",
 			);
 			return Math.max(0, Math.trunc(usage));
@@ -1251,7 +1251,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			seed = await this.seedInfo();
 		} catch (err) {
 			this.log.warn(
-				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				{ instance: name, err: errorMessage(err) },
 				"could not read the Docker seed; making an empty Docker volume",
 			);
 		}
@@ -1289,7 +1289,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			} catch (err) {
 				if (err instanceof IncusError && err.code === "ALREADY_EXISTS") return;
 				this.log.warn(
-					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					{ instance: name, err: errorMessage(err) },
 					"could not copy the Docker seed; making an empty Docker volume",
 				);
 				// A half-made copy would otherwise be adopted below.
@@ -1470,8 +1470,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					.catch((restoreErr: unknown) =>
 						this.log.warn(
 							{
-								err:
-									restoreErr instanceof Error ? restoreErr.message : String(restoreErr),
+								err: errorMessage(restoreErr),
 							},
 							"could not restore the previous Docker seed",
 						),
@@ -1483,7 +1482,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			await this.deleteVolumeIfPresent(SEED_OLD_VOLUME);
 		} catch (err) {
 			this.log.warn(
-				{ err: err instanceof Error ? err.message : String(err) },
+				{ err: errorMessage(err) },
 				"could not delete the previous Docker seed; the next build retries",
 			);
 		}

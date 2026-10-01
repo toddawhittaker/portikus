@@ -25,6 +25,7 @@ import {
 	PROJECT_SLUG_PATTERN,
 	projectNameFromRepository,
 } from "@portikus/contracts";
+import { errorMessage } from "@portikus/observability";
 import { AgentFailure } from "./errors.js";
 import { runGit, STDERR_LIMIT } from "./git.js";
 import {
@@ -416,7 +417,7 @@ export async function duplicateProject(
 		await rm(target.path, { recursive: true, force: true });
 		throw new AgentFailure(
 			"GIT_FAILED",
-			`could not duplicate the project: ${error instanceof Error ? error.message : String(error)}`,
+			`could not duplicate the project: ${errorMessage(error)}`,
 		);
 	}
 	return { slug: to, isGitRepo: await isGitRepo(target.path) };

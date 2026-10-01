@@ -3,7 +3,7 @@ import {
 	type SeedBuildStatus,
 	type SeedInfo,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, recordAudit } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
@@ -81,16 +81,13 @@ export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 			.set({ state, step, message, finished_at: now().toISOString() })
 			.where("id", "=", id)
 			.execute();
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: "worker",
-				target: id,
-				action: "docker.seed_job_finished",
-				result: state === "succeeded" ? "ok" : "failed",
-				metadata: JSON.stringify({ result: state }),
-			})
-			.execute();
+		await recordAudit(db, {
+			actor: "worker",
+			target: id,
+			action: "docker.seed_job_finished",
+			result: state === "succeeded" ? "ok" : "failed",
+			metadata: { result: state },
+		});
 		logger.info({ jobId: id, result: state }, "seed build finished");
 	}
 
