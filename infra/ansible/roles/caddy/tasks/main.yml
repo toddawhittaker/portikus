@@ -3,58 +3,37 @@
 # terminates TLS and proxies to the control-plane services, which stay
 # bound to loopback (SPEC 24.3).  The certificate is the admin page's: setup
 # only seeds it on first install (docs/SPEC.md section 21.12).
-# Follows the same apt-repo-with-checksum pattern as the incus role.
+# Installed from the release's .deb, pinned by checksum: Caddy's Cloudsmith
+# repository signs with a subkey that expired in 2024, which Debian 13's
+# apt refuses (base removes that repository first).
 
-- name: Create apt keyrings directory
+- name: Create the package cache directory
   ansible.builtin.file:
-    path: /etc/apt/keyrings
+    path: /var/cache/portikus
     state: directory
     owner: root
     group: root
     mode: "0755"
 
-- name: Download the Caddy signing key
+# Kept in the cache, so a rerun downloads nothing.
+- name: Download the Caddy package
   ansible.builtin.get_url:
-    url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
-    dest: /etc/apt/keyrings/caddy-stable.asc
-    checksum: "sha256:{{ caddy_gpg_checksum }}"
+    url: "https://github.com/caddyserver/caddy/releases/download/{{ caddy_version }}/{{ caddy_deb }}"
+    dest: "/var/cache/portikus/{{ caddy_deb }}"
+    checksum: "sha512:{{ caddy_deb_sha512 }}"
     owner: root
     group: root
     mode: "0644"
-  register: caddy_repo_key
-
-- name: Add the Caddy stable repository
-  ansible.builtin.deb822_repository:
-    name: caddy-stable
-    types: deb
-    uris: https://dl.cloudsmith.io/public/caddy/stable/deb/debian
-    suites: any-version
-    components: main
-    signed_by: /etc/apt/keyrings/caddy-stable.asc
-    state: present
-  register: caddy_repo
-
-# Base's refresh can be an hour old, so a rerun after a failed first
-# refresh would not see the repository's packages.
-- name: Read the installed packages
-  ansible.builtin.package_facts:
-    manager: apt
-
-# When the repository is new, or its package is not installed yet.
-- name: Refresh the apt index for the Caddy repository
-  ansible.builtin.apt:
-    update_cache: true
-  register: caddy_apt_refresh
+  register: caddy_deb_download
   retries: 3
   delay: 10
-  until: caddy_apt_refresh is succeeded
-  when: caddy_repo is changed or caddy_repo_key is changed or 'caddy' not in ansible_facts.packages
+  until: caddy_deb_download is succeeded
 
-# Pinned to the version CI tests against (.github/workflows/ci.yml); change both together.
+# Skipped when this version is installed.  The DNS plugin build below sits
+# behind a dpkg diversion, so the package's own binary goes to caddy.distrib.
 - name: Install Caddy
   ansible.builtin.apt:
-    name: "caddy={{ caddy_version | regex_replace('^v', '') }}"
-    state: present
+    deb: "/var/cache/portikus/{{ caddy_deb }}"
 
 # The API fetches the identity provider's discovery document over the public
 # host name.  This entry keeps that fetch on loopback, where the units'

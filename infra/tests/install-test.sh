@@ -16,8 +16,9 @@
 #   6. sign in as the local administrator with /etc/portikus/admin-password,
 #      choose a new password and accept the acceptable-use statement;
 #   7. run the smoke test, with a full Dex sign-in as that administrator,
-#      then rerun setup as after a failed first Caddy refresh: Caddy not
-#      installed, its repository added but its package lists missing;
+#      then rerun setup on a host an older release left with Caddy's
+#      retired Cloudsmith repository and no Caddy, and an ACME answer whose
+#      certificates never come (fails twice, recovers by reset-certificate);
 #   8. publish the second version, apt upgrade, follow setup again, and
 #      check the keyring, the services, a sign-in, and that the worker runs
 #      as its own account and cannot open the backup key socket, and that
@@ -61,6 +62,7 @@ PORT="${INSTALL_TEST_PORT:-8780}"
 PUBLIC_HOST=rehearsal.portikus.thewhittakers.org
 ADMIN_EMAIL="admin@${PUBLIC_HOST}"
 RECIPE_VERSION=$(cat "${ROOT}/infra/workspace-image/VERSION")
+CADDY_VERSION=$(sed -n "s/^ *caddy_version: v//p" "${ROOT}/infra/ansible/site.yml")
 CACHE="${XDG_CACHE_HOME:-${HOME}/.cache}/portikus"
 IMAGE_DIR="${REHEARSAL_IMAGE_DIR:-${CACHE}/rehearsal-image/${RECIPE_VERSION}}"
 # Beside the image cache, so the releases can hard-link its 900 MB rootfs.
@@ -437,21 +439,62 @@ smoke() {
   grep -qE '[0-9]+ passed, 0 failed' "${LOGS}/smoke.txt"
 }
 
-# A rerun within the hour of a first run whose Caddy refresh failed: the
-# repository task reports no change and base's refresh is still fresh, so
-# only the role's own check can make apt see Caddy again.
+# A host set up by an older release: Caddy's Cloudsmith repository, whose
+# expired signing subkey fails every apt refresh, and no Caddy package.
+# Setup must drop the repository before base's refresh and put back the
+# pinned release package under the DNS plugin build.
 caddy_rerun() {
-  local pinned
-  pinned=$(vm "dpkg-query -W -f '\${Version}' caddy")
   vm "sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq caddy"
-  vm "sudo sh -c 'rm -f /var/lib/apt/lists/dl.cloudsmith.io_public_caddy_*'"
-  # Debian has an older Caddy of its own; the pinned one must be gone from apt's view.
-  vm "apt-cache madison caddy" | tee "${LOGS}/caddy-madison.txt"
-  ! grep -qF " ${pinned} " "${LOGS}/caddy-madison.txt" || { echo "apt can still see Caddy ${pinned}; the case is not set up"; return 1; }
+  vm "sudo sh -c 'printf \"%s\\n\" \"Types: deb\" \"URIs: https://dl.cloudsmith.io/public/caddy/stable/deb/debian\" \"Suites: any-version\" \"Components: main\" \"Signed-By: /etc/apt/keyrings/caddy-stable.asc\" >/etc/apt/sources.list.d/caddy-stable.sources'"
+  vm "sudo sh -c 'echo not-a-key >/etc/apt/keyrings/caddy-stable.asc'"
+  # Base refreshes only when its last refresh is an hour old.
+  vm "sudo touch -d '2 hours ago' /var/lib/apt/periodic/update-success-stamp /var/lib/apt/lists"
+  ! vm "sudo apt-get update -qq" >/dev/null 2>&1 || { echo "apt-get update passes with the old repository; the case is not set up"; return 1; }
   vm "sudo portikus setup" >"${LOGS}/setup-caddy-rerun.txt" 2>&1 || { tail -20 "${LOGS}/setup-caddy-rerun.txt"; return 1; }
-  grep -A1 'Refresh the apt index for the Caddy repository' "${LOGS}/setup-caddy-rerun.txt"
-  grep -A1 'Refresh the apt index for the Caddy repository' "${LOGS}/setup-caddy-rerun.txt" | grep -qE '^(ok|changed):'
-  vm "dpkg-query -W -f '\${Status} \${Version}\n' caddy" | grep -q '^install ok installed '
+  vm "test ! -e /etc/apt/sources.list.d/caddy-stable.sources && test ! -e /etc/apt/keyrings/caddy-stable.asc"
+  vm "sudo apt-get update" 2>&1 | tee "${LOGS}/apt-update-after-caddy.txt"
+  ! grep -qiE '^(W|E):|cloudsmith' "${LOGS}/apt-update-after-caddy.txt" || { echo "apt-get update is not clean"; return 1; }
+  vm "dpkg-query -W -f '\${Status} \${Version}\n' caddy" | grep -qx "install ok installed ${CADDY_VERSION}"
+  vm "dpkg-divert --list /usr/bin/caddy" | grep -q '/usr/bin/caddy.distrib'
+  vm "/usr/bin/caddy list-modules --skip-standard" | grep -qx 'dns.providers.cloudflare'
+  vm "curl -fsS --cacert /etc/portikus/caddy-root.crt -o /dev/null https://${PUBLIC_HOST}/health"
+}
+
+# An ACME install answer whose certificates never come: setup fails at the
+# wait, a rerun fails the same way, and `portikus reset-certificate` then a
+# rerun brings the site back (docs/SPEC.md section 21.12).  The directory
+# never resolves, so nothing leaves the rehearsal network.
+acme_wait_rerun() {
+  vm "sudo cp -p /etc/portikus/portikus.yaml /root/portikus.yaml.before"
+  # Both files are YAML mappings, possibly the flow form {}, so they are rewritten whole.
+  vm_stdin "sudo python3 -" <<'EOF'
+import yaml
+def update(path, values):
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    data.update(values)
+    with open(path, "w") as f:
+        yaml.safe_dump(data, f, default_flow_style=False, sort_keys=True)
+update("/etc/portikus/portikus.yaml", {"portikus_tls": "letsencrypt", "portikus_acme_email": "admin@rehearsal.test",
+                                       "portikus_acme_ca": "https://acme.invalid/directory"})
+update("/etc/portikus/secrets.yaml", {"portikus_cloudflare_api_token": "fake-rehearsal-token"})
+EOF
+  # Setup seeds the answer only where there is no certificate state.
+  vm "sudo rm -rf /etc/portikus/certificate"
+  local run
+  for run in first rerun; do
+    if vm "sudo portikus setup" >"${LOGS}/setup-acme-${run}.txt" 2>&1; then
+      echo "setup passed on the ${run} run with no ACME certificate"; return 1
+    fi
+    grep -q 'Caddy has not got its ACME certificates' "${LOGS}/setup-acme-${run}.txt" \
+      || { tail -20 "${LOGS}/setup-acme-${run}.txt"; return 1; }
+    grep -q 'sudo portikus reset-certificate' "${LOGS}/setup-acme-${run}.txt"
+  done
+  ! vm "sudo grep -q portikus_cloudflare_api_token /etc/portikus/secrets.yaml" || { echo "the token is still in secrets.yaml"; return 1; }
+  vm "sudo portikus reset-certificate"
+  vm "sudo cp -p /root/portikus.yaml.before /etc/portikus/portikus.yaml && sudo rm -f /root/portikus.yaml.before"
+  vm "sudo portikus setup" >"${LOGS}/setup-acme-reset.txt" 2>&1 || { tail -20 "${LOGS}/setup-acme-reset.txt"; return 1; }
+  vm "sudo python3 -c 'import json; assert json.load(open(\"/etc/portikus/certificate/settings.json\"))[\"source\"] == \"internal\"'"
   vm "curl -fsS --cacert /etc/portikus/caddy-root.crt -o /dev/null https://${PUBLIC_HOST}/health"
 }
 
@@ -766,7 +809,8 @@ step "follow setup to its end (portikus setup --follow)" follow_setup install
 step "sign in with the one-time password and change it" first_signin
 if [ -z "${UPGRADE_FROM_PUBLISHED:-}" ]; then
   step "smoke test, with the administrator's Dex sign-in" smoke
-  step "setup converges after a failed first Caddy refresh" caddy_rerun
+  step "setup moves an old host off Caddy's retired repository" caddy_rerun
+  step "a failed ACME wait fails again on rerun; reset-certificate recovers" acme_wait_rerun
 fi
 step "a running workspace with an open terminal before the upgrade" agent_before_upgrade
 step "apt upgrade to the second version" upgrade
