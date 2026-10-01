@@ -89,6 +89,27 @@ describe("returnHomeInstructions", () => {
 		);
 	});
 
+	test("the import line goes with a removed past-template Codex copy", async () => {
+		const text = "old platform template\n";
+		const hash = createHash("sha256").update(text).digest("hex");
+		await writeFile(join(home, CODEX_INSTRUCTIONS), text);
+		await writeFile(join(home, CLAUDE_INSTRUCTIONS), "@~/.codex/AGENTS.md\nmine\n");
+		expect(await returnHomeInstructions(home, [hash])).toEqual([
+			CODEX_INSTRUCTIONS,
+			CLAUDE_INSTRUCTIONS,
+		]);
+		expect(await readFile(join(home, CLAUDE_INSTRUCTIONS), "utf8")).toBe("mine\n");
+	});
+
+	test("the import line stays while the student's edited Codex file is kept", async () => {
+		await writeFile(join(home, CODEX_INSTRUCTIONS), "student's AGENTS.md\n");
+		await writeFile(join(home, CLAUDE_INSTRUCTIONS), "@~/.codex/AGENTS.md\nmine\n");
+		expect(await returnHomeInstructions(home)).toEqual([]);
+		expect(await readFile(join(home, CLAUDE_INSTRUCTIONS), "utf8")).toBe(
+			"@~/.codex/AGENTS.md\nmine\n",
+		);
+	});
+
 	test("symbolic links are never followed or replaced", async () => {
 		const target = join(root, "elsewhere.md");
 		await writeFile(target, "@~/.codex/AGENTS.md\n");

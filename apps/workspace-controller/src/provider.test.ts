@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
+import { collectingLogger } from "@portikus/observability/testing";
 import {
 	afterAll,
 	afterEach,
@@ -1172,6 +1173,11 @@ function serveIncus(state: FakeIncus): void {
 			}
 			if (method === "POST") {
 				const type = String(req.headers["x-incus-type"] ?? "file");
+				const existing = state.files.get(path);
+				if (type === "directory" && existing && existing.type !== "directory") {
+					incusError(res, 400, "not a directory");
+					return;
+				}
 				state.files.set(path, { type, content: body });
 			}
 			respond(res, 200, sync({}));
@@ -2610,6 +2616,24 @@ describe("the Docker seed", () => {
 		expect(await provider.seedInfo()).toEqual(SEED);
 	});
 
+	test("start warns when the agent instructions template is missing", async () => {
+		const state = fakeIncus();
+		const { logger, lines } = collectingLogger();
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			agentInstructionsPath: path.join(os.tmpdir(), "no-such-e28-template.md"),
+			logger,
+		});
+		serveIncus(state);
+		await own.start("ws-test", START);
+		expect(lines.some((l) => String(l.msg).includes("template is missing"))).toBe(true);
+	});
+
 	test("start rewrites the agents' system instructions, and a refusal does not stop it", async () => {
 		const state = fakeIncus();
 		const template = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ai-")), "t.md");
@@ -2671,7 +2695,7 @@ describe("the Docker seed", () => {
 
 		await own.start("ws-test", { ...START, docker: { hubMirror: false, ghcr: false } });
 		expect(state.files.has("/etc/docker/certs.d/ghcr.io/ca.crt")).toBe(false);
-		expect(state.files.get("/etc/hosts")?.content).toBe("127.0.0.1 localhost\n");
+		expect(state.files.get("/etc/hosts")?.content).not.toContain("ghcr.io");
 	});
 
 	test("the ghcr.io hosts line survives the first start's /etc/hosts template", async () => {
@@ -2714,15 +2738,17 @@ describe("the Docker seed", () => {
 		expect(state.fileOps.filter((op) => op.includes("docker"))).toEqual([]);
 	});
 
-	test("a symbolic link at /etc/docker writes nothing there, and the workspace still starts", async () => {
+	test("a named pipe at /etc/docker writes nothing under it, and the workspace still starts", async () => {
 		const state = fakeIncus();
-		state.files.set("/etc/docker", { type: "symlink", content: "/home/student/d" });
+		state.files.set("/etc/docker", { type: "fifo", content: "" });
 		serveIncus(state);
 		await provider.start("ws-test", {
 			...START,
 			docker: { hubMirror: true, ghcr: false },
 		});
-		expect(state.fileOps.filter((op) => /docker|hosts/.test(op))).toEqual([]);
+		expect(state.fileOps.filter((op) => /docker|hosts/.test(op))).toEqual([
+			"POST /etc/docker",
+		]);
 		expect(state.status).toBe("Running");
 	});
 });

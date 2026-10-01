@@ -470,12 +470,18 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 		// Rewritten at every start, so an edit or deletion lasts one session (issue #933).
 		try {
-			await writeAgentInstructions(
+			const written = await writeAgentInstructions(
 				this.client,
 				name,
 				this.agentInstructionsPath,
 				signal,
 			);
+			if (!written) {
+				this.log.warn(
+					{ instance: name, path: this.agentInstructionsPath },
+					"the coding-agent instructions template is missing; starting without them",
+				);
+			}
 		} catch (err) {
 			this.log.warn(
 				{ instance: name, err: err instanceof Error ? err.message : String(err) },

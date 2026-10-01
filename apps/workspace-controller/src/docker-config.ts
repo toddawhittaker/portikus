@@ -5,6 +5,7 @@ import {
 	type WorkspaceDockerConfig,
 } from "@portikus/contracts";
 import type { Logger } from "@portikus/observability";
+import { replaceFile } from "./agent-instructions.js";
 import { type IncusClient, IncusError } from "./incus.js";
 
 /**
@@ -13,6 +14,10 @@ import { type IncusClient, IncusError } from "./incus.js";
  * while the ghcr.io cache is on, a hosts entry and the CA Docker trusts for
  * it. Everything goes through the Incus files API, which resolves paths
  * inside the container, never on the host.
+ *
+ * The controller owns daemon.json and /etc/hosts whole and never reads
+ * them: a student who is root could leave a named pipe there, and reading
+ * one blocks (see replaceFile).
  */
 
 export const DAEMON_JSON_PATH = "/etc/docker/daemon.json";
@@ -26,71 +31,36 @@ export const CACHE_OFF_HOST_PATH = "/etc/portikus/registry/cache-off";
 /** Marks the one hosts line the controller owns. */
 export const GHCR_HOSTS_MARKER = "# portikus-ghcr-cache";
 
-/** The most the controller reads of daemon.json or /etc/hosts. */
-const CONFIG_MAX_BYTES = 64 * 1024;
-
 /**
- * The image's daemon.json with the storage pin kept (overlay2, containerd
- * snapshotter off) and our mirror added or removed. Other keys and other
- * mirrors are kept; unreadable JSON starts again from the pin.
+ * The image's daemon.json (the overlay2 pin with the containerd snapshotter
+ * off, SPEC.md 16.2) plus our mirror when it is on.
  */
-export function mergeDaemonJson(existing: string | null, hubMirror: boolean): string {
-	let config: Record<string, unknown> = {};
-	if (existing !== null) {
-		try {
-			const parsed: unknown = JSON.parse(existing);
-			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-				config = parsed as Record<string, unknown>;
-			}
-		} catch {
-			// A broken file is replaced by the pinned one below.
-		}
-	}
-	const features =
-		config.features &&
-		typeof config.features === "object" &&
-		!Array.isArray(config.features)
-			? (config.features as Record<string, unknown>)
-			: {};
-	const mirrors = Array.isArray(config["registry-mirrors"])
-		? (config["registry-mirrors"] as unknown[]).filter((m) => m !== HUB_MIRROR_URL)
-		: [];
-	if (hubMirror) mirrors.unshift(HUB_MIRROR_URL);
-	const merged: Record<string, unknown> = {
-		...config,
+export function daemonJson(hubMirror: boolean): string {
+	const config: Record<string, unknown> = {
 		"storage-driver": "overlay2",
-		features: { ...features, "containerd-snapshotter": false },
+		features: { "containerd-snapshotter": false },
 	};
-	if (mirrors.length > 0) merged["registry-mirrors"] = mirrors;
-	else delete merged["registry-mirrors"];
-	return `${JSON.stringify(merged, null, 2)}\n`;
+	if (hubMirror) config["registry-mirrors"] = [HUB_MIRROR_URL];
+	return `${JSON.stringify(config, null, 2)}\n`;
 }
 
-/** /etc/hosts with our ghcr.io line removed, and added again when `ghcr` is on. */
-export function hostsWithGhcr(existing: string, ghcr: boolean): string {
-	const lines = existing.split("\n").filter((l) => !l.endsWith(GHCR_HOSTS_MARKER));
-	while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+/**
+ * The whole /etc/hosts: Debian's defaults, the instance's name as the
+ * image's template writes it, and our ghcr.io line when `ghcr` is on.
+ */
+export function workspaceHosts(name: string, ghcr: boolean): string {
+	const lines = [
+		"127.0.0.1 localhost",
+		`127.0.1.1 ${name}`,
+		"::1 localhost ip6-localhost ip6-loopback",
+		"ff02::1 ip6-allnodes",
+		"ff02::2 ip6-allrouters",
+	];
 	if (ghcr) lines.push(`${REGISTRY_GATEWAY_ADDR} ghcr.io ${GHCR_HOSTS_MARKER}`);
 	return `${lines.join("\n")}\n`;
 }
 
-type FilesClient = Pick<IncusClient, "readFile" | "pushFile" | "deleteFile">;
-
-async function readText(
-	client: FilesClient,
-	name: string,
-	path: string,
-	signal?: AbortSignal,
-): Promise<{ type: string; text: string } | null> {
-	try {
-		const file = await client.readFile(name, path, CONFIG_MAX_BYTES, signal);
-		if (file.tooLarge) throw new Error(`${path} is over 64 KiB`);
-		return { type: file.type, text: file.content.toString("utf8") };
-	} catch (err) {
-		if (err instanceof IncusError && err.code === "NOT_FOUND") return null;
-		throw err;
-	}
-}
+type FilesClient = Pick<IncusClient, "pushFile" | "deleteFile">;
 
 async function exists(path: string): Promise<boolean> {
 	try {
@@ -101,14 +71,9 @@ async function exists(path: string): Promise<boolean> {
 	}
 }
 
-const ROOT_FILE = { uid: 0, gid: 0, mode: "0644" } as const;
+const ROOT_DIR = { uid: 0, gid: 0, mode: "0755", type: "directory" } as const;
 
-/**
- * Write the Docker config into a workspace, normally while it is stopped.
- * Refuses to write through a symbolic link at /etc/docker, daemon.json or
- * /etc/hosts: Incus would keep the write inside the container anyway, but
- * the link is not the file we mean to change.
- */
+/** Write the Docker config into a workspace, normally while it is stopped. */
 export async function writeDockerConfig(
 	client: FilesClient,
 	name: string,
@@ -120,23 +85,13 @@ export async function writeDockerConfig(
 	if (await exists(opts.cacheOffPath ?? CACHE_OFF_HOST_PATH)) {
 		config = { ...config, hubMirror: false, ghcr: false };
 	}
-	const dir = await readText(client, name, "/etc/docker", signal);
-	if (dir?.type !== "directory") {
-		throw new Error("/etc/docker is not a directory");
-	}
-	const daemon = await readText(client, name, DAEMON_JSON_PATH, signal);
-	if (daemon && daemon.type !== "file") {
-		throw new Error(`${DAEMON_JSON_PATH} is not a regular file`);
-	}
-	const hosts = await readText(client, name, HOSTS_PATH, signal);
-	if (hosts && hosts.type !== "file") {
-		throw new Error(`${HOSTS_PATH} is not a regular file`);
-	}
-	await client.pushFile(
+	// Creates the folder or keeps an existing one; fails on anything else there.
+	await client.pushFile(name, "/etc/docker", "", ROOT_DIR, signal);
+	await replaceFile(
+		client,
 		name,
 		DAEMON_JSON_PATH,
-		mergeDaemonJson(daemon?.text ?? null, config.hubMirror),
-		ROOT_FILE,
+		daemonJson(config.hubMirror),
 		signal,
 	);
 
@@ -155,15 +110,9 @@ export async function writeDockerConfig(
 
 	if (ca !== null) {
 		for (const d of ["/etc/docker/certs.d", GHCR_CERT_DIR]) {
-			await client.pushFile(
-				name,
-				d,
-				"",
-				{ uid: 0, gid: 0, mode: "0755", type: "directory" },
-				signal,
-			);
+			await client.pushFile(name, d, "", ROOT_DIR, signal);
 		}
-		await client.pushFile(name, GHCR_CERT_PATH, ca, ROOT_FILE, signal);
+		await replaceFile(client, name, GHCR_CERT_PATH, ca, signal);
 	} else {
 		try {
 			await client.deleteFile(name, GHCR_CERT_PATH, signal);
@@ -177,9 +126,9 @@ export async function writeDockerConfig(
 }
 
 /**
- * Add or remove our ghcr.io line in a workspace's /etc/hosts. Also run after
- * a start: the image's create/copy template rewrites /etc/hosts at the first
- * start after a create or copy, dropping a line written beforehand.
+ * Write a workspace's /etc/hosts with or without our ghcr.io line. Also run
+ * after a start: the image's create/copy template rewrites /etc/hosts at the
+ * first start after a create or copy, dropping a line written beforehand.
  */
 export async function writeGhcrHosts(
 	client: FilesClient,
@@ -187,14 +136,5 @@ export async function writeGhcrHosts(
 	ghcr: boolean,
 	signal?: AbortSignal,
 ): Promise<void> {
-	const hosts = await readText(client, name, HOSTS_PATH, signal);
-	if (hosts && hosts.type !== "file") {
-		throw new Error(`${HOSTS_PATH} is not a regular file`);
-	}
-	if (hosts === null && !ghcr) return;
-	const text = hosts?.text ?? "";
-	const next = hostsWithGhcr(text, ghcr);
-	if (next !== text) {
-		await client.pushFile(name, HOSTS_PATH, next, ROOT_FILE, signal);
-	}
+	await replaceFile(client, name, HOSTS_PATH, workspaceHosts(name, ghcr), signal);
 }
