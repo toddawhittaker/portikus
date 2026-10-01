@@ -84,10 +84,10 @@ function parsePorts(value: string): number[] {
 }
 
 /**
- * Environment contract for the API process (STACK.md §5, §9).
+ * Fields the API and worker read with the same meaning (the controller takes
+ * AGENT_PORT). One copy keeps their defaults and checks from drifting.
  */
-export const ApiConfigSchema = BaseConfig.extend({
-	DATABASE_URL: z.string().min(1),
+const SharedWorkspaceFields = {
 	PRESENCE_TTL_SECONDS: positiveInt.default(60),
 	WORKSPACE_HOME_SIZE_GIB: positiveInt.default(25),
 	WORKSPACE_DOCKER_SIZE_GIB: positiveInt.default(20),
@@ -95,6 +95,36 @@ export const ApiConfigSchema = BaseConfig.extend({
 	WORKSPACE_RECOVERY_SIZE_GIB: positiveInt.default(3),
 	/** How long a recovery point is kept before retention may remove it (SPEC.md §15.7). */
 	RECOVERY_RETENTION_DAYS: positiveInt.default(14),
+	/**
+	 * DNS suffix every preview host sits under, as
+	 * `<workspace-label>-<port>.<suffix>` (BROWSER-HANDLING.md §8, §23).
+	 * The worker hands it to the controller, which writes it into every
+	 * workspace. Production must set its own; the default is for development only.
+	 */
+	PREVIEW_SUFFIX: z.string().min(1).default(DEV_PREVIEW_SUFFIX),
+	/** The port every workspace agent listens on. */
+	AGENT_PORT: positiveInt.default(7400),
+};
+
+const previewSuffixIsDnsName: [
+	(config: { PREVIEW_SUFFIX: string }) => boolean,
+	{ message: string; path: string[] },
+] = [
+	(config: { PREVIEW_SUFFIX: string }) => DNS_NAME.test(config.PREVIEW_SUFFIX),
+	{
+		message:
+			"PREVIEW_SUFFIX must be a lowercase DNS name of at least two labels, " +
+			"with no scheme, port, or trailing dot",
+		path: ["PREVIEW_SUFFIX"],
+	},
+];
+
+/**
+ * Environment contract for the API process (STACK.md §5, §9).
+ */
+export const ApiConfigSchema = BaseConfig.extend({
+	DATABASE_URL: z.string().min(1),
+	...SharedWorkspaceFields,
 	PUBLIC_URL: z.string().url().default("http://127.0.0.1:5173"),
 	OIDC_ISSUER_URL: z.string().url().default("http://127.0.0.1:3002"),
 	OIDC_CLIENT_ID: z.string().min(1).default("portikus-dev"),
@@ -125,15 +155,8 @@ export const ApiConfigSchema = BaseConfig.extend({
 	LTI_TOOL_KEY_FILE: z.string().min(1).optional(),
 	SESSION_COOKIE_SECRET: z.string().min(1).default(DEV_SESSION_SECRET),
 	SESSION_TTL_SECONDS: positiveInt.default(43200),
-	AGENT_PORT: positiveInt.default(7400),
 	/** `name=url,name=url` (SPEC.md §7.2); parsed once in the transform below. */
 	PROJECT_TEMPLATES: z.string().default(""),
-	/**
-	 * DNS suffix every preview host sits under, as
-	 * `<workspace-label>-<port>.<suffix>` (BROWSER-HANDLING.md §8, §23).
-	 * Production must set its own; the default is for development only.
-	 */
-	PREVIEW_SUFFIX: z.string().min(1).default(DEV_PREVIEW_SUFFIX),
 	/** Lowest port a preview may target (BROWSER-HANDLING.md §8, §23). */
 	PREVIEW_PORT_MIN: positiveInt.default(1024),
 	/** Highest port a preview may target (BROWSER-HANDLING.md §8, §23). */
@@ -234,12 +257,7 @@ export const ApiConfigSchema = BaseConfig.extend({
 			path: ["PREVIEW_SUFFIX"],
 		},
 	)
-	.refine((config) => DNS_NAME.test(config.PREVIEW_SUFFIX), {
-		message:
-			"PREVIEW_SUFFIX must be a lowercase DNS name of at least two labels, " +
-			"with no scheme, port, or trailing dot",
-		path: ["PREVIEW_SUFFIX"],
-	})
+	.refine(...previewSuffixIsDnsName)
 	// A preview must never share the application's host, and wildcard
 	// routing under the suffix must never cover it (BROWSER-HANDLING.md §23).
 	.refine(
@@ -314,35 +332,21 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	DATABASE_URL: z.string().min(1),
 	CONTROLLER_URL: z.string().url().default("http://127.0.0.1:3001"),
 	CONTROLLER_TOKEN: z.string().default(DEV_TOKEN),
+	...SharedWorkspaceFields,
 	/**
 	 * Seeds the `settings` row on the worker's first start. After that the
 	 * admin page owns the value and this variable is ignored (SPEC.md §6.4).
 	 * Zero means a disconnected workspace keeps running indefinitely.
 	 */
 	SHUTDOWN_GRACE_SECONDS: nonNegativeInt.default(600),
-	PRESENCE_TTL_SECONDS: positiveInt.default(60),
 	SWEEP_INTERVAL_SECONDS: positiveInt.default(1),
 	START_TIMEOUT_SECONDS: positiveInt.default(60),
 	STOP_TIMEOUT_SECONDS: positiveInt.default(30),
 	STATUS_REFRESH_SECONDS: positiveInt.default(15),
-	WORKSPACE_HOME_SIZE_GIB: positiveInt.default(25),
-	WORKSPACE_DOCKER_SIZE_GIB: positiveInt.default(20),
-	/** Recovery allowance per workspace (SPEC.md §19.1, ADR 0020). */
-	WORKSPACE_RECOVERY_SIZE_GIB: positiveInt.default(3),
 	/** A project is due a periodic point after this long (SPEC.md §15.6). */
 	RECOVERY_INTERVAL_SECONDS: positiveInt.default(900),
-	/** How long a recovery point is kept before retention may remove it (SPEC.md §15.7). */
-	RECOVERY_RETENTION_DAYS: positiveInt.default(14),
 	/** How often the recovery loop looks for due projects (ADR 0020). */
 	RECOVERY_SWEEP_SECONDS: positiveInt.default(60),
-	/**
-	 * The preview suffix the worker hands to the controller, which writes it
-	 * into every workspace so shells and dev servers know the preview host
-	 * (issue #263). Must match the API's value.
-	 */
-	PREVIEW_SUFFIX: z.string().min(1).default(DEV_PREVIEW_SUFFIX),
-	/** The port every workspace agent listens on; must match the API value. */
-	AGENT_PORT: positiveInt.default(7400),
 	/** The registry notification webhook, on 127.0.0.1 only (issue #840). */
 	REGISTRY_EVENTS_PORT: positiveInt.default(8792),
 })
@@ -350,12 +354,7 @@ export const WorkerConfigSchema = BaseConfig.extend({
 		requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),
 		productionSecretMessage("CONTROLLER_TOKEN"),
 	)
-	.refine((config) => DNS_NAME.test(config.PREVIEW_SUFFIX), {
-		message:
-			"PREVIEW_SUFFIX must be a lowercase DNS name of at least two labels, " +
-			"with no scheme, port, or trailing dot",
-		path: ["PREVIEW_SUFFIX"],
-	});
+	.refine(...previewSuffixIsDnsName);
 export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
 
 /**
@@ -370,7 +369,7 @@ export const ControllerConfigSchema = BaseConfig.extend({
 	INCUS_POOL: z.string().min(1).default("workspace-data"),
 	INCUS_PROFILE: z.string().min(1).default("workspace"),
 	INCUS_IMAGE_ALIAS: z.string().min(1).default("portikus"),
-	AGENT_PORT: positiveInt.default(7400),
+	AGENT_PORT: SharedWorkspaceFields.AGENT_PORT,
 }).refine(
 	requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),
 	productionSecretMessage("CONTROLLER_TOKEN"),

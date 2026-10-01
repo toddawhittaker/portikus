@@ -1,7 +1,8 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import type { CookieSerializeOptions } from "@fastify/cookie";
 import type { Database } from "@portikus/db";
 import type { Kysely } from "kysely";
+import { sha256Hex } from "../hash.js";
 
 /** What a consumed state row gives back to the launch. */
 export interface LtiLoginState {
@@ -17,7 +18,7 @@ const STATE_COOKIE_PREFIX = "__Host-portikus_lti_state_";
 
 /** The row key: the state itself is never stored. */
 export function hashState(state: string): string {
-	return createHash("sha256").update(state).digest("hex");
+	return sha256Hex(state);
 }
 
 /** Store a new login state, clearing expired rows first as sessions do. */

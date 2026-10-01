@@ -1,6 +1,7 @@
-import * as crypto from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
+import { sha256Hex } from "./hash.js";
 import type { AuthUser, Role } from "./types.js";
 
 export interface OidcIdentity {
@@ -14,7 +15,7 @@ export interface OidcIdentity {
 
 /** The cookie holds the token; the database only ever sees this hash, the session's id. */
 export function hashSessionToken(token: string): string {
-	return crypto.createHash("sha256").update(token).digest("hex");
+	return sha256Hex(token);
 }
 
 /** How a session started (docs/archive/epics/EPIC-13-1.md ruling 21). */
@@ -116,7 +117,7 @@ export async function createSession(
 	// No sweeper process: every new session clears the expired rows.
 	await db.deleteFrom("sessions").where("expires_at", "<", new Date()).execute();
 
-	const token = crypto.randomBytes(32).toString("base64url");
+	const token = randomBytes(32).toString("base64url");
 	const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
 
 	await db

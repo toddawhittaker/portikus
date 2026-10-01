@@ -14,17 +14,19 @@ import {
 	consumeLinkIntent,
 	courseLinkWindow,
 	findLinkIntent,
-	grantAdministrator,
-	grantInstructor,
 	linkAccounts,
 	listLinks,
 	pendingLinkIntent,
 	resolveIdentity,
-	revokeAdministrator,
-	revokeInstructor,
 	saveLinkIntent,
 	unlinkAccount,
 } from "./links.js";
+import {
+	grantAdministrator,
+	grantInstructor,
+	revokeAdministrator,
+	revokeInstructor,
+} from "./roles.js";
 import { createSession, hashSessionToken, loadSession } from "./sessions.js";
 
 const LMS = "https://lms.test.invalid";

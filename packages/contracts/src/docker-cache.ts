@@ -261,8 +261,6 @@ export const GHCR_UPSTREAM_NAMES = [
 /** Mirror URL the controller writes into each workspace's daemon.json. */
 export const HUB_MIRROR_URL = `http://${REGISTRY_GATEWAY_ADDR}:${HUB_CACHE_PORT}`;
 
-/** Worker's registry-notification listener default port, on 127.0.0.1 only (env REGISTRY_EVENTS_PORT). */
-export const REGISTRY_EVENTS_DEFAULT_PORT = 8792;
 /** Path the registry posts notifications to. */
 export const REGISTRY_EVENTS_PATH = "/registry/events";
 /** Header carrying the webhook token on every notification (registry `notifications.endpoints[].headers`). */
@@ -275,14 +273,9 @@ export const OTHER_IMAGES_LABEL = "(other images)";
 
 /** Custom Incus volume the seed lives in, in the workspace-data pool. */
 export const SEED_VOLUME_NAME = "portikus-docker-seed";
-/** Largest seed an administrator may allow, and the default (ruling S8). */
+/** Largest seed an administrator may allow (ruling S8). */
 export const SEED_MAX_GIB_LIMIT = 64;
-export const SEED_MAX_GIB_DEFAULT = 8;
 
-/** Root cache helper's request directory (root:portikus 0770), like the image jobs' (ADR 0030). */
-export const REGISTRY_JOBS_DIR = "/var/lib/portikus/registry-jobs";
-/** Written by the helper and its timer (root, 0644): the cache's state for the admin page. */
-export const REGISTRY_STATUS_FILE = "/var/lib/portikus/registry-jobs/status.json";
 /** The cache clears itself past this share of its filesystem. */
 export const REGISTRY_AUTO_CLEAR_PERCENT = 90;
 
@@ -312,7 +305,10 @@ export const IMAGE_SIZES_MAX = 1000;
 // GET /admin/docker/usage
 // ---------------------------------------------------------------------------
 
-/** `REGISTRY_STATUS_FILE` as the helper writes it. */
+/**
+ * `status.json` in the cache helper's job directory (env REGISTRY_JOBS_DIR),
+ * written by the helper and its timer (root, 0644).
+ */
 export const RegistryStatusFile = z.object({
 	/** Size of the cache's own filesystem, set at install. */
 	sizeBytes: z.number().int().nonnegative(),
@@ -614,7 +610,7 @@ export const RegistryJobRequest = z.discriminatedUnion("kind", [
 export type RegistryJobRequest = z.infer<typeof RegistryJobRequest>;
 
 /**
- * `REGISTRY_JOBS_DIR/request-<id>.json`, mode 0600, written as
+ * `request-<id>.json` in the job directory (env REGISTRY_JOBS_DIR), mode 0600, written as
  * `.request-<id>.tmp` then renamed; the helper deletes it before acting
  * (ruling S5).
  */

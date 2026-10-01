@@ -10,7 +10,7 @@ import { z } from "zod";
  *
  * Three places on the host:
  *
- * - The job directory, `CERTIFICATE_JOBS_DIR`
+ * - The job directory (env `CERTIFICATE_JOBS_DIR`)
  *   (`/var/lib/portikus/certificate-jobs/`, root:portikus, 0770).
  *   - The API writes one request as `request-<id>.json`, where `<id>` is a
  *     lowercase UUID, with mode 0600. It writes `.request-<id>.tmp` first
@@ -95,9 +95,6 @@ import { z } from "zod";
  * a job directory of its own (status only, no request file) so the API
  * can audit it.
  */
-
-export const CERTIFICATE_JOBS_DIR = "/var/lib/portikus/certificate-jobs";
-export const CERTIFICATE_STATUS_DIR = "/var/lib/portikus/certificate";
 
 /** Longest PEM text the API accepts in one upload field. */
 export const MAX_PEM_LENGTH = 64 * 1024;

@@ -7,11 +7,12 @@
  * `granted_role`. The import runs at most once per site, and never into a
  * Dex that already holds passwords.
  */
-import type { Database } from "@portikus/db";
+import { type Database, recordAudit } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 import type { DexApi } from "./dex-api.js";
 import { dexLocalSubject } from "./dex-subject.js";
-import { grantAdministrator, grantInstructor, precreateDexAccount } from "./links.js";
+import { precreateDexAccount } from "./links.js";
+import { grantAdministrator, grantInstructor } from "./roles.js";
 
 export interface ImportedUser {
 	username: string;
@@ -134,16 +135,13 @@ function audit(
 	target: string,
 	change: { from: string | null; to: string },
 ) {
-	return trx
-		.insertInto("audit_events")
-		.values({
-			actor: ACTOR,
-			target,
-			action: "user.role_changed",
-			result: "ok",
-			metadata: JSON.stringify({ ...change, source: "import" }),
-		})
-		.execute();
+	return recordAudit(trx, {
+		actor: ACTOR,
+		target,
+		action: "user.role_changed",
+		result: "ok",
+		metadata: { ...change, source: "import" },
+	});
 }
 
 /**
@@ -169,16 +167,13 @@ export async function importUsersFile(
 			await sql`select pg_advisory_xact_lock(hashtext(${IMPORTED}))`.execute(trx);
 			const done = await importedAt(trx);
 			if (done !== null) return { status: "already_imported", at: done } as const;
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: ACTOR,
-					target: "dex",
-					action: IMPORTED,
-					result: "ok",
-					metadata: JSON.stringify({ skipped: true, passwordsInDex: existing.length }),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: ACTOR,
+				target: "dex",
+				action: IMPORTED,
+				result: "ok",
+				metadata: { skipped: true, passwordsInDex: existing.length },
+			});
 			return { status: "skipped", passwordsInDex: existing.length } as const;
 		});
 	}
@@ -210,16 +205,13 @@ export async function importUsersFile(
 				}
 				created.push(user);
 			}
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: ACTOR,
-					target: "dex",
-					action: IMPORTED,
-					result: "ok",
-					metadata: JSON.stringify({ users: users.length }),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: ACTOR,
+				target: "dex",
+				action: IMPORTED,
+				result: "ok",
+				metadata: { users: users.length },
+			});
 			return {
 				status: "imported",
 				usernames: users.map((u) => u.username),
