@@ -314,3 +314,89 @@ test("Update from the newer-image notice sends focus to the job heading once the
 	await expect(page.getByTestId("image-newer-published")).toHaveCount(0);
 	await expect(page.locator("#image-job-title")).toBeFocused();
 });
+
+test("Delete sends focus to the job heading once the deleted row goes", async ({
+	page,
+}) => {
+	let current: object = { ...IMAGE, newerPublished: null, job: null };
+	const deleting = {
+		...RUNNING_JOB,
+		kind: "delete",
+		step: "Deleting",
+		version: "2026.09.10",
+		request: { kind: "delete", version: "2026.09.10" },
+	};
+	await page.route("**/admin/image", (route) => route.fulfill({ json: current }));
+	await page.route("**/admin/image/jobs/*", (route) =>
+		route.fulfill({ json: { job: deleting, log: ["x"] } }),
+	);
+	await page.route("**/admin/image/jobs", (route) => {
+		// The row is gone once the delete is queued, taking its Delete button with it.
+		current = {
+			...IMAGE,
+			newerPublished: null,
+			images: IMAGE.images.filter((each) => each.version !== "2026.09.10"),
+			job: deleting,
+		};
+		return route.fulfill({ status: 202, json: { ...deleting, state: "queued" } });
+	});
+	await loginAs(page, "carol");
+	await page.goto("/admin?tab=image");
+	const remove = page.getByRole("button", { name: "Delete: 2026.09.10" });
+	await remove.focus();
+	await page.keyboard.press("Enter");
+	await page.getByTestId("image-confirm").getByTestId("dialog-confirm").focus();
+	await page.keyboard.press("Enter");
+	await expect(page.getByTestId("image-confirm")).toHaveCount(0);
+	await expect(remove).toHaveCount(0);
+	await expect(page.locator("#image-job-title")).toBeFocused();
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`a nearly full main disk says so in words, not by colour alone (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.route("**/admin/image", (route) =>
+			route.fulfill({
+				json: {
+					...IMAGE,
+					disk: { freeBytes: 2 * 1024 ** 3, totalBytes: 20 * 1024 ** 3 },
+				},
+			}),
+		);
+		await page.route(`**/admin/image/jobs/${JOB_ID}`, (route) =>
+			route.fulfill({ json: { job: JOB, log: ["x"] } }),
+		);
+		await page.emulateMedia({ colorScheme });
+		await loginAs(page, "carol");
+		await page.goto("/admin?tab=image");
+		const disk = page.getByRole("meter", { name: "Main disk space" });
+		await expect(disk).toHaveAttribute(
+			"aria-valuetext",
+			"18.0 GB of 20.0 GB used, 2.0 GB free, nearly full",
+		);
+		const row = page.getByTestId("image-disk-free");
+		await expect(row).toContainText(
+			"18.0 GB of 20.0 GB used, 2.0 GB free, nearly full",
+		);
+		await expect(row.locator('[data-icon="alert"]')).toBeVisible();
+		// The row label and the meter's name are the same words.
+		await expect(
+			page.getByRole("term").filter({ hasText: /^Main disk space$/ }),
+		).toBeVisible();
+		await expectNoViolations(page);
+		await row.screenshot({
+			path: `screenshots/meter-nearly-full-wide-${colorScheme}.png`,
+		});
+		// The figure wraps under the bar in a narrow window rather than clipping.
+		await page.setViewportSize({ width: 360, height: 720 });
+		await row.scrollIntoViewIfNeeded();
+		const fits = await row.evaluate(
+			(element) => element.scrollWidth <= element.clientWidth,
+		);
+		expect(fits).toBe(true);
+		await row.screenshot({
+			path: `screenshots/meter-nearly-full-360-${colorScheme}.png`,
+		});
+	});
+}

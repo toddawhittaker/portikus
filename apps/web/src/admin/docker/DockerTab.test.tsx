@@ -632,7 +632,7 @@ test("no drift notice when the list holds the matching images (issue #932)", asy
 	expect(screen.queryByTestId("docker-seed-drift")).toBeNull();
 });
 
-test("the drift notice's button posts the match and starts a rebuild", async () => {
+test("the drift notice's button posts the match, starts a rebuild and keeps focus in place", async () => {
 	const fetch = serve(
 		data({ seedImages: ["node:24-slim", "python:3.13-slim"], match: MATCH_26_314 }),
 		[],
@@ -670,6 +670,10 @@ test("the drift notice's button posts the match and starts a rebuild", async () 
 	);
 	// Nothing else writes the list.
 	expect(bodyOf(fetch, "PUT", "/admin/docker/seed/images")).toBeUndefined();
+	// The notice and its button go; focus lands on the list it changed.
+	await waitFor(() =>
+		expect(document.activeElement?.id).toBe("docker-seed-list-title"),
+	);
 });
 
 test("over the size limit the notice says so and offers no button", async () => {

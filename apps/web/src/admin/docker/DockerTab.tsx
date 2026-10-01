@@ -136,7 +136,7 @@ function CacheCard({ data }: { data: DockerAdminResponse }) {
 				</Notice>
 			) : cache ? (
 				<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
-					<dt className="pk-muted">Space</dt>
+					<dt className="pk-muted">Pull cache space</dt>
 					<dd className="m-0 grid gap-1" data-testid="docker-cache-space">
 						<Meter
 							label="Pull cache space"

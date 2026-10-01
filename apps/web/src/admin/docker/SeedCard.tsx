@@ -154,7 +154,7 @@ function CurrentSeed({
 			{seed ? (
 				<>
 					<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
-						<dt className="pk-muted">Size on disk</dt>
+						<dt className="pk-muted">Seed size</dt>
 						<dd className="m-0" data-testid="docker-seed-size">
 							<Meter
 								label="Seed size"
@@ -236,8 +236,11 @@ function MatchNotice({
 	function update() {
 		if (off) return;
 		match.mutate(undefined, {
-			onSuccess: () =>
-				toast.show({ tone: "success", title: "Seed list updated, rebuild requested" }),
+			onSuccess: () => {
+				toast.show({ tone: "success", title: "Seed list updated, rebuild requested" });
+				// This notice and its button go away; the list it changed keeps the place.
+				document.getElementById("docker-seed-list-title")?.focus();
+			},
 			onError: (error) =>
 				toast.show({
 					tone: "danger",

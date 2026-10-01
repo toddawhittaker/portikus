@@ -100,12 +100,22 @@ for (const scheme of ["light", "dark"] as const) {
 		expect(ahead).toBeGreaterThan(7.9 * 3_600_000);
 		expect(ahead).toBeLessThanOrEqual(8 * 3_600_000);
 		await expect(status).toContainText(`Kept running until ${shown(until as Date)}`);
+		// Setting a hold is announced, since focus stays on the button.
+		const announce = page
+			.getByRole("status")
+			.filter({ hasText: /^Kept running until / });
+		await expect(announce).toHaveText(`Kept running until ${shown(until as Date)}.`);
 		await expect(page.getByTestId("keep-running-indicator")).toContainText(
 			`Kept running until ${shown(until as Date)}`,
 		);
 		await expectNoViolations(page);
 
 		await section.getByRole("button", { name: "Don't keep running" }).click();
+		await expect(page.getByTestId("keep-running-announce")).toHaveText(
+			"Keep running ended.",
+		);
+		// The pressed button is gone; focus waits on the button that sets a new hold.
+		await expect(set).toBeFocused();
 		await expect(status).toBeHidden({ timeout: 15_000 });
 		await expect(page.getByTestId("keep-running-indicator")).toBeHidden();
 		expect(await holdUntil(student.workspaceId)).toBeNull();
@@ -203,3 +213,84 @@ test("an administrator's cap bounds the choice, and 0 turns it off", async ({
 	);
 	await studentContext.close();
 });
+
+test("ending a hold under a cap of 0 announces it and moves focus to the dialog heading", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await query(
+		"update workspaces set keep_running_until = now() + interval '3 hours' where id = $1",
+		[student.workspaceId],
+	);
+	await setCap(0);
+	try {
+		const dialog = await openWorkspaceDialog(page, student.workspaceId);
+		const section = dialog.getByRole("region", { name: "Keep running" });
+		await expect(
+			section.getByRole("button", { name: /^Keep running until / }),
+		).toHaveCount(0);
+		await section.getByRole("button", { name: "Don't keep running" }).click();
+		await expect(section).toHaveCount(0, { timeout: 15_000 });
+		await expect(page.getByTestId("keep-running-announce")).toHaveText(
+			"Keep running ended.",
+		);
+		await expect(dialog.getByRole("heading", { name: "Your workspace" })).toBeFocused();
+		await expectNoViolations(page);
+	} finally {
+		await setCap(12);
+	}
+});
+
+/** Fails when the element's text runs past its box or past the dialog. */
+async function expectUnclipped(page: Page, testId: string) {
+	const fits = await page.getByTestId(testId).evaluate((element) => {
+		const box = element.getBoundingClientRect();
+		const dialog = element.closest('[role="dialog"]')?.getBoundingClientRect();
+		return (
+			element.scrollWidth <= element.clientWidth &&
+			element.scrollHeight <= element.clientHeight + 1 &&
+			!!dialog &&
+			box.left >= dialog.left &&
+			box.right <= dialog.right + 0.5
+		);
+	});
+	expect(fits).toBe(true);
+}
+
+for (const scheme of ["light", "dark"] as const) {
+	test(`a week-long Keep running button wraps at 320 px and at 200% text (${scheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		await setCap(168);
+		try {
+			const student = await createStudent(context);
+			await page.setViewportSize({ width: 320, height: 720 });
+			const dialog = await openWorkspaceDialog(page, student.workspaceId);
+			await dialog.locator("#keep-running-hours").click();
+			await page.getByRole("option", { name: "168 hours" }).click();
+			const set = dialog.getByTestId("keep-running-set");
+			// A week ahead names its date, the longest label the button gets.
+			await expect(set).toHaveText(/^Keep running until \w{3}, \w{3} \d{1,2}, /);
+			await set.scrollIntoViewIfNeeded();
+			await expectUnclipped(page, "keep-running-set");
+			await page.screenshot({ path: `screenshots/keep-running-320-${scheme}.png` });
+			await expectNoViolations(page);
+
+			// Text at 200% (the control font tokens doubled) in a 640 px window.
+			await page.setViewportSize({ width: 640, height: 720 });
+			await page.addStyleTag({
+				content:
+					"html:root { --density-comfortable-font: 28px !important; --density-compact-font: 26px !important; }",
+			});
+			await expect(set).toHaveCSS("font-size", "28px");
+			await set.scrollIntoViewIfNeeded();
+			await expectUnclipped(page, "keep-running-set");
+			await page.screenshot({ path: `screenshots/keep-running-text200-${scheme}.png` });
+		} finally {
+			await setCap(12);
+		}
+	});
+}

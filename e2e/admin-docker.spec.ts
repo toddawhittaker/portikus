@@ -590,6 +590,12 @@ test("the cache and seed meters show their fill, the 90 percent mark, and follow
 	await expect(page.getByTestId("docker-seed-size")).toHaveText(
 		"2.0 GB of the 8.0 GB limit",
 	);
+	// Each meter's name is its row label, so what is read matches what is seen.
+	await expect(
+		page.getByRole("term").filter({ hasText: /^Pull cache space$/ }),
+	).toBeVisible();
+	await expect(page.getByRole("term").filter({ hasText: /^Seed size$/ })).toBeVisible();
+	await expect(seed).not.toHaveAttribute("aria-valuetext", /nearly full/);
 
 	await writeRegistryStatus({ usedBytes: 12 * 1024 ** 3 });
 	await query("update settings set docker_seed_max_gib = 4 where id = 1");
@@ -739,7 +745,13 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme });
 		await open(page);
 		await expect(page.getByTestId("docker-cache-off")).toBeVisible();
-		await expect(page.getByRole("meter", { name: "Seed size" })).toBeVisible();
+		const seed = page.getByRole("meter", { name: "Seed size" });
+		await expect(seed).toBeVisible();
+		// Past the warning share it says so in words and with the alert icon, not by colour alone.
+		await expect(seed).toHaveAttribute("aria-valuetext", /, nearly full$/);
+		const size = page.getByTestId("docker-seed-size");
+		await expect(size).toContainText("nearly full");
+		await expect(size.locator('[data-icon="alert"]')).toBeVisible();
 		await expectNoViolations(page);
 	});
 }
@@ -803,6 +815,8 @@ test("the drift notice's button asks the API to swap the images and rebuild", as
 	// The list reread holds the new images, so the notice goes.
 	await expect(notice).toHaveCount(0);
 	expect(posted).toBe(1);
+	// Its button went with it; focus waits on the heading of the list it changed.
+	await expect(page.locator("#docker-seed-list-title")).toBeFocused();
 });
 
 test("over the size limit the drift notice says so and offers no button", async ({
