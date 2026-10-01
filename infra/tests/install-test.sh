@@ -466,8 +466,19 @@ caddy_rerun() {
 # never resolves, so nothing leaves the rehearsal network.
 acme_wait_rerun() {
   vm "sudo cp -p /etc/portikus/portikus.yaml /root/portikus.yaml.before"
-  vm "sudo sh -c 'sed -i \"/^portikus_tls:/d; /^portikus_acme_/d\" /etc/portikus/portikus.yaml && printf \"%s\\n\" \"portikus_tls: letsencrypt\" \"portikus_acme_email: admin@rehearsal.test\" \"portikus_acme_ca: https://acme.invalid/directory\" >>/etc/portikus/portikus.yaml'"
-  vm "sudo sh -c 'umask 077; echo \"portikus_cloudflare_api_token: fake-rehearsal-token\" >>/etc/portikus/secrets.yaml'"
+  # Both files are YAML mappings, possibly the flow form {}, so they are rewritten whole.
+  vm_stdin "sudo python3 -" <<'EOF'
+import yaml
+def update(path, values):
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    data.update(values)
+    with open(path, "w") as f:
+        yaml.safe_dump(data, f, default_flow_style=False, sort_keys=True)
+update("/etc/portikus/portikus.yaml", {"portikus_tls": "letsencrypt", "portikus_acme_email": "admin@rehearsal.test",
+                                       "portikus_acme_ca": "https://acme.invalid/directory"})
+update("/etc/portikus/secrets.yaml", {"portikus_cloudflare_api_token": "fake-rehearsal-token"})
+EOF
   # Setup seeds the answer only where there is no certificate state.
   vm "sudo rm -rf /etc/portikus/certificate"
   local run
