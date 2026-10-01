@@ -19,7 +19,7 @@ with a "Fixes" line for every issue below.
 | M | #936 | Delete an image, keep default + previous + one newest, sizes and disk free on the Admin image page, plus the backlog item to share the image job's lock and jobs-directory setup | builder |
 | K | #955 | Keep running until…: a student hold over the disconnect grace and idle stop | builder (high effort) |
 | L | #957 | TLS probe only when a preview of the port is first requested | builder |
-| G | backlog | The resource guard counts the seed's size at admission | builder |
+| G | backlog | Workspace create refuses when the pool's fill plus the seed's size would reach the full line (the backlog named guard.ts, but the only admission check is the controller's pool-fill refusal) | builder |
 | P | backlog | The install question uses setup's free-space rule for the Docker cache size | builder |
 | F | all | Fold: SPEC.md, STATUS.md, BACKLOG.md, ADMIN-GUIDE.md, STUDENT-GUIDE.md, in-app help, delete this plan | builder |
 
@@ -91,7 +91,7 @@ serves; ask the orchestrator before editing a path another task owns.
 | `packaging/image/**`, `apps/api/src/routes/admin-image.ts`, `packages/contracts/src/image.ts`, `apps/web/src/admin/image/**`, `e2e/admin-image*.spec.ts` | M |
 | `apps/worker/src/reconcile.ts`, `packages/contracts/src/guard.ts`, workspace and settings contracts, `packages/db/src/migrations/0034_*`, `packages/db/src/schema.ts`, `packages/db/src/migrations/index.ts`, `apps/web/src/shell/**`, `apps/web/src/admin/SettingsTab.tsx`, `GuardDialog.tsx`, `guardFields.ts`, `apps/web/src/admin/queries.ts`, `packages/contracts/src/index.ts` | K |
 | `apps/workspace-agent/src/listening.ts`, `packages/contracts/src/listening.ts`, `apps/api/src/routes/preview.ts`, `apps/web/src/preview/**` | L |
-| `apps/worker/src/guard.ts` and its tests | G |
+| `apps/workspace-controller/src/provider.ts` create() admission check, a helper in `docker-seed.ts`, their tests | G |
 | `packaging/debian/config`, `packaging/tests/debconf-test.sh` | P |
 | `docs/**`, `README.md`, `apps/web/src/help/content/**` | F |
 
