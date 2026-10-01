@@ -3850,7 +3850,15 @@ Delivered:
   was the test, not the component.
 
 Verified: typecheck, lint and the unit and Playwright tests of each task
-PR, as listed in each PR body.
+PR, as listed in each PR body. On the pilot (0.1.788+g50a826be): the #933
+checks passed. The system files are root 0644 and match the template,
+Codex's `debug prompt-input` shows the guidance, edits and deletions are
+undone at start, the old import line and old template copy are removed
+while the student's lines are kept, and a start with `/etc/claude-code`
+broken still works. The #936 checks passed: 2026.09.12 was deleted, a
+workspace built from it still starts, and the default and previous images
+are refused by both the API and the job. Smoke test: 238 passed, 0
+failed.
 
 Gaps:
 
@@ -3872,5 +3880,7 @@ Gaps:
 - The browser-facing listening event in packages/events has no cap of
   its own; the API's acceptance bounds it.
 - The admin Docker and Image tabs do not narrow below about 760 px.
+- Deleting `/etc/claude-code` loses Claude Code's managed settings until
+  a fix restores them at start (BACKLOG.md).
 - Status bar overflow at narrow widths, and the shell's storage meters
   are not yet on `Meter` (BACKLOG.md).

@@ -1983,3 +1983,11 @@ when the job fails.
 **What it would take.** If that becomes a problem, a site setting for the longest total hold, counted from the first hold of a run.
 
 **Source.** Epic 28 review (#955).
+
+## Restore Claude Code's managed settings at start
+
+**What.** A student who deletes `/etc/claude-code` in their workspace loses the image's `managed-settings.json`, which blanks `BROWSER` for Claude Code. The controller's start step restores only `CLAUDE.md` (SPEC.md section 3).
+
+**What it would take.** Ship `managed-settings.json` from the package template too, or restore it at start, with a unit test.
+
+**Source.** Epic 28 pilot verification.
