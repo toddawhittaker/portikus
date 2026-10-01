@@ -1,10 +1,8 @@
 import { z } from "zod";
 
 /**
- * A path inside a project, relative to the project directory. It must not
- * escape that directory, so absolute paths, backslashes, NUL bytes and `.`
- * or `..` segments are all refused here as well as in the agent
- * (SPEC.md §11.1, §24.6).
+ * A path relative to the project directory that cannot escape it. The agent
+ * checks it again (SPEC.md §11.1, §24.6).
  */
 export const ProjectPath = z
 	.string()
@@ -24,7 +22,6 @@ export const ProjectPath = z
 	});
 export type ProjectPath = z.infer<typeof ProjectPath>;
 
-/** One entry of a directory listing (SPEC.md §11.2). */
 /**
  * One entry's name: a single path segment and nothing else, so a listing
  * cannot smuggle a separator or a traversal into the tree (SPEC.md §24.6).
@@ -43,6 +40,7 @@ const EntryName = z
 		{ message: "a name must be one path segment" },
 	);
 
+/** One entry of a directory listing (SPEC.md §11.2). */
 export const TreeEntry = z.object({
 	name: EntryName,
 	type: z.enum(["file", "dir", "symlink", "other"]),

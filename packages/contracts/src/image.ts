@@ -91,7 +91,6 @@ export const ImageJobId = z.string().uuid();
 /** `request-<id>.json` as the API writes it. */
 export const ImageJobRequestFile = z.object({
 	id: ImageJobId,
-	/** ISO 8601 time the API wrote it. */
 	requestedAt: z.string().datetime(),
 	/** The administrator's user id, for the job's log. */
 	requestedBy: z.string().uuid(),

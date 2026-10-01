@@ -3,10 +3,7 @@ import { CloneUrl, MAX_PROJECT_NAME_LENGTH, ProjectSlug } from "./project.js";
 import { TerminalTheme, Timezone } from "./settings.js";
 import { CodingAgent, TerminalId } from "./terminal.js";
 
-/**
- * Response body for `GET /health` on the workspace agent
- * (SPEC.md §26; STACK.md §10).
- */
+/** Response body for `GET /health` on the workspace agent (SPEC.md §26; STACK.md §10). */
 export const AgentHealthResponse = z.object({
 	ok: z.literal(true),
 });

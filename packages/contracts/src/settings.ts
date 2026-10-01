@@ -54,7 +54,6 @@ export const PlatformSettings = z.object({
 });
 export type PlatformSettings = z.infer<typeof PlatformSettings>;
 
-/** Longest acceptable-use statement an administrator may save. */
 export const MAX_ACCEPTABLE_USE_LENGTH = 10_000;
 
 /**
@@ -143,7 +142,6 @@ export const AdminUserList = z.object({
 });
 export type AdminUserList = z.infer<typeof AdminUserList>;
 
-/** A Dex username: letters, digits, dot, dash and underscore. */
 const DEX_USERNAME = /^[A-Za-z0-9._-]{1,64}$/;
 
 /** Request body for `POST /admin/dex-users` (ADR 0028). */
@@ -181,11 +179,6 @@ export type UpdateAdminUserSettingsRequest = z.infer<
 	typeof UpdateAdminUserSettingsRequest
 >;
 
-/**
- * One user's editor and terminal preferences. Every
- * field has a default, so a user who has never changed anything still gets a
- * complete object.
- */
 export const TERMINAL_THEMES = ["dark", "light"] as const;
 
 /** The colour scheme a student's terminals use. */
@@ -206,7 +199,6 @@ export function systemTimezones(): readonly string[] {
 /** Built on first use, so a browser bundle never pays for it. */
 let systemTimezoneSet: Set<string> | null = null;
 
-/** Whether a value is one of the zone names this build knows. */
 export function isSystemTimezone(value: unknown): value is string {
 	systemTimezoneSet ??= new Set(systemTimezones());
 	return typeof value === "string" && systemTimezoneSet.has(value);
@@ -230,6 +222,10 @@ export const APPEARANCES = ["system", "light", "dark"] as const;
 export const Appearance = z.enum(APPEARANCES);
 export type Appearance = z.infer<typeof Appearance>;
 
+/**
+ * One user's editor and terminal preferences. Every field has a default, so a
+ * user who has never changed anything still gets a complete object.
+ */
 export const EditorSettings = z.object({
 	autoSave: z.boolean(),
 	autoSaveDelaySeconds: z.number().int().min(1).max(60),
@@ -249,7 +245,6 @@ export const EditorSettings = z.object({
 });
 export type EditorSettings = z.infer<typeof EditorSettings>;
 
-/** The values a user gets before they change anything. */
 export const EDITOR_SETTINGS_DEFAULTS: EditorSettings = {
 	autoSave: true,
 	autoSaveDelaySeconds: 5,
@@ -278,8 +273,7 @@ export type UpdateEditorSettingsRequest = z.infer<typeof UpdateEditorSettingsReq
 
 /**
  * The body of `GET /me/settings`: the settings plus every zone name the
- * server will accept, so the dialog offers exactly what the API takes
- *.
+ * server will accept, so the dialog offers exactly what the API takes.
  */
 export const MeSettings = EditorSettings.extend({
 	timezones: z.array(z.string()),
@@ -296,7 +290,6 @@ export const PICTURE_TOO_LARGE_MESSAGE = "The picture must be at most 1 MiB";
 
 const MAX_LINK_LENGTH = 200;
 
-/** A GitHub username: letters, digits, and single inner hyphens, at most 39. */
 const GITHUB_USERNAME = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 
 /** An https URL with a host and no user name or password in it. */

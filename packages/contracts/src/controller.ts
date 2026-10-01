@@ -19,11 +19,8 @@ export const AGENT_RESTART_TIMEOUT_SECONDS = 60;
 export const EGRESS_HELPER_TIMEOUT_MS = 30_000;
 
 /**
- * Validated Incus instance name (SPEC.md §6, §18.3; STACK.md §5, §9).
- *
- * Must start with a lowercase letter, followed by up to 30 lowercase
- * alphanumeric characters or hyphens. This is validated at the contract
- * boundary and again inside the provider for defence in depth.
+ * Incus instance name (SPEC.md §6, §18.3; STACK.md §5, §9). The provider
+ * checks it again for defence in depth.
  */
 export const InstanceName = z
 	.string()
@@ -33,9 +30,7 @@ export const InstanceName = z
 	);
 export type InstanceName = z.infer<typeof InstanceName>;
 
-/**
- * Request body for `POST /instances` on the controller (SPEC.md §26, §27).
- */
+/** Request body for `POST /instances` on the controller (SPEC.md §26, §27). */
 export const CreateInstanceRequest = z.object({
 	name: InstanceName,
 	homeGiB: z.number().int().positive(),
@@ -44,9 +39,7 @@ export const CreateInstanceRequest = z.object({
 });
 export type CreateInstanceRequest = z.infer<typeof CreateInstanceRequest>;
 
-/**
- * Response body for `POST /instances` (SPEC.md §26, §27).
- */
+/** Response body for `POST /instances` (SPEC.md §26, §27). */
 export const CreateInstanceResponse = z.object({
 	created: z.boolean(),
 	imageFingerprint: z.string().min(1),
@@ -69,9 +62,7 @@ export const CpuAllowance = z
 	});
 export type CpuAllowance = z.infer<typeof CpuAllowance>;
 
-/**
- * Request body for `POST /instances/:name/start` (SPEC.md §26, §27).
- */
+/** Request body for `POST /instances/:name/start` (SPEC.md §26, §27). */
 export const StartInstanceRequest = z.object({
 	timeoutSeconds: z.number().int().positive().default(60),
 	// Per-workspace agent token, pushed into the container as a file so the
@@ -114,25 +105,19 @@ export const StartInstanceRequest = z.object({
 });
 export type StartInstanceRequest = z.infer<typeof StartInstanceRequest>;
 
-/**
- * Response body for `POST /instances/:name/start` (SPEC.md §26, §27).
- */
+/** Response body for `POST /instances/:name/start` (SPEC.md §26, §27). */
 export const StartInstanceResponse = z.object({
 	ipv4: z.string().min(1),
 });
 export type StartInstanceResponse = z.infer<typeof StartInstanceResponse>;
 
-/**
- * Request body for `POST /instances/:name/stop` (SPEC.md §26, §27).
- */
+/** Request body for `POST /instances/:name/stop` (SPEC.md §26, §27). */
 export const StopInstanceRequest = z.object({
 	timeoutSeconds: z.number().int().positive(),
 });
 export type StopInstanceRequest = z.infer<typeof StopInstanceRequest>;
 
-/**
- * Response body for `POST /instances/:name/stop` (SPEC.md §26, §27).
- */
+/** Response body for `POST /instances/:name/stop` (SPEC.md §26, §27). */
 export const StopInstanceResponse = z.object({
 	forced: z.boolean(),
 });
@@ -178,9 +163,7 @@ export const InstanceStatus = z.object({
 });
 export type InstanceStatus = z.infer<typeof InstanceStatus>;
 
-/**
- * Response body for `GET /instances` (SPEC.md §26).
- */
+/** Response body for `GET /instances` (SPEC.md §26). */
 export const ListInstancesResponse = z.array(InstanceStatus);
 export type ListInstancesResponse = z.infer<typeof ListInstancesResponse>;
 
@@ -304,9 +287,7 @@ export const ControllerErrorCode = z.enum([
 ]);
 export type ControllerErrorCode = z.infer<typeof ControllerErrorCode>;
 
-/**
- * Standard error response from the workspace controller (SPEC.md §27).
- */
+/** Standard error response from the workspace controller (SPEC.md §27). */
 export const ControllerError = z.object({
 	code: ControllerErrorCode,
 	message: z.string(),

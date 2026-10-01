@@ -24,12 +24,7 @@ const TAG = "[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}";
 const DIGEST = "sha256:[a-f0-9]{64}";
 const IMAGE_ID = /^sha256:[a-f0-9]{64}$/;
 
-/**
- * An image reference an administrator may put in the seed list:
- * first character a lowercase letter or digit, an optional `docker.io/` or
- * `ghcr.io/` prefix and no other host, no `host:port`, one to four
- * lowercase path components, an optional tag and an optional sha256 digest.
- */
+/** A seed list image reference: Docker Hub or ghcr.io only, never another host or port. */
 export const SEED_IMAGE_PATTERN = new RegExp(
 	`^(?:(?:docker\\.io|ghcr\\.io)/)?${COMPONENT}(?:/${COMPONENT}){0,3}(?::${TAG})?(?:@${DIGEST})?$`,
 );
@@ -127,7 +122,7 @@ export type MatchedLanguage = (typeof MATCHED_LANGUAGES)[number];
 
 /**
  * Rough download sizes of a slim image, used only when the pull cache has
- * not held it yet (about 200 MB for Node, 130 MB for Python).
+ * not held it yet.
  */
 export const SLIM_ESTIMATE_BYTES: Record<MatchedLanguage, number> = {
 	node: 200 * 1000 ** 2,
@@ -405,7 +400,6 @@ export type DockerSettingsRequest = z.infer<typeof DockerSettingsRequest>;
  */
 export const HubCredentialRequest = z
 	.object({
-		// Docker Hub usernames: 4 to 30 lowercase letters and digits.
 		username: z.string().regex(/^[a-z0-9]{4,30}$/, "Must be a Docker Hub username"),
 		// Printable ASCII only, so it cannot break the helper's YAML.
 		token: z.string().regex(/^[\x21-\x7e]{8,200}$/, "Must be an access token"),
@@ -610,8 +604,7 @@ export type RegistryJobRequest = z.infer<typeof RegistryJobRequest>;
 
 /**
  * `request-<id>.json` in the job directory (env REGISTRY_JOBS_DIR), mode 0600, written as
- * `.request-<id>.tmp` then renamed; the helper deletes it before acting
- *.
+ * `.request-<id>.tmp` then renamed; the helper deletes it before acting.
  */
 export const RegistryJobRequestFile = z.object({
 	id: z.string().uuid(),

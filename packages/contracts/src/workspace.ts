@@ -1,10 +1,8 @@
 import { z } from "zod";
 
 /**
- * Workspace lifecycle states (SPEC.md §6.2, §18.3, §27).
- *
- * Every workspace row is in exactly one of these states. Transitions are
- * driven by the worker process through compare-and-set updates.
+ * Workspace lifecycle states (SPEC.md §6.2, §18.3, §27). Only the worker
+ * moves a row between them, through compare-and-set updates.
  */
 export const WorkspaceState = z.enum([
 	"provisioning",
@@ -125,9 +123,7 @@ export const MemoryFlag = z.object({
 });
 export type MemoryFlag = z.infer<typeof MemoryFlag>;
 
-/**
- * Workspace response body returned by the API (SPEC.md §26, §27).
- */
+/** Workspace response body returned by the API (SPEC.md §26, §27). */
 export const Workspace = z.object({
 	id: z.string().uuid(),
 	ownerUserId: z.string().uuid(),
@@ -175,15 +171,9 @@ export const MAX_WORKSPACE_LABEL_LENGTH = 40;
 /**
  * Derive a workspace label from the identity provider's
  * `preferred_username` (SPEC.md section 14.3, BROWSER-HANDLING.md §8).
- *
  * The label names the container hostname and every preview host, so it must
- * be a valid DNS label: lowercase, only letters, digits, and single hyphens,
- * no leading or trailing hyphen, and at most 40 characters. A label that
- * would start with a digit gets a `u` in front, so `1234-5173.<suffix>` can
- * never be read as a port where a name belongs.
- *
- * `fallbackHex` is 8 hex characters the caller generates; it is used when
- * the claim is missing or reduces to nothing.
+ * be a valid DNS label. `fallbackHex` (8 hex characters) is used when the
+ * claim is missing or reduces to nothing.
  */
 export function deriveWorkspaceLabel(
 	preferredUsername: string | null | undefined,
@@ -219,17 +209,13 @@ export function deriveWorkspaceLabel(
 export const CreateWorkspaceRequest = z.object({}).strict();
 export type CreateWorkspaceRequest = z.infer<typeof CreateWorkspaceRequest>;
 
-/**
- * Response body for `GET /admin/workspaces` (SPEC.md §5.2, §26).
- */
+/** Response body for `GET /admin/workspaces` (SPEC.md §5.2, §26). */
 export const AdminWorkspaceList = z.object({
 	workspaces: z.array(Workspace),
 });
 export type AdminWorkspaceList = z.infer<typeof AdminWorkspaceList>;
 
-/**
- * Error codes returned by the API (SPEC.md §27).
- */
+/** Error codes returned by the API (SPEC.md §27). */
 export const ApiErrorCode = z.enum([
 	"WORKSPACE_NOT_FOUND",
 	"NOT_FOUND",
@@ -330,9 +316,7 @@ export const ApiErrorCode = z.enum([
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCode>;
 
-/**
- * Standard error response body (SPEC.md §27).
- */
+/** Standard error response body (SPEC.md §27). */
 export const ApiError = z.object({
 	code: ApiErrorCode,
 	message: z.string(),

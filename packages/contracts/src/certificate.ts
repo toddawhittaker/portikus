@@ -90,10 +90,10 @@ import { z } from "zod";
  *   into live storage and reloads to the internal issuer and back. It
  *   never deletes the live certificate first.
  * - `rollback` swaps the current and previous generations and reloads;
- *   `check` refreshes status.json only. `reset` is
- * never requested by the API: `portikus reset-certificate` writes it as
- * a job directory of its own (status only, no request file) so the API
- * can audit it.
+ *   `check` refreshes status.json only.
+ * - `reset` is never requested by the API: `portikus reset-certificate`
+ *   writes it as a job directory of its own (status only, no request file)
+ *   so the API can audit it.
  */
 
 /** Longest PEM text the API accepts in one upload field. */
@@ -111,7 +111,7 @@ export type AcmeDirectoryPreset = keyof typeof ACME_DIRECTORY_PRESETS;
  * The nine caddy-dns plugins Caddy is built with, each with
  * the plugin's own Caddyfile field names, split into plain fields (shown on
  * the page) and secret fields (write-only); every field is required.
- * Confirmed against the plugins by testing. One exception:
+ * One exception:
  * Google's `service_account_json` is the JSON text itself; the job writes
  * it to a file and gives the plugin that path as `gcp_application_default`.
  * Hetzner is the v2 plugin (the Hetzner Cloud DNS API).
@@ -166,7 +166,6 @@ const SecretValue = z
 	.max(1024)
 	.regex(/^[^\r\n]+$/, "must be one line");
 
-/** Longest Google service account JSON the API accepts. */
 export const MAX_SERVICE_ACCOUNT_JSON = 16 * 1024;
 
 /** Google's service account key: JSON text holding one object. */
