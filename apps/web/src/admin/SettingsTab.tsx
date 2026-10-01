@@ -87,13 +87,17 @@ function StopSection() {
 			<div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] items-start gap-6">
 				<GraceField />
 				<IdleStopField />
+				<KeepRunningField />
 			</div>
 		</section>
 	);
 }
 
 /** The platform setting behind each guard field. */
-const GUARD_SETTING: Record<Exclude<GuardKey, "idleStopMinutes">, GuardSettingKey> = {
+/** The per-workspace fields that sit in "When workspaces stop", not the guard. */
+type StopKey = "idleStopMinutes" | "keepRunningMaxHours";
+
+const GUARD_SETTING: Record<Exclude<GuardKey, StopKey>, GuardSettingKey> = {
 	cpuThresholdPercent: "cpuGuardThresholdPercent",
 	memoryThresholdPercent: "memoryGuardThresholdPercent",
 	windowMinutes: "guardWindowMinutes",
@@ -125,10 +129,12 @@ interface GuardSettingField {
  * per-workspace override.
  */
 const GUARD_SETTING_FIELDS: GuardSettingField[] = [
-	...GUARD_FIELDS.filter((field) => field.key !== "idleStopMinutes").map((field) => ({
+	...GUARD_FIELDS.filter(
+		(field) => field.key !== "idleStopMinutes" && field.key !== "keepRunningMaxHours",
+	).map((field) => ({
 		...field,
 		name: field.key,
-		key: GUARD_SETTING[field.key as Exclude<GuardKey, "idleStopMinutes">],
+		key: GUARD_SETTING[field.key as Exclude<GuardKey, StopKey>],
 	})),
 	{
 		key: "cpuIdleLiftMinutes",
@@ -245,6 +251,73 @@ function IdleStopField() {
 					variant="primary"
 					type="submit"
 					data-testid="idle-save"
+					loading={update.isPending}
+				>
+					Save
+				</Button>
+			</div>
+		</form>
+	);
+}
+
+/** The cap on a student's "Keep running until" hold (#955). */
+function KeepRunningField() {
+	const settings = usePlatformSettings();
+	const update = useUpdatePlatformSettings();
+	const toast = useToast();
+	const [draft, setDraft] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(null);
+
+	const current = settings.data?.keepRunningMaxHours;
+	const value = draft ?? (current === undefined ? "" : String(current));
+
+	function save(event: FormEvent) {
+		event.preventDefault();
+		const hours = parseGuardValue("keepRunningMaxHours", value);
+		if (hours === null) {
+			setError("Enter 0 to turn it off, or a whole number up to 168.");
+			return;
+		}
+		setError(null);
+		update.mutate(
+			{ keepRunningMaxHours: hours },
+			{
+				onSuccess: () => {
+					setDraft(null);
+					toast.show({ tone: "success", title: "Keep running saved" });
+				},
+				onError: (failure) => setError(errorText(failure)),
+			},
+		);
+	}
+
+	return (
+		<form className="flex flex-col gap-3" onSubmit={save} noValidate>
+			<TextField
+				className="w-56"
+				id="keep-running-max-hours"
+				label="Keep running, longest (hours)"
+				help={
+					<Toggletip label="Keep running">
+						A student can keep their workspace running for up to this many hours, for
+						example while an agent works overnight. Neither the grace period nor idle
+						stop applies until then. Lowering it shortens holds already set.
+					</Toggletip>
+				}
+				inputMode="numeric"
+				data-testid="keep-running-max-input"
+				value={value}
+				hint="0 turns it off."
+				// A read failure is shown once, in the grace field.
+				error={announced(error)}
+				disabled={settings.isLoading}
+				onChange={(event) => setDraft(event.target.value)}
+			/>
+			<div className="pk-actions">
+				<Button
+					variant="primary"
+					type="submit"
+					data-testid="keep-running-max-save"
 					loading={update.isPending}
 				>
 					Save

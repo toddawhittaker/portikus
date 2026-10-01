@@ -602,6 +602,9 @@ describe("database migrations and schema", () => {
 				});
 				// Past 0031 (Epic 26) first.
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+					"0034_keep_running",
+				);
+				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 					"0033_ghcr_default_on",
 				);
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -709,6 +712,7 @@ describe("database migrations and schema", () => {
 					"0031_docker_cache",
 					"0032_docker_pull_days",
 					"0033_ghcr_default_on",
+					"0034_keep_running",
 				]);
 				throw rollback;
 			}),
@@ -731,6 +735,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
@@ -857,6 +864,9 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -941,6 +951,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
@@ -1330,6 +1343,9 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -1427,6 +1443,9 @@ describe("database migrations and schema", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
@@ -1883,6 +1902,9 @@ describe("database migrations and schema", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2042,6 +2064,9 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2089,6 +2114,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
@@ -2269,6 +2297,8 @@ describe("resource guard migration", () => {
 			["idle_stop_minutes", -1],
 			["idle_stop_minutes", 9],
 			["idle_stop_minutes", 1441],
+			["keep_running_max_hours", -1],
+			["keep_running_max_hours", 169],
 		];
 		for (const [column, value] of bad) {
 			await expect(
@@ -2290,6 +2320,8 @@ describe("resource guard migration", () => {
 			["idle_stop_minutes", 0],
 			["idle_stop_minutes", 10],
 			["idle_stop_minutes", 1440],
+			["keep_running_max_hours", 0],
+			["keep_running_max_hours", 168],
 		];
 		for (const [column, value] of good) {
 			await t.db
@@ -2357,6 +2389,9 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2398,10 +2433,12 @@ describe("resource guard migration", () => {
 						"0031_docker_cache",
 						"0032_docker_pull_days",
 						"0033_ghcr_default_on",
+						"0034_keep_running",
 					]);
 					// It takes 0019 when it arrives.
 					expect(await migrateToLatest(trx, migrations)).toEqual(["0019_local_admin"]);
-					// Undo 0019, 0033 down to 0020, and 0018 (applied 0018, 0020 to 0033, 0019).
+					// Undo 0019, 0034 down to 0020, and 0018 (applied 0018, 0020 to 0034, 0019).
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2438,6 +2475,7 @@ describe("resource guard migration", () => {
 						"0031_docker_cache",
 						"0032_docker_pull_days",
 						"0033_ghcr_default_on",
+						"0034_keep_running",
 					]);
 					throw rollback;
 				}),
@@ -2471,6 +2509,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
@@ -2532,6 +2573,9 @@ describe("resource guard migration", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2582,6 +2626,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2619,6 +2666,9 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
@@ -2706,6 +2756,9 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2748,6 +2801,9 @@ describe("resource guard migration", () => {
 						.returning("id")
 						.executeTakeFirstOrThrow();
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -2775,6 +2831,7 @@ describe("resource guard migration", () => {
 						.execute();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
+					expect((await migrator.migrateDown()).error).toBeUndefined();
 					const folded = await sql<{ pulls: number }>`
 						select pulls from docker_image_pulls`.execute(trx);
 					expect(folded.rows).toEqual([{ pulls: 5 }]);
@@ -2795,6 +2852,9 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
@@ -2895,6 +2955,9 @@ describe("backups migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
@@ -2998,6 +3061,9 @@ describe("backups migration", () => {
 					});
 					// Past 0031 (Epic 26) first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
@@ -3074,6 +3140,9 @@ describe("api request samples migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);
@@ -3265,6 +3334,9 @@ describe("throttle hold migration", () => {
 						provider: { getMigrations: async () => migrations },
 					});
 					// Past 0031 (Epic 26) first.
+					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
+						"0034_keep_running",
+					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0033_ghcr_default_on",
 					);

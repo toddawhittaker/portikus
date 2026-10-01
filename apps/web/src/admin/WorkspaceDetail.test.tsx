@@ -167,6 +167,7 @@ const SETTINGS = {
 	cpuIdleLiftPercent: 10,
 	cpuThrottleHoldAfter: 3,
 	cpuThrottleHoldHours: 24,
+	keepRunningMaxHours: 12,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
 	acceptableUseVersion: 1,
@@ -1656,6 +1657,7 @@ test("the overrides dialog refuses a bad value, then sends numbers and nulls", a
 			windowMinutes: null,
 			throttleSharePercent: null,
 			idleStopMinutes: 0,
+			keepRunningMaxHours: null,
 		},
 	});
 	expect(await screen.findByText("Guard settings saved")).toBeDefined();

@@ -101,6 +101,8 @@ const SAMPLE_WORKSPACE = {
 	memoryFlag: null,
 	idleStopAt: null,
 	lastActivityAt: null,
+	keepRunningUntil: null,
+	keepRunningMaxHours: 12,
 	createdAt: "2026-09-21T00:00:00.000Z",
 	updatedAt: "2026-09-21T00:00:00.000Z",
 };

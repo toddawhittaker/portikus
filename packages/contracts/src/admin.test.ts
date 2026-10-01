@@ -41,6 +41,8 @@ const workspace: Workspace = {
 	memoryFlag: null,
 	idleStopAt: null,
 	lastActivityAt: null,
+	keepRunningUntil: null,
+	keepRunningMaxHours: 12,
 	createdAt: now,
 	updatedAt: now,
 };

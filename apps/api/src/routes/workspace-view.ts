@@ -1,5 +1,11 @@
 import type { ApiConfig } from "@portikus/config";
-import { type AuthUser, idleLift, type Workspace } from "@portikus/contracts";
+import {
+	type AuthUser,
+	type GuardConfig,
+	idleLift,
+	keepRunningMaxHours,
+	type Workspace,
+} from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 
@@ -46,8 +52,8 @@ function toMemoryFlag(value: unknown): Workspace["memoryFlag"] {
 }
 
 /**
- * Map a workspaces row to the Workspace contract shape. A throttled row
- * reads the idle-lift settings so the student learns when it lifts.
+ * Map a workspaces row to the Workspace contract shape. It reads the
+ * settings row for when a throttle lifts and the cap on a hold.
  */
 export async function toWorkspace(
 	db: Kysely<Database>,
@@ -55,15 +61,16 @@ export async function toWorkspace(
 	activeConnections: number,
 	config: ApiConfig,
 ): Promise<Workspace> {
-	let lift: { minutes: number; percent: number } | null = null;
-	if (row.cpu_throttle) {
-		const settings = await db
-			.selectFrom("settings")
-			.select(["cpu_idle_lift_minutes", "cpu_idle_lift_percent"])
-			.where("id", "=", 1)
-			.executeTakeFirst();
-		lift = settings ? idleLift(settings) : null;
-	}
+	const settings = await db
+		.selectFrom("settings")
+		.select([
+			"cpu_idle_lift_minutes",
+			"cpu_idle_lift_percent",
+			"keep_running_max_hours",
+		])
+		.where("id", "=", 1)
+		.executeTakeFirst();
+	const lift = row.cpu_throttle && settings ? idleLift(settings) : null;
 	const quota =
 		typeof row.quota_config === "string"
 			? JSON.parse(row.quota_config)
@@ -98,6 +105,14 @@ export async function toWorkspace(
 		lastActivityAt: row.last_activity_at
 			? (row.last_activity_at as Date).toISOString()
 			: null,
+		keepRunningUntil: row.keep_running_until
+			? (row.keep_running_until as Date).toISOString()
+			: null,
+		// No settings row yet means nothing has capped holds; 12 is the column default.
+		keepRunningMaxHours: keepRunningMaxHours(
+			settings?.keep_running_max_hours ?? 12,
+			fromJson<GuardConfig>(row.guard_config),
+		),
 		createdAt: (row.created_at as Date).toISOString(),
 		updatedAt: (row.updated_at as Date).toISOString(),
 	};

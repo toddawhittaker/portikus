@@ -193,6 +193,8 @@ export interface WorkspacesTable {
 	last_activity_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	/** When the idle stop happens unless the student answers. */
 	idle_stop_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	/** The student's hold over grace and idle stop ends then (issue #955). */
+	keep_running_until: ColumnType<Date | null, string | null | undefined, string | null>;
 	/** The UTC day the package survey last read this workspace (ADR 0042). */
 	package_surveyed_on: ColumnType<
 		Date | null,
@@ -263,6 +265,8 @@ export interface SettingsTable {
 	/** Throttles within the hold hours that make one survive a restart; 0 turns it off. */
 	cpu_throttle_hold_after: Generated<number>;
 	cpu_throttle_hold_hours: Generated<number>;
+	/** How far ahead a student may hold a workspace up; 0 turns holds off (#955). */
+	keep_running_max_hours: Generated<number>;
 	/** Null means the built-in default statement. */
 	acceptable_use_text: string | null;
 	acceptable_use_version: Generated<number>;

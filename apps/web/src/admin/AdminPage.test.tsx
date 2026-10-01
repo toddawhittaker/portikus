@@ -29,6 +29,7 @@ const GUARD_SETTINGS = {
 	cpuIdleLiftPercent: 10,
 	cpuThrottleHoldAfter: 3,
 	cpuThrottleHoldHours: 24,
+	keepRunningMaxHours: 12,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
 	acceptableUseVersion: 1,
