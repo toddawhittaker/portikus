@@ -11,6 +11,7 @@ export const ADMIN_TABS = [
 	"network",
 	"backups",
 	"image",
+	"certificate",
 	"docker",
 	"settings",
 ] as const;
