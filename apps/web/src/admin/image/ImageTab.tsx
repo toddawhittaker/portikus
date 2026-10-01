@@ -114,7 +114,7 @@ function ImageSections({ data }: { data: AdminImage }) {
 	const toast = useToast();
 	const ask = useRequestImageJob();
 	const [confirming, setConfirming] = useState<Confirming | null>(null);
-	// Make default and the newer-image notice unmount their own button, so a confirmed one sends focus to the job heading.
+	// Make default, Fetch (the newer-image notice) and Delete unmount their own button, so a confirmed one sends focus to the job heading.
 	const toJob = useRef(false);
 	const [rebuilding, setRebuilding] = useState(false);
 	const [diffOf, setDiffOf] = useState<string | null>(null);
@@ -264,8 +264,8 @@ function ImageSections({ data }: { data: AdminImage }) {
 						}}
 						onConfirm={() =>
 							submit(requestOf(confirming), () => {
-								toJob.current =
-									confirming.kind === "activate" || confirming.kind === "fetch";
+								// A deleted row takes its Delete button with it, so focus goes to the job too.
+								toJob.current = confirming.kind !== "rollback";
 								setConfirming(null);
 							})
 						}
@@ -588,7 +588,7 @@ function DiskSpace({ disk }: { disk: NonNullable<AdminImage["disk"]> }) {
 	const used = Math.max(disk.totalBytes - disk.freeBytes, 0);
 	return (
 		<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
-			<dt className="pk-muted">Main disk</dt>
+			<dt className="pk-muted">Main disk space</dt>
 			<dd className="m-0" data-testid="image-disk-free">
 				<Meter
 					label="Main disk space"

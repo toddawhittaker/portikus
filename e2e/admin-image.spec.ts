@@ -351,9 +351,13 @@ test("shows each image's compressed size and the main disk's free space (issue #
 	const disk = page.getByRole("meter", { name: "Main disk space" });
 	await expect(disk).toHaveAttribute(
 		"aria-valuetext",
-		/^[0-9.]+ [KMGT]?B of [0-9.]+ [KMGT]?B used, [0-9.]+ [KMGT]?B free$/,
+		/^[0-9.]+ [KMGT]?B of [0-9.]+ [KMGT]?B used, [0-9.]+ [KMGT]?B free(, nearly full)?$/,
 	);
 	await expect(page.getByTestId("image-disk-free")).toContainText(" free");
+	// The row label and the meter's name are the same words.
+	await expect(
+		page.getByRole("term").filter({ hasText: /^Main disk space$/ }),
+	).toBeVisible();
 });
 
 test("a second request while one waits is refused", async ({ page }) => {

@@ -349,9 +349,20 @@
 }
 
 .pk-meter-text {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
 	min-width: 0;
 	font-variant-numeric: tabular-nums;
+}
+
+.pk-meter-figure {
+	min-width: 0;
 	overflow-wrap: anywhere;
+}
+
+.pk-meter-alert {
+	color: var(--status-warning);
 }
 
 @media (forced-colors: active) {

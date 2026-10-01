@@ -178,7 +178,10 @@ export function Dialog({
 			>
 				<div className="pk-dialog-head flex items-start gap-3 px-6 pt-6">
 					<div className="min-w-0">
-						<RadixDialog.Title className="m-0 text-xl font-semibold text-ink">
+						<RadixDialog.Title
+							className="m-0 text-xl font-semibold text-ink"
+							tabIndex={-1}
+						>
 							{title}
 						</RadixDialog.Title>
 						{description ? (

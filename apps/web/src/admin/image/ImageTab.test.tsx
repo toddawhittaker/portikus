@@ -253,6 +253,8 @@ test("shows each image's size and the main disk's free space (issue #936)", asyn
 	expect(screen.getByTestId("image-disk-free").textContent).toContain(
 		"15.0 GB of 20.0 GB used, 5.0 GB free",
 	);
+	// The row label and the meter's name are the same words.
+	expect(screen.getByText("Main disk space").tagName).toBe("DT");
 });
 
 test("Delete is off for the default and the previous image, with the reason", async () => {
@@ -272,21 +274,28 @@ test("Delete is off for the default and the previous image, with the reason", as
 });
 
 test("Delete confirms with the workspace count and posts a delete request", async () => {
-	const fetch = stubFetch((url, init) =>
-		init?.method === "POST"
-			? json(202, job({ kind: "delete", state: "queued", request: null }))
-			: url.startsWith("/admin/image/jobs/")
-				? json(200, { job: job({ kind: "delete", version: "2026.09.11" }), log: [] })
-				: json(
-						200,
-						data({
-							images: [
-								...data().images.slice(0, 2),
-								image("2026.09.11", { workspaces: 4 }),
-							],
-						}),
-					),
-	);
+	let posted = false;
+	const deleting = job({ kind: "delete", version: "2026.09.11", request: null });
+	const fetch = stubFetch((url, init) => {
+		if (init?.method === "POST") {
+			posted = true;
+			return json(202, { ...deleting, state: "queued" });
+		}
+		if (url.startsWith("/admin/image/jobs/"))
+			return json(200, { job: deleting, log: [] });
+		// Once the delete is queued, the row is gone and the job shows.
+		return json(
+			200,
+			posted
+				? data({ job: deleting })
+				: data({
+						images: [
+							...data().images.slice(0, 2),
+							image("2026.09.11", { workspaces: 4 }),
+						],
+					}),
+		);
+	});
 	renderWithQuery(<ImageTab />);
 	fireEvent.click(await screen.findByTestId("image-delete-2026.09.11"));
 	const dialog = await screen.findByTestId("image-confirm");
@@ -305,6 +314,9 @@ test("Delete confirms with the workspace count and posts a delete request", asyn
 			version: "2026.09.11",
 		});
 	});
+	// The row and its Delete button go; focus goes to the job, not the page body.
+	await waitFor(() => expect(screen.queryByTestId("image-confirm")).toBeNull());
+	await waitFor(() => expect(document.activeElement?.id).toBe("image-job-title"));
 });
 
 test("Delete of an image no workspace was made from says so, and an unmeasured one frees its space", async () => {
