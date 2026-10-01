@@ -646,6 +646,9 @@ jobs:
       - name: TLS and storage settings guards
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/setup-settings-test.yml
+      - name: Certificate settings setup seeds
+        if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
+        run: ansible-playbook infra/tests/certificate-seed-test.yml
       - name: Apt refresh failure decision
         if: steps.detect.outputs.ansible == 'true' && needs.changes.outputs.infra == 'true'
         run: ansible-playbook infra/tests/apt-failures-test.yml

@@ -4,3 +4,7 @@
 caddy_certificate_dir: /etc/portikus/certificate
 # Caddy's admin interface; the caddy user's home, so it needs no runtime directory.
 caddy_admin_socket: /var/lib/caddy/admin.sock
+# The certificate job's throwaway Caddy answers HTTP-01 here (CHALLENGE_PORT in certificate-job).
+caddy_challenge_port: 8796
+# The root job that owns the certificate state, shipped by the portikus package.
+caddy_certificate_job: /usr/lib/portikus/certificate-job

@@ -72,6 +72,14 @@
       environment: *caddy_go_env
       changed_when: true
 
+    # xcaddy could fall back to another core version; only the pinned one is tested.
+    - name: Check the build is the pinned Caddy version
+      ansible.builtin.command:
+        argv: ["{{ caddy_go_tmp.path }}/caddy-portikus", version]
+      register: caddy_built_version
+      changed_when: false
+      failed_when: not caddy_built_version.stdout.startswith(caddy_version ~ ' ')
+
     - name: Check the build has every plugin
       ansible.builtin.command:
         argv: ["{{ caddy_go_tmp.path }}/caddy-portikus", list-modules, --versions, --skip-standard]

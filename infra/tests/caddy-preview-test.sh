@@ -14,13 +14,13 @@ caddy_bin="${CADDY:-$(command -v caddy || true)}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEMPLATE="${REPO_ROOT}/infra/ansible/roles/caddy/templates/Caddyfile.j2"
-SEED_TEMPLATE="${REPO_ROOT}/infra/ansible/roles/caddy/templates/tls.caddy.j2"
 SITE_YML="${REPO_ROOT}/infra/ansible/site.yml"
 
 PUBLIC_HOST="portikus.192.0.2.10.nip.io"
 PREVIEW_SUFFIX="preview.${PUBLIC_HOST}"
 PUBLIC_PORT=8443
 API_PORT=3000
+CHALLENGE_PORT=8796
 ADMIN_SOCKET=/var/lib/caddy/admin.sock
 
 pass=0
@@ -75,6 +75,7 @@ render() {
     -e "caddy_admin_socket=${ADMIN_SOCKET}" \
     -e "dex_port=5556" \
     -e "caddy_certificate_dir=${work}/certificate" \
+    -e "caddy_challenge_port=${CHALLENGE_PORT}" \
     -e "portikus_mock_idp_port=3002" "${@:3}" >"${work}/render.log" 2>&1 || {
     echo "error: rendering ${TEMPLATE} for ${1} failed" >&2
     cat "${work}/render.log" >&2
@@ -82,22 +83,19 @@ render() {
   }
 }
 
-# render_seed TLS DEST [ARGS...] — the certificate snippet setup seeds on
-# first install for that TLS answer (internal, letsencrypt or files).
-render_seed() {
-  ansible localhost -c local -m ansible.builtin.template \
-    -a "src=${SEED_TEMPLATE} dest=${2} mode=0644" \
-    -e "portikus_tls=${1}" \
-    -e "caddy_certificate_dir=/etc/portikus/certificate" "${@:3}" >"${work}/render.log" 2>&1 || {
-    echo "error: rendering ${SEED_TEMPLATE} for ${1} failed" >&2
-    cat "${work}/render.log" >&2
-    exit 1
-  }
-}
-
-# The Caddyfile imports the seeded snippet, so caddy validate needs one.
+# The Caddyfile imports the snippet the root job writes, so caddy validate
+# needs one: the internal authority's, as packaging/certificate's tests pin it.
 mkdir -p "${work}/certificate"
-render_seed internal "${work}/certificate/tls.caddy"
+cat >"${work}/certificate/tls.caddy" <<'EOF'
+(portikus_tls_global) {
+}
+(portikus_tls_site) {
+	tls internal
+}
+(portikus_tls_preview) {
+	tls internal
+}
+EOF
 
 rendered="${work}/Caddyfile"
 render dex "${rendered}"
@@ -485,6 +483,9 @@ has "the application host takes its certificate from the site snippet" \
   '^[[:space:]]+import portikus_tls_site$' "${app}"
 lacks "Ansible renders no tls directive of its own" '^[[:space:]]+tls [^{]' "${rendered}"
 lacks "no secret reaches Caddy through its environment" '\{env\.' "${rendered}"
+awk '/^\{$/ { on = 1 } on { print } on && /^\}$/ { exit }' "${rendered}" >"${work}/global-block"
+has "the global options keep Caddy's internal authority, so its root exists whatever the source" \
+  '^[[:space:]]+ca local$' "${work}/global-block"
 
 echo ""
 echo "--- Reloads keep WebSockets open (Epic 27 R19) ---"
@@ -507,29 +508,14 @@ has "plain HTTP redirects to the public HTTPS port" \
 count_is "the pre-flight nonce is answered on the site, the preview names and plain HTTP" 3 \
   'handle /\.well-known/portikus-preflight/\* \{' "${rendered}"
 has "the site answers the pre-flight nonce" 'handle /\.well-known/portikus-preflight/\* \{' "${app}"
-
-echo ""
-echo "--- The certificate setup seeds on first install ---"
-
-render_seed letsencrypt "${work}/tls.letsencrypt" \
-  -e portikus_acme_email=ops@example.edu -e portikus_acme_ca=https://acme-v02.api.letsencrypt.org/directory
-render_seed files "${work}/tls.files"
-for snippet in portikus_tls_global portikus_tls_site portikus_tls_preview; do
-  has "internal: the seed defines ${snippet}" "^\(${snippet}\) \{$" "${work}/certificate/tls.caddy"
-done
-count_is "internal: both sites use Caddy's own authority" 2 '^[[:space:]]+tls internal$' "${work}/certificate/tls.caddy"
-count_is "letsencrypt: both sites, the preview wildcard included, use the DNS-01 challenge" 2 \
-  '^[[:space:]]+dns cloudflare \{file\./etc/portikus/certificate/secrets/cloudflare_api_token\}$' "${work}/tls.letsencrypt"
-count_is "letsencrypt: the account email is set for both sites" 2 '^[[:space:]]+tls ops@example\.edu \{$' "${work}/tls.letsencrypt"
-count_is "letsencrypt: the directory is set for both sites" 2 \
-  '^[[:space:]]+ca https://acme-v02\.api\.letsencrypt\.org/directory$' "${work}/tls.letsencrypt"
-lacks "letsencrypt: no site uses the internal authority" 'tls internal' "${work}/tls.letsencrypt"
-lacks "letsencrypt: the token is read from a file, never the environment" '\{env\.' "${work}/tls.letsencrypt"
-count_is "files: both sites use the copied certificate and key" 2 \
-  '^[[:space:]]+tls /etc/portikus/certificate/files/site\.crt /etc/portikus/certificate/files/site\.key$' "${work}/tls.files"
-for seed in "${work}/certificate/tls.caddy" "${work}/tls.letsencrypt" "${work}/tls.files"; do
-  lacks "no seed turns on-demand TLS on ($(basename "${seed}"))" 'on_demand' "${seed}"
-done
+awk '/^http:\/\// { on = 1 } on { print } on && /^\}$/ { exit }' "${rendered}" >"${work}/plain-block"
+count_is "only plain HTTP passes ACME challenges on" 1 'handle /\.well-known/acme-challenge/\* \{' "${rendered}"
+awk '/handle \/\.well-known\/acme-challenge\/\* \{/ { on = 1; next } on && /^\t\}$/ { exit } on { print }' \
+  "${work}/plain-block" >"${work}/challenge-block"
+has "challenges Caddy did not start go to the certificate job's throwaway Caddy" \
+  "^[[:space:]]+reverse_proxy 127\.0\.0\.1:${CHALLENGE_PORT}$" "${work}/challenge-block"
+count_is "the challenge route proxies nowhere else" 1 'reverse_proxy' "${work}/challenge-block"
+lacks "plain HTTP sends nothing to the API's /edge routes" '/edge' "${work}/plain-block"
 
 if [ -z "${caddy_bin}" ]; then
   echo ""
@@ -557,7 +543,7 @@ else
   cat >"${work}/stubs.py" <<'PY'
 import base64, hashlib, http.server, ssl, sys, threading
 
-api_port, plain_port, tls_port, cert, key, seen = sys.argv[1:7]
+api_port, plain_port, tls_port, cert, key, seen, challenge_port = sys.argv[1:8]
 UPSTREAMS = {"tls": (tls_port, "https"), "plain": (plain_port, "http"), "old": (plain_port, None)}
 
 class Api(http.server.BaseHTTPRequestHandler):
@@ -610,7 +596,8 @@ def upstream(name, port):
 
 servers = [http.server.ThreadingHTTPServer(("127.0.0.1", int(api_port)), Api),
            http.server.ThreadingHTTPServer(("127.0.0.1", int(plain_port)), upstream("plain", plain_port)),
-           http.server.ThreadingHTTPServer(("127.0.0.1", int(tls_port)), upstream("tls", tls_port))]
+           http.server.ThreadingHTTPServer(("127.0.0.1", int(tls_port)), upstream("tls", tls_port)),
+           http.server.ThreadingHTTPServer(("127.0.0.1", int(challenge_port)), upstream("challenge", challenge_port))]
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(cert, key)
 servers[2].socket = ctx.wrap_socket(servers[2].socket, server_side=True)
 for s in servers[:-1]:
@@ -644,11 +631,12 @@ PY
   live_api="$(free_port)"
   live_plain="$(free_port)"
   live_tls="$(free_port)"
+  live_challenge="$(free_port)"
 
   openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
     -keyout "${work}/up.key" -out "${work}/up.crt" >/dev/null 2>&1
   python3 "${work}/stubs.py" "${live_api}" "${live_plain}" "${live_tls}" \
-    "${work}/up.crt" "${work}/up.key" "${work}/api-paths" >"${work}/stubs.log" 2>&1 &
+    "${work}/up.crt" "${work}/up.key" "${work}/api-paths" "${live_challenge}" >"${work}/stubs.log" 2>&1 &
   stubs_pid=$!
 
   ansible localhost -c local -m ansible.builtin.template \
@@ -660,6 +648,7 @@ PY
     -e "portikus_idp=mock" \
     -e "caddy_admin_socket=${ADMIN_SOCKET}" \
     -e "caddy_certificate_dir=${work}/certificate" \
+    -e "caddy_challenge_port=${live_challenge}" \
     -e "portikus_mock_idp_port=3002" >"${work}/render.log" 2>&1
   # Keep the test Caddy's admin, certificates and ports out of the host's
   # own, in the template's one global block.
@@ -744,6 +733,28 @@ PY
   fi
   expect "a preview host sends the pre-flight nonce to the API as it is" \
     "/.well-known/portikus-preflight/0123abcd" "$(cat "${work}/api-paths")"
+
+  # plain URL [CURL ARGS...] — a plain HTTP request to the port-80 block.
+  plain() {
+    local url="$1"
+    shift
+    curl -s --max-time 5 --path-as-is "$@" "http://127.0.0.1:${live_http}${url}"
+  }
+  expect "a site challenge Caddy did not start reaches the throwaway Caddy's port" \
+    "upstream=challenge path=/.well-known/acme-challenge/tok-site" \
+    "$(plain /.well-known/acme-challenge/tok-site -H "Host: ${PUBLIC_HOST}")"
+  expect "a preview challenge reaches the throwaway Caddy's port" \
+    "upstream=challenge path=/.well-known/acme-challenge/tok-preview" \
+    "$(plain /.well-known/acme-challenge/tok-preview -H "Host: plain-5173.${PREVIEW_SUFFIX}")"
+  expect "the /edge routes on plain HTTP only redirect" "308" \
+    "$(plain /edge/certificate-ask?domain=evil.example -H "Host: ${PUBLIC_HOST}" -o /dev/null -w '%{http_code}')"
+  expect "a path that climbs out of the challenge prefix only redirects" "308" \
+    "$(plain /.well-known/acme-challenge/../../edge/certificate-ask -H "Host: ${PUBLIC_HOST}" -o /dev/null -w '%{http_code}')"
+  if grep -q '/edge' "${work}/api-paths"; then
+    no "no plain HTTP request reaches the API's /edge routes"
+  else
+    ok "no plain HTTP request reaches the API's /edge routes"
+  fi
 
   if [ "${fail}" -gt 0 ]; then
     echo "--- caddy log ---" >&2

@@ -2,8 +2,8 @@
 # Caddy terminates TLS and proxies to services that listen on loopback only.
 
 # The certificate belongs to the admin page's root job, not to Ansible:
-# setup seeds this file once, on first install (docs/SPEC.md section
-# 21.12).  It defines three snippets: portikus_tls_global for the global
+# setup has the job write this file once, on first install (docs/SPEC.md
+# section 21.12).  It defines three snippets: portikus_tls_global for the global
 # options (on-demand TLS under HTTP-01, given the ask URL as its argument),
 # and portikus_tls_site and portikus_tls_preview for the two site blocks.
 # Secrets in it are {file.<path>} placeholders, so they never reach
@@ -20,6 +20,11 @@ import {{ caddy_certificate_dir }}/tls.caddy
 	# The API allows only the site and its preview names; /edge is never
 	# proxied on the public site.
 	import portikus_tls_global http://127.0.0.1:{{ portikus_api_port }}/edge/certificate-ask
+	# Caddy's internal authority exists whatever the source, so its root is
+	# in the API's trust and offered for download before anyone needs it.
+	pki {
+		ca local
+	}
 }
 
 # ── Preview edge building blocks ─────────────────────────────────────
@@ -422,13 +427,18 @@ https://*.{{ portikus_preview_suffix }}:{{ portikus_public_port }} {
 # Caddy's own redirect to HTTPS, written out because a site block here
 # replaces it, plus the certificate pre-flight's nonce over plain HTTP,
 # which tells whether an HTTP-01 challenge could reach this server.  Caddy
-# answers the ACME challenge itself before these routes.
+# answers its own ACME challenges before these routes; any other token goes
+# to the certificate job's throwaway Caddy, which obtains certificates away
+# from the live site (packaging/certificate/certificate-job, CHALLENGE_PORT).
 http://{{ portikus_public_host }}, http://*.{{ portikus_preview_suffix }} {
 	handle /.well-known/portikus-preflight/* {
 		route {
 			import portikus_forget_forwarded
 			reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 		}
+	}
+	handle /.well-known/acme-challenge/* {
+		reverse_proxy 127.0.0.1:{{ caddy_challenge_port }}
 	}
 	handle {
 		redir https://{host}{{ '' if portikus_public_port | int == 443 else ':' ~ portikus_public_port }}{uri} 308

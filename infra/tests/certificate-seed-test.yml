@@ -1,0 +1,145 @@
+---
+# What setup hands the root certificate job on first install
+# (docs/SPEC.md sections 21.12 and 24.8), tried with no VM: each install
+# answer becomes settings the real job's validation accepts, an old
+# letsencrypt answer becomes ACME DNS-01 through Cloudflare, and every task
+# that holds a secret is kept out of the log and off the command line.
+# `make infra-check` runs it.
+- name: Check the certificate settings setup seeds
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    seed_test_job: "{{ playbook_dir }}/../../packaging/certificate/certificate-job"
+    seed_test_tasks: "{{ playbook_dir }}/../ansible/roles/caddy/tasks"
+    # Made-up values; the test only follows them through.
+    seed_test_token: not-a-real-cloudflare-token
+    portikus_acme_email: ops@example.edu
+    portikus_acme_ca: https://acme-v02.api.letsencrypt.org/directory
+    portikus_cloudflare_api_token: "{{ seed_test_token }}"
+
+  tasks:
+    - name: Make a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: certificate-seed-test-
+      register: seed_test_dir
+
+    - name: Make a self-signed certificate and key
+      ansible.builtin.command:
+        argv: [openssl, req, -x509, -newkey, "ec", -pkeyopt, "ec_paramgen_curve:P-256", -nodes, -days, "30",
+               -subj, /CN=portikus.example.edu, -addext, "subjectAltName=DNS:portikus.example.edu",
+               -keyout, "{{ seed_test_dir.path }}/site.key", -out, "{{ seed_test_dir.path }}/site.crt"]
+      changed_when: true
+
+    - name: Seed internal
+      ansible.builtin.include_tasks: "{{ seed_test_tasks }}/first_install_settings.yml"
+      vars:
+        portikus_tls: internal
+
+    - name: Require Caddy's own authority
+      ansible.builtin.assert:
+        that:
+          - "caddy_first_install_settings == {'source': 'internal'}"
+
+    - name: Keep the internal settings
+      ansible.builtin.set_fact:
+        seed_test_internal: "{{ caddy_first_install_settings }}"
+
+    - name: Seed an old letsencrypt answer
+      ansible.builtin.include_tasks: "{{ seed_test_tasks }}/first_install_settings.yml"
+      vars:
+        portikus_tls: letsencrypt
+
+    - name: Require ACME by DNS-01 through Cloudflare
+      ansible.builtin.assert:
+        that:
+          - caddy_first_install_settings.source == 'acme'
+          - caddy_first_install_settings.directory == portikus_acme_ca
+          - caddy_first_install_settings.email == portikus_acme_email
+          - caddy_first_install_settings.challenge.mode == 'dns01'
+          - caddy_first_install_settings.challenge.dns.provider == 'cloudflare'
+          - "caddy_first_install_settings.challenge.dns.fields == {'api_token': seed_test_token}"
+          - "'eab' not in caddy_first_install_settings"
+
+    - name: Keep the letsencrypt settings
+      ansible.builtin.set_fact:
+        seed_test_letsencrypt: "{{ caddy_first_install_settings }}"
+
+    - name: Seed uploaded files
+      ansible.builtin.include_tasks: "{{ seed_test_tasks }}/first_install_settings.yml"
+      vars:
+        portikus_tls: files
+        portikus_tls_cert: "{{ seed_test_dir.path }}/site.crt"
+        portikus_tls_key: "{{ seed_test_dir.path }}/site.key"
+
+    - name: Require the certificate and key as uploaded text
+      ansible.builtin.assert:
+        that:
+          - caddy_first_install_settings.source == 'files'
+          - caddy_first_install_settings.site.certificate == lookup('file', seed_test_dir.path ~ '/site.crt') ~ '\n'
+          - caddy_first_install_settings.site.privateKey == lookup('file', seed_test_dir.path ~ '/site.key') ~ '\n'
+          - "'preview' not in caddy_first_install_settings"
+
+    # The job re-validates everything it is given, so each seed must pass
+    # the same checks the admin page's requests do.
+    - name: Run each seed through the job's own validation
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -B
+          - -c
+          - |
+            import importlib.machinery, importlib.util, json, sys
+            loader = importlib.machinery.SourceFileLoader("certificate_job", sys.argv[1])
+            spec = importlib.util.spec_from_loader("certificate_job", loader)
+            job = importlib.util.module_from_spec(spec)
+            loader.exec_module(job)
+            job.validate_settings(json.loads(sys.stdin.read(), object_pairs_hook=job._no_duplicates))
+          - "{{ seed_test_job }}"
+        stdin: "{{ item | to_json }}"
+      loop:
+        - "{{ seed_test_internal }}"
+        - "{{ seed_test_letsencrypt }}"
+        - "{{ caddy_first_install_settings }}"
+      loop_control:
+        label: "{{ item.source }}"
+      changed_when: false
+
+    # ── The tasks that hold a secret ───────────────────────────────
+    - name: Read the certificate tasks
+      ansible.builtin.set_fact:
+        seed_test_certificate_tasks: "{{ lookup('file', seed_test_tasks ~ '/certificate.yml') | from_yaml }}"
+        seed_test_settings_tasks: "{{ lookup('file', seed_test_tasks ~ '/first_install_settings.yml') | from_yaml }}"
+
+    - name: Find the seeding and clean-up tasks
+      ansible.builtin.set_fact:
+        seed_test_seed_block: "{{ seed_test_certificate_tasks | selectattr('name', 'equalto', 'Seed the certificate state on first install') | first }}"
+        seed_test_token_cleanup: "{{ seed_test_certificate_tasks | selectattr('name', 'equalto', 'Remove the Cloudflare token from the install answers') | first }}"
+
+    - name: Find the job call
+      ansible.builtin.set_fact:
+        seed_test_job_call: "{{ seed_test_seed_block.block | selectattr('name', 'equalto', 'Have the root job write the certificate state') | first }}"
+
+    - name: Require secrets on standard input only and nothing logged
+      ansible.builtin.assert:
+        that:
+          - seed_test_job_call['ansible.builtin.command'].argv[1:] == ['first-install']
+          - "'caddy_first_install_settings' in seed_test_job_call['ansible.builtin.command'].stdin"
+          - seed_test_job_call.no_log
+          - seed_test_token_cleanup.no_log
+          - seed_test_settings_tasks | rejectattr('no_log', 'defined') | list | length == 0
+          - seed_test_settings_tasks | selectattr('no_log', 'defined') | rejectattr('no_log') | list | length == 0
+
+    # Seeding is keyed on any state the job writes, not settings.json alone.
+    - name: Require the state check to look at every file the job writes
+      ansible.builtin.assert:
+        that:
+          - (lookup('file', seed_test_tasks ~ '/state.yml') | from_yaml | first).loop == ['settings.json', 'tls.caddy', 'secrets']
+
+    - name: Remove the scratch directory
+      ansible.builtin.file:
+        path: "{{ seed_test_dir.path }}"
+        state: absent

@@ -512,7 +512,8 @@ EOF
 		fail "the summary does not say the admin page owns the certificate"
 	keys Enter
 	ui_done
-	expect "$SECRETS" portikus_cloudflare_api_token '"CF-TOKEN-seeded-0123456789abcdef"'
+	# The root job holds the token now, so the answers keep no copy.
+	expect "$SECRETS" portikus_cloudflare_api_token null
 	check_no_leak CF-TOKEN-seeded-0123456789abcdef
 	;;
 ui-storage-default)
