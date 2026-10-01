@@ -345,12 +345,6 @@
   # nothing on the VM.  The guards are tagged always, so a run limited with
   # --tags is checked the same way.
   pre_tasks:
-    - name: Refuse the old mock sign-in switch
-      ansible.builtin.fail:
-        msg: "PORTIKUS_MOCK_IDP was renamed: use PORTIKUS_IDP=mock."
-      when: lookup('env', 'PORTIKUS_MOCK_IDP') | length > 0
-      tags: always
-
     - name: Refuse the removed API address allow list
       ansible.builtin.fail:
         msg: >-

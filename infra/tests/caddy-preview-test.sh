@@ -325,8 +325,8 @@ if [ "$(grep -vE '^[[:space:]]*#' "${app}" | grep -c 'frame-ancestors')" = "$(gr
 else
   bad "no frame policy is set without the /lti/* exception"
 fi
-has "/lti/* reaches the API" '^[[:space:]]+handle /lti/\* \{$' "${app}"
-has "the course list and members reach the API" '^[[:space:]]+handle /courses\* \{$' "${app}"
+has "/lti/* reaches the API" '^[[:space:]]+@api path .* /lti/\* ' "${app}"
+has "the course list and members reach the API" '^[[:space:]]+@api path .* /courses\* ' "${app}"
 # The setup code is gone (ADR 0031); /setup is only a page.
 lacks "no /setup route reaches the API" 'handle /setup' "${app}"
 lacks "the /course pages are not sent to the API" 'handle /course[^s]' "${app}"
@@ -413,8 +413,9 @@ lacks "the /edge routes are never proxied on the public site" 'handle /edge' "${
 # the known routes.  A bare `handle {` or a broader prefix fails here.
 api_routes() {
   awk -v api="reverse_proxy 127.0.0.1:${API_PORT}" '
-    /^\thandle / { m = $0; sub(/^\thandle /, "", m); sub(/ \{$/, "", m) }
-    index($0, api) { print m }
+    /^\t@[a-z_]+ path / { paths[$1] = $0; sub(/^\t@[a-z_]+ path /, "", paths[$1]) }
+    /^\thandle / { m = $0; sub(/^\thandle /, "", m); sub(/ \{$/, "", m); if (m in paths) m = paths[m] }
+    index($0, api) { n = split(m, p, " "); for (i = 1; i <= n; i++) print p[i] }
   ' "$1" | sort -u
 }
 edge_open=0
@@ -496,9 +497,9 @@ has "the site and the preview names have a plain HTTP block" \
   "^http://${PUBLIC_HOST}, http://\*\.${PREVIEW_SUFFIX} \{$" "${rendered}"
 has "plain HTTP redirects to the public HTTPS port" \
   "^[[:space:]]+redir https://\{host\}:${PUBLIC_PORT}\{uri\} 308$" "${rendered}"
-count_is "the pre-flight nonce is answered on the site, the preview names and plain HTTP" 3 \
+count_is "the pre-flight nonce is answered on the preview names and plain HTTP" 2 \
   'handle /\.well-known/portikus-preflight/\* \{' "${rendered}"
-has "the site answers the pre-flight nonce" 'handle /\.well-known/portikus-preflight/\* \{' "${app}"
+has "the site answers the pre-flight nonce" '^[[:space:]]+@api path .* /\.well-known/portikus-preflight/\*$' "${app}"
 awk '/^http:\/\// { on = 1 } on { print } on && /^\}$/ { exit }' "${rendered}" >"${work}/plain-block"
 count_is "only plain HTTP passes ACME challenges on" 1 'handle /\.well-known/acme-challenge/\* \{' "${rendered}"
 awk '/handle \/\.well-known\/acme-challenge\/\* \{/ { on = 1; next } on && /^\t\}$/ { exit } on { print }' \

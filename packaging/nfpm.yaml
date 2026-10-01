@@ -213,6 +213,12 @@ contents:
   - src: ./infra/host/portikus-backup-mac
     dst: /usr/lib/portikus/backup/portikus-backup-mac
     file_info: *backup_script
+  - src: ./infra/host/portikus-backup-lib.sh
+    dst: /usr/lib/portikus/backup/portikus-backup-lib.sh
+    file_info:
+      owner: root
+      group: root
+      mode: 0644
   - src: ./infra/host/backup-channel.sh
     dst: /usr/lib/portikus/backup/portikus-backup-channel
     file_info: *backup_script

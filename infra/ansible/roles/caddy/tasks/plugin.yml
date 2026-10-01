@@ -25,64 +25,30 @@
     not caddy_modules.stdout.startswith(caddy_version ~ ' ')
     or caddy_wanted_modules | reject('in', caddy_modules.stdout_lines) | list | length > 0
   block:
-    # Trixie's Go is only the bootstrap: GOTOOLCHAIN=auto fetches the
-    # version Caddy's go.mod names, as for distrobuilder (docs/adr/0004).
-    - name: Install Go
-      ansible.builtin.apt:
-        name: golang-go
-        state: present
-
-    - name: Create the Go build directory
-      ansible.builtin.file:
-        path: /root/go
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
-    # Several GiB of module and build cache, removed after the build.
-    - name: Make a scratch directory for the Go caches
-      ansible.builtin.tempfile:
-        state: directory
-        path: /root/go
-        prefix: caddy-build-
-      register: caddy_go_tmp
-
-    - name: Build xcaddy
-      ansible.builtin.command:
-        argv: [go, install, "github.com/caddyserver/xcaddy/cmd/xcaddy@{{ caddy_xcaddy_version }}"]
-        chdir: "{{ caddy_go_tmp.path }}"
-      environment: &caddy_go_env
-        GOBIN: "{{ caddy_go_tmp.path }}/bin"
-        GOPATH: "{{ caddy_go_tmp.path }}"
-        GOCACHE: "{{ caddy_go_tmp.path }}/cache"
-        GOMODCACHE: "{{ caddy_go_tmp.path }}/pkg/mod"
-        GOFLAGS: -buildvcs=false
-        GOTOOLCHAIN: auto
-      changed_when: true
-
-    - name: Build Caddy
-      ansible.builtin.command:
-        argv: >-
-          {{ [caddy_go_tmp.path ~ '/bin/xcaddy', 'build', caddy_version]
-             + (['--with'] | product(caddy_dns_plugins | map(attribute='module')
-                | zip(caddy_dns_plugins | map(attribute='version')) | map('join', '@')) | flatten)
-             + ['--output', caddy_go_tmp.path ~ '/caddy-portikus'] }}
-        chdir: "{{ caddy_go_tmp.path }}"
-      environment: *caddy_go_env
-      changed_when: true
+    # Built outside the scratch directory, which go_build removes.
+    - name: Build Caddy with xcaddy
+      ansible.builtin.import_tasks: ../../go_build/tasks/main.yml
+      vars:
+        go_build_name: caddy
+        go_build_commands:
+          - [go, install, "github.com/caddyserver/xcaddy/cmd/xcaddy@{{ caddy_xcaddy_version }}"]
+          - >-
+            {{ [go_build_dir ~ '/bin/xcaddy', 'build', caddy_version]
+               + (['--with'] | product(caddy_dns_plugins | map(attribute='module')
+                  | zip(caddy_dns_plugins | map(attribute='version')) | map('join', '@')) | flatten)
+               + ['--output', caddy_build_output] }}
 
     # xcaddy could fall back to another core version; only the pinned one is tested.
     - name: Check the build is the pinned Caddy version
       ansible.builtin.command:
-        argv: ["{{ caddy_go_tmp.path }}/caddy-portikus", version]
+        argv: ["{{ caddy_build_output }}", version]
       register: caddy_built_version
       changed_when: false
       failed_when: not caddy_built_version.stdout.startswith(caddy_version ~ ' ')
 
     - name: Check the build has every plugin
       ansible.builtin.command:
-        argv: ["{{ caddy_go_tmp.path }}/caddy-portikus", list-modules, --versions, --skip-standard]
+        argv: ["{{ caddy_build_output }}", list-modules, --versions, --skip-standard]
       register: caddy_built_modules
       changed_when: false
       failed_when: caddy_wanted_modules | reject('in', caddy_built_modules.stdout_lines) | list | length > 0
@@ -94,7 +60,7 @@
 
     - name: Install the Caddy build
       ansible.builtin.copy:
-        src: "{{ caddy_go_tmp.path }}/caddy-portikus"
+        src: "{{ caddy_build_output }}"
         dest: /usr/bin/caddy
         remote_src: true
         owner: root
@@ -102,9 +68,7 @@
         mode: "0755"
       notify: Restart caddy
 
-  always:
-    - name: Remove the Go caches of the Caddy build
+    - name: Remove the staging binary
       ansible.builtin.file:
-        path: "{{ caddy_go_tmp.path }}"
+        path: "{{ caddy_build_output }}"
         state: absent
-      when: caddy_go_tmp.path is defined

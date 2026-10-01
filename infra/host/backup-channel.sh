@@ -36,6 +36,8 @@ set -euo pipefail
 umask 077
 
 here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+# shellcheck source=/dev/null
+. "${here}/portikus-backup-lib.sh"
 BACKUP_DIR="${PORTIKUS_BACKUP_DIR:-/var/backups/portikus}"
 RECIPIENTS="${PORTIKUS_BACKUP_RECIPIENTS:-}"
 KEY="${PORTIKUS_BACKUP_KEY:-/etc/portikus-backup/age-key.txt}"
@@ -304,17 +306,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-vm() { runuser -u "$OPERATOR" -- ssh -n "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
-vm_in() { runuser -u "$OPERATOR" -- ssh "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
 # as_operator CMD... -- CMD as the account that owns the sets: root on a local server.
 as_operator() { runuser -u "$OPERATOR" -- "$@"; }
 if [ "$LOCAL" = yes ]; then
-  # The same commands as over SSH, run here; this is already root, so sudo is a no-op.
-  sudo() { "$@"; }
-  export -f sudo
-  vm() { bash -c "$*" </dev/null; }
-  vm_in() { bash -c "$*"; }
+  use_local_vm
   as_operator() { "$@"; }
 fi
 

@@ -188,24 +188,21 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	@not_lti not path /lti/*
 	header @not_lti Content-Security-Policy "frame-ancestors 'none'"
 
-	# The control-plane API. The workspace WebSocket lives at
-	# /workspaces/<id>/ws, so the /workspaces* block carries it too.
-	handle /auth/* {
-		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
-	}
 	# A browser navigating to a workspace page wants the single-page
 	# application, not the API's JSON.  Only document requests are sent to
 	# the bundle; fetch, XHR, and WebSocket traffic keeps going to the API.
 	# A project download is the exception: the browser navigates to it as a
 	# document but the zip comes from the API.
 	# The administration screen lives at /admin and its data at /admin/*,
-	# so it needs the same split.
+	# so it needs the same split.  Caddy keeps handles with named matchers in
+	# the order written, so this one stays ahead of /workspaces* and @api.
 	@app_page expression `(path('/workspaces/*') || path('/admin') || path('/admin/')) && !path('*/download') && (header({'Sec-Fetch-Dest': 'document'}) || header({'Accept': 'text/html*'}))`
 	handle @app_page {
 		root * /usr/lib/portikus/web
 		rewrite * /index.html
 		file_server
 	}
+	# The workspace WebSocket lives at /workspaces/<id>/ws.
 	handle /workspaces* {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }} {
 			# Every WebSocket the API serves lives here.  A reload (a
@@ -217,29 +214,14 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 			stream_close_delay 1h
 		}
 	}
-	handle /admin* {
-		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
-	}
-	# LTI launch from an LMS (docs/archive/epics/EPIC-13.md). The API answers 404 here
-	# when no platform is registered.
-	handle /lti/* {
-		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
-	}
-	# An instructor's course list and members (docs/archive/epics/EPIC-13.md, ruling 23).
-	# The pages themselves live at /course, served by the bundle below.
-	handle /courses* {
-		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
-	}
-	# The signed-in user's own editor settings (issue #159).
-	handle /me/* {
-		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
-	}
-	handle /health {
-		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
-	}
-	# The certificate pre-flight's nonce, which proves the name reaches this
-	# server (docs/SPEC.md section 21.12).
-	handle /.well-known/portikus-preflight/* {
+	# The rest of the control-plane API.  /lti/* is the LTI launch from an
+	# LMS, answered 404 when no platform is registered.  /courses* is an
+	# instructor's course data; the pages live at /course, served by the
+	# bundle below.  /me/* is the signed-in user's own settings.  The
+	# pre-flight path carries the certificate check's nonce, which proves
+	# the name reaches this server (docs/SPEC.md section 21.12).
+	@api path /auth/* /admin* /lti/* /courses* /me/* /health /.well-known/portikus-preflight/*
+	handle @api {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
 {% if portikus_idp == 'dex' %}
