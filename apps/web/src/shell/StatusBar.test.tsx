@@ -276,7 +276,7 @@ test("the dialog's sections each have a heading, and the details use the system 
 	const headings = dialog
 		.getAllByRole("heading", { level: 3 })
 		.map((h) => h.textContent);
-	expect(headings).toEqual(["Storage", "Docker", "Rebuilds"]);
+	expect(headings).toEqual(["Keep running", "Storage", "Docker", "Rebuilds"]);
 	const rebuilds = dialog.getByRole("region", { name: "Rebuilds" });
 	expect(within(rebuilds).getByTestId("rebuild-note")).toBeDefined();
 	const summary = screen

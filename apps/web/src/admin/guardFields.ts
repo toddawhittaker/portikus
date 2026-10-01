@@ -3,17 +3,18 @@
  * (SPEC.md §19.4). Its own module, so neither imports the other for them.
  */
 import {
-	type EffectiveGuard,
+	type GuardConfig,
 	GuardThresholdPercent,
 	GuardWindowMinutes,
 	IdleStopMinutes,
+	KeepRunningMaxHours,
 	ThrottleSharePercent,
 } from "@portikus/contracts";
 import type { z } from "zod";
 
-export type GuardKey = keyof EffectiveGuard;
+export type GuardKey = keyof GuardConfig;
 
-/** The five guard values, their labels, ranges and what a bad entry is told. */
+/** The per-workspace guard values, their labels, ranges and what a bad entry is told. */
 export const GUARD_FIELDS: {
 	key: GuardKey;
 	label: string;
@@ -49,6 +50,12 @@ export const GUARD_FIELDS: {
 		label: "Idle stop (minutes)",
 		schema: IdleStopMinutes,
 		rangeText: "Enter 0 for never, or a whole number from 10 to 1440.",
+	},
+	{
+		key: "keepRunningMaxHours",
+		label: "Keep running, longest (hours)",
+		schema: KeepRunningMaxHours,
+		rangeText: "Enter 0 to turn it off, or a whole number up to 168.",
 	},
 ];
 

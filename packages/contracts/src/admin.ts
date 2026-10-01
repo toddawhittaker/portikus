@@ -5,6 +5,7 @@ import {
 	GuardThresholdPercent,
 	GuardWindowMinutes,
 	IdleStopMinutes,
+	KeepRunningMaxHours,
 	MemoryFlag,
 	PendingOperation,
 	ThrottleSharePercent,
@@ -54,7 +55,12 @@ export const EffectiveGuard = z.object({
 export type EffectiveGuard = z.infer<typeof EffectiveGuard>;
 
 /** `workspaces.guard_config`: any key present overrides the platform value. */
-export const GuardConfig = EffectiveGuard.partial().strict();
+export const GuardConfig = EffectiveGuard.extend({
+	/** The cap on a student's "keep running until" hold, in hours (#955). */
+	keepRunningMaxHours: KeepRunningMaxHours,
+})
+	.partial()
+	.strict();
 export type GuardConfig = z.infer<typeof GuardConfig>;
 
 /** Body of `PUT /admin/workspaces/:id/guard`: null removes that override. */
@@ -65,6 +71,7 @@ export const UpdateGuardRequest = z
 		windowMinutes: GuardWindowMinutes.nullable().optional(),
 		throttleSharePercent: ThrottleSharePercent.nullable().optional(),
 		idleStopMinutes: IdleStopMinutes.nullable().optional(),
+		keepRunningMaxHours: KeepRunningMaxHours.nullable().optional(),
 	})
 	.strict()
 	.refine((body) => Object.values(body).some((value) => value !== undefined), {

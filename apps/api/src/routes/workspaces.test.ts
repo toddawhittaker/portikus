@@ -304,3 +304,136 @@ test.skipIf(skip)(
 		expect((await post(`/workspaces/${bobs}/start`, bob)).statusCode).not.toBe(429);
 	},
 );
+
+// --- Keep running until (#955) ---
+
+function keepRunning(
+	id: string,
+	jar: CookieJar,
+	method: "PUT" | "DELETE",
+	payload?: Record<string, unknown>,
+): Promise<LightMyRequestResponse> {
+	return app.inject({
+		method,
+		url: `/workspaces/${id}/keep-running`,
+		headers: csrfHeaders(jar, PUBLIC_URL),
+		...(payload ? { payload } : {}),
+	});
+}
+
+const inHours = (hours: number) =>
+	new Date(Date.now() + hours * 3_600_000).toISOString();
+
+async function keepRunningAudits(id: string) {
+	const rows = await testDb.db
+		.selectFrom("audit_events")
+		.select(["action", "metadata"])
+		.where("target", "=", id)
+		.where("action", "like", "workspace.keep_running%")
+		.orderBy("id")
+		.execute();
+	return rows.map((row) => [row.action, row.metadata]);
+}
+
+test.skipIf(skip)(
+	"the owner sets a hold, which answers Still working? and is audited",
+	async () => {
+		const id = (await post("/workspaces", alice)).json().id;
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ idle_stop_at: inHours(0.05) })
+			.where("id", "=", id)
+			.execute();
+		const until = inHours(8);
+
+		const res = await keepRunning(id, alice, "PUT", { until });
+
+		expect(res.statusCode).toBe(200);
+		expect(res.json()).toMatchObject({
+			keepRunningUntil: until,
+			keepRunningMaxHours: 12,
+			idleStopAt: null,
+		});
+		expect(await keepRunningAudits(id)).toEqual([
+			["workspace.keep_running_set", { until, previousUntil: null }],
+		]);
+	},
+);
+
+test.skipIf(skip)("a hold must be ahead of now and within the cap", async () => {
+	const id = (await post("/workspaces", alice)).json().id;
+	for (const until of [inHours(-1), inHours(12.1)]) {
+		const res = await keepRunning(id, alice, "PUT", { until });
+		expect(res.statusCode).toBe(400);
+		expect(res.json().code).toBe("VALIDATION_FAILED");
+	}
+	expect((await keepRunning(id, alice, "PUT", {})).statusCode).toBe(400);
+	expect(await keepRunningAudits(id)).toEqual([]);
+});
+
+test.skipIf(skip)(
+	"a site cap of 0 refuses a hold, and a workspace override wins",
+	async () => {
+		const id = (await post("/workspaces", alice)).json().id;
+		await testDb.db
+			.insertInto("settings")
+			.values({ id: 1, shutdown_grace_seconds: 600, keep_running_max_hours: 0 })
+			.execute();
+
+		const off = await keepRunning(id, alice, "PUT", { until: inHours(1) });
+		expect(off.statusCode).toBe(409);
+		expect(off.json().code).toBe("KEEP_RUNNING_OFF");
+
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ guard_config: JSON.stringify({ keepRunningMaxHours: 2 }) })
+			.where("id", "=", id)
+			.execute();
+		expect(
+			(await keepRunning(id, alice, "PUT", { until: inHours(3) })).statusCode,
+		).toBe(400);
+		const ok = await keepRunning(id, alice, "PUT", { until: inHours(2) });
+		expect(ok.statusCode).toBe(200);
+		expect(ok.json().keepRunningMaxHours).toBe(2);
+	},
+);
+
+test.skipIf(skip)(
+	"the owner ends a hold early; a second end changes nothing",
+	async () => {
+		const id = (await post("/workspaces", alice)).json().id;
+		await keepRunning(id, alice, "PUT", { until: inHours(4) });
+
+		const ended = await keepRunning(id, alice, "DELETE");
+		expect(ended.statusCode).toBe(200);
+		expect(ended.json().keepRunningUntil).toBeNull();
+		const again = await keepRunning(id, alice, "DELETE");
+		expect(again.statusCode).toBe(200);
+
+		const audits = await keepRunningAudits(id);
+		expect(audits.map(([action]) => action)).toEqual([
+			"workspace.keep_running_set",
+			"workspace.keep_running_ended",
+		]);
+		expect(audits[1]?.[1]).toEqual({ reason: "ended_early" });
+		const row = await testDb.db
+			.selectFrom("workspaces")
+			.select(["keep_running_until", "last_activity_at"])
+			.where("id", "=", id)
+			.executeTakeFirstOrThrow();
+		expect(row.keep_running_until).toBeNull();
+		expect(row.last_activity_at).not.toBeNull();
+	},
+);
+
+test.skipIf(skip)("only the owner may set or end a hold", async () => {
+	const id = (await post("/workspaces", alice)).json().id;
+	const bob = new CookieJar();
+	await loginAs(app, "bob", bob);
+
+	const set = await keepRunning(id, bob, "PUT", { until: inHours(1) });
+	expect(set.statusCode).toBe(404);
+	expect(set.json().code).toBe("WORKSPACE_NOT_FOUND");
+	expect((await keepRunning(id, bob, "DELETE")).statusCode).toBe(404);
+	expect(await keepRunningAudits(id)).toEqual([]);
+});

@@ -54,6 +54,7 @@ const SETTINGS_COLUMNS = [
 	"cpu_throttle_hold_after",
 	"cpu_throttle_hold_hours",
 	"idle_stop_minutes",
+	"keep_running_max_hours",
 	"acceptable_use_text",
 	"acceptable_use_version",
 	"updated_at",
@@ -71,6 +72,7 @@ function toPlatformSettings(row: {
 	cpu_throttle_hold_after: number;
 	cpu_throttle_hold_hours: number;
 	idle_stop_minutes: number;
+	keep_running_max_hours: number;
 	acceptable_use_text: string | null;
 	acceptable_use_version: number;
 	updated_at: Date | null;
@@ -87,6 +89,7 @@ function toPlatformSettings(row: {
 		cpuThrottleHoldAfter: row.cpu_throttle_hold_after,
 		cpuThrottleHoldHours: row.cpu_throttle_hold_hours,
 		idleStopMinutes: row.idle_stop_minutes,
+		keepRunningMaxHours: row.keep_running_max_hours,
 		acceptableUseText: row.acceptable_use_text,
 		acceptableUseVersion: row.acceptable_use_version,
 		updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
@@ -494,6 +497,19 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 				details: {
 					from: before.idle_stop_minutes,
 					to: body.data.idleStopMinutes,
+				},
+			});
+		}
+		if (
+			body.data.keepRunningMaxHours !== undefined &&
+			body.data.keepRunningMaxHours !== before.keep_running_max_hours
+		) {
+			changes.keep_running_max_hours = body.data.keepRunningMaxHours;
+			audits.push({
+				action: "settings.keep_running_updated",
+				details: {
+					from: before.keep_running_max_hours,
+					to: body.data.keepRunningMaxHours,
 				},
 			});
 		}
