@@ -12,27 +12,23 @@ import { DEFAULT_ZOOM } from "../editor/zoom.js";
 import type { LocalLayout } from "./local.js";
 import * as tree from "./tree.js";
 
+/** One request for a file tab: show the diff or the editor, maybe at a line. */
+export interface PendingView {
+	mode: "diff" | "edit";
+	line?: number;
+	seq: number;
+}
+
 export interface LayoutState {
 	layout: ProjectLayout;
 	activeTabId: string | null;
 	focusedTerminalId: string | null;
 	/**
-	 * Where a file tab should jump to when its editor opens, by tab id. It is
-	 * a one-off request from this browser, so it is never saved.
+	 * What each file tab was last asked to show, by tab id: its diff or its
+	 * editor, and optionally a line to jump to. `seq` makes a repeat of the
+	 * same request a new one. A one-off request from this browser, never saved.
 	 */
-	pendingLine: Record<string, number>;
-	/**
-	 * Which file tabs have been asked to show their diff, by tab id, counted
-	 * so that asking twice is two requests. Local to this browser, like the
-	 * pending line, and never saved.
-	 */
-	pendingDiff: Record<string, number>;
-	/**
-	 * Which file tabs have been asked to show the editor again, counted the
-	 * same way. Reopening a file from the tree or a terminal link must take a
-	 * tab that is showing its diff back to the editor.
-	 */
-	pendingEdit: Record<string, number>;
+	pendingView: Record<string, PendingView>;
 	/**
 	 * Monaco's view state (cursor, selections, scroll) for each open file, by
 	 * project-relative path. It belongs to this browser, so it is kept beside
@@ -86,12 +82,8 @@ export interface LayoutState {
 	closeTab: (tabId: string) => void;
 	/** Record whether one file tab has unsaved edits (issue #240). */
 	setTabUnsaved: (tabId: string, unsaved: boolean) => void;
-	/** Read and forget the line a file tab was asked to jump to. */
-	consumePendingLine: (tabId: string) => number | undefined;
-	/** Read and forget whether a file tab was asked to show its diff. */
-	consumePendingDiff: (tabId: string) => boolean;
-	/** Read and forget whether a file tab was asked to show the editor. */
-	consumePendingEdit: (tabId: string) => boolean;
+	/** Read and forget what a file tab was asked to show. */
+	consumePendingView: (tabId: string) => PendingView | undefined;
 	splitLeaf: (
 		terminalId: string,
 		direction: tree.SplitDirection,
@@ -163,6 +155,9 @@ function pickActive(
 
 export function createLayoutStore() {
 	return createStore<LayoutState>()((set, get) => {
+		let seq = 0;
+		const nextSeq = () => ++seq;
+
 		/** Apply a structural change: new layout, still-valid active tab, dirty. */
 		function change(next: (layout: ProjectLayout) => ProjectLayout) {
 			set((state) => {
@@ -182,9 +177,7 @@ export function createLayoutStore() {
 			layout: tree.emptyLayout(),
 			activeTabId: null,
 			focusedTerminalId: null,
-			pendingLine: {},
-			pendingDiff: {},
-			pendingEdit: {},
+			pendingView: {},
 			diffBaseline: {},
 			viewStates: {},
 			zooms: {},
@@ -197,9 +190,10 @@ export function createLayoutStore() {
 					// A layout saved before diffs became a view of the file tab
 					// still has diff tabs; they become file tabs showing a diff.
 					const { layout, diffTabIds } = tree.migrateDiffTabs(saved);
-					const pendingDiff = { ...state.pendingDiff };
+					const pendingView = { ...state.pendingView };
 					for (const tabId of diffTabIds) {
-						pendingDiff[tabId] = (pendingDiff[tabId] ?? 0) + 1;
+						const line = pendingView[tabId]?.line;
+						pendingView[tabId] = { mode: "diff", line, seq: nextSeq() };
 					}
 					const history = pruneHistory(state.tabHistory, layout);
 					const activeTabId = pickActive(layout, state.activeTabId, history);
@@ -207,7 +201,7 @@ export function createLayoutStore() {
 						layout,
 						activeTabId,
 						tabHistory: remember(history, activeTabId),
-						pendingDiff,
+						pendingView,
 						dirty: layout !== saved,
 					};
 				}),
@@ -225,22 +219,15 @@ export function createLayoutStore() {
 			openFile: (path, options) => {
 				const state = get();
 				const opened = tree.openFile(state.layout, path);
-				const line = options?.line;
-				const pendingLine = { ...state.pendingLine };
-				// Always write the key, so a stale line from an earlier open goes.
-				if (line === undefined) delete pendingLine[opened.tabId];
-				else pendingLine[opened.tabId] = line;
-				// Exactly one of the two is asked for, so a tab left in diff view
-				// goes back to the editor when the file is opened again.
-				const pendingDiff = { ...state.pendingDiff };
-				const pendingEdit = { ...state.pendingEdit };
-				if (options?.diff) {
-					pendingDiff[opened.tabId] = (pendingDiff[opened.tabId] ?? 0) + 1;
-					delete pendingEdit[opened.tabId];
-				} else {
-					pendingEdit[opened.tabId] = (pendingEdit[opened.tabId] ?? 0) + 1;
-					delete pendingDiff[opened.tabId];
-				}
+				// Exactly one of diff and editor is asked for, so a tab left in diff
+				// view goes back to the editor when the file is opened again. A new
+				// request replaces the old one, line included.
+				const pendingView = { ...state.pendingView };
+				pendingView[opened.tabId] = {
+					mode: options?.diff ? "diff" : "edit",
+					line: options?.line,
+					seq: nextSeq(),
+				};
 				const diffBaseline = { ...state.diffBaseline };
 				diffBaseline[opened.tabId] =
 					options?.diff && options.baseline ? options.baseline : null;
@@ -248,9 +235,7 @@ export function createLayoutStore() {
 					layout: opened.layout,
 					activeTabId: opened.tabId,
 					tabHistory: remember(state.tabHistory, opened.tabId),
-					pendingLine,
-					pendingDiff,
-					pendingEdit,
+					pendingView,
 					diffBaseline,
 					dirty: state.dirty || opened.layout !== state.layout,
 				});
@@ -288,9 +273,7 @@ export function createLayoutStore() {
 							layout.tabs[index - 1]?.id ??
 							layout.tabs[index]?.id ??
 							null);
-					const { [tabId]: _line, ...pendingLine } = state.pendingLine;
-					const { [tabId]: _diff, ...pendingDiff } = state.pendingDiff;
-					const { [tabId]: _edit, ...pendingEdit } = state.pendingEdit;
+					const { [tabId]: _view, ...pendingView } = state.pendingView;
 					const { [tabId]: _baseline, ...diffBaseline } = state.diffBaseline;
 					const viewStates = { ...state.viewStates };
 					const zooms = { ...state.zooms };
@@ -303,9 +286,7 @@ export function createLayoutStore() {
 						layout,
 						activeTabId,
 						tabHistory: remember(tabHistory, activeTabId),
-						pendingLine,
-						pendingDiff,
-						pendingEdit,
+						pendingView,
 						diffBaseline,
 						viewStates,
 						zooms,
@@ -314,37 +295,15 @@ export function createLayoutStore() {
 				});
 			},
 
-			consumePendingLine: (tabId) => {
-				const line = get().pendingLine[tabId];
-				if (line !== undefined) {
+			consumePendingView: (tabId) => {
+				const view = get().pendingView[tabId];
+				if (view !== undefined) {
 					set((state) => {
-						const { [tabId]: _gone, ...rest } = state.pendingLine;
-						return { pendingLine: rest };
+						const { [tabId]: _gone, ...rest } = state.pendingView;
+						return { pendingView: rest };
 					});
 				}
-				return line;
-			},
-
-			consumePendingDiff: (tabId) => {
-				const asked = get().pendingDiff[tabId] !== undefined;
-				if (asked) {
-					set((state) => {
-						const { [tabId]: _gone, ...rest } = state.pendingDiff;
-						return { pendingDiff: rest };
-					});
-				}
-				return asked;
-			},
-
-			consumePendingEdit: (tabId) => {
-				const asked = get().pendingEdit[tabId] !== undefined;
-				if (asked) {
-					set((state) => {
-						const { [tabId]: _gone, ...rest } = state.pendingEdit;
-						return { pendingEdit: rest };
-					});
-				}
-				return asked;
+				return view;
 			},
 
 			splitLeaf: (terminalId, direction, newTerminalId) =>

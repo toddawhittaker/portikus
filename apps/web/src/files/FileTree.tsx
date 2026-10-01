@@ -8,17 +8,7 @@
  * socket open, so a change made in a terminal shows here on its own
  * (SPEC.md §11.4, §12.3).
  */
-import {
-	DndContext,
-	type DragEndEvent,
-	DragOverlay,
-	type DragStartEvent,
-	PointerSensor,
-	useDraggable,
-	useDroppable,
-	useSensor,
-	useSensors,
-} from "@dnd-kit/core";
+import { DndContext, DragOverlay, useDraggable, useDroppable } from "@dnd-kit/core";
 import {
 	type BrowserOpenRequest,
 	MAX_TREE_ENTRIES,
@@ -79,7 +69,6 @@ import {
 	baseName,
 	displayName,
 	joinPath,
-	moveForDrop,
 	nameError,
 	parentOf,
 	reseedFocus,
@@ -109,6 +98,11 @@ import { openAgentSession, sessionReviewLabel } from "./sessionReview.js";
 import { useExpanded, useFileViewStore, useShowHidden } from "./store.js";
 import { useGitStatus } from "./useGitStatus.js";
 import { useProjectEvents } from "./useProjectEvents.js";
+import {
+	dropId,
+	ROOT_SPACE_DROP_ID,
+	useTreeDragAndDrop,
+} from "./useTreeDragAndDrop.js";
 
 /** A row of the tree: a project-relative path and what it is. */
 export interface FileNode {
@@ -167,16 +161,6 @@ function useTreeApi(): TreeApi {
 	if (!api) throw new Error("the file tree row is outside its tree");
 	return api;
 }
-
-/** The droppable id of a directory; the project root is the empty path. */
-const dropId = (dir: string) => `dir:${dir}`;
-
-/**
- * The empty area below the tree is a second way into the project root
- * (issue #237). It is its own element rather than the pane body, so it never
- * overlaps a row and the pointer can only be over one of the two.
- */
-const ROOT_SPACE_DROP_ID = "root-space";
 
 /** Run `job` over `items`, never more than `limit` of them at once. */
 async function runWithLimit<T>(
@@ -249,12 +233,6 @@ export function FileTreePane({
 	);
 
 	const [focusedPath, setFocusedPath] = useState<string | null>(null);
-	const [dropDir, setDropDir] = useState<string | null>(null);
-	const [uploadDrag, setUploadDrag] = useState(false);
-	// How many pane elements the upload drag is currently inside. Moving onto a
-	// child row fires a leave for the element behind it, so counting is the only
-	// way to tell "moved within the pane" from "left the pane" (issue #220).
-	const uploadDepth = useRef(0);
 	const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
 	const [menuPath, setMenuPath] = useState<string | null>(null);
 	const [dialog, setDialog] = useState<
@@ -271,13 +249,6 @@ export function FileTreePane({
 	// through a ref and stay stable themselves.
 	const mutationsRef = useRef<FileMutations>(mutations);
 	mutationsRef.current = mutations;
-
-	const sensors = useSensors(
-		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-	);
-	// What the pointer is carrying, so the drag has something visible to show
-	// (issue #237). dnd-kit draws it in a DragOverlay at the pointer.
-	const [dragged, setDragged] = useState<{ path: string; isDir: boolean } | null>(null);
 
 	const fail = useCallback(
 		(error: unknown) => {
@@ -446,6 +417,14 @@ export function FileTreePane({
 		[toast, uploadOne],
 	);
 
+	const { sensors, dragged, dropDir, uploadDrag, dndHandlers, uploadHandlers } =
+		useTreeDragAndDrop({
+			moveFile: (from, to) => mutations.move.mutateAsync({ from, to }),
+			afterMove,
+			fail,
+			uploadInto,
+		});
+
 	const openFile = useCallback(
 		(node: FileNode) => {
 			openFileTab(node.path);
@@ -542,39 +521,6 @@ export function FileTreePane({
 		],
 	);
 
-	function onDragStart(event: DragStartEvent) {
-		const id = String(event.active.id);
-		if (!id.startsWith("row:")) return;
-		setDragged({
-			path: id.slice("row:".length),
-			isDir: event.active.data.current?.isDir === true,
-		});
-	}
-
-	function onDragEnd(event: DragEndEvent) {
-		setDropDir(null);
-		setDragged(null);
-		const over = event.over ? String(event.over.id) : null;
-		const move = moveForDrop(
-			String(event.active.id),
-			// The empty space below the tree means the project root.
-			over === ROOT_SPACE_DROP_ID ? dropId("") : over,
-		);
-		if (!move) return;
-		const { from, to } = move;
-		void mutations.move
-			.mutateAsync({ from, to })
-			.then(() => afterMove(from, to))
-			.catch(fail);
-	}
-
-	/** Which directory a desktop drag is over, from the row under the pointer. */
-	function dirUnder(target: EventTarget | null): string {
-		const element =
-			target instanceof Element ? target.closest("[data-drop-dir]") : null;
-		return element?.getAttribute("data-drop-dir") ?? "";
-	}
-
 	const entries = root.data ? visibleEntries(root.data.entries, showHidden) : [];
 	const empty = root.isSuccess && entries.length === 0;
 	const allHidden = empty && (root.data?.entries.length ?? 0) > 0;
@@ -584,12 +530,9 @@ export function FileTreePane({
 		// the project root (SPEC.md §11.2).
 		<DndContext
 			sensors={sensors}
-			onDragStart={onDragStart}
-			onDragEnd={onDragEnd}
-			onDragCancel={() => {
-				setDropDir(null);
-				setDragged(null);
-			}}
+			onDragStart={dndHandlers.onDragStart}
+			onDragEnd={dndHandlers.onDragEnd}
+			onDragCancel={dndHandlers.onDragCancel}
 		>
 			<TreeContext.Provider value={api}>
 				<aside className="pk-pane pk-pane--right" aria-label="Files">
@@ -667,34 +610,10 @@ export function FileTreePane({
 							uploadDrag && (dropDir === "" || dropDir === null) ? "true" : undefined
 						}
 						data-testid="file-tree-body"
-						onDragOver={(event) => {
-							if (!event.dataTransfer.types.includes("Files")) return;
-							event.preventDefault();
-							setUploadDrag(true);
-							setDropDir(dirUnder(event.target));
-						}}
-						onDragEnter={(event) => {
-							if (!event.dataTransfer.types.includes("Files")) return;
-							uploadDepth.current += 1;
-							setUploadDrag(true);
-							setDropDir(dirUnder(event.target));
-						}}
-						onDragLeave={() => {
-							if (uploadDepth.current === 0) return;
-							uploadDepth.current -= 1;
-							if (uploadDepth.current > 0) return;
-							setDropDir(null);
-							setUploadDrag(false);
-						}}
-						onDrop={(event) => {
-							if (!event.dataTransfer.files.length) return;
-							event.preventDefault();
-							const dir = dirUnder(event.target);
-							uploadDepth.current = 0;
-							setDropDir(null);
-							setUploadDrag(false);
-							uploadInto(dir, event.dataTransfer.files);
-						}}
+						onDragOver={uploadHandlers.onDragOver}
+						onDragEnter={uploadHandlers.onDragEnter}
+						onDragLeave={uploadHandlers.onDragLeave}
+						onDrop={uploadHandlers.onDrop}
 					>
 						{/* The live region exists before its text, so the text is announced. */}
 						<div role="status" data-testid="files-watch-limited-region">

@@ -7,6 +7,7 @@ import type { SplitNode, Terminal, TerminalTheme } from "@portikus/contracts";
 import { PaneHandle, tabDomId, tabPanelDomId } from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { Group, Panel } from "react-resizable-panels";
+import type { PendingView } from "../layout/store.js";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { PreviewLeaf } from "../preview/PreviewLeaf.js";
 import { FileLeaf } from "./FileLeaf.js";
@@ -34,18 +35,10 @@ export interface TerminalGroupProps {
 	onMoveToNewTab: (terminalId: string) => void;
 	/** Close this whole tab: a file tab offers it when the file is gone. */
 	onCloseTab: () => void;
-	/** The line this tab was last asked to open at, or undefined for none. */
-	pendingLine: number | undefined;
-	/** Read and forget the line a file tab was opened at. */
-	consumePendingLine: () => number | undefined;
-	/** How many times this tab has been asked to show its diff. */
-	pendingDiff: number | undefined;
-	/** Read and forget whether a file tab was asked to show its diff. */
-	consumePendingDiff: () => boolean;
-	/** How many times this tab has been asked to show the editor again. */
-	pendingEdit: number | undefined;
-	/** Read and forget whether a file tab was asked to show the editor. */
-	consumePendingEdit: () => boolean;
+	/** What this file tab was last asked to show, or undefined for nothing. */
+	pendingView: PendingView | undefined;
+	/** Read and forget that request. */
+	consumePendingView: () => PendingView | undefined;
 	/** Bring the Running surface into view (BROWSER-HANDLING.md §12). */
 	onShowRunning: () => void;
 	/** Pick another port in place of this preview tab's refused one. */
@@ -106,12 +99,8 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					projectId={props.projectId}
 					visible={visible}
 					onClose={props.onCloseTab}
-					pendingLine={props.pendingLine}
-					consumePendingLine={props.consumePendingLine}
-					pendingDiff={props.pendingDiff}
-					consumePendingDiff={props.consumePendingDiff}
-					pendingEdit={props.pendingEdit}
-					consumePendingEdit={props.consumePendingEdit}
+					pendingView={props.pendingView}
+					consumePendingView={props.consumePendingView}
 					onUnsavedChange={props.onUnsavedChange}
 					baseline={props.diffBaseline}
 				/>

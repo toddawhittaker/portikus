@@ -154,7 +154,7 @@ test("clicking a changed file opens its one tab, showing the diff", () => {
 		"file:src/app.ts",
 	]);
 	expect(store.getState().activeTabId).toBe("file:src/app.ts");
-	expect(store.getState().consumePendingDiff("file:src/app.ts")).toBe(true);
+	expect(store.getState().consumePendingView("file:src/app.ts")?.mode).toBe("diff");
 });
 
 test("the row whose file is the tab on show is marked selected (issue #274)", () => {
@@ -195,7 +195,7 @@ test("clicking a changed file that is not open opens one tab in diff view", () =
 	expect(store.getState().layout.tabs.map((tab) => tab.id)).toEqual([
 		"file:src/app.ts",
 	]);
-	expect(store.getState().consumePendingDiff("file:src/app.ts")).toBe(true);
+	expect(store.getState().consumePendingView("file:src/app.ts")?.mode).toBe("diff");
 });
 
 const PROJECT = project();

@@ -17,21 +17,26 @@ import {
 } from "./GraceDialog.js";
 import { quotaError } from "./QuotaDialog.js";
 import {
-	capabilityNote,
-	effectiveGuardText,
 	instructorChangeNote,
-	lifecycleActions,
+	roleChangeNote,
+} from "./workspace-detail/AccountSection.js";
+import {
+	effectiveGuardText,
+	memoryFlagText,
+	throttleText,
+} from "./workspace-detail/GuardSection.js";
+import { lifecycleActions } from "./workspace-detail/HeadState.js";
+import {
 	limitsPending,
 	limitsText,
-	memoryFlagText,
-	NOT_AVAILABLE_TEXT,
+	quotaPending,
+} from "./workspace-detail/ResourcesSection.js";
+import { NOT_AVAILABLE_TEXT, PANEL_HELP } from "./workspace-detail/shared.js";
+import {
+	capabilityNote,
 	operationOutcome,
 	outcomeToast,
-	PANEL_HELP,
-	quotaPending,
-	roleChangeNote,
-	throttleText,
-} from "./WorkspaceDetail.js";
+} from "./workspace-detail/WorkspaceSection.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
