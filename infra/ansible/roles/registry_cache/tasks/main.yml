@@ -175,13 +175,16 @@
   changed_when: false
   check_mode: false
 
+# The old file counts by what it really holds: an earlier mkfs discarded its reservation.
+- name: Count the free space, the old cache file's included
+  ansible.builtin.set_fact:
+    registry_cache_room_bytes: >-
+      {{ registry_cache_free.stdout_lines | last | int
+      + (registry_cache_image_stat.stat.blocks | default(0) | int) * 512 }}
+
 # A cache is only an optimisation, so a small disk shrinks it or turns it off, never fails setup.
 - name: Work out the cache's size
   ansible.builtin.include_tasks: size.yml
-  vars:
-    registry_cache_free_bytes: "{{ registry_cache_free.stdout_lines | last | int }}"
-    # What the old file really holds: an earlier mkfs discarded its reservation.
-    registry_cache_existing_bytes: "{{ (registry_cache_image_stat.stat.blocks | default(0) | int) * 512 }}"
 
 - name: Work out the cache's size in bytes
   ansible.builtin.set_fact:
@@ -219,10 +222,7 @@
         mode: "0644"
       vars:
         # The free space the size decision counted, the old cache file's included.
-        registry_cache_off_free_gib: >-
-          {{ ((registry_cache_free.stdout_lines | last | int
-          + (registry_cache_image_stat.stat.blocks | default(0) | int) * 512)
-          / 1073741824) | round(1, 'floor') }}
+        registry_cache_off_free_gib: "{{ (registry_cache_room_bytes | int / 1073741824) | round(1, 'floor') }}"
 
     - name: Stop and disable the caches and their filesystem
       ansible.builtin.systemd_service:
