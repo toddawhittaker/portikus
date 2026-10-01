@@ -321,6 +321,7 @@ class RefusalTest(Base):
         self.assertEqual(status["state"], "refused")
         self.assertIsNotNone(status["finishedAt"])
         self.assertIn("refused", status["message"])
+        self.assertFalse(status["message"].endswith(".."))
         self.assertIn("Refused", self.log(job_id))
         self.assertTrue([m for m in self.journal if m.startswith(f"refused request {job_id}")])
         self.assertEqual(self.host.calls, [])
@@ -730,7 +731,10 @@ class DeleteTest(Base):
         self.request({"kind": "delete", "version": "2026.09.10"})
         self.go()
         self.assertEqual(self.status()["state"], "refused")
-        self.assertIn("roll back", self.status()["message"])
+        self.assertEqual(
+            self.status()["message"],
+            "The request was refused: Image 2026.09.10 is the previous image, kept so you can roll back.",
+        )
         self.assertEqual(self.deletes(), [])
         self.assertTrue((self.images / "2026.09.10").exists())
 
