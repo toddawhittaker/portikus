@@ -776,10 +776,12 @@ test("the drift notice's button asks the API to swap the images and rebuild", as
 	await setSeedList(["node:24-slim", "redis:7", "python:3.13-slim"]);
 	await withMatch(page);
 	let posted = 0;
+	const next = ["redis:7", "node:26-slim", "python:3.14-slim"];
+	// The list is swapped only after the toast. The page shows the toast and
+	// moves focus once its reread lands, and only while the notice is still
+	// mounted; a reread that already holds the new list unmounts it first.
 	await page.route("**/admin/docker/seed/match", async (route) => {
 		posted += 1;
-		const next = ["redis:7", "node:26-slim", "python:3.14-slim"];
-		await setSeedList(next);
 		await route.fulfill({
 			status: 202,
 			json: {
@@ -806,11 +808,14 @@ test("the drift notice's button asks the API to swap the images and rebuild", as
 	).toBeVisible();
 	await notice.getByRole("button", { name: "Update list and rebuild" }).click();
 	await expect(toast(page, "Seed list updated, rebuild requested")).toBeVisible();
-	// The list reread holds the new images, so the notice goes.
-	await expect(notice).toHaveCount(0);
 	expect(posted).toBe(1);
-	// Its button went with it; focus waits on the heading of the list it changed.
+	// Focus waits on the heading of the list it changed.
 	await expect(page.locator("#docker-seed-list-title")).toBeFocused();
+	// A list that holds the new images has no notice.
+	await setSeedList(next);
+	await page.reload();
+	await expect(page.getByTestId("docker-seed-list")).toBeVisible();
+	await expect(notice).toHaveCount(0);
 });
 
 test("over the size limit the drift notice says so and offers no button", async ({
