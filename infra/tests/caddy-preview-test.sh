@@ -417,6 +417,41 @@ has "with Dex, the mock provider's prefix is a 404" 'handle /mock-idp\* \{' "${a
 lacks "with Dex, nothing proxies to the mock provider" '127\.0\.0\.1:3002' "${app}"
 lacks "the /edge routes are never proxied on the public site" 'handle /edge' "${rendered}"
 
+# The API trusts any /edge request from loopback, and everything Caddy
+# proxies arrives from loopback.  So every route that proxies to the API
+# must have a path matcher that cannot cover /edge: this lists the handle
+# matcher above each API proxy, in all three files, and compares it with
+# the known routes.  A bare `handle {` or a broader prefix fails here.
+api_routes() {
+  awk -v api="reverse_proxy 127.0.0.1:${API_PORT}" '
+    /^\thandle / { m = $0; sub(/^\thandle /, "", m); sub(/ \{$/, "", m) }
+    index($0, api) { print m }
+  ' "$1" | sort -u
+}
+edge_open=0
+for f in "${rendered}" "${work}/Caddyfile.mock"; do
+  [ -n "$(api_routes "${f}")" ] || { no "no API route was found in $(basename "${f}")"; edge_open=1; }
+  while IFS= read -r m; do
+    case "${m}" in
+      /auth/\* | /workspaces\* | /admin\* | /lti/\* | /courses\* | /me/\* | /health | \
+        /.well-known/portikus-preflight/\* | /__portikus/bootstrap | /__portikus/reset) ;;
+      *)
+        no "the route '${m}' in $(basename "${f}") proxies to the API and could cover /edge"
+        edge_open=1
+        ;;
+    esac
+  done < <(api_routes "${f}")
+done
+[ "${edge_open}" = 1 ] || ok "every route that proxies to the API has a path that cannot cover /edge"
+# /__portikus/ports/* reaches the API only through forward_auth, whose fixed
+# uri replaces the client's path; so does every other forward_auth.
+if [ "$(grep -cE '^[[:space:]]+forward_auth .*127\.0\.0\.1:'"${API_PORT}"' \{$' "${rendered}")" = \
+  "$(grep -cE '^[[:space:]]+uri /(preview/authorize|edge/signin-throttle\?scope=(password|start))$' "${rendered}")" ]; then
+  ok "every authorization subrequest to the API names its own fixed path"
+else
+  no "every authorization subrequest to the API names its own fixed path"
+fi
+
 has "with the mock, /dex is a 404" 'handle /dex\* \{' "${work}/Caddyfile.mock"
 lacks "with the mock, nothing proxies to Dex" '127\.0\.0\.1:5556' "${work}/Caddyfile.mock"
 has "with the mock, the mock provider is served" \
@@ -522,11 +557,14 @@ else
   cat >"${work}/stubs.py" <<'PY'
 import base64, hashlib, http.server, ssl, sys, threading
 
-api_port, plain_port, tls_port, cert, key = sys.argv[1:6]
+api_port, plain_port, tls_port, cert, key, seen = sys.argv[1:7]
 UPSTREAMS = {"tls": (tls_port, "https"), "plain": (plain_port, "http"), "old": (plain_port, None)}
 
 class Api(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        # Every path the API is sent, for the /edge checks.
+        with open(seen, "a") as f:
+            f.write(self.path + "\n")
         label = self.headers.get("X-Forwarded-Host", "").split("-")[0]
         port, scheme = UPSTREAMS.get(label, (None, None))
         if not self.path.startswith("/preview/authorize") or port is None:
@@ -610,7 +648,7 @@ PY
   openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
     -keyout "${work}/up.key" -out "${work}/up.crt" >/dev/null 2>&1
   python3 "${work}/stubs.py" "${live_api}" "${live_plain}" "${live_tls}" \
-    "${work}/up.crt" "${work}/up.key" >"${work}/stubs.log" 2>&1 &
+    "${work}/up.crt" "${work}/up.key" "${work}/api-paths" >"${work}/stubs.log" 2>&1 &
   stubs_pid=$!
 
   ansible localhost -c local -m ansible.builtin.template \
@@ -684,6 +722,28 @@ PY
     "tls:ping" "$(python3 "${work}/ws.py" "tls-5173.${PREVIEW_SUFFIX}" "${live_public}" 2>&1)"
   expect "a WebSocket still works over the plain hop" \
     "plain:ping" "$(python3 "${work}/ws.py" "plain-5173.${PREVIEW_SUFFIX}" "${live_public}" 2>&1)"
+
+  # The API trusts any /edge request from loopback, and everything Caddy
+  # proxies comes from loopback, so no outside request may reach /edge.
+  site() {
+    local p="$1"
+    shift
+    curl -sk --max-time 5 --resolve "${PUBLIC_HOST}:${live_public}:127.0.0.1" "$@" \
+      "https://${PUBLIC_HOST}:${live_public}${p}" -o /dev/null
+  }
+  get plain /edge/certificate-ask?domain=evil.example -o /dev/null
+  get plain /workspaces/../edge/certificate-ask?domain=evil.example --path-as-is -o /dev/null
+  site /edge/certificate-ask?domain=evil.example
+  site /workspaces/../edge/certificate-ask?domain=evil.example --path-as-is
+  site /edge/signin-throttle?scope=start
+  get plain /.well-known/portikus-preflight/0123abcd -o /dev/null
+  if grep -q '/edge' "${work}/api-paths"; then
+    no "no request from outside reaches the API's /edge routes (got: $(grep '/edge' "${work}/api-paths" | head -3 | tr '\n' ' '))"
+  else
+    ok "no request from outside reaches the API's /edge routes"
+  fi
+  expect "a preview host sends the pre-flight nonce to the API as it is" \
+    "/.well-known/portikus-preflight/0123abcd" "$(cat "${work}/api-paths")"
 
   if [ "${fail}" -gt 0 ]; then
     echo "--- caddy log ---" >&2
