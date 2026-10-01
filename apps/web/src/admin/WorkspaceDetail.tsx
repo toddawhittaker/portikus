@@ -573,10 +573,15 @@ export function memoryFlagText(flag: MemoryFlag | null): string {
 	)}% over ${flag.windowMinutes} minutes, above ${flag.thresholdPercent}%.`;
 }
 
-/** The limits this workspace runs with, marking the ones it overrides. */
+/**
+ * The limits this workspace runs with, marking the ones it overrides, and the
+ * owner's Keep running hold while it lasts, since it holds idle stop off.
+ */
 export function effectiveGuardText(
 	guard: EffectiveGuard,
 	config: GuardConfig | null,
+	keepRunningUntil: string | null = null,
+	now = Date.now(),
 ): string[] {
 	const mark = (key: keyof EffectiveGuard) =>
 		config?.[key] === undefined ? "" : " (override)";
@@ -586,6 +591,9 @@ export function effectiveGuardText(
 		guard.idleStopMinutes === 0
 			? `Never stopped for inactivity${mark("idleStopMinutes")}.`
 			: `Stopped after ${guard.idleStopMinutes} minutes without activity${mark("idleStopMinutes")}.`,
+		...(keepRunningUntil && Date.parse(keepRunningUntil) > now
+			? [`Kept running by its owner until ${shortTime(keepRunningUntil)}.`]
+			: []),
 	];
 }
 
@@ -724,7 +732,11 @@ function GuardSection({
 				className="pk-text-compact m-0 flex list-none flex-col gap-0.5 p-0"
 				data-testid="detail-guard-limits"
 			>
-				{effectiveGuardText(detail.effectiveGuard, detail.guardConfig).map((line) => (
+				{effectiveGuardText(
+					detail.effectiveGuard,
+					detail.guardConfig,
+					workspace.keepRunningUntil,
+				).map((line) => (
 					<li key={line}>{line}</li>
 				))}
 			</ul>

@@ -76,14 +76,17 @@ export function RecoveryDialog({
 						commits included, after saving the current state as a new point.
 					</Toggletip>
 					{usage ? (
-						<span className="pk-text-small text-ink-muted" data-testid="recovery-usage">
+						<span
+							className="pk-text-compact text-ink-muted"
+							data-testid="recovery-usage"
+						>
 							{formatBytes(usage.usedBytes)} of {formatBytes(usage.quotaBytes)} recovery
 							storage used
 						</span>
 					) : null}
 				</div>
 				<p
-					className="pk-text-small m-0 mt-2"
+					className="pk-text-compact m-0 mt-2"
 					role="status"
 					data-testid="recovery-status"
 				>

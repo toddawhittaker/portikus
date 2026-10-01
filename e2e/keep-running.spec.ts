@@ -82,7 +82,15 @@ for (const scheme of ["light", "dark"] as const) {
 		await expect(section).toBeVisible();
 		await expectNoViolations(page);
 
-		await section.getByTestId("keep-running-set").click();
+		// The button names its result: the end time, in the student's zone.
+		const set = section.getByRole("button", { name: /^Keep running until / });
+		const offered = Date.now() + 8 * 3_600_000;
+		await expect(set).toHaveText(
+			new RegExp(
+				`^Keep running until (${shown(new Date(offered))}|${shown(new Date(offered - 60_000))})$`,
+			),
+		);
+		await set.click();
 		const status = section.getByTestId("keep-running-status");
 		await expect(status).toBeVisible({ timeout: 15_000 });
 		const until = await holdUntil(student.workspaceId);
@@ -97,7 +105,7 @@ for (const scheme of ["light", "dark"] as const) {
 		);
 		await expectNoViolations(page);
 
-		await section.getByTestId("keep-running-end").click();
+		await section.getByRole("button", { name: "Don't keep running" }).click();
 		await expect(status).toBeHidden({ timeout: 15_000 });
 		await expect(page.getByTestId("keep-running-indicator")).toBeHidden();
 		expect(await holdUntil(student.workspaceId)).toBeNull();
@@ -112,6 +120,37 @@ for (const scheme of ["light", "dark"] as const) {
 	});
 }
 
+for (const scheme of ["light", "dark"] as const) {
+	test(`an administrator sees a student's hold in the guard summary, and a cap of 0 reads as off (${scheme})`, async ({
+		page,
+		browser,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		const studentContext = await browser.newContext();
+		const student = await createStudent(studentContext);
+		await studentContext.close();
+		await query(
+			"update workspaces set keep_running_until = now() + interval '3 hours' where id = $1",
+			[student.workspaceId],
+		);
+		await loginAs(page, "carol");
+		await page.goto(`/admin?tab=workspaces&user=${student.userId}`);
+		const limits = page.getByTestId("detail-guard-limits");
+		await expect(limits).toContainText("Kept running by its owner until", {
+			timeout: 15_000,
+		});
+		await expectNoViolations(page);
+
+		await setCap(0);
+		await page.reload();
+		await page.getByTestId("detail-guard-edit").click();
+		const dialog = page.getByTestId("guard-dialog");
+		await expect(dialog.getByText("Site setting: 0 (off)")).toBeVisible();
+		await expectNoViolations(page);
+		await setCap(12);
+	});
+}
+
 test("an administrator's cap bounds the choice, and 0 turns it off", async ({
 	page,
 	browser,
@@ -120,7 +159,7 @@ test("an administrator's cap bounds the choice, and 0 turns it off", async ({
 	await loginAs(page, "carol");
 	await page.goto("/admin?tab=settings");
 	const stop = page.getByRole("region", { name: "When workspaces stop" });
-	const cap = stop.getByLabel("Keep running, longest (hours)", { exact: true });
+	const cap = stop.getByLabel("Longest keep running (hours)", { exact: true });
 	await expect(cap).toHaveValue("12", { timeout: 15_000 });
 	await cap.fill("2");
 	await stop.getByTestId("keep-running-max-save").click();
