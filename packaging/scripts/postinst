@@ -89,6 +89,9 @@ def write(path, data, mode, header):
     os.replace(tmp, path)
 
 tls = answer("tls") or "internal"
+# After the first setup the admin page owns the certificate, and setup no
+# longer reads the TLS answers, so none of them is missing.
+certificate_seeded = os.path.exists("/etc/portikus/certificate/settings.json")
 provider = answer("provider") or "dex"
 storage = answer("storage")
 
@@ -164,9 +167,9 @@ needed = {
     "portikus_public_host": "the web address (public_host)",
     "portikus_admin_email": "the administrator's email (admin_email)",
 }
-if tls == "letsencrypt":
+if tls == "letsencrypt" and not certificate_seeded:
     needed["portikus_acme_email"] = "the email for Let's Encrypt (acme_email)"
-if tls == "files":
+if tls == "files" and not certificate_seeded:
     needed["portikus_tls_cert"] = "the certificate file (tls_cert)"
     needed["portikus_tls_key"] = "the private key file (tls_key)"
 if provider in ("entra", "google", "oidc"):
@@ -198,6 +201,8 @@ names = {
     "portikus_ldap_bind_password": "the service account password (ldap_bind_password)",
 }
 for key in wanted:
+    if key == "portikus_cloudflare_api_token" and certificate_seeded:
+        continue
     if not secrets.get(key):
         print("- " + names[key])
 PY

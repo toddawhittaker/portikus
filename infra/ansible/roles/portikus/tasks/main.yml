@@ -310,6 +310,63 @@
   changed_when: false
   when: portikus_image_check_timer.stat.exists
 
+# ── Certificate jobs (docs/SPEC.md section 21.12; packages/contracts/src/certificate.ts) ──
+# The admin page's request directory and the root job's status directory,
+# as for the image job above.  The caddy role seeds the state the job owns.
+- name: Create the certificate job directory
+  ansible.builtin.file:
+    path: "{{ portikus_certificate_jobs_dir }}"
+    state: directory
+    owner: root
+    group: portikus
+    mode: "0770"
+
+- name: Create the certificate status directory
+  ansible.builtin.file:
+    path: /var/lib/portikus/certificate
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# A package from before the certificate page has none of these units.
+- name: Look for the certificate job's units
+  ansible.builtin.stat:
+    path: "/usr/lib/systemd/system/{{ item }}"
+  loop:
+    - portikus-certificate-job.path
+    - portikus-certificate-job.service
+    - portikus-certificate-check.timer
+  register: portikus_certificate_units
+
+- name: Enable and start the certificate job's path unit
+  ansible.builtin.systemd_service:
+    name: portikus-certificate-job.path
+    enabled: true
+    state: started
+  when: portikus_certificate_units.results[0].stat.exists
+
+# Enabled for boot too, as the image job's is, for a job a reboot cut short.
+- name: Enable the certificate job's service for boot
+  ansible.builtin.systemd_service:
+    name: portikus-certificate-job.service
+    enabled: true
+  when: portikus_certificate_units.results[1].stat.exists
+
+- name: Enable and start the hourly certificate check
+  ansible.builtin.systemd_service:
+    name: portikus-certificate-check.timer
+    enabled: true
+    state: started
+  when: portikus_certificate_units.results[2].stat.exists
+
+# So the admin page shows the certificate before the timer's first run.
+- name: Run the certificate check once
+  ansible.builtin.command:
+    argv: [systemctl, start, --no-block, portikus-certificate-check.service]
+  changed_when: false
+  when: portikus_certificate_units.results[2].stat.exists
+
 # ── Start the services ───────────────────────────────────────────
 # The package enables the units, but ConditionPathExists keeps them from
 # starting until the environment files above exist.  Setup enables them too,
