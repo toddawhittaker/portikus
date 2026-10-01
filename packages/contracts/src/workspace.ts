@@ -301,6 +301,8 @@ export const ApiErrorCode = z.enum([
 	"IMAGE_NOT_HEALTHY",
 	"IMAGE_ALREADY_DEFAULT",
 	"IMAGE_NO_PREVIOUS",
+	// Delete refused for the default or previous image (issue #936).
+	"IMAGE_IN_USE",
 	"CERTIFICATE_JOB_BUSY",
 	"CERTIFICATE_NO_PREVIOUS",
 	"CERTIFICATE_UPLOAD_REFUSED",

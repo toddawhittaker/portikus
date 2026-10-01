@@ -40,6 +40,7 @@ function image(
 		},
 		health: { result: health, checkedAt: "2026-09-28T10:00:00.000Z", checks: [] },
 		workspaces,
+		sizeBytes: 880803840,
 	};
 }
 
@@ -69,6 +70,7 @@ const IMAGE = {
 	job: JOB,
 	// The notice at the top is checked with the rest of the page (issue #861).
 	newerPublished: "2026.09.11",
+	disk: { freeBytes: 5368709120, totalBytes: 21474836480 },
 };
 
 const DIFF = {
@@ -179,6 +181,16 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("image-confirm")).toHaveCount(0);
+		// Delete confirms with the count of workspaces made from the image (issue #936).
+		const remove = page.getByRole("button", { name: "Delete: 2026.09.10" });
+		await remove.click();
+		await expect(page.getByTestId("image-confirm")).toContainText(
+			"0 workspaces were made from this image.",
+		);
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(page.getByTestId("image-confirm")).toHaveCount(0);
+		await expect(remove).toBeFocused();
 	});
 }
 
