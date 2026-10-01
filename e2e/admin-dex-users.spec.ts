@@ -1,20 +1,12 @@
 import * as crypto from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, query, settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
+import { expectNoViolations, loginAs, query, WEB_ORIGIN } from "./helpers";
 
 /**
  * Add, reset and remove Dex users from the Users view (docs/archive/epics/EPIC-14.md
  * rulings 21, 22 and 24), against the fake Dex gRPC API the e2e environment
  * runs (e2e/fake-dex-grpc.mjs). Every test adds its own user.
  */
-
-async function expectNoViolations(page: Page, selector: string) {
-	const results = await (await settledAxe(page))
-		.withTags(WCAG_TAGS)
-		.include(selector)
-		.analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 async function openUsers(page: Page): Promise<void> {
 	await loginAs(page, "carol");

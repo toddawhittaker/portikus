@@ -1,7 +1,9 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
+	cookiePairs,
 	createProject,
 	createStudent,
+	headersOf,
 	openToggletip,
 	query,
 	seedListening,
@@ -63,24 +65,6 @@ const PASSED_HEADERS = [
 	"content-security-policy",
 ];
 
-function headersOf(response: Response): Record<string, string> {
-	const headers: Record<string, string> = {};
-	for (const name of PASSED_HEADERS) {
-		const value = response.headers.get(name);
-		if (value !== null) headers[name] = value;
-	}
-	return headers;
-}
-
-/** The `name=value` part of each Set-Cookie line, for the next hop. */
-function cookiePairs(response: Response): string {
-	return response.headers
-		.getSetCookie()
-		.map((line) => line.split(";")[0] ?? "")
-		.filter(Boolean)
-		.join("; ");
-}
-
 /**
  * Stand in for Caddy for the browser's requests to preview hosts. Returns a
  * count of the requests that reached the student application, which is how a
@@ -107,7 +91,7 @@ async function previewGateway(page: Page): Promise<{ app: number }> {
 		if (!authorized.ok) {
 			return {
 				status: authorized.status,
-				headers: headersOf(authorized),
+				headers: headersOf(authorized, PASSED_HEADERS),
 				body: Buffer.from(await authorized.arrayBuffer()),
 			};
 		}
@@ -120,7 +104,7 @@ async function previewGateway(page: Page): Promise<{ app: number }> {
 		});
 		return {
 			status: proxied.status,
-			headers: headersOf(proxied),
+			headers: headersOf(proxied, PASSED_HEADERS),
 			body: Buffer.from(await proxied.arrayBuffer()),
 		};
 	}
@@ -145,7 +129,7 @@ async function previewGateway(page: Page): Promise<{ app: number }> {
 					},
 					redirect: "manual",
 				});
-				const headers = headersOf(answer);
+				const headers = headersOf(answer, PASSED_HEADERS);
 				const setCookie = answer.headers.getSetCookie();
 				if (setCookie.length > 0) headers["set-cookie"] = setCookie.join("\n");
 
