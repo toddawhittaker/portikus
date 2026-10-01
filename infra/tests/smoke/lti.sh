@@ -54,7 +54,7 @@ for p in json.load(sys.stdin)["platforms"]:
 print(" ".join(seen))')
   # Framed, login and launch only show a new-tab or refusal page, so any
   # page may frame them; the login form may post only to us and the
-  # registered platforms (docs/archive/epics/EPIC-13.md, ruling 17).
+  # registered platforms (ADR 0025).
   lti_directive() { # PATH DIRECTIVE
     ssh_cmd "${CURL} -D - -o /dev/null '${API}$1'" \
       | tr -d '\r' | grep -i '^content-security-policy:' | grep -o "$2 [^;]*" | paste -sd'|'
@@ -112,7 +112,7 @@ print(next((p["issuer"] for p in json.load(sys.stdin)["platforms"] if p.get("moc
       json_field "$instructor" course_titles
     lti_has_sam() { json_field "$instructor" member_names | tr ',' '\n' | grep -qx 'Sam Student'; }
     check "the course lists the student who launched before" lti_has_sam
-    # Epic 13 ruling 23 is amended: members carry their user id for removal (#506).
+    # Members carry their user id so an instructor can remove them.
     check_output "members carry only name, role, last launch, user id and workspace state" \
       "displayName,lastLaunchAt,role,userId,workspaceState" json_field "$instructor" member_fields
     check_output "the instructor gets 403 from the admin routes" "403" json_field "$instructor" admin

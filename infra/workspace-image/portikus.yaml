@@ -1443,9 +1443,9 @@ files:
 # Coding-agent settings for every student login shell.  The CLIs are
 # installed system-wide at pinned versions, so the student cannot write the
 # npm prefix; Claude Code's updater would fail on every launch.  Versions
-# move with image rebuilds instead (SPEC.md 10, issue #127).  BROWSER sends
+# move with image rebuilds instead (SPEC.md 10).  BROWSER sends
 # link opens to the workspace agent (BROWSER-HANDLING.md 18).  The claude and
-# codex functions clear the terminal first (SPEC.md 10.2, issue #886).
+# codex functions clear the terminal first (SPEC.md 10.2).
 - path: /etc/profile.d/portikus-agents.sh
   generator: dump
   mode: "0644"
@@ -1455,7 +1455,7 @@ files:
     # CLIs that honor BROWSER open links through the workspace broker.
     export BROWSER=/usr/local/bin/portikus-open
     # A coding agent typed by hand starts on a cleared terminal, so earlier
-    # shell output is not left as scrollback above it (issue #886).  Only
+    # shell output is not left as scrollback above it.  Only
     # interactive bash gets these; scripts, pipes and launchers do not.
     if [ -n "${BASH_VERSION:-}" ]; then
       case $- in
@@ -1469,7 +1469,7 @@ files:
 # Claude Code opens a login URL whose callback is localhost in the
 # workspace, which the student's browser cannot reach.  An empty BROWSER
 # makes it open nothing and offer the paste-code URL instead
-# (BROWSER-HANDLING.md 19.2, issue #848).  Managed settings win over the
+# (BROWSER-HANDLING.md 19.2).  Managed settings win over the
 # student's own settings and reach every way Claude Code is started.
 - path: /etc/claude-code/managed-settings.json
   generator: dump
@@ -1478,10 +1478,10 @@ files:
     {"env": {"BROWSER": ""}}
 
 # Codex has no updater environment variable.  This is the system config
-# layer it reads on Linux, and the image owns the version (issue #129).
+# layer it reads on Linux, and the image owns the version.
 # A student's own ~/.codex stays untouched; nothing here copies auth.json.
 # The workspace controller rewrites this whole file at every start, adding
-# the platform's agent instructions (SPEC.md 3, issue #933), so a setting
+# the platform's agent instructions (SPEC.md 3), so a setting
 # added here is lost: put it in codexSystemConfig in the controller's
 # apps/workspace-controller/src/agent-instructions.ts.
 - path: /etc/codex/config.toml
@@ -1681,14 +1681,14 @@ files:
 
 # Clipboard bridge for programs that expect X11 or macOS clipboard tools.
 # A workspace has no display, so the shim turns a copy into an OSC 52
-# escape that tmux passes through to the browser terminal (issue #125).
+# escape that tmux passes through to the browser terminal.
 - path: /usr/local/bin/xclip
   generator: dump
   mode: "0755"
   content: |-
     #!/bin/sh
     # A workspace has no X display, so a clipboard write is forwarded to the
-    # browser terminal as an OSC 52 escape sequence instead (issue #125).
+    # browser terminal as an OSC 52 escape sequence instead.
     set -eu
 
     max_bytes=1048576
@@ -1881,7 +1881,7 @@ files:
     RuntimeDirectory=portikus
     RuntimeDirectoryMode=0700
     # The agent uses the tmux server of portikus-terminals.service and never
-    # starts its own (docs/EPIC-16.md, rulings 5 and 12).
+    # starts its own (ADR 0035).
     Environment=TMUX_EXTERNAL_SERVER=true
     ExecStart=/opt/portikus/workspace-agent/bin/workspace-agent
     Restart=on-failure
@@ -1897,7 +1897,7 @@ files:
     WantedBy=multi-user.target
 
 # /tmp is a capped tmpfs, so a huge temporary file fails with "No space left
-# on device" instead of using the workspace's memory (issue #618).
+# on device" instead of using the workspace's memory.
 - path: /etc/fstab
   generator: dump
   mode: "0644"
@@ -1926,7 +1926,7 @@ files:
     [Install]
     WantedBy=sysinit.target
 
-# Writes the terminals unit's exit record (issue #625). With OOMPolicy=continue
+# Writes the terminals unit's exit record. With OOMPolicy=continue
 # systemd reports an out-of-memory kill of tmux as "signal", so the unit's
 # cgroup memory.events tells the two apart.
 - path: /usr/local/sbin/portikus-terminals-exit
@@ -1942,7 +1942,7 @@ files:
     printf '%s\n' "$result" > /run/portikus-terminals/last-exit
 
 # The tmux server for every terminal, in its own cgroup, so terminals survive
-# an agent restart and the agent can be shielded (issues #610 and #619).
+# an agent restart and the agent can be shielded.
 # -f /dev/null: no student or system tmux.conf; the agent sets every option.
 # -D: stay in the foreground and keep running with no sessions.
 - path: /etc/systemd/system/portikus-terminals.service
@@ -1967,7 +1967,7 @@ files:
     OOMPolicy=continue
     # Below the container's 2000, so the agent keeps room to fork.
     TasksMax=1700
-    # The exit record (issue #625): why the terminals last stopped this boot.
+    # The exit record: why the terminals last stopped this boot.
     RuntimeDirectory=portikus-terminals
     RuntimeDirectoryMode=0755
     RuntimeDirectoryPreserve=yes
@@ -2219,7 +2219,7 @@ actions:
     set -eux
 
     # Pinned versions checked 2026-09-15 via npm view; only the admin
-    # "rebuild" job sets these to latest (ruling 23).
+    # "rebuild" job sets these to latest (ADR 0030).
     claude_version="${PORTIKUS_CLAUDE_VERSION:-2.1.273}"
     codex_version="${PORTIKUS_CODEX_VERSION:-0.154.0}"
     for v in "$claude_version" "$codex_version"; do
@@ -2233,7 +2233,7 @@ actions:
       "@anthropic-ai/claude-code@${claude_version}" \
       "@openai/codex@${codex_version}"
 
-# Python 3.14 from uv, only when PORTIKUS_PYTHON=uv-3.14 (ruling 25).
+# Python 3.14 from uv, only when PORTIKUS_PYTHON=uv-3.14.
 # uv installs a checksum-verified standalone build; /usr/bin/python3 stays
 # Debian's, which Debian's own tools need.
 - trigger: post-packages

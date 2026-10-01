@@ -79,8 +79,8 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check_output "BROWSER is portikus-open in a login shell" \
     "BROWSER=/usr/local/bin/portikus-open" ws_student 'env | grep ^BROWSER='
   # Claude Code login must open nothing and offer the paste-code URL, even
-  # with BROWSER set; this catches a new Claude Code that drifts (issue #848,
-  # BROWSER-HANDLING.md 19.2). It stops at the prompt and never logs in.
+  # with BROWSER set; this catches a new Claude Code that drifts
+  # (BROWSER-HANDLING.md 19.2). It stops at the prompt and never logs in.
   # shellcheck disable=SC2016 # the workspace shell expands it
   claude_login_flow() {
     ws_student 'd=$(mktemp -d); echo "#!/bin/sh" > $d/o; echo "touch $d/opened" >> $d/o; chmod +x $d/o; BROWSER=$d/o CLAUDE_CONFIG_DIR=$d timeout 15 claude auth login </dev/null >$d/out 2>&1; if [ ! -e $d/opened ] && grep -q oauth%2Fcode%2Fcallback $d/out; then echo paste-code; fi; rm -rf $d'
@@ -98,7 +98,7 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
     "continue" ws_exec "systemctl show -p OOMPolicy --value portikus-workspace-agent"
 
   # 17aa. Terminals live in their own unit, so the agent can restart without
-  # them and be shielded from a fork bomb (issues #610 and #619, SPEC.md
+  # them and be shielded from a fork bomb (SPEC.md
   # 19.3).
   unit_prop() { ws_exec "systemctl show -p $2 --value $1"; }
   check_output "agent unit has no task cap of its own (TasksMax=infinity)" \
@@ -135,8 +135,7 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
     ws_exec "tr '\\0' '\\n' < /proc/\$(systemctl show -p MainPID --value portikus-terminals)/environ | grep -E '^(NODE_ENV|LOG_LEVEL|TMUX_EXTERNAL_SERVER|HOME)='"
 
   # 17ab0. /tmp and /dev/shm are capped tmpfs mounts, so a huge temporary
-  # file fails for lack of space instead of using the workspace's memory
-  # (issue #618).
+  # file fails for lack of space instead of using the workspace's memory.
   check_output "/tmp is a tmpfs" "tmpfs" ws_exec "findmnt -n -o FSTYPE /tmp"
   check_output "/tmp is capped at 512M" "536870912" ws_exec "df -B1 --output=size /tmp | tail -1 | tr -d ' '"
   check_output "/dev/shm is capped at 256M" "268435456" ws_exec "df -B1 --output=size /dev/shm | tail -1 | tr -d ' '"
@@ -155,7 +154,7 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check "the pane's shell kept running through the full /tmp" ws_exec "kill -0 ${shell_pid:-0}"
 
   # 17ab1. The terminals unit comes back on its own and leaves an exit
-  # record saying why it stopped (issue #625).
+  # record saying why it stopped.
   term_back_after() { # OLD_PID -- a new tmux server within ten seconds
     local i p
     for ((i = 0; i < 10; i++)); do
@@ -186,13 +185,13 @@ if ssh_cmd incus image info portikus --project portikus >/dev/null 2>&1; then
   check "python3 --version"                     ws_student "python3 --version"
 
   # 17a. The image turns off the Claude Code self-updater, which cannot
-  # write the system-wide npm prefix (SPEC.md 10, issue #127).
+  # write the system-wide npm prefix (SPEC.md 10).
   check_output "Claude Code auto-update off in a login shell" \
     "DISABLE_AUTOUPDATER=1" ws_student 'env | grep DISABLE_AUTOUPDATER'
 
   # 17ab. claude typed in a terminal clears tmux's history first, which the
-  # agent turns into a cleared browser scrollback; a plain command keeps it
-  # (issue #886).  A stand-in claude on PATH, in a throwaway tmux server.
+  # agent turns into a cleared browser scrollback; a plain command keeps it.
+  # A stand-in claude on PATH, in a throwaway tmux server.
   # shellcheck disable=SC2016  # expanded by the shell in the workspace
   agent_clear_probe='d=$(mktemp -d); printf "#!/bin/sh\necho FAKE-AGENT; sleep 30\n" > "$d/claude"; chmod +x "$d/claude"
 t() { tmux -L smoke-886 -f /dev/null "$@"; }
@@ -217,7 +216,7 @@ echo "$before $plain $after" >&2
     ws_student 'd=$(mktemp -d) && git -C "$d" init -q && git -C "$d" symbolic-ref --short HEAD; rm -rf "$d"'
 
   # 17ab. The clipboard shim turns a copy into an OSC 52 escape, because
-  # a workspace has no X display (issue #125).  There is no terminal here,
+  # a workspace has no X display.  There is no terminal here,
   # so the shim falls back to stdout and we read the escape from there.
   # The first 12 base64 characters cover ESC ] 5 2 ; c ; and the start of
   # the encoded text.
@@ -256,7 +255,7 @@ echo "$before $plain $after" >&2
   # 20. SSH to VM bridge address blocked from workspace
   check "SSH to VM bridge blocked"              ws_exec '! timeout 3 bash -c "echo >/dev/tcp/10.200.0.1/22" 2>/dev/null'
 
-  # 20a. Docker Hub pulls go through the cache on the gateway (issue #840).
+  # 20a. Docker Hub pulls go through the cache on the gateway (ADR 0045).
   # The controller writes the mirror into daemon.json before each start;
   # workspace.sh does not, so this sets it.  After the first pull fills the
   # cache, a second pull downloads almost nothing on the VM's uplink.
@@ -280,7 +279,7 @@ echo "$before $plain $after" >&2
       bash -c "[ $(second_pull_mib) -ge 0 ] && [ $(second_pull_mib) -lt 4 ] && echo yes"
   fi
 
-  # 20b. Ruling S4: the portikus and nobody accounts cannot reach into a
+  # 20b. The portikus and nobody accounts cannot reach into a
   # workspace's Docker volume on the host, mounted or not, nor the seed.
   # Each path is walked with stat, one part at a time, to the first entry
   # inside the volume; custom/ or an Incus directory above it must refuse them.
@@ -316,7 +315,7 @@ done
 [ "$n" -gt 0 ] || echo "open: no custom volume found under $custom"
 EOF
   }
-  check_zero_lines "portikus and nobody cannot stat into the workspace volumes (S4)" s4_open_paths
+  check_zero_lines "portikus and nobody cannot stat into the workspace volumes" s4_open_paths
 
   # 21. Persistence across stop/start
   echo ""
@@ -325,7 +324,7 @@ EOF
     bad "write persistence marker"
   fi
   # An older agent wrote this import line; the agent removes only that line
-  # at its next start and keeps the student's own (issue #933).
+  # at its next start and keeps the student's own.
   ws_student 'mkdir -p ~/.claude && printf "@~/.codex/AGENTS.md\nsmoke-own-rule\n" > ~/.claude/CLAUDE.md' >/dev/null 2>&1 || true
   ssh_cmd "incus stop ${WS_NAME} --project ${PROJECT}" >/dev/null 2>&1 || true
   ssh_cmd "incus start ${WS_NAME} --project ${PROJECT}" >/dev/null 2>&1 || true

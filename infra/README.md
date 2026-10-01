@@ -117,8 +117,9 @@ first after changing the recipe.
 make smoke-test
 ```
 
-The Epic 2 and Epic 3 blocks of the smoke test need the workspace image,
-so build it first; without it those blocks are skipped, not failed.
+The workspace image and workspace lifecycle blocks of the smoke test need
+the workspace image, so build it first; without it those blocks are
+skipped, not failed.
 
 ### Security test
 
@@ -126,7 +127,7 @@ so build it first; without it those blocks are skipped, not failed.
 make security-test
 ```
 
-This runs the Epic 12a security suite (SPEC.md sections 23 and 24, and the
+This runs the security suite (SPEC.md sections 23 and 24, and the
 Gate C checks of section 30) against the VM. Unlike the smoke test, it is
 safe to run on the live pilot while students use it:
 
@@ -463,7 +464,7 @@ the running binary in place. Dex listens on `127.0.0.1:5556` and Caddy
 serves it at `https://<public-host>:<port>/dex`, which is also its issuer.
 Before a password form post reaches Dex, its own or the LDAP connector's,
 Caddy asks the API's sign-in throttle, because Dex has no lockout of its
-own (#398).
+own (SPEC.md 5.3).
 
 Dex keeps its accounts in its own PostgreSQL database, `dex`, owned by
 the `portikus-dex` role and reached over the local socket (ADR 0028). The
@@ -482,7 +483,7 @@ the API's environment file and Dex's configuration,
 `/etc/portikus-dex/config.yaml` (`root:portikus-dex`, mode 0640). An LDAP
 bind password or an upstream client secret is written there too.
 
-**The users file is retired.** Before Epic 14, Dex's accounts came from a
+**The users file is retired.** Dex's accounts used to come from a
 users file on the machine that runs Ansible. When that file exists
 (`PORTIKUS_USERS_FILE`, by default `~/.config/portikus/users.json`, mode
 0600) and Dex's storage holds no passwords, the play imports every entry
@@ -539,7 +540,7 @@ not sign everyone out.
 
 LTI 1.3 (Learning Tools Interoperability) lets a student open Portikus
 from a course in a learning management system (LMS) such as Canvas or
-Moodle, without a second password (docs/archive/epics/EPIC-13.md). The LMS is called the
+Moodle, without a second password (ADR 0025). The LMS is called the
 platform. docs/OPERATIONS.md says which LMS fields to fill in.
 
 Platforms are registered in a file on the machine that runs Ansible, by

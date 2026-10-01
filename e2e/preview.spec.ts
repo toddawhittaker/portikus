@@ -221,7 +221,7 @@ test.describe("application preview", () => {
 		context,
 	}) => {
 		// The agent's own forward must not make the port look like a system
-		// service and hide the student's server (issue #299).
+		// service and hide the student's server.
 		const student = await createStudent(context);
 		await seedListening(student.workspaceId, [
 			{
@@ -264,7 +264,7 @@ test.describe("application preview", () => {
 		await expect(page.getByTestId("running-reason-5355")).toHaveText("System service");
 		await expect(page.getByTestId("running-stop-5355")).toHaveCount(0);
 
-		// The choice is remembered per browser (issue #265).
+		// The choice is remembered per browser.
 		await page.reload();
 		await page.getByTestId("right-pane-tab-running").click();
 		await expect(page.getByTestId("running-row-5355")).toBeVisible({ timeout: 20_000 });
@@ -340,7 +340,7 @@ test.describe("application preview", () => {
 		await page.getByTestId("launcher-preview").click();
 		await page.getByLabel("Port").fill("80");
 		await page.getByTestId("preview-open-port").click();
-		// The state says what to do instead and offers no retry (review S6).
+		// The state says what to do instead and offers no retry.
 		await expect(
 			page.getByRole("heading", { name: "Port 80 cannot be previewed" }),
 		).toBeVisible({ timeout: 20_000 });
@@ -586,7 +586,7 @@ test.describe("application preview", () => {
 			await page.goto(workspacePath(student.workspaceId, project.id));
 			await expect(appHeading(page)).toHaveText("Tip", { timeout: 20_000 });
 
-			// Icons with names, not words (review S7).
+			// Icons with names, not words.
 			await expect(page.getByTestId("preview-back")).toHaveAccessibleName("Back");
 			await expect(page.getByTestId("preview-back")).toHaveText("");
 			await expect(page.getByTestId("preview-forward")).toHaveAccessibleName("Forward");

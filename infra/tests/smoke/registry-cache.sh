@@ -111,7 +111,7 @@ sys.exit(0 if s[\"sizeBytes\"] > 0 and s[\"hubUp\"] and age.total_seconds() < 18
   fi
 
   # A credential change clears the cache: a marker root leaves on the
-  # cache's filesystem is gone after each (ruling S5).
+  # cache's filesystem is gone after each.
   if ssh_cmd "sudo test -e /etc/portikus/registry/hub-credential.json"; then
     echo "SKIP  credential set and clear (a real Hub credential is set)"
   else

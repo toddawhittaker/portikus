@@ -14,7 +14,7 @@ refreshes the lists inside a running workspace on its usual daily schedule.
 The image installs a small clipboard shim at `/usr/local/bin/xclip`, with
 `xsel` and `pbcopy` as symbolic links to it. A workspace has no X display, so
 the shim reads what it is given and writes it to the terminal as an OSC 52
-escape sequence, which tmux passes through to the browser (issue #125).
+escape sequence, which tmux passes through to the browser.
 Reading the clipboard is not possible, so `xclip -o` prints nothing.
 
 The recipe takes four build parameters from the environment: the Node

@@ -1,6 +1,6 @@
 ---
-# Docker pull-through caches on the workspace gateway (issue #840, security
-# rulings S1, S3 and S7).  Debian's docker-registry in proxy mode, as its own
+# Docker pull-through caches on the workspace gateway (ADR 0045, SPEC.md
+# 16.6).  Debian's docker-registry in proxy mode, as its own
 # user, on its own loop-file filesystem.  The units and the root cache
 # helper come with the portikus package; the helper writes the registry
 # configs and applies the admin page's requests.  This role makes what they
@@ -73,7 +73,7 @@
   notify: Restart portikus-api
 
 # The registry sends it with each notification; root writes it into the
-# configs, and the worker checks it (ruling S7).
+# configs, and the worker checks it.
 - name: Generate the notification token
   ansible.builtin.shell:
     cmd: umask 077 && openssl rand -hex 32 > {{ registry_cache_config_dir }}/events-token
@@ -109,7 +109,7 @@
     creates: "{{ registry_cache_config_dir }}/ghcr-default-on"
 
 # The authority may sign only ghcr.io, and workspaces trust it only through
-# /etc/docker/certs.d (ruling S3).  Its key stays root's.
+# /etc/docker/certs.d.  Its key stays root's.
 - name: Create the ghcr.io cache's authority and certificate
   ansible.builtin.shell:
     chdir: "{{ registry_cache_config_dir }}"
@@ -155,7 +155,7 @@
     - ghcr-ca.crt
     - ghcr.crt
 
-# ── The cache's own filesystem (ruling S1) ────────────────────────
+# ── The cache's own filesystem ────────────────────────────────────
 
 - name: Look at the cache's file
   ansible.builtin.stat:
@@ -210,7 +210,7 @@
           registries.  Free some space and run portikus setup again to turn it on.
 
     # The units' condition skips them from here on, so nothing points at an absent cache.
-    # The cache helper shows the marker's one line on the admin Docker tab (issue #931).
+    # The cache helper shows the marker's one line on the admin Docker tab.
     - name: Mark the cache off, with the reason
       ansible.builtin.copy:
         dest: "{{ registry_cache_off_marker }}"

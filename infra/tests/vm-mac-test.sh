@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests that the pilot and rehearsal VMs have fixed MAC addresses in their
-# committed variables (issue #834), so a destroyed and recreated VM gets the
+# committed variables, so a destroyed and recreated VM gets the
 # same DHCP address.  Needs tofu, no VM and no state.
 # shellcheck disable=SC2154  # pass and fail come from lib.sh
 set -uo pipefail

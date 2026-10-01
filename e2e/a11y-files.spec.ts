@@ -9,8 +9,7 @@ import {
 } from "./helpers";
 
 /**
- * The file tree and the project list from the keyboard alone (SPEC.md §25.8,
- * issues #361, #366, #370).
+ * The file tree and the project list from the keyboard alone (SPEC.md §25.8).
  */
 test.describe("file tree accessibility", () => {
 	async function openProject(

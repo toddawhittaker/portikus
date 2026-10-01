@@ -231,7 +231,7 @@
     apply:
       tags: portikus
 
-# ── LTI launch (docs/archive/epics/EPIC-13.md) ─────────────────────────────────
+# ── LTI launch (ADR 0025) ────────────────────────────────────────
 # After api.env, which names the files these tasks write.
 - name: Apply the LTI platforms file and tool key
   ansible.builtin.import_tasks: lti.yml
@@ -309,7 +309,7 @@
     enabled: true
   when: portikus_image_job_units.results[1].stat.exists
 
-# The daily release check (issue #861); a package from before it has no timer.
+# The daily release check; a package from before it has no timer.
 - name: Look for the release check's timer
   ansible.builtin.stat:
     path: /usr/lib/systemd/system/portikus-image-check.timer

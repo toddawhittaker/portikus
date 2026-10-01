@@ -9,7 +9,7 @@ import {
 } from "./helpers";
 
 /**
- * Check action colours (SPEC.md §18.1, issue #324). The play icon uses the
+ * Check action colours (SPEC.md §18.1). The play icon uses the
  * running status token and the stop icon the danger token, in both themes.
  * The accessible names stay "Run …" and "Stop …"; colour is extra.
  */

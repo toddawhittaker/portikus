@@ -1,5 +1,5 @@
 ---
-# The base role's decision after a failed apt index refresh (#825), tried
+# The base role's decision after a failed apt index refresh, tried
 # with apt-get output recorded from Debian 13's apt 3.0: a Portikus
 # repository that cannot be reached or verified is a warning, and any
 # failure of another repository stops the run.  `make infra-check` runs it.

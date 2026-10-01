@@ -128,8 +128,8 @@ else
   check_output "the Logs tab finds no line with the terminal's input or output" "0" logs_count_mark
 
   # Every login shell reads /etc/profile.d/portikus.sh, which the
-  # controller writes at start, so a terminal knows the preview suffix
-  # (issue #263).  The typed command holds only the variable name, so the
+  # controller writes at start, so a terminal knows the preview suffix.
+  # The typed command holds only the variable name, so the
   # suffix can only appear once the shell has expanded it.
   # shellcheck disable=SC2016  # the shell inside the workspace expands it
   check "terminal shell knows the preview host suffix" \
@@ -137,7 +137,7 @@ else
     "$PREVIEW_SUFFIX" - 30000
 
   # The workspace runs in the deployment's default zone unless the
-  # student picked another (issue #287). The typed command holds only
+  # student picked another. The typed command holds only
   # the variable name, so the zone can only appear once the shell has
   # expanded it.
   # shellcheck disable=SC2016  # the shell inside the workspace expands it
@@ -145,7 +145,7 @@ else
     term_probe "$term_id" 'echo $TZ' "America/New_York" - 30000
 
   # The controller writes both agents' system instructions from the
-  # package's template at every start (issue #933). The agent tree is
+  # package's template at every start. The agent tree is
   # bind-mounted, so the template is visible inside the workspace.
   check "Claude Code's system instructions are the package template" \
     ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- sh -c 'cmp -s /opt/portikus/workspace-agent/agent-instructions.md /etc/claude-code/CLAUDE.md && [ \"\$(stat -c %U:%a /etc/claude-code/CLAUDE.md)\" = root:644 ]'"
@@ -154,7 +154,7 @@ else
 
   # A student who changes the zone gets it in the next terminal they
   # open, without restarting the workspace: the agent puts TZ in the new
-  # tmux session's environment (issue #287).  The abbreviation is worked
+  # tmux session's environment.  The abbreviation is worked
   # out on the VM so the check does not hard-code daylight saving.
   chosen_zone="America/Los_Angeles"
   chosen_abbrev=$(ssh_cmd "TZ=${chosen_zone} date +%Z")
@@ -194,7 +194,7 @@ else
   check "second socket on the same terminal sees new output" wait "$watcher_pid"
 
   # The tmux server lives in its own unit, so an agent restart keeps the
-  # terminal and reattaching replays it (issue #610).
+  # terminal and reattaching replays it.
   echo ""
   echo "Restarting the workspace agent..."
   in_ws() { ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- $*"; }
@@ -213,7 +213,7 @@ else
     term_probe "$term_id" - "$mark2" - 30000
 
   # A tutorial's tmux kill-server reaches the student's own tmux, not
-  # the Portikus server, because the shell has no TMUX (issue #620).
+  # the Portikus server, because the shell has no TMUX.
   kill_a="KILL-${RANDOM}"
   kill_b="${RANDOM}"
   check "tmux kill-server typed in a terminal runs" \
@@ -221,7 +221,7 @@ else
   check "the terminal's tmux session survived tmux kill-server" tmux_has_session "$term_id"
 
   # A broken ~/.tmux.conf and a ~/.bashrc that exits still let a new
-  # terminal open; the shell skips the .bashrc and says so (issue #620).
+  # terminal open; the shell skips the .bashrc and says so.
   in_ws su -l student -c "'cp ~/.bashrc ~/.bashrc.smoke && echo exit >> ~/.bashrc \
         && echo \"set -g default-command exit\" > ~/.tmux.conf'" >/dev/null 2>&1
   broken_id=$(new_terminal | json_field id)

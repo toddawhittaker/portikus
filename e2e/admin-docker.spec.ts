@@ -18,7 +18,7 @@ import {
 } from "./registry-jobs";
 
 /**
- * The Docker tab (issue #840) against the real API. The tests play the root
+ * The Docker tab against the real API. The tests play the root
  * cache helper (its request files and status.json) and the worker (the seed
  * job rows and the usage tables) by hand.
  */
@@ -215,7 +215,7 @@ test("the ghcr.io switch is on by default, says what breaks, and round-trips", a
 	await expect(toggle).not.toBeChecked();
 	await writeRegistryStatus();
 
-	// A ghcr.io name is refused while the cache is off (ruling S8).
+	// A ghcr.io name is refused while the cache is off.
 	const add = page.getByTestId("docker-seed").getByLabel("Image", { exact: true });
 	await add.fill("ghcr.io/owner/tool:1");
 	await page.getByRole("button", { name: "Add image" }).click();
@@ -751,7 +751,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 }
 
 /**
- * The drift notice (issue #932, ruling R4). The API reads the default image's
+ * The drift notice (SPEC.md §16.6). The API reads the default image's
  * manifest from the image store, which admin-image.spec.ts resets while this
  * file runs, so these tests add the image's match to the real answer in the
  * browser. The API tests cover reading the manifest, the default list and the

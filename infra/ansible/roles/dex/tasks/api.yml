@@ -3,7 +3,7 @@
 # role includes this before it writes api.env.
 
 # The package made the portikus group, so the client key can be handed to it
-# now (ruling 20: root:portikus, mode 0640).  The API reads the client files
+# now (root:portikus, mode 0640; ADR 0028).  The API reads the client files
 # when it starts, so new certificates, from here or the dex role, restart it.
 - name: Give the API the gRPC client key
   ansible.builtin.script:
@@ -14,7 +14,7 @@
   changed_when: "'changed' in dex_grpc_client.stdout or (dex_grpc_certs | default({})) is changed"
   notify: Restart portikus-api
 
-# ── The one-time users-file import (docs/archive/epics/EPIC-14.md ruling 23) ────
+# ── The one-time users-file import (ADR 0028) ────────────────────
 # Only while a users file is given.  The command's first run, whether it
 # imports or finds Dex already holding passwords, marks the site imported,
 # so every later run changes nothing.

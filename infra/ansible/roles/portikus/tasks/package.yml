@@ -1,7 +1,7 @@
 ---
 # The Debian package, for a run from a workstation (main.yml).
 
-# ── Remove the Epic 3 interim deployment ──────────────────────────
+# ── Remove the interim deployment from before the package ────────
 # A VM configured before ADR 0007 has hand-written units, an rsynced app
 # directory, and a global pnpm.  The package owns those names now, so an
 # existing VM has to be cleaned before the package is installed.

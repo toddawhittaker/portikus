@@ -249,7 +249,7 @@ class Snippets(unittest.TestCase):
 
 
 class Validation(JobTest):
-    """The job refuses everything the zod schemas refuse; it never trusts the API (Epic 27 R7)."""
+    """The job refuses everything the zod schemas refuse; it never trusts the API."""
 
     def refused(self, raw, message=None):
         path = Path(self.runner.jobs_dir, f"request-{ID}.json")
@@ -571,7 +571,7 @@ class Apply(JobTest):
 
 
 class Uploads(JobTest):
-    """openssl checks each upload and names the check that failed (Epic 27 R9)."""
+    """openssl checks each upload and names the check that failed."""
 
     def apply_files(self, settings, job_id=ID):
         return self.submit({"kind": "apply", "settings": settings}, job_id)
@@ -587,7 +587,7 @@ class Uploads(JobTest):
         key = Path(self.tree.state("files/site.key"))
         self.assertEqual(stat.S_IMODE(key.stat().st_mode), 0o640)
         self.assertNotIn(CERTS.pem("site", "key"), self.everything_written())
-        # The API trusts the uploaded chain too (Epic 27 R14), and restarts once for it.
+        # The API trusts the uploaded chain too, and restarts once for it.
         self.assertIn(CERTS.pem("inter"), Path(self.runner.trust_bundle).read_text())
         self.assertEqual(len(self.fake.ran("systemctl", "try-restart", "portikus-api.service")), 1)
 

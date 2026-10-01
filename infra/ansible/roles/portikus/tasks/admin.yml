@@ -38,7 +38,7 @@
              portikus_local_admin.stdout_lines | join('  ') }}
       when: portikus_local_admin.rc in [0, 10]
 
-    # It holds a password that no longer works (ruling 15).
+    # It holds a password that no longer works.
     - name: Remove the spent one-time password
       ansible.builtin.file:
         path: /etc/portikus/admin-password

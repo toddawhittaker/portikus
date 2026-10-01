@@ -264,7 +264,7 @@ test("shows how many workspaces run each image version", async ({ page, browser 
 	await expect(page.getByTestId("image-default-workspaces")).toHaveText("2");
 });
 
-test("delete an old image: the confirmation counts its workspaces, then it is gone (issue #936)", async ({
+test("delete an old image: the confirmation counts its workspaces, then it is gone", async ({
 	page,
 	browser,
 }) => {
@@ -312,7 +312,7 @@ test("delete an old image: the confirmation counts its workspaces, then it is go
 	expect(audits.map((r) => r.metadata)).toEqual([{ kind: "delete", version: NEWEST }]);
 });
 
-test("the default and the previous image cannot be deleted, in the page or the API (issue #936)", async ({
+test("the default and the previous image cannot be deleted, in the page or the API", async ({
 	page,
 }) => {
 	await open(page);
@@ -335,7 +335,7 @@ test("the default and the previous image cannot be deleted, in the page or the A
 	expect(await requestFiles()).toEqual([]);
 });
 
-test("shows each image's compressed size and the main disk's free space (issue #936)", async ({
+test("shows each image's compressed size and the main disk's free space", async ({
 	page,
 }) => {
 	await putImage({
@@ -384,7 +384,7 @@ test("a second request while one waits is refused", async ({ page }) => {
 	);
 });
 
-/** What the daily `image-job check` would write, a newer image and package (issue #861). */
+/** What the daily `image-job check` would write, a newer image and package. */
 async function putPublished(
 	image: string,
 	pkg: { installed: string; available: string },

@@ -10,9 +10,9 @@ import {
 } from "./helpers";
 
 /**
- * The Help page (Epic 25): the account menu opens it in a new tab, each role
+ * The Help page (SPEC.md section 8.6): the account menu opens it in a new tab, each role
  * sees its parts, anchors land on their topic, and it passes axe in both
- * themes (SPEC.md section 25.8). Also the shared chrome P1 changed: the
+ * themes (SPEC.md section 25.8). Also the shared chrome: the
  * account menu keeps off the window edge, and dialogs follow the density of
  * what opened them.
  */
@@ -104,9 +104,7 @@ test("a part's anchor focuses the part heading, and a broken anchor still shows 
 	expect(await partHeadings(page)).toEqual(PARTS.administrator);
 });
 
-test("the account menu keeps 8 px off the window edge (Epic 25 N2)", async ({
-	page,
-}) => {
+test("the account menu keeps 8 px off the window edge", async ({ page }) => {
 	await loginAs(page, "carol");
 	await page.goto("/admin");
 	await page.getByTestId("me").click();
@@ -118,7 +116,7 @@ test("the account menu keeps 8 px off the window edge (Epic 25 N2)", async ({
 	expect(width - ((box?.x ?? 0) + (box?.width ?? 0))).toBeGreaterThanOrEqual(8);
 });
 
-test("a dialog opened on the compact admin page is compact too (Epic 25 N1)", async ({
+test("a dialog opened on the compact admin page is compact too", async ({
 	page,
 	browser,
 }) => {
@@ -155,7 +153,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 	});
 }
 
-/** Settings links here for keys and screen-reader limits (Epic 25 S4). */
+/** Settings links here for keys and screen-reader limits. */
 test("a student lands on the keyboard topic from its anchor", async ({ browser }) => {
 	const page = await pageAs(browser, "student");
 	await page.goto("/help#student-keyboard");

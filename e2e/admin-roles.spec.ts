@@ -12,8 +12,8 @@ import {
 } from "./helpers";
 
 /**
- * The Users view: search, roles, promote and demote (docs/archive/epics/EPIC-13-1.md
- * rulings 23 and 24). Carol is the mock provider's administrator. Every test
+ * The Users view: search, roles, promote and demote (ADR 0026). Carol is
+ * the mock provider's administrator. Every test
  * promotes its own fresh account rather than the shared mock `alice`, because
  * admin.spec.ts checks at the same time that alice has no Administration link.
  */

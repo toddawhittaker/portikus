@@ -9,11 +9,10 @@
 # These checks run only when the portikus-api service is active (i.e.
 # code has been deployed).  Everything goes through Caddy on the public
 # host name, with a session cookie for each of three users, so the block
-# also covers Epic 4: roles, ownership, CSRF, and the authenticated presence
+# also covers roles, ownership, CSRF, and the authenticated presence
 # WebSocket.  With the mock provider the users sign in through it.  With any
 # other provider they are made in PostgreSQL with a session, as the security
-# suite does, so the block needs no password and works with IT's provider too
-# (docs/archive/epics/EPIC-12B.md, "Other Part A decisions").
+# suite does, so the block needs no password and works with IT's provider too.
 
 echo ""
 echo "--- Control plane ---"
@@ -256,7 +255,7 @@ check_output "a student is refused the admin settings" "403" \
   http_status bob "${API}/admin/settings"
 # The Logs tab reads that refusal back from the journal (docs/adr/0036):
 # an info line from the API with the 403 and the path, since a 4xx is not
-# a warning (issue #859).
+# a warning.
 logs_show_bob_403() {
   for _ in $(seq 1 5); do
     if vm_get carol "${API}/admin/logs?level=info&service=api" | python3 -c '

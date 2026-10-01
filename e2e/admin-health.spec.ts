@@ -43,7 +43,7 @@ async function seedSample(
 	);
 }
 
-/** A sample with Epic 19's host rates and running count (#598 items 2, 6 to 8). */
+/** A sample with host rates and a running count. */
 async function seedPlatformSample(
 	minutesAgo: number,
 	reachable: boolean,
@@ -224,7 +224,7 @@ test.describe("admin health", () => {
 	});
 
 	test("a chart with no samples shows one line and no axis", async ({ page }) => {
-		// A sample without Epic 19's host rates: CPU, network and disk have none.
+		// A sample without host rates: CPU, network and disk have none.
 		await seedSample(50, 0);
 		await openHealth(page);
 
@@ -349,7 +349,7 @@ test.describe("admin health", () => {
 		}) => {
 			await page.emulateMedia({ colorScheme });
 			await seedSample(50, 0);
-			// The report is real apart from the notice, which the daily check would set (issue #861).
+			// The report is real apart from the notice, which the daily check would set.
 			await page.route("**/admin/health", async (route) => {
 				const response = await route.fetch();
 				const report = await response.json();

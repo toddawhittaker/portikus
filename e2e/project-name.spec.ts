@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { createProject, createStudent, workspacePath } from "./helpers";
 
 /**
- * The projects pane shows the name only (issue #323, SPEC.md §7.1).
+ * The projects pane shows the name only (SPEC.md §7.1).
  * The directory slug stays where it names the folder: the status-bar path.
  */
 test("the project list shows the name and not the directory slug", async ({

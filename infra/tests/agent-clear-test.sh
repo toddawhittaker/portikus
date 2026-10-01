@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests the claude and codex shell functions in the workspace image's
-# /etc/profile.d/portikus-agents.sh (issue #886): typed by hand in a
+# /etc/profile.d/portikus-agents.sh: typed by hand in a
 # terminal they clear it first, and scripts and pipes get the plain command.
 # The file is embedded in the image definition, so the test extracts it and
 # runs it with stand-ins for clear, claude and codex.  Needs no VM.

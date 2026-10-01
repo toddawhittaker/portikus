@@ -149,7 +149,7 @@ export async function createStudent(
 			workspaceId,
 			userId,
 			// Labels are unique, so each test workspace gets the fallback form
-			// the API would give a user with no username (SPEC.md Epic 8).
+			// the API would give a user with no username (SPEC.md §14.3).
 			`ws-${workspaceId.replace(/-/g, "").slice(0, 8)}`,
 			`ws-${workspaceId.replace(/-/g, "").slice(0, 24)}`,
 			options.state ?? "running",
@@ -222,7 +222,7 @@ export function projectPath(slug: string): string {
 	return `/home/student/projects/${slug}`;
 }
 
-/** The web route of a workspace, and of one project inside it (plan, E1). */
+/** The web route of a workspace, and of one project inside it. */
 export function workspacePath(workspaceId: string, projectId?: string): string {
 	return projectId
 		? `/workspaces/${workspaceId}/projects/${projectId}`
@@ -371,7 +371,7 @@ export async function removeProjectDir(
 
 /**
  * Rename a project directory the way `mv` in the workspace shell does: the
- * same directory under a new name, so its identity is unchanged (issue #238).
+ * same directory under a new name, so its identity is unchanged.
  */
 export async function moveProjectDir(
 	workspaceId: string,

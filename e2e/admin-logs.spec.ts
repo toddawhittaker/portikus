@@ -2,7 +2,7 @@ import { type Browser, expect, type Page, test } from "@playwright/test";
 import { createStudent, loginAs, openToggletip, query, WEB_ORIGIN } from "./helpers";
 
 /**
- * The Logs tab (SPEC.md section 24.11, issue #476). The e2e API's
+ * The Logs tab (SPEC.md section 24.11). The e2e API's
  * standard output is the fake journalctl's journal, so a warning the API
  * really logs shows up here. Each test makes its own student, so it can
  * filter to lines no other test wrote. The API runs at most two journalctl
@@ -183,7 +183,7 @@ test.describe("admin logs", () => {
 		await page.getByRole("button", { name: `Show details for ${warned.name}` }).click();
 		const panel = page.getByRole("region", { name: warned.name });
 		await expect(panel.getByText(/journalctl/)).toHaveCount(0);
-		// The workspace's logs link sits in the panel's Recent audit section (Epic 25, R2).
+		// The workspace's logs link sits in the panel's Recent audit section.
 		await panel
 			.getByRole("region", { name: "Recent audit events" })
 			.getByRole("link", { name: "Logs for this workspace" })
@@ -320,7 +320,7 @@ test.describe("admin logs", () => {
 		await expect(page).not.toHaveURL(/user=/);
 	});
 
-	test("Load older lines pages back within the time window (issue #703)", async ({
+	test("Load older lines pages back within the time window", async ({
 		page,
 		browser,
 	}) => {

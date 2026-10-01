@@ -1,4 +1,4 @@
-# Portikus daily release check (issue #861): runs portikus-image-check.service.
+# Portikus daily release check: runs portikus-image-check.service.
 [Unit]
 Description=Daily Portikus check for a newer workspace image or package
 

@@ -271,7 +271,7 @@ function startApp(
 			const cookie = document.cookie === "" ? "none" : document.cookie;
 			document.getElementById("cookie").textContent = "cookie:" + cookie;
 			// A single-page route change, which leaves an entry in the joint
-			// history without loading the frame again (issue #271).
+			// history without loading the frame again.
 			document.getElementById("push").addEventListener("click", () => {
 				history.pushState({}, "", "/pushed");
 				document.getElementById("title").textContent = "pushed route";
@@ -758,8 +758,8 @@ test.describe("the preview in a real browser", () => {
 		page,
 		context,
 	}) => {
-		// The Running row uses the same single-tab pattern as the Preview tab
-		// (issues #261, #272), so one click must leave exactly one new page.
+		// The Running row uses the same single-tab pattern as the Preview tab,
+		// so one click must leave exactly one new page.
 		const student = await createStudent(context);
 		await previewGateway(context);
 		const app = await startPreview(student.workspaceId, "Row tab");
@@ -856,7 +856,7 @@ test.describe("the preview in a real browser", () => {
 
 	/**
 	 * A development server that refuses the preview host is explained, with
-	 * the exact line to paste (issue #262).
+	 * the exact line to paste.
 	 */
 	test("a dev server refusing the preview host is explained", async ({
 		page,
@@ -884,7 +884,7 @@ test.describe("the preview in a real browser", () => {
 
 	/**
 	 * Back and Forward step the joint history, including across a `pushState`
-	 * route change, and never move the Portikus page (issue #271).
+	 * route change, and never move the Portikus page.
 	 */
 	test("Back and Forward step the preview's history", async ({ page, context }) => {
 		const student = await createStudent(context);
@@ -927,7 +927,7 @@ test.describe("the preview in a real browser", () => {
 	/**
 	 * Back on a preview the student has not navigated must do nothing at all.
 	 * It used to step the joint history and try to undo the step 300 ms later,
-	 * which unloaded the whole workspace (issue #283).
+	 * which unloaded the whole workspace.
 	 */
 	test("Back on a fresh preview leaves Portikus where it was", async ({
 		page,
@@ -959,8 +959,8 @@ test.describe("the preview in a real browser", () => {
 	});
 
 	/**
-	 * One press of Back per entry the frame made, and not one more (issue
-	 * #283). The list of history entries does not get shorter when the
+	 * One press of Back per entry the frame made, and not one more. The list
+	 * of history entries does not get shorter when the
 	 * browser steps back through it, so counting entries is not enough: the
 	 * guard has to count the steps it has taken, or Back keeps going and
 	 * walks into the Portikus page's own entries. The workspace page here is
@@ -1026,7 +1026,7 @@ test.describe("the preview in a real browser", () => {
 
 	/**
 	 * The same counting, for a single-page application that changes route
-	 * with `pushState` and never loads a page (issue #283). Two route changes
+	 * with `pushState` and never loads a page. Two route changes
 	 * are two presses of Back, and the third is refused.
 	 */
 	test("two in-frame route changes are two presses of Back", async ({
@@ -1071,7 +1071,7 @@ test.describe("the preview in a real browser", () => {
 
 	/**
 	 * The states are a compact stack in the middle of the pane, not a column
-	 * stretched from top to bottom (issue #275).
+	 * stretched from top to bottom.
 	 */
 	test("an inactive preview is one compact stack in the middle", async ({
 		page,

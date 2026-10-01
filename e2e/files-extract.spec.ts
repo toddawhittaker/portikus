@@ -11,7 +11,7 @@ import {
 } from "./helpers";
 
 /**
- * "Extract here" in the Files pane (issue #817; SPEC.md §11.1, §11.2). A
+ * "Extract here" in the Files pane (SPEC.md §11.1, §11.2). A
  * student uploads a zip, extracts it, and sees its files in the tree; a
  * taken folder name gets a number, and an unsafe zip is explained.
  */

@@ -2,7 +2,7 @@
 # table (ADR 0038), loaded without Node by /usr/lib/portikus/egress-guard.sh
 # when the helper left no table after an allow-list.  It must equal the
 # helper's renderDropAll(); render.test.ts compares them.  It also closes
-# the Docker caches, so a failed helper cannot open them (issue #840, S2).
+# the Docker caches, so a failed helper cannot open them.
 table inet portikus_egress {
 	set names_v4 {
 		type ipv4_addr

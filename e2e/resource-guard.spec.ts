@@ -144,7 +144,7 @@ test("the slowed-down notice's Restart workspace… opens Restart's confirmation
 	await expect(page.getByTestId("dialog-workspace-status")).toBeVisible();
 });
 
-test("Restart from the throttle notice waits while the state settles, then restarts (#707)", async ({
+test("Restart from the throttle notice waits while the state settles, then restarts", async ({
 	page,
 	context,
 }) => {

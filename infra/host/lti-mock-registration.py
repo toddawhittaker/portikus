@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Add or remove the mock LMS registration in the LTI platforms file.
 
-Used by `make lti-mock-register` and `make lti-mock-unregister`
-(docs/archive/epics/EPIC-13.md, ruling 26).  Other registrations are left as they are.
+Used by `make lti-mock-register` and `make lti-mock-unregister`.  Other
+registrations are left as they are.
 Removing the last registration deletes the file, which turns LTI off.
 """
 import argparse

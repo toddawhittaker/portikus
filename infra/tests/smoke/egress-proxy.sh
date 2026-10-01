@@ -4,8 +4,7 @@
 # shellcheck disable=SC2154  # set by smoke-test.sh and the files sourced before this one
 # shellcheck disable=SC2034  # read by the files sourced after this one
 
-# ADR 0027.
-# Every SSO sign-in and LMS launch depends on it (docs/archive/epics/EPIC-14.md risk 1).
+# Every SSO sign-in and LMS launch depends on it (ADR 0027).
 echo "--- Egress proxy ---"
 echo ""
 check "squid is active"  ssh_cmd systemctl is-active squid

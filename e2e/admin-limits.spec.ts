@@ -74,7 +74,7 @@ test("an administrator sets limits, sees them pending, then applied", async ({
 	const dialog = page.getByRole("dialog", {
 		name: `Limits for ${student.name}'s workspace`,
 	});
-	// Each blank field says what it falls back to (S4), memory in MiB and GiB (N6).
+	// Each blank field says what it falls back to, memory in MiB and GiB.
 	await expect(dialog.getByLabel("Memory (MiB)")).toHaveAccessibleDescription(
 		"Site value: 4,096 MiB (4 GiB). Below what the workspace uses now, the kernel stops its largest process.",
 	);

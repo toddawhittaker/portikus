@@ -1,8 +1,8 @@
-# Portikus root cache helper (issue #840, the pattern of ADR 0030).
+# Portikus root cache helper (the pattern of ADR 0030).
 # Started by portikus-registry-job.path for each request the API writes:
 # clear the Docker cache, turn the ghcr.io cache on or off, and set or
 # remove the Docker Hub credential. It reads and deletes each request file
-# first, and logs only the request's kind (security ruling S5).
+# first, and logs only the request's kind.
 [Unit]
 Description=Portikus Docker cache helper
 ConditionPathIsDirectory=/var/lib/portikus/registry-jobs

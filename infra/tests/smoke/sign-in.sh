@@ -156,7 +156,7 @@ print(me.get("email", "").lower(), me.get("role", "") in ("student", "instructor
   fi
   ssh_cmd "rm -f ${SIGNIN_JAR}" >/dev/null 2>&1 || true
 
-  # The password form is limited per address (#398).  The limit is the
+  # The password form is limited per address (SPEC.md 5.3).  The limit is the
   # packages/config default unless api.env raises it.
   password_limit=$(api_env PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES)
   password_limit="${password_limit:-30}"

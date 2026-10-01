@@ -7,7 +7,7 @@
 # sign-in provider routes depend on.
 # Needs no VM.  When a caddy binary is found (on PATH, or named by CADDY),
 # the rendered file is also run through `caddy validate`, and a live Caddy
-# on loopback proxies to stand-in plain and TLS upstreams (#283).
+# on loopback proxies to stand-in plain and TLS upstreams (ADR 0041).
 # shellcheck disable=SC2154  # pass and fail come from lib.sh
 set -uo pipefail
 
@@ -312,7 +312,7 @@ echo "--- Application virtual host is unchanged ---"
 has "the control plane still refuses to be framed" "frame-ancestors 'none'" "${app}"
 
 echo ""
-echo "--- LTI launch and the Course page (docs/archive/epics/EPIC-13.md, rulings 17 and 23) ---"
+echo "--- LTI launch and the Course page (ADR 0025) ---"
 
 # Everything but /lti/* keeps frame-ancestors 'none'; the API sends the
 # platforms' own frame-ancestors on /lti/*, and two policies would conflict.
@@ -335,7 +335,7 @@ lacks "the control plane has no preview routes" '__portikus' "${app}"
 lacks "the control plane does not import the preview steps" 'import portikus_preview' "${app}"
 
 echo ""
-echo "--- Sign-in provider routes (docs/adr/0023, #398) ---"
+echo "--- Sign-in provider routes (docs/adr/0023) ---"
 
 has "Dex is served under /dex on the application host" \
   '^[[:space:]]+handle /dex/\* \{$' "${app}"
@@ -480,7 +480,7 @@ has "the global options keep Caddy's internal authority, so its root exists what
   '^[[:space:]]+ca local$' "${work}/global-block"
 
 echo ""
-echo "--- Reloads keep WebSockets open (Epic 27 R19) ---"
+echo "--- Reloads keep WebSockets open ---"
 
 count_is "the API's WebSocket proxy and the preview proxies delay closing streams on a reload" 2 \
   '^[[:space:]]+stream_close_delay 1h$' "${rendered}"
@@ -526,7 +526,7 @@ else
   done
 
   echo ""
-  echo "--- Live: TLS and plain upstreams behind the preview host (#283) ---"
+  echo "--- Live: TLS and plain upstreams behind the preview host (ADR 0041) ---"
 
   # A stand-in API answers /preview/authorize by the first label of the
   # preview host, as the real API answers from its registry: "tls" names a

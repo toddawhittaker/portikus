@@ -198,7 +198,7 @@ if [ -n "$ws_instance" ]; then
     http_status alice "${API}/workspaces/${ws_id}/start" "-X POST -H 'Origin: ${API}'" >/dev/null
     wait_for_state running 60 >/dev/null
     sleep 5
-    check "persistence marker survives restart (Epic 2 re-check)" \
+    check "persistence marker survives restart" \
       ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- su -l student -c 'cat ~/projects/.epic3-marker'" 2>/dev/null
   fi
 fi

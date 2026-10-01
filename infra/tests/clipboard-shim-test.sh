@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests the clipboard shim the workspace image installs as /usr/local/bin/xclip
-# (issue #125).  The shim is embedded in the image definition, so the test
+# Tests the clipboard shim the workspace image installs as /usr/local/bin/xclip.
+# The shim is embedded in the image definition, so the test
 # extracts it, links it under its other names, and runs it with /bin/sh.
 # Needs no VM: everything happens in a temporary directory.
 # shellcheck disable=SC2154  # pass and fail come from lib.sh

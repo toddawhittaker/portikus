@@ -133,7 +133,7 @@ test("closing the dialog on a stopped workspace shows a Start button, not a spin
 	await expect(page.getByTestId("workspace-start")).toBeEnabled({ timeout: 15_000 });
 
 	// Clicking outside the dialog closes it; what is behind must not pretend
-	// the workspace is starting (issue #230).
+	// the workspace is starting.
 	await page.keyboard.press("Escape");
 	await expect(page.getByTestId("dialog-workspace-status")).toHaveCount(0);
 	await expect(

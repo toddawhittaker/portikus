@@ -108,7 +108,7 @@ jobs:
             -o image.serial="$VERSION" \
             -o image.release=trixie
           sudo chown -R "$(id -u):$(id -g)" out
-      # The schema 1 manifest a local build writes too (ruling 24): the rootfs's
+      # The schema 1 manifest a local build writes too (ADR 0030): the rootfs's
       # packages and tool versions, and the recipe's default parameters.
       - name: Write the manifest and checksums
         if: steps.version.outputs.build == 'true'

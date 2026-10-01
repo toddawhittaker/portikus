@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The container boundary (Epic 12a Done item 12, the Gate C container part;
+# The container boundary (the Gate C container part;
 # SPEC.md 24.4 and 24.5).
 #
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
@@ -28,7 +28,7 @@ ct_devices_a=$(ct_devices "$ct_a")
 check_output "a's home and Docker volumes are a's own" \
   "/home/student ${ct_a}-home|/var/lib/docker ${ct_a}-docker" \
   bash -c "grep -E '^/(home/student|var/lib/docker) ' <<<'${ct_devices_a}' | paste -sd'|'"
-# Epic 10 gives each workspace its own recovery volume (ADR 0020).
+# Each workspace has its own recovery volume (ADR 0020).
 check_output "a's recovery volume is a's own" \
   "/var/lib/portikus/recovery ${ct_a}-recovery" \
   bash -c "grep -E '^/var/lib/portikus/recovery ' <<<'${ct_devices_a}'"
@@ -68,7 +68,7 @@ check "a's root maps to an unprivileged host ID" test "${ct_base_a:-0}" -ge 6553
 # ── The terminals unit and its tmux socket ───────────────────────
 
 # The tmux server runs as the student with no capabilities, and its socket
-# is the student's alone (issues #610 and #620).
+# is the student's alone.
 ct_tmux_status() {
   sec_exec a root "grep -E '^(Uid|CapEff):' /proc/\$(systemctl show -p MainPID --value portikus-terminals)/status | awk '{ print \$2 }' | paste -sd' '"
 }

@@ -1,6 +1,6 @@
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Course page
- * and both LTI fallback pages (docs/archive/epics/EPIC-13.md rulings 17 and 24).
+ * and both LTI fallback pages (ADR 0025).
  */
 import { expect, test } from "@playwright/test";
 import { expectNoViolations, WEB_ORIGIN } from "./helpers";

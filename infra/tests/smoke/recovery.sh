@@ -66,7 +66,7 @@ audited_ok() {
 }
 
 if [ -z "$ws_instance" ] || ! run_owns_instance; then
-  bad "Epic 10: no instance created by this run to test on"
+  bad "recovery: no instance created by this run to test on"
 else
   # Grace 0 keeps the workspace up while the worker stops and starts it
   # for an operation. cleanup_lifecycle restores the original value.

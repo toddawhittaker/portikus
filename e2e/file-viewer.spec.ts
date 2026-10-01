@@ -13,7 +13,7 @@ import {
 /**
  * The file tab shows images and PDFs instead of only offering a download,
  * and a Markdown preview shows the images its file points at by a relative
- * path (#816, SPEC.md §13.2, §13.4). Student files are untrusted, so an SVG
+ * path (SPEC.md §13.2, §13.4). Student files are untrusted, so an SVG
  * must never run its script on the app's origin (SPEC.md §24.3).
  */
 

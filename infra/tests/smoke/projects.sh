@@ -144,7 +144,7 @@ else
     ssh_cmd "incus exec ${ws_instance} --project ${PROJECT} -- unzip -t /tmp/smoke-download.zip"
 
   # 15.5b An image shown inline carries the sandbox policy, so an SVG
-  #       opened on its own cannot run script (SPEC.md 24.3, #816).
+  #       opened on its own cannot run script (SPEC.md 24.3).
   alice_student "printf '<svg xmlns=\"http://www.w3.org/2000/svg\"/>' > ${PROJECTS_DIR}/smoke-renamed/smoke.svg" \
     >/dev/null 2>&1 || true
   inline_csp() {

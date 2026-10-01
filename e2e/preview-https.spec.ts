@@ -11,14 +11,14 @@ import {
 import { API_ORIGIN, FAKE_AGENT_URL } from "./ports";
 
 /**
- * A student application serving HTTPS (issue #283, step 2, ADR 0041). The
+ * A student application serving HTTPS (step 2, ADR 0041). The
  * API answers `/preview/authorize` with the upstream and the trusted
  * `X-Portikus-Upstream-Scheme` header, and the gateway speaks TLS to the
  * workspace, with certificate checks off, only when that header says https.
  *
  * The fake agent runs a real HTTPS and WebSocket application. Like the real
  * agent, it reports the port as `unknown` until the first preview request
- * asks it to probe, and `https` after (issue #957). Caddy does
+ * asks it to probe, and `https` after. Caddy does
  * not exist here, so small routes stand in for it as in preview.spec.ts:
  * reserved paths go to the API, everything else is authorized first and
  * then proxied to the upstream over the scheme the API named.
