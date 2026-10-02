@@ -10,7 +10,7 @@ import {
 	mergeDaemonJson,
 	writeDockerConfig,
 } from "./docker-config.js";
-import { IncusError } from "./incus.js";
+import { IncusClient, IncusError } from "./incus.js";
 
 const IMAGE_DAEMON = JSON.stringify({
 	"storage-driver": "overlay2",
@@ -106,6 +106,9 @@ class FakeFiles {
 		this.pushes.push(path);
 		this.files.set(path, { type: opts.type ?? "file", content: body });
 	}
+
+	/** The real delete-then-push, run against this fake's own files. */
+	replaceFile = IncusClient.prototype.replaceFile;
 
 	async deleteFile(instance: string, path: string) {
 		expect(instance).toBe("ws-a");

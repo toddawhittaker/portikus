@@ -1,18 +1,25 @@
-import { randomBytes } from "node:crypto";
-import {
-	type ControllerErrorCode,
-	DEFAULT_KEEP_RUNNING_MAX_HOURS,
-	DEFAULT_TIMEZONE,
-	isSystemTimezone,
-	PendingOperation,
-} from "@portikus/contracts";
+import { DEFAULT_KEEP_RUNNING_MAX_HOURS, PendingOperation } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
-import { errorMessage, type Logger, silentLogger } from "@portikus/observability";
+import { type Logger, silentLogger } from "@portikus/observability";
 import { type ExpressionBuilder, type Kysely, sql } from "kysely";
 import { runReplaceHome } from "./backups.js";
 import type { ControllerClient } from "./controller-client.js";
-import { ControllerClientError } from "./controller-client.js";
-import { dockerStartConfig } from "./docker-start.js";
+import {
+	casUpdate,
+	clearGuardAtStop,
+	createWorkspace,
+	dockerGiBOf,
+	endOpenTerminals,
+	inFlightIds,
+	moveToStarting,
+	runInBackground,
+	runOperation,
+	startedNow,
+	startInstance,
+	stopInBackground,
+	toControllerError,
+	userMessage,
+} from "./lifecycle.js";
 import { rebuildPointsDone } from "./recovery.js";
 
 /** Config values the reconciler reads. */
@@ -27,9 +34,6 @@ export interface ReconcileConfig {
 	WORKSPACE_RECOVERY_SIZE_GIB: number;
 	PREVIEW_SUFFIX: string;
 }
-
-/** How many creates, and then starts, one sweep runs at once. */
-const START_CONCURRENCY = 6;
 
 export interface SweepResult {
 	transitions: number;
@@ -53,184 +57,15 @@ const ERROR_RETRY_SECONDS = 10;
 const CREATE_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000, 8000];
 
 /**
- * Run `task` on every item, at most `limit` at a time. Each task must catch
- * its own errors, so one failure never stops the others.
+ * Only rows with no controller call in flight, so a row never gets two
+ * calls at once (SPEC.md §6.5; ADR 0034).
  */
-async function forEachBounded<T>(
-	items: readonly T[],
-	limit: number,
-	task: (item: T) => Promise<void>,
-): Promise<void> {
-	let next = 0;
-	const runner = async (): Promise<void> => {
-		while (next < items.length) {
-			const item = items[next++] as T;
-			await task(item);
-		}
-	};
-	const runners = Array.from({ length: Math.min(limit, items.length) }, runner);
-	await Promise.all(runners);
+function notInFlight() {
+	return sql<boolean>`workspaces.id <> all(${inFlightIds()}::uuid[])`;
 }
 
 const INSTANCE_MISSING_MESSAGE =
 	"Your workspace instance no longer exists. Please contact your administrator.";
-
-/**
- * Leaves desired_state alone unless it is still 'restarting', so a
- * connect that arrives while a slow stop is in flight is not overwritten
- * by a value read before the stop began (SPEC.md §6.3).
- */
-const settleRestarting = sql`case when desired_state = 'restarting' then 'running' else desired_state end`;
-
-/** Maps controller error codes to user-friendly messages (SPEC section 28). */
-function userMessage(code: ControllerErrorCode): string {
-	switch (code) {
-		case "STORAGE_FULL":
-			return "Your workspace could not start because its storage is full.";
-		case "POOL_FULL":
-			return "There is no room for a new workspace right now. Your administrator has been told.";
-		case "IMAGE_NOT_FOUND":
-			return "The workspace image is not available. Please contact your administrator.";
-		case "TIMEOUT":
-			return "The operation timed out. Please try again.";
-		case "INCUS_UNAVAILABLE":
-			return "The workspace infrastructure is temporarily unavailable. Please try again later.";
-		default:
-			return "An unexpected error occurred. Please try again or contact your administrator.";
-	}
-}
-
-/** Normalise anything thrown by the controller client. */
-function toControllerError(e: unknown): ControllerClientError {
-	return e instanceof ControllerClientError
-		? e
-		: new ControllerClientError("OPERATION_FAILED", String(e));
-}
-
-/**
- * Compare-and-set update: transitions a workspace from one state to
- * another only if the current state matches. Returns the updated row
- * or null if someone else changed it first.
- */
-async function casUpdate(
-	db: Kysely<Database>,
-	id: string,
-	fromState: string,
-	updates: Record<string, unknown>,
-	now: Date,
-): Promise<{ id: string } | null> {
-	const rows = await db
-		.updateTable("workspaces")
-		.set({
-			...updates,
-			updated_at: now.toISOString(),
-		})
-		.where("id", "=", id)
-		.where("state", "=", fromState)
-		.returning("id")
-		.execute();
-	return rows[0] ?? null;
-}
-
-/**
- * Mint a fresh agent token for a workspace and store it (ADR 0009; SPEC.md
- * section 23.5). Every start rotates the token, so a token that leaked from a
- * previous run is worthless. Never log or audit the returned value.
- */
-async function rotateAgentToken(db: Kysely<Database>, id: string): Promise<string> {
-	const token = randomBytes(32).toString("hex");
-	await db
-		.updateTable("workspaces")
-		.set({ agent_token: token })
-		.where("id", "=", id)
-		.execute();
-	return token;
-}
-
-/**
- * Mark every still-open terminal of a workspace as ended. Called from every
- * path that takes a workspace out of running (SPEC.md section 9.7).
- */
-async function endOpenTerminals(
-	db: Kysely<Database>,
-	workspaceId: string,
-	now: Date,
-): Promise<void> {
-	await db
-		.updateTable("terminals")
-		.set({ ended_at: now.toISOString() })
-		.where("workspace_id", "=", workspaceId)
-		.where("ended_at", "is", null)
-		.execute();
-}
-
-/**
- * Clear what the resource guard holds for a workspace that has stopped: the
- * throttle, the memory flag and the idle warning, auditing each cleared mark
- * with reason "stopped" (ADR 0032). Samples are kept so usage is remembered
- * across restarts, except that a cleared throttle drops the samples from
- * before it, so a restart after a throttle starts fresh. A held throttle
- * (SPEC.md §19.4) is kept, with its samples, and the next start passes its
- * allowance; otherwise the controller removes the allowance at the next start.
- */
-async function clearGuardAtStop(db: Kysely<Database>, id: string): Promise<void> {
-	const before = await db
-		.selectFrom("workspaces")
-		.select(["cpu_throttle", "memory_flag"])
-		.where("id", "=", id)
-		.executeTakeFirst();
-	const held = before?.cpu_throttle?.held !== undefined;
-	await db
-		.updateTable("workspaces")
-		.set({
-			...(held ? {} : { cpu_throttle: null }),
-			memory_flag: null,
-			idle_stop_at: null,
-		})
-		.where("id", "=", id)
-		.execute();
-	if (before?.cpu_throttle && !held) {
-		await db
-			.deleteFrom("workspace_usage_samples")
-			.where("workspace_id", "=", id)
-			.where("observed_at", "<=", new Date(before.cpu_throttle.at))
-			.execute();
-		await recordAudit(db, {
-			actor: "worker",
-			target: id,
-			action: "workspace.cpu_throttle_lifted",
-			result: "ok",
-			metadata: { reason: "stopped" },
-		});
-	}
-	if (before?.memory_flag) {
-		await recordAudit(db, {
-			actor: "worker",
-			target: id,
-			action: "workspace.memory_flag_cleared",
-			result: "ok",
-			metadata: { reason: "stopped" },
-		});
-	}
-}
-
-/** A held throttle's allowance, so a start never runs at full speed (SPEC.md §19.4). */
-async function heldAllowance(
-	db: Kysely<Database>,
-	id: string,
-): Promise<string | undefined> {
-	const row = await db
-		.selectFrom("workspaces")
-		.select("cpu_throttle")
-		.where("id", "=", id)
-		.executeTakeFirst();
-	return row?.cpu_throttle?.held ? row.cpu_throttle.allowance : undefined;
-}
-
-/** A workspace that has just started counts as active, so it never starts idle (ADR 0032). */
-function startedNow(now: Date): Record<string, unknown> {
-	return { last_activity_at: now.toISOString(), idle_stop_at: null };
-}
 
 /**
  * Settle every "keep running until" hold. A hold
@@ -410,38 +245,37 @@ async function trackDisconnections(ctx: SweepContext): Promise<void> {
 
 /** Step 3a: create provisioning workspaces. */
 async function createProvisioning(ctx: SweepContext): Promise<void> {
-	const { db, controller, config, now, createRetryDelaysMs, record } = ctx;
+	const { db, controller, config, now, log, createRetryDelaysMs, record } = ctx;
 	// 3a: provisioning -> create -> stopped/error
 	const provisioning = await db
 		.selectFrom("workspaces")
-		.select(["id", "incus_instance_name", "error_code"])
+		.select(["id", "incus_instance_name", "error_code", "quota_config"])
 		.where("state", "=", "provisioning")
+		.where(notInFlight())
 		.execute();
 
-	await forEachBounded(provisioning, START_CONCURRENCY, async (ws) => {
-		if (!ws.incus_instance_name) return;
-		const outcome = await createWorkspace(
-			db,
-			controller,
-			config,
-			{
-				id: ws.id,
-				incus_instance_name: ws.incus_instance_name,
-				error_code: ws.error_code,
-			},
-			now,
-			createRetryDelaysMs,
-		);
-		if (outcome) {
-			ctx.transitions++;
-			record(ws.id, outcome);
-		}
-	});
+	for (const ws of provisioning) {
+		const name = ws.incus_instance_name;
+		if (!name) continue;
+		record(ws.id, "create");
+		runInBackground(ws.id, "create", log, async () => {
+			const outcome = await createWorkspace(
+				db,
+				controller,
+				config,
+				{ ...ws, incus_instance_name: name },
+				now,
+				createRetryDelaysMs,
+			);
+			if (outcome)
+				log.debug({ workspaceId: ws.id, action: outcome }, "create finished");
+		});
+	}
 }
 
 /** Step 3b: start stopped workspaces that should run. */
 async function startStopped(ctx: SweepContext): Promise<void> {
-	const { db, controller, config, now, record } = ctx;
+	const { db, record } = ctx;
 	// 3b: stopped with desired running (or restarting) -> start. A pending
 	// maintenance operation runs first (ADR 0021).
 	const toStart = await db
@@ -451,13 +285,34 @@ async function startStopped(ctx: SweepContext): Promise<void> {
 		.where("desired_state", "in", ["running", "restarting"])
 		.where("pending_operation", "is", null)
 		.where("archived_at", "is", null)
+		.where(notInFlight())
 		.execute();
 
-	await forEachBounded(toStart, START_CONCURRENCY, async (ws) => {
+	for (const ws of toStart) {
 		record(ws.id, "start");
-		const n = await startWorkspace(db, controller, config, ws, "stopped", now);
-		ctx.transitions += n;
-	});
+		await startInBackground(ctx, ws, "stopped");
+	}
+}
+
+/** Move a row into starting, then make the start call in the background. */
+async function startInBackground(
+	ctx: SweepContext,
+	ws: {
+		id: string;
+		incus_instance_name: string | null;
+		label: string;
+		quota_config: { dockerGiB?: number; recoveryGiB?: number } | null;
+	},
+	fromState: string,
+): Promise<void> {
+	const { db, controller, config, now, log } = ctx;
+	const name = ws.incus_instance_name;
+	if (!name) return;
+	if (!(await moveToStarting(db, ws.id, fromState, now))) return;
+	ctx.transitions++;
+	runInBackground(ws.id, "start", log, () =>
+		startInstance(db, controller, config, { ...ws, incus_instance_name: name }, now),
+	);
 }
 
 /** Step 3c: stop running workspaces that should stop or whose grace period passed. */
@@ -475,6 +330,7 @@ async function stopRunning(ctx: SweepContext): Promise<void> {
 				eb("archived_at", "is not", null),
 			]),
 		)
+		.where(notInFlight())
 		.execute();
 
 	for (const ws of toStopExplicit) {
@@ -495,6 +351,7 @@ async function stopRunning(ctx: SweepContext): Promise<void> {
 		.select(["id", "incus_instance_name", "pending_operation", "pending_operation_at"])
 		.where("state", "=", "running")
 		.where("pending_operation", "is not", null)
+		.where(notInFlight())
 		.execute();
 
 	for (const ws of toStopForOperation) {
@@ -525,6 +382,7 @@ async function stopRunning(ctx: SweepContext): Promise<void> {
 		})
 		.where("state", "=", "running")
 		.where("shutdown_deadline", "<=", now)
+		.where(notInFlight())
 		.where(({ eb, selectFrom }) =>
 			eb(
 				selectFrom("workspace_connections")
@@ -584,6 +442,7 @@ async function stopIdle(ctx: SweepContext): Promise<void> {
 			updated_at = ${now.toISOString()}::timestamptz
 		from workspaces ws left join settings s on s.id = 1
 		where w.id = ws.id and w.state = 'running' and w.idle_stop_at <= ${now.toISOString()}::timestamptz
+			and w.id <> all(${inFlightIds()}::uuid[])
 		returning w.id, w.incus_instance_name, ${idle} as idle_minutes
 	`.execute(db);
 
@@ -607,7 +466,7 @@ async function stopIdle(ctx: SweepContext): Promise<void> {
 
 /** Step 3d: retry a start for an errored workspace that should run. */
 async function retryErrored(ctx: SweepContext): Promise<void> {
-	const { db, controller, config, now, record } = ctx;
+	const { db, now, record } = ctx;
 	// 3d: error with desired running (or restarting) -> retry a start, but
 	// only after a short rest so a broken controller is not hammered.
 	const retryCutoff = new Date(now.getTime() - ERROR_RETRY_SECONDS * 1000);
@@ -619,20 +478,20 @@ async function retryErrored(ctx: SweepContext): Promise<void> {
 		.where("updated_at", "<", retryCutoff)
 		.where("pending_operation", "is", null)
 		.where("archived_at", "is", null)
+		.where(notInFlight())
 		.execute();
 
-	await forEachBounded(errorRetryStart, START_CONCURRENCY, async (ws) => {
+	for (const ws of errorRetryStart) {
 		record(ws.id, "retry start");
-		const n = await startWorkspace(db, controller, config, ws, "error", now);
-		ctx.transitions += n;
-	});
+		await startInBackground(ctx, ws, "error");
+	}
 
 	// Note: error with desired=stopped is at rest (nothing to retry).
 }
 
 /** Step 3e: run a pending maintenance operation. */
 async function runMaintenance(ctx: SweepContext): Promise<void> {
-	const { db, controller, config, now, record } = ctx;
+	const { db, controller, config, now, log, record } = ctx;
 	// 3e: run a pending maintenance operation on a stopped or errored
 	// workspace. Step 3b restarts it on the next sweep if it should run.
 	const toMaintain = await db
@@ -649,42 +508,44 @@ async function runMaintenance(ctx: SweepContext): Promise<void> {
 		])
 		.where("state", "in", ["stopped", "error"])
 		.where("pending_operation", "is not", null)
+		.where(notInFlight())
 		.execute();
 
 	for (const ws of toMaintain) {
-		if (!ws.incus_instance_name || !ws.pending_operation) continue;
+		const instance = ws.incus_instance_name;
+		if (!instance || !ws.pending_operation) continue;
 		record(ws.id, ws.pending_operation);
 		// Replace home spans several sweeps while the host imports (ADR 0040).
 		if (ws.pending_operation === "replace-home") {
-			ctx.transitions += await runReplaceHome(
-				db,
-				controller,
-				{
-					id: ws.id,
-					instance: ws.incus_instance_name,
-					state: ws.state,
-					pendingAt: ws.pending_operation_at,
-					pendingBy: ws.pending_operation_by,
-					args: ws.pending_operation_args,
-				},
-				now,
-			);
+			runInBackground(ws.id, ws.pending_operation, log, async () => {
+				await runReplaceHome(
+					db,
+					controller,
+					{
+						id: ws.id,
+						instance,
+						state: ws.state,
+						pendingAt: ws.pending_operation_at,
+						pendingBy: ws.pending_operation_by,
+						args: ws.pending_operation_args,
+					},
+					now,
+				);
+			});
 			continue;
 		}
-		ctx.transitions += await runOperation(
-			db,
-			controller,
-			{
-				id: ws.id,
-				incus_instance_name: ws.incus_instance_name,
-				state: ws.state,
-				// The column has a check constraint, so this never throws.
-				pending_operation: PendingOperation.parse(ws.pending_operation),
-				pending_operation_by: ws.pending_operation_by,
-				dockerGiB: dockerGiBOf(ws.quota_config, config),
-			},
-			now,
-		);
+		const operation = {
+			id: ws.id,
+			incus_instance_name: instance,
+			state: ws.state,
+			// The column has a check constraint, so this never throws.
+			pending_operation: PendingOperation.parse(ws.pending_operation),
+			pending_operation_by: ws.pending_operation_by,
+			dockerGiB: dockerGiBOf(ws.quota_config, config),
+		};
+		runInBackground(ws.id, ws.pending_operation, log, async () => {
+			await runOperation(db, controller, operation, now);
+		});
 	}
 }
 
@@ -771,7 +632,6 @@ async function resolveDrift(
 	ctx: SweepContext,
 	ws: TrackedRow,
 	inst: ListedInstance,
-	stoppingDuringList: Set<string>,
 ): Promise<void> {
 	const { db, now, record } = ctx;
 	// Drift: row says running but instance is Stopped.
@@ -798,11 +658,7 @@ async function resolveDrift(
 	}
 
 	// Drift: row says stopped but instance is Running.
-	if (
-		ws.state === "stopped" &&
-		inst.status === "Running" &&
-		!stoppingDuringList.has(ws.id)
-	) {
+	if (ws.state === "stopped" && inst.status === "Running") {
 		const updated = await casUpdate(
 			db,
 			ws.id,
@@ -928,12 +784,11 @@ async function resolveStopping(
 	}
 }
 
-/** Steps 4 and 5 for one tracked row. */
+/** Steps 4 and 5 for one tracked row with no controller call in flight. */
 async function reconcileTracked(
 	ctx: SweepContext,
 	ws: TrackedRow,
 	instanceMap: Map<string, ListedInstance>,
-	stoppingDuringList: Set<string>,
 ): Promise<void> {
 	const inst = instanceMap.get(ws.incus_instance_name);
 	if (!inst) {
@@ -941,15 +796,11 @@ async function reconcileTracked(
 		return;
 	}
 	await syncAgentAddress(ctx, ws, inst);
-	await resolveDrift(ctx, ws, inst, stoppingDuringList);
+	await resolveDrift(ctx, ws, inst);
 	if (ws.state === "starting") {
 		await resolveStarting(ctx, ws, inst);
 	}
-	if (
-		ws.state === "stopping" &&
-		!stopsInFlight.has(ws.id) &&
-		!stoppingDuringList.has(ws.id)
-	) {
+	if (ws.state === "stopping") {
 		await resolveStopping(ctx, ws, inst);
 	}
 }
@@ -997,8 +848,9 @@ async function refreshFromList(
 		return { lastRefreshAt, controllerUnreachable, refreshError: null };
 	}
 
-	// A stop that ends while list() runs leaves a list older than the row.
-	const stoppingDuringList = new Set(stopsInFlight.keys());
+	// A call in flight, or one that ends while list() runs, leaves the list
+	// older than the row, so those rows wait for the next refresh.
+	const inFlightDuringList = new Set(inFlightIds());
 	const listed = await listInstances(ctx, controllerUnreachable);
 	if (listed.instances === null) {
 		return {
@@ -1018,11 +870,11 @@ async function refreshFromList(
 		.execute();
 	for (const ws of tracked) {
 		if (!ws.incus_instance_name) continue;
+		if (inFlightDuringList.has(ws.id)) continue;
 		await reconcileTracked(
 			ctx,
 			{ ...ws, incus_instance_name: ws.incus_instance_name },
 			instanceMap,
-			stoppingDuringList,
 		);
 	}
 
@@ -1119,456 +971,4 @@ export async function reconcile(
 	}
 
 	return { transitions: ctx.transitions, ...refresh };
-}
-
-/**
- * The zone the workspace's owner chose. Anything missing or no
- * longer a known zone name reads as the platform default, so a start is
- * never held up by a stored value.
- */
-async function ownerTimezone(
-	db: Kysely<Database>,
-	workspaceId: string,
-): Promise<string> {
-	const row = await db
-		.selectFrom("workspaces")
-		.innerJoin("users", "users.id", "workspaces.owner_user_id")
-		.select("users.editor_settings")
-		.where("workspaces.id", "=", workspaceId)
-		.executeTakeFirst();
-	const stored = row?.editor_settings?.timezone;
-	return isSystemTimezone(stored) ? stored : DEFAULT_TIMEZONE;
-}
-
-/** The Docker size an administrator set on the row, else the default (SPEC.md §20.1). */
-function dockerGiBOf(
-	quota: { dockerGiB?: number } | null,
-	config: ReconcileConfig,
-): number {
-	return quota?.dockerGiB ?? config.WORKSPACE_DOCKER_SIZE_GIB;
-}
-
-/** True for a failure that a later attempt may not hit: the controller was unreachable. */
-function isTransient(err: ControllerClientError): boolean {
-	return err.code === "INCUS_UNAVAILABLE";
-}
-
-/**
- * Create the Incus instance for a provisioning workspace and move it to
- * stopped, or to error if the create fails (SPEC.md §6.3). The controller
- * answers an existing instance with `created: false`, which is adopted like
- * a fresh one. Unreachable-controller failures are retried with backoff.
- * A full storage pool leaves the row in provisioning, to be tried again next
- * sweep (SPEC.md §20.1). Returns what happened for the debug line, or null if
- * the row moved on or nothing changed.
- */
-async function createWorkspace(
-	db: Kysely<Database>,
-	controller: ControllerClient,
-	config: ReconcileConfig,
-	ws: { id: string; incus_instance_name: string; error_code: string | null },
-	now: Date,
-	retryDelaysMs: readonly number[],
-): Promise<string | null> {
-	const request = {
-		name: ws.incus_instance_name,
-		homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
-		dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
-		recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
-	};
-	for (let attempt = 0; ; attempt++) {
-		try {
-			const result = await controller.create(request);
-			const updated = await casUpdate(
-				db,
-				ws.id,
-				"provisioning",
-				{
-					state: "stopped",
-					image_version: result.imageFingerprint,
-					quota_config: JSON.stringify({
-						...result.quota,
-						recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
-					}),
-					quota_applied: JSON.stringify(result.quota),
-					error_code: null,
-					error_message: null,
-				},
-				now,
-			);
-			if (!updated) return null;
-			await recordAudit(db, {
-				actor: "worker",
-				target: ws.id,
-				action: "workspace.provisioned",
-				result: "ok",
-				metadata: {
-					imageFingerprint: result.imageFingerprint,
-					created: result.created,
-					attempts: attempt + 1,
-				},
-			});
-			return result.created ? "created" : "adopted existing instance";
-		} catch (e) {
-			const err = toControllerError(e);
-			const delay = retryDelaysMs[attempt];
-			if (isTransient(err) && delay !== undefined) {
-				await new Promise((resolve) => setTimeout(resolve, delay));
-				continue;
-			}
-			if (err.code === "POOL_FULL") {
-				// Audit only the first refusal, so a long wait is one row, not one per sweep.
-				if (ws.error_code === "POOL_FULL") return null;
-				const refused = await casUpdate(
-					db,
-					ws.id,
-					"provisioning",
-					{ error_code: err.code, error_message: userMessage(err.code) },
-					now,
-				);
-				if (!refused) return null;
-				await recordAudit(db, {
-					actor: "worker",
-					target: ws.id,
-					action: "workspace.provision_refused",
-					result: "refused",
-					metadata: {
-						errorCode: err.code,
-					},
-				});
-				return "create refused: storage pool full";
-			}
-			const updated = await casUpdate(
-				db,
-				ws.id,
-				"provisioning",
-				{
-					state: "error",
-					error_code: err.code,
-					error_message: userMessage(err.code),
-				},
-				now,
-			);
-			if (!updated) return null;
-			await recordAudit(db, {
-				actor: "worker",
-				target: ws.id,
-				action: "workspace.provision_failed",
-				result: "failed",
-				metadata: {
-					errorCode: err.code,
-					message: err.message,
-					attempts: attempt + 1,
-				},
-			});
-			return "create failed";
-		}
-	}
-}
-
-/**
- * Move a workspace from `fromState` into starting and start it. Returns
- * the number of state transitions made. Shared by the stopped->running
- * path and the retry-after-error path (SPEC.md §6.3).
- */
-async function startWorkspace(
-	db: Kysely<Database>,
-	controller: ControllerClient,
-	config: ReconcileConfig,
-	ws: {
-		id: string;
-		incus_instance_name: string | null;
-		label: string;
-		quota_config: { dockerGiB?: number } | null;
-	},
-	fromState: string,
-	now: Date,
-): Promise<number> {
-	if (!ws.incus_instance_name) return 0;
-
-	const moved = await casUpdate(
-		db,
-		ws.id,
-		fromState,
-		{
-			state: "starting",
-			error_code: null,
-			error_message: null,
-			desired_state: settleRestarting,
-			// A restart is a fresh session: stale timers must not stop it again.
-			disconnected_at: null,
-			shutdown_deadline: null,
-		},
-		now,
-	);
-	if (!moved) return 0;
-	let transitions = 1;
-
-	// Rotate before the start call so the row always holds the token the
-	// agent is about to be given.
-	const agentToken = await rotateAgentToken(db, ws.id);
-
-	try {
-		const result = await controller.start(ws.incus_instance_name, {
-			timeoutSeconds: config.START_TIMEOUT_SECONDS,
-			agentToken,
-			hostname: ws.label,
-			previewHostSuffix: config.PREVIEW_SUFFIX,
-			timezone: await ownerTimezone(db, ws.id),
-			dockerGiB: dockerGiBOf(ws.quota_config, config),
-			recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
-			cpuAllowance: await heldAllowance(db, ws.id),
-			docker: await dockerStartConfig(db),
-		});
-		const updated = await casUpdate(
-			db,
-			ws.id,
-			"starting",
-			{ state: "running", agent_address: result.ipv4, ...startedNow(now) },
-			now,
-		);
-		if (updated) {
-			transitions++;
-			await recordAudit(db, {
-				actor: "worker",
-				target: ws.id,
-				action: "workspace.start",
-				result: "ok",
-				metadata: { ipv4: result.ipv4 },
-			});
-		}
-	} catch (e) {
-		const err = toControllerError(e);
-		const updated = await casUpdate(
-			db,
-			ws.id,
-			"starting",
-			{
-				state: "error",
-				error_code: err.code,
-				error_message: userMessage(err.code),
-			},
-			now,
-		);
-		if (updated) transitions++;
-		await recordAudit(db, {
-			actor: "worker",
-			target: ws.id,
-			action: "workspace.start_failed",
-			result: "failed",
-			metadata: {
-				errorCode: err.code,
-				message: err.message,
-			},
-		});
-	}
-
-	return transitions;
-}
-
-/** Stops still running, by workspace id; step 5 leaves these rows alone. */
-const stopsInFlight = new Map<string, Promise<void>>();
-
-/**
- * Start a stop without waiting for it, so a slow stop never delays the
- * next sweep's starts (SPEC.md §6.5). On worker exit it is abandoned and
- * step 5 resolves the row after the restart.
- */
-function stopInBackground(
-	db: Kysely<Database>,
-	controller: ControllerClient,
-	config: ReconcileConfig,
-	ws: { id: string; incus_instance_name: string | null },
-	log: Logger,
-): void {
-	const running = doStop(db, controller, config, ws)
-		.catch((e: unknown) => {
-			log.error(
-				{ workspaceId: ws.id, error: errorMessage(e) },
-				"background stop failed",
-			);
-		})
-		.finally(() => {
-			stopsInFlight.delete(ws.id);
-		});
-	stopsInFlight.set(ws.id, running);
-}
-
-/** Wait for every stop in flight to finish; for tests. */
-export async function settleStops(): Promise<void> {
-	await Promise.all(stopsInFlight.values());
-}
-
-/**
- * Execute a stop on a workspace that is already in 'stopping' state.
- * Exported for tests that need to drive it directly.
- */
-export async function doStop(
-	db: Kysely<Database>,
-	controller: ControllerClient,
-	config: ReconcileConfig,
-	ws: { id: string; incus_instance_name: string | null },
-): Promise<void> {
-	if (!ws.incus_instance_name) return;
-	try {
-		const result = await controller.stop(
-			ws.incus_instance_name,
-			config.STOP_TIMEOUT_SECONDS,
-		);
-		await casUpdate(
-			db,
-			ws.id,
-			"stopping",
-			{
-				state: "stopped",
-				shutdown_deadline: null,
-				desired_state: settleRestarting,
-				disconnected_at: null,
-			},
-			// The stop may have taken minutes; stamp when it ended.
-			new Date(),
-		);
-		// The stop happened, so record it even if another pass already
-		// moved the row out of 'stopping' (SPEC.md §6.5).
-		await recordAudit(db, {
-			actor: "worker",
-			target: ws.id,
-			action: "workspace.stop",
-			result: "ok",
-			metadata: { forced: result.forced },
-		});
-		await clearGuardAtStop(db, ws.id);
-		if (result.forced) {
-			await recordAudit(db, {
-				actor: "worker",
-				target: ws.id,
-				action: "workspace.force_stop",
-				result: "ok",
-			});
-		}
-	} catch (e) {
-		const err = toControllerError(e);
-		await casUpdate(
-			db,
-			ws.id,
-			"stopping",
-			{
-				state: "error",
-				error_code: err.code,
-				error_message: userMessage(err.code),
-			},
-			// The stop may have taken minutes; stamp when it ended.
-			new Date(),
-		);
-		await recordAudit(db, {
-			actor: "worker",
-			target: ws.id,
-			action: "workspace.stop_failed",
-			result: "failed",
-			metadata: {
-				errorCode: err.code,
-				message: err.message,
-			},
-		});
-	}
-}
-
-/** What the student sees when a maintenance operation fails (SPEC.md §28). */
-const OPERATION_FAILED_MESSAGE: Record<PendingOperation, string> = {
-	"reset-docker":
-		"Docker could not be reset. Please try again or contact your administrator.",
-	rebuild: "The workspace could not be rebuilt. Please contact your administrator.",
-	"rebuild-reset-docker":
-		"The workspace could not be rebuilt. Please contact your administrator.",
-	// runReplaceHome in backups.ts writes its own message; this keeps the map whole.
-	"replace-home":
-		"Your home folder could not be replaced. Please contact your administrator.",
-};
-
-/**
- * Run one maintenance operation on a stopped or errored workspace, clear it,
- * and audit the result (SPEC.md §16.4, §17.2, §24.11; ADR 0021). A failure
- * clears it too, so a broken controller is not retried every second, and
- * leaves the workspace in error with a message for the student.
- */
-async function runOperation(
-	db: Kysely<Database>,
-	controller: ControllerClient,
-	ws: {
-		id: string;
-		incus_instance_name: string;
-		state: string;
-		pending_operation: PendingOperation;
-		pending_operation_by: string | null;
-		dockerGiB: number;
-	},
-	now: Date,
-): Promise<number> {
-	const clear = {
-		pending_operation: null,
-		pending_operation_at: null,
-		pending_operation_by: null,
-	};
-	const isReset = ws.pending_operation === "reset-docker";
-	const metadata = {
-		operation: ws.pending_operation,
-		requestedBy: ws.pending_operation_by,
-	};
-	try {
-		let imageFingerprint: string | null = null;
-		if (isReset) {
-			await controller.resetDocker(ws.incus_instance_name, {
-				dockerGiB: ws.dockerGiB,
-			});
-		} else {
-			const result = await controller.rebuild(ws.incus_instance_name, {
-				resetDocker: ws.pending_operation === "rebuild-reset-docker",
-				dockerGiB: ws.dockerGiB,
-			});
-			imageFingerprint = result.imageFingerprint;
-		}
-		const updated = await casUpdate(
-			db,
-			ws.id,
-			ws.state,
-			{
-				...clear,
-				state: "stopped",
-				error_code: null,
-				error_message: null,
-				...(imageFingerprint ? { image_version: imageFingerprint } : {}),
-			},
-			now,
-		);
-		await recordAudit(db, {
-			actor: "worker",
-			target: ws.id,
-			action: isReset ? "workspace.docker_reset" : "workspace.rebuilt",
-			result: "ok",
-			metadata: imageFingerprint ? { ...metadata, imageFingerprint } : metadata,
-		});
-		return updated && ws.state !== "stopped" ? 1 : 0;
-	} catch (e) {
-		const err = toControllerError(e);
-		const updated = await casUpdate(
-			db,
-			ws.id,
-			ws.state,
-			{
-				...clear,
-				state: "error",
-				error_code: err.code,
-				error_message: OPERATION_FAILED_MESSAGE[ws.pending_operation],
-			},
-			now,
-		);
-		await recordAudit(db, {
-			actor: "worker",
-			target: ws.id,
-			action: isReset ? "workspace.docker_reset_failed" : "workspace.rebuild_failed",
-			result: "failed",
-			metadata: { ...metadata, errorCode: err.code },
-		});
-		return updated && ws.state !== "error" ? 1 : 0;
-	}
 }

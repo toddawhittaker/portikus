@@ -74,8 +74,14 @@ export function sendJson<T>(
 	});
 }
 
-/** What to show for a failed call: the API's own sentence, or the fallback. */
-export function errorText(error: unknown): string {
+/**
+ * What to show for a failed call: the API's own sentence, or the fallback.
+ * Never a raw exception message, which is not in the user's terms (SPEC.md section 28).
+ */
+export function errorText(
+	error: unknown,
+	fallback: string = SOMETHING_WENT_WRONG,
+): string {
 	if (error instanceof ApiError) return error.message;
-	return SOMETHING_WENT_WRONG;
+	return fallback;
 }

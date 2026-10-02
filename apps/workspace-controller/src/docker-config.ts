@@ -5,7 +5,6 @@ import {
 	type WorkspaceDockerConfig,
 } from "@portikus/contracts";
 import { errorMessage, type Logger } from "@portikus/observability";
-import { replaceFile } from "./agent-instructions.js";
 import { type IncusClient, IncusError } from "./incus.js";
 
 /**
@@ -75,7 +74,10 @@ export function hostsWithGhcr(existing: string, ghcr: boolean): string {
 	return `${lines.join("\n")}\n`;
 }
 
-type FilesClient = Pick<IncusClient, "readFile" | "pushFile" | "deleteFile">;
+type FilesClient = Pick<
+	IncusClient,
+	"readFile" | "pushFile" | "replaceFile" | "deleteFile"
+>;
 
 async function readText(
 	client: FilesClient,
@@ -133,7 +135,7 @@ export async function writeDockerConfig(
 	if (hosts && hosts.type !== "file") {
 		throw new Error(`${HOSTS_PATH} is not a regular file`);
 	}
-	await client.pushFile(
+	await client.replaceFile(
 		name,
 		DAEMON_JSON_PATH,
 		mergeDaemonJson(daemon?.text ?? null, config.hubMirror),
@@ -164,7 +166,7 @@ export async function writeDockerConfig(
 				signal,
 			);
 		}
-		await replaceFile(client, name, GHCR_CERT_PATH, ca, signal);
+		await client.replaceFile(name, GHCR_CERT_PATH, ca, ROOT_FILE, signal);
 	} else {
 		try {
 			await client.deleteFile(name, GHCR_CERT_PATH, signal);
@@ -196,6 +198,6 @@ export async function writeGhcrHosts(
 	const text = hosts?.text ?? "";
 	const next = hostsWithGhcr(text, ghcr);
 	if (next !== text) {
-		await client.pushFile(name, HOSTS_PATH, next, ROOT_FILE, signal);
+		await client.replaceFile(name, HOSTS_PATH, next, ROOT_FILE, signal);
 	}
 }

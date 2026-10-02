@@ -127,7 +127,7 @@ test("create with invalid name returns 400", async () => {
 		payload: { name: "INVALID!", homeGiB: 25, dockerGiB: 20, recoveryGiB: 3 },
 	});
 	expect(res.statusCode).toBe(400);
-	expect(res.json().code).toBe("INVALID_NAME");
+	expect(res.json().code).toBe("BAD_REQUEST");
 });
 
 // POST /instances/:name/start

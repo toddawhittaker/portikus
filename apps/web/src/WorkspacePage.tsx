@@ -7,6 +7,7 @@ import {
 	useEditorSettings,
 	useTerminalThemeAttribute,
 } from "./editor/settingsQueries.js";
+import { ProjectEvents } from "./files/ProjectEvents.js";
 import { LayoutStoreContext, useLayoutStore } from "./layout/store.js";
 import { LaunchNotice } from "./link/LaunchNotice.js";
 import { usePageTitle } from "./pageTitle.js";
@@ -111,153 +112,156 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 	// The student's terminal colour scheme, applied to the whole shell.
 	useTerminalThemeAttribute();
 
+	const shell = (
+		<div className="pk-root">
+			<ScreenReaderToggle />
+			<AppHeader
+				workspaceId={workspaceId}
+				user={user}
+				workspace={workspace}
+				project={project}
+			/>
+			<LaunchNotice displayName={user.displayName} />
+			<Group
+				className="pk-shell"
+				orientation="horizontal"
+				defaultLayout={layout.defaultLayout}
+				onLayoutChanged={layout.onLayoutChanged}
+			>
+				<Panel id="projects" defaultSize={240} minSize={180} maxSize={420}>
+					{running ? (
+						<ProjectPane workspaceId={workspaceId} currentProjectId={projectId} />
+					) : loading ? (
+						<PaneSkeleton label="Projects" side="left" rows={4} />
+					) : (
+						<PaneWaiting
+							label="Projects"
+							side="left"
+							text="Start your workspace to see your projects"
+						/>
+					)}
+				</Panel>
+				<PaneHandle label="Resize project list" />
+				<Panel id="work" minSize={360}>
+					<main
+						className="pk-work"
+						aria-label="Work area"
+						ref={workRef}
+						// Takes focus when a notice holding it is dismissed.
+						tabIndex={-1}
+					>
+						{/* Always mounted, so a new throttle is announced (SPEC.md §25.8). */}
+						<span role="status" className="sr-only" data-testid="throttle-announce">
+							{workspace?.cpuThrottle &&
+							workspace.cpuThrottle.at !== dismissedThrottleAt
+								? throttleAnnouncement(workspace.cpuThrottle)
+								: ""}
+						</span>
+						{workspace?.cpuThrottle &&
+							workspace.cpuThrottle.at !== dismissedThrottleAt && (
+								<ThrottleNotice
+									throttle={workspace.cpuThrottle}
+									onOpenWorkspace={() =>
+										// A restart cannot run while the workspace is already changing.
+										setWorkspaceDialog(
+											resolveStatus(workspace).moving ? "open" : "restart",
+										)
+									}
+									onShowMonitor={() => showMonitor(rightPaneApi, "cpu")}
+									fallbackFocus={workRef}
+									onDismiss={() => {
+										setDismissedThrottleAt(workspace.cpuThrottle?.at ?? null);
+										workRef.current?.focus();
+									}}
+								/>
+							)}
+						{/* Always mounted, so a new memory flag is announced (SPEC.md §25.8). */}
+						<span role="status" className="sr-only" data-testid="memory-announce">
+							{showMemoryNotice ? memoryAnnouncement(memoryFlag) : ""}
+						</span>
+						{showMemoryNotice && (
+							<MemoryNotice
+								flag={memoryFlag}
+								onShowMonitor={() => showMonitor(rightPaneApi, "memory")}
+								fallbackFocus={workRef}
+								onDismiss={() => {
+									setDismissedMemoryAt(memoryFlag.at);
+									workRef.current?.focus();
+								}}
+							/>
+						)}
+						{/* Always mounted, so the reinstall list is announced (SPEC.md §25.8). */}
+						<span role="status" className="sr-only" data-testid="reinstall-announce">
+							{running ? reinstallAnnouncement(reinstallPackages) : ""}
+						</span>
+						<ReinstallNotice
+							workspaceId={workspaceId}
+							running={running}
+							fallbackFocus={workRef}
+						/>
+						{workspace?.idleStopAt && (
+							<IdleNotice
+								deadline={workspace.idleStopAt}
+								minutes={idleMinutes(workspace)}
+								onKeepWorking={sendActivity}
+								fallbackFocus={workRef}
+							/>
+						)}
+						{workspace?.shutdownDeadline && (
+							<DisconnectNotice
+								deadline={workspace.shutdownDeadline}
+								onReconnect={reconnect}
+							/>
+						)}
+						{running ? (
+							<Outlet />
+						) : (
+							<WorkspaceStarting
+								workspaceId={workspaceId}
+								workspace={workspace}
+								idleStop={idleStopReason}
+								onOpenWorkspace={() => setWorkspaceDialog("open")}
+							/>
+						)}
+					</main>
+				</Panel>
+				<PaneHandle label="Resize file tree" />
+				<Panel id="files" defaultSize={280} minSize={200} maxSize={480}>
+					{running ? (
+						<FilesPane workspaceId={workspaceId} project={project} />
+					) : loading ? (
+						<PaneSkeleton label="Files" side="right" rows={9} />
+					) : (
+						<PaneWaiting
+							label="Files"
+							side="right"
+							text="Start your workspace to see its files"
+						/>
+					)}
+				</Panel>
+			</Group>
+			<StatusBar
+				workspaceId={workspaceId}
+				project={project}
+				workspace={workspace}
+				dialog={workspaceDialog}
+				onDialogChange={setWorkspaceDialog}
+			/>
+		</div>
+	);
+
 	return (
 		<LayoutStoreContext.Provider value={projectId ? layoutStore : null}>
 			<ListeningContext.Provider value={listeningValue}>
 				<RightPaneContext.Provider value={rightPaneApi}>
-					<div className="pk-root">
-						<ScreenReaderToggle />
-						<AppHeader
-							workspaceId={workspaceId}
-							user={user}
-							workspace={workspace}
-							project={project}
-						/>
-						<LaunchNotice displayName={user.displayName} />
-						<Group
-							className="pk-shell"
-							orientation="horizontal"
-							defaultLayout={layout.defaultLayout}
-							onLayoutChanged={layout.onLayoutChanged}
-						>
-							<Panel id="projects" defaultSize={240} minSize={180} maxSize={420}>
-								{running ? (
-									<ProjectPane workspaceId={workspaceId} currentProjectId={projectId} />
-								) : loading ? (
-									<PaneSkeleton label="Projects" side="left" rows={4} />
-								) : (
-									<PaneWaiting
-										label="Projects"
-										side="left"
-										text="Start your workspace to see your projects"
-									/>
-								)}
-							</Panel>
-							<PaneHandle label="Resize project list" />
-							<Panel id="work" minSize={360}>
-								<main
-									className="pk-work"
-									aria-label="Work area"
-									ref={workRef}
-									// Takes focus when a notice holding it is dismissed.
-									tabIndex={-1}
-								>
-									{/* Always mounted, so a new throttle is announced (SPEC.md §25.8). */}
-									<span
-										role="status"
-										className="sr-only"
-										data-testid="throttle-announce"
-									>
-										{workspace?.cpuThrottle &&
-										workspace.cpuThrottle.at !== dismissedThrottleAt
-											? throttleAnnouncement(workspace.cpuThrottle)
-											: ""}
-									</span>
-									{workspace?.cpuThrottle &&
-										workspace.cpuThrottle.at !== dismissedThrottleAt && (
-											<ThrottleNotice
-												throttle={workspace.cpuThrottle}
-												onOpenWorkspace={() =>
-													// A restart cannot run while the workspace is already changing.
-													setWorkspaceDialog(
-														resolveStatus(workspace).moving ? "open" : "restart",
-													)
-												}
-												onShowMonitor={() => showMonitor(rightPaneApi, "cpu")}
-												fallbackFocus={workRef}
-												onDismiss={() => {
-													setDismissedThrottleAt(workspace.cpuThrottle?.at ?? null);
-													workRef.current?.focus();
-												}}
-											/>
-										)}
-									{/* Always mounted, so a new memory flag is announced (SPEC.md §25.8). */}
-									<span role="status" className="sr-only" data-testid="memory-announce">
-										{showMemoryNotice ? memoryAnnouncement(memoryFlag) : ""}
-									</span>
-									{showMemoryNotice && (
-										<MemoryNotice
-											flag={memoryFlag}
-											onShowMonitor={() => showMonitor(rightPaneApi, "memory")}
-											fallbackFocus={workRef}
-											onDismiss={() => {
-												setDismissedMemoryAt(memoryFlag.at);
-												workRef.current?.focus();
-											}}
-										/>
-									)}
-									{/* Always mounted, so the reinstall list is announced (SPEC.md §25.8). */}
-									<span
-										role="status"
-										className="sr-only"
-										data-testid="reinstall-announce"
-									>
-										{running ? reinstallAnnouncement(reinstallPackages) : ""}
-									</span>
-									<ReinstallNotice
-										workspaceId={workspaceId}
-										running={running}
-										fallbackFocus={workRef}
-									/>
-									{workspace?.idleStopAt && (
-										<IdleNotice
-											deadline={workspace.idleStopAt}
-											minutes={idleMinutes(workspace)}
-											onKeepWorking={sendActivity}
-											fallbackFocus={workRef}
-										/>
-									)}
-									{workspace?.shutdownDeadline && (
-										<DisconnectNotice
-											deadline={workspace.shutdownDeadline}
-											onReconnect={reconnect}
-										/>
-									)}
-									{running ? (
-										<Outlet />
-									) : (
-										<WorkspaceStarting
-											workspaceId={workspaceId}
-											workspace={workspace}
-											idleStop={idleStopReason}
-											onOpenWorkspace={() => setWorkspaceDialog("open")}
-										/>
-									)}
-								</main>
-							</Panel>
-							<PaneHandle label="Resize file tree" />
-							<Panel id="files" defaultSize={280} minSize={200} maxSize={480}>
-								{running ? (
-									<FilesPane workspaceId={workspaceId} project={project} />
-								) : loading ? (
-									<PaneSkeleton label="Files" side="right" rows={9} />
-								) : (
-									<PaneWaiting
-										label="Files"
-										side="right"
-										text="Start your workspace to see its files"
-									/>
-								)}
-							</Panel>
-						</Group>
-						<StatusBar
-							workspaceId={workspaceId}
-							project={project}
-							workspace={workspace}
-							dialog={workspaceDialog}
-							onDialogChange={setWorkspaceDialog}
-						/>
-					</div>
+					{/* One events socket for the open project, whatever pane is showing (SPEC.md §11.4). */}
+					<ProjectEvents
+						workspaceId={workspaceId}
+						projectId={running ? project?.id : undefined}
+						layoutStore={layoutStore}
+					>
+						{shell}
+					</ProjectEvents>
 				</RightPaneContext.Provider>
 			</ListeningContext.Provider>
 		</LayoutStoreContext.Provider>

@@ -23,7 +23,11 @@ import {
 	registerRequestLogging,
 	silentLogger,
 } from "@portikus/observability";
-import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
+import Fastify, {
+	type FastifyBaseLogger,
+	type FastifyInstance,
+	type FastifyReply,
+} from "fastify";
 import { tokenAuth } from "./auth.js";
 import { SeedBuildBusyError, SeedBuilds } from "./docker-seed.js";
 import { type EgressRouteOptions, registerEgressRoutes } from "./egress/routes.js";
@@ -47,6 +51,37 @@ const ERROR_STATUS: Record<ControllerErrorCode, number> = {
 	STORAGE_FULL: 507,
 	POOL_FULL: 507,
 };
+
+interface Schema<T> {
+	safeParse(
+		value: unknown,
+	):
+		| { success: true; data: T }
+		| { success: false; error: { issues: Array<{ message: string }> } };
+}
+
+/** Parse a request value, or answer 400 BAD_REQUEST and return null. */
+function parseOr400<T>(
+	schema: Schema<T>,
+	value: unknown,
+	reply: FastifyReply,
+	message?: string,
+): T | null {
+	const parsed = schema.safeParse(value);
+	if (parsed.success) return parsed.data;
+	reply.code(400).send({
+		code: "BAD_REQUEST",
+		message: message ?? parsed.error.issues.map((i) => i.message).join("; "),
+	});
+	return null;
+}
+
+/** Check an instance name from the path, or answer 400 INVALID_NAME. */
+function validName(name: string, reply: FastifyReply): boolean {
+	if (InstanceName.safeParse(name).success) return true;
+	reply.code(400).send({ code: "INVALID_NAME", message: "invalid instance name" });
+	return false;
+}
 
 interface ServerOptions {
 	provider: WorkspaceProvider;
@@ -115,36 +150,32 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 	// The worker turns debug logging on and off while the controller runs
 	// (ADR 0012); the level lives only in this process.
 	app.put("/log-level", async (request, reply) => {
-		const parsed = SetLogLevelRequest.safeParse(request.body);
-		if (!parsed.success) {
-			return reply
-				.code(ERROR_STATUS.BAD_REQUEST)
-				.send({ code: "BAD_REQUEST", message: "unknown log level" });
-		}
+		const body = parseOr400(
+			SetLogLevelRequest,
+			request.body,
+			reply,
+			"unknown log level",
+		);
+		if (body === null) return reply;
 		// Null clears the override, so the controller goes back to the level it
 		// started with, from its own environment (ADR 0012).
-		applyLevel(rootLogger, startLevel, parsed.data.level);
+		applyLevel(rootLogger, startLevel, body.level);
 		return reply.code(204).send();
 	});
 
 	app.post("/instances", async (request, reply) => {
-		const parsed = CreateInstanceRequest.safeParse(request.body);
-		if (!parsed.success) {
-			return reply.code(400).send({
-				code: "INVALID_NAME",
-				message: parsed.error.issues.map((i) => i.message).join("; "),
-			});
-		}
+		const body = parseOr400(CreateInstanceRequest, request.body, reply);
+		if (body === null) return reply;
 		const started = Date.now();
 		try {
-			const result = await provider.create(parsed.data.name, {
-				homeGiB: parsed.data.homeGiB,
-				dockerGiB: parsed.data.dockerGiB,
-				recoveryGiB: parsed.data.recoveryGiB,
+			const result = await provider.create(body.name, {
+				homeGiB: body.homeGiB,
+				dockerGiB: body.dockerGiB,
+				recoveryGiB: body.recoveryGiB,
 			});
 			request.log.info(
 				{
-					instance: parsed.data.name,
+					instance: body.name,
 					created: result.created,
 					durationMs: Date.now() - started,
 				},
@@ -159,33 +190,22 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 
 	app.post("/instances/:name/start", async (request, reply) => {
 		const params = request.params as { name: string };
-		const nameResult = InstanceName.safeParse(params.name);
-		if (!nameResult.success) {
-			return reply.code(400).send({
-				code: "INVALID_NAME",
-				message: "invalid instance name",
-			});
-		}
-		const bodyResult = StartInstanceRequest.safeParse(request.body ?? {});
-		if (!bodyResult.success) {
-			return reply.code(400).send({
-				code: "INVALID_NAME",
-				message: bodyResult.error.issues.map((i) => i.message).join("; "),
-			});
-		}
+		if (!validName(params.name, reply)) return reply;
+		const body = parseOr400(StartInstanceRequest, request.body ?? {}, reply);
+		if (body === null) return reply;
 		const started = Date.now();
 		try {
 			const result = await singleFlight(`start:${params.name}`, () =>
 				provider.start(params.name, {
-					timeoutSeconds: bodyResult.data.timeoutSeconds,
-					agentToken: bodyResult.data.agentToken,
-					hostname: bodyResult.data.hostname,
-					previewHostSuffix: bodyResult.data.previewHostSuffix,
-					timezone: bodyResult.data.timezone,
-					dockerGiB: bodyResult.data.dockerGiB,
-					recoveryGiB: bodyResult.data.recoveryGiB,
-					cpuAllowance: bodyResult.data.cpuAllowance,
-					docker: bodyResult.data.docker,
+					timeoutSeconds: body.timeoutSeconds,
+					agentToken: body.agentToken,
+					hostname: body.hostname,
+					previewHostSuffix: body.previewHostSuffix,
+					timezone: body.timezone,
+					dockerGiB: body.dockerGiB,
+					recoveryGiB: body.recoveryGiB,
+					cpuAllowance: body.cpuAllowance,
+					docker: body.docker,
 				}),
 			);
 			request.log.info(
@@ -198,28 +218,16 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		}
 	});
 
-	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	app.post("/instances/:name/stop", async (request, reply) => {
 		const params = request.params as { name: string };
-		const nameResult = InstanceName.safeParse(params.name);
-		if (!nameResult.success) {
-			return reply.code(400).send({
-				code: "INVALID_NAME",
-				message: "invalid instance name",
-			});
-		}
-		const bodyResult = StopInstanceRequest.safeParse(request.body ?? {});
-		if (!bodyResult.success) {
-			return reply.code(400).send({
-				code: "INVALID_NAME",
-				message: bodyResult.error.issues.map((i) => i.message).join("; "),
-			});
-		}
+		if (!validName(params.name, reply)) return reply;
+		const body = parseOr400(StopInstanceRequest, request.body ?? {}, reply);
+		if (body === null) return reply;
 		const started = Date.now();
 		try {
 			const result = await singleFlight(`stop:${params.name}`, () =>
 				provider.stop(params.name, {
-					timeoutSeconds: bodyResult.data.timeoutSeconds,
+					timeoutSeconds: body.timeoutSeconds,
 				}),
 			);
 			request.log.info(
@@ -235,28 +243,18 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			return sendError(reply, err);
 		}
 	});
-	// jscpd:ignore-end
 
 	// Maintenance operations (ADR 0021). The worker stops the instance first;
 	// the provider refuses a running one and this answers 409.
 	app.post("/instances/:name/reset-docker", async (request, reply) => {
 		const params = request.params as { name: string };
-		if (!InstanceName.safeParse(params.name).success) {
-			return reply
-				.code(400)
-				.send({ code: "INVALID_NAME", message: "invalid instance name" });
-		}
-		const bodyResult = ResetDockerRequest.safeParse(request.body ?? {});
-		if (!bodyResult.success) {
-			return reply.code(400).send({
-				code: "BAD_REQUEST",
-				message: bodyResult.error.issues.map((i) => i.message).join("; "),
-			});
-		}
+		if (!validName(params.name, reply)) return reply;
+		const body = parseOr400(ResetDockerRequest, request.body ?? {}, reply);
+		if (body === null) return reply;
 		const started = Date.now();
 		try {
 			await singleFlight(`reset-docker:${params.name}`, () =>
-				provider.resetDocker(params.name, { dockerGiB: bodyResult.data.dockerGiB }),
+				provider.resetDocker(params.name, { dockerGiB: body.dockerGiB }),
 			);
 			request.log.info(
 				{ instance: params.name, durationMs: Date.now() - started },
@@ -268,30 +266,20 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		}
 	});
 
-	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	app.post("/instances/:name/rebuild", async (request, reply) => {
 		const params = request.params as { name: string };
-		if (!InstanceName.safeParse(params.name).success) {
-			return reply
-				.code(400)
-				.send({ code: "INVALID_NAME", message: "invalid instance name" });
-		}
-		const bodyResult = RebuildInstanceRequest.safeParse(request.body ?? {});
-		if (!bodyResult.success) {
-			return reply.code(400).send({
-				code: "BAD_REQUEST",
-				message: bodyResult.error.issues.map((i) => i.message).join("; "),
-			});
-		}
+		if (!validName(params.name, reply)) return reply;
+		const body = parseOr400(RebuildInstanceRequest, request.body ?? {}, reply);
+		if (body === null) return reply;
 		const started = Date.now();
 		try {
 			const result = await singleFlight(`rebuild:${params.name}`, () =>
-				provider.rebuild(params.name, bodyResult.data),
+				provider.rebuild(params.name, body),
 			);
 			request.log.info(
 				{
 					instance: params.name,
-					resetDocker: bodyResult.data.resetDocker,
+					resetDocker: body.resetDocker,
 					durationMs: Date.now() - started,
 				},
 				"instance rebuilt",
@@ -301,7 +289,6 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			return sendError(reply, err);
 		}
 	});
-	// jscpd:ignore-end
 
 	app.get("/instances", async (_request, reply) => {
 		try {
@@ -333,11 +320,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 	// The worker asks for this when an administrator presses Refresh (ADR 0037).
 	app.get("/instances/:name/processes", async (request, reply) => {
 		const params = request.params as { name: string };
-		if (!InstanceName.safeParse(params.name).success) {
-			return reply
-				.code(400)
-				.send({ code: "INVALID_NAME", message: "invalid instance name" });
-		}
+		if (!validName(params.name, reply)) return reply;
 		try {
 			const processes = await singleFlight(`processes:${params.name}`, () =>
 				provider.processes(params.name),
@@ -350,20 +333,11 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 
 	app.put("/instances/:name/cpu-allowance", async (request, reply) => {
 		const params = request.params as { name: string };
-		if (!InstanceName.safeParse(params.name).success) {
-			return reply
-				.code(400)
-				.send({ code: "INVALID_NAME", message: "invalid instance name" });
-		}
-		const bodyResult = SetCpuAllowanceRequest.safeParse(request.body ?? {});
-		if (!bodyResult.success) {
-			return reply.code(400).send({
-				code: "BAD_REQUEST",
-				message: bodyResult.error.issues.map((i) => i.message).join("; "),
-			});
-		}
+		if (!validName(params.name, reply)) return reply;
+		const body = parseOr400(SetCpuAllowanceRequest, request.body ?? {}, reply);
+		if (body === null) return reply;
 		try {
-			await provider.setCpuAllowance(params.name, bodyResult.data.allowance);
+			await provider.setCpuAllowance(params.name, body.allowance);
 			return reply.code(204).send();
 		} catch (err) {
 			return sendError(reply, err);
@@ -373,20 +347,11 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 	// Per-workspace limits on the instance, never the profile (SPEC.md §19.3).
 	app.put("/instances/:name/limits", async (request, reply) => {
 		const params = request.params as { name: string };
-		if (!InstanceName.safeParse(params.name).success) {
-			return reply
-				.code(400)
-				.send({ code: "INVALID_NAME", message: "invalid instance name" });
-		}
-		const bodyResult = SetInstanceLimitsRequest.safeParse(request.body ?? {});
-		if (!bodyResult.success) {
-			return reply.code(400).send({
-				code: "BAD_REQUEST",
-				message: bodyResult.error.issues.map((i) => i.message).join("; "),
-			});
-		}
+		if (!validName(params.name, reply)) return reply;
+		const body = parseOr400(SetInstanceLimitsRequest, request.body ?? {}, reply);
+		if (body === null) return reply;
 		try {
-			await provider.setLimits(params.name, bodyResult.data);
+			await provider.setLimits(params.name, body);
 			return reply.code(204).send();
 		} catch (err) {
 			return sendError(reply, err);
@@ -396,11 +361,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 	// The worker's daily package survey reads the apt hook's list (SPEC.md §20.1).
 	app.get("/instances/:name/added-packages", async (request, reply) => {
 		const params = request.params as { name: string };
-		if (!InstanceName.safeParse(params.name).success) {
-			return reply
-				.code(400)
-				.send({ code: "INVALID_NAME", message: "invalid instance name" });
-		}
+		if (!validName(params.name, reply)) return reply;
 		try {
 			return reply.code(200).send(await provider.addedPackages(params.name));
 		} catch (err) {
@@ -411,11 +372,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 	// Swap an imported home in, keeping the old one (ADR 0021's pattern).
 	app.post("/instances/:name/replace-home", async (request, reply) => {
 		const params = request.params as { name: string };
-		if (!InstanceName.safeParse(params.name).success) {
-			return reply
-				.code(400)
-				.send({ code: "INVALID_NAME", message: "invalid instance name" });
-		}
+		if (!validName(params.name, reply)) return reply;
 		const started = Date.now();
 		try {
 			const result = await singleFlight(`replace-home:${params.name}`, () =>
@@ -477,21 +434,11 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 
 	app.post("/instances/:name/volumes", async (request, reply) => {
 		const params = request.params as { name: string };
-		if (!InstanceName.safeParse(params.name).success) {
-			return reply.code(400).send({
-				code: "INVALID_NAME",
-				message: "invalid instance name",
-			});
-		}
-		const bodyResult = GrowVolumesRequest.safeParse(request.body ?? {});
-		if (!bodyResult.success) {
-			return reply.code(400).send({
-				code: "BAD_REQUEST",
-				message: bodyResult.error.issues.map((i) => i.message).join("; "),
-			});
-		}
+		if (!validName(params.name, reply)) return reply;
+		const body = parseOr400(GrowVolumesRequest, request.body ?? {}, reply);
+		if (body === null) return reply;
 		try {
-			const result = await provider.growVolumes(params.name, bodyResult.data);
+			const result = await provider.growVolumes(params.name, body);
 			request.log.info({ instance: params.name, ...result }, "volumes grown");
 			return reply.code(200).send(result);
 		} catch (err) {
@@ -503,15 +450,10 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 	const seedBuilds = opts.seedBuilds ?? new SeedBuilds(provider, rootLogger);
 
 	app.post("/docker-seed/builds", async (request, reply) => {
-		const parsed = SeedBuildRequest.safeParse(request.body);
-		if (!parsed.success) {
-			return reply.code(400).send({
-				code: "BAD_REQUEST",
-				message: parsed.error.issues.map((i) => i.message).join("; "),
-			});
-		}
+		const body = parseOr400(SeedBuildRequest, request.body, reply);
+		if (body === null) return reply;
 		try {
-			return reply.code(202).send(seedBuilds.start(parsed.data));
+			return reply.code(202).send(seedBuilds.start(body));
 		} catch (err) {
 			return sendError(reply, err);
 		}

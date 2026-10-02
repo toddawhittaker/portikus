@@ -1,4 +1,8 @@
-import type { AdminUser, AdminWorkspaceSummary } from "@portikus/contracts";
+import {
+	type AdminUser,
+	type AdminWorkspaceSummary,
+	WorkspaceState,
+} from "@portikus/contracts";
 import {
 	Button,
 	Checkbox,
@@ -29,7 +33,7 @@ import {
 } from "./markers.js";
 import { adminActionUrl, useAdminUsers } from "./queries.js";
 import { WorkspaceDetail } from "./WorkspaceDetail.js";
-import { KNOWN_STATES, WorkspaceStateBadge } from "./WorkspaceStateBadge.js";
+import { WorkspaceStateBadge } from "./WorkspaceStateBadge.js";
 
 export interface AccountFilters {
 	text: string;
@@ -340,7 +344,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 						onChange={(event) => set({ state: event.target.value })}
 					>
 						<option value="all">All states</option>
-						{KNOWN_STATES.map((state) => (
+						{WorkspaceState.options.map((state) => (
 							<option key={state} value={state}>
 								{state[0]?.toUpperCase()}
 								{state.slice(1)}

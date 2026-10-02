@@ -7,6 +7,13 @@
  * row. Shift-click selects everything between the anchor and the clicked row.
  */
 
+/** A row of the tree: a project-relative path and what it is. */
+export interface FileNode {
+	path: string;
+	name: string;
+	isDir: boolean;
+}
+
 export interface Selection {
 	/** The selected paths, in no particular order. */
 	paths: readonly string[];

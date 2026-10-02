@@ -12,6 +12,7 @@ import {
 } from "@portikus/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
+import { errorText } from "../api/request.js";
 import { useOpenWorkspace } from "../api/workspace.js";
 import { useCourses } from "../course/queries.js";
 import { clearLocalLayouts } from "../layout/local.js";
@@ -117,7 +118,7 @@ export function AppHeader({
 				toast.show({
 					tone: "danger",
 					title: "Your workspace did not open",
-					children: error instanceof Error ? error.message : undefined,
+					children: errorText(error, "Something went wrong opening it. Try again."),
 				}),
 		});
 	}

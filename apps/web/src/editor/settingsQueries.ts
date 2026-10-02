@@ -3,7 +3,12 @@ import {
 	MeSettings,
 	type UpdateEditorSettingsRequest,
 } from "@portikus/contracts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	queryOptions,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useEffect } from "react";
 import { request, sendJson } from "../api/request.js";
 import {
@@ -16,35 +21,37 @@ import {
 export const editorSettingsKey = ["me", "settings"] as const;
 
 /**
- * The signed-in user's editor settings, defaults filled in, with
- * the zone names the server accepts alongside them.
+ * The signed-in user's settings (editor, appearance, timezone), defaults
+ * filled in, with the zone names the server accepts alongside them. The one
+ * query on this key, so every reader gets the same fetch.
  */
-export function useEditorSettings() {
-	return useQuery({
-		queryKey: editorSettingsKey,
-		// The saved appearance wins over this browser's copy, and it is applied
-		// here, before anything renders with the settings.
-		queryFn: async () => {
-			let settings = await request(MeSettings, "/me/settings");
-			// A theme picked before appearance moved to the server is kept once
-			// per browser, so a shared lab machine never hands it to the next account.
-			const local = readThemePreference();
-			const upload =
-				!themeCarriedOver() &&
-				settings.appearanceStored === false &&
-				local !== "system";
-			markThemeCarriedOver();
-			if (upload) {
-				try {
-					settings = await saveEditorSettings({ appearance: local });
-				} catch {
-					// Keep what was read; the theme still applies in this browser.
-				}
+export const meSettingsQuery = queryOptions({
+	queryKey: editorSettingsKey,
+	// The saved appearance wins over this browser's copy, and it is applied
+	// here, before anything renders with the settings.
+	queryFn: async () => {
+		let settings = await request(MeSettings, "/me/settings");
+		// A theme picked before appearance moved to the server is kept once
+		// per browser, so a shared lab machine never hands it to the next account.
+		const local = readThemePreference();
+		const upload =
+			!themeCarriedOver() && settings.appearanceStored === false && local !== "system";
+		markThemeCarriedOver();
+		if (upload) {
+			try {
+				settings = await saveEditorSettings({ appearance: local });
+			} catch {
+				// Keep what was read; the theme still applies in this browser.
 			}
-			rememberThemePreference(settings.appearance);
-			return settings;
-		},
-	});
+		}
+		rememberThemePreference(settings.appearance);
+		return settings;
+	},
+});
+
+/** The settings, fetched when not already cached. */
+export function useEditorSettings() {
+	return useQuery(meSettingsQuery);
 }
 
 function saveEditorSettings(body: UpdateEditorSettingsRequest) {
