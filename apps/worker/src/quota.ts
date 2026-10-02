@@ -41,11 +41,8 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 	const { db, controller, logger } = options;
 	const now = options.now ?? (() => new Date());
 	const failures = new Map<string, { wanted: string; at: number }>();
-	let inFlight = false;
 
 	return async function tick(): Promise<void> {
-		if (inFlight) return;
-		inFlight = true;
 		try {
 			const rows = await db
 				.selectFrom("workspaces")
@@ -78,8 +75,6 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 			}
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "quota sync failed");
-		} finally {
-			inFlight = false;
 		}
 	};
 
@@ -138,5 +133,5 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 /** Run the quota sync now and then every QUOTA_SYNC_SECONDS; returns a stop function. */
 export function startQuotaSync(options: QuotaSyncOptions): () => void {
 	const tick = createQuotaSync(options);
-	return startLoop(tick, QUOTA_SYNC_SECONDS * 1000);
+	return startLoop("quota sync", options.logger, tick, QUOTA_SYNC_SECONDS * 1000);
 }

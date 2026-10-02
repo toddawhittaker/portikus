@@ -1,7 +1,8 @@
 import type { Database } from "@portikus/db";
-import { errorMessage, type Logger } from "@portikus/observability";
+import type { Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { startLoop } from "./loop.js";
 
 /** How often the worker looks for a pending Refresh (ADR 0037). */
 const PROCESS_SNAPSHOT_TICK_MS = 1000;
@@ -86,21 +87,12 @@ export function startProcessSnapshots(options: {
 	logger: Logger;
 }): () => void {
 	const { db, controller, logger } = options;
-	let stopped = false;
-	let timer: NodeJS.Timeout | undefined;
-	const tick = async (): Promise<void> => {
-		try {
+	return startLoop(
+		"process snapshot",
+		logger,
+		async () => {
 			await serveProcessSnapshots(db, controller, logger);
-		} catch (e) {
-			logger.error({ error: errorMessage(e) }, "process snapshot loop error");
-		}
-		if (stopped) return;
-		timer = setTimeout(() => void tick(), PROCESS_SNAPSHOT_TICK_MS);
-		timer.unref();
-	};
-	void tick();
-	return () => {
-		stopped = true;
-		clearTimeout(timer);
-	};
+		},
+		PROCESS_SNAPSHOT_TICK_MS,
+	);
 }

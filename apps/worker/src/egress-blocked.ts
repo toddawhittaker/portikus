@@ -3,6 +3,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
+import { startLoop } from "./loop.js";
 import { utcDay } from "./package-survey.js";
 
 /**
@@ -286,23 +287,8 @@ export async function startBlockedCounter(
 	const counter = createBlockedCounter(options);
 	const { logger } = options;
 	await counter.listen();
-	const flushTimer = setInterval(() => {
-		counter
-			.flush()
-			.catch((e: Error) =>
-				logger.warn({ error: e.message }, "blocked-name flush failed"),
-			);
-	}, FLUSH_SECONDS * 1000);
-	flushTimer.unref();
-	const prune = (): void => {
-		counter
-			.prune()
-			.catch((e: Error) =>
-				logger.warn({ error: e.message }, "blocked-name prune failed"),
-			);
-	};
-	const pruneTimer = setInterval(prune, PRUNE_HOURS * 3_600_000);
-	pruneTimer.unref();
-	prune();
+	// The first flush finds nothing counted yet, so only the prune does work at start.
+	startLoop("blocked-name flush", logger, counter.flush, FLUSH_SECONDS * 1000);
+	startLoop("blocked-name prune", logger, counter.prune, PRUNE_HOURS * 3_600_000);
 	return counter;
 }

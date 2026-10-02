@@ -38,7 +38,6 @@ export interface SeedJobOptions {
 export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 	const { db, controller, logger } = options;
 	const now = options.now ?? (() => new Date());
-	let inFlight = false;
 	let lastSync: number | null = null;
 
 	async function writeSeed(seed: SeedInfo): Promise<void> {
@@ -163,8 +162,6 @@ export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 	}
 
 	return async function tick(): Promise<void> {
-		if (inFlight) return;
-		inFlight = true;
 		try {
 			const job = await db
 				.selectFrom("docker_seed_jobs")
@@ -180,8 +177,6 @@ export function createSeedJobs(options: SeedJobOptions): () => Promise<void> {
 			else await start(job);
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "seed jobs failed");
-		} finally {
-			inFlight = false;
 		}
 	};
 }
@@ -193,5 +188,5 @@ function codeOf(e: unknown): string {
 /** Run the seed job tick every SEED_JOB_POLL_SECONDS; returns a stop function. */
 export function startSeedJobs(options: SeedJobOptions): () => void {
 	const tick = createSeedJobs(options);
-	return startLoop(tick, SEED_JOB_POLL_SECONDS * 1000);
+	return startLoop("seed jobs", options.logger, tick, SEED_JOB_POLL_SECONDS * 1000);
 }
