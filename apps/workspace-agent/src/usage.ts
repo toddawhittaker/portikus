@@ -106,9 +106,7 @@ export function parseTotalCpu(text: string): number | null {
 	return fields.reduce((sum, value) => sum + value, 0);
 }
 
-export function parseStatus(
-	text: string,
-): { residentBytes: number; command: string } | null {
+function parseStatus(text: string): { residentBytes: number; command: string } | null {
 	let command: string | null = null;
 	let residentKb = 0;
 	for (const line of text.split("\n")) {

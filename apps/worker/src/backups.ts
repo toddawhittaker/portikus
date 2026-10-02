@@ -22,10 +22,10 @@ import { type ControllerClient, ControllerClientError } from "./controller-clien
 export const BACKUP_CLAIM_TIMEOUT_MS = 15 * 60_000;
 
 /** How often the worker runs the VM-side deletes. */
-export const BACKUP_VM_LOOP_SECONDS = 30;
+const BACKUP_VM_LOOP_SECONDS = 30;
 
 /** How often the worker lists kept volumes, which costs Incus calls per workspace; also right after a delete. */
-export const BACKUP_VM_LIST_SECONDS = 300;
+const BACKUP_VM_LIST_SECONDS = 300;
 
 const HOST_KINDS: readonly string[] = BackupHostKind.options;
 const VM_KINDS = ["delete_snapshot", "delete_kept_home"] as const;
@@ -401,7 +401,7 @@ export async function runVmDeletes(
 }
 
 /** List pre-change snapshots and kept homes into `backup_status.vm`. */
-export async function listVmVolumes(
+async function listVmVolumes(
 	db: Kysely<Database>,
 	controller: ControllerClient,
 	now: Date,

@@ -16,10 +16,10 @@ import { type IncusClient, IncusError } from "./incus.js";
  * inside the container, never on the host.
  */
 
-export const DAEMON_JSON_PATH = "/etc/docker/daemon.json";
-export const GHCR_CERT_DIR = "/etc/docker/certs.d/ghcr.io";
+const DAEMON_JSON_PATH = "/etc/docker/daemon.json";
+const GHCR_CERT_DIR = "/etc/docker/certs.d/ghcr.io";
 export const GHCR_CERT_PATH = `${GHCR_CERT_DIR}/ca.crt`;
-export const HOSTS_PATH = "/etc/hosts";
+const HOSTS_PATH = "/etc/hosts";
 /** The CA the root cache helper made; public, readable by the controller. */
 export const GHCR_CA_HOST_PATH = "/etc/portikus/registry/ghcr-ca.crt";
 /** Setup writes this when the pull cache does not fit on disk (SPEC.md 16.6). */

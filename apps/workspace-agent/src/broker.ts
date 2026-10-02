@@ -12,9 +12,6 @@ import type { FastifyBaseLogger } from "fastify";
 import { projectsDir } from "./projects.js";
 import type { ProjectWatchers } from "./watch.js";
 
-/** Where `portikus-open` connects (BROWSER-HANDLING.md §18). */
-export const BROWSER_SOCKET_PATH = "/run/portikus/browser.sock";
-
 /** How long a repeated requestId is one frame (BROWSER-HANDLING.md §25.2). */
 const DEDUP_MS = 5_000;
 

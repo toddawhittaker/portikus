@@ -11,7 +11,7 @@ import { PROCESS_COMMAND_LINE_LIMIT } from "@portikus/contracts";
 import { AgentFailure } from "./errors.js";
 
 /** How long a stopped process has to exit before the answer is "still running". */
-export const STOP_GRACE_MS = 3000;
+const STOP_GRACE_MS = 3000;
 
 const POLL_MS = 100;
 

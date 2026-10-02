@@ -31,8 +31,8 @@ import { resolveProject } from "./projects.js";
 /** How much of a file is sniffed for a NUL byte before it is called binary. */
 const SNIFF_BYTES = 8 * 1024;
 
-export const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
-export const BINARY_CONTENT_TYPE = "application/octet-stream";
+const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
+const BINARY_CONTENT_TYPE = "application/octet-stream";
 
 export interface ResolvedPath {
 	/** The target, with its parent directories already resolved. */

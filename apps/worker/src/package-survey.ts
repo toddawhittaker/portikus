@@ -9,7 +9,7 @@ import { type ControllerClient, ControllerClientError } from "./controller-clien
 import { startLoop } from "./loop.js";
 
 /** How often the worker looks for a running workspace not yet surveyed today. */
-export const PACKAGE_SURVEY_SECONDS = 600;
+const PACKAGE_SURVEY_SECONDS = 600;
 
 export interface PackageSurveyOptions {
 	db: Kysely<Database>;

@@ -89,7 +89,7 @@ export interface AttachOptions {
 }
 
 /** Where the terminals unit records how it last stopped (SPEC.md §9.7). */
-export const TERMINALS_EXIT_PATH = "/run/portikus-terminals/last-exit";
+const TERMINALS_EXIT_PATH = "/run/portikus-terminals/last-exit";
 
 /**
  * The terminals unit's last stop: systemd's `$SERVICE_RESULT` and the time

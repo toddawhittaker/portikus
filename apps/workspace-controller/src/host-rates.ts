@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import type { HostRates } from "@portikus/contracts";
 
 /** The cumulative counters one reading takes; rates are deltas between two. */
-export interface HostCounters {
+interface HostCounters {
 	/** Milliseconds since the epoch when the counters were read. */
 	at: number;
 	cpuTotal: number;
@@ -14,7 +14,7 @@ export interface HostCounters {
 }
 
 /** Busy and idle jiffies from the `cpu` line of `/proc/stat`. */
-export function parseCpu(stat: string): { total: number; idle: number } {
+function parseCpu(stat: string): { total: number; idle: number } {
 	const line = stat.split("\n").find((l) => l.startsWith("cpu "));
 	if (!line) throw new Error("no cpu line in /proc/stat");
 	// user nice system idle iowait irq softirq steal; guest time is already in user.
@@ -37,7 +37,7 @@ export function defaultRouteInterface(route: string): string | null {
 }
 
 /** Received and sent bytes of one interface in `/proc/net/dev`. */
-export function parseNetDev(dev: string, iface: string): { rx: number; tx: number } {
+function parseNetDev(dev: string, iface: string): { rx: number; tx: number } {
 	for (const line of dev.split("\n")) {
 		const colon = line.indexOf(":");
 		if (colon < 0 || line.slice(0, colon).trim() !== iface) continue;
@@ -82,10 +82,7 @@ export function parseDiskStats(
 }
 
 /** The rates between two readings, or null when a counter went backwards. */
-export function ratesBetween(
-	previous: HostCounters,
-	current: HostCounters,
-): HostRates | null {
+function ratesBetween(previous: HostCounters, current: HostCounters): HostRates | null {
 	const seconds = (current.at - previous.at) / 1000;
 	const cpuTotal = current.cpuTotal - previous.cpuTotal;
 	const cpuIdle = current.cpuIdle - previous.cpuIdle;
@@ -107,7 +104,7 @@ export function ratesBetween(
 }
 
 /** Read every counter once from `/proc` and `/sys/block`. */
-export async function readHostCounters(
+async function readHostCounters(
 	roots: { proc: string; sysBlock: string },
 	now: () => number,
 ): Promise<HostCounters> {

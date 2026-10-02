@@ -62,7 +62,7 @@ async function currentImage(path: string): Promise<string | null> {
 	}
 }
 
-export async function reinstallNote(
+async function reinstallNote(
 	options: Required<PackagesRouteOptions>,
 ): Promise<ReinstallNote> {
 	const text = await readList(options.homeDir);
@@ -76,7 +76,7 @@ export async function reinstallNote(
 }
 
 /** Rewrite the header to the running image, so the note does not come back. */
-export async function dismissReinstallNote(
+async function dismissReinstallNote(
 	options: Required<PackagesRouteOptions>,
 ): Promise<void> {
 	const text = await readList(options.homeDir);

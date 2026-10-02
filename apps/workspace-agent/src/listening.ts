@@ -29,10 +29,10 @@ import { type ProcListener, parseProcNetTcp } from "./proc-net.js";
 import { ownedByStudent, parseStatusUids, readCommandLine } from "./processes.js";
 
 /** How often the port list is rescanned. */
-export const SCAN_INTERVAL_MS = 1000;
+const SCAN_INTERVAL_MS = 1000;
 
 /** How long a Docker answer is reused before asking again. */
-export const DOCKER_CACHE_MS = 5000;
+const DOCKER_CACHE_MS = 5000;
 
 /**
  * Ports that development servers use for plain HTTP often enough to label.
@@ -44,7 +44,7 @@ const HTTP_PORTS: ReadonlySet<number> = new Set([
 ]);
 
 /** How long one TLS probe may take before the listener counts as not HTTPS. */
-export const TLS_PROBE_TIMEOUT_MS = 1000;
+const TLS_PROBE_TIMEOUT_MS = 1000;
 
 /** Ports below this are never probed. */
 const FIRST_PROBED_PORT = 1024;
@@ -102,7 +102,7 @@ interface ProbeTarget {
  * The lowest uid Debian gives a human account. Anything below it belongs to
  * the system: systemd-resolved, sshd and dnsmasq all sit there (SPEC.md §18.2).
  */
-export const FIRST_HUMAN_UID = 1000;
+const FIRST_HUMAN_UID = 1000;
 
 /** How long a process has to exit after SIGTERM before it is killed. */
 export const STOP_GRACE_MS = 3000;

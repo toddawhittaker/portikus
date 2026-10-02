@@ -21,7 +21,7 @@ export const USAGE_RETENTION_DAYS = 120;
 const RETENTION_SECONDS = 24 * 60 * 60;
 const INSERT_CHUNK = 1000;
 
-export type InventoryReader = (
+type InventoryReader = (
 	address: string,
 	token: string,
 ) => Promise<AgentDockerInventory | null>;
