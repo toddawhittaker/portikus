@@ -213,6 +213,8 @@ test("the ghcr.io switch is on by default, says what breaks, and round-trips", a
 	await toggle.click();
 	expect(await takeRegistryRequest()).toEqual({ kind: "set-ghcr", enabled: false });
 	await expect(toggle).not.toBeChecked();
+	// The switch moves at once; the seed form sees the change only once the save settles.
+	await expect(toggle).not.toHaveAttribute("aria-disabled");
 	await writeRegistryStatus();
 
 	// A ghcr.io name is refused while the cache is off.

@@ -37,6 +37,19 @@ async function regainFocus(page: Page) {
 	await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
 }
 
+/**
+ * Regain focus until the badge matches. A focus refetch joins a fetch already
+ * in flight, which may predate the change; the app then waits for the poll.
+ */
+async function expectBadgeAfterFocus(page: Page, unread: number) {
+	const badge = page.getByTestId("notifications-badge");
+	await expect(async () => {
+		await regainFocus(page);
+		if (unread === 0) await expect(badge).toHaveCount(0, { timeout: 1_000 });
+		else await expect(badge).toHaveText(String(unread), { timeout: 1_000 });
+	}).toPass();
+}
+
 test("a toast times out, is recorded, and the history follows the user to a second browser", async ({
 	page,
 	context,
@@ -111,17 +124,14 @@ test("a toast times out, is recorded, and the history follows the user to a seco
 
 		// A new one, unread in both; marking it read in one clears the other.
 		await record(page, "Disk nearly full");
-		await regainFocus(page);
-		await regainFocus(second);
-		await expect(page.getByTestId("notifications-badge")).toHaveText("1");
-		await expect(second.getByTestId("notifications-badge")).toHaveText("1");
+		await expectBadgeAfterFocus(page, 1);
+		await expectBadgeAfterFocus(second, 1);
 
 		await second.getByTestId("notifications-badge").click();
 		await second.getByTestId("notifications-read-all").click();
 		await expect(second.getByTestId("notifications-badge")).toHaveCount(0);
 
-		await regainFocus(page);
-		await expect(page.getByTestId("notifications-badge")).toHaveCount(0);
+		await expectBadgeAfterFocus(page, 0);
 	} finally {
 		await other.close();
 	}
