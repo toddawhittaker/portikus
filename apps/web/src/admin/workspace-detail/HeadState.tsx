@@ -1,14 +1,12 @@
-import type { AdminWorkspaceDetail } from "@portikus/contracts";
 import {
-	Button,
-	type DesiredState,
-	resolveWorkspaceState,
-	useToast,
-	type WorkspaceState,
-} from "@portikus/ui";
+	type AdminWorkspaceDetail,
+	DesiredState,
+	WorkspaceState,
+} from "@portikus/contracts";
+import { Button, resolveWorkspaceState, useToast } from "@portikus/ui";
 import { errorText } from "../../api/request.js";
 import { useLifecycleAction } from "../queries.js";
-import { KNOWN_STATES, WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
+import { WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
 
 export type LifecycleAction = "start" | "stop" | "restart";
 
@@ -21,12 +19,13 @@ export function lifecycleActions(
 	state: string,
 	desiredState: string,
 ): { actions: LifecycleAction[]; waiting: string | null } {
-	if (!KNOWN_STATES.includes(state)) {
+	const known = WorkspaceState.safeParse(state);
+	if (!known.success) {
 		return { actions: ["start", "stop", "restart"], waiting: null };
 	}
 	const resolved = resolveWorkspaceState(
-		state as WorkspaceState,
-		desiredState as DesiredState,
+		known.data,
+		DesiredState.safeParse(desiredState).data,
 	);
 	if (resolved.moving) {
 		return {

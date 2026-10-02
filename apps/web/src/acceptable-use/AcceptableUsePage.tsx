@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { z } from "zod";
-import { ApiError, request, sendJson } from "../api/request.js";
+import { ApiError, errorText, request, sendJson } from "../api/request.js";
 import { StandalonePage } from "../pages/StandalonePage.js";
 import { useMe } from "../useMe.js";
 
@@ -101,7 +101,7 @@ export function AcceptableUsePage() {
 					{accept.error instanceof ApiError &&
 					accept.error.code === "ACCEPTABLE_USE_CHANGED"
 						? "The statement has just changed. Read the new one above, then accept it."
-						: accept.error.message}
+						: errorText(accept.error, "Your acceptance was not saved. Try again.")}
 				</p>
 			) : null}
 			<hr className="pk-divider" />

@@ -272,6 +272,9 @@ importers:
       '@portikus/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@portikus/events':
+        specifier: workspace:*
+        version: link:../../packages/events
       '@portikus/ui':
         specifier: workspace:*
         version: link:../../packages/ui

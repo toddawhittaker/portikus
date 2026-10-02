@@ -4,6 +4,9 @@
  * are base64 so that escape sequences survive. Kept out of the React
  * component so it can be tested without a DOM.
  */
+import { CheckOutputFrame } from "@portikus/contracts";
+import { unparsedFrame } from "../frameFallback.js";
+
 export type CheckFrame =
 	| { kind: "output"; bytes: Uint8Array }
 	| { kind: "exit"; exitCode: number }
@@ -28,16 +31,17 @@ export function decodeCheckFrame(data: unknown): CheckFrame {
 	} catch {
 		return { kind: "ignored" };
 	}
-	if (typeof message !== "object" || message === null) return { kind: "ignored" };
-	const { type, data: payload, exitCode, code } = message as Record<string, unknown>;
-	if (type === "output" && typeof payload === "string") {
-		return { kind: "output", bytes: decodeBase64(payload) };
+	const parsed = CheckOutputFrame.safeParse(message);
+	if (!parsed.success) {
+		return unparsedFrame(message);
 	}
-	if (type === "exit" && typeof exitCode === "number") {
-		return { kind: "exit", exitCode };
+	const frame = parsed.data;
+	switch (frame.type) {
+		case "output":
+			return { kind: "output", bytes: decodeBase64(frame.data) };
+		case "exit":
+			return { kind: "exit", exitCode: frame.exitCode };
+		case "error":
+			return { kind: "error", code: frame.code };
 	}
-	if (type === "error") {
-		return { kind: "error", code: typeof code === "string" ? code : "unknown" };
-	}
-	return { kind: "ignored" };
 }

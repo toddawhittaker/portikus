@@ -6,6 +6,7 @@ import {
 } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, IconButton, TextField } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
+import { errorText } from "../api/request.js";
 import "./checks.css";
 import { useSaveChecks } from "./queries.js";
 
@@ -190,7 +191,7 @@ export function EditChecksDialog({
 						role="alert"
 						data-testid="checks-save-error"
 					>
-						{save.error.message}
+						{errorText(save.error, "The checks could not be saved. Try again.")}
 					</p>
 				)}
 			</Dialog>
