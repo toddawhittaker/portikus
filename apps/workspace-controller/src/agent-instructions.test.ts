@@ -12,7 +12,7 @@ import {
 	codexSystemConfig,
 	writeAgentInstructions,
 } from "./agent-instructions.js";
-import { IncusError } from "./incus.js";
+import { IncusClient, IncusError } from "./incus.js";
 
 type Entry = { type: string; content: string; mode?: string; uid?: number };
 
@@ -23,6 +23,9 @@ type Entry = { type: string; content: string; mode?: string; uid?: number };
 class FakeFiles {
 	files = new Map<string, Entry>();
 	ops: string[] = [];
+
+	/** The real delete-then-push, run against this fake's own files. */
+	replaceFile = IncusClient.prototype.replaceFile;
 
 	async deleteFile(_instance: string, path: string) {
 		const entry = this.files.get(path);

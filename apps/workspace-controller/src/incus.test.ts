@@ -581,3 +581,109 @@ test("readFile maps a server error that is not an envelope to OPERATION_FAILED",
 		code: "OPERATION_FAILED",
 	});
 });
+
+/**
+ * A fake files API that behaves as Incus does on a real host: a push with
+ * "overwrite" opens the existing path for writing, which never returns for
+ * a named pipe with no reader; HEAD and DELETE only look at the path.
+ */
+function pipeAt(pipePath: string, log: string[]) {
+	let pipe = pipePath;
+	return (req: http.IncomingMessage, res: http.ServerResponse) => {
+		const url = new URL(req.url ?? "", "http://incus");
+		const p = url.searchParams.get("path");
+		log.push(`${req.method} ${p}`);
+		req.resume();
+		if (req.method === "HEAD") {
+			res.writeHead(200, { "X-Incus-type": p === pipe ? "fifo" : "file" });
+			res.end();
+			return;
+		}
+		if (p === pipe && (req.method === "POST" || req.method === "GET")) {
+			return; // blocked opening the pipe
+		}
+		if (req.method === "DELETE" && p === pipe) pipe = "";
+		respond(res, 200, {
+			type: "sync",
+			status: "Success",
+			status_code: 200,
+			metadata: {},
+		});
+	};
+}
+
+test("a plain push onto a named pipe hangs until the request times out", async () => {
+	handler = pipeAt("/etc/hosts", []);
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await expect(
+		client.pushFile(
+			"ws-a",
+			"/etc/hosts",
+			"x",
+			{ uid: 0, gid: 0, mode: "0644" },
+			AbortSignal.timeout(200),
+		),
+	).rejects.toMatchObject({ code: "TIMEOUT" });
+});
+
+test("replaceFile deletes a named pipe, then writes with the owner and mode given", async () => {
+	const log: string[] = [];
+	handler = pipeAt("/etc/portikus/agent.token", log);
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await client.replaceFile(
+		"ws-a",
+		"/etc/portikus/agent.token",
+		"t",
+		{ uid: 1000, gid: 1000, mode: "0600" },
+		AbortSignal.timeout(2000),
+	);
+	expect(log).toEqual([
+		"DELETE /etc/portikus/agent.token",
+		"POST /etc/portikus/agent.token",
+	]);
+});
+
+test("replaceFile writes a missing file and refuses a path it cannot delete", async () => {
+	const pushes: http.IncomingHttpHeaders[] = [];
+	handler = (req, res) => {
+		req.resume();
+		if (req.method === "DELETE") {
+			const missing = req.url?.includes("new");
+			respond(res, missing ? 404 : 400, {
+				type: "error",
+				error: missing ? "not found" : "directory not empty",
+				error_code: missing ? 404 : 400,
+			});
+			return;
+		}
+		pushes.push(req.headers);
+		respond(res, 200, {
+			type: "sync",
+			status: "Success",
+			status_code: 200,
+			metadata: {},
+		});
+	};
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await client.replaceFile("ws-a", "/etc/new", "x", { uid: 0, gid: 0, mode: "0644" });
+	expect(pushes).toHaveLength(1);
+	expect(pushes[0]?.["x-incus-mode"]).toBe("0644");
+	await expect(
+		client.replaceFile("ws-a", "/etc/full", "x", { uid: 0, gid: 0, mode: "0644" }),
+	).rejects.toThrow(/cannot be replaced/);
+	expect(pushes).toHaveLength(1);
+});
+
+test("readFile reports a named pipe by its type and never opens it", async () => {
+	const log: string[] = [];
+	handler = pipeAt("/etc/hosts", log);
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	const file = await client.readFile(
+		"ws-a",
+		"/etc/hosts",
+		100,
+		AbortSignal.timeout(2000),
+	);
+	expect(file).toEqual({ type: "fifo", content: Buffer.alloc(0), tooLarge: false });
+	expect(log).toEqual(["HEAD /etc/hosts"]);
+});

@@ -410,14 +410,18 @@ test("start pushes the agent token, then waits for agent health", async () => {
 	}> = [];
 	let agentRequestsAtPush = -1;
 	const execs: string[] = [];
+	const fileMethods: string[] = [];
 	handler = async (req, res) => {
 		const body = await readBody(req);
 		if (req.url?.includes("/exec")) {
 			execs.push(body);
 			respond(res, 200, sync({}));
 		} else if (req.url?.includes("/files")) {
-			pushes.push({ url: req.url, headers: req.headers, body });
-			agentRequestsAtPush = agentRequests;
+			fileMethods.push(req.method ?? "");
+			if (req.method === "POST") {
+				pushes.push({ url: req.url, headers: req.headers, body });
+				agentRequestsAtPush = agentRequests;
+			}
 			respond(res, 200, sync({}));
 		} else if (req.method === "PUT" && req.url?.includes("/state")) {
 			respond(res, 200, sync({}));
@@ -447,6 +451,17 @@ test("start pushes the agent token, then waits for agent health", async () => {
 	// The hostname lands first, then the timezone, then the shell profile,
 	// then the agent token.
 	expect(pushes).toHaveLength(4);
+	// Each is deleted first, so a student's named pipe there cannot block the write.
+	expect(fileMethods).toEqual([
+		"DELETE",
+		"POST",
+		"DELETE",
+		"POST",
+		"DELETE",
+		"POST",
+		"DELETE",
+		"POST",
+	]);
 	const hostnamePush = pushes[0];
 	const timezonePush = pushes[1];
 	const profilePush = pushes[2];
@@ -1156,7 +1171,7 @@ function serveIncus(state: FakeIncus): void {
 			);
 		} else if (p === "/1.0/instances/ws-test/files") {
 			const path = url.searchParams.get("path") ?? "";
-			if (method === "GET") {
+			if (method === "GET" || method === "HEAD") {
 				const file = state.files.get(path);
 				if (!file) {
 					incusError(res, 404, "not found");
@@ -2090,7 +2105,10 @@ describe("admin operations", () => {
 				state.devices = { ...state.devices, ...JSON.parse(body).devices };
 				state.etagSeq++;
 				respond(res, 200, sync({}));
-			} else if (p === `/1.0/instances/${WS}/files` && method === "GET") {
+			} else if (
+				p === `/1.0/instances/${WS}/files` &&
+				(method === "GET" || method === "HEAD")
+			) {
 				if (!state.file) {
 					incusError(res, 404, "not found");
 					return;
@@ -2227,7 +2245,10 @@ describe("admin operations", () => {
 			image: "2026.09.9",
 			packages: ["htop", "ripgrep"],
 		});
-		expect(state.requests).toEqual([`GET /1.0/instances/${WS}/files`]);
+		expect(state.requests).toEqual([
+			`HEAD /1.0/instances/${WS}/files`,
+			`GET /1.0/instances/${WS}/files`,
+		]);
 	});
 
 	test("addedPackages reads a missing file, a symbolic link or a directory as no list, and refuses an oversized one", async () => {
@@ -2799,7 +2820,7 @@ describe("the seed builder", () => {
 				respond(res, 200, sync(runningWithAddress("10.200.0.50")));
 			} else if (p === `${inst}/exec`) {
 				respond(res, 200, sync({ metadata: { return: 0 } }));
-			} else if (p === `${inst}/files` && m === "GET") {
+			} else if (p === `${inst}/files` && (m === "GET" || m === "HEAD")) {
 				if (url.searchParams.get("path") !== "/etc/docker") return notFound();
 				res.writeHead(200, { "X-Incus-type": "directory" });
 				res.end("");
