@@ -121,22 +121,11 @@ export function registerPreviewRoutes(
 	const lookups = createPreviewLookupCache(db);
 	const sessionCap = createCounter(PREVIEW_SESSION_CAP, PREVIEW_SESSION_CAP_WINDOW_MS);
 
-	/** When each user's recent grants and probes were asked for, newest last. */
-	const requestTimes = new Map<string, number[]>();
+	const previewRequests = createCounter(PREVIEW_REQUESTS_PER_WINDOW, PREVIEW_WINDOW_MS);
 
 	/** Record this preview request, and say whether it is over the limit. */
 	function overPreviewLimit(userId: string): boolean {
-		const now = Date.now();
-		const recent = (requestTimes.get(userId) ?? []).filter(
-			(at) => now - at < PREVIEW_WINDOW_MS,
-		);
-		if (recent.length >= PREVIEW_REQUESTS_PER_WINDOW) {
-			requestTimes.set(userId, recent);
-			return true;
-		}
-		recent.push(now);
-		requestTimes.set(userId, recent);
-		return false;
+		return !check(previewRequests, userId).allowed;
 	}
 
 	/**

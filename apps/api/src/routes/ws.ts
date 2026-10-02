@@ -30,24 +30,13 @@ interface Watcher {
 	signature: string;
 }
 
-function signatureOf(workspace: Workspace): string {
-	return JSON.stringify([
-		workspace.state,
-		workspace.desiredState,
-		workspace.errorCode,
-		workspace.shutdownDeadline,
-		workspace.activeConnections,
-		// A Reset Docker or Rebuild request must reach the browser at once (SPEC.md §27).
-		workspace.pendingOperation,
-		workspace.archivedAt,
-		// The throttle and memory notices and "Still working?" must appear at once (ADR 0032).
-		workspace.cpuThrottle,
-		workspace.idleStopAt,
-		workspace.memoryFlag,
-		// A hold set, ended, cut or expired shows at once.
-		workspace.keepRunningUntil,
-		workspace.keepRunningMaxHours,
-	]);
+/**
+ * Every field of the view except the times that move on their own, so any
+ * other change (a relabel, a new image, an error message) pushes at once.
+ */
+export function signatureOf(workspace: Workspace): string {
+	const { lastActivityAt, lastActiveConnectionAt, updatedAt, ...rest } = workspace;
+	return JSON.stringify(rest);
 }
 
 /**
