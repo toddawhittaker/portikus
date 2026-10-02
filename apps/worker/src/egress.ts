@@ -36,11 +36,8 @@ export function createEgressSync(options: EgressSyncOptions): () => Promise<void
 	const { db, controller, logger } = options;
 	const now = options.now ?? (() => new Date());
 	let failed: { version: number; at: number } | null = null;
-	let inFlight = false;
 
 	return async function tick(): Promise<void> {
-		if (inFlight) return;
-		inFlight = true;
 		try {
 			const s = await db
 				.selectFrom("settings")
@@ -82,8 +79,6 @@ export function createEgressSync(options: EgressSyncOptions): () => Promise<void
 			await applyOne(version, expanded);
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "egress sync failed");
-		} finally {
-			inFlight = false;
 		}
 	};
 
@@ -156,5 +151,5 @@ export function createEgressSync(options: EgressSyncOptions): () => Promise<void
 /** Run the egress sync now and then every EGRESS_SYNC_SECONDS; returns a stop function. */
 export function startEgressSync(options: EgressSyncOptions): () => void {
 	const tick = createEgressSync(options);
-	return startLoop(tick, EGRESS_SYNC_SECONDS * 1000);
+	return startLoop("egress sync", options.logger, tick, EGRESS_SYNC_SECONDS * 1000);
 }

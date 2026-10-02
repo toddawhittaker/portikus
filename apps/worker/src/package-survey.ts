@@ -40,11 +40,8 @@ export function createPackageSurvey(
 ): () => Promise<void> {
 	const { db, controller, logger } = options;
 	const now = options.now ?? (() => new Date());
-	let inFlight = false;
 
 	return async function tick(): Promise<void> {
-		if (inFlight) return;
-		inFlight = true;
 		try {
 			const day = utcDay(now());
 			const rows = await db
@@ -92,8 +89,6 @@ export function createPackageSurvey(
 				.execute();
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "package survey failed");
-		} finally {
-			inFlight = false;
 		}
 	};
 
@@ -145,5 +140,10 @@ export function createPackageSurvey(
 /** Run the survey now and then every PACKAGE_SURVEY_SECONDS; returns a stop function. */
 export function startPackageSurvey(options: PackageSurveyOptions): () => void {
 	const tick = createPackageSurvey(options);
-	return startLoop(tick, PACKAGE_SURVEY_SECONDS * 1000);
+	return startLoop(
+		"package survey",
+		options.logger,
+		tick,
+		PACKAGE_SURVEY_SECONDS * 1000,
+	);
 }
