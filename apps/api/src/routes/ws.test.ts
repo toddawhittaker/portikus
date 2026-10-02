@@ -18,9 +18,9 @@ vi.mock("../workspaces/workspace-view.js", async (importOriginal) => {
 	const real = await importOriginal<typeof import("../workspaces/workspace-view.js")>();
 	return {
 		...real,
-		countActive: async (...args: Parameters<typeof real.countActive>) => {
+		workspaceView: async (...args: Parameters<typeof real.workspaceView>) => {
 			if (failRead.on) throw new Error("read failed");
-			return real.countActive(...args);
+			return real.workspaceView(...args);
 		},
 	};
 });
