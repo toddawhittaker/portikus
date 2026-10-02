@@ -522,7 +522,7 @@ A stop should allow the workspace operating system and inner services a bounded 
 
 If graceful stop does not complete within the configured timeout, the platform may force-stop the workspace and must record the event.
 
-A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 25 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`.
+A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every controller call the worker makes (creates, starts, stops and maintenance operations) runs in one background runner, at most one call per workspace at a time. Creates, starts and maintenance share a cap of 6 calls at once; stops sit outside the cap, so they never wait behind a slow rebuild (ADR 0034). Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 25 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`.
 
 A stop succeeds when the instance reaches Stopped within the timeout. The controller decides from the instance's state, never from the text of an Incus error, so a stop that races another stop or a shutdown from inside still ends Stopped with no error. Its first state read tolerates any error except not-found, because for about a second of some shutdowns Incus answers the state read itself with HTTP 500 "Invalid PID -1" (Epic 22).
 
@@ -2676,8 +2676,9 @@ authority) and for a failed renewal, once per certificate per condition.
 Under HTTP-01, preview certificates are on demand: Caddy asks the API on
 loopback, which approves the site and a preview name only for a
 non-system listening port in a running workspace, and at most 10 new
-names per workspace per rolling hour, counted in memory so an API
-restart resets it. Changing the site's address is out (#935).
+names per workspace per fixed clock hour (the count resets at the start
+of each window, it does not roll), counted in memory so an API restart
+resets it. Changing the site's address is out (#935).
 
 ### 20.2 User impersonation
 
@@ -3507,6 +3508,12 @@ nothing, so a route answers 503, or the global handler answers 500 where
 a route does not check; the API's typed agent methods raise
 `AgentStreamError`, which answers `AGENT_UNAVAILABLE`. In the worker the
 error is thrown.
+
+When the controller writes a file into a container it replaces the file:
+it deletes the path and then writes it, so a student cannot leave a link
+or other special file there to redirect the write. It reads a file only
+after checking that it is a regular file, and refuses anything else, such
+as a named pipe.
 
 ### 24.2 Student code is untrusted
 
@@ -4390,6 +4397,10 @@ ENOSPC
 ```
 
 Technical details should remain available for administrators and debugging.
+
+Student-facing views show every error as a plain sentence, with a
+fallback per view for an unexpected code. Admin views keep the raw error
+text and code.
 
 When a workspace fails to start and the workspace agent still reports storage figures, the error screen shows the storage meters. It offers "Reset Docker…" (the Reset Docker confirmation) as its main action only when the error is `STORAGE_FULL` and Docker storage is at the critical level, because resetting Docker when project storage is what filled up would destroy data for nothing.
 
@@ -5352,6 +5363,36 @@ Acceptance:
 - the smoke test gives the same counts before and after;
 - `pnpm lint` fails on an issue, epic, task, ruling or review reference
   in a code comment.
+
+### Epic 30 — Architecture review fixes
+
+Built on `epic/30-architecture-fixes`. No migration and no change to
+request or response bodies between apps. See sections 6.5, 18.3, 20.1,
+24.1 and 28, STACK.md sections 2 and 9, and ADR 0034.
+
+Includes:
+
+- one background runner in the worker for every controller call, keyed
+  by workspace, with stops outside the shared cap;
+- controller writes that replace the file and reads that refuse
+  non-regular files;
+- workspace agent fixes: guarded port stops, an `INTERNAL` fallback for
+  unexpected errors, and no unused workspace id setting;
+- every API rate limit on the shared fixed-window counter;
+- API layers: `routes/` holds only route files, test doubles live in
+  `src/testing/`, and relay tests run against the real workspace agent;
+- one source for notifications, close codes, workspace state types,
+  guard arithmetic and the agent error map;
+- student-facing errors in plain sentences, and the project events
+  socket kept open whatever right-pane tab shows.
+
+Acceptance:
+
+- a slow rebuild does not delay another workspace's start or stop;
+- `apps/api/src` has no import cycles, and the Debian package carries no
+  test code;
+- the API's project, file, Git, search and checks routes pass their relay
+  tests against the real workspace agent.
 
 ### Estimated total
 

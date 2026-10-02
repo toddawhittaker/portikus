@@ -133,6 +133,15 @@ on every operation looking successful were made tolerant of the truth:
 - the instance create waits up to 240 s instead of 60 s, inside the
   worker's 300 s create budget, and each volume create gets 60 s.
 
+## Amended by Epic 30
+
+Every controller call the worker makes now runs in one background
+runner, not only stops: creates, starts, stops and maintenance
+operations, at most one call per workspace at a time. Creates, starts
+and maintenance share a cap of 6 calls at once. Stops sit outside the
+cap, so decision 9 still holds: a stop never waits behind a slow
+rebuild. SPEC.md section 6.5 states the rule.
+
 ## Consequences
 
 - One crash of Caddy or PostgreSQL costs about 5 seconds, not the site.

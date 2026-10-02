@@ -52,7 +52,6 @@ const app = buildServer({
 	tmuxExternalServer: config.TMUX_EXTERNAL_SERVER,
 	logger,
 	brokerSocketPath: "/run/portikus/browser.sock",
-	workspaceId: config.PORTIKUS_WORKSPACE_ID,
 	build,
 });
 

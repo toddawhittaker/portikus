@@ -378,8 +378,6 @@ export const AgentConfigSchema = BaseConfig.extend({
 		.enum(["true", "false"])
 		.default("false")
 		.transform((value) => value === "true"),
-	/** The workspace this agent serves; the URL broker reports it. */
-	PORTIKUS_WORKSPACE_ID: z.string().uuid().optional(),
 });
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
