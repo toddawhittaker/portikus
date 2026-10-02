@@ -68,7 +68,7 @@ const IMAGE = {
 	],
 	otherWorkspaces: 2,
 	job: JOB,
-	// The notice at the top is checked with the rest of the page (issue #861).
+	// The notice at the top is checked with the rest of the page.
 	newerPublished: "2026.09.11",
 	disk: { freeBytes: 5368709120, totalBytes: 21474836480 },
 };
@@ -176,7 +176,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("image-confirm")).toHaveCount(0);
-		// Delete confirms with the count of workspaces made from the image (issue #936).
+		// Delete confirms with the count of workspaces made from the image.
 		const remove = page.getByRole("button", { name: "Delete: 2026.09.10" });
 		await remove.click();
 		await expect(page.getByTestId("image-confirm")).toContainText(

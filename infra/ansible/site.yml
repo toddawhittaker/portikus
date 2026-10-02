@@ -43,9 +43,8 @@
     incus_network_cidr: "10.200.0.1/24"
     incus_project_name: portikus
     workspace_root_disk_quota: 10GB
-    # SPEC 19.1 suggests 4 vCPU and 6 GiB for a real pilot.  The pilot VM
-    # has 8 GB total, so these defaults are deliberately lower.  Adjust
-    # once pilot telemetry shows real usage.
+    # Lower than SPEC 19.1's suggested 4 vCPU and 6 GiB so that several
+    # workspaces fit on a small VM; the development VM has 8 GiB in all.
     workspace_cpu_limit: "2"
     workspace_memory_limit: "4GB"
     workspace_process_limit: "2000"
@@ -80,12 +79,12 @@
     workspace_egress_http_port: 3129
     workspace_egress_https_port: 3130
     workspace_egress_dns_port: 5300
-    # The Docker pull-through caches on the bridge gateway (issue #840):
+    # The Docker pull-through caches on the bridge gateway (ADR 0045):
     # Docker Hub always, ghcr.io when an administrator turns it on.  Fixed
     # in packages/contracts/src/docker-cache.ts.
     registry_cache_hub_port: 5000
     registry_cache_ghcr_port: 5001
-    # Open connections one workspace may hold to each cache (ruling S1).
+    # Open connections one workspace may hold to each cache.
     registry_cache_connections_per_source: 256
     # The size in GiB of the caches' own filesystem, a file on the main
     # disk.  A new size remakes it empty (docs/SPEC.md section 21.12).
@@ -150,7 +149,7 @@
     # where anyone who reaches the site can sign in as any account, the
     # administrator included.
     portikus_idp: "{{ lookup('env', 'PORTIKUS_IDP') | default('dex', true) }}"
-    # Dex's one upstream connector, beside its local passwords (rulings 5 to 8):
+    # Dex's one upstream connector, beside its local passwords (SPEC.md 5.1):
     #   none    local passwords only;
     #   ldap    an LDAP or Active Directory directory (PORTIKUS_LDAP_*);
     #   entra   Microsoft Entra ID, one tenant (PORTIKUS_ENTRA_TENANT_ID),
@@ -173,7 +172,7 @@
     portikus_oidc_upstream_extra_scopes: >-
       {{ lookup('env', 'PORTIKUS_OIDC_UPSTREAM_EXTRA_SCOPES') | replace(',', ' ') | split | select | list }}
     # The local administrator's email, used only when the play creates it
-    # (ruling 12); changing it later changes no existing account.
+    # (ADR 0031); changing it later changes no existing account.
     portikus_admin_email: >-
       {{ lookup('env', 'PORTIKUS_ADMIN_EMAIL') | default('admin@' ~ portikus_public_host, true) }}
     # Dex's LDAP connector.  host or host:port, always over TLS (LDAPS, port
@@ -183,7 +182,7 @@
     portikus_ldap_bind_dn: "{{ lookup('env', 'PORTIKUS_LDAP_BIND_DN') }}"
     portikus_ldap_bind_password: "{{ lookup('env', 'PORTIKUS_LDAP_BIND_PASSWORD') }}"
     portikus_ldap_user_base_dn: "{{ lookup('env', 'PORTIKUS_LDAP_USER_BASE_DN') }}"
-    # Required: without it every directory account could sign in (ruling 11).
+    # Required: without it every directory account could sign in.
     portikus_ldap_user_filter: "{{ lookup('env', 'PORTIKUS_LDAP_USER_FILTER') }}"
     # Empty means no group search, so everyone signs in as a student.
     portikus_ldap_group_base_dn: "{{ lookup('env', 'PORTIKUS_LDAP_GROUP_BASE_DN') }}"
@@ -203,12 +202,12 @@
     # Loopback only; Caddy serves it at /dex.
     dex_port: 5556
     # Dex's gRPC API, on loopback behind mutual TLS; Caddy never routes to it.
-    # The API's DEX_GRPC_* settings name these (docs/archive/epics/EPIC-14.md ruling 20).
+    # The API's DEX_GRPC_* settings name these (ADR 0028).
     dex_grpc_addr: 127.0.0.1:5557
     dex_grpc_dir: /etc/portikus/dex-grpc
     # The retired users file, on the machine that runs Ansible, outside any
     # work tree.  When it exists, its accounts are imported once into Dex's
-    # storage, keeping every user ID (docs/archive/epics/EPIC-14.md ruling 23); after that
+    # storage, keeping every user ID (ADR 0028); after that
     # the Users view manages them and the file can be deleted.
     portikus_users_file: >-
       {{ lookup('env', 'PORTIKUS_USERS_FILE')
@@ -216,11 +215,11 @@
          | expanduser }}
     # The Entra and Google connectors' issuers, which Dex validates tokens
     # against and the egress list is built from.  The Entra one is the
-    # tenant's own, so only that tenant's tokens validate (ruling 5).
+    # tenant's own, so only that tenant's tokens validate.
     portikus_entra_issuer: "https://login.microsoftonline.com/{{ portikus_entra_tenant_id }}/v2.0"
     portikus_google_issuer: https://accounts.google.com
     # Nobody Dex admits is refused by Portikus for having no group: the local
-    # administrator and guests have none (ruling 4).  The mock keeps none,
+    # administrator and guests have none.  The mock keeps none,
     # so its group-less test user is still refused.
     portikus_oidc_default_role: "{{ 'student' if portikus_idp == 'dex' else 'none' }}"
     # Dex puts groups in the token only when asked.  Behind Google they are
@@ -244,7 +243,7 @@
          | default('Portikus.Instructor' if portikus_dex_upstream == 'entra' else 'portikus-instructors', true) }}
     portikus_session_ttl_seconds: 43200
 
-    # ── LTI launch (docs/archive/epics/EPIC-13.md, rulings 14 and 26) ──────────
+    # ── LTI launch (ADR 0025) ─────────────────────────────────────
     # The registered LMS platforms, on the machine that runs Ansible.  The
     # role copies it to the VM; no file here means LTI is off.
     portikus_lti_platforms_file: >-
@@ -252,7 +251,7 @@
          | default(lookup('env', 'HOME') ~ '/.config/portikus/lti-platforms.json', true)
          | expanduser }}
 
-    # ── API egress (ADR 0027, docs/archive/epics/EPIC-14.md rulings 26 to 29) ──
+    # ── API egress (ADR 0027) ─────────────────────────────────────
     # The API reaches the internet only through the egress proxy, which
     # allows the provider's discovery hosts, the LMS keyset hosts, and these:
     # `host` or `host:port`, separated by commas or spaces.

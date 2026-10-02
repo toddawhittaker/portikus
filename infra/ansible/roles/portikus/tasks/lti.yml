@@ -1,10 +1,10 @@
 ---
-# LTI launch on the VM (docs/archive/epics/EPIC-13.md, rulings 14, 15 and 26).  api.env
+# LTI launch on the VM (ADR 0025).  api.env
 # always names both files; a missing platforms file means LTI is off.
 # lti_load.yml has already read the file on the Ansible host.
 
 # The tool key is generated once and never replaced, because every LMS
-# registration pins its public half (ruling 15).
+# registration pins its public half.
 - name: Generate the LTI tool key
   ansible.builtin.shell:
     cmd: >-

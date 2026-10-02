@@ -499,7 +499,7 @@ class FetchTest(Base):
         self.assertIn("docker info", self.status()["message"])
 
     def test_a_claude_login_that_opens_a_browser_fails_health(self):
-        # A browser open would hand the broker a localhost-callback URL (issue #848).
+        # A browser open would hand the broker a localhost-callback URL.
         self.host.publish("2026.09.12")
         self.host.exec_results["sh"] = (0, "claude opened a browser or printed no paste-code URL\n")
         self.request({"kind": "fetch", "version": "2026.09.12"})
@@ -1093,7 +1093,7 @@ class UnitFileTest(unittest.TestCase):
 
 
 class CheckTest(Base):
-    """image-job check, the daily read-only look at what is published (issue #861)."""
+    """image-job check, the daily read-only look at what is published."""
 
     def published(self):
         return json.loads((self.images / "published.json").read_text())

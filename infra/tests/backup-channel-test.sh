@@ -492,7 +492,7 @@ expect "the private key never reaches the VM" "! grep -rq '${secret}' '${fakes}'
 reset
 pull "$copy_req"
 FAKE_DIR_EXISTS=1 run_channel
-expect "an existing folder is refused, with the ruling's message" \
+expect "an existing folder is refused, with its message" \
   "[ \"\$(field \"r['request']['error']\")\" = '~/restored-2026-09-24-0230 already exists. Rename or delete it, then try again.' ] && [ ! -e '${fakes}/stream' ] && ! vm_commands | grep -q -- '-- mkdir'"
 
 reset

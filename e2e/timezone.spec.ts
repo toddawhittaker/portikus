@@ -10,7 +10,7 @@ import {
 } from "./helpers";
 
 /**
- * The workspace timezone (issue #287, SPEC.md §13.5). The zone is a per-user
+ * The workspace timezone (SPEC.md §13.5). The zone is a per-user
  * setting; a terminal opened after it changed runs in the new zone, which the
  * fake workspace agent shows by answering `date` in the zone it was created
  * with.

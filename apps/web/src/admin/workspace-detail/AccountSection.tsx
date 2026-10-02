@@ -1,5 +1,6 @@
 import type { AdminUser } from "@portikus/contracts";
 import { Button, ConfirmDialog, ConfirmDialogRoot, useToast } from "@portikus/ui";
+import type { UseMutationResult } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { errorText } from "../../api/request.js";
@@ -36,22 +37,17 @@ function RoleChange({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 		<GrantChange
 			change={change}
 			variables={{ userId: user.id, admin: promote }}
+			name="role"
+			verb={promote ? "Promote" : "Demote"}
 			note={roleChangeNote(user, isSelf)}
-			noteId={`role-note-${user.id}`}
-			tipLabel={promote ? "Promote" : "Demote"}
 			tip={promote ? PANEL_HELP.promote : null}
-			testId={promote ? "detail-promote" : "detail-demote"}
 			ariaLabel={promote ? `Promote ${name} to administrator` : `Demote ${name}`}
-			buttonText={promote ? "Promote…" : "Demote…"}
-			dialogId={promote ? "promote-dialog" : "demote-dialog"}
 			title={promote ? `Make ${name} an administrator?` : `Demote ${name}?`}
 			description={
 				promote
 					? "They can see every account and workspace and change platform settings, from their next page load."
 					: `They go back to ${roleText({ role: user.providerRole, grantedRole: null })}, from their next page load.`
 			}
-			errorTestId="role-change-error"
-			confirmLabel={promote ? "Promote" : "Demote"}
 			destructive={!promote}
 			successTitle={
 				promote
@@ -62,56 +58,48 @@ function RoleChange({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 	);
 }
 
-/** The mutation a role button runs; only these parts of a TanStack mutation are used. */
-interface GrantMutation<V> {
-	mutate: (variables: V, options: { onSuccess: () => void }) => void;
-	reset: () => void;
-	isPending: boolean;
-	error: unknown;
-}
+/** The parts of a TanStack mutation a role button uses. */
+type GrantMutation<V> = Pick<
+	UseMutationResult<unknown, Error, V>,
+	"mutate" | "reset" | "isPending" | "error"
+>;
 
 /**
  * A button that grants or removes a role after a confirm dialog, with the
- * reason it is off shown beneath it (SPEC.md §20.1). The caller supplies the
- * wording and the mutation.
+ * reason it is off shown beneath it (SPEC.md §20.1). `verb` is the button,
+ * tip and confirm wording and gives the test ids; `name` gives the note and
+ * error ids.
  */
-function GrantChange<V>({
+function GrantChange<V extends { userId: string }>({
 	change,
 	variables,
+	name,
+	verb,
 	note,
-	noteId,
-	tipLabel,
 	tip,
-	testId,
 	ariaLabel,
-	buttonText,
-	dialogId,
 	title,
 	description,
-	errorTestId,
-	confirmLabel,
 	destructive,
 	successTitle,
 }: {
 	change: GrantMutation<V>;
 	variables: V;
+	name: "role" | "instructor";
+	verb: string;
 	note: string | null;
-	noteId: string;
-	tipLabel: string;
 	tip: string | null;
-	testId: string;
 	ariaLabel: string;
-	buttonText: string;
-	dialogId: string;
 	title: string;
 	description: string;
-	errorTestId: string;
-	confirmLabel: string;
 	destructive: boolean;
 	successTitle: string;
 }) {
 	const toast = useToast();
 	const [confirming, setConfirming] = useState(false);
+	const slug = verb.toLowerCase().replaceAll(" ", "-");
+	const noteId = `${name}-note-${variables.userId}`;
+	const dialogId = `${slug}-dialog`;
 
 	function open(next: boolean) {
 		change.reset();
@@ -130,16 +118,16 @@ function GrantChange<V>({
 
 	return (
 		<>
-			<WithTip label={tipLabel} tip={tip}>
+			<WithTip label={verb} tip={tip}>
 				<Button
 					size="sm"
-					data-testid={testId}
+					data-testid={`detail-${slug}`}
 					aria-label={ariaLabel}
 					aria-describedby={note ? noteId : undefined}
 					aria-disabled={note ? true : undefined}
 					onClick={() => (note ? undefined : open(true))}
 				>
-					{buttonText}
+					{`${verb}…`}
 				</Button>
 			</WithTip>
 			{note ? (
@@ -159,14 +147,14 @@ function GrantChange<V>({
 								<span
 									className="mt-2 block text-status-error"
 									role="alert"
-									data-testid={errorTestId}
+									data-testid={`${name}-change-error`}
 								>
 									{errorText(change.error)}
 								</span>
 							) : null}
 						</>
 					}
-					confirmLabel={confirmLabel}
+					confirmLabel={verb}
 					destructive={destructive}
 					pending={change.isPending}
 					onConfirm={run}
@@ -198,22 +186,17 @@ function InstructorChange({ user }: { user: AdminUser }) {
 		<GrantChange
 			change={change}
 			variables={{ userId: user.id, instructor: make }}
+			name="instructor"
+			verb={make ? "Make instructor" : "Remove instructor"}
 			note={instructorChangeNote(user)}
-			noteId={`instructor-note-${user.id}`}
-			tipLabel={make ? "Make instructor" : "Remove instructor"}
 			tip={make ? PANEL_HELP.makeInstructor : null}
-			testId={make ? "detail-make-instructor" : "detail-remove-instructor"}
 			ariaLabel={make ? `Make instructor: ${name}` : `Remove instructor: ${name}`}
-			buttonText={make ? "Make instructor…" : "Remove instructor…"}
-			dialogId={make ? "make-instructor-dialog" : "remove-instructor-dialog"}
 			title={make ? `Make ${name} an instructor?` : `Remove instructor from ${name}?`}
 			description={
 				make
 					? "They can open the Course pages of courses they teach, from their next page load."
 					: `They go back to ${roleText({ role: user.providerRole, grantedRole: null })}, from their next page load.`
 			}
-			errorTestId="instructor-change-error"
-			confirmLabel={make ? "Make instructor" : "Remove instructor"}
 			destructive={false}
 			successTitle={
 				make ? `${name} is now an instructor` : `${name} is no longer an instructor`

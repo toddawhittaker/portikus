@@ -1,6 +1,5 @@
 /**
- * A student opens Portikus from a course (docs/archive/epics/EPIC-13.md rulings 3, 18
- * and 20; SPEC.md section 5 and Epic 8).
+ * A student opens Portikus from a course (ADR 0025; SPEC.md section 5).
  */
 import { expect, test } from "@playwright/test";
 import { query, WEB_ORIGIN } from "./helpers";
@@ -38,7 +37,7 @@ test("a second launch finds the same account instead of making another", async (
 
 		const rows = await ltiUsers("lee");
 		expect(rows).toHaveLength(1);
-		// Not linked by email to any other account (ruling 3).
+		// Not linked by email to any other account.
 		const byEmail = await query("select id from users where email = $1", [
 			"lee@mock-lms.test",
 		]);
@@ -66,8 +65,8 @@ for (const [person, username, label] of [
 	test(`an LTI user's workspace is named after their LMS username, else their email (${person})`, async ({
 		page,
 	}) => {
-		// Sam's username comes as the custom claim, Lee's as preferred_username (issue #549);
-		// Ivy has none, so her email's local part names it (issue #558).
+		// Sam's username comes as the custom claim, Lee's as preferred_username;
+		// Ivy has none, so her email's local part names it.
 		await launchAs(page, { person });
 		await expect(page.getByTestId("workspace-state")).toBeVisible({ timeout: 15_000 });
 		const [user] = await ltiUsers(person);

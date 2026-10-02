@@ -3,7 +3,7 @@ import { createSignedInUser, query, WEB_ORIGIN } from "./helpers";
 
 /**
  * Administrators land on the administration page and get a workspace only
- * when they open one (SPEC.md §6.1, issue #534). These use a fresh
+ * when they open one (SPEC.md §6.1). These use a fresh
  * administrator with a database session: carol may already have a workspace
  * from another spec, and every browser sign-in counts against the sign-in
  * rate limit. The real sign-in by carol and alice is in admin.spec.ts.

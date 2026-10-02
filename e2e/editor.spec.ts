@@ -23,7 +23,7 @@ test.describe("file editor", () => {
 		return page.getByTestId(`editor-${path}`).locator(".view-lines");
 	}
 
-	/** Open the editor settings dialog from the account menu (issue #159). */
+	/** Open the editor settings dialog from the account menu. */
 	async function openEditorSettings(page: Page) {
 		await page.getByTestId("me").click();
 		await page.getByRole("menuitem", { name: "Settings" }).click();
@@ -85,7 +85,7 @@ test.describe("file editor", () => {
 		// Hold each save's answer back for a moment. The file has already
 		// changed on disk by then, so the project events socket reports the
 		// editor's own write before the write's answer arrives, which is what
-		// made the pilot show a conflict (issue #157).
+		// made the pilot show a conflict.
 		await page.route(/\/file\?path=/, async (route) => {
 			if (route.request().method() !== "PUT") {
 				await route.continue();
@@ -166,7 +166,7 @@ test.describe("file editor", () => {
 
 		await expect(page.getByTestId("file-conflict")).toBeVisible({ timeout: 20_000 });
 		await expect(status(page)).toHaveText("Conflict");
-		// The two versions are shown side by side, not a bare prompt (#158).
+		// The two versions are shown side by side, not a bare prompt.
 		const conflict = page.getByTestId(`conflict-editor-${PATH}`);
 		await expect(conflict).toBeVisible({ timeout: 30_000 });
 		await expect(conflict).toContainText("// theirs");
@@ -240,7 +240,7 @@ test.describe("file editor", () => {
 		page,
 		context,
 	}) => {
-		// Issue #158: the student can keep typing on their own side and
+		// The student can keep typing on their own side and
 		// resolve the conflict when they are ready.
 		const student = await createStudent(context);
 		const project = await openFileTab(page, student, "Keep editing", PATH, CONTENT);
@@ -316,7 +316,7 @@ test.describe("file editor", () => {
 		// Monaco counts the matches and highlights them in the text.
 		await expect(find.locator(".matchesCount")).toContainText("1");
 		// The next/previous/close buttons are glyphs from Monaco's codicon
-		// font. If the font never loads they draw as empty boxes (issue #219).
+		// font. If the font never loads they draw as empty boxes.
 		await expect(find.locator(".codicon").first()).toBeVisible();
 		await expect
 			.poll(() => page.evaluate(() => document.fonts.check("16px codicon")), {
@@ -407,7 +407,7 @@ test.describe("file editor", () => {
 		});
 	});
 
-	test("auto-save can be turned off, and Ctrl+S still saves (issue #159)", async ({
+	test("auto-save can be turned off, and Ctrl+S still saves", async ({
 		page,
 		context,
 	}) => {
@@ -445,7 +445,7 @@ test.describe("file editor", () => {
 	 */
 	const LONG_LINE = `const text = "${"x".repeat(600)}";\n`;
 
-	/** Issue #270: a student who has changed nothing gets wrapping. */
+	/** A student who has changed nothing gets wrapping. */
 	test("a long line wraps for a student who chose nothing", async ({
 		page,
 		context,
@@ -461,7 +461,7 @@ test.describe("file editor", () => {
 		await expect(page.getByRole("checkbox", { name: /Word wrap/ })).toBeChecked();
 	});
 
-	test("word wrap can be turned off from the settings dialog (issue #159)", async ({
+	test("word wrap can be turned off from the settings dialog", async ({
 		page,
 		context,
 	}) => {
@@ -482,7 +482,7 @@ test.describe("file editor", () => {
 	});
 
 	/**
-	 * Issue #288: one Settings dialog with three sections. A change in each is
+	 * One Settings dialog with three sections. A change in each is
 	 * saved as it is made and is there again when the dialog is reopened.
 	 */
 	test("Settings holds three sections and saves a change in each", async ({
@@ -517,10 +517,7 @@ test.describe("file editor", () => {
 		).toContainText("Los Angeles");
 	});
 
-	test("the editor settings survive a reload (issue #159)", async ({
-		page,
-		context,
-	}) => {
+	test("the editor settings survive a reload", async ({ page, context }) => {
 		const student = await createStudent(context);
 		await openFileTab(page, student, "Kept", PATH, CONTENT);
 		await expect(lines(page)).toContainText("const answer = 42;", {
@@ -542,7 +539,7 @@ test.describe("file editor", () => {
 		await expect(page.getByTestId("editor-settings-delay")).toHaveValue("9");
 	});
 
-	/** Issue #239: a light terminal, remembered per user (SPEC.md 13.5). */
+	/** A light terminal, remembered per user (SPEC.md 13.5). */
 	test("a student can choose a light terminal and it is remembered", async ({
 		page,
 		context,
@@ -567,17 +564,14 @@ test.describe("file editor", () => {
 		await openEditorSettings(page);
 		await expect(page.getByRole("switch", { name: "Light terminal" })).toBeChecked();
 	});
-	test("a Markdown file is never a false conflict (issue #157)", async ({
-		page,
-		context,
-	}) => {
+	test("a Markdown file is never a false conflict", async ({ page, context }) => {
 		const MD = "README.md";
 		const student = await createStudent(context);
 
 		// Stand in for the pilot's Caddy, which appends "-gzip" to the etag of
 		// any response it compresses. The editor saves against the etag it
 		// read, so a rewritten one turns the next save into a conflict nobody
-		// caused (issue #157). Caddy leaves a response marked no-transform
+		// caused. Caddy leaves a response marked no-transform
 		// alone, which is what the API now says on this route. The route is in
 		// place before the page loads, so even the first read goes through it.
 		await page.route(/\/file\?path=/, async (route) => {

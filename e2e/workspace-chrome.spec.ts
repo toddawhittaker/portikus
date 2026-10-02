@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { createStudent, query, workspacePath } from "./helpers";
 
 /**
- * Shell chrome from the pilot (issues #327, #328, #329; SPEC.md §6, §13.5).
+ * Shell chrome from the pilot (SPEC.md §6, §13.5).
  * The status bar state opens the workspace dialog, the account button has
  * no role, and light, dark, or system appearance is chosen in Settings.
  */
@@ -19,7 +19,7 @@ test("the status bar state opens the workspace dialog", async ({ page, context }
 	).toHaveCount(0);
 
 	await expect(page.getByTestId("workspace-state")).toHaveText("Running");
-	// It looks like a control: a visible border (issue #608 item 2).
+	// It looks like a control: a visible border.
 	const border = await page.getByTestId("workspace-status").evaluate((node) => {
 		const style = getComputedStyle(node);
 		return `${style.borderTopWidth} ${style.borderTopStyle}`;

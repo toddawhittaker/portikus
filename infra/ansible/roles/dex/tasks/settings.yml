@@ -2,7 +2,7 @@
 # Checked before any role runs (site.yml pre_tasks), so bad sign-in
 # settings change nothing on the VM.  Loads the retired users file, when
 # there is one, for the one-time import into Dex's storage
-# (docs/archive/epics/EPIC-14.md ruling 23); it is read on the machine that
+# (ADR 0028); it is read on the machine that
 # runs Ansible.
 
 # A silent move to Dex would change the issuer, and so give everyone a new,
@@ -96,8 +96,7 @@
         - portikus_dex_upstream == 'oidc'
         - portikus_dex_upstream_issuer is match('^https://(login[.](partner[.])?microsoftonline[.](com|us|cn)|sts[.]windows[.]net)([:/]|$)', ignorecase=true)
 
-    # The user filter is the only gate on who may sign in
-    # (docs/archive/epics/EPIC-14.md ruling 11).
+    # The user filter is the only gate on who may sign in (SPEC.md 5.1).
     - name: Require the LDAP connector settings
       ansible.builtin.assert:
         that:

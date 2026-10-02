@@ -9,7 +9,7 @@ import { Button, useToast } from "@portikus/ui";
 import { useState } from "react";
 import { errorText } from "../../api/request.js";
 import { formatBytes, formatCpu } from "../../monitor/format.js";
-import { STORAGE_CLASSES } from "../../recovery/storage.js";
+import { STORAGE_CLASSES, type StorageClass } from "../../recovery/storage.js";
 import { StorageMeterRow } from "../../shell/StorageMeters.js";
 import { GraceDialog, graceValueText } from "../GraceDialog.js";
 import { useSiteLimits } from "../health/queries.js";
@@ -27,8 +27,11 @@ import {
 	useUpdateQuota,
 	useUpdateUserSettings,
 } from "../queries.js";
-import { storageText } from "../WorkspacesTab.js";
 import { PANEL_HELP, SECTION_HEADING, TipTerm } from "./shared.js";
+
+export function storageText(quota: { homeGiB: number; dockerGiB: number }): string {
+	return `Home ${quota.homeGiB} GiB · Docker ${quota.dockerGiB} GiB`;
+}
 
 /** True while the worker has not yet applied the sizes an administrator asked for. */
 export function quotaPending(
@@ -78,8 +81,23 @@ export function limitsPending(
 	);
 }
 
+/** What an administrator can do when a class is nearly full; the student's steps are NEXT_STEP. */
+export function adminStep(storageClass: StorageClass, ownerName: string): string {
+	if (storageClass === "recovery") {
+		return "Close to the limit. Older recovery points are removed automatically.";
+	}
+	const ask = storageClass === "home" ? "delete files" : "reset Docker";
+	return `Close to the limit. Raise it with Edit quotas, or ask ${ownerName} to ${ask}.`;
+}
+
 /** One meter per storage class against its limit (SPEC.md §18.3, §20.1). */
-function StorageMeters({ storage }: { storage: AdminStorage }) {
+function StorageMeters({
+	storage,
+	ownerName,
+}: {
+	storage: AdminStorage;
+	ownerName: string;
+}) {
 	return (
 		<div className="pk-meters">
 			{STORAGE_CLASSES.map((key) => (
@@ -90,6 +108,7 @@ function StorageMeters({ storage }: { storage: AdminStorage }) {
 						usedBytes: storage[key].usedBytes,
 						totalBytes: storage[key].limitBytes,
 					}}
+					step={adminStep(key, ownerName)}
 				/>
 			))}
 		</div>
@@ -144,7 +163,9 @@ export function ResourcesSection({
 			<h4 id="detail-resources" className={SECTION_HEADING}>
 				Resources
 			</h4>
-			{detail?.storage ? <StorageMeters storage={detail.storage} /> : null}
+			{detail?.storage ? (
+				<StorageMeters storage={detail.storage} ownerName={ownerName} />
+			) : null}
 			<dl className="pk-dl">
 				{workspace && detail ? (
 					<>

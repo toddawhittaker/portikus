@@ -31,7 +31,7 @@ if [ -n "$ws_instance" ]; then
 
   # 80 and the public port are the Caddy edge: a workspace must not be
   # able to reach the sign-in page from inside the bridge.  The
-  # gateway's 443 is the ghcr.io cache's redirect (issue #840), so it
+  # gateway's 443 is the ghcr.io cache's redirect (ADR 0045), so it
   # is not probed.  One exec covers every port, because the shortened
   # grace period would stop the workspace part-way through the probes.
   edge_ports="80 3000 3001 3002"

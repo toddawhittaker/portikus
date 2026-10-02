@@ -3,7 +3,7 @@ import { expectNoViolations, loginAs, openToggletip, query } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the admin Network
- * tab and each of its dialogs, in both themes (issue #284). The tab is read
+ * tab and each of its dialogs, in both themes. The tab is read
  * as it stands: admin-egress.spec.ts may change the mode meanwhile, so these
  * checks never write the policy.
  */

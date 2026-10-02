@@ -10,8 +10,8 @@ import {
 } from "./helpers";
 
 /**
- * Make instructor and Remove instructor in the Users view (docs/archive/epics/EPIC-14.md
- * ruling 14). Every test acts on accounts of its own.
+ * Make instructor and Remove instructor in the Users view (SPEC.md §5.2).
+ * Every test acts on accounts of its own.
  */
 
 async function openUsers(page: Page): Promise<void> {

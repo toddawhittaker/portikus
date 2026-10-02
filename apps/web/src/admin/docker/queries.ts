@@ -9,7 +9,7 @@ import {
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
-import { postJson, request, toApiError } from "../../api/request.js";
+import { request, sendJson, toApiError } from "../../api/request.js";
 
 export const dockerKey = ["admin", "docker"] as const;
 const jobsKey = [...dockerKey, "seed-jobs"] as const;
@@ -61,13 +61,13 @@ function useDockerWrite<T>(send: (body: T) => Promise<unknown>) {
 export function useSaveDockerSettings() {
 	// Each card sends only its own field.
 	return useDockerWrite((body: Partial<DockerSettingsRequest>) =>
-		postJson(z.undefined(), "/admin/docker/settings", body, "PUT"),
+		sendJson(z.undefined(), "/admin/docker/settings", body, "PUT"),
 	);
 }
 
 export function useSetHubCredential() {
 	return useDockerWrite((body: HubCredentialRequest) =>
-		postJson(z.undefined(), "/admin/docker/hub-credential", body, "PUT"),
+		sendJson(z.undefined(), "/admin/docker/hub-credential", body, "PUT"),
 	);
 }
 
@@ -90,7 +90,7 @@ export function useClearCache() {
 
 export function useSaveSeedImages() {
 	return useDockerWrite((images: string[]) =>
-		postJson(z.undefined(), "/admin/docker/seed/images", { images }, "PUT"),
+		sendJson(z.undefined(), "/admin/docker/seed/images", { images }, "PUT"),
 	);
 }
 

@@ -196,7 +196,7 @@ test.describe("checks", () => {
 		});
 	});
 
-	/** Issue #274: one neutral selection tone, never the green of a passed check. */
+	/** One neutral selection tone, never the green of a passed check. */
 	test("the selected check is picked out in a neutral tone", async ({
 		page,
 		context,
@@ -216,7 +216,7 @@ test.describe("checks", () => {
 		expect(green).toBeGreaterThanOrEqual(blue);
 	});
 
-	/** Issue #274: a long command must not push the Run button out of the pane. */
+	/** A long command must not push the Run button out of the pane. */
 	test("a 120-character command leaves the Run button inside the pane", async ({
 		page,
 		context,

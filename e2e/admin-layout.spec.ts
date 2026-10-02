@@ -32,7 +32,7 @@ test.describe("admin layout", () => {
 		}
 	});
 
-	test("tabs read Users, then Health, Logs, Audit, then Network, Backups, Workspace image, Certificate, Docker, Settings (Epic 25 R1)", async ({
+	test("tabs read Users, then Health, Logs, Audit, then Network, Backups, Workspace image, Certificate, Docker, Settings", async ({
 		page,
 	}) => {
 		await loginAs(page, "carol");

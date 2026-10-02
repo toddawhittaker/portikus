@@ -1,7 +1,7 @@
 /**
  * After a package upgrade the controller restarts each running workspace's
  * agent; the open page reconnects its terminals and tells the student once
- * (issue #887, SPEC.md 22.5).
+ * (SPEC.md 22.5).
  */
 import { expect, type Page, test } from "@playwright/test";
 import {

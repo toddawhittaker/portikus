@@ -1,5 +1,5 @@
 /**
- * Launch helpers for the LTI specs (docs/archive/epics/EPIC-13.md, "The mock LMS"). Each
+ * Launch helpers for the LTI specs (ADR 0025). Each
  * launch drives the mock's own launch page, so the browser takes the real
  * route: the mock, the tool's /lti/login, the mock's /authorize, and the
  * form post to /lti/launch.
@@ -58,7 +58,7 @@ export async function launchAs(page: Page, options: LaunchOptions): Promise<void
 	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 30_000 });
 }
 
-/** The platform issuer the API stores LTI users under (ruling 12). */
+/** The platform issuer the API stores LTI users under. */
 export const LTI_ISSUER = `lti:${MOCK_LMS_ORIGIN}`;
 
 export function subjectOf(key: PersonKey): string {

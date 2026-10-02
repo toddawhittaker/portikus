@@ -22,7 +22,7 @@ export interface FakeImage {
 	health?: "passed" | "failed" | null;
 	packages?: Record<string, string>;
 	nodeVersion?: string;
-	/** Written as size.json, as the root job records it (issue #936). */
+	/** Written as size.json, as the root job records it. */
 	sizeBytes?: number;
 }
 

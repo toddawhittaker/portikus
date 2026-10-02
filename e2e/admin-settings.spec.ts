@@ -2,8 +2,8 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { loginAs, openToggletip, query, settledAxe, toast, WCAG_TAGS } from "./helpers";
 
 /**
- * The Settings tab layout (SPEC.md section 20.1, Epic 25 findings M4 and
- * R3): one column of sections split by hairlines, the resource guard in four
+ * The Settings tab layout (SPEC.md section 20.1): one column of sections
+ * split by hairlines, the resource guard in four
  * groups, the grace period in minutes. These tests write the one settings
  * row, so they run one after another.
  */
@@ -121,7 +121,7 @@ test("the resource guard is four named groups with one line each and no long par
 	}
 });
 
-test("a field with a help button lines its input up with one without (Epic 25 S-C)", async ({
+test("a field with a help button lines its input up with one without", async ({
 	page,
 }) => {
 	await open(page);
@@ -255,7 +255,7 @@ test("a setting's help opens on click, shows its text, and Escape returns focus"
 });
 
 /**
- * Epic 25 a11y MUST1: an open help tip keeps focus on its button, reads its
+ * An open help tip keeps focus on its button, reads its
  * text out through a live region, and Tab or Shift+Tab moves on and closes it.
  */
 test("a help tip keeps focus on its button, and Tab or Shift+Tab moves on and closes it", async ({

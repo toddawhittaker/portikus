@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 import { createStudent, loginAs, WEB_ORIGIN } from "./helpers";
 
 /**
- * The Logs table at the narrowest admin width (SPEC.md section 24.11, Epic 25
- * follow-up): a long route must not squeeze the Message column to one word a
+ * The Logs table at the narrowest admin width (SPEC.md section 24.11): a
+ * long route must not squeeze the Message column to one word a
  * line, and no column may be cut off.
  */
 test.use({ viewport: { width: 1024, height: 800 } });

@@ -172,6 +172,8 @@ export async function disableUser(
 	input: {
 		actorId: string;
 		targetId: string;
+		/** The request's metadata, recorded on the audit row as `user.enabled` does. */
+		metadata: Record<string, unknown>;
 		alsoInTransaction?: (trx: Kysely<Database>) => Promise<void>;
 	},
 ): Promise<{ ok: true } | { ok: false; reason: DisableRefusal }> {
@@ -235,6 +237,7 @@ export async function disableUser(
 			target: id,
 			action: "user.disabled",
 			result: "ok",
+			metadata: input.metadata,
 		});
 		await input.alsoInTransaction?.(trx);
 		return { ok: true } as const;

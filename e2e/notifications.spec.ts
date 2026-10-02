@@ -1,6 +1,6 @@
 /**
  * Toasts that time out, and the notification history behind the unread badge
- * on the account button (SPEC.md section 8.5, ADR 0033; issue #475).
+ * on the account button (SPEC.md section 8.5, ADR 0033).
  */
 import crypto from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
@@ -238,7 +238,7 @@ test("keyboard only: reach Notifications from the account menu and mark one read
 	await expect(page.getByTestId("me")).toBeFocused();
 });
 
-// Epic 25 S8, S9, N6: the count sits after the name in the accent and never
+// The count sits after the name in the accent and never
 // covers the picture; the menu names the count after "Notifications"; a long
 // address does not widen the menu; an unread item's dot is the accent.
 test("the badge sits after the account button, and the menu stays narrow", async ({

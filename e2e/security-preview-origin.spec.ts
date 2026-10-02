@@ -11,7 +11,7 @@ import {
 
 /**
  * Preview code running in student A's own browser gets none of the control
- * plane's authority (Epic 12a, Done item 10; SPEC.md §24; BROWSER-HANDLING.md
+ * plane's authority (SPEC.md §24; BROWSER-HANDLING.md
  * §7, §12, §25.1). From inside the preview frame it cannot read `/auth/me`,
  * cannot change anything through the API, and cannot see the session cookie,
  * which is HttpOnly and host-only.

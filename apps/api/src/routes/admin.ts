@@ -293,6 +293,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		const result = await disableUser(db, {
 			actorId: actor.id,
 			targetId: params.id,
+			metadata: requestMetadata(request),
 		});
 		if (!result.ok) return sendDisableRefusal(reply, result.reason);
 		return loadUser(params.id);

@@ -236,7 +236,7 @@ test.describe("with the fake root job", () => {
 		await dialog.getByRole("button", { name: "Apply" }).click();
 
 		const { id, request } = await takeRequest();
-		// A blank secret is left out, so the job keeps the stored one (Epic 27 R8).
+		// A blank secret is left out, so the job keeps the stored one.
 		expect(request).toEqual({
 			kind: "apply",
 			settings: {

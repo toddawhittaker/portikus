@@ -8,7 +8,7 @@ import {
 } from "./helpers";
 
 /**
- * The centre-pane tab strip (SPEC.md §8.3, issue #240): every tab is the same
+ * The centre-pane tab strip (SPEC.md §8.3): every tab is the same
  * width, they shrink together, and past the floor width the strip scrolls.
  */
 test.describe("tab strip", () => {

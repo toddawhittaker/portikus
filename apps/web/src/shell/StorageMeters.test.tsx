@@ -61,7 +61,27 @@ test("a class with no size never says nearly full", () => {
 test("at the critical level the next step is written under the meter", () => {
 	render(<StorageMeters storage={{ home: at(90), docker: at(96), recovery: null }} />);
 	expect(screen.queryByTestId("storage-step-home")).toBeNull();
-	expect(screen.getByTestId("storage-step-docker").textContent).toBe(
+	const step = screen.getByTestId("storage-step-docker");
+	expect(step.textContent).toBe(
 		"Use Reset Docker in the workspace dialog, or run docker system prune.",
 	);
+	// Read with the critical meter, so the step is heard where the state is.
+	const docker = screen.getByRole("meter", { name: "Docker" });
+	expect(docker.getAttribute("aria-describedby")).toBe(step.id);
+	expect(
+		screen
+			.getByRole("meter", { name: "Projects and home" })
+			.hasAttribute("aria-describedby"),
+	).toBe(false);
+});
+
+test("each meter takes its name from its visible label, not a copy of it", () => {
+	render(
+		<StorageMeters storage={{ home: at(10), docker: at(10), recovery: at(10) }} />,
+	);
+	const recovery = screen.getByRole("meter", { name: "Recovery" });
+	expect(recovery.hasAttribute("aria-label")).toBe(false);
+	const label = document.getElementById(recovery.getAttribute("aria-labelledby") ?? "");
+	expect(label?.textContent).toBe("Recovery");
+	expect(label?.closest(".pk-meter-label")).not.toBeNull();
 });

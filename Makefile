@@ -51,7 +51,7 @@ clean: ## Remove build output
 # ── Infrastructure targets (STACK.md section 31) ─────────────────
 
 # TOFU_ENV picks the OpenTofu environment: dev-libvirt is the live pilot,
-# rehearsal-libvirt the throwaway VM beside it (docs/archive/epics/EPIC-12B.md).
+# rehearsal-libvirt the throwaway VM beside it.
 TOFU_ENV ?= dev-libvirt
 TOFU_DIR := infra/tofu/environments/$(TOFU_ENV)
 
@@ -248,7 +248,7 @@ PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)
 # the egress proxy; PORTIKUS_EGRESS_EXTRA_HOSTS adds hosts.
 PORTIKUS_IDP ?= dex
 # The retired Dex users file, kept on this machine and never copied to the VM
-# except for the one-time import into Dex's storage (docs/archive/epics/EPIC-14.md ruling 23).
+# except for the one-time import into Dex's storage (ADR 0028).
 # The Users view manages Dex accounts now.
 PORTIKUS_USERS_FILE ?= $(HOME)/.config/portikus/users.json
 
@@ -280,7 +280,7 @@ ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_MAN
 configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|mock picks the sign-in provider, PORTIKUS_DEX_UPSTREAM=none|ldap|entra|google|oidc connects an institution's provider to Dex, PORTIKUS_USERS_FILE=<path> the users file imported once into Dex)
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml
 
-# ── LTI launch (docs/archive/epics/EPIC-13.md, rulings 14 and 26) ────────────────
+# ── LTI launch (ADR 0025) ───────────────────────────────────────────────────────
 # The registered LMS platforms. Kept on this machine; configure-vm copies it to
 # the VM, and no file means LTI is off.
 PORTIKUS_LTI_PLATFORMS_FILE ?= $(HOME)/.config/portikus/lti-platforms.json

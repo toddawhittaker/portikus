@@ -701,7 +701,11 @@ test.skipIf(skip)(
 			.execute();
 		const carolId = await userId("Carol");
 		expect(audits).toEqual([
-			{ action: "user.disabled", actor: `user:${carolId}`, metadata: null },
+			{
+				action: "user.disabled",
+				actor: `user:${carolId}`,
+				metadata: { ip: expect.any(String), userAgent: expect.any(String) },
+			},
 			{
 				action: "user.enabled",
 				actor: `user:${carolId}`,

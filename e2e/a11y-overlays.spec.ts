@@ -3,8 +3,7 @@ import { createProject, createStudent, seedFile, workspacePath } from "./helpers
 
 /**
  * Shared overlays (SPEC.md §25.8, DESIGN.md §6): focus returns somewhere
- * sensible when a dialog closes (issue #358), and toasts sit above dialogs
- * (issue #364).
+ * sensible when a dialog closes, and toasts sit above dialogs.
  */
 test.describe("accessible overlays", () => {
 	/** Open the Rename dialog from a project's "more" menu. */
@@ -46,7 +45,7 @@ test.describe("accessible overlays", () => {
 		await expect(page.getByTestId(`project-menu-${project.id}`)).toBeFocused();
 	});
 
-	/** Issue #609 item 6: the dialog box itself draws no focus outline. */
+	/** The dialog box itself draws no focus outline. */
 	test("a dialog opened from a menu has no outline on the dialog box", async ({
 		page,
 		context,
@@ -64,7 +63,7 @@ test.describe("accessible overlays", () => {
 		expect(style).toBe("none");
 	});
 
-	/** Issue #358 remainder: a file row's menu has no trigger button in the Tab order. */
+	/** A file row's menu has no trigger button in the Tab order. */
 	for (const item of ["row-move", "row-delete"]) {
 		test(`closing the ${item} dialog from a file row menu returns focus to the row`, async ({
 			page,
@@ -134,7 +133,7 @@ test.describe("accessible overlays", () => {
 	});
 
 	/**
-	 * Epic 25 M4: a menu hands focus back to its button as it closes. That
+	 * A menu hands focus back to its button as it closes. That
 	 * focus must not open the button's tooltip, so the control beside it
 	 * answers the very next click.
 	 */

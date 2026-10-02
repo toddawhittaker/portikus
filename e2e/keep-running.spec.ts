@@ -9,7 +9,7 @@ import {
 } from "./helpers";
 
 /**
- * Keep running until (#955, Epic 28 ruling R1): the student holds the
+ * Keep running until (SPEC.md §6.4): the student holds the
  * workspace up from the workspace dialog, sees when the hold ends in their
  * own timezone, and ends it early; the administrator's cap bounds the
  * choice. The worker does not run here, so only the API and the pages are

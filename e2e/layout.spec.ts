@@ -142,7 +142,7 @@ test.describe("work area layout", () => {
 			.toBe(3);
 		const ids = await terminalIds(student.workspaceId, projectId);
 
-		// The layout is saved a second after it changes (plan, Layout).
+		// The layout is saved a second after it changes.
 		await expect
 			.poll(
 				async () => {
@@ -161,7 +161,7 @@ test.describe("work area layout", () => {
 		await expect(page.getByTestId("work-tabs").getByRole("tab")).toHaveCount(2, {
 			timeout: 15_000,
 		});
-		// The tab the student was on is the one that comes back (issue #161).
+		// The tab the student was on is the one that comes back.
 		await expect(page.getByTestId(`tab-${ids[2]}`)).toHaveAttribute(
 			"data-state",
 			"active",
@@ -228,7 +228,7 @@ test.describe("work area layout", () => {
 				.toBe(2);
 			const [, added] = await terminalIds(student.workspaceId, projectId);
 
-			// The first window reconciles on refetch and focus (plan, E2).
+			// The first window reconciles on refetch and focus.
 			await page.bringToFront();
 			await expect(page.getByTestId(`tab-${added}`)).toBeVisible({
 				timeout: 20_000,
@@ -271,7 +271,7 @@ test.describe("work area layout", () => {
 		await pane(page, terminalId).locator(".xterm-screen").click();
 		await page.keyboard.press("Control+d");
 
-		// The last leaf of a tab takes the tab with it (plan, decisions).
+		// The last leaf of a tab takes the tab with it.
 		await expect(page.getByTestId("work-tabs").getByRole("tab")).toHaveCount(0, {
 			timeout: 15_000,
 		});
@@ -723,7 +723,7 @@ test.describe("work area layout", () => {
 	});
 	/**
 	 * Leaving the workspace route and coming back keeps the selected tab and
-	 * the editor's cursor and scroll position (issue #161).
+	 * the editor's cursor and scroll position.
 	 */
 	test("the selected tab and the cursor come back after a round trip", async ({
 		page,
@@ -784,7 +784,7 @@ test.describe("work area layout", () => {
 
 	/**
 	 * Closing a tab goes back to the tab that was selected before it, then to
-	 * the neighbour on the left (SPEC.md §8.3, issue #223).
+	 * the neighbour on the left (SPEC.md §8.3).
 	 */
 	test("closing a tab selects the last tab that was selected", async ({
 		page,

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# The rebuild-from-code exercise (STACK.md section 33; docs/archive/epics/EPIC-12B.md,
-# item 20 and task B5), on the rehearsal VM only.
+# The rebuild-from-code exercise (STACK.md section 33), on the rehearsal VM only.
 #
 # Usage: rebuild-exercise.sh <backup set dir>
 #   Run it through `make rebuild-exercise`, which passes the settings below.
@@ -17,7 +16,7 @@
 #   6. run the full smoke test, with the restored-data checks, the lifecycle
 #      block and a full Dex sign-in;
 #   7. reinstall the previous package and check /health and a sign-in.
-# The set must hold dex.dump (Epic 14 T5 onwards). The retired users file is
+# The set must hold dex.dump (ADR 0028). The retired users file is
 # never imported here: the accounts it creates make restore.sh refuse the VM.
 # The VM is destroyed at the end whatever happens, because it holds restored
 # student data.

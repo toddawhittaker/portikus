@@ -106,18 +106,13 @@ const SharedWorkspaceFields = {
 	AGENT_PORT: positiveInt.default(7400),
 };
 
-const previewSuffixIsDnsName: [
-	(config: { PREVIEW_SUFFIX: string }) => boolean,
-	{ message: string; path: string[] },
-] = [
-	(config: { PREVIEW_SUFFIX: string }) => DNS_NAME.test(config.PREVIEW_SUFFIX),
-	{
-		message:
-			"PREVIEW_SUFFIX must be a lowercase DNS name of at least two labels, " +
-			"with no scheme, port, or trailing dot",
-		path: ["PREVIEW_SUFFIX"],
-	},
-];
+function previewSuffixIsDnsName(config: { PREVIEW_SUFFIX: string }): boolean {
+	return DNS_NAME.test(config.PREVIEW_SUFFIX);
+}
+
+const PREVIEW_SUFFIX_DNS_MESSAGE =
+	"PREVIEW_SUFFIX must be a lowercase DNS name of at least two labels, " +
+	"with no scheme, port, or trailing dot";
 
 /**
  * Environment contract for the API process (STACK.md §5, §9).
@@ -257,7 +252,10 @@ export const ApiConfigSchema = BaseConfig.extend({
 			path: ["PREVIEW_SUFFIX"],
 		},
 	)
-	.refine(...previewSuffixIsDnsName)
+	.refine(previewSuffixIsDnsName, {
+		message: PREVIEW_SUFFIX_DNS_MESSAGE,
+		path: ["PREVIEW_SUFFIX"],
+	})
 	// A preview must never share the application's host, and wildcard
 	// routing under the suffix must never cover it (BROWSER-HANDLING.md §23).
 	.refine(
@@ -354,7 +352,10 @@ export const WorkerConfigSchema = BaseConfig.extend({
 		requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),
 		productionSecretMessage("CONTROLLER_TOKEN"),
 	)
-	.refine(...previewSuffixIsDnsName);
+	.refine(previewSuffixIsDnsName, {
+		message: PREVIEW_SUFFIX_DNS_MESSAGE,
+		path: ["PREVIEW_SUFFIX"],
+	});
 export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
 
 /**

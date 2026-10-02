@@ -10,7 +10,7 @@ import {
 } from "./helpers";
 
 /**
- * Bulk actions on the Users view (Epic 13.1 T4): tick rows, confirm a
+ * Bulk actions on the Users view (SPEC.md §20.1): tick rows, confirm a
  * dialog that names each one, and each row's own admin route is called.
  */
 

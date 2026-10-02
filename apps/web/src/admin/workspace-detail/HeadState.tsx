@@ -8,7 +8,7 @@ import {
 } from "@portikus/ui";
 import { errorText } from "../../api/request.js";
 import { useLifecycleAction } from "../queries.js";
-import { KNOWN_STATES, WorkspaceStateBadge } from "../WorkspacesTab.js";
+import { KNOWN_STATES, WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
 
 export type LifecycleAction = "start" | "stop" | "restart";
 

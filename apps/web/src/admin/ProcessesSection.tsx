@@ -12,7 +12,7 @@ import {
 } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { ApiError, postJson, request } from "../api/request.js";
+import { ApiError, request, sendJson } from "../api/request.js";
 import { formatBytes, formatCpu } from "../monitor/format.js";
 import { stopErrorText } from "../monitor/stop.js";
 
@@ -199,7 +199,7 @@ export function ProcessesSection({
 		const force = current.stillRunning;
 		setStopping({ ...current, pending: true, error: null });
 		try {
-			const answer = await postJson(
+			const answer = await sendJson(
 				ProcessStopResponse,
 				`/admin/workspaces/${workspaceId}/processes/${process.pid}/stop`,
 				{ startTicks: process.startTicks, force },

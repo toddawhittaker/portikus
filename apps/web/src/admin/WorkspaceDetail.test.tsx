@@ -27,6 +27,7 @@ import {
 } from "./workspace-detail/GuardSection.js";
 import { lifecycleActions } from "./workspace-detail/HeadState.js";
 import {
+	adminStep,
 	limitsPending,
 	limitsText,
 	quotaPending,
@@ -791,8 +792,24 @@ test("the detail shows per-class storage meters when the agent measured them", a
 
 	expect(within(panel).getByLabelText("Projects and home")).toBeTruthy();
 	expect(within(panel).getByLabelText("Recovery")).toBeTruthy();
-	expect(within(panel).getByLabelText("Docker").getAttribute("aria-valuetext")).toMatch(
-		/nearly full$/,
+	const docker = within(panel).getByRole("meter", { name: "Docker" });
+	expect(docker.getAttribute("aria-valuetext")).toMatch(/nearly full$/);
+	// The administrator reads what they can do, not the student's own step.
+	const step = within(panel).getByTestId("storage-step-docker");
+	expect(step.textContent).toBe(adminStep("docker", USER.displayName));
+	expect(docker.getAttribute("aria-describedby")).toBe(step.id);
+	expect(within(panel).queryByTestId("storage-step-home")).toBeNull();
+});
+
+test("the administrator's next step says what they can do for each class", () => {
+	expect(adminStep("home", "Alice")).toBe(
+		"Close to the limit. Raise it with Edit quotas, or ask Alice to delete files.",
+	);
+	expect(adminStep("docker", "Alice")).toBe(
+		"Close to the limit. Raise it with Edit quotas, or ask Alice to reset Docker.",
+	);
+	expect(adminStep("recovery", "Alice")).toBe(
+		"Close to the limit. Older recovery points are removed automatically.",
 	);
 });
 

@@ -2,11 +2,19 @@ import type * as React from "react";
 import { cx } from "./cx.js";
 import { Icon } from "./Icon.js";
 
-export interface MeterProps {
+/**
+ * The accessible name: a `label` string such as "Pull cache space" that
+ * matches the visible row label, or the id of that visible label.
+ */
+type MeterName =
+	| { label: string; "aria-labelledby"?: never }
+	| { label?: never; "aria-labelledby": string };
+
+export type MeterProps = MeterName & {
 	value: number;
 	max: number;
-	/** The accessible name, such as "Pull cache space"; match the visible row label. */
-	label: string;
+	/** The id of text to read after the value, such as a next step. */
+	"aria-describedby"?: string;
 	/** Shown beside the bar and read as its value, such as "4.1 GB of 20 GB used". */
 	valueText: string;
 	/** Past this value the fill turns to the warning colour and the text adds "nearly full". */
@@ -14,7 +22,7 @@ export interface MeterProps {
 	/** A value to mark with a tick, such as an automatic clear point; nearby text says what it is. */
 	mark?: number;
 	className?: string;
-}
+};
 
 /**
  * A native meter with its value as text beside it, so the figure can be read
@@ -26,6 +34,8 @@ export function Meter({
 	value,
 	max,
 	label,
+	"aria-labelledby": labelledBy,
+	"aria-describedby": describedBy,
 	valueText,
 	high,
 	mark,
@@ -52,6 +62,8 @@ export function Meter({
 					value={Math.max(value, 0)}
 					high={high}
 					aria-label={label}
+					aria-labelledby={labelledBy}
+					aria-describedby={describedBy}
 					aria-valuetext={text}
 				/>
 				{markAt === null ? null : (

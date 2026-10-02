@@ -548,7 +548,6 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 			const target = await insertTestUser(db, { role: "instructor" });
 			expect(await grant(target)).toEqual({
 				ok: true,
-				changed: true,
 				from: "instructor",
 				to: "administrator",
 			});
@@ -574,7 +573,6 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 			const course = await insertTestLtiUser(db, LMS);
 			expect(await grant(admin)).toEqual({
 				ok: true,
-				changed: false,
 				from: "administrator",
 				to: "administrator",
 			});
@@ -651,7 +649,6 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 			const target = await insertTestUser(db, { role: "student" });
 			expect(await grant(target)).toEqual({
 				ok: true,
-				changed: true,
 				from: "student",
 				to: "instructor",
 			});
@@ -677,7 +674,6 @@ describe.skipIf(!hasTestDb())("account links and the role grant", () => {
 				const target = await insertTestUser(db, { role });
 				expect(await grant(target)).toEqual({
 					ok: true,
-					changed: false,
 					from: role,
 					to: role,
 				});

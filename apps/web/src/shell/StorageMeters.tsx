@@ -1,6 +1,6 @@
 import type { StorageFigure, WorkspaceUsage } from "@portikus/contracts";
 import { Meter, Toggletip } from "@portikus/ui";
-import type * as React from "react";
+import { type ReactNode, useId } from "react";
 import { formatBytes } from "../monitor/format.js";
 import {
 	NEXT_STEP,
@@ -20,20 +20,26 @@ export function meterLevelClass(level: StorageLevel | null): string {
 }
 
 /**
- * One storage class's meter, named by its class. At the critical level the
- * next step is written under it, so the state is not shown by colour alone
- * (SPEC.md §19.2, §25.8).
+ * One storage class's meter, named by its visible label. At the critical
+ * level `step` is written under it and read with the meter, so the state is
+ * not shown by colour alone (SPEC.md §19.2, §25.8).
  */
 export function StorageMeterRow({
 	storageClass,
 	figure,
+	step,
 	tip,
 }: {
 	storageClass: StorageClass;
 	figure: StorageFigure | null;
-	tip?: React.ReactNode;
+	step: string;
+	tip?: ReactNode;
 }) {
 	const level = storageLevel(figure);
+	const id = useId();
+	const labelId = `${id}-label`;
+	const stepId = `${id}-step`;
+	const critical = level === "critical";
 	return (
 		<div
 			className={`pk-meter ${meterLevelClass(level)}`}
@@ -41,7 +47,7 @@ export function StorageMeterRow({
 			data-level={level ?? undefined}
 		>
 			<span className="pk-meter-label inline-flex items-center gap-1">
-				{STORAGE_LABEL[storageClass]}
+				<span id={labelId}>{STORAGE_LABEL[storageClass]}</span>
 				{tip}
 			</span>
 			{figure ? (
@@ -49,7 +55,8 @@ export function StorageMeterRow({
 					<Meter
 						value={figure.usedBytes}
 						max={figure.totalBytes}
-						label={STORAGE_LABEL[storageClass]}
+						aria-labelledby={labelId}
+						aria-describedby={critical ? stepId : undefined}
 						valueText={`${formatBytes(figure.usedBytes)} of ${formatBytes(figure.totalBytes)}`}
 						high={nearlyFullAbove(figure.totalBytes)}
 					/>
@@ -59,9 +66,13 @@ export function StorageMeterRow({
 					Not available
 				</span>
 			)}
-			{level === "critical" ? (
-				<span className="pk-meter-step" data-testid={`storage-step-${storageClass}`}>
-					{NEXT_STEP[storageClass]}
+			{critical ? (
+				<span
+					id={stepId}
+					className="pk-meter-step"
+					data-testid={`storage-step-${storageClass}`}
+				>
+					{step}
 				</span>
 			) : null}
 		</div>
@@ -77,6 +88,7 @@ export function StorageMeters({ storage }: { storage: WorkspaceUsage["storage"] 
 					key={storageClass}
 					storageClass={storageClass}
 					figure={storage[storageClass]}
+					step={NEXT_STEP[storageClass]}
 					tip={
 						storageClass === "recovery" ? (
 							<Toggletip label="Recovery storage">
