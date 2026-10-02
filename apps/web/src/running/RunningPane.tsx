@@ -152,21 +152,7 @@ export function RunningPane({
 								<span className="pk-portrow-name" title={command}>
 									{command}
 								</span>
-								{isDocker(service) || reason !== null ? (
-									<span className="pk-portrow-tags pk-text-caption">
-										{isDocker(service) ? (
-											<span className="pk-portrow-kind">Docker</span>
-										) : null}
-										{reason !== null ? (
-											<span
-												className="pk-portrow-kind"
-												data-testid={`running-reason-${service.port}`}
-											>
-												{reason}
-											</span>
-										) : null}
-									</span>
-								) : null}
+								<RowTags service={service} reason={reason} />
 							</span>
 						</button>
 						{expanded ? (
@@ -293,6 +279,30 @@ export function RunningPane({
 				list
 			)}
 		</>
+	);
+}
+
+/** The Docker tag and the reason a row cannot be previewed, when there are any. */
+function RowTags({
+	service,
+	reason,
+}: {
+	service: ListeningService;
+	reason: string | null;
+}) {
+	if (!isDocker(service) && reason === null) return null;
+	return (
+		<span className="pk-portrow-tags pk-text-caption">
+			{isDocker(service) ? <span className="pk-portrow-kind">Docker</span> : null}
+			{reason !== null ? (
+				<span
+					className="pk-portrow-kind"
+					data-testid={`running-reason-${service.port}`}
+				>
+					{reason}
+				</span>
+			) : null}
+		</span>
 	);
 }
 
