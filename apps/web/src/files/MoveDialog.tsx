@@ -5,7 +5,6 @@
  */
 import { Button, Dialog, DialogRoot, Icon } from "@portikus/ui";
 import { useState } from "react";
-import type { FileNode } from "./FileTree.js";
 import {
 	baseName,
 	canMoveInto,
@@ -15,6 +14,7 @@ import {
 	visibleEntries,
 } from "./paths.js";
 import { useTree } from "./queries.js";
+import type { FileNode } from "./selection.js";
 
 export interface MoveDialogProps {
 	workspaceId: string;
