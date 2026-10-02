@@ -20,10 +20,9 @@ import type { Selectable } from "kysely";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import {
-	claimLongOperation,
-	longOperationRunning,
-	releaseLongOperation,
-} from "../workspaces/long-operation.js";
+	requestPendingOperation,
+	sendPendingOperationRefusal,
+} from "../workspaces/pending-operation.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 const RECENT_REQUESTS = 50;
@@ -343,57 +342,18 @@ export function registerAdminBackupRoutes(
 				);
 			}
 			const workspaceId = restore.workspace_id;
-			if (longOperationRunning(workspaceId)) {
-				return sendError(
-					reply,
-					409,
-					"OPERATION_IN_PROGRESS",
-					"A project operation such as a restore is running on this workspace. Try again when it finishes.",
-				);
-			}
-			// Held while the operation is set, as Rebuild does (ADR 0021).
-			claimLongOperation(workspaceId, reply);
-			let updated: { numUpdatedRows: bigint };
-			try {
-				const now = new Date().toISOString();
-				updated = await db.transaction().execute(async (trx) => {
-					const result = await trx
-						.updateTable("workspaces")
-						.set({
-							pending_operation: "replace-home",
-							pending_operation_args: JSON.stringify({ restoreRequestId: restore.id }),
-							pending_operation_at: now,
-							pending_operation_by: admin.id,
-							updated_at: now,
-						})
-						.where("id", "=", workspaceId)
-						.where("pending_operation", "is", null)
-						.executeTakeFirst();
-					if (result.numUpdatedRows > 0n) {
-						await recordAudit(trx, {
-							actor: `user:${admin.id}`,
-							target: workspaceId,
-							action: "workspace.home_replace_requested",
-							result: "ok",
-							metadata: {
-								restoreRequestId: restore.id,
-								stamp: (restore.args as { stamp?: string }).stamp ?? null,
-							},
-						});
-					}
-					return result;
-				});
-			} finally {
-				releaseLongOperation(workspaceId);
-			}
-			if (updated.numUpdatedRows === 0n) {
-				return sendError(
-					reply,
-					409,
-					"OPERATION_PENDING",
-					"Another maintenance operation is already waiting on this workspace.",
-				);
-			}
+			const result = await requestPendingOperation(db, {
+				workspaceId,
+				userId: admin.id,
+				operation: "replace-home",
+				args: { restoreRequestId: restore.id },
+				action: "workspace.home_replace_requested",
+				metadata: {
+					restoreRequestId: restore.id,
+					stamp: (restore.args as { stamp?: string }).stamp ?? null,
+				},
+			});
+			if (result !== "ok") return sendPendingOperationRefusal(reply, result);
 			return reply.status(202).send(toView(restore));
 		},
 	);

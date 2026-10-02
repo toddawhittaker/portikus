@@ -1,14 +1,12 @@
 import { requireRole, requireUser } from "@portikus/auth";
 import { type PendingOperation, RebuildWorkspaceRequest } from "@portikus/contracts";
-import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import {
-	claimLongOperation,
-	longOperationRunning,
-	releaseLongOperation,
-} from "../workspaces/long-operation.js";
+	requestPendingOperation,
+	sendPendingOperationRefusal,
+} from "../workspaces/pending-operation.js";
 import { findOwnedWorkspace } from "../workspaces/workspace-view.js";
 
 /**
@@ -19,10 +17,6 @@ export function registerMaintenanceRoutes(
 	app: FastifyInstance,
 	{ db }: ServerDeps,
 ): void {
-	/**
-	 * Set the pending operation unless one is already set, and audit the
-	 * request. The `is null` guard makes two racing requests safe.
-	 */
 	async function request(
 		reply: FastifyReply,
 		userId: string,
@@ -31,50 +25,14 @@ export function registerMaintenanceRoutes(
 		action: string,
 		metadata: Record<string, unknown>,
 	): Promise<void> {
-		// A restore or copy holds the project folders; rebuilding under it would race.
-		if (longOperationRunning(workspaceId)) {
-			return sendError(
-				reply,
-				409,
-				"OPERATION_IN_PROGRESS",
-				"A project operation such as a restore is running on this workspace. Try again when it finishes.",
-			);
-		}
-		// Held while the operation is set, so a restore cannot start in between.
-		// Nothing was awaited since the check above, so this claim succeeds.
-		claimLongOperation(workspaceId, reply);
-		let updated: { numUpdatedRows: bigint };
-		try {
-			const now = new Date().toISOString();
-			updated = await db
-				.updateTable("workspaces")
-				.set({
-					pending_operation: operation,
-					pending_operation_at: now,
-					pending_operation_by: userId,
-					updated_at: now,
-				})
-				.where("id", "=", workspaceId)
-				.where("pending_operation", "is", null)
-				.executeTakeFirst();
-		} finally {
-			releaseLongOperation(workspaceId);
-		}
-		if (updated.numUpdatedRows === 0n) {
-			return sendError(
-				reply,
-				409,
-				"OPERATION_PENDING",
-				"Another maintenance operation is already waiting on this workspace.",
-			);
-		}
-		await recordAudit(db, {
-			actor: `user:${userId}`,
-			target: workspaceId,
+		const result = await requestPendingOperation(db, {
+			workspaceId,
+			userId,
+			operation,
 			action,
-			result: "ok",
-			metadata: metadata,
+			metadata,
 		});
+		if (result !== "ok") return sendPendingOperationRefusal(reply, result);
 		reply.status(202).send({ ok: true });
 	}
 

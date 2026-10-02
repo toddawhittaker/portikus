@@ -14,7 +14,7 @@ const longOperations = new Set<string>();
  * answering 409, so the caller just returns.
  */
 export function claimLongOperation(workspaceId: string, reply: FastifyReply): boolean {
-	if (longOperations.has(workspaceId)) {
+	if (!holdLongOperation(workspaceId)) {
 		sendError(
 			reply,
 			409,
@@ -23,6 +23,12 @@ export function claimLongOperation(workspaceId: string, reply: FastifyReply): bo
 		);
 		return false;
 	}
+	return true;
+}
+
+/** Claim the long-operation slot without answering; false when it is already held. */
+export function holdLongOperation(workspaceId: string): boolean {
+	if (longOperations.has(workspaceId)) return false;
 	longOperations.add(workspaceId);
 	return true;
 }
