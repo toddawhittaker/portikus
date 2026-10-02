@@ -382,6 +382,65 @@ test.skipIf(skip)("the list check leaves a start in flight alone", async () => {
 	expect((await getWorkspace(id)).state).toBe("running");
 });
 
+test.skipIf(skip)("a start sends the recovery size the row already has", async () => {
+	await insertWorkspace({
+		state: "stopped",
+		desired_state: "running",
+		quota_config: JSON.stringify({ homeGiB: 25, dockerGiB: 20, recoveryGiB: 7 }),
+	});
+	const now = new Date();
+
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+
+	const start = fake.calls.find((c) => c.method === "start");
+	expect(start?.args[1]).toMatchObject({ recoveryGiB: 7 });
+});
+
+test.skipIf(skip)(
+	"a stop goes out in the same sweep while six slow operations hold every slot",
+	async () => {
+		let releaseRebuilds = (): void => {};
+		const held = new Promise<void>((r) => {
+			releaseRebuilds = r;
+		});
+		const rebuild = fake.rebuild.bind(fake);
+		let rebuildCalls = 0;
+		fake.rebuild = async (name, req) => {
+			rebuildCalls++;
+			await held;
+			return rebuild(name, req);
+		};
+		const by = await insertTestUser(tdb.db);
+		for (let i = 0; i < 6; i++) {
+			await insertWorkspace({
+				pending_operation: "rebuild",
+				pending_operation_at: new Date(Date.now() - 1000).toISOString(),
+				pending_operation_by: by,
+			});
+		}
+		const now = new Date();
+		try {
+			await reconcile(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+			await new Promise((r) => setTimeout(r, 50));
+			expect(rebuildCalls).toBe(6);
+
+			const stopping = await insertWorkspace({
+				state: "running",
+				desired_state: "stopped",
+			});
+			await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), {
+				lastRefreshAt: now,
+			});
+			await untilState(stopping, "stopped");
+			expect(rebuildCalls).toBe(6);
+		} finally {
+			releaseRebuilds();
+			await settleInFlight();
+			fake.rebuild = rebuild;
+		}
+	},
+);
+
 test.skipIf(skip)(
 	"a slow maintenance operation does not delay another workspace's start",
 	async () => {

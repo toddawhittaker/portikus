@@ -301,7 +301,7 @@ async function startInBackground(
 		id: string;
 		incus_instance_name: string | null;
 		label: string;
-		quota_config: { dockerGiB?: number } | null;
+		quota_config: { dockerGiB?: number; recoveryGiB?: number } | null;
 	},
 	fromState: string,
 ): Promise<void> {

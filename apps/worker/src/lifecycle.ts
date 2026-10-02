@@ -364,7 +364,7 @@ export async function startInstance(
 		id: string;
 		incus_instance_name: string;
 		label: string;
-		quota_config: { dockerGiB?: number } | null;
+		quota_config: { dockerGiB?: number; recoveryGiB?: number } | null;
 	},
 	now: Date,
 ): Promise<void> {
@@ -380,7 +380,7 @@ export async function startInstance(
 			previewHostSuffix: config.PREVIEW_SUFFIX,
 			timezone: await ownerTimezone(db, ws.id),
 			dockerGiB: dockerGiBOf(ws.quota_config, config),
-			recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
+			recoveryGiB: ws.quota_config?.recoveryGiB ?? config.WORKSPACE_RECOVERY_SIZE_GIB,
 			cpuAllowance: await heldAllowance(db, ws.id),
 			docker: await dockerStartConfig(db),
 		});
@@ -426,7 +426,10 @@ export async function startInstance(
 	}
 }
 
-/** At most this many controller calls run at once across all workspaces. */
+/**
+ * At most this many creates, starts and operations run at once across all
+ * workspaces. Stops are outside the cap, so nothing holds them up (ADR 0034).
+ */
 const CONTROLLER_CONCURRENCY = 6;
 
 /** Calls queued or running, by workspace id; the sweep leaves these rows alone. */
@@ -456,20 +459,14 @@ export function inFlightIds(): string[] {
 }
 
 /**
- * Run a workspace's controller call without waiting for it, so one slow
- * create, start, stop or operation never delays another workspace (SPEC.md
- * §6.5; ADR 0034). The caller must skip rows already in flight, so a row
- * never gets two calls at once. On worker exit the call is abandoned and
- * the sweep resolves the row after the restart, as after a crash.
+ * Record a workspace's call as in flight until it ends. The caller must
+ * skip rows already in flight, so a row never gets two calls at once. On
+ * worker exit the call is abandoned and the sweep resolves the row after
+ * the restart, as after a crash.
  */
-export function runInBackground(
-	id: string,
-	what: string,
-	log: Logger,
-	call: () => Promise<void>,
-): void {
+function track(id: string, what: string, log: Logger, call: () => Promise<void>): void {
 	if (inFlight.has(id)) throw new Error(`workspace ${id} already has a call in flight`);
-	const running = withSlot(call)
+	const running = call()
 		.catch((e: unknown) => {
 			log.error(
 				{ workspaceId: id, error: errorMessage(e) },
@@ -482,7 +479,20 @@ export function runInBackground(
 	inFlight.set(id, running);
 }
 
-/** Stop a workspace already in stopping, in the background. */
+/**
+ * Run a create, start or operation without waiting for it, so one slow
+ * call never delays another workspace (SPEC.md §6.5; ADR 0034).
+ */
+export function runInBackground(
+	id: string,
+	what: string,
+	log: Logger,
+	call: () => Promise<void>,
+): void {
+	track(id, what, log, () => withSlot(call));
+}
+
+/** Stop a workspace already in stopping, in the background and outside the cap. */
 export function stopInBackground(
 	db: Kysely<Database>,
 	controller: ControllerClient,
@@ -490,7 +500,7 @@ export function stopInBackground(
 	ws: { id: string; incus_instance_name: string | null },
 	log: Logger,
 ): void {
-	runInBackground(ws.id, "stop", log, () => doStop(db, controller, config, ws));
+	track(ws.id, "stop", log, () => doStop(db, controller, config, ws));
 }
 
 /** Wait for every call in flight to finish; for tests. */
