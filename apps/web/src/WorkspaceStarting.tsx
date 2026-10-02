@@ -1,6 +1,7 @@
 import type { PendingOperation, Workspace, WorkspaceUsage } from "@portikus/contracts";
 import { Button, Icon, Skeleton, useToast } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
+import { errorText as apiErrorText } from "./api/request.js";
 import { useWorkspaceAction } from "./api/workspace.js";
 import { DialogError } from "./common/DialogError.js";
 import { formatBytes } from "./monitor/format.js";
@@ -397,7 +398,10 @@ function StartButton({
 						toast.show({
 							tone: "danger",
 							title: "The workspace did not start",
-							children: error instanceof Error ? error.message : undefined,
+							children: apiErrorText(
+								error,
+								"Something went wrong starting it. Try again.",
+							),
 						}),
 				})
 			}

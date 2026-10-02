@@ -109,3 +109,12 @@ test("errorText shows the API's sentence, or the fallback for anything else", ()
 	expect(errorText(new Error("boom"))).toBe(SOMETHING_WENT_WRONG);
 	expect(SOMETHING_WENT_WRONG).toBe("Something went wrong. Please try again.");
 });
+
+test("errorText never shows a raw exception message, only the caller's fallback", () => {
+	const fallback = "The checks could not be saved. Try again.";
+	expect(errorText(new TypeError("Failed to fetch"), fallback)).toBe(fallback);
+	expect(errorText("boom", fallback)).toBe(fallback);
+	expect(errorText(new ApiError(403, "Not yours.", "FORBIDDEN"), fallback)).toBe(
+		"Not yours.",
+	);
+});

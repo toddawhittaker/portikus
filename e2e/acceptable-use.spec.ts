@@ -141,3 +141,23 @@ test("a new local administrator changes the password first, then accepts", async
 	await expect(page).toHaveURL(/\/admin$/, { timeout: 15_000 });
 	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 });
+
+test("a dropped accept request says so in plain words, never the browser's error", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await clearAcceptance(student.userId);
+	// Errors in the user's terms (SPEC.md section 28): a network failure has no API sentence.
+	await page.route("**/me/acceptable-use", (route) =>
+		route.request().method() === "POST" ? route.abort() : route.fallback(),
+	);
+
+	await page.goto("/");
+	await expect(page).toHaveURL(/\/acceptable-use$/, { timeout: 15_000 });
+	await page.getByRole("button", { name: "Accept and continue" }).click();
+	await expect(page.getByRole("alert")).toHaveText(
+		"Your acceptance was not saved. Try again.",
+	);
+	await expect(page).toHaveURL(/\/acceptable-use$/);
+});

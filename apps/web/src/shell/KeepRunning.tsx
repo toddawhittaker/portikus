@@ -1,10 +1,10 @@
-import { MeSettings, Workspace } from "@portikus/contracts";
+import { Workspace } from "@portikus/contracts";
 import { Button, Select } from "@portikus/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { request } from "../api/request.js";
 import { DialogError } from "../common/DialogError.js";
-import { editorSettingsKey } from "../editor/settingsQueries.js";
+import { meSettingsQuery } from "../editor/settingsQueries.js";
 
 /** The lengths a student can pick, in hours; only those within the cap are offered. */
 const STEPS = [1, 2, 3, 4, 6, 8, 12, 24, 48, 72, 168];
@@ -61,15 +61,11 @@ export function holdActive(
 }
 
 /**
- * The student's timezone setting, read from the settings the workspace page
- * already loads; never fetched from here.
+ * The student's timezone setting, from the one user-settings query the
+ * workspace page already loads; never fetched from here.
  */
 export function useStudentTimezone(): string | undefined {
-	return useQuery({
-		queryKey: editorSettingsKey,
-		queryFn: () => request(MeSettings, "/me/settings"),
-		enabled: false,
-	}).data?.timezone;
+	return useQuery({ ...meSettingsQuery, enabled: false }).data?.timezone;
 }
 
 function useKeepRunning(workspaceId: string) {

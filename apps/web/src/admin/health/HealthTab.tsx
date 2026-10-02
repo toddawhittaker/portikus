@@ -3,6 +3,7 @@ import {
 	POOL_FULL_PERCENT,
 	POOL_WARN_PERCENT,
 	poolFillPercent,
+	WorkspaceState,
 } from "@portikus/contracts";
 import { Skeleton, Toggletip } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
@@ -11,7 +12,7 @@ import { ApiError } from "../../api/request.js";
 import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { shortTime } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
-import { KNOWN_STATES, WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
+import { WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
 import { PackagesSection } from "./PackagesSection.js";
 import { useHealth } from "./queries.js";
 import { TrendsCard } from "./TrendsCard.js";
@@ -95,8 +96,10 @@ export function HealthTab() {
 
 /** States in the Workspaces tab's order, zeros included, then any newer ones. */
 export function stateRows(byState: HealthReport["workspacesByState"]) {
-	const extra = Object.keys(byState).filter((state) => !KNOWN_STATES.includes(state));
-	return [...KNOWN_STATES, ...extra].map((state) => ({
+	const extra = Object.keys(byState).filter(
+		(state) => !WorkspaceState.safeParse(state).success,
+	);
+	return [...WorkspaceState.options, ...extra].map((state) => ({
 		state,
 		count: byState[state] ?? 0,
 	}));

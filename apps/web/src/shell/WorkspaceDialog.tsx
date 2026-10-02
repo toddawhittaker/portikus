@@ -12,6 +12,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useState } from "react";
+import { errorText } from "../api/request.js";
 import { useWorkspaceAction } from "../api/workspace.js";
 import { DialogError } from "../common/DialogError.js";
 import { useResetDocker } from "../recovery/queries.js";
@@ -241,7 +242,7 @@ function WorkspaceControls({
 				toast.show({
 					tone: "danger",
 					title: "The workspace did not change",
-					children: error instanceof Error ? error.message : undefined,
+					children: errorText(error, "Something went wrong. Try again."),
 				}),
 		});
 	}
