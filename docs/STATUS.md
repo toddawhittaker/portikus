@@ -3934,8 +3934,6 @@ Gaps:
   skipped on the pilot because a student workspace exists; they were
   checked by comparing the old and new scripts.
 - Some admin e2e helpers that behave differently remain local copies.
-- SeedCard's match toast can still be lost in the app (fix with
-  `mutateAsync`).
 - Ansible task names in `roles/portikus/tasks/package.yml` still say
   "Epic 3".
 - Four smaller items are in BACKLOG.md.
