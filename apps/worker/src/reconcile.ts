@@ -25,6 +25,7 @@ import {
 	userMessage,
 } from "./lifecycle.js";
 import { rebuildPointsDone } from "./recovery.js";
+import { noteRetry, retryDue, retryWaitMs } from "./start-backoff.js";
 
 /** Config values the reconciler reads. */
 export interface ReconcileConfig {
@@ -50,9 +51,6 @@ export interface SweepResult {
 
 /** How long "Still working?" shows before an idle workspace stops; fixed (ADR 0032). */
 const IDLE_WARNING_MS = 5 * 60_000;
-
-/** How long an errored workspace rests before the sweep retries a start. */
-const ERROR_RETRY_SECONDS = 10;
 
 /**
  * Waits between create attempts when the controller is unreachable, so a
@@ -469,13 +467,20 @@ async function stopIdle(ctx: SweepContext): Promise<void> {
 
 /** Step 3d: retry a start for an errored workspace that should run. */
 async function retryErrored(ctx: SweepContext): Promise<void> {
-	const { db, now, record } = ctx;
-	// 3d: error with desired running (or restarting) -> retry a start, but
-	// only after a short rest so a broken controller is not hammered.
-	const retryCutoff = new Date(now.getTime() - ERROR_RETRY_SECONDS * 1000);
+	const { db, now, record, log } = ctx;
+	// 3d: error with desired running (or restarting) -> retry a start, after
+	// a wait that grows with each retry so a broken start is not hammered.
+	const retryCutoff = new Date(now.getTime() - retryWaitMs(0));
 	const errorRetryStart = await db
 		.selectFrom("workspaces")
-		.select(["id", "incus_instance_name", "label", "quota_config"])
+		.select([
+			"id",
+			"incus_instance_name",
+			"label",
+			"quota_config",
+			"desired_state",
+			"updated_at",
+		])
 		.where("state", "=", "error")
 		.where("desired_state", "in", ["running", "restarting"])
 		.where("updated_at", "<", retryCutoff)
@@ -485,7 +490,13 @@ async function retryErrored(ctx: SweepContext): Promise<void> {
 		.execute();
 
 	for (const ws of errorRetryStart) {
+		if (!retryDue(ws.id, ws.desired_state, ws.updated_at, now)) continue;
+		const attempt = noteRetry(ws.id, ws.desired_state);
 		record(ws.id, "retry start");
+		log.info(
+			{ workspaceId: ws.id, attempt, nextWaitSeconds: retryWaitMs(attempt) / 1000 },
+			"retrying a failed start",
+		);
 		await startInBackground(ctx, ws, "error");
 	}
 

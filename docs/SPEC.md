@@ -2037,9 +2037,13 @@ can turn it off; the change reaches each workspace at its next start.
 controller whether to use the Hub mirror and the ghcr.io cache, each only
 when the egress policy lets that registry's names through (section 23.6).
 The controller, with the container stopped, writes `/etc/docker/daemon.json`
-(keeping the overlay2 pin of section 16.2 and whatever else the image put
-there, adding `registry-mirrors` only for the Hub mirror), and adds or
-removes the ghcr.io hosts line and certificate. If the cache is down,
+whole (the overlay2 pin of section 16.2, the only setting the image puts
+there, plus `registry-mirrors` only for the Hub mirror) and adds or
+removes the ghcr.io certificate. A student's own edits to `daemon.json`
+last until the next start. After the start a command inside the
+container adds or removes the ghcr.io hosts line and keeps the student's
+other lines; if `/etc/hosts` is not a regular file it is replaced by a
+fresh one. If the cache is down,
 Docker falls back to Docker Hub directly.
 
 **Seed.** One global seed volume, `portikus-docker-seed`, holds a list of
@@ -3511,9 +3515,28 @@ error is thrown.
 
 When the controller writes a file into a container it replaces the file:
 it deletes the path and then writes it, so a student cannot leave a link
-or other special file there to redirect the write. It reads a file only
-after checking that it is a regular file, and refuses anything else, such
-as a named pipe.
+or other special file there to redirect the write. It does this only
+while the container is stopped, so no student process can put a named
+pipe back between the two steps; a start that finds the container
+already running (a retry after a start that failed late) force-stops it
+first. It never reads a file through the Incus
+files API, because Incus 7.5 reports a named pipe there as a regular file
+and opening one blocks an Incus thread until something opens the other
+end or Incus restarts.
+What it must change or read in a running container (the ghcr.io hosts
+line and the apt hook's package list) it does with a command inside the
+container. A student is root there and can replace any command, so the
+bounds are the controller's own: output comes back over the exec
+websocket and the controller reads at most 64 KiB, then kills the
+command and closes the sockets; nothing is recorded to a file on the
+host. Incus 7.5 refuses to cancel an exec operation, but closing the
+control socket kills the command; a process it left in the background
+can hold one Incus read open until that process exits.
+An edit that runs without sockets (the hosts line, `hostname`, the
+timezone link) is only waited for: past its timeout it is left until it
+exits or the container stops, and a retried start force-stops the
+container. A start that keeps failing is retried after a wait that
+doubles from 10 seconds to 30 minutes, kept in the worker's memory.
 
 ### 24.2 Student code is untrusted
 

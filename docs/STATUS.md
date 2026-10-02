@@ -3995,9 +3995,23 @@ Delivered:
 - Worker loops: `startLoop` owns the busy guard and error logging for
   every interval loop. VM backup deletes are claimed with SKIP LOCKED,
   and a stale claim is retried after 15 minutes.
-- Controller: every file written into a container is deleted and then
-  pushed, reads never open a non-regular file, and every bad request
-  body answers `BAD_REQUEST`.
+- Controller: every bad request body answers `BAD_REQUEST`. It never
+  reads a file through the Incus files API, because Incus 7.5 reports a
+  named pipe as a regular file and a GET on one leaves an incusd thread
+  blocked for good. Every file it writes is deleted and then pushed
+  while the container is stopped; a start that finds the container
+  running force-stops it first. `daemon.json` is written whole, and the
+  ghcr.io hosts line is edited inside the container after the start,
+  keeping the student's own lines. The apt list is read inside the
+  container as the student; output comes back over the exec websocket,
+  capped at 64 KiB per read and per message, and the command is then
+  killed. Nothing is recorded to a host log. Verified on the rehearsal
+  VM with pipes at nine paths, an output flood and a retry against a
+  pipe-making loop.
+- Worker: a start that keeps failing is retried after a wait that
+  doubles from 10 seconds to 30 minutes, held in memory and reset when
+  the workspace runs or its desired state changes; each retry logs its
+  attempt number.
 - Workspace agent: port stops refuse protected processes and reused
   process ids through the shared process-stop check, unexpected errors
   fall back to `INTERNAL`, `runGit` lives in its own file, and one
@@ -4035,9 +4049,16 @@ Gaps:
 - Terminals, events, recovery, listening and processes have no real-agent
   relay test (terminals have `terminal-real-agent.test.ts`). Browser
   tests still use the fake agent.
-- The controller checks that a file is regular and then reads it; a
-  student swapping in a pipe between the two is bounded by timeouts, not
-  closed.
+- A student's own edits to `/etc/docker/daemon.json` are reset at every
+  start.
+- A process the student leaves in the background can keep one Incus
+  stdout read open until it exits, at most once a day per workspace (the
+  package survey).
+- An in-container edit without sockets that times out is left running
+  until it exits or the container stops (Incus refuses to cancel it).
+- A start that fails for good has no final error state, and Stop on an
+  errored row whose container still runs does nothing (#1057). The retry
+  wait is lost when the worker restarts.
 - No CI check for import cycles yet (#1011).
 - File-save errors in the editor still show raw messages.
 - No browser test for a live workspace relabel, and the uncached tmux

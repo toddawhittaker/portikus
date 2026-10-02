@@ -13,6 +13,7 @@ import type { ControllerClient } from "./controller-client.js";
 import { ControllerClientError } from "./controller-client.js";
 import { dockerStartConfig } from "./docker-start.js";
 import type { ReconcileConfig } from "./reconcile.js";
+import { clearRetries } from "./start-backoff.js";
 
 /**
  * Leaves desired_state alone unless it is still 'restarting', so a
@@ -391,6 +392,7 @@ export async function startInstance(
 			new Date(),
 		);
 		if (updated) {
+			clearRetries(ws.id);
 			await recordAudit(db, {
 				actor: "worker",
 				target: ws.id,

@@ -2,17 +2,24 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { Duplex } from "node:stream";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import WebSocket, { WebSocketServer } from "ws";
 import { DEFAULT_REQUEST_TIMEOUT_MS, IncusClient, IncusError } from "./incus.js";
 
 let socketPath: string;
 let server: http.Server;
 let handler: (req: http.IncomingMessage, res: http.ServerResponse) => void;
+let upgrade: (req: http.IncomingMessage, socket: Duplex, head: Buffer) => void = (
+	_req,
+	socket,
+) => socket.destroy();
 
 beforeAll(async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "incus-test-"));
 	socketPath = path.join(dir, "test.sock");
 	server = http.createServer((req, res) => handler(req, res));
+	server.on("upgrade", (req, socket, head) => upgrade(req, socket, head));
 	await new Promise<void>((r) => server.listen(socketPath, r));
 });
 
@@ -528,64 +535,173 @@ test("an operation wait is bounded at its own timeout plus 5 seconds", async () 
 	}
 });
 
-test("readFile returns the body and the type Incus reports", async () => {
-	let receivedUrl = "";
-	handler = (req, res) => {
-		receivedUrl = req.url ?? "";
-		res.writeHead(200, {
-			"Content-Type": "application/octet-stream",
-			"X-Incus-type": "file",
+interface ExecSeen {
+	body?: Record<string, unknown>;
+	requests: string[];
+	control: string[];
+	closed: number;
+}
+
+/**
+ * A fake exec endpoint. The command is an operation that ends with `ret`
+ * (or a wait that times out when `ret` is "timeout"). With websockets asked
+ * for, stdout carries `stdout` and closes, or floods without end when
+ * `stdout` is "flood", as a student's command can.
+ */
+function execServer(ret: number | "timeout", stdout: string, seen: ExecSeen) {
+	const wss = new WebSocketServer({ noServer: true });
+	const connected = new Map<string, WebSocket>();
+	upgrade = (req, socket, head) => {
+		const secret =
+			new URL(req.url ?? "", "http://incus").searchParams.get("secret") ?? "";
+		seen.requests.push(`WS ${secret}`);
+		wss.handleUpgrade(req, socket, head, (ws) => {
+			connected.set(secret, ws);
+			ws.on("close", () => seen.closed++);
+			if (secret === "sc") ws.on("message", (m) => seen.control.push(String(m)));
+			if (connected.size < 4) return;
+			const out = connected.get("s1");
+			if (!out) return;
+			if (stdout === "one big message") {
+				out.send(Buffer.alloc(200 * 1024, "x"));
+			} else if (stdout === "flood") {
+				const chunk = Buffer.alloc(16 * 1024, "x");
+				const pump = () => {
+					if (out.readyState !== WebSocket.OPEN) return;
+					out.send(chunk);
+					setImmediate(pump);
+				};
+				pump();
+			} else {
+				out.send(Buffer.from(stdout));
+				out.close();
+			}
 		});
-		res.end("htop\n");
 	};
+	return async (req: http.IncomingMessage, res: http.ServerResponse) => {
+		const chunks: Buffer[] = [];
+		for await (const c of req) chunks.push(c as Buffer);
+		seen.requests.push(`${req.method} ${req.url}`);
+		const url = req.url ?? "";
+		if (req.method === "POST" && url.startsWith("/1.0/instances/ws-a/exec")) {
+			seen.body = JSON.parse(Buffer.concat(chunks).toString());
+			respond(res, 202, {
+				type: "async",
+				status: "Operation created",
+				status_code: 100,
+				operation: "/1.0/operations/op1",
+				metadata: {
+					id: "op1",
+					metadata: { fds: { "0": "s0", "1": "s1", "2": "s2", control: "sc" } },
+				},
+			});
+		} else if (url.startsWith("/1.0/operations/op1/wait")) {
+			respond(
+				res,
+				200,
+				waitReply(
+					ret === "timeout"
+						? { status_code: 103 }
+						: { status_code: 200, metadata: { return: ret } },
+				),
+			);
+		} else {
+			respond(res, 200, { type: "sync", status: "Success", status_code: 200 });
+		}
+	};
+}
+
+function execSeen(): ExecSeen {
+	return { requests: [], control: [], closed: 0 };
+}
+
+test("exec runs a command and reports its exit status, with no output kept", async () => {
+	const seen = execSeen();
+	handler = execServer(3, "", seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
-	const file = await client.readFile("ws-a", "/home/student/x y.txt", 100);
-	expect(file).toEqual({
-		type: "file",
-		content: Buffer.from("htop\n"),
-		tooLarge: false,
+	const result = await client.exec("ws-a", ["true"], { timeoutSeconds: 5 });
+	expect(result).toEqual({ status: 3, stdout: Buffer.alloc(0), tooLarge: false });
+	expect(seen.body).toEqual({
+		command: ["true"],
+		"wait-for-websocket": false,
+		"record-output": false,
+		interactive: false,
 	});
-	expect(receivedUrl).toBe(
-		"/1.0/instances/ws-a/files?path=%2Fhome%2Fstudent%2Fx%20y.txt&project=testproj",
-	);
+	expect(seen.requests).toEqual([
+		"POST /1.0/instances/ws-a/exec?project=testproj",
+		"GET /1.0/operations/op1/wait?timeout=5",
+	]);
 });
 
-test("readFile stops reading past the limit", async () => {
-	handler = (_req, res) => {
-		res.writeHead(200, { "X-Incus-type": "file" });
-		res.end("x".repeat(1000));
-	};
+test("exec reads stdout over the exec websocket as the user given, never from a host log", async () => {
+	const seen = execSeen();
+	handler = execServer(0, "htop\n", seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
-	const file = await client.readFile("ws-a", "/f", 999);
-	expect(file.tooLarge).toBe(true);
-	expect(file.content.length).toBe(0);
+	const result = await client.exec("ws-a", ["cat", "x"], {
+		timeoutSeconds: 5,
+		user: 1000,
+		outputMaxBytes: 100,
+	});
+	expect(result).toEqual({ status: 0, stdout: Buffer.from("htop\n"), tooLarge: false });
+	expect(seen.body).toMatchObject({
+		"wait-for-websocket": true,
+		"record-output": false,
+		user: 1000,
+		group: 1000,
+	});
+	expect(seen.requests.filter((r) => r.startsWith("WS")).sort()).toEqual([
+		"WS s0",
+		"WS s1",
+		"WS s2",
+		"WS sc",
+	]);
+	expect(seen.requests.some((r) => r.includes("/logs/"))).toBe(false);
 });
 
-test("readFile maps a missing file to NOT_FOUND", async () => {
-	handler = (_req, res) => {
-		respond(res, 404, { type: "error", error: "not found", error_code: 404 });
-	};
+test("exec stops a flood of output at the limit: kills the command and closes every socket", async () => {
+	const seen = execSeen();
+	handler = execServer(0, "flood", seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
-	await expect(client.readFile("ws-a", "/f", 10)).rejects.toMatchObject({
-		code: "NOT_FOUND",
+	const result = await client.exec("ws-a", ["cat", "x"], {
+		timeoutSeconds: 5,
+		outputMaxBytes: 64 * 1024,
 	});
+	expect(result).toEqual({ status: null, stdout: Buffer.alloc(0), tooLarge: true });
+	await vi.waitFor(() => expect(seen.closed).toBe(4));
+	expect(seen.control).toEqual([JSON.stringify({ command: "signal", signal: 9 })]);
+	// Incus 7.5 refuses to cancel an exec, so nothing asks it to.
+	expect(seen.requests.some((r) => r.startsWith("DELETE"))).toBe(false);
 });
 
-test("readFile maps a server error that is not an envelope to OPERATION_FAILED", async () => {
-	handler = (_req, res) => {
-		res.writeHead(500);
-		res.end("oops");
-	};
+test("one stdout message over the limit takes the same kill path", async () => {
+	const seen = execSeen();
+	handler = execServer(0, "one big message", seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
-	await expect(client.readFile("ws-a", "/f", 10)).rejects.toMatchObject({
-		code: "OPERATION_FAILED",
+	const result = await client.exec("ws-a", ["cat", "x"], {
+		timeoutSeconds: 5,
+		outputMaxBytes: 64 * 1024,
 	});
+	expect(result).toEqual({ status: null, stdout: Buffer.alloc(0), tooLarge: true });
+	await vi.waitFor(() => expect(seen.closed).toBe(4));
+	expect(seen.control).toEqual([JSON.stringify({ command: "signal", signal: 9 })]);
+	// Incus 7.5 refuses to cancel an exec, so nothing asks it to.
+	expect(seen.requests.some((r) => r.startsWith("DELETE"))).toBe(false);
+});
+
+test("an exec whose wait times out fails with TIMEOUT", async () => {
+	const seen = execSeen();
+	handler = execServer("timeout", "", seen);
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await expect(
+		client.exec("ws-a", ["sleep", "100"], { timeoutSeconds: 1 }),
+	).rejects.toMatchObject({ code: "TIMEOUT" });
 });
 
 /**
- * A fake files API that behaves as Incus does on a real host: a push with
- * "overwrite" opens the existing path for writing, which never returns for
- * a named pipe with no reader; HEAD and DELETE only look at the path.
+ * A fake files API that behaves as Incus 7.5 does on a real host: a push
+ * with "overwrite" and a GET open the path, which never returns for a named
+ * pipe with no peer; HEAD reports the pipe as a regular file; DELETE only
+ * looks at the path.
  */
 function pipeAt(pipePath: string, log: string[]) {
 	let pipe = pipePath;
@@ -595,7 +711,7 @@ function pipeAt(pipePath: string, log: string[]) {
 		log.push(`${req.method} ${p}`);
 		req.resume();
 		if (req.method === "HEAD") {
-			res.writeHead(200, { "X-Incus-type": p === pipe ? "fifo" : "file" });
+			res.writeHead(200, { "X-Incus-type": "file", "X-Incus-mode": "0644" });
 			res.end();
 			return;
 		}
@@ -674,16 +790,23 @@ test("replaceFile writes a missing file and refuses a path it cannot delete", as
 	expect(pushes).toHaveLength(1);
 });
 
-test("readFile reports a named pipe by its type and never opens it", async () => {
+test("HEAD cannot tell a named pipe from a file, and the client has no read", async () => {
 	const log: string[] = [];
 	handler = pipeAt("/etc/hosts", log);
+	const answer = await new Promise<http.IncomingMessage>((resolve) => {
+		http
+			.request(
+				{
+					socketPath,
+					method: "HEAD",
+					path: "/1.0/instances/ws-a/files?path=%2Fetc%2Fhosts",
+				},
+				resolve,
+			)
+			.end();
+	});
+	expect(answer.headers["x-incus-type"]).toBe("file");
+	// The rule of SPEC.md §24 as code: nothing on the client GETs the files API.
 	const client = new IncusClient({ socketPath, project: "testproj" });
-	const file = await client.readFile(
-		"ws-a",
-		"/etc/hosts",
-		100,
-		AbortSignal.timeout(2000),
-	);
-	expect(file).toEqual({ type: "fifo", content: Buffer.alloc(0), tooLarge: false });
-	expect(log).toEqual(["HEAD /etc/hosts"]);
+	expect("readFile" in client).toBe(false);
 });
