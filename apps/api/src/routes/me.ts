@@ -52,7 +52,7 @@ function hasStoredAppearance(stored: unknown): boolean {
  * The picture's real type, read from its first bytes rather than trusted
  * from the request header, or null when it is neither png nor jpeg.
  */
-export function pictureType(bytes: Buffer): "image/png" | "image/jpeg" | null {
+function pictureType(bytes: Buffer): "image/png" | "image/jpeg" | null {
 	const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 	if (bytes.length >= png.length && png.every((byte, i) => bytes[i] === byte)) {
 		return "image/png";

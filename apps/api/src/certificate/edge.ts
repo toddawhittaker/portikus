@@ -23,7 +23,7 @@ import { type NonceStore, PREFLIGHT_PATH } from "./preflight.js";
  *   while it is live, which proves to the pre-flight that a name reaches
  *   this server.
  */
-export const CERTIFICATE_ASK_PATH = "/edge/certificate-ask";
+const CERTIFICATE_ASK_PATH = "/edge/certificate-ask";
 const NONCE_ROUTE = `${PREFLIGHT_PATH}:nonce`;
 
 /** Most new preview names one workspace may get approved per rolling hour. */

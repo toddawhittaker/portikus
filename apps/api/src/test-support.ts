@@ -86,7 +86,7 @@ export function buildTestServer(
 }
 
 /** What one student owns in the authorization matrix world. */
-export interface MatrixStudent {
+interface MatrixStudent {
 	jar: CookieJar;
 	userId: string;
 	email: string;
@@ -111,7 +111,7 @@ export interface MatrixWorld {
 }
 
 /** A mock user the matrix signs in and then disables. */
-export const DISABLED_MOCK_USER: MockUser = {
+const DISABLED_MOCK_USER: MockUser = {
 	sub: "erin",
 	email: "erin@example.edu",
 	name: "Erin Disabled",
@@ -119,7 +119,7 @@ export const DISABLED_MOCK_USER: MockUser = {
 };
 
 /** A mock user in the instructor group. */
-export const INSTRUCTOR_MOCK_USER: MockUser = {
+const INSTRUCTOR_MOCK_USER: MockUser = {
 	sub: "ivy",
 	email: "ivy@example.edu",
 	name: "Ivy Instructor",

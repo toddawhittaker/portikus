@@ -336,7 +336,7 @@ export function registerAdminCertificateRoutes(
  * Remove temp request files a crash left behind; they may hold secrets.
  * Runs under the write lock, so no write of ours is in flight.
  */
-export async function sweepTempRequests(jobsDir: string): Promise<void> {
+async function sweepTempRequests(jobsDir: string): Promise<void> {
 	const names = await readdir(jobsDir).catch(() => [] as string[]);
 	for (const name of names) {
 		if (name.startsWith(".request-") && name.endsWith(".tmp")) {

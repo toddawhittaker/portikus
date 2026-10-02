@@ -130,13 +130,13 @@ export interface FakeAgent {
 }
 
 /** What the fake answers the Git routes of one project with. */
-export interface FakeGitAnswer {
+interface FakeGitAnswer {
 	status?: GitStatus;
 	diffs?: Record<string, GitDiff>;
 }
 
 /** One archive of the fake: a copy of the project's entries at that time. */
-export interface FakeRecoveryPoint {
+interface FakeRecoveryPoint {
 	key: string;
 	projectId: string;
 	sha256: string;
@@ -146,7 +146,7 @@ export interface FakeRecoveryPoint {
 type StorageFigure = { usedBytes: number; totalBytes: number } | null;
 
 /** The three storage classes `/usage` reports (SPEC.md §19.2). */
-export interface FakeStorage {
+interface FakeStorage {
 	home: StorageFigure;
 	docker: StorageFigure;
 	recovery: StorageFigure;
@@ -156,7 +156,7 @@ export interface FakeStorage {
  * One process of the fake. `ignoresTerm` survives SIGTERM, so the browser
  * offers Force stop; `stoppable` false is a protected process.
  */
-export interface FakeProcess {
+interface FakeProcess {
 	pid: number;
 	command: string;
 	cpuPercent: number;
@@ -184,7 +184,7 @@ function defaultProcesses(): FakeProcess[] {
 
 /** One entry of the fake filesystem. Paths are `<slug>/<path inside it>`. */
 /** `apparentSize` stands in for a file too large to hold, for the download cap. */
-export type FakeNode =
+type FakeNode =
 	| { type: "file"; content: Buffer; apparentSize?: number }
 	| { type: "dir" };
 
@@ -262,7 +262,7 @@ export function oneFileZip(name: string, contents: string): Buffer {
  * the fake can extract what a test uploads. Directory entries
  * are skipped; addParents makes them.
  */
-export function readZipFiles(zip: Buffer): { name: string; data: Buffer }[] {
+function readZipFiles(zip: Buffer): { name: string; data: Buffer }[] {
 	const eocd = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
 	if (eocd < 0) throw new FakeFileError("ARCHIVE_INVALID", "not a zip file");
 	const count = zip.readUInt16LE(eocd + 10);

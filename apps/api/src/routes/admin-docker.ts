@@ -176,7 +176,7 @@ function jobView(row: JobRow): SeedJob {
  * Write one request for the root cache helper. Mode 0600 because a
  * credential request carries the token.
  */
-export async function writeRegistryRequest(
+async function writeRegistryRequest(
 	dir: string,
 	requestedBy: string,
 	request: RegistryJobRequest,

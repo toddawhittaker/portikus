@@ -97,7 +97,7 @@ export function matchesLine(
 	return true;
 }
 
-export interface FoundLine {
+interface FoundLine {
 	cursor: string;
 	at: Date;
 	service: LogService;
