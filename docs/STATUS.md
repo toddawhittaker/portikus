@@ -3942,6 +3942,9 @@ Delivered:
   dependencies. jscpd fails on any copied block, and Biome fails on a
   product function whose cognitive complexity is over 30; the copies it
   found were merged and every function over 30 was split.
+- CI runs the infrastructure tests when a source file they read
+  changes (egress code, contracts, the mock LMS), not only on `infra/`
+  changes.
 - Agents: an architect agent designs feature epics before their plans
   and reviews the whole system at each milestone gate; the end-of-epic
   code review also looks for dead code Knip cannot see and for comments
@@ -3952,4 +3955,7 @@ Delivered:
 Gaps:
 
 - Some admin e2e helpers that behave differently remain local copies.
+- jscpd's ignored regions include the whole of `createQuotaSync` and the
+  `WorkspaceProvider` interface, so a copy added inside them is not
+  caught.
 - Five smaller items are in BACKLOG.md.
