@@ -542,7 +542,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 		}
 
-		await this.client.pushFile(
+		await this.client.replaceFile(
 			name,
 			PROFILE_PATH,
 			// TZ is a default, not an override: tmux sets the session's current
@@ -556,7 +556,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			signal,
 		);
 
-		await this.client.pushFile(
+		await this.client.replaceFile(
 			name,
 			AGENT_TOKEN_PATH,
 			opts.agentToken,
@@ -697,7 +697,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		signal: AbortSignal,
 		timeoutSeconds: number,
 	): Promise<void> {
-		await this.client.pushFile(
+		await this.client.replaceFile(
 			name,
 			"/etc/hostname",
 			`${hostname}\n`,
@@ -734,7 +734,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		signal: AbortSignal,
 		timeoutSeconds: number,
 	): Promise<void> {
-		await this.client.pushFile(
+		await this.client.replaceFile(
 			name,
 			"/etc/timezone",
 			`${timezone}\n`,
