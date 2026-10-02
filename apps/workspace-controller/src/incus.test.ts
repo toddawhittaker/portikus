@@ -562,7 +562,9 @@ function execServer(ret: number | "timeout", stdout: string, seen: ExecSeen) {
 			if (connected.size < 4) return;
 			const out = connected.get("s1");
 			if (!out) return;
-			if (stdout === "flood") {
+			if (stdout === "one big message") {
+				out.send(Buffer.alloc(200 * 1024, "x"));
+			} else if (stdout === "flood") {
 				const chunk = Buffer.alloc(16 * 1024, "x");
 				const pump = () => {
 					if (out.readyState !== WebSocket.OPEN) return;
@@ -659,6 +661,20 @@ test("exec reads stdout over the exec websocket as the user given, never from a 
 test("exec stops a flood of output at the limit: kills the command, closes, cancels", async () => {
 	const seen = execSeen();
 	handler = execServer(0, "flood", seen);
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	const result = await client.exec("ws-a", ["cat", "x"], {
+		timeoutSeconds: 5,
+		outputMaxBytes: 64 * 1024,
+	});
+	expect(result).toEqual({ status: null, stdout: Buffer.alloc(0), tooLarge: true });
+	await vi.waitFor(() => expect(seen.closed).toBe(4));
+	expect(seen.control).toEqual([JSON.stringify({ command: "signal", signal: 9 })]);
+	expect(seen.requests).toContain("DELETE /1.0/operations/op1");
+});
+
+test("one stdout message over the limit takes the same kill path", async () => {
+	const seen = execSeen();
+	handler = execServer(0, "one big message", seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
 	const result = await client.exec("ws-a", ["cat", "x"], {
 		timeoutSeconds: 5,

@@ -33,6 +33,9 @@ interface IncusEnvelope {
 	etag?: string;
 }
 
+/** The most one message on an exec's control or stdin socket may carry. */
+const CONTROL_MAX_PAYLOAD = 4096;
+
 /** The secrets Incus gives for an exec's stdin, stdout, stderr and control sockets. */
 interface ExecFds {
 	"0": string;
@@ -309,14 +312,16 @@ export class IncusClient {
 		maxBytes: number,
 		timeoutSeconds: number,
 	): Promise<{ stdout: Buffer; tooLarge: boolean }> {
-		const open = (secret: string): WebSocket =>
+		// The cap holds per message too: a larger one fails its socket.
+		const open = (secret: string, maxPayload: number): WebSocket =>
 			new WebSocket(
 				`ws+unix://${this.socketPath}:${operation}/websocket?secret=${encodeURIComponent(secret)}`,
+				{ maxPayload },
 			);
-		const control = open(fds.control);
-		const stdin = open(fds["0"]);
-		const stdout = open(fds["1"]);
-		const stderr = open(fds["2"]);
+		const control = open(fds.control, CONTROL_MAX_PAYLOAD);
+		const stdin = open(fds["0"], CONTROL_MAX_PAYLOAD);
+		const stdout = open(fds["1"], maxBytes + 1);
+		const stderr = open(fds["2"], maxBytes + 1);
 		const sockets = [control, stdin, stdout, stderr];
 		return new Promise((resolve, reject) => {
 			const chunks: Buffer[] = [];
@@ -341,7 +346,10 @@ export class IncusClient {
 			const tooLarge = (): void =>
 				finish(true, { stdout: Buffer.alloc(0), tooLarge: true });
 			for (const ws of sockets) {
-				ws.on("error", () => finish(true));
+				ws.on("error", (err: Error & { code?: string }) => {
+					if (err.code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH") tooLarge();
+					else finish(true);
+				});
 			}
 			stdin.on("open", () => stdin.close());
 			stdout.on("message", (data: Buffer) => {

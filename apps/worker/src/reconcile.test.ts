@@ -1307,6 +1307,41 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"a start that keeps failing is retried after a growing wait, with one line per retry",
+	async () => {
+		const { logger: log, lines } = collectingLogger("info");
+		fake.startResult = new ControllerClientError("OPERATION_FAILED", "ln exited 1");
+		const t0 = new Date();
+		const id = await insertWorkspace({
+			state: "error",
+			desired_state: "running",
+			updated_at: new Date(t0.getTime() - 60_000).toISOString(),
+		});
+		const starts = () => fake.calls.filter((c) => c.method === "start").length;
+		const sweepAt = async (offsetMs: number) => {
+			const now = new Date(Date.now() + offsetMs);
+			await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now, log });
+		};
+
+		await sweepAt(0);
+		expect(starts()).toBe(1);
+		expect((await getWorkspace(id)).state).toBe("error");
+		// The first retry failed; the next waits 20 seconds, not 10.
+		await sweepAt(15_000);
+		expect(starts()).toBe(1);
+		await sweepAt(21_000);
+		expect(starts()).toBe(2);
+		await sweepAt(35_000);
+		expect(starts()).toBe(2);
+		await sweepAt(41_000);
+		expect(starts()).toBe(3);
+		const retries = lines.filter((l) => l.msg === "retrying a failed start");
+		expect(retries.map((l) => l.attempt)).toEqual([1, 2, 3]);
+		expect(retries.every((l) => l.workspaceId === id)).toBe(true);
+	},
+);
+
 test.skipIf(skip)("the agent token never appears in audit metadata", async () => {
 	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
 	const now = new Date();
