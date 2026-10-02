@@ -459,6 +459,40 @@ export function startBackupVmLoop(options: {
 const REPLACE_FAILED_MESSAGE =
 	"Your home folder could not be replaced. Please contact your administrator.";
 
+/** The error columns a finished replace writes; a failure before the swap leaves them. */
+function replaceErrorFields(
+	failed: boolean,
+	touched: boolean,
+): { error_code?: string | null; error_message?: string | null } {
+	if (!failed) return { error_code: null, error_message: null };
+	if (touched)
+		return { error_code: "OPERATION_FAILED", error_message: REPLACE_FAILED_MESSAGE };
+	return {};
+}
+
+/** The owner's notification for a finished replace. */
+function replaceNotice(
+	failed: boolean,
+	touched: boolean,
+	stamp: string | undefined,
+): { tone: "danger" | "success"; title: string; body: string } {
+	const when = stamp ? ` from ${describeStamp(stamp)}` : "";
+	if (!failed) {
+		return {
+			tone: "success",
+			title: "Your home folder was replaced",
+			body: `An administrator replaced your home folder with the backup${when}. Your previous home folder is kept, and your projects have recovery points from just before.`,
+		};
+	}
+	return {
+		tone: "danger",
+		title: "Your home folder was not replaced",
+		body: touched
+			? REPLACE_FAILED_MESSAGE
+			: `An administrator tried to replace your home folder with the backup${when}, but it did not work. Your files are unchanged.`,
+	};
+}
+
 /**
  * One step of a pending `replace-home` on a stopped or errored workspace
  * (SPEC.md §17.2, §24.9; ADR 0021, ADR 0040). The first call records an
@@ -512,10 +546,7 @@ export async function runReplaceHome(
 					pending_operation_at: null,
 					pending_operation_by: null,
 					state: nextState,
-					...(!failed ? { error_code: null, error_message: null } : {}),
-					...(touched
-						? { error_code: "OPERATION_FAILED", error_message: REPLACE_FAILED_MESSAGE }
-						: {}),
+					...replaceErrorFields(failed, touched),
 					updated_at: now.toISOString(),
 				})
 				.where("id", "=", ws.id)
@@ -533,18 +564,8 @@ export async function runReplaceHome(
 					...(failed ? { error: outcome.error } : { kept: outcome.kept }),
 				},
 			});
-			const when = stamp ? ` from ${describeStamp(stamp)}` : "";
-			await notifyOwner(
-				trx,
-				ws.id,
-				failed ? "danger" : "success",
-				failed ? "Your home folder was not replaced" : "Your home folder was replaced",
-				failed
-					? touched
-						? REPLACE_FAILED_MESSAGE
-						: `An administrator tried to replace your home folder with the backup${when}, but it did not work. Your files are unchanged.`
-					: `An administrator replaced your home folder with the backup${when}. Your previous home folder is kept, and your projects have recovery points from just before.`,
-			);
+			const notice = replaceNotice(failed, touched, stamp);
+			await notifyOwner(trx, ws.id, notice.tone, notice.title, notice.body);
 			return nextState !== ws.state ? 1 : 0;
 		});
 	};

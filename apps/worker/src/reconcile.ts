@@ -688,279 +688,346 @@ async function runMaintenance(ctx: SweepContext): Promise<void> {
 	}
 }
 
+type ListedInstance = Awaited<ReturnType<ControllerClient["list"]>>[number];
+
+interface TrackedRow {
+	id: string;
+	incus_instance_name: string;
+	state: string;
+	agent_address: string | null;
+}
+
+/** Step 4: the instance the row tracks is gone (SPEC §25.4). */
+async function resolveMissingInstance(
+	ctx: SweepContext,
+	ws: TrackedRow,
+): Promise<void> {
+	const { db, now, record } = ctx;
+	// An error row with no instance keeps its error, but its old address may be leased elsewhere.
+	if (ws.state === "error") {
+		if (ws.agent_address !== null) {
+			await db
+				.updateTable("workspaces")
+				.set({ agent_address: null })
+				.where("id", "=", ws.id)
+				.execute();
+		}
+		return;
+	}
+
+	// Say so instead of reporting a state that cannot be true.
+	const updated = await casUpdate(
+		db,
+		ws.id,
+		ws.state,
+		{
+			state: "error",
+			error_code: "INSTANCE_MISSING",
+			error_message: INSTANCE_MISSING_MESSAGE,
+			shutdown_deadline: null,
+			disconnected_at: null,
+		},
+		now,
+	);
+	if (updated) {
+		ctx.transitions++;
+		await endOpenTerminals(db, ws.id, now);
+		await clearGuardAtStop(db, ws.id);
+		record(ws.id, "instance missing");
+		await recordAudit(db, {
+			actor: "worker",
+			target: ws.id,
+			action: "workspace.instance_missing",
+			result: "failed",
+			metadata: {
+				instanceName: ws.incus_instance_name,
+			},
+		});
+	}
+}
+
+/** Step 4: keep the recorded agent address in step with the instance. */
+async function syncAgentAddress(
+	ctx: SweepContext,
+	ws: TrackedRow,
+	inst: ListedInstance,
+): Promise<void> {
+	// A stopped instance's old address may be leased to another student's instance.
+	// A running instance briefly without an address keeps its last one.
+	const address =
+		inst.ipv4 ??
+		(inst.status === "Running" && ws.state !== "error" ? ws.agent_address : null);
+	if (address !== ws.agent_address) {
+		await ctx.db
+			.updateTable("workspaces")
+			.set({ agent_address: address })
+			.where("id", "=", ws.id)
+			.execute();
+	}
+}
+
+/** Step 4: a running or stopped row whose instance says otherwise. */
+async function resolveDrift(
+	ctx: SweepContext,
+	ws: TrackedRow,
+	inst: ListedInstance,
+	stoppingDuringList: Set<string>,
+): Promise<void> {
+	const { db, now, record } = ctx;
+	// Drift: row says running but instance is Stopped.
+	if (ws.state === "running" && inst.status === "Stopped") {
+		const updated = await casUpdate(
+			db,
+			ws.id,
+			"running",
+			{ state: "stopped", shutdown_deadline: null, disconnected_at: null },
+			now,
+		);
+		if (updated) {
+			ctx.transitions++;
+			await endOpenTerminals(db, ws.id, now);
+			await clearGuardAtStop(db, ws.id);
+			record(ws.id, "observed stopped");
+			await recordAudit(db, {
+				actor: "worker",
+				target: ws.id,
+				action: "workspace.observed_stopped",
+				result: "ok",
+			});
+		}
+	}
+
+	// Drift: row says stopped but instance is Running.
+	if (
+		ws.state === "stopped" &&
+		inst.status === "Running" &&
+		!stoppingDuringList.has(ws.id)
+	) {
+		const updated = await casUpdate(
+			db,
+			ws.id,
+			"stopped",
+			{ state: "running", ...startedNow(now) },
+			now,
+		);
+		if (updated) {
+			ctx.transitions++;
+			record(ws.id, "observed running");
+			await recordAudit(db, {
+				actor: "worker",
+				target: ws.id,
+				action: "workspace.observed_running",
+				result: "ok",
+			});
+		}
+	}
+}
+
+/** Step 5: resolve a stale starting row. */
+async function resolveStarting(
+	ctx: SweepContext,
+	ws: TrackedRow,
+	inst: ListedInstance,
+): Promise<void> {
+	const { db, now, record } = ctx;
+	if (inst.status === "Running") {
+		const updated = await casUpdate(
+			db,
+			ws.id,
+			"starting",
+			{ state: "running", ...startedNow(now) },
+			now,
+		);
+		if (updated) {
+			ctx.transitions++;
+			record(ws.id, "start resolved as running");
+			await recordAudit(db, {
+				actor: "worker",
+				target: ws.id,
+				action: "workspace.start",
+				result: "ok",
+				metadata: {
+					resolvedFromList: true,
+				},
+			});
+		}
+	} else if (inst.status === "Stopped") {
+		const updated = await casUpdate(
+			db,
+			ws.id,
+			"starting",
+			{
+				state: "error",
+				error_code: "OPERATION_FAILED",
+				error_message: userMessage("OPERATION_FAILED"),
+			},
+			now,
+		);
+		if (updated) {
+			ctx.transitions++;
+			await endOpenTerminals(db, ws.id, now);
+			record(ws.id, "start resolved as failed");
+			await recordAudit(db, {
+				actor: "worker",
+				target: ws.id,
+				action: "workspace.start_failed",
+				result: "failed",
+				metadata: {
+					resolvedFromList: true,
+				},
+			});
+		}
+	}
+}
+
+/** Step 5: resolve a stale stopping row. */
+async function resolveStopping(
+	ctx: SweepContext,
+	ws: TrackedRow,
+	inst: ListedInstance,
+): Promise<void> {
+	const { db, now, record } = ctx;
+	if (inst.status === "Stopped") {
+		const updated = await casUpdate(
+			db,
+			ws.id,
+			"stopping",
+			{ state: "stopped", shutdown_deadline: null, disconnected_at: null },
+			now,
+		);
+		if (updated) {
+			ctx.transitions++;
+			await endOpenTerminals(db, ws.id, now);
+			await clearGuardAtStop(db, ws.id);
+			record(ws.id, "stop resolved as stopped");
+			await recordAudit(db, {
+				actor: "worker",
+				target: ws.id,
+				action: "workspace.stop",
+				result: "ok",
+				metadata: {
+					resolvedFromList: true,
+				},
+			});
+		}
+	} else if (inst.status === "Running") {
+		const updated = await casUpdate(db, ws.id, "stopping", { state: "running" }, now);
+		if (updated) {
+			ctx.transitions++;
+			record(ws.id, "stop resolved as running");
+			await recordAudit(db, {
+				actor: "worker",
+				target: ws.id,
+				action: "workspace.observed_running",
+				result: "ok",
+				metadata: {
+					resolvedFromList: true,
+				},
+			});
+		}
+	}
+}
+
+/** Steps 4 and 5 for one tracked row. */
+async function reconcileTracked(
+	ctx: SweepContext,
+	ws: TrackedRow,
+	instanceMap: Map<string, ListedInstance>,
+	stoppingDuringList: Set<string>,
+): Promise<void> {
+	const inst = instanceMap.get(ws.incus_instance_name);
+	if (!inst) {
+		await resolveMissingInstance(ctx, ws);
+		return;
+	}
+	await syncAgentAddress(ctx, ws, inst);
+	await resolveDrift(ctx, ws, inst, stoppingDuringList);
+	if (ws.state === "starting") {
+		await resolveStarting(ctx, ws, inst);
+	}
+	if (
+		ws.state === "stopping" &&
+		!stopsInFlight.has(ws.id) &&
+		!stoppingDuringList.has(ws.id)
+	) {
+		await resolveStopping(ctx, ws, inst);
+	}
+}
+
+/** Step 4: read list(), recording the start of an outage once (SPEC §25.4). */
+async function listInstances(
+	ctx: SweepContext,
+	wasUnreachable: boolean,
+): Promise<
+	| { instances: ListedInstance[] }
+	| { instances: null; refreshError: { code: string; message: string } }
+> {
+	try {
+		return { instances: await ctx.controller.list() };
+	} catch (e) {
+		const err = toControllerError(e);
+		if (!wasUnreachable) {
+			ctx.log.error({ errorCode: err.code }, "controller unreachable");
+			await recordAudit(ctx.db, {
+				actor: "worker",
+				target: "controller",
+				action: "controller.unreachable",
+				result: "failed",
+				metadata: {
+					errorCode: err.code,
+				},
+			});
+		}
+		return { instances: null, refreshError: { code: err.code, message: err.message } };
+	}
+}
+
 /** Steps 4 and 5: reconcile drift from list() and resolve stale starting and stopping rows. */
 async function refreshFromList(
 	ctx: SweepContext,
 	lastRefreshAt: Date | null,
 	controllerUnreachable: boolean,
 ): Promise<Omit<SweepResult, "transitions">> {
-	const { db, controller, config, now, log, record } = ctx;
-	let refreshAt = lastRefreshAt;
-	let unreachable = controllerUnreachable;
-	let refreshError: { code: string; message: string } | null = null;
+	const { db, config, now } = ctx;
 	// (4) Periodic drift reconciliation from list().
 	const shouldRefresh =
-		refreshAt === null ||
-		now.getTime() - refreshAt.getTime() >= config.STATUS_REFRESH_SECONDS * 1000;
-
-	if (shouldRefresh) {
-		let instances: Awaited<ReturnType<ControllerClient["list"]>> | null = null;
-		// A stop that ends while list() runs leaves a list older than the row.
-		const stoppingDuringList = new Set(stopsInFlight.keys());
-		try {
-			instances = await controller.list();
-			// Only count a refresh that actually happened.
-			refreshAt = now;
-			unreachable = false;
-		} catch (e) {
-			const err = toControllerError(e);
-			refreshError = { code: err.code, message: err.message };
-			if (!unreachable) {
-				// Record the start of a failure streak once (SPEC §25.4).
-				log.error({ errorCode: err.code }, "controller unreachable");
-				await recordAudit(db, {
-					actor: "worker",
-					target: "controller",
-					action: "controller.unreachable",
-					result: "failed",
-					metadata: {
-						errorCode: err.code,
-					},
-				});
-			}
-			unreachable = true;
-		}
-
-		if (instances !== null) {
-			const instanceMap = new Map(instances.map((i) => [i.name, i]));
-
-			// Find rows that might be drifted.
-			const tracked = await db
-				.selectFrom("workspaces")
-				.select(["id", "incus_instance_name", "state", "agent_address"])
-				.where("incus_instance_name", "is not", null)
-				.where("state", "in", ["running", "stopped", "starting", "stopping", "error"])
-				.execute();
-
-			for (const ws of tracked) {
-				if (!ws.incus_instance_name) continue;
-				const inst = instanceMap.get(ws.incus_instance_name);
-				// An error row with no instance keeps its error, but its old address may be leased elsewhere.
-				if (!inst && ws.state === "error") {
-					if (ws.agent_address !== null) {
-						await db
-							.updateTable("workspaces")
-							.set({ agent_address: null })
-							.where("id", "=", ws.id)
-							.execute();
-					}
-					continue;
-				}
-
-				// The instance the row tracks is gone: say so instead of
-				// reporting a state that cannot be true (SPEC §25.4).
-				if (!inst) {
-					const updated = await casUpdate(
-						db,
-						ws.id,
-						ws.state,
-						{
-							state: "error",
-							error_code: "INSTANCE_MISSING",
-							error_message: INSTANCE_MISSING_MESSAGE,
-							shutdown_deadline: null,
-							disconnected_at: null,
-						},
-						now,
-					);
-					if (updated) {
-						ctx.transitions++;
-						await endOpenTerminals(db, ws.id, now);
-						await clearGuardAtStop(db, ws.id);
-						record(ws.id, "instance missing");
-						await recordAudit(db, {
-							actor: "worker",
-							target: ws.id,
-							action: "workspace.instance_missing",
-							result: "failed",
-							metadata: {
-								instanceName: ws.incus_instance_name,
-							},
-						});
-					}
-					continue;
-				}
-
-				// Keep the recorded agent address in step with the instance. A stopped
-				// instance's old address may be leased to another student's instance.
-				// A running instance briefly without an address keeps its last one.
-				const address =
-					inst.ipv4 ??
-					(inst.status === "Running" && ws.state !== "error" ? ws.agent_address : null);
-				if (address !== ws.agent_address) {
-					await db
-						.updateTable("workspaces")
-						.set({ agent_address: address })
-						.where("id", "=", ws.id)
-						.execute();
-				}
-
-				// Drift: row says running but instance is Stopped.
-				if (ws.state === "running" && inst.status === "Stopped") {
-					const updated = await casUpdate(
-						db,
-						ws.id,
-						"running",
-						{ state: "stopped", shutdown_deadline: null, disconnected_at: null },
-						now,
-					);
-					if (updated) {
-						ctx.transitions++;
-						await endOpenTerminals(db, ws.id, now);
-						await clearGuardAtStop(db, ws.id);
-						record(ws.id, "observed stopped");
-						await recordAudit(db, {
-							actor: "worker",
-							target: ws.id,
-							action: "workspace.observed_stopped",
-							result: "ok",
-						});
-					}
-				}
-
-				// Drift: row says stopped but instance is Running.
-				if (
-					ws.state === "stopped" &&
-					inst.status === "Running" &&
-					!stoppingDuringList.has(ws.id)
-				) {
-					const updated = await casUpdate(
-						db,
-						ws.id,
-						"stopped",
-						{ state: "running", ...startedNow(now) },
-						now,
-					);
-					if (updated) {
-						ctx.transitions++;
-						record(ws.id, "observed running");
-						await recordAudit(db, {
-							actor: "worker",
-							target: ws.id,
-							action: "workspace.observed_running",
-							result: "ok",
-						});
-					}
-				}
-
-				// (5) Resolve stale starting/stopping rows.
-				if (ws.state === "starting") {
-					if (inst.status === "Running") {
-						const updated = await casUpdate(
-							db,
-							ws.id,
-							"starting",
-							{ state: "running", ...startedNow(now) },
-							now,
-						);
-						if (updated) {
-							ctx.transitions++;
-							record(ws.id, "start resolved as running");
-							await recordAudit(db, {
-								actor: "worker",
-								target: ws.id,
-								action: "workspace.start",
-								result: "ok",
-								metadata: {
-									resolvedFromList: true,
-								},
-							});
-						}
-					} else if (inst.status === "Stopped") {
-						const updated = await casUpdate(
-							db,
-							ws.id,
-							"starting",
-							{
-								state: "error",
-								error_code: "OPERATION_FAILED",
-								error_message: userMessage("OPERATION_FAILED"),
-							},
-							now,
-						);
-						if (updated) {
-							ctx.transitions++;
-							await endOpenTerminals(db, ws.id, now);
-							record(ws.id, "start resolved as failed");
-							await recordAudit(db, {
-								actor: "worker",
-								target: ws.id,
-								action: "workspace.start_failed",
-								result: "failed",
-								metadata: {
-									resolvedFromList: true,
-								},
-							});
-						}
-					}
-				}
-
-				if (
-					ws.state === "stopping" &&
-					!stopsInFlight.has(ws.id) &&
-					!stoppingDuringList.has(ws.id)
-				) {
-					if (inst.status === "Stopped") {
-						const updated = await casUpdate(
-							db,
-							ws.id,
-							"stopping",
-							{ state: "stopped", shutdown_deadline: null, disconnected_at: null },
-							now,
-						);
-						if (updated) {
-							ctx.transitions++;
-							await endOpenTerminals(db, ws.id, now);
-							await clearGuardAtStop(db, ws.id);
-							record(ws.id, "stop resolved as stopped");
-							await recordAudit(db, {
-								actor: "worker",
-								target: ws.id,
-								action: "workspace.stop",
-								result: "ok",
-								metadata: {
-									resolvedFromList: true,
-								},
-							});
-						}
-					} else if (inst.status === "Running") {
-						const updated = await casUpdate(
-							db,
-							ws.id,
-							"stopping",
-							{ state: "running" },
-							now,
-						);
-						if (updated) {
-							ctx.transitions++;
-							record(ws.id, "stop resolved as running");
-							await recordAudit(db, {
-								actor: "worker",
-								target: ws.id,
-								action: "workspace.observed_running",
-								result: "ok",
-								metadata: {
-									resolvedFromList: true,
-								},
-							});
-						}
-					}
-				}
-			}
-		}
+		lastRefreshAt === null ||
+		now.getTime() - lastRefreshAt.getTime() >= config.STATUS_REFRESH_SECONDS * 1000;
+	if (!shouldRefresh) {
+		return { lastRefreshAt, controllerUnreachable, refreshError: null };
 	}
 
-	return { lastRefreshAt: refreshAt, controllerUnreachable: unreachable, refreshError };
+	// A stop that ends while list() runs leaves a list older than the row.
+	const stoppingDuringList = new Set(stopsInFlight.keys());
+	const listed = await listInstances(ctx, controllerUnreachable);
+	if (listed.instances === null) {
+		return {
+			lastRefreshAt,
+			controllerUnreachable: true,
+			refreshError: listed.refreshError,
+		};
+	}
+
+	const instanceMap = new Map(listed.instances.map((i) => [i.name, i]));
+	// Find rows that might be drifted.
+	const tracked = await db
+		.selectFrom("workspaces")
+		.select(["id", "incus_instance_name", "state", "agent_address"])
+		.where("incus_instance_name", "is not", null)
+		.where("state", "in", ["running", "stopped", "starting", "stopping", "error"])
+		.execute();
+	for (const ws of tracked) {
+		if (!ws.incus_instance_name) continue;
+		await reconcileTracked(
+			ctx,
+			{ ...ws, incus_instance_name: ws.incus_instance_name },
+			instanceMap,
+			stoppingDuringList,
+		);
+	}
+
+	// Only count a refresh that actually happened.
+	return { lastRefreshAt: now, controllerUnreachable: false, refreshError: null };
 }
 
 /**

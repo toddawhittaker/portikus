@@ -281,6 +281,36 @@ export interface WriteOptions {
 }
 
 /**
+ * Refuse a write whose condition does not hold. Returns the existing file's
+ * mode for a replace, so the new file keeps it.
+ */
+async function checkWriteCondition(
+	target: { path: string; exists: boolean },
+	options: WriteOptions,
+): Promise<number | undefined> {
+	if (options.ifNoneMatch) {
+		if (target.exists) {
+			throw new AgentFailure("FILE_EXISTS", "that file already exists");
+		}
+		return undefined;
+	}
+	if (!target.exists) {
+		throw new AgentFailure("FILE_NOT_FOUND", "no such file");
+	}
+	const info = await stat(target.path);
+	if (info.isDirectory()) {
+		throw new AgentFailure("BAD_REQUEST", "that path is a directory");
+	}
+	if (options.ifMatch !== "*") {
+		const current = await hashFile(target.path);
+		if (current !== options.ifMatch) {
+			throw new FileChanged(current);
+		}
+	}
+	return info.mode & 0o7777;
+}
+
+/**
  * Write a file with a conditional guard, so a stale browser cannot overwrite
  * a newer version on disk (SPEC.md §13.5).
  *
@@ -310,27 +340,7 @@ export async function writeFile(
 		refuseSymlink: true,
 	});
 
-	let mode: number | undefined;
-	if (options.ifNoneMatch) {
-		if (target.exists) {
-			throw new AgentFailure("FILE_EXISTS", "that file already exists");
-		}
-	} else {
-		if (!target.exists) {
-			throw new AgentFailure("FILE_NOT_FOUND", "no such file");
-		}
-		const info = await stat(target.path);
-		if (info.isDirectory()) {
-			throw new AgentFailure("BAD_REQUEST", "that path is a directory");
-		}
-		mode = info.mode & 0o7777;
-		if (options.ifMatch !== "*") {
-			const current = await hashFile(target.path);
-			if (current !== options.ifMatch) {
-				throw new FileChanged(current);
-			}
-		}
-	}
+	const mode = await checkWriteCondition(target, options);
 
 	const limit = options.upload ? MAX_UPLOAD_BYTES : MAX_EDITOR_FILE_BYTES;
 	const hash = createHash("sha256");
