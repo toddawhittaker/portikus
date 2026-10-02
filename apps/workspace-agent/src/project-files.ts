@@ -134,9 +134,9 @@ export async function writePortikusReadme(projectPath: string): Promise<void> {
 }
 
 /** The names the web client gives pasted images (apps/web TerminalPane pastePath). */
-export const PASTE_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(-\d+)?\.(png|jpeg)$/;
+const PASTE_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(-\d+)?\.(png|jpeg)$/;
 export const PASTES_DIR = ".portikus/pastes";
-export const PASTE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const PASTE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Delete pastes in `<project>/.portikus/pastes` last modified more than 7

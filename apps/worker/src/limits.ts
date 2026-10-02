@@ -6,7 +6,7 @@ import { type ControllerClient, ControllerClientError } from "./controller-clien
 import { startLoop } from "./loop.js";
 
 /** How often the worker looks for limits an administrator changed. */
-export const LIMITS_SYNC_SECONDS = 10;
+const LIMITS_SYNC_SECONDS = 10;
 
 /** How long a failed limits write rests before the worker tries it again. */
 export const LIMITS_RETRY_SECONDS = 300;

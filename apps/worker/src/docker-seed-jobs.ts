@@ -10,9 +10,9 @@ import { type ControllerClient, ControllerClientError } from "./controller-clien
 import { startLoop } from "./loop.js";
 
 /** How often a running seed build is polled. */
-export const SEED_JOB_POLL_SECONDS = 5;
+const SEED_JOB_POLL_SECONDS = 5;
 /** How often, with no build running, the seed row is checked against the controller. */
-export const SEED_SYNC_SECONDS = 60;
+const SEED_SYNC_SECONDS = 60;
 
 const GIB = 1024 ** 3;
 // Controller answers that mean the request itself is wrong: retrying cannot help.

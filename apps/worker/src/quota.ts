@@ -6,7 +6,7 @@ import { type ControllerClient, ControllerClientError } from "./controller-clien
 import { startLoop } from "./loop.js";
 
 /** How often the worker looks for a quota an administrator changed. */
-export const QUOTA_SYNC_SECONDS = 10;
+const QUOTA_SYNC_SECONDS = 10;
 
 /** How long a failed grow rests before the worker tries it again. */
 export const QUOTA_RETRY_SECONDS = 300;

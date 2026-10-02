@@ -13,10 +13,10 @@ import { utcDay } from "./package-survey.js";
  * workspace asked: counts are site-wide by construction (SPEC.md §20.1).
  */
 
-export const BLOCKED_DNS_PORT = 5399;
-export const BLOCKED_LOG_PORT = 5398;
+const BLOCKED_DNS_PORT = 5399;
+const BLOCKED_LOG_PORT = 5398;
 export const BLOCKED_NAMES_PER_DAY = 2000;
-export const BLOCKED_RETENTION_DAYS = 30;
+const BLOCKED_RETENTION_DAYS = 30;
 export const OTHER_NAMES = "(other names)";
 const FLUSH_SECONDS = 10;
 const PRUNE_HOURS = 6;
@@ -25,7 +25,7 @@ const TCP_IDLE_MS = 10_000;
 // A client asks A, AAAA and HTTPS for one name; only A is counted so each lookup counts once.
 const QTYPE_A = 1;
 
-export type BlockedSource = "dns" | "tls";
+type BlockedSource = "dns" | "tls";
 
 /**
  * A name worth counting, lower-cased, or null. Anything that could hold an

@@ -249,7 +249,7 @@ function requestIdOf(text: string): string | null {
 }
 
 /** Parse and check a request's text. Messages never quote the request itself. */
-export function parseRequest(
+function parseRequest(
 	text: string,
 	env: EgressEnv,
 ): { requestId: string; policy: EgressApplyPolicy } {

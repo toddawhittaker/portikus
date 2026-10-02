@@ -5,10 +5,10 @@
 import { runDocker } from "./docker-inventory.js";
 
 /** How long `docker ps` may take before we give up on it for this scan. */
-export const DOCKER_TIMEOUT_MS = 500;
+const DOCKER_TIMEOUT_MS = 500;
 
 /** How long `docker stop` may take. */
-export const DOCKER_STOP_TIMEOUT_MS = 15_000;
+const DOCKER_STOP_TIMEOUT_MS = 15_000;
 
 /** A running inner Docker container and the host ports it publishes. */
 export interface DockerContainer {
