@@ -437,6 +437,20 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 		const signal = AbortSignal.timeout(opts.timeoutSeconds * 1000);
 
+		// A retry after a start that failed late finds the container running.
+		// Every write below deletes then pushes, which is only safe while no
+		// student process can put a named pipe back in between (SPEC.md §24).
+		if ((await this.instanceStatus(name, signal)) === "Running") {
+			await this.client.request(
+				"PUT",
+				`/1.0/instances/${enc(name)}/state`,
+				{ action: "stop", force: true },
+				signal,
+				opts.timeoutSeconds,
+			);
+			this.log.info({ instance: name }, "running instance stopped before a start");
+		}
+
 		if (opts.dockerGiB !== undefined) {
 			await this.ensureDockerDevice(name, opts.dockerGiB, signal);
 		}
@@ -544,7 +558,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			signal,
 		);
 
-		// A retry after a start that failed late finds the container running.
+		// Something may have started it since the check above.
 		if (status !== "Running") {
 			try {
 				await this.client.request(

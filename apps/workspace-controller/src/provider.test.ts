@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { Duplex } from "node:stream";
 import { collectingLogger } from "@portikus/observability/testing";
 import {
 	afterAll,
@@ -14,6 +15,7 @@ import {
 	test,
 	vi,
 } from "vitest";
+import { type WebSocket, WebSocketServer } from "ws";
 import { IncusClient } from "./incus.js";
 import {
 	AGENT_HEALTH_TIMEOUT_MS,
@@ -31,11 +33,16 @@ import {
 let socketPath: string;
 let server: http.Server;
 let handler: (req: http.IncomingMessage, res: http.ServerResponse) => void;
+let upgrade: (req: http.IncomingMessage, socket: Duplex, head: Buffer) => void = (
+	_req,
+	socket,
+) => socket.destroy();
 
 beforeAll(async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "provider-test-"));
 	socketPath = path.join(dir, "test.sock");
 	server = http.createServer((req, res) => handler(req, res));
+	server.on("upgrade", (req, socket, head) => upgrade(req, socket, head));
 	await new Promise<void>((r) => server.listen(socketPath, r));
 });
 
@@ -413,6 +420,7 @@ test("start writes its files before the container runs, then waits for agent hea
 	const execs: string[] = [];
 	// Every request in order, so file writes can be placed against the start.
 	const order: string[] = [];
+	let started = false;
 	handler = async (req, res) => {
 		const body = await readBody(req);
 		if (req.url?.includes("/exec")) {
@@ -428,7 +436,10 @@ test("start writes its files before the container runs, then waits for agent hea
 			respond(res, 200, sync({}));
 		} else if (req.method === "PUT" && req.url?.includes("/state")) {
 			order.push("start");
+			started = true;
 			respond(res, 200, sync({}));
+		} else if (req.method === "GET" && req.url?.includes("/state") && !started) {
+			respond(res, 200, sync({ status: "Stopped" }));
 		} else if (req.method === "GET" && req.url?.includes("/state")) {
 			pollCount++;
 			if (pollCount < 3) {
@@ -1244,6 +1255,11 @@ function serveIncus(state: FakeIncus): void {
 			state.config = { ...state.config, "volatile.base_image": "newfingerprint" };
 			respond(res, 200, sync({}));
 		} else if (p === "/1.0/instances/ws-test/state" && method === "PUT") {
+			if (JSON.parse(body).action === "stop") {
+				state.status = "Stopped";
+				respond(res, 200, sync({}));
+				return;
+			}
 			state.status = "Running";
 			if (state.hostsTemplate !== null) {
 				state.files.set("/etc/hosts", { type: "file", content: state.hostsTemplate });
@@ -1251,7 +1267,15 @@ function serveIncus(state: FakeIncus): void {
 			}
 			respond(res, 200, sync({}));
 		} else if (p === "/1.0/instances/ws-test/state" && method === "GET") {
-			respond(res, 200, sync(runningWithAddress("127.0.0.1")));
+			respond(
+				res,
+				200,
+				sync(
+					state.status === "Running"
+						? runningWithAddress("127.0.0.1")
+						: { status: state.status },
+				),
+			);
 		} else if (p === "/1.0/instances/ws-test/exec") {
 			const command: string[] = JSON.parse(body).command;
 			state.execs.push(command);
@@ -1893,6 +1917,8 @@ function countStarts(state: FakeIncus, fail: string | null) {
 			}
 		}
 		if (fail !== null && req.url?.includes("/operations/start-1/wait")) {
+			// Incus refused, but the instance is up (a start that failed late).
+			state.status = "Running";
 			respond(res, 200, sync({ status_code: 400, status: "Failure", err: fail }));
 			return;
 		}
@@ -1901,14 +1927,28 @@ function countStarts(state: FakeIncus, fail: string | null) {
 	return seen;
 }
 
-test("a retried start of an instance Incus already runs skips the start and finishes the rest", async () => {
+test("a retried start of a running instance stops it before any write, then starts it", async () => {
 	const state = fakeIncus();
 	state.status = "Running";
-	const seen = countStarts(state, null);
+	serveIncus(state);
+	const original = handler;
+	const order: string[] = [];
+	handler = (req, res) => {
+		if (req.method === "PUT" && req.url?.startsWith("/1.0/instances/ws-test/state")) {
+			order.push(state.status === "Running" ? "stop" : "start");
+		} else if (req.url?.includes("/files")) {
+			order.push(`${req.method} files`);
+		}
+		original(req, res);
+	};
 
 	await provider.start("ws-test", START);
 
-	expect(seen.starts).toBe(0);
+	// A student's process could otherwise put a named pipe back between a
+	// file's delete and its push (SPEC.md §24).
+	expect(order[0]).toBe("stop");
+	expect(order.indexOf("start")).toBeGreaterThan(order.lastIndexOf("POST files"));
+	expect(order.filter((o) => o === "stop")).toHaveLength(1);
 	expect(agentRequests).toBeGreaterThan(0);
 });
 
@@ -2094,6 +2134,21 @@ describe("admin operations", () => {
 	}
 
 	function serveOps(state: OpsState): void {
+		// The exec's sockets: stdout carries the read's output, then closes.
+		const wss = new WebSocketServer({ noServer: true });
+		let connected = 0;
+		let stdout: WebSocket | null = null;
+		upgrade = (req, socket, head) => {
+			const secret = new URL(req.url ?? "", "http://incus").searchParams.get("secret");
+			wss.handleUpgrade(req, socket, head, (ws) => {
+				if (secret === "s1") stdout = ws;
+				connected++;
+				if (connected % 4 !== 0 || !stdout) return;
+				stdout.send(Buffer.from(state.read.stdout));
+				stdout.close();
+				stdout = null;
+			});
+		};
 		handler = async (req, res) => {
 			const body = await readBody(req);
 			const url = new URL(req.url ?? "/", "http://incus");
@@ -2140,20 +2195,22 @@ describe("admin operations", () => {
 				respond(res, 200, sync({}));
 			} else if (p === `/1.0/instances/${WS}/exec` && method === "POST") {
 				state.execBody = JSON.parse(body);
+				respond(res, 202, {
+					type: "async",
+					status: "Operation created",
+					status_code: 100,
+					operation: "/1.0/operations/read-1",
+					metadata: {
+						metadata: { fds: { "0": "s0", "1": "s1", "2": "s2", control: "sc" } },
+					},
+				});
+			} else if (p === "/1.0/operations/read-1/wait") {
 				respond(
 					res,
 					200,
-					sync({
-						metadata: {
-							return: state.read.status,
-							output: { "1": `/1.0/instances/${WS}/logs/exec-output/exec_1.stdout` },
-						},
-					}),
+					sync({ status_code: 200, metadata: { return: state.read.status } }),
 				);
-			} else if (p.includes("/logs/exec-output/") && method === "GET") {
-				res.writeHead(200, { "Content-Type": "application/octet-stream" });
-				res.end(state.read.stdout);
-			} else if (p.includes("/logs/exec-output/") && method === "DELETE") {
+			} else if (p === "/1.0/operations/read-1" && method === "DELETE") {
 				respond(res, 200, sync({}));
 			} else if (p === POOL && method === "GET") {
 				respond(
@@ -2284,13 +2341,14 @@ describe("admin operations", () => {
 		// Never the files API: Incus reports a named pipe as a file (SPEC.md §24).
 		expect(state.requests).toEqual([
 			`POST /1.0/instances/${WS}/exec`,
-			`GET /1.0/instances/${WS}/logs/exec-output/exec_1.stdout`,
-			`DELETE /1.0/instances/${WS}/logs/exec-output/exec_1.stdout`,
+			"GET /1.0/operations/read-1/wait",
 		]);
+		// Never recorded to a host log, which a student's command could fill.
 		expect(state.execBody).toMatchObject({
 			user: 1000,
 			group: 1000,
-			"record-output": true,
+			"record-output": false,
+			"wait-for-websocket": true,
 		});
 		const command = state.execBody?.command as string[];
 		expect(command.slice(0, 4)).toEqual(["timeout", "10", "sh", "-c"]);

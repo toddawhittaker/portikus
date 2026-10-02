@@ -2,17 +2,24 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { Duplex } from "node:stream";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import WebSocket, { WebSocketServer } from "ws";
 import { DEFAULT_REQUEST_TIMEOUT_MS, IncusClient, IncusError } from "./incus.js";
 
 let socketPath: string;
 let server: http.Server;
 let handler: (req: http.IncomingMessage, res: http.ServerResponse) => void;
+let upgrade: (req: http.IncomingMessage, socket: Duplex, head: Buffer) => void = (
+	_req,
+	socket,
+) => socket.destroy();
 
 beforeAll(async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "incus-test-"));
 	socketPath = path.join(dir, "test.sock");
 	server = http.createServer((req, res) => handler(req, res));
+	server.on("upgrade", (req, socket, head) => upgrade(req, socket, head));
 	await new Promise<void>((r) => server.listen(socketPath, r));
 });
 
@@ -528,15 +535,47 @@ test("an operation wait is bounded at its own timeout plus 5 seconds", async () 
 	}
 });
 
+interface ExecSeen {
+	body?: Record<string, unknown>;
+	requests: string[];
+	control: string[];
+	closed: number;
+}
+
 /**
- * A fake exec endpoint: the command is answered as an operation that ends
- * with `ret`, and with recorded output Incus names a stdout and a stderr log.
+ * A fake exec endpoint. The command is an operation that ends with `ret`
+ * (or a wait that times out when `ret` is "timeout"). With websockets asked
+ * for, stdout carries `stdout` and closes, or floods without end when
+ * `stdout` is "flood", as a student's command can.
  */
-function execServer(
-	ret: number,
-	stdout: string,
-	seen: { body?: Record<string, unknown>; requests: string[] },
-) {
+function execServer(ret: number | "timeout", stdout: string, seen: ExecSeen) {
+	const wss = new WebSocketServer({ noServer: true });
+	const connected = new Map<string, WebSocket>();
+	upgrade = (req, socket, head) => {
+		const secret =
+			new URL(req.url ?? "", "http://incus").searchParams.get("secret") ?? "";
+		seen.requests.push(`WS ${secret}`);
+		wss.handleUpgrade(req, socket, head, (ws) => {
+			connected.set(secret, ws);
+			ws.on("close", () => seen.closed++);
+			if (secret === "sc") ws.on("message", (m) => seen.control.push(String(m)));
+			if (connected.size < 4) return;
+			const out = connected.get("s1");
+			if (!out) return;
+			if (stdout === "flood") {
+				const chunk = Buffer.alloc(16 * 1024, "x");
+				const pump = () => {
+					if (out.readyState !== WebSocket.OPEN) return;
+					out.send(chunk);
+					setImmediate(pump);
+				};
+				pump();
+			} else {
+				out.send(Buffer.from(stdout));
+				out.close();
+			}
+		});
+	};
 	return async (req: http.IncomingMessage, res: http.ServerResponse) => {
 		const chunks: Buffer[] = [];
 		for await (const c of req) chunks.push(c as Buffer);
@@ -549,38 +588,33 @@ function execServer(
 				status: "Operation created",
 				status_code: 100,
 				operation: "/1.0/operations/op1",
+				metadata: {
+					id: "op1",
+					metadata: { fds: { "0": "s0", "1": "s1", "2": "s2", control: "sc" } },
+				},
 			});
 		} else if (url.startsWith("/1.0/operations/op1/wait")) {
-			const record = seen.body?.["record-output"] === true;
 			respond(
 				res,
 				200,
-				waitReply({
-					status_code: 200,
-					metadata: {
-						return: ret,
-						...(record
-							? {
-									output: {
-										"1": "/1.0/instances/ws-a/logs/exec-output/exec_1.stdout",
-										"2": "/1.0/instances/ws-a/logs/exec-output/exec_1.stderr",
-									},
-								}
-							: {}),
-					},
-				}),
+				waitReply(
+					ret === "timeout"
+						? { status_code: 103 }
+						: { status_code: 200, metadata: { return: ret } },
+				),
 			);
-		} else if (req.method === "GET" && url.includes("/logs/exec-output/")) {
-			res.writeHead(200, { "Content-Type": "application/octet-stream" });
-			res.end(stdout);
 		} else {
 			respond(res, 200, { type: "sync", status: "Success", status_code: 200 });
 		}
 	};
 }
 
+function execSeen(): ExecSeen {
+	return { requests: [], control: [], closed: 0 };
+}
+
 test("exec runs a command and reports its exit status, with no output kept", async () => {
-	const seen: { body?: Record<string, unknown>; requests: string[] } = { requests: [] };
+	const seen = execSeen();
 	handler = execServer(3, "", seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
 	const result = await client.exec("ws-a", ["true"], { timeoutSeconds: 5 });
@@ -597,8 +631,8 @@ test("exec runs a command and reports its exit status, with no output kept", asy
 	]);
 });
 
-test("exec reads stdout from the host log as the user given, then deletes both logs", async () => {
-	const seen: { body?: Record<string, unknown>; requests: string[] } = { requests: [] };
+test("exec reads stdout over the exec websocket as the user given, never from a host log", async () => {
+	const seen = execSeen();
 	handler = execServer(0, "htop\n", seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
 	const result = await client.exec("ws-a", ["cat", "x"], {
@@ -607,25 +641,43 @@ test("exec reads stdout from the host log as the user given, then deletes both l
 		outputMaxBytes: 100,
 	});
 	expect(result).toEqual({ status: 0, stdout: Buffer.from("htop\n"), tooLarge: false });
-	expect(seen.body).toMatchObject({ "record-output": true, user: 1000, group: 1000 });
-	expect(seen.requests.slice(2)).toEqual([
-		"GET /1.0/instances/ws-a/logs/exec-output/exec_1.stdout?project=testproj",
-		"DELETE /1.0/instances/ws-a/logs/exec-output/exec_1.stdout?project=testproj",
-		"DELETE /1.0/instances/ws-a/logs/exec-output/exec_1.stderr?project=testproj",
+	expect(seen.body).toMatchObject({
+		"wait-for-websocket": true,
+		"record-output": false,
+		user: 1000,
+		group: 1000,
+	});
+	expect(seen.requests.filter((r) => r.startsWith("WS")).sort()).toEqual([
+		"WS s0",
+		"WS s1",
+		"WS s2",
+		"WS sc",
 	]);
+	expect(seen.requests.some((r) => r.includes("/logs/"))).toBe(false);
 });
 
-test("exec stops reading output past the limit", async () => {
-	const seen: { body?: Record<string, unknown>; requests: string[] } = { requests: [] };
-	handler = execServer(0, "x".repeat(1000), seen);
+test("exec stops a flood of output at the limit: kills the command, closes, cancels", async () => {
+	const seen = execSeen();
+	handler = execServer(0, "flood", seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
 	const result = await client.exec("ws-a", ["cat", "x"], {
 		timeoutSeconds: 5,
-		outputMaxBytes: 999,
+		outputMaxBytes: 64 * 1024,
 	});
-	expect(result.tooLarge).toBe(true);
-	expect(result.stdout.length).toBe(0);
-	expect(seen.requests.filter((r) => r.startsWith("DELETE"))).toHaveLength(2);
+	expect(result).toEqual({ status: null, stdout: Buffer.alloc(0), tooLarge: true });
+	await vi.waitFor(() => expect(seen.closed).toBe(4));
+	expect(seen.control).toEqual([JSON.stringify({ command: "signal", signal: 9 })]);
+	expect(seen.requests).toContain("DELETE /1.0/operations/op1");
+});
+
+test("an exec whose wait times out is cancelled", async () => {
+	const seen = execSeen();
+	handler = execServer("timeout", "", seen);
+	const client = new IncusClient({ socketPath, project: "testproj" });
+	await expect(
+		client.exec("ws-a", ["sleep", "100"], { timeoutSeconds: 1 }),
+	).rejects.toMatchObject({ code: "TIMEOUT" });
+	expect(seen.requests.at(-1)).toBe("DELETE /1.0/operations/op1");
 });
 
 /**

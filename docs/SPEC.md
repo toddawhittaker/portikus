@@ -3517,14 +3517,19 @@ When the controller writes a file into a container it replaces the file:
 it deletes the path and then writes it, so a student cannot leave a link
 or other special file there to redirect the write. It does this only
 while the container is stopped, so no student process can put a named
-pipe back between the two steps. It never reads a file through the Incus
+pipe back between the two steps; a start that finds the container
+already running (a retry after a start that failed late) force-stops it
+first. It never reads a file through the Incus
 files API, because Incus 7.5 reports a named pipe there as a regular file
 and opening one blocks an Incus thread until something opens the other
 end or Incus restarts.
 What it must change or read in a running container (the ghcr.io hosts
 line and the apt hook's package list) it does with a command inside the
-container under `timeout`, so a pipe can only block a process the
-container owns.
+container. A student is root there and can replace any command, so the
+bounds are the controller's own: output comes back over the exec
+websocket and the controller reads at most 64 KiB, then kills the
+command and closes the sockets; nothing is recorded to a file on the
+host; and an exec that times out is cancelled.
 
 ### 24.2 Student code is untrusted
 
