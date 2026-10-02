@@ -70,10 +70,19 @@ function ProjectSocket({
 }) {
 	const [browserOpens, setBrowserOpens] = useState<BrowserOpenRequest[]>([]);
 	const seenOpens = useRef(new Set<string>());
+	// Each dialog in a run of queued requests would otherwise remember the
+	// previous dialog's removed button as its opener (SPEC.md §25.8).
+	const queued = useRef(0);
+	const opener = useRef<HTMLElement | null>(null);
 	const { limited } = useProjectEvents(workspaceId, projectId, (request) => {
 		// The agent may resend a request the page already queued.
 		if (seenOpens.current.has(request.requestId)) return;
 		seenOpens.current.add(request.requestId);
+		if (queued.current === 0) {
+			const active = document.activeElement;
+			opener.current = active instanceof HTMLElement ? active : null;
+		}
+		queued.current += 1;
 		setBrowserOpens((queue) => [...queue, request]);
 	});
 	useEffect(() => {
@@ -86,7 +95,11 @@ function ProjectSocket({
 			workspaceId={workspaceId}
 			projectId={projectId}
 			onOpenPreview={(port) => layoutStore.getState().openPreview(port)}
-			onClose={() => setBrowserOpens((queue) => queue.slice(1))}
+			returnFocusTo={() => opener.current}
+			onClose={() => {
+				queued.current -= 1;
+				setBrowserOpens((queue) => queue.slice(1));
+			}}
 		/>
 	) : null;
 }

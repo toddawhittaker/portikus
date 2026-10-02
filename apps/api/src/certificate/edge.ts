@@ -27,7 +27,8 @@ import { type NonceStore, PREFLIGHT_PATH } from "./preflight.js";
 const CERTIFICATE_ASK_PATH = "/edge/certificate-ask";
 const NONCE_ROUTE = `${PREFLIGHT_PATH}:nonce`;
 
-/** Most new preview names one workspace may get approved per rolling hour. */
+/** Most new preview names one workspace may get approved per fixed one-hour
+ * window; a burst of up to twice this across a window edge is accepted. */
 export const NEW_NAMES_PER_WORKSPACE_PER_HOUR = 10;
 const WINDOW_MS = 60 * 60 * 1000;
 

@@ -5,7 +5,14 @@
  */
 import type { BrowserOpenRequest } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createLayoutStore } from "../layout/store.js";
 import { ProjectEvents, useWatchLimited } from "./ProjectEvents.js";
@@ -93,6 +100,21 @@ test("a repeated request shows once and requests queue one at a time", () => {
 	expect(screen.getByTestId("browser-open-origin").textContent).toContain("hbbbb");
 	fireEvent.click(screen.getByTestId("browser-open-cancel"));
 	expect(screen.queryByTestId("browser-open-dialog")).toBeNull();
+});
+
+test("focus returns to the original element after a queue of two dialogs closes", async () => {
+	const opener = document.createElement("button");
+	document.body.append(opener);
+	opener.focus();
+	show(PROJECT);
+	act(() => {
+		hook.onBrowserOpen?.(request("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"));
+		hook.onBrowserOpen?.(request("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"));
+	});
+	fireEvent.click(screen.getByTestId("browser-open-cancel"));
+	fireEvent.click(screen.getByTestId("browser-open-cancel"));
+	await waitFor(() => expect(document.activeElement).toBe(opener));
+	opener.remove();
 });
 
 test("the watch-limited flag reaches the shell and clears when the project closes", () => {
