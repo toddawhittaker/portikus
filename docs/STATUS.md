@@ -3886,3 +3886,56 @@ Gaps:
   a fix restores them at start (BACKLOG.md).
 - Status bar overflow at narrow widths, and the shell's storage meters
   are not yet on `Meter` (BACKLOG.md).
+
+## Epic 29 — Code quality cleanup
+
+Built on `epic/29-code-quality` (plan #988, task PRs #989 to #997, #999,
+#1001 to #1009, #1012 to #1016, this fold). #998 and #1000 were rebuilt
+as #1002 and #1003. No migration. SPEC.md sections 22.4, 24.1, 24.11 and
+29, and WORKFLOW.md, "Code style".
+
+Delivered:
+
+- Shared helpers: `recordAudit`, `isUniqueViolation` and `errorMessage`,
+  used across the API, worker, controller, agent and packages. The API
+  has one `sendError`, shared parameter schemas, `parseOr400`, one
+  `escapeHtml` and one job request file writer.
+- One workspace-agent client, `packages/agent-client`, for the API and
+  the worker (SPEC.md section 24.1 says how each handles a broken
+  stream).
+- The worker has one timer loop helper, shared `notifyAdministrators`
+  and `utcDay`, and `reconcile()` split into named steps. Its controller
+  budgets derive from the controller's timeout constants.
+- The workspace agent runs its version-control and docker commands
+  through its runners, has one `AgentFailure` error type, and
+  `listening.ts` is split. Terminal scrollback is one contract constant.
+- The API's admin role routes share one helper, and user functions and
+  terminal piping have their own files. Admin `user.enabled` and
+  `user.disabled` rows now carry the request metadata.
+- The web app has shared text and dialog helpers, storage meters on the
+  ui `Meter`, and split `WorkspaceDetail` and `SettingsDialog` files.
+  Visible change: ages read in full words ("4 minutes ago").
+- Packages: unused contract constants removed, one shared config field
+  set for the API and worker, one `sha256Hex`.
+- e2e specs share one axe check and common helpers. Shell tests share
+  `infra/tests/lib.sh`, and the smoke test is split by subsystem with
+  the same counts (238 passed, 0 failed, 1 skipped on the pilot).
+- Infrastructure: shared Makefile guards, one Go build task file, one
+  Caddy `@api` matcher, one backup library. Verified bootstrap to smoke
+  on the rehearsal VM, with a real backup and restore.
+- Comments trimmed of history everywhere, and `pnpm lint` now fails on
+  issue, epic, task, ruling and review references in code comments.
+- Review fixes: typed agent error codes, a drift-notice toast and focus
+  that survive a reread, and an always-removed Caddy staging binary.
+
+Gaps:
+
+- The smoke test's lifecycle, terminal, project and recovery files were
+  skipped on the pilot because a student workspace exists; they were
+  checked by comparing the old and new scripts.
+- Some admin e2e helpers that behave differently remain local copies.
+- SeedCard's match toast can still be lost in the app (fix with
+  `mutateAsync`).
+- Ansible task names in `roles/portikus/tasks/package.yml` still say
+  "Epic 3".
+- Four smaller items are in BACKLOG.md.

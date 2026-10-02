@@ -227,6 +227,20 @@ agent working from a checkout can read it.
 - Plans of epics finished before this rule are kept in
   `docs/archive/epics/`; nothing new is added there.
 
+## Code style
+
+- Comments say why, never history. Do not write issue or PR numbers,
+  epic or task names, review codes, "ruling N", or pointers into epic
+  plans; the history lives in version control, and plans are deleted.
+  Cite a SPEC.md section or an ADR instead.
+- Do not copy a helper. Search for one that does the job and import it;
+  if two places need the same code, move it into a shared module.
+- A value that must match in two files or processes is one exported
+  constant, not two values and a comment.
+
+`pnpm lint` runs `scripts/check-comment-history.mjs`, which fails on
+history references in code comments and test titles.
+
 ## Pull requests
 
 Every pull request cites the SPEC.md and STACK.md sections it serves and
