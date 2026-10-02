@@ -3930,9 +3930,6 @@ Delivered:
 
 Gaps:
 
-- The smoke test's lifecycle, terminal, project and recovery files were
-  skipped on the pilot because a student workspace exists; they were
-  checked by comparing the old and new scripts.
 - Some admin e2e helpers that behave differently remain local copies.
 - Ansible task names in `roles/portikus/tasks/package.yml` still say
   "Epic 3".
