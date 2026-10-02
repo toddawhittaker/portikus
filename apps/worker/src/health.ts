@@ -4,12 +4,11 @@ import {
 	POOL_WARN_PERCENT,
 	poolFillPercent,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, notifyAdministrators } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
 import { startLoop } from "./loop.js";
-import { notifyAdministrators } from "./notifications.js";
 
 /** How often the worker samples the host. */
 export const HEALTH_SAMPLE_SECONDS = 60;

@@ -4,6 +4,7 @@ import {
 	DEFAULT_TIMEZONE,
 	isSystemTimezone,
 	type PendingOperation,
+	type WorkspaceState,
 } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
@@ -53,7 +54,7 @@ export function toControllerError(e: unknown): ControllerClientError {
 export async function casUpdate(
 	db: Kysely<Database>,
 	id: string,
-	fromState: string,
+	fromState: WorkspaceState,
 	updates: Record<string, unknown>,
 	now: Date,
 ): Promise<{ id: string } | null> {
@@ -334,7 +335,7 @@ export async function createWorkspace(
 export async function moveToStarting(
 	db: Kysely<Database>,
 	id: string,
-	fromState: string,
+	fromState: WorkspaceState,
 	now: Date,
 ): Promise<boolean> {
 	const moved = await casUpdate(
@@ -606,7 +607,7 @@ export async function runOperation(
 	ws: {
 		id: string;
 		incus_instance_name: string;
-		state: string;
+		state: WorkspaceState;
 		pending_operation: PendingOperation;
 		pending_operation_by: string | null;
 		dockerGiB: number;

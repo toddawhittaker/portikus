@@ -6,7 +6,11 @@ import {
 	openWorkspaceSocket,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { type HealthSample, QUOTA_SHRINK_MESSAGE } from "@portikus/contracts";
+import {
+	type HealthSample,
+	QUOTA_SHRINK_MESSAGE,
+	type WorkspaceState,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
@@ -1137,7 +1141,7 @@ describe("re-provision", () => {
 		await start();
 	});
 
-	async function setState(state: string): Promise<void> {
+	async function setState(state: WorkspaceState): Promise<void> {
 		await testDb.db
 			.updateTable("workspaces")
 			.set({
@@ -1205,7 +1209,7 @@ describe("re-provision", () => {
 				"starting",
 				"stopping",
 				"provisioning",
-			]) {
+			] as const) {
 				await setState(state);
 				const res = await post(carol, `/admin/workspaces/${workspaceId}/reprovision`);
 				expect(res.statusCode).toBe(409);

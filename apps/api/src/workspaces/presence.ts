@@ -8,6 +8,7 @@ import {
 	countActive,
 	findOwnedWorkspace,
 	findWorkspaceOwnedBy,
+	type WorkspaceRow,
 } from "./workspace-view.js";
 
 /**
@@ -66,7 +67,7 @@ const MAX_CONNECTIONS_PER_WORKSPACE = 16;
 declare module "fastify" {
 	interface FastifyRequest {
 		/** The workspace row the upgrade guard already loaded and authorized. */
-		workspaceRow?: Record<string, unknown>;
+		workspaceRow?: WorkspaceRow;
 	}
 }
 

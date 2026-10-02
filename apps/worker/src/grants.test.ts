@@ -4,7 +4,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createDb, type Database } from "@portikus/db";
+import { createDb, type Database, notifyAdministrators } from "@portikus/db";
 import {
 	createTestDb,
 	hasTestDb,
@@ -23,7 +23,7 @@ import { seedSettings } from "./index.js";
 import { settleInFlight } from "./lifecycle.js";
 import { createLimitsSync } from "./limits.js";
 import { createLogLevelSync } from "./log-level.js";
-import { notifyAdministrators, pruneNotifications } from "./notifications.js";
+import { pruneNotifications } from "./notifications.js";
 import { createPackageSurvey } from "./package-survey.js";
 import { serveProcessSnapshots } from "./process-snapshots.js";
 import { createQuotaSync } from "./quota.js";

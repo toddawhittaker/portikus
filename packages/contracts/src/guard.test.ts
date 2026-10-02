@@ -6,6 +6,7 @@ import {
 	idleLift,
 	keepRunningMaxHours,
 	keepRunningRefusal,
+	restartedBetween,
 	throttleHold,
 } from "./guard.js";
 
@@ -133,5 +134,25 @@ describe("keep running until", () => {
 			"too-far",
 		);
 		expect(keepRunningRefusal(hours(0.5), now, 12)).toBeNull();
+	});
+});
+
+describe("restartedBetween", () => {
+	const at = (bootMarker: string | null, cpuUsageNs: bigint) => ({
+		bootMarker,
+		cpuUsageNs,
+	});
+
+	test("a changed boot marker is a restart", () => {
+		expect(restartedBetween(at("a", 1n), at("b", 5n))).toBe(true);
+	});
+
+	test("a CPU counter that dropped is a restart, even with the same marker", () => {
+		expect(restartedBetween(at("a", 5n), at("a", 1n))).toBe(true);
+	});
+
+	test("a rising counter is not a restart, with or without both markers", () => {
+		expect(restartedBetween(at(null, 1n), at("b", 5n))).toBe(false);
+		expect(restartedBetween(at("a", 1n), at("a", 5n))).toBe(false);
 	});
 });

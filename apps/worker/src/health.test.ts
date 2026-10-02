@@ -67,7 +67,9 @@ test.skipIf(skip)(
 test.skipIf(skip)(
 	"each sample counts the workspaces the database says are running",
 	async () => {
-		for (const [i, state] of ["running", "running", "stopped", "starting"].entries()) {
+		for (const [i, state] of (
+			["running", "running", "stopped", "starting"] as const
+		).entries()) {
 			await tdb.db
 				.insertInto("workspaces")
 				.values({

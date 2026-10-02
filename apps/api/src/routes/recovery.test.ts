@@ -6,6 +6,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import type { WorkspaceState } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { createLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
@@ -97,7 +98,7 @@ beforeEach(async () => {
 	};
 });
 
-async function setState(state: string) {
+async function setState(state: WorkspaceState) {
 	await testDb.db
 		.updateTable("workspaces")
 		.set({

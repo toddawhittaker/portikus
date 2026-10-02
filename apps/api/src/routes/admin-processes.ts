@@ -1,12 +1,11 @@
 import { requireRole, requireUser } from "@portikus/auth";
 import { type AdminProcessSnapshot, InstanceProcess } from "@portikus/contracts";
-import { recordAudit } from "@portikus/db";
+import { recordAudit, recordNotification } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { agentClientFor } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
-import { recordNotification } from "../notifications/record.js";
 import { parseStop, stopThroughAgent } from "../workspaces/process-stop.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };

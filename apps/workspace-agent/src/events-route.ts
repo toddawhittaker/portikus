@@ -1,5 +1,5 @@
 import type { WebSocket } from "@fastify/websocket";
-import { type FsEvent, MAX_EVENT_SOCKETS } from "@portikus/contracts";
+import { CloseCode, type FsEvent, MAX_EVENT_SOCKETS } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { AgentFailure } from "./errors.js";
 import { ProjectWatchers, WatchLimitedError } from "./watch.js";
@@ -12,17 +12,8 @@ export interface EventsRouteOptions {
 	watchers?: ProjectWatchers;
 }
 
-/** Close code for a project that does not exist (SPEC.md §11.4). */
-const NOT_FOUND_CLOSE = 4404;
-
-/** Close code for a request the client should not retry as-is. */
-const POLICY_CLOSE = 1008;
-
 /** Close code for a socket that is done and should not be retried. */
 const NORMAL_CLOSE = 1000;
-
-/** Close code for a failure on our side. */
-const SERVER_ERROR_CLOSE = 1011;
 
 /**
  * `GET /projects/:slug/events`: batched filesystem change frames for one
@@ -50,7 +41,7 @@ export async function eventsRoute(
 
 			if (open >= maxSockets) {
 				send(socket, { type: "error", code: "EVENT_SOCKET_LIMIT" });
-				socket.close(POLICY_CLOSE, "EVENT_SOCKET_LIMIT");
+				socket.close(CloseCode.POLICY, "EVENT_SOCKET_LIMIT");
 				return;
 			}
 			open += 1;
@@ -75,7 +66,7 @@ export async function eventsRoute(
 						// more. Closing with 1011 is what makes the browser
 						// reconnect and refetch everything (SPEC.md §11.4).
 						send(socket, { type: "error", code: "WATCH_FAILED" });
-						socket.close(SERVER_ERROR_CLOSE, "WATCH_FAILED");
+						socket.close(CloseCode.SERVER_ERROR, "WATCH_FAILED");
 					},
 				);
 				// The socket may have closed while the watcher was starting.
@@ -105,9 +96,9 @@ export async function eventsRoute(
 }
 
 function closeCodeFor(code: string): number {
-	if (code === "PROJECT_NOT_FOUND") return NOT_FOUND_CLOSE;
-	if (code === "WATCH_FAILED") return SERVER_ERROR_CLOSE;
-	return POLICY_CLOSE;
+	if (code === "PROJECT_NOT_FOUND") return CloseCode.NOT_FOUND;
+	if (code === "WATCH_FAILED") return CloseCode.SERVER_ERROR;
+	return CloseCode.POLICY;
 }
 
 function send(socket: WebSocket, message: unknown): void {

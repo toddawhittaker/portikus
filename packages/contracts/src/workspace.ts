@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_GUARD_WINDOW_MINUTES } from "./guard.js";
 
 /**
  * Workspace lifecycle states (SPEC.md §6.2, §18.3, §27). Only the worker
@@ -45,7 +46,7 @@ export type RebuildWorkspaceRequest = z.infer<typeof RebuildWorkspaceRequest>;
 export const GuardThresholdPercent = z.number().int().min(1).max(100);
 
 /** The rolling window the guard averages over, in minutes. */
-export const GuardWindowMinutes = z.number().int().min(5).max(240);
+export const GuardWindowMinutes = z.number().int().min(5).max(MAX_GUARD_WINDOW_MINUTES);
 
 /** The share of its CPU limit a throttled workspace keeps; 100 changes nothing. */
 export const ThrottleSharePercent = z.number().int().min(5).max(100);

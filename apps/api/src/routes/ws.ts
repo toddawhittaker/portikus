@@ -1,6 +1,6 @@
 import type { WebSocket } from "@fastify/websocket";
 import { loadSession, sessionGate } from "@portikus/auth";
-import type { ListeningService, Workspace } from "@portikus/contracts";
+import { CloseCode, type ListeningService, type Workspace } from "@portikus/contracts";
 import { ClientMessage, type ServerMessage } from "@portikus/events";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { recordActivity } from "../activity.js";
@@ -90,7 +90,7 @@ export function registerWorkspaceSocket(
 				: null;
 			if (user && !sessionGate(user)) continue;
 			watcher.sockets.delete(subscriber);
-			subscriber.socket.close(4401, "session revoked");
+			subscriber.socket.close(CloseCode.SESSION_ENDED, "session revoked");
 			await dropConnection(subscriber.connectionId);
 		}
 	}
@@ -172,7 +172,7 @@ export function registerWorkspaceSocket(
 				request.log.error({ err: error, workspaceId }, "workspace socket setup failed");
 				releaseAdmin();
 				track(dropConnection(connectionId).catch(() => {}));
-				socket.close(1011, "internal error");
+				socket.close(CloseCode.SERVER_ERROR, "internal error");
 				socket.resume();
 			}
 
@@ -240,7 +240,7 @@ export function registerWorkspaceSocket(
 							? await loadSession(db, request.sessionToken)
 							: null;
 						if (!user || sessionGate(user)) {
-							socket.close(4401, "session expired");
+							socket.close(CloseCode.SESSION_ENDED, "session expired");
 							return;
 						}
 
@@ -254,7 +254,7 @@ export function registerWorkspaceSocket(
 							{ err: error, workspaceId },
 							"workspace socket message failed",
 						);
-						socket.close(1011, "internal error");
+						socket.close(CloseCode.SERVER_ERROR, "internal error");
 					}
 				}
 

@@ -5,7 +5,6 @@ import {
 	countIncusCpus,
 	HealthSample,
 	type MemoryFlag,
-	type PendingOperation,
 	type QuotaConfig,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
@@ -104,7 +103,7 @@ export function toWorkspaceSummary(
 		quotaApplied: fromJson<QuotaConfig>(row.quota_applied),
 		image: toImageVersion(row.incus_instance_name, row.image_version, facts),
 		archivedAt: iso(row.archived_at),
-		pendingOperation: row.pending_operation as PendingOperation | null,
+		pendingOperation: row.pending_operation,
 		cpuThrottle: fromJson<CpuThrottle>(row.cpu_throttle),
 		memoryFlag: fromJson<MemoryFlag>(row.memory_flag),
 	};

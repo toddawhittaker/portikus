@@ -26,6 +26,8 @@ import {
 	ProcessStopResponse,
 	SetLogLevelRequest,
 } from "@portikus/contracts";
+import type { Database } from "@portikus/db";
+import type { Selectable } from "kysely";
 import { z } from "zod";
 
 export { AgentCallError };
@@ -419,12 +421,10 @@ export async function readAgentError(response: Response): Promise<AgentCallError
 
 /** Build a client for a workspace row, or null when it has no agent yet. */
 export function agentClientFor(
-	row: Record<string, unknown>,
+	row: Pick<Selectable<Database["workspaces"]>, "agent_address" | "agent_token">,
 	agentPort: number,
 ): AgentClient | null {
-	const address = row.agent_address;
-	const token = row.agent_token;
-	if (typeof address !== "string" || typeof token !== "string") return null;
-	if (address === "" || token === "") return null;
+	const { agent_address: address, agent_token: token } = row;
+	if (!address || !token) return null;
 	return new AgentClient(address, agentPort, token);
 }
