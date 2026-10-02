@@ -314,8 +314,13 @@ task pull requests without asking each time.
   report is uploaded as the `coverage-lcov` artifact and kept for three days. `make check` runs the
   same coverage command, so a local check catches the same failure.
 - **Browser end-to-end tests**: `pnpm test:e2e` with Playwright, split
-  across three parallel jobs with `--shard`, each with its own database
-  service. They start alongside Application checks rather than after it. A
+  across five parallel jobs, each with its own database service.
+  `scripts/e2e-shard-list.mjs` packs the spec files into shards by the
+  measured times in `e2e/shard-timings.json`; a file with no timing counts
+  as the average. To refresh the timings after tests are added or slowed,
+  run `node scripts/e2e-shard-list.mjs --refresh` (it reads the latest green
+  CI run on main through `gh`) and commit the file. They start alongside
+  Application checks rather than after it. A
   last job with the required name "Browser end-to-end tests" passes only
   when every shard passed. The Playwright browser download is cached.
   Skipped until the script exists.
