@@ -29,6 +29,8 @@ const ALLOWED = [
 const SKIPPED = [
 	// Design mockups are mirrored from the external design tool, not written here.
 	/^design\//,
+	// This check's own tests hold the patterns it rejects, as examples.
+	/^scripts\/check-comment-history\.test\.ts$/,
 ];
 
 function kindOf(path) {
