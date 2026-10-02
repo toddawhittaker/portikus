@@ -30,7 +30,7 @@ CURL="curl -s --cacert /etc/portikus/caddy-root.crt"
 SESSION_COOKIE_NAME="__Host-portikus_session"
 
 # http_status USER URL [EXTRA_CURL_ARGS]
-# USER is a mock user whose cookie jar is sent, or "-" for anonymous.
+# USER is a user whose cookie jar is sent, or "-" for anonymous.
 # EXTRA_CURL_ARGS is one string, quoted for the remote shell.
 http_status() {
   local user="$1" url="$2" extra="${3:-}" jar=""

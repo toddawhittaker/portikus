@@ -223,7 +223,6 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	handle @api {
 		reverse_proxy 127.0.0.1:{{ portikus_api_port }}
 	}
-{% if portikus_idp == 'dex' %}
 
 	# Dex, the sign-in provider (ADR 0023). It mounts its routes under the
 	# issuer's path, so the prefix is passed through unchanged. Dex has no
@@ -278,29 +277,6 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 			reverse_proxy 127.0.0.1:{{ dex_port }}
 		}
 	}
-{% else %}
-
-	# Dex is off, so nothing under its prefix may fall through to the
-	# single-page application and answer 200.
-	handle /dex* {
-		respond 404
-	}
-{% endif %}
-{% if portikus_idp == 'mock' %}
-
-	# Test identity provider (ADR 0008). Its routes are mounted under this
-	# prefix, so the prefix is passed through unchanged.
-	handle /mock-idp/* {
-		reverse_proxy 127.0.0.1:{{ portikus_mock_idp_port }}
-	}
-{% else %}
-
-	# The mock provider is off, so nothing under its prefix may fall
-	# through to the single-page application and answer 200.
-	handle /mock-idp* {
-		respond 404
-	}
-{% endif %}
 
 	# Everything else is the browser bundle; unknown paths fall back to the
 	# single-page application entry point.

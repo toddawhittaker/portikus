@@ -1,6 +1,6 @@
 # 0008. Server-side sessions and an in-repo mock identity provider
 
-- **Status**: Accepted; superseded in part by 0023 (Dex replaces the mock on the pilot)
+- **Status**: Accepted; superseded in part by 0023 and 0031 (Dex is every site's only provider). The packaged mock unit and the Ansible flag were removed on 2026-10-01; the mock runs only in tests, CI and local development.
 - **Date**: 2026-09-16
 - **References**: STACK.md §8, §12, §27; SPEC.md §5, §24
 

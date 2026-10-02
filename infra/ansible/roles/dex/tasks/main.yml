@@ -4,7 +4,6 @@
 # because Dex publishes no binaries and Debian has no package for it.
 
 - name: Install and run Dex
-  when: portikus_idp == 'dex'
   block:
     # Go comes with go_build, so this does not depend on image_builder
     # running first.  Dex links SQLite through cgo, hence build-essential.
@@ -284,27 +283,3 @@
         host: "{{ dex_grpc_addr.split(':') | first }}"
         port: "{{ dex_grpc_addr.split(':') | last | int }}"
         timeout: 30
-
-- name: Turn Dex off
-  when: portikus_idp != 'dex'
-  block:
-    - name: Look for the Dex unit
-      ansible.builtin.stat:
-        path: /etc/systemd/system/portikus-dex.service
-      register: dex_unit
-
-    - name: Stop and disable Dex
-      ansible.builtin.systemd:
-        name: portikus-dex
-        enabled: false
-        state: stopped
-      when: dex_unit.stat.exists
-
-    # The dex database stays: it holds the accounts if Dex comes back.
-    - name: Remove the Dex configuration and gRPC certificates
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "{{ dex_config_dir }}"
-        - "{{ dex_grpc_dir }}"

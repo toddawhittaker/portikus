@@ -59,9 +59,7 @@ check_output "a's terminals unit keeps running after an OOM kill (OOMPolicy=cont
 
 # Workspaces may together promise more memory than the VM has; when it runs
 # out, the kernel must kill workspace processes first (docs/CAPACITY.md).
-lim_platform_units="postgresql@17-main portikus-api portikus-worker portikus-controller caddy"
-# Keyed on the provider, not on the unit running, so a crashed Dex fails.
-if [ "$SEC_IDP" = dex ]; then lim_platform_units+=" portikus-dex"; fi
+lim_platform_units="postgresql@17-main portikus-api portikus-worker portikus-controller caddy portikus-dex"
 for lim_unit in $lim_platform_units; do
   check "${lim_unit} has a negative OOM score adjustment" \
     sec_ssh "p=\$(systemctl show -p MainPID --value ${lim_unit}); [ \"\$p\" -gt 0 ] && [ \"\$(cat /proc/\$p/oom_score_adj)\" -lt 0 ]"
