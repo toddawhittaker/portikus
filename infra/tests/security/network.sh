@@ -62,6 +62,15 @@ net_host_targets() {
 }
 
 net_vm_ports=(22 80 "${SEC_PUBLIC_PORT}" 443 2019 3000 3001 3002 5432 8443)
+# With the ghcr.io cache on, 443 on the bridge address is the cache's
+# redirect; checks after the probes prove it reaches the cache and nothing else.
+net_bridge_ports=("${net_vm_ports[@]}")
+net_ghcr=off
+if sec_ghcr_cache_on; then
+  net_ghcr=on
+  mapfile -t net_bridge_ports < <(printf '%s\n' "${net_vm_ports[@]}" | grep -vx 443)
+fi
+echo "ghcr.io cache: ${net_ghcr}"
 net_targets_for() { # ADDRESS PORTS...
   local addr="$1" p; shift
   for p in $(printf '%s\n' "$@" | sort -un); do echo "${addr},${p}"; done
@@ -79,7 +88,7 @@ check_output "the VM reaches workspace b's own listener (probe control)" "sectes
 
 net_groups=(vm-bridge vm-management libvirt-host host-addresses public-site lan-gateway link-local peer)
 declare -A net_group_targets=(
-  [vm-bridge]="$(net_targets_for "$net_bridge" "${net_vm_ports[@]}")"
+  [vm-bridge]="$(net_targets_for "$net_bridge" "${net_bridge_ports[@]}")"
   [vm-management]="$(net_targets_for "$SEC_VM" "${net_vm_ports[@]}")"
   [libvirt-host]="$(net_targets_for "$net_gateway" 22 53 80 443 "$SEC_PUBLIC_PORT")"
   [host-addresses]="$(net_host_targets)"
@@ -151,6 +160,17 @@ net_report "a as student" "$(sec_exec a student "$(net_probe_bash)" 2>/dev/null)
 net_report "a as root" "$(sec_exec a root "$(net_probe_bash)" 2>/dev/null)"
 net_report "a, inner Docker" "$(sec_docker_exec a "$(net_probe_sh)" 2>/dev/null)"
 net_report "a, inner Docker --network host" "$(sec_docker_exec a --network host "$(net_probe_sh)" 2>/dev/null)"
+if [ "$net_ghcr" = on ]; then
+  net_443_label="the bridge address's port 443 reaches the ghcr.io cache and nothing else"
+  check_output "a as student: ${net_443_label}" "$SEC_GATEWAY_443_BASH" \
+    sec_exec a student "$(sec_gateway_443_probe bash "$net_bridge"); g443"
+  check_output "a as root: ${net_443_label}" "$SEC_GATEWAY_443_BASH" \
+    sec_exec a root "$(sec_gateway_443_probe bash "$net_bridge"); g443"
+  check_output "a, inner Docker: ${net_443_label}" "$SEC_GATEWAY_443_SH" \
+    sec_docker_exec a "$(sec_gateway_443_probe sh "$net_bridge"); g443"
+  check_output "a, inner Docker --network host: ${net_443_label}" "$SEC_GATEWAY_443_SH" \
+    sec_docker_exec a --network host "$(sec_gateway_443_probe sh "$net_bridge"); g443"
+fi
 
 # ── The other workspace over IPv6 link-local ─────────────────────
 
