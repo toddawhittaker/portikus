@@ -13,9 +13,9 @@ import {
 import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Insertable, sql } from "kysely";
+import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import { lifecycleLimit } from "../rate-limit.js";
-import type { ServerDeps } from "../server.js";
 import {
 	countActive,
 	findOwnedWorkspace,
@@ -23,7 +23,7 @@ import {
 	fromJson,
 	loadWorkspaceSettings,
 	toWorkspace,
-} from "./workspace-view.js";
+} from "../workspaces/workspace-view.js";
 
 /** Eight random hex characters for the fallback workspace label. */
 function randomHex8(): string {

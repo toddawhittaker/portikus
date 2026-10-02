@@ -8,8 +8,8 @@ import {
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import type { ServerDeps } from "../server.js";
 
 const CourseParam = z.object({ courseId: z.string().uuid() });
 const MemberParam = z.object({

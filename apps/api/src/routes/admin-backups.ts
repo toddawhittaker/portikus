@@ -17,13 +17,13 @@ import {
 import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Selectable } from "kysely";
+import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
-import type { ServerDeps } from "../server.js";
 import {
 	claimLongOperation,
 	longOperationRunning,
 	releaseLongOperation,
-} from "./project-scope.js";
+} from "../workspaces/long-operation.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 const RECENT_REQUESTS = 50;

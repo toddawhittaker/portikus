@@ -1,21 +1,16 @@
 import websocket from "@fastify/websocket";
-import { authPlugin, type DexApi, type OidcClient } from "@portikus/auth";
-import type { ApiConfig } from "@portikus/config";
+import { authPlugin } from "@portikus/auth";
 import { type ApiError, HealthResponse } from "@portikus/contracts";
-import { type Database, isDatabaseUnavailable } from "@portikus/db";
-import {
-	type Logger,
-	quietLogController,
-	registerRequestLogging,
-} from "@portikus/observability";
+import { isDatabaseUnavailable } from "@portikus/db";
+import { quietLogController, registerRequestLogging } from "@portikus/observability";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
-import type { Kysely } from "kysely";
 import { toAuthOptions } from "./auth-options.js";
 import {
 	registerCertificateEdge,
 	registerCertificateEdgeRoutes,
 } from "./certificate/edge.js";
-import { NonceStore, type PreflightNet } from "./certificate/preflight.js";
+import { NonceStore } from "./certificate/preflight.js";
+import type { ServerDeps } from "./deps.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { fileWriteLimit } from "./rate-limit.js";
 import { registerRequestMetrics } from "./request-metrics.js";
@@ -40,7 +35,7 @@ import { registerCourseRoutes } from "./routes/courses.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerGitSearchRoutes } from "./routes/git-search.js";
 import { registerLinkRoutes } from "./routes/links.js";
-import { type LtiDeps, registerLtiRoutes } from "./routes/lti.js";
+import { registerLtiRoutes } from "./routes/lti.js";
 import { registerMaintenanceRoutes } from "./routes/maintenance.js";
 import { registerMeRoutes } from "./routes/me.js";
 import { registerMePasswordRoutes } from "./routes/me-password.js";
@@ -59,23 +54,6 @@ import {
 	registerSigninThrottle,
 	registerSigninThrottleRoute,
 } from "./signin-throttle.js";
-
-export interface ServerDeps {
-	db: Kysely<Database>;
-	config: ApiConfig;
-	/** The one root logger of this process (ADR 0012). */
-	logger: Logger;
-	/** Tests inject a client bound to the mock provider. */
-	oidc?: OidcClient;
-	/** The registered LMS platforms; absent means LTI is off and /lti/* is 404. */
-	lti?: LtiDeps;
-	/** Dex's gRPC API; absent means the Dex user routes answer 404. */
-	dex?: DexApi;
-	/** How often the listening registry looks for workspaces; tests go faster. */
-	previewPollIntervalMs?: number;
-	/** DNS and probes for the certificate pre-flight; tests fake them. */
-	certificateNet?: PreflightNet;
-}
 
 /** Build the control-plane HTTP server (SPEC.md §2.8, STACK.md §4). */
 export function buildServer(deps: ServerDeps): FastifyInstance {

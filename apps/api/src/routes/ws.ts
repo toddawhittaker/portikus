@@ -4,16 +4,20 @@ import type { ListeningService, Workspace } from "@portikus/contracts";
 import { ClientMessage, type ServerMessage } from "@portikus/events";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { recordActivity } from "../activity.js";
+import type { ServerDeps } from "../deps.js";
 import type { ListeningRegistry } from "../preview/registry.js";
-import type { ServerDeps } from "../server.js";
 import {
 	createPendingWork,
 	dropPresence,
 	openPresence,
 	touchPresence,
 	workspaceUpgradeGuard,
-} from "./presence.js";
-import { countActive, loadWorkspaceSettings, toWorkspace } from "./workspace-view.js";
+} from "../workspaces/presence.js";
+import {
+	countActive,
+	loadWorkspaceSettings,
+	toWorkspace,
+} from "../workspaces/workspace-view.js";
 
 /** How often the watcher polls for workspace changes. */
 const POLL_INTERVAL_MS = 1000;

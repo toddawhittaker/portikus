@@ -2,16 +2,16 @@ import type { WebSocket } from "@fastify/websocket";
 import { CheckId, CheckRun, ChecksResponse } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { AGENT_TIMEOUT_MS, readAgentError, readJson } from "../agent-client.js";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import type { ServerDeps } from "../server.js";
-import { createPendingWork, workspaceUpgradeGuard } from "./presence.js";
+import { createPendingWork, workspaceUpgradeGuard } from "../workspaces/presence.js";
 import {
 	agentUrl,
 	type ProjectScope,
 	scopedProject,
 	sendAgentError,
-} from "./project-scope.js";
-import { pipeOneWay } from "./terminal-pipe.js";
+} from "../workspaces/project-scope.js";
+import { pipeOneWay } from "../workspaces/terminal-pipe.js";
 
 /** A run may take a while to start, but starting it is not itself slow. */
 const CHECK_BUDGET_MS = AGENT_TIMEOUT_MS;

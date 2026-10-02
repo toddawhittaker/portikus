@@ -1,5 +1,4 @@
 import { requireUser } from "@portikus/auth";
-import type { ApiConfig } from "@portikus/config";
 import {
 	type RecoveryPoint,
 	type RecoveryPointList,
@@ -8,43 +7,34 @@ import {
 } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { type Kysely, type Selectable, sql } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { AgentCallError, type AgentClient } from "../agent-client.js";
+import type { ServerDeps } from "../deps.js";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
-import type { ServerDeps } from "../server.js";
 import {
 	claimLongOperation,
+	releaseLongOperation,
+} from "../workspaces/long-operation.js";
+import {
 	ownedProject,
 	ownedScope,
 	type ProjectRow,
-	releaseLongOperation,
 	requireAgent,
 	sendAgentError,
-} from "./project-scope.js";
-
-type RecoveryPointRow = Selectable<Database["recovery_points"]>;
+} from "../workspaces/project-scope.js";
+import {
+	countProjectPoints,
+	MAX_POINTS_PER_PROJECT,
+	makeRecoveryPoint,
+	type RecoveryPointRow,
+} from "../workspaces/recovery-points.js";
 
 const PointParam = ProjectParam.extend({ rpid: z.string().uuid() });
 
 const GIB = 1024 ** 3;
-const DAY_MS = 24 * 60 * 60 * 1000;
-/** At most one manual point per project this often, and this many in all. */
+/** At most one manual point per project this often. */
 const MANUAL_POINT_INTERVAL_MS = 30_000;
-export const MAX_POINTS_PER_PROJECT = 200;
-
-/** How many recovery points one project holds now. */
-export async function countProjectPoints(
-	db: Kysely<Database>,
-	projectId: string,
-): Promise<number> {
-	const row = await db
-		.selectFrom("recovery_points")
-		.select(sql<string>`count(*)::text`.as("n"))
-		.where("project_id", "=", projectId)
-		.executeTakeFirstOrThrow();
-	return Number(row.n);
-}
 
 /** Answer 409 while a maintenance operation waits on the workspace. */
 async function refusePending(
@@ -76,54 +66,6 @@ function toRecoveryPoint(row: RecoveryPointRow): RecoveryPoint {
 		sizeBytes: Number(row.size_bytes),
 		expiresAt: row.expires_at.toISOString(),
 	};
-}
-
-/**
- * Ask the agent to archive a project and record the point (SPEC.md §15.2,
- * ADR 0020). Throws the agent's failure so each caller decides whether it
- * is fatal. Only ids and the reason are logged, never a path (SPEC.md §24.8).
- */
-export async function makeRecoveryPoint(
-	db: Kysely<Database>,
-	config: ApiConfig,
-	agent: AgentClient,
-	input: {
-		workspaceId: string;
-		project: Pick<ProjectRow, "id" | "slug">;
-		reason: RecoveryReason;
-		createdBy: string;
-		timeoutMs?: number;
-	},
-): Promise<RecoveryPointRow> {
-	const pointId = crypto.randomUUID();
-	const created = await agent.createRecoveryPoint(
-		input.project.slug,
-		{ projectId: input.project.id, pointId },
-		input.timeoutMs,
-	);
-	// No skip fingerprint was sent, so a skip is the agent misbehaving.
-	if (!created.created) {
-		throw new AgentCallError("AGENT_UNAVAILABLE", "The agent did not make the point.");
-	}
-	const now = new Date();
-	return db
-		.insertInto("recovery_points")
-		.values({
-			id: pointId,
-			project_id: input.project.id,
-			workspace_id: input.workspaceId,
-			reason: input.reason,
-			created_at: now.toISOString(),
-			created_by: input.createdBy,
-			size_bytes: created.sizeBytes,
-			sha256: created.sha256,
-			fingerprint: created.fingerprint,
-			expires_at: new Date(
-				now.getTime() + config.RECOVERY_RETENTION_DAYS * DAY_MS,
-			).toISOString(),
-		})
-		.returningAll()
-		.executeTakeFirstOrThrow();
 }
 
 /**

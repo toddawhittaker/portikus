@@ -26,23 +26,25 @@ import {
 	type AgentClient,
 	readAgentError,
 } from "../agent-client.js";
+import type { ServerDeps } from "../deps.js";
 import { ProjectParam, parseOr400, sendError } from "../http.js";
 import type { UserLimit } from "../rate-limit.js";
-import type { ServerDeps } from "../server.js";
-import { cappedDownload } from "./files.js";
+import { cappedDownload } from "../workspaces/capped-download.js";
+import {
+	claimLongOperation,
+	releaseLongOperation,
+} from "../workspaces/long-operation.js";
 import {
 	agentUrl,
-	claimLongOperation,
 	ownedProject as ownedProjectRow,
 	ownedScope,
 	type ProjectRow,
 	projectPath,
-	releaseLongOperation,
 	requireAgent,
 	type Scope,
 	sendAgentError,
-} from "./project-scope.js";
-import { makeRecoveryPoint } from "./recovery.js";
+} from "../workspaces/project-scope.js";
+import { makeRecoveryPoint } from "../workspaces/recovery-points.js";
 
 const ListQuery = z.object({ state: ProjectState.default("active") });
 

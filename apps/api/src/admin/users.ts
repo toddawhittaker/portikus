@@ -3,10 +3,10 @@ import { type AdminUser, Role } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyReply } from "fastify";
 import { type Kysely, sql } from "kysely";
-import { accountFlags, groupByEmail } from "../admin/markers.js";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import type { ServerDeps } from "../server.js";
-import { loadImageFacts, toWorkspaceSummary } from "./admin-workspaces.js";
+import { accountFlags, groupByEmail } from "./markers.js";
+import { loadImageFacts, toWorkspaceSummary } from "./workspace-summary.js";
 
 /** The users columns the administration pages read. */
 export const USER_COLUMNS = [

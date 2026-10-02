@@ -11,9 +11,9 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { type ImageFacts, toImageVersion } from "../admin/workspace-summary.js";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
-import { type ImageFacts, toImageVersion } from "./admin-workspaces.js";
 
 /**
  * The admin workspace detail, archive and storage routes (SPEC.md §20.1,

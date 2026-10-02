@@ -14,10 +14,10 @@ import {
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { disableUser, loadAdminUser, sendDisableRefusal } from "../admin/users.js";
+import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
-import type { ServerDeps } from "../server.js";
-import { disableUser, loadAdminUser, sendDisableRefusal } from "./admin-users.js";
-import { requestMetadata } from "./start-session.js";
+import { requestMetadata } from "../sessions/start-session.js";
 
 /** Thrown inside a transaction to roll it back when Dex refuses the email. */
 class DexEmailTaken extends Error {}

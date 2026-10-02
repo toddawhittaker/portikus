@@ -22,6 +22,7 @@ import {
 } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import { diffManifests } from "../image/manifest-diff.js";
 import { imagesDirOf, readPublished } from "../image/release-notices.js";
@@ -32,7 +33,6 @@ import {
 	tailLines,
 	writeRequestFile,
 } from "../job-files.js";
-import type { ServerDeps } from "../server.js";
 
 /** The disk the image store is on, which also holds Incus's image files on a standard install. */
 async function diskOf(path: string): Promise<AdminImage["disk"]> {

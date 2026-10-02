@@ -2,14 +2,14 @@ import { requireRole, requireUser } from "@portikus/auth";
 import { type PendingOperation, RebuildWorkspaceRequest } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
-import type { ServerDeps } from "../server.js";
 import {
 	claimLongOperation,
 	longOperationRunning,
 	releaseLongOperation,
-} from "./project-scope.js";
-import { findOwnedWorkspace } from "./workspace-view.js";
+} from "../workspaces/long-operation.js";
+import { findOwnedWorkspace } from "../workspaces/workspace-view.js";
 
 /**
  * Reset Docker and Rebuild (SPEC.md §16.4, §17.2; ADR 0021). The API only

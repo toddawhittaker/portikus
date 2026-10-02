@@ -19,17 +19,21 @@ import {
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import type { Kysely, Updateable } from "kysely";
-import { parseOr400, sendError, UuidParam } from "../http.js";
-import type { ServerDeps } from "../server.js";
 import {
 	disableUser,
 	listAdminUsers,
 	loadAdminUser,
 	sendDisableRefusal,
 	USER_COLUMNS,
-} from "./admin-users.js";
-import { requestMetadata } from "./start-session.js";
-import { countActive, loadWorkspaceSettings, toWorkspace } from "./workspace-view.js";
+} from "../admin/users.js";
+import type { ServerDeps } from "../deps.js";
+import { parseOr400, sendError, UuidParam } from "../http.js";
+import { requestMetadata } from "../sessions/start-session.js";
+import {
+	countActive,
+	loadWorkspaceSettings,
+	toWorkspace,
+} from "../workspaces/workspace-view.js";
 
 /** The settings columns this route may write. */
 type SettingsUpdate = Partial<Updateable<Database["settings"]>>;

@@ -10,8 +10,8 @@ import {
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import type { ServerDeps } from "../server.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 const HELPER_TIMEOUT_MS = 10_000;

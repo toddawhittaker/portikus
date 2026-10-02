@@ -7,8 +7,8 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import type { ServerDeps } from "../server.js";
 
 const UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 

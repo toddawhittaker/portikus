@@ -4,10 +4,10 @@ import { recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { agentClientFor } from "../agent-client.js";
+import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
-import type { ServerDeps } from "../server.js";
-import { recordNotification } from "./notifications.js";
-import { parseStop, stopThroughAgent } from "./processes.js";
+import { recordNotification } from "../notifications/record.js";
+import { parseStop, stopThroughAgent } from "../workspaces/process-stop.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 const Rows = z.array(InstanceProcess);

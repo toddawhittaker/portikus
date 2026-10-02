@@ -13,22 +13,22 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
+import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError } from "../http.js";
-import type { ServerDeps } from "../server.js";
-import { toEditorSettings } from "./me.js";
+import { toEditorSettings } from "../users/editor-settings.js";
 import {
 	createPendingWork,
 	dropPresence,
 	openPresence,
 	workspaceUpgradeGuard,
-} from "./presence.js";
+} from "../workspaces/presence.js";
 import {
 	countProjectPoints,
 	MAX_POINTS_PER_PROJECT,
 	makeRecoveryPoint,
-} from "./recovery.js";
-import { pipeTerminal } from "./terminal-pipe.js";
-import { findWorkspaceOwnedBy } from "./workspace-view.js";
+} from "../workspaces/recovery-points.js";
+import { pipeTerminal } from "../workspaces/terminal-pipe.js";
+import { findWorkspaceOwnedBy } from "../workspaces/workspace-view.js";
 
 const WorkspaceParam = z.object({ id: z.string().uuid() });
 const TerminalParam = z.object({ id: z.string().uuid(), tid: z.string().uuid() });
