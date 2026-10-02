@@ -9,10 +9,10 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { request, sendJson } from "../../api/request.js";
 
-export const imageKey = ["admin", "image"] as const;
+const imageKey = ["admin", "image"] as const;
 
 /** The page polls a queued or running job every two seconds (docs/SPEC.md section 22.4). */
-export const IMAGE_POLL_MS = 2000;
+const IMAGE_POLL_MS = 2000;
 
 export function isActive(state: ImageJobState | undefined): boolean {
 	return state === "queued" || state === "running";

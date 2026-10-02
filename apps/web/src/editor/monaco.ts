@@ -99,8 +99,8 @@ export function accessibilitySupport(screenReaderMode: boolean): "on" | "off" {
 	return screenReaderMode ? "on" : "off";
 }
 
-export const LIGHT_THEME = "portikus-light";
-export const DARK_THEME = "portikus-dark";
+const LIGHT_THEME = "portikus-light";
+const DARK_THEME = "portikus-dark";
 
 function tokenRules(colours: Record<string, string>): Monaco.editor.ITokenThemeRule[] {
 	return Object.entries(colours).map(([token, foreground]) => ({ token, foreground }));

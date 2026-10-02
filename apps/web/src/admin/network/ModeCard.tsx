@@ -25,7 +25,7 @@ const MODE_TEXT: Record<EgressMode, { name: string; summary: string }> = {
 };
 
 /** The dialog's plain statement of what switching changes for students. */
-export function switchText(view: AdminEgressView, to: EgressMode): string {
+function switchText(view: AdminEgressView, to: EgressMode): string {
 	if (to === "open") {
 		return "Workspaces will reach any public site again, except your blocked sites. Private networks stay blocked. Your presets and list are kept for next time.";
 	}

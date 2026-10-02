@@ -10,10 +10,10 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { request, sendJson, toApiError } from "../../api/request.js";
 
-export const backupsKey = ["admin", "backups"] as const;
+const backupsKey = ["admin", "backups"] as const;
 
 /** The host reports every 30 seconds, so a few seconds keeps the page current. */
-export const BACKUPS_REFRESH_MS = 5000;
+const BACKUPS_REFRESH_MS = 5000;
 
 /** The Backups tab's status, sets, VM listing and recent requests (SPEC.md §24.9). */
 export function useAdminBackups() {
@@ -85,7 +85,7 @@ export function useDeleteSnapshot() {
 	);
 }
 
-export const backupKeyKey = ["admin", "backups", "key"] as const;
+const backupKeyKey = ["admin", "backups", "key"] as const;
 
 /**
  * The server-held backup key (ADR 0044). Asked once, not polled: each ask

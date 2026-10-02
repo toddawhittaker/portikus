@@ -238,9 +238,6 @@
 	color: var(--ink);
 	opacity: 0.96;
 }
-.pk-tab--drop-before {
-	box-shadow: inset 2px 0 0 var(--focus);
-}
 /* The label fades out at its right edge rather than ending in an ellipsis,
    and collapses to nothing when the strip is at its floor width. */
 .pk-tab-label {

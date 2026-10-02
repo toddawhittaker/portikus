@@ -20,11 +20,11 @@ import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { TerminalPane } from "../TerminalPane.js";
 
 /** The dnd-kit ids for one pane's drag handle and its drop area. */
-export function paneDragId(terminalId: string): string {
+function paneDragId(terminalId: string): string {
 	return `pane-drag-${terminalId}`;
 }
 
-export function paneDropId(terminalId: string): string {
+function paneDropId(terminalId: string): string {
 	return `pane-drop-${terminalId}`;
 }
 

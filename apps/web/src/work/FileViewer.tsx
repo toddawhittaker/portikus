@@ -12,7 +12,7 @@ import { formatBytes } from "../monitor/format.js";
 export const MAX_PDF_VIEW_BYTES = 50 * 1024 * 1024;
 
 /** What a viewer shows when it cannot show the file: a title for the download panel. */
-export type ViewerFallback = (title: string) => ReactNode;
+type ViewerFallback = (title: string) => ReactNode;
 
 export interface ImageViewProps {
 	/** The image's address; a new one is a new image. */

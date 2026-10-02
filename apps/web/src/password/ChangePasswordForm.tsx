@@ -11,7 +11,7 @@ import { z } from "zod";
 import { ApiError, sendJson } from "../api/request.js";
 
 /** The server's minimum (contracts ChangePasswordRequest). */
-export const MIN_PASSWORD_LENGTH = 15;
+const MIN_PASSWORD_LENGTH = 15;
 const MAX_PASSWORD_BYTES = 72;
 
 export const NEW_PASSWORD_HINT = `At least ${MIN_PASSWORD_LENGTH} characters. A few unrelated words make a strong one.`;

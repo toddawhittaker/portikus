@@ -17,14 +17,14 @@ import { useEffect, useRef } from "react";
 import { z } from "zod";
 import { request } from "../api/request.js";
 
-export const adminKeys = {
+const adminKeys = {
 	settings: ["admin", "settings"] as const,
 	users: ["admin", "users"] as const,
 	workspace: (id: string) => ["admin", "workspace", id] as const,
 };
 
 /** The list and the detail panel refresh this often. */
-export const ADMIN_REFRESH_MS = 5000;
+const ADMIN_REFRESH_MS = 5000;
 
 function json(method: string, body: unknown): RequestInit {
 	return {

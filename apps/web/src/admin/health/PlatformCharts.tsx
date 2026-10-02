@@ -70,7 +70,7 @@ const STRIP_STYLES: Record<"sampled" | "outage" | "gap", SeriesStyle> = {
  * Per bucket, the minutes with a sample and a reachable controller, the
  * minutes with a sample but no controller, and the minutes with no sample.
  */
-export function stripMinutes(frame: ChartFrame, points: readonly PlatformPoint[]) {
+function stripMinutes(frame: ChartFrame, points: readonly PlatformPoint[]) {
 	const perBucket = frame.bucketSeconds / 60;
 	const sampled = dense(frame, points, (point) => point.sampleMinutes);
 	const reachable = dense(frame, points, (point) => point.reachableMinutes);

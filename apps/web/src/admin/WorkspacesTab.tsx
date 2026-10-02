@@ -109,7 +109,7 @@ const ROLE_OPTION: Record<(typeof ROLE_FILTERS)[number], string> = {
 
 export type BulkAction = "disable" | "enable" | "archive" | "unarchive" | "rebuild";
 
-export const BULK_ACTIONS: readonly BulkAction[] = [
+const BULK_ACTIONS: readonly BulkAction[] = [
 	"disable",
 	"enable",
 	"archive",
@@ -196,7 +196,7 @@ export function bulkOutcome(error: unknown): "skipped" | "failed" {
 }
 
 /** The names of the targets whose workspace is running and so will restart. */
-export function runningNames(users: AdminUser[]): string[] {
+function runningNames(users: AdminUser[]): string[] {
 	return users
 		.filter((user) => user.workspace?.state === "running")
 		.map((user) => user.displayName);
@@ -773,13 +773,11 @@ function BulkSummary({ result }: { result: BulkResult }) {
 }
 
 /** The Account cell's second line: the email, or the username when there is none. */
-export function accountContact(
-	user: Pick<AdminUser, "email" | "preferredUsername">,
-): string {
+function accountContact(user: Pick<AdminUser, "email" | "preferredUsername">): string {
 	return user.email ?? user.preferredUsername ?? "—";
 }
 
-export function rowButtonId(userId: string): string {
+function rowButtonId(userId: string): string {
 	return `admin-row-open-${userId}`;
 }
 
