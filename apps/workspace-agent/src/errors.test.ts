@@ -37,7 +37,7 @@ test("an unexpected Error never puts its message on the body", () => {
 	sendError(request, reply, new Error("secret token abc123 in /home/u/.env"));
 	expect(sent.code).toBe(500);
 	expect(sent.body).toEqual({
-		error: { code: "TMUX_FAILED", message: "internal error" },
+		error: { code: "INTERNAL", message: "internal error" },
 	});
 	expect(JSON.stringify(sent.body)).not.toContain("abc123");
 	expect(logged).toHaveLength(1);
@@ -76,7 +76,7 @@ test("a thrown value that is not an Error is still handled", () => {
 	sendError(request, reply, { odd: true });
 	expect(sent.code).toBe(500);
 	expect(sent.body).toEqual({
-		error: { code: "TMUX_FAILED", message: "internal error" },
+		error: { code: "INTERNAL", message: "internal error" },
 	});
 	expect(logged).toHaveLength(1);
 });

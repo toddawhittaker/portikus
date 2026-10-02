@@ -26,7 +26,14 @@ import {
 } from "./docker-listeners.js";
 import { AgentFailure } from "./errors.js";
 import { type ProcListener, parseProcNetTcp } from "./proc-net.js";
-import { ownedByStudent, parseStatusUids, readCommandLine } from "./processes.js";
+import {
+	ownedByStudent,
+	parseStatusUids,
+	readCommandLine,
+	readProcess,
+	STOP_GRACE_MS,
+	signalProcess,
+} from "./processes.js";
 
 /** How often the port list is rescanned. */
 const SCAN_INTERVAL_MS = 1000;
@@ -103,9 +110,6 @@ interface ProbeTarget {
  * the system: systemd-resolved, sshd and dnsmasq all sit there (SPEC.md §18.2).
  */
 const FIRST_HUMAN_UID = 1000;
-
-/** How long a process has to exit after SIGTERM before it is killed. */
-export const STOP_GRACE_MS = 3000;
 
 /** The process a socket inode belongs to. */
 export interface SocketOwner {
@@ -298,6 +302,8 @@ export interface ListeningMonitorOptions {
 	studentUid?: number;
 	/** How a process is signalled. Tests override it. */
 	kill?: (pid: number, signal: NodeJS.Signals) => void;
+	/** The terminals' tmux server PID, which a stop must not signal (SPEC.md §18.3). */
+	tmuxPid?: () => Promise<number | null>;
 	/** How a container is stopped. Tests override it. */
 	dockerStop?: (container: string) => Promise<void>;
 	/** How a listener is checked for TLS. Tests override it. */
@@ -357,6 +363,7 @@ export class ListeningMonitor {
 	private readonly selfPid: number;
 	private readonly studentUid: number;
 	private readonly kill: (pid: number, signal: NodeJS.Signals) => void;
+	private readonly tmuxPid: () => Promise<number | null>;
 	private readonly dockerStop: (container: string) => Promise<void>;
 	private readonly graceMs: number;
 	private readonly probe: TlsProbe;
@@ -392,6 +399,7 @@ export class ListeningMonitor {
 		this.selfPid = options.selfPid ?? process.pid;
 		this.studentUid = options.studentUid ?? process.getuid?.() ?? 1000;
 		this.kill = options.kill ?? ((pid, signal) => process.kill(pid, signal));
+		this.tmuxPid = options.tmuxPid ?? (async () => null);
 		this.dockerStop = options.dockerStop ?? dockerStopContainer;
 		this.graceMs = options.graceMs ?? STOP_GRACE_MS;
 		this.probe = options.probeTls ?? probeTls;
@@ -511,8 +519,14 @@ export class ListeningMonitor {
 				"the owning process could not be identified",
 			);
 		}
-		if (this.signal(pid, "SIGTERM") && !(await this.waitForExit(pid))) {
-			if (this.signal(pid, "SIGKILL")) {
+		const facts = await readProcess(this.procRoot, pid);
+		if (
+			facts &&
+			(await this.signal(pid, facts.startTicks, "SIGTERM")) &&
+			!(await this.waitForExit(pid))
+		) {
+			// Unlike a process stop (SPEC.md §18.3), a port stop escalates on its own.
+			if (await this.signal(pid, facts.startTicks, "SIGKILL")) {
 				// SIGKILL cannot be caught, so the process is on its way out.
 				// Whether it has finished going is not worth asking: a zombie
 				// its parent has not reaped still answers signal 0 and would
@@ -525,16 +539,29 @@ export class ListeningMonitor {
 	}
 
 	/**
-	 * Send a signal. False when the process was already gone; a refusal we
-	 * cannot read as "gone" ends the stop, because carrying on would report
-	 * a stop that never happened.
+	 * Signal through the shared stop path, which refuses a protected process
+	 * and a reused PID. False when the process is already gone; any other
+	 * failure ends the stop, because carrying on would report a stop that
+	 * never happened.
 	 */
-	private signal(pid: number, signal: NodeJS.Signals): boolean {
+	private async signal(
+		pid: number,
+		startTicks: number,
+		signal: NodeJS.Signals,
+	): Promise<boolean> {
 		try {
-			this.kill(pid, signal);
-			return true;
+			return await signalProcess(pid, startTicks, signal, {
+				procRoot: this.procRoot,
+				selfPid: this.selfPid,
+				studentUid: this.studentUid,
+				tmuxPid: this.tmuxPid,
+				kill: this.kill,
+			});
 		} catch (error) {
-			if (isGone(error)) return false;
+			const code = error instanceof AgentFailure ? error.code : null;
+			// The owner exited, and its PID may already belong to someone else.
+			if (code === "PROCESS_NOT_FOUND" || code === "PROCESS_CHANGED") return false;
+			if (code === "PROCESS_PROTECTED") throw error;
 			throw new AgentFailure("STOP_FAILED", "the process could not be signalled");
 		}
 	}

@@ -11,7 +11,7 @@ import { PROCESS_COMMAND_LINE_LIMIT } from "@portikus/contracts";
 import { AgentFailure } from "./errors.js";
 
 /** How long a stopped process has to exit before the answer is "still running". */
-const STOP_GRACE_MS = 3000;
+export const STOP_GRACE_MS = 3000;
 
 const POLL_MS = 100;
 
@@ -169,14 +169,49 @@ export function tmuxPidSource(
 	};
 }
 
-export interface StopOptions extends Omit<ProcessOwner, "tmuxPid"> {
+export interface SignalOptions extends Omit<ProcessOwner, "tmuxPid"> {
 	/** The terminals' tmux server PID, or null when none runs. */
 	tmuxPid: () => Promise<number | null>;
 	procRoot: string;
 	/** Sends the signal. Tests may replace it; production is `process.kill`. */
 	kill: (pid: number, signal: NodeJS.Signals) => void;
+}
+
+export interface StopOptions extends SignalOptions {
 	graceMs?: number;
 	pollMs?: number;
+}
+
+/**
+ * The one way a stop path signals a process (SPEC.md §18.3). It re-reads the
+ * process so a reused PID or a protected process is never hit. False when the
+ * process exited between the read and the signal.
+ */
+export async function signalProcess(
+	pid: number,
+	startTicks: number,
+	signal: NodeJS.Signals,
+	options: SignalOptions,
+): Promise<boolean> {
+	const facts = await readProcess(options.procRoot, pid);
+	if (!facts) throw new AgentFailure("PROCESS_NOT_FOUND", "no such process");
+	if (facts.startTicks !== startTicks) {
+		throw new AgentFailure("PROCESS_CHANGED", "the process id was reused");
+	}
+	const owner = { ...options, tmuxPid: await options.tmuxPid() };
+	if (isProtected(facts, owner)) {
+		throw new AgentFailure("PROCESS_PROTECTED", "this process is protected");
+	}
+	try {
+		options.kill(pid, signal);
+		return true;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+		if ((error as NodeJS.ErrnoException).code === "EPERM") {
+			throw new AgentFailure("PROCESS_PROTECTED", "this process is protected");
+		}
+		throw error;
+	}
 }
 
 /**
@@ -188,24 +223,9 @@ export async function stopProcess(
 	request: { startTicks: number; force: boolean },
 	options: StopOptions,
 ): Promise<{ pid: number; exited: boolean }> {
-	const facts = await readProcess(options.procRoot, pid);
-	if (!facts) throw new AgentFailure("PROCESS_NOT_FOUND", "no such process");
-	if (facts.startTicks !== request.startTicks) {
-		throw new AgentFailure("PROCESS_CHANGED", "the process id was reused");
-	}
-	const owner = { ...options, tmuxPid: await options.tmuxPid() };
-	if (isProtected(facts, owner)) {
-		throw new AgentFailure("PROCESS_PROTECTED", "this process is protected");
-	}
-	try {
-		options.kill(pid, request.force ? "SIGKILL" : "SIGTERM");
-	} catch (error) {
-		// It exited between the read and the signal.
-		if ((error as NodeJS.ErrnoException).code === "ESRCH") return { pid, exited: true };
-		if ((error as NodeJS.ErrnoException).code === "EPERM") {
-			throw new AgentFailure("PROCESS_PROTECTED", "this process is protected");
-		}
-		throw error;
+	const signal = request.force ? "SIGKILL" : "SIGTERM";
+	if (!(await signalProcess(pid, request.startTicks, signal, options))) {
+		return { pid, exited: true };
 	}
 	const deadline = Date.now() + (options.graceMs ?? STOP_GRACE_MS);
 	const pollMs = options.pollMs ?? POLL_MS;
