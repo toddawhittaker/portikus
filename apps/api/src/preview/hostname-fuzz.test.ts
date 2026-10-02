@@ -1,6 +1,6 @@
 import { parsePreviewHost, previewHost } from "@portikus/contracts";
 import { expect, test } from "vitest";
-import { testConfig } from "../test-support.js";
+import { testConfig } from "../testing/test-support.js";
 import { portAllowed, requestHost } from "./policy.js";
 
 /**

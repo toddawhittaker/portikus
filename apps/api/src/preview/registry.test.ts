@@ -8,7 +8,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import type { Kysely } from "kysely";
 import { expect, test, vi } from "vitest";
 import { AgentCallError } from "../agent-client.js";
-import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
+import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import {
 	createListeningRegistry,
 	createProbeGuard,

@@ -10,8 +10,8 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import { healthCountsQuery } from "./admin-health.js";
 
 const skip = !hasTestDb();

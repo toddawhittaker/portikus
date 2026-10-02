@@ -23,7 +23,7 @@ import { buildServer as buildAgentServer } from "@portikus/workspace-agent";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import WebSocketClient, { type WebSocket as WsSocket } from "ws";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 /**
  * The API in front of the REAL workspace agent: a browser socket, the API's

@@ -57,9 +57,7 @@ export default defineConfig({
 				"**/*.test.*",
 				"**/*.d.ts",
 				// Test doubles and fixtures.
-				"apps/api/src/fake-agent.ts",
-				"apps/api/src/fake-backup-key.ts",
-				"apps/api/src/test-support.ts",
+				"apps/api/src/testing/**",
 				"apps/worker/src/fake-controller.ts",
 				"apps/workspace-controller/src/fake-provider.ts",
 				"packages/db/src/testing.ts",

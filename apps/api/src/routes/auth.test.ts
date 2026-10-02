@@ -13,7 +13,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { toAuthOptions } from "../auth-options.js";
 import { buildServer } from "../server.js";
-import { buildTestServer, PUBLIC_URL, testConfig } from "../test-support.js";
+import { buildTestServer, PUBLIC_URL, testConfig } from "../testing/test-support.js";
 
 const skip = !hasTestDb();
 let testDb: TestDb;

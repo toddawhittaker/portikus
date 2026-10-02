@@ -20,8 +20,12 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { type FakeBackupKey, fakeKey, startFakeBackupKey } from "../fake-backup-key.js";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import {
+	type FakeBackupKey,
+	fakeKey,
+	startFakeBackupKey,
+} from "../testing/fake-backup-key.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import { askKeyHelper } from "./admin-backup-key.js";
 
 const skip = !hasTestDb();
