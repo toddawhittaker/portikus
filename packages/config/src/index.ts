@@ -133,10 +133,6 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_INSTRUCTOR_GROUP: z.string().min(1).default("portikus-instructors"),
 	/** What a signed-in person gets when no group matches (SPEC.md section 5.1). */
 	OIDC_DEFAULT_ROLE: z.enum(["none", "student"]).default("none"),
-	/** Retired by ADR 0031; read only so an old api.env stops the API instead of being ignored. */
-	OIDC_PROVIDER: z.string().optional(),
-	OIDC_ALLOWED_TENANT: z.string().optional(),
-	OIDC_ALLOWED_DOMAINS: z.string().optional(),
 	/** Forward proxy for discovery, token, keyset and LMS keyset requests. */
 	OUTBOUND_PROXY_URL: z.string().url().optional(),
 	/** Dex gRPC API address and mutual TLS files; unset turns the Dex user routes off. */
@@ -197,21 +193,6 @@ export const ApiConfigSchema = BaseConfig.extend({
 	/** File and project writes per user per minute (ADR 0034). */
 	FILE_WRITE_LIMIT_PER_MINUTE: positiveInt.default(600),
 })
-	// Silently dropping a tenant or domain check would admit any account (SPEC.md 5.1).
-	.refine(
-		(config) =>
-			(config.OIDC_PROVIDER === undefined ||
-				config.OIDC_PROVIDER === "" ||
-				config.OIDC_PROVIDER === "oidc") &&
-			!config.OIDC_ALLOWED_TENANT &&
-			!config.OIDC_ALLOWED_DOMAINS,
-		{
-			message:
-				"OIDC_PROVIDER, OIDC_ALLOWED_TENANT and OIDC_ALLOWED_DOMAINS are no longer supported: " +
-				"Dex is now the only front door (SPEC.md 5.1); rerun the play to move this site's sign-in to Dex",
-			path: ["OIDC_PROVIDER"],
-		},
-	)
 	.refine(requireProductionHttps("PUBLIC_URL"), {
 		message: productionHttpsMessage("PUBLIC_URL"),
 		path: ["PUBLIC_URL"],
