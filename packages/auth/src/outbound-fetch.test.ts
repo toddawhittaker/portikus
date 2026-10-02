@@ -20,7 +20,7 @@ import type { AuthOptions } from "./types.js";
 
 // The issuer's host does not resolve, so a request can only succeed through
 // the stub proxy, which maps it to the mock (ADR 0027).
-const ISSUER = "http://idp.invalid/idp";
+const ISSUER = "http://idp.invalid";
 const PUBLIC_URL = "http://127.0.0.1:5173";
 
 let mock: MockOidcProvider;

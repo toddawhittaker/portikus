@@ -48,7 +48,7 @@ import { check, createCounter } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 
 /** The preview-host cookie, `__Host-` prefixed wherever the site is https. */
-export function previewCookieName(config: ApiConfig): string {
+function previewCookieName(config: ApiConfig): string {
 	return config.PUBLIC_URL.startsWith("https:")
 		? "__Host-portikus-preview"
 		: "portikus-preview";

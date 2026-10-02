@@ -15,7 +15,7 @@ const TEN_MINUTES_MS = 10 * MINUTE_MS;
 /** The overall password limit is this many times the per-address one. */
 const PASSWORD_TOTAL_FACTOR = 10;
 /** The path Caddy asks about for Dex's sign-in pages and password form. */
-export const EDGE_THROTTLE_PATH = "/edge/signin-throttle";
+const EDGE_THROTTLE_PATH = "/edge/signin-throttle";
 // An LTI launch is a sign-in start too.
 const START_ROUTES = new Set([
 	"/auth/login",

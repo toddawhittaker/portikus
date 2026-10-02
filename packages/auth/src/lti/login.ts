@@ -12,7 +12,7 @@ export interface LtiLoginParams {
 }
 
 /** Why `/lti/login` answers 400. */
-export type LtiLoginRefusal = "unknown_issuer" | "missing_login_hint" | "wrong_target";
+type LtiLoginRefusal = "unknown_issuer" | "missing_login_hint" | "wrong_target";
 
 export type LtiLoginResult =
 	| {
