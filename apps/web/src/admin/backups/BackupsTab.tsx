@@ -549,7 +549,9 @@ function SetsPart({
 						set={set}
 						keyInstalled={host.keyInstalled}
 						isNewest={set.stamp === newest}
-						deleting={waitingRequest(requests, "delete_set", { stamp: set.stamp })}
+						deleting={
+							waitingRequest(requests, "delete_set", { stamp: set.stamp }) !== undefined
+						}
 						onRestore={onRestore}
 						onDelete={onDelete}
 					/>
