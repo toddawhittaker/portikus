@@ -471,6 +471,26 @@ test.skipIf(skip)("a system listener is refused", async () => {
 	expect(response.json().code).toBe("LISTENER_IS_SYSTEM");
 });
 
+test.skipIf(skip)("a listener owned by a protected process is refused", async () => {
+	agent.processes.set(workspaceId, [
+		{
+			pid: 4242,
+			command: "node",
+			cpuPercent: 0,
+			residentBytes: 0,
+			startTicks: 1,
+			stoppable: false,
+			commandLine: null,
+		},
+	]);
+	await seedListening([{ port: 5173, process: { pid: 4242, command: "node" } }]);
+	await untilPorts([5173]);
+	const response = await stop(alice, workspaceId, 5173);
+	expect(response.statusCode).toBe(403);
+	expect(response.json().code).toBe("PROCESS_PROTECTED");
+	await untilPorts([5173]);
+});
+
 /**
  * Stopping makes the control plane work for the student, so it shares the
  * grant and probe budget rather than being free.

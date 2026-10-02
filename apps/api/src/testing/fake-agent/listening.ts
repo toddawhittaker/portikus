@@ -21,6 +21,7 @@ const FORWARD_ADDRESS = "10.0.0.2";
 export function registerListeningRoutes(app: FastifyInstance, s: FakeAgentState): void {
 	const {
 		flags,
+		processesFor,
 		listening,
 		listeningSockets,
 		forwards,
@@ -156,6 +157,14 @@ export function registerListeningRoutes(app: FastifyInstance, s: FakeAgentState)
 		if (service.system) {
 			return reply.status(403).send({
 				error: { code: "LISTENER_IS_SYSTEM", message: "system service" },
+			});
+		}
+		// Like the real agent, the owning process gets the same protection
+		// check a process stop does (SPEC.md §18.3).
+		const owner = processesFor(key).find((one) => one.pid === service.process?.pid);
+		if (owner && !owner.stoppable) {
+			return reply.status(403).send({
+				error: { code: "PROCESS_PROTECTED", message: "this process is protected" },
 			});
 		}
 		listening.set(
