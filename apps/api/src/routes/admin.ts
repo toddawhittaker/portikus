@@ -29,11 +29,7 @@ import {
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import { requestMetadata } from "../sessions/start-session.js";
-import {
-	countActive,
-	loadWorkspaceSettings,
-	toWorkspace,
-} from "../workspaces/workspace-view.js";
+import { workspaceViews } from "../workspaces/workspace-view.js";
 
 /** The settings columns this route may write. */
 type SettingsUpdate = Partial<Updateable<Database["settings"]>>;
@@ -113,13 +109,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			.orderBy("created_at")
 			.execute();
 
-		// One settings read for the whole list.
-		const settings = await loadWorkspaceSettings(db);
-		const workspaces = await Promise.all(
-			rows.map(async (row) =>
-				toWorkspace(row, await countActive(db, row.id, config), config, settings),
-			),
-		);
+		const workspaces = await workspaceViews(db, config, rows);
 
 		const body: AdminWorkspaceList = { workspaces };
 		return body;

@@ -31,11 +31,9 @@ import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import type { ListeningRegistry } from "../preview/registry.js";
 import {
-	countActive,
 	fromJson,
-	loadWorkspaceSettings,
-	toWorkspace,
 	type WorkspaceRow,
+	workspaceView,
 } from "../workspaces/workspace-view.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
@@ -211,7 +209,7 @@ export function registerAdminWorkspaceRoutes(
 
 		const facts = await loadImageFacts(db);
 		const body: AdminWorkspaceDetail = {
-			workspace: toWorkspace(row, await countActive(db, id, config), config, settings),
+			workspace: await workspaceView(db, config, row),
 			owner: {
 				id: owner.id,
 				displayName: owner.display_name,
@@ -287,14 +285,7 @@ export function registerAdminWorkspaceRoutes(
 			});
 		}
 		const updated = (await loadRow(id)) as WorkspaceRow;
-		reply.send(
-			await toWorkspace(
-				updated,
-				await countActive(db, id, config),
-				config,
-				await loadWorkspaceSettings(db),
-			),
-		);
+		reply.send(await workspaceView(db, config, updated));
 	}
 
 	app.post("/admin/workspaces/:id/archive", adminOnly, async (request, reply) =>
@@ -373,12 +364,7 @@ export function registerAdminWorkspaceRoutes(
 			}
 		}
 		const updated = (await loadRow(id)) as WorkspaceRow;
-		return toWorkspace(
-			updated,
-			await countActive(db, id, config),
-			config,
-			await loadWorkspaceSettings(db),
-		);
+		return workspaceView(db, config, updated);
 	});
 	// Per-workspace guard overrides (ADR 0032).
 	app.put("/admin/workspaces/:id/guard", adminOnly, async (request, reply) => {
@@ -619,11 +605,6 @@ export function registerAdminWorkspaceRoutes(
 			);
 		}
 		const updated = (await loadRow(id)) as WorkspaceRow;
-		return toWorkspace(
-			updated,
-			await countActive(db, id, config),
-			config,
-			await loadWorkspaceSettings(db),
-		);
+		return workspaceView(db, config, updated);
 	});
 }

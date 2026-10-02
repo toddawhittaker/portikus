@@ -13,11 +13,7 @@ import {
 	touchPresence,
 	workspaceUpgradeGuard,
 } from "../workspaces/presence.js";
-import {
-	countActive,
-	loadWorkspaceSettings,
-	toWorkspace,
-} from "../workspaces/workspace-view.js";
+import { workspaceView } from "../workspaces/workspace-view.js";
 
 /** How often the watcher polls for workspace changes. */
 const POLL_INTERVAL_MS = 1000;
@@ -64,8 +60,7 @@ export function registerWorkspaceSocket(
 			.where("id", "=", id)
 			.executeTakeFirst();
 		if (!row) return null;
-		const active = await countActive(db, id, config);
-		return toWorkspace(row, active, config, await loadWorkspaceSettings(db));
+		return workspaceView(db, config, row);
 	}
 
 	function send(socket: WebSocket, workspace: Workspace): void {
