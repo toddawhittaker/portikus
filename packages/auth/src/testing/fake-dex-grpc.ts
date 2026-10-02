@@ -27,6 +27,19 @@ function openssl(dir: string, args: string[]): void {
 	execFileSync("openssl", args, { cwd: dir, stdio: "ignore" });
 }
 
+/** True when the certificate exists and stays valid for at least another day. */
+function validForADay(path: string): boolean {
+	if (!existsSync(path)) return false;
+	try {
+		execFileSync("openssl", ["x509", "-in", path, "-noout", "-checkend", "86400"], {
+			stdio: "ignore",
+		});
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function issue(
 	dir: string,
 	name: string,
@@ -71,7 +84,8 @@ function issue(
 /**
  * Make a certificate authority, a server certificate for 127.0.0.1, and a
  * client certificate in `dir` with the openssl command. Files already there
- * are kept, so several processes can share one directory.
+ * are kept while they stay valid for a day, so several processes can share
+ * one directory; otherwise all of them are made again.
  */
 export function writeDexGrpcCerts(dir: string, name = "test"): DexGrpcCerts {
 	mkdirSync(dir, { recursive: true });
@@ -83,7 +97,7 @@ export function writeDexGrpcCerts(dir: string, name = "test"): DexGrpcCerts {
 		clientCert: join(dir, `${name}-client.crt`),
 		clientKey: join(dir, `${name}-client.key`),
 	};
-	if (existsSync(certs.clientCert)) return certs;
+	if (validForADay(certs.clientCert) && validForADay(certs.serverCert)) return certs;
 	openssl(dir, [
 		"req",
 		"-x509",
