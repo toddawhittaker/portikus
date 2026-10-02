@@ -777,11 +777,11 @@ test("the drift notice's button asks the API to swap the images and rebuild", as
 	await withMatch(page);
 	let posted = 0;
 	const next = ["redis:7", "node:26-slim", "python:3.14-slim"];
-	// The list is swapped only after the toast. The page shows the toast and
-	// moves focus once its reread lands, and only while the notice is still
-	// mounted; a reread that already holds the new list unmounts it first.
+	// The list is swapped before the reply, so the page's reread drops the
+	// notice before the mutation settles; the toast and focus must survive that.
 	await page.route("**/admin/docker/seed/match", async (route) => {
 		posted += 1;
+		await setSeedList(next);
 		await route.fulfill({
 			status: 202,
 			json: {
@@ -812,9 +812,6 @@ test("the drift notice's button asks the API to swap the images and rebuild", as
 	// Focus waits on the heading of the list it changed.
 	await expect(page.locator("#docker-seed-list-title")).toBeFocused();
 	// A list that holds the new images has no notice.
-	await setSeedList(next);
-	await page.reload();
-	await expect(page.getByTestId("docker-seed-list")).toBeVisible();
 	await expect(notice).toHaveCount(0);
 });
 
