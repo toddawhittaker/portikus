@@ -220,7 +220,8 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		serverPid(tmuxServer),
 	);
 	const monitor = new ListeningMonitor({
-		tmuxPid,
+		// Never reuse a cached "no tmux server" answer when protecting it (SPEC.md §18.3).
+		tmuxPid: () => tmuxPid(true),
 		...options.listening,
 		logger: app.log,
 		forwardedPorts: () => forwards.ports(),
