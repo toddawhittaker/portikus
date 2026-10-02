@@ -18,16 +18,16 @@ const DEDUP_MS = 5_000;
 /** One line is one request. Longer than that is not a URL we will read. */
 const MAX_LINE_BYTES = 8192;
 
-/** Used until the controller tells the agent which workspace it is. */
+/**
+ * The API names the workspace from its own records; an id from inside the
+ * container could not be trusted.
+ */
 const NIL_WORKSPACE_ID = "00000000-0000-0000-0000-000000000000";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface BrokerOptions {
 	socketPath: string;
 	homeDir: string;
 	watchers: ProjectWatchers;
-	workspaceId?: string;
 	log: FastifyBaseLogger;
 }
 
@@ -41,13 +41,9 @@ export interface BrokerHandle {
  * socket that is already open. The URL is never logged.
  */
 export function startUrlBroker(options: BrokerOptions): Promise<BrokerHandle> {
-	const workspaceId =
-		options.workspaceId && UUID.test(options.workspaceId)
-			? options.workspaceId
-			: NIL_WORKSPACE_ID;
 	const recent = new Map<string, number>();
 	const server = createServer((socket) => {
-		accept(socket, options, workspaceId, recent);
+		accept(socket, options, recent);
 	});
 
 	return new Promise((resolve) => {
@@ -100,7 +96,6 @@ function closeServer(server: Server, socketPath: string): Promise<void> {
 function accept(
 	socket: Socket,
 	options: BrokerOptions,
-	workspaceId: string,
 	recent: Map<string, number>,
 ): void {
 	let buffer = "";
@@ -115,7 +110,7 @@ function accept(
 		const lines = buffer.split("\n");
 		buffer = lines.pop() ?? "";
 		for (const line of lines) {
-			chain = chain.then(() => handleLine(socket, line, options, workspaceId, recent));
+			chain = chain.then(() => handleLine(socket, line, options, recent));
 		}
 	});
 }
@@ -124,7 +119,6 @@ async function handleLine(
 	socket: Socket,
 	line: string,
 	options: BrokerOptions,
-	workspaceId: string,
 	recent: Map<string, number>,
 ): Promise<void> {
 	const trimmed = line.trim();
@@ -176,7 +170,7 @@ async function handleLine(
 	const frame = BrowserOpenRequest.parse({
 		type: "browser.open.request",
 		requestId: parsed.data.requestId,
-		workspaceId,
+		workspaceId: NIL_WORKSPACE_ID,
 		url: parsed.data.url,
 		brokerClass,
 		...(source ? { source } : {}),

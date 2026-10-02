@@ -125,6 +125,11 @@ with the control plane but does not run on the platform VM: the Debian
 package installs it and the workspace profile bind-mounts it into each
 container, where it runs as the `student` user (section 10, ADR 0009).
 
+Inside `apps/api/src`, `routes/` holds only route files. Domain code
+lives in folders such as `workspaces/`, `sessions/`, `admin/` and
+`users/`, and test doubles live in `src/testing/`, which the Debian
+package build strips.
+
 A monorepo allows:
 
 - one TypeScript version;
@@ -530,12 +535,17 @@ Architecture:
 ```text
 Browser
    ↓
-API
-   ↓ narrow authenticated internal API
-workspace-controller
-   ↓
-Incus
+API  ── writes rows ──>  PostgreSQL  <── reads rows ──  worker
+                                                          ↓ narrow authenticated internal API
+                                                   workspace-controller
+                                                          ↓
+                                                        Incus
 ```
+
+The API never calls the workspace controller. It records what should
+happen as rows: a workspace's desired state, a pending operation such as
+Rebuild or Reset Docker, or a request row such as a backup or restore.
+The worker reads those rows and carries them out through the controller.
 
 This separation limits the blast radius of an application-layer compromise.
 

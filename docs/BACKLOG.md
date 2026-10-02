@@ -1880,14 +1880,6 @@ when the job fails.
 
 **Source.** Epic 27 (#804) security review of the API.
 
-## A named pipe at /etc/hosts or /etc/docker/daemon.json blocks a start
-
-**What.** A student is root in their container and can leave a named pipe at `/etc/hosts` or `/etc/docker/daemon.json`. The controller reads and merges those two files at every start (SPEC.md section 16.6), and reading a pipe through the Incus files API blocks, so that workspace no longer starts. Only the student's own workspace is affected.
-
-**What it would take.** Read the two files through an exec with a type check first, or put a timeout on the read, with a unit test using a pipe.
-
-**Source.** Epic 28 review (#933).
-
 ## Open home instruction files with O_NONBLOCK in the workspace agent
 
 **What.** At start the workspace agent opens `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` to remove what older versions wrote (SPEC.md section 3). It opens them without `O_NONBLOCK`, so a named pipe there could stall that step.
@@ -2000,22 +1992,6 @@ when the job fails.
 
 **Source.** Epic 29 review.
 
-## The preview audit throttle has its own audit insert
-
-**What.** `apps/api/src/preview/audit-throttle.ts` writes its audit row itself instead of through `recordAudit`, because it needs the new row's id back.
-
-**What it would take.** Let `recordAudit` return the id, then use it there.
-
-**Source.** Epic 29 review.
-
-## presence.ts reads an untyped workspace row
-
-**What.** `workspaceRow` in `presence.ts` is untyped.
-
-**What it would take.** Give it the row type from `@portikus/db`, with a typecheck to prove it.
-
-**Source.** Epic 29 review.
-
 ## Move the 'student@<label>' rule into a numbered section
 
 **What.** The SPEC.md rule for `student@<label>` lives only in section 29's Epic 8 entry, where readers looking for requirements will not find it.
@@ -2031,3 +2007,11 @@ when the job fails.
 **What it would take.** Teach the scanner regex literals and quoted strings, or use a real parser per language, with tests for each case.
 
 **Source.** Epic 29 review.
+
+## Drop workspaceId from the browser-open request
+
+**What.** `BrowserOpenRequest` in `packages/contracts/src/browser.ts` still carries a `workspaceId`. The workspace agent always sends the nil id, and the API takes the workspace from its own records, because an id from inside the container cannot be trusted.
+
+**What it would take.** Remove the field from the contract, the agent's broker and the API's frame handling, with the contract tests updated. Optional; nothing reads it today.
+
+**Source.** Epic 30 review.

@@ -19,7 +19,7 @@ import { commandForAgent, createSession, killSession } from "./tmux.js";
 const run = promisify(execFile);
 const TOKEN = "d".repeat(64);
 const SLUG = "demo";
-const WORKSPACE_ID = "550e8400-e29b-41d4-a716-446655440111";
+const NIL_WORKSPACE_ID = "00000000-0000-0000-0000-000000000000";
 const SECRET = "sk-ant-test-value";
 const QUERY_SECRET = "sekrit-code";
 
@@ -114,7 +114,6 @@ beforeAll(async () => {
 		homeDir,
 		tmuxSocketName: SOCKET_NAME,
 		brokerSocketPath: brokerPath,
-		workspaceId: WORKSPACE_ID,
 		logger: createLogger({
 			service: "workspace-agent",
 			level: "debug",
@@ -352,7 +351,7 @@ test("a codex loopback URL is loopback-login and is not opened externally", asyn
 	expect(frame).toMatchObject({
 		type: "browser.open.request",
 		requestId,
-		workspaceId: WORKSPACE_ID,
+		workspaceId: NIL_WORKSPACE_ID,
 		url,
 		brokerClass: "loopback-login",
 	});

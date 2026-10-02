@@ -142,8 +142,6 @@ export interface ServerOptions {
 	 * the broker; production passes `/run/portikus/browser.sock`.
 	 */
 	brokerSocketPath?: string;
-	/** Workspace id stamped on browser-open frames. */
-	workspaceId?: string;
 	/** Overrides where usage is read. For tests. */
 	usage?: UsageSamplerOptions;
 	/** Mount point of the recovery volume (ADR 0020). */
@@ -194,7 +192,6 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			socketPath: options.brokerSocketPath,
 			homeDir: options.homeDir,
 			watchers,
-			workspaceId: options.workspaceId,
 			log: app.log,
 		});
 		closeBroker = async () => {

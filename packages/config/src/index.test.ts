@@ -446,17 +446,6 @@ test("AgentConfigSchema reads TMUX_EXTERNAL_SERVER and refuses other values", ()
 	).toThrow();
 });
 
-test("AgentConfigSchema takes an optional workspace UUID and refuses anything else", () => {
-	expect(loadConfig(AgentConfigSchema, {}).PORTIKUS_WORKSPACE_ID).toBeUndefined();
-	const id = "0b6f7c1e-2d3a-4b5c-8d9e-0f1a2b3c4d5e";
-	expect(
-		loadConfig(AgentConfigSchema, { PORTIKUS_WORKSPACE_ID: id }).PORTIKUS_WORKSPACE_ID,
-	).toBe(id);
-	expect(() =>
-		loadConfig(AgentConfigSchema, { PORTIKUS_WORKSPACE_ID: "not-a-uuid" }),
-	).toThrow();
-});
-
 test("AgentConfigSchema coerces an overridden PORT", () => {
 	expect(loadConfig(AgentConfigSchema, { PORT: "7500" }).PORT).toBe(7500);
 });
