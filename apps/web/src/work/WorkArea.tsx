@@ -134,6 +134,11 @@ export function WorkArea({
 	const strip = useRef<HTMLDivElement | null>(null);
 	const launcherMenu = useLauncherMenuFocus();
 
+	// Until both lists are in, an empty layout only means not loaded yet.
+	const showEmpty =
+		layout.tabs.length === 0 &&
+		loaded &&
+		(terminals.loaded || terminals.error !== null);
 	const byId = new Map(terminals.terminals.map((terminal) => [terminal.id, terminal]));
 
 	// Once the saved layout is in, every terminal list answer decides which
@@ -511,7 +516,7 @@ export function WorkArea({
 					</p>
 				) : null}
 
-				{layout.tabs.length === 0 ? (
+				{showEmpty ? (
 					<EmptyState
 						icon="terminal"
 						title="No terminals open"

@@ -29,13 +29,13 @@ export function useLayoutPersistence(
 	store: LayoutStore,
 	onSessionEnded: () => void,
 ): boolean {
-	const [loaded, setLoaded] = useState(false);
+	// The URL whose layout is in, so a switch never reports the old one as loaded.
+	const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
 	const sessionEnded = useRef(onSessionEnded);
 	sessionEnded.current = onSessionEnded;
 
 	useEffect(() => {
 		let cancelled = false;
-		setLoaded(false);
 		const url = layoutUrl(workspaceId, projectId);
 
 		// Put back the selected tab and the editor view states before the saved
@@ -58,7 +58,7 @@ export function useLayoutPersistence(
 				// A layout we could not read is not worth an error screen: the
 				// user gets the tabs reconciled from the terminal list instead.
 			} finally {
-				if (!cancelled) setLoaded(true);
+				if (!cancelled) setLoadedUrl(url);
 			}
 		}
 		void load();
@@ -120,5 +120,5 @@ export function useLayoutPersistence(
 		};
 	}, [workspaceId, projectId, store]);
 
-	return loaded;
+	return loadedUrl === layoutUrl(workspaceId, projectId);
 }
