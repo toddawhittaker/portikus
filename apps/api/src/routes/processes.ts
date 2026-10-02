@@ -5,6 +5,7 @@ import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import type { Kysely } from "kysely";
 import { AgentCallError, type AgentClient } from "../agent-client.js";
 import { sendError } from "../http.js";
+import { check, createCounter } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 import { ownedScope } from "./project-scope.js";
 
@@ -22,15 +23,10 @@ const REFUSAL_STATUS: Record<ProcessStopErrorCode, number> = {
 // Shared by the student's and the administrator's stop, so "one stop at a
 // time per workspace" (SPEC.md §18.3) holds across both.
 const stopping = new Set<string>();
-const stopTimes = new Map<string, number[]>();
+const stops = createCounter(PROCESS_STOPS_PER_MINUTE, WINDOW_MS);
 
 function overLimit(actorId: string): boolean {
-	const now = Date.now();
-	const recent = (stopTimes.get(actorId) ?? []).filter((at) => now - at < WINDOW_MS);
-	const over = recent.length >= PROCESS_STOPS_PER_MINUTE;
-	if (!over) recent.push(now);
-	stopTimes.set(actorId, recent);
-	return over;
+	return !check(stops, actorId).allowed;
 }
 
 /** The pid from the path and the body, or null when either is invalid. */

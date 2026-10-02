@@ -13,6 +13,7 @@ import type { FastifyInstance } from "fastify";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
 import { sendError } from "../http.js";
+import { check, createCounter } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 
 /** How many notifications one user may record per minute before 429. */
@@ -87,15 +88,10 @@ export function registerNotificationRoutes(
 	app: FastifyInstance,
 	{ db }: ServerDeps,
 ): void {
-	const recordTimes = new Map<string, number[]>();
+	const records = createCounter(NOTIFICATION_RECORDS_PER_MINUTE, WINDOW_MS);
 
 	function overRecordLimit(userId: string): boolean {
-		const now = Date.now();
-		const recent = (recordTimes.get(userId) ?? []).filter((at) => now - at < WINDOW_MS);
-		const over = recent.length >= NOTIFICATION_RECORDS_PER_MINUTE;
-		if (!over) recent.push(now);
-		recordTimes.set(userId, recent);
-		return over;
+		return !check(records, userId).allowed;
 	}
 
 	app.get("/me/notifications", async (request, reply) => {

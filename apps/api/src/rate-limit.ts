@@ -23,6 +23,8 @@ export interface Counter {
 	/** Whole seconds until this window ends, at least one. */
 	retryAfterSeconds(window: Window): number;
 	readonly limit: number;
+	/** How many keys are held now; old ones are dropped as time passes. */
+	size(): number;
 }
 
 /** Fixed windows keyed by whatever the caller counts: an address, a user, a session. */
@@ -60,6 +62,7 @@ export function createCounter(
 			return Math.max(1, Math.ceil((window.startedAt + windowMs - now()) / 1000));
 		},
 		limit,
+		size: () => windows.size,
 	};
 }
 
