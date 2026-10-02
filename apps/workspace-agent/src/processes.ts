@@ -1,11 +1,11 @@
 /**
- * Reading and stopping one of the student's processes (SPEC.md §18.3;
- * SPEC.md §18.3). The agent runs as the student, so the
- * kernel already refuses anyone else's process; the protected list keeps
- * the agent, the tmux server and attach clients that carry the terminals,
- * and PID 1 from being signalled by accident. Command lines are returned to the student only and never logged.
+ * Reading and stopping one of the student's processes (SPEC.md §18.3). The
+ * agent runs as the student, so the kernel already refuses anyone else's
+ * process; the protected tree keeps PID 1, the agent and everything it
+ * started, the tmux server and its pane shells from being signalled by
+ * accident. Command lines are returned to the student only and never logged.
  */
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PROCESS_COMMAND_LINE_LIMIT } from "@portikus/contracts";
 import { AgentFailure } from "./errors.js";
@@ -36,17 +36,18 @@ export interface ProcessOwner {
 	/** The student's uid, which the agent runs as. */
 	studentUid: number;
 	/**
-	 * The terminals' tmux server, found by the agent's own socket, and the
-	 * agent's own attach clients. By PID, not by name: any process can call
-	 * itself "tmux: server".
+	 * The agent's descendants, the tmux server and its pane shells, from
+	 * {@link protectedTree}. By PID, not by name: any process can call itself
+	 * "tmux: server".
 	 */
-	terminalPids: ReadonlySet<number>;
+	protectedPids: ReadonlySet<number>;
 }
 
 /** The fields of a stat line that a stop and a usage sample need. */
 export interface StatLine {
 	name: string;
 	state: string;
+	ppid: number;
 	startTicks: number;
 	utime: number;
 	stime: number;
@@ -61,15 +62,17 @@ export function parseStatLine(text: string): StatLine | null {
 		.slice(close + 1)
 		.trim()
 		.split(/\s+/);
-	// Field 3 (state) is index 0 after the name; utime (14) and stime (15)
-	// are indexes 11 and 12; starttime (22) is index 19.
+	// Field 3 (state) is index 0 after the name, ppid (4) index 1; utime (14)
+	// and stime (15) are indexes 11 and 12; starttime (22) is index 19.
 	const state = fields[0];
+	const ppid = Number(fields[1]);
 	const utime = Number(fields[11]);
 	const stime = Number(fields[12]);
 	const startTicks = Number(fields[19]);
 	if (!state || !Number.isSafeInteger(startTicks) || startTicks < 0) return null;
+	if (!Number.isSafeInteger(ppid) || ppid < 0) return null;
 	if (!Number.isFinite(utime) || !Number.isFinite(stime)) return null;
-	return { name: text.slice(open + 1, close), state, startTicks, utime, stime };
+	return { name: text.slice(open + 1, close), state, ppid, startTicks, utime, stime };
 }
 
 /** Real and effective uid from a `status` file. */
@@ -111,7 +114,7 @@ export function isProtected(facts: ProcessFacts, owner: ProcessOwner): boolean {
 		facts.pid === 1 ||
 		facts.pid === owner.selfPid ||
 		!ownedByStudent(facts, owner) ||
-		owner.terminalPids.has(facts.pid)
+		owner.protectedPids.has(facts.pid)
 	);
 }
 
@@ -129,6 +132,51 @@ export async function readCommandLine(
 ): Promise<string | null> {
 	const raw = await readText(join(procRoot, String(pid), "cmdline"));
 	return raw === null ? null : formatCommandLine(raw);
+}
+
+/**
+ * The PIDs no stop may signal besides PID 1 (SPEC.md §18.3): the agent and
+ * every descendant of it, and the tmux server with its direct children, the
+ * pane shells. A pane shell's own children are the student's programs and
+ * stay stoppable. Read from `/proc` parent links each time it is called.
+ */
+export async function protectedTree(
+	procRoot: string,
+	selfPid: number,
+	tmuxPid: number | null,
+): Promise<Set<number>> {
+	let names: string[];
+	try {
+		names = await readdir(procRoot);
+	} catch {
+		names = [];
+	}
+	const children = new Map<number, number[]>();
+	await Promise.all(
+		names.map(async (name) => {
+			if (!/^[1-9]\d*$/.test(name)) return;
+			const text = await readText(join(procRoot, name, "stat"));
+			const stat = text === null ? null : parseStatLine(text);
+			if (!stat) return;
+			const siblings = children.get(stat.ppid) ?? [];
+			siblings.push(Number(name));
+			children.set(stat.ppid, siblings);
+		}),
+	);
+	const tree = new Set<number>([selfPid]);
+	const queue = [selfPid];
+	for (let at = 0; at < queue.length; at++) {
+		for (const child of children.get(queue[at] as number) ?? []) {
+			if (tree.has(child)) continue;
+			tree.add(child);
+			queue.push(child);
+		}
+	}
+	if (tmuxPid !== null) {
+		tree.add(tmuxPid);
+		for (const shell of children.get(tmuxPid) ?? []) tree.add(shell);
+	}
+	return tree;
 }
 
 /** How long a "no tmux server" answer is reused before tmux is asked again. */
@@ -169,9 +217,9 @@ export function tmuxPidSource(
 	};
 }
 
-export interface SignalOptions extends Omit<ProcessOwner, "terminalPids"> {
-	/** The terminals' tmux server and attach client PIDs. */
-	terminalPids: () => Promise<ReadonlySet<number>>;
+export interface SignalOptions extends Omit<ProcessOwner, "protectedPids"> {
+	/** Fresh from {@link protectedTree} for every stop. */
+	protectedPids: () => Promise<ReadonlySet<number>>;
 	procRoot: string;
 	/** Sends the signal. Tests may replace it; production is `process.kill`. */
 	kill: (pid: number, signal: NodeJS.Signals) => void;
@@ -198,7 +246,7 @@ export async function signalProcess(
 	if (facts.startTicks !== startTicks) {
 		throw new AgentFailure("PROCESS_CHANGED", "the process id was reused");
 	}
-	const owner = { ...options, terminalPids: await options.terminalPids() };
+	const owner = { ...options, protectedPids: await options.protectedPids() };
 	if (isProtected(facts, owner)) {
 		throw new AgentFailure("PROCESS_PROTECTED", "this process is protected");
 	}

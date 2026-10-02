@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +10,13 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { readProcess } from "./processes.js";
 import { buildServer } from "./server.js";
-import { attachArgs, captureHistory, hasSession, serverPid } from "./tmux.js";
+import {
+	attachArgs,
+	captureHistory,
+	hasSession,
+	serverPid,
+	sessionName,
+} from "./tmux.js";
 
 const run = promisify(execFile);
 
@@ -259,6 +265,100 @@ test.skipIf(!haveTmux || process.platform !== "linux")(
 		} finally {
 			await socket.close();
 			await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
+		}
+	},
+);
+
+/** The PIDs whose parent is `parent`, from /proc. */
+async function childPids(parent: number): Promise<number[]> {
+	const found: number[] = [];
+	for (const name of await readdir("/proc")) {
+		if (!/^\d+$/.test(name)) continue;
+		const stat = await readFile(`/proc/${name}/stat`, "utf8").catch(() => "");
+		const ppid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+		if (ppid === parent) found.push(Number(name));
+	}
+	return found;
+}
+
+async function stopPid(pid: number) {
+	const facts = await readProcess("/proc", pid);
+	return app.inject({
+		method: "POST",
+		url: `/processes/${pid}/stop`,
+		headers: auth(),
+		payload: { startTicks: facts?.startTicks, force: true },
+	});
+}
+
+// Protection follows the process tree, not names (SPEC.md §18.3).
+test.skipIf(!haveTmux || process.platform !== "linux")(
+	"a stop refuses a pane shell but not a program run inside it",
+	async () => {
+		const id = makeId();
+		const created = await app.inject({
+			method: "POST",
+			url: "/terminals",
+			headers: auth(),
+			payload: { id, cwd: homeDir, theme: "dark", timezone: "America/New_York" },
+		});
+		expect(created.statusCode).toBe(201);
+		const socket = await openSocket(id);
+		try {
+			await socket.waitFor("$", 1);
+			const { stdout } = await run("tmux", [
+				"-L",
+				SOCKET_NAME,
+				"list-panes",
+				"-t",
+				sessionName(id),
+				"-F",
+				"#{pane_pid}",
+			]);
+			const shell = Number(stdout.trim());
+			const refused = await stopPid(shell);
+			expect(refused.statusCode).toBe(403);
+			expect(refused.json().error.code).toBe("PROCESS_PROTECTED");
+
+			socket.ws.send(JSON.stringify({ type: "input", data: "sleep 300\r" }));
+			let program: number | undefined;
+			const deadline = Date.now() + 5000;
+			while (program === undefined && Date.now() < deadline) {
+				const descendants = [shell];
+				for (let at = 0; at < descendants.length; at++) {
+					descendants.push(...(await childPids(descendants[at] as number)));
+				}
+				for (const pid of descendants) {
+					const comm = await readFile(`/proc/${pid}/comm`, "utf8").catch(() => "");
+					if (comm.trim() === "sleep") program = pid;
+				}
+				if (program === undefined) await new Promise((r) => setTimeout(r, 50));
+			}
+			expect(program).toBeDefined();
+			const stopped = await stopPid(program as number);
+			expect(stopped.statusCode).toBe(200);
+			expect(stopped.json().exited).toBe(true);
+			expect(socket.ws.readyState).toBe(WebSocket.OPEN);
+			expect(await hasSession(id, SERVER)).toBe(true);
+		} finally {
+			await socket.close();
+			await app.inject({ method: "DELETE", url: `/terminals/${id}`, headers: auth() });
+		}
+	},
+);
+
+test.skipIf(!haveTmux || process.platform !== "linux")(
+	"a stop refuses any descendant of the agent",
+	async () => {
+		const child = spawn("sleep", ["300"], { stdio: "ignore" });
+		try {
+			await new Promise((resolve) => child.once("spawn", resolve));
+			const refused = await stopPid(child.pid as number);
+			expect(refused.statusCode).toBe(403);
+			expect(refused.json().error.code).toBe("PROCESS_PROTECTED");
+			expect(child.exitCode).toBeNull();
+		} finally {
+			child.kill("SIGKILL");
 		}
 	},
 );

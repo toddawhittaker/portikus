@@ -4012,6 +4012,10 @@ Delivered:
   doubles from 10 seconds to 30 minutes, held in memory and reset when
   the workspace runs or its desired state changes; each retry logs its
   attempt number.
+- Workspace agent: protection from a stop follows the process tree by
+  PID, read from `/proc` at each stop: PID 1, the agent and everything it
+  started, the tmux server and its pane shells. A program run inside a
+  terminal stays stoppable, and stopping a pane shell is refused.
 - Workspace agent: port stops refuse protected processes and reused
   process ids through the shared process-stop check, unexpected errors
   fall back to `INTERNAL`, `runGit` lives in its own file, and one

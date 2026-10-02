@@ -2233,13 +2233,17 @@ takes `{startTicks, force}`. It rereads `/proc/<pid>/stat` and `status`
 first and refuses a gone PID (404 `PROCESS_NOT_FOUND`), different start
 ticks (field 22 of `stat`, which catches a reused PID; 409
 `PROCESS_CHANGED`), and a protected process (403 `PROCESS_PROTECTED`):
-PID 1, the agent itself, anything whose real or effective uid is not the
-student's, the tmux server that holds the terminals (the main
-process of `portikus-terminals.service`), found by PID through the
-agent's own tmux socket (never by the name `tmux: server`, which any
-process can take), and the agent's own `tmux attach-session` clients,
-by the PIDs the agent spawned them under, because stopping one closes
-the student's terminal. A "no server" answer is reused for 10 seconds by the
+PID 1, anything whose real or effective uid is not the student's, and
+a process tree read by PID from the parent links in `/proc` at the
+moment of the stop: the agent and every descendant of it (its
+`tmux attach-session` clients and any other helper), and the tmux
+server that holds the terminals (the main process of
+`portikus-terminals.service`, found through the agent's own tmux
+socket, never by the name `tmux: server`, which any process can take)
+with its direct children, the pane shells. Stopping any of these closes
+a terminal or breaks the agent. Everything below a pane shell is the
+student's own work and stays stoppable. There is no list of protected
+names. A "no server" answer is reused for 10 seconds by the
 usage sample, but never by a stop. Otherwise it sends
 SIGTERM, or SIGKILL when `force` is set, waits up to 3 seconds, and answers
 `{pid, exited}`; a zombie or a vanished PID has exited. It never escalates
