@@ -65,5 +65,10 @@ export function startNotificationPrune(options: {
 			logger.error({ error: errorMessage(e) }, "notification prune error");
 		}
 	};
-	return startLoop(tick, NOTIFICATION_PRUNE_SECONDS * 1000);
+	return startLoop(
+		"notification prune",
+		options.logger,
+		tick,
+		NOTIFICATION_PRUNE_SECONDS * 1000,
+	);
 }

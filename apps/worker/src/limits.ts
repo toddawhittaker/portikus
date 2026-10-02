@@ -34,11 +34,8 @@ export function createLimitsSync(options: LimitsSyncOptions): () => Promise<void
 	const { db, controller, logger } = options;
 	const now = options.now ?? (() => new Date());
 	const failures = new Map<string, { wanted: string; at: number }>();
-	let inFlight = false;
 
 	return async function tick(): Promise<void> {
-		if (inFlight) return;
-		inFlight = true;
 		try {
 			const rows = await db
 				.selectFrom("workspaces")
@@ -70,8 +67,6 @@ export function createLimitsSync(options: LimitsSyncOptions): () => Promise<void
 			}
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "limits sync failed");
-		} finally {
-			inFlight = false;
 		}
 	};
 
@@ -136,5 +131,5 @@ export function createLimitsSync(options: LimitsSyncOptions): () => Promise<void
 /** Run the limits sync now and then every LIMITS_SYNC_SECONDS; returns a stop function. */
 export function startLimitsSync(options: LimitsSyncOptions): () => void {
 	const tick = createLimitsSync(options);
-	return startLoop(tick, LIMITS_SYNC_SECONDS * 1000);
+	return startLoop("limits sync", options.logger, tick, LIMITS_SYNC_SECONDS * 1000);
 }

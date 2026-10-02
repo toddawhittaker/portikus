@@ -70,11 +70,8 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 	const now = options.now ?? (() => new Date());
 	// Workspace id to the allowance whose write failed, so each failure is audited once.
 	const failures = new Map<string, string | null>();
-	let inFlight = false;
 
 	return async function tick(): Promise<void> {
-		if (inFlight) return;
-		inFlight = true;
 		try {
 			let usage: InstanceUsage[];
 			try {
@@ -115,8 +112,6 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 				.execute();
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "guard tick failed");
-		} finally {
-			inFlight = false;
 		}
 	};
 
@@ -515,5 +510,5 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 /** Run the guard now and then every GUARD_SAMPLE_SECONDS; returns a stop function. */
 export function startGuard(options: GuardOptions): () => void {
 	const tick = createGuard(options);
-	return startLoop(tick, GUARD_SAMPLE_SECONDS * 1000);
+	return startLoop("resource guard", options.logger, tick, GUARD_SAMPLE_SECONDS * 1000);
 }
