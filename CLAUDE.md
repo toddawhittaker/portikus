@@ -123,11 +123,11 @@ Orchestration rules:
   CI is green, merger squash-merges it and deletes the branch. The user's
   review happens once, at the epic level.
 - After every task PR for an epic has landed, run code-reviewer over the
-  epic head, security-reviewer when the epic touches auth, the preview
-  gateway, the workspace agent, file APIs, Incus, or nested Docker, and
-  a11y-reviewer when it touches `apps/web` or `packages/ui`. Fix or defer
-  every finding through further task PRs, also landed by merger without
-  review, then run a confirmation review with each reviewer that ran.
+  epic head and the whole repo's dead code, security-reviewer when the
+  epic touches auth, the preview gateway, the workspace agent, file APIs,
+  Incus, or nested Docker, and a11y-reviewer when it touches `apps/web` or
+  `packages/ui`. Fix or defer every finding through further task PRs,
+  also landed by merger without review, then confirm with each reviewer.
 - An epic's plan lives only on its branch and is folded into SPEC.md and
   deleted by its last task; cite SPEC.md or ADRs (WORKFLOW.md, "Epic plans").
 - `main` changes only by pull request, and merging it is the user's
