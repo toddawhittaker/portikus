@@ -2234,15 +2234,17 @@ first and refuses a gone PID (404 `PROCESS_NOT_FOUND`), different start
 ticks (field 22 of `stat`, which catches a reused PID; 409
 `PROCESS_CHANGED`), and a protected process (403 `PROCESS_PROTECTED`):
 PID 1, anything whose real or effective uid is not the student's, and
-a process tree read by PID from the parent links in `/proc` at the
-moment of the stop: the agent and every descendant of it (its
-`tmux attach-session` clients and any other helper), and the tmux
-server that holds the terminals (the main process of
+the platform's own machinery, by PID: the agent itself, its
+`tmux attach-session` clients (the PIDs the terminal registry spawned),
+and the tmux server that holds the terminals (the main process of
 `portikus-terminals.service`, found through the agent's own tmux
 socket, never by the name `tmux: server`, which any process can take)
-with its direct children, the pane shells. Stopping any of these closes
-a terminal or breaks the agent. Everything below a pane shell is the
-student's own work and stays stoppable. There is no list of protected
+with its direct children, the pane shells, read from the parent links
+in `/proc` at the moment of the stop. Stopping any of these closes a
+terminal or breaks the agent. A program the student asked to run stays
+stoppable, wherever it sits in the tree: everything below a pane shell,
+and a program the agent starts on the student's behalf, such as a check
+run (§18.1), with all its descendants. There is no list of protected
 names. A "no server" answer is reused for 10 seconds by the
 usage sample, but never by a stop. Otherwise it sends
 SIGTERM, or SIGKILL when `force` is set, waits up to 3 seconds, and answers

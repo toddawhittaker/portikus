@@ -1,9 +1,9 @@
 /**
  * Reading and stopping one of the student's processes (SPEC.md §18.3). The
  * agent runs as the student, so the kernel already refuses anyone else's
- * process; the protected tree keeps PID 1, the agent and everything it
- * started, the tmux server and its pane shells from being signalled by
- * accident. Command lines are returned to the student only and never logged.
+ * process; the protected set keeps PID 1, the agent, its attach clients,
+ * the tmux server and its pane shells from being signalled by accident.
+ * Command lines are returned to the student only and never logged.
  */
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -36,7 +36,7 @@ export interface ProcessOwner {
 	/** The student's uid, which the agent runs as. */
 	studentUid: number;
 	/**
-	 * The agent's descendants, the tmux server and its pane shells, from
+	 * The agent's attach clients, the tmux server and its pane shells, from
 	 * {@link protectedTree}. By PID, not by name: any process can call itself
 	 * "tmux: server".
 	 */
@@ -135,47 +135,35 @@ export async function readCommandLine(
 }
 
 /**
- * The PIDs no stop may signal besides PID 1 (SPEC.md §18.3): the agent and
- * every descendant of it, and the tmux server with its direct children, the
- * pane shells. A pane shell's own children are the student's programs and
- * stay stoppable. Read from `/proc` parent links each time it is called.
+ * The PIDs no stop may signal besides PID 1 (SPEC.md §18.3): the agent, its
+ * terminals' attach clients, and the tmux server with its direct children,
+ * the pane shells. Only the platform's own machinery: a program the agent
+ * starts for the student, such as a check run, stays stoppable, and so does
+ * anything a pane shell runs. Read from `/proc` parent links each call.
  */
 export async function protectedTree(
 	procRoot: string,
 	selfPid: number,
 	tmuxPid: number | null,
+	attachPids: Iterable<number>,
 ): Promise<Set<number>> {
+	const tree = new Set<number>([selfPid, ...attachPids]);
+	if (tmuxPid === null) return tree;
+	tree.add(tmuxPid);
 	let names: string[];
 	try {
 		names = await readdir(procRoot);
 	} catch {
 		names = [];
 	}
-	const children = new Map<number, number[]>();
 	await Promise.all(
 		names.map(async (name) => {
 			if (!/^[1-9]\d*$/.test(name)) return;
 			const text = await readText(join(procRoot, name, "stat"));
 			const stat = text === null ? null : parseStatLine(text);
-			if (!stat) return;
-			const siblings = children.get(stat.ppid) ?? [];
-			siblings.push(Number(name));
-			children.set(stat.ppid, siblings);
+			if (stat?.ppid === tmuxPid) tree.add(Number(name));
 		}),
 	);
-	const tree = new Set<number>([selfPid]);
-	const queue = [selfPid];
-	for (let at = 0; at < queue.length; at++) {
-		for (const child of children.get(queue[at] as number) ?? []) {
-			if (tree.has(child)) continue;
-			tree.add(child);
-			queue.push(child);
-		}
-	}
-	if (tmuxPid !== null) {
-		tree.add(tmuxPid);
-		for (const shell of children.get(tmuxPid) ?? []) tree.add(shell);
-	}
 	return tree;
 }
 
