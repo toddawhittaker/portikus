@@ -3954,6 +3954,9 @@ Delivered:
   a11y-workspace-states test).
 - Switching projects no longer flashes the "No terminals open" screen;
   it waits until the layout and terminal list have loaded.
+- The security suite expects the gateway's port 443 to be open while
+  the ghcr.io cache is on and proves it reaches only the cache; with the
+  cache off it expects the port closed.
 - The rehearsal VM ran the full smoke test, including the lifecycle,
   terminal, project, recovery and boundary files that the pilot skips.
 
