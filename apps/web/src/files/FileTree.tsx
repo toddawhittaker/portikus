@@ -1082,7 +1082,7 @@ function rowStatus(
 	return null;
 }
 
-/** A row's twisty, icon, name and Git marks. */
+/** A row's twisty, icon, name and Git marks, inside the right-click trigger's span. */
 function RowFace({
 	name,
 	shown,
@@ -1104,7 +1104,7 @@ function RowFace({
 }) {
 	const folderIcon = open ? "folder-open" : "folder";
 	return (
-		<span className="pk-tree-face">
+		<>
 			<span className="pk-tree-twisty">
 				{isDir ? (
 					<Icon name={open ? "chevron-down" : "chevron-right"} size="sm" />
@@ -1128,7 +1128,7 @@ function RowFace({
 			) : dirty ? (
 				<span className="pk-git-dot" aria-hidden="true" />
 			) : null}
-		</span>
+		</>
 	);
 }
 
@@ -1228,16 +1228,18 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 				    the two menu families cannot be nested. */}
 				<ContextMenu>
 					<ContextMenuTrigger asChild>
-						<RowFace
-							name={entry.name}
-							shown={shown}
-							isDir={isDir}
-							open={open}
-							status={status}
-							decoration={decoration}
-							dirty={dirty}
-							ignored={ignored}
-						/>
+						<span className="pk-tree-face">
+							<RowFace
+								name={entry.name}
+								shown={shown}
+								isDir={isDir}
+								open={open}
+								status={status}
+								decoration={decoration}
+								dirty={dirty}
+								ignored={ignored}
+							/>
+						</span>
 					</ContextMenuTrigger>
 					<Menu label={`Actions for ${shown}`}>
 						<RowMenuItems node={node} />
