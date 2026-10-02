@@ -19,7 +19,8 @@ import {
 } from "./backups.js";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
-import { type ReconcileConfig, reconcile, settleStops } from "./reconcile.js";
+import { settleStops } from "./lifecycle.js";
+import { type ReconcileConfig, reconcile } from "./reconcile.js";
 
 const skip = !hasTestDb();
 let tdb: TestDb;

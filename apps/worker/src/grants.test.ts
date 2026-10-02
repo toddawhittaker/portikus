@@ -20,13 +20,14 @@ import { FakeControllerClient } from "./fake-controller.js";
 import { createGuard } from "./guard.js";
 import { createHealthSampler } from "./health.js";
 import { seedSettings } from "./index.js";
+import { settleStops } from "./lifecycle.js";
 import { createLimitsSync } from "./limits.js";
 import { createLogLevelSync } from "./log-level.js";
 import { notifyAdministrators, pruneNotifications } from "./notifications.js";
 import { createPackageSurvey } from "./package-survey.js";
 import { serveProcessSnapshots } from "./process-snapshots.js";
 import { createQuotaSync } from "./quota.js";
-import { reconcile, settleStops } from "./reconcile.js";
+import { reconcile } from "./reconcile.js";
 
 const GRANTS_FILE = join(
 	import.meta.dirname,

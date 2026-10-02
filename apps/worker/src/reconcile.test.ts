@@ -9,13 +9,8 @@ import type { KyselyPlugin, PluginTransformQueryArgs, RootOperationNode } from "
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
-import {
-	doStop,
-	type ReconcileConfig,
-	reconcile,
-	settleKeepRunning,
-	settleStops,
-} from "./reconcile.js";
+import { doStop, settleStops } from "./lifecycle.js";
+import { type ReconcileConfig, reconcile, settleKeepRunning } from "./reconcile.js";
 
 /** One sweep, then wait for the stops it began in the background. */
 async function sweep(
