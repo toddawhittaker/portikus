@@ -18,7 +18,7 @@ import type { ReconcileConfig } from "./reconcile.js";
  * connect that arrives while a slow stop is in flight is not overwritten
  * by a value read before the stop began (SPEC.md §6.3).
  */
-export const settleRestarting = sql`case when desired_state = 'restarting' then 'running' else desired_state end`;
+const settleRestarting = sql`case when desired_state = 'restarting' then 'running' else desired_state end`;
 
 /** Maps controller error codes to user-friendly messages (SPEC section 28). */
 export function userMessage(code: ControllerErrorCode): string {
@@ -218,15 +218,22 @@ export async function createWorkspace(
 	db: Kysely<Database>,
 	controller: ControllerClient,
 	config: ReconcileConfig,
-	ws: { id: string; incus_instance_name: string; error_code: string | null },
+	ws: {
+		id: string;
+		incus_instance_name: string;
+		error_code: string | null;
+		quota_config: { homeGiB: number; dockerGiB: number; recoveryGiB?: number } | null;
+	},
 	now: Date,
 	retryDelaysMs: readonly number[],
 ): Promise<string | null> {
+	// A re-create keeps the sizes the row already has; the controller keeps a
+	// larger existing volume and reports it back (SPEC.md §20.1).
 	const request = {
 		name: ws.incus_instance_name,
-		homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
-		dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
-		recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
+		homeGiB: ws.quota_config?.homeGiB ?? config.WORKSPACE_HOME_SIZE_GIB,
+		dockerGiB: ws.quota_config?.dockerGiB ?? config.WORKSPACE_DOCKER_SIZE_GIB,
+		recoveryGiB: ws.quota_config?.recoveryGiB ?? config.WORKSPACE_RECOVERY_SIZE_GIB,
 	};
 	for (let attempt = 0; ; attempt++) {
 		try {
@@ -240,7 +247,7 @@ export async function createWorkspace(
 					image_version: result.imageFingerprint,
 					quota_config: JSON.stringify({
 						...result.quota,
-						recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
+						recoveryGiB: request.recoveryGiB,
 					}),
 					quota_applied: JSON.stringify(result.quota),
 					error_code: null,
@@ -319,28 +326,20 @@ export async function createWorkspace(
 }
 
 /**
- * Move a workspace from `fromState` into starting and start it. Returns
- * the number of state transitions made. Shared by the stopped->running
- * path and the retry-after-error path (SPEC.md §6.3).
+ * The sweep's half of a start: move a workspace from `fromState` into
+ * starting. `startInstance` then makes the controller call. Shared by the
+ * stopped->running path and the retry-after-error path (SPEC.md §6.3).
+ * Returns false if the row moved on first.
  */
-export async function startWorkspace(
+export async function moveToStarting(
 	db: Kysely<Database>,
-	controller: ControllerClient,
-	config: ReconcileConfig,
-	ws: {
-		id: string;
-		incus_instance_name: string | null;
-		label: string;
-		quota_config: { dockerGiB?: number } | null;
-	},
+	id: string,
 	fromState: string,
 	now: Date,
-): Promise<number> {
-	if (!ws.incus_instance_name) return 0;
-
+): Promise<boolean> {
 	const moved = await casUpdate(
 		db,
-		ws.id,
+		id,
 		fromState,
 		{
 			state: "starting",
@@ -353,9 +352,22 @@ export async function startWorkspace(
 		},
 		now,
 	);
-	if (!moved) return 0;
-	let transitions = 1;
+	return moved !== null;
+}
 
+/** Start a workspace already in starting, and move it to running or error. */
+export async function startInstance(
+	db: Kysely<Database>,
+	controller: ControllerClient,
+	config: ReconcileConfig,
+	ws: {
+		id: string;
+		incus_instance_name: string;
+		label: string;
+		quota_config: { dockerGiB?: number } | null;
+	},
+	now: Date,
+): Promise<void> {
 	// Rotate before the start call so the row always holds the token the
 	// agent is about to be given.
 	const agentToken = await rotateAgentToken(db, ws.id);
@@ -380,7 +392,6 @@ export async function startWorkspace(
 			now,
 		);
 		if (updated) {
-			transitions++;
 			await recordAudit(db, {
 				actor: "worker",
 				target: ws.id,
@@ -391,7 +402,7 @@ export async function startWorkspace(
 		}
 	} catch (e) {
 		const err = toControllerError(e);
-		const updated = await casUpdate(
+		await casUpdate(
 			db,
 			ws.id,
 			"starting",
@@ -402,7 +413,6 @@ export async function startWorkspace(
 			},
 			now,
 		);
-		if (updated) transitions++;
 		await recordAudit(db, {
 			actor: "worker",
 			target: ws.id,
@@ -414,18 +424,65 @@ export async function startWorkspace(
 			},
 		});
 	}
-
-	return transitions;
 }
 
-/** Stops still running, by workspace id; step 5 leaves these rows alone. */
-export const stopsInFlight = new Map<string, Promise<void>>();
+/** At most this many controller calls run at once across all workspaces. */
+const CONTROLLER_CONCURRENCY = 6;
+
+/** Calls queued or running, by workspace id; the sweep leaves these rows alone. */
+const inFlight = new Map<string, Promise<void>>();
+let activeCalls = 0;
+const waitingForSlot: Array<() => void> = [];
+
+async function withSlot(call: () => Promise<void>): Promise<void> {
+	if (activeCalls < CONTROLLER_CONCURRENCY) {
+		activeCalls++;
+	} else {
+		await new Promise<void>((resolve) => waitingForSlot.push(resolve));
+	}
+	try {
+		await call();
+	} finally {
+		// Hand the slot straight to the next waiter, so the count never dips.
+		const next = waitingForSlot.shift();
+		if (next) next();
+		else activeCalls--;
+	}
+}
+
+/** Ids of workspaces with a controller call queued or running. */
+export function inFlightIds(): string[] {
+	return [...inFlight.keys()];
+}
 
 /**
- * Start a stop without waiting for it, so a slow stop never delays the
- * next sweep's starts (SPEC.md §6.5). On worker exit it is abandoned and
- * step 5 resolves the row after the restart.
+ * Run a workspace's controller call without waiting for it, so one slow
+ * create, start, stop or operation never delays another workspace (SPEC.md
+ * §6.5; ADR 0034). The caller must skip rows already in flight, so a row
+ * never gets two calls at once. On worker exit the call is abandoned and
+ * the sweep resolves the row after the restart, as after a crash.
  */
+export function runInBackground(
+	id: string,
+	what: string,
+	log: Logger,
+	call: () => Promise<void>,
+): void {
+	if (inFlight.has(id)) throw new Error(`workspace ${id} already has a call in flight`);
+	const running = withSlot(call)
+		.catch((e: unknown) => {
+			log.error(
+				{ workspaceId: id, error: errorMessage(e) },
+				`background ${what} failed`,
+			);
+		})
+		.finally(() => {
+			inFlight.delete(id);
+		});
+	inFlight.set(id, running);
+}
+
+/** Stop a workspace already in stopping, in the background. */
 export function stopInBackground(
 	db: Kysely<Database>,
 	controller: ControllerClient,
@@ -433,22 +490,12 @@ export function stopInBackground(
 	ws: { id: string; incus_instance_name: string | null },
 	log: Logger,
 ): void {
-	const running = doStop(db, controller, config, ws)
-		.catch((e: unknown) => {
-			log.error(
-				{ workspaceId: ws.id, error: errorMessage(e) },
-				"background stop failed",
-			);
-		})
-		.finally(() => {
-			stopsInFlight.delete(ws.id);
-		});
-	stopsInFlight.set(ws.id, running);
+	runInBackground(ws.id, "stop", log, () => doStop(db, controller, config, ws));
 }
 
-/** Wait for every stop in flight to finish; for tests. */
-export async function settleStops(): Promise<void> {
-	await Promise.all(stopsInFlight.values());
+/** Wait for every call in flight to finish; for tests. */
+export async function settleInFlight(): Promise<void> {
+	await Promise.all(inFlight.values());
 }
 
 /**

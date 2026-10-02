@@ -10,11 +10,13 @@ import {
 	createWorkspace,
 	dockerGiBOf,
 	endOpenTerminals,
+	inFlightIds,
+	moveToStarting,
+	runInBackground,
 	runOperation,
 	startedNow,
-	startWorkspace,
+	startInstance,
 	stopInBackground,
-	stopsInFlight,
 	toControllerError,
 	userMessage,
 } from "./lifecycle.js";
@@ -32,9 +34,6 @@ export interface ReconcileConfig {
 	WORKSPACE_RECOVERY_SIZE_GIB: number;
 	PREVIEW_SUFFIX: string;
 }
-
-/** How many creates, and then starts, one sweep runs at once. */
-const START_CONCURRENCY = 6;
 
 export interface SweepResult {
 	transitions: number;
@@ -58,23 +57,11 @@ const ERROR_RETRY_SECONDS = 10;
 const CREATE_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000, 8000];
 
 /**
- * Run `task` on every item, at most `limit` at a time. Each task must catch
- * its own errors, so one failure never stops the others.
+ * Only rows with no controller call in flight, so a row never gets two
+ * calls at once (SPEC.md §6.5; ADR 0034).
  */
-async function forEachBounded<T>(
-	items: readonly T[],
-	limit: number,
-	task: (item: T) => Promise<void>,
-): Promise<void> {
-	let next = 0;
-	const runner = async (): Promise<void> => {
-		while (next < items.length) {
-			const item = items[next++] as T;
-			await task(item);
-		}
-	};
-	const runners = Array.from({ length: Math.min(limit, items.length) }, runner);
-	await Promise.all(runners);
+function notInFlight() {
+	return sql<boolean>`workspaces.id <> all(${inFlightIds()}::uuid[])`;
 }
 
 const INSTANCE_MISSING_MESSAGE =
@@ -258,38 +245,37 @@ async function trackDisconnections(ctx: SweepContext): Promise<void> {
 
 /** Step 3a: create provisioning workspaces. */
 async function createProvisioning(ctx: SweepContext): Promise<void> {
-	const { db, controller, config, now, createRetryDelaysMs, record } = ctx;
+	const { db, controller, config, now, log, createRetryDelaysMs, record } = ctx;
 	// 3a: provisioning -> create -> stopped/error
 	const provisioning = await db
 		.selectFrom("workspaces")
-		.select(["id", "incus_instance_name", "error_code"])
+		.select(["id", "incus_instance_name", "error_code", "quota_config"])
 		.where("state", "=", "provisioning")
+		.where(notInFlight())
 		.execute();
 
-	await forEachBounded(provisioning, START_CONCURRENCY, async (ws) => {
-		if (!ws.incus_instance_name) return;
-		const outcome = await createWorkspace(
-			db,
-			controller,
-			config,
-			{
-				id: ws.id,
-				incus_instance_name: ws.incus_instance_name,
-				error_code: ws.error_code,
-			},
-			now,
-			createRetryDelaysMs,
-		);
-		if (outcome) {
-			ctx.transitions++;
-			record(ws.id, outcome);
-		}
-	});
+	for (const ws of provisioning) {
+		const name = ws.incus_instance_name;
+		if (!name) continue;
+		record(ws.id, "create");
+		runInBackground(ws.id, "create", log, async () => {
+			const outcome = await createWorkspace(
+				db,
+				controller,
+				config,
+				{ ...ws, incus_instance_name: name },
+				now,
+				createRetryDelaysMs,
+			);
+			if (outcome)
+				log.debug({ workspaceId: ws.id, action: outcome }, "create finished");
+		});
+	}
 }
 
 /** Step 3b: start stopped workspaces that should run. */
 async function startStopped(ctx: SweepContext): Promise<void> {
-	const { db, controller, config, now, record } = ctx;
+	const { db, record } = ctx;
 	// 3b: stopped with desired running (or restarting) -> start. A pending
 	// maintenance operation runs first (ADR 0021).
 	const toStart = await db
@@ -299,13 +285,34 @@ async function startStopped(ctx: SweepContext): Promise<void> {
 		.where("desired_state", "in", ["running", "restarting"])
 		.where("pending_operation", "is", null)
 		.where("archived_at", "is", null)
+		.where(notInFlight())
 		.execute();
 
-	await forEachBounded(toStart, START_CONCURRENCY, async (ws) => {
+	for (const ws of toStart) {
 		record(ws.id, "start");
-		const n = await startWorkspace(db, controller, config, ws, "stopped", now);
-		ctx.transitions += n;
-	});
+		await startInBackground(ctx, ws, "stopped");
+	}
+}
+
+/** Move a row into starting, then make the start call in the background. */
+async function startInBackground(
+	ctx: SweepContext,
+	ws: {
+		id: string;
+		incus_instance_name: string | null;
+		label: string;
+		quota_config: { dockerGiB?: number } | null;
+	},
+	fromState: string,
+): Promise<void> {
+	const { db, controller, config, now, log } = ctx;
+	const name = ws.incus_instance_name;
+	if (!name) return;
+	if (!(await moveToStarting(db, ws.id, fromState, now))) return;
+	ctx.transitions++;
+	runInBackground(ws.id, "start", log, () =>
+		startInstance(db, controller, config, { ...ws, incus_instance_name: name }, now),
+	);
 }
 
 /** Step 3c: stop running workspaces that should stop or whose grace period passed. */
@@ -323,6 +330,7 @@ async function stopRunning(ctx: SweepContext): Promise<void> {
 				eb("archived_at", "is not", null),
 			]),
 		)
+		.where(notInFlight())
 		.execute();
 
 	for (const ws of toStopExplicit) {
@@ -343,6 +351,7 @@ async function stopRunning(ctx: SweepContext): Promise<void> {
 		.select(["id", "incus_instance_name", "pending_operation", "pending_operation_at"])
 		.where("state", "=", "running")
 		.where("pending_operation", "is not", null)
+		.where(notInFlight())
 		.execute();
 
 	for (const ws of toStopForOperation) {
@@ -373,6 +382,7 @@ async function stopRunning(ctx: SweepContext): Promise<void> {
 		})
 		.where("state", "=", "running")
 		.where("shutdown_deadline", "<=", now)
+		.where(notInFlight())
 		.where(({ eb, selectFrom }) =>
 			eb(
 				selectFrom("workspace_connections")
@@ -432,6 +442,7 @@ async function stopIdle(ctx: SweepContext): Promise<void> {
 			updated_at = ${now.toISOString()}::timestamptz
 		from workspaces ws left join settings s on s.id = 1
 		where w.id = ws.id and w.state = 'running' and w.idle_stop_at <= ${now.toISOString()}::timestamptz
+			and w.id <> all(${inFlightIds()}::uuid[])
 		returning w.id, w.incus_instance_name, ${idle} as idle_minutes
 	`.execute(db);
 
@@ -455,7 +466,7 @@ async function stopIdle(ctx: SweepContext): Promise<void> {
 
 /** Step 3d: retry a start for an errored workspace that should run. */
 async function retryErrored(ctx: SweepContext): Promise<void> {
-	const { db, controller, config, now, record } = ctx;
+	const { db, now, record } = ctx;
 	// 3d: error with desired running (or restarting) -> retry a start, but
 	// only after a short rest so a broken controller is not hammered.
 	const retryCutoff = new Date(now.getTime() - ERROR_RETRY_SECONDS * 1000);
@@ -467,20 +478,20 @@ async function retryErrored(ctx: SweepContext): Promise<void> {
 		.where("updated_at", "<", retryCutoff)
 		.where("pending_operation", "is", null)
 		.where("archived_at", "is", null)
+		.where(notInFlight())
 		.execute();
 
-	await forEachBounded(errorRetryStart, START_CONCURRENCY, async (ws) => {
+	for (const ws of errorRetryStart) {
 		record(ws.id, "retry start");
-		const n = await startWorkspace(db, controller, config, ws, "error", now);
-		ctx.transitions += n;
-	});
+		await startInBackground(ctx, ws, "error");
+	}
 
 	// Note: error with desired=stopped is at rest (nothing to retry).
 }
 
 /** Step 3e: run a pending maintenance operation. */
 async function runMaintenance(ctx: SweepContext): Promise<void> {
-	const { db, controller, config, now, record } = ctx;
+	const { db, controller, config, now, log, record } = ctx;
 	// 3e: run a pending maintenance operation on a stopped or errored
 	// workspace. Step 3b restarts it on the next sweep if it should run.
 	const toMaintain = await db
@@ -497,42 +508,44 @@ async function runMaintenance(ctx: SweepContext): Promise<void> {
 		])
 		.where("state", "in", ["stopped", "error"])
 		.where("pending_operation", "is not", null)
+		.where(notInFlight())
 		.execute();
 
 	for (const ws of toMaintain) {
-		if (!ws.incus_instance_name || !ws.pending_operation) continue;
+		const instance = ws.incus_instance_name;
+		if (!instance || !ws.pending_operation) continue;
 		record(ws.id, ws.pending_operation);
 		// Replace home spans several sweeps while the host imports (ADR 0040).
 		if (ws.pending_operation === "replace-home") {
-			ctx.transitions += await runReplaceHome(
-				db,
-				controller,
-				{
-					id: ws.id,
-					instance: ws.incus_instance_name,
-					state: ws.state,
-					pendingAt: ws.pending_operation_at,
-					pendingBy: ws.pending_operation_by,
-					args: ws.pending_operation_args,
-				},
-				now,
-			);
+			runInBackground(ws.id, ws.pending_operation, log, async () => {
+				await runReplaceHome(
+					db,
+					controller,
+					{
+						id: ws.id,
+						instance,
+						state: ws.state,
+						pendingAt: ws.pending_operation_at,
+						pendingBy: ws.pending_operation_by,
+						args: ws.pending_operation_args,
+					},
+					now,
+				);
+			});
 			continue;
 		}
-		ctx.transitions += await runOperation(
-			db,
-			controller,
-			{
-				id: ws.id,
-				incus_instance_name: ws.incus_instance_name,
-				state: ws.state,
-				// The column has a check constraint, so this never throws.
-				pending_operation: PendingOperation.parse(ws.pending_operation),
-				pending_operation_by: ws.pending_operation_by,
-				dockerGiB: dockerGiBOf(ws.quota_config, config),
-			},
-			now,
-		);
+		const operation = {
+			id: ws.id,
+			incus_instance_name: instance,
+			state: ws.state,
+			// The column has a check constraint, so this never throws.
+			pending_operation: PendingOperation.parse(ws.pending_operation),
+			pending_operation_by: ws.pending_operation_by,
+			dockerGiB: dockerGiBOf(ws.quota_config, config),
+		};
+		runInBackground(ws.id, ws.pending_operation, log, async () => {
+			await runOperation(db, controller, operation, now);
+		});
 	}
 }
 
@@ -619,7 +632,6 @@ async function resolveDrift(
 	ctx: SweepContext,
 	ws: TrackedRow,
 	inst: ListedInstance,
-	stoppingDuringList: Set<string>,
 ): Promise<void> {
 	const { db, now, record } = ctx;
 	// Drift: row says running but instance is Stopped.
@@ -646,11 +658,7 @@ async function resolveDrift(
 	}
 
 	// Drift: row says stopped but instance is Running.
-	if (
-		ws.state === "stopped" &&
-		inst.status === "Running" &&
-		!stoppingDuringList.has(ws.id)
-	) {
+	if (ws.state === "stopped" && inst.status === "Running") {
 		const updated = await casUpdate(
 			db,
 			ws.id,
@@ -776,12 +784,11 @@ async function resolveStopping(
 	}
 }
 
-/** Steps 4 and 5 for one tracked row. */
+/** Steps 4 and 5 for one tracked row with no controller call in flight. */
 async function reconcileTracked(
 	ctx: SweepContext,
 	ws: TrackedRow,
 	instanceMap: Map<string, ListedInstance>,
-	stoppingDuringList: Set<string>,
 ): Promise<void> {
 	const inst = instanceMap.get(ws.incus_instance_name);
 	if (!inst) {
@@ -789,15 +796,11 @@ async function reconcileTracked(
 		return;
 	}
 	await syncAgentAddress(ctx, ws, inst);
-	await resolveDrift(ctx, ws, inst, stoppingDuringList);
+	await resolveDrift(ctx, ws, inst);
 	if (ws.state === "starting") {
 		await resolveStarting(ctx, ws, inst);
 	}
-	if (
-		ws.state === "stopping" &&
-		!stopsInFlight.has(ws.id) &&
-		!stoppingDuringList.has(ws.id)
-	) {
+	if (ws.state === "stopping") {
 		await resolveStopping(ctx, ws, inst);
 	}
 }
@@ -845,8 +848,9 @@ async function refreshFromList(
 		return { lastRefreshAt, controllerUnreachable, refreshError: null };
 	}
 
-	// A stop that ends while list() runs leaves a list older than the row.
-	const stoppingDuringList = new Set(stopsInFlight.keys());
+	// A call in flight, or one that ends while list() runs, leaves the list
+	// older than the row, so those rows wait for the next refresh.
+	const inFlightDuringList = new Set(inFlightIds());
 	const listed = await listInstances(ctx, controllerUnreachable);
 	if (listed.instances === null) {
 		return {
@@ -866,11 +870,11 @@ async function refreshFromList(
 		.execute();
 	for (const ws of tracked) {
 		if (!ws.incus_instance_name) continue;
+		if (inFlightDuringList.has(ws.id)) continue;
 		await reconcileTracked(
 			ctx,
 			{ ...ws, incus_instance_name: ws.incus_instance_name },
 			instanceMap,
-			stoppingDuringList,
 		);
 	}
 

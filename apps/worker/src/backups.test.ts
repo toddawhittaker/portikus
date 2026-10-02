@@ -19,7 +19,7 @@ import {
 } from "./backups.js";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
-import { settleStops } from "./lifecycle.js";
+import { settleInFlight } from "./lifecycle.js";
 import { type ReconcileConfig, reconcile } from "./reconcile.js";
 
 const skip = !hasTestDb();
@@ -863,7 +863,7 @@ test.skipIf(skip)(
 			.executeTakeFirstOrThrow();
 		const sweepAt = async (at: Date) => {
 			await reconcile(tdb.db, fake, cfg, at, { lastRefreshAt: at });
-			await settleStops();
+			await settleInFlight();
 		};
 
 		// No point tried since the request: the workspace keeps running.

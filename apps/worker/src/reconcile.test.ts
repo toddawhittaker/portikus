@@ -9,7 +9,7 @@ import type { KyselyPlugin, PluginTransformQueryArgs, RootOperationNode } from "
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
-import { doStop, settleStops } from "./lifecycle.js";
+import { doStop, settleInFlight } from "./lifecycle.js";
 import { type ReconcileConfig, reconcile, settleKeepRunning } from "./reconcile.js";
 
 /** One sweep, then wait for the stops it began in the background. */
@@ -17,7 +17,7 @@ async function sweep(
 	...args: Parameters<typeof reconcile>
 ): ReturnType<typeof reconcile> {
 	const result = await reconcile(...args);
-	await settleStops();
+	await settleInFlight();
 	return result;
 }
 
@@ -86,7 +86,7 @@ function holdStops(): () => void {
 afterEach(async () => {
 	for (const release of heldStops) release();
 	heldStops = [];
-	await settleStops();
+	await settleInFlight();
 });
 
 /** Set (or insert) the platform-wide grace period. */
@@ -309,6 +309,130 @@ test.skipIf(skip)("provisioning -> create -> stopped", async () => {
 	expect(ws.quota_applied).toEqual({ homeGiB: 25, dockerGiB: 20 });
 	expect(fake.calls.some((c) => c.method === "create")).toBe(true);
 });
+
+test.skipIf(skip)(
+	"re-creating a workspace asks for the sizes it already has",
+	async () => {
+		const id = await insertWorkspace({
+			state: "provisioning",
+			quota_config: JSON.stringify({ homeGiB: 40, dockerGiB: 60, recoveryGiB: 5 }),
+		});
+		fake.createResult = {
+			created: false,
+			imageFingerprint: "abc123",
+			quota: { homeGiB: 40, dockerGiB: 60 },
+		};
+		const now = new Date();
+
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+
+		const create = fake.calls.find((c) => c.method === "create");
+		expect(create?.args[0]).toMatchObject({
+			homeGiB: 40,
+			dockerGiB: 60,
+			recoveryGiB: 5,
+		});
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(ws.quota_config).toEqual({ homeGiB: 40, dockerGiB: 60, recoveryGiB: 5 });
+		expect(ws.quota_applied).toEqual({ homeGiB: 40, dockerGiB: 60 });
+	},
+);
+
+/** Wait until a background controller call has moved the row to `state`. */
+async function untilState(id: string, state: string): Promise<void> {
+	for (let i = 0; i < 200; i++) {
+		if ((await getWorkspace(id)).state === state) return;
+		await new Promise((r) => setTimeout(r, 10));
+	}
+	throw new Error(`workspace never reached ${state}`);
+}
+
+test.skipIf(skip)("the list check leaves a start in flight alone", async () => {
+	let releaseStart = (): void => {};
+	const held = new Promise<void>((r) => {
+		releaseStart = r;
+	});
+	const start = fake.start.bind(fake);
+	fake.start = async (name, req) => {
+		await held;
+		return start(name, req);
+	};
+	const name = "ws-start-in-flight";
+	const id = await insertWorkspace({
+		state: "stopped",
+		desired_state: "running",
+		incus_instance_name: name,
+	});
+	await insertConnection(id);
+	const now = new Date();
+	try {
+		await reconcile(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+		expect((await getWorkspace(id)).state).toBe("starting");
+
+		// The instance still reads Stopped while its start is under way.
+		fake.listResult = [{ name, status: "Stopped", ipv4: null }];
+		await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 60_000));
+		expect((await getWorkspace(id)).state).toBe("starting");
+	} finally {
+		releaseStart();
+		await settleInFlight();
+		fake.start = start;
+	}
+	expect((await getWorkspace(id)).state).toBe("running");
+});
+
+test.skipIf(skip)(
+	"a slow maintenance operation does not delay another workspace's start",
+	async () => {
+		let releaseRebuild = (): void => {};
+		const held = new Promise<void>((r) => {
+			releaseRebuild = r;
+		});
+		const rebuild = fake.rebuild.bind(fake);
+		let rebuildCalls = 0;
+		fake.rebuild = async (name, req) => {
+			rebuildCalls++;
+			await held;
+			return rebuild(name, req);
+		};
+		const by = await insertTestUser(tdb.db);
+		const slow = await insertWorkspace({
+			pending_operation: "rebuild",
+			pending_operation_at: new Date(Date.now() - 1000).toISOString(),
+			pending_operation_by: by,
+		});
+		const now = new Date();
+		try {
+			const first = reconcile(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+			const outcome = await Promise.race([
+				first.then(() => "done"),
+				new Promise((r) => setTimeout(() => r("hung"), 2000)),
+			]);
+			expect(outcome).toBe("done");
+
+			const other = await insertWorkspace({
+				state: "stopped",
+				desired_state: "running",
+			});
+			await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), {
+				lastRefreshAt: now,
+			});
+			await untilState(other, "running");
+
+			// The row with a call in flight gets no second call.
+			expect(rebuildCalls).toBe(1);
+			expect((await getWorkspace(slow)).pending_operation).toBe("rebuild");
+		} finally {
+			releaseRebuild();
+			await settleInFlight();
+			fake.rebuild = rebuild;
+		}
+		const ws = await getWorkspace(slow);
+		expect(ws.state).toBe("stopped");
+		expect(ws.pending_operation).toBeNull();
+	},
+);
 
 test.skipIf(skip)(
 	"an archived running workspace is stopped even when it wants to run",
@@ -843,8 +967,10 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)("the drift refresh updates a changed agent address", async () => {
+	// Desired running, so no stop call is in flight for the refresh to skip.
 	const id = await insertWorkspace({
 		state: "running",
+		desired_state: "running",
 		agent_address: "10.200.0.44",
 	});
 	const ws = await getWorkspace(id);
@@ -1205,7 +1331,7 @@ test.skipIf(skip)(
 		await reconcile(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		expect(methods()).toEqual(["stop"]);
 		release();
-		await settleStops();
+		await settleInFlight();
 		await sweep(tdb.db, fake, cfg, new Date(), { lastRefreshAt: now });
 
 		expect(methods()).toEqual(["stop", "resetDocker"]);
@@ -1383,7 +1509,7 @@ test.skipIf(skip)(
 		await reconcile(tdb.db, fake, cfg, new Date(), { lastRefreshAt: now });
 		expect(methods()).toEqual(["stop"]);
 		release();
-		await settleStops();
+		await settleInFlight();
 		await sweep(tdb.db, fake, cfg, new Date(), { lastRefreshAt: now });
 		expect(methods()).toEqual(["stop", "rebuild"]);
 		const ws = await getWorkspace(id);
@@ -1535,8 +1661,8 @@ test.skipIf(skip)(
 		const result = await sweep(tdb.db, slow, cfg, now, { lastRefreshAt: now });
 		const took = Date.now() - began;
 
-		// Every parallel start is counted, none lost to a read before the await.
-		expect(result.transitions).toBe(24);
+		// The sweep counts each move into starting; the move to running happens in the background.
+		expect(result.transitions).toBe(12);
 
 		expect(slow.maxInFlight).toBe(6);
 		expect(took).toBeGreaterThanOrEqual(2 * startMs);
@@ -1596,11 +1722,10 @@ test.skipIf(skip)(
 		});
 		const now = new Date();
 
-		// The create lands in step 3a and the start follows in 3b of the same sweep.
-		await sweep(tdb.db, flaky, cfg, now, {
-			lastRefreshAt: now,
-			createRetryDelaysMs: [10, 10],
-		});
+		// The create runs in the background, so the start follows on the next sweep.
+		const options = { lastRefreshAt: now, createRetryDelaysMs: [10, 10] };
+		await sweep(tdb.db, flaky, cfg, now, options);
+		await sweep(tdb.db, flaky, cfg, new Date(), options);
 		expect((await getWorkspace(id)).state).toBe("running");
 		expect(flaky.calls.filter((c) => c.method === "create")).toHaveLength(2);
 	},
@@ -2043,10 +2168,11 @@ test.skipIf(skip)(
 			new Promise((r) => setTimeout(() => r("hung"), 8000)),
 		]);
 		expect(outcome).toBe("done");
-		expect((await getWorkspace(other)).state).toBe("running");
+		// The start itself runs in the background, beside the stuck stop.
+		await untilState(other, "running");
 
 		release();
-		await settleStops();
+		await settleInFlight();
 		expect((await getWorkspace(stuck)).state).toBe("stopped");
 	},
 	15_000,
@@ -2069,7 +2195,7 @@ test.skipIf(skip)("the list check leaves a stop in flight alone", async () => {
 	expect((await getWorkspace(id)).state).toBe("stopping");
 
 	release();
-	await settleStops();
+	await settleInFlight();
 	expect((await getWorkspace(id)).state).toBe("stopped");
 });
 
@@ -2091,7 +2217,7 @@ test.skipIf(skip)(
 		const list = fake.list;
 		fake.list = async () => {
 			release();
-			await settleStops();
+			await settleInFlight();
 			return [{ name, status: "Running", ipv4: "10.0.0.9" }];
 		};
 		try {
@@ -2118,7 +2244,7 @@ test.skipIf(skip)("a stop records the time it finished, not the sweep's", async 
 	await reconcile(tdb.db, fake, cfg, sweepAt, { lastRefreshAt: sweepAt });
 	const beforeRelease = Date.now();
 	release();
-	await settleStops();
+	await settleInFlight();
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
 	expect(new Date(ws.updated_at).getTime()).toBeGreaterThanOrEqual(beforeRelease);
