@@ -437,6 +437,111 @@ export function registerProjectRoutes(
 		},
 	);
 
+	/**
+	 * Renames a project's folder and row, moving its terminals' working
+	 * directories along. Null after answering a refusal.
+	 */
+	async function renameProject(
+		scope: Scope,
+		row: ProjectRow,
+		name: string,
+		reply: FastifyReply,
+	): Promise<ProjectRow | null> {
+		const slug = slugify(name);
+		if (slug === "") {
+			sendError(
+				reply,
+				400,
+				"INVALID_SLUG",
+				"The project name must contain a letter or a digit.",
+			);
+			return null;
+		}
+		if (slug !== row.slug) {
+			const agent = requireAgent(scope, reply);
+			if (!agent) return null;
+			const taken = await db
+				.selectFrom("projects")
+				.select("id")
+				.where("workspace_id", "=", scope.workspaceId)
+				.where("slug", "=", slug)
+				.executeTakeFirst();
+			if (taken) {
+				sendError(
+					reply,
+					409,
+					"PROJECT_EXISTS",
+					`A project called ${slug} already exists.`,
+				);
+				return null;
+			}
+			try {
+				await agent.renameProject(row.slug, slug);
+			} catch (error) {
+				sendAgentError(reply, error);
+				return null;
+			}
+		}
+
+		const oldPath = row.path;
+		const newPath = projectPath(slug);
+		return await db.transaction().execute(async (trx) => {
+			const updated = await trx
+				.updateTable("projects")
+				.set({ slug, name, path: newPath })
+				.where("id", "=", row.id)
+				.returningAll()
+				.executeTakeFirstOrThrow();
+			// A terminal's cwd is a path under the project that just moved.
+			const terminals = await trx
+				.selectFrom("terminals")
+				.selectAll()
+				.where("project_id", "=", row.id)
+				.execute();
+			for (const terminal of terminals) {
+				if (terminal.cwd !== oldPath && !terminal.cwd.startsWith(`${oldPath}/`)) {
+					continue;
+				}
+				await trx
+					.updateTable("terminals")
+					.set({ cwd: newPath + terminal.cwd.slice(oldPath.length) })
+					.where("id", "=", terminal.id)
+					.execute();
+			}
+			return updated;
+		});
+	}
+
+	/**
+	 * Best effort: archive leaves the directory in place, so a failed
+	 * point must not block it (SPEC.md §7.3, §15.6).
+	 */
+	async function recoveryPointBeforeArchive(
+		request: FastifyRequest,
+		workspaceId: string,
+		agent: AgentClient,
+		project: ProjectRow,
+		userId: string,
+	): Promise<void> {
+		try {
+			await makeRecoveryPoint(db, config, agent, {
+				workspaceId,
+				project,
+				reason: "before-archive",
+				createdBy: userId,
+			});
+		} catch (error) {
+			request.log.warn(
+				{
+					workspaceId,
+					projectId: project.id,
+					code: error instanceof AgentCallError ? error.code : "INTERNAL",
+				},
+				"before-archive recovery point failed",
+			);
+		}
+	}
+
 	// Rename, archive, or unarchive.
 	app.patch(
 		"/workspaces/:id/projects/:pid",
@@ -457,90 +562,21 @@ export function registerProjectRoutes(
 			let current = row;
 
 			if (body.data.name !== undefined && body.data.name !== current.name) {
-				const slug = slugify(body.data.name);
-				if (slug === "") {
-					return sendError(
-						reply,
-						400,
-						"INVALID_SLUG",
-						"The project name must contain a letter or a digit.",
-					);
-				}
-				if (slug !== current.slug) {
-					const agent = requireAgent(scope, reply);
-					if (!agent) return;
-					const taken = await db
-						.selectFrom("projects")
-						.select("id")
-						.where("workspace_id", "=", scope.workspaceId)
-						.where("slug", "=", slug)
-						.executeTakeFirst();
-					if (taken) {
-						return sendError(
-							reply,
-							409,
-							"PROJECT_EXISTS",
-							`A project called ${slug} already exists.`,
-						);
-					}
-					try {
-						await agent.renameProject(current.slug, slug);
-					} catch (error) {
-						return sendAgentError(reply, error);
-					}
-				}
-
-				const oldPath = current.path;
-				const newPath = projectPath(slug);
-				current = await db.transaction().execute(async (trx) => {
-					const updated = await trx
-						.updateTable("projects")
-						.set({ slug, name: body.data.name as string, path: newPath })
-						.where("id", "=", current.id)
-						.returningAll()
-						.executeTakeFirstOrThrow();
-					// A terminal's cwd is a path under the project that just moved.
-					const terminals = await trx
-						.selectFrom("terminals")
-						.selectAll()
-						.where("project_id", "=", current.id)
-						.execute();
-					for (const terminal of terminals) {
-						if (terminal.cwd !== oldPath && !terminal.cwd.startsWith(`${oldPath}/`)) {
-							continue;
-						}
-						await trx
-							.updateTable("terminals")
-							.set({ cwd: newPath + terminal.cwd.slice(oldPath.length) })
-							.where("id", "=", terminal.id)
-							.execute();
-					}
-					return updated;
-				});
+				const renamed = await renameProject(scope, current, body.data.name, reply);
+				if (!renamed) return;
+				current = renamed;
 			}
 
 			if (body.data.state !== undefined && body.data.state !== current.state) {
 				const archiving = body.data.state === "archived";
-				// Best effort: archive leaves the directory in place, so a failed
-				// point must not block it (SPEC.md §7.3, §15.6).
 				if (archiving && scope.agent) {
-					try {
-						await makeRecoveryPoint(db, config, scope.agent, {
-							workspaceId: scope.workspaceId,
-							project: current,
-							reason: "before-archive",
-							createdBy: user.id,
-						});
-					} catch (error) {
-						request.log.warn(
-							{
-								workspaceId: scope.workspaceId,
-								projectId: current.id,
-								code: error instanceof AgentCallError ? error.code : "INTERNAL",
-							},
-							"before-archive recovery point failed",
-						);
-					}
+					await recoveryPointBeforeArchive(
+						request,
+						scope.workspaceId,
+						scope.agent,
+						current,
+						user.id,
+					);
 				}
 				current = await db
 					.updateTable("projects")
@@ -773,6 +809,28 @@ export function registerProjectRoutes(
 		},
 	);
 
+	/** Answers 204 when the download would be under the size cap. */
+	async function checkDownloadSize(
+		agent: AgentClient,
+		slug: string,
+		subPath: string,
+		reply: FastifyReply,
+	) {
+		let checked: Response;
+		try {
+			checked = await agent.fetchRaw(
+				"GET",
+				agentUrl(slug, "archive", { path: subPath, check: "1" }),
+				{ signal: AbortSignal.timeout(AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS) },
+			);
+		} catch (error) {
+			return sendAgentError(reply, error);
+		}
+		if (!checked.ok) return sendAgentError(reply, await readAgentError(checked));
+		await checked.body?.cancel();
+		return reply.status(204).send();
+	}
+
 	// The agent's zip, streamed.
 	// With `?path=` it is one directory inside the project (SPEC.md §11.2).
 	app.get("/workspaces/:id/projects/:pid/download", async (request, reply) => {
@@ -805,19 +863,7 @@ export function registerProjectRoutes(
 		// `check=1` asks only whether the download is under the size cap, so
 		// the browser can explain a refusal before it starts a download.
 		if ((request.query as { check?: unknown }).check === "1") {
-			let checked: Response;
-			try {
-				checked = await agent.fetchRaw(
-					"GET",
-					agentUrl(row.slug, "archive", { path: subPath, check: "1" }),
-					{ signal: AbortSignal.timeout(AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS) },
-				);
-			} catch (error) {
-				return sendAgentError(reply, error);
-			}
-			if (!checked.ok) return sendAgentError(reply, await readAgentError(checked));
-			await checked.body?.cancel();
-			return reply.status(204).send();
+			return checkDownloadSize(agent, row.slug, subPath, reply);
 		}
 
 		// Zipping runs while the response streams, so the slot is held until the

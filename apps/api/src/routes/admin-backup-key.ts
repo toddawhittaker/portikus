@@ -225,6 +225,37 @@ export function registerAdminBackupKeyRoutes(
 			.send(key);
 	});
 
+	// Answers a key helper "error <reason>" reply to an upload.
+	async function refuseUpload(reply: FastifyReply, adminId: string, reason: string) {
+		if (reason === "invalid" || reason === "too-large") {
+			await audit(adminId, "backup.key_uploaded", "refused", { reason });
+			return sendError(
+				reply,
+				400,
+				"BACKUP_KEY_INVALID",
+				"That file is not a backup key. Choose the portikus-backup-key.txt you downloaded.",
+			);
+		}
+		if (reason === "exists") {
+			await audit(adminId, "backup.key_uploaded", "refused", { reason });
+			return sendError(
+				reply,
+				409,
+				"BACKUP_KEY_EXISTS",
+				"This server already has a different backup key. Confirm to replace it.",
+			);
+		}
+		if (reason === "busy") {
+			return sendError(
+				reply,
+				409,
+				"BACKUP_RUNNING",
+				"A backup is running. Upload the key when it ends.",
+			);
+		}
+		return unavailable(reply, new KeyHelperError(`the upload was refused (${reason})`));
+	}
+
 	app.post("/admin/backups/key", adminOnly, async (request, reply) => {
 		if (off(reply) || !socketPath) return;
 		const admin = requireUser(request);
@@ -248,37 +279,7 @@ export function registerAdminBackupKeyRoutes(
 			return unavailable(reply, error);
 		}
 		if (words[0] === "error") {
-			const reason = words[1] ?? "unknown";
-			if (reason === "invalid" || reason === "too-large") {
-				await audit(admin.id, "backup.key_uploaded", "refused", { reason });
-				return sendError(
-					reply,
-					400,
-					"BACKUP_KEY_INVALID",
-					"That file is not a backup key. Choose the portikus-backup-key.txt you downloaded.",
-				);
-			}
-			if (reason === "exists") {
-				await audit(admin.id, "backup.key_uploaded", "refused", { reason });
-				return sendError(
-					reply,
-					409,
-					"BACKUP_KEY_EXISTS",
-					"This server already has a different backup key. Confirm to replace it.",
-				);
-			}
-			if (reason === "busy") {
-				return sendError(
-					reply,
-					409,
-					"BACKUP_RUNNING",
-					"A backup is running. Upload the key when it ends.",
-				);
-			}
-			return unavailable(
-				reply,
-				new KeyHelperError(`the upload was refused (${reason})`),
-			);
+			return refuseUpload(reply, admin.id, words[1] ?? "unknown");
 		}
 		const outcome = words[1];
 		const recipient = BackupRecipient.safeParse(words[2]);

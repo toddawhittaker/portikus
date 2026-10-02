@@ -145,6 +145,60 @@ function queryPath(
 	return parsed.data;
 }
 
+// Relays the agent's file stream with the headers the viewer, the
+// download, and the editor's conditional save each need.
+async function sendFile(
+	reply: FastifyReply,
+	response: Response,
+	body: ReadableStream<Uint8Array>,
+	path: string,
+	download: boolean,
+	inline: string | null,
+) {
+	const etag = response.headers.get("etag");
+	if (etag) reply.header("etag", etag);
+	// The editor saves conditionally on this etag, so nothing between
+	// here and the browser may rewrite it. Caddy's gzip compression
+	// otherwise appends "-gzip" to the etag, the next save sends that
+	// back as If-Match, and the agent refuses a save nobody conflicted
+	// with (SPEC.md §13.5).
+	reply.header("cache-control", "no-transform");
+	const length = response.headers.get("content-length");
+	if (Number(length) > DOWNLOAD_RELAY_LIMIT) {
+		await body.cancel();
+		return sendError(
+			reply,
+			413,
+			"FILE_TOO_LARGE",
+			"That file is larger than the download limit.",
+		);
+	}
+	if (length) reply.header("content-length", length);
+	if (download) {
+		// The name comes from the path the student asked for, quoted and
+		// escaped here rather than anywhere near a shell.
+		reply.header("content-disposition", contentDisposition(basename(path)));
+	}
+	if (inline) {
+		reply.header("x-content-type-options", "nosniff");
+		reply.header("content-security-policy", INLINE_CSP);
+		reply.type(inline);
+	} else {
+		reply.type(pinnedType(response.headers.get("content-type")));
+	}
+	return reply.send(cappedDownload(body));
+}
+
+// The request headers a conditional write passes on to the agent.
+function writeHeaders(incoming: Record<string, string | string[] | undefined>) {
+	const headers: Record<string, string> = {};
+	for (const name of ["if-match", "if-none-match", "content-type"]) {
+		const value = incoming[name];
+		if (typeof value === "string") headers[name] = value;
+	}
+	return headers;
+}
+
 /**
  * File routes (SPEC.md §11.1, §11.2, §13.5). The control plane brokers every
  * one of them: the browser never reaches the workspace agent, and the agent
@@ -258,38 +312,7 @@ export function registerFileRoutes(
 				);
 			}
 
-			const etag = response.headers.get("etag");
-			if (etag) reply.header("etag", etag);
-			// The editor saves conditionally on this etag, so nothing between
-			// here and the browser may rewrite it. Caddy's gzip compression
-			// otherwise appends "-gzip" to the etag, the next save sends that
-			// back as If-Match, and the agent refuses a save nobody conflicted
-			// with (SPEC.md §13.5).
-			reply.header("cache-control", "no-transform");
-			const length = response.headers.get("content-length");
-			if (Number(length) > DOWNLOAD_RELAY_LIMIT) {
-				await response.body.cancel();
-				return sendError(
-					reply,
-					413,
-					"FILE_TOO_LARGE",
-					"That file is larger than the download limit.",
-				);
-			}
-			if (length) reply.header("content-length", length);
-			if (download) {
-				// The name comes from the path the student asked for, quoted and
-				// escaped here rather than anywhere near a shell.
-				reply.header("content-disposition", contentDisposition(basename(path)));
-			}
-			if (inline) {
-				reply.header("x-content-type-options", "nosniff");
-				reply.header("content-security-policy", INLINE_CSP);
-				reply.type(inline);
-			} else {
-				reply.type(pinnedType(response.headers.get("content-type")));
-			}
-			return reply.send(cappedDownload(response.body));
+			return sendFile(reply, response, response.body, path, download, inline);
 		});
 
 		// A conditional write, streamed through (SPEC.md §13.5). It
@@ -310,11 +333,7 @@ export function registerFileRoutes(
 				const path = queryPath(request, reply, { allowRoot: false });
 				if (path === null) return;
 
-				const headers: Record<string, string> = {};
-				for (const name of ["if-match", "if-none-match", "content-type"]) {
-					const value = request.headers[name];
-					if (typeof value === "string") headers[name] = value;
-				}
+				const headers = writeHeaders(request.headers);
 
 				// The control plane counts the bytes itself, so the cap holds
 				// whatever the agent does with the stream (SPEC.md §11.2).
