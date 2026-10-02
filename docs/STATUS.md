@@ -3952,6 +3952,8 @@ Delivered:
 - Toggletips no longer pull focus back to their button a moment after
   closing, which could close a tip opened next (seen as a flaky
   a11y-workspace-states test).
+- Switching projects no longer flashes the "No terminals open" screen;
+  it waits until the layout and terminal list have loaded.
 - The rehearsal VM ran the full smoke test, including the lifecycle,
   terminal, project, recovery and boundary files that the pilot skips.
 
