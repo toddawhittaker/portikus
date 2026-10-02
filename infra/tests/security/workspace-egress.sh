@@ -23,7 +23,9 @@ we_policy=$(sec_psql "SELECT egress_mode || ' ' || array_to_string(egress_preset
 we_start_mode=${we_policy%% *}
 we_start_presets=${we_policy#* }
 [ "$we_start_presets" = "$we_policy" ] && we_start_presets=""
-echo "Gateway ${we_gateway}, workspace a ${we_a_ip}, policy: ${we_start_mode} (presets: ${we_start_presets:-none})"
+we_443=closed
+sec_ghcr_cache_on && we_443="$SEC_GATEWAY_443_BASH"
+echo "Gateway ${we_gateway}, workspace a ${we_a_ip}, policy: ${we_start_mode} (presets: ${we_start_presets:-none}), gateway 443 expected: ${we_443}"
 if [ -z "$we_gateway" ] || [ -z "$we_a_ip" ] || [ -z "$we_start_mode" ]; then
   bad "workspace egress setup: the gateway, a's address and the policy are known"
   return 0
@@ -40,6 +42,7 @@ we_probe_bash() {
 gw=${we_gateway}
 vm=${SEC_VM}
 EOF
+  sec_gateway_443_probe bash "$we_gateway"
   cat <<'EOF'
 p() { printf '%s %s\n' "$1" "$2"; }
 tcp() { timeout 4 bash -c "exec 3<>/dev/tcp/$1/$2" 2>/dev/null && echo open || echo closed; }
@@ -88,7 +91,8 @@ ws_upgrade() {
   echo 000
 }
 p ws_upgrade "$(ws_upgrade)"
-p gateway_other_ports "$(for port in 22 80 443 3000 3001 3128 3199 5398 5399 8443; do tcp "$gw" "$port"; done | sort -u | paste -sd,)"
+p gateway_other_ports "$(for port in 22 80 3000 3001 3128 3199 5398 5399 8443; do tcp "$gw" "$port"; done | sort -u | paste -sd,)"
+p gateway_443 "$(g443)"
 EOF
 }
 
@@ -172,6 +176,7 @@ we_check_open() {
   we_expect "open, a" "$r" private_vm closed "the VM stays unreachable"
   we_expect "open, a" "$r" direct_proxy_ports "closed/closed/closed/silent" "the redirect targets cannot be used directly"
   we_expect "open, a" "$r" gateway_other_ports closed "the gateway is closed on every other port probed"
+  we_expect "open, a" "$r" gateway_443 "$we_443" "the gateway's 443 is closed, or with the ghcr.io cache on reaches only the cache"
   r=$(we_run_docker)
   we_expect "open, a's Docker" "$r" unlisted_resolves yes "any name resolves"
   we_expect "open, a's Docker" "$r" unlisted_host_on_listed_address '!403' "plain HTTP is not intercepted (control)"
@@ -217,6 +222,7 @@ we_check_open_blocked() {
   we_expect "blocked, a" "$r" direct_proxy_ports "closed/closed/closed/silent" "the redirect targets cannot be used directly"
   we_expect "blocked, a" "$r" direct_forward_proxy 000 "the proxy cannot be used as a forward proxy"
   we_expect "blocked, a" "$r" gateway_other_ports closed "the gateway is closed on every other port probed"
+  we_expect "blocked, a" "$r" gateway_443 "$we_443" "the gateway's 443 is closed, or with the ghcr.io cache on reaches only the cache"
   # Public echo services come and go: none answering is not a failure of ours.
   ws=$(printf '%s\n' "$r" | awk '$1 == "ws_upgrade" { print $2; exit }')
   if [ "$ws" = 000 ]; then
@@ -315,6 +321,7 @@ we_check_allow_list() {
   we_expect "allow-list, a" "$r" direct_proxy_ports "closed/closed/closed/silent" "the redirect targets cannot be used directly"
   we_expect "allow-list, a" "$r" direct_forward_proxy 000 "the proxy cannot be used as a forward proxy"
   we_expect "allow-list, a" "$r" gateway_other_ports closed "the gateway is closed on every other port probed"
+  we_expect "allow-list, a" "$r" gateway_443 "$we_443" "the gateway's 443 is closed, or with the ghcr.io cache on reaches only the cache"
   check_output "allow-list, a: UDP 443 (QUIC) to a listed address never leaves the VM" "0" we_quic_leaks
 
   # The peers stay apart in allow-list mode too.  b's listener answers the VM (control).

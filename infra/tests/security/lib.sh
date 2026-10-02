@@ -438,6 +438,60 @@ sec_docker_exec() {
   sec_exec "$key" student "docker run --rm ${net} ${SEC_DOCKER_IMAGE} sh -c $(printf '%q' "$1")"
 }
 
+# ── The ghcr.io cache on the gateway's port 443 ──────────────────
+
+# While the ghcr.io cache is on, the VM redirects a workspace's TCP 443 to
+# the gateway to the cache on :5001 (SPEC.md 16.6, ADR 0045), so that one
+# port is open.  The switch file is what the smoke test reads too.
+sec_ghcr_cache_on() {
+  [ "$(sec_ssh "cat /etc/portikus/registry/ghcr-enabled" 2>/dev/null)" = on ]
+}
+
+# The answer sec_gateway_443_probe prints when the port reaches the cache and
+# nothing else: /v2/ answers as a registry, the site's health path through the
+# site's own name gets the registry's 404, and, where openssl exists, the
+# certificate is the one the cache serves on :5001.
+SEC_GATEWAY_443_BASH="200/registry/2.0/404/same-as-5001"
+SEC_GATEWAY_443_SH="200/registry/2.0/404"
+
+# sec_gateway_443_probe bash|sh GATEWAY -- a probe script printing "closed",
+# or the registry evidence in the form of the two values above.  bash runs as
+# the workspace's own user with curl; sh runs in Alpine with busybox wget.
+sec_gateway_443_probe() {
+  local gw="$2"
+  if [ "$1" = bash ]; then
+    cat <<EOF
+gw=${gw}; site=${SEC_PUBLIC_HOST}
+EOF
+    cat <<'EOF'
+g443() {
+  timeout 4 bash -c "exec 3<>/dev/tcp/$gw/443" 2>/dev/null || { echo closed; return; }
+  v2=$(curl -sk --noproxy '*' -D - -o /dev/null --max-time 10 "https://${gw}/v2/" | tr -d '\r' \
+    | awk 'NR == 1 { c = $2 } tolower($1) == "docker-distribution-api-version:" { v = $2 } END { print (c ? c : "000") "/" (v ? v : "none") }')
+  s=$(curl -sk --noproxy '*' -o /dev/null -w '%{http_code}' --max-time 10 --resolve "${site}:443:${gw}" "https://${site}/health")
+  fp() { timeout 10 openssl s_client -connect "$1" -servername ghcr.io </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null; }
+  a=$(fp "${gw}:443"); b=$(fp "${gw}:5001")
+  if [ -n "$a" ] && [ "$a" = "$b" ]; then c=same-as-5001; else c="different(${a:-none})"; fi
+  echo "${v2}/${s}/${c}"
+}
+EOF
+  else
+    cat <<EOF
+gw=${gw}; site=${SEC_PUBLIC_HOST}
+EOF
+    cat <<'EOF'
+g443() {
+  nc -z -w 4 "$gw" 443 2>/dev/null || { echo closed; return; }
+  v2=$(wget -S -q -T 10 --no-check-certificate -O /dev/null "https://${gw}/v2/" 2>&1 | tr -d '\r' \
+    | awk '/^ *HTTP\// && !c { c = $2 } tolower($1) == "docker-distribution-api-version:" { v = $2 } END { print (c ? c : "000") "/" (v ? v : "none") }')
+  s=$(wget -S -q -T 10 --no-check-certificate -O /dev/null --header "Host: ${site}" "https://${gw}/health" 2>&1 \
+    | awk 'match($0, /HTTP\/[0-9.]+ [0-9]+/) { split(substr($0, RSTART, RLENGTH), x, " "); print x[2]; exit }')
+  echo "${v2}/${s:-000}"
+}
+EOF
+  fi
+}
+
 # ── Cleanup ──────────────────────────────────────────────────────
 
 # Deletes only what this run recorded, and even then only rows owned by a
