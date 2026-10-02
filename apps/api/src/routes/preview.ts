@@ -40,8 +40,8 @@ import {
 	createPreviewLookupCache,
 	createPreviewSession,
 	loadPreviewSession,
+	type PreviewLookup,
 	type PreviewSessionRow,
-	type PreviewWorkspaceRow,
 	revokedForStoppedWorkspace,
 	revokePreviewSession,
 	revokeWorkspacePreviewSessions,
@@ -593,7 +593,7 @@ export function registerPreviewRoutes(
 			host: string;
 			parsed: PreviewHostParts;
 			session: PreviewSessionRow;
-			workspace: PreviewWorkspaceRow | null;
+			workspace: PreviewLookup["workspace"];
 		}>
 	> {
 		// Only Caddy on this machine may ask. The peer address is used, not
