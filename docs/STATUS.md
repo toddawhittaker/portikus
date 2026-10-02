@@ -3957,6 +3957,8 @@ Delivered:
 - The security suite expects the gateway's port 443 to be open while
   the ghcr.io cache is on and proves it reaches only the cache; with the
   cache off it expects the port closed.
+- Local end-to-end runs no longer leave test servers behind when stopped
+  with Ctrl-C or SIGTERM, and never reuse a server already on a test port.
 - The rehearsal VM ran the full smoke test, including the lifecycle,
   terminal, project, recovery and boundary files that the pilot skips.
 
