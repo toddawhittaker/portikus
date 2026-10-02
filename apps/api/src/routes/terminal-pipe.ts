@@ -91,7 +91,7 @@ function endingFrame(text: string): "gone" | "exit" | "server-gone" | null {
 }
 
 /** How long a server-gone `exit` waits for the terminals unit's record, and how often it asks. */
-export const EXIT_RECORD_WAIT_MS = 2000;
+const EXIT_RECORD_WAIT_MS = 2000;
 const EXIT_RECORD_POLL_MS = 250;
 
 /**

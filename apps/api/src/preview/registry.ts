@@ -53,7 +53,7 @@ interface Entry {
 	closed: boolean;
 }
 
-export type ListeningListener = (services: ListeningService[]) => void;
+type ListeningListener = (services: ListeningService[]) => void;
 
 /**
  * The control plane's view of what is listening inside every running

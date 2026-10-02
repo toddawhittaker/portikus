@@ -19,7 +19,7 @@ import bcrypt from "bcryptjs";
 const PROTO_PATH = fileURLToPath(new URL("../proto/dex-api.proto", import.meta.url));
 
 /** The users file's cost (dex_bcrypt_pattern); Dex refuses anything below 10. */
-export const DEX_BCRYPT_COST = 10;
+const DEX_BCRYPT_COST = 10;
 
 /** Length of a generated password. */
 export const DEX_PASSWORD_LENGTH = 20;

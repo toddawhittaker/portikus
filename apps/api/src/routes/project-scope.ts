@@ -40,7 +40,7 @@ export interface Scope {
 }
 
 /** The status and code each agent error becomes (SPEC.md §27). */
-export const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>> = {
+const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>> = {
 	PROJECT_EXISTS: [409, "PROJECT_EXISTS"],
 	PROJECT_NOT_FOUND: [404, "PROJECT_NOT_FOUND"],
 	INVALID_SLUG: [400, "INVALID_SLUG"],

@@ -54,7 +54,7 @@ export const AGENT_PROBE_TIMEOUT_MS = 1500;
  * Stopping waits three seconds for SIGTERM before SIGKILL, so the agent needs
  * longer than the usual call (SPEC.md 18.2).
  */
-export const STOP_TIMEOUT_MS = 20_000;
+const STOP_TIMEOUT_MS = 20_000;
 
 /** Creating a project may clone a repository, which is slow. */
 const AGENT_CREATE_PROJECT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -63,7 +63,7 @@ const AGENT_CREATE_PROJECT_TIMEOUT_MS = 5 * 60 * 1000;
 const AGENT_DUPLICATE_PROJECT_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
 
 /** Archiving or restoring a project walks the whole tree, as a copy does. */
-export const AGENT_RECOVERY_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
+const AGENT_RECOVERY_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;
 
 /** Extracting a zip writes up to a gigabyte, as a copy does. */
 export const AGENT_EXTRACT_TIMEOUT_MS = AGENT_CREATE_PROJECT_TIMEOUT_MS;

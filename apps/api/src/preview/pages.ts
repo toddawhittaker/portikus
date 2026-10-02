@@ -9,7 +9,7 @@
 import { escapeHtml } from "../http.js";
 
 /** A minimal self-contained page; previews load no Portikus subresources. */
-export function previewPage(title: string, body: string): string {
+function previewPage(title: string, body: string): string {
 	return [
 		"<!doctype html>",
 		'<html lang="en"><head><meta charset="utf-8">',

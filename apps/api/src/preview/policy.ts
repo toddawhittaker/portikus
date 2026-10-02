@@ -12,7 +12,7 @@ export function portAllowed(config: ApiConfig, port: number): boolean {
 }
 
 /** The public port a preview URL carries; 443 is left off the host. */
-export function previewPublicPort(config: ApiConfig): number | null {
+function previewPublicPort(config: ApiConfig): number | null {
 	let port: string;
 	try {
 		port = new URL(config.PUBLIC_URL).port;
