@@ -10,7 +10,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { request, sendJson } from "../api/request.js";
 
-export const profileKey = ["me", "profile"] as const;
+const profileKey = ["me", "profile"] as const;
 
 /** The signed-in user's profile. */
 export function useProfile() {
@@ -59,7 +59,7 @@ export function useRemovePicture() {
 	);
 }
 
-export const linksKey = ["me", "links"] as const;
+const linksKey = ["me", "links"] as const;
 
 /** Whether this is a course or an SSO account, and its links (ADR 0026). */
 export function useMyLinks() {

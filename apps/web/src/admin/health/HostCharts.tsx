@@ -12,7 +12,7 @@ export function formatPercent(value: number): string {
 	return `${Math.round(value)}%`;
 }
 
-export function formatLoad(value: number): string {
+function formatLoad(value: number): string {
 	return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 

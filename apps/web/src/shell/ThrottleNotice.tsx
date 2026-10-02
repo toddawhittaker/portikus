@@ -3,9 +3,9 @@ import { Button, Icon, IconButton } from "@portikus/ui";
 import type { RefObject } from "react";
 import { useFocusFallback } from "./useFocusFallback.js";
 
-export const THROTTLE_TITLE = "Your workspace has been slowed down";
+const THROTTLE_TITLE = "Your workspace has been slowed down";
 
-export function throttleBody(throttle: WorkspaceCpuThrottle): string {
+function throttleBody(throttle: WorkspaceCpuThrottle): string {
 	const lift =
 		throttle.idleLiftMinutes !== null && throttle.idleLiftPercent !== null
 			? ` It returns to full speed on its own after ${throttle.idleLiftMinutes} minutes under ${throttle.idleLiftPercent}% use.`

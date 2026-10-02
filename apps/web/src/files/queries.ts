@@ -40,7 +40,7 @@ function treeUrl(workspaceId: string, projectId: string, dir: string): string {
 }
 
 /** The URL of one file, for reading and writing. */
-export function fileUrl(workspaceId: string, projectId: string, path: string): string {
+function fileUrl(workspaceId: string, projectId: string, path: string): string {
 	return `${base(workspaceId, projectId)}/file?path=${encodeURIComponent(path)}`;
 }
 

@@ -45,8 +45,7 @@ const INTRO = {
 	text: "The certificate that secures this site and its preview names. Keep Caddy's internal authority, get a trusted one from Let's Encrypt or another ACME authority, or upload your institution's own. A change is checked first and undone if the new certificate does not arrive.",
 };
 
-export const BUSY_REASON =
-	"A certificate job is waiting or running. Wait until it finishes.";
+const BUSY_REASON = "A certificate job is waiting or running. Wait until it finishes.";
 
 /** The Certificate tab of the admin page (docs/SPEC.md section 20.1; ADR 0046). */
 export function CertificateTab() {

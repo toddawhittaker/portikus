@@ -27,13 +27,13 @@ const TONE_CLASS: Record<string, string> = {
 };
 
 /** A status bar meter turns to the warning tone from this share of the limit up. */
-export const METER_WARN_AT = 0.85;
+const METER_WARN_AT = 0.85;
 
 /** Once warning, a meter stays so until use falls below this, so it does not flicker. */
-export const METER_CLEAR_BELOW = 0.8;
+const METER_CLEAR_BELOW = 0.8;
 
 /** Disk turns to the error tone here, the storage warning's "nearly full" line. */
-export const METER_FULL_AT = CRITICAL_AT;
+const METER_FULL_AT = CRITICAL_AT;
 
 /** Fixed text for the live region, so a changing figure is not re-announced. */
 export const MEMORY_ANNOUNCEMENT = "Your workspace is using most of its memory.";

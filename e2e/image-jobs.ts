@@ -10,11 +10,11 @@ import { API_PORT } from "./ports";
  * status, log, manifests, health results and aliases the real job would.
  * Keyed by the API's port so two runs on one machine never share it.
  */
-export const IMAGE_ROOT = join(tmpdir(), `portikus-e2e-image-${API_PORT}`);
+const IMAGE_ROOT = join(tmpdir(), `portikus-e2e-image-${API_PORT}`);
 export const IMAGE_JOBS_DIR = join(IMAGE_ROOT, "image-jobs");
 export const IMAGES_DIR = join(IMAGE_ROOT, "images");
 
-export interface FakeImage {
+interface FakeImage {
 	version: string;
 	fingerprint: string;
 	node?: "24" | "26";

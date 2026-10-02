@@ -11,8 +11,6 @@ import { request, sendJson } from "../api/request.js";
 
 export type Grant = PreviewGrantResponse;
 
-export { MIN_PREVIEW_PORT } from "../links.js";
-
 export async function requestGrant(
 	workspaceId: string,
 	port: number,

@@ -3,9 +3,9 @@ import { Button, Icon, IconButton } from "@portikus/ui";
 import type { RefObject } from "react";
 import { useFocusFallback } from "./useFocusFallback.js";
 
-export const MEMORY_TITLE = "Your workspace has been near its memory limit";
+const MEMORY_TITLE = "Your workspace has been near its memory limit";
 
-export function memoryBody(flag: MemoryFlag): string {
+function memoryBody(flag: MemoryFlag): string {
 	return `For ${flag.windowMinutes} minutes it used more than ${flag.thresholdPercent}% of its memory. If it runs out, the biggest program is stopped.`;
 }
 

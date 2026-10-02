@@ -405,7 +405,7 @@ export function openFile(
 }
 
 /** The id of the one tab that shows `path`. */
-export function fileTabId(path: string): string {
+function fileTabId(path: string): string {
 	return `file:${path}`;
 }
 
