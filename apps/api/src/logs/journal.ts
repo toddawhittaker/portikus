@@ -3,7 +3,7 @@ import type { Readable } from "node:stream";
 import { JOURNAL_CURSOR, type LogLevel, type LogService } from "@portikus/contracts";
 
 /** The only units the Logs tab reads, and the service each one is (docs/adr/0036). */
-export const PORTIKUS_UNITS: Readonly<Record<string, LogService>> = {
+const PORTIKUS_UNITS: Readonly<Record<string, LogService>> = {
 	"portikus-api.service": "api",
 	"portikus-worker.service": "worker",
 	"portikus-controller.service": "controller",
@@ -70,7 +70,7 @@ export interface JournalChild {
 export type SpawnJournal = (path: string, args: readonly string[]) => JournalChild;
 
 // journalctl gets no copy of the API's secrets, which a core dump would record.
-export const JOURNAL_ENV = { PATH: "/usr/bin:/bin", LANG: "C.UTF-8" };
+const JOURNAL_ENV = { PATH: "/usr/bin:/bin", LANG: "C.UTF-8" };
 
 const spawnWithoutShell: SpawnJournal = (path, args) =>
 	nodeSpawn(path, args, {

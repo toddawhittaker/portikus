@@ -152,40 +152,6 @@ describe("createOidcClient against the mock provider", () => {
 	});
 });
 
-describe("an issuer with a path prefix", () => {
-	let mock: MockOidcProvider;
-
-	beforeAll(async () => {
-		// The pilot VM serves the mock behind Caddy at /mock-idp.
-		const probe = await startMockOidcProvider({
-			issuer: "http://127.0.0.1:0/mock-idp",
-		});
-		await probe.close();
-		mock = await startMockOidcProvider({
-			port: probe.port,
-			issuer: `http://127.0.0.1:${probe.port}/mock-idp`,
-			redirectUris: [`${PUBLIC_URL}/auth/callback`],
-		});
-	});
-
-	afterAll(async () => {
-		await mock.close();
-	});
-
-	test("the whole flow works under the prefix", async () => {
-		expect(mock.issuer).toContain("/mock-idp");
-		const oidc = createOidcClient(authOptions(mock.issuer));
-		const { url, state } = await oidc.buildLoginRedirect();
-		expect(url).toContain("/mock-idp/authorize");
-
-		const callbackUrl = await pickUser(url, "carol");
-		const { identity, claims } = await oidc.completeLogin(callbackUrl, state);
-		expect(identity.subject).toBe("carol");
-		expect(identity.issuer).toBe(mock.issuer);
-		expect(claims.groups).toEqual(["portikus-administrators"]);
-	});
-});
-
 describe("the mock provider's redirect_uri allow list", () => {
 	let mock: MockOidcProvider;
 

@@ -29,7 +29,7 @@ export async function readPublished(
 }
 
 /** Every image version with a directory in the store. */
-export async function versionsOnServer(imagesDir: string): Promise<ImageVersion[]> {
+async function versionsOnServer(imagesDir: string): Promise<ImageVersion[]> {
 	let names: string[];
 	try {
 		names = await readdir(imagesDir);

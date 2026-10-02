@@ -29,7 +29,7 @@ const HelperStatus = z
 	})
 	.strict();
 
-export class KeyHelperError extends Error {}
+class KeyHelperError extends Error {}
 
 /**
  * One request to the root backup key helper (portikus-backup-key.socket,

@@ -12,7 +12,7 @@ export interface LtiLoginState {
 }
 
 /** How long a login may take between `/lti/login` and `/lti/launch`. */
-export const LTI_STATE_TTL_SECONDS = 600;
+const LTI_STATE_TTL_SECONDS = 600;
 
 const STATE_COOKIE_PREFIX = "__Host-portikus_lti_state_";
 
@@ -105,7 +105,7 @@ export function ltiStateCookieOptions(): CookieSerializeOptions {
 }
 
 /** At most this many older state cookies survive a new login. */
-export const LTI_STATE_COOKIES_KEPT = 4;
+const LTI_STATE_COOKIES_KEPT = 4;
 
 /**
  * Names of the oldest state cookies to clear so at most
