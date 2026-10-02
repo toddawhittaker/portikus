@@ -1,5 +1,12 @@
-import { execFile, spawn } from "node:child_process";
-import { mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	realpath,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -347,18 +354,59 @@ test.skipIf(!haveTmux || process.platform !== "linux")(
 	},
 );
 
+/** A `sleep` that is `pid` or one of its descendants, from /proc. */
+async function sleepUnder(pid: number): Promise<number | undefined> {
+	const tree = [pid];
+	for (let at = 0; at < tree.length; at++) {
+		const comm = await readFile(`/proc/${tree[at]}/comm`, "utf8").catch(() => "");
+		if (comm.trim() === "sleep") return tree[at];
+		tree.push(...(await childPids(tree[at] as number)));
+	}
+	return undefined;
+}
+
+// A program the student starts through the agent is theirs to stop (SPEC.md §18.3).
 test.skipIf(!haveTmux || process.platform !== "linux")(
-	"a stop refuses any descendant of the agent",
+	"a stop reaches a check run and its children",
 	async () => {
-		const child = spawn("sleep", ["300"], { stdio: "ignore" });
-		try {
-			await new Promise((resolve) => child.once("spawn", resolve));
-			const refused = await stopPid(child.pid as number);
-			expect(refused.statusCode).toBe(403);
-			expect(refused.json().error.code).toBe("PROCESS_PROTECTED");
-			expect(child.exitCode).toBeNull();
-		} finally {
-			child.kill("SIGKILL");
+		const slug = "stoppable";
+		const checks = [
+			{ id: "direct", name: "Direct", command: "sleep 300" },
+			{ id: "nested", name: "Nested", command: "sleep 301; true" },
+		];
+		await mkdir(join(homeDir, "projects", slug, ".portikus"), { recursive: true });
+		await writeFile(
+			join(homeDir, "projects", slug, ".portikus", "checks.json"),
+			JSON.stringify({ checks }),
+		);
+		for (const check of checks) {
+			const before = new Set(await childPids(process.pid));
+			const started = await app.inject({
+				method: "POST",
+				url: `/projects/${slug}/checks/${check.id}/runs`,
+				headers: auth(),
+			});
+			expect(started.statusCode).toBe(201);
+			let program: number | undefined;
+			const deadline = Date.now() + 5000;
+			while (program === undefined && Date.now() < deadline) {
+				for (const pid of await childPids(process.pid)) {
+					if (!before.has(pid)) program ??= await sleepUnder(pid);
+				}
+				if (program === undefined) await new Promise((r) => setTimeout(r, 50));
+			}
+			try {
+				expect(program, check.id).toBeDefined();
+				const stopped = await stopPid(program as number);
+				expect(stopped.statusCode, check.id).toBe(200);
+				expect(stopped.json().exited).toBe(true);
+			} finally {
+				await app.inject({
+					method: "DELETE",
+					url: `/projects/${slug}/checks/${check.id}/runs/current`,
+					headers: auth(),
+				});
+			}
 		}
 	},
 );

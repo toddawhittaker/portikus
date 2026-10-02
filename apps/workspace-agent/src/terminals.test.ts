@@ -179,6 +179,21 @@ test.skipIf(!haveTmux)(
 	},
 );
 
+// A stop that hits an attach client closes the student's terminal (SPEC.md §18.3).
+test.skipIf(!haveTmux)(
+	"the attach clients' PIDs are known while they run",
+	async () => {
+		const { pty, registry, id } = await attachFake();
+		expect([...registry.attachPids()]).toEqual([pty.pid]);
+
+		pty.exit();
+		expect([...registry.attachPids()]).toEqual([]);
+
+		registry.closeAll(id, 1000, "done");
+		await killSession(id, SERVER);
+	},
+);
+
 test.skipIf(!haveTmux)("early input is flushed after the queue timeout", async () => {
 	// Real time rather than a frozen clock: the queue's timer is created
 	// inside `attach`, which also awaits tmux, and a clock taken over part way

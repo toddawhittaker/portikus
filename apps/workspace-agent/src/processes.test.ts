@@ -135,36 +135,35 @@ test("PID 1, the agent, its terminals' tmux processes and anyone else's process 
 	}
 });
 
-test("the protected tree is the agent's descendants, tmux and its pane shells", async () => {
+test("only the agent, its attach clients, tmux and its pane shells are protected", async () => {
 	const root = await mkdtemp(join(tmpdir(), "portikus-tree-"));
 	try {
-		// [pid, ppid]: the agent 10 with an attach client 11 and its child 12;
-		// the tmux server 20 with pane shells 21 and 22; a program 23 under a
-		// shell and its child 24; an unrelated process 30 and its child 31.
+		// [pid, ppid]: the agent 10 with an attach client 11 and a check run 13
+		// whose child is 14; the tmux server 20 with pane shells 21 and 22; a
+		// program 23 under a shell and its child 24; an unrelated process 30.
 		const tree: [number, number][] = [
 			[1, 0],
 			[10, 1],
 			[11, 10],
-			[12, 11],
+			[13, 10],
+			[14, 13],
 			[20, 1],
 			[21, 20],
 			[22, 20],
 			[23, 21],
 			[24, 23],
 			[30, 1],
-			[31, 30],
 		];
 		for (const [pid, ppid] of tree) {
 			await mkdir(join(root, String(pid)));
 			await writeFile(join(root, String(pid), "stat"), stat(pid, "x", "S", 1, ppid));
 		}
 		await mkdir(join(root, "self"));
-		expect([...(await protectedTree(root, 10, 20))].sort((a, b) => a - b)).toEqual([
-			10, 11, 12, 20, 21, 22,
+		const sorted = (pids: Set<number>) => [...pids].sort((a, b) => a - b);
+		expect(sorted(await protectedTree(root, 10, 20, [11]))).toEqual([
+			10, 11, 20, 21, 22,
 		]);
-		expect([...(await protectedTree(root, 10, null))].sort((a, b) => a - b)).toEqual([
-			10, 11, 12,
-		]);
+		expect(sorted(await protectedTree(root, 10, null, [11]))).toEqual([10, 11]);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

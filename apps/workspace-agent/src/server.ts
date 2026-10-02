@@ -212,7 +212,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// Port discovery and loopback forwards know about each other: discovery
 	// reports a forwarded port as "forwarded", and a forward closes once its
 	// loopback listener is gone (BROWSER-HANDLING.md §11.1).
-	// Protected by process tree, by PID (SPEC.md §18.3).
+	// The platform's own processes are protected by PID (SPEC.md §18.3).
 	const procRoot = options.usage?.procRoot ?? "/proc";
 	const tmuxPid = tmuxPidSource(procRoot, () => serverPid(tmuxServer));
 	const protectedPids = async (fresh = false): Promise<ReadonlySet<number>> =>
@@ -220,6 +220,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			procRoot,
 			options.usage?.selfPid ?? process.pid,
 			await tmuxPid(fresh),
+			registry.attachPids(),
 		);
 	const monitor = new ListeningMonitor({
 		// Never reuse a cached "no tmux server" answer when protecting it (SPEC.md §18.3).
