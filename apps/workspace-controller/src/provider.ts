@@ -144,13 +144,6 @@ const STUDENT_UID = 1000;
 /** How long a command the controller runs inside a container may take before `timeout` ends it. */
 const IN_CONTAINER_SECONDS = 10;
 
-/** Sets the hostname to $1 and writes it to a new file renamed over /etc/hostname. */
-const HOSTNAME_SCRIPT = [
-	'hostname "$1" || exit 3',
-	"t=$(mktemp /etc/hostname.portikus.XXXXXX) || exit 4",
-	'printf \'%s\\n\' "$1" > "$t" && chmod 0644 "$t" && mv -fT "$t" /etc/hostname',
-].join("\n");
-
 /** Where the workspace agent reads its bearer token (ADR 0009). */
 const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
 
@@ -490,7 +483,16 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 		// Every file the controller writes goes in while the container is
 		// stopped, when no student process can race the delete-then-push of
-		// `replaceFile` with a named pipe (SPEC.md §24).
+		// `replaceFile` with a named pipe (SPEC.md §24). A pipe left at
+		// /etc/hostname would also hang the container's own init at boot.
+		await this.client.replaceFile(
+			name,
+			"/etc/hostname",
+			`${opts.hostname}\n`,
+			{ uid: 0, gid: 0, mode: "0644" },
+			signal,
+		);
+
 		await this.client.replaceFile(
 			name,
 			"/etc/timezone",
@@ -693,14 +695,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	/**
 	 * Name the container after the workspace label so the shell prompt reads
-	 * `student@<label>` (SPEC.md section 29).
-	 *
-	 * Incus has no instance setting for the hostname, so this runs `hostname`
-	 * for the current boot and writes `/etc/hostname` for the next one, from
-	 * inside the running container: the image's template rewrites the file at
-	 * the first start, and a write from outside could meet a student's named
-	 * pipe (SPEC.md §24). It runs on every start, so an old container picks
-	 * the label up. The label was checked against the hostname pattern.
+	 * `student@<label>` (SPEC.md section 29). Incus has no instance setting
+	 * for the hostname, so `start` writes `/etc/hostname` for the next boot
+	 * and this runs `hostname` for the current one, which the first boot
+	 * after a create needs: the image's template rewrites the file then.
 	 */
 	private async setHostname(
 		name: string,
@@ -708,26 +706,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		signal: AbortSignal,
 		timeoutSeconds: number,
 	): Promise<void> {
-		const { status } = await this.client.exec(
-			name,
-			[
-				"timeout",
-				String(IN_CONTAINER_SECONDS),
-				"sh",
-				"-c",
-				HOSTNAME_SCRIPT,
-				"sh",
-				hostname,
-			],
-			{ timeoutSeconds },
-			signal,
-		);
-		if (status !== null && status !== 0) {
-			this.log.warn(
-				{ instance: name, status },
-				"could not write /etc/hostname; the label lasts this boot only",
-			);
-		}
+		await this.client.exec(name, ["hostname", hostname], { timeoutSeconds }, signal);
 	}
 
 	/**

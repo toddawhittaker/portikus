@@ -3522,9 +3522,9 @@ files API, because Incus 7.5 reports a named pipe there as a regular file
 and opening one blocks an Incus thread until something opens the other
 end or Incus restarts.
 What it must change or read in a running container (the ghcr.io hosts
-line, `/etc/hostname`, the apt hook's package list) it does with a
-command inside the container under `timeout`, so a pipe can only block a
-process the container owns.
+line and the apt hook's package list) it does with a command inside the
+container under `timeout`, so a pipe can only block a process the
+container owns.
 
 ### 24.2 Student code is untrusted
 

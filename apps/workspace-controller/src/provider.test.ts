@@ -461,28 +461,28 @@ test("start writes its files before the container runs, then waits for agent hea
 		"POST files",
 		"DELETE files",
 		"POST files",
+		"DELETE files",
+		"POST files",
 		"start",
 	]);
-	const [timezonePush, profilePush, push] = pushes;
-	if (!timezonePush || !profilePush || !push) {
-		throw new Error("expected three file pushes");
+	const [hostnamePush, timezonePush, profilePush, push] = pushes;
+	if (!hostnamePush || !timezonePush || !profilePush || !push) {
+		throw new Error("expected four file pushes");
 	}
+	expect(hostnamePush.url).toContain("path=%2Fetc%2Fhostname");
+	expect(hostnamePush.body).toBe("tw7\n");
+	expect(hostnamePush.headers["x-incus-uid"]).toBe("0");
 	// The container runs in the owner's zone from this start on:
 	// /etc/timezone for the tools that read it, /etc/localtime for libc.
 	expect(timezonePush.url).toContain("path=%2Fetc%2Ftimezone");
 	expect(timezonePush.body).toBe("America/New_York\n");
 	expect(timezonePush.headers["x-incus-uid"]).toBe("0");
 	expect(timezonePush.headers["x-incus-mode"]).toBe("0644");
-	// The hostname is set and written from inside the running container.
-	const hostname = execs.find((body) => body.includes("/etc/hostname"));
-	if (!hostname) throw new Error("expected an exec setting the hostname");
-	expect(JSON.parse(hostname).command.slice(0, 4)).toEqual([
-		"timeout",
-		"10",
-		"sh",
-		"-c",
+	// The running container takes the label now; the file is for the next boot.
+	expect(execs.map((body) => JSON.parse(body).command)).toContainEqual([
+		"hostname",
+		"tw7",
 	]);
-	expect(JSON.parse(hostname).command.at(-1)).toBe("tw7");
 	const localtime = execs.find((body) => body.includes("localtime"));
 	if (!localtime) throw new Error("expected an exec linking /etc/localtime");
 	expect(JSON.parse(localtime).command).toEqual([
@@ -510,44 +510,6 @@ test("start writes its files before the container runs, then waits for agent hea
 	// The token file lands before the first health request.
 	expect(agentRequestsAtPush).toBe(before);
 	expect(agentRequests).toBeGreaterThan(before);
-});
-
-test("the hostname script sets the name and renames a new /etc/hostname into place", async () => {
-	let hostnameExec: string[] = [];
-	handler = async (req, res) => {
-		const body = await readBody(req);
-		if (req.url?.includes("/exec") && body.includes("/etc/hostname")) {
-			hostnameExec = JSON.parse(body).command;
-		}
-		if (req.method === "GET" && req.url?.includes("/state")) {
-			respond(res, 200, sync(runningWithAddress("127.0.0.1")));
-		} else {
-			respond(res, 200, sync({}));
-		}
-	};
-	await provider.start("ws-test", {
-		timeoutSeconds: 10,
-		agentToken: AGENT_TOKEN,
-		hostname: "tw7",
-		previewHostSuffix: "preview.portikus.example.edu",
-		timezone: "America/New_York",
-	});
-	// Run the script with a stand-in `hostname` and /etc/hostname pointed at
-	// a named pipe in a folder of our own: the pipe is replaced, never opened.
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hostname-"));
-	const target = path.join(dir, "hostname");
-	execFileSync("mkfifo", [target]);
-	fs.mkdirSync(path.join(dir, "bin"));
-	fs.writeFileSync(path.join(dir, "bin", "hostname"), "#!/bin/sh\nexit 0\n", {
-		mode: 0o755,
-	});
-	const script = (hostnameExec[4] ?? "").replaceAll("/etc/hostname", target);
-	execFileSync("timeout", ["5", "sh", "-c", script, "sh", "tw7"], {
-		env: { ...process.env, PATH: `${dir}/bin:${process.env.PATH}` },
-		stdio: "ignore",
-	});
-	expect(fs.lstatSync(target).isFile()).toBe(true);
-	expect(fs.readFileSync(target, "utf8")).toBe("tw7\n");
 });
 
 /**
@@ -2858,6 +2820,7 @@ describe("the Docker seed", () => {
 		serveIncus(state);
 		for (const p of [
 			"/etc/hosts",
+			"/etc/hostname",
 			"/etc/docker/daemon.json",
 			"/etc/claude-code/CLAUDE.md",
 			"/etc/codex/config.toml",
@@ -2866,7 +2829,11 @@ describe("the Docker seed", () => {
 		}
 		await own.start("ws-test", { ...START, docker: { hubMirror: true, ghcr: false } });
 		expect(state.fileOps.filter((op) => /^(GET|HEAD) /.test(op))).toEqual([]);
-		for (const p of ["/etc/docker/daemon.json", "/etc/claude-code/CLAUDE.md"]) {
+		for (const p of [
+			"/etc/hostname",
+			"/etc/docker/daemon.json",
+			"/etc/claude-code/CLAUDE.md",
+		]) {
 			expect(state.files.get(p)?.type).toBe("file");
 		}
 		// The in-container edit found no regular file and wrote a fresh one.
