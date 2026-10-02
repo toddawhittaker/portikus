@@ -72,7 +72,7 @@ const PortInput = z.object({ port: z.coerce.number().int().min(1).max(65535) });
 /** The status each agent refusal to stop a listener becomes. */
 function stopStatusFor(code: string): number {
 	if (code === "LISTENER_NOT_FOUND") return 404;
-	if (code === "LISTENER_IS_SYSTEM") return 403;
+	if (code === "LISTENER_IS_SYSTEM" || code === "PROCESS_PROTECTED") return 403;
 	if (code === "STOP_FAILED") return 409;
 	return 502;
 }
@@ -80,6 +80,7 @@ function stopStatusFor(code: string): number {
 function stopMessageFor(code: string): string {
 	if (code === "LISTENER_NOT_FOUND") return "Nothing is listening on that port";
 	if (code === "LISTENER_IS_SYSTEM") return "That service belongs to the system";
+	if (code === "PROCESS_PROTECTED") return "That process is protected";
 	if (code === "STOP_FAILED") return "That service did not stop";
 	return "The workspace did not answer";
 }

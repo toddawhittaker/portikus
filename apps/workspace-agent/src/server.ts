@@ -32,7 +32,7 @@ import { tokenAuth } from "./auth.js";
 import { startUrlBroker } from "./broker.js";
 import { checksRoute } from "./checks-route.js";
 import { type DockerRunner, dockerInventoryRoute } from "./docker-inventory.js";
-import { AgentFailure, ERROR_STATUS, sendError } from "./errors.js";
+import { AgentFailure, abortOnDisconnect, ERROR_STATUS, sendError } from "./errors.js";
 import { eventsRoute } from "./events-route.js";
 import { extractZip } from "./extract.js";
 import {
@@ -215,7 +215,12 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// Port discovery and loopback forwards know about each other: discovery
 	// reports a forwarded port as "forwarded", and a forward closes once its
 	// loopback listener is gone (BROWSER-HANDLING.md §11.1).
+	// The terminals' tmux server is protected by PID (SPEC.md §18.3).
+	const tmuxPid = tmuxPidSource(options.usage?.procRoot ?? "/proc", () =>
+		serverPid(tmuxServer),
+	);
 	const monitor = new ListeningMonitor({
+		tmuxPid,
 		...options.listening,
 		logger: app.log,
 		forwardedPorts: () => forwards.ports(),
@@ -234,10 +239,6 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	monitor.start();
 
 	const recoveryRoot = options.recoveryRoot ?? "/var/lib/portikus/recovery";
-	// The terminals' tmux server is protected by PID (SPEC.md §18.3).
-	const tmuxPid = tmuxPidSource(options.usage?.procRoot ?? "/proc", () =>
-		serverPid(tmuxServer),
-	);
 	const usage = new UsageSampler({
 		homePath: options.homeDir,
 		tmuxPid,
@@ -306,7 +307,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					})),
 				};
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "TMUX_FAILED");
 			}
 		});
 
@@ -365,7 +366,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					baselineHead: created.baselineHead,
 				});
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "TMUX_FAILED");
 			}
 		});
 
@@ -397,7 +398,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				);
 				return reply.code(204).send();
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "TMUX_FAILED");
 			}
 		});
 
@@ -648,15 +649,11 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					throw new AgentFailure("PATH_INVALID", "invalid path");
 				}
 				// An API timeout closes the connection; unzip must not outlive it.
-				const aborted = new AbortController();
-				reply.raw.once("close", () => {
-					if (!reply.raw.writableEnded) aborted.abort();
-				});
 				const path = await extractZip(
 					options.homeDir,
 					slug,
 					parsed.data.path,
-					aborted.signal,
+					abortOnDisconnect(reply),
 				);
 				return reply.code(201).send({ path });
 			} catch (error) {
@@ -683,8 +680,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			const { slug } = request.params as { slug: string };
 			let archive: Readable;
 			// A download the browser gave up on must not leave zip running.
-			const controller = new AbortController();
-			reply.raw.once("close", () => controller.abort());
+			const signal = abortOnDisconnect(reply);
 			try {
 				const { path, check } = queryPath(request);
 				if (check) {
@@ -697,12 +693,12 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					return reply.code(204).send();
 				}
 				if (path === "") {
-					archive = await archiveProject(slug, options.homeDir, controller.signal);
+					archive = await archiveProject(slug, options.homeDir, signal);
 				} else {
 					const target = await resolveInProject(options.homeDir, slug, path, {
 						mustExist: true,
 					});
-					archive = await archiveDir(target.path, controller.signal);
+					archive = await archiveDir(target.path, signal);
 				}
 			} catch (error) {
 				return sendError(request, reply, error, "INTERNAL");

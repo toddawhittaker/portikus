@@ -9,7 +9,7 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { sendError } from "./errors.js";
+import { abortOnDisconnect, sendError } from "./errors.js";
 import {
 	createRecoveryPoint,
 	deleteProjectRecoveryPoints,
@@ -46,25 +46,21 @@ export function registerRecoveryRoutes(
 		const { projectId, pointId, skipIfFingerprint } = body.data;
 		// A caller that gives up stops tar, which removes the partial file and
 		// frees the project's lock.
-		const abort = new AbortController();
-		const onClose = () => {
-			if (!reply.raw.writableFinished) abort.abort();
-		};
-		reply.raw.once("close", onClose);
+		const aborted = abortOnDisconnect(reply);
 		try {
 			const result = await locks.run(projectId, async () => {
 				const made = await createRecoveryPoint(
 					paths,
 					{ slug: params.data.slug, projectId, pointId, skipIfFingerprint },
-					abort.signal,
+					aborted,
 				);
 				// Nobody will record this point, so it must not stay on disk.
-				if (made.created && abort.signal.aborted) {
+				if (made.created && aborted.aborted) {
 					await deleteRecoveryPoint(paths.recoveryRoot, projectId, pointId);
 				}
 				return made;
 			});
-			if (abort.signal.aborted) {
+			if (aborted.aborted) {
 				request.log.info(
 					{ projectId, pointId },
 					"recovery point abandoned by the caller",
@@ -81,7 +77,7 @@ export function registerRecoveryRoutes(
 			);
 			return reply.code(201).send(result);
 		} catch (error) {
-			if (abort.signal.aborted) {
+			if (aborted.aborted) {
 				request.log.info(
 					{ projectId, pointId },
 					"recovery point abandoned by the caller",
@@ -89,8 +85,6 @@ export function registerRecoveryRoutes(
 				return reply;
 			}
 			return sendError(request, reply, error, "INTERNAL");
-		} finally {
-			reply.raw.off("close", onClose);
 		}
 	});
 

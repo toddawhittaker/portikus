@@ -92,6 +92,11 @@ afterEach(async () => {
 	await rm(procRoot, { recursive: true, force: true });
 });
 
+/** A `/proc/<pid>/stat` line; only the state and start time matter here. */
+function statLine(pid: number, comm: string, startTicks: number): string {
+	return `${pid} (${comm}) S ${Array(18).fill("0").join(" ")} ${startTicks}\n`;
+}
+
 async function fakeProcess(
 	pid: number,
 	comm: string,
@@ -106,6 +111,7 @@ async function fakeProcess(
 		join(dir, "status"),
 		`Name:\t${comm}\nUid:\t${uid}\t${uid}\t${uid}\t${uid}\n`,
 	);
+	await writeFile(join(dir, "stat"), statLine(pid, comm, 500));
 	if (cmdline !== undefined) await writeFile(join(dir, "cmdline"), cmdline);
 	let descriptor = 3;
 	for (const inode of inodes) {
@@ -629,7 +635,7 @@ test("a port still listening after the pid died is not a success", async () => {
  * Only ESRCH means the process is gone. EPERM means we were not
  * allowed to signal it, which is a refusal, not a stop.
  */
-test("a SIGTERM refused with EPERM is a conflict, not a success", async () => {
+test("a SIGTERM refused with EPERM is a refusal, not a success", async () => {
 	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
 	await fakeProcess(88, "node", [3]);
 	const monitor = monitorFor({
@@ -639,8 +645,41 @@ test("a SIGTERM refused with EPERM is a conflict, not a success", async () => {
 		graceMs: 100,
 	});
 	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
-		code: "STOP_FAILED",
+		code: "PROCESS_PROTECTED",
 	});
+});
+
+// A port stop must not reach a process no stop path may signal (SPEC.md §18.3).
+test("the tmux server's listener is refused as protected", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "tmux: server", [3]);
+	const monitor = monitorFor({
+		tmuxPid: async () => 88,
+		kill: () => {
+			throw new Error("a protected process must never be signalled");
+		},
+	});
+	await expect(monitor.stopListener(5173)).rejects.toMatchObject({
+		code: "PROCESS_PROTECTED",
+	});
+});
+
+test("a PID reused during the grace period is never sent SIGKILL", async () => {
+	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
+	await fakeProcess(88, "node", [3]);
+	const signals: string[] = [];
+	const monitor = monitorFor({
+		kill: (_pid, signal) => {
+			if (Number(signal) === 0) return;
+			signals.push(String(signal));
+			// The server exits and a new process takes its PID at once.
+			clearProcNet();
+			writeFileSync(join(procRoot, "88", "stat"), statLine(88, "other", 900));
+		},
+		graceMs: 100,
+	});
+	await expect(monitor.stopListener(5173)).resolves.toBeUndefined();
+	expect(signals).toEqual(["SIGTERM"]);
 });
 
 test("a liveness check refused with EPERM is a conflict, not a success", async () => {

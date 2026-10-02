@@ -1,6 +1,6 @@
 import { SearchQuery } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
-import { sendError } from "./errors.js";
+import { abortOnDisconnect, sendError } from "./errors.js";
 import { searchProject } from "./search.js";
 
 /** `GET /projects/:slug/search` (SPEC.md §11.5). */
@@ -15,12 +15,11 @@ export function registerSearchRoutes(app: FastifyInstance, homeDir: string): voi
 		}
 		// A browser that cancels a superseded search kills ripgrep with it
 		// (SPEC.md §11.5).
-		const controller = new AbortController();
-		request.raw.on("close", () => controller.abort());
+		const signal = abortOnDisconnect(reply);
 		try {
 			return await searchProject(homeDir, slug, parsed.data.q, {
 				hidden: parsed.data.hidden,
-				signal: controller.signal,
+				signal,
 			});
 		} catch (error) {
 			// The query and the matches never reach the log (STACK.md §15).
