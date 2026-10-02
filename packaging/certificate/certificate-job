@@ -92,7 +92,7 @@ ISSUE_TIMEOUT = 300
 # How long the live Caddy gets to serve certificates already in its storage.
 SERVE_TIMEOUT = 30
 # The live Caddy's port-80 block passes /.well-known/acme-challenge/* here, so the throwaway Caddy
-# answers HTTP-01 for the certificates it obtains (setup's Caddyfile; Epic 27 R11 as amended).
+# answers HTTP-01 for the certificates it obtains (setup's Caddyfile).
 CHALLENGE_PORT = 8796
 POLL_SECONDS = 2
 
@@ -299,6 +299,7 @@ def validate_settings(settings, acme_only=False):
     return settings
 
 
+# jscpd:ignore-start -- each job is a standalone root script, so this stays a copy.
 def validate_request(raw, file_id):
     """Return the request file's document, or raise Refused. Trusts nothing the API checked."""
     try:
@@ -330,6 +331,7 @@ def validate_request(raw, file_id):
         # `reset` comes only from portikus reset-certificate, never from a request file.
         raise Refused("unknown kind")
     return doc
+# jscpd:ignore-end
 
 
 # ---- Commands ----
@@ -430,10 +432,10 @@ def storage_name(name):
     return name.replace("*", "wildcard_").lower()
 
 
-# ---- Caddy's journal (Epic 27 R12, from the spike) ----
+# ---- Caddy's journal ----
 
 # Errors no retry can fix: the authority refused the account or the name, or the DNS provider
-# refused the credentials (Epic 27, spike section 3).
+# refused the credentials.
 DEFINITIVE_ERRORS = (
     "urn:ietf:params:acme:error:unauthorized",
     "urn:ietf:params:acme:error:externalaccountrequired",
@@ -737,7 +739,7 @@ def free_port():
         return s.getsockname()[1]
 
 
-# ---- Caddy snippets (Epic 27 R5, R8) ----
+# ---- Caddy snippets ----
 
 SNIPPET_HEADER = (
     "# Written by the certificate job for the admin page's Certificate tab\n"
@@ -759,7 +761,7 @@ def tls_lines(settings, base, preview=False, alt_http_port=None):
     """The `tls` directive for one site block, naming files under base (a generation's directory).
 
     Secrets appear only as {file.path} placeholders, so they never reach
-    Caddy's autosave (Epic 27 R8 as amended after the spike).
+    Caddy's autosave (SPEC.md section 24.8).
     """
     files_dir, secrets_dir = f"{base}/files", f"{base}/secrets"
     source = settings["source"]
@@ -925,7 +927,7 @@ class Runner:
         return kept
 
     def resolve_secrets(self, settings):
-        """{(owner, field): value} for every secret the settings need: given now, or kept (Epic 27 R8)."""
+        """{(owner, field): value} for every secret the settings need: given now, or kept."""
         if settings["source"] != "acme":
             return {}
         kept = self.stored_secrets(settings)
@@ -984,7 +986,7 @@ class Runner:
                     words += secret_words(data.decode("utf-8", "replace"))
         return words
 
-    # -- upload checks (Epic 27 R9): each failure names its check --
+    # -- upload checks: each failure names its check --
 
     def check_uploads(self, settings, site, suffix, job=None):
         """{part: {info, pem, key}} for an upload, or Refused naming the check that failed."""
@@ -1078,7 +1080,7 @@ class Runner:
             os.fchmod(fd, 0o750)
             write_at(fd, "settings.json", json.dumps(view, indent=2) + "\n", 0o640, host, uid, gid)
             write_at(fd, "tls.caddy", snippets(settings, base or self.state_dir), 0o640, host, uid, gid)
-            # root:caddy 0640 in root:caddy 0750: Caddy reads them, the API cannot (Epic 27 R8).
+            # root:caddy 0640 in root:caddy 0750: Caddy reads them, the API cannot.
             contents = {
                 "files": {name: data for part, upload in (uploads or {}).items()
                           for name, data in ((f"{part}.crt", upload["pem"]), (f"{part}.key", upload["key"]))},
@@ -1232,7 +1234,7 @@ class Runner:
         self.sync_trust(job)
         return code == 0
 
-    # -- the throwaway Caddy (Epic 27 R11 as amended after the spike) --
+    # -- the throwaway Caddy --
 
     def issue_with_throwaway_caddy(self, job, settings, names, base, seed=True):
         """Obtain certificates for names with a second Caddy and its own storage, reading the secrets
@@ -1425,7 +1427,7 @@ class Runner:
             self.run(["systemctl", "try-restart", "portikus-api.service"], log=job, timeout=180)
         return True
 
-    # -- status.json (Epic 27 R12) --
+    # -- status.json --
 
     def write_status(self):
         site, port, suffix = read_api_env(self.api_env)
@@ -1557,7 +1559,7 @@ class Runner:
             remove(swap)
 
     def renew(self, job, request):
-        """Renew now (Epic 27 R7 as amended after the spike), for an ACME certificate only.
+        """Renew now, for an ACME certificate only.
 
         A live certificate is never deleted first: the throwaway Caddy gets
         the new one, the job copies it into the live storage, and a reload to
@@ -1605,13 +1607,13 @@ class Runner:
             raise JobFailed(said + (" The previous certificate is back in use." if restored else ""),
                             restored=restored)
         remove(before)
-        # The journal before this holds the old certificate's renewal results (Epic 27 R12).
+        # The journal before this holds the old certificate's renewal results.
         write_file(os.path.join(self.status_dir, RENEWED), json.dumps({"at": now_iso(self.clock), "name": site}),
                    0o644, self.host)
 
     def reload_away_and_back(self, job, before):
         """Reload with the internal authority's snippet, then the one in before (the one in force),
-        so Caddy reads the certificates in its storage again (Epic 27 spike, section 5)."""
+        so Caddy reads the certificates in its storage again."""
         in_force = read_bytes(os.path.join(before, "tls.caddy"))
         fd = os.open(self.state_dir, os.O_RDONLY | os.O_DIRECTORY)
         try:
@@ -1730,6 +1732,7 @@ class Runner:
                 journal(f"could not refresh status.json: {type(err).__name__}")
         return state
 
+    # jscpd:ignore-start -- each job is a standalone root script, so this stays a copy.
     def recover(self, jobs_fd, gid):
         """Mark a job the host lost as failed, put back a half-applied change, drop old jobs."""
         self.drop_old_jobs(jobs_fd)
@@ -1768,7 +1771,9 @@ class Runner:
                 journal(f"marked interrupted job {name} as failed")
             finally:
                 os.close(dir_fd)
+    # jscpd:ignore-end
 
+    # jscpd:ignore-start -- each job is a standalone root script, so this stays a copy.
     def drop_old_jobs(self, jobs_fd):
         jobs = []
         for name in os.listdir(jobs_fd):
@@ -1782,6 +1787,7 @@ class Runner:
                 jobs.append((st.st_mtime_ns, name))
         for _, name in sorted(jobs, reverse=True)[KEEP_JOBS:]:
             shutil.rmtree(os.path.join(self.jobs_dir, name), ignore_errors=True)
+    # jscpd:ignore-end
 
     def locked(self, blocking):
         """The lock's descriptor, or None when another job holds it and blocking is False."""
@@ -1862,7 +1868,7 @@ class Runner:
         return 0
 
     def run_reset(self, out=None):
-        """portikus reset-certificate (Epic 27 R15): Caddy's internal authority, the old settings kept
+        """portikus reset-certificate: Caddy's internal authority, the old settings kept
         as previous, and a `reset` job directory the API audits."""
         return self.with_jobs_dir(True, lambda jobs_fd, gid: self.reset(jobs_fd, gid, out or sys.stdout))
 

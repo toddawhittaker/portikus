@@ -140,7 +140,7 @@ test.skipIf(skip)("bad values and unknown keys are refused", async () => {
 		{ autoSave: "yes" },
 		{ theme: "dark" },
 		{},
-		// Issue #287: only a name on the zone list is taken.
+		// Only a name on the zone list is taken.
 		{ timezone: "Mars/Olympus" },
 		{ timezone: "America/New_York; id" },
 		{ timezone: "" },
@@ -151,7 +151,7 @@ test.skipIf(skip)("bad values and unknown keys are refused", async () => {
 	}
 });
 
-/** Issue #287: a zone the student chooses is stored and read back. */
+/** A zone the student chooses is stored and read back. */
 test.skipIf(skip)("a known zone is accepted and kept", async () => {
 	const jar = new CookieJar();
 	await loginAs(app, "alice", jar);
@@ -169,7 +169,7 @@ test.skipIf(skip)("a known zone is accepted and kept", async () => {
 });
 
 /**
- * Issue #287: the dialog builds its zone select from the list GET hands it,
+ * The dialog builds its zone select from the list GET hands it,
  * so every name on that list has to be one PUT accepts. The browser's own
  * zone list is not consulted anywhere.
  */
@@ -298,7 +298,7 @@ test.skipIf(skip)(
 );
 
 /**
- * Issue #287: a zone name this build no longer knows falls back to the
+ * A zone name this build no longer knows falls back to the
  * default on its own and takes nothing else with it. Parsed as one object,
  * an unknown zone threw away the student's auto-save, word wrap and terminal
  * colours as well.
@@ -386,7 +386,7 @@ test.skipIf(skip)("an invalid stored key loses only that key", async () => {
 	});
 });
 
-/** Issue #300: appearance is saved per user, merged like any other setting. */
+/** Appearance is saved per user, merged like any other setting. */
 test.skipIf(skip)("appearance is saved and merged with the rest", async () => {
 	const jar = new CookieJar();
 	await loginAs(app, "alice", jar);
@@ -407,7 +407,7 @@ test.skipIf(skip)("appearance is saved and merged with the rest", async () => {
 	expect(bob.json()).toMatchObject({ appearance: "system" });
 });
 
-/** Issue #357: screen-reader mode is off by default, saved per user, merged like any other setting. */
+/** Screen-reader mode is off by default, saved per user, merged like any other setting. */
 test.skipIf(skip)("screen-reader mode is saved per user and merged", async () => {
 	const jar = new CookieJar();
 	await loginAs(app, "alice", jar);

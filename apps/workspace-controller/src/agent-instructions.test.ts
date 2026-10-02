@@ -1,6 +1,6 @@
 /**
  * The platform's agent instructions are system files rewritten at every
- * start from one template (SPEC.md §3, issue #933).
+ * start from one template (SPEC.md §3).
  */
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -179,7 +179,7 @@ describe("the shipped template", () => {
 		"utf8",
 	);
 
-	test("carries the platform rules and the preloaded-image advice (#932)", () => {
+	test("carries the platform rules and the preloaded-image advice", () => {
 		expect(text).toContain("/usr/local/bin/portikus-open");
 		expect(text).toContain("Never commit");
 		expect(text).toContain("docker image ls");

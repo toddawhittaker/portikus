@@ -2,43 +2,19 @@
 # Checked before any role runs (site.yml pre_tasks), so bad sign-in
 # settings change nothing on the VM.  Loads the retired users file, when
 # there is one, for the one-time import into Dex's storage
-# (docs/archive/epics/EPIC-14.md ruling 23); it is read on the machine that
+# (ADR 0028); it is read on the machine that
 # runs Ansible.
 
-# A silent move to Dex would change the issuer, and so give everyone a new,
-# empty account (SPEC.md section 5.1).
-- name: Refuse the removed direct sign-in providers
-  ansible.builtin.fail:
-    msg: >-
-      PORTIKUS_IDP={{ portikus_idp }} was removed: every site now signs in
-      through Dex (ADR 0031).  Leave PORTIKUS_IDP unset and connect the
-      provider to Dex with PORTIKUS_DEX_UPSTREAM (entra, google or oidc);
-      see docs/OPERATIONS.md, "Sign-in providers".
-  when: portikus_idp in ['entra', 'google', 'external']
-  run_once: true
-
-- name: Refuse Dex's microsoft connector
-  ansible.builtin.fail:
-    msg: >-
-      PORTIKUS_DEX_UPSTREAM=microsoft was replaced by
-      PORTIKUS_DEX_UPSTREAM=entra, which reads the roles from Entra app
-      roles and needs no Microsoft Graph permission (ADR 0031).
-  when: portikus_dex_upstream == 'microsoft'
-  run_once: true
-
-- name: Require a known sign-in provider
+- name: Require a known Dex upstream connector
   ansible.builtin.assert:
     that:
-      - portikus_idp in ['dex', 'mock']
       - portikus_dex_upstream in ['none', 'ldap', 'entra', 'google', 'oidc']
     fail_msg: >-
-      PORTIKUS_IDP must be dex or mock (got '{{ portikus_idp }}'), and
-      PORTIKUS_DEX_UPSTREAM none, ldap, entra, google or oidc (got
+      PORTIKUS_DEX_UPSTREAM must be none, ldap, entra, google or oidc (got
       '{{ portikus_dex_upstream }}').
   run_once: true
 
 - name: Check the settings of Dex's upstream connector
-  when: portikus_idp == 'dex'
   run_once: true
   block:
     - name: Require the client Dex is registered as upstream
@@ -96,8 +72,7 @@
         - portikus_dex_upstream == 'oidc'
         - portikus_dex_upstream_issuer is match('^https://(login[.](partner[.])?microsoftonline[.](com|us|cn)|sts[.]windows[.]net)([:/]|$)', ignorecase=true)
 
-    # The user filter is the only gate on who may sign in
-    # (docs/archive/epics/EPIC-14.md ruling 11).
+    # The user filter is the only gate on who may sign in (SPEC.md 5.1).
     - name: Require the LDAP connector settings
       ansible.builtin.assert:
         that:
@@ -141,10 +116,9 @@
   become: false
   run_once: true
   register: dex_users_file_stat
-  when: portikus_idp == 'dex'
 
 - name: Load the users file
-  when: portikus_idp == 'dex' and dex_users_file_stat.stat.exists
+  when: dex_users_file_stat.stat.exists
   run_once: true
   block:
     - name: Require the users file to be readable by its owner only

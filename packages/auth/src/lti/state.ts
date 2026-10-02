@@ -1,7 +1,8 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import type { CookieSerializeOptions } from "@fastify/cookie";
 import type { Database } from "@portikus/db";
 import type { Kysely } from "kysely";
+import { sha256Hex } from "../hash.js";
 
 /** What a consumed state row gives back to the launch. */
 export interface LtiLoginState {
@@ -10,14 +11,14 @@ export interface LtiLoginState {
 	clientId: string;
 }
 
-/** How long a login may take between `/lti/login` and `/lti/launch` (ruling 16). */
-export const LTI_STATE_TTL_SECONDS = 600;
+/** How long a login may take between `/lti/login` and `/lti/launch`. */
+const LTI_STATE_TTL_SECONDS = 600;
 
 const STATE_COOKIE_PREFIX = "__Host-portikus_lti_state_";
 
 /** The row key: the state itself is never stored. */
 export function hashState(state: string): string {
-	return createHash("sha256").update(state).digest("hex");
+	return sha256Hex(state);
 }
 
 /** Store a new login state, clearing expired rows first as sessions do. */
@@ -65,7 +66,7 @@ export async function consumeLoginState(
 }
 
 /**
- * The form's state must equal the cookie's (ruling 16). A missing cookie or
+ * The form's state must equal the cookie's. A missing cookie or
  * form field is `state_missing`; two different values are `state_mismatch`.
  */
 export function checkLaunchState(
@@ -104,7 +105,7 @@ export function ltiStateCookieOptions(): CookieSerializeOptions {
 }
 
 /** At most this many older state cookies survive a new login. */
-export const LTI_STATE_COOKIES_KEPT = 4;
+const LTI_STATE_COOKIES_KEPT = 4;
 
 /**
  * Names of the oldest state cookies to clear so at most

@@ -226,7 +226,7 @@ test.skipIf(skip)(
 		const first = projects[0] as Record<string, unknown>;
 		expect(projects.map((p) => p.slug)).toEqual(["found"]);
 		expect(first.source).toBe("discovered");
-		// The folder name read as a title (issue #269).
+		// The folder name read as a title.
 		expect(first.name).toBe("Found");
 		expect(first.isGitRepo).toBe(true);
 
@@ -239,7 +239,7 @@ test.skipIf(skip)(
 );
 
 /**
- * Issue #238: `mv olddir newdir` in the shell keeps the project. The marker
+ * `mv olddir newdir` in the shell keeps the project. The marker
  * is the directory's identity, which a rename preserves.
  */
 test.skipIf(skip)("a project renamed in the shell follows its directory", async () => {
@@ -261,11 +261,11 @@ test.skipIf(skip)("a project renamed in the shell follows its directory", async 
 	expect(after.slug).toBe("todo-service");
 	expect(after.path).toBe("/home/student/projects/todo-service");
 	expect(after.missing).toBe(false);
-	// The title follows the folder, because the folder is the project (#269).
+	// The title follows the folder, because the folder is the project.
 	expect(after.name).toBe("Todo Service");
 });
 
-/** Issue #269: a row that did not move keeps the name the student chose. */
+/** A row that did not move keeps the name the student chose. */
 test.skipIf(skip)("a project that did not move keeps its name", async () => {
 	const created = await createProject(alice, workspaceId, {
 		name: "Kept Name",

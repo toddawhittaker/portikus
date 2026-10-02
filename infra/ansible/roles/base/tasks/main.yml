@@ -97,7 +97,7 @@
     group: root
     mode: "0644"
 
-# ── Journal size (issue #398) ────────────────────────────────────
+# ── Journal size ─────────────────────────────────────────────────
 # A flood of refused sign-ins must not fill the disk with log lines.
 - name: Create the journald drop-in directory
   ansible.builtin.file:
@@ -120,7 +120,7 @@
     mode: "0644"
   notify: Restart journald
 
-# ── Platform priority over workspaces (issue #612) ──────────────
+# ── Platform priority over workspaces ───────────────────────────
 # Every platform service runs in system.slice, a sibling of each workspace's
 # lxc.payload cgroup, so by default the whole platform counts as one busy
 # workspace.  A weight of 1000 lets it win about ten to one over each
@@ -146,7 +146,7 @@
     mode: "0644"
   notify: Reload systemd for the platform slice
 
-# ── systemd-ssh-generator (issue #859) ──────────────────────────
+# ── systemd-ssh-generator ───────────────────────────────────────
 # It warns about AF_VSOCK on every daemon reload when the host has no vsock
 # device.  Portikus reaches the host through openssh-server, so SSH over
 # vsock or a local AF_UNIX socket is not needed.

@@ -1,5 +1,5 @@
 ---
-# Workspace egress in allow-list mode (issue #284, ADR 0038).  This role
+# Workspace egress in allow-list mode (ADR 0038).  This role
 # installs what the egress helper drives: the workspace proxy (Squid built
 # with OpenSSL, which can read a TLS name), our dnsmasq for allow-list DNS,
 # the helper's configuration and its request and state directories.  The

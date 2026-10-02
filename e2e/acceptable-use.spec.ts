@@ -42,7 +42,7 @@ test("first sign-in shows the statement, and Accept and continue lands on the wo
 		"none",
 	);
 	await expect(page.getByTestId("acceptable-use-text")).toContainText("coursework");
-	// The opening paragraph leads; the rules after it read as a list (Epic 25 S14).
+	// The opening paragraph leads; the rules after it read as a list.
 	const rules = page.getByTestId("acceptable-use-text").getByRole("listitem");
 	await expect(rules).toHaveCount(4);
 	await expect(rules.first()).toContainText("Do not mine cryptocurrency");

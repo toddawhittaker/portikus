@@ -4,22 +4,16 @@
  * the stopped screen with its side panes, and the Workspace dialog with its
  * technical details open, each in the light and dark themes.
  */
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	openToggletip,
 	query,
 	seedStorage,
-	settledAxe,
-	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 const GIB = 1024 ** 3;
 

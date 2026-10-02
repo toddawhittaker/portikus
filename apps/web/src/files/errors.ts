@@ -11,7 +11,7 @@ import {
 	MAX_UPLOAD_BYTES,
 } from "@portikus/contracts";
 import type { ToastProps } from "@portikus/ui";
-import { ApiError } from "../api/request.js";
+import { ApiError, SOMETHING_WENT_WRONG } from "../api/request.js";
 
 /** What a file action says when the home folder is full (SPEC.md §28). */
 export const STORAGE_FULL_MESSAGE =
@@ -27,7 +27,7 @@ export function isStorageFull(error: unknown): boolean {
 }
 
 /** The upload cap in whole megabytes, for the messages that mention it. */
-export const MAX_UPLOAD_MB = Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024));
+const MAX_UPLOAD_MB = Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024));
 
 export function tooLargeToast(): ToastProps {
 	return {
@@ -37,9 +37,9 @@ export function tooLargeToast(): ToastProps {
 }
 
 /** The download cap in whole gigabytes, for the message that names it. */
-export const MAX_DOWNLOAD_GB = Math.floor(MAX_DOWNLOAD_BYTES / (1024 * 1024 * 1024));
+const MAX_DOWNLOAD_GB = Math.floor(MAX_DOWNLOAD_BYTES / (1024 * 1024 * 1024));
 
-/** Why a download did not start: over the cap gets its own advice (#399). */
+/** Why a download did not start: over the cap gets its own advice. */
 export function downloadErrorToast(error: unknown): ToastProps {
 	if (error instanceof ApiError && error.code === "FILE_TOO_LARGE") {
 		return {
@@ -52,7 +52,7 @@ export function downloadErrorToast(error: unknown): ToastProps {
 	return fileErrorToast(error);
 }
 
-/** Why "Extract here" failed, in words a beginner can act on (issue #817). */
+/** Why "Extract here" failed, in words a beginner can act on. */
 export function extractErrorToast(zipName: string, error: unknown): ToastProps {
 	const title = `${zipName} was not extracted`;
 	if (error instanceof ApiError && error.code === "ARCHIVE_INVALID") {
@@ -101,6 +101,6 @@ export function fileErrorToast(error: unknown): ToastProps {
 	return {
 		tone: "danger",
 		title: "That did not work",
-		children: "Something went wrong. Please try again.",
+		children: SOMETHING_WENT_WRONG,
 	};
 }

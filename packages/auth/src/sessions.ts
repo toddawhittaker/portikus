@@ -1,6 +1,7 @@
-import * as crypto from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
+import { sha256Hex } from "./hash.js";
 import type { AuthUser, Role } from "./types.js";
 
 export interface OidcIdentity {
@@ -14,10 +15,10 @@ export interface OidcIdentity {
 
 /** The cookie holds the token; the database only ever sees this hash, the session's id. */
 export function hashSessionToken(token: string): string {
-	return crypto.createHash("sha256").update(token).digest("hex");
+	return sha256Hex(token);
 }
 
-/** How a session started (docs/archive/epics/EPIC-13-1.md ruling 21). */
+/** How a session started (ADR 0026). */
 export type SessionMethod = "oidc" | "lti" | "link";
 
 export interface SessionOrigin {
@@ -30,7 +31,7 @@ export interface SessionOrigin {
  * Create the user on first login, otherwise refresh the profile and the
  * provider's role. `role` is the role this sign-in gave; it is stored as
  * `provider_role`, and `users.role` becomes the effective role with any
- * stored grant (ruling 20). `previousRole` is the effective role before this
+ * stored grant. `previousRole` is the effective role before this
  * login, or null for a new user, so a role change can be audited.
  */
 export async function upsertUser(
@@ -116,7 +117,7 @@ export async function createSession(
 	// No sweeper process: every new session clears the expired rows.
 	await db.deleteFrom("sessions").where("expires_at", "<", new Date()).execute();
 
-	const token = crypto.randomBytes(32).toString("base64url");
+	const token = randomBytes(32).toString("base64url");
 	const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
 
 	await db
@@ -136,10 +137,10 @@ export async function createSession(
 /**
  * Resolve a session token to its user. Returns null when the session is
  * unknown or expired, when the account has been disabled, or when it is a
- * course account retired by a link (docs/archive/epics/EPIC-13-1.md ruling 13), so that
+ * course account retired by a link (ADR 0026), so that
  * revoking access takes effect on the next request (SPEC.md section 5.3).
  * A launch session also dies once its account is an administrator, however
- * the role arrived (ruling 21).
+ * the role arrived.
  */
 export async function loadSession(
 	db: Kysely<Database>,
@@ -150,7 +151,7 @@ export async function loadSession(
 
 /**
  * `loadSession` by the session's id, the token's hash. The preview gateway
- * holds only the id, and must apply the same rules (review N5).
+ * holds only the id, and must apply the same rules.
  */
 export async function loadSessionById(
 	db: Kysely<Database>,

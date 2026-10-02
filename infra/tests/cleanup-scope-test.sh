@@ -9,23 +9,15 @@
 # The variables below look unused here: the cleanup function sourced from the
 # smoke test reads them.
 # shellcheck disable=SC2034
+# shellcheck disable=SC2154  # pass and fail come from lib.sh
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-smoke="${here}/smoke-test.sh"
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
-# The cleanup function sits inside a conditional block, so sourcing the whole
-# smoke test would run it against a VM.  Take the marked region instead.
-sed -n '/# >>> smoke-cleanup-begin/,/# <<< smoke-cleanup-end/p' "$smoke" \
-  >"${work}/cleanup.sh"
-if ! grep -q 'cleanup_epic34()' "${work}/cleanup.sh"; then
-  echo "cleanup-scope-test: the smoke-cleanup markers no longer bracket cleanup_epic34" >&2
-  exit 1
-fi
 # shellcheck source=/dev/null
-. "${work}/cleanup.sh"
+. "${here}/smoke/cleanup.sh"
 
 log="${work}/commands.log"
 WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
@@ -34,21 +26,12 @@ WS_STOP="/tmp/ws-stop"
 TERM_PROBE="/tmp/term-probe"
 TERM_STOP="/tmp/term-stop"
 
-# Stubs for everything cleanup_epic34 reaches outside itself.
+# Stubs for everything cleanup_lifecycle reaches outside itself.
 ssh_cmd() { printf '%s\n' "$*" >>"$log"; }
 set_global_grace() { printf 'set_global_grace %s\n' "$*" >>"$log"; }
 
-pass=0
-fail=0
-
-ok() {
-  printf '\033[1;32mPASS\033[0m  %s\n' "$1"
-  pass=$((pass + 1))
-}
-bad() {
-  printf '\033[1;31mFAIL\033[0m  %s\n' "$1"
-  fail=$((fail + 1))
-}
+# shellcheck source=/dev/null
+. "${here}/lib.sh"
 
 assert_logged() {
   if grep -qF -- "$2" "$log"; then ok "$1"; else bad "$1"; fi
@@ -67,7 +50,7 @@ created_workspace_ids=("ours-ws-id")
 created_instance_names=("ws-ours")
 created_user_subjects=("alice")
 orig_grace=900
-cleanup_epic34 >"${work}/output.txt"
+cleanup_lifecycle >"${work}/output.txt"
 
 assert_logged "deletes the workspace row it created" \
   "DELETE FROM workspaces WHERE id IN ('ours-ws-id')"
@@ -103,7 +86,7 @@ created_workspace_ids=()
 created_instance_names=()
 created_user_subjects=()
 orig_grace=""
-cleanup_epic34 >/dev/null
+cleanup_lifecycle >/dev/null
 
 assert_not_logged "a run that created nothing issues no DELETE" "DELETE FROM"
 assert_not_logged "a run that created nothing destroys no instance" "destroy"
@@ -113,7 +96,7 @@ assert_not_logged "a run that created nothing destroys no instance" "destroy"
 created_workspace_ids=("a-id" "b-id")
 created_instance_names=()
 created_user_subjects=()
-cleanup_epic34 >/dev/null
+cleanup_lifecycle >/dev/null
 assert_logged "quotes each recorded id in the IN clause" \
   "DELETE FROM workspaces WHERE id IN ('a-id','b-id')"
 

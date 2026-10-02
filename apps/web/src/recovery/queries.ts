@@ -2,12 +2,12 @@
 import { RecoveryPointList } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
-import { request } from "../api/request.js";
+import { request, sendJson } from "../api/request.js";
 
 const base = (workspaceId: string, projectId: string) =>
 	`/workspaces/${workspaceId}/projects/${projectId}/recovery-points`;
 
-export const recoveryKeys = {
+const recoveryKeys = {
 	list: (workspaceId: string, projectId: string) =>
 		["recovery-points", workspaceId, projectId] as const,
 };
@@ -44,11 +44,11 @@ export function useRestoreRecoveryPoint(workspaceId: string, projectId: string) 
 			pointId: string;
 			skipSafetyPoint: boolean;
 		}) =>
-			request(z.unknown(), `${base(workspaceId, projectId)}/${pointId}/restore`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(skipSafetyPoint ? { skipSafetyPoint: true } : {}),
-			}),
+			sendJson(
+				z.unknown(),
+				`${base(workspaceId, projectId)}/${pointId}/restore`,
+				skipSafetyPoint ? { skipSafetyPoint: true } : {},
+			),
 		onSettled: invalidate,
 	});
 }

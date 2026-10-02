@@ -1,6 +1,6 @@
 /**
- * "Extract here" against real unzip in a temporary home (issue #817;
- * SPEC.md §11.1, §24.6). Hostile zips are written by hand, because no zip
+ * "Extract here" against real unzip in a temporary home
+ * (SPEC.md §11.1, §24.6). Hostile zips are written by hand, because no zip
  * tool will store `../` or an absolute name on purpose. The invariant for
  * every hostile case: nothing outside the new folder is written, the new
  * folder is gone, and the zip is refused as a whole.

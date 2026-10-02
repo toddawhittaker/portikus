@@ -23,9 +23,11 @@ import {
 	AddedPackagesResponse as AddedPackagesResponseSchema,
 	ControllerError,
 	CreateInstanceResponse as CreateInstanceResponseSchema,
+	EGRESS_HELPER_TIMEOUT_MS,
 	EgressApplyStatus,
 	GrowVolumesResponse,
 	HostSnapshot,
+	INSTANCE_CREATE_WAIT_SECONDS,
 	InstanceProcessesResponse,
 	InstanceUsageResponse,
 	KeptVolumesResponse,
@@ -38,20 +40,21 @@ import {
 	StopInstanceResponse as StopInstanceResponseSchema,
 } from "@portikus/contracts";
 
-/** Time budgets for each call (ADR 0034 ruling 7), so a hung controller never hangs the worker. */
+/** Time budgets for each call (ADR 0034), so a hung controller never hangs the worker. */
 const SHORT_BUDGET_MS = 30_000;
-const CREATE_BUDGET_MS = 300_000;
+/** The controller's instance create wait plus a 60 s margin. */
+export const CREATE_BUDGET_MS = INSTANCE_CREATE_WAIT_SECONDS * 1000 + 60_000;
 const MAINTENANCE_BUDGET_MS = 15 * 60_000;
-/** The controller waits up to 30 s for the egress helper. */
-const EGRESS_BUDGET_MS = 45_000;
+/** The controller's egress helper wait plus 15 s margin. */
+export const EGRESS_BUDGET_MS = EGRESS_HELPER_TIMEOUT_MS + 15_000;
 
 /** A stop may take a graceful and a forced try, the controller's settle poll (up to 10 s), plus margin. */
-export function stopBudgetMs(timeoutSeconds: number): number {
+function stopBudgetMs(timeoutSeconds: number): number {
 	return (2 * timeoutSeconds + 25) * 1000;
 }
 
 /** A start may wait for the agent for its timeout, plus margin. */
-export function startBudgetMs(timeoutSeconds: number): number {
+function startBudgetMs(timeoutSeconds: number): number {
 	return (timeoutSeconds + 30) * 1000;
 }
 
@@ -101,7 +104,7 @@ export interface ControllerClient {
 	replaceHome(name: string): Promise<ReplaceHomeResponse>;
 	/** Hand the expanded egress policy to the root helper and wait for it (ADR 0038). */
 	applyEgressPolicy(policy: EgressApplyPolicy): Promise<EgressApplyStatus>;
-	/** Start a Docker seed build; one at a time (issue #840). */
+	/** Start a Docker seed build; one at a time. */
 	startSeedBuild(req: SeedBuildRequest): Promise<SeedBuildStatus>;
 	/** A seed build's progress; NOT_FOUND when the controller forgot it. */
 	seedBuild(id: string): Promise<SeedBuildStatus>;

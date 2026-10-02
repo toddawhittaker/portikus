@@ -1,17 +1,19 @@
 /**
  * The one-time import of the retired users file into Dex's storage
- * (docs/archive/epics/EPIC-14.md ruling 23, ADR 0028). Every entry keeps its bcrypt hash
+ * (ADR 0028, ADR 0028). Every entry keeps its bcrypt hash
  * and user ID, so its subject, and so its Portikus account and workspace,
  * stay the same. A password made through the gRPC API carries no groups, so
  * an instructor or administrator in the file becomes that account's
  * `granted_role`. The import runs at most once per site, and never into a
  * Dex that already holds passwords.
  */
-import type { Database } from "@portikus/db";
+import { type Database, recordAudit } from "@portikus/db";
+import { errorMessage } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import type { DexApi } from "./dex-api.js";
 import { dexLocalSubject } from "./dex-subject.js";
-import { grantAdministrator, grantInstructor, precreateDexAccount } from "./links.js";
+import { precreateDexAccount } from "./links.js";
+import { grantAdministrator, grantInstructor } from "./roles.js";
 
 export interface ImportedUser {
 	username: string;
@@ -117,7 +119,7 @@ async function grant(
 			? await grantAdministrator(trx, row.id)
 			: await grantInstructor(trx, row.id);
 	if (!result.ok) return "unchanged";
-	if (!result.changed) {
+	if (result.from === result.to) {
 		// Already that role from the file's groups, which Dex will not send: keep it as a grant.
 		await trx
 			.updateTable("users")
@@ -134,16 +136,13 @@ function audit(
 	target: string,
 	change: { from: string | null; to: string },
 ) {
-	return trx
-		.insertInto("audit_events")
-		.values({
-			actor: ACTOR,
-			target,
-			action: "user.role_changed",
-			result: "ok",
-			metadata: JSON.stringify({ ...change, source: "import" }),
-		})
-		.execute();
+	return recordAudit(trx, {
+		actor: ACTOR,
+		target,
+		action: "user.role_changed",
+		result: "ok",
+		metadata: { ...change, source: "import" },
+	});
 }
 
 /**
@@ -169,16 +168,13 @@ export async function importUsersFile(
 			await sql`select pg_advisory_xact_lock(hashtext(${IMPORTED}))`.execute(trx);
 			const done = await importedAt(trx);
 			if (done !== null) return { status: "already_imported", at: done } as const;
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: ACTOR,
-					target: "dex",
-					action: IMPORTED,
-					result: "ok",
-					metadata: JSON.stringify({ skipped: true, passwordsInDex: existing.length }),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: ACTOR,
+				target: "dex",
+				action: IMPORTED,
+				result: "ok",
+				metadata: { skipped: true, passwordsInDex: existing.length },
+			});
 			return { status: "skipped", passwordsInDex: existing.length } as const;
 		});
 	}
@@ -210,16 +206,13 @@ export async function importUsersFile(
 				}
 				created.push(user);
 			}
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: ACTOR,
-					target: "dex",
-					action: IMPORTED,
-					result: "ok",
-					metadata: JSON.stringify({ users: users.length }),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: ACTOR,
+				target: "dex",
+				action: IMPORTED,
+				result: "ok",
+				metadata: { users: users.length },
+			});
 			return {
 				status: "imported",
 				usernames: users.map((u) => u.username),
@@ -236,7 +229,7 @@ export async function importUsersFile(
 		}
 		if (leftBehind.length === 0) throw err;
 		throw new Error(
-			`${err instanceof Error ? err.message : String(err)}; ` +
+			`${errorMessage(err)}; ` +
 				`could not remove these Dex passwords again, delete them before the next run: ${leftBehind.join(", ")}`,
 			{ cause: err },
 		);

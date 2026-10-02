@@ -1,9 +1,8 @@
 import { GitStatusQuery, ProjectPath } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { sendError } from "./errors.js";
+import { AgentFailure, sendError } from "./errors.js";
 import { baselineDiff, baselineStatus, gitDiff, gitStatus, OBJECT_ID } from "./git.js";
-import { AgentFailure } from "./tmux.js";
 
 const DiffQuery = z.object({ path: ProjectPath });
 

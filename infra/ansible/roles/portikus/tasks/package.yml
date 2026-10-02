@@ -1,45 +1,6 @@
 ---
 # The Debian package, for a run from a workstation (main.yml).
 
-# ── Remove the Epic 3 interim deployment ──────────────────────────
-# A VM configured before ADR 0007 has hand-written units, an rsynced app
-# directory, and a global pnpm.  The package owns those names now, so an
-# existing VM has to be cleaned before the package is installed.
-
-- name: Remove Epic 3 systemd units
-  ansible.builtin.file:
-    path: "/etc/systemd/system/{{ item }}"
-    state: absent
-  loop:
-    - portikus-api.service
-    - portikus-worker.service
-    - portikus-controller.service
-  register: portikus_legacy_units
-
-# Not a handler: this has to run before the package install, not at the end of the play.
-- name: Reload systemd after removing the Epic 3 units  # noqa: no-handler
-  ansible.builtin.systemd:
-    daemon_reload: true
-  when: portikus_legacy_units is changed
-
-- name: Remove the Epic 3 application directory
-  ansible.builtin.file:
-    path: /var/lib/portikus/app
-    state: absent
-
-# A fresh VM has no system npm, since the package bundles its own Node.
-- name: Look for the system npm
-  ansible.builtin.stat:
-    path: /usr/bin/npm
-  register: portikus_system_npm
-
-- name: Remove the globally installed pnpm
-  community.general.npm:
-    name: pnpm
-    global: true
-    state: absent
-  when: portikus_system_npm.stat.exists
-
 # ── Debian package ────────────────────────────────────────────────
 
 # Two ways to choose the package: a locally built .deb named by PORTIKUS_DEB

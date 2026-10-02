@@ -1,6 +1,6 @@
 /**
  * The home's instruction files belong to the student; only the platform's
- * own leftovers are removed (SPEC.md §3, issue #933).
+ * own leftovers are removed (SPEC.md §3).
  */
 import { createHash } from "node:crypto";
 import {

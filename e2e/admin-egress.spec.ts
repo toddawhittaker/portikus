@@ -3,7 +3,7 @@ import { EGRESS_PRESETS } from "../packages/contracts/dist/egress.js";
 import { loginAs, openToggletip, query } from "./helpers";
 
 /**
- * The admin Network tab: the workspace egress allow-list (issue #284, SPEC.md
+ * The admin Network tab: the workspace egress allow-list (SPEC.md
  * section 20.1). No worker runs here, so tests mark a policy applied, or
  * failed, straight in the database, as the worker's apply loop would.
  */

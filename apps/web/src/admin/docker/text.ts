@@ -126,7 +126,7 @@ export interface DriftPart {
 const LANGUAGE_LABEL = { node: "Node", python: "Python" } as const;
 
 /**
- * Each language whose matching image the seed list lacks (issue #932), or
+ * Each language whose matching image the seed list lacks, or
  * null when the list holds every image matching the default workspace image.
  */
 export function driftParts(

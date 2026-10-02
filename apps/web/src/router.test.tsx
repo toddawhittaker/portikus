@@ -24,7 +24,7 @@ test("signed out, the front page offers the institution sign-in", async () => {
 
 	const link = await screen.findByTestId("signin");
 	expect(link.getAttribute("href")).toBe("/auth/login");
-	// Each page names the browser tab (issue #374).
+	// Each page names the browser tab.
 	expect(document.title).toBe("Sign in, Portikus");
 });
 
@@ -45,7 +45,7 @@ test("signed in, the front page goes to the student's workspace", async () => {
 	);
 });
 
-test("an administrator goes to the administration page and gets no workspace (issue #534)", async () => {
+test("an administrator goes to the administration page and gets no workspace", async () => {
 	const fetch = stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
 		if (url === "/workspaces" && init?.method === "POST") return json(201, WORKSPACE);
@@ -62,7 +62,7 @@ test("an administrator goes to the administration page and gets no workspace (is
 	expect(posted).toBe(false);
 });
 
-test("an instructor still goes to their workspace (issue #534)", async () => {
+test("an instructor still goes to their workspace", async () => {
 	stubFetch((url, init) => {
 		if (url === "/auth/me") return json(200, { ...USER, role: "instructor" });
 		if (url === "/workspaces" && init?.method === "POST") return json(201, WORKSPACE);
@@ -137,7 +137,7 @@ test("the files route hands over to the project screen with the file to open", a
 	expect(router.state.location.search).toEqual({ open: "src/app.ts", line: 3 });
 });
 
-test("the project screen names the tab after the project (issue #374)", async () => {
+test("the project screen names the tab after the project", async () => {
 	stubProject();
 
 	renderApp(`/workspaces/${WORKSPACE.id}/projects/${project().id}`);

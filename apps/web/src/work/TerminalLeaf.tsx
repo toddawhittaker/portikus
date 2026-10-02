@@ -18,13 +18,14 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { TerminalPane } from "../TerminalPane.js";
+import { usePointerDismiss } from "./pointerDismiss.js";
 
 /** The dnd-kit ids for one pane's drag handle and its drop area. */
-export function paneDragId(terminalId: string): string {
+function paneDragId(terminalId: string): string {
 	return `pane-drag-${terminalId}`;
 }
 
-export function paneDropId(terminalId: string): string {
+function paneDropId(terminalId: string): string {
 	return `pane-drop-${terminalId}`;
 }
 
@@ -37,14 +38,14 @@ export interface TerminalLeafProps {
 	onFocus: (terminalId: string) => void;
 	onSplit: (terminalId: string, direction: SplitDirection) => void;
 	onRename: (terminalId: string, name: string) => void;
-	/** Switch this one terminal between the light and dark scheme (issue #268). */
+	/** Switch this one terminal between the light and dark scheme. */
 	onSetTheme: (terminalId: string, theme: TerminalTheme) => void;
 	onClose: (terminalId: string) => void;
 	onExited: (terminalId: string) => void;
 	onReplace: (terminalId: string) => void;
 	onSessionEnded: () => void;
 	onLeave: () => void;
-	/** Give this pane a tab of its own, the keyboard way to drag it (issue #370). */
+	/** Give this pane a tab of its own, the keyboard way to drag it. */
 	onMoveToNewTab: (terminalId: string) => void;
 	/** The only pane in its tab, which already has a tab of its own. */
 	alone: boolean;
@@ -58,31 +59,7 @@ export interface TerminalLeafProps {
  * a keyboard dismiss still focuses it.
  */
 function usePointerDismissFocus() {
-	const pointer = useRef(false);
-	const stop = useRef<(() => void) | null>(null);
-
-	useEffect(() => () => stop.current?.(), []);
-
-	function onOpenChange(next: boolean) {
-		stop.current?.();
-		stop.current = null;
-		if (!next) return;
-		pointer.current = false;
-		const onPointerDown = () => {
-			pointer.current = true;
-		};
-		const onKeyDown = (event: globalThis.KeyboardEvent) => {
-			if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
-				pointer.current = false;
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown, true);
-		document.addEventListener("keydown", onKeyDown, true);
-		stop.current = () => {
-			document.removeEventListener("pointerdown", onPointerDown, true);
-			document.removeEventListener("keydown", onKeyDown, true);
-		};
-	}
+	const { pointer, track: onOpenChange } = usePointerDismiss();
 
 	// An action that moves the keyboard elsewhere runs once the menu has
 	// closed, instead of the trigger taking the keyboard back.
@@ -182,7 +159,7 @@ export function TerminalLeaf({
 			data-testid={`terminal-leaf-${terminal.id}`}
 			// The pane's own --terminal-* tokens, so the title bar and the
 			// scrollbar follow this terminal rather than the per-user default
-			// on the document (issue #286).
+			// on the document.
 			data-terminal-theme={terminal.theme}
 			// Changes only when this pane is mounted again, which a test reads
 			// to tell a move apart from a teardown and reconnect.

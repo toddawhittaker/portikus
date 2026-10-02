@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MAX_QUOTA_GIB } from "./admin.js";
+import { AliasImage, MAX_QUOTA_GIB, ProfileLimits } from "./admin.js";
 
 const bytes = z.number().int().nonnegative();
 const perSecond = z.number().nonnegative();
@@ -44,16 +44,9 @@ export const HostSnapshot = z.object({
 		metadataPercent: z.number().nonnegative().nullable().default(null),
 	}),
 	/** The shared workspace profile's limits, as Incus spells them. */
-	profileLimits: z.object({
-		cpu: z.string().nullable(),
-		memory: z.string().nullable(),
-		processes: z.string().nullable(),
-	}),
+	profileLimits: ProfileLimits,
 	/** The image the `portikus` alias points to. */
-	image: z.object({
-		fingerprint: z.string().nullable(),
-		serial: z.string().nullable(),
-	}),
+	image: AliasImage,
 	instances: z.array(
 		z.object({
 			name: z.string().min(1),
@@ -62,7 +55,7 @@ export const HostSnapshot = z.object({
 			imageSerial: z.string().nullable(),
 		}),
 	),
-	/** Null in samples written before Epic 19. */
+	/** Null in older samples. */
 	rates: HostRates.nullable().default(null),
 });
 export type HostSnapshot = z.infer<typeof HostSnapshot>;
@@ -97,7 +90,7 @@ export const HealthSample = z.object({
 		errorCode: z.string().nullable(),
 	}),
 	host: HostSnapshot.nullable(),
-	/** Workspaces the database says are running; null in samples before Epic 19. */
+	/** Workspaces the database says are running; null in older samples. */
 	runningWorkspaces: z.number().int().nonnegative().nullable().default(null),
 });
 export type HealthSample = z.infer<typeof HealthSample>;

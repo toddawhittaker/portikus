@@ -70,7 +70,7 @@ const STRIP_STYLES: Record<"sampled" | "outage" | "gap", SeriesStyle> = {
  * Per bucket, the minutes with a sample and a reachable controller, the
  * minutes with a sample but no controller, and the minutes with no sample.
  */
-export function stripMinutes(frame: ChartFrame, points: readonly PlatformPoint[]) {
+function stripMinutes(frame: ChartFrame, points: readonly PlatformPoint[]) {
 	const perBucket = frame.bucketSeconds / 60;
 	const sampled = dense(frame, points, (point) => point.sampleMinutes);
 	const reachable = dense(frame, points, (point) => point.reachableMinutes);
@@ -194,7 +194,7 @@ export function AvailabilityStrip({
 	);
 }
 
-/** Running workspaces over the range (#598 item 2). */
+/** Running workspaces over the range. */
 export function RunningChart({
 	series,
 	frame,
@@ -216,7 +216,7 @@ export function RunningChart({
 	);
 }
 
-/** Host CPU, network and disk over the range (#598 items 6, 7 and 8). */
+/** Host CPU, network and disk over the range. */
 export function HostRateCharts({
 	series,
 	frame,

@@ -19,7 +19,8 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, Fragment, useEffect, useRef, useState } from "react";
-import { ApiError } from "../../api/request.js";
+import { ApiError, errorText } from "../../api/request.js";
+import { joinWords, shortTime } from "../../text.js";
 import { AdminSection, focusAdminHeading } from "../AdminSection.js";
 import { shortId } from "../audit/AuditTab.js";
 import {
@@ -33,8 +34,6 @@ import {
 	usePlatformSettings,
 	useUpdatePlatformSettings,
 } from "../queries.js";
-import { errorText } from "../SettingsTab.js";
-import { shortTime } from "../shortTime.js";
 import {
 	DEFAULT_LEVELS,
 	DEFAULT_WINDOW,
@@ -107,8 +106,7 @@ function levelList(levels: readonly LogLevel[]): string {
 	const words = LOG_LEVELS.filter((level) => levels.includes(level)).map(
 		(level) => LEVEL_LABELS[level],
 	);
-	if (words.length <= 1) return words.join("");
-	return `${words.slice(0, -1).join(", ")} or ${words.at(-1)}`;
+	return joinWords(words, "or");
 }
 
 /**
@@ -315,7 +313,7 @@ export function LogsTab() {
 							))}
 						</div>
 					</fieldset>
-					{/* A native select, as in the Users filter bar (ruling S18). */}
+					{/* A native select, as in the Users filter bar. */}
 					<div className={FIELD_CLASS}>
 						<label className={LABEL_CLASS} htmlFor="logs-window">
 							Time

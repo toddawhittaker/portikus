@@ -84,10 +84,10 @@ function parsePorts(value: string): number[] {
 }
 
 /**
- * Environment contract for the API process (STACK.md §5, §9).
+ * Fields the API and worker read with the same meaning (the controller takes
+ * AGENT_PORT). One copy keeps their defaults and checks from drifting.
  */
-export const ApiConfigSchema = BaseConfig.extend({
-	DATABASE_URL: z.string().min(1),
+const SharedWorkspaceFields = {
 	PRESENCE_TTL_SECONDS: positiveInt.default(60),
 	WORKSPACE_HOME_SIZE_GIB: positiveInt.default(25),
 	WORKSPACE_DOCKER_SIZE_GIB: positiveInt.default(20),
@@ -95,6 +95,31 @@ export const ApiConfigSchema = BaseConfig.extend({
 	WORKSPACE_RECOVERY_SIZE_GIB: positiveInt.default(3),
 	/** How long a recovery point is kept before retention may remove it (SPEC.md §15.7). */
 	RECOVERY_RETENTION_DAYS: positiveInt.default(14),
+	/**
+	 * DNS suffix every preview host sits under, as
+	 * `<workspace-label>-<port>.<suffix>` (BROWSER-HANDLING.md §8, §23).
+	 * The worker hands it to the controller, which writes it into every
+	 * workspace. Production must set its own; the default is for development only.
+	 */
+	PREVIEW_SUFFIX: z.string().min(1).default(DEV_PREVIEW_SUFFIX),
+	/** The port every workspace agent listens on. */
+	AGENT_PORT: positiveInt.default(7400),
+};
+
+function previewSuffixIsDnsName(config: { PREVIEW_SUFFIX: string }): boolean {
+	return DNS_NAME.test(config.PREVIEW_SUFFIX);
+}
+
+const PREVIEW_SUFFIX_DNS_MESSAGE =
+	"PREVIEW_SUFFIX must be a lowercase DNS name of at least two labels, " +
+	"with no scheme, port, or trailing dot";
+
+/**
+ * Environment contract for the API process (STACK.md §5, §9).
+ */
+export const ApiConfigSchema = BaseConfig.extend({
+	DATABASE_URL: z.string().min(1),
+	...SharedWorkspaceFields,
 	PUBLIC_URL: z.string().url().default("http://127.0.0.1:5173"),
 	OIDC_ISSUER_URL: z.string().url().default("http://127.0.0.1:3002"),
 	OIDC_CLIENT_ID: z.string().min(1).default("portikus-dev"),
@@ -104,36 +129,25 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_GROUPS_CLAIM: z.string().default("groups"),
 	OIDC_STUDENT_GROUP: z.string().min(1).default("portikus-students"),
 	OIDC_ADMIN_GROUP: z.string().min(1).default("portikus-administrators"),
-	/** The group whose members are instructors (docs/archive/epics/EPIC-13.md ruling 4). */
+	/** The group whose members are instructors (SPEC.md section 5.2). */
 	OIDC_INSTRUCTOR_GROUP: z.string().min(1).default("portikus-instructors"),
 	/** What a signed-in person gets when no group matches (SPEC.md section 5.1). */
 	OIDC_DEFAULT_ROLE: z.enum(["none", "student"]).default("none"),
-	/** Retired by ADR 0031; read only so an old api.env stops the API instead of being ignored. */
-	OIDC_PROVIDER: z.string().optional(),
-	OIDC_ALLOWED_TENANT: z.string().optional(),
-	OIDC_ALLOWED_DOMAINS: z.string().optional(),
-	/** Forward proxy for discovery, token, keyset and LMS keyset requests (ruling 27). */
+	/** Forward proxy for discovery, token, keyset and LMS keyset requests. */
 	OUTBOUND_PROXY_URL: z.string().url().optional(),
-	/** Dex gRPC API address and mutual TLS files; unset turns the Dex user routes off (rulings 20, 24). */
+	/** Dex gRPC API address and mutual TLS files; unset turns the Dex user routes off. */
 	DEX_GRPC_ADDR: z.string().min(1).optional(),
 	DEX_GRPC_CA: z.string().min(1).optional(),
 	DEX_GRPC_CERT: z.string().min(1).optional(),
 	DEX_GRPC_KEY: z.string().min(1).optional(),
-	/** The LTI platforms file (docs/archive/epics/EPIC-13.md ruling 14); unset means LTI is off. */
+	/** The LTI platforms file (ADR 0025); unset means LTI is off. */
 	LTI_PLATFORMS_FILE: z.string().min(1).optional(),
-	/** The tool's RSA key, whose public half `/lti/jwks` serves (ruling 15). */
+	/** The tool's RSA key, whose public half `/lti/jwks` serves. */
 	LTI_TOOL_KEY_FILE: z.string().min(1).optional(),
 	SESSION_COOKIE_SECRET: z.string().min(1).default(DEV_SESSION_SECRET),
 	SESSION_TTL_SECONDS: positiveInt.default(43200),
-	AGENT_PORT: positiveInt.default(7400),
 	/** `name=url,name=url` (SPEC.md §7.2); parsed once in the transform below. */
 	PROJECT_TEMPLATES: z.string().default(""),
-	/**
-	 * DNS suffix every preview host sits under, as
-	 * `<workspace-label>-<port>.<suffix>` (BROWSER-HANDLING.md §8, §23).
-	 * Production must set its own; the default is for development only.
-	 */
-	PREVIEW_SUFFIX: z.string().min(1).default(DEV_PREVIEW_SUFFIX),
 	/** Lowest port a preview may target (BROWSER-HANDLING.md §8, §23). */
 	PREVIEW_PORT_MIN: positiveInt.default(1024),
 	/** Highest port a preview may target (BROWSER-HANDLING.md §8, §23). */
@@ -148,9 +162,9 @@ export const ApiConfigSchema = BaseConfig.extend({
 	PREVIEW_TICKET_TTL_SECONDS: positiveInt.default(30),
 	/** How often the API sends release notices (SPEC.md 22.4); the e2e run shortens it. */
 	RELEASE_NOTICE_SECONDS: positiveInt.default(3600),
-	/** Sign-in starts per address per minute (#398): 150 lets a lab of 30 behind one address sign in, at five starts each. */
+	/** Sign-in starts per address per minute: 150 lets a lab of 30 behind one address sign in, at five starts each. */
 	SIGNIN_START_LIMIT_PER_MINUTE: positiveInt.default(150),
-	/** Dex password posts per address per ten minutes; ten times this overall (#398). */
+	/** Dex password posts per address per ten minutes; ten times this overall. */
 	PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES: positiveInt.default(30),
 	/** The journal reader behind the Logs tab (docs/adr/0036); e2e points it at a fake. */
 	JOURNALCTL_PATH: z.string().min(1).default("/usr/bin/journalctl"),
@@ -164,7 +178,7 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "CERTIFICATE_JOBS_DIR must be an absolute path")
 		.optional(),
-	/** Where the API drops Docker cache helper requests and reads its status (issue #840); unset turns the Docker admin routes off. */
+	/** Where the API drops Docker cache helper requests and reads its status; unset turns the Docker admin routes off. */
 	REGISTRY_JOBS_DIR: z
 		.string()
 		.regex(/^\/./, "REGISTRY_JOBS_DIR must be an absolute path")
@@ -174,26 +188,11 @@ export const ApiConfigSchema = BaseConfig.extend({
 		.string()
 		.regex(/^\/./, "BACKUP_KEY_SOCKET must be an absolute path")
 		.optional(),
-	/** Workspace start, stop and restart requests per user per minute (ADR 0034 ruling 16). */
+	/** Workspace start, stop and restart requests per user per minute (ADR 0034). */
 	WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: positiveInt.default(20),
-	/** File and project writes per user per minute (ADR 0034 ruling 16). */
+	/** File and project writes per user per minute (ADR 0034). */
 	FILE_WRITE_LIMIT_PER_MINUTE: positiveInt.default(600),
 })
-	// Silently dropping a tenant or domain check would admit any account (SPEC.md 5.1).
-	.refine(
-		(config) =>
-			(config.OIDC_PROVIDER === undefined ||
-				config.OIDC_PROVIDER === "" ||
-				config.OIDC_PROVIDER === "oidc") &&
-			!config.OIDC_ALLOWED_TENANT &&
-			!config.OIDC_ALLOWED_DOMAINS,
-		{
-			message:
-				"OIDC_PROVIDER, OIDC_ALLOWED_TENANT and OIDC_ALLOWED_DOMAINS are no longer supported: " +
-				"Dex is now the only front door (SPEC.md 5.1); rerun the play to move this site's sign-in to Dex",
-			path: ["OIDC_PROVIDER"],
-		},
-	)
 	.refine(requireProductionHttps("PUBLIC_URL"), {
 		message: productionHttpsMessage("PUBLIC_URL"),
 		path: ["PUBLIC_URL"],
@@ -234,10 +233,8 @@ export const ApiConfigSchema = BaseConfig.extend({
 			path: ["PREVIEW_SUFFIX"],
 		},
 	)
-	.refine((config) => DNS_NAME.test(config.PREVIEW_SUFFIX), {
-		message:
-			"PREVIEW_SUFFIX must be a lowercase DNS name of at least two labels, " +
-			"with no scheme, port, or trailing dot",
+	.refine(previewSuffixIsDnsName, {
+		message: PREVIEW_SUFFIX_DNS_MESSAGE,
 		path: ["PREVIEW_SUFFIX"],
 	})
 	// A preview must never share the application's host, and wildcard
@@ -314,46 +311,30 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	DATABASE_URL: z.string().min(1),
 	CONTROLLER_URL: z.string().url().default("http://127.0.0.1:3001"),
 	CONTROLLER_TOKEN: z.string().default(DEV_TOKEN),
+	...SharedWorkspaceFields,
 	/**
 	 * Seeds the `settings` row on the worker's first start. After that the
 	 * admin page owns the value and this variable is ignored (SPEC.md §6.4).
 	 * Zero means a disconnected workspace keeps running indefinitely.
 	 */
 	SHUTDOWN_GRACE_SECONDS: nonNegativeInt.default(600),
-	PRESENCE_TTL_SECONDS: positiveInt.default(60),
 	SWEEP_INTERVAL_SECONDS: positiveInt.default(1),
 	START_TIMEOUT_SECONDS: positiveInt.default(60),
 	STOP_TIMEOUT_SECONDS: positiveInt.default(30),
 	STATUS_REFRESH_SECONDS: positiveInt.default(15),
-	WORKSPACE_HOME_SIZE_GIB: positiveInt.default(25),
-	WORKSPACE_DOCKER_SIZE_GIB: positiveInt.default(20),
-	/** Recovery allowance per workspace (SPEC.md §19.1, ADR 0020). */
-	WORKSPACE_RECOVERY_SIZE_GIB: positiveInt.default(3),
 	/** A project is due a periodic point after this long (SPEC.md §15.6). */
 	RECOVERY_INTERVAL_SECONDS: positiveInt.default(900),
-	/** How long a recovery point is kept before retention may remove it (SPEC.md §15.7). */
-	RECOVERY_RETENTION_DAYS: positiveInt.default(14),
 	/** How often the recovery loop looks for due projects (ADR 0020). */
 	RECOVERY_SWEEP_SECONDS: positiveInt.default(60),
-	/**
-	 * The preview suffix the worker hands to the controller, which writes it
-	 * into every workspace so shells and dev servers know the preview host
-	 * (issue #263). Must match the API's value.
-	 */
-	PREVIEW_SUFFIX: z.string().min(1).default(DEV_PREVIEW_SUFFIX),
-	/** The port every workspace agent listens on; must match the API value. */
-	AGENT_PORT: positiveInt.default(7400),
-	/** The registry notification webhook, on 127.0.0.1 only (issue #840). */
+	/** The registry notification webhook, on 127.0.0.1 only. */
 	REGISTRY_EVENTS_PORT: positiveInt.default(8792),
 })
 	.refine(
 		requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),
 		productionSecretMessage("CONTROLLER_TOKEN"),
 	)
-	.refine((config) => DNS_NAME.test(config.PREVIEW_SUFFIX), {
-		message:
-			"PREVIEW_SUFFIX must be a lowercase DNS name of at least two labels, " +
-			"with no scheme, port, or trailing dot",
+	.refine(previewSuffixIsDnsName, {
+		message: PREVIEW_SUFFIX_DNS_MESSAGE,
 		path: ["PREVIEW_SUFFIX"],
 	});
 export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
@@ -370,7 +351,7 @@ export const ControllerConfigSchema = BaseConfig.extend({
 	INCUS_POOL: z.string().min(1).default("workspace-data"),
 	INCUS_PROFILE: z.string().min(1).default("workspace"),
 	INCUS_IMAGE_ALIAS: z.string().min(1).default("portikus"),
-	AGENT_PORT: positiveInt.default(7400),
+	AGENT_PORT: SharedWorkspaceFields.AGENT_PORT,
 }).refine(
 	requireProductionSecret("CONTROLLER_TOKEN", DEV_TOKEN),
 	productionSecretMessage("CONTROLLER_TOKEN"),

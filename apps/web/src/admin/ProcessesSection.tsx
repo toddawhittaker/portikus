@@ -12,15 +12,15 @@ import {
 } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { ApiError, request } from "../api/request.js";
+import { ApiError, request, sendJson } from "../api/request.js";
 import { formatBytes, formatCpu } from "../monitor/format.js";
 import { stopErrorText } from "../monitor/stop.js";
 
 /** The browser polls once a second for at most 20 seconds (SPEC.md §20.1). */
-export const POLL_MS = 1000;
+const POLL_MS = 1000;
 export const POLL_LIMIT_MS = 20_000;
 
-export const PROTECTED_HELP =
+const PROTECTED_HELP =
 	"Protected processes are the workspace's system processes and Portikus's own. They cannot be stopped here; restart the workspace instead.";
 
 /** The workspace's student account; every other uid is shown as system. */
@@ -57,7 +57,7 @@ export function ownerText(uid: number): string {
 	return uid === STUDENT_UID ? "student" : "system";
 }
 
-export function snapshotErrorText(code: string): string {
+function snapshotErrorText(code: string): string {
 	if (code === "WORKSPACE_NOT_RUNNING") return "The workspace is not running.";
 	return `The processes could not be read (${code}). Press Refresh to try again.`;
 }
@@ -199,14 +199,10 @@ export function ProcessesSection({
 		const force = current.stillRunning;
 		setStopping({ ...current, pending: true, error: null });
 		try {
-			const answer = await request(
+			const answer = await sendJson(
 				ProcessStopResponse,
 				`/admin/workspaces/${workspaceId}/processes/${process.pid}/stop`,
-				{
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ startTicks: process.startTicks, force }),
-				},
+				{ startTicks: process.startTicks, force },
 			);
 			if (!answer.exited) {
 				setStopping({ process, stillRunning: true, error: null, pending: false });

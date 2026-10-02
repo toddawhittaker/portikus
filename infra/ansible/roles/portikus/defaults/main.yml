@@ -3,10 +3,10 @@
 # change it at runtime from the admin page (ADR 0012).
 portikus_log_level: info
 
-# The API's own platforms-file parser, which validates the file at install (docs/archive/epics/EPIC-13.md ruling 14).
+# The API's own platforms-file parser, which validates the file at install (ADR 0025).
 portikus_lti_platforms_check_script: /usr/lib/portikus/api/node_modules/@portikus/auth/dist/lti/platforms-check-main.js
 
-# LTI launch (docs/archive/epics/EPIC-13.md, rulings 14 and 15): where the API reads the
+# LTI launch (ADR 0025): where the API reads the
 # platforms file and the tool key on the VM.
 portikus_lti_platforms_path: /etc/portikus/lti-platforms.json
 portikus_lti_tool_key_path: /etc/portikus/lti-tool-key.pem
@@ -17,6 +17,6 @@ portikus_image_jobs_dir: /var/lib/portikus/image-jobs
 # The root certificate job's request directory; packages/contracts/src/certificate.ts fixes it.
 portikus_certificate_jobs_dir: /var/lib/portikus/certificate-jobs
 
-# The root Docker cache helper's request directory (issue #840), made by the
+# The root Docker cache helper's request directory, made by the
 # registry_cache role; packages/contracts/src/docker-cache.ts fixes it.
 portikus_registry_jobs_dir: /var/lib/portikus/registry-jobs

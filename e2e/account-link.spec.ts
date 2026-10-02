@@ -1,8 +1,8 @@
 /**
- * Linking a course account to an SSO account (docs/archive/epics/EPIC-13-1.md, "The flow"
- * and T3's "What done looks like"). Everything goes through the browser: the
+ * Linking a course account to an SSO account (ADR 0026). Everything goes
+ * through the browser: the
  * mock LMS launch, Settings, the mock OIDC provider and the /link page. Only
- * standard OIDC behaviour of the mock is used (ruling 26).
+ * standard OIDC behaviour of the mock is used.
  *
  * Lin (mock LMS), erin and frank (mock OIDC) exist for this spec alone, so a
  * link never sends another spec's launch into the wrong account.
@@ -141,7 +141,7 @@ test("a course account links to an SSO account, relaunches into it, and unlinks"
 		expect((await me(page)).id).toBe(erinId);
 
 		// erin, signed in with SSO, sees the link and unlinks it. Unlinking from
-		// the relaunched session itself ends that session (review S2), which the
+		// the relaunched session itself ends that session, which the
 		// API tests cover.
 		await apiLoginAs(context.request, TARGET);
 		await page.goto("/");

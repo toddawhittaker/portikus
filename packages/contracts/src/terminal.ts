@@ -7,6 +7,13 @@ export const MAX_TERMINALS_PER_WORKSPACE = 20;
 /** Maximum browser attachments to one terminal (SPEC.md §9.5). */
 export const MAX_ATTACHMENTS_PER_TERMINAL = 4;
 
+/**
+ * Lines of history a terminal keeps above the visible screen (SPEC.md §9.1,
+ * §9.7). tmux's history-limit and the browser's scrollback both use it, so a
+ * replay never sends more than the browser can hold.
+ */
+export const SCROLLBACK_LINES = 5_000;
+
 /** Maximum bytes accepted in one terminal input frame (SPEC.md §24.2). */
 export const MAX_INPUT_FRAME_BYTES = 65536;
 
@@ -41,11 +48,11 @@ export const Terminal = z.object({
 	projectId: z.string().uuid().nullable(),
 	createdAt: z.string().datetime(),
 	endedAt: z.string().datetime().nullable(),
-	/** This terminal's own colour scheme (issue #268). */
+	/** This terminal's own colour scheme. */
 	theme: TerminalTheme,
 	/**
 	 * Set when a launcher started a coding agent here (SPEC.md §10.8).
-	 * Absent on rows written before Epic 9.
+	 * Absent on rows written before terminals carried a theme.
 	 */
 	agent: CodingAgent.nullable().optional(),
 	/** Object id from `git stash create` before the agent ran (SPEC.md §10.9). */
@@ -67,7 +74,7 @@ export const CreateTerminalRequest = z
 		name: z.string().min(1).max(64).optional(),
 		cwd: z.string().min(1).optional(),
 		projectId: z.string().uuid().optional(),
-		/** Defaults to the user's terminal colour scheme (issue #268). */
+		/** Defaults to the user's terminal colour scheme. */
 		theme: TerminalTheme.optional(),
 		/**
 		 * Present when the center-pane launcher is starting Claude or Codex

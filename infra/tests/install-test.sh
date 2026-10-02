@@ -369,7 +369,7 @@ EOF
   grep -q "Portikus setup is running in the background" "${LOGS}/apt-install.txt" \
     || { echo "postinst did not start setup"; return 1; }
   vm "dpkg-query -W -f '\${Version}' portikus" | grep -qx "$(cat "${LOGS}/${1:-v1}.version")"
-  # The Docker cache question's default, never preseeded here (issue #840).
+  # The Docker cache question's default, never preseeded here.
   vm "sudo grep -qx 'portikus_registry_cache_gib: 20' /etc/portikus/portikus.yaml" \
     || { echo "portikus.yaml does not hold the Docker cache size"; return 1; }
 }
@@ -436,7 +436,7 @@ EOF
 smoke() {
   "${M[@]}" smoke-test PORTIKUS_PUBLIC_HOST="$PUBLIC_HOST" PORTIKUS_PUBLIC_PORT=443 \
     PORTIKUS_SMOKE_SIGNIN_FILE="${LOGS}/admin-signin" 2>&1 | tee "${LOGS}/smoke.txt"
-  grep -qE '[0-9]+ passed, 0 failed' "${LOGS}/smoke.txt"
+  grep -qE '^--- Results: [0-9]+ passed, 0 failed ---$' "${LOGS}/smoke.txt"
 }
 
 # A host set up by an older release: Caddy's Cloudsmith repository, whose
@@ -501,7 +501,7 @@ EOF
 # ── 8: the upgrade ─────────────────────────────────────────────────
 
 # A running workspace keeps its terminals and gets the new agent after an
-# upgrade, without being stopped (issue #887, SPEC.md 22.5).
+# upgrade, without being stopped (SPEC.md 22.5).
 AGENT_WS="install-agent-ws"
 ws_root() { vm "incus exec ${AGENT_WS} --project portikus -- $*"; }
 agent_started() { # epoch seconds the workspace agent's main process started
@@ -562,7 +562,7 @@ after_upgrade() {
   for s in portikus-api portikus-worker portikus-controller portikus-registry-hub; do
     [ "$(vm "systemctl is-active ${s}")" = active ] || { echo "${s} is not active"; return 1; }
   done
-  # The Docker cache's own filesystem, at the install question's size (issue #840).
+  # The Docker cache's own filesystem, at the install question's size.
   [ "$(vm "sudo stat -c %s /var/lib/portikus-registry.img")" = $((20 * 1024 * 1024 * 1024)) ] \
     || { echo "the Docker cache's file is not 20 GiB"; return 1; }
   [ "$(vm "systemctl is-enabled docker-registry.service")" = masked ] \

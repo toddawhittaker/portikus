@@ -9,10 +9,9 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { buildServer } from "../server.js";
 
 /**
- * The workspace agent's side of the authorization matrix (Epic 12a, Done
- * item 6; SPEC.md sections 9.7, 23.5, 24). Every route and socket refuses a
- * caller without this workspace's token, and the URL broker socket is
- * reachable only by its owner.
+ * The workspace agent's side of the authorization matrix (SPEC.md sections
+ * 9.7, 23.5, 24). Every route and socket refuses a caller without this
+ * workspace's token, and the URL broker socket is reachable only by its owner.
  */
 
 const TOKEN = "a".repeat(64);

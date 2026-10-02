@@ -14,7 +14,7 @@ import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import WebSocketClient from "ws";
 import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { buildTestServer, PUBLIC_URL } from "../test-support.js";
-import { terminalGoneReason } from "./terminals.js";
+import { terminalGoneReason } from "./terminal-pipe.js";
 
 /**
  * The terminal transport (SPEC.md §9.7, ADR 0009): the API forwards frames

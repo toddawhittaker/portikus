@@ -1,8 +1,7 @@
 import { type Kysely, sql } from "kysely";
 
 /**
- * How each session started, and the exact archive a link wrote (Epic 13.1
- * review fixes S1, S2 and S5; ADR 0026). An existing session of a course
+ * How each session started, and the exact archive a link wrote (ADR 0026). An existing session of a course
  * account came from a launch, and one of any other account from SSO. A
  * session of either side of a link cannot be told apart, so it is ended.
  */

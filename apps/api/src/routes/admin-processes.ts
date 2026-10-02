@@ -1,15 +1,15 @@
 import { requireRole, requireUser } from "@portikus/auth";
 import { type AdminProcessSnapshot, InstanceProcess } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { agentClientFor } from "../agent-client.js";
+import { parseOr400, sendError, UuidParam } from "../http.js";
 import type { ServerDeps } from "../server.js";
 import { recordNotification } from "./notifications.js";
 import { parseStop, stopThroughAgent } from "./processes.js";
-import { sendError } from "./project-scope.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
-const UuidParam = z.object({ id: z.string().uuid() });
 const Rows = z.array(InstanceProcess);
 
 /** What the student is told; it names no process (SPEC.md §20.1). */
@@ -41,11 +41,14 @@ export function registerAdminProcessRoutes(
 		adminOnly,
 		async (request, reply) => {
 			const admin = requireUser(request);
-			const params = UuidParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
-			}
-			const row = await loadWorkspace(params.data.id);
+			const params = parseOr400(
+				UuidParam,
+				request.params,
+				reply,
+				"invalid workspace id",
+			);
+			if (!params) return;
+			const row = await loadWorkspace(params.id);
 			if (!row)
 				return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 			if (row.state !== "running") {
@@ -67,26 +70,21 @@ export function registerAdminProcessRoutes(
 					)
 					.execute();
 				// Reading what a student runs is audited (SPEC.md §24.11).
-				await trx
-					.insertInto("audit_events")
-					.values({
-						actor: `user:${admin.id}`,
-						target: row.id,
-						action: "workspace.processes_read",
-						result: "ok",
-					})
-					.execute();
+				await recordAudit(trx, {
+					actor: `user:${admin.id}`,
+					target: row.id,
+					action: "workspace.processes_read",
+					result: "ok",
+				});
 			});
 			return reply.status(202).send({ requestedAt });
 		},
 	);
 
 	app.get("/admin/workspaces/:id/processes", adminOnly, async (request, reply) => {
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
-		}
-		const row = await loadWorkspace(params.data.id);
+		const params = parseOr400(UuidParam, request.params, reply, "invalid workspace id");
+		if (!params) return;
+		const row = await loadWorkspace(params.id);
 		if (!row)
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		const snap = await db

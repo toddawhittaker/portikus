@@ -61,7 +61,7 @@
 
 /* Every state but the frame: one compact stack centred in the pane. The body
    is a flex column for the frame's sake, which would otherwise stretch these
-   children from top to bottom and turn the button into a bar (issue #275). */
+   children from top to bottom and turn the button into a bar. */
 .pk-preview-state {
 	margin: auto;
 	align-self: center;
@@ -70,7 +70,7 @@
 	padding: var(--space-4);
 }
 
-/* The line to paste into the dev server's config (issue #262). */
+/* The line to paste into the dev server's config. */
 .pk-preview-config {
 	display: block;
 	margin-top: var(--space-2);

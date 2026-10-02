@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { request } from "../api/request.js";
 
-/** The courses the caller teaches; empty for everyone else (Epic 13 ruling 23). */
+/** The courses the caller teaches; empty for everyone else. */
 export function useCourses() {
 	return useQuery({
 		queryKey: ["courses"],

@@ -6,10 +6,11 @@ import {
 	MAX_WATCHED_DIRS,
 	WATCH_SKIP_NAMES,
 } from "@portikus/contracts";
+import { errorMessage } from "@portikus/observability";
 import { type FSWatcher, watch } from "chokidar";
 import type { FastifyBaseLogger } from "fastify";
+import { AgentFailure } from "./errors.js";
 import { resolveProject } from "./projects.js";
-import { AgentFailure } from "./tmux.js";
 
 /**
  * A subscriber. `null` means the watcher has failed and will send nothing
@@ -201,10 +202,7 @@ export class ProjectWatchers {
 				throw error;
 			}
 			this.log.warn({ code: errnoCode(error) }, "project watcher failed to start");
-			this.log.debug(
-				{ error: error instanceof Error ? error.message : String(error) },
-				"project watcher start error",
-			);
+			this.log.debug({ error: errorMessage(error) }, "project watcher start error");
 			await watcher.close().catch(() => {});
 			throw new AgentFailure("WATCH_FAILED", "could not watch project");
 		}
@@ -256,10 +254,7 @@ export class ProjectWatchers {
 				{ pending: entry.paths.size, code: errnoCode(error) },
 				"project watcher failed",
 			);
-			this.log.debug(
-				{ error: error instanceof Error ? error.message : String(error) },
-				"project watcher error",
-			);
+			this.log.debug({ error: errorMessage(error) }, "project watcher error");
 			// Subscribers hear the failure itself, not a last catch-all frame:
 			// this watcher is going away and they have to reconnect.
 			this.emit(entry, null);

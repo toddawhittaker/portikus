@@ -6,7 +6,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
 import { badgeText } from "../shell/AppHeader.js";
 import { json, renderWithQuery, stubFetch, USER } from "../test-utils.js";
-import { NotificationsDialog, relativeTime } from "./NotificationsDialog.js";
+import { NotificationsDialog } from "./NotificationsDialog.js";
 import { recordNotification } from "./queries.js";
 
 // SPEC.md section 8.5.
@@ -35,17 +35,6 @@ test("the badge shows the count, 9+ above nine, and nothing at zero", () => {
 	expect(badgeText(10)).toBe("9+");
 });
 
-test("relative time reads in plain words", () => {
-	expect(relativeTime(new Date(NOW).toISOString(), NOW)).toBe("Just now");
-	expect(relativeTime(new Date(NOW - 4 * 60_000).toISOString(), NOW)).toBe("4 min ago");
-	expect(relativeTime(new Date(NOW - 3 * 3_600_000).toISOString(), NOW)).toBe(
-		"3 h ago",
-	);
-	expect(relativeTime(new Date(NOW - 2 * 86_400_000).toISOString(), NOW)).toBe(
-		"2 days ago",
-	);
-});
-
 test("the dialog lists newest first, marks unread, and opening it marks nothing read", async () => {
 	const fetchMock = stubFetch(() =>
 		json(200, {
@@ -62,7 +51,7 @@ test("the dialog lists newest first, marks unread, and opening it marks nothing 
 	expect(items.map((item) => item.dataset.unread)).toEqual(["true", "false"]);
 	expect(items[0]?.textContent).toContain("Unread. Error: Newest");
 	expect(items[0]?.textContent).toContain("It broke");
-	expect(items[0]?.textContent).toContain("5 min ago");
+	expect(items[0]?.textContent).toContain("5 minutes ago");
 	expect(screen.getByText("1 unread notification.")).toBeDefined();
 	expect(
 		fetchMock.mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET"),

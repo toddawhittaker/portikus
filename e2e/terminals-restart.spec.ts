@@ -1,6 +1,6 @@
 /**
  * Terminals lost to a restart of the workspace's terminals unit are
- * explained in a toast rather than vanishing silently (SPEC.md §9.7, #625).
+ * explained in a toast rather than vanishing silently (SPEC.md §9.7).
  */
 import { expect, test } from "@playwright/test";
 import {

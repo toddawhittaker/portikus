@@ -45,7 +45,7 @@ export const POOL_TIMEOUT_MESSAGE = "timeout exceeded when trying to connect";
 /**
  * Pool settings for every process: wait at most 5 s for a connection, end a
  * statement after 30 s and an idle transaction after 60 s, so one stuck
- * query cannot hold the pool (ADR 0034 ruling 14).
+ * query cannot hold the pool (ADR 0034).
  */
 export function poolOptions(url: string, maxConnections?: number): pg.PoolConfig {
 	return {
@@ -80,4 +80,45 @@ export function isDatabaseUnavailable(error: unknown): boolean {
 	const code = (error as { code?: unknown }).code;
 	if (typeof code === "string" && UNAVAILABLE_CODES.has(code)) return true;
 	return UNAVAILABLE_MESSAGES.includes(error.message);
+}
+
+/**
+ * Whether an error is a PostgreSQL unique violation (code 23505), and, when
+ * a constraint name is given, a violation of that constraint.
+ */
+export function isUniqueViolation(error: unknown, constraint?: string): boolean {
+	if (typeof error !== "object" || error === null) return false;
+	const { code, constraint: violated } = error as {
+		code?: unknown;
+		constraint?: unknown;
+	};
+	if (code !== "23505") return false;
+	return constraint === undefined || violated === constraint;
+}
+
+/** One audit row; the caller keeps secrets and personal data out of `metadata`. */
+export interface AuditEvent {
+	actor: string;
+	target: string;
+	action: string;
+	result: string;
+	metadata?: Record<string, unknown> | null;
+}
+
+/** Write one audit row (SPEC.md section 24). Accepts the db or a transaction. */
+export async function recordAudit(
+	db: Kysely<Database>,
+	event: AuditEvent,
+): Promise<void> {
+	const { actor, target, action, result, metadata } = event;
+	await db
+		.insertInto("audit_events")
+		.values({
+			actor,
+			target,
+			action,
+			result,
+			metadata: metadata == null ? null : JSON.stringify(metadata),
+		})
+		.execute();
 }

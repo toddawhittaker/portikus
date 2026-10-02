@@ -422,7 +422,7 @@ test.skipIf(skip)(
 	},
 );
 
-// ── Stopping a listener (SPEC.md 18.2, issue #273) ──
+// ── Stopping a listener (SPEC.md 18.2) ──
 
 /** Wait until the API reports exactly these ports for the workspace. */
 async function untilPorts(ports: number[]): Promise<void> {
@@ -473,7 +473,7 @@ test.skipIf(skip)("a system listener is refused", async () => {
 
 /**
  * Stopping makes the control plane work for the student, so it shares the
- * grant and probe budget rather than being free (issue #283).
+ * grant and probe budget rather than being free.
  */
 test.skipIf(skip)(
 	"stops come out of the same per-minute budget as grants and probes",
@@ -492,7 +492,7 @@ test.skipIf(skip)(
 	20_000,
 );
 
-/** One stop at a time per workspace (issue #283). */
+/** One stop at a time per workspace. */
 test.skipIf(skip)("a second stop while one is running is refused", async () => {
 	await seedListening([{ port: 5173 }, { port: 5174 }]);
 	await untilPorts([5173, 5174]);
@@ -976,7 +976,7 @@ test.skipIf(skip)("a port with nothing listening explains itself", async () => {
 	expect(response.body).toContain("Start your application to reconnect this preview");
 });
 
-// ── A listener speaking HTTPS (issue #283, step 2, ADR 0041) ──
+// ── A listener speaking HTTPS (ADR 0041) ──
 
 const SCHEME = "x-portikus-upstream-scheme";
 
@@ -1174,7 +1174,7 @@ async function embeddable(
 	});
 }
 
-// ── The TLS probe runs only when a preview asks (issue #957) ──
+// ── The TLS probe runs only when a preview asks ──
 
 test.skipIf(skip)("discovering a port does not probe it", async () => {
 	const port = await startApp(undefined, 0, true);

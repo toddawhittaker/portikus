@@ -17,7 +17,7 @@ import { type ImageFacts, toImageVersion } from "./admin-workspaces.js";
 
 /**
  * The admin workspace detail, archive and storage routes (SPEC.md §20.1,
- * §20.2; Epic 11 done items 2, 4 to 8).
+ * §20.2).
  */
 
 const skip = !hasTestDb();
@@ -197,7 +197,7 @@ test.skipIf(skip)("a stopped workspace shows Stopped and no live usage", async (
 	expect(body.usage).toBeNull();
 	expect(body.storage).toBeNull();
 	expect(body.ports).toEqual([]);
-	// Epic 10's maintenance routes are registered, so both buttons are on.
+	// The maintenance routes are registered, so both buttons are on.
 	expect(body.capabilities).toEqual({ rebuild: true, resetDocker: true });
 });
 
@@ -525,7 +525,7 @@ test.skipIf(skip)("storage grows, is audited, and shows as pending", async () =>
 		.execute();
 	const res = await putQuota({ homeGiB: 40, dockerGiB: 20 });
 	expect(res.statusCode).toBe(200);
-	// Epic 10's recovery size rides along untouched.
+	// The recovery size rides along untouched.
 	expect(res.json().quotaConfig).toEqual({
 		homeGiB: 40,
 		dockerGiB: 20,

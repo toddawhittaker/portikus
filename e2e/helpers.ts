@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import AxeBuilder from "@axe-core/playwright";
 import {
 	type APIRequestContext,
+	type Browser,
 	type BrowserContext,
 	expect,
 	type Locator,
@@ -148,7 +149,7 @@ export async function createStudent(
 			workspaceId,
 			userId,
 			// Labels are unique, so each test workspace gets the fallback form
-			// the API would give a user with no username (SPEC.md Epic 8).
+			// the API would give a user with no username (SPEC.md §14.3).
 			`ws-${workspaceId.replace(/-/g, "").slice(0, 8)}`,
 			`ws-${workspaceId.replace(/-/g, "").slice(0, 24)}`,
 			options.state ?? "running",
@@ -217,11 +218,11 @@ export async function terminalIds(
 }
 
 /** Where a project directory lives inside the workspace (SPEC.md §7.1). */
-export function projectPath(slug: string): string {
+function projectPath(slug: string): string {
 	return `/home/student/projects/${slug}`;
 }
 
-/** The web route of a workspace, and of one project inside it (plan, E1). */
+/** The web route of a workspace, and of one project inside it. */
 export function workspacePath(workspaceId: string, projectId?: string): string {
 	return projectId
 		? `/workspaces/${workspaceId}/projects/${projectId}`
@@ -370,7 +371,7 @@ export async function removeProjectDir(
 
 /**
  * Rename a project directory the way `mv` in the workspace shell does: the
- * same directory under a new name, so its identity is unchanged (issue #238).
+ * same directory under a new name, so its identity is unchanged.
  */
 export async function moveProjectDir(
 	workspaceId: string,
@@ -610,6 +611,81 @@ export async function settledAxe(page: Page): Promise<AxeBuilder> {
 			),
 	);
 	return new AxeBuilder({ page });
+}
+
+/** Scan the page, or only the given selectors, and expect no WCAG violations. */
+export async function expectNoViolations(
+	page: Page,
+	...include: string[]
+): Promise<void> {
+	let builder = (await settledAxe(page)).withTags(WCAG_TAGS);
+	for (const selector of include) builder = builder.include(selector);
+	const results = await builder.analyze();
+	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+}
+
+/** The WCAG 2 contrast ratio between two rgb() colours. */
+export function contrast(first: string, second: string): number {
+	const luminance = (colour: string) => {
+		const [r, g, b] = (colour.match(/[\d.]+/g) ?? []).slice(0, 3).map((part) => {
+			const channel = Number(part) / 255;
+			return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+		});
+		return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
+	};
+	const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+	return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
+}
+
+/** Carol, the mock provider's administrator, on the admin page. */
+export async function openAdmin(page: Page): Promise<void> {
+	await loginAs(page, "carol");
+	await page.goto("/admin");
+	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
+}
+
+/** A student with a workspace, made in a context of its own so carol keeps her session. */
+export async function studentIn(
+	browser: Browser,
+	prefix: string,
+): Promise<TestStudent & { name: string }> {
+	const context = await browser.newContext();
+	const student = await createStudent(context);
+	await context.close();
+	const name = `${prefix} ${student.userId.slice(0, 8)}`;
+	await query("update users set display_name = $2 where id = $1", [
+		student.userId,
+		name,
+	]);
+	return { ...student, name };
+}
+
+/** Filter the admin table to a user and open their detail panel once a region shows. */
+export async function openDetail(page: Page, name: string, readyRegion: string) {
+	await page.getByTestId("admin-filter-text").fill(name);
+	await page.getByRole("button", { name: `Show details for ${name}` }).click();
+	const panel = page.getByRole("region", { name });
+	await expect(panel.getByRole("region", { name: readyRegion })).toBeVisible();
+	return panel;
+}
+
+/** The named headers a response carries, for replaying into a fulfilled route. */
+export function headersOf(response: Response, names: string[]): Record<string, string> {
+	const headers: Record<string, string> = {};
+	for (const name of names) {
+		const value = response.headers.get(name);
+		if (value !== null) headers[name] = value;
+	}
+	return headers;
+}
+
+/** The `name=value` part of each Set-Cookie line, for the next hop. */
+export function cookiePairs(response: Response): string {
+	return response.headers
+		.getSetCookie()
+		.map((line) => line.split(";")[0] ?? "")
+		.filter(Boolean)
+		.join("; ");
 }
 
 /**

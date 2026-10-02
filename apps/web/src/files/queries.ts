@@ -14,7 +14,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { z } from "zod";
-import { request, toApiError } from "../api/request.js";
+import { request, sendJson, toApiError } from "../api/request.js";
 import { isFileExists } from "./errors.js";
 import { isDescendant, parentOf } from "./paths.js";
 
@@ -40,7 +40,7 @@ function treeUrl(workspaceId: string, projectId: string, dir: string): string {
 }
 
 /** The URL of one file, for reading and writing. */
-export function fileUrl(workspaceId: string, projectId: string, path: string): string {
+function fileUrl(workspaceId: string, projectId: string, path: string): string {
 	return `${base(workspaceId, projectId)}/file?path=${encodeURIComponent(path)}`;
 }
 
@@ -54,7 +54,7 @@ export function fileDownloadUrl(
 }
 
 /**
- * The same file as an image or PDF the page can show (#816). `version`, the
+ * The same file as an image or PDF the page can show. `version`, the
  * file's etag, makes a changed file a new address, so the browser reloads it.
  */
 export function fileInlineUrl(
@@ -70,7 +70,7 @@ export function fileInlineUrl(
 /**
  * Start a download once the API says it is under the size cap. The check
  * adds up file sizes without zipping, so a refusal is explained in the page
- * rather than shown as a failed download (#399). `checkUrl` is a download
+ * rather than shown as a failed download. `checkUrl` is a download
  * URL with `check=1`.
  */
 export async function startDownload(
@@ -128,7 +128,7 @@ export interface FileMutations {
 		Error,
 		{ path: string; file: File; replace?: boolean }
 	>;
-	/** "Extract here" on a zip; resolves to the new folder (issue #817). */
+	/** "Extract here" on a zip; resolves to the new folder. */
 	extract: UseMutationResult<ExtractResponse, Error, string>;
 	pending: boolean;
 }
@@ -209,22 +209,14 @@ export function useFileMutations(
 	const createDirectory = useMutation({
 		mutationKey,
 		mutationFn: (path: string) =>
-			request(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ path }),
-			}),
+			sendJson(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, { path }),
 		onSuccess: (_data, path) => invalidate(parentOf(path)),
 	});
 
 	const move = useMutation({
 		mutationKey,
 		mutationFn: ({ from, to }: { from: string; to: string }) =>
-			request(z.undefined(), `${base(workspaceId, projectId)}/move`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ from, to }),
-			}),
+			sendJson(z.undefined(), `${base(workspaceId, projectId)}/move`, { from, to }),
 		onSuccess: (_data, { from, to }) => {
 			forgetSubtree(from);
 			invalidateOpenFiles(from);
@@ -273,11 +265,7 @@ export function useFileMutations(
 	const extract = useMutation({
 		mutationKey,
 		mutationFn: (path: string) =>
-			request(ExtractResponse, `${base(workspaceId, projectId)}/extract`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ path }),
-			}),
+			sendJson(ExtractResponse, `${base(workspaceId, projectId)}/extract`, { path }),
 		onSuccess: (_data, path) => invalidate(parentOf(path)),
 	});
 
@@ -442,10 +430,8 @@ export async function savePastedImage(
 ): Promise<string> {
 	for (const dir of [".portikus", ".portikus/pastes"]) {
 		try {
-			await request(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ path: dir }),
+			await sendJson(z.unknown(), `${base(workspaceId, projectId)}/mkdir`, {
+				path: dir,
 			});
 		} catch (error) {
 			if (!isFileExists(error)) throw error;

@@ -2,8 +2,7 @@
 # Renders the dex role's real configuration and unit templates and checks
 # them, with no VM: PostgreSQL storage, the gRPC API behind mutual TLS, each
 # upstream connector, the sign-in lines of api.env, and the guards on the
-# settings and the users file (docs/archive/epics/EPIC-14.md rulings 11, 13,
-# 19, 20, 23 and 28; SPEC.md section 5.1).  `make infra-check`
+# settings and the users file (SPEC.md section 5.1, ADR 0028).  `make infra-check`
 # runs it; the CI dex-signin job runs it to get a configuration it can
 # start Dex with:
 #
@@ -40,7 +39,6 @@
     dex_grpc_dir: /etc/portikus/dex-grpc
     # A test value; Ansible generates the real one on the VM.
     dex_client_secret: portikus-ci-dex-client-secret-not-a-real-one
-    portikus_idp: dex
     portikus_dex_upstream: none
     portikus_entra_tenant_id: "{{ dex_render_connector.portikus_entra_tenant_id }}"
     portikus_entra_issuer: "https://login.microsoftonline.com/{{ portikus_entra_tenant_id }}/v2.0"
@@ -77,11 +75,6 @@
     # guards should let it through.
     dex_render_guards:
       - {name: standalone Dex, accept: true, upstream: none, change: {}}
-      - {name: the mock provider, accept: true, idp: mock, upstream: none, change: {}}
-      - {name: PORTIKUS_IDP=entra, accept: false, idp: entra, upstream: none, change: {}}
-      - {name: PORTIKUS_IDP=google, accept: false, idp: google, upstream: none, change: {}}
-      - {name: PORTIKUS_IDP=external, accept: false, idp: external, upstream: none, change: {}}
-      - {name: an unknown PORTIKUS_IDP, accept: false, idp: saml, upstream: none, change: {}}
       - {name: PORTIKUS_DEX_UPSTREAM=microsoft, accept: false, upstream: microsoft, change: {}}
       - {name: an unknown upstream, accept: false, upstream: okta, change: {}}
       - {name: complete Entra settings, accept: true, upstream: entra, change: {}}
@@ -297,13 +290,11 @@
     - name: Render api.env's sign-in lines for each setup
       ansible.builtin.set_fact:
         dex_env: >-
-          {{ dex_env | default({}) | combine({item.0 ~ '-' ~ item.1: dict(
+          {{ dex_env | default({}) | combine({'dex-' ~ item: dict(
                lookup('ansible.builtin.template', dex_render_workdir.path ~ '/api-env.j2',
-                      template_vars={'portikus_idp': item.0, 'portikus_dex_upstream': item.1}).splitlines()
+                      template_vars={'portikus_dex_upstream': item}).splitlines()
                | map('trim') | select | map('split', '=', 1) | list)}) }}
-      loop: "{{ ['dex'] | product(['none', 'ldap', 'entra', 'google', 'oidc']) | list + [['mock', 'none']] }}"
-      loop_control:
-        label: "{{ item.0 }} {{ item.1 }}"
+      loop: [none, ldap, entra, google, oidc]
 
     - name: Check api.env asks for groups everywhere but behind Google
       ansible.builtin.assert:
@@ -322,14 +313,13 @@
           - dex_env['dex-google'].OIDC_GROUPS_CLAIM == ''
         fail_msg: "{{ dex_env['dex-google'] | to_json }}"
 
-    # The local administrator and guests have no groups, so on Dex nobody is
-    # refused for lacking one; the mock's group-less user still is.
+    # The local administrator and guests have no groups, so nobody is
+    # refused for lacking one.
     - name: Check the default role
       ansible.builtin.assert:
         quiet: true
         that:
-          - dex_env | dict2items | selectattr('key', 'match', '^dex-') | map(attribute='value.OIDC_DEFAULT_ROLE') | unique | list == ['student']
-          - dex_env['mock-none'].OIDC_DEFAULT_ROLE == 'none'
+          - dex_env | dict2items | map(attribute='value.OIDC_DEFAULT_ROLE') | unique | list == ['student']
         fail_msg: "{{ dex_env | to_json }}"
 
     - name: Check Entra's groups are its app roles and the rest keep Portikus's names
@@ -342,7 +332,7 @@
              == ['portikus-students', 'portikus-instructors', 'portikus-administrators']"
         fail_msg: "{{ dex_env | to_json }}"
 
-    # ── Upstream connectors (rulings 11, 13 and 28; SPEC.md section 5.1) ──
+    # ── Upstream connectors (SPEC.md section 5.1) ──
 
     - name: Render each upstream connector
       ansible.builtin.template:

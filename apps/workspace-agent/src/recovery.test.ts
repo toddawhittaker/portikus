@@ -397,8 +397,8 @@ describe("restoring a point", () => {
 		);
 	});
 
-	// The zip-slip spellings the extractor refuses too (docs/BACKLOG.md,
-	// folded in Epic 15.2): each is refused before anything is extracted.
+	// The zip-slip spellings the extractor refuses too (SPEC.md §24.6):
+	// each is refused before anything is extracted.
 	for (const [label, transform] of [
 		["../../etc/passwd", "s,^.*$,../../etc/passwd,"],
 		["a traversal after a real folder", "s,^.*$,src/../../../escape.txt,"],

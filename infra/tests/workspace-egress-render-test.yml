@@ -62,7 +62,7 @@
       ansible.builtin.set_fact:
         helper_ports: >-
           {{ dict(lookup('ansible.builtin.file', '../../apps/workspace-controller/src/egress/render.ts')
-             | regex_findall('export const (EGRESS_DNS_PORT|SQUID_HTTP_PORT|SQUID_TLS_PORT) = ([0-9]+);')) }}
+             | regex_findall('const (EGRESS_DNS_PORT|SQUID_HTTP_PORT|SQUID_TLS_PORT) = ([0-9]+);')) }}
 
     - name: Check the helper redirects to the ports the ACL, firewall and Squid open
       ansible.builtin.assert:
@@ -107,7 +107,7 @@
           - drops[0].destination == '10.200.0.0,10.200.0.2-10.200.0.255'
           - drops[0].protocol is not defined
           - drops[1].destination == '10.200.0.1/32' and drops[1].protocol == 'tcp'
-          # The Docker caches (5000, 5001) are open; 443 never is (rulings S1 and S3).
+          # The Docker caches (5000, 5001) are open; 443 never is.
           - drops[1].destination_port == '1-3128,3131-4999,5002-5299,5301-65535'
           - drops[2].protocol == 'udp' and drops[2].destination_port == '1-5299,5301-65535'
           - drops[2].destination == '10.200.0.1/32'

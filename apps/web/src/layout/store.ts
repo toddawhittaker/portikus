@@ -3,7 +3,7 @@
  * project: switching project mounts a new one, so nothing carries over.
  * `dirty` marks a structural change the persistence hook still has to save;
  * the active tab, the editor view states and the focused pane are local to
- * this browser and are kept in localStorage instead (local.ts, issue #161).
+ * this browser and are kept in localStorage instead (local.ts).
  */
 import type { ProjectLayout } from "@portikus/contracts";
 import { createContext, useCallback, useContext, useRef, useState } from "react";
@@ -12,48 +12,44 @@ import { DEFAULT_ZOOM } from "../editor/zoom.js";
 import type { LocalLayout } from "./local.js";
 import * as tree from "./tree.js";
 
+/** One request for a file tab: show the diff or the editor, maybe at a line. */
+export interface PendingView {
+	mode: "diff" | "edit";
+	line?: number;
+	seq: number;
+}
+
 export interface LayoutState {
 	layout: ProjectLayout;
 	activeTabId: string | null;
 	focusedTerminalId: string | null;
 	/**
-	 * Where a file tab should jump to when its editor opens, by tab id. It is
-	 * a one-off request from this browser, so it is never saved.
+	 * What each file tab was last asked to show, by tab id: its diff or its
+	 * editor, and optionally a line to jump to. `seq` makes a repeat of the
+	 * same request a new one. A one-off request from this browser, never saved.
 	 */
-	pendingLine: Record<string, number>;
-	/**
-	 * Which file tabs have been asked to show their diff, by tab id, counted
-	 * so that asking twice is two requests. Local to this browser, like the
-	 * pending line, and never saved.
-	 */
-	pendingDiff: Record<string, number>;
-	/**
-	 * Which file tabs have been asked to show the editor again, counted the
-	 * same way. Reopening a file from the tree or a terminal link must take a
-	 * tab that is showing its diff back to the editor.
-	 */
-	pendingEdit: Record<string, number>;
+	pendingView: Record<string, PendingView>;
 	/**
 	 * Monaco's view state (cursor, selections, scroll) for each open file, by
 	 * project-relative path. It belongs to this browser, so it is kept beside
-	 * the layout rather than in the saved document (issue #161).
+	 * the layout rather than in the saved document.
 	 */
 	viewStates: Record<string, unknown>;
 	/**
-	 * The editor zoom of each open file, by project-relative path. Issue #162
-	 * asks for zoom that lasts the session only, so this one lives here and is
+	 * The editor zoom of each open file, by project-relative path. It
+	 * lasts the session only, so this one lives here and is
 	 * never written to this browser's storage.
 	 */
 	zooms: Record<string, number>;
 	/**
 	 * The tabs that have been active, newest first, so closing a tab can go
-	 * back to the one before it the way a browser does (issue #223). It only
+	 * back to the one before it the way a browser does. It only
 	 * matters while this workspace is open, so it is neither saved to the
 	 * server nor written to this browser's storage.
 	 */
 	tabHistory: string[];
 	/**
-	 * Which file tabs have edits that are not on disk, by tab id (issue #240).
+	 * Which file tabs have edits that are not on disk, by tab id.
 	 * The tab strip shows a dot instead of the close button for these. It is
 	 * what the editor is holding right now, so it is never saved anywhere.
 	 */
@@ -69,9 +65,9 @@ export interface LayoutState {
 	diffBaseline: Record<string, string | null>;
 	/**
 	 * Open a file tab, or activate the one already open for this path. With
-	 * `diff` the tab is asked to show its diff rather than the editor
-	 * (issue #160). `baseline` compares that diff with an object id instead
-	 * of Git HEAD. There is no limit on open tabs (issue #240).
+	 * `diff` the tab is asked to show its diff rather than the editor.
+	 * `baseline` compares that diff with an object id instead
+	 * of Git HEAD. There is no limit on open tabs.
 	 */
 	openFile: (
 		path: string,
@@ -79,19 +75,15 @@ export interface LayoutState {
 	) => void;
 	/**
 	 * Open a preview tab for one port, or activate the one already open for
-	 * it (SPEC.md §14.6). There is no limit on open tabs (issue #240).
+	 * it (SPEC.md §14.6). There is no limit on open tabs.
 	 */
 	openPreview: (port: number) => void;
 	/** Close one whole tab. Terminal tabs close by closing their terminals. */
 	closeTab: (tabId: string) => void;
-	/** Record whether one file tab has unsaved edits (issue #240). */
+	/** Record whether one file tab has unsaved edits. */
 	setTabUnsaved: (tabId: string, unsaved: boolean) => void;
-	/** Read and forget the line a file tab was asked to jump to. */
-	consumePendingLine: (tabId: string) => number | undefined;
-	/** Read and forget whether a file tab was asked to show its diff. */
-	consumePendingDiff: (tabId: string) => boolean;
-	/** Read and forget whether a file tab was asked to show the editor. */
-	consumePendingEdit: (tabId: string) => boolean;
+	/** Read and forget what a file tab was asked to show. */
+	consumePendingView: (tabId: string) => PendingView | undefined;
 	splitLeaf: (
 		terminalId: string,
 		direction: tree.SplitDirection,
@@ -115,7 +107,7 @@ export interface LayoutState {
 	setViewState: (path: string, viewState: unknown) => void;
 	/** Remember the editor zoom of one open file for this session. */
 	setZoom: (path: string, percent: number) => void;
-	/** Put back what this browser remembered for this project (issue #161). */
+	/** Put back what this browser remembered for this project. */
 	restoreLocal: (local: LocalLayout) => void;
 	setFocused: (terminalId: string | null) => void;
 	reconcile: (terminalIds: string[], endedIds?: string[]) => void;
@@ -150,7 +142,7 @@ function pruneHistory(history: string[], layout: ProjectLayout): string[] {
 
 /**
  * Keep the active tab pointing at a tab that still exists, preferring the one
- * that was active most recently (issue #223).
+ * that was active most recently.
  */
 function pickActive(
 	layout: ProjectLayout,
@@ -163,6 +155,9 @@ function pickActive(
 
 export function createLayoutStore() {
 	return createStore<LayoutState>()((set, get) => {
+		let seq = 0;
+		const nextSeq = () => ++seq;
+
 		/** Apply a structural change: new layout, still-valid active tab, dirty. */
 		function change(next: (layout: ProjectLayout) => ProjectLayout) {
 			set((state) => {
@@ -182,9 +177,7 @@ export function createLayoutStore() {
 			layout: tree.emptyLayout(),
 			activeTabId: null,
 			focusedTerminalId: null,
-			pendingLine: {},
-			pendingDiff: {},
-			pendingEdit: {},
+			pendingView: {},
 			diffBaseline: {},
 			viewStates: {},
 			zooms: {},
@@ -197,9 +190,10 @@ export function createLayoutStore() {
 					// A layout saved before diffs became a view of the file tab
 					// still has diff tabs; they become file tabs showing a diff.
 					const { layout, diffTabIds } = tree.migrateDiffTabs(saved);
-					const pendingDiff = { ...state.pendingDiff };
+					const pendingView = { ...state.pendingView };
 					for (const tabId of diffTabIds) {
-						pendingDiff[tabId] = (pendingDiff[tabId] ?? 0) + 1;
+						const line = pendingView[tabId]?.line;
+						pendingView[tabId] = { mode: "diff", line, seq: nextSeq() };
 					}
 					const history = pruneHistory(state.tabHistory, layout);
 					const activeTabId = pickActive(layout, state.activeTabId, history);
@@ -207,7 +201,7 @@ export function createLayoutStore() {
 						layout,
 						activeTabId,
 						tabHistory: remember(history, activeTabId),
-						pendingDiff,
+						pendingView,
 						dirty: layout !== saved,
 					};
 				}),
@@ -225,22 +219,15 @@ export function createLayoutStore() {
 			openFile: (path, options) => {
 				const state = get();
 				const opened = tree.openFile(state.layout, path);
-				const line = options?.line;
-				const pendingLine = { ...state.pendingLine };
-				// Always write the key, so a stale line from an earlier open goes.
-				if (line === undefined) delete pendingLine[opened.tabId];
-				else pendingLine[opened.tabId] = line;
-				// Exactly one of the two is asked for, so a tab left in diff view
-				// goes back to the editor when the file is opened again.
-				const pendingDiff = { ...state.pendingDiff };
-				const pendingEdit = { ...state.pendingEdit };
-				if (options?.diff) {
-					pendingDiff[opened.tabId] = (pendingDiff[opened.tabId] ?? 0) + 1;
-					delete pendingEdit[opened.tabId];
-				} else {
-					pendingEdit[opened.tabId] = (pendingEdit[opened.tabId] ?? 0) + 1;
-					delete pendingDiff[opened.tabId];
-				}
+				// Exactly one of diff and editor is asked for, so a tab left in diff
+				// view goes back to the editor when the file is opened again. A new
+				// request replaces the old one, line included.
+				const pendingView = { ...state.pendingView };
+				pendingView[opened.tabId] = {
+					mode: options?.diff ? "diff" : "edit",
+					line: options?.line,
+					seq: nextSeq(),
+				};
 				const diffBaseline = { ...state.diffBaseline };
 				diffBaseline[opened.tabId] =
 					options?.diff && options.baseline ? options.baseline : null;
@@ -248,9 +235,7 @@ export function createLayoutStore() {
 					layout: opened.layout,
 					activeTabId: opened.tabId,
 					tabHistory: remember(state.tabHistory, opened.tabId),
-					pendingLine,
-					pendingDiff,
-					pendingEdit,
+					pendingView,
 					diffBaseline,
 					dirty: state.dirty || opened.layout !== state.layout,
 				});
@@ -280,17 +265,15 @@ export function createLayoutStore() {
 						layout.tabs.some((tab) => tab.id === state.activeTabId);
 					// Closing another tab leaves the student where they are. Closing
 					// the active one goes back to the tab that was active before it,
-					// then to the neighbour on the left, then the one on the right
-					// (issue #223). After the removal `index` is the right neighbour.
+					// then to the neighbour on the left, then the one on the right.
+					// After the removal `index` is the right neighbour.
 					const activeTabId = stillThere
 						? state.activeTabId
 						: (tabHistory[0] ??
 							layout.tabs[index - 1]?.id ??
 							layout.tabs[index]?.id ??
 							null);
-					const { [tabId]: _line, ...pendingLine } = state.pendingLine;
-					const { [tabId]: _diff, ...pendingDiff } = state.pendingDiff;
-					const { [tabId]: _edit, ...pendingEdit } = state.pendingEdit;
+					const { [tabId]: _view, ...pendingView } = state.pendingView;
 					const { [tabId]: _baseline, ...diffBaseline } = state.diffBaseline;
 					const viewStates = { ...state.viewStates };
 					const zooms = { ...state.zooms };
@@ -303,9 +286,7 @@ export function createLayoutStore() {
 						layout,
 						activeTabId,
 						tabHistory: remember(tabHistory, activeTabId),
-						pendingLine,
-						pendingDiff,
-						pendingEdit,
+						pendingView,
 						diffBaseline,
 						viewStates,
 						zooms,
@@ -314,37 +295,15 @@ export function createLayoutStore() {
 				});
 			},
 
-			consumePendingLine: (tabId) => {
-				const line = get().pendingLine[tabId];
-				if (line !== undefined) {
+			consumePendingView: (tabId) => {
+				const view = get().pendingView[tabId];
+				if (view !== undefined) {
 					set((state) => {
-						const { [tabId]: _gone, ...rest } = state.pendingLine;
-						return { pendingLine: rest };
+						const { [tabId]: _gone, ...rest } = state.pendingView;
+						return { pendingView: rest };
 					});
 				}
-				return line;
-			},
-
-			consumePendingDiff: (tabId) => {
-				const asked = get().pendingDiff[tabId] !== undefined;
-				if (asked) {
-					set((state) => {
-						const { [tabId]: _gone, ...rest } = state.pendingDiff;
-						return { pendingDiff: rest };
-					});
-				}
-				return asked;
-			},
-
-			consumePendingEdit: (tabId) => {
-				const asked = get().pendingEdit[tabId] !== undefined;
-				if (asked) {
-					set((state) => {
-						const { [tabId]: _gone, ...rest } = state.pendingEdit;
-						return { pendingEdit: rest };
-					});
-				}
-				return asked;
+				return view;
 			},
 
 			splitLeaf: (terminalId, direction, newTerminalId) =>
@@ -481,7 +440,7 @@ export function useLayoutStore(projectId: string): LayoutStore {
 
 /**
  * The remembered cursor and scroll position of one open file, and a way to
- * put the newest one back (issue #161). `initial` is read once, when the tab
+ * put the newest one back. `initial` is read once, when the tab
  * mounts, so later saves do not make the editor jump. A file tab rendered
  * outside a workspace has no store and simply remembers nothing.
  */
@@ -505,7 +464,7 @@ export function useEditorViewState(path: string): {
 }
 
 /**
- * The editor zoom of one open file (issue #162). It is held in the layout
+ * The editor zoom of one open file. It is held in the layout
  * store, beside the cursor and scroll position, so there is one place that
  * remembers what a tab looked like; unlike those it is never written to this
  * browser's storage, so a reload starts at 100% again. A file tab rendered

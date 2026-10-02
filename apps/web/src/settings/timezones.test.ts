@@ -1,4 +1,4 @@
-/** Issue #287: how the zone list the server sent is offered in the dialog. */
+/** How the zone list the server sent is offered in the dialog. */
 import { expect, test } from "vitest";
 import { currentZoneOption, timezoneGroups, zoneLabel } from "./timezones.js";
 

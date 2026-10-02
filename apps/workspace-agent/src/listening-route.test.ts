@@ -178,7 +178,7 @@ test("stopping a port nothing is listening on is a 404", async () => {
 	expect(response.json().error.code).toBe("LISTENER_NOT_FOUND");
 });
 
-test("a probe request settles the port's protocol (issue #957)", async () => {
+test("a probe request settles the port's protocol", async () => {
 	const response = await app.inject({
 		method: "POST",
 		url: `/listening/${echoPort}/probe`,
@@ -216,6 +216,18 @@ test("a probe request needs the token and a valid port", async () => {
 	expect(invalid.statusCode).toBe(400);
 });
 
+test("stopping a port nothing is listening on keeps its exact body", async () => {
+	const response = await app.inject({
+		method: "POST",
+		url: "/listening/4321/stop",
+		headers: auth(),
+	});
+	expect(response.statusCode).toBe(404);
+	expect(response.json()).toEqual({
+		error: { code: "LISTENER_NOT_FOUND", message: "nothing is listening on that port" },
+	});
+});
+
 test("a stop request without a valid port is refused", async () => {
 	const response = await app.inject({
 		method: "POST",
@@ -233,7 +245,12 @@ test("a port nothing is listening on cannot be forwarded", async () => {
 		payload: { port: 4321 },
 	});
 	expect(response.statusCode).toBe(409);
-	expect(response.json().error.code).toBe("FORWARD_NOT_LOOPBACK");
+	expect(response.json()).toEqual({
+		error: {
+			code: "FORWARD_NOT_LOOPBACK",
+			message: "no service is listening on loopback only at that port",
+		},
+	});
 });
 
 test("a request without a valid port is refused", async () => {

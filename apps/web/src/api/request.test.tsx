@@ -1,6 +1,13 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { z } from "zod";
-import { ApiError, request, SessionEndedError } from "./request.js";
+import {
+	ApiError,
+	errorText,
+	request,
+	SessionEndedError,
+	SOMETHING_WENT_WRONG,
+	sendJson,
+} from "./request.js";
 
 const schema = z.object({ ok: z.boolean() });
 
@@ -80,4 +87,25 @@ test("a 200 body that does not match the schema rejects", async () => {
 	stubFetch(json({ ok: "yes" }, 200));
 
 	await expect(request(schema, "/x")).rejects.toThrow();
+});
+
+test("sendJson sends the body as JSON, by POST unless told otherwise", async () => {
+	const fetchStub = stubFetch(json({ ok: true }, 200));
+	await expect(sendJson(schema, "/things", { a: 1 })).resolves.toEqual({ ok: true });
+	expect(fetchStub).toHaveBeenCalledWith("/things", {
+		credentials: "same-origin",
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: '{"a":1}',
+	});
+
+	const patchStub = stubFetch(json({ ok: true }, 200));
+	await sendJson(schema, "/things/1", { a: 2 }, "PATCH");
+	expect(patchStub.mock.calls[0]?.[1]?.method).toBe("PATCH");
+});
+
+test("errorText shows the API's sentence, or the fallback for anything else", () => {
+	expect(errorText(new ApiError(409, "Name taken.", "CONFLICT"))).toBe("Name taken.");
+	expect(errorText(new Error("boom"))).toBe(SOMETHING_WENT_WRONG);
+	expect(SOMETHING_WENT_WRONG).toBe("Something went wrong. Please try again.");
 });

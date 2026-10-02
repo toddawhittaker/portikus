@@ -1,9 +1,9 @@
 import { type Kysely, sql } from "kysely";
 
 /**
- * Whether an administrator has ever set the seed list (issue #932). Until
+ * Whether an administrator has ever set the seed list. Until
  * then the API may fill an empty list with the images matching the default
- * workspace image; after, it never edits the list on its own (ruling R4).
+ * workspace image; after, it never edits the list on its own.
  * An existing list counts as set when it holds images or was ever saved.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {

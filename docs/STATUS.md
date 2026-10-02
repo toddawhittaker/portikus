@@ -3886,3 +3886,93 @@ Gaps:
   a fix restores them at start (BACKLOG.md).
 - Status bar overflow at narrow widths, and the shell's storage meters
   are not yet on `Meter` (BACKLOG.md).
+
+## Epic 29 — Code quality cleanup
+
+Built on `epic/29-code-quality` (plan #988, task PRs #989 to #997, #999,
+#1001 to #1009, #1012 to #1016, #1018 to #1022, #1024 to #1026, the
+complexity and copied-code PRs, this fold). #998 and #1000 were rebuilt
+as #1002 and #1003. No migration. SPEC.md sections 22.4, 24.1, 24.11 and
+29, and WORKFLOW.md, "Code style".
+
+Delivered:
+
+- Shared helpers: `recordAudit`, `isUniqueViolation` and `errorMessage`,
+  used across the API, worker, controller, agent and packages. The API
+  has one `sendError`, shared parameter schemas, `parseOr400`, one
+  `escapeHtml` and one job request file writer.
+- One workspace-agent client, `packages/agent-client`, for the API and
+  the worker (SPEC.md section 24.1 says how each handles a broken
+  stream).
+- The worker has one timer loop helper, shared `notifyAdministrators`
+  and `utcDay`, and `reconcile()` split into named steps. Its controller
+  budgets derive from the controller's timeout constants.
+- The workspace agent runs its version-control and docker commands
+  through its runners, has one `AgentFailure` error type, and
+  `listening.ts` is split. Terminal scrollback is one contract constant.
+- The API's admin role routes share one helper, and user functions and
+  terminal piping have their own files. Admin `user.enabled` and
+  `user.disabled` rows now carry the request metadata.
+- The web app has shared text and dialog helpers, storage meters on the
+  ui `Meter`, and split `WorkspaceDetail` and `SettingsDialog` files.
+  Visible change: ages read in full words ("4 minutes ago").
+- Packages: unused contract constants removed, one shared config field
+  set for the API and worker, one `sha256Hex`.
+- e2e specs share one axe check and common helpers. Shell tests share
+  `infra/tests/lib.sh`, and the smoke test is split by subsystem with
+  the same counts (238 passed, 0 failed, 1 skipped on the pilot).
+- Infrastructure: shared Makefile guards, one Go build task file, one
+  Caddy `@api` matcher, one backup library. Verified bootstrap to smoke
+  on the rehearsal VM, with a real backup and restore.
+- Comments trimmed of history everywhere, and `pnpm lint` now fails on
+  issue, epic, task, ruling and review references in code comments.
+- Review fixes: typed agent error codes, a drift-notice toast and focus
+  that survive a reread, and an always-removed Caddy staging binary.
+- The comment check also runs in CI on every change, infra-only ones
+  included, and reads Python, OpenTofu, systemd units and extensionless
+  package scripts.
+- Dead code removed across the repo: the virtual-machine mock sign-in
+  provider (its unit, Ansible settings, Caddy route and test branches;
+  the package no longer ships the mock), refusals of settings retired in
+  Epic 14 and by ADR 0031, clean-up for states no install can reach,
+  unused Make, Ansible and OpenTofu pieces, three unused dependencies,
+  and needless exports. Upgrade code a released version still needs and
+  the TLS debconf questions (used by preseeding) stay.
+- Knip runs in `pnpm lint` and fails on unused files, exports and
+  dependencies. jscpd fails on any copied block, and Biome fails on a
+  product function whose cognitive complexity is over 30; the copies it
+  found were merged and every function over 30 was split.
+- CI runs the infrastructure tests when a source file they read
+  changes (egress code, contracts, the mock LMS), not only on `infra/`
+  changes.
+- Agents: an architect agent designs feature epics before their plans
+  and reviews the whole system at each milestone gate; the end-of-epic
+  code review also looks for dead code Knip cannot see and for comments
+  that restate the code (WORKFLOW.md, "Epic plans").
+- Toggletips no longer pull focus back to their button a moment after
+  closing, which could close a tip opened next (seen as a flaky
+  a11y-workspace-states test).
+- Switching projects no longer flashes the "No terminals open" screen;
+  it waits until the layout and terminal list have loaded.
+- The security suite expects the gateway's port 443 to be open while
+  the ghcr.io cache is on and proves it reaches only the cache; with the
+  cache off it expects the port closed.
+- Local end-to-end runs no longer leave test servers behind when stopped
+  with Ctrl-C or SIGTERM, and never reuse a server already on a test port.
+- The fake Dex test helper makes new certificates when its cached ones
+  are within a day of expiry, so local end-to-end runs no longer fail
+  on stale certificates left in the temporary directory.
+- CI's five browser-test shards are packed by measured file time from
+  `e2e/shard-timings.json` instead of equal test counts, so they finish
+  within seconds of each other (refresh the timings with
+  `node scripts/e2e-shard-list.mjs --refresh`).
+- The rehearsal VM ran the full smoke test, including the lifecycle,
+  terminal, project, recovery and boundary files that the pilot skips.
+
+Gaps:
+
+- Some admin e2e helpers that behave differently remain local copies.
+- jscpd's ignored regions include the whole of `createQuotaSync` and the
+  `WorkspaceProvider` interface, so a copy added inside them is not
+  caught.
+- Five smaller items are in BACKLOG.md.

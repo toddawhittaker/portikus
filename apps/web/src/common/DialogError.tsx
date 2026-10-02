@@ -1,4 +1,4 @@
-import { ApiError } from "../api/request.js";
+import { ApiError, errorText } from "../api/request.js";
 
 /**
  * The error pattern from SPEC.md §28: what happened in the student's terms
@@ -6,10 +6,7 @@ import { ApiError } from "../api/request.js";
  */
 export function DialogError({ error }: { error: unknown }) {
 	if (!error) return null;
-	const sentence =
-		error instanceof ApiError
-			? error.message
-			: "Something went wrong. Please try again.";
+	const sentence = errorText(error);
 	const detail = error instanceof ApiError ? error.code : undefined;
 
 	return (

@@ -4,7 +4,7 @@ import { cx } from "./cx.js";
 import { Icon, type IconName } from "./Icon.js";
 import { type Key, ShortcutHint } from "./ShortcutHint.js";
 
-// Set while a closing menu hands focus back to its trigger (Epic 25 M4).
+// Set while a closing menu hands focus back to its trigger.
 let focusFromMenu = false;
 
 /**

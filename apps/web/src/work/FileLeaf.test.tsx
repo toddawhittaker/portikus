@@ -15,6 +15,7 @@ import {
 	createLayoutStore,
 	type LayoutStore,
 	LayoutStoreContext,
+	type PendingView,
 } from "../layout/store.js";
 import { renderWithQuery } from "../test-utils.js";
 import { FileLeaf } from "./FileLeaf.js";
@@ -61,7 +62,7 @@ const diffState: { models: { original: FakeModel; modified: FakeModel } | null }
 /** Where the editor was told to put the cursor, and what it scrolled to. */
 const cursorLines: number[] = [];
 const revealedLines: number[] = [];
-/** The view states the editor was asked to put back (issue #161). */
+/** The view states the editor was asked to put back. */
 const restoredViewStates: unknown[] = [];
 /** Reports a cursor move the way Monaco would. */
 let moveCursor: (() => void) | null = null;
@@ -106,8 +107,8 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 				setModel: (sides: { original: FakeModel; modified: FakeModel }) => {
 					diffState.models = sides;
 				},
-				// The Markdown split scrolls the working-copy side by line
-				// (issue #229); nothing scrolls in jsdom, so it only answers.
+				// The Markdown split scrolls the working-copy side by line;
+				// nothing scrolls in jsdom, so it only answers.
 				getModifiedEditor: () => ({
 					onDidScrollChange: () => {},
 					getVisibleRanges: () => [],
@@ -136,7 +137,7 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 						};
 					},
 					// Nothing scrolls in jsdom, so the scroll hooks the split
-					// view uses (issue #229) only have to exist and answer.
+					// view uses only have to exist and answer.
 					onDidScrollChange: () => {},
 					onDidLayoutChange: () => {},
 					getScrollTop: () => 0,
@@ -212,7 +213,7 @@ interface Write {
 }
 
 const requests: Write[] = [];
-/** What GET /me/settings answers in this test (issue #159). */
+/** What GET /me/settings answers in this test. */
 let settings: EditorSettings;
 let seed: Seed;
 /** Refuse this many writes with a 412 although the file on disk is unchanged. */
@@ -234,10 +235,10 @@ function stubServer() {
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const method = init?.method ?? "GET";
-			// The tab reads the student's editor settings (issue #159). These
+			// The tab reads the student's editor settings. These
 			// tests use a one second delay, so a debounce is quick to wait for.
 			if (String(input) === "/me/settings") {
-				// The zone list travels with the settings (issue #287); this tab
+				// The zone list travels with the settings; this tab
 				// does not read it, but the reply has to be the real shape.
 				return new Response(JSON.stringify({ ...settings, timezones: [] }), {
 					status: 200,
@@ -268,7 +269,7 @@ function stubServer() {
 				keepalive: init?.keepalive === true,
 			});
 			// A refusal although nothing on disk has moved: what a rewritten
-			// etag between the browser and the agent produces (issue #157).
+			// etag between the browser and the agent produces.
 			if (refuseWrites > 0) {
 				refuseWrites -= 1;
 				if (gate) await gate.promise;
@@ -451,7 +452,7 @@ test("only one save is in flight at a time, so no false conflict", async () => {
 	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
 });
 
-test("a refetch of the editor's own write is not a conflict (issue #157)", async () => {
+test("a refetch of the editor's own write is not a conflict", async () => {
 	const release = holdWrites();
 	const client = renderLeaf();
 	await findEditor();
@@ -642,7 +643,7 @@ test("a binary file opens in the viewer", async () => {
 	expect(screen.queryByTestId(`file-status-${PATH}`)).toBeNull();
 });
 
-test("a binary image is shown fit to the tab, not offered as a download (#816)", async () => {
+test("a binary image is shown fit to the tab, not offered as a download", async () => {
 	seed = {
 		text: "\u0000PNG",
 		etag: "etag-img",
@@ -657,13 +658,13 @@ test("a binary image is shown fit to the tab, not offered as a download (#816)",
 		`/workspaces/${WORKSPACE}/projects/${PROJECT}/file?path=assets%2Flogo.png&inline=1&v=etag-img`,
 	);
 	expect(screen.queryByText("Not a text file")).toBeNull();
-	expect(screen.getByText("4 bytes")).not.toBeNull();
+	expect(screen.getByText("4 B")).not.toBeNull();
 	expect(screen.getByTestId("file-download")).not.toBeNull();
 	// An image is looked at, so the first view button says View.
 	expect(screen.getByTestId("file-view-edit-assets/logo.png").textContent).toBe("View");
 });
 
-test("an image that will not decode falls back to the download panel (#816)", async () => {
+test("an image that will not decode falls back to the download panel", async () => {
 	seed = {
 		text: "\u0000PNG",
 		etag: "etag-img",
@@ -676,7 +677,7 @@ test("an image that will not decode falls back to the download panel (#816)", as
 	expect(screen.getByRole("button", { name: "Download broken.png" })).not.toBeNull();
 });
 
-test("an SVG opens as its picture, drawn from the tab's text through img (#816)", async () => {
+test("an SVG opens as its picture, drawn from the tab's text through img", async () => {
 	const svg =
 		'<svg xmlns="http://www.w3.org/2000/svg"><script>parent.hacked=1</script></svg>';
 	seed = { text: svg, etag: "etag-svg" };
@@ -699,7 +700,7 @@ test("an SVG opens as its picture, drawn from the tab's text through img (#816)"
 	expect(await screen.findByRole("img", { name: "logo.svg" })).not.toBeNull();
 });
 
-test("a PDF opens in the browser's viewer from a copy held in the page (#816)", async () => {
+test("a PDF opens in the browser's viewer from a copy held in the page", async () => {
 	const created: Blob[] = [];
 	const revoked: string[] = [];
 	// jsdom has no object URLs of its own.
@@ -748,7 +749,7 @@ test("a Markdown file opens as a split of the raw text and the preview", async (
 	await renderMarkdownLeaf();
 	expect(screen.getByTestId("md-code-pane")).not.toBeNull();
 	expect(screen.getByTestId("md-preview-pane")).not.toBeNull();
-	// No view buttons are left: the split is the only layout (issue #218).
+	// No view buttons are left: the split is the only layout.
 	expect(screen.queryByTestId("markdown-mode-code")).toBeNull();
 	expect(screen.queryByTestId("markdown-mode-rich")).toBeNull();
 	expect(screen.queryByTestId("markdown-mode-split")).toBeNull();
@@ -770,7 +771,7 @@ test("a Markdown tab has one Diff button, which replaces the whole split", async
 	fireEvent.click(button);
 	expect(await screen.findByTestId(`diff-pane-${MD_PATH}`)).not.toBeNull();
 	// The diff has the tab to itself; the split is hidden, not unmounted,
-	// so the editor keeps its undo history (issue #218).
+	// so the editor keeps its undo history.
 	expect(screen.getByTestId(`file-pane-${MD_PATH}`).style.display).toBe("none");
 	expect(
 		screen.getByTestId(`file-view-diff-${MD_PATH}`).getAttribute("aria-pressed"),
@@ -807,10 +808,14 @@ test("a file that is not Markdown is one editor, with Edit and Diff", async () =
 
 /** Asking for a line while the tab is already open, as a search result does. */
 function Harness() {
-	const [line, setLine] = useState<number | undefined>(undefined);
+	const [view, setView] = useState<PendingView | undefined>(undefined);
 	return (
 		<>
-			<button type="button" data-testid="ask" onClick={() => setLine(9)}>
+			<button
+				type="button"
+				data-testid="ask"
+				onClick={() => setView({ mode: "edit", line: 9, seq: 1 })}
+			>
 				ask
 			</button>
 			<FileLeaf
@@ -818,11 +823,8 @@ function Harness() {
 				workspaceId={WORKSPACE}
 				projectId={PROJECT}
 				onClose={() => {}}
-				pendingLine={line}
-				consumePendingLine={() => {
-					setLine(undefined);
-					return line;
-				}}
+				pendingView={view}
+				consumePendingView={() => view}
 			/>
 		</>
 	);
@@ -841,7 +843,7 @@ test("a file already open jumps to a line it is asked for again", async () => {
 	expect(revealedLines).toContain(9);
 });
 
-test("a real change on disk opens a diff of the two versions (issue #158)", async () => {
+test("a real change on disk opens a diff of the two versions", async () => {
 	renderLeaf();
 	await findEditor();
 	type("mine");
@@ -896,7 +898,7 @@ test("Keep editing puts the conflict diff away and brings it back", async () => 
 	expect(await screen.findByTestId(`conflict-editor-${PATH}`)).not.toBeNull();
 });
 
-test("Keep editing carries the conflict edits into the editor (issue #158)", async () => {
+test("Keep editing carries the conflict edits into the editor", async () => {
 	renderLeaf();
 	await findEditor();
 	type("mine");
@@ -912,7 +914,7 @@ test("Keep editing carries the conflict edits into the editor (issue #158)", asy
 	await waitFor(() => expect(state.model?.getValue()).toBe("mine, merged by hand"));
 });
 
-test("the model is named after the project as well as the file (issue #160)", async () => {
+test("the model is named after the project as well as the file", async () => {
 	renderLeaf();
 	await findEditor();
 	// Two projects can hold a README.md; one model must not serve both.
@@ -922,6 +924,8 @@ test("the model is named after the project as well as the file (issue #160)", as
 test("opening a file again brings a tab in diff view back to the editor", async () => {
 	function Reopen() {
 		const [opened, setOpened] = useState(0);
+		const view: PendingView =
+			opened === 0 ? { mode: "diff", seq: 1 } : { mode: "edit", seq: 2 };
 		return (
 			<>
 				<button type="button" data-testid="reopen" onClick={() => setOpened(1)}>
@@ -932,10 +936,8 @@ test("opening a file again brings a tab in diff view back to the editor", async 
 					workspaceId={WORKSPACE}
 					projectId={PROJECT}
 					onClose={() => {}}
-					pendingDiff={1}
-					consumePendingDiff={() => opened === 0}
-					pendingEdit={opened}
-					consumePendingEdit={() => opened === 1}
+					pendingView={view}
+					consumePendingView={() => view}
 				/>
 			</>
 		);
@@ -963,15 +965,15 @@ test("Take disk closes the conflict diff", async () => {
 	expect(screen.queryByTestId("file-conflict")).toBeNull();
 });
 
-test("a tab asked for its diff shows it, and the toggle goes back (issue #160)", async () => {
+test("a tab asked for its diff shows it, and the toggle goes back", async () => {
 	renderWithQuery(
 		<FileLeaf
 			path={PATH}
 			workspaceId={WORKSPACE}
 			projectId={PROJECT}
 			onClose={() => {}}
-			pendingDiff={1}
-			consumePendingDiff={() => true}
+			pendingView={{ mode: "diff", seq: 1 }}
+			consumePendingView={() => ({ mode: "diff", seq: 1 })}
 		/>,
 	);
 
@@ -993,7 +995,7 @@ test("a tab opened for editing shows the editor until Diff is clicked", async ()
 	expect(await screen.findByTestId(`diff-pane-${PATH}`)).not.toBeNull();
 });
 
-test("auto-save off writes nothing until Ctrl+S (issue #159)", async () => {
+test("auto-save off writes nothing until Ctrl+S", async () => {
 	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSave: false, autoSaveDelaySeconds: 1 };
 	renderLeaf();
 	const host = await findEditor();
@@ -1018,7 +1020,7 @@ test("auto-save off writes nothing until Ctrl+S (issue #159)", async () => {
 	await waitFor(() => expect(status().textContent).toBe("Saved"), { timeout: 3000 });
 });
 
-test("Cmd+S saves too, for a Mac keyboard (issue #159)", async () => {
+test("Cmd+S saves too, for a Mac keyboard", async () => {
 	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSave: false, autoSaveDelaySeconds: 1 };
 	renderLeaf();
 	const host = await findEditor();
@@ -1035,7 +1037,7 @@ test("Cmd+S saves too, for a Mac keyboard (issue #159)", async () => {
 	expect(requests[0]?.body).toBe("typed on a mac");
 });
 
-test("the auto-save delay comes from the settings (issue #159)", async () => {
+test("the auto-save delay comes from the settings", async () => {
 	settings = { ...EDITOR_SETTINGS_DEFAULTS, autoSaveDelaySeconds: 3 };
 	renderLeaf();
 	await findEditor();
@@ -1048,15 +1050,15 @@ test("the auto-save delay comes from the settings (issue #159)", async () => {
 	expect(requests[0]?.body).toBe("slow save");
 }, 12_000);
 
-test("word wrap off is what Monaco is created with (issue #159)", async () => {
-	// Wrap is on by default now (issue #270), so this student turned it off.
+test("word wrap off is what Monaco is created with", async () => {
+	// Wrap is on by default now, so this student turned it off.
 	settings = { ...EDITOR_SETTINGS_DEFAULTS, wordWrap: false };
 	renderLeaf();
 	await findEditor();
 	expect(state.created?.wordWrap).toBe("off");
 });
 
-test("word wrap on reaches Monaco (issue #159)", async () => {
+test("word wrap on reaches Monaco", async () => {
 	settings = { ...EDITOR_SETTINGS_DEFAULTS, wordWrap: true, autoSaveDelaySeconds: 1 };
 	renderLeaf();
 	await findEditor();
@@ -1068,7 +1070,7 @@ test("word wrap on reaches Monaco (issue #159)", async () => {
 	);
 });
 
-test("a remembered cursor is put back when the tab opens again (issue #161)", async () => {
+test("a remembered cursor is put back when the tab opens again", async () => {
 	const store = createLayoutStore();
 	store.getState().openFile(PATH);
 	store.getState().setViewState(PATH, { line: 42 });
@@ -1079,7 +1081,7 @@ test("a remembered cursor is put back when the tab opens again (issue #161)", as
 	expect(state.model?.getValue()).toBe("hello");
 });
 
-test("moving the cursor is remembered for the next mount (issue #161)", async () => {
+test("moving the cursor is remembered for the next mount", async () => {
 	const store = createLayoutStore();
 	store.getState().openFile(PATH);
 	renderLeafWithStore(store);
@@ -1093,7 +1095,7 @@ test("moving the cursor is remembered for the next mount (issue #161)", async ()
 	expect(store.getState().viewStates[PATH]).toEqual({ line: 3 });
 });
 
-test("the Markdown preview shows the whole file, HTML included (issue #213)", async () => {
+test("the Markdown preview shows the whole file, HTML included", async () => {
 	seed = {
 		text: "# Project\n\n![build](https://img.example/b.svg)\n\n<!-- a note -->\n\nHow to run it.\n",
 		etag: "etag-0",
@@ -1109,7 +1111,7 @@ test("the Markdown preview shows the whole file, HTML included (issue #213)", as
 	expect(state.model?.getValue()).toContain("How to run it.");
 });
 
-test("a save refused while the file on disk is still ours saves again (issue #157)", async () => {
+test("a save refused while the file on disk is still ours saves again", async () => {
 	renderLeaf();
 	await findEditor();
 	// The write comes back 412 although the file on disk is the very version
@@ -1123,7 +1125,7 @@ test("a save refused while the file on disk is still ours saves again (issue #15
 	expect(seed.text).toBe("hello world");
 });
 
-test("a save refused twice over is a real conflict (issue #157)", async () => {
+test("a save refused twice over is a real conflict", async () => {
 	renderLeaf();
 	await findEditor();
 	refuseWrites = 2;
@@ -1133,7 +1135,7 @@ test("a save refused twice over is a real conflict (issue #157)", async () => {
 });
 
 /**
- * Issue #358: Edit and Diff live in different headers, so the button the
+ * Edit and Diff live in different headers, so the button the
  * student pressed is replaced; the keyboard follows it to the new one.
  */
 test("the Edit and Diff swap keeps focus on the pressed button", async () => {
@@ -1152,7 +1154,7 @@ test("the Edit and Diff swap keeps focus on the pressed button", async () => {
 	expect(document.activeElement).toBe(screen.getByTestId(`file-view-edit-${PATH}`));
 });
 
-/** Issue #369: the pressed view button is marked by more than colour. */
+/** The pressed view button is marked by more than colour. */
 test("the pressed view button is bold as well as tinted", async () => {
 	const css = readFileSync(
 		`${import.meta.dirname}/../../../../packages/ui/src/primitives/primitives.css`,
@@ -1162,7 +1164,7 @@ test("the pressed view button is bold as well as tinted", async () => {
 	expect(rule?.[1]).toContain("font-weight: 700");
 });
 
-/** Issue #609: Saved is plain muted text with a tick, not a green pill. */
+/** Saved is plain muted text with a tick, not a green pill. */
 test("the saved status is a plain tick, not a pill", () => {
 	const css = readFileSync(`${import.meta.dirname}/work.css`, "utf8");
 	const rule = css.match(/\.pk-file-status\[data-status="saved"\] \{([^}]*)\}/);

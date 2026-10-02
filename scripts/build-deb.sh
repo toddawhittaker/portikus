@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the portikus control-plane Debian package (ADR 0007, SPEC.md Epic 3.5).
+# Build the portikus control-plane Debian package (ADR 0007).
 # Prints the package version as the last line of stdout.
 # PORTIKUS_VERSION overrides the version; PORTIKUS_ARCHIVE_KEYRING, an
 # ASCII-armored public key, replaces the shipped archive key (rehearsals only).
@@ -63,7 +63,7 @@ fetch_node() {
 }
 
 # The collections setup needs, downloaded at build time so the host never
-# fetches them (ruling 8). Cached by the requirements file's hash.
+# fetches them (ADR 0029). Cached by the requirements file's hash.
 fetch_collections() {
 	local key
 	key="$(sha256sum infra/ansible/requirements.yml | cut -c1-16)"
@@ -116,11 +116,11 @@ prune_tree() {
 	find "$tree" -name '.env*' -prune -exec rm -rf {} +
 	find "$tree" -type f \( -name '.npmrc' -o -name '*.test.js' \
 		-o -name '*.test.d.ts' -o -name '*.js.map' -o -name '*.d.ts.map' \) -delete
-	# Test doubles and test helpers. @portikus/auth/dist/testing stays: the
-	# mock identity provider service runs from it (ADR 0008).
+	# Test doubles and test helpers, the mock identity provider included.
 	rm -rf "$tree"/dist/fake-* "$tree"/dist/test-support.* "$tree/dist/security"
 	find "$tree" \( -path '*/@portikus/db/dist/testing.*' \
 		-o -path '*/@portikus/observability/dist/testing.*' \) -delete
+	find "$tree" -type d -path '*/@portikus/auth/dist/testing' -prune -exec rm -rf {} +
 	# The package ships read-only files owned by root.
 	chmod -R u=rwX,go=rX "$tree"
 }
@@ -184,7 +184,7 @@ if [ -n "$found" ]; then
 fi
 
 # The mock LMS signs launches as anyone, so it must never reach the VM
-# (docs/archive/epics/EPIC-13.md, ruling 25). Nothing depends on it; this proves it.
+# (ADR 0025). Nothing depends on it; this proves it.
 mock_lms="$(grep -E 'mock-lms' <<<"$listing" || true)"
 if [ -n "$mock_lms" ]; then
 	echo "The mock LMS is in the package:" >&2

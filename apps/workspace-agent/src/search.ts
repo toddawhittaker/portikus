@@ -6,8 +6,8 @@ import {
 	type SearchMatch,
 	type SearchResponse,
 } from "@portikus/contracts";
+import { AgentFailure } from "./errors.js";
 import { resolveProject } from "./projects.js";
-import { AgentFailure } from "./tmux.js";
 
 export interface SearchOptions {
 	hidden: boolean;
@@ -132,8 +132,7 @@ export async function searchProject(
 				last &&
 				currentFile !== undefined &&
 				currentFile === lastMatchFile &&
-				data.line_number === last.line + 1 &&
-				last.after.length === 0
+				isFirstLineAfter(last, data.line_number)
 			) {
 				last.after.push(text);
 			}
@@ -151,21 +150,13 @@ export async function searchProject(
 			pendingBefore = undefined;
 			return;
 		}
-		const relativePath = relative(project.path, pathText);
-		if (
-			relativePath === "" ||
-			isAbsolute(relativePath) ||
-			relativePath.startsWith("..")
-		) {
+		const relativePath = insideProject(project.path, pathText);
+		if (relativePath === null) {
 			pendingBefore = undefined;
 			return;
 		}
 		const before =
-			pendingBefore &&
-			currentFile === pathText &&
-			pendingBefore.line === data.line_number - 1
-				? [pendingBefore.text]
-				: [];
+			currentFile === pathText ? beforeContext(pendingBefore, data.line_number) : [];
 		pendingBefore = undefined;
 		lastMatchFile = pathText;
 		matches.push({
@@ -232,4 +223,33 @@ function toColumn(lineText: string, byteStart: number): number {
 
 function stripNewline(text: string): string {
 	return text.replace(/\r?\n$/, "");
+}
+
+/** A path relative to the project, or null when it is not inside it. */
+function insideProject(projectPath: string, path: string): string | null {
+	const relativePath = relative(projectPath, path);
+	if (
+		relativePath === "" ||
+		isAbsolute(relativePath) ||
+		relativePath.startsWith("..")
+	) {
+		return null;
+	}
+	return relativePath;
+}
+
+/** The line right after a match that has no after-context yet. */
+function isFirstLineAfter(
+	match: { line: number; after: string[] },
+	line: number,
+): boolean {
+	return line === match.line + 1 && match.after.length === 0;
+}
+
+/** The context line right before a match, when it was the last one seen. */
+function beforeContext(
+	pending: { line: number; text: string } | undefined,
+	line: number,
+): string[] {
+	return pending && pending.line === line - 1 ? [pending.text] : [];
 }

@@ -3,12 +3,12 @@
  * once on mount and written back at most once a second after a structural
  * change; last write wins. The selected tab and each open file's cursor and
  * scroll position are browser-local, so they go to localStorage rather than
- * to the server (local.ts, issue #161).
+ * to the server (local.ts).
  */
 import { ProjectLayout } from "@portikus/contracts";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { request } from "../api/request.js";
+import { request, sendJson } from "../api/request.js";
 import { readLocalLayout, writeLocalLayout } from "./local.js";
 import type { LayoutStore } from "./store.js";
 
@@ -29,13 +29,13 @@ export function useLayoutPersistence(
 	store: LayoutStore,
 	onSessionEnded: () => void,
 ): boolean {
-	const [loaded, setLoaded] = useState(false);
+	// The URL whose layout is in, so a switch never reports the old one as loaded.
+	const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
 	const sessionEnded = useRef(onSessionEnded);
 	sessionEnded.current = onSessionEnded;
 
 	useEffect(() => {
 		let cancelled = false;
-		setLoaded(false);
 		const url = layoutUrl(workspaceId, projectId);
 
 		// Put back the selected tab and the editor view states before the saved
@@ -58,7 +58,7 @@ export function useLayoutPersistence(
 				// A layout we could not read is not worth an error screen: the
 				// user gets the tabs reconciled from the terminal list instead.
 			} finally {
-				if (!cancelled) setLoaded(true);
+				if (!cancelled) setLoadedUrl(url);
 			}
 		}
 		void load();
@@ -90,11 +90,7 @@ export function useLayoutPersistence(
 			const state = store.getState();
 			if (!state.dirty) return;
 			state.clearDirty();
-			void request(z.unknown(), url, {
-				method: "PUT",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(state.layout),
-			}).catch(() => {
+			void sendJson(z.unknown(), url, state.layout, "PUT").catch(() => {
 				// A failed save is retried by the next change; the layout is a
 				// convenience, not the user's work.
 			});
@@ -124,5 +120,5 @@ export function useLayoutPersistence(
 		};
 	}, [workspaceId, projectId, store]);
 
-	return loaded;
+	return loadedUrl === layoutUrl(workspaceId, projectId);
 }

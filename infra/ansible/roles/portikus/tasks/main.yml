@@ -78,95 +78,23 @@
 
 # ── Identity provider ────────────────────────────────────────────
 
-# Generated once on the VM like the controller token and the session secret,
-# so no published secret is ever a working credential on a real host.
-- name: Generate mock identity provider client secret
-  ansible.builtin.shell:
-    cmd: umask 077 && openssl rand -hex 32 > /etc/portikus/mock-client.secret
-    creates: /etc/portikus/mock-client.secret
-  when: portikus_mock_idp
-  no_log: true
-
-- name: Set mock client secret file permissions
-  ansible.builtin.file:
-    path: /etc/portikus/mock-client.secret
-    owner: root
-    group: root
-    mode: "0600"
-  when: portikus_mock_idp
-
-- name: Read mock identity provider client secret
-  ansible.builtin.slurp:
-    src: /etc/portikus/mock-client.secret
-  register: portikus_mock_client_secret_file
-  when: portikus_mock_idp
-  no_log: true
-
-- name: Set mock identity provider client secret fact
-  ansible.builtin.set_fact:
-    portikus_mock_client_secret: "{{ portikus_mock_client_secret_file.content | b64decode | trim }}"
-  when: portikus_mock_idp
-  no_log: true
-
 # The dex role generates this secret; it is read again here so a run limited
 # to this role still has it.
 - name: Read the Dex client secret
   ansible.builtin.slurp:
     src: /etc/portikus/dex-client.secret
   register: portikus_dex_client_secret_file
-  when: portikus_idp == 'dex'
   no_log: true
 
-# The API's one issuer is Dex, or the mock (SPEC.md section 5.1).
-# Both are served by Caddy on the public host, so the API reaches either
-# over loopback with a certificate it trusts.
+# The API's one issuer is Dex (SPEC.md section 5.1).  Caddy serves it on
+# the public host, so the API reaches it over loopback with a certificate
+# it trusts.
 - name: Set the effective identity provider settings
   ansible.builtin.set_fact:
-    portikus_effective_oidc_issuer: >-
-      {{ portikus_dex_issuer if portikus_idp == 'dex' else portikus_public_url ~ '/mock-idp' }}
-    portikus_effective_oidc_client_id: "{{ 'portikus' if portikus_idp == 'dex' else 'portikus-dev' }}"
-    portikus_effective_oidc_client_secret: >-
-      {{ (portikus_dex_client_secret_file.content | b64decode | trim) if portikus_idp == 'dex'
-         else portikus_mock_client_secret }}
+    portikus_effective_oidc_issuer: "{{ portikus_dex_issuer }}"
+    portikus_effective_oidc_client_id: portikus
+    portikus_effective_oidc_client_secret: "{{ portikus_dex_client_secret_file.content | b64decode | trim }}"
   no_log: true
-
-- name: Deploy mock identity provider environment file
-  ansible.builtin.template:
-    src: mock-idp.env.j2
-    dest: /etc/portikus/mock-idp.env
-    owner: root
-    group: portikus
-    mode: "0640"
-  when: portikus_mock_idp
-  notify: Restart portikus-mock-idp
-
-- name: Enable and start the mock identity provider
-  ansible.builtin.systemd:
-    name: portikus-mock-idp
-    enabled: true
-    state: started
-  when: portikus_mock_idp
-
-- name: Disable and stop the mock identity provider
-  ansible.builtin.systemd:
-    name: portikus-mock-idp
-    enabled: false
-    state: stopped
-  when: not portikus_mock_idp
-
-# Without the environment file the unit cannot start even if something
-# enables it by hand (ConditionPathExists).
-- name: Remove the mock identity provider environment file
-  ansible.builtin.file:
-    path: /etc/portikus/mock-idp.env
-    state: absent
-  when: not portikus_mock_idp
-
-- name: Remove the mock identity provider client secret
-  ansible.builtin.file:
-    path: /etc/portikus/mock-client.secret
-    state: absent
-  when: not portikus_mock_idp
 
 # A fresh VM has no tables until the API first starts, and a handler may
 # still owe the restart that migrates.  The users-file import and the
@@ -180,26 +108,12 @@
   register: portikus_migrate
   changed_when: "'Applied migrations' in portikus_migrate.stdout"
 
-# Anyone could sign in as anyone through the mock, so its sessions end when
-# the site moves to a real provider (SPEC.md section 24).
-- name: End the mock provider's sessions
-  ansible.builtin.command:
-    argv: [runuser, -u, portikus, --, psql, -X, -tA, -v, ON_ERROR_STOP=1, -v, "issuer={{ portikus_public_url }}/mock-idp", -d, "{{ portikus_database_url }}"]
-    stdin: >-
-      WITH gone AS (DELETE FROM sessions WHERE user_id IN
-      (SELECT id FROM users WHERE oidc_issuer = :'issuer') RETURNING 1)
-      SELECT count(*) FROM gone;
-  register: portikus_mock_sessions
-  changed_when: portikus_mock_sessions.stdout | trim != '0'
-  when: portikus_idp != 'mock'
-
 # The gRPC client key, and the one-time users-file import, before api.env
 # names the key and the local administrator below is made through it.
 - name: Give the API what it needs from Dex
   ansible.builtin.include_role:
     name: dex
     tasks_from: api
-  when: portikus_idp == 'dex'
 
 # ── Environment files ────────────────────────────────────────────
 
@@ -231,23 +145,11 @@
     apply:
       tags: portikus
 
-# ── LTI launch (docs/archive/epics/EPIC-13.md) ─────────────────────────────────
+# ── LTI launch (ADR 0025) ────────────────────────────────────────
 # After api.env, which names the files these tasks write.
 - name: Apply the LTI platforms file and tool key
   ansible.builtin.import_tasks: lti.yml
   tags: lti
-
-# The API reaches the internet only through the egress proxy now (ADR 0027),
-# so the packaged unit's loopback and bridge limit is all it gets.  This
-# removes the address drop-in older plays wrote.
-- name: Remove the old API address allow drop-in
-  ansible.builtin.file:
-    path: /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf
-    state: absent
-  tags: lti
-  notify:
-    - Reload systemd
-    - Restart portikus-api
 
 - name: Deploy worker environment file
   ansible.builtin.template:
@@ -309,7 +211,7 @@
     enabled: true
   when: portikus_image_job_units.results[1].stat.exists
 
-# The daily release check (issue #861); a package from before it has no timer.
+# The daily release check; a package from before it has no timer.
 - name: Look for the release check's timer
   ansible.builtin.stat:
     path: /usr/lib/systemd/system/portikus-image-check.timer

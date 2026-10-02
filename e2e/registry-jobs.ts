@@ -4,14 +4,14 @@ import { join } from "node:path";
 import { API_PORT } from "./ports";
 
 /**
- * A fake host for the Docker tab (issue #840). The API writes the root
+ * A fake host for the Docker tab. The API writes the root
  * cache helper's request files into REGISTRY_JOBS_DIR and reads its
  * status.json there; the tests play the helper by hand. Keyed by the API's
  * port so two runs on one machine never share it.
  */
 export const REGISTRY_JOBS_DIR = join(tmpdir(), `portikus-e2e-registry-${API_PORT}`);
 
-export interface FakeRegistryStatus {
+interface FakeRegistryStatus {
 	sizeBytes?: number;
 	usedBytes?: number;
 	hubUp?: boolean;

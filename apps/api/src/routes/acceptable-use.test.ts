@@ -254,7 +254,7 @@ describe.skipIf(skip)("the acceptable-use gate", () => {
 		expect(saved.statusCode).toBe(200);
 
 		await expectGated(student, "ACCEPTABLE_USE_REQUIRED");
-		// The administrator who saved it accepts too (ruling 31).
+		// The administrator who saved it accepts too.
 		await expectGated(admin, "ACCEPTABLE_USE_REQUIRED");
 		const statement = await get(student, "/me/acceptable-use");
 		expect(statement.json()).toEqual({ text: "Only coursework here.", version: 2 });

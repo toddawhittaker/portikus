@@ -1,28 +1,21 @@
-import type {
-	AdminUser,
-	AdminWorkspaceSummary,
-	PendingOperation,
-} from "@portikus/contracts";
+import type { AdminUser, AdminWorkspaceSummary } from "@portikus/contracts";
 import {
 	Button,
 	Checkbox,
 	CONTROL_CLASS,
 	ConfirmDialog,
 	ConfirmDialogRoot,
-	type DesiredState,
 	FIELD_CLASS,
 	LABEL_CLASS,
-	StateBadge,
 	TextField,
 	Toggletip,
-	type WorkspaceState,
 } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { ApiError, request } from "../api/request.js";
-import { PENDING_LABEL } from "../shell/StatusBar.js";
+import { ApiError, errorText, request } from "../api/request.js";
+import { joinWords, timeAgo } from "../text.js";
 import { AdminSection } from "./AdminSection.js";
 import { AddDexUser } from "./DexUserDialogs.js";
 import {
@@ -35,18 +28,8 @@ import {
 	sourceText,
 } from "./markers.js";
 import { adminActionUrl, useAdminUsers } from "./queries.js";
-import { errorText } from "./SettingsTab.js";
 import { WorkspaceDetail } from "./WorkspaceDetail.js";
-
-export const KNOWN_STATES: readonly string[] = [
-	"provisioning",
-	"starting",
-	"running",
-	"stopping",
-	"stopped",
-	"error",
-];
-const KNOWN_DESIRED: readonly string[] = ["running", "stopped", "restarting"];
+import { KNOWN_STATES, WorkspaceStateBadge } from "./WorkspaceStateBadge.js";
 
 export interface AccountFilters {
 	text: string;
@@ -67,7 +50,7 @@ export const NO_FILTERS: AccountFilters = {
 	showArchived: false,
 };
 
-/** The rows the filters leave. Archived rows are hidden unless asked for (Epic 11 brief). */
+/** The rows the filters leave. Archived rows are hidden unless asked for. */
 export function filterAccounts(
 	users: AdminUser[],
 	filters: AccountFilters,
@@ -98,18 +81,6 @@ export function filterAccounts(
 	});
 }
 
-/** "Now", "4 min ago", "3 days ago"; an em dash when there is no time. */
-export function timeAgo(iso: string | null | undefined, now: number): string {
-	if (!iso) return "—";
-	const minutes = Math.max(0, Math.floor((now - Date.parse(iso)) / 60_000));
-	if (minutes < 1) return "Just now";
-	if (minutes < 60) return `${minutes} min ago`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours} h ago`;
-	const days = Math.floor(hours / 24);
-	return days === 1 ? "1 day ago" : `${days} days ago`;
-}
-
 /** The Activity column: "Now, 2 connections" while connected, else when a browser last connected. */
 export function activityText(workspace: AdminWorkspaceSummary, now: number): string {
 	const count = workspace.activeConnections;
@@ -128,49 +99,6 @@ export function isFiltered(filters: AccountFilters): boolean {
 	);
 }
 
-export function storageText(quota: { homeGiB: number; dockerGiB: number }): string {
-	return `Home ${quota.homeGiB} GiB · Docker ${quota.dockerGiB} GiB`;
-}
-
-/**
- * A state the badge knows is drawn as one; anything newer shows its raw name.
- * A pending rebuild or reset wins, drawn like the student's status (issue #881).
- */
-export function WorkspaceStateBadge({
-	state,
-	desiredState,
-	pendingOperation,
-	statusRole,
-}: {
-	state: string;
-	desiredState: string;
-	pendingOperation?: PendingOperation | null;
-	/** In a table cell or inside a status wrapper, so it is not its own live region. */
-	statusRole?: boolean;
-}) {
-	if (pendingOperation) {
-		return (
-			<StateBadge
-				state="starting"
-				label={PENDING_LABEL[pendingOperation]}
-				statusRole={statusRole}
-			/>
-		);
-	}
-	if (!KNOWN_STATES.includes(state)) return <span className="pk-tag">{state}</span>;
-	return (
-		<StateBadge
-			state={state as WorkspaceState}
-			statusRole={statusRole}
-			desiredState={
-				KNOWN_DESIRED.includes(desiredState)
-					? (desiredState as DesiredState)
-					: undefined
-			}
-		/>
-	);
-}
-
 const SELECT_CLASS = `${CONTROL_CLASS} w-44 cursor-pointer`;
 
 const ROLE_OPTION: Record<(typeof ROLE_FILTERS)[number], string> = {
@@ -181,7 +109,7 @@ const ROLE_OPTION: Record<(typeof ROLE_FILTERS)[number], string> = {
 
 export type BulkAction = "disable" | "enable" | "archive" | "unarchive" | "rebuild";
 
-export const BULK_ACTIONS: readonly BulkAction[] = [
+const BULK_ACTIONS: readonly BulkAction[] = [
 	"disable",
 	"enable",
 	"archive",
@@ -262,13 +190,13 @@ export function olderImageTargets(rows: AdminUser[]): AdminUser[] {
 	);
 }
 
-/** A 409 means another operation already waits or runs, so the row is skipped (ruling 25). */
+/** A 409 means another operation already waits or runs, so the row is skipped. */
 export function bulkOutcome(error: unknown): "skipped" | "failed" {
 	return error instanceof ApiError && error.status === 409 ? "skipped" : "failed";
 }
 
 /** The names of the targets whose workspace is running and so will restart. */
-export function runningNames(users: AdminUser[]): string[] {
+function runningNames(users: AdminUser[]): string[] {
 	return users
 		.filter((user) => user.workspace?.state === "running")
 		.map((user) => user.displayName);
@@ -294,12 +222,6 @@ export function bulkApplies(
 	}
 }
 
-/** "Alice", "Alice and Bob", "Alice, Bob and Carol". */
-export function joinNames(names: string[]): string {
-	if (names.length <= 1) return names[0] ?? "";
-	return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
 interface BulkResult {
 	action: BulkAction;
 	done: string[];
@@ -307,7 +229,7 @@ interface BulkResult {
 	failed: { id: string; name: string; reason: string }[];
 }
 
-/** One row per account, with its workspace beside it (SPEC.md §20.1, issue #302). */
+/** One row per account, with its workspace beside it (SPEC.md §20.1). */
 export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	const users = useAdminUsers();
 	const [filters, setFilters] = useState<AccountFilters>(NO_FILTERS);
@@ -371,7 +293,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 							Rebuild all on older images…
 						</Button>
 					) : null}
-					{/* Only when the site runs Dex's own passwords (docs/archive/epics/EPIC-14.md ruling 24). */}
+					{/* Only when the site runs Dex's own passwords (ADR 0028). */}
 					{users.data?.dexUsers ? <AddDexUser /> : null}
 				</>
 			}
@@ -601,7 +523,7 @@ interface BulkConfirm {
  * The toolbar row over the table: the filtered count, or the bulk actions
  * while rows are ticked. It keeps one height, so ticking a row never moves
  * the table. Each action calls the existing single-row route once per
- * account (Epic 13.1 T4).
+ * account.
  */
 function BulkActions({
 	rowCount,
@@ -744,7 +666,7 @@ function BulkActions({
 							) : (
 								<>
 									<span className="block" data-testid="bulk-dialog-names">
-										{joinNames(confirming.users.map((user) => user.displayName))}.
+										{joinWords(confirming.users.map((user) => user.displayName))}.
 									</span>
 									<span className="block">{BULK[confirming.action].consequence}</span>
 								</>
@@ -785,16 +707,16 @@ export function rebuildTitle(count: number): string {
 	return `Rebuild ${count} ${count === 1 ? "workspace" : "workspaces"}?`;
 }
 
-/** The single Rebuild dialog's warning, plus who restarts (SPEC.md §22.3, ruling 26). */
+/** The single Rebuild dialog's warning, plus who restarts (SPEC.md §22.3). */
 export function rebuildWarning(users: AdminUser[], resetDocker: boolean): string[] {
 	const lines = [
-		`${joinNames(users.map((user) => user.displayName))}.`,
+		`${joinWords(users.map((user) => user.displayName))}.`,
 		`Each workspace is recreated from the current image. System packages installed with sudo apt are lost. Projects and home stay${resetDocker ? "; Docker images and volumes are removed." : ", and so do Docker images and volumes."}`,
 	];
 	const restarting = runningNames(users);
 	if (restarting.length > 0) {
 		lines.push(
-			`${joinNames(restarting)} ${restarting.length === 1 ? "is" : "are"} running and will restart.`,
+			`${joinWords(restarting)} ${restarting.length === 1 ? "is" : "are"} running and will restart.`,
 		);
 	}
 	return lines;
@@ -828,12 +750,12 @@ function BulkSummary({ result }: { result: BulkResult }) {
 		<div className="pk-text-compact flex flex-col gap-1 pt-2">
 			{result.done.length > 0 ? (
 				<p className="m-0">
-					{copy.done} {joinNames(result.done)}.
+					{copy.done} {joinWords(result.done)}.
 				</p>
 			) : null}
 			{result.skipped.length > 0 ? (
 				<p className="m-0">
-					Skipped {joinNames(result.skipped)}: another operation is already waiting or
+					Skipped {joinWords(result.skipped)}: another operation is already waiting or
 					running.
 				</p>
 			) : null}
@@ -851,13 +773,11 @@ function BulkSummary({ result }: { result: BulkResult }) {
 }
 
 /** The Account cell's second line: the email, or the username when there is none. */
-export function accountContact(
-	user: Pick<AdminUser, "email" | "preferredUsername">,
-): string {
+function accountContact(user: Pick<AdminUser, "email" | "preferredUsername">): string {
 	return user.email ?? user.preferredUsername ?? "—";
 }
 
-export function rowButtonId(userId: string): string {
+function rowButtonId(userId: string): string {
 	return `admin-row-open-${userId}`;
 }
 
@@ -887,7 +807,7 @@ function AccountRow({
 		>
 			<td
 				className="py-2"
-				// The ink bar marks the selected row without relying on colour (issue #369).
+				// The ink bar marks the selected row without relying on colour.
 				style={selected ? { boxShadow: "var(--row-current-bar)" } : undefined}
 				data-testid={`account-cell-${user.id}`}
 			>

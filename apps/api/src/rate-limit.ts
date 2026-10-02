@@ -121,12 +121,12 @@ export type UserLimit = (
 	reply: FastifyReply,
 ) => Promise<boolean>;
 
-export function createUserLimit(scope: string, counter: Counter): UserLimit {
+function createUserLimit(scope: string, counter: Counter): UserLimit {
 	return (request, reply) => allowUser(counter, scope, request, reply);
 }
 
 /**
- * The per-user limit on file and project writes (ruling 16). buildServer
+ * The per-user limit on file and project writes. buildServer
  * makes one and hands it to both the files and projects routes.
  */
 export function fileWriteLimit(config: ApiConfig): UserLimit {
@@ -136,7 +136,7 @@ export function fileWriteLimit(config: ApiConfig): UserLimit {
 	);
 }
 
-/** The per-user limit on workspace start, stop and restart (ruling 16). */
+/** The per-user limit on workspace start, stop and restart. */
 export function lifecycleLimit(config: ApiConfig): UserLimit {
 	return createUserLimit(
 		"workspace-lifecycle",

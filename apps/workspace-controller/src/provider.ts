@@ -1,12 +1,14 @@
 import { availableParallelism } from "node:os";
 import {
 	type AddedPackagesResponse,
+	AGENT_RESTART_TIMEOUT_SECONDS,
 	CpuAllowance,
 	type CreateInstanceResponse,
 	countIncusCpus,
 	type GrowVolumesRequest,
 	type GrowVolumesResponse,
 	type HostSnapshot,
+	INSTANCE_CREATE_WAIT_SECONDS,
 	InstanceName,
 	type InstanceProcess,
 	type InstanceStatus,
@@ -25,10 +27,11 @@ import {
 	type SetInstanceLimitsRequest,
 	type StartInstanceResponse,
 	type StopInstanceResponse,
+	VOLUME_CREATE_TIMEOUT_MS,
 	type WorkspaceDockerConfig,
 	WorkspaceVolumeName,
 } from "@portikus/contracts";
-import { type Logger, silentLogger } from "@portikus/observability";
+import { errorMessage, type Logger, silentLogger } from "@portikus/observability";
 import {
 	AGENT_INSTRUCTIONS_HOST_PATH,
 	writeAgentInstructions,
@@ -53,8 +56,9 @@ import {
 import { type IncusClient, IncusError } from "./incus.js";
 import { parseIdmap, readInstanceProcesses, readUnitStartTime } from "./processes.js";
 
+// jscpd:ignore-start -- the worker's client mirrors this interface across HTTP.
 export interface WorkspaceProvider extends SeedBuildHost {
-	/** The current Docker seed, or null when none is built (issue #840). */
+	/** The current Docker seed, or null when none is built. */
 	seedInfo(): Promise<SeedInfo | null>;
 	create(
 		name: string,
@@ -107,6 +111,7 @@ export interface WorkspaceProvider extends SeedBuildHost {
 	/** Swap `<name>-home-import` in as the home and keep the old one; stopped only. */
 	replaceHome(name: string): Promise<ReplaceHomeResponse>;
 }
+// jscpd:ignore-end
 
 /**
  * Refused because the instance is not stopped. The server answers 409, so
@@ -146,17 +151,17 @@ const DNS_NAME_PATTERN =
 /**
  * Shell profile read by every login shell in the container, so a terminal,
  * a template, and a coding agent all see where previews are published
- * (issue #263, BROWSER-HANDLING.md section 14). It never holds a secret.
+ * (BROWSER-HANDLING.md section 14). It never holds a secret.
  */
 const PROFILE_PATH = "/etc/profile.d/portikus.sh";
 
 /** Where the recovery volume is mounted inside the container (ADR 0020). */
-export const RECOVERY_PATH = "/var/lib/portikus/recovery";
+const RECOVERY_PATH = "/var/lib/portikus/recovery";
 
 /** How long to wait for Incus to replace a root filesystem. */
 const REBUILD_TIMEOUT_SECONDS = 600;
 
-/** The seed volume's config key holding its `SeedInfo` as JSON (issue #840). */
+/** The seed volume's config key holding its `SeedInfo` as JSON. */
 export const SEED_INFO_KEY = "user.portikus.seed";
 /** The seed builder container and its Docker volume, while a build runs. */
 export const SEED_BUILDER = "portikus-seed-builder";
@@ -200,12 +205,8 @@ function assertStopped(name: string, status: string | undefined): void {
 	}
 }
 
-/**
- * A volume create on a busy thin pool can pass the default 30 s, so each gets
- * 60 s. The instance create's wait is 240 s and the worker's whole create
- * budget is 300 s; a retry adopts whatever already exists.
- */
-export const VOLUME_CREATE_TIMEOUT_MS = 60_000;
+// The controller's own timeouts live in @portikus/contracts so the worker's budgets derive from them.
+export { INSTANCE_CREATE_WAIT_SECONDS, VOLUME_CREATE_TIMEOUT_MS };
 
 /**
  * How long the agent has to answer /health once the instance is running. This
@@ -213,12 +214,6 @@ export const VOLUME_CREATE_TIMEOUT_MS = 60_000;
  * cannot hold the worker's serial start loop for the whole start deadline.
  */
 export const AGENT_HEALTH_TIMEOUT_MS = 15_000;
-
-/** How long one agent restart after an upgrade may take. */
-export const AGENT_RESTART_TIMEOUT_SECONDS = 60;
-
-/** The instance create's operation wait, inside the worker's 300 s create budget. */
-export const INSTANCE_CREATE_WAIT_SECONDS = 240;
 
 function validateName(name: string): void {
 	const result = InstanceName.safeParse(name);
@@ -308,7 +303,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				this.thinPoolStatusPath,
 			);
 			let fill = poolFillPercent(use);
-			// A seeded Docker volume will fill the pool by up to the seed's size (SEC1, #840).
+			// A seeded Docker volume will fill the pool by up to the seed's size.
 			if (fill < POOL_FULL_PERCENT) {
 				const seedBytes = await this.seedBytesFor(name);
 				fill = poolFillPercent({ ...use, usedBytes: use.usedBytes + seedBytes });
@@ -438,7 +433,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			);
 		}
 		// The zone name ends up in a path in a command inside the container, so
-		// it has to be one of the names this build knows (issue #287).
+		// it has to be one of the names this build knows.
 		if (!isSystemTimezone(opts.timezone)) {
 			throw new IncusError("INVALID_NAME", `invalid timezone: ${opts.timezone}`);
 		}
@@ -449,7 +444,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			await this.ensureDockerDevice(name, opts.dockerGiB, signal);
 		}
 
-		// Written before the start, so dockerd reads it; never fatal (issue #840).
+		// Written before the start, so dockerd reads it; never fatal.
 		let ghcr: boolean | null = null;
 		if (opts.docker !== undefined) {
 			try {
@@ -462,13 +457,13 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				);
 			} catch (err) {
 				this.log.warn(
-					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					{ instance: name, err: errorMessage(err) },
 					"could not write the Docker registry settings; starting without them",
 				);
 			}
 		}
 
-		// Rewritten at every start, so an edit or deletion lasts one session (issue #933).
+		// Rewritten at every start, so an edit or deletion lasts one session.
 		try {
 			const written = await writeAgentInstructions(
 				this.client,
@@ -484,7 +479,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 		} catch (err) {
 			this.log.warn(
-				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				{ instance: name, err: errorMessage(err) },
 				"could not write the coding-agent instructions; starting without them",
 			);
 		}
@@ -541,7 +536,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				await writeGhcrHosts(this.client, name, ghcr, signal);
 			} catch (err) {
 				this.log.warn(
-					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					{ instance: name, err: errorMessage(err) },
 					"could not write the ghcr.io hosts line",
 				);
 			}
@@ -552,8 +547,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			PROFILE_PATH,
 			// TZ is a default, not an override: tmux sets the session's current
 			// zone and a login shell sources this file afterwards, so a student
-			// who changes their timezone must not get the start-time zone back
-			// (issue #287). The zone was validated against the system list.
+			// who changes their timezone must not get the start-time zone back.
+			// The zone was validated against the system list.
 			`export PORTIKUS_PREVIEW=true\n` +
 				`export PORTIKUS_PREVIEW_HOST_SUFFIX=${opts.previewHostSuffix}\n` +
 				`export TZ="\${TZ:-${opts.timezone}}"\n`,
@@ -609,7 +604,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	}
 
 	/**
-	 * Give a workspace made before Epic 10 its recovery volume (ADR 0020).
+	 * Give a workspace made before recovery volumes existed its recovery volume (ADR 0020).
 	 * Never fatal, so a new feature cannot lock a student out, and the only
 	 * volume it creates is `<name>-recovery`. Returns whether the device is on.
 	 */
@@ -640,7 +635,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			return true;
 		} catch (err) {
 			this.log.warn(
-				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				{ instance: name, err: errorMessage(err) },
 				"could not attach the recovery volume; starting without it",
 			);
 			return false;
@@ -680,7 +675,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				}
 			} catch (err) {
 				this.log.warn(
-					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					{ instance: name, err: errorMessage(err) },
 					"could not prepare the recovery mount",
 				);
 				return;
@@ -690,7 +685,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	/**
 	 * Name the container after the workspace label so the shell prompt reads
-	 * `student@<label>` (SPEC.md Epic 8).
+	 * `student@<label>` (SPEC.md section 29).
 	 *
 	 * Incus has no instance setting for the hostname, so this writes
 	 * `/etc/hostname` for the next boot and runs `hostname` for the current
@@ -725,7 +720,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	}
 
 	/**
-	 * Run the container in the owner's timezone (issue #287), so timestamps in
+	 * Run the container in the owner's timezone, so timestamps in
 	 * a shell, in logs, and on Git commits match the clock on the wall.
 	 *
 	 * `/etc/timezone` is what the Debian tools read and `/etc/localtime` is
@@ -761,7 +756,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		);
 
 		// A missing zone file in the image makes `ln` fail, and the container
-		// would then run in the wrong zone with nothing said (issue #287).
+		// would then run in the wrong zone with nothing said.
 		const status = execExitStatus(result);
 		if (status !== null && status !== 0) {
 			throw new IncusError(
@@ -853,7 +848,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		validateName(name);
 
 		// Stopping an already-stopped instance is a no-op, not a failure.
-		// Mid-shutdown this read can fail with "Invalid PID -1" (issue #704);
+		// Mid-shutdown this read can fail with "Invalid PID -1";
 		// the stop below then settles on the real state.
 		const current = await this.instanceStatus(name).catch((err: unknown) => {
 			if (err instanceof IncusError && err.code === "NOT_FOUND") throw err;
@@ -891,7 +886,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				);
 			} catch (err) {
 				// The instance may already be stopping (Incus then fails with
-				// "Invalid PID -1"), so trust the state, not the error (issue #704).
+				// "Invalid PID -1"), so trust the state, not the error.
 				if (!(await this.settlesStopped(name, opts.timeoutSeconds))) {
 					throw err;
 				}
@@ -1208,7 +1203,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			return Math.max(0, Math.trunc(usage - inactive));
 		} catch (err) {
 			this.log.warn(
-				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				{ instance: name, err: errorMessage(err) },
 				"could not read the instance's memory.stat; reporting usage with cache",
 			);
 			return Math.max(0, Math.trunc(usage));
@@ -1242,7 +1237,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	/**
 	 * Make `<name>-docker` as a thin copy of the seed when one exists, sized
-	 * at the Docker size plus the seed's, else empty (issue #840). A volume
+	 * at the Docker size plus the seed's, else empty. A volume
 	 * that already exists is kept, never replaced. A copy that fails falls
 	 * back to an empty volume, so a broken seed never blocks a workspace.
 	 * The copy is only ever attached as this one instance's Docker device.
@@ -1254,7 +1249,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			seed = await this.seedInfo();
 		} catch (err) {
 			this.log.warn(
-				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				{ instance: name, err: errorMessage(err) },
 				"could not read the Docker seed; making an empty Docker volume",
 			);
 		}
@@ -1292,7 +1287,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			} catch (err) {
 				if (err instanceof IncusError && err.code === "ALREADY_EXISTS") return;
 				this.log.warn(
-					{ instance: name, err: err instanceof Error ? err.message : String(err) },
+					{ instance: name, err: errorMessage(err) },
 					"could not copy the Docker seed; making an empty Docker volume",
 				);
 				// A half-made copy would otherwise be adopted below.
@@ -1352,7 +1347,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			},
 		);
 		// An ordinary workspace container: the workspace profile (network, ACL,
-		// unprivileged, isolated idmap) and nothing that loosens it (S8).
+		// unprivileged, isolated idmap) and nothing that loosens it.
 		await this.client.request(
 			"POST",
 			"/1.0/instances",
@@ -1441,7 +1436,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	}
 
 	async installSeed(info: SeedInfo): Promise<void> {
-		// A shifted volume must never be attached to two instances (S4); the
+		// A shifted volume must never be attached to two instances; the
 		// builder is gone, so nothing may still use the build volume.
 		const build = (await this.client.request(
 			"GET",
@@ -1453,7 +1448,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		await this.client.request("PATCH", this.volumePath(SEED_BUILD_VOLUME), {
 			config: { [SEED_INFO_KEY]: JSON.stringify(info) },
 		});
-		// Copies already made are independent of the old seed (spike #840).
+		// Copies already made are independent of the old seed.
 		await this.deleteVolumeIfPresent(SEED_OLD_VOLUME);
 		const hadSeed = await this.volumeExists(SEED_VOLUME_NAME);
 		if (hadSeed) {
@@ -1473,8 +1468,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					.catch((restoreErr: unknown) =>
 						this.log.warn(
 							{
-								err:
-									restoreErr instanceof Error ? restoreErr.message : String(restoreErr),
+								err: errorMessage(restoreErr),
 							},
 							"could not restore the previous Docker seed",
 						),
@@ -1486,7 +1480,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			await this.deleteVolumeIfPresent(SEED_OLD_VOLUME);
 		} catch (err) {
 			this.log.warn(
-				{ err: err instanceof Error ? err.message : String(err) },
+				{ err: errorMessage(err) },
 				"could not delete the previous Docker seed; the next build retries",
 			);
 		}
@@ -1752,7 +1746,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	/**
 	 * Each running instance with its image serial and when its agent started,
-	 * both read on the host (issue #887).
+	 * both read on the host.
 	 */
 	async runningAgents(): Promise<RunningAgent[]> {
 		const instances = (await this.client.request(
@@ -1778,7 +1772,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		return agents;
 	}
 
-	/** Restart the agent unit inside a running instance (issue #887). */
+	/** Restart the agent unit inside a running instance. */
 	async restartAgent(name: string): Promise<void> {
 		validateName(name);
 		const result = await this.client.request(

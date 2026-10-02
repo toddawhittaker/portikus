@@ -1,10 +1,11 @@
 import { MAX_NOTIFICATIONS_PER_USER } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
+import { startLoop } from "./loop.js";
 
 /** How often the worker prunes notification history. */
-export const NOTIFICATION_PRUNE_SECONDS = 60 * 60;
+const NOTIFICATION_PRUNE_SECONDS = 60 * 60;
 
 /** Notifications older than this are deleted. */
 export const NOTIFICATION_MAX_AGE_DAYS = 90;
@@ -61,16 +62,8 @@ export function startNotificationPrune(options: {
 			const deleted = await pruneNotifications(db, new Date());
 			if (deleted > 0) logger.info({ deleted }, "pruned notifications");
 		} catch (e) {
-			logger.error(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"notification prune error",
-			);
+			logger.error({ error: errorMessage(e) }, "notification prune error");
 		}
 	};
-	const timer = setInterval(() => {
-		void tick();
-	}, NOTIFICATION_PRUNE_SECONDS * 1000);
-	timer.unref();
-	void tick();
-	return () => clearInterval(timer);
+	return startLoop(tick, NOTIFICATION_PRUNE_SECONDS * 1000);
 }

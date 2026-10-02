@@ -25,16 +25,18 @@ import {
 	PROJECT_SLUG_PATTERN,
 	projectNameFromRepository,
 } from "@portikus/contracts";
+import { errorMessage } from "@portikus/observability";
+import { AgentFailure } from "./errors.js";
+import { runGit, STDERR_LIMIT } from "./git.js";
 import {
 	excludePortikusFiles,
 	PORTIKUS_IGNORE_LINES,
 	writePortikusReadme,
 } from "./project-files.js";
-import { AgentFailure } from "./tmux.js";
 
 const run = promisify(execFile);
 
-/** Clones run inside the request, so cap them (plan: Epic 6 decisions). */
+/** Clones run inside the request, so cap them. */
 const CLONE_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Copying a project tree runs inside the request too, with the same budget. */
@@ -42,9 +44,6 @@ const COPY_TIMEOUT_MS = CLONE_TIMEOUT_MS;
 
 /** The prefix every half-finished clone directory carries. */
 const TEMPORARY_PREFIX = ".tmp-";
-
-/** How much git stderr travels back to the student. */
-export const STDERR_LIMIT = 2048;
 
 export function projectsDir(homeDir: string): string {
 	return join(homeDir, "projects");
@@ -103,8 +102,8 @@ async function isGitRepo(path: string): Promise<boolean> {
 }
 
 /**
- * The directory's own identity: its inode number as a decimal string
- * (issue #238). `mv` within a filesystem keeps the inode, so this is what
+ * The directory's own identity: its inode number as a decimal string.
+ * `mv` within a filesystem keeps the inode, so this is what
  * lets the control plane recognise a project a student renamed in the shell.
  * A copy or a restore from an archive gets a new inode and is a new project,
  * which is the honest answer.
@@ -164,27 +163,22 @@ export async function getProject(slug: string, homeDir: string): Promise<AgentPr
 	};
 }
 
-function gitFailure(error: unknown): AgentFailure {
-	const stderr =
-		typeof (error as { stderr?: unknown }).stderr === "string"
-			? (error as { stderr: string }).stderr
-			: "";
-	const tail = stderr.slice(-STDERR_LIMIT).trim();
-	return new AgentFailure("GIT_FAILED", tail || String(error));
-}
+/** Clone and init print little; past this the child is killed. */
+const GIT_OUTPUT_LIMIT = 8 * 1024 * 1024;
 
+/** Run git through runGit, which never prompts for credentials (SPEC.md §24.6). */
 async function git(args: string[], cwd: string, timeout?: number): Promise<void> {
-	try {
-		await run("git", args, {
-			cwd,
-			timeout,
-			// Git must never stop to ask a student for credentials.
-			env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-			maxBuffer: 8 * 1024 * 1024,
-		});
-	} catch (error) {
-		throw gitFailure(error);
-	}
+	const result = await runGit(args, cwd, GIT_OUTPUT_LIMIT, timeout);
+	if (result.ok) return;
+	const reason = result.timedOut
+		? "git timed out"
+		: result.overflow
+			? "git printed too much output"
+			: `git exited with status ${result.exitCode}`;
+	throw new AgentFailure(
+		"GIT_FAILED",
+		result.stderr.slice(-STDERR_LIMIT).trim() || reason,
+	);
 }
 
 /**
@@ -250,7 +244,7 @@ ${PORTIKUS_IGNORE_LINES.join("\n")}
 /**
  * Write the default .gitignore, unless the project already has one. Then
  * the Portikus ignore lines go to .git/info/exclude instead, so the
- * project's own file is never edited (#856).
+ * project's own file is never edited.
  */
 async function writeDefaultGitignore(path: string): Promise<void> {
 	const file = join(path, ".gitignore");
@@ -263,7 +257,7 @@ async function writeDefaultGitignore(path: string): Promise<void> {
 	await excludePortikusFiles(path);
 }
 
-/** Start a repository on main, never master (#847). No commit is made. */
+/** Start a repository on main, never master. No commit is made. */
 async function gitInit(path: string): Promise<void> {
 	await git(["init", "--initial-branch=main"], path);
 }
@@ -282,7 +276,7 @@ async function readSmallFile(path: string): Promise<string | undefined> {
 	}
 }
 
-/** The name a freshly cloned repository gives itself (#846). */
+/** The name a freshly cloned repository gives itself. */
 async function suggestName(dir: string): Promise<string | undefined> {
 	const readme = (await readdir(dir)).find((name) =>
 		/^readme(\.(md|markdown))?$/i.test(name),
@@ -385,11 +379,8 @@ export async function deleteProject(slug: string, homeDir: string): Promise<void
 	await rm(target.path, { recursive: true, force: true });
 }
 
-export async function renameProject(
-	slug: string,
-	to: string,
-	homeDir: string,
-): Promise<AgentProject> {
+/** The existing project `slug` and the unused name `to`, or the failure to report. */
+async function sourceAndFreeTarget(slug: string, to: string, homeDir: string) {
 	const source = await resolveProject(slug, homeDir);
 	if (!source.exists) {
 		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
@@ -398,6 +389,15 @@ export async function renameProject(
 	if (target.exists) {
 		throw new AgentFailure("PROJECT_EXISTS", "a project with that name already exists");
 	}
+	return { source, target };
+}
+
+export async function renameProject(
+	slug: string,
+	to: string,
+	homeDir: string,
+): Promise<AgentProject> {
+	const { source, target } = await sourceAndFreeTarget(slug, to, homeDir);
 	await rename(source.path, target.path);
 	return { slug: to, isGitRepo: await isGitRepo(target.path) };
 }
@@ -407,14 +407,7 @@ export async function duplicateProject(
 	to: string,
 	homeDir: string,
 ): Promise<AgentProject> {
-	const source = await resolveProject(slug, homeDir);
-	if (!source.exists) {
-		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
-	}
-	const target = await resolveProject(to, homeDir);
-	if (target.exists) {
-		throw new AgentFailure("PROJECT_EXISTS", "a project with that name already exists");
-	}
+	const { source, target } = await sourceAndFreeTarget(slug, to, homeDir);
 	try {
 		// --no-dereference keeps symlinks as symlinks, so a link pointing
 		// outside the project is copied, never followed (SPEC.md §24.6).
@@ -426,7 +419,7 @@ export async function duplicateProject(
 		await rm(target.path, { recursive: true, force: true });
 		throw new AgentFailure(
 			"GIT_FAILED",
-			`could not duplicate the project: ${error instanceof Error ? error.message : String(error)}`,
+			`could not duplicate the project: ${errorMessage(error)}`,
 		);
 	}
 	return { slug: to, isGitRepo: await isGitRepo(target.path) };
@@ -467,7 +460,7 @@ export async function archiveProject(
 /**
  * Zip one directory from its parent, so the archive holds a single top-level
  * entry named after that directory (SPEC.md §11.2). zip writes to a private
- * temporary file, because it cannot store a symlink entry on a pipe (#400);
+ * temporary file, because it cannot store a symlink entry on a pipe;
  * the returned stream deletes that file when it closes. Aborting `signal`
  * kills zip. The file goes under /var/tmp because /tmp is a tmpfs on
  * Debian 13, and a large zip there would count against the memory limit.
@@ -494,7 +487,7 @@ export async function archiveDir(
 }
 
 /**
- * Refuse a download over MAX_DOWNLOAD_BYTES before any zipping (#399). A
+ * Refuse a download over MAX_DOWNLOAD_BYTES before any zipping. A
  * directory counts the apparent size of its regular files, walked without
  * following symlinks, and the walk stops as soon as the cap is passed. A
  * symlink named directly counts its target file.

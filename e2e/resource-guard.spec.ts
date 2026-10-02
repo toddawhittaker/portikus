@@ -1,10 +1,12 @@
-import { type Browser, expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	createStudent,
 	loginAs,
+	openAdmin,
+	openDetail,
 	query,
 	setWorkspaceState,
-	type TestStudent,
+	studentIn,
 	toast,
 	workspacePath,
 } from "./helpers";
@@ -14,34 +16,6 @@ import {
  * SPEC.md §20.1). The worker does not run here, so each test writes the
  * throttle row the worker would, and checks what the pages make of it.
  */
-
-/** Carol, the mock provider's administrator, on the Users tab. */
-async function openAdmin(page: Page): Promise<void> {
-	await loginAs(page, "carol");
-	await page.goto("/admin");
-	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
-}
-
-/** A student with a workspace, made in a context of its own so carol keeps her session. */
-async function studentIn(browser: Browser): Promise<TestStudent & { name: string }> {
-	const context = await browser.newContext();
-	const student = await createStudent(context);
-	await context.close();
-	const name = `Guard ${student.userId.slice(0, 8)}`;
-	await query("update users set display_name = $2 where id = $1", [
-		student.userId,
-		name,
-	]);
-	return { ...student, name };
-}
-
-async function openDetail(page: Page, name: string) {
-	await page.getByTestId("admin-filter-text").fill(name);
-	await page.getByRole("button", { name: `Show details for ${name}` }).click();
-	const panel = page.getByRole("region", { name });
-	await expect(panel.getByRole("region", { name: "Resource guard" })).toBeVisible();
-	return panel;
-}
 
 async function throttle(workspaceId: string): Promise<void> {
 	await query(
@@ -64,9 +38,9 @@ test("an administrator sets a workspace override and sees it", async ({
 	page,
 	browser,
 }) => {
-	const student = await studentIn(browser);
+	const student = await studentIn(browser, "Guard");
 	await openAdmin(page);
-	const panel = await openDetail(page, student.name);
+	const panel = await openDetail(page, student.name, "Resource guard");
 
 	await panel
 		.getByRole("button", { name: `Guard settings for ${student.name}'s workspace` })
@@ -119,7 +93,7 @@ test("a throttle shows the student notice and the admin tag; Lift throttle clear
 	const row = page.getByTestId(`account-row-${student.userId}`);
 	await expect(row.getByText("Throttled", { exact: true })).toBeVisible();
 
-	const panel = await openDetail(page, name);
+	const panel = await openDetail(page, name, "Resource guard");
 	await panel
 		.getByRole("button", { name: `Lift throttle on ${name}'s workspace` })
 		.click();
@@ -140,7 +114,7 @@ test("the Health tab lists a throttled workspace and links to its panel", async 
 	page,
 	browser,
 }) => {
-	const student = await studentIn(browser);
+	const student = await studentIn(browser, "Guard");
 	await throttle(student.workspaceId);
 
 	await loginAs(page, "carol");
@@ -170,7 +144,7 @@ test("the slowed-down notice's Restart workspace… opens Restart's confirmation
 	await expect(page.getByTestId("dialog-workspace-status")).toBeVisible();
 });
 
-test("Restart from the throttle notice waits while the state settles, then restarts (#707)", async ({
+test("Restart from the throttle notice waits while the state settles, then restarts", async ({
 	page,
 	context,
 }) => {

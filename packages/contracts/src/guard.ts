@@ -26,7 +26,7 @@ export function effectiveGuard(
 	};
 }
 
-/** The idle-lift values as the `settings` row holds them (#596). */
+/** The idle-lift values as the `settings` row holds them. */
 export interface IdleLiftPlatform {
 	cpu_idle_lift_minutes: number;
 	cpu_idle_lift_percent: number;
@@ -96,7 +96,7 @@ export function countIncusCpus(value: unknown): number | null {
 	return count;
 }
 
-/** The cap on one workspace's "keep running until" hold: its override wins (#955). */
+/** The cap on one workspace's "keep running until" hold: its override wins. */
 export function keepRunningMaxHours(
 	platformHours: number,
 	overrides: GuardConfig | null,
@@ -112,7 +112,7 @@ export const KEEP_RUNNING_SKEW_MS = 5 * 60_000;
 
 /**
  * Why a "keep running until" time is refused, or null when it is allowed
- * (#955): it must be ahead of now and at most `maxHours` from now, give or
+ *: it must be ahead of now and at most `maxHours` from now, give or
  * take KEEP_RUNNING_SKEW_MS, which the caller clamps away. A cap of 0 refuses
  * every hold.
  */

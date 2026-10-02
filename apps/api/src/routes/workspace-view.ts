@@ -5,10 +5,11 @@ import {
 	type GuardConfig,
 	idleLift,
 	keepRunningMaxHours,
+	type QuotaConfig,
 	type Workspace,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import { type Kysely, sql } from "kysely";
+import { type Kysely, type Selectable, sql } from "kysely";
 
 /** Parse a jsonb value that may arrive as text. */
 export function fromJson<T>(value: unknown): T | null {
@@ -18,7 +19,7 @@ export function fromJson<T>(value: unknown): T | null {
 
 /**
  * The throttle numbers the student is shown, never the allowance string,
- * with when it lifts on its own from the settings row (#596).
+ * with when it lifts on its own from the settings row.
  */
 function toStudentThrottle(
 	value: unknown,
@@ -52,17 +53,19 @@ function toMemoryFlag(value: unknown): Workspace["memoryFlag"] {
 	};
 }
 
-/**
- * Map a workspaces row to the Workspace contract shape. It reads the
- * settings row for when a throttle lifts and the cap on a hold.
- */
-export async function toWorkspace(
+export type WorkspaceRow = Selectable<Database["workspaces"]>;
+
+/** The settings columns a Workspace view needs: when a throttle lifts and the cap on a hold. */
+export type WorkspaceSettings = Pick<
+	Selectable<Database["settings"]>,
+	"cpu_idle_lift_minutes" | "cpu_idle_lift_percent" | "keep_running_max_hours"
+>;
+
+/** Read the settings row once per request; undefined before the first one exists. */
+export async function loadWorkspaceSettings(
 	db: Kysely<Database>,
-	row: Record<string, unknown>,
-	activeConnections: number,
-	config: ApiConfig,
-): Promise<Workspace> {
-	const settings = await db
+): Promise<WorkspaceSettings | undefined> {
+	return db
 		.selectFrom("settings")
 		.select([
 			"cpu_idle_lift_minutes",
@@ -71,51 +74,52 @@ export async function toWorkspace(
 		])
 		.where("id", "=", 1)
 		.executeTakeFirst();
+}
+
+function iso(value: Date | null): string | null {
+	return value ? value.toISOString() : null;
+}
+
+/** Map a workspaces row to the Workspace contract shape. */
+export function toWorkspace(
+	row: WorkspaceRow,
+	activeConnections: number,
+	config: ApiConfig,
+	settings: WorkspaceSettings | undefined,
+): Workspace {
 	const lift = row.cpu_throttle && settings ? idleLift(settings) : null;
-	const quota =
-		typeof row.quota_config === "string"
-			? JSON.parse(row.quota_config)
-			: row.quota_config;
 	return {
-		id: row.id as string,
-		ownerUserId: row.owner_user_id as string,
-		label: row.label as string,
+		id: row.id,
+		ownerUserId: row.owner_user_id,
+		label: row.label,
 		state: row.state as Workspace["state"],
 		desiredState: row.desired_state as Workspace["desiredState"],
-		incusInstanceName: (row.incus_instance_name as string) ?? null,
-		imageVersion: (row.image_version as string) ?? null,
-		quotaConfig: quota ?? {
+		incusInstanceName: row.incus_instance_name,
+		imageVersion: row.image_version,
+		quotaConfig: fromJson<QuotaConfig>(row.quota_config) ?? {
 			homeGiB: config.WORKSPACE_HOME_SIZE_GIB,
 			dockerGiB: config.WORKSPACE_DOCKER_SIZE_GIB,
 			recoveryGiB: config.WORKSPACE_RECOVERY_SIZE_GIB,
 		},
-		pendingOperation: (row.pending_operation as Workspace["pendingOperation"]) ?? null,
-		errorCode: (row.error_code as string) ?? null,
-		errorMessage: (row.error_message as string) ?? null,
+		pendingOperation: row.pending_operation as Workspace["pendingOperation"],
+		errorCode: row.error_code,
+		errorMessage: row.error_message,
 		activeConnections,
-		lastActiveConnectionAt: row.last_active_connection_at
-			? (row.last_active_connection_at as Date).toISOString()
-			: null,
-		shutdownDeadline: row.shutdown_deadline
-			? (row.shutdown_deadline as Date).toISOString()
-			: null,
-		archivedAt: row.archived_at ? (row.archived_at as Date).toISOString() : null,
+		lastActiveConnectionAt: iso(row.last_active_connection_at),
+		shutdownDeadline: iso(row.shutdown_deadline),
+		archivedAt: iso(row.archived_at),
 		cpuThrottle: toStudentThrottle(row.cpu_throttle, lift),
 		memoryFlag: toMemoryFlag(row.memory_flag),
-		idleStopAt: row.idle_stop_at ? (row.idle_stop_at as Date).toISOString() : null,
-		lastActivityAt: row.last_activity_at
-			? (row.last_activity_at as Date).toISOString()
-			: null,
-		keepRunningUntil: row.keep_running_until
-			? (row.keep_running_until as Date).toISOString()
-			: null,
+		idleStopAt: iso(row.idle_stop_at),
+		lastActivityAt: iso(row.last_activity_at),
+		keepRunningUntil: iso(row.keep_running_until),
 		// No settings row yet means nothing has capped holds; use the column default.
 		keepRunningMaxHours: keepRunningMaxHours(
 			settings?.keep_running_max_hours ?? DEFAULT_KEEP_RUNNING_MAX_HOURS,
 			fromJson<GuardConfig>(row.guard_config),
 		),
-		createdAt: (row.created_at as Date).toISOString(),
-		updatedAt: (row.updated_at as Date).toISOString(),
+		createdAt: row.created_at.toISOString(),
+		updatedAt: row.updated_at.toISOString(),
 	};
 }
 
@@ -148,13 +152,12 @@ export async function findOwnedWorkspace(
 	db: Kysely<Database>,
 	user: AuthUser,
 	id: string,
-): Promise<Record<string, unknown> | null> {
+): Promise<WorkspaceRow | null> {
 	let query = db.selectFrom("workspaces").selectAll().where("id", "=", id);
 	if (user.role !== "administrator") {
 		query = query.where("owner_user_id", "=", user.id);
 	}
-	const row = await query.executeTakeFirst();
-	return (row as Record<string, unknown> | undefined) ?? null;
+	return (await query.executeTakeFirst()) ?? null;
 }
 
 /**
@@ -167,12 +170,12 @@ export async function findWorkspaceOwnedBy(
 	db: Kysely<Database>,
 	id: string,
 	userId: string,
-): Promise<Record<string, unknown> | null> {
+): Promise<WorkspaceRow | null> {
 	const row = await db
 		.selectFrom("workspaces")
 		.selectAll()
 		.where("id", "=", id)
 		.where("owner_user_id", "=", userId)
 		.executeTakeFirst();
-	return (row as Record<string, unknown> | undefined) ?? null;
+	return row ?? null;
 }

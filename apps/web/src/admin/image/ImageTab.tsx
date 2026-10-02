@@ -21,12 +21,11 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useRef, useState } from "react";
-import { ApiError } from "../../api/request.js";
-import { formatBytes } from "../../monitor/format.js";
+import { ApiError, errorText } from "../../api/request.js";
+import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { JobLog } from "../JobLog.js";
-import { errorText } from "../SettingsTab.js";
 import {
 	isActive,
 	useAdminImage,
@@ -41,12 +40,12 @@ const INTRO = {
 	text: "The image every new workspace starts from. Update it to the newest published image, or rebuild it with current packages and a chosen Node and Python. A new image must pass its health check before you make it the default. Existing workspaces keep their image until you rebuild each one.",
 };
 
-export const NODE_LABEL: Record<ImageNodeChoice, string> = {
+const NODE_LABEL: Record<ImageNodeChoice, string> = {
 	"24": "Node 24",
 	"26": "Node 26",
 };
 
-export const PYTHON_LABEL: Record<ImagePythonChoice, string> = {
+const PYTHON_LABEL: Record<ImagePythonChoice, string> = {
 	debian: "Debian's Python 3.13",
 	"uv-3.14": "Debian's plus Python 3.14 from uv",
 };
@@ -139,7 +138,7 @@ function ImageSections({ data }: { data: AdminImage }) {
 	return (
 		<AdminSection title="Workspace image" intro={INTRO}>
 			{data.newerPublished ? (
-				// The daily check found it; it clears once that version is on the server (issue #861).
+				// The daily check found it; it clears once that version is on the server.
 				<div
 					className="pk-card flex flex-wrap items-center gap-3 p-4"
 					data-testid="image-newer-published"
@@ -455,12 +454,14 @@ function JobGroup({
 						</dd>
 					</>
 				) : null}
+				{/* jscpd:ignore-start -- the certificate and image job panels list different facts. */}
 				{shown.startedAt ? (
 					<>
 						<dt className="pk-muted">Started</dt>
 						<dd className="m-0">{longTime(shown.startedAt)}</dd>
 					</>
 				) : null}
+				{/* jscpd:ignore-end */}
 			</dl>
 			<JobLog idPrefix="image" log={log} />
 			{made && defaultVersion ? (
@@ -581,9 +582,8 @@ function DeleteButton({
 }
 
 /** The main disk turns to the warning colour from this share used (DESIGN.md, status colour). */
-const DISK_WARN_SHARE = 0.8;
 
-/** The main disk's space, in the meter style of the Docker tab (issue #936). */
+/** The main disk's space, in the meter style of the Docker tab. */
 function DiskSpace({ disk }: { disk: NonNullable<AdminImage["disk"]> }) {
 	const used = Math.max(disk.totalBytes - disk.freeBytes, 0);
 	return (
@@ -594,7 +594,7 @@ function DiskSpace({ disk }: { disk: NonNullable<AdminImage["disk"]> }) {
 					label="Main disk space"
 					value={used}
 					max={disk.totalBytes}
-					high={disk.totalBytes * DISK_WARN_SHARE}
+					high={disk.totalBytes * WARN_AT}
 					valueText={`${formatBytes(used)} of ${formatBytes(disk.totalBytes)} used, ${formatBytes(disk.freeBytes)} free`}
 				/>
 			</dd>

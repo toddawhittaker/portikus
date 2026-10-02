@@ -17,33 +17,12 @@ import {
 } from "@portikus/ui";
 import { type FormEvent, useState } from "react";
 import type { z } from "zod";
-import { ApiError } from "../api/request.js";
+import { errorText } from "../api/request.js";
+import { announced } from "../common/announced.js";
 import { AdminSection } from "./AdminSection.js";
 import { graceMinutes, graceText, parseGraceMinutes } from "./graceText.js";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./guardFields.js";
 import { usePlatformSettings, useUpdatePlatformSettings } from "./queries.js";
-
-/**
- * Reads a seconds input, or null when it is not a whole number at or above 0.
- * The upper bound is the largest value the API's 32-bit integer column takes.
- */
-const MAX_SECONDS = 2147483647;
-
-export function parseSeconds(value: string): number | null {
-	if (!/^\d+$/.test(value.trim())) return null;
-	const seconds = Number(value.trim());
-	return seconds > MAX_SECONDS ? null : seconds;
-}
-
-export function errorText(error: unknown): string {
-	if (error instanceof ApiError) return error.message;
-	return "Something went wrong. Please try again.";
-}
-
-/** A field error, announced when it appears (issue #363). */
-export function announced(error: string | null) {
-	return error ? <span role="alert">{error}</span> : null;
-}
 
 /**
  * The platform-wide settings: when workspaces stop, the resource guard and
@@ -126,7 +105,7 @@ interface GuardSettingField {
 
 /**
  * The Resource guard section's fields: the per-workspace ones, then the
- * automatic lift (#596) and the throttle hold (SPEC.md §19.4), which have no
+ * automatic lift and the throttle hold (SPEC.md §19.4), which have no
  * per-workspace override.
  */
 const GUARD_SETTING_FIELDS: GuardSettingField[] = [
@@ -187,7 +166,7 @@ const GUARD_HELP: Record<GuardSettingKey, string> = {
 };
 
 /** Reads one Resource guard field, or null when the entry is not allowed. */
-export function parseGuardSetting(key: GuardSettingKey, text: string): number | null {
+function parseGuardSetting(key: GuardSettingKey, text: string): number | null {
 	const field = GUARD_SETTING_FIELDS.find((item) => item.key === key);
 	const trimmed = text.trim();
 	if (!field || !/^\d+$/.test(trimmed)) return null;
@@ -261,7 +240,7 @@ function IdleStopField() {
 	);
 }
 
-/** The cap on a student's "Keep running until" hold (#955). */
+/** The cap on a student's "Keep running until" hold. */
 function KeepRunningField() {
 	const settings = usePlatformSettings();
 	const update = useUpdatePlatformSettings();
@@ -482,7 +461,7 @@ function ResourceGuardSection() {
 }
 
 /** Checks a statement before it is sent; null when it can be saved. */
-export function acceptableUseError(text: string): string | null {
+function acceptableUseError(text: string): string | null {
 	if (text.trim() === "") return "Enter the statement, or reset it to the default.";
 	if (text.length > MAX_ACCEPTABLE_USE_LENGTH) {
 		return `The statement can be at most ${MAX_ACCEPTABLE_USE_LENGTH.toLocaleString("en")} characters.`;

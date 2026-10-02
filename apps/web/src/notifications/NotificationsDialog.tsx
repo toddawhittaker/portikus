@@ -1,6 +1,7 @@
 import type { Notification, NotificationTone } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, Icon, type IconName } from "@portikus/ui";
 import { useEffect, useRef } from "react";
+import { timeAgo } from "../text.js";
 import {
 	useClearNotifications,
 	useMarkAllNotificationsRead,
@@ -21,17 +22,6 @@ const TONE_NAME: Record<NotificationTone, string> = {
 	warning: "Warning",
 	danger: "Error",
 };
-
-/** "Just now", "4 min ago", "3 h ago", "2 days ago". */
-export function relativeTime(iso: string, now: number): string {
-	const minutes = Math.max(0, Math.floor((now - Date.parse(iso)) / 60_000));
-	if (minutes < 1) return "Just now";
-	if (minutes < 60) return `${minutes} min ago`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours} h ago`;
-	const days = Math.floor(hours / 24);
-	return days === 1 ? "1 day ago" : `${days} days ago`;
-}
 
 function NotificationItem({
 	item,
@@ -66,7 +56,7 @@ function NotificationItem({
 						dateTime={item.createdAt}
 						title={new Date(item.createdAt).toLocaleString()}
 					>
-						{relativeTime(item.createdAt, now)}
+						{timeAgo(item.createdAt, now)}
 					</time>
 				</p>
 			</div>

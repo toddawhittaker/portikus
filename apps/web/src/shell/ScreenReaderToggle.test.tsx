@@ -1,4 +1,4 @@
-/** Issue #357: the skip-link-style toggle for screen-reader mode. */
+/** The skip-link-style toggle for screen-reader mode. */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";

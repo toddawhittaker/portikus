@@ -177,7 +177,7 @@ test("the bar follows the directory the agent reports", () => {
 });
 
 /**
- * Issue #268: the pane menu is where one terminal changes its colours. The
+ * The pane menu is where one terminal changes its colours. The
  * item is one checkbox with a fixed name, checked when the terminal is light.
  */
 test("the actions menu has a Light terminal checkbox, off for a dark terminal", () => {
@@ -206,7 +206,7 @@ test("a light terminal has the checkbox on, and unchecking it asks for dark", ()
 });
 
 /**
- * Issue #286: the pane carries its own colour scheme, so the --terminal-*
+ * The pane carries its own colour scheme, so the --terminal-*
  * tokens that colour the title bar and the scrollbar come from this pane
  * rather than from the per-user default on the document.
  */
@@ -226,7 +226,7 @@ function openActions() {
 	});
 }
 
-/** Issue #370: a pane can leave its split without a drag (WCAG 2.5.7). */
+/** A pane can leave its split without a drag (WCAG 2.5.7). */
 test("Move to new tab moves this pane without a drag", () => {
 	const props = renderLeaf();
 	openActions();
@@ -243,7 +243,7 @@ test("Move to new tab is disabled for a pane that is already alone in its tab", 
 	expect(item?.getAttribute("aria-disabled")).toBe("true");
 });
 
-/** Issue #359: the menu says how to leave the terminal and does it. */
+/** The menu says how to leave the terminal and does it. */
 test("Leave terminal names Alt+Shift+Q and leaves the terminal", async () => {
 	const outside = document.createElement("button");
 	document.body.append(outside);
@@ -262,7 +262,7 @@ test("Leave terminal names Alt+Shift+Q and leaves the terminal", async () => {
 });
 
 /**
- * Issue #368: the focus ring follows the pane's own scheme, so it keeps 3:1
+ * The focus ring follows the pane's own scheme, so it keeps 3:1
  * on a light terminal in a dark page and on a dark terminal in a light page.
  */
 test("each terminal scheme sets its own focus colour", async () => {

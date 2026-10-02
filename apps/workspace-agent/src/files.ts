@@ -25,28 +25,14 @@ import {
 	type TreeResponse,
 	type WriteFileResponse,
 } from "@portikus/contracts";
+import { AgentFailure, errorCode, FileChanged } from "./errors.js";
 import { resolveProject } from "./projects.js";
-import { AgentFailure } from "./tmux.js";
 
 /** How much of a file is sniffed for a NUL byte before it is called binary. */
 const SNIFF_BYTES = 8 * 1024;
 
-export const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
-export const BINARY_CONTENT_TYPE = "application/octet-stream";
-
-/**
- * A stale conditional write. It carries the file's current etag so the route
- * can return it as an ETag header and the editor can recover (SPEC.md §13.5).
- */
-export class FileChanged extends AgentFailure {
-	readonly etag: string;
-
-	constructor(etag: string) {
-		super("FILE_CHANGED", "the file changed on disk since it was read");
-		this.name = "FileChanged";
-		this.etag = etag;
-	}
-}
+const TEXT_CONTENT_TYPE = "text/plain; charset=utf-8";
+const BINARY_CONTENT_TYPE = "application/octet-stream";
 
 export interface ResolvedPath {
 	/** The target, with its parent directories already resolved. */
@@ -58,12 +44,6 @@ export interface ResolvedPath {
 
 function contains(root: string, path: string): boolean {
 	return path === root || path.startsWith(`${root}/`);
-}
-
-function errorCode(error: unknown): string | undefined {
-	return typeof (error as { code?: unknown }).code === "string"
-		? (error as { code: string }).code
-		: undefined;
 }
 
 /**
@@ -225,7 +205,7 @@ function sniffContentType(sample: Buffer): string {
 
 /**
  * Read a file. An editor read is capped at MAX_EDITOR_FILE_BYTES; a download
- * streams instead, up to MAX_DOWNLOAD_BYTES (SPEC.md §11.2, #399).
+ * streams instead, up to MAX_DOWNLOAD_BYTES (SPEC.md §11.2).
  */
 export async function readFile(
 	homeDir: string,
@@ -301,6 +281,36 @@ export interface WriteOptions {
 }
 
 /**
+ * Refuse a write whose condition does not hold. Returns the existing file's
+ * mode for a replace, so the new file keeps it.
+ */
+async function checkWriteCondition(
+	target: { path: string; exists: boolean },
+	options: WriteOptions,
+): Promise<number | undefined> {
+	if (options.ifNoneMatch) {
+		if (target.exists) {
+			throw new AgentFailure("FILE_EXISTS", "that file already exists");
+		}
+		return undefined;
+	}
+	if (!target.exists) {
+		throw new AgentFailure("FILE_NOT_FOUND", "no such file");
+	}
+	const info = await stat(target.path);
+	if (info.isDirectory()) {
+		throw new AgentFailure("BAD_REQUEST", "that path is a directory");
+	}
+	if (options.ifMatch !== "*") {
+		const current = await hashFile(target.path);
+		if (current !== options.ifMatch) {
+			throw new FileChanged(current);
+		}
+	}
+	return info.mode & 0o7777;
+}
+
+/**
  * Write a file with a conditional guard, so a stale browser cannot overwrite
  * a newer version on disk (SPEC.md §13.5).
  *
@@ -330,27 +340,7 @@ export async function writeFile(
 		refuseSymlink: true,
 	});
 
-	let mode: number | undefined;
-	if (options.ifNoneMatch) {
-		if (target.exists) {
-			throw new AgentFailure("FILE_EXISTS", "that file already exists");
-		}
-	} else {
-		if (!target.exists) {
-			throw new AgentFailure("FILE_NOT_FOUND", "no such file");
-		}
-		const info = await stat(target.path);
-		if (info.isDirectory()) {
-			throw new AgentFailure("BAD_REQUEST", "that path is a directory");
-		}
-		mode = info.mode & 0o7777;
-		if (options.ifMatch !== "*") {
-			const current = await hashFile(target.path);
-			if (current !== options.ifMatch) {
-				throw new FileChanged(current);
-			}
-		}
-	}
+	const mode = await checkWriteCondition(target, options);
 
 	const limit = options.upload ? MAX_UPLOAD_BYTES : MAX_EDITOR_FILE_BYTES;
 	const hash = createHash("sha256");

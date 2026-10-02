@@ -1,17 +1,16 @@
 /**
  * Screen-reader mode and the accessibility parts of Settings (SPEC.md §13.5
- * and §25.8; issues #357, #359, #363 and #373), and how Settings saves:
- * each preference at once, announced by one status line (Epic 25 review M5).
+ * and §25.8), and how Settings saves:
+ * each preference at once, announced by one status line.
  */
 import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
 	expectConnected,
+	expectNoViolations,
 	openFileTab,
-	settledAxe,
 	terminalIds,
-	WCAG_TAGS,
 	WEB_ORIGIN,
 	workspacePath,
 	workTabs,
@@ -23,15 +22,6 @@ async function openSettings(page: Page) {
 	const dialog = page.getByTestId("dialog-editor-settings");
 	await expect(dialog).toBeVisible();
 	return dialog;
-}
-
-async function expectNoViolations(page: Page, alsoInclude?: string) {
-	let builder = (await settledAxe(page))
-		.withTags(WCAG_TAGS)
-		.include("[data-testid=dialog-editor-settings]");
-	if (alsoInclude) builder = builder.include(alsoInclude);
-	const results = await builder.analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
 async function openTerminal(page: Page, workspaceId: string, projectId: string) {
@@ -180,7 +170,7 @@ test("the terminal colours switch is named Light terminal", async ({
 	await expect(dialog.getByRole("switch", { name: "Light terminal" })).toBeChecked();
 });
 
-/** Review S4: the keys and the library limits moved to the Help page. */
+/** The keys and the library limits are on the Help page. */
 test("Accessibility points to the keys on the Help page in a new tab", async ({
 	page,
 	context,
@@ -205,7 +195,7 @@ test("Accessibility points to the keys on the Help page in a new tab", async ({
 });
 
 /**
- * Review M5: a preference is saved as it changes, the status line says so,
+ * A preference is saved as it changes, the status line says so,
  * and closing keeps it. A typed delay is saved when Escape closes the dialog.
  */
 test("preferences save at once, Saved is announced, and Escape keeps a typed delay", async ({
@@ -263,16 +253,20 @@ for (const colorScheme of ["light", "dark"] as const) {
 		const dialog = await openSettings(page);
 		await dialog.getByRole("checkbox", { name: /Word wrap/ }).click();
 		await expect(dialog.getByRole("status")).toHaveText("Saved");
-		await expectNoViolations(page);
+		await expectNoViolations(page, "[data-testid=dialog-editor-settings]");
 
 		// A toggletip opens from the keyboard, is checked with the dialog, and
-		// Escape closes only the tip (review N9).
+		// Escape closes only the tip.
 		const help = dialog.getByRole("button", { name: "About Screen reader mode" });
 		await help.focus();
 		await page.keyboard.press("Enter");
 		const tip = page.locator(".pk-toggletip-content");
 		await expect(tip).toContainText("does not reach a terminal");
-		await expectNoViolations(page, ".pk-toggletip-content");
+		await expectNoViolations(
+			page,
+			"[data-testid=dialog-editor-settings]",
+			".pk-toggletip-content",
+		);
 		await page.keyboard.press("Escape");
 		await expect(tip).toHaveCount(0);
 		await expect(dialog).toBeVisible();
@@ -284,7 +278,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(dialog.getByText("Give an https:// link")).toBeVisible();
 		await dialog.getByRole("button", { name: "About Workspace label" }).click();
 		await expect(tip).toContainText("preview addresses");
-		await expectNoViolations(page, ".pk-toggletip-content");
+		await expectNoViolations(
+			page,
+			"[data-testid=dialog-editor-settings]",
+			".pk-toggletip-content",
+		);
 	});
 }
 

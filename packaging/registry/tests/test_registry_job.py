@@ -1,4 +1,4 @@
-"""Unit tests for packaging/registry/registry-job (issue #840, rulings S1, S5 and S7).
+"""Unit tests for packaging/registry/registry-job (ADR 0045).
 
 systemctl, mkfs, the mount check and the health probes are replaced by
 FakeHost, so no test touches the host.
@@ -451,7 +451,7 @@ def digest_of(n):
 
 
 class ImageSizesTest(Base):
-    """Download sizes from the caches' own storage (issue #931)."""
+    """Download sizes from the caches' own storage."""
 
     def store(self, cache, doc, n):
         """Put a manifest blob into CACHE's storage under digest n."""

@@ -19,13 +19,14 @@ import {
 	validateLaunchToken,
 } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
-import type { ApiError } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
+import { escapeHtml, sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
 import { completeSignIn, requestMetadata, startSession } from "./start-session.js";
 
-/** What the API loaded at start for LTI (docs/archive/epics/EPIC-13.md rulings 14 and 15). */
+/** What the API loaded at start for LTI. */
 export interface LtiDeps {
 	platforms: LtiPlatform[];
 	/** The tool's private key in PEM; only its public half is ever served. */
@@ -35,7 +36,7 @@ export interface LtiDeps {
 /**
  * Load the platforms file at start. Ansible always sets the variables, so a
  * missing file means LTI is off; a file that is there but wrong throws
- * PlatformsFileError and stops the start (docs/archive/epics/EPIC-13.md ruling 14).
+ * PlatformsFileError and stops the start.
  */
 export async function loadLtiDeps(
 	config: Pick<ApiConfig, "LTI_PLATFORMS_FILE" | "LTI_TOOL_KEY_FILE">,
@@ -68,18 +69,9 @@ const ADMIN_BY_SSO =
 const BAD_LOGIN =
 	"Portikus did not recognise this link from your course. Ask your instructor to check how Portikus is set up.";
 
-function escapeHtml(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&#39;");
-}
-
 /**
  * A small server-rendered page that works inside an LMS frame: no script,
- * the design tokens' colours inline, light and dark (ruling 17).
+ * the design tokens' colours inline, light and dark.
  */
 function page(heading: string, sentence: string, form = ""): string {
 	return `<!doctype html>
@@ -162,7 +154,7 @@ function loginParams(source: unknown): LtiLoginParams {
 	return params;
 }
 
-/** The public half of the tool key, with its SHA-256 thumbprint as `kid` (ruling 15). */
+/** The public half of the tool key, with its SHA-256 thumbprint as `kid`. */
 export function toolJwks(pem: string | null): { keys: Record<string, string>[] } {
 	if (!pem) return { keys: [] };
 	const jwk = createPublicKey(pem).export({ format: "jwk" });
@@ -175,8 +167,8 @@ export function toolJwks(pem: string | null): { keys: Record<string, string>[] }
 }
 
 /**
- * Only the path and query of `target_link_uri`, and only on our origin
- * (ruling 18). A path like `//host` or `/\host` would leave the origin as a
+ * Only the path and query of `target_link_uri`, and only on our origin.
+ * A path like `//host` or `/\host` would leave the origin as a
  * Location header, so anything but one `/` then a path character is `/`.
  */
 export function targetPath(uri: string, publicUrl: string): string {
@@ -186,7 +178,7 @@ export function targetPath(uri: string, publicUrl: string): string {
 	return /^\/[^/\\]/.test(path) ? path : "/";
 }
 
-/** LTI 1.3 login initiation, launch, and the tool keyset (docs/archive/epics/EPIC-13.md). */
+/** LTI 1.3 login initiation, launch, and the tool keyset (ADR 0025). */
 export function registerLtiRoutes(
 	app: FastifyInstance,
 	{ db, config, lti }: ServerDeps,
@@ -198,7 +190,7 @@ export function registerLtiRoutes(
 
 	// Any page may frame login and launch: framed, they only render the
 	// new-tab or refusal page and grant nothing. The login form posts only
-	// to us or a registered platform's authorization endpoint (ruling 17).
+	// to us or a registered platform's authorization endpoint.
 	const origins = [
 		...new Set(lti?.platforms.map((p) => new URL(p.authLoginUrl).origin)),
 	];
@@ -214,8 +206,7 @@ export function registerLtiRoutes(
 	const jwksCsp = cspFor("'none'");
 
 	function notFound(reply: FastifyReply) {
-		const body: ApiError = { code: "NOT_FOUND", message: "Not found." };
-		return reply.status(404).send(body);
+		return sendError(reply, 404, "NOT_FOUND", "Not found.");
 	}
 
 	function html(reply: FastifyReply, status: number, body: string) {
@@ -229,10 +220,7 @@ export function registerLtiRoutes(
 		result: string,
 		metadata: Record<string, unknown>,
 	): Promise<void> {
-		await db
-			.insertInto("audit_events")
-			.values({ actor, target, action, result, metadata: JSON.stringify(metadata) })
-			.execute();
+		await recordAudit(db, { actor, target, action, result, metadata: metadata });
 	}
 
 	/**
@@ -267,7 +255,7 @@ export function registerLtiRoutes(
 		);
 	}
 
-	/** The course and this user's membership in it, added or refreshed (ruling 27). */
+	/** The course and this user's membership in it, added or refreshed. */
 	async function recordMembership(
 		launch: LtiLaunch,
 		userId: string,
@@ -361,8 +349,8 @@ export function registerLtiRoutes(
 		const stateProblem = checkLaunchState(formState, cookieState);
 		if (stateProblem) return refuseLaunch(request, reply, stateProblem, null);
 
-		// Deleting the row first makes the state and its nonce single use
-		// (ruling 16); no transaction is held open over the keyset fetch.
+		// Deleting the row first makes the state and its nonce single use;
+		// no transaction is held open over the keyset fetch.
 		const loginState = await consumeLoginState(db, formState ?? "");
 		if (!loginState) return refuseLaunch(request, reply, "state_missing", null);
 		const result = await validateLaunchToken({
@@ -418,8 +406,8 @@ export function registerLtiRoutes(
 	/**
 	 * A launch from a linked course identity signs into the SSO account and
 	 * refreshes only its membership: name, email and roles stay as they are
-	 * (docs/archive/epics/EPIC-13-1.md, "The flow" step 6). It never starts an
-	 * administrator session (ruling 21).
+	 * (ADR 0026). It never starts an
+	 * administrator session.
 	 */
 	async function linkedLaunch(
 		request: FastifyRequest,
@@ -462,7 +450,7 @@ export function registerLtiRoutes(
 				page("Administrators sign in with SSO", ADMIN_BY_SSO, link),
 			);
 		}
-		// The course identity is kept so this session may unlink it (review S2).
+		// The course identity is kept so this session may unlink it.
 		await startSession(db, auth, reply, userId, { method: "lti", courseUserId });
 		await audit("auth.login", actor, userId, "ok", {
 			...base,

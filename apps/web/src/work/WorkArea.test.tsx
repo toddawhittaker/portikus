@@ -411,8 +411,8 @@ test("closing a tab with two live terminals asks first", async () => {
 	expect(screen.getByTestId("terminal-group-tab1")).toBeTruthy();
 });
 
-test("a file the URL asks for opens on a full strip (issue #240)", async () => {
-	// SPEC.md §14.9 with issue #240: there is no cap, so the link always opens.
+test("a file the URL asks for opens on a full strip", async () => {
+	// SPEC.md §14.9: there is no cap, so the link always opens.
 	const tabs = Array.from({ length: 16 }, (_, index) => ({
 		id: `file:src/file${index}.ts`,
 		root: { type: "file", path: `src/file${index}.ts` },
@@ -424,7 +424,7 @@ test("a file the URL asks for opens on a full strip (issue #240)", async () => {
 	expect(screen.queryByText(/Too many tabs are open/)).toBeNull();
 });
 
-test("a saved diff tab loads as the file's own tab (issue #160)", async () => {
+test("a saved diff tab loads as the file's own tab", async () => {
 	// SPEC.md §8.3: one path has one tab, and a diff is a view of that tab.
 	const tabs = [
 		{ id: "file:src/app.ts", root: { type: "file", path: "src/app.ts" } },
@@ -437,7 +437,7 @@ test("a saved diff tab loads as the file's own tab (issue #160)", async () => {
 	expect(screen.queryByTestId("tab-diff:src/app.ts")).toBeNull();
 });
 
-/** Issue #374: each tab body is the panel its tab's aria-controls names. */
+/** Each tab body is the panel its tab's aria-controls names. */
 test("each tab panel is named by its tab", async () => {
 	stubFetch({
 		layout: savedLayout,
@@ -452,7 +452,7 @@ test("each tab panel is named by its tab", async () => {
 	expect(screen.getByRole("tabpanel", { name: /zsh/ })).toBe(panel);
 });
 
-/** Issue #370: Move to new tab puts the pane in a tab after its own and focuses it. */
+/** Move to new tab puts the pane in a tab after its own and focuses it. */
 test("Move to new tab gives the pane a tab of its own", async () => {
 	stubFetch({
 		layout: savedLayout,
@@ -474,7 +474,7 @@ test("Move to new tab gives the pane a tab of its own", async () => {
 	expect(first.contains(screen.getByTestId(`terminal-leaf-${ONE}`))).toBe(true);
 });
 
-/** Issue #359: Leave terminal in the menu does what Alt+Shift+Q does. */
+/** Leave terminal in the menu does what Alt+Shift+Q does. */
 test("Leave terminal moves the keyboard to the active tab", async () => {
 	stubFetch({
 		layout: savedLayout,
@@ -492,7 +492,30 @@ test("Leave terminal moves the keyboard to the active tab", async () => {
 	expect(document.activeElement).toBe(screen.getByTestId("tab-tab1"));
 });
 
-/** Issue #608 item 1: the empty work area offers the two launcher actions. */
+/** The empty screen waits for the terminal list, so switching never flashes it. */
+test("the empty work area stays hidden while the terminal list loads", async () => {
+	let answer: (response: Response) => void = () => {};
+	vi.stubGlobal(
+		"fetch",
+		vi.fn((input: string) => {
+			if (String(input).endsWith("/layout")) {
+				return Promise.resolve({ status: 204, ok: true } as Response);
+			}
+			return new Promise<Response>((resolve) => {
+				answer = resolve;
+			});
+		}),
+	);
+	renderArea();
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	expect(screen.queryByText("No terminals open")).toBeNull();
+	answer({ status: 200, ok: true, json: async () => ({ terminals: [] }) } as Response);
+	await screen.findByText("No terminals open");
+});
+
+/** The empty work area offers the two launcher actions. */
 test("the empty work area opens a terminal or Claude Code from its buttons", async () => {
 	const { fetchMock } = stubFetch({ terminals: [] });
 	renderArea();

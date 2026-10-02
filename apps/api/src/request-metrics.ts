@@ -1,5 +1,5 @@
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
 
@@ -8,7 +8,7 @@ export const API_LATENCY_BOUNDS_MS = [
 	5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000,
 ] as const;
 
-export const API_REQUEST_RETENTION_DAYS = 7;
+const API_REQUEST_RETENTION_DAYS = 7;
 
 const MINUTE_MS = 60_000;
 const PRUNE_EVERY_MS = 3_600_000;
@@ -115,10 +115,7 @@ export function registerRequestMetrics(
 				await write(counts);
 			} catch (e) {
 				// Dropped, not retried: one lost minute beats a retry loop.
-				logger.warn(
-					{ error: e instanceof Error ? e.message : String(e) },
-					"api request metrics write failed",
-				);
+				logger.warn({ error: errorMessage(e) }, "api request metrics write failed");
 			}
 		}
 		const at = now().getTime();
@@ -130,10 +127,7 @@ export function registerRequestMetrics(
 					.where("minute", "<", new Date(at - API_REQUEST_RETENTION_DAYS * 86_400_000))
 					.execute();
 			} catch (e) {
-				logger.warn(
-					{ error: e instanceof Error ? e.message : String(e) },
-					"api request metrics prune failed",
-				);
+				logger.warn({ error: errorMessage(e) }, "api request metrics prune failed");
 			}
 		}
 	}

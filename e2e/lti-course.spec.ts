@@ -1,6 +1,6 @@
 /**
- * The instructor role and the Course page (docs/archive/epics/EPIC-13.md rulings 4, 5,
- * 23 and 24; SPEC.md sections 5.2 and 24).
+ * The instructor role and the Course page (ADR 0025; SPEC.md sections 5.2
+ * and 24).
  */
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import { WEB_ORIGIN } from "./helpers";
@@ -42,8 +42,8 @@ test("an instructor sees the student who launched before on the Course page", as
 		const ivyRow = table.getByRole("row", { name: /Ivy Instructor/ });
 		await expect(ivyRow.getByRole("cell").first()).toHaveText("Instructor");
 
-		// No emails or subjects reach the browser (ruling 23). The user id does,
-		// so the instructor can remove a member (Epic 13.1 T6).
+		// No emails or subjects reach the browser. The user id does, so the
+		// instructor can remove a member.
 		const courses = (await (await ivy.request.get("/courses")).json()) as {
 			id: string;
 		}[];

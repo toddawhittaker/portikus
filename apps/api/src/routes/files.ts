@@ -21,6 +21,7 @@ import {
 	readAgentError,
 	readJson,
 } from "../agent-client.js";
+import { sendError } from "../http.js";
 import type { UserLimit } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 import {
@@ -29,7 +30,6 @@ import {
 	releaseLongOperation,
 	scopedProject,
 	sendAgentError,
-	sendError,
 } from "./project-scope.js";
 
 /**
@@ -47,13 +47,13 @@ function headersDeadline() {
 	};
 }
 
-/** The most bytes the API relays for one download, whatever the agent sends (#399). */
-export const DOWNLOAD_RELAY_LIMIT = MAX_DOWNLOAD_BYTES + ZIP_OVERHEAD_BYTES;
+/** The most bytes the API relays for one download, whatever the agent sends. */
+const DOWNLOAD_RELAY_LIMIT = MAX_DOWNLOAD_BYTES + ZIP_OVERHEAD_BYTES;
 
 /**
  * A download body cut off at DOWNLOAD_RELAY_LIMIT. The agent refuses a
  * download over the cap before sending anything, so only a misbehaving
- * agent reaches this; the browser then sees a failed download (#399).
+ * agent reaches this; the browser then sees a failed download.
  */
 export function cappedDownload(body: ReadableStream<Uint8Array>): Readable {
 	let sent = 0;
@@ -85,7 +85,7 @@ function pinnedType(value: string | null): string {
 }
 
 /**
- * The types the file viewer shows in the page, by file extension (#816).
+ * The types the file viewer shows in the page, by file extension.
  * Nothing else is ever served inline, and never as HTML.
  */
 const INLINE_TYPES: Record<string, string> = {
@@ -110,7 +110,7 @@ export function inlineType(path: string): string | null {
  * The policy on an inline file. `sandbox` gives a document an opaque origin
  * with no script, so an SVG opened on its own cannot reach the session or
  * the page; the rest stops it loading anything but its own inline styles
- * and data images (SPEC.md §24.3, #816).
+ * and data images (SPEC.md §24.3).
  */
 export const INLINE_CSP =
 	"sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'";
@@ -145,6 +145,60 @@ function queryPath(
 	return parsed.data;
 }
 
+// Relays the agent's file stream with the headers the viewer, the
+// download, and the editor's conditional save each need.
+async function sendFile(
+	reply: FastifyReply,
+	response: Response,
+	body: ReadableStream<Uint8Array>,
+	path: string,
+	download: boolean,
+	inline: string | null,
+) {
+	const etag = response.headers.get("etag");
+	if (etag) reply.header("etag", etag);
+	// The editor saves conditionally on this etag, so nothing between
+	// here and the browser may rewrite it. Caddy's gzip compression
+	// otherwise appends "-gzip" to the etag, the next save sends that
+	// back as If-Match, and the agent refuses a save nobody conflicted
+	// with (SPEC.md §13.5).
+	reply.header("cache-control", "no-transform");
+	const length = response.headers.get("content-length");
+	if (Number(length) > DOWNLOAD_RELAY_LIMIT) {
+		await body.cancel();
+		return sendError(
+			reply,
+			413,
+			"FILE_TOO_LARGE",
+			"That file is larger than the download limit.",
+		);
+	}
+	if (length) reply.header("content-length", length);
+	if (download) {
+		// The name comes from the path the student asked for, quoted and
+		// escaped here rather than anywhere near a shell.
+		reply.header("content-disposition", contentDisposition(basename(path)));
+	}
+	if (inline) {
+		reply.header("x-content-type-options", "nosniff");
+		reply.header("content-security-policy", INLINE_CSP);
+		reply.type(inline);
+	} else {
+		reply.type(pinnedType(response.headers.get("content-type")));
+	}
+	return reply.send(cappedDownload(body));
+}
+
+// The request headers a conditional write passes on to the agent.
+function writeHeaders(incoming: Record<string, string | string[] | undefined>) {
+	const headers: Record<string, string> = {};
+	for (const name of ["if-match", "if-none-match", "content-type"]) {
+		const value = incoming[name];
+		if (typeof value === "string") headers[name] = value;
+	}
+	return headers;
+}
+
 /**
  * File routes (SPEC.md §11.1, §11.2, §13.5). The control plane brokers every
  * one of them: the browser never reaches the workspace agent, and the agent
@@ -175,7 +229,7 @@ export function registerFileRoutes(
 			return sendAgentError(reply, error);
 		}
 
-		// GET tree -- one directory listing, straight from the agent.
+		// One directory listing, straight from the agent.
 		instance.get("/workspaces/:id/projects/:pid/tree", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
@@ -205,7 +259,7 @@ export function registerFileRoutes(
 			return parsed.data;
 		});
 
-		// GET file -- streamed, so a download of any size never sits in memory.
+		// Streamed, so a download of any size never sits in memory.
 		instance.get("/workspaces/:id/projects/:pid/file", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
@@ -258,41 +312,10 @@ export function registerFileRoutes(
 				);
 			}
 
-			const etag = response.headers.get("etag");
-			if (etag) reply.header("etag", etag);
-			// The editor saves conditionally on this etag, so nothing between
-			// here and the browser may rewrite it. Caddy's gzip compression
-			// otherwise appends "-gzip" to the etag, the next save sends that
-			// back as If-Match, and the agent refuses a save nobody conflicted
-			// with (issue #157, SPEC.md §13.5).
-			reply.header("cache-control", "no-transform");
-			const length = response.headers.get("content-length");
-			if (Number(length) > DOWNLOAD_RELAY_LIMIT) {
-				await response.body.cancel();
-				return sendError(
-					reply,
-					413,
-					"FILE_TOO_LARGE",
-					"That file is larger than the download limit.",
-				);
-			}
-			if (length) reply.header("content-length", length);
-			if (download) {
-				// The name comes from the path the student asked for, quoted and
-				// escaped here rather than anywhere near a shell.
-				reply.header("content-disposition", contentDisposition(basename(path)));
-			}
-			if (inline) {
-				reply.header("x-content-type-options", "nosniff");
-				reply.header("content-security-policy", INLINE_CSP);
-				reply.type(inline);
-			} else {
-				reply.type(pinnedType(response.headers.get("content-type")));
-			}
-			return reply.send(cappedDownload(response.body));
+			return sendFile(reply, response, response.body, path, download, inline);
 		});
 
-		// PUT file -- a conditional write, streamed through (SPEC.md §13.5). It
+		// A conditional write, streamed through (SPEC.md §13.5). It
 		// sits in its own plugin because it is the one route that must see the
 		// raw body: Fastify parses JSON and text/plain by itself, and every
 		// other route here still wants that.
@@ -310,11 +333,7 @@ export function registerFileRoutes(
 				const path = queryPath(request, reply, { allowRoot: false });
 				if (path === null) return;
 
-				const headers: Record<string, string> = {};
-				for (const name of ["if-match", "if-none-match", "content-type"]) {
-					const value = request.headers[name];
-					if (typeof value === "string") headers[name] = value;
-				}
+				const headers = writeHeaders(request.headers);
 
 				// The control plane counts the bytes itself, so the cap holds
 				// whatever the agent does with the stream (SPEC.md §11.2).
@@ -366,7 +385,7 @@ export function registerFileRoutes(
 					);
 				}
 				reply.header("etag", parsed.data.etag);
-				// The next save is conditional on this etag too (issue #157).
+				// The next save is conditional on this etag too.
 				reply.header("cache-control", "no-transform");
 				return parsed.data;
 			});
@@ -430,6 +449,7 @@ export function registerFileRoutes(
 			return reply.status(201).send({ ok: true });
 		});
 
+		// jscpd:ignore-start -- each route spells out its own checks, in order.
 		instance.post("/workspaces/:id/projects/:pid/move", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
@@ -454,8 +474,9 @@ export function registerFileRoutes(
 			await response.body?.cancel();
 			return reply.status(204).send();
 		});
+		// jscpd:ignore-end
 
-		// POST extract -- "Extract here" on a zip (issue #817). One at a time
+		// "Extract here" on a zip. One at a time
 		// per workspace, because a large zip holds the request for minutes.
 		instance.post("/workspaces/:id/projects/:pid/extract", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);

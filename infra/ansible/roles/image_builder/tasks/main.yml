@@ -18,14 +18,6 @@
       - libbtrfs-dev
     state: present
 
-# Trixie ships Go 1.24 in main, which is enough to bootstrap.
-# distrobuilder's go.mod wants Go 1.25; GOTOOLCHAIN=auto lets
-# Go 1.24 download the exact version automatically (docs/adr/0004).
-- name: Install Go
-  ansible.builtin.apt:
-    name: golang-go
-    state: present
-
 # ── distrobuilder from source ────────────────────────────────────
 # The v3.3.1 tag does not compile: its go.mod pins filepath-securejoin
 # 0.6, which moved two functions that the pinned podman storage library
@@ -57,33 +49,14 @@
         version: "{{ image_builder_distrobuilder_commit }}"
         depth: 1
 
-    # Several GiB of module and build cache, removed after the build.
-    - name: Make a scratch directory for the Go caches
-      ansible.builtin.tempfile:
-        state: directory
-        path: /root/go
-        prefix: distrobuilder-build-
-      register: image_builder_go_tmp
-
     - name: Build and install distrobuilder
-      ansible.builtin.command:
-        cmd: go install ./distrobuilder
-        chdir: /root/go/src/distrobuilder
-      environment:
-        GOBIN: /usr/local/bin
-        GOPATH: "{{ image_builder_go_tmp.path }}"
-        GOCACHE: "{{ image_builder_go_tmp.path }}/cache"
-        GOMODCACHE: "{{ image_builder_go_tmp.path }}/pkg/mod"
-        GOFLAGS: -buildvcs=false
-        GOTOOLCHAIN: auto
-      changed_when: true
-
-  always:
-    - name: Remove the Go caches of the distrobuilder build
-      ansible.builtin.file:
-        path: "{{ image_builder_go_tmp.path }}"
-        state: absent
-      when: image_builder_go_tmp.path is defined
+      ansible.builtin.import_tasks: ../../go_build/tasks/main.yml
+      vars:
+        go_build_name: distrobuilder
+        go_build_chdir: /root/go/src/distrobuilder
+        go_build_gobin: /usr/local/bin
+        go_build_commands:
+          - [go, install, ./distrobuilder]
 
 # Earlier builds kept their caches here; they took several GiB of the main disk.
 - name: Remove the Go caches of earlier builds
@@ -140,8 +113,8 @@
     state: absent
 
 # Every converge from a checkout brings the VM's copy in step with the
-# repository, so a rebuilt or long-lived VM never runs a stale workspace.sh
-# (Epic 12b B1).  The package ships no copy, so a packaged run has neither
+# repository, so a rebuilt or long-lived VM never runs a stale workspace.sh.
+# The package ships no copy, so a packaged run has neither
 # the directory nor the scripts, and the smoke test brings its own.
 - name: Keep the Incus helper scripts in step with the checkout
   when: (playbook_dir ~ '/../incus') is directory

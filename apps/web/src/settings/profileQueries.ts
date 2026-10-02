@@ -8,11 +8,11 @@ import {
 	type UpdateProfileRequest,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { request } from "../api/request.js";
+import { request, sendJson } from "../api/request.js";
 
-export const profileKey = ["me", "profile"] as const;
+const profileKey = ["me", "profile"] as const;
 
-/** The signed-in user's profile (issue #300). */
+/** The signed-in user's profile. */
 export function useProfile() {
 	return useQuery({
 		queryKey: profileKey,
@@ -31,11 +31,7 @@ function useProfileMutation<T>(send: (input: T) => Promise<Profile>) {
 
 export function useUpdateProfile() {
 	return useProfileMutation((body: UpdateProfileRequest) =>
-		request(Profile, "/me/profile", {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(body),
-		}),
+		sendJson(Profile, "/me/profile", body, "PUT"),
 	);
 }
 
@@ -63,9 +59,9 @@ export function useRemovePicture() {
 	);
 }
 
-export const linksKey = ["me", "links"] as const;
+const linksKey = ["me", "links"] as const;
 
-/** Whether this is a course or an SSO account, and its links (docs/archive/epics/EPIC-13-1.md, "The flow" step 1). */
+/** Whether this is a course or an SSO account, and its links (ADR 0026). */
 export function useMyLinks() {
 	return useQuery({
 		queryKey: linksKey,

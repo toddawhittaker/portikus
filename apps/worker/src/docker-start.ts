@@ -12,7 +12,7 @@ import type { Database } from "@portikus/db";
 import type { Kysely } from "kysely";
 
 /**
- * The Docker config for one start (ruling 8): the Hub mirror only when the
+ * The Docker config for one start: the Hub mirror only when the
  * policy lets every Hub name through, and ghcr.io only when its switch is
  * on and the policy lets its names through. Otherwise dockerd would try a
  * cache the egress gate drops.

@@ -14,14 +14,15 @@ import { hostSeries, newestCpuCount } from "../health-series/host.js";
 import { platformSeries } from "../health-series/platform.js";
 import { seriesWindow } from "../health-series/range.js";
 import { usageSeries } from "../health-series/usage.js";
+import { sendError } from "../http.js";
 import { imagesDirOf, readPublished } from "../image/release-notices.js";
 import type { ServerDeps } from "../server.js";
 
 /** The worker samples every minute; older than this means it stopped. */
-export const WORKER_STALE_AFTER_MS = 2 * 60_000;
+const WORKER_STALE_AFTER_MS = 2 * 60_000;
 
 /** How long an agent has to answer `/health` before it counts as down. */
-export const AGENT_PROBE_TIMEOUT_MS = 2000;
+const AGENT_PROBE_TIMEOUT_MS = 2000;
 
 /** Ask one agent whether it answers. Never throws. */
 async function agentAnswers(agent: AgentClient): Promise<boolean> {
@@ -127,7 +128,7 @@ export function registerAdminHealthRoutes(
 				.execute();
 
 			const host = sampled?.host ?? null;
-			// The daily check writes this beside the images (issue #861).
+			// The daily check writes this beside the images.
 			const published = config.IMAGE_JOBS_DIR
 				? await readPublished(imagesDirOf(config.IMAGE_JOBS_DIR))
 				: null;
@@ -192,9 +193,12 @@ export function registerAdminHealthRoutes(
 		async (request, reply) => {
 			const parsed = HealthSeriesQuery.safeParse(request.query);
 			if (!parsed.success) {
-				return reply
-					.status(400)
-					.send({ code: "VALIDATION_FAILED", message: "invalid health series query" });
+				return sendError(
+					reply,
+					400,
+					"VALIDATION_FAILED",
+					"invalid health series query",
+				);
 			}
 			const window = seriesWindow(parsed.data.range, new Date());
 			const [cpuCount, host, platform, events, usage, api] = await Promise.all([

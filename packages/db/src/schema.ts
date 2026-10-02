@@ -43,7 +43,7 @@ export interface Database {
 	docker_image_presence: DockerImagePresenceTable;
 }
 
-export interface UsersTable {
+interface UsersTable {
 	id: Generated<string>;
 	oidc_issuer: string;
 	oidc_subject: string;
@@ -65,7 +65,7 @@ export interface UsersTable {
 	/** Editor preferences the user has changed; the API fills in the rest. */
 	editor_settings: ColumnType<Record<string, unknown>, string | undefined, string>;
 	last_login_at: ColumnType<Date | null, string | null, string | null>;
-	/** Optional profile links (issue #300); never used for authorization. */
+	/** Optional profile links; never used for authorization. */
 	profile_github: string | null;
 	profile_website: string | null;
 	/** The profile picture, png or jpeg, capped by the API. */
@@ -87,7 +87,7 @@ export interface UsersTable {
 	updated_at: ColumnType<Date, string | undefined, string>;
 }
 
-export interface SessionsTable {
+interface SessionsTable {
 	id: string;
 	user_id: string;
 	created_at: ColumnType<Date, string | undefined, never>;
@@ -98,10 +98,10 @@ export interface SessionsTable {
 	course_user_id: ColumnType<string | null, string | null | undefined, never>;
 }
 
-export interface WorkspacesTable {
+interface WorkspacesTable {
 	id: Generated<string>;
 	owner_user_id: string;
-	/** DNS label naming the container hostname and preview hosts (Epic 8). */
+	/** DNS label naming the container hostname and preview hosts. */
 	label: string;
 	incus_instance_name: string | null;
 	state: string;
@@ -193,7 +193,7 @@ export interface WorkspacesTable {
 	last_activity_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	/** When the idle stop happens unless the student answers. */
 	idle_stop_at: ColumnType<Date | null, string | null | undefined, string | null>;
-	/** The student's hold over grace and idle stop ends then (issue #955). */
+	/** The student's hold over grace and idle stop ends then. */
 	keep_running_until: ColumnType<Date | null, string | null | undefined, string | null>;
 	/** The UTC day the package survey last read this workspace (ADR 0042). */
 	package_surveyed_on: ColumnType<
@@ -205,14 +205,14 @@ export interface WorkspacesTable {
 	updated_at: ColumnType<Date, string | undefined, string>;
 }
 
-export interface TerminalsTable {
+interface TerminalsTable {
 	id: Generated<string>;
 	workspace_id: string;
 	name: string;
 	cwd: string;
 	position: Generated<number>;
 	project_id: string | null;
-	/** This terminal's own colour scheme, "dark" or "light" (issue #268). */
+	/** This terminal's own colour scheme, "dark" or "light". */
 	theme: Generated<string>;
 	/** "claude" or "codex" when a launcher started it; null for a shell. */
 	agent: string | null;
@@ -226,7 +226,7 @@ export interface TerminalsTable {
 	ended_at: ColumnType<Date | null, string | null, string | null>;
 }
 
-export interface ProjectsTable {
+interface ProjectsTable {
 	id: Generated<string>;
 	workspace_id: string;
 	slug: string;
@@ -236,7 +236,7 @@ export interface ProjectsTable {
 	source: string;
 	/**
 	 * The identity of the directory this project lives in, as the agent
-	 * reports it (issue #238). Null until a listing fills it in.
+	 * reports it. Null until a listing fills it in.
 	 */
 	directory_id: string | null;
 	layout: ColumnType<Record<string, unknown> | null, string | null, string | null>;
@@ -246,7 +246,7 @@ export interface ProjectsTable {
 	recovery_checked_at: ColumnType<Date | null, string | null, string | null>;
 }
 
-export interface SettingsTable {
+interface SettingsTable {
 	id: number;
 	shutdown_grace_seconds: number;
 	/** Runtime log level for every service; null means use each LOG_LEVEL. */
@@ -258,19 +258,19 @@ export interface SettingsTable {
 	cpu_throttle_share_percent: Generated<number>;
 	/** 0 means never stop by idle. */
 	idle_stop_minutes: Generated<number>;
-	/** Quiet minutes before a throttle lifts on its own (#596). */
+	/** Quiet minutes before a throttle lifts on its own. */
 	cpu_idle_lift_minutes: Generated<number>;
 	/** CPU percent below which a throttled workspace counts as quiet; 0 turns lifting off. */
 	cpu_idle_lift_percent: Generated<number>;
 	/** Throttles within the hold hours that make one survive a restart; 0 turns it off. */
 	cpu_throttle_hold_after: Generated<number>;
 	cpu_throttle_hold_hours: Generated<number>;
-	/** How far ahead a student may hold a workspace up; 0 turns holds off (#955). */
+	/** How far ahead a student may hold a workspace up; 0 turns holds off. */
 	keep_running_max_hours: Generated<number>;
 	/** Null means the built-in default statement. */
 	acceptable_use_text: string | null;
 	acceptable_use_version: Generated<number>;
-	/** Workspace egress policy (issue #284); the version rises with every write. */
+	/** Workspace egress policy; the version rises with every write. */
 	egress_mode: Generated<string>;
 	egress_presets: Generated<string[]>;
 	egress_ports: Generated<number[]>;
@@ -278,7 +278,7 @@ export interface SettingsTable {
 	egress_applied_version: number | null;
 	egress_applied_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	egress_apply_error: string | null;
-	/** Shared Docker pull storage (issue #840). */
+	/** Shared Docker pull storage. */
 	docker_ghcr_enabled: Generated<boolean>;
 	docker_seed_max_gib: Generated<number>;
 	docker_seed_images: ColumnType<string[], string | undefined, string>;
@@ -287,14 +287,14 @@ export interface SettingsTable {
 	updated_by: string | null;
 }
 
-export interface WorkspaceConnectionsTable {
+interface WorkspaceConnectionsTable {
 	id: Generated<string>;
 	workspace_id: string;
 	connected_at: ColumnType<Date, string | undefined, never>;
 	last_seen_at: ColumnType<Date, string | undefined, string>;
 }
 
-export interface AuditEventsTable {
+interface AuditEventsTable {
 	id: Generated<number>;
 	actor: string;
 	target: string;
@@ -304,7 +304,7 @@ export interface AuditEventsTable {
 	metadata: ColumnType<Record<string, unknown> | null, string | null, string | null>;
 }
 
-export interface PreviewGrantsTable {
+interface PreviewGrantsTable {
 	id: Generated<string>;
 	user_id: string;
 	/** The main Portikus session the preview session will live with. */
@@ -319,7 +319,7 @@ export interface PreviewGrantsTable {
 	created_at: ColumnType<Date, string | undefined, never>;
 }
 
-export interface PreviewSessionsTable {
+interface PreviewSessionsTable {
 	id: Generated<string>;
 	token_hash: string;
 	user_id: string;
@@ -331,7 +331,7 @@ export interface PreviewSessionsTable {
 	revoked_at: ColumnType<Date | null, string | null, string | null>;
 }
 
-export interface RecoveryPointsTable {
+interface RecoveryPointsTable {
 	id: string;
 	project_id: string;
 	workspace_id: string;
@@ -346,7 +346,7 @@ export interface RecoveryPointsTable {
 	expires_at: ColumnType<Date, string, string>;
 }
 
-export interface HealthSamplesTable {
+interface HealthSamplesTable {
 	id: Generated<string>;
 	observed_at: ColumnType<Date, string | undefined, never>;
 	/** A HealthSample from @portikus/contracts. */
@@ -354,7 +354,7 @@ export interface HealthSamplesTable {
 }
 
 /** One reading of a running workspace's CPU time and memory from Incus, each minute. */
-export interface WorkspaceUsageSamplesTable {
+interface WorkspaceUsageSamplesTable {
 	id: Generated<string>;
 	workspace_id: string;
 	observed_at: ColumnType<Date, string, never>;
@@ -368,7 +368,7 @@ export interface WorkspaceUsageSamplesTable {
 }
 
 /** Pending LTI third-party logins; `platform_issuer` is the plain issuer, without `lti:`. */
-export interface LtiLoginStatesTable {
+interface LtiLoginStatesTable {
 	state_hash: string;
 	nonce: string;
 	platform_issuer: string;
@@ -377,7 +377,7 @@ export interface LtiLoginStatesTable {
 }
 
 /** An LMS course (LTI "context"). */
-export interface LtiContextsTable {
+interface LtiContextsTable {
 	id: Generated<string>;
 	platform_issuer: string;
 	context_id: string;
@@ -388,7 +388,7 @@ export interface LtiContextsTable {
 }
 
 /** A user's role in one course, refreshed on every launch. */
-export interface LtiMembershipsTable {
+interface LtiMembershipsTable {
 	context_id: string;
 	user_id: string;
 	role: string;
@@ -396,7 +396,7 @@ export interface LtiMembershipsTable {
 }
 
 /** A retired course account and the SSO account its launches now sign into. */
-export interface AccountLinksTable {
+interface AccountLinksTable {
 	course_user_id: string;
 	user_id: string;
 	/** The plain LTI platform issuer, without `lti:`. */
@@ -407,7 +407,7 @@ export interface AccountLinksTable {
 }
 
 /** A pending link: single use, bound to one course session. */
-export interface AccountLinkIntentsTable {
+interface AccountLinkIntentsTable {
 	state_hash: string;
 	session_id: string;
 	course_user_id: string;
@@ -431,7 +431,7 @@ export interface NotificationsTable {
  * An administrator's latest process snapshot of one workspace (ADR 0037).
  * Short names only, never command lines (SPEC.md §20.1).
  */
-export interface WorkspaceProcessSnapshotsTable {
+interface WorkspaceProcessSnapshotsTable {
 	workspace_id: string;
 	requested_at: ColumnType<Date, string, string>;
 	taken_at: ColumnType<Date | null, string | null | undefined, string | null>;
@@ -443,7 +443,7 @@ export interface WorkspaceProcessSnapshotsTable {
  * The API's response totals for one minute: counts and a latency histogram,
  * nothing that names a route, user or workspace (SPEC.md section 25.6).
  */
-export interface ApiRequestSamplesTable {
+interface ApiRequestSamplesTable {
 	minute: Date;
 	requests: number;
 	client_errors: number;
@@ -453,8 +453,8 @@ export interface ApiRequestSamplesTable {
 	latency_buckets: number[];
 }
 
-/** One administrator egress entry: a host name or an IPv4 range (issue #284). */
-export interface EgressEntriesTable {
+/** One administrator egress entry: a host name or an IPv4 range. */
+interface EgressEntriesTable {
 	id: Generated<string>;
 	kind: string;
 	value: string;
@@ -465,7 +465,7 @@ export interface EgressEntriesTable {
 }
 
 /** One blocked site, refused in open mode only (ADR 0043). */
-export interface EgressBlockedEntriesTable {
+interface EgressBlockedEntriesTable {
 	id: Generated<string>;
 	value: string;
 	label: string;
@@ -475,7 +475,7 @@ export interface EgressBlockedEntriesTable {
 }
 
 /** Site-wide refused-name counts per day; never tied to a workspace or user. */
-export interface EgressBlockedNamesTable {
+interface EgressBlockedNamesTable {
 	day: ColumnType<Date, string, string>;
 	name: string;
 	source: string;
@@ -483,7 +483,7 @@ export interface EgressBlockedNamesTable {
 }
 
 /** Backup work the admin page asked for (SPEC.md section 24.9, ADR 0024). */
-export interface BackupRequestsTable {
+interface BackupRequestsTable {
 	id: Generated<string>;
 	kind: string;
 	args: ColumnType<unknown, string | undefined, string>;
@@ -498,7 +498,7 @@ export interface BackupRequestsTable {
 }
 
 /** One row: the host's last report and the worker's volume listing. */
-export interface BackupStatusTable {
+interface BackupStatusTable {
 	id: ColumnType<number, number | undefined, never>;
 	host: ColumnType<unknown | null, string | null | undefined, string | null>;
 	host_reported_at: ColumnType<Date | null, string | null | undefined, string | null>;
@@ -507,7 +507,7 @@ export interface BackupStatusTable {
 }
 
 /** How many workspaces the package survey read on one UTC day (ADR 0042). */
-export interface PackageSurveyDaysTable {
+interface PackageSurveyDaysTable {
 	day: ColumnType<Date, string, string>;
 	surveyed: number;
 }
@@ -516,14 +516,14 @@ export interface PackageSurveyDaysTable {
  * How many surveyed workspaces had added one package on one day. Counts
  * only; no workspace or user is named (SPEC.md §20.1, ADR 0042).
  */
-export interface PackageSurveyCountsTable {
+interface PackageSurveyCountsTable {
 	day: ColumnType<Date, string, string>;
 	package: string;
 	workspaces: number;
 }
 
-/** The one current seed volume (issue #840); no row means no seed. */
-export interface DockerSeedTable {
+/** The one current seed volume; no row means no seed. */
+interface DockerSeedTable {
 	id: ColumnType<number, number | undefined, never>;
 	images: ColumnType<string[], string, string>;
 	size_bytes: ColumnType<string, number, number>;
@@ -532,7 +532,7 @@ export interface DockerSeedTable {
 }
 
 /** One seed rebuild the admin page asked for; the worker drives it. */
-export interface DockerSeedJobsTable {
+interface DockerSeedJobsTable {
 	id: Generated<string>;
 	state: ColumnType<string, string | undefined, string>;
 	step: ColumnType<string, string | undefined, string>;
@@ -544,7 +544,7 @@ export interface DockerSeedJobsTable {
 }
 
 /** Registry pulls per canonical image, workspace and UTC day; the report returns counts only. */
-export interface DockerImagePullsTable {
+interface DockerImagePullsTable {
 	image: string;
 	workspace_id: string;
 	/** The UTC day, as YYYY-MM-DD on insert. */
@@ -555,7 +555,7 @@ export interface DockerImagePullsTable {
 }
 
 /** The last inventory of a workspace: which images it holds and whether a seed image is used. */
-export interface DockerImagePresenceTable {
+interface DockerImagePresenceTable {
 	workspace_id: string;
 	image: string;
 	in_seed: boolean;

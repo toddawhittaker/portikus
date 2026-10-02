@@ -115,7 +115,7 @@ test("a repository offers rename, duplicate, download and archive", async () => 
 	expect(screen.queryByTestId("project-git-init")).toBeNull();
 });
 
-/** Issue #361: Enter on the download item must start the download itself. */
+/** Enter on the download item must start the download itself. */
 test("Enter on Download as zip checks the size and then starts the download", async () => {
 	await mount();
 	const click = vi
@@ -140,7 +140,7 @@ test("Enter on Download as zip checks the size and then starts the download", as
 	).toBe(true);
 });
 
-/** Issue #399: a project over the download cap is explained, not downloaded. */
+/** A project over the download cap is explained, not downloaded. */
 test("a project over the download cap shows the limit instead of downloading", async () => {
 	await mount();
 	const click = vi
@@ -216,7 +216,7 @@ test("with no projects at all the centre invites you to make one", async () => {
 	expect(await screen.findByTestId("empty-projects")).toBeDefined();
 });
 
-/** Issue #608 item 9: archiving is reversible, so it is not styled as danger. */
+/** Archiving is reversible, so it is not styled as danger. */
 test("archive is a neutral action and confirms with a success toast", async () => {
 	await mount();
 	openMenu(TODO.id);

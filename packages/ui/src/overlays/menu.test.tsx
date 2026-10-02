@@ -90,7 +90,7 @@ describe("Menu", () => {
 		);
 	});
 
-	/** Issue #361: a toggle inside a menu is a menu item, so arrows and Enter reach it. */
+	/** A toggle inside a menu is a menu item, so arrows and Enter reach it. */
 	it("offers a checkbox item that toggles from the keyboard", () => {
 		const onCheckedChange = vi.fn();
 		render(
@@ -133,7 +133,7 @@ describe("Menu", () => {
 		expect(item.getAttribute("aria-checked")).toBe("true");
 	});
 
-	// Epic 25 M4: the trigger takes focus back, but its tooltip stays shut.
+	// The trigger takes focus back, but its tooltip stays shut.
 	it("returns focus to an icon trigger without opening its tooltip", async () => {
 		render(
 			<MenuRoot>

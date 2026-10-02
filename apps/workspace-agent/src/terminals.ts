@@ -7,11 +7,12 @@ import {
 	MAX_INPUT_FRAME_BYTES,
 } from "@portikus/contracts";
 import { TerminalClientMessage, type TerminalServerMessage } from "@portikus/events";
+import { errorMessage } from "@portikus/observability";
 import type { FastifyBaseLogger } from "fastify";
 import { type IPty, spawn } from "node-pty";
 import { type PaneWatcher, watchPanes } from "./cwd.js";
+import { AgentFailure } from "./errors.js";
 import {
-	AgentFailure,
 	attachArgs,
 	captureHistory,
 	hasSession,
@@ -88,7 +89,7 @@ export interface AttachOptions {
 }
 
 /** Where the terminals unit records how it last stopped (SPEC.md §9.7). */
-export const TERMINALS_EXIT_PATH = "/run/portikus-terminals/last-exit";
+const TERMINALS_EXIT_PATH = "/run/portikus-terminals/last-exit";
 
 /**
  * The terminals unit's last stop: systemd's `$SERVICE_RESULT` and the time
@@ -421,10 +422,7 @@ export class TerminalRegistry {
 				"terminal resized",
 			);
 		} catch (error) {
-			this.log.warn(
-				{ error: error instanceof Error ? error.message : String(error) },
-				"terminal resize failed",
-			);
+			this.log.warn({ error: errorMessage(error) }, "terminal resize failed");
 		}
 	}
 

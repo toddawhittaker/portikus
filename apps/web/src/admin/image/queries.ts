@@ -7,12 +7,12 @@ import {
 	ImageJobView,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { request } from "../../api/request.js";
+import { request, sendJson } from "../../api/request.js";
 
-export const imageKey = ["admin", "image"] as const;
+const imageKey = ["admin", "image"] as const;
 
 /** The page polls a queued or running job every two seconds (docs/SPEC.md section 22.4). */
-export const IMAGE_POLL_MS = 2000;
+const IMAGE_POLL_MS = 2000;
 
 export function isActive(state: ImageJobState | undefined): boolean {
 	return state === "queued" || state === "running";
@@ -58,11 +58,7 @@ export function useRequestImageJob() {
 	const client = useQueryClient();
 	return useMutation({
 		mutationFn: (body: ImageJobRequest) =>
-			request(ImageJobView, "/admin/image/jobs", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(body),
-			}),
+			sendJson(ImageJobView, "/admin/image/jobs", body),
 		// Waiting for the refetch lets a confirm dialog return focus to the new job heading.
 		onSuccess: () => client.invalidateQueries({ queryKey: imageKey }),
 	});

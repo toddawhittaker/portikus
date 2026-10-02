@@ -12,16 +12,12 @@ import {
 	type CreateDexUserResponse,
 	type DexPasswordResponse,
 } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { parseOr400, sendError, UuidParam } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import {
-	disableUser,
-	loadAdminUser,
-	sendDisableRefusal,
-	sendError,
-	UuidParam,
-} from "./admin.js";
-import { audit, requestMetadata } from "./start-session.js";
+import { disableUser, loadAdminUser, sendDisableRefusal } from "./admin-users.js";
+import { requestMetadata } from "./start-session.js";
 
 /** Thrown inside a transaction to roll it back when Dex refuses the email. */
 class DexEmailTaken extends Error {}
@@ -44,8 +40,8 @@ async function viaDex<T>(call: Promise<T>): Promise<T> {
 }
 
 /**
- * Add, reset the password of, and remove standalone Dex users (docs/archive/epics/EPIC-14.md
- * rulings 21, 22 and 24). The routes answer 404 unless the site runs Dex's
+ * Add, reset the password of, and remove standalone Dex users
+ * (ADR 0028). The routes answer 404 unless the site runs Dex's
  * gRPC API. A generated password leaves Portikus only in one response body:
  * it is never stored, logged, or audited.
  */
@@ -109,7 +105,7 @@ export function registerAdminDexUserRoutes(
 
 	const adminOnly = { preHandler: requireRole("administrator") };
 
-	// POST /admin/dex-users -- a new Dex password and its pre-created account (ruling 21).
+	// A new Dex password and its pre-created account.
 	app.post("/admin/dex-users", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 		const dex = dexOr404(reply);
@@ -137,9 +133,15 @@ export function registerAdminDexUserRoutes(
 					// The person chooses their own at first sign-in (SPEC.md section 5.2).
 					mustChangePassword: true,
 				});
-				await audit(trx, "dex_user.created", `user:${actor.id}`, newId, "ok", {
-					role,
-					...requestMetadata(request),
+				await recordAudit(trx, {
+					actor: `user:${actor.id}`,
+					target: newId,
+					action: "dex_user.created",
+					result: "ok",
+					metadata: {
+						role,
+						...requestMetadata(request),
+					},
 				});
 				const created = await viaDex(
 					dex.createPassword({ email, username, userId: dexUserId, hash }),
@@ -166,16 +168,14 @@ export function registerAdminDexUserRoutes(
 		return out;
 	});
 
-	// POST /admin/dex-users/:id/reset-password -- a new password; sessions end (ruling 22).
+	// A new password; the user's sessions end.
 	app.post("/admin/dex-users/:id/reset-password", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 		const dex = dexOr404(reply);
 		if (!dex) return reply;
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		// Resetting it would end the caller's own session before they saw the password.
 		if (id === actor.id) {
 			return sendError(
@@ -207,8 +207,14 @@ export function registerAdminDexUserRoutes(
 					.where("user_id", "=", id)
 					.where("revoked_at", "is", null)
 					.execute();
-				await audit(trx, "dex_user.password_reset", `user:${actor.id}`, id, "ok", {
-					...requestMetadata(request),
+				await recordAudit(trx, {
+					actor: `user:${actor.id}`,
+					target: id,
+					action: "dex_user.password_reset",
+					result: "ok",
+					metadata: {
+						...requestMetadata(request),
+					},
 				});
 				return viaDex(dex.updatePassword(found.email, hash));
 			});
@@ -220,16 +226,14 @@ export function registerAdminDexUserRoutes(
 		return out;
 	});
 
-	// POST /admin/dex-users/:id/remove -- delete the Dex password, disable the account (ruling 22).
+	// Delete the Dex password and disable the account.
 	app.post("/admin/dex-users/:id/remove", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
 		const dex = dexOr404(reply);
 		if (!dex) return reply;
-		const params = UuidParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
-		const id = params.data.id;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return;
+		const id = params.id;
 		try {
 			const found = await findDexPassword(dex, id);
 			if (found.found === "no_account") {
@@ -240,9 +244,16 @@ export function registerAdminDexUserRoutes(
 			const result = await disableUser(db, {
 				actorId: actor.id,
 				targetId: id,
+				metadata: requestMetadata(request),
 				alsoInTransaction: async (trx) => {
-					await audit(trx, "dex_user.removed", `user:${actor.id}`, id, "ok", {
-						...requestMetadata(request),
+					await recordAudit(trx, {
+						actor: `user:${actor.id}`,
+						target: id,
+						action: "dex_user.removed",
+						result: "ok",
+						metadata: {
+							...requestMetadata(request),
+						},
 					});
 					await viaDex(dex.deletePassword(found.email));
 				},

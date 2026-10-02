@@ -1,7 +1,7 @@
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
+import { announced } from "../common/announced.js";
 import { graceMinutes, graceText, parseGraceMinutes } from "./graceText.js";
-import { announced } from "./SettingsTab.js";
 
 export const GRACE_ERROR = "Enter a number of minutes, 0 or more, or leave it blank.";
 

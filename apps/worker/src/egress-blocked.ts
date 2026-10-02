@@ -3,19 +3,20 @@ import { createServer, type Server, type Socket } from "node:net";
 import type { Database } from "@portikus/db";
 import type { Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
+import { utcDay } from "./package-survey.js";
 
 /**
- * The blocked-name counter (issue #284, ADR 0038). Our egress dnsmasq sends
+ * The blocked-name counter (ADR 0038). Our egress dnsmasq sends
  * every unlisted name here; this answers NXDOMAIN and counts the name. The
  * workspace Squid sends each refused TLS or HTTP name as a UDP line. Only
  * dnsmasq and Squid talk to it, on loopback, so it never learns which
  * workspace asked: counts are site-wide by construction (SPEC.md §20.1).
  */
 
-export const BLOCKED_DNS_PORT = 5399;
-export const BLOCKED_LOG_PORT = 5398;
+const BLOCKED_DNS_PORT = 5399;
+const BLOCKED_LOG_PORT = 5398;
 export const BLOCKED_NAMES_PER_DAY = 2000;
-export const BLOCKED_RETENTION_DAYS = 30;
+const BLOCKED_RETENTION_DAYS = 30;
 export const OTHER_NAMES = "(other names)";
 const FLUSH_SECONDS = 10;
 const PRUNE_HOURS = 6;
@@ -24,7 +25,7 @@ const TCP_IDLE_MS = 10_000;
 // A client asks A, AAAA and HTTPS for one name; only A is counted so each lookup counts once.
 const QTYPE_A = 1;
 
-export type BlockedSource = "dns" | "tls";
+type BlockedSource = "dns" | "tls";
 
 /**
  * A name worth counting, lower-cased, or null. Anything that could hold an
@@ -73,10 +74,6 @@ export function nxdomain(msg: Buffer, questionEnd: number): Buffer {
 	out.writeUInt16BE(0, 8);
 	out.writeUInt16BE(0, 10);
 	return out;
-}
-
-function utcDay(d: Date): string {
-	return d.toISOString().slice(0, 10);
 }
 
 export interface BlockedCounterOptions {

@@ -1,4 +1,4 @@
-import type { Database } from "@portikus/db";
+import { type Database, recordAudit } from "@portikus/db";
 import type { Kysely } from "kysely";
 import { type DexApi, generateDexPassword, hashDexPassword } from "./dex-api.js";
 import { dexLocalSubject } from "./dex-subject.js";
@@ -12,8 +12,8 @@ import { precreateDexAccount } from "./links.js";
 export const LOCAL_ADMIN_USER_ID = "local-admin";
 
 /** Exit codes of `reset-admin --if-missing` when the account exists (SPEC.md section 5.1). */
-export const EXIT_EXISTS_FLAG_SET = 10;
-export const EXIT_EXISTS_FLAG_CLEAR = 11;
+const EXIT_EXISTS_FLAG_SET = 10;
+const EXIT_EXISTS_FLAG_CLEAR = 11;
 
 /** Dex already holds another password with the email the new one needs. */
 export class LocalAdminEmailTaken extends Error {
@@ -24,7 +24,7 @@ export class LocalAdminEmailTaken extends Error {
 	}
 }
 
-export interface ResetLocalAdminInput {
+interface ResetLocalAdminInput {
 	db: Kysely<Database>;
 	dex: DexApi;
 	/** The site's Dex issuer, OIDC_ISSUER_URL. */
@@ -36,7 +36,7 @@ export interface ResetLocalAdminInput {
 	ifMissing?: boolean;
 }
 
-export type ResetLocalAdminResult =
+type ResetLocalAdminResult =
 	| { outcome: "created" | "reset"; userId: string; email: string; password: string }
 	| { outcome: "exists"; mustChangePassword: boolean };
 
@@ -106,16 +106,13 @@ export async function resetLocalAdmin(
 			.where("user_id", "=", id)
 			.where("revoked_at", "is", null)
 			.execute();
-		await trx
-			.insertInto("audit_events")
-			.values({
-				actor: "host:root",
-				target: id,
-				action: account ? "local_admin.reset" : "local_admin.created",
-				result: "ok",
-				metadata: JSON.stringify({}),
-			})
-			.execute();
+		await recordAudit(trx, {
+			actor: "host:root",
+			target: id,
+			action: account ? "local_admin.reset" : "local_admin.created",
+			result: "ok",
+			metadata: {},
+		});
 		// Last, so a refusal rolls the account back with it.
 		if (existing) {
 			await dex.updatePassword(existing.email, hash);

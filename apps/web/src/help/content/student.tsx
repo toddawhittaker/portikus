@@ -1,6 +1,6 @@
 import type { HelpPart } from "./part.js";
 
-/** The keys that are hard to discover (moved here from Settings, Epic 25 S4). */
+/** The keys that are hard to discover (moved here from Settings). */
 const KEYS: readonly { keys: string; what: string }[] = [
 	{
 		keys: "Alt+Shift+Q",

@@ -12,6 +12,7 @@
 	"dependencies": {
 		"@fastify/websocket": "11.3.1",
 		"@portikus/auth": "workspace:*",
+		"@portikus/agent-client": "workspace:*",
 		"@portikus/config": "workspace:*",
 		"@portikus/contracts": "workspace:*",
 		"@portikus/db": "workspace:*",

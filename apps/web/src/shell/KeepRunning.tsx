@@ -3,8 +3,8 @@ import { Button, Select } from "@portikus/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { request } from "../api/request.js";
+import { DialogError } from "../common/DialogError.js";
 import { editorSettingsKey } from "../editor/settingsQueries.js";
-import { DialogError } from "../projects/DialogError.js";
 
 /** The lengths a student can pick, in hours; only those within the cap are offered. */
 const STEPS = [1, 2, 3, 4, 6, 8, 12, 24, 48, 72, 168];
@@ -88,7 +88,7 @@ function useKeepRunning(workspaceId: string) {
 }
 
 /**
- * "Keep running" in the workspace dialog (#955): hold the workspace up for a
+ * "Keep running" in the workspace dialog: hold the workspace up for a
  * while, so leaving and idle time do not stop it, then end the hold early.
  * The new hold reaches the page over the workspace socket.
  */

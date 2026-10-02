@@ -5,21 +5,23 @@ import {
 	poolFillPercent,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { startLoop } from "./loop.js";
+import { notifyAdministrators } from "./notifications.js";
 
-/** How often the worker samples the host (Epic 11, "Decisions"). */
+/** How often the worker samples the host. */
 export const HEALTH_SAMPLE_SECONDS = 60;
 
 /** How long one host snapshot may take before the sample records a failure. */
-export const HOST_SNAPSHOT_TIMEOUT_MS = 20_000;
+const HOST_SNAPSHOT_TIMEOUT_MS = 20_000;
 
 /** How long samples are kept. */
-export const HEALTH_RETENTION_DAYS = 7;
+const HEALTH_RETENTION_DAYS = 7;
 
 /** A level re-arms only once the fill falls this many points below it. */
-export const POOL_REARM_POINTS = 5;
+const POOL_REARM_POINTS = 5;
 
 /** 0 below every threshold, else the highest threshold the pool is held at. */
 export type PoolLevel = 0 | typeof POOL_WARN_PERCENT | typeof POOL_FULL_PERCENT;
@@ -27,7 +29,7 @@ export type PoolLevel = 0 | typeof POOL_WARN_PERCENT | typeof POOL_FULL_PERCENT;
 /**
  * The pool's alert level after a sample: the highest threshold the fill has
  * reached, kept until the fill falls POOL_REARM_POINTS below it, so a fill
- * wobbling around a threshold alerts once (ADR 0034 ruling 21).
+ * wobbling around a threshold alerts once (ADR 0034).
  */
 export function nextPoolLevel(previous: PoolLevel, fill: number): PoolLevel {
 	for (const threshold of [POOL_FULL_PERCENT, POOL_WARN_PERCENT] as const) {
@@ -110,7 +112,7 @@ export function createHealthSampler(
 				const fill = poolFillPercent(sample.host.pool);
 				const level = nextPoolLevel(poolLevel, fill);
 				if (level > poolLevel) {
-					await notifyAdministrators(db, level, Math.floor(fill));
+					await notifyPoolLevel(db, level, Math.floor(fill));
 					logger.info(
 						{ fillPercent: Math.floor(fill), level },
 						"storage pool alert sent",
@@ -119,10 +121,7 @@ export function createHealthSampler(
 				poolLevel = level;
 			}
 		} catch (e) {
-			logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"health sample failed",
-			);
+			logger.warn({ error: errorMessage(e) }, "health sample failed");
 		} finally {
 			inFlight = false;
 		}
@@ -130,32 +129,19 @@ export function createHealthSampler(
 }
 
 /** Record a storage-pool notification for every enabled administrator (ADR 0033). */
-async function notifyAdministrators(
+async function notifyPoolLevel(
 	db: Kysely<Database>,
 	level: PoolLevel,
 	fill: number,
 ): Promise<void> {
 	const full = level === POOL_FULL_PERCENT;
-	const admins = await db
-		.selectFrom("users")
-		.select("id")
-		.where("role", "=", "administrator")
-		.where("disabled_at", "is", null)
-		.execute();
-	if (admins.length === 0) return;
-	await db
-		.insertInto("notifications")
-		.values(
-			admins.map((admin) => ({
-				user_id: admin.id,
-				tone: full ? "danger" : "warning",
-				title: full
-					? `Storage pool is ${fill}% full; new workspaces are refused`
-					: `Storage pool is ${fill}% full`,
-				body: "The Health tab on the admin page shows the details.",
-			})),
-		)
-		.execute();
+	await notifyAdministrators(db, {
+		tone: full ? "danger" : "warning",
+		title: full
+			? `Storage pool is ${fill}% full; new workspaces are refused`
+			: `Storage pool is ${fill}% full`,
+		body: "The Health tab on the admin page shows the details.",
+	});
 }
 
 /** Run the sampler now and then every HEALTH_SAMPLE_SECONDS; returns a stop function. */
@@ -163,11 +149,5 @@ export function startHealthSampling(
 	options: HealthSamplerOptions,
 	tick: () => Promise<void> = createHealthSampler(options),
 ): () => void {
-	const timer = setInterval(() => {
-		void tick();
-	}, HEALTH_SAMPLE_SECONDS * 1000);
-	// Leave Node's default signal handling in place, as the log-level timer does.
-	timer.unref();
-	void tick();
-	return () => clearInterval(timer);
+	return startLoop(tick, HEALTH_SAMPLE_SECONDS * 1000);
 }

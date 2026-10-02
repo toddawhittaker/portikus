@@ -16,7 +16,7 @@ import { dexLocalSubject } from "../dex-subject.js";
  * its systemd unit is disabled by default (ADR 0008).
  */
 
-export const MOCK_GROUPS = {
+const MOCK_GROUPS = {
 	student: "portikus-students",
 	admin: "portikus-administrators",
 } as const;
@@ -59,7 +59,7 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		name: "Dave Nobody",
 		groups: [],
 	},
-	// Linking tests only (docs/archive/epics/EPIC-13-1.md): erin and gail are link targets for
+	// Linking tests only: erin and gail are link targets for
 	// two specs that run at once; frank must never sign in, so he has no account.
 	erin: {
 		sub: "erin",
@@ -96,7 +96,7 @@ export const MOCK_CLIENT_SECRET = "portikus-dev-secret";
 
 export interface MockOidcOptions {
 	port?: number;
-	/** Public issuer URL. Its path becomes the route prefix, so it works behind a proxy at /mock-idp. */
+	/** Public issuer URL; the routes are served at the root. */
 	issuer?: string;
 	users?: Record<string, MockUser>;
 	clientId?: string;
@@ -181,14 +181,11 @@ export async function startMockOidcProvider(
 	const accessTokens = new Map<string, MockUser>();
 
 	// Issuer is known up front unless we are picking a port, in which case
-	// the prefix is empty and the issuer is filled in after listening.
+	// the issuer is filled in after listening.
 	const declaredIssuer = options.issuer ?? null;
-	const prefix = declaredIssuer
-		? new URL(declaredIssuer).pathname.replace(/\/$/, "")
-		: "";
 	let issuer = declaredIssuer ?? "";
 
-	app.get(`${prefix}/.well-known/openid-configuration`, async () => ({
+	app.get("/.well-known/openid-configuration", async () => ({
 		issuer,
 		authorization_endpoint: `${issuer}/authorize`,
 		token_endpoint: `${issuer}/token`,
@@ -207,9 +204,9 @@ export async function startMockOidcProvider(
 		code_challenge_methods_supported: ["S256"],
 	}));
 
-	app.get(`${prefix}/jwks`, async () => ({ keys: [jwk] }));
+	app.get("/jwks", async () => ({ keys: [jwk] }));
 
-	app.get(`${prefix}/authorize`, async (request, reply) => {
+	app.get("/authorize", async (request, reply) => {
 		const q = request.query;
 		const requestClientId = stringParam(q, "client_id");
 		const redirectUri = stringParam(q, "redirect_uri");
@@ -282,7 +279,7 @@ export async function startMockOidcProvider(
 		return reply.redirect(target.href, 302);
 	});
 
-	app.post(`${prefix}/token`, async (request, reply) => {
+	app.post("/token", async (request, reply) => {
 		const body = (request.body ?? {}) as Record<string, string>;
 
 		// Drop codes nobody redeemed so the map cannot grow without bound.
@@ -361,7 +358,7 @@ export async function startMockOidcProvider(
 		});
 	});
 
-	app.get(`${prefix}/userinfo`, async (request, reply) => {
+	app.get("/userinfo", async (request, reply) => {
 		const header = request.headers.authorization;
 		const user = header?.startsWith("Bearer ")
 			? accessTokens.get(header.slice(7))

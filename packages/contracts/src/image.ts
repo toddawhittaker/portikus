@@ -34,7 +34,7 @@ import { z } from "zod";
  *   - `<version>/manifest.json` (`ImageManifest`): what is in the image.
  *   - `<version>/health.json` (`ImageHealth`): the job's health check.
  *   - `<version>/size.json` (`ImageSizeFile`): the image's size in Incus,
- *     rewritten after every job that finishes (issue #936).
+ *     rewritten after every job that finishes.
  *   - The image files themselves, which the API ignores.
  *
  * The job's kinds: `fetch` downloads and verifies a published image (the
@@ -47,17 +47,17 @@ import { z } from "zod";
  * and the store. None of them makes a new image the default on its own.
  */
 
-/** A published version, or a local build's (ruling 24). The job enforces the same pattern. */
+/** A published version, or a local build's. The job enforces the same pattern. */
 export const IMAGE_VERSION_PATTERN = /^\d{4}\.\d{2}\.\d+(-local\.\d{12})?$/;
 
 export const ImageVersion = z.string().regex(IMAGE_VERSION_PATTERN);
 export type ImageVersion = z.infer<typeof ImageVersion>;
 
-/** Node major from NodeSource (ruling 25). */
+/** Node major from NodeSource. */
 export const ImageNodeChoice = z.enum(["24", "26"]);
 export type ImageNodeChoice = z.infer<typeof ImageNodeChoice>;
 
-/** Debian's Python 3.13 alone, or with Python 3.14 from uv in /opt/python (ruling 25). */
+/** Debian's Python 3.13 alone, or with Python 3.14 from uv in /opt/python. */
 export const ImagePythonChoice = z.enum(["debian", "uv-3.14"]);
 export type ImagePythonChoice = z.infer<typeof ImagePythonChoice>;
 
@@ -91,7 +91,6 @@ export const ImageJobId = z.string().uuid();
 /** `request-<id>.json` as the API writes it. */
 export const ImageJobRequestFile = z.object({
 	id: ImageJobId,
-	/** ISO 8601 time the API wrote it. */
 	requestedAt: z.string().datetime(),
 	/** The administrator's user id, for the job's log. */
 	requestedBy: z.string().uuid(),
@@ -139,11 +138,11 @@ export const ImageAliasesFile = z.object({
 });
 export type ImageAliasesFile = z.infer<typeof ImageAliasesFile>;
 
-/** `images/<version>/size.json`: the image's file size as Incus reports it (issue #936). */
+/** `images/<version>/size.json`: the image's file size as Incus reports it. */
 export const ImageSizeFile = z.object({ bytes: z.number().int().nonnegative() });
 export type ImageSizeFile = z.infer<typeof ImageSizeFile>;
 
-/** The tools the manifest names by version (ruling 24); null when the tool is missing. */
+/** The tools the manifest names by version; null when the tool is missing. */
 export const IMAGE_TOOLS = [
 	"node",
 	"npm",
@@ -153,11 +152,10 @@ export const IMAGE_TOOLS = [
 	"claude",
 	"codex",
 ] as const;
-export type ImageTool = (typeof IMAGE_TOOLS)[number];
 
 const ToolVersion = z.string().max(200).nullable();
 
-/** `images/<version>/manifest.json` (ruling 24). */
+/** `images/<version>/manifest.json`. */
 export const ImageManifest = z.object({
 	schema: z.literal(1),
 	version: ImageVersion,
@@ -186,7 +184,7 @@ export const ImageManifest = z.object({
 });
 export type ImageManifest = z.infer<typeof ImageManifest>;
 
-/** `images/<version>/health.json` (ruling 26). */
+/** `images/<version>/health.json`. */
 export const ImageHealth = z.object({
 	result: z.enum(["passed", "failed"]),
 	checkedAt: z.string().datetime(),
@@ -204,7 +202,7 @@ export type ImageHealth = z.infer<typeof ImageHealth>;
 
 /**
  * `images/published.json`, rewritten once a day by `image-job check`
- * (portikus-image-check.timer, issue #861). The check only reads the
+ * (portikus-image-check.timer). The check only reads the
  * release list and apt's cache; it never downloads an image or upgrades.
  */
 export const PublishedReleasesFile = z.object({
@@ -293,7 +291,7 @@ export const AdminImage = z.object({
 	otherWorkspaces: z.number().int().nonnegative(),
 	/** The queued or running job, else the most recent one. */
 	job: ImageJobView.nullable(),
-	/** A published image newer than every image on the server (issue #861). */
+	/** A published image newer than every image on the server. */
 	newerPublished: ImageVersion.nullable(),
 	/** Free and total bytes of the disk holding the images, null when it cannot be read. */
 	disk: z

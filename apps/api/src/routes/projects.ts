@@ -16,7 +16,7 @@ import {
 	slugify,
 	UpdateProjectRequest,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import { z } from "zod";
@@ -26,6 +26,7 @@ import {
 	type AgentClient,
 	readAgentError,
 } from "../agent-client.js";
+import { ProjectParam, parseOr400, sendError } from "../http.js";
 import type { UserLimit } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 import { cappedDownload } from "./files.js";
@@ -40,11 +41,9 @@ import {
 	requireAgent,
 	type Scope,
 	sendAgentError,
-	sendError,
 } from "./project-scope.js";
 import { makeRecoveryPoint } from "./recovery.js";
 
-const ProjectParam = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
 const ListQuery = z.object({ state: ProjectState.default("active") });
 
 /**
@@ -53,15 +52,6 @@ const ListQuery = z.object({ state: ProjectState.default("active") });
  * one page load into thousands of inserts (SPEC.md §24.6).
  */
 const MAX_DISCOVERED_PROJECTS = 200;
-
-/** PostgreSQL's unique-violation code, for a write two listings raced on. */
-function isUniqueViolation(error: unknown): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		(error as { code?: unknown }).code === "23505"
-	);
-}
 
 function toProject(
 	row: ProjectRow,
@@ -105,7 +95,7 @@ interface AgentDirectory {
 }
 
 /**
- * Follow projects whose directory was renamed in the shell (issue #238).
+ * Follow projects whose directory was renamed in the shell.
  *
  * The marker is the directory's inode, which `mv` keeps and which the agent
  * reports as `directoryId`. It was chosen over the alternatives because it
@@ -178,8 +168,8 @@ async function relocateMovedProjects(
 /**
  * Point a project row at a directory that has a new name, and bring its
  * terminals' working directories along (SPEC.md §7.1, "Rename"). The display
- * name follows the new folder, because the folder is the project (issue
- * #269): renaming the folder is how a student renames the project from a
+ * name follows the new folder, because the folder is the project:
+ * renaming the folder is how a student renames the project from a
  * shell, so the pane must not keep showing the old title.
  */
 async function moveProjectRow(
@@ -237,7 +227,7 @@ export function registerProjectRoutes(
 		return ownedProjectRow(db, workspaceId, projectId, reply);
 	}
 
-	// GET /workspaces/:id/projects -- rows reconciled with what the agent sees.
+	// Rows reconciled with what the agent sees.
 	app.get("/workspaces/:id/projects", async (request, reply) => {
 		const scope = await owned(request, reply);
 		if (!scope) return;
@@ -273,7 +263,7 @@ export function registerProjectRoutes(
 		}
 
 		// A project the student renamed with `mv` follows its directory to the
-		// new slug, keeping its id, tabs and layout (issue #238).
+		// new slug, keeping its id, tabs and layout.
 		if (directories && query.data.state === "active") {
 			const relocated = await relocateMovedProjects(db, scope.workspaceId, directories);
 			for (const move of relocated) {
@@ -302,7 +292,7 @@ export function registerProjectRoutes(
 					workspace_id: scope.workspaceId,
 					slug,
 					// The folder name, read as a title, so a discovered project and
-					// one whose folder was renamed are named the same way (#269).
+					// one whose folder was renamed are named the same way.
 					name: displayNameFromDirectory(slug),
 					path: projectPath(slug),
 					source: "discovered",
@@ -359,7 +349,7 @@ export function registerProjectRoutes(
 		return body;
 	});
 
-	// POST /workspaces/:id/projects (SPEC.md §7.2).
+	// SPEC.md §7.2.
 	app.post(
 		"/workspaces/:id/projects",
 		{ preHandler: limitWrites },
@@ -433,7 +423,7 @@ export function registerProjectRoutes(
 					workspace_id: scope.workspaceId,
 					slug,
 					// The folder keeps the typed name's slug; only the display name
-					// takes the one the repository gives itself (#846).
+					// takes the one the repository gives itself.
 					name:
 						(body.data.nameFromRepository ? created.suggestedName : undefined) ??
 						body.data.name,
@@ -447,112 +437,146 @@ export function registerProjectRoutes(
 		},
 	);
 
-	// PATCH /workspaces/:id/projects/:pid -- rename, archive, unarchive.
+	/**
+	 * Renames a project's folder and row, moving its terminals' working
+	 * directories along. Null after answering a refusal.
+	 */
+	async function renameProject(
+		scope: Scope,
+		row: ProjectRow,
+		name: string,
+		reply: FastifyReply,
+	): Promise<ProjectRow | null> {
+		const slug = slugify(name);
+		if (slug === "") {
+			sendError(
+				reply,
+				400,
+				"INVALID_SLUG",
+				"The project name must contain a letter or a digit.",
+			);
+			return null;
+		}
+		if (slug !== row.slug) {
+			const agent = requireAgent(scope, reply);
+			if (!agent) return null;
+			const taken = await db
+				.selectFrom("projects")
+				.select("id")
+				.where("workspace_id", "=", scope.workspaceId)
+				.where("slug", "=", slug)
+				.executeTakeFirst();
+			if (taken) {
+				sendError(
+					reply,
+					409,
+					"PROJECT_EXISTS",
+					`A project called ${slug} already exists.`,
+				);
+				return null;
+			}
+			try {
+				await agent.renameProject(row.slug, slug);
+			} catch (error) {
+				sendAgentError(reply, error);
+				return null;
+			}
+		}
+
+		const oldPath = row.path;
+		const newPath = projectPath(slug);
+		return await db.transaction().execute(async (trx) => {
+			const updated = await trx
+				.updateTable("projects")
+				.set({ slug, name, path: newPath })
+				.where("id", "=", row.id)
+				.returningAll()
+				.executeTakeFirstOrThrow();
+			// A terminal's cwd is a path under the project that just moved.
+			const terminals = await trx
+				.selectFrom("terminals")
+				.selectAll()
+				.where("project_id", "=", row.id)
+				.execute();
+			for (const terminal of terminals) {
+				if (terminal.cwd !== oldPath && !terminal.cwd.startsWith(`${oldPath}/`)) {
+					continue;
+				}
+				await trx
+					.updateTable("terminals")
+					.set({ cwd: newPath + terminal.cwd.slice(oldPath.length) })
+					.where("id", "=", terminal.id)
+					.execute();
+			}
+			return updated;
+		});
+	}
+
+	/**
+	 * Best effort: archive leaves the directory in place, so a failed
+	 * point must not block it (SPEC.md §7.3, §15.6).
+	 */
+	async function recoveryPointBeforeArchive(
+		request: FastifyRequest,
+		workspaceId: string,
+		agent: AgentClient,
+		project: ProjectRow,
+		userId: string,
+	): Promise<void> {
+		try {
+			await makeRecoveryPoint(db, config, agent, {
+				workspaceId,
+				project,
+				reason: "before-archive",
+				createdBy: userId,
+			});
+		} catch (error) {
+			request.log.warn(
+				{
+					workspaceId,
+					projectId: project.id,
+					code: error instanceof AgentCallError ? error.code : "INTERNAL",
+				},
+				"before-archive recovery point failed",
+			);
+		}
+	}
+
+	// Rename, archive, or unarchive.
 	app.patch(
 		"/workspaces/:id/projects/:pid",
 		{ preHandler: limitWrites },
 		async (request, reply) => {
 			const user = requireUser(request);
-			const params = ProjectParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-			}
+			const params = parseOr400(ProjectParam, request.params, reply);
+			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
 			const body = UpdateProjectRequest.safeParse(request.body ?? {});
 			if (!body.success) {
 				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 			}
-			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 
 			let current = row;
 
 			if (body.data.name !== undefined && body.data.name !== current.name) {
-				const slug = slugify(body.data.name);
-				if (slug === "") {
-					return sendError(
-						reply,
-						400,
-						"INVALID_SLUG",
-						"The project name must contain a letter or a digit.",
-					);
-				}
-				if (slug !== current.slug) {
-					const agent = requireAgent(scope, reply);
-					if (!agent) return;
-					const taken = await db
-						.selectFrom("projects")
-						.select("id")
-						.where("workspace_id", "=", scope.workspaceId)
-						.where("slug", "=", slug)
-						.executeTakeFirst();
-					if (taken) {
-						return sendError(
-							reply,
-							409,
-							"PROJECT_EXISTS",
-							`A project called ${slug} already exists.`,
-						);
-					}
-					try {
-						await agent.renameProject(current.slug, slug);
-					} catch (error) {
-						return sendAgentError(reply, error);
-					}
-				}
-
-				const oldPath = current.path;
-				const newPath = projectPath(slug);
-				current = await db.transaction().execute(async (trx) => {
-					const updated = await trx
-						.updateTable("projects")
-						.set({ slug, name: body.data.name as string, path: newPath })
-						.where("id", "=", current.id)
-						.returningAll()
-						.executeTakeFirstOrThrow();
-					// A terminal's cwd is a path under the project that just moved.
-					const terminals = await trx
-						.selectFrom("terminals")
-						.selectAll()
-						.where("project_id", "=", current.id)
-						.execute();
-					for (const terminal of terminals) {
-						if (terminal.cwd !== oldPath && !terminal.cwd.startsWith(`${oldPath}/`)) {
-							continue;
-						}
-						await trx
-							.updateTable("terminals")
-							.set({ cwd: newPath + terminal.cwd.slice(oldPath.length) })
-							.where("id", "=", terminal.id)
-							.execute();
-					}
-					return updated;
-				});
+				const renamed = await renameProject(scope, current, body.data.name, reply);
+				if (!renamed) return;
+				current = renamed;
 			}
 
 			if (body.data.state !== undefined && body.data.state !== current.state) {
 				const archiving = body.data.state === "archived";
-				// Best effort: archive leaves the directory in place, so a failed
-				// point must not block it (SPEC.md §7.3, §15.6).
 				if (archiving && scope.agent) {
-					try {
-						await makeRecoveryPoint(db, config, scope.agent, {
-							workspaceId: scope.workspaceId,
-							project: current,
-							reason: "before-archive",
-							createdBy: user.id,
-						});
-					} catch (error) {
-						request.log.warn(
-							{
-								workspaceId: scope.workspaceId,
-								projectId: current.id,
-								code: error instanceof AgentCallError ? error.code : "INTERNAL",
-							},
-							"before-archive recovery point failed",
-						);
-					}
+					await recoveryPointBeforeArchive(
+						request,
+						scope.workspaceId,
+						scope.agent,
+						current,
+						user.id,
+					);
 				}
 				current = await db
 					.updateTable("projects")
@@ -563,38 +587,33 @@ export function registerProjectRoutes(
 					.where("id", "=", current.id)
 					.returningAll()
 					.executeTakeFirstOrThrow();
-				await db
-					.insertInto("audit_events")
-					.values({
-						actor: `user:${user.id}`,
-						target: current.id,
-						action: archiving ? "project.archived" : "project.unarchived",
-						result: "ok",
-					})
-					.execute();
+				await recordAudit(db, {
+					actor: `user:${user.id}`,
+					target: current.id,
+					action: archiving ? "project.archived" : "project.unarchived",
+					result: "ok",
+				});
 			}
 
 			return toProject(current, null, null);
 		},
 	);
 
-	// DELETE /workspaces/:id/projects/:pid -- permanent (SPEC.md §7.3, §24.11).
+	// Permanent (SPEC.md §7.3, §24.11).
 	app.delete(
 		"/workspaces/:id/projects/:pid",
 		{ preHandler: limitWrites },
 		async (request, reply) => {
 			const user = requireUser(request);
-			const params = ProjectParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-			}
+			const params = parseOr400(ProjectParam, request.params, reply);
+			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
 			const body = DeleteProjectRequest.safeParse(request.body ?? {});
 			if (!body.success) {
 				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 			}
-			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 			// Typing the folder name back is the whole safeguard, so it is checked
 			// against the row rather than anything the browser chose.
@@ -680,20 +699,17 @@ export function registerProjectRoutes(
 
 		await db.transaction().execute(async (trx) => {
 			await trx.deleteFrom("projects").where("id", "=", row.id).execute();
-			await trx
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${userId}`,
-					target: row.id,
-					action: "project.deleted",
-					result: "ok",
-					metadata: JSON.stringify({
-						slug: row.slug,
-						name: row.name,
-						ip: request.ip,
-					}),
-				})
-				.execute();
+			await recordAudit(trx, {
+				actor: `user:${userId}`,
+				target: row.id,
+				action: "project.deleted",
+				result: "ok",
+				metadata: {
+					slug: row.slug,
+					name: row.name,
+					ip: request.ip,
+				},
+			});
 		});
 
 		request.log.info(
@@ -703,22 +719,20 @@ export function registerProjectRoutes(
 		reply.status(204).send();
 	}
 
-	// POST /workspaces/:id/projects/:pid/duplicate (SPEC.md §7.3).
+	// SPEC.md §7.3.
 	app.post(
 		"/workspaces/:id/projects/:pid/duplicate",
 		{ preHandler: limitWrites },
 		async (request, reply) => {
-			const params = ProjectParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-			}
+			const params = parseOr400(ProjectParam, request.params, reply);
+			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
 			const body = DuplicateProjectRequest.safeParse(request.body ?? {});
 			if (!body.success) {
 				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 			}
-			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 			const agent = requireAgent(scope, reply);
 			if (!agent) return;
@@ -773,18 +787,17 @@ export function registerProjectRoutes(
 		},
 	);
 
-	// POST /workspaces/:id/projects/:pid/git-init (SPEC.md §7.2).
+	// jscpd:ignore-start -- each route spells out its own checks, in order.
+	// SPEC.md §7.2.
 	app.post(
 		"/workspaces/:id/projects/:pid/git-init",
 		{ preHandler: limitWrites },
 		async (request, reply) => {
-			const params = ProjectParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-			}
+			const params = parseOr400(ProjectParam, request.params, reply);
+			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
-			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 			const agent = requireAgent(scope, reply);
 			if (!agent) return;
@@ -796,17 +809,38 @@ export function registerProjectRoutes(
 			return toProject(row, true, false);
 		},
 	);
+	// jscpd:ignore-end
 
-	// GET /workspaces/:id/projects/:pid/download -- the agent's zip, streamed.
+	/** Answers 204 when the download would be under the size cap. */
+	async function checkDownloadSize(
+		agent: AgentClient,
+		slug: string,
+		subPath: string,
+		reply: FastifyReply,
+	) {
+		let checked: Response;
+		try {
+			checked = await agent.fetchRaw(
+				"GET",
+				agentUrl(slug, "archive", { path: subPath, check: "1" }),
+				{ signal: AbortSignal.timeout(AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS) },
+			);
+		} catch (error) {
+			return sendAgentError(reply, error);
+		}
+		if (!checked.ok) return sendAgentError(reply, await readAgentError(checked));
+		await checked.body?.cancel();
+		return reply.status(204).send();
+	}
+
+	// The agent's zip, streamed.
 	// With `?path=` it is one directory inside the project (SPEC.md §11.2).
 	app.get("/workspaces/:id/projects/:pid/download", async (request, reply) => {
-		const params = ProjectParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(ProjectParam, request.params, reply);
+		if (!params) return;
 		const scope = await owned(request, reply);
 		if (!scope) return;
-		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+		const row = await ownedProject(scope.workspaceId, params.pid, reply);
 		if (!row) return;
 		const agent = requireAgent(scope, reply);
 		if (!agent) return;
@@ -829,21 +863,9 @@ export function registerProjectRoutes(
 		}
 
 		// `check=1` asks only whether the download is under the size cap, so
-		// the browser can explain a refusal before it starts a download (#399).
+		// the browser can explain a refusal before it starts a download.
 		if ((request.query as { check?: unknown }).check === "1") {
-			let checked: Response;
-			try {
-				checked = await agent.fetchRaw(
-					"GET",
-					agentUrl(row.slug, "archive", { path: subPath, check: "1" }),
-					{ signal: AbortSignal.timeout(AGENT_DOWNLOAD_HEADERS_TIMEOUT_MS) },
-				);
-			} catch (error) {
-				return sendAgentError(reply, error);
-			}
-			if (!checked.ok) return sendAgentError(reply, await readAgentError(checked));
-			await checked.body?.cancel();
-			return reply.status(204).send();
+			return checkDownloadSize(agent, row.slug, subPath, reply);
 		}
 
 		// Zipping runs while the response streams, so the slot is held until the
@@ -878,36 +900,32 @@ export function registerProjectRoutes(
 		return reply.send(stream);
 	});
 
-	// GET /workspaces/:id/projects/:pid/layout (SPEC.md §7.5).
+	// SPEC.md §7.5.
 	app.get("/workspaces/:id/projects/:pid/layout", async (request, reply) => {
-		const params = ProjectParam.safeParse(request.params);
-		if (!params.success) {
-			return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-		}
+		const params = parseOr400(ProjectParam, request.params, reply);
+		if (!params) return;
 		const scope = await owned(request, reply);
 		if (!scope) return;
-		const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+		const row = await ownedProject(scope.workspaceId, params.pid, reply);
 		if (!row) return;
 		if (row.layout === null) return reply.status(204).send();
 		return row.layout;
 	});
 
-	// PUT /workspaces/:id/projects/:pid/layout -- last write wins (plan, Layout).
+	// Last write wins (SPEC.md §7.5).
 	app.put(
 		"/workspaces/:id/projects/:pid/layout",
 		{ preHandler: limitWrites },
 		async (request, reply) => {
-			const params = ProjectParam.safeParse(request.params);
-			if (!params.success) {
-				return sendError(reply, 400, "VALIDATION_FAILED", params.error.message);
-			}
+			const params = parseOr400(ProjectParam, request.params, reply);
+			if (!params) return;
 			const scope = await owned(request, reply);
 			if (!scope) return;
 			const body = ProjectLayout.safeParse(request.body ?? {});
 			if (!body.success) {
 				return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 			}
-			const row = await ownedProject(scope.workspaceId, params.data.pid, reply);
+			const row = await ownedProject(scope.workspaceId, params.pid, reply);
 			if (!row) return;
 
 			await db

@@ -1,24 +1,18 @@
 /**
- * The file tab's viewers for images and PDFs (#816). An image, SVG included,
+ * The file tab's viewers for images and PDFs. An image, SVG included,
  * is only ever drawn through `img`, where a script in it cannot run. A PDF
  * goes to the browser's own viewer as a copy held in the page, so its frame
  * never loads a document from the app's address.
  */
 import { type ReactNode, useEffect, useState } from "react";
 import { baseName } from "../files/paths.js";
+import { formatBytes } from "../monitor/format.js";
 
 /** PDFs up to this size are shown; a larger one is offered as a download. */
 export const MAX_PDF_VIEW_BYTES = 50 * 1024 * 1024;
 
-/** A byte count a student can read. */
-export function formatSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} bytes`;
-	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 /** What a viewer shows when it cannot show the file: a title for the download panel. */
-export type ViewerFallback = (title: string) => ReactNode;
+type ViewerFallback = (title: string) => ReactNode;
 
 export interface ImageViewProps {
 	/** The image's address; a new one is a new image. */
@@ -76,7 +70,7 @@ export function ImageView({ src, path, size, download, fallback }: ImageViewProp
 					{size !== undefined && size > 0 ? (
 						<div>
 							<dt>Size</dt>
-							<dd>{formatSize(size)}</dd>
+							<dd>{formatBytes(size)}</dd>
 						</div>
 					) : null}
 				</dl>

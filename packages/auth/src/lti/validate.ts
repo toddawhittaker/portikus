@@ -13,8 +13,7 @@ import { type LtiRole, mapLtiRoles } from "./roles.js";
 import type { LtiLoginState } from "./state.js";
 
 /**
- * Every reason a launch is refused, one per check (docs/archive/epics/EPIC-13.md ruling
- * 19). `state_missing` and `state_mismatch` come from `checkLaunchState`
+ * Every reason a launch is refused, one per check (ADR 0025). `state_missing` and `state_mismatch` come from `checkLaunchState`
  * and `consumeLoginState`; the rest from {@link validateLaunchToken}.
  */
 export type LtiRefusal =
@@ -40,11 +39,11 @@ export type LtiRefusal =
 export interface LtiLaunch {
 	platform: LtiPlatform;
 	subject: string;
-	/** `name`, else given and family name, else "LTI user" (ruling 20). */
+	/** `name`, else given and family name, else "LTI user". */
 	displayName: string;
 	/** For the profile only; never used to find or link an account. */
 	email: string | null;
-	/** `preferred_username`, else the custom claim `username`; names the workspace (SPEC.md, Epic 8). */
+	/** `preferred_username`, else the custom claim `username`; names the workspace (SPEC.md section 14.3). */
 	username: string | null;
 	role: LtiRole;
 	/** Absent when the launch had no context claim: sign in, record no membership. */
@@ -65,8 +64,8 @@ const CLOCK_SKEW_SECONDS = 60;
 /**
  * One remote JWKS per keyset URL, kept for the life of the process: keys
  * cached 10 minutes, an unknown `kid` refetches at most every 30 seconds,
- * each fetch times out after 5 seconds (ruling 19). With a proxy URL the
- * fetches go through the forward proxy (docs/archive/epics/EPIC-14.md ruling 27).
+ * each fetch times out after 5 seconds. With a proxy URL the
+ * fetches go through the forward proxy (ADR 0027).
  */
 export function createKeySetSource(proxyUrl?: string | null): KeySetSource {
 	const outboundFetch = createOutboundFetch(proxyUrl);
@@ -128,6 +127,81 @@ function usernameOf(claims: Record<string, unknown>): string | null {
 	return null;
 }
 
+type Platform = ValidateLaunchInput["platforms"][number];
+
+/**
+ * Check the token's algorithm, its platform, and its signature, in that order,
+ * and return its claims. No claim is read before the signature holds.
+ */
+async function verifySignature(
+	input: ValidateLaunchInput,
+	platform: Platform | null,
+): Promise<{ claims: Record<string, unknown> } | { reason: LtiRefusal }> {
+	let alg: unknown;
+	try {
+		alg = decodeProtectedHeader(input.idToken).alg;
+	} catch {
+		return { reason: "bad_signature" };
+	}
+	if (alg !== "RS256") return { reason: "alg_not_allowed" };
+	if (!platform) return { reason: "unknown_issuer" };
+
+	try {
+		const { payload } = await compactVerify(
+			input.idToken,
+			input.keySets(platform.keysetUrl),
+			{ algorithms: ["RS256"] },
+		);
+		const parsed = objectClaim(JSON.parse(new TextDecoder().decode(payload)));
+		if (!parsed) return { reason: "bad_signature" };
+		return { claims: parsed };
+	} catch (error) {
+		if (
+			error instanceof errors.JWSSignatureVerificationFailed ||
+			error instanceof errors.JWKSNoMatchingKey ||
+			error instanceof errors.JWSInvalid ||
+			error instanceof SyntaxError
+		) {
+			return { reason: "bad_signature" };
+		}
+		return { reason: "keyset_unavailable" };
+	}
+}
+
+/** The audience names this client, and with several audiences azp does too. */
+function audienceMatches(claims: Record<string, unknown>, clientId: string): boolean {
+	const aud = claims.aud;
+	if (Array.isArray(aud)) {
+		if (!aud.includes(clientId)) return false;
+		if (aud.length > 1 && claims.azp !== clientId) return false;
+		return true;
+	}
+	return aud === clientId;
+}
+
+/** Refuse a token that has expired or was issued in the future, within the skew. */
+function checkTimes(claims: Record<string, unknown>, now: Date): LtiRefusal | null {
+	const nowSeconds = Math.floor(now.getTime() / 1000);
+	if (typeof claims.exp !== "number" || claims.exp + CLOCK_SKEW_SECONDS <= nowSeconds) {
+		return "expired";
+	}
+	if (typeof claims.iat !== "number" || claims.iat - CLOCK_SKEW_SECONDS > nowSeconds) {
+		return "issued_in_future";
+	}
+	return null;
+}
+
+/** The optional context claim, or "bad" when it is present but malformed. */
+function contextOf(claims: Record<string, unknown>): LtiLaunch["context"] | "bad" {
+	const rawContext = claims[`${CLAIM}context`];
+	if (rawContext === undefined) return null;
+	const ctx = objectClaim(rawContext);
+	if (!ctx || !isString(ctx.id) || ctx.id.length < 1 || ctx.id.length > 255) {
+		return "bad";
+	}
+	return { id: ctx.id, title: isString(ctx.title) ? ctx.title : "" };
+}
+
 /**
  * Check a launch's id_token against the login it answers. The signature is
  * checked (RS256 only, against the registration's keyset) before any claim
@@ -148,57 +222,19 @@ export async function validateLaunchToken(
 		platform,
 	});
 
-	let alg: unknown;
-	try {
-		alg = decodeProtectedHeader(input.idToken).alg;
-	} catch {
-		return refuse("bad_signature");
-	}
-	if (alg !== "RS256") return refuse("alg_not_allowed");
+	const verified = await verifySignature(input, platform);
+	if ("reason" in verified) return refuse(verified.reason);
+	const { claims } = verified;
+	// verifySignature refuses before this point when there is no platform.
 	if (!platform) return refuse("unknown_issuer");
-
-	let claims: Record<string, unknown>;
-	try {
-		const { payload } = await compactVerify(
-			input.idToken,
-			input.keySets(platform.keysetUrl),
-			{ algorithms: ["RS256"] },
-		);
-		const parsed = objectClaim(JSON.parse(new TextDecoder().decode(payload)));
-		if (!parsed) return refuse("bad_signature");
-		claims = parsed;
-	} catch (error) {
-		if (
-			error instanceof errors.JWSSignatureVerificationFailed ||
-			error instanceof errors.JWKSNoMatchingKey ||
-			error instanceof errors.JWSInvalid ||
-			error instanceof SyntaxError
-		) {
-			return refuse("bad_signature");
-		}
-		return refuse("keyset_unavailable");
-	}
 
 	// The login started with this platform, so the token must come from it.
 	if (claims.iss !== platform.issuer) return refuse("unknown_issuer");
 
-	const aud = claims.aud;
-	if (Array.isArray(aud)) {
-		if (!aud.includes(platform.clientId)) return refuse("wrong_audience");
-		if (aud.length > 1 && claims.azp !== platform.clientId) {
-			return refuse("wrong_audience");
-		}
-	} else if (aud !== platform.clientId) {
-		return refuse("wrong_audience");
-	}
+	if (!audienceMatches(claims, platform.clientId)) return refuse("wrong_audience");
 
-	const nowSeconds = Math.floor((input.now ?? new Date()).getTime() / 1000);
-	if (typeof claims.exp !== "number" || claims.exp + CLOCK_SKEW_SECONDS <= nowSeconds) {
-		return refuse("expired");
-	}
-	if (typeof claims.iat !== "number" || claims.iat - CLOCK_SKEW_SECONDS > nowSeconds) {
-		return refuse("issued_in_future");
-	}
+	const timeRefusal = checkTimes(claims, input.now ?? new Date());
+	if (timeRefusal) return refuse(timeRefusal);
 
 	if (claims.nonce !== loginState.nonce) return refuse("nonce_mismatch");
 
@@ -226,15 +262,8 @@ export async function validateLaunchToken(
 		return refuse("missing_resource_link");
 	}
 
-	let context: LtiLaunch["context"] = null;
-	const rawContext = claims[`${CLAIM}context`];
-	if (rawContext !== undefined) {
-		const ctx = objectClaim(rawContext);
-		if (!ctx || !isString(ctx.id) || ctx.id.length < 1 || ctx.id.length > 255) {
-			return refuse("bad_context");
-		}
-		context = { id: ctx.id, title: isString(ctx.title) ? ctx.title : "" };
-	}
+	const context = contextOf(claims);
+	if (context === "bad") return refuse("bad_context");
 
 	return {
 		ok: true,

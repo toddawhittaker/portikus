@@ -50,7 +50,7 @@ describe("Dialog", () => {
 		expect(screen.queryByRole("dialog")).toBeNull();
 	});
 
-	it("returns focus to the button that opened it from state, with no trigger (#358)", async () => {
+	it("returns focus to the button that opened it from state, with no trigger", async () => {
 		function StateFixture() {
 			const [open, setOpen] = React.useState(false);
 			return (
@@ -104,7 +104,7 @@ describe("Dialog", () => {
 		expect(document.activeElement).toBe(summary);
 	});
 
-	it("falls back to the menu trigger when the opening menu item is gone (#358)", async () => {
+	it("falls back to the menu trigger when the opening menu item is gone", async () => {
 		function MenuFixture() {
 			const [menuOpen, setMenuOpen] = React.useState(true);
 			const [open, setOpen] = React.useState(false);
@@ -179,7 +179,7 @@ describe("Dialog", () => {
 		);
 	});
 
-	it("falls back to what had focus before an unlabelled menu opened (#358)", async () => {
+	it("falls back to what had focus before an unlabelled menu opened", async () => {
 		// A right-click menu has no trigger button to go back to.
 		function ContextFixture() {
 			const [menuOpen, setMenuOpen] = React.useState(false);
@@ -272,7 +272,7 @@ describe("Dialog", () => {
 		await waitFor(() => expect(document.activeElement).toBe(trigger));
 	});
 
-	it("takes the density of the area that opened it (Epic 25 N1)", () => {
+	it("takes the density of the area that opened it", () => {
 		render(
 			<div data-density="compact">
 				<Fixture />

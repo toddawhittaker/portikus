@@ -5,20 +5,14 @@
  * Enable confirmation, in the light and dark themes.
  */
 import * as crypto from "node:crypto";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
+	expectNoViolations,
 	loginAs,
 	MOCK_ISSUER,
 	openToggletip,
 	query,
-	settledAxe,
-	WCAG_TAGS,
 } from "./helpers";
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 async function insertUser(name: string, disabled: boolean): Promise<string> {
 	const [row] = await query<{ id: string }>(
@@ -126,7 +120,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.getByTestId("bulk-enable").click();
 		const dialog = page.getByRole("alertdialog", { name: "Enable 1 account?" });
 		await expect(dialog).toBeVisible();
-		// Enabling takes nothing away, so the confirm is not drawn as danger (S3).
+		// Enabling takes nothing away, so the confirm is not drawn as danger.
 		const confirm = dialog.getByRole("button", { name: "Enable" });
 		await expect(confirm).not.toHaveClass(/bg-status-danger/);
 		await expectNoViolations(page);

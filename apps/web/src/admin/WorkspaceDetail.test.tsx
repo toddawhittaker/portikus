@@ -17,21 +17,27 @@ import {
 } from "./GraceDialog.js";
 import { quotaError } from "./QuotaDialog.js";
 import {
-	capabilityNote,
-	effectiveGuardText,
 	instructorChangeNote,
-	lifecycleActions,
+	roleChangeNote,
+} from "./workspace-detail/AccountSection.js";
+import {
+	effectiveGuardText,
+	memoryFlagText,
+	throttleText,
+} from "./workspace-detail/GuardSection.js";
+import { lifecycleActions } from "./workspace-detail/HeadState.js";
+import {
+	adminStep,
 	limitsPending,
 	limitsText,
-	memoryFlagText,
-	NOT_AVAILABLE_TEXT,
+	quotaPending,
+} from "./workspace-detail/ResourcesSection.js";
+import { NOT_AVAILABLE_TEXT, PANEL_HELP } from "./workspace-detail/shared.js";
+import {
+	capabilityNote,
 	operationOutcome,
 	outcomeToast,
-	PANEL_HELP,
-	quotaPending,
-	roleChangeNote,
-	throttleText,
-} from "./WorkspaceDetail.js";
+} from "./workspace-detail/WorkspaceSection.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -295,7 +301,7 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 
 	const panel = await openAlice();
 
-	// Use is one fact per row; the disk shows here only without its meter (Epic 25, S6).
+	// Use is one fact per row; the disk shows here only without its meter.
 	expect(within(panel).getByTestId("detail-disk-use").textContent).toBe(
 		"2.0 GB of 10.0 GB",
 	);
@@ -330,7 +336,7 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 	).toBe("true");
 });
 
-test("the panel's sections come in the Epic 25 order (R2)", async () => {
+test("the panel's sections come in their set order", async () => {
 	stubDetail(
 		detail({
 			workspace: {
@@ -786,8 +792,24 @@ test("the detail shows per-class storage meters when the agent measured them", a
 
 	expect(within(panel).getByLabelText("Projects and home")).toBeTruthy();
 	expect(within(panel).getByLabelText("Recovery")).toBeTruthy();
-	expect(within(panel).getByLabelText("Docker").getAttribute("aria-valuetext")).toMatch(
-		/nearly full$/,
+	const docker = within(panel).getByRole("meter", { name: "Docker" });
+	expect(docker.getAttribute("aria-valuetext")).toMatch(/nearly full$/);
+	// The administrator reads what they can do, not the student's own step.
+	const step = within(panel).getByTestId("storage-step-docker");
+	expect(step.textContent).toBe(adminStep("docker", USER.displayName));
+	expect(docker.getAttribute("aria-describedby")).toBe(step.id);
+	expect(within(panel).queryByTestId("storage-step-home")).toBeNull();
+});
+
+test("the administrator's next step says what they can do for each class", () => {
+	expect(adminStep("home", "Alice")).toBe(
+		"Close to the limit. Raise it with Edit quotas, or ask Alice to delete files.",
+	);
+	expect(adminStep("docker", "Alice")).toBe(
+		"Close to the limit. Raise it with Edit quotas, or ask Alice to reset Docker.",
+	);
+	expect(adminStep("recovery", "Alice")).toBe(
+		"Close to the limit. Older recovery points are removed automatically.",
 	);
 });
 
@@ -1239,7 +1261,7 @@ test("grace minutes convert to and from the API's seconds", () => {
 	expect(graceValueText(3600)).toBe("1 hour");
 });
 
-// Promote and demote (docs/archive/epics/EPIC-13-1.md ruling 23).
+// Promote and demote (ADR 0026).
 const GRANTED_ROW = {
 	...ALICE_ROW,
 	id: "44444444-4444-4444-8444-444444444444",
@@ -1301,7 +1323,7 @@ async function openRow(name: string) {
 	return screen.findByRole("region", { name });
 }
 
-test("the account section shows the role, source, issuer and username (issue #302)", async () => {
+test("the account section shows the role, source, issuer and username", async () => {
 	stubRoles();
 	const panel = await openRow("Alice Example");
 	expect(within(panel).getByTestId("detail-role").textContent).toBe("Student");
@@ -1420,7 +1442,7 @@ test("a refused promote shows the refusal in its dialog", async () => {
 	);
 });
 
-// Make and remove instructor (docs/archive/epics/EPIC-14.md ruling 14).
+// Make and remove instructor (ADR 0026).
 const TEACHER_ROW = {
 	...ALICE_ROW,
 	id: "66666666-6666-4666-8666-666666666666",

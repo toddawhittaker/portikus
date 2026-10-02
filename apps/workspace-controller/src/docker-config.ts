@@ -4,22 +4,22 @@ import {
 	REGISTRY_GATEWAY_ADDR,
 	type WorkspaceDockerConfig,
 } from "@portikus/contracts";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { replaceFile } from "./agent-instructions.js";
 import { type IncusClient, IncusError } from "./incus.js";
 
 /**
  * What the controller writes into a workspace's Docker setup before it
- * starts (issue #840, ruling 9): the Hub cache as a registry mirror, and
+ * starts: the Hub cache as a registry mirror, and
  * while the ghcr.io cache is on, a hosts entry and the CA Docker trusts for
  * it. Everything goes through the Incus files API, which resolves paths
  * inside the container, never on the host.
  */
 
-export const DAEMON_JSON_PATH = "/etc/docker/daemon.json";
-export const GHCR_CERT_DIR = "/etc/docker/certs.d/ghcr.io";
+const DAEMON_JSON_PATH = "/etc/docker/daemon.json";
+const GHCR_CERT_DIR = "/etc/docker/certs.d/ghcr.io";
 export const GHCR_CERT_PATH = `${GHCR_CERT_DIR}/ca.crt`;
-export const HOSTS_PATH = "/etc/hosts";
+const HOSTS_PATH = "/etc/hosts";
 /** The CA the root cache helper made; public, readable by the controller. */
 export const GHCR_CA_HOST_PATH = "/etc/portikus/registry/ghcr-ca.crt";
 /** Setup writes this when the pull cache does not fit on disk (SPEC.md 16.6). */
@@ -147,7 +147,7 @@ export async function writeDockerConfig(
 			ca = await readFile(opts.caPath, "utf8");
 		} catch (err) {
 			opts.log.warn(
-				{ instance: name, err: err instanceof Error ? err.message : String(err) },
+				{ instance: name, err: errorMessage(err) },
 				"the ghcr.io cache's CA cannot be read; leaving ghcr.io uncached",
 			);
 		}

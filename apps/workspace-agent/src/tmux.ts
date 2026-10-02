@@ -4,25 +4,15 @@ import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
-	type AgentErrorCode,
 	type CodingAgent,
+	SCROLLBACK_LINES,
 	TerminalId,
 	type TerminalTheme,
 } from "@portikus/contracts";
+import { AgentFailure } from "./errors.js";
 import { collectProcessTree, stopProcesses } from "./process-tree.js";
 
 const run = promisify(execFile);
-
-/** An agent failure carrying the wire error code of SPEC.md §27. */
-export class AgentFailure extends Error {
-	readonly code: AgentErrorCode;
-
-	constructor(code: AgentErrorCode, message: string) {
-		super(message);
-		this.name = "AgentFailure";
-		this.code = code;
-	}
-}
 
 /** Which tmux server the agent talks to (SPEC.md §9.7). */
 export interface TmuxServer {
@@ -144,13 +134,6 @@ async function resolveCwd(cwd: string, homeDir: string): Promise<string> {
 }
 
 /**
- * How many lines of history a pane keeps, and so the most an attachment can
- * be sent back. The browser keeps the same number (`SCROLLBACK_LINES` in
- * `TerminalPane.tsx`); what a replay is really bounded by is `HISTORY_BYTES`.
- */
-export const HISTORY_LINES = 5000;
-
-/**
  * Settings that belong to the tmux server rather than one session. They are
  * passed on the same command line as `new-session`, in front of it: tmux
  * starts the server for the whole list, so the options are in place before
@@ -163,7 +146,7 @@ export const HISTORY_LINES = 5000;
  * `indn`/`rin` scroll by N lines in place, which xterm.js does not save.
  * Without them tmux uses plain line feeds at the bottom of the screen, and
  * those do get saved. tmux never passes on the erase-scrollback that `clear`
- * sends, so the pane watcher tells the browser instead (issue #882).
+ * sends, so the pane watcher tells the browser instead.
  *
  * `history-limit` has to be global and set first: tmux reads it when a window
  * is created, so setting it on a session afterwards leaves that session's
@@ -196,15 +179,15 @@ function serverOptionArgs(): string[] {
 		"set-option",
 		"-g",
 		"history-limit",
-		String(HISTORY_LINES),
+		String(SCROLLBACK_LINES),
 		";",
 	];
 }
 
 /**
- * And how many bytes, which is the limit that actually holds: a line can be
- * any length, and escape sequences make it longer again. The newest lines are
- * the ones worth keeping, so the cut is made from the front.
+ * The most bytes of history a replay sends. This, not the line count, is the
+ * limit that holds: a line can be any length, and escape sequences make it
+ * longer again.
  */
 const HISTORY_BYTES = 256 * 1024;
 
@@ -244,7 +227,7 @@ export async function captureHistory(id: string, server: TmuxServer): Promise<st
 			"-e",
 			"-J",
 			"-S",
-			`-${Math.min(size, HISTORY_LINES)}`,
+			`-${Math.min(size, SCROLLBACK_LINES)}`,
 			"-E",
 			"-1",
 			"-t",
@@ -431,15 +414,15 @@ async function createTmuxSession(
 			"-c",
 			real,
 			// Programs that pick a theme by auto-detection, Claude Code among
-			// them, read COLORFGBG (issue #267). The value is the foreground
-			// and background as ANSI colour numbers, so a light terminal is
-			// dark text on light. A shell already running keeps what it
-			// started with; only a new terminal gets the new value.
+			// them, read COLORFGBG. The value is the foreground and background as
+			// ANSI colour numbers, so a light terminal is dark text on light.
+			// A shell already running keeps what it started with; only a new
+			// terminal gets the new value.
 			"-e",
 			`COLORFGBG=${theme === "light" ? "0;15" : "15;0"}`,
-			// The shell runs in the owner's zone (issue #287). A terminal
-			// opened after the setting changed gets it without a restart; one
-			// already running keeps the zone it started with.
+			// The shell runs in the owner's zone. A terminal opened after the
+			// setting changed gets it without a restart; one already
+			// running keeps the zone it started with.
 			"-e",
 			`TZ=${timezone}`,
 			// Keys ride on this session only, and only for an agent command
@@ -462,14 +445,14 @@ export interface PaneState {
 	path: string | null;
 	/** True while a full-screen program holds the pane (SPEC.md §9.7). */
 	alternate: boolean;
-	/** Lines in tmux's own history; `clear` empties it (issue #882). */
+	/** Lines in tmux's own history; `clear` empties it. */
 	history: number;
 }
 
 /**
  * What the browser needs to know about every terminal's pane, keyed by
  * terminal id. One tmux call for the whole workspace, because this is polled
- * several times a second and a workspace can have eight terminals.
+ * several times a second and a workspace can have twenty terminals.
  */
 export async function listPanes(server: TmuxServer): Promise<Map<string, PaneState>> {
 	const stdout = await tmux(

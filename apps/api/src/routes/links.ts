@@ -22,11 +22,12 @@ import type {
 	StartLinkResponse,
 	UnlinkResponse,
 } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { toAuthOptions } from "../auth-options.js";
 import type { ServerDeps } from "../server.js";
-import { audit, requestMetadata, startSession } from "./start-session.js";
+import { requestMetadata, startSession } from "./start-session.js";
 
 const CourseUserParam = z.object({ courseUserId: z.string().uuid() });
 
@@ -43,7 +44,7 @@ function fail(
 
 /**
  * Linking a course account to an SSO account, and unlinking it
- * (docs/archive/epics/EPIC-13-1.md, "The flow"; ADR 0026). The OIDC callback's link mode
+ * (ADR 0026). The OIDC callback's link mode
  * lives in auth.ts.
  */
 export function registerLinkRoutes(
@@ -95,7 +96,7 @@ export function registerLinkRoutes(
 
 	app.get("/me/links", async (request) => myLinks(request));
 
-	// Step 2: only a recent course session may start a link (rulings 10 and 11).
+	// Only a recent course session may start a link.
 	app.post("/me/links/start", async (request, reply) => {
 		if (!oidc) return fail(reply, 500, "INTERNAL", "Login is not configured");
 		const window = await courseLinkWindow(db, sessionId(request));
@@ -123,7 +124,7 @@ export function registerLinkRoutes(
 		return body;
 	});
 
-	// Step 4: the two accounts the confirmation page names.
+	// The two accounts the confirmation page names.
 	app.get("/me/links/pending", async (request, reply) => {
 		const pending = await pendingLinkIntent(db, sessionId(request));
 		if (!pending) return fail(reply, 404, "NOT_FOUND", "No link is waiting.");
@@ -149,7 +150,7 @@ export function registerLinkRoutes(
 		return body;
 	});
 
-	// Step 5: link, retire the course account, and sign in to the SSO account.
+	// Link, retire the course account, and sign in to the SSO account.
 	app.post("/me/links/confirm", async (request, reply) => {
 		const id = sessionId(request);
 		const outcome = await db.transaction().execute(async (trx) => {
@@ -164,20 +165,25 @@ export function registerLinkRoutes(
 				return { kind: "refused" as const, intent, reason: linked.reason };
 
 			const ssoActor = `user:${intent.userId}`;
-			await audit(trx, "user.linked", ssoActor, intent.userId, "ok", {
-				platform: platformName(linked.platformIssuer),
-				courseUserId: intent.courseUserId,
-				...requestMetadata(request),
+			await recordAudit(trx, {
+				actor: ssoActor,
+				target: intent.userId,
+				action: "user.linked",
+				result: "ok",
+				metadata: {
+					platform: platformName(linked.platformIssuer),
+					courseUserId: intent.courseUserId,
+					...requestMetadata(request),
+				},
 			});
 			if (linked.archivedWorkspaceId) {
-				await audit(
-					trx,
-					"workspace.archived",
-					ssoActor,
-					linked.archivedWorkspaceId,
-					"ok",
-					{ reason: "account_linked" },
-				);
+				await recordAudit(trx, {
+					actor: ssoActor,
+					target: linked.archivedWorkspaceId,
+					action: "workspace.archived",
+					result: "ok",
+					metadata: { reason: "account_linked" },
+				});
 			}
 			return { kind: "linked" as const, intent };
 		});
@@ -188,10 +194,16 @@ export function registerLinkRoutes(
 		const { intent } = outcome;
 		if (outcome.kind !== "linked") {
 			const reason = outcome.kind === "too_late" ? "expired" : outcome.reason;
-			await audit(db, "user.linked", `user:${intent.userId}`, intent.userId, "denied", {
-				reason,
-				courseUserId: intent.courseUserId,
-				...requestMetadata(request),
+			await recordAudit(db, {
+				actor: `user:${intent.userId}`,
+				target: intent.userId,
+				action: "user.linked",
+				result: "denied",
+				metadata: {
+					reason,
+					courseUserId: intent.courseUserId,
+					...requestMetadata(request),
+				},
 			});
 			const message =
 				outcome.kind === "too_late"
@@ -206,17 +218,23 @@ export function registerLinkRoutes(
 			method: "link",
 			courseUserId: null,
 		});
-		await audit(db, "auth.login", `user:${intent.userId}`, intent.userId, "ok", {
-			method: "link",
-			...requestMetadata(request),
+		await recordAudit(db, {
+			actor: `user:${intent.userId}`,
+			target: intent.userId,
+			action: "auth.login",
+			result: "ok",
+			metadata: {
+				method: "link",
+				...requestMetadata(request),
+			},
 		});
 		return {};
 	});
 
-	// Step 7: the SSO account removes one of its links (ruling 15). A session
-	// launched through a linked course identity may remove only that link
-	// (review N2), and then ends with every other session that came through
-	// the identity (review N1).
+	// The SSO account removes one of its links. A session
+	// launched through a linked course identity may remove only that link,
+	// and then ends with every other session that came through
+	// the identity.
 	app.post("/me/links/:courseUserId/unlink", async (request, reply) => {
 		const user = requireUser(request);
 		const params = CourseUserParam.safeParse(request.params);
@@ -233,21 +251,26 @@ export function registerLinkRoutes(
 			const unlinked = await unlinkAccount(trx, { userId: user.id, courseUserId });
 			if (!unlinked) return false;
 			const actor = courseSide ? `user:${courseUserId}` : `user:${user.id}`;
-			await audit(trx, "user.unlinked", actor, user.id, "ok", {
-				platform: platformName(unlinked.platformIssuer),
-				courseUserId,
-				side: courseSide ? "course" : "sso",
-				...requestMetadata(request),
+			await recordAudit(trx, {
+				actor: actor,
+				target: user.id,
+				action: "user.unlinked",
+				result: "ok",
+				metadata: {
+					platform: platformName(unlinked.platformIssuer),
+					courseUserId,
+					side: courseSide ? "course" : "sso",
+					...requestMetadata(request),
+				},
 			});
 			if (unlinked.unarchivedWorkspaceId) {
-				await audit(
-					trx,
-					"workspace.unarchived",
-					actor,
-					unlinked.unarchivedWorkspaceId,
-					"ok",
-					{ reason: "account_unlinked" },
-				);
+				await recordAudit(trx, {
+					actor: actor,
+					target: unlinked.unarchivedWorkspaceId,
+					action: "workspace.unarchived",
+					result: "ok",
+					metadata: { reason: "account_unlinked" },
+				});
 			}
 			return true;
 		});

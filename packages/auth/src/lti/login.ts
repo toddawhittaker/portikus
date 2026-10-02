@@ -12,7 +12,7 @@ export interface LtiLoginParams {
 }
 
 /** Why `/lti/login` answers 400. */
-export type LtiLoginRefusal = "unknown_issuer" | "missing_login_hint" | "wrong_target";
+type LtiLoginRefusal = "unknown_issuer" | "missing_login_hint" | "wrong_target";
 
 export type LtiLoginResult =
 	| {
@@ -38,7 +38,7 @@ export function isOnOrigin(uri: string, publicUrl: string): boolean {
 
 /**
  * Check a login initiation and build the authorization request
- * (docs/archive/epics/EPIC-13.md ruling 19 and "Validation reference"). The caller stores
+ * (ADR 0025 and "Validation reference"). The caller stores
  * the state with `saveLoginState`, sets the state cookie, and redirects.
  * An unknown issuer and client id pair, or an issuer with several
  * registrations and no client id, is `unknown_issuer`.

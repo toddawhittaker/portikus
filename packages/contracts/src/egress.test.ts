@@ -1,5 +1,5 @@
 /**
- * The egress policy's validation and explanation (issue #284; SPEC.md section
+ * The egress policy's validation and explanation (SPEC.md section
  * 24.9): names cover their subdomains and nothing else, URLs, wildcards and
  * addresses are never host entries, and a range may not touch a denied range.
  */

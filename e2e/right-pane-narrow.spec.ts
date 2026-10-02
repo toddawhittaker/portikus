@@ -1,5 +1,5 @@
 /**
- * The right pane at the widths students actually get (Epic 25, M1 to M3):
+ * The right pane at the widths students actually get:
  * the 200 px minimum a 1024 px window leaves it, and the 280 px default at
  * 1440. The switch stays on one line, no Running row paints text over text,
  * every Stop stays inside the pane and can be pressed, and Monitor's table

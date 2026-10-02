@@ -30,7 +30,7 @@ export interface DiffViewerProps {
 	version: string;
 	/**
 	 * Let the student type on the working-copy side. Used by the conflict
-	 * view, where the right side is their own unsaved text (issue #158).
+	 * view, where the right side is their own unsaved text.
 	 */
 	editable?: boolean;
 	/** Every keystroke on the working-copy side, when it is editable. */
@@ -138,7 +138,7 @@ export function DiffViewer({
 		if (view) editor.restoreViewState(view);
 	}, [original, modified, version]);
 
-	// Screen-reader support follows the student's setting, live (issue #357).
+	// Screen-reader support follows the student's setting, live.
 	useEffect(() => {
 		editorRef.current?.updateOptions({
 			accessibilitySupport: accessibilitySupport(screenReaderMode),

@@ -1,11 +1,12 @@
 import { requireUser } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
-import type { ApiError, ApiErrorCode } from "@portikus/contracts";
+import type { ApiErrorCode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
 import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
+import { ProjectParam, sendError } from "../http.js";
 import { findWorkspaceOwnedBy } from "./workspace-view.js";
 
 /** Where every project directory lives inside the workspace (SPEC.md §7.1). */
@@ -28,7 +29,6 @@ export function agentUrl(
 }
 
 const WorkspaceParam = z.object({ id: z.string().uuid() });
-const ProjectParam = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
 
 export interface Scope {
 	workspaceId: string;
@@ -39,18 +39,8 @@ export interface Scope {
 	errorAgent: AgentClient | null;
 }
 
-export function sendError(
-	reply: FastifyReply,
-	statusCode: number,
-	code: ApiErrorCode,
-	message: string,
-): void {
-	const body: ApiError = { code, message };
-	reply.status(statusCode).send(body);
-}
-
 /** The status and code each agent error becomes (SPEC.md §27). */
-export const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>> = {
+const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>> = {
 	PROJECT_EXISTS: [409, "PROJECT_EXISTS"],
 	PROJECT_NOT_FOUND: [404, "PROJECT_NOT_FOUND"],
 	INVALID_SLUG: [400, "INVALID_SLUG"],

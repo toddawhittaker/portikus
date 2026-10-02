@@ -160,7 +160,7 @@ const notAuthorizedRoute = createRoute({
 	component: NotAuthorized,
 });
 
-/** The SSO sign-in lands here to confirm a link (docs/archive/epics/EPIC-13-1.md, "The flow" step 4). */
+/** The SSO sign-in lands here to confirm a link (ADR 0026). */
 const linkRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/link",
@@ -172,7 +172,7 @@ const linkRoute = createRoute({
 	},
 });
 
-/** Settings opens this in a new tab to start a link (docs/archive/epics/EPIC-13-1.md, "The flow" step 2). */
+/** Settings opens this in a new tab to start a link (ADR 0026). */
 const linkStartRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/link/start",
@@ -211,7 +211,7 @@ const adminRoute = createRoute({
 	),
 });
 
-/** An instructor's read-only Course page (Epic 13 ruling 24). */
+/** An instructor's read-only Course page. */
 const courseRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/course",
@@ -232,7 +232,7 @@ const courseMembersRoute = createRoute({
 	),
 });
 
-/** Help for every role; admin and instructor parts show by role (Epic 25). */
+/** Help for every role; admin and instructor parts show by role. */
 const helpRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/help",

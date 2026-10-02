@@ -1,18 +1,11 @@
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the /link page and
- * the Profile section's linked accounts (docs/archive/epics/EPIC-13-1.md, T3). Max (mock
+ * the Profile section's linked accounts (ADR 0026). Max (mock
  * LMS) and gail (mock OIDC) exist for this spec alone.
  */
-import { expect, type Page, test } from "@playwright/test";
-import { apiLoginAs, MOCK_ISSUER, settledAxe, WCAG_TAGS, WEB_ORIGIN } from "./helpers";
+import { expect, test } from "@playwright/test";
+import { apiLoginAs, expectNoViolations, MOCK_ISSUER, WEB_ORIGIN } from "./helpers";
 import { launchAs } from "./lti-helpers";
-
-async function expectNoViolations(page: Page, include?: string) {
-	let builder = (await settledAxe(page)).withTags(WCAG_TAGS);
-	if (include) builder = builder.include(include);
-	const results = await builder.analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 test("the Profile link section and the /link page have no automatic violations", async ({
 	browser,

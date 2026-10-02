@@ -22,7 +22,7 @@ function useDebounced<T>(value: T, delay: number): T {
 	return held;
 }
 
-export const searchKeys = {
+const searchKeys = {
 	search: (workspaceId: string, projectId: string, q: string, hidden: boolean) =>
 		["search", workspaceId, projectId, q, hidden] as const,
 };

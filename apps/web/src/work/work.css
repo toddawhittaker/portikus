@@ -67,7 +67,7 @@
 	color: var(--terminal-fg);
 }
 
-/* The focus ring follows the pane's scheme, not the page's (issue #368). */
+/* The focus ring follows the pane's scheme, not the page's. */
 .pk-term[data-terminal-theme="light"] {
 	--focus: var(--focus-on-light);
 }
@@ -258,7 +258,7 @@
 }
 
 /* The tab's body. It is a box only so the conflict diff can hide it without
-   unmounting the editor (issue #158); otherwise it is not there at all. */
+   unmounting the editor; otherwise it is not there at all. */
 .pk-file-body {
 	display: contents;
 }
@@ -345,7 +345,7 @@
 	outline-offset: var(--ring-offset);
 }
 
-/* An image or PDF shown in the file tab (#816): the file fills the space
+/* An image or PDF shown in the file tab: the file fills the space
    above a bar with its facts and Download. */
 .pk-file-viewer {
 	flex: 1;
@@ -447,8 +447,8 @@
 	margin: 0;
 }
 
-/* The Diff control on a Markdown tab (SPEC.md §13.4, issue #218), and the
-   Edit | Diff control on every other file tab (issue #160). The look is the
+/* The Diff control on a Markdown tab (SPEC.md §13.4), and the
+   Edit | Diff control on every other file tab. The look is the
    shared .pk-segmented; here it only sits at the right of the file bar. */
 .pk-segmented.pk-view-modes {
 	margin-left: auto;

@@ -10,7 +10,7 @@ import {
 	MATRIX_MOCK_USERS,
 } from "../test-support.js";
 
-/** HEAD on a browser socket route is a clean 4xx, never a 500 (issue #402). */
+/** HEAD on a browser socket route is a clean 4xx, never a 500. */
 
 const skip = !hasTestDb();
 const AGENT_TOKEN = "socket-head-agent-token";

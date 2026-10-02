@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""The root cache helper for the Docker pull-through caches (issue #840).
+"""The root cache helper for the Docker pull-through caches (ADR 0045).
 
 Run as root by portikus-registry-job.service, which its path unit starts
 when the API writes a request file, and by portikus-registry-status.timer.
@@ -13,7 +13,7 @@ Usage:
   registry-job render NAME  write NAME's registry config, hub or ghcr
                             (ExecStartPre of each registry unit)
 
-Security rulings S1 and S5: clearing remakes the cache's own filesystem
+Clearing remakes the cache's own filesystem
 rather than deleting inside a directory the registry user owns; a request
 file is read and deleted before anything acts on it; the Hub token is
 written only into the Hub config, and only the request kind is logged.
@@ -67,7 +67,7 @@ AUTO_CLEAR_PERCENT = 90
 
 MAX_REQUEST_BYTES = 4096
 
-# Download sizes for the admin page (issue #931): the contracts' IMAGE_SIZES_MAX,
+# Download sizes for the admin page: the contracts' IMAGE_SIZES_MAX,
 # kept this long after the cache last held the image, so a seed image keeps
 # its size after the cache's week-long expiry or a clear.
 IMAGE_SIZES_MAX = 1000
@@ -82,7 +82,7 @@ INDEX_TYPES = {"application/vnd.docker.distribution.manifest.list.v2+json",
 COMPONENT_RE = re.compile(r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*")
 TAG_NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
 DIGEST_RE = re.compile(r"sha256:([a-f0-9]{64})")
-# What the page says when the cache-off marker gives no reason (setups before #931 wrote "off").
+# What the page says when the cache-off marker gives no reason (older setups wrote only "off").
 CACHE_OFF_DEFAULT = "The main disk had no room for even a 1 GiB cache when setup last ran."
 CACHE_OFF_REASON_RE = re.compile(r"[\x20-\x7e]{1,300}")
 REQUEST_NAME_RE = re.compile(r"request-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json")
@@ -121,6 +121,7 @@ def _no_duplicates(pairs):
     return out
 
 
+# jscpd:ignore-start -- each job is a standalone root script, so this stays a copy.
 def validate_request(raw, file_id):
     """Return the checked `request` object, or raise Refused. Mirrors RegistryJobRequestFile."""
     try:
@@ -151,6 +152,7 @@ def validate_request(raw, file_id):
         if not isinstance(request["token"], str) or not TOKEN_RE.fullmatch(request["token"]):
             raise Refused("the token is not an access token")
     return request
+# jscpd:ignore-end
 
 
 # ---- Files ----
@@ -320,7 +322,7 @@ class Helper:
         return line
 
     def hub_held(self):
-        """A clear after a credential change failed; the Hub cache stays stopped (S3)."""
+        """A clear after a credential change failed; the Hub cache stays stopped."""
         return os.path.exists(self.path("hub-held"))
 
     def credential(self):
@@ -347,7 +349,7 @@ class Helper:
         cache = CACHES[name]
         config = {
             "version": "0.1",
-            # Warn, not info: info logs every request with its client address and path (S1).
+            # Warn, not info: info logs every request with its client address and path.
             "log": {"level": "warn", "accesslog": {"disabled": True},
                     "fields": {"service": f"portikus-registry-{name}"}},
             "storage": {
@@ -355,7 +357,7 @@ class Helper:
                 "cache": {"blobdescriptor": "inmemory"},
                 "delete": {"enabled": True},
             },
-            # No http.debug: the debug listener would expose metrics and pprof (S1).
+            # No http.debug: the debug listener would expose metrics and pprof.
             "http": {"addr": f"{GATEWAY}:{cache['port']}",
                      "headers": {"X-Content-Type-Options": ["nosniff"]}},
             "proxy": {"remoteurl": cache["remote"]},
@@ -382,7 +384,7 @@ class Helper:
                     "timeout": "2s",
                     "threshold": 5,
                     "backoff": "30s",
-                    # Only manifest pulls count (ruling 7); layers are octet-stream.
+                    # Only manifest pulls count; layers are octet-stream.
                     "ignore": {"mediatypes": ["application/octet-stream"], "actions": ["push", "delete"]},
                 }],
             }
@@ -402,7 +404,7 @@ class Helper:
         return 0
 
     def ensure_storage(self, name):
-        """The cache's directory on the mounted filesystem, which root owns (S1)."""
+        """The cache's directory on the mounted filesystem, which root owns."""
         if not self.host.is_mount(self.mount_point):
             raise SystemExit(f"registry-job: {self.mount_point} is not mounted")
         top = os.open(self.mount_point, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -427,7 +429,7 @@ class Helper:
     # -- actions --
 
     def clear(self, reason):
-        """Stop both caches, remake the filesystem, and start what is configured (S1)."""
+        """Stop both caches, remake the filesystem, and start what is configured."""
         if self.cache_off():
             journal("the cache is off, so there is nothing to clear")
             return True
@@ -587,7 +589,7 @@ class Helper:
         size = st.f_blocks * st.f_frsize
         return size, size - st.f_bfree * st.f_frsize
 
-    # -- image sizes (issue #931) --
+    # -- image sizes --
 
     def manifest(self, blobs_fd, digest):
         match = DIGEST_RE.fullmatch(digest) if isinstance(digest, str) else None

@@ -72,7 +72,7 @@ test("See what's using CPU opens Monitor sorted by CPU, and the notice says when
 	await page.goto(workspacePath(student.workspaceId));
 	const notice = page.getByTestId("throttle-notice");
 	await expect(notice).toBeVisible({ timeout: 15_000 });
-	// The idle-lift settings default to 5 minutes under 10% (T1).
+	// The idle-lift settings default to 5 minutes under 10%.
 	await expect(notice).toContainText(
 		"It returns to full speed on its own after 5 minutes under 10% use.",
 	);

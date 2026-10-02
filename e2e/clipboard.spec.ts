@@ -3,10 +3,8 @@ import { createProject, createStudent, terminalIds, workspacePath } from "./help
 import { FAKE_AGENT_URL } from "./ports";
 
 /**
- * Terminal copy and paste (SPEC.md §9, plan decisions "Clipboard in the
- * terminal"). Chromium only: it is the one browser Playwright can grant
- * clipboard permissions to. The orchestrator removes the guard below once
- * the Epic 6 work area lands.
+ * Terminal copy and paste (SPEC.md §9). Chromium only: it is the one
+ * browser Playwright can grant clipboard permissions to.
  */
 test.describe("terminal clipboard", () => {
 	test.use({ permissions: ["clipboard-read", "clipboard-write"] });

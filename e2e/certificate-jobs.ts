@@ -18,7 +18,7 @@ import { API_PORT } from "./ports";
  * request file and write the record, status and log the real job would.
  * Keyed by the API's port so two runs on one machine never share it.
  */
-export const CERTIFICATE_ROOT = join(tmpdir(), `portikus-e2e-certificate-${API_PORT}`);
+const CERTIFICATE_ROOT = join(tmpdir(), `portikus-e2e-certificate-${API_PORT}`);
 export const CERTIFICATE_JOBS_DIR = join(CERTIFICATE_ROOT, "certificate-jobs");
 export const CERTIFICATE_STATUS_DIR = join(CERTIFICATE_ROOT, "certificate");
 

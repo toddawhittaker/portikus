@@ -42,7 +42,10 @@ MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package
 # backup.sh never writes a larger one.
 MANIFEST_MAX=4194304
 MAC_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-mac"
+# shellcheck source=/dev/null
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-lib.sh"
 
+# jscpd:ignore-start -- a sourced function cannot shift the caller's arguments.
 die() { printf '[restore-copy] FAIL: %s\n' "$*" >&2; exit 1; }
 info() { printf '[restore-copy] %s\n' "$*"; }
 
@@ -55,6 +58,7 @@ while [ $# -gt 0 ]; do
     *) break ;;
   esac
 done
+# jscpd:ignore-end
 if [ "$LOCAL" = yes ]; then
   [ -z "$OPERATOR$VM_NAME" ] || die "--local takes no --operator or --vm-name"
   OPERATOR=root VM_NAME=local
@@ -105,23 +109,6 @@ regular() {
 }
 decrypt() { age -d -i "$KEY" "${SET}/$1.age"; }
 
-# "<bytes> <sha256>" of standard input, as backup.sh records it; with a file
-# argument, standard input also goes on to standard output and the sum to it.
-size_sum() {
-  python3 -c 'import hashlib, sys
-h, n = hashlib.sha256(), 0
-out = sys.stdout.buffer if len(sys.argv) > 1 else None
-for b in iter(lambda: sys.stdin.buffer.read(1 << 20), b""):
-    h.update(b); n += len(b)
-    if out: out.write(b)
-line = f"{n} {h.hexdigest()}\n"
-if out:
-    out.flush()
-    open(sys.argv[1], "w").write(line)
-else:
-    sys.stdout.write(line)' "$@"
-}
-
 VOL="${INSTANCE}-home"
 regular MANIFEST.age || die "refused by the host: the set has no MANIFEST"
 # Only a set made with this key is restored (ADR 0044), and nothing in it is read before this.
@@ -157,17 +144,9 @@ cp --reflink=auto "${SET}/${VOL}.age" "${held}/volume.age" || die "could not cop
 [ "$(age -d -i "$KEY" "${held}/volume.age" | size_sum)" = "$vol_sum" ] \
   || die "refused by the host: ${VOL} in set ${STAMP} is not the one its MANIFEST lists; nothing was restored"
 
-SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-vm() { timeout -k 5 "$CALL_TIMEOUT" runuser -u "$OPERATOR" -- ssh -n "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
-# vm_in SECONDS CMD -- a stream from standard input, with its own time limit.
-vm_in() { local t=$1; shift; timeout -k 5 "$t" runuser -u "$OPERATOR" -- ssh "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
-if [ "$LOCAL" = yes ]; then
-  # The same commands as over SSH, run here; this is already root, so sudo is a no-op.
-  sudo() { "$@"; }
-  export -f sudo
-  vm() { timeout -k 5 "$CALL_TIMEOUT" bash -c "$*" </dev/null; }
-  vm_in() { local t=$1; shift; timeout -k 5 "$t" bash -c "$*"; }
-fi
+# shellcheck disable=SC2034 # read by vm in portikus-backup-lib.sh
+VM_CALL_TIMEOUT=$CALL_TIMEOUT
+[ "$LOCAL" = no ] || use_local_vm
 # The stream's limit: 10 minutes plus 1 second per 5 MB of the encrypted volume, at most 6 hours.
 stream_seconds() {
   local size t
@@ -229,7 +208,7 @@ print(total)') || die "refused by the host: the set's index for ${VOL} is not in
   in_ws mkdir "${HOME_DIR}/${DIR}" || die "~/${DIR} could not be made. Rename or delete anything by that name, then try again."
   created=yes
   info "copying ${VOL} from set ${STAMP} into ~/${DIR} (${need} bytes)"
-  age -d -i "$KEY" "${held}/volume.age" | vm_in "$(stream_seconds)" "sudo incus exec $(q "$INSTANCE") --project ${PROJECT} --user 1000 --group 1000 --cwd ${HOME_DIR} --env HOME=${HOME_DIR} -- tar -xz --strip-components=2 -C $(q "${HOME_DIR}/${DIR}") backup/volume" \
+  age -d -i "$KEY" "${held}/volume.age" | vm_stream "$(stream_seconds)" "sudo incus exec $(q "$INSTANCE") --project ${PROJECT} --user 1000 --group 1000 --cwd ${HOME_DIR} --env HOME=${HOME_DIR} -- tar -xz --strip-components=2 -C $(q "${HOME_DIR}/${DIR}") backup/volume" \
     || die "The copy into ~/${DIR} failed part way; nothing was kept."
   created=no
   info "copied ${VOL} from set ${STAMP} into ~/${DIR}"
@@ -243,7 +222,7 @@ if vm "sudo incus storage volume show ${POOL} $(q "$IMPORT") --project ${PROJECT
     || die "${IMPORT} already exists and could not be removed"
 fi
 info "importing ${VOL} from set ${STAMP} as ${IMPORT}"
-age -d -i "$KEY" "${held}/volume.age" | vm_in "$(stream_seconds)" "sudo incus storage volume import ${POOL} /dev/stdin $(q "$IMPORT") --project ${PROJECT} -q" \
+age -d -i "$KEY" "${held}/volume.age" | vm_stream "$(stream_seconds)" "sudo incus storage volume import ${POOL} /dev/stdin $(q "$IMPORT") --project ${PROJECT} -q" \
   || die "The import of the backed-up home failed."
 if [ "$idmap" != "-" ]; then
   vm "sudo incus storage volume set ${POOL} $(q "$IMPORT") --project ${PROJECT} volatile.idmap.last=$(q "$idmap")" \

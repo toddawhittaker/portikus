@@ -292,7 +292,7 @@ describe("database migrations and schema", () => {
 		},
 	);
 
-	// --- migration 0010: the terminal's own colour scheme (issue #268) ---
+	// --- migration 0010: the terminal's own colour scheme ---
 
 	test.skipIf(!hasTestDb())(
 		"a terminal is dark unless the row says light",
@@ -600,7 +600,7 @@ describe("database migrations and schema", () => {
 					db: trx,
 					provider: { getMigrations: async () => migrations },
 				});
-				// Past 0031 (Epic 26) first.
+				// Past 0031 first.
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 					"0035_docker_seed_images_set",
 				);
@@ -616,7 +616,7 @@ describe("database migrations and schema", () => {
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 					"0031_docker_cache",
 				);
-				// Past 0030 and 0029 (Epic 24) first.
+				// Past 0030 and 0029 first.
 				expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 					"0030_egress_blocked_sites",
 				);
@@ -723,7 +723,7 @@ describe("database migrations and schema", () => {
 		).rejects.toBe(rollback);
 	});
 
-	// --- migration 0016: account links and the role grant (Epic 13.1) ---
+	// --- migration 0016: account links and the role grant ---
 
 	test.skipIf(!hasTestDb())(
 		"0016 backfills provider_role from role and rolls back cleanly",
@@ -738,7 +738,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -754,7 +754,7 @@ describe("database migrations and schema", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
@@ -840,7 +840,7 @@ describe("database migrations and schema", () => {
 		},
 	);
 
-	// --- migration 0019: the local administrator (Epic 14.2) ---
+	// --- migration 0019: the local administrator ---
 
 	test.skipIf(!hasTestDb())(
 		"0019 adds must_change_password, drops setup_codes, and rolls back cleanly",
@@ -869,7 +869,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -885,14 +885,14 @@ describe("database migrations and schema", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
 					);
-					// Past 0028, 0027, 0026, 0025, 0024, 0023 (Epic 21), 0022 (Epic 19), 0021 and 0020 first.
+					// Past 0028, 0027, 0026, 0025, 0024, 0023, 0022, 0021 and 0020 first.
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -920,7 +920,7 @@ describe("database migrations and schema", () => {
 		},
 	);
 
-	// --- migration 0017: session method and the link's archive stamp (Epic 13.1 review) ---
+	// --- migration 0017: session method and the link's archive stamp ---
 
 	test.skipIf(!hasTestDb())(
 		"0017 backfills session methods and the link's archive stamp, and rolls back",
@@ -960,7 +960,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -976,7 +976,7 @@ describe("database migrations and schema", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
@@ -1240,7 +1240,7 @@ describe("database migrations and schema", () => {
 		]);
 	});
 
-	// --- migration 0015: LTI launch and the instructor role (Epic 13) ---
+	// --- migration 0015: LTI launch and the instructor role ---
 
 	test.skipIf(!hasTestDb())(
 		"the role check accepts instructor and refuses others",
@@ -1354,7 +1354,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -1370,7 +1370,7 @@ describe("database migrations and schema", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
@@ -1443,7 +1443,7 @@ describe("database migrations and schema", () => {
 		},
 	);
 
-	// --- migration 0014: admin columns, health samples, audit indexes (Epic 11) ---
+	// --- migration 0014: admin columns, health samples, audit indexes ---
 
 	test.skipIf(!hasTestDb())(
 		"0014 backfills quota_applied with only home and docker and rolls back",
@@ -1458,7 +1458,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -1474,7 +1474,7 @@ describe("database migrations and schema", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
@@ -1554,7 +1554,7 @@ describe("database migrations and schema", () => {
 			const { migrations } = await import("./migrations/index.js");
 			const rollback = new Error("rollback");
 
-			// Stands in for Epic 10's 0013 landing after 0014 is already applied.
+			// Stands in for 0013 landing after 0014 is already applied.
 			const late = {
 				...migrations,
 				"0013_standin": {
@@ -1580,7 +1580,7 @@ describe("database migrations and schema", () => {
 	);
 
 	// --- migration 0008: workspace label and preview tables ---
-	// SPEC.md Epic 8; BROWSER-HANDLING.md sections 8 and 17.
+	// SPEC.md section 14.3; BROWSER-HANDLING.md sections 8 and 17.
 
 	test.skipIf(!hasTestDb())("two workspaces cannot share a label", async () => {
 		await t.db
@@ -1919,7 +1919,7 @@ describe("database migrations and schema", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -1935,20 +1935,20 @@ describe("database migrations and schema", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
 					);
-					// Down past 0028, 0027, 0026, 0025, 0024 and 0023 (Epic 21), 0022 (Epic 19),
+					// Down past 0028, 0027, 0026, 0025, 0024 and 0023, 0022,
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
-					// 0021 and 0020 (Epic 14.3), 0019 (Epic 14.2), 0018 (Epic 14), 0017 and 0016 (Epic 13.1), 0015 (Epic 13) and 0014 (Epic 11), then 0013.
+					// 0021 and 0020, 0019, 0018, 0017 and 0016, 0015 and 0014, then 0013.
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -2084,7 +2084,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -2100,7 +2100,7 @@ describe("resource guard migration", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
@@ -2138,7 +2138,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -2154,7 +2154,7 @@ describe("resource guard migration", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
@@ -2415,7 +2415,7 @@ describe("resource guard migration", () => {
 						provider: { getMigrations: async () => migrations },
 						allowUnorderedMigrations: true,
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -2431,7 +2431,7 @@ describe("resource guard migration", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
@@ -2542,7 +2542,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -2608,7 +2608,7 @@ describe("resource guard migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -2624,7 +2624,7 @@ describe("resource guard migration", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
@@ -3054,7 +3054,7 @@ describe("backups migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -3070,7 +3070,7 @@ describe("backups migration", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
@@ -3162,7 +3162,7 @@ describe("backups migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -3178,7 +3178,7 @@ describe("backups migration", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
@@ -3245,7 +3245,7 @@ describe("api request samples migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -3261,14 +3261,14 @@ describe("api request samples migration", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0029_package_survey",
 					);
-					// Past 0028, 0027, 0026, 0025, 0024 and 0023 (Epic 21) first.
+					// Past 0028, 0027, 0026, 0025, 0024 and 0023 first.
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
 					expect((await migrator.migrateDown()).error).toBeUndefined();
@@ -3289,7 +3289,7 @@ describe("api request samples migration", () => {
 	);
 });
 
-// ── Pool guard rails (ADR 0034 ruling 14) ──
+// ── Pool guard rails (ADR 0034) ──
 
 describe("pool options", () => {
 	test("bound the wait for a connection, a statement and an idle transaction", () => {
@@ -3442,7 +3442,7 @@ describe("throttle hold migration", () => {
 						db: trx,
 						provider: { getMigrations: async () => migrations },
 					});
-					// Past 0031 (Epic 26) first.
+					// Past 0031 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0035_docker_seed_images_set",
 					);
@@ -3458,7 +3458,7 @@ describe("throttle hold migration", () => {
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0031_docker_cache",
 					);
-					// Past 0030 and 0029 (Epic 24) first.
+					// Past 0030 and 0029 first.
 					expect((await migrator.migrateDown()).results?.[0]?.migrationName).toBe(
 						"0030_egress_blocked_sites",
 					);

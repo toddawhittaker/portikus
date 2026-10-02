@@ -2,7 +2,7 @@
 # Holds client secrets and any LDAP bind password: root:portikus-dex, mode 0640.
 issuer: {{ portikus_dex_issuer | to_json }}
 # Accounts live in their own database, so a restart keeps them and the
-# nightly backup carries them (docs/archive/epics/EPIC-14.md ruling 19).  The postgresql
+# nightly backup carries them (ADR 0028).  The postgresql
 # role makes it; peer authentication over the socket admits only Dex's user.
 storage:
   type: postgres
@@ -15,7 +15,7 @@ storage:
 web:
   http: 127.0.0.1:{{ dex_port }}
 # The API manages local passwords here; only a client certificate from this
-# site's authority is accepted (ruling 20).
+# site's authority is accepted (ADR 0028).
 grpc:
   addr: {{ dex_grpc_addr | to_json }}
   tlsCert: {{ (dex_grpc_dir ~ '/server.crt') | to_json }}
@@ -45,7 +45,7 @@ staticClients:
       - {{ (portikus_public_url ~ '/auth/callback') | to_json }}
 {% if portikus_dex_upstream != 'none' %}
 {% set dex_callback = portikus_dex_issuer ~ '/callback' %}
-# One upstream connector per site (ruling 13).
+# One upstream connector per site (SPEC.md 5.1).
 connectors:
 {% if portikus_dex_upstream == 'ldap' %}
 {% set attrs = dex_ldap_attributes[portikus_ldap_schema] %}

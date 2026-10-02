@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 # Tests that the pilot and rehearsal VMs have fixed MAC addresses in their
-# committed variables (issue #834), so a destroyed and recreated VM gets the
+# committed variables, so a destroyed and recreated VM gets the
 # same DHCP address.  Needs tofu, no VM and no state.
+# shellcheck disable=SC2154  # pass and fail come from lib.sh
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENVS="${REPO_ROOT}/infra/tofu/environments"
 
-pass=0
-fail=0
-ok() { printf '\033[1;32mPASS\033[0m  %s\n' "$1"; pass=$((pass + 1)); }
-no() { printf '\033[1;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail + 1)); }
+# shellcheck source=/dev/null
+. "${REPO_ROOT}/infra/tests/lib.sh"
 
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
@@ -27,13 +26,13 @@ rehearsal="$(mac rehearsal-libvirt)"
 if [ "${pilot}" = "52:54:00:f6:44:35" ]; then
   ok "the pilot keeps its MAC address 52:54:00:f6:44:35"
 else
-  no "the pilot's MAC address is '${pilot}', not 52:54:00:f6:44:35"
+  bad "the pilot's MAC address is '${pilot}', not 52:54:00:f6:44:35"
 fi
 
 if [[ "${rehearsal}" =~ ^52:54:00(:[0-9a-f]{2}){3}$ ]] && [ "${rehearsal}" != "${pilot}" ]; then
   ok "the rehearsal VM has its own fixed MAC address ${rehearsal}"
 else
-  no "the rehearsal VM's MAC address is '${rehearsal}'"
+  bad "the rehearsal VM's MAC address is '${rehearsal}'"
 fi
 
 # An empty TF_VAR_mac_address, as the Makefile once exported after a destroy,
@@ -48,17 +47,17 @@ plan_dev() {
 if plan_dev >/dev/null; then
   ok "the committed MAC address passes validation"
 else
-  no "the committed MAC address fails validation"
+  bad "the committed MAC address fails validation"
 fi
 empty="$(TF_VAR_mac_address='' plan_dev)"
 if [[ "${empty}" == *'mac_address must be'* ]]; then
   ok "an empty mac_address is refused"
 else
-  no "an empty mac_address is accepted"
+  bad "an empty mac_address is accepted"
 fi
 
 if grep -q 'TF_VAR_mac_address' "${REPO_ROOT}/Makefile"; then
-  no "the Makefile sets TF_VAR_mac_address, which would override the fixed address"
+  bad "the Makefile sets TF_VAR_mac_address, which would override the fixed address"
 else
   ok "the Makefile leaves the MAC address to the committed variables"
 fi

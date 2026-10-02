@@ -341,7 +341,7 @@ test("after a removal, focus moves to the next row's Remove button", async () =>
 	);
 });
 
-test("when only the caller is left, focus moves to the page heading (review A3)", async () => {
+test("when only the caller is left, focus moves to the page heading", async () => {
 	let members = [
 		{
 			...samMember(),

@@ -6,7 +6,7 @@ import {
 } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
-import { announced } from "./SettingsTab.js";
+import { announced } from "../common/announced.js";
 
 export interface QuotaProblem {
 	message: string;
@@ -15,7 +15,7 @@ export interface QuotaProblem {
 	docker: boolean;
 }
 
-/** The problem with a draft and the fields it is about, or null when it can be sent (Epic 11 brief, "storage can only grow"). */
+/** The problem with a draft and the fields it is about, or null when it can be sent. */
 export function quotaError(
 	from: QuotaConfig,
 	home: string,

@@ -4,7 +4,7 @@ import { createStudent, loginAs, query, settledAxe } from "./helpers";
 
 /**
  * The Health tab's per-workspace heat map and the guard and activity charts
- * (SPEC.md §25.6, #598 items 3 to 5). No worker runs in e2e, so the tests
+ * (SPEC.md §25.6). No worker runs in e2e, so the tests
  * write the usage samples and audit rows the worker and API would.
  */
 test.describe.configure({ mode: "serial" });

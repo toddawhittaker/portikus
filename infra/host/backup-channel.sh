@@ -36,6 +36,8 @@ set -euo pipefail
 umask 077
 
 here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+# shellcheck source=/dev/null
+. "${here}/portikus-backup-lib.sh"
 BACKUP_DIR="${PORTIKUS_BACKUP_DIR:-/var/backups/portikus}"
 RECIPIENTS="${PORTIKUS_BACKUP_RECIPIENTS:-}"
 KEY="${PORTIKUS_BACKUP_KEY:-/etc/portikus-backup/age-key.txt}"
@@ -304,17 +306,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-vm() { runuser -u "$OPERATOR" -- ssh -n "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
-vm_in() { runuser -u "$OPERATOR" -- ssh "${SSH_OPTS[@]}" "deploy@${VM}" "$@"; }
 # as_operator CMD... -- CMD as the account that owns the sets: root on a local server.
 as_operator() { runuser -u "$OPERATOR" -- "$@"; }
 if [ "$LOCAL" = yes ]; then
-  # The same commands as over SSH, run here; this is already root, so sudo is a no-op.
-  sudo() { "$@"; }
-  export -f sudo
-  vm() { bash -c "$*" </dev/null; }
-  vm_in() { bash -c "$*"; }
+  use_local_vm
   as_operator() { "$@"; }
 fi
 
@@ -409,22 +404,6 @@ newest_complete_sets() {
   done
 }
 
-# enough_free_space -- is there room in BACKUP_DIR for one more set: the
-# newest complete set's size plus a fifth, and at least MIN_FREE_MB? The
-# same check as in backup.sh (ADR 0039).
-enough_free_space() {
-  local s newest="" size need avail
-  for s in $(find "$HOST_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | grep -E "$SET_PATTERN" | sort -r); do
-    [ -e "${HOST_DIR}/${s}/FAILED" ] || { newest=$s; break; }
-  done
-  need=$((MIN_FREE_MB * 1048576))
-  if [ -n "$newest" ]; then
-    size=$(du -sb "${HOST_DIR}/${newest}" | cut -f1)
-    [ $((size * 6 / 5)) -le "$need" ] || need=$((size * 6 / 5))
-  fi
-  avail=$(df -B1 --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ')
-  [ "$avail" -ge "$need" ]
-}
 
 # young_requested_sets -- how many sets this channel made on request are
 # younger than the minimum age.  REQUESTED is written here, never by the VM.

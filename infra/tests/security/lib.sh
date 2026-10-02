@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for the VM security suite (Epic 12a, infra/tests/security-test.sh).
+# Shared helpers for the VM security suite (infra/tests/security-test.sh).
 #
 # Sourcing this file defines functions and nothing else, so the cleanup scope
 # test can load it with a stubbed ssh and no VM.
@@ -23,10 +23,12 @@
 #   sec_docker_exec KEY [--network host] CMD
 #                                  CMD under sh in an inner Docker container of KEY's workspace
 #   sec_ws_ip KEY, sec_agent_token KEY, sec_ws_id KEY, sec_instance KEY
-#   check LABEL CMD..., check_output LABEL EXPECTED CMD..., known_vuln ISSUE LABEL CMD...
+#   ok LABEL, bad LABEL, check LABEL CMD..., check_output LABEL EXPECTED CMD...
+#                                  from infra/tests/lib.sh
 #   sec_warn LABEL                 a finding the operator allowed, listed in the summary
 #   sec_na LABEL REASON            a check that cannot prove anything here, listed in the summary
 # shellcheck disable=SC2034  # globals are read by the runner and the modules
+# shellcheck disable=SC2154  # pass and fail come from ../lib.sh
 
 SEC_ISSUER="urn:portikus:sectest"
 SEC_PROJECT="portikus"
@@ -49,48 +51,16 @@ sec_created_instances=()
 sec_presence_pids=()
 declare -A SEC_USER_ID=() SEC_WS_ID=() SEC_INSTANCE=()
 
-pass=0
-fail=0
-sec_known=()
-sec_xpass=()
 sec_warnings=()
 sec_not_applicable=()
 
 # ── Output and checks ────────────────────────────────────────────
 
-sec_pass() { printf '\033[1;32mPASS\033[0m  %s\n' "$1"; pass=$((pass + 1)); }
-sec_fail() { printf '\033[1;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail + 1)); }
+# ok, bad, check and check_output, and the pass and fail counters.
+# shellcheck source=/dev/null
+. "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
+
 sec_info() { printf '%s\n' "$*"; }
-
-check() {
-  local label="$1"; shift
-  if "$@" >/dev/null 2>&1; then sec_pass "$label"; else sec_fail "$label"; fi
-}
-
-check_output() {
-  local label="$1" expected="$2" actual; shift 2
-  actual=$("$@" 2>/dev/null) || true
-  if [ "$actual" = "$expected" ]; then
-    sec_pass "$label"
-  else
-    sec_fail "$label (got: ${actual})"
-  fi
-}
-
-# known_vuln ISSUE LABEL CMD... -- CMD asserts the secure behaviour.  It is
-# expected to fail until issue ISSUE is fixed; when it passes, the marker is
-# stale and the run fails so somebody removes it.
-known_vuln() {
-  local issue="$1" label="$2"; shift 2
-  if "$@" >/dev/null 2>&1; then
-    printf '\033[1;31mXPASS\033[0m #%s %s (fixed? remove the marker)\n' "$issue" "$label"
-    sec_xpass+=("#${issue} ${label}")
-    fail=$((fail + 1))
-  else
-    printf '\033[1;33mKNOWN-VULN\033[0m #%s %s\n' "$issue" "$label"
-    sec_known+=("#${issue} ${label}")
-  fi
-}
 
 # sec_warn LABEL -- not a failure, because the operator chose it, but never
 # silent: the summary lists it.
@@ -116,41 +86,7 @@ sec_summary() {
     echo "Warnings (allowed on this VM by the operator):"
     for item in "${sec_warnings[@]}"; do echo "  ${item}"; done
   fi
-  if [ "${#sec_known[@]}" -gt 0 ]; then
-    echo "Expected failures (KNOWN-VULN):"
-    for item in "${sec_known[@]}"; do echo "  ${item}"; done
-  fi
-  if [ "${#sec_xpass[@]}" -gt 0 ]; then
-    echo "Marked checks that now pass (remove the marker):"
-    for item in "${sec_xpass[@]}"; do echo "  ${item}"; done
-  fi
-  echo "--- Security results: ${pass} passed, ${fail} failed, ${#sec_known[@]} known, ${#sec_warnings[@]} warning(s) ---"
-}
-
-# ── Sign-in provider (#408) ──────────────────────────────────────
-
-# With the mock provider on, anyone who reaches the site can sign in as
-# anyone, administrators included.  Only PORTIKUS_IDP=mock allows that, and
-# then as a warning.  Otherwise the mock must be off and the API must not
-# name it as its issuer.
-sec_check_idp() {
-  local issuer
-  if [ "$SEC_IDP" = "mock" ]; then
-    if sec_ssh "systemctl is-active --quiet portikus-mock-idp" >/dev/null 2>&1; then
-      sec_warn "mock sign-in on: anyone who reaches ${SEC_API} can sign in as anyone (PORTIKUS_IDP=mock, #408)"
-    else
-      sec_pass "mock sign-in is off"
-    fi
-    return 0
-  fi
-  check "the mock identity provider is not running" \
-    sec_ssh "! systemctl is-active --quiet portikus-mock-idp"
-  issuer=$(sec_ssh "sudo sed -n 's/^OIDC_ISSUER_URL=//p' /etc/portikus/api.env" 2>/dev/null)
-  if [ -n "$issuer" ] && [[ "$issuer" != */mock-idp ]]; then
-    sec_pass "the API's issuer is not the mock (${issuer})"
-  else
-    sec_fail "the API's issuer is not the mock (got: ${issuer:-none})"
-  fi
+  echo "--- Security results: ${pass} passed, ${fail} failed, ${#sec_warnings[@]} warning(s) ---"
 }
 
 # ── Transport ────────────────────────────────────────────────────
@@ -192,15 +128,6 @@ sec_init() {
   SEC_SWEEP=no
   [ "${2:-}" = "--sweep" ] && SEC_SWEEP=yes
   SEC_HEAVY="${PORTIKUS_SECURITY_HEAVY:-0}"
-  if [ -n "${PORTIKUS_MOCK_IDP:-}" ]; then
-    echo "security-test: PORTIKUS_MOCK_IDP was renamed: use PORTIKUS_IDP=mock" >&2
-    exit 2
-  fi
-  SEC_IDP="${PORTIKUS_IDP:-dex}"
-  case "$SEC_IDP" in
-    dex | mock) ;;
-    *) echo "security-test: PORTIKUS_IDP must be dex or mock (got: ${SEC_IDP})" >&2; exit 2 ;;
-  esac
   SEC_RUN_ID="$(date -u +%m%d%H%M%S)"
   SEC_PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${SEC_VM}.nip.io}"
   SEC_PUBLIC_PORT="${PORTIKUS_PUBLIC_PORT:-443}"
@@ -354,7 +281,7 @@ sec_mint_user() {
   hash=$(printf '%s' "$token" | sha256sum | awk '{print $1}')
   uid=$(sec_psql "WITH u AS (INSERT INTO users (oidc_issuer, oidc_subject, display_name, preferred_username, role, acceptable_use_version, acceptable_use_accepted_at) VALUES ('${SEC_ISSUER}', '${subject}', 'Security test ${key}', '${subject}', '${role}', (SELECT COALESCE((SELECT acceptable_use_version FROM settings WHERE id = 1), 1)), now()) RETURNING id), s AS (INSERT INTO sessions (id, user_id, expires_at) SELECT '${hash}', id, now() + interval '1 hour' FROM u) SELECT id FROM u")
   if [ -z "$uid" ]; then
-    sec_fail "mint ${role} user ${subject}"
+    bad "mint ${role} user ${subject}"
     return 1
   fi
   SEC_USER_ID[$key]="$uid"
@@ -388,14 +315,14 @@ sec_create_workspace() {
   [ -n "$id" ] && sec_created_workspace_ids+=("$id")
   [ -n "$instance" ] && sec_created_instances+=("$instance")
   if [ "$status" != "201" ] || [ -z "$id" ] || [ -z "$instance" ]; then
-    sec_fail "POST /workspaces for ${key} created a new workspace (status ${status})"
+    bad "POST /workspaces for ${key} created a new workspace (status ${status})"
     return 1
   fi
   SEC_WS_ID[$key]="$id"
   SEC_INSTANCE[$key]="$instance"
   echo "Workspace ${key}: ${id} (${instance}); waiting for provisioning..."
   if ! sec_wait_state "$key" stopped 240; then
-    sec_fail "workspace ${key} provisioned (state $(sec_ws_state "$key"))"
+    bad "workspace ${key} provisioned (state $(sec_ws_state "$key"))"
     return 1
   fi
 }
@@ -427,7 +354,7 @@ sec_hold_presence() {
   sec_presence_pids+=("$!")
   echo "Holding presence for ${key}; waiting for it to run..."
   if ! sec_wait_state "$key" running 180; then
-    sec_fail "workspace ${key} reaches running on presence"
+    bad "workspace ${key} reaches running on presence"
     return 1
   fi
   # Running in the database comes before the agent answers.
@@ -509,6 +436,60 @@ sec_docker_exec() {
   shift
   if [ "$1" = "--network" ]; then net="--network $2"; shift 2; fi
   sec_exec "$key" student "docker run --rm ${net} ${SEC_DOCKER_IMAGE} sh -c $(printf '%q' "$1")"
+}
+
+# ── The ghcr.io cache on the gateway's port 443 ──────────────────
+
+# While the ghcr.io cache is on, the VM redirects a workspace's TCP 443 to
+# the gateway to the cache on :5001 (SPEC.md 16.6, ADR 0045), so that one
+# port is open.  The switch file is what the smoke test reads too.
+sec_ghcr_cache_on() {
+  [ "$(sec_ssh "cat /etc/portikus/registry/ghcr-enabled" 2>/dev/null)" = on ]
+}
+
+# The answer sec_gateway_443_probe prints when the port reaches the cache and
+# nothing else: /v2/ answers as a registry, the site's health path through the
+# site's own name gets the registry's 404, and, where openssl exists, the
+# certificate is the one the cache serves on :5001.
+SEC_GATEWAY_443_BASH="200/registry/2.0/404/same-as-5001"
+SEC_GATEWAY_443_SH="200/registry/2.0/404"
+
+# sec_gateway_443_probe bash|sh GATEWAY -- a probe script printing "closed",
+# or the registry evidence in the form of the two values above.  bash runs as
+# the workspace's own user with curl; sh runs in Alpine with busybox wget.
+sec_gateway_443_probe() {
+  local gw="$2"
+  if [ "$1" = bash ]; then
+    cat <<EOF
+gw=${gw}; site=${SEC_PUBLIC_HOST}
+EOF
+    cat <<'EOF'
+g443() {
+  timeout 4 bash -c "exec 3<>/dev/tcp/$gw/443" 2>/dev/null || { echo closed; return; }
+  v2=$(curl -sk --noproxy '*' -D - -o /dev/null --max-time 10 "https://${gw}/v2/" | tr -d '\r' \
+    | awk 'NR == 1 { c = $2 } tolower($1) == "docker-distribution-api-version:" { v = $2 } END { print (c ? c : "000") "/" (v ? v : "none") }')
+  s=$(curl -sk --noproxy '*' -o /dev/null -w '%{http_code}' --max-time 10 --resolve "${site}:443:${gw}" "https://${site}/health")
+  fp() { timeout 10 openssl s_client -connect "$1" -servername ghcr.io </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null; }
+  a=$(fp "${gw}:443"); b=$(fp "${gw}:5001")
+  if [ -n "$a" ] && [ "$a" = "$b" ]; then c=same-as-5001; else c="different(${a:-none})"; fi
+  echo "${v2}/${s}/${c}"
+}
+EOF
+  else
+    cat <<EOF
+gw=${gw}; site=${SEC_PUBLIC_HOST}
+EOF
+    cat <<'EOF'
+g443() {
+  nc -z -w 4 "$gw" 443 2>/dev/null || { echo closed; return; }
+  v2=$(wget -S -q -T 10 --no-check-certificate -O /dev/null "https://${gw}/v2/" 2>&1 | tr -d '\r' \
+    | awk '/^ *HTTP\// && !c { c = $2 } tolower($1) == "docker-distribution-api-version:" { v = $2 } END { print (c ? c : "000") "/" (v ? v : "none") }')
+  s=$(wget -S -q -T 10 --no-check-certificate -O /dev/null --header "Host: ${site}" "https://${gw}/health" 2>&1 \
+    | awk 'match($0, /HTTP\/[0-9.]+ [0-9]+/) { split(substr($0, RSTART, RLENGTH), x, " "); print x[2]; exit }')
+  echo "${v2}/${s:-000}"
+}
+EOF
+  fi
 }
 
 # ── Cleanup ──────────────────────────────────────────────────────

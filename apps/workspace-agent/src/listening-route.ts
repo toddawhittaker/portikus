@@ -10,8 +10,9 @@ import {
 	PortNumber,
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
-import { ForwardFailure, type Forwards } from "./forwards.js";
-import { type ListeningMonitor, StopFailure } from "./listening.js";
+import { sendError } from "./errors.js";
+import type { Forwards } from "./forwards.js";
+import type { ListeningMonitor } from "./listening.js";
 
 export interface ListeningRouteOptions {
 	monitor: ListeningMonitor;
@@ -45,7 +46,7 @@ export async function listeningRoutes(
 		await monitor.refresh();
 	});
 
-	/** Stop what holds a port (SPEC.md §18.2, issue #273). */
+	/** Stop what holds a port (SPEC.md §18.2). */
 	instance.post("/listening/:port/stop", async (request, reply) => {
 		const { port } = request.params as { port: string };
 		const parsed = PortNumber.safeParse(Number.parseInt(port, 10));
@@ -57,25 +58,15 @@ export async function listeningRoutes(
 		try {
 			await monitor.stopListener(parsed.data);
 		} catch (error) {
-			if (error instanceof StopFailure) {
-				return reply
-					.code(error.status)
-					.send({ error: { code: error.code, message: error.message } });
-			}
-			request.log.error(
-				{ error: error instanceof Error ? error.message : String(error) },
-				"stop listener failed",
-			);
-			return reply
-				.code(500)
-				.send({ error: { code: "INTERNAL", message: "internal error" } });
+			return sendError(request, reply, error, "INTERNAL");
 		}
 		// The next scan drops the row; report what was asked and done.
 		await monitor.refresh();
 		return { port: parsed.data, stopped: true };
 	});
 
-	/** Settle a port's protocol when a preview first asks (issue #957). */
+	/** Settle a port's protocol when a preview first asks. */
+	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	instance.post("/listening/:port/probe", async (request, reply) => {
 		const { port } = request.params as { port: string };
 		const parsed = PortNumber.safeParse(Number.parseInt(port, 10));
@@ -95,6 +86,7 @@ export async function listeningRoutes(
 		}
 		return { service };
 	});
+	// jscpd:ignore-end
 
 	instance.get("/forwards", async () => ({ forwards: forwards.list() }));
 
@@ -108,18 +100,7 @@ export async function listeningRoutes(
 		try {
 			return await forwards.open(parsed.data.port);
 		} catch (error) {
-			if (error instanceof ForwardFailure) {
-				return reply
-					.code(error.status)
-					.send({ error: { code: error.code, message: error.message } });
-			}
-			request.log.error(
-				{ error: error instanceof Error ? error.message : String(error) },
-				"loopback forward failed",
-			);
-			return reply
-				.code(500)
-				.send({ error: { code: "INTERNAL", message: "internal error" } });
+			return sendError(request, reply, error, "INTERNAL");
 		}
 	});
 

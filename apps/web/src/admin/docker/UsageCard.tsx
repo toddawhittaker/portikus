@@ -1,9 +1,9 @@
 import type { DockerAdminResponse, DockerImageUsage } from "@portikus/contracts";
 import { Button, Skeleton, Toggletip, useToast } from "@portikus/ui";
 import type { ReactNode } from "react";
+import { errorText } from "../../api/request.js";
+import { shortTime } from "../../text.js";
 import { AdminGroup } from "../AdminSection.js";
-import { errorText } from "../SettingsTab.js";
-import { shortTime } from "../shortTime.js";
 import { DownloadSize } from "./DownloadSize.js";
 import { useDockerUsage, useSaveSeedImages } from "./queries.js";
 import { addRefusal, listHas, shortImageName, shownText } from "./text.js";
@@ -11,7 +11,7 @@ import { addRefusal, listHas, shortImageName, shownText } from "./text.js";
 const SUB_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
 
 /**
- * Which images to add to the seed and which to drop (issue #840). Counts
+ * Which images to add to the seed and which to drop. Counts
  * only; names are shown as text, never as links or markup.
  */
 export function UsageCard({ data }: { data: DockerAdminResponse }) {

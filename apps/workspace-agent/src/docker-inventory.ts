@@ -1,7 +1,7 @@
 /**
  * The student's Docker images and the images their containers use
  * (SPEC.md §16.5), for the worker's seed usage report. Docker runs by
- * absolute path as the agent's own user, the student (ruling S7).
+ * absolute path as the agent's own user, the student.
  */
 import { execFile } from "node:child_process";
 import {
@@ -16,7 +16,7 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 
-export const DOCKER_PATH = "/usr/bin/docker";
+const DOCKER_PATH = "/usr/bin/docker";
 
 /** The whole inventory must finish within this time. */
 export const INVENTORY_TIMEOUT_MS = 10_000;
@@ -52,7 +52,7 @@ interface ImageRow {
 }
 
 /** Parse `docker image ls --no-trunc --format json`: one object per line, one line per tag. */
-export function parseImageList(stdout: string): ImageRow[] {
+function parseImageList(stdout: string): ImageRow[] {
 	const byId = new Map<string, ImageRow>();
 	for (const line of stdout.split("\n")) {
 		if (line.trim() === "") continue;
@@ -79,7 +79,7 @@ export function parseImageList(stdout: string): ImageRow[] {
 }
 
 /** Parse `docker ps -a --no-trunc --format json` into the image reference each container names. */
-export function parseContainerImages(stdout: string): string[] {
+function parseContainerImages(stdout: string): string[] {
 	const refs: string[] = [];
 	for (const line of stdout.split("\n")) {
 		if (line.trim() === "") continue;
@@ -89,13 +89,13 @@ export function parseContainerImages(stdout: string): string[] {
 	return refs;
 }
 
-export interface InspectRow {
+interface InspectRow {
 	layers: string[];
 	repoDigests: string[];
 }
 
 /** Parse `docker image inspect` output into each image's layer diff ids and repo digests. */
-export function parseInspect(stdout: string): Map<string, InspectRow> {
+function parseInspect(stdout: string): Map<string, InspectRow> {
 	const rows = new Map<string, InspectRow>();
 	const parsed = JSON.parse(stdout) as unknown;
 	if (!Array.isArray(parsed)) return rows;

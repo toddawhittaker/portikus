@@ -1,6 +1,6 @@
 /**
  * The "Show the full command" disclosure that Monitor and Running share
- * (SPEC.md §18.2, §18.3, issue #701). The button sits in a row's actions;
+ * (SPEC.md §18.2, §18.3). The button sits in a row's actions;
  * the text shows below the row, wrapped, in monospace. Only the student's
  * own processes carry a command line (SPEC.md §24.11).
  */

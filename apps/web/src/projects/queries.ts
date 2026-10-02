@@ -11,7 +11,7 @@ import { request } from "../api/request.js";
 
 const base = (workspaceId: string) => `/workspaces/${workspaceId}/projects`;
 
-export const projectKeys = {
+const projectKeys = {
 	list: (workspaceId: string, state: ProjectState) =>
 		["projects", workspaceId, state] as const,
 	templates: (workspaceId: string) => ["project-templates", workspaceId] as const,

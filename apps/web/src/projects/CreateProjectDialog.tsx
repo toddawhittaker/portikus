@@ -2,9 +2,9 @@ import { displayNameFromDirectory, type Project, slugify } from "@portikus/contr
 import { Button, Checkbox, Dialog, DialogRoot, Select, TextField } from "@portikus/ui";
 import { useState } from "react";
 import { ApiError } from "../api/request.js";
+import { DialogError } from "../common/DialogError.js";
 import { isStorageFull, STORAGE_FULL_MESSAGE } from "../files/errors.js";
 import { cloneUrlForRequest, projectNameFromCloneUrl } from "./cloneUrl.js";
-import { DialogError } from "./DialogError.js";
 import { useCreateProject, useProjects, useProjectTemplates } from "./queries.js";
 
 export type CreateMode = "new" | "clone" | "template";
@@ -153,7 +153,7 @@ export function CreateProjectDialog({
 							onChange={(event) => {
 								setUrl(event.target.value);
 								if (nameEdited) return;
-								// The folder read as a title; the clone may replace it (#846).
+								// The folder read as a title; the clone may replace it.
 								const folder = projectNameFromCloneUrl(event.target.value);
 								setName(folder === "" ? "" : displayNameFromDirectory(folder));
 							}}

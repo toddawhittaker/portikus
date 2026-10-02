@@ -1,7 +1,9 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
+	cookiePairs,
 	createProject,
 	createStudent,
+	headersOf,
 	openToggletip,
 	query,
 	seedListening,
@@ -63,24 +65,6 @@ const PASSED_HEADERS = [
 	"content-security-policy",
 ];
 
-function headersOf(response: Response): Record<string, string> {
-	const headers: Record<string, string> = {};
-	for (const name of PASSED_HEADERS) {
-		const value = response.headers.get(name);
-		if (value !== null) headers[name] = value;
-	}
-	return headers;
-}
-
-/** The `name=value` part of each Set-Cookie line, for the next hop. */
-function cookiePairs(response: Response): string {
-	return response.headers
-		.getSetCookie()
-		.map((line) => line.split(";")[0] ?? "")
-		.filter(Boolean)
-		.join("; ");
-}
-
 /**
  * Stand in for Caddy for the browser's requests to preview hosts. Returns a
  * count of the requests that reached the student application, which is how a
@@ -107,7 +91,7 @@ async function previewGateway(page: Page): Promise<{ app: number }> {
 		if (!authorized.ok) {
 			return {
 				status: authorized.status,
-				headers: headersOf(authorized),
+				headers: headersOf(authorized, PASSED_HEADERS),
 				body: Buffer.from(await authorized.arrayBuffer()),
 			};
 		}
@@ -120,7 +104,7 @@ async function previewGateway(page: Page): Promise<{ app: number }> {
 		});
 		return {
 			status: proxied.status,
-			headers: headersOf(proxied),
+			headers: headersOf(proxied, PASSED_HEADERS),
 			body: Buffer.from(await proxied.arrayBuffer()),
 		};
 	}
@@ -145,7 +129,7 @@ async function previewGateway(page: Page): Promise<{ app: number }> {
 					},
 					redirect: "manual",
 				});
-				const headers = headersOf(answer);
+				const headers = headersOf(answer, PASSED_HEADERS);
 				const setCookie = answer.headers.getSetCookie();
 				if (setCookie.length > 0) headers["set-cookie"] = setCookie.join("\n");
 
@@ -237,7 +221,7 @@ test.describe("application preview", () => {
 		context,
 	}) => {
 		// The agent's own forward must not make the port look like a system
-		// service and hide the student's server (issue #299).
+		// service and hide the student's server.
 		const student = await createStudent(context);
 		await seedListening(student.workspaceId, [
 			{
@@ -280,7 +264,7 @@ test.describe("application preview", () => {
 		await expect(page.getByTestId("running-reason-5355")).toHaveText("System service");
 		await expect(page.getByTestId("running-stop-5355")).toHaveCount(0);
 
-		// The choice is remembered per browser (issue #265).
+		// The choice is remembered per browser.
 		await page.reload();
 		await page.getByTestId("right-pane-tab-running").click();
 		await expect(page.getByTestId("running-row-5355")).toBeVisible({ timeout: 20_000 });
@@ -356,7 +340,7 @@ test.describe("application preview", () => {
 		await page.getByTestId("launcher-preview").click();
 		await page.getByLabel("Port").fill("80");
 		await page.getByTestId("preview-open-port").click();
-		// The state says what to do instead and offers no retry (review S6).
+		// The state says what to do instead and offers no retry.
 		await expect(
 			page.getByRole("heading", { name: "Port 80 cannot be previewed" }),
 		).toBeVisible({ timeout: 20_000 });
@@ -602,7 +586,7 @@ test.describe("application preview", () => {
 			await page.goto(workspacePath(student.workspaceId, project.id));
 			await expect(appHeading(page)).toHaveText("Tip", { timeout: 20_000 });
 
-			// Icons with names, not words (review S7).
+			// Icons with names, not words.
 			await expect(page.getByTestId("preview-back")).toHaveAccessibleName("Back");
 			await expect(page.getByTestId("preview-back")).toHaveText("");
 			await expect(page.getByTestId("preview-forward")).toHaveAccessibleName("Forward");

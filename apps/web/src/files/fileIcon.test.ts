@@ -33,7 +33,7 @@ describe("the file row icon", () => {
 	});
 });
 
-/** Issue #184: the tree row has its own, tighter height token. */
+/** The tree row has its own, tighter height token. */
 describe("the file tree row height", () => {
 	it("uses the tree row density token", () => {
 		const css = readFileSync(

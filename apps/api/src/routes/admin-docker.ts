@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
@@ -28,13 +27,13 @@ import {
 	USAGE_ROWS_MAX,
 	USAGE_WINDOW_DAYS,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { type Kysely, sql } from "kysely";
+import { sendError } from "../http.js";
 import { imagesDirOf } from "../image/release-notices.js";
-import { readJson } from "../job-files.js";
+import { readJson, writeRequestFile } from "../job-files.js";
 import type { ServerDeps } from "../server.js";
-import { sendError } from "./project-scope.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 
@@ -49,7 +48,7 @@ interface DockerSettings {
 	ghcrEnabled: boolean;
 	seedMaxGiB: number;
 	seedImages: string[];
-	/** False until an administrator first saves the list (issue #932). */
+	/** False until an administrator first saves the list. */
 	seedImagesSet: boolean;
 }
 
@@ -93,7 +92,7 @@ function matchedImages(match: SeedMatch | null): string[] {
 
 type ImageSizes = NonNullable<RegistryStatusFile["imageSizes"]>;
 
-/** The page's view of the status: everything but the size list (issue #931). */
+/** The page's view of the status: everything but the size list. */
 function cacheView(status: RegistryStatusFile | null): DockerCacheStatus | null {
 	if (!status) return null;
 	const { imageSizes: _sizes, ...cache } = status;
@@ -109,17 +108,6 @@ function sizesOf(names: string[], sizes: ImageSizes): Record<string, number> {
 		if (entry) out[key] = entry.bytes;
 	}
 	return out;
-}
-
-async function readStatus(file: string): Promise<RegistryStatusFile | null> {
-	try {
-		const parsed = RegistryStatusFile.safeParse(
-			JSON.parse(await readFile(file, "utf8")),
-		);
-		return parsed.success ? parsed.data : null;
-	} catch {
-		return null;
-	}
 }
 
 async function readSeed(db: Kysely<Database>): Promise<DockerAdminResponse["seed"]> {
@@ -163,11 +151,6 @@ function insertJob(
 		.executeTakeFirstOrThrow();
 }
 
-/** The partial unique index allows one queued or running job. */
-function isUniqueViolation(e: unknown): boolean {
-	return (e as { code?: string }).code === "23505";
-}
-
 function jobRunning(reply: FastifyReply): void {
 	sendError(
 		reply,
@@ -190,11 +173,10 @@ function jobView(row: JobRow): SeedJob {
 }
 
 /**
- * Write one request for the root cache helper: aside, then renamed, so its
- * path unit never reads half a file. Mode 0600 because a credential request
- * carries the token (ruling S5).
+ * Write one request for the root cache helper. Mode 0600 because a
+ * credential request carries the token.
  */
-export async function writeRegistryRequest(
+async function writeRegistryRequest(
 	dir: string,
 	requestedBy: string,
 	request: RegistryJobRequest,
@@ -206,19 +188,12 @@ export async function writeRegistryRequest(
 		requestedBy,
 		request,
 	};
-	const temp = join(dir, `.request-${id}.tmp`);
-	try {
-		await writeFile(temp, `${JSON.stringify(file)}\n`, { flag: "wx", mode: 0o600 });
-		await rename(temp, join(dir, `request-${id}.json`));
-	} catch (e) {
-		await rm(temp, { force: true });
-		throw e;
-	}
+	await writeRequestFile(dir, file, 0o600);
 	return id;
 }
 
 /**
- * The Docker admin tab's routes (issue #840): cache settings and the Hub
+ * The Docker admin tab's routes: cache settings and the Hub
  * credential through the root helper's request files, the seed list and
  * rebuild jobs through the database and the worker, and the aggregate usage
  * report. Every change writes an audit row, and none carries the token.
@@ -242,16 +217,13 @@ export function registerAdminDockerRoutes(
 		action: string,
 		metadata: Record<string, unknown>,
 	): Promise<void> {
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: `user:${actor}`,
-				target: "docker",
-				action,
-				result: "ok",
-				metadata: JSON.stringify(metadata),
-			})
-			.execute();
+		await recordAudit(db, {
+			actor: `user:${actor}`,
+			target: "docker",
+			action,
+			result: "ok",
+			metadata: metadata,
+		});
 	}
 
 	app.get("/admin/docker", adminOnly, async (_request, reply) => {
@@ -269,7 +241,7 @@ export function registerAdminDockerRoutes(
 			defaults.length > 0 &&
 			defaultsValid
 		) {
-			// The default seed for a list no administrator has set (ruling R4).
+			// The default seed for a list no administrator has set.
 			const applied = await db
 				.updateTable("settings")
 				.set({
@@ -280,20 +252,17 @@ export function registerAdminDockerRoutes(
 				.where("docker_seed_images_set", "=", false)
 				.executeTakeFirst();
 			if (Number(applied.numUpdatedRows) > 0) {
-				await db
-					.insertInto("audit_events")
-					.values({
-						actor: "platform",
-						target: "docker",
-						action: "docker.seed_images_defaulted",
-						result: "ok",
-						metadata: JSON.stringify({ to: defaults }),
-					})
-					.execute();
+				await recordAudit(db, {
+					actor: "platform",
+					target: "docker",
+					action: "docker.seed_images_defaulted",
+					result: "ok",
+					metadata: { to: defaults },
+				});
 			}
 			settings = await readSettings(db);
 		}
-		const status = await readStatus(join(jobsDir, "status.json"));
+		const status = await readJson(join(jobsDir, "status.json"), RegistryStatusFile);
 		const seed = await readSeed(db);
 		const out: DockerAdminResponse = {
 			cache: cacheView(status),
@@ -390,9 +359,9 @@ export function registerAdminDockerRoutes(
 	app.post("/admin/docker/cache/clear", adminOnly, async (request, reply) => {
 		if (off(reply) || !jobsDir) return;
 		const admin = requireUser(request);
-		// The helper would do nothing and the page would say it cleared (issue #931).
+		// The helper would do nothing and the page would say it cleared.
 		// No cache, so nothing to clear: 404 rather than a new error code.
-		if ((await readStatus(join(jobsDir, "status.json")))?.cacheOff) {
+		if ((await readJson(join(jobsDir, "status.json"), RegistryStatusFile))?.cacheOff) {
 			return sendError(
 				reply,
 				404,
@@ -469,7 +438,7 @@ export function registerAdminDockerRoutes(
 		return reply.status(202).send(jobView(row));
 	});
 
-	// The drift notice's button (issue #932): swap the old matched tags for the
+	// The drift notice's button: swap the old matched tags for the
 	// default image's, then rebuild, both or neither.
 	app.post("/admin/docker/seed/match", adminOnly, async (request, reply) => {
 		if (off(reply) || !jobsDir) return;
@@ -493,7 +462,7 @@ export function registerAdminDockerRoutes(
 				"The seed list already holds the images that match the workspace image.",
 			);
 		}
-		const status = await readStatus(join(jobsDir, "status.json"));
+		const status = await readJson(join(jobsDir, "status.json"), RegistryStatusFile);
 		const sizes = sizesOf(drift.next, status?.imageSizes ?? {});
 		if (overSeedCap(drift.next, sizes, seedMaxGiB)) {
 			return sendError(
@@ -562,7 +531,7 @@ export function registerAdminDockerRoutes(
 
 	app.get("/admin/docker/usage", adminOnly, async (_request, reply) => {
 		if (off(reply) || !jobsDir) return;
-		const status = await readStatus(join(jobsDir, "status.json"));
+		const status = await readJson(join(jobsDir, "status.json"), RegistryStatusFile);
 		return reply
 			.header("cache-control", "no-store")
 			.send(await usageReport(db, new Date(), status?.imageSizes));
@@ -572,7 +541,7 @@ export function registerAdminDockerRoutes(
 /**
  * The first moment of the usage window: midnight UTC at the start of the
  * oldest of USAGE_WINDOW_DAYS calendar days, today included. Pulls are kept
- * by UTC day, so a cut-off mid-day would count one day more (issue #934).
+ * by UTC day, so a cut-off mid-day would count one day more.
  */
 export function usageWindowStart(now: Date): Date {
 	return new Date(
@@ -585,10 +554,10 @@ export function usageWindowStart(now: Date): Date {
 }
 
 /**
- * The aggregate usage report (ruling 7, S7): images pulled or present that
+ * The aggregate usage report: images pulled or present that
  * the seed does not hold, and seed images no workspace used. Counts only;
  * no workspace id or owner leaves this function. Each list is cut to
- * USAGE_ROWS_MAX rows, most workspaces then most pulls first (ruling S7).
+ * USAGE_ROWS_MAX rows, most workspaces then most pulls first.
  */
 export async function usageReport(
 	db: Kysely<Database>,

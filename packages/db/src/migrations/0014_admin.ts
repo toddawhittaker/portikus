@@ -11,7 +11,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.alterTable("workspaces")
 		.addColumn("quota_applied", "jsonb")
 		.execute();
-	// Only the two grown volumes; quota_config may also hold Epic 10's recoveryGiB.
+	// Only the two grown volumes; quota_config may also hold recoveryGiB.
 	await sql`update workspaces set quota_applied = jsonb_build_object('homeGiB', quota_config->'homeGiB', 'dockerGiB', quota_config->'dockerGiB') where quota_config is not null`.execute(
 		db,
 	);

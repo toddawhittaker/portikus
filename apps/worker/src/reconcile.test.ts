@@ -169,12 +169,12 @@ test.skipIf(skip)("connect -> sweep -> start called -> running", async () => {
 	await insertConnection(id);
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
 	expect(fake.calls.some((c) => c.method === "start")).toBe(true);
-	// The start request carries the preview host suffix (issue #263).
+	// The start request carries the preview host suffix.
 	const startCall = fake.calls.find((c) => c.method === "start");
 	expect(startCall?.args[1]).toMatchObject({
 		previewHostSuffix: "preview.portikus.example.edu",
@@ -184,7 +184,7 @@ test.skipIf(skip)("connect -> sweep -> start called -> running", async () => {
 	expect(audits.some((a) => a.action === "workspace.start")).toBe(true);
 });
 
-/** Issue #287: the container starts in the zone its owner chose. */
+/** The container starts in the zone its owner chose. */
 test.skipIf(skip)("the start request carries the owner's timezone", async () => {
 	const ownerId = await insertTestUser(tdb.db);
 	await tdb.db
@@ -200,13 +200,13 @@ test.skipIf(skip)("the start request carries the owner's timezone", async () => 
 	await insertConnection(id);
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const startCall = fake.calls.find((c) => c.method === "start");
 	expect(startCall?.args[1]).toMatchObject({ timezone: "Europe/Berlin" });
 });
 
-/** Issue #840: the start request says whether to use the caches, from the saved policy. */
+/** The start request says whether to use the caches, from the saved policy. */
 test.skipIf(skip)("the start request carries the Docker cache config", async () => {
 	await tdb.db
 		.insertInto("settings")
@@ -217,7 +217,7 @@ test.skipIf(skip)("the start request carries the Docker cache config", async () 
 	await insertConnection(id);
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const startCall = fake.calls.find((c) => c.method === "start");
 	expect(startCall?.args[1]).toMatchObject({ docker: { hubMirror: true, ghcr: true } });
@@ -231,7 +231,7 @@ test.skipIf(skip)("disconnect -> sweep -> deadline set, still running", async ()
 	// No connections.
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -251,7 +251,7 @@ test.skipIf(skip)("reconnect -> sweep -> deadline cleared", async () => {
 	});
 	await insertConnection(id);
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -273,7 +273,7 @@ test.skipIf(skip)(
 		});
 		// No connections.
 
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -292,7 +292,7 @@ test.skipIf(skip)("forced stop writes workspace.force_stop audit", async () => {
 		desired_state: "stopped",
 	});
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
@@ -305,7 +305,7 @@ test.skipIf(skip)("provisioning -> create -> stopped", async () => {
 	const id = await insertWorkspace({ state: "provisioning" });
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
@@ -326,7 +326,7 @@ test.skipIf(skip)(
 		await insertConnection(id);
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -339,7 +339,7 @@ test.skipIf(skip)("create failure -> error with user-terms message", async () =>
 	const id = await insertWorkspace({ state: "provisioning" });
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("error");
@@ -355,8 +355,8 @@ test.skipIf(skip)(
 		const id = await insertWorkspace({ state: "provisioning" });
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, now);
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 		let ws = await getWorkspace(id);
 		expect(ws.state).toBe("provisioning");
@@ -372,7 +372,7 @@ test.skipIf(skip)(
 
 		// Space freed: the next sweep creates it and clears the message.
 		fake.createResult = saved;
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
 		expect(ws.error_code).toBeNull();
@@ -390,13 +390,13 @@ test.skipIf(skip)(
 		const now = new Date();
 
 		// First sweep: running -> stopping -> stopped (desired set to running).
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		let ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
 		expect(ws.desired_state).toBe("running");
 
 		// Second sweep: stopped with desired running -> starting -> running.
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		ws = await getWorkspace(id);
 		expect(ws.state).toBe("running");
 	},
@@ -416,7 +416,7 @@ test.skipIf(skip)(
 		const now = new Date();
 
 		// Force refresh by passing null lastRefreshAt.
-		await sweep(tdb.db, fake, cfg, now, null);
+		await sweep(tdb.db, fake, cfg, now);
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -425,7 +425,7 @@ test.skipIf(skip)(
 	},
 );
 
-/** Issue #840: the controller's seed builder is not a workspace; the sweep leaves it alone. */
+/** The controller's seed builder is not a workspace; the sweep leaves it alone. */
 test.skipIf(skip)("the Docker seed builder in the list is ignored", async () => {
 	const id = await insertWorkspace({
 		state: "running",
@@ -440,7 +440,7 @@ test.skipIf(skip)("the Docker seed builder in the list is ignored", async () => 
 	];
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, null);
+	await sweep(tdb.db, fake, cfg, now);
 
 	expect((await getWorkspace(id)).state).toBe("running");
 	expect(fake.calls.filter((c) => c.method !== "list")).toEqual([]);
@@ -466,7 +466,7 @@ test.skipIf(skip)("stale starting row resolved from list", async () => {
 	fake.listResult = [{ name: "ws-stale-start", status: "Running", ipv4: "10.0.0.5" }];
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, null);
+	await sweep(tdb.db, fake, cfg, now);
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -486,7 +486,7 @@ test.skipIf(skip)("compare-and-set skips a row changed underneath", async () => 
 		.execute();
 
 	const now = new Date();
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	// Should not have called start because CAS failed.
 	const ws = await getWorkspace(id);
@@ -524,7 +524,7 @@ test.skipIf(skip)("an unreachable controller is reported once per streak", async
 	await insertConnection(id);
 	const now = new Date();
 
-	const first = await sweep(tdb.db, fake, cfg, now, null);
+	const first = await sweep(tdb.db, fake, cfg, now);
 	expect(first.controllerUnreachable).toBe(true);
 	expect(first.refreshError?.code).toBe("INCUS_UNAVAILABLE");
 
@@ -541,7 +541,10 @@ test.skipIf(skip)("an unreachable controller is reported once per streak", async
 
 	// Second failure in the same streak does not write another row.
 	const later = new Date(now.getTime() + cfg.STATUS_REFRESH_SECONDS * 1000);
-	await sweep(tdb.db, fake, cfg, later, first.lastRefreshAt, true);
+	await sweep(tdb.db, fake, cfg, later, {
+		lastRefreshAt: first.lastRefreshAt,
+		controllerUnreachable: true,
+	});
 	const stillOne = await tdb.db
 		.selectFrom("audit_events")
 		.selectAll()
@@ -577,7 +580,9 @@ test.skipIf(skip)("a connect during a stop is not overwritten", async () => {
 
 	// The next sweep starts it again.
 	fake.listResult = [{ name: "ws-connect-during-stop", status: "Stopped", ipv4: null }];
-	await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+	await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), {
+		lastRefreshAt: now,
+	});
 	ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
 });
@@ -597,7 +602,7 @@ test.skipIf(skip)(
 		});
 
 		// Deadline pass moves it to stopping and stops it.
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		expect((await getWorkspace(id)).state).toBe("stopped");
 
 		// A connect arriving now must bring it back up on the next sweep.
@@ -607,7 +612,9 @@ test.skipIf(skip)(
 			.set({ desired_state: "running" })
 			.where("id", "=", id)
 			.execute();
-		await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+		await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), {
+			lastRefreshAt: now,
+		});
 		expect((await getWorkspace(id)).state).toBe("running");
 	},
 );
@@ -624,7 +631,7 @@ test.skipIf(skip)(
 		fake.listResult = [];
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, null);
+		await sweep(tdb.db, fake, cfg, now);
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("error");
@@ -641,7 +648,7 @@ test.skipIf(skip)("restart on a stopped workspace starts it", async () => {
 	});
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -656,7 +663,7 @@ test.skipIf(skip)("a failed start is audited with the controller message", async
 	});
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const audits = await getAudits(id);
 	const failed = audits.find((a) => a.action === "workspace.start_failed");
@@ -675,11 +682,11 @@ test.skipIf(skip)("an errored workspace is not retried every second", async () =
 		updated_at: now.toISOString(),
 	});
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 	expect(fake.calls.some((c) => c.method === "start")).toBe(false);
 
 	const later = new Date(now.getTime() + 11000);
-	await sweep(tdb.db, fake, cfg, later, later);
+	await sweep(tdb.db, fake, cfg, later, { lastRefreshAt: later });
 	expect(fake.calls.some((c) => c.method === "start")).toBe(true);
 	expect((await getWorkspace(id)).state).toBe("running");
 });
@@ -718,7 +725,7 @@ test.skipIf(skip)(
 		const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		const first = (await getWorkspace(id)).agent_token;
 		expect(first).toMatch(/^[0-9a-f]{64}$/);
 
@@ -729,7 +736,7 @@ test.skipIf(skip)(
 			.where("id", "=", id)
 			.execute();
 		const later = new Date(now.getTime() + 1000);
-		await sweep(tdb.db, fake, cfg, later, later);
+		await sweep(tdb.db, fake, cfg, later, { lastRefreshAt: later });
 
 		const second = (await getWorkspace(id)).agent_token;
 		expect(second).toMatch(/^[0-9a-f]{64}$/);
@@ -753,7 +760,7 @@ test.skipIf(skip)("a successful start records the agent address", async () => {
 	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	expect((await getWorkspace(id)).agent_address).toBe("10.200.0.44");
 });
@@ -772,7 +779,7 @@ async function errorRowWith(
 		? [{ name: ws.incus_instance_name as string, ...instance }]
 		: [];
 	const now = new Date();
-	await sweep(tdb.db, fake, cfg, now, null);
+	await sweep(tdb.db, fake, cfg, now);
 	return getWorkspace(id);
 }
 
@@ -815,7 +822,7 @@ test.skipIf(skip)(
 			{ name: ws.incus_instance_name as string, status: "Stopped", ipv4: null },
 		];
 		const now = new Date();
-		await sweep(tdb.db, fake, cfg, now, null);
+		await sweep(tdb.db, fake, cfg, now);
 		expect((await getWorkspace(id)).agent_address).toBeNull();
 	},
 );
@@ -833,7 +840,7 @@ test.skipIf(skip)(
 			{ name: ws.incus_instance_name as string, status: "Running", ipv4: null },
 		];
 		const now = new Date();
-		await sweep(tdb.db, fake, cfg, now, null);
+		await sweep(tdb.db, fake, cfg, now);
 		const after = await getWorkspace(id);
 		expect(after.agent_address).toBe("10.200.0.44");
 		expect(after.state).toBe("running");
@@ -855,7 +862,7 @@ test.skipIf(skip)("the drift refresh updates a changed agent address", async () 
 	];
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, null);
+	await sweep(tdb.db, fake, cfg, now);
 
 	expect((await getWorkspace(id)).agent_address).toBe("10.200.0.99");
 });
@@ -876,7 +883,7 @@ test.skipIf(skip)(
 		const open = await insertTerminal(id);
 		const alreadyEnded = await insertTerminal(id, past);
 
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 		expect((await getTerminal(open)).ended_at).not.toBeNull();
 		const ended = await getTerminal(alreadyEnded);
@@ -891,7 +898,7 @@ test.skipIf(skip)("an explicit stop ends open terminals", async () => {
 	const open = await insertTerminal(id);
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	expect((await getTerminal(open)).ended_at).not.toBeNull();
 });
@@ -921,7 +928,7 @@ test.skipIf(skip)("a global grace of 0 never arms a deadline", async () => {
 	const { id } = await runningWorkspace();
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -932,11 +939,13 @@ test.skipIf(skip)("a global grace of 0 never arms a deadline", async () => {
 test.skipIf(skip)("setting the grace to 0 clears an armed deadline", async () => {
 	const { id } = await runningWorkspace();
 	const now = new Date();
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 	expect((await getWorkspace(id)).shutdown_deadline).not.toBeNull();
 
 	await setGlobalGrace(0);
-	await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+	await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), {
+		lastRefreshAt: now,
+	});
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("running");
@@ -946,11 +955,13 @@ test.skipIf(skip)("setting the grace to 0 clears an armed deadline", async () =>
 test.skipIf(skip)("raising the grace moves the deadline forward", async () => {
 	const { id } = await runningWorkspace();
 	const now = new Date();
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 	const first = deadlineMs((await getWorkspace(id)).shutdown_deadline);
 
 	await setGlobalGrace(1200);
-	await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+	await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), {
+		lastRefreshAt: now,
+	});
 
 	const second = deadlineMs((await getWorkspace(id)).shutdown_deadline);
 	expect(second - first).toBe(600_000);
@@ -961,11 +972,11 @@ test.skipIf(skip)(
 	async () => {
 		const { id } = await runningWorkspace();
 		const now = new Date();
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 		await setGlobalGrace(60);
 		const later = new Date(now.getTime() + 120_000);
-		await sweep(tdb.db, fake, cfg, later, later);
+		await sweep(tdb.db, fake, cfg, later, { lastRefreshAt: later });
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -980,11 +991,11 @@ test.skipIf(skip)(
 		const mortal = await runningWorkspace();
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		expect((await getWorkspace(forever.id)).shutdown_deadline).toBeNull();
 
 		const later = new Date(now.getTime() + (cfg.SHUTDOWN_GRACE_SECONDS + 1) * 1000);
-		await sweep(tdb.db, fake, cfg, later, later);
+		await sweep(tdb.db, fake, cfg, later, { lastRefreshAt: later });
 
 		expect((await getWorkspace(forever.id)).state).toBe("running");
 		expect((await getWorkspace(mortal.id)).state).toBe("stopped");
@@ -996,11 +1007,11 @@ test.skipIf(skip)("an override of 30 applies even when the global is 0", async (
 	const { id } = await runningWorkspace({ shutdown_grace_seconds: 30 });
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 	expect((await getWorkspace(id)).shutdown_deadline).not.toBeNull();
 
 	const later = new Date(now.getTime() + 31_000);
-	await sweep(tdb.db, fake, cfg, later, later);
+	await sweep(tdb.db, fake, cfg, later, { lastRefreshAt: later });
 
 	expect((await getWorkspace(id)).state).toBe("stopped");
 });
@@ -1008,7 +1019,7 @@ test.skipIf(skip)("an override of 30 applies even when the global is 0", async (
 test.skipIf(skip)("clearing an override falls back to the global", async () => {
 	const { id, ownerId } = await runningWorkspace({ shutdown_grace_seconds: 30 });
 	const now = new Date();
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 	const withOverride = deadlineMs((await getWorkspace(id)).shutdown_deadline);
 
 	await tdb.db
@@ -1016,7 +1027,9 @@ test.skipIf(skip)("clearing an override falls back to the global", async () => {
 		.set({ shutdown_grace_seconds: null })
 		.where("id", "=", ownerId)
 		.execute();
-	await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+	await sweep(tdb.db, fake, cfg, new Date(now.getTime() + 1000), {
+		lastRefreshAt: now,
+	});
 
 	const after = deadlineMs((await getWorkspace(id)).shutdown_deadline);
 	expect(after - withOverride).toBe((cfg.SHUTDOWN_GRACE_SECONDS - 30) * 1000);
@@ -1027,7 +1040,7 @@ test.skipIf(skip)("without a settings row the config value is used", async () =>
 	const { id } = await runningWorkspace();
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const ws = await getWorkspace(id);
 	const expected = now.getTime() + cfg.SHUTDOWN_GRACE_SECONDS * 1000;
@@ -1047,7 +1060,7 @@ test.skipIf(skip)(
 			updated_at: new Date(now.getTime() - 60_000).toISOString(),
 		});
 
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		let ws = await getWorkspace(id);
 		expect(ws.state).toBe("running");
 		expect(ws.disconnected_at).toBeNull();
@@ -1055,7 +1068,7 @@ test.skipIf(skip)(
 
 		// A sweep with no connections arms a fresh deadline instead of stopping.
 		const later = new Date(now.getTime() + 1000);
-		await sweep(tdb.db, fake, cfg, later, later);
+		await sweep(tdb.db, fake, cfg, later, { lastRefreshAt: later });
 
 		ws = await getWorkspace(id);
 		expect(ws.state).toBe("running");
@@ -1067,7 +1080,7 @@ test.skipIf(skip)("the agent token never appears in audit metadata", async () =>
 	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 	const token = (await getWorkspace(id)).agent_token as string;
 
 	const audits = await tdb.db.selectFrom("audit_events").selectAll().execute();
@@ -1098,7 +1111,7 @@ test.skipIf(skip)(
 			{ name: "ws-log-b", status: "Stopped", ipv4: "10.0.0.3" },
 		];
 
-		await sweep(tdb.db, fake, cfg, new Date(), null, false, log);
+		await sweep(tdb.db, fake, cfg, new Date(), { log });
 
 		const decisions = lines.filter((line) => line.msg === "workspace decision");
 		expect(decisions.length).toBe(2);
@@ -1149,11 +1162,11 @@ test.skipIf(skip)("the debug snapshot query is not issued at info", async () => 
 	const db = tdb.db.withPlugin(counter);
 
 	const { logger: quiet } = collectingLogger("info");
-	await reconcile(db, fake, cfg, new Date(), null, false, quiet);
+	await reconcile(db, fake, cfg, new Date(), { log: quiet });
 	expect(counter.count).toBe(0);
 
 	const { logger: loud } = collectingLogger("debug");
-	await reconcile(db, fake, cfg, new Date(), null, false, loud);
+	await reconcile(db, fake, cfg, new Date(), { log: loud });
 	expect(counter.count).toBe(1);
 });
 
@@ -1194,11 +1207,11 @@ test.skipIf(skip)(
 
 		// The stop runs in the background, so the reset waits for the next sweep.
 		const release = holdStops();
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await reconcile(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		expect(methods()).toEqual(["stop"]);
 		release();
 		await settleStops();
-		await sweep(tdb.db, fake, cfg, new Date(), now);
+		await sweep(tdb.db, fake, cfg, new Date(), { lastRefreshAt: now });
 
 		expect(methods()).toEqual(["stop", "resetDocker"]);
 		expect(fake.calls[1]?.args[1]).toEqual({
@@ -1214,7 +1227,7 @@ test.skipIf(skip)(
 		);
 		expect(audit?.result).toBe("ok");
 
-		await sweep(tdb.db, fake, cfg, new Date(), now);
+		await sweep(tdb.db, fake, cfg, new Date(), { lastRefreshAt: now });
 		ws = await getWorkspace(id);
 		expect(ws.state).toBe("running");
 		expect(methods()).toEqual(["stop", "resetDocker", "start"]);
@@ -1225,7 +1238,7 @@ test.skipIf(skip)("no start while an operation is pending", async () => {
 	const id = await insertPending("reset-docker", { desired_state: "running" });
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	// The start step runs before the operation step, so a start here would
 	// have come first.
@@ -1237,8 +1250,8 @@ test.skipIf(skip)("a workspace that should stay stopped stays stopped", async ()
 	const id = await insertPending("reset-docker");
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
-	await sweep(tdb.db, fake, cfg, new Date(), now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+	await sweep(tdb.db, fake, cfg, new Date(), { lastRefreshAt: now });
 
 	expect(methods()).toEqual(["resetDocker"]);
 	expect((await getWorkspace(id)).state).toBe("stopped");
@@ -1256,7 +1269,7 @@ test.skipIf(skip)(
 		});
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 		expect(methods()).toEqual(["rebuild"]);
 		expect(fake.calls[0]?.args[1]).toEqual({
@@ -1276,7 +1289,7 @@ test.skipIf(skip)(
 			imageFingerprint: "rebuilt456",
 		});
 
-		await sweep(tdb.db, fake, cfg, new Date(), now);
+		await sweep(tdb.db, fake, cfg, new Date(), { lastRefreshAt: now });
 		expect((await getWorkspace(id)).state).toBe("running");
 	},
 );
@@ -1287,7 +1300,7 @@ test.skipIf(skip)(
 		await insertPending("rebuild-reset-docker");
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 		expect(fake.calls[0]).toEqual({
 			method: "rebuild",
@@ -1309,7 +1322,7 @@ test.skipIf(skip)(
 		const id = await insertPending("rebuild", { desired_state: "running" });
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("error");
@@ -1329,7 +1342,7 @@ test.skipIf(skip)("a failed docker reset is audited as such", async () => {
 	const id = await insertPending("reset-docker");
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("error");
@@ -1359,7 +1372,7 @@ test.skipIf(skip)(
 			.executeTakeFirstOrThrow();
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		expect(methods()).toEqual([]);
 		expect((await getWorkspace(id)).state).toBe("running");
 
@@ -1372,11 +1385,11 @@ test.skipIf(skip)(
 
 		// The stop runs in the background, so the rebuild waits for the next sweep.
 		const release = holdStops();
-		await reconcile(tdb.db, fake, cfg, new Date(), now);
+		await reconcile(tdb.db, fake, cfg, new Date(), { lastRefreshAt: now });
 		expect(methods()).toEqual(["stop"]);
 		release();
 		await settleStops();
-		await sweep(tdb.db, fake, cfg, new Date(), now);
+		await sweep(tdb.db, fake, cfg, new Date(), { lastRefreshAt: now });
 		expect(methods()).toEqual(["stop", "rebuild"]);
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -1388,8 +1401,8 @@ test.skipIf(skip)("create and start send the recovery volume size", async () => 
 	const id = await insertWorkspace({ state: "provisioning", desired_state: "running" });
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
-	await sweep(tdb.db, fake, cfg, new Date(), now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+	await sweep(tdb.db, fake, cfg, new Date(), { lastRefreshAt: now });
 
 	const create = fake.calls.find((c) => c.method === "create");
 	expect(create?.args[0]).toMatchObject({ recoveryGiB: 3 });
@@ -1417,7 +1430,7 @@ test.skipIf(skip)(
 			updated_at: new Date(now.getTime() - 3_600_000).toISOString(),
 		});
 
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 		expect(fake.calls.filter((c) => c.method === "start")).toEqual([]);
 		expect((await getWorkspace(stopped)).state).toBe("stopped");
@@ -1434,8 +1447,8 @@ test.skipIf(skip)(
 		});
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, now);
-		await sweep(tdb.db, fake, cfg, new Date(), now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+		await sweep(tdb.db, fake, cfg, new Date(), { lastRefreshAt: now });
 
 		expect(methods()).toEqual(["resetDocker", "start"]);
 		expect(fake.calls[0]?.args[1]).toEqual({ dockerGiB: 40 });
@@ -1450,7 +1463,7 @@ test.skipIf(skip)("rebuild uses the row's Docker size too", async () => {
 	});
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	expect(fake.calls[0]?.args[1]).toEqual({ resetDocker: true, dockerGiB: 40 });
 });
@@ -1471,8 +1484,8 @@ test.skipIf(skip)(
 			archived_at: archivedAt,
 		});
 
-		await sweep(tdb.db, fake, cfg, now, now);
-		await sweep(tdb.db, fake, cfg, new Date(), now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+		await sweep(tdb.db, fake, cfg, new Date(), { lastRefreshAt: now });
 
 		expect(fake.calls.filter((c) => c.method === "start")).toEqual([]);
 		expect(fake.calls.filter((c) => c.method === "stop")).toHaveLength(1);
@@ -1524,7 +1537,7 @@ test.skipIf(skip)(
 		const now = new Date();
 
 		const began = Date.now();
-		const result = await sweep(tdb.db, slow, cfg, now, now);
+		const result = await sweep(tdb.db, slow, cfg, now, { lastRefreshAt: now });
 		const took = Date.now() - began;
 
 		// Every parallel start is counted, none lost to a read before the await.
@@ -1558,7 +1571,7 @@ test.skipIf(skip)("a failing start leaves the parallel others unaffected", async
 	}
 	const now = new Date();
 
-	await sweep(tdb.db, slow, cfg, now, now);
+	await sweep(tdb.db, slow, cfg, now, { lastRefreshAt: now });
 
 	expect((await getWorkspace(bad)).state).toBe("error");
 	for (const id of good) {
@@ -1589,7 +1602,10 @@ test.skipIf(skip)(
 		const now = new Date();
 
 		// The create lands in step 3a and the start follows in 3b of the same sweep.
-		await sweep(tdb.db, flaky, cfg, now, now, false, undefined, [10, 10]);
+		await sweep(tdb.db, flaky, cfg, now, {
+			lastRefreshAt: now,
+			createRetryDelaysMs: [10, 10],
+		});
 		expect((await getWorkspace(id)).state).toBe("running");
 		expect(flaky.calls.filter((c) => c.method === "create")).toHaveLength(2);
 	},
@@ -1602,7 +1618,10 @@ test.skipIf(skip)(
 		const id = await insertWorkspace({ state: "provisioning" });
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, now, false, undefined, [5, 5]);
+		await sweep(tdb.db, fake, cfg, now, {
+			lastRefreshAt: now,
+			createRetryDelaysMs: [5, 5],
+		});
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("error");
@@ -1618,7 +1637,10 @@ test.skipIf(skip)(
 		await insertWorkspace({ state: "provisioning" });
 		const now = new Date();
 
-		await sweep(tdb.db, fake, cfg, now, now, false, undefined, [5, 5]);
+		await sweep(tdb.db, fake, cfg, now, {
+			lastRefreshAt: now,
+			createRetryDelaysMs: [5, 5],
+		});
 
 		expect(fake.calls.filter((c) => c.method === "create")).toHaveLength(1);
 	},
@@ -1633,7 +1655,7 @@ test.skipIf(skip)("an instance that already exists is adopted", async () => {
 	const id = await insertWorkspace({ state: "provisioning" });
 	const now = new Date();
 
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	const ws = await getWorkspace(id);
 	expect(ws.state).toBe("stopped");
@@ -1672,7 +1694,7 @@ async function sweepAt(at: Date): Promise<void> {
 		.updateTable("workspace_connections")
 		.set({ last_seen_at: at.toISOString() })
 		.execute();
-	await sweep(tdb.db, fake, cfg, at, at);
+	await sweep(tdb.db, fake, cfg, at, { lastRefreshAt: at });
 }
 
 test.skipIf(skip)(
@@ -1817,9 +1839,9 @@ test.skipIf(skip)(
 			desired_state: "running",
 			last_activity_at: now.toISOString(),
 		});
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		const later = new Date(now.getTime() + cfg.SHUTDOWN_GRACE_SECONDS * 1000);
-		await sweep(tdb.db, fake, cfg, later, later);
+		await sweep(tdb.db, fake, cfg, later, { lastRefreshAt: later });
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
 		const actions = (await getAudits(id)).map((a) => a.action);
@@ -1838,7 +1860,7 @@ test.skipIf(skip)(
 			idle_stop_at: new Date(now.getTime() - MIN).toISOString(),
 		});
 		await insertConnection(id, now);
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("running");
 		expect(ws.last_activity_at?.getTime()).toBe(now.getTime());
@@ -1899,7 +1921,7 @@ test.skipIf(skip)(
 		await addSample(id);
 		await addSample(id, "2026-09-25T12:01:00.000Z");
 		const now = new Date();
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -1930,7 +1952,7 @@ test.skipIf(skip)(
 		await addSample(id);
 		await addSample(id, "2026-09-25T12:01:00.000Z");
 		const now = new Date();
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 		let ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -1949,7 +1971,7 @@ test.skipIf(skip)(
 			.execute();
 		await insertConnection(id);
 		const later = new Date(now.getTime() + 1000);
-		await sweep(tdb.db, fake, cfg, later, later);
+		await sweep(tdb.db, fake, cfg, later, { lastRefreshAt: later });
 		ws = await getWorkspace(id);
 		expect(ws.state).toBe("running");
 		expect(ws.cpu_throttle).toEqual(held);
@@ -1962,7 +1984,7 @@ test.skipIf(skip)("a start without a held throttle sends no allowance", async ()
 	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });
 	await insertConnection(id);
 	const now = new Date();
-	await sweep(tdb.db, fake, cfg, now, now);
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 	const startCall = fake.calls.find((c) => c.method === "start");
 	expect(
 		((startCall?.args[1] ?? {}) as { cpuAllowance?: string }).cpuAllowance,
@@ -1975,9 +1997,9 @@ test.skipIf(skip)(
 		const id = await insertWorkspace({ state: "running", desired_state: "stopped" });
 		await addSample(id);
 		const now = new Date();
-		await sweep(tdb.db, fake, cfg, now, now);
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		expect((await getAudits(id)).map((a) => a.action)).toEqual(["workspace.stop"]);
-		// Usage is remembered across restarts (Todd's ruling, 2026-09-25).
+		// Usage is remembered across restarts.
 		expect(await sampleRows(id)).toBe(1);
 	},
 );
@@ -1995,7 +2017,7 @@ test.skipIf(skip)(
 		await insertConnection(id);
 		await addSample(id);
 		fake.listResult = [{ name: instance, status: "Stopped", ipv4: null }];
-		await sweep(tdb.db, fake, cfg, new Date(), null);
+		await sweep(tdb.db, fake, cfg, new Date());
 
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("stopped");
@@ -2013,12 +2035,14 @@ test.skipIf(skip)(
 		const release = holdStops();
 		const now = new Date();
 		const stuck = await insertWorkspace({ state: "running", desired_state: "stopped" });
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await reconcile(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		expect((await getWorkspace(stuck)).state).toBe("stopping");
 
 		const other = await insertWorkspace({ state: "stopped", desired_state: "running" });
 		await insertConnection(other);
-		const second = reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), now);
+		const second = reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 1000), {
+			lastRefreshAt: now,
+		});
 		const outcome = await Promise.race([
 			second.then(() => "done"),
 			new Promise((r) => setTimeout(() => r("hung"), 8000)),
@@ -2042,11 +2066,11 @@ test.skipIf(skip)("the list check leaves a stop in flight alone", async () => {
 		desired_state: "stopped",
 		incus_instance_name: name,
 	});
-	await reconcile(tdb.db, fake, cfg, now, now);
+	await reconcile(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 
 	// The instance still reads Running while its stop is under way.
 	fake.listResult = [{ name, status: "Running", ipv4: "10.0.0.9" }];
-	await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 60_000), null);
+	await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 60_000));
 	expect((await getWorkspace(id)).state).toBe("stopping");
 
 	release();
@@ -2065,7 +2089,7 @@ test.skipIf(skip)(
 			desired_state: "stopped",
 			incus_instance_name: name,
 		});
-		await reconcile(tdb.db, fake, cfg, now, now);
+		await reconcile(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		expect((await getWorkspace(id)).state).toBe("stopping");
 
 		// The list was taken before the stop finished, so it still says Running.
@@ -2076,7 +2100,7 @@ test.skipIf(skip)(
 			return [{ name, status: "Running", ipv4: "10.0.0.9" }];
 		};
 		try {
-			await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 60_000), null);
+			await reconcile(tdb.db, fake, cfg, new Date(now.getTime() + 60_000));
 		} finally {
 			fake.list = list;
 		}
@@ -2096,7 +2120,7 @@ test.skipIf(skip)("a stop records the time it finished, not the sweep's", async 
 		desired_state: "stopped",
 		incus_instance_name: "ws-stop-time",
 	});
-	await reconcile(tdb.db, fake, cfg, sweepAt, sweepAt);
+	await reconcile(tdb.db, fake, cfg, sweepAt, { lastRefreshAt: sweepAt });
 	const beforeRelease = Date.now();
 	release();
 	await settleStops();
@@ -2105,13 +2129,13 @@ test.skipIf(skip)("a stop records the time it finished, not the sweep's", async 
 	expect(new Date(ws.updated_at).getTime()).toBeGreaterThanOrEqual(beforeRelease);
 });
 
-// --- Keep running until (#955, Epic 28 ruling R1) ---
+// --- Keep running until ---
 
 const HOUR = 60 * MIN;
 
 /** One sweep at `at` with no browser connected; the drift refresh counts as fresh. */
 async function sweepHeld(at: Date): Promise<void> {
-	await sweep(tdb.db, fake, cfg, at, at);
+	await sweep(tdb.db, fake, cfg, at, { lastRefreshAt: at });
 }
 
 /** A running workspace with no browser, idle `idleFor` ms, holding until `until`. */
@@ -2300,3 +2324,83 @@ test.skipIf(skip)("a hold does not lift a CPU throttle", async () => {
 
 	expect((await getWorkspace(id)).cpu_throttle).toEqual(throttle);
 });
+
+/** Pins of the list refresh's remaining branches (SPEC.md section 6.5). */
+test.skipIf(skip)("drift: instance Running while row stopped -> running", async () => {
+	const id = await insertWorkspace({
+		state: "stopped",
+		desired_state: "stopped",
+		incus_instance_name: "ws-drift-up",
+	});
+	fake.listResult = [{ name: "ws-drift-up", status: "Running", ipv4: "10.0.0.7" }];
+
+	await sweep(tdb.db, fake, cfg, new Date());
+
+	const ws = await getWorkspace(id);
+	expect(ws.state).toBe("running");
+	expect(ws.agent_address).toBe("10.0.0.7");
+	expect((await getAudits(id)).map((a) => a.action)).toContain(
+		"workspace.observed_running",
+	);
+});
+
+test.skipIf(skip)(
+	"a starting row whose instance is Stopped becomes an error",
+	async () => {
+		const id = await insertWorkspace({
+			state: "starting",
+			desired_state: "running",
+			incus_instance_name: "ws-start-failed",
+		});
+		fake.listResult = [{ name: "ws-start-failed", status: "Stopped", ipv4: null }];
+
+		await sweep(tdb.db, fake, cfg, new Date());
+
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("error");
+		expect(ws.error_code).toBe("OPERATION_FAILED");
+		const audit = (await getAudits(id)).find(
+			(a) => a.action === "workspace.start_failed",
+		);
+		expect(audit?.metadata).toEqual({ resolvedFromList: true });
+	},
+);
+
+test.skipIf(skip)(
+	"a stopping row whose instance is Stopped becomes stopped",
+	async () => {
+		const id = await insertWorkspace({
+			state: "stopping",
+			desired_state: "stopped",
+			incus_instance_name: "ws-stop-done",
+		});
+		fake.listResult = [{ name: "ws-stop-done", status: "Stopped", ipv4: null }];
+
+		await sweep(tdb.db, fake, cfg, new Date());
+
+		expect((await getWorkspace(id)).state).toBe("stopped");
+		const audit = (await getAudits(id)).find((a) => a.action === "workspace.stop");
+		expect(audit?.metadata).toEqual({ resolvedFromList: true });
+	},
+);
+
+test.skipIf(skip)(
+	"a stopping row whose instance is Running becomes running",
+	async () => {
+		const id = await insertWorkspace({
+			state: "stopping",
+			desired_state: "running",
+			incus_instance_name: "ws-stop-undone",
+		});
+		await insertConnection(id);
+		fake.listResult = [{ name: "ws-stop-undone", status: "Running", ipv4: "10.0.0.8" }];
+
+		await sweep(tdb.db, fake, cfg, new Date());
+
+		expect((await getWorkspace(id)).state).toBe("running");
+		const audit = (await getAudits(id)).find(
+			(a) => a.action === "workspace.observed_running",
+		);
+		expect(audit?.metadata).toEqual({ resolvedFromList: true });
+	},
+);

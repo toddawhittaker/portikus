@@ -1,5 +1,5 @@
 /**
- * "Extract here" for a zip in the Files pane (issue #817). The central
+ * "Extract here" for a zip in the Files pane. The central
  * directory is read and checked before anything is written: every entry
  * must stay inside the new folder (SPEC.md §11.1, §24.6), no entry may be
  * a symbolic link or touch `.git`, and the entry count and declared size
@@ -22,9 +22,9 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_ENTRIES } from "@portikus/contracts";
+import { AgentFailure, errorCode, isNoSpace } from "./errors.js";
 import { resolveInProject } from "./files.js";
 import { resolveProject } from "./projects.js";
-import { AgentFailure } from "./tmux.js";
 
 export interface ZipEntry {
 	/** The stored name, with backslashes read as separators. */
@@ -190,15 +190,6 @@ export function folderNameFor(zipName: string): string {
 
 function tooLarge(): AgentFailure {
 	return new AgentFailure("FILE_TOO_LARGE", "the zip unpacks to more than the cap");
-}
-
-function errorCode(error: unknown): string | undefined {
-	return (error as NodeJS.ErrnoException).code;
-}
-
-function isNoSpace(error: unknown): boolean {
-	const code = errorCode(error);
-	return code === "ENOSPC" || code === "EDQUOT";
 }
 
 /**

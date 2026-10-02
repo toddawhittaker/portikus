@@ -92,15 +92,15 @@ export const baseEditorOptions: Monaco.editor.IEditorOptions = {
 };
 
 /**
- * Monaco's screen-reader support follows the student's setting (issue #357).
+ * Monaco's screen-reader support follows the student's setting.
  * Never "auto": a browser cannot tell that a screen reader is running.
  */
 export function accessibilitySupport(screenReaderMode: boolean): "on" | "off" {
 	return screenReaderMode ? "on" : "off";
 }
 
-export const LIGHT_THEME = "portikus-light";
-export const DARK_THEME = "portikus-dark";
+const LIGHT_THEME = "portikus-light";
+const DARK_THEME = "portikus-dark";
 
 function tokenRules(colours: Record<string, string>): Monaco.editor.ITokenThemeRule[] {
 	return Object.entries(colours).map(([token, foreground]) => ({ token, foreground }));
@@ -129,7 +129,7 @@ function defineThemes(monaco: typeof Monaco): void {
 			"editorWidget.background": "#fdfcfa",
 			"editorWidget.border": "#dcd7cc",
 			// The split view's code side needs a scrollbar a student can see
-			// against a pale background (issue #154).
+			// against a pale background.
 			"scrollbarSlider.background": "#c1b9a8cc",
 			"scrollbarSlider.hoverBackground": "#a89f8ce6",
 			"scrollbarSlider.activeBackground": "#8d8472",

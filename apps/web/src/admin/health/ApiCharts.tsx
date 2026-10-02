@@ -6,22 +6,22 @@ function present(values: readonly (number | null)[]): number[] {
 	return values.filter((value): value is number => value !== null);
 }
 
-export function formatRate(value: number): string {
+function formatRate(value: number): string {
 	const rounded = value >= 10 ? Math.round(value) : Math.round(value * 10) / 10;
 	return `${rounded.toLocaleString("en-US")}/min`;
 }
 
-export function formatShare(value: number): string {
+function formatShare(value: number): string {
 	return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10}%`;
 }
 
-export function formatMs(value: number): string {
+function formatMs(value: number): string {
 	return `${Math.round(value).toLocaleString("en-US")} ms`;
 }
 
 /**
  * The API's request rate, error rate and response time over the range
- * (SPEC.md section 25.6, issue #599).
+ * (SPEC.md section 25.6).
  */
 export function ApiCharts({
 	series,

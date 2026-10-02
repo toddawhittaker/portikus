@@ -1,20 +1,19 @@
 import { deflateSync } from "node:zlib";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	openFileTab,
 	query,
 	seedFile,
-	settledAxe,
-	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
 
 /**
  * The file tab shows images and PDFs instead of only offering a download,
  * and a Markdown preview shows the images its file points at by a relative
- * path (#816, SPEC.md §13.2, §13.4). Student files are untrusted, so an SVG
+ * path (SPEC.md §13.2, §13.4). Student files are untrusted, so an SVG
  * must never run its script on the app's origin (SPEC.md §24.3).
  */
 
@@ -92,12 +91,6 @@ const HOSTILE_SVG = [
 	"</svg>",
 ].join("");
 
-/** Axe over the whole workspace page with the viewer open: tabs, panes and all. */
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
-
 test.describe("file viewer", () => {
 	// Monaco is a large chunk the dev server transforms on first use.
 	test.describe.configure({ timeout: 90_000 });
@@ -119,7 +112,7 @@ test.describe("file viewer", () => {
 		await expect(page.getByTestId("file-image-dimensions")).toHaveText(
 			"64 × 40 pixels",
 		);
-		await expect(page.getByText(`${bytes.length} bytes`)).toBeVisible();
+		await expect(page.getByText(`${bytes.length} B`)).toBeVisible();
 		await expect(page.getByText("Not a text file")).toHaveCount(0);
 		await expect(page.getByTestId(`editor-${path}`)).toHaveCount(0);
 		// Download is still one press away.

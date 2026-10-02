@@ -157,8 +157,8 @@
 	flex: none;
 }
 /*
- * The strip scrolls sideways once every tab is at its floor width
- * (issue #240). Its own scrollbar is hidden: the fade edges say there is
+ * The strip scrolls sideways once every tab is at its floor width.
+ * Its own scrollbar is hidden: the fade edges say there is
  * more, and the wheel and keyboard both scroll it.
  */
 .pk-tablist {
@@ -182,7 +182,7 @@
 /*
  * Every tab shares the width equally up to 220px and shrinks with the rest
  * down to the floor, where only the kind icon and the close control are left
- * (issue #240, the Chrome model).
+ * (the Chrome model).
  */
 .pk-tab {
 	position: relative;
@@ -238,9 +238,6 @@
 	color: var(--ink);
 	opacity: 0.96;
 }
-.pk-tab--drop-before {
-	box-shadow: inset 2px 0 0 var(--focus);
-}
 /* The label fades out at its right edge rather than ending in an ellipsis,
    and collapses to nothing when the strip is at its floor width. */
 .pk-tab-label {
@@ -255,7 +252,7 @@
 	font-style: italic;
 }
 /* The unsaved dot sits where the close control does and the two swap on
-   hover or focus, as Chrome and VS Code do (issue #240). */
+   hover or focus, as Chrome and VS Code do. */
 .pk-tab-dirty {
 	flex: none;
 	width: 20px;
@@ -275,12 +272,12 @@
 .pk-tab:focus-visible .pk-tab-dirty {
 	display: none;
 }
-/* Always visible, at every width, on every tab (issue #240). */
+/* Always visible, at every width, on every tab. */
 .pk-tab-close {
 	display: grid;
 	place-items: center;
 	flex: none;
-	/* 24px: the WCAG 2.5.8 minimum target (issue #372). */
+	/* 24px: the WCAG 2.5.8 minimum target. */
 	width: 24px;
 	height: 24px;
 	border-radius: var(--radius-xs);

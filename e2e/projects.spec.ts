@@ -16,9 +16,7 @@ import {
 } from "./helpers";
 
 /**
- * Project management (SPEC.md §7.1 to §7.4, §8.2). Written against the test
- * ids the shell builder owns (plan, E1). The orchestrator removes the guard
- * below once the Epic 6 shell and work area are merged.
+ * Project management (SPEC.md §7.1 to §7.4, §8.2).
  */
 test.describe("projects", () => {
 	/** Open the "New project" menu and pick one of its items. */
@@ -63,7 +61,7 @@ test.describe("projects", () => {
 
 		await startCreate(page, "New project");
 		await page.getByTestId("field-name").fill("My First Project");
-		// The dialog previews the directory before it exists (plan, Rename).
+		// The dialog previews the directory before it exists.
 		await expect(page.getByTestId("dialog-create-project")).toContainText(
 			"~/projects/my-first-project",
 		);
@@ -150,7 +148,7 @@ test.describe("projects", () => {
 		await expect(page.getByRole("menuitem", { name: "Initialize Git" })).toHaveCount(0);
 	});
 
-	/** Issue #608 item 5: What to create is one segmented control. */
+	/** What to create is one segmented control. */
 	test("New project shows exactly one pressed option and switches fields", async ({
 		page,
 		context,
@@ -194,7 +192,7 @@ test.describe("projects", () => {
 		await startCreate(page, "Clone repository");
 		await page.getByTestId("field-url").fill("https://github.com/user/todo-api");
 
-		// The folder name read as a title, while the folder stays todo-api (#846).
+		// The folder name read as a title, while the folder stays todo-api.
 		await expect(page.getByTestId("field-name")).toHaveValue("Todo Api");
 		await expect(page.getByTestId("slug-preview")).toHaveText("~/projects/todo-api");
 
@@ -262,7 +260,7 @@ test.describe("projects", () => {
 		if (!projectId) throw new Error("no project row was created");
 
 		await page.goto(workspacePath(student.workspaceId, projectId));
-		// #847: main, never master. The files a new project gets are covered by
+		// Main, never master. The files a new project gets are covered by
 		// the agent's tests against real Git; the fake agent does not write them.
 		await expect(page.getByTestId("git-status")).toContainText("main", {
 			timeout: 15_000,
@@ -295,7 +293,7 @@ test.describe("projects", () => {
 
 		await startCreate(page, "Clone repository");
 		await page.getByTestId("field-name").fill("Local Repo");
-		// file:// and ext:: are refused by the API (plan, Clone).
+		// file:// and ext:: are refused by the API.
 		await page.getByTestId("field-url").fill("file:///etc/passwd");
 		await page.getByTestId("dialog-confirm").click();
 
@@ -360,7 +358,7 @@ test.describe("projects", () => {
 		await expect(page.getByTestId(`project-item-${project.id}`)).toContainText(
 			"New Name",
 		);
-		// The directory moved, so the terminal's cwd moves with it (plan, Rename).
+		// The directory moved, so the terminal's cwd moves with it.
 		await expect
 			.poll(async () => {
 				const rows = await query<{ cwd: string }>(
@@ -489,7 +487,7 @@ test.describe("projects", () => {
 		const student = await createStudent(context);
 		const slug = `found-${Date.now()}`;
 		await seedProjectDir(student.workspaceId, slug, true);
-		// A directory that is not a Git repository is ignored (plan, Discovery).
+		// A directory that is not a Git repository is ignored.
 		await seedProjectDir(student.workspaceId, `${slug}-plain`, false);
 
 		await page.goto(workspacePath(student.workspaceId));
@@ -541,14 +539,14 @@ test.describe("projects", () => {
 
 		const item = page.getByTestId(`project-item-${project.id}`);
 		await expect(item).toContainText(/missing/i);
-		// Archive is the only action left on a missing project (plan, Discovery).
+		// Archive is the only action left on a missing project.
 		await page.getByTestId(`project-menu-${project.id}`).click();
 		await expect(page.getByRole("menuitem", { name: "Archive" })).toBeVisible();
 		await expect(page.getByRole("menuitem", { name: "Rename" })).toHaveCount(0);
 		await expect(page.getByRole("menuitem", { name: "Download" })).toHaveCount(0);
 	});
 
-	/** Issue #238: `mv` in the shell keeps the project, its id and its layout. */
+	/** `mv` in the shell keeps the project, its id and its layout. */
 	test("a project renamed in the shell keeps its row and its tabs", async ({
 		page,
 		context,
@@ -577,7 +575,7 @@ test.describe("projects", () => {
 		await moveProjectDir(student.workspaceId, project.slug, "todo-service");
 
 		// The same project, under its new name, with its tab still open.
-		// The title is read from the folder, so it changes too (issue #269).
+		// The title is read from the folder, so it changes too.
 		const item = page.getByTestId(`project-item-${project.id}`);
 		await expect(item).toContainText("Todo Service", { timeout: 20_000 });
 		await expect(item).not.toContainText("todo-service");

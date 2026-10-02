@@ -1,6 +1,6 @@
 /**
  * A theme a pilot student chose before appearance was saved per user
- * (issue #300) is carried over once, not overwritten by the server default.
+ * is carried over once, not overwritten by the server default.
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { QueryClientProvider } from "@tanstack/react-query";

@@ -3,7 +3,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { createStudent, query, WEB_ORIGIN, workspacePath } from "./helpers";
 
 /**
- * Appearance follows the student (issue #300, SPEC.md §13.5). The choice is a
+ * Appearance follows the student (SPEC.md §13.5). The choice is a
  * per-user setting; this browser's `pk-theme` copy only covers the first
  * paint before the settings arrive.
  */

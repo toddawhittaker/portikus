@@ -1,7 +1,7 @@
 import { type Kysely, sql } from "kysely";
 
 /**
- * Shared Docker pull storage (issue #840): the admin settings, the current
+ * Shared Docker pull storage: the admin settings, the current
  * seed, seed rebuild jobs and the aggregate usage the worker collects. The
  * usage tables hold a workspace id so a workspace counts once per image;
  * the admin report returns counts only.

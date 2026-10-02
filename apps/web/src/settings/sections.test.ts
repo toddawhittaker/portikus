@@ -1,4 +1,4 @@
-/** Issue #340: search is the section list, not a second index. */
+/** Search is the section list, not a second index. */
 import { expect, test } from "vitest";
 import { SETTINGS_SECTIONS, type SettingsSection, settingsHits } from "./sections.js";
 
@@ -44,7 +44,7 @@ test("matching ignores case and can hit several controls in one section", () => 
 	]);
 });
 
-test("search finds the SSO account link in Profile (docs/archive/epics/EPIC-13-1.md, flow step 1)", () => {
+test("search finds the SSO account link in Profile (ADR 0026)", () => {
 	expect(settingsHits(SETTINGS_SECTIONS, "sso")).toEqual([
 		{ sectionId: "profile", controlId: "sso-link", label: "Link to my SSO account" },
 	]);

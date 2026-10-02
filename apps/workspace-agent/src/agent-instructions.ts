@@ -1,6 +1,6 @@
 /**
  * Give the coding agents' home instruction files back to the student
- * (SPEC.md §3, issue #933). The platform's guidance now lives in system
+ * (SPEC.md §3). The platform's guidance now lives in system
  * files the workspace controller writes at every start, so the copies an
  * older agent put in the home folder are taken out again, and nothing a
  * student wrote is touched.
@@ -17,13 +17,13 @@ export const CODEX_INSTRUCTIONS = ".codex/AGENTS.md";
 export const CLAUDE_INSTRUCTIONS = ".claude/CLAUDE.md";
 
 /** The one line an older agent wrote into the Claude file. */
-export const CLAUDE_IMPORT_LINE = "@~/.codex/AGENTS.md";
+const CLAUDE_IMPORT_LINE = "@~/.codex/AGENTS.md";
 
 /**
  * SHA-256 of every template an older image shipped and an older agent
  * copied to ~/.codex/AGENTS.md. Only an unchanged copy is removed.
  */
-export const PAST_TEMPLATE_HASHES: readonly string[] = [
+const PAST_TEMPLATE_HASHES: readonly string[] = [
 	"68e96566d0fd28c6161f9839c4e55d99b3cf208eeba6fa1e03374d0b22475bcb",
 	"d1a0de6225863daf3555d18c40511eeb926fce732d61523d47849cbc9e1349bf",
 ];

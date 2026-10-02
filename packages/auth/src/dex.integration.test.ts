@@ -11,11 +11,9 @@ import {
 import { type AuthOptions, mapRole } from "./types.js";
 
 /**
- * Sign-in through a real Dex built from the pinned commit (docs/archive/epics/EPIC-12B.md,
- * Part A items 7 and 12). The CI dex-signin job starts Dex with the
+ * Sign-in through a real Dex built from the pinned commit (ADR 0023). The CI dex-signin job starts Dex with the
  * configuration infra/tests/dex-render-test.yml renders, imports the users
- * fixture through dex-import-main.ts as the dex role does (docs/archive/epics/EPIC-14.md
- * ruling 23), and sets DEX_TEST_ISSUER; without it the suite is skipped.
+ * fixture through dex-import-main.ts as the dex role does (ADR 0028), and sets DEX_TEST_ISSUER; without it the suite is skipped.
  */
 const ISSUER = process.env.DEX_TEST_ISSUER ?? "";
 
@@ -54,7 +52,7 @@ const auth: AuthOptions = {
 	studentGroup: "portikus-students",
 	adminGroup: "portikus-administrators",
 	instructorGroup: "portikus-instructors",
-	// As Ansible sets it under Dex (docs/archive/epics/EPIC-14.md ruling 11).
+	// As Ansible sets it under Dex (SPEC.md section 5.2).
 	defaultRole: "student",
 	cookieSecret: "a-test-cookie-secret-value",
 	sessionTtlSeconds: 3600,

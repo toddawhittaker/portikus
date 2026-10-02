@@ -14,7 +14,7 @@ flush table inet nat
 
 table inet filter {
 
-  # Open connections per workspace to the Docker caches (issue #840, ruling S1).
+  # Open connections per workspace to the Docker caches (ADR 0045).
   set registry_conns {
     type ipv4_addr
     size 65535
@@ -57,10 +57,10 @@ table inet filter {
     iifname "{{ incus_network_name }}" tcp dport { {{ workspace_egress_http_port }}, {{ workspace_egress_https_port }} } ct status dnat accept
     iifname "{{ incus_network_name }}" meta l4proto { tcp, udp } th dport {{ workspace_egress_dns_port }} ct status dnat accept
 
-    # The Docker caches on the bridge gateway (issue #840, ruling S1), from
+    # The Docker caches on the bridge gateway (ADR 0045), from
     # workspaces only and with a cap per workspace.  The egress helper's
     # gate in table inet portikus_egress drops them first when the policy
-    # does not let the registry names through (ruling S2).
+    # does not let the registry names through.
     iifname "{{ incus_network_name }}" tcp dport { {{ registry_cache_hub_port }}, {{ registry_cache_ghcr_port }} } ct state new add @registry_conns { ip saddr ct count over {{ registry_cache_connections_per_source }} } reject with tcp reset
     iifname "{{ incus_network_name }}" tcp dport { {{ registry_cache_hub_port }}, {{ registry_cache_ghcr_port }} } accept
   }

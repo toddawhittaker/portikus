@@ -1,18 +1,19 @@
 import { requireUser } from "@portikus/auth";
 import { ProcessStopErrorCode, ProcessStopRequest } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import type { Kysely } from "kysely";
 import { AgentCallError, type AgentClient } from "../agent-client.js";
+import { sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import { ownedScope, sendError } from "./project-scope.js";
+import { ownedScope } from "./project-scope.js";
 
 /** Stops one person may ask for in a minute. Counted in this process (ADR 0010). */
 export const PROCESS_STOPS_PER_MINUTE = 30;
 const WINDOW_MS = 60_000;
 
 /** The status each agent refusal keeps when passed on. */
-export const REFUSAL_STATUS: Record<ProcessStopErrorCode, number> = {
+const REFUSAL_STATUS: Record<ProcessStopErrorCode, number> = {
 	PROCESS_NOT_FOUND: 404,
 	PROCESS_CHANGED: 409,
 	PROCESS_PROTECTED: 403,
@@ -102,16 +103,13 @@ export async function stopThroughAgent(opts: {
 	}
 	const signal = body.force ? "SIGKILL" : "SIGTERM";
 	await db.transaction().execute(async (trx) => {
-		await trx
-			.insertInto("audit_events")
-			.values({
-				actor: `user:${actorId}`,
-				target: workspaceId,
-				action: "workspace.process_stopped",
-				result: "ok",
-				metadata: JSON.stringify({ pid, signal, exited }),
-			})
-			.execute();
+		await recordAudit(trx, {
+			actor: `user:${actorId}`,
+			target: workspaceId,
+			action: "workspace.process_stopped",
+			result: "ok",
+			metadata: { pid, signal, exited },
+		});
 		if (exited && opts.onExited) await opts.onExited(trx);
 	});
 	return { pid, exited };
@@ -163,7 +161,7 @@ export function registerProcessRoutes(app: FastifyInstance, deps: ServerDeps): v
 }
 
 /** Our own wording, so nothing the agent wrote reaches the browser. */
-export function refusalMessage(code: ProcessStopErrorCode): string {
+function refusalMessage(code: ProcessStopErrorCode): string {
 	switch (code) {
 		case "PROCESS_NOT_FOUND":
 			return "That process has already stopped.";

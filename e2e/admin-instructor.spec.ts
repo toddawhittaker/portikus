@@ -2,26 +2,17 @@ import * as crypto from "node:crypto";
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
+	expectNoViolations,
 	loginAs,
 	MOCK_ISSUER,
 	query,
-	settledAxe,
-	WCAG_TAGS,
 	WEB_ORIGIN,
 } from "./helpers";
 
 /**
- * Make instructor and Remove instructor in the Users view (docs/archive/epics/EPIC-14.md
- * ruling 14). Every test acts on accounts of its own.
+ * Make instructor and Remove instructor in the Users view (SPEC.md §5.2).
+ * Every test acts on accounts of its own.
  */
-
-async function expectNoViolations(page: Page, selector: string) {
-	const results = await (await settledAxe(page))
-		.withTags(WCAG_TAGS)
-		.include(selector)
-		.analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 async function openUsers(page: Page): Promise<void> {
 	await loginAs(page, "carol");

@@ -1,9 +1,10 @@
 import { type AdminEgressView, EGRESS_DEFAULT_PORTS } from "@portikus/contracts";
 import { Button, TextField, useToast } from "@portikus/ui";
 import { useState } from "react";
-import { announced } from "../SettingsTab.js";
+import { announced } from "../../common/announced.js";
+import { joinWords } from "../../text.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
-import { joinPorts, parsePorts } from "./text.js";
+import { parsePorts } from "./text.js";
 
 /** The TCP ports a listed host may be reached on in allow-list mode. */
 export function PortsCard({ view }: { view: AdminEgressView }) {
@@ -39,7 +40,7 @@ export function PortsCard({ view }: { view: AdminEgressView }) {
 			</h3>
 			<p className="pk-text-body pk-muted mt-1 mb-0">
 				In allow-list mode, listed sites are reached only on these ports. The default,{" "}
-				{joinPorts(EGRESS_DEFAULT_PORTS)}, covers SSH, web and secure web.
+				{joinWords(EGRESS_DEFAULT_PORTS.map(String))}, covers SSH, web and secure web.
 			</p>
 			<form
 				className="mt-4 flex flex-wrap items-start gap-3"

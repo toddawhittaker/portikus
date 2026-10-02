@@ -19,7 +19,7 @@ function allowList(hosts: string[]): EgressPolicy {
 	};
 }
 
-describe("dockerConfigFor (rulings 8 and S2)", () => {
+describe("dockerConfigFor", () => {
 	test("open mode: the Hub mirror always, ghcr only with its switch", () => {
 		expect(dockerConfigFor(OPEN, false)).toEqual({ hubMirror: true, ghcr: false });
 		expect(dockerConfigFor(OPEN, true)).toEqual({ hubMirror: true, ghcr: true });

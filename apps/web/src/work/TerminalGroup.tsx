@@ -3,16 +3,32 @@
  * react-resizable-panels group with a PaneHandle between siblings; the sizes
  * come from the saved layout and go back to it when the user drags a handle.
  */
-import type { SplitNode, Terminal, TerminalTheme } from "@portikus/contracts";
+import type { SplitNode, Terminal } from "@portikus/contracts";
 import { PaneHandle, tabDomId, tabPanelDomId } from "@portikus/ui";
 import { Fragment, type ReactNode } from "react";
 import { Group, Panel } from "react-resizable-panels";
-import type { DropEdge, SplitDirection } from "../layout/tree.js";
+import type { PendingView } from "../layout/store.js";
+import type { DropEdge } from "../layout/tree.js";
 import { PreviewLeaf } from "../preview/PreviewLeaf.js";
 import { FileLeaf } from "./FileLeaf.js";
-import { TerminalLeaf } from "./TerminalLeaf.js";
+import { TerminalLeaf, type TerminalLeafProps } from "./TerminalLeaf.js";
 
-export interface TerminalGroupProps {
+/** The pane callbacks a group hands down to each terminal unchanged. */
+type PaneCallbacks = Pick<
+	TerminalLeafProps,
+	| "onFocus"
+	| "onSplit"
+	| "onRename"
+	| "onSetTheme"
+	| "onClose"
+	| "onExited"
+	| "onReplace"
+	| "onSessionEnded"
+	| "onLeave"
+	| "onMoveToNewTab"
+>;
+
+export interface TerminalGroupProps extends PaneCallbacks {
 	tabId: string;
 	root: SplitNode;
 	terminals: Map<string, Terminal>;
@@ -20,37 +36,18 @@ export interface TerminalGroupProps {
 	projectId: string;
 	visible: boolean;
 	focusedTerminalId: string | null;
-	onFocus: (terminalId: string) => void;
-	onSplit: (terminalId: string, direction: SplitDirection) => void;
-	onRename: (terminalId: string, name: string) => void;
-	/** Switch one terminal between the light and dark scheme (issue #268). */
-	onSetTheme: (terminalId: string, theme: TerminalTheme) => void;
-	onClose: (terminalId: string) => void;
-	onExited: (terminalId: string) => void;
-	onReplace: (terminalId: string) => void;
 	onResize: (path: number[], sizes: number[]) => void;
-	onSessionEnded: () => void;
-	onLeave: () => void;
-	onMoveToNewTab: (terminalId: string) => void;
 	/** Close this whole tab: a file tab offers it when the file is gone. */
 	onCloseTab: () => void;
-	/** The line this tab was last asked to open at, or undefined for none. */
-	pendingLine: number | undefined;
-	/** Read and forget the line a file tab was opened at. */
-	consumePendingLine: () => number | undefined;
-	/** How many times this tab has been asked to show its diff. */
-	pendingDiff: number | undefined;
-	/** Read and forget whether a file tab was asked to show its diff. */
-	consumePendingDiff: () => boolean;
-	/** How many times this tab has been asked to show the editor again. */
-	pendingEdit: number | undefined;
-	/** Read and forget whether a file tab was asked to show the editor. */
-	consumePendingEdit: () => boolean;
+	/** What this file tab was last asked to show, or undefined for nothing. */
+	pendingView: PendingView | undefined;
+	/** Read and forget that request. */
+	consumePendingView: () => PendingView | undefined;
 	/** Bring the Running surface into view (BROWSER-HANDLING.md §12). */
 	onShowRunning: () => void;
 	/** Pick another port in place of this preview tab's refused one. */
 	onChoosePreviewPort: () => void;
-	/** A file tab reporting whether its edits are on disk (issue #240). */
+	/** A file tab reporting whether its edits are on disk. */
 	onUnsavedChange?: (unsaved: boolean) => void;
 	/** Object id this file tab's diff compares against, or null for Git HEAD. */
 	diffBaseline?: string | null;
@@ -94,8 +91,8 @@ export function TerminalGroup(props: TerminalGroupProps) {
 				/>
 			);
 		}
-		// A diff is a view of the file's tab, not a tab of its own (issue
-		// #160); a layout saved before that still names one, and it opens as
+		// A diff is a view of the file's tab, not a tab of its own;
+		// a layout saved before that still names one, and it opens as
 		// the file it shows.
 		if (node.type === "file" || node.type === "diff") {
 			return (
@@ -106,12 +103,8 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					projectId={props.projectId}
 					visible={visible}
 					onClose={props.onCloseTab}
-					pendingLine={props.pendingLine}
-					consumePendingLine={props.consumePendingLine}
-					pendingDiff={props.pendingDiff}
-					consumePendingDiff={props.consumePendingDiff}
-					pendingEdit={props.pendingEdit}
-					consumePendingEdit={props.consumePendingEdit}
+					pendingView={props.pendingView}
+					consumePendingView={props.consumePendingView}
 					onUnsavedChange={props.onUnsavedChange}
 					baseline={props.diffBaseline}
 				/>

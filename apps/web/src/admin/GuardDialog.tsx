@@ -1,8 +1,8 @@
 import type { GuardConfig, UpdateGuardRequest } from "@portikus/contracts";
-import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
+import { Button, Dialog, DialogRoot } from "@portikus/ui";
 import { useState } from "react";
+import { DraftFields } from "./DraftFields.js";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./guardFields.js";
-import { announced } from "./SettingsTab.js";
 
 export type { GuardKey } from "./guardFields.js";
 
@@ -71,7 +71,6 @@ export function GuardDialog({
 }) {
 	const [drafts, setDrafts] = useState<GuardDrafts>(() => guardDrafts(current));
 	const [errors, setErrors] = useState<Partial<Record<GuardKey, string>>>({});
-	const firstError = GUARD_FIELDS.find((field) => errors[field.key])?.key;
 
 	function save() {
 		const result = guardRequest(drafts);
@@ -103,32 +102,16 @@ export function GuardDialog({
 					</>
 				}
 			>
-				<div className="grid grid-cols-2 gap-4">
-					{GUARD_FIELDS.map((field) => {
-						const error = errors[field.key] ?? null;
-						return (
-							<TextField
-								key={field.key}
-								id={`guard-${field.key}`}
-								label={field.label}
-								inputMode="numeric"
-								data-testid={`guard-${field.key}`}
-								hint={defaults ? siteHint(field.key, defaults[field.key]) : undefined}
-								// Only the first problem is announced, so a reader hears one alert.
-								error={field.key === firstError ? announced(error) : error}
-								value={drafts[field.key]}
-								onChange={(event) =>
-									setDrafts((now) => ({ ...now, [field.key]: event.target.value }))
-								}
-							/>
-						);
-					})}
-				</div>
-				{firstError === undefined && serverError ? (
-					<p className="pk-text-compact m-0 mt-3 text-status-error" role="alert">
-						{serverError}
-					</p>
-				) : null}
+				<DraftFields
+					idPrefix="guard"
+					fields={GUARD_FIELDS}
+					drafts={drafts}
+					setDrafts={setDrafts}
+					errors={errors}
+					hint={(key) => (defaults ? siteHint(key, defaults[key]) : undefined)}
+					layoutClassName="grid grid-cols-2 gap-4"
+					serverError={serverError}
+				/>
 			</Dialog>
 		</DialogRoot>
 	);

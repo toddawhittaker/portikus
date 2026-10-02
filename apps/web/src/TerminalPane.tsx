@@ -1,5 +1,6 @@
 import {
 	MAX_UPLOAD_BYTES,
+	SCROLLBACK_LINES,
 	type Terminal as TerminalMeta,
 	type TerminalTheme,
 } from "@portikus/contracts";
@@ -32,6 +33,7 @@ import {
 	firstNoticeOf,
 	forgetAgentBuild,
 	TERMINAL_GONE_NEXT_STEP,
+	type TerminalFrame,
 	terminalGoneMessage,
 	upgradedAgentNotice,
 } from "./terminalFrames.js";
@@ -49,17 +51,13 @@ const MAX_RECONNECT_ATTEMPTS = 5;
  */
 const FATAL_CLOSE_CODES = new Set([1008, 1009, 1011]);
 
-/**
- * Lines the browser keeps above the visible screen, which is what the wheel
- * scrolls back through (SPEC.md §9.1). tmux keeps the same number.
- */
-export const SCROLLBACK_LINES = 5_000;
+type TerminalErrorFrame = Extract<TerminalFrame, { kind: "error" }>;
 
 /** Quiet time after the pane's last size change before the size is sent. */
 export const RESIZE_SETTLE_MS = 100;
 
 /**
- * The two terminal colour schemes (issue #239). They match the
+ * The two terminal colour schemes. They match the
  * `--terminal-*` and `--ansi-*` tokens in packages/ui/src/theme.css, which
  * colour the chrome around the terminal; xterm.js needs the values directly.
  * The scrollbar thumb is the terminal's muted foreground, quiet until the
@@ -74,7 +72,7 @@ const DARK_THEME = {
 	scrollbarSliderBackground: "#9a938666",
 	scrollbarSliderHoverBackground: "#9a9386b3",
 	scrollbarSliderActiveBackground: "#9a9386cc",
-	// xterm's default palette fails AA on this ground (issue #360).
+	// xterm's default palette fails AA on this ground.
 	black: "#11100e",
 	brightBlack: "#857f73",
 	red: "#e07a6e",
@@ -193,7 +191,7 @@ export function sanitizePaste(text: string): string {
 	return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, "");
 }
 
-/** The only picture types a paste saves as a file (Epic 9.2 brief). */
+/** The only picture types a paste saves as a file. */
 const PASTE_IMAGE_TYPES = ["image/png", "image/jpeg"];
 
 /**
@@ -300,11 +298,11 @@ export function TerminalPane({
 
 	// A pane that is born focused takes the keyboard, so "New terminal here"
 	// in an ended pane leaves the student typing in the new shell rather than
-	// nowhere (issue #264).
+	// nowhere.
 	const focusOnMountRef = useRef(focusOnMount);
 	focusOnMountRef.current = focusOnMount;
 
-	// This terminal's own colour scheme (issue #268). It can change while the
+	// This terminal's own colour scheme. It can change while the
 	// terminal is open, so the theme is set on the live instance rather than
 	// only at construction.
 	const scheme: TerminalTheme = terminal.theme;
@@ -314,7 +312,7 @@ export function TerminalPane({
 		if (xterm.current) xterm.current.options.theme = terminalTheme(scheme);
 	}, [scheme]);
 
-	// Read at construction and applied live when the student changes it (issue #357).
+	// Read at construction and applied live when the student changes it.
 	const screenReaderMode = useScreenReaderMode();
 	const screenReaderRef = useRef(screenReaderMode);
 	screenReaderRef.current = screenReaderMode;
@@ -693,70 +691,75 @@ export function TerminalPane({
 				setConnected(true);
 			};
 
+			/** The shell exited: close the pane. */
+			function onExitFrame() {
+				stopped = true;
+				setReconnecting(false);
+				setConnected(false);
+				handlers.current.onExited(terminalId);
+				next.close();
+			}
+
+			function onErrorFrame(frame: TerminalErrorFrame) {
+				if (!frame.reason) {
+					term.writeln(`\r\n[portikus] terminal error: ${frame.code}`);
+					return;
+				}
+				// The session went with a terminals restart: close the pane
+				// and say why, once per restart (SPEC.md §9.7).
+				stopped = true;
+				setReconnecting(false);
+				setConnected(false);
+				forgetAgentBuild(workspaceId);
+				if (firstNoticeOf(frame.at ?? "")) {
+					handlers.current.toast.show({
+						tone: "warning",
+						title: terminalGoneMessage(frame.reason),
+						children: TERMINAL_GONE_NEXT_STEP,
+					});
+				}
+				handlers.current.onExited(terminalId);
+				next.close();
+			}
+
 			next.onmessage = (event: MessageEvent) => {
 				const frame = decodeTerminalFrame(event.data);
-				if (frame.kind === "output") {
-					term.write(frame.bytes);
-					// The size in the connect URL is measured before the pane's box
-					// has settled, and a correction sent in the meantime is lost:
-					// this socket was not open yet, or the workspace agent had not
-					// yet started the PTY. Output means both are ready, so say the
-					// size again. Without this tmux keeps repainting a taller
-					// screen than xterm.js has, which scrolls the shell prompt out
-					// of view and leaves a blank pane (SPEC.md §9.7).
-					if (!sizeConfirmed) {
-						sizeConfirmed = true;
-						sendSize();
-					}
-					return;
-				}
-				if (frame.kind === "exit") {
-					stopped = true;
-					setReconnecting(false);
-					setConnected(false);
-					handlers.current.onExited(terminalId);
-					next.close();
-					return;
-				}
-				if (frame.kind === "cwd") {
-					handlers.current.onCwd(frame.path);
-					return;
-				}
-				if (frame.kind === "screen") {
-					alternateScreen = frame.alternate;
-					return;
-				}
-				if (frame.kind === "clear") {
-					// Erase the saved lines only; tmux has already cleared the screen.
-					term.write("\u001b[3J");
-					return;
-				}
-				if (frame.kind === "agent") {
-					if (upgradedAgentNotice(workspaceId, frame.build)) {
-						handlers.current.toast.show({ title: AGENT_UPGRADED_MESSAGE });
-					}
-					return;
-				}
-				if (frame.kind === "error" && frame.reason) {
-					// The session went with a terminals restart: close the pane
-					// and say why, once per restart (SPEC.md §9.7).
-					stopped = true;
-					setReconnecting(false);
-					setConnected(false);
-					forgetAgentBuild(workspaceId);
-					if (firstNoticeOf(frame.at ?? "")) {
-						handlers.current.toast.show({
-							tone: "warning",
-							title: terminalGoneMessage(frame.reason),
-							children: TERMINAL_GONE_NEXT_STEP,
-						});
-					}
-					handlers.current.onExited(terminalId);
-					next.close();
-					return;
-				}
-				if (frame.kind === "error") {
-					term.writeln(`\r\n[portikus] terminal error: ${frame.code}`);
+				switch (frame.kind) {
+					case "output":
+						term.write(frame.bytes);
+						// The size in the connect URL is measured before the pane's box
+						// has settled, and a correction sent in the meantime is lost:
+						// this socket was not open yet, or the workspace agent had not
+						// yet started the PTY. Output means both are ready, so say the
+						// size again. Without this tmux keeps repainting a taller
+						// screen than xterm.js has, which scrolls the shell prompt out
+						// of view and leaves a blank pane (SPEC.md §9.7).
+						if (!sizeConfirmed) {
+							sizeConfirmed = true;
+							sendSize();
+						}
+						return;
+					case "exit":
+						onExitFrame();
+						return;
+					case "cwd":
+						handlers.current.onCwd(frame.path);
+						return;
+					case "screen":
+						alternateScreen = frame.alternate;
+						return;
+					case "clear":
+						// Erase the saved lines only; tmux has already cleared the screen.
+						term.write("\u001b[3J");
+						return;
+					case "agent":
+						if (upgradedAgentNotice(workspaceId, frame.build)) {
+							handlers.current.toast.show({ title: AGENT_UPGRADED_MESSAGE });
+						}
+						return;
+					case "error":
+						onErrorFrame(frame);
+						return;
 				}
 			};
 
@@ -788,7 +791,7 @@ export function TerminalPane({
 
 		// Wait for the box to settle: every size sent makes tmux reflow and a
 		// full-screen app like Claude Code redraw, and redraws for sizes already
-		// gone land on the wrong rows (#849).
+		// gone land on the wrong rows.
 		let settle: ReturnType<typeof setTimeout> | undefined;
 		const observer = new ResizeObserver(() => {
 			if (settle !== undefined) clearTimeout(settle);

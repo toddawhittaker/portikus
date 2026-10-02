@@ -5,8 +5,8 @@ import {
 	newerPublishedImage,
 	PublishedReleasesFile,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { type Database, recordAudit } from "@portikus/db";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 
 /** The image store sits beside the job directory: /var/lib/portikus/images. */
@@ -29,7 +29,7 @@ export async function readPublished(
 }
 
 /** Every image version with a directory in the store. */
-export async function versionsOnServer(imagesDir: string): Promise<ImageVersion[]> {
+async function versionsOnServer(imagesDir: string): Promise<ImageVersion[]> {
 	let names: string[];
 	try {
 		names = await readdir(imagesDir);
@@ -69,16 +69,13 @@ export async function notifyOnce(
 			.where("target", "=", notice.target)
 			.executeTakeFirst();
 		if (seen) return false;
-		await trx
-			.insertInto("audit_events")
-			.values({
-				actor: notice.actor ?? "release-check",
-				target: notice.target,
-				action: notice.action,
-				result: "ok",
-				metadata: JSON.stringify({}),
-			})
-			.execute();
+		await recordAudit(trx, {
+			actor: notice.actor ?? "release-check",
+			target: notice.target,
+			action: notice.action,
+			result: "ok",
+			metadata: {},
+		});
 		const admins = await trx
 			.selectFrom("users")
 			.select("id")
@@ -104,7 +101,7 @@ export async function notifyOnce(
 
 /**
  * Tell administrators once about a published image newer than every image
- * on the server, and once about a newer portikus package (issue #861).
+ * on the server, and once about a newer portikus package.
  */
 export async function noticeReleases(
 	db: Kysely<Database>,
@@ -144,10 +141,7 @@ export function startReleaseNotices(options: {
 		try {
 			await noticeReleases(db, imagesDir);
 		} catch (e) {
-			logger.error(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"release notice error",
-			);
+			logger.error({ error: errorMessage(e) }, "release notice error");
 		}
 	};
 	const timer = setInterval(() => void tick(), intervalSeconds * 1000);

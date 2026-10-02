@@ -1,8 +1,7 @@
 import { BACKUP_KEY_MAX_BYTES, type BackupKeyStatus } from "@portikus/contracts";
 import { Button, ConfirmDialog, ConfirmDialogRoot, useToast } from "@portikus/ui";
 import { useId, useState } from "react";
-import { ApiError } from "../../api/request.js";
-import { errorText } from "../SettingsTab.js";
+import { ApiError, errorText } from "../../api/request.js";
 import { longTime } from "./model.js";
 import { useDownloadBackupKey, useUploadBackupKey } from "./queries.js";
 

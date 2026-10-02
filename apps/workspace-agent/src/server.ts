@@ -32,7 +32,7 @@ import { tokenAuth } from "./auth.js";
 import { startUrlBroker } from "./broker.js";
 import { checksRoute } from "./checks-route.js";
 import { type DockerRunner, dockerInventoryRoute } from "./docker-inventory.js";
-import { ERROR_STATUS, sendError } from "./errors.js";
+import { AgentFailure, ERROR_STATUS, sendError } from "./errors.js";
 import { eventsRoute } from "./events-route.js";
 import { extractZip } from "./extract.js";
 import {
@@ -78,7 +78,6 @@ import { registerRecoveryRoutes } from "./recovery-routes.js";
 import { registerSearchRoutes } from "./search-routes.js";
 import { readTerminalsExit, TerminalRegistry } from "./terminals.js";
 import {
-	AgentFailure,
 	closeSession,
 	commandForAgent,
 	createSession,
@@ -155,7 +154,7 @@ export interface ServerOptions {
 	packages?: Omit<PackagesRouteOptions, "homeDir">;
 	/**
 	 * Which agent code is running, sent on every attach so an open page can
-	 * tell the agent was upgraded under it (issue #887).
+	 * tell the agent was upgraded under it.
 	 */
 	build?: string;
 	/** Overrides how `docker` runs for the inventory route. For tests. */
@@ -503,7 +502,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 		});
 
-		// A failed exclude update must never fail the student's write (#856).
+		// A failed exclude update must never fail the student's write.
 		async function noteWrite(
 			request: FastifyRequest,
 			slug: string,
@@ -518,7 +517,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			}
 		}
 
-		// A failed cleanup must never fail the paste that triggered it (#885).
+		// A failed cleanup must never fail the paste that triggered it.
 		async function cleanPastes(request: FastifyRequest, slug: string): Promise<void> {
 			try {
 				const project = await resolveProject(slug, options.homeDir);
@@ -690,7 +689,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				const { path, check } = queryPath(request);
 				if (check) {
 					// Only the size check, so the browser can explain a refusal
-					// before it starts a download (#399).
+					// before it starts a download.
 					const target = await resolveInProject(options.homeDir, slug, path, {
 						mustExist: true,
 					});

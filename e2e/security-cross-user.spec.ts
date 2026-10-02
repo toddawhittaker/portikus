@@ -17,7 +17,7 @@ import {
 
 /**
  * What another student and an administrator see of student A's workspace in
- * a real browser (Epic 12a, Done item 10; SPEC.md §5.2, §20.2, §24.3). The
+ * a real browser (SPEC.md §5.2, §20.2, §24.3). The
  * API refuses these callers with 404; these tests check that the page built
  * on those answers shows nothing of A's terminals, files, previews, or
  * project names, and that A's preview host shows a Portikus refusal.

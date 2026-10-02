@@ -23,14 +23,14 @@
 	background: var(--surface-hover);
 }
 /* Selection is the neutral row tone shared by every right-pane list, and the
-   whole row carries it, actions included (issue #274). The focused row
+   whole row carries it, actions included. The focused row
    counts as selected for a screen reader, but is painted only while the
    tree has focus, so an untouched tree shows no row picked out. */
 .pk-tree-item[data-selected="true"] > .pk-tree-row,
 :where(.pk-tree:focus-within) .pk-tree-item[aria-selected="true"] > .pk-tree-row {
 	background: var(--surface-row-selected);
 	/* The tone alone is too faint to see, so an ink bar marks the row too,
-	   never green (issue #369). */
+	   never green. */
 	box-shadow: var(--row-current-bar);
 }
 .pk-tree-item:focus-visible > .pk-tree-row {
@@ -44,7 +44,7 @@
 .pk-tree-row.is-dragging {
 	opacity: 0.5;
 }
-/* What follows the pointer during a drag (issue #237). */
+/* What follows the pointer during a drag. */
 .pk-tree-drag {
 	display: flex;
 	align-items: center;
@@ -62,13 +62,13 @@
 	pointer-events: none;
 }
 /* A flex column so the empty area below the tree can take whatever height
-   is left over (issue #237). Only the files pane; other panes are unchanged. */
+   is left over. Only the files pane; other panes are unchanged. */
 .pk-pane--right > .pk-pane-body {
 	display: flex;
 	flex-direction: column;
 }
-/* The empty area under the last row: a drop here means the project root
-   (issue #237). It fills whatever height is left so there is always a
+/* The empty area under the last row: a drop here means the project root.
+   It fills whatever height is left so there is always a
    target, however few files the project has. */
 .pk-tree-space {
 	flex: 1;
@@ -165,7 +165,7 @@
 [data-git="untracked"] .pk-git-letter {
 	color: var(--git-added);
 }
-/* Untracked entries read as not-yet-part-of-the-project (issue #221). */
+/* Untracked entries read as not-yet-part-of-the-project. */
 .pk-tree-item[data-git="untracked"] .pk-tree-name {
 	font-style: italic;
 	opacity: 0.75;
@@ -181,7 +181,7 @@
 .pk-changes-row[data-git="conflict"] {
 	background: var(--status-warning-soft);
 }
-/* Muted colour plus a word, not opacity, which failed contrast (issue #367). */
+/* Muted colour plus a word, not opacity, which failed contrast. */
 .pk-tree-row.is-ignored .pk-tree-name {
 	color: var(--ink-muted);
 }
@@ -191,7 +191,7 @@
 	font-size: 12px;
 }
 
-/* A folder in the Move to picker (issue #370). */
+/* A folder in the Move to picker. */
 .pk-move-folder {
 	display: flex;
 	align-items: center;
@@ -296,10 +296,10 @@
 .pk-changes-row:hover {
 	background: var(--surface-hover);
 }
-/* The same neutral selection as the tree and the Checks pane (issue #274). */
+/* The same neutral selection as the tree and the Checks pane. */
 .pk-changes-row.is-current {
 	background: var(--surface-row-selected);
-	/* An ink bar, so the selection does not rest on a faint tint (issue #369). */
+	/* An ink bar, so the selection does not rest on a faint tint. */
 	box-shadow: var(--row-current-bar);
 }
 .pk-changes-row:focus-visible {

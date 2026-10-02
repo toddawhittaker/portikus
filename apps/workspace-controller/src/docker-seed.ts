@@ -4,11 +4,11 @@ import {
 	type SeedInfo,
 	seedImageListFor,
 } from "@portikus/contracts";
-import { type Logger, silentLogger } from "@portikus/observability";
+import { errorMessage, type Logger, silentLogger } from "@portikus/observability";
 import { IncusError } from "./incus.js";
 
 /**
- * The seed build (issue #840, ruling S8). The provider does the Incus work;
+ * The seed build. The provider does the Incus work;
  * this file holds the order of the steps and the one-build-at-a-time rule.
  */
 export interface SeedBuildHost {
@@ -40,11 +40,11 @@ export class SeedBuildBusyError extends IncusError {
 
 const DOCKER = "/usr/bin/docker";
 /** One `docker pull` may take this long before the build fails. */
-export const SEED_PULL_TIMEOUT_SECONDS = 1800;
+const SEED_PULL_TIMEOUT_SECONDS = 1800;
 const CLEANUP_TIMEOUT_SECONDS = 300;
 
 /** Pull every image, clean up, stop dockerd; never through a shell. */
-export function seedCommands(images: readonly string[]): {
+function seedCommands(images: readonly string[]): {
 	pulls: string[][];
 	cleanup: string[][];
 } {
@@ -150,14 +150,14 @@ export class SeedBuilds {
 			status.seed = seed;
 			this.log.info({ images: request.images.length, sizeBytes }, "docker seed built");
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
+			const message = errorMessage(err);
 			this.log.warn({ err: message, step: status.step }, "docker seed build failed");
 			try {
 				await this.host.discardSeedBuild();
 			} catch (cleanupErr) {
 				this.log.warn(
 					{
-						err: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+						err: errorMessage(cleanupErr),
 					},
 					"could not remove the seed builder",
 				);

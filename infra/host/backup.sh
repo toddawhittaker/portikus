@@ -58,6 +58,8 @@ MAX_VOLUMES=8000
 # The VM half, sent with every command rather than installed on the VM.
 EXPORT_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-export"
 MAC_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-mac"
+# shellcheck source=/dev/null
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-lib.sh"
 SET_PATTERN='^[0-9]{8}T[0-9]{6}Z$'
 # The VM is not trusted: everything it says must match one of these before
 # it reaches a file name or the MANIFEST (restore.sh checks the same forms).
@@ -180,22 +182,6 @@ with open(sum_path, "w") as f:
 info() { printf '[backup] %s\n' "$*"; }
 die() { printf '[backup] FAIL: %s\n' "$*" >&2; exit 1; }
 
-# enough_free_space -- is there room in BACKUP_DIR for one more set: the
-# newest complete set's size plus a fifth, and at least MIN_FREE_MB? The
-# same check as in backup-channel.sh (ADR 0039).
-enough_free_space() {
-  local s newest="" size need avail
-  for s in $(find "$HOST_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | grep -E "$SET_PATTERN" | sort -r); do
-    [ -e "${HOST_DIR}/${s}/FAILED" ] || { newest=$s; break; }
-  done
-  need=$((MIN_FREE_MB * 1048576))
-  if [ -n "$newest" ]; then
-    size=$(du -sb "${HOST_DIR}/${newest}" | cut -f1)
-    [ $((size * 6 / 5)) -le "$need" ] || need=$((size * 6 / 5))
-  fi
-  avail=$(df -B1 --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ')
-  [ "$avail" -ge "$need" ]
-}
 # must NAME PATTERN VALUE -- stop unless the VM's answer has the expected form.
 must() { [[ "$3" =~ $2 ]] || die "the VM sent a ${1} that is not in the expected form; nothing was kept"; }
 # lines TEXT -- TEXT one line at a time, and nothing at all when it is empty.
@@ -253,13 +239,9 @@ if [ ! -d "$BACKUP_DIR" ] || [ ! -w "$BACKUP_DIR" ]; then
   die "${BACKUP_DIR} is missing or not writable (make backup creates it)"
 fi
 
-vm() { ssh -n -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=4 "deploy@${VM}" "$@"; }
 if [ "$local_mode" = yes ]; then
   [ "$(id -u)" = 0 ] || die "--local must run as root"
-  # The same commands as over SSH, run here; this is already root, so sudo is a no-op.
-  sudo() { "$@"; }
-  export -f sudo
-  vm() { bash -c "$*" </dev/null; }
+  use_local_vm
 fi
 # Base64 keeps the script intact through the remote shell, whatever it is.
 export_b64=$(base64 -w0 "$EXPORT_SCRIPT")
@@ -407,7 +389,7 @@ pull() {
 info "database"
 pull db.dump plain db || die "db.dump: the pipeline failed (ssh, index or age)"
 echo "file db.dump $(cat "${scratch}/db.dump.sum")" >>"$manifest"
-# Dex's accounts replace the users file's encrypted copy (docs/archive/epics/EPIC-14.md ruling 23).
+# Dex's accounts replace the users file's encrypted copy (ADR 0028).
 has_dex=$(bounded "Dex database check" 8 1 remote_export has-dex)
 must "Dex database check" '^[01]$' "$has_dex"
 if [ "$has_dex" = 1 ]; then

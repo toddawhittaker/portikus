@@ -1,7 +1,7 @@
 import { type Kysely, sql } from "kysely";
 
 /**
- * Registry pulls counted per UTC day (issue #840, review F1), so the usage
+ * Registry pulls counted per UTC day (SPEC.md section 16.6), so the usage
  * report sums only the pulls inside its window and the daily name cap
  * counts only today's names. Existing rows keep their last day.
  */

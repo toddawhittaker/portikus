@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RecoveryReason } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import { type Logger, silentLogger } from "@portikus/observability";
+import { errorMessage, type Logger, silentLogger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import type { AgentFactory, RecoveryAgent } from "./agent-client.js";
 
@@ -121,7 +121,7 @@ export async function recoverySweep(
 				await sweepOne(ws);
 			} catch (e) {
 				log.warn(
-					{ workspaceId: ws.id, error: e instanceof Error ? e.message : String(e) },
+					{ workspaceId: ws.id, error: errorMessage(e) },
 					"recovery sweep of workspace failed",
 				);
 			}

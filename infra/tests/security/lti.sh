@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # LTI launch, the frame policy and the instructor role through the real edge
-# (docs/archive/epics/EPIC-13.md rulings 4, 5, 7, 9, 16, 17, 19, 25 and 26; SPEC.md 24).
+# (ADR 0025; SPEC.md 24).
 #
 # Sourced by infra/tests/security-test.sh.  Works with LTI on or off: with no
 # platforms file the /lti routes must be 404, and the checks that need a
@@ -22,7 +22,7 @@ lti_csp() {
     | tr -d '\r' | grep -i '^content-security-policy:' | sed 's/^[^:]*: *//' | paste -sd'|'
 }
 
-# ── Frames (ruling 17) ───────────────────────────────────────────
+# ── Frames ───────────────────────────────────────────────────────
 # Everything but /lti/* keeps exactly one policy, frame-ancestors 'none'.
 for lti_path in / /admin /course /auth/me /health /courses "/workspaces/$(sec_ws_id a)"; do
   check_output "${lti_path} may not be framed" "frame-ancestors 'none'" lti_csp GET "$lti_path"
@@ -58,7 +58,7 @@ done
 check_output "GET /lti/jwks may not be framed" "${lti_form_action}|frame-ancestors 'none'" \
   lti_policy GET /lti/jwks
 
-# ── CSRF (ruling 7) ──────────────────────────────────────────────
+# ── CSRF ─────────────────────────────────────────────────────────
 # Only POST /lti/login and POST /lti/launch skip the origin check.  a has a
 # session, so a refusal here is the CSRF check and not a missing sign-in.
 # (A bare /lti is not an API path: Caddy serves the web bundle there.)
@@ -69,13 +69,13 @@ done
 for lti_path in /lti/login /lti/launch; do
   lti_status=$(sec_http a POST "$lti_path" -H "Origin: https://attacker.example" --data "state=x")
   if [ "$lti_status" != "403" ]; then
-    sec_pass "a cross-site POST to ${lti_path} reaches the LTI handler (${lti_status})"
+    ok "a cross-site POST to ${lti_path} reaches the LTI handler (${lti_status})"
   else
-    sec_fail "a cross-site POST to ${lti_path} reaches the LTI handler (got: 403)"
+    bad "a cross-site POST to ${lti_path} reaches the LTI handler (got: 403)"
   fi
 done
 
-# ── Launches no platform signed (rulings 16 and 19) ──────────────
+# ── Launches no platform signed ──────────────────────────────────
 if [ -z "$lti_platforms" ]; then
   for lti_path in /lti/jwks /lti/login; do
     check_output "${lti_path} is 404 with LTI off" "404" sec_http - GET "$lti_path"
@@ -106,7 +106,7 @@ print(p["issuer"], p["clientId"])')
   # token refusals are audited.
   lti_audited() { lti_reasons | grep -qw alg_not_allowed && lti_reasons | grep -qwE 'bad_signature|keyset_unavailable'; }
   check "each token refusal is audited with its reason code" lti_audited
-  # Ruling 9: no id_token reaches a log.  Every JWT header starts eyJ.
+  # No id_token reaches a log.  Every JWT header starts eyJ.
   check_output "no id_token in the API or Caddy journal since the run started" "0" \
     sec_ssh "sudo journalctl -u portikus-api -u caddy --since @${SEC_START_EPOCH} --no-pager -o cat | grep -c 'eyJ[A-Za-z0-9_-]\\{10,\\}\\.eyJ'"
 
@@ -116,15 +116,15 @@ print(", ".join(p["name"] + " (" + p["issuer"] + ")" for p in json.load(sys.stdi
   if [ -n "$lti_mocks" ]; then
     sec_warn "a mock LMS is registered: ${lti_mocks} can launch as anyone while it runs (make lti-mock-unregister)"
   else
-    sec_pass "no mock LMS is registered"
+    ok "no mock LMS is registered"
   fi
 fi
 
-# ── The mock is never on the VM (ruling 25) ──────────────────────
+# ── The mock is never on the VM ──────────────────────────────────
 check_output "the installed package holds no mock LMS file" "0" \
   sec_ssh "dpkg -L portikus | grep -c mock-lms"
 
-# ── The instructor role (rulings 4 and 5) ────────────────────────
+# ── The instructor role ──────────────────────────────────────────
 if sec_mint_user inst instructor; then
   for lti_path in /admin/users /admin/workspaces /admin/settings /admin/audit /admin/health \
     "/admin/workspaces/$(sec_ws_id a)"; do

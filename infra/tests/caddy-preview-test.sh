@@ -7,7 +7,8 @@
 # sign-in provider routes depend on.
 # Needs no VM.  When a caddy binary is found (on PATH, or named by CADDY),
 # the rendered file is also run through `caddy validate`, and a live Caddy
-# on loopback proxies to stand-in plain and TLS upstreams (#283).
+# on loopback proxies to stand-in plain and TLS upstreams (ADR 0041).
+# shellcheck disable=SC2154  # pass and fail come from lib.sh
 set -uo pipefail
 
 caddy_bin="${CADDY:-$(command -v caddy || true)}"
@@ -23,28 +24,18 @@ API_PORT=3000
 CHALLENGE_PORT=8796
 ADMIN_SOCKET=/var/lib/caddy/admin.sock
 
-pass=0
-fail=0
-
-ok() {
-  printf '\033[1;32mPASS\033[0m  %s\n' "$1"
-  pass=$((pass + 1))
-}
-
-no() {
-  printf '\033[1;31mFAIL\033[0m  %s\n' "$1"
-  fail=$((fail + 1))
-}
+# shellcheck source=/dev/null
+. "${REPO_ROOT}/infra/tests/lib.sh"
 
 # has LABEL PATTERN FILE — the file contains a line matching PATTERN.
 has() {
-  if grep -qE -- "$2" "$3"; then ok "$1"; else no "$1"; fi
+  if grep -qE -- "$2" "$3"; then ok "$1"; else bad "$1"; fi
 }
 
 # lacks LABEL PATTERN FILE — no directive of the file matches PATTERN.
 # Comments are skipped: they are allowed to name what is deliberately absent.
 lacks() {
-  if grep -vE '^[[:space:]]*#' "$3" | grep -qE -- "$2"; then no "$1"; else ok "$1"; fi
+  if grep -vE '^[[:space:]]*#' "$3" | grep -qE -- "$2"; then bad "$1"; else ok "$1"; fi
 }
 
 # Caddy's `*` in a site address matches exactly one DNS label.  So a host is
@@ -62,22 +53,20 @@ command -v ansible >/dev/null || {
   exit 1
 }
 
-# render IDP DEST [ARGS...] — the template as site.yml would render it for
-# that sign-in provider (dex or mock), with any further -e settings.
+# render DEST [ARGS...] — the template as site.yml would render it, with
+# any further -e settings.
 render() {
   ansible localhost -c local -m ansible.builtin.template \
-    -a "src=${TEMPLATE} dest=${2} mode=0644" \
+    -a "src=${TEMPLATE} dest=${1} mode=0644" \
     -e "portikus_public_host=${PUBLIC_HOST}" \
     -e "portikus_preview_suffix=${PREVIEW_SUFFIX}" \
     -e "portikus_public_port=${PUBLIC_PORT}" \
     -e "portikus_api_port=${API_PORT}" \
-    -e "portikus_idp=${1}" \
     -e "caddy_admin_socket=${ADMIN_SOCKET}" \
     -e "dex_port=5556" \
     -e "caddy_certificate_dir=${work}/certificate" \
-    -e "caddy_challenge_port=${CHALLENGE_PORT}" \
-    -e "portikus_mock_idp_port=3002" "${@:3}" >"${work}/render.log" 2>&1 || {
-    echo "error: rendering ${TEMPLATE} for ${1} failed" >&2
+    -e "caddy_challenge_port=${CHALLENGE_PORT}" "${@:2}" >"${work}/render.log" 2>&1 || {
+    echo "error: rendering ${TEMPLATE} failed" >&2
     cat "${work}/render.log" >&2
     exit 1
   }
@@ -98,8 +87,7 @@ cat >"${work}/certificate/tls.caddy" <<'EOF'
 EOF
 
 rendered="${work}/Caddyfile"
-render dex "${rendered}"
-render mock "${work}/Caddyfile.mock"
+render "${rendered}"
 
 # Split the rendered file into the application block and the preview block,
 # so each set of assertions can only see its own virtual host.  The snippets
@@ -123,7 +111,7 @@ done
 echo "--- The wildcard cannot serve the application host ---"
 
 if covered_by_wildcard "${PUBLIC_HOST}" "${PREVIEW_SUFFIX}"; then
-  no "the default preview suffix does not cover the application host"
+  bad "the default preview suffix does not cover the application host"
 else
   ok "the default preview suffix does not cover the application host"
 fi
@@ -133,7 +121,7 @@ fi
 if covered_by_wildcard "${PUBLIC_HOST}" "192.0.2.10.nip.io"; then
   ok "a parent-domain suffix is recognised as covering the application host"
 else
-  no "a parent-domain suffix is recognised as covering the application host"
+  bad "a parent-domain suffix is recognised as covering the application host"
 fi
 
 has "site.yml refuses a preview suffix equal to the application host" \
@@ -149,7 +137,7 @@ has "the admin interface is a socket only its owner may open" \
 if [ "$(grep -cE '^[[:space:]]*admin ' "${rendered}")" = 1 ]; then
   ok "no other admin address is set"
 else
-  no "no other admin address is set"
+  bad "no other admin address is set"
 fi
 
 has "the preview virtual host is the wildcard on the public port" \
@@ -192,7 +180,7 @@ has "the forwarded headers are forgotten in one place" \
 if [ "$(grep -c 'import portikus_forget_forwarded' "${preview}")" = "4" ]; then
   ok "bootstrap, reset, the pre-flight nonce and the application path all forget them"
 else
-  no "bootstrap, reset, the pre-flight nonce and the application path all forget them"
+  bad "bootstrap, reset, the pre-flight nonce and the application path all forget them"
 fi
 
 has "every request is authorized by the API" \
@@ -213,12 +201,12 @@ if [ "$(grep -cE '^[[:space:]]+tls_insecure_skip_verify$' "${rendered}")" = "1" 
   [ "$(grep -cE '^[[:space:]]+tls_insecure_skip_verify$' "${preview}")" = "1" ]; then
   ok "certificate checks are skipped only on the TLS preview hop"
 else
-  no "certificate checks are skipped only on the TLS preview hop"
+  bad "certificate checks are skipped only on the TLS preview hop"
 fi
 if [ "$(grep -c 'import portikus_preview_proxy_rules' "${preview}")" = "2" ]; then
   ok "both preview proxies share one set of header rules"
 else
-  no "both preview proxies share one set of header rules"
+  bad "both preview proxies share one set of header rules"
 fi
 has "the authorization subrequest is a plain request, not an upgrade" \
   '^[[:space:]]+header_up -Upgrade$' "${preview}"
@@ -255,7 +243,7 @@ if [ -n "${authorize_line}" ] && [ -n "${cut_line}" ] && [ -n "${proxy_line}" ] 
   [ "${authorize_line}" -lt "${cut_line}" ] && [ "${cut_line}" -lt "${proxy_line}" ]; then
   ok "the cookie is cut after the authorization and before the proxy"
 else
-  no "the cookie is cut after the authorization and before the proxy"
+  bad "the cookie is cut after the authorization and before the proxy"
 fi
 
 echo ""
@@ -286,7 +274,7 @@ if [ -n "${strip_line}" ] && [ -n "${bridge_auth_line}" ] && [ -n "${bridge_prox
   [ "${bridge_auth_line}" -lt "${strip_line}" ] && [ "${strip_line}" -lt "${bridge_proxy_line}" ]; then
   ok "the prefix is still on the URI when the API is asked"
 else
-  no "the prefix is still on the URI when the API is asked"
+  bad "the prefix is still on the URI when the API is asked"
 fi
 
 echo ""
@@ -321,7 +309,7 @@ echo "--- Application virtual host is unchanged ---"
 has "the control plane still refuses to be framed" "frame-ancestors 'none'" "${app}"
 
 echo ""
-echo "--- LTI launch and the Course page (docs/archive/epics/EPIC-13.md, rulings 17 and 23) ---"
+echo "--- LTI launch and the Course page (ADR 0025) ---"
 
 # Everything but /lti/* keeps frame-ancestors 'none'; the API sends the
 # platforms' own frame-ancestors on /lti/*, and two policies would conflict.
@@ -332,10 +320,10 @@ has "the frame policy is applied through that matcher" \
 if [ "$(grep -vE '^[[:space:]]*#' "${app}" | grep -c 'frame-ancestors')" = "$(grep -c 'header @not_lti Content-Security-Policy' "${app}")" ]; then
   ok "no frame policy is set without the /lti/* exception"
 else
-  no "no frame policy is set without the /lti/* exception"
+  bad "no frame policy is set without the /lti/* exception"
 fi
-has "/lti/* reaches the API" '^[[:space:]]+handle /lti/\* \{$' "${app}"
-has "the course list and members reach the API" '^[[:space:]]+handle /courses\* \{$' "${app}"
+has "/lti/* reaches the API" '^[[:space:]]+@api path .* /lti/\* ' "${app}"
+has "the course list and members reach the API" '^[[:space:]]+@api path .* /courses\* ' "${app}"
 # The setup code is gone (ADR 0031); /setup is only a page.
 lacks "no /setup route reaches the API" 'handle /setup' "${app}"
 lacks "the /course pages are not sent to the API" 'handle /course[^s]' "${app}"
@@ -344,7 +332,7 @@ lacks "the control plane has no preview routes" '__portikus' "${app}"
 lacks "the control plane does not import the preview steps" 'import portikus_preview' "${app}"
 
 echo ""
-echo "--- Sign-in provider routes (docs/adr/0023, #398) ---"
+echo "--- Sign-in provider routes (docs/adr/0023) ---"
 
 has "Dex is served under /dex on the application host" \
   '^[[:space:]]+handle /dex/\* \{$' "${app}"
@@ -393,11 +381,11 @@ for used in '/dex/auth*' /dex/token /dex/userinfo /dex/keys '/dex/.well-known/*'
   '/dex/static/*' '/dex/theme/*' '/dex/callback*'; do
   case " ${dex_allowed} " in
     *" ${used} "*) ok "the sign-in flow's ${used} is let through" ;;
-    *) no "the sign-in flow's ${used} is let through" ;;
+    *) bad "the sign-in flow's ${used} is let through" ;;
   esac
 done
 case " ${dex_allowed} " in
-  "  "|*device*|*" /dex/* "*) no "/dex/device/code is not let through" ;;
+  "  "|*device*|*" /dex/* "*) bad "/dex/device/code is not let through" ;;
   *) ok "/dex/device/code is not let through" ;;
 esac
 line_of() { grep -n -- "$1" "${app}" | head -1 | cut -d: -f1; }
@@ -408,38 +396,35 @@ for step in 'respond @dex_unused' 'respond @dex_long_uri' 'respond @dex_auth_oth
   if [ -n "${step_line}" ] && [ -n "${dex_proxy_line}" ] && [ "${step_line}" -lt "${dex_proxy_line}" ]; then
     ok "${step} runs before the request reaches Dex"
   else
-    no "${step} runs before the request reaches Dex"
+    bad "${step} runs before the request reaches Dex"
   fi
 done
-has "with Dex, the mock provider's prefix is a 404" 'handle /mock-idp\* \{' "${app}"
-lacks "with Dex, nothing proxies to the mock provider" '127\.0\.0\.1:3002' "${app}"
 lacks "the /edge routes are never proxied on the public site" 'handle /edge' "${rendered}"
 
 # The API trusts any /edge request from loopback, and everything Caddy
 # proxies arrives from loopback.  So every route that proxies to the API
 # must have a path matcher that cannot cover /edge: this lists the handle
-# matcher above each API proxy, in all three files, and compares it with
+# matcher above each API proxy and compares it with
 # the known routes.  A bare `handle {` or a broader prefix fails here.
 api_routes() {
   awk -v api="reverse_proxy 127.0.0.1:${API_PORT}" '
-    /^\thandle / { m = $0; sub(/^\thandle /, "", m); sub(/ \{$/, "", m) }
-    index($0, api) { print m }
+    /^\t@[a-z_]+ path / { paths[$1] = $0; sub(/^\t@[a-z_]+ path /, "", paths[$1]) }
+    /^\thandle / { m = $0; sub(/^\thandle /, "", m); sub(/ \{$/, "", m); if (m in paths) m = paths[m] }
+    index($0, api) { n = split(m, p, " "); for (i = 1; i <= n; i++) print p[i] }
   ' "$1" | sort -u
 }
 edge_open=0
-for f in "${rendered}" "${work}/Caddyfile.mock"; do
-  [ -n "$(api_routes "${f}")" ] || { no "no API route was found in $(basename "${f}")"; edge_open=1; }
-  while IFS= read -r m; do
-    case "${m}" in
-      /auth/\* | /workspaces\* | /admin\* | /lti/\* | /courses\* | /me/\* | /health | \
-        /.well-known/portikus-preflight/\* | /__portikus/bootstrap | /__portikus/reset) ;;
-      *)
-        no "the route '${m}' in $(basename "${f}") proxies to the API and could cover /edge"
-        edge_open=1
-        ;;
-    esac
-  done < <(api_routes "${f}")
-done
+[ -n "$(api_routes "${rendered}")" ] || { bad "no API route was found in the Caddyfile"; edge_open=1; }
+while IFS= read -r m; do
+  case "${m}" in
+    /auth/\* | /workspaces\* | /admin\* | /lti/\* | /courses\* | /me/\* | /health | \
+      /.well-known/portikus-preflight/\* | /__portikus/bootstrap | /__portikus/reset) ;;
+    *)
+      bad "the route '${m}' proxies to the API and could cover /edge"
+      edge_open=1
+      ;;
+  esac
+done < <(api_routes "${rendered}")
 [ "${edge_open}" = 1 ] || ok "every route that proxies to the API has a path that cannot cover /edge"
 # /__portikus/ports/* reaches the API only through forward_auth, whose fixed
 # uri replaces the client's path; so does every other forward_auth.
@@ -447,13 +432,8 @@ if [ "$(grep -cE '^[[:space:]]+forward_auth .*127\.0\.0\.1:'"${API_PORT}"' \{$' 
   "$(grep -cE '^[[:space:]]+uri /(preview/authorize|edge/signin-throttle\?scope=(password|start))$' "${rendered}")" ]; then
   ok "every authorization subrequest to the API names its own fixed path"
 else
-  no "every authorization subrequest to the API names its own fixed path"
+  bad "every authorization subrequest to the API names its own fixed path"
 fi
-
-has "with the mock, /dex is a 404" 'handle /dex\* \{' "${work}/Caddyfile.mock"
-lacks "with the mock, nothing proxies to Dex" '127\.0\.0\.1:5556' "${work}/Caddyfile.mock"
-has "with the mock, the mock provider is served" \
-  'reverse_proxy 127\.0\.0\.1:3002' "${work}/Caddyfile.mock"
 
 echo ""
 echo "--- The API is told which suffix Caddy serves ---"
@@ -467,7 +447,7 @@ echo "--- The certificate is the admin page's (docs/SPEC.md section 21.12) ---"
 
 # count_is LABEL N PATTERN FILE — exactly N lines of the file match PATTERN.
 count_is() {
-  if [ "$(grep -cE -- "$3" "$4")" = "$2" ]; then ok "$1"; else no "$1"; fi
+  if [ "$(grep -cE -- "$3" "$4")" = "$2" ]; then ok "$1"; else bad "$1"; fi
 }
 
 has "the certificate snippet file is imported before the global options" \
@@ -475,7 +455,7 @@ has "the certificate snippet file is imported before the global options" \
 if [ "$(grep -nE '^import .*/tls\.caddy$' "${rendered}" | cut -d: -f1)" -lt "$(grep -nE '^\{$' "${rendered}" | head -1 | cut -d: -f1)" ]; then
   ok "the import comes first, so its snippets exist when used"
 else
-  no "the import comes first, so its snippets exist when used"
+  bad "the import comes first, so its snippets exist when used"
 fi
 has "the global options take on-demand TLS from the snippet, asking the API on loopback" \
   "^[[:space:]]+import portikus_tls_global http://127\.0\.0\.1:${API_PORT}/edge/certificate-ask$" "${rendered}"
@@ -488,7 +468,7 @@ has "the global options keep Caddy's internal authority, so its root exists what
   '^[[:space:]]+ca local$' "${work}/global-block"
 
 echo ""
-echo "--- Reloads keep WebSockets open (Epic 27 R19) ---"
+echo "--- Reloads keep WebSockets open ---"
 
 count_is "the API's WebSocket proxy and the preview proxies delay closing streams on a reload" 2 \
   '^[[:space:]]+stream_close_delay 1h$' "${rendered}"
@@ -505,9 +485,9 @@ has "the site and the preview names have a plain HTTP block" \
   "^http://${PUBLIC_HOST}, http://\*\.${PREVIEW_SUFFIX} \{$" "${rendered}"
 has "plain HTTP redirects to the public HTTPS port" \
   "^[[:space:]]+redir https://\{host\}:${PUBLIC_PORT}\{uri\} 308$" "${rendered}"
-count_is "the pre-flight nonce is answered on the site, the preview names and plain HTTP" 3 \
+count_is "the pre-flight nonce is answered on the preview names and plain HTTP" 2 \
   'handle /\.well-known/portikus-preflight/\* \{' "${rendered}"
-has "the site answers the pre-flight nonce" 'handle /\.well-known/portikus-preflight/\* \{' "${app}"
+has "the site answers the pre-flight nonce" '^[[:space:]]+@api path .* /\.well-known/portikus-preflight/\*$' "${app}"
 awk '/^http:\/\// { on = 1 } on { print } on && /^\}$/ { exit }' "${rendered}" >"${work}/plain-block"
 count_is "only plain HTTP passes ACME challenges on" 1 'handle /\.well-known/acme-challenge/\* \{' "${rendered}"
 awk '/handle \/\.well-known\/acme-challenge\/\* \{/ { on = 1; next } on && /^\t\}$/ { exit } on { print }' \
@@ -522,19 +502,15 @@ if [ -z "${caddy_bin}" ]; then
   echo "SKIP  caddy validate and the live proxy checks: no caddy binary (set CADDY to one)"
 else
   echo ""
-  for idp in dex mock; do
-    config="${rendered}"
-    [ "${idp}" = dex ] || config="${rendered}.${idp}"
-    if "${caddy_bin}" validate --adapter caddyfile --config "${config}" >"${work}/validate.log" 2>&1; then
-      ok "caddy validate accepts the configuration for ${idp}"
-    else
-      no "caddy validate accepts the configuration for ${idp}"
-      cat "${work}/validate.log" >&2
-    fi
-  done
+  if "${caddy_bin}" validate --adapter caddyfile --config "${rendered}" >"${work}/validate.log" 2>&1; then
+    ok "caddy validate accepts the configuration"
+  else
+    bad "caddy validate accepts the configuration"
+    cat "${work}/validate.log" >&2
+  fi
 
   echo ""
-  echo "--- Live: TLS and plain upstreams behind the preview host (#283) ---"
+  echo "--- Live: TLS and plain upstreams behind the preview host (ADR 0041) ---"
 
   # A stand-in API answers /preview/authorize by the first label of the
   # preview host, as the real API answers from its registry: "tls" names a
@@ -645,11 +621,10 @@ PY
     -e "portikus_preview_suffix=${PREVIEW_SUFFIX}" \
     -e "portikus_public_port=${live_public}" \
     -e "portikus_api_port=${live_api}" \
-    -e "portikus_idp=mock" \
     -e "caddy_admin_socket=${ADMIN_SOCKET}" \
+    -e "dex_port=5556" \
     -e "caddy_certificate_dir=${work}/certificate" \
-    -e "caddy_challenge_port=${live_challenge}" \
-    -e "portikus_mock_idp_port=3002" >"${work}/render.log" 2>&1
+    -e "caddy_challenge_port=${live_challenge}" >"${work}/render.log" 2>&1
   # Keep the test Caddy's admin, certificates and ports out of the host's
   # own, in the template's one global block.
   awk -v data="${work}/caddy-data" -v port="${live_http}" '
@@ -677,7 +652,7 @@ PY
   expect() { # LABEL EXPECTED ACTUAL
     case "$3" in
       *"$2"*) ok "$1" ;;
-      *) no "$1 (got: $3)" ;;
+      *) bad "$1 (got: $3)" ;;
     esac
   }
 
@@ -727,7 +702,7 @@ PY
   site /edge/signin-throttle?scope=start
   get plain /.well-known/portikus-preflight/0123abcd -o /dev/null
   if grep -q '/edge' "${work}/api-paths"; then
-    no "no request from outside reaches the API's /edge routes (got: $(grep '/edge' "${work}/api-paths" | head -3 | tr '\n' ' '))"
+    bad "no request from outside reaches the API's /edge routes (got: $(grep '/edge' "${work}/api-paths" | head -3 | tr '\n' ' '))"
   else
     ok "no request from outside reaches the API's /edge routes"
   fi
@@ -751,7 +726,7 @@ PY
   expect "a path that climbs out of the challenge prefix only redirects" "308" \
     "$(plain /.well-known/acme-challenge/../../edge/certificate-ask -H "Host: ${PUBLIC_HOST}" -o /dev/null -w '%{http_code}')"
   if grep -q '/edge' "${work}/api-paths"; then
-    no "no plain HTTP request reaches the API's /edge routes"
+    bad "no plain HTTP request reaches the API's /edge routes"
   else
     ok "no plain HTTP request reaches the API's /edge routes"
   fi

@@ -4,16 +4,16 @@ import {
 	type UpdateLimitsRequest,
 	type WorkspaceLimits,
 } from "@portikus/contracts";
-import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
+import { Button, Dialog, DialogRoot } from "@portikus/ui";
 import { useState } from "react";
-import { announced } from "./SettingsTab.js";
+import { DraftFields } from "./DraftFields.js";
 
 /** The terminals unit's own TasksMax, which a higher process limit does not raise (SPEC.md section 19.3). */
-export const TERMINALS_TASKS_MAX = 1700;
+const TERMINALS_TASKS_MAX = 1700;
 
 export type LimitKey = keyof UpdateLimitsRequest;
 
-export const LIMIT_FIELDS: {
+const LIMIT_FIELDS: {
 	key: LimitKey;
 	label: string;
 	min: number;
@@ -78,7 +78,7 @@ export function siteLimits(host: HealthReport["host"] | undefined): SiteLimits |
 const count = (n: number) => n.toLocaleString("en-US");
 
 /** "4 GiB" or "3.7 GiB" from MiB, one decimal at most. */
-export function gibText(mib: number): string {
+function gibText(mib: number): string {
 	return `${count(Math.round((mib / 1024) * 10) / 10)} GiB`;
 }
 
@@ -159,7 +159,6 @@ export function LimitsDialog({
 }) {
 	const [drafts, setDrafts] = useState<LimitDrafts>(() => limitDrafts(current));
 	const [errors, setErrors] = useState<Partial<Record<LimitKey, string>>>({});
-	const firstError = LIMIT_FIELDS.find((field) => errors[field.key])?.key;
 
 	function save() {
 		const result = limitsRequest(drafts);
@@ -191,34 +190,22 @@ export function LimitsDialog({
 					</>
 				}
 			>
-				<div className="flex flex-col gap-4">
-					{LIMIT_FIELDS.map((field) => {
-						const error = errors[field.key] ?? null;
-						return (
-							<TextField
-								key={field.key}
-								id={`limits-${field.key}`}
-								label={field.label}
-								inputMode="numeric"
-								// Only the input is narrow; the label and hint use the dialog's width.
-								className="[&>input]:w-40"
-								data-testid={`limits-${field.key}`}
-								hint={[siteHint(field.key, site), field.hint].filter(Boolean).join(" ")}
-								// Only the first problem is announced, so a reader hears one alert.
-								error={field.key === firstError ? announced(error) : error}
-								value={drafts[field.key]}
-								onChange={(event) =>
-									setDrafts((now) => ({ ...now, [field.key]: event.target.value }))
-								}
-							/>
-						);
-					})}
-				</div>
-				{firstError === undefined && serverError ? (
-					<p className="pk-text-compact m-0 mt-3 text-status-error" role="alert">
-						{serverError}
-					</p>
-				) : null}
+				<DraftFields
+					idPrefix="limits"
+					fields={LIMIT_FIELDS}
+					drafts={drafts}
+					setDrafts={setDrafts}
+					errors={errors}
+					hint={(key) =>
+						[siteHint(key, site), LIMIT_FIELDS.find((f) => f.key === key)?.hint]
+							.filter(Boolean)
+							.join(" ")
+					}
+					// Only the input is narrow; the label and hint use the dialog's width.
+					fieldClassName="[&>input]:w-40"
+					layoutClassName="flex flex-col gap-4"
+					serverError={serverError}
+				/>
 			</Dialog>
 		</DialogRoot>
 	);

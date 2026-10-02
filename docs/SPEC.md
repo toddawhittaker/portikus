@@ -299,7 +299,7 @@ LDAP support does not need to be implemented directly in P0 if the institutional
 
 Added by Epic 14 (docs/archive/epics/EPIC-14.md, ADRs 0027 and 0028) and changed by Epic 14.2 (ADR 0031): every site signs people in through Dex, the small OIDC (OpenID Connect) provider Portikus runs beside the API, and LTI (Learning Tools Interoperability) launch works beside it.
 
-- The API trusts one issuer, Dex. It keeps a plain OIDC client against `OIDC_ISSUER_URL` with no provider-specific branches, and always calls userinfo, because Dex puts `groups` there. The development and test sites (`portikus_idp: mock`) point it at the in-repo mock provider instead. `OIDC_DEFAULT_ROLE` stays; Ansible sets it to `student` on every Dex site, so the local administrator and guests, who have no groups, are not refused, and to `none` for the mock.
+- The API trusts one issuer, Dex. It keeps a plain OIDC client against `OIDC_ISSUER_URL` with no provider-specific branches, and always calls userinfo, because Dex puts `groups` there. Local development and CI point it at the in-repo mock provider instead. `OIDC_DEFAULT_ROLE` stays; Ansible sets it to `student` on every site, so the local administrator and guests, who have no groups, are not refused.
 - Dex's own passwords are always on, kept in PostgreSQL and managed by administrators from the Users view. Add user asks for the person's name as well as email, username and role, because Dex sends only the username as the name; the account keeps that name through sign-in.
 - An institution's provider is one Dex connector beside the local passwords, never more than one per site. Dex decides who may sign in; a person Dex refuses sees Dex's error page, never reaches Portikus, and is recorded in Dex's log:
 
@@ -3173,6 +3173,9 @@ language-aware editor".
   in a shell command. One job runs at a time; the API refuses a request
   while one is queued or running. A job lost to a reboot is marked
   failed. Sudo and polkit were rejected (ADR 0030).
+  Every job request file, here and for the other root jobs, is written
+  through one helper that removes its temporary file on failure; the
+  image request file is 0640 and the others 0600.
 - **Routes.** `GET /admin/image`, `GET /admin/image/diff?from=&to=`,
   `POST /admin/image/jobs` with `{kind, version?, node?, python?}`, and
   `GET /admin/image/jobs/:id` (status and the last 500 log lines, read
@@ -3495,6 +3498,15 @@ At minimum, treat the following as separate trust zones:
 6. platform VM/Incus;
 7. Pop!_OS host;
 8. external Internet.
+
+As built (Epic 29): the API and the worker reach the workspace agent
+through one shared client, `packages/agent-client`. It keeps the size cap
+on responses, refuses redirects, and skips an empty body. A stream that
+breaks part way is handled per app. In the API, `readJson` returns
+nothing, so a route answers 503, or the global handler answers 500 where
+a route does not check; the API's typed agent methods raise
+`AgentStreamError`, which answers `AGENT_UNAVAILABLE`. In the worker the
+error is thrown.
 
 ### 24.2 Student code is untrusted
 
@@ -3843,6 +3855,9 @@ As built (Epic 11): a preview refusal that answers 403 is audited as
 `preview.denied`, at most once per workspace and reason per minute; 401 and
 503 answers are not audited. A role change is audited as `user.role_changed`
 with the old and new role and its source.
+Since Epic 29 the four admin role routes share one helper: they write
+the audit row only when the role actually changed, and every role,
+enable and disable row carries the request's address and user agent.
 
 As built (Epic 14.2): `local_admin.created` and `local_admin.reset` (actor
 `host:root`) record the break-glass command `portikus reset-admin`, and
@@ -5314,6 +5329,29 @@ Acceptance:
   ends, and both timers warn first afterwards;
 - discovery sends nothing to a student's listener;
 - the default and previous images can never be deleted.
+
+### Epic 29 — Code quality cleanup
+
+Built on `epic/29-code-quality`. No migration and no change to request
+or response bodies. See sections 22.4, 24.1 and 24.11, and WORKFLOW.md,
+"Code style".
+
+Includes:
+
+- shared helpers for audit rows, unique-violation checks, error
+  messages, API errors and parameters, worker timer loops, and the
+  workspace-agent client;
+- large files split along their seams in the API, the worker, the
+  workspace agent and the web app;
+- shared shell test helpers and a smoke test split by subsystem;
+- comments that explain why instead of narrating history, and a lint
+  check that keeps them so.
+
+Acceptance:
+
+- the smoke test gives the same counts before and after;
+- `pnpm lint` fails on an issue, epic, task, ruling or review reference
+  in a code comment.
 
 ### Estimated total
 

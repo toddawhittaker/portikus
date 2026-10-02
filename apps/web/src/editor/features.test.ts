@@ -31,7 +31,7 @@ beforeEach(() => {
 });
 
 // The icon font lives in the codicon module alone. Without it the find
-// widget's buttons draw as empty boxes (issue #219).
+// widget's buttons draw as empty boxes.
 test("the editor features include the codicon icon font", async () => {
 	const { loadEditorFeatures: load } = await import("./features");
 	await load();

@@ -7,8 +7,8 @@ import {
 	BackupVmListing,
 	HostBackupStatus,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { type Database, recordAudit } from "@portikus/db";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql, type Transaction } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
 
@@ -22,10 +22,10 @@ import { type ControllerClient, ControllerClientError } from "./controller-clien
 export const BACKUP_CLAIM_TIMEOUT_MS = 15 * 60_000;
 
 /** How often the worker runs the VM-side deletes. */
-export const BACKUP_VM_LOOP_SECONDS = 30;
+const BACKUP_VM_LOOP_SECONDS = 30;
 
 /** How often the worker lists kept volumes, which costs Incus calls per workspace; also right after a delete. */
-export const BACKUP_VM_LIST_SECONDS = 300;
+const BACKUP_VM_LIST_SECONDS = 300;
 
 const HOST_KINDS: readonly string[] = BackupHostKind.options;
 const VM_KINDS = ["delete_snapshot", "delete_kept_home"] as const;
@@ -48,20 +48,6 @@ const OUTCOME_ACTIONS: Record<string, { done: string; failed: string }> = {
 		failed: "backup.kept_home_delete_failed",
 	},
 };
-
-async function audit(
-	db: Db,
-	actor: string,
-	target: string,
-	action: string,
-	result: string,
-	metadata: Record<string, unknown>,
-): Promise<void> {
-	await db
-		.insertInto("audit_events")
-		.values({ actor, target, action, result, metadata: JSON.stringify(metadata) })
-		.execute();
-}
 
 /** The same target the request's own audit row used, so the two pair up. */
 function auditTarget(row: {
@@ -148,18 +134,17 @@ async function finishHostRequest(
 		.execute();
 	const actions = OUTCOME_ACTIONS[row.kind];
 	if (actions) {
-		await audit(
-			db,
-			"host",
-			auditTarget(row),
-			outcome.state === "done" ? actions.done : actions.failed,
-			outcome.state === "done" ? "ok" : "failed",
-			{
+		await recordAudit(db, {
+			actor: "host",
+			target: auditTarget(row),
+			action: outcome.state === "done" ? actions.done : actions.failed,
+			result: outcome.state === "done" ? "ok" : "failed",
+			metadata: {
 				requestId: row.id,
 				...(outcome.stamp ? { stamp: outcome.stamp } : {}),
 				...(outcome.state === "failed" ? { error: outcome.error } : {}),
 			},
-		);
+		});
 	}
 	const args = (row.args ?? {}) as { stamp?: string; dir?: string };
 	if (
@@ -399,21 +384,24 @@ export async function runVmDeletes(
 				})
 				.where("id", "=", row.id)
 				.execute();
-			await audit(
-				trx,
-				"worker",
-				auditTarget(row),
-				error ? actions.failed : actions.done,
-				error ? "failed" : "ok",
-				{ requestId: row.id, ...(row.args as object), ...(error ? { error } : {}) },
-			);
+			await recordAudit(trx, {
+				actor: "worker",
+				target: auditTarget(row),
+				action: error ? actions.failed : actions.done,
+				result: error ? "failed" : "ok",
+				metadata: {
+					requestId: row.id,
+					...(row.args as object),
+					...(error ? { error } : {}),
+				},
+			});
 		});
 	}
 	return rows.length;
 }
 
 /** List pre-change snapshots and kept homes into `backup_status.vm`. */
-export async function listVmVolumes(
+async function listVmVolumes(
 	db: Kysely<Database>,
 	controller: ControllerClient,
 	now: Date,
@@ -449,10 +437,7 @@ export async function backupVmTick(options: {
 			listedAt === null || now().getTime() - listedAt >= BACKUP_VM_LIST_SECONDS * 1000;
 		if (ran > 0 || due) await listVmVolumes(db, controller, now());
 	} catch (e) {
-		logger.error(
-			{ error: e instanceof Error ? e.message : String(e) },
-			"backup volume loop error",
-		);
+		logger.error({ error: errorMessage(e) }, "backup volume loop error");
 	}
 }
 
@@ -473,6 +458,40 @@ export function startBackupVmLoop(options: {
 /** What the student sees when a replace fails after the home was touched. */
 const REPLACE_FAILED_MESSAGE =
 	"Your home folder could not be replaced. Please contact your administrator.";
+
+/** The error columns a finished replace writes; a failure before the swap leaves them. */
+function replaceErrorFields(
+	failed: boolean,
+	touched: boolean,
+): { error_code?: string | null; error_message?: string | null } {
+	if (!failed) return { error_code: null, error_message: null };
+	if (touched)
+		return { error_code: "OPERATION_FAILED", error_message: REPLACE_FAILED_MESSAGE };
+	return {};
+}
+
+/** The owner's notification for a finished replace. */
+function replaceNotice(
+	failed: boolean,
+	touched: boolean,
+	stamp: string | undefined,
+): { tone: "danger" | "success"; title: string; body: string } {
+	const when = stamp ? ` from ${describeStamp(stamp)}` : "";
+	if (!failed) {
+		return {
+			tone: "success",
+			title: "Your home folder was replaced",
+			body: `An administrator replaced your home folder with the backup${when}. Your previous home folder is kept, and your projects have recovery points from just before.`,
+		};
+	}
+	return {
+		tone: "danger",
+		title: "Your home folder was not replaced",
+		body: touched
+			? REPLACE_FAILED_MESSAGE
+			: `An administrator tried to replace your home folder with the backup${when}, but it did not work. Your files are unchanged.`,
+	};
+}
 
 /**
  * One step of a pending `replace-home` on a stopped or errored workspace
@@ -527,40 +546,26 @@ export async function runReplaceHome(
 					pending_operation_at: null,
 					pending_operation_by: null,
 					state: nextState,
-					...(!failed ? { error_code: null, error_message: null } : {}),
-					...(touched
-						? { error_code: "OPERATION_FAILED", error_message: REPLACE_FAILED_MESSAGE }
-						: {}),
+					...replaceErrorFields(failed, touched),
 					updated_at: now.toISOString(),
 				})
 				.where("id", "=", ws.id)
 				.where("pending_operation", "=", "replace-home")
 				.executeTakeFirst();
 			if (updated.numUpdatedRows === 0n) return 0;
-			await audit(
-				trx,
-				"worker",
-				ws.id,
-				failed ? "workspace.home_replace_failed" : "workspace.home_replaced",
-				failed ? "failed" : "ok",
-				{
+			await recordAudit(trx, {
+				actor: "worker",
+				target: ws.id,
+				action: failed ? "workspace.home_replace_failed" : "workspace.home_replaced",
+				result: failed ? "failed" : "ok",
+				metadata: {
 					...base,
 					requestedBy: ws.pendingBy,
 					...(failed ? { error: outcome.error } : { kept: outcome.kept }),
 				},
-			);
-			const when = stamp ? ` from ${describeStamp(stamp)}` : "";
-			await notifyOwner(
-				trx,
-				ws.id,
-				failed ? "danger" : "success",
-				failed ? "Your home folder was not replaced" : "Your home folder was replaced",
-				failed
-					? touched
-						? REPLACE_FAILED_MESSAGE
-						: `An administrator tried to replace your home folder with the backup${when}, but it did not work. Your files are unchanged.`
-					: `An administrator replaced your home folder with the backup${when}. Your previous home folder is kept, and your projects have recovery points from just before.`,
-			);
+			});
+			const notice = replaceNotice(failed, touched, stamp);
+			await notifyOwner(trx, ws.id, notice.tone, notice.title, notice.body);
 			return nextState !== ws.state ? 1 : 0;
 		});
 	};

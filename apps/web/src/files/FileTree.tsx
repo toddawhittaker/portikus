@@ -8,17 +8,7 @@
  * socket open, so a change made in a terminal shows here on its own
  * (SPEC.md §11.4, §12.3).
  */
-import {
-	DndContext,
-	type DragEndEvent,
-	DragOverlay,
-	type DragStartEvent,
-	PointerSensor,
-	useDraggable,
-	useDroppable,
-	useSensor,
-	useSensors,
-} from "@dnd-kit/core";
+import { DndContext, DragOverlay, useDraggable, useDroppable } from "@dnd-kit/core";
 import {
 	type BrowserOpenRequest,
 	MAX_TREE_ENTRIES,
@@ -69,6 +59,7 @@ import { ChangesList } from "./ChangesList.js";
 import { fileIconName } from "./fileIcon.js";
 import {
 	decorations as buildDecorations,
+	type GitDecoration,
 	type GitDecorations,
 	isIgnored,
 	NO_DECORATIONS,
@@ -79,7 +70,6 @@ import {
 	baseName,
 	displayName,
 	joinPath,
-	moveForDrop,
 	nameError,
 	parentOf,
 	reseedFocus,
@@ -109,6 +99,11 @@ import { openAgentSession, sessionReviewLabel } from "./sessionReview.js";
 import { useExpanded, useFileViewStore, useShowHidden } from "./store.js";
 import { useGitStatus } from "./useGitStatus.js";
 import { useProjectEvents } from "./useProjectEvents.js";
+import {
+	dropId,
+	ROOT_SPACE_DROP_ID,
+	useTreeDragAndDrop,
+} from "./useTreeDragAndDrop.js";
 
 /** A row of the tree: a project-relative path and what it is. */
 export interface FileNode {
@@ -146,16 +141,16 @@ interface TreeApi {
 	/** The rows an action on `path` applies to: the selection, or that row. */
 	targetsFor: (node: FileNode) => FileNode[];
 	download: (nodes: readonly FileNode[]) => void;
-	/** "Extract here" on a zip, into a new folder beside it (issue #817). */
+	/** "Extract here" on a zip, into a new folder beside it. */
 	extract: (node: FileNode) => void;
 	/** The element holding the rows, so the drawn order can be read back. */
 	treeRef: (element: HTMLElement | null) => void;
 	dropDir: string | null;
-	/** A desktop file drag is over the pane (SPEC.md §11.2, issue #183). */
+	/** A desktop file drag is over the pane (SPEC.md §11.2). */
 	uploadDrag: boolean;
 	/** Git decorations for the rows (SPEC.md §12.1). */
 	git: GitDecorations;
-	/** The row whose ⋯ menu is open, so the keyboard can open it (issue #366). */
+	/** The row whose ⋯ menu is open, so the keyboard can open it. */
 	menuPath: string | null;
 	setMenuPath: (path: string | null) => void;
 }
@@ -167,16 +162,6 @@ function useTreeApi(): TreeApi {
 	if (!api) throw new Error("the file tree row is outside its tree");
 	return api;
 }
-
-/** The droppable id of a directory; the project root is the empty path. */
-const dropId = (dir: string) => `dir:${dir}`;
-
-/**
- * The empty area below the tree is a second way into the project root
- * (issue #237). It is its own element rather than the pane body, so it never
- * overlaps a row and the pointer can only be over one of the two.
- */
-const ROOT_SPACE_DROP_ID = "root-space";
 
 /** Run `job` over `items`, never more than `limit` of them at once. */
 async function runWithLimit<T>(
@@ -193,6 +178,117 @@ async function runWithLimit<T>(
 	await Promise.all(workers);
 }
 
+/** The Changes list, showing Git or the open agent session's changes (SPEC.md §12.6). */
+function PaneChanges({
+	workspaceId,
+	project,
+	session,
+	reviewSession,
+	setReviewSession,
+	gitStatus,
+	baselineStatus,
+	openFileTab,
+}: {
+	workspaceId: string;
+	project: Project;
+	session: ReturnType<typeof openAgentSession>;
+	reviewSession: boolean;
+	setReviewSession: (on: boolean) => void;
+	gitStatus: ReturnType<typeof useGitStatus>;
+	baselineStatus: ReturnType<typeof useGitStatus>;
+	openFileTab: (path: string, options?: { diff?: boolean; baseline?: string }) => void;
+}) {
+	const shown = reviewSession ? baselineStatus : gitStatus;
+	return (
+		<ChangesList
+			projectId={project.id}
+			status={shown.data}
+			error={shown.isError}
+			sessionLabel={
+				reviewSession && session?.agent ? sessionReviewLabel(session.agent) : undefined
+			}
+			onReviewSession={
+				session && !reviewSession ? () => setReviewSession(true) : undefined
+			}
+			onShowGit={reviewSession ? () => setReviewSession(false) : undefined}
+			sessionRestore={
+				session?.recoveryPointId
+					? { workspaceId, project, pointId: session.recoveryPointId }
+					: undefined
+			}
+			onOpen={
+				reviewSession && session?.baselineObjectId
+					? (path) =>
+							openFileTab(path, {
+								diff: true,
+								baseline: session.baselineObjectId ?? undefined,
+							})
+					: undefined
+			}
+		/>
+	);
+}
+
+/** What the tree area shows: an error, an empty project, or the tree itself. */
+function TreeListing({
+	project,
+	failed,
+	allHidden,
+	empty,
+	onRetry,
+	onNewFile,
+}: {
+	project: Project;
+	failed: boolean;
+	allHidden: boolean;
+	empty: boolean;
+	onRetry: () => void;
+	onNewFile: () => void;
+}) {
+	if (failed) {
+		return (
+			<EmptyState
+				icon="alert"
+				title="The files could not be listed"
+				actions={
+					<Button size="sm" data-testid="file-tree-retry" onClick={onRetry}>
+						Retry
+					</Button>
+				}
+			>
+				The workspace did not answer. Try again in a moment.
+			</EmptyState>
+		);
+	}
+	if (allHidden) {
+		return (
+			<EmptyState icon="file" title="Nothing to show">
+				Everything here is hidden. Turn on Show hidden files to see it.
+			</EmptyState>
+		);
+	}
+	if (empty) {
+		return (
+			<EmptyState
+				icon="file"
+				title="No files yet"
+				actions={
+					<Button size="sm" data-testid="files-empty-new-file" onClick={onNewFile}>
+						New file
+					</Button>
+				}
+			>
+				Create a file, upload one, or use a terminal.
+			</EmptyState>
+		);
+	}
+	return (
+		<>
+			<TreeRoot slug={project.slug} />
+			<RootSpaceDropZone name={project.name} />
+		</>
+	);
+}
 export function FileTreePane({
 	workspaceId,
 	project,
@@ -203,7 +299,7 @@ export function FileTreePane({
 	project: Project;
 	/** Swap this pane for find in files (SPEC.md 11.5). */
 	onSearch: () => void;
-	/** Lets the caller return focus here when the search closes (issue #358). */
+	/** Lets the caller return focus here when the search closes. */
 	searchButtonRef?: Ref<HTMLButtonElement>;
 }) {
 	const toast = useToast();
@@ -249,12 +345,6 @@ export function FileTreePane({
 	);
 
 	const [focusedPath, setFocusedPath] = useState<string | null>(null);
-	const [dropDir, setDropDir] = useState<string | null>(null);
-	const [uploadDrag, setUploadDrag] = useState(false);
-	// How many pane elements the upload drag is currently inside. Moving onto a
-	// child row fires a leave for the element behind it, so counting is the only
-	// way to tell "moved within the pane" from "left the pane" (issue #220).
-	const uploadDepth = useRef(0);
 	const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
 	const [menuPath, setMenuPath] = useState<string | null>(null);
 	const [dialog, setDialog] = useState<
@@ -271,13 +361,6 @@ export function FileTreePane({
 	// through a ref and stay stable themselves.
 	const mutationsRef = useRef<FileMutations>(mutations);
 	mutationsRef.current = mutations;
-
-	const sensors = useSensors(
-		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-	);
-	// What the pointer is carrying, so the drag has something visible to show
-	// (issue #237). dnd-kit draws it in a DragOverlay at the pointer.
-	const [dragged, setDragged] = useState<{ path: string; isDir: boolean } | null>(null);
 
 	const fail = useCallback(
 		(error: unknown) => {
@@ -367,7 +450,7 @@ export function FileTreePane({
 	/**
 	 * Download a selection. The download endpoint takes one path, so several
 	 * rows become one zip each, a moment apart so the browser keeps them all.
-	 * Each is checked against the size cap first (#399).
+	 * Each is checked against the size cap first.
 	 */
 	const download = useCallback(
 		(nodes: readonly FileNode[]) => {
@@ -445,6 +528,14 @@ export function FileTreePane({
 		},
 		[toast, uploadOne],
 	);
+
+	const { sensors, dragged, dropDir, uploadDrag, dndHandlers, uploadHandlers } =
+		useTreeDragAndDrop({
+			moveFile: (from, to) => mutations.move.mutateAsync({ from, to }),
+			afterMove,
+			fail,
+			uploadInto,
+		});
 
 	const openFile = useCallback(
 		(node: FileNode) => {
@@ -542,54 +633,19 @@ export function FileTreePane({
 		],
 	);
 
-	function onDragStart(event: DragStartEvent) {
-		const id = String(event.active.id);
-		if (!id.startsWith("row:")) return;
-		setDragged({
-			path: id.slice("row:".length),
-			isDir: event.active.data.current?.isDir === true,
-		});
-	}
-
-	function onDragEnd(event: DragEndEvent) {
-		setDropDir(null);
-		setDragged(null);
-		const over = event.over ? String(event.over.id) : null;
-		const move = moveForDrop(
-			String(event.active.id),
-			// The empty space below the tree means the project root.
-			over === ROOT_SPACE_DROP_ID ? dropId("") : over,
-		);
-		if (!move) return;
-		const { from, to } = move;
-		void mutations.move
-			.mutateAsync({ from, to })
-			.then(() => afterMove(from, to))
-			.catch(fail);
-	}
-
-	/** Which directory a desktop drag is over, from the row under the pointer. */
-	function dirUnder(target: EventTarget | null): string {
-		const element =
-			target instanceof Element ? target.closest("[data-drop-dir]") : null;
-		return element?.getAttribute("data-drop-dir") ?? "";
-	}
-
 	const entries = root.data ? visibleEntries(root.data.entries, showHidden) : [];
 	const empty = root.isSuccess && entries.length === 0;
 	const allHidden = empty && (root.data?.entries.length ?? 0) > 0;
+	const uploadToRoot = uploadDrag && (dropDir === "" || dropDir === null);
 
 	return (
 		// The context wraps the header too, so a file can be dragged back to
 		// the project root (SPEC.md §11.2).
 		<DndContext
 			sensors={sensors}
-			onDragStart={onDragStart}
-			onDragEnd={onDragEnd}
-			onDragCancel={() => {
-				setDropDir(null);
-				setDragged(null);
-			}}
+			onDragStart={dndHandlers.onDragStart}
+			onDragEnd={dndHandlers.onDragEnd}
+			onDragCancel={dndHandlers.onDragCancel}
 		>
 			<TreeContext.Provider value={api}>
 				<aside className="pk-pane pk-pane--right" aria-label="Files">
@@ -658,43 +714,13 @@ export function FileTreePane({
 					{/* Desktop drag-and-drop upload (SPEC.md §11.2). */}
 					{/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, not a control */}
 					<div
-						className={`pk-pane-body${
-							uploadDrag && (dropDir === "" || dropDir === null)
-								? " is-upload-root"
-								: ""
-						}`}
-						data-upload-root={
-							uploadDrag && (dropDir === "" || dropDir === null) ? "true" : undefined
-						}
+						className={`pk-pane-body${uploadToRoot ? " is-upload-root" : ""}`}
+						data-upload-root={uploadToRoot ? "true" : undefined}
 						data-testid="file-tree-body"
-						onDragOver={(event) => {
-							if (!event.dataTransfer.types.includes("Files")) return;
-							event.preventDefault();
-							setUploadDrag(true);
-							setDropDir(dirUnder(event.target));
-						}}
-						onDragEnter={(event) => {
-							if (!event.dataTransfer.types.includes("Files")) return;
-							uploadDepth.current += 1;
-							setUploadDrag(true);
-							setDropDir(dirUnder(event.target));
-						}}
-						onDragLeave={() => {
-							if (uploadDepth.current === 0) return;
-							uploadDepth.current -= 1;
-							if (uploadDepth.current > 0) return;
-							setDropDir(null);
-							setUploadDrag(false);
-						}}
-						onDrop={(event) => {
-							if (!event.dataTransfer.files.length) return;
-							event.preventDefault();
-							const dir = dirUnder(event.target);
-							uploadDepth.current = 0;
-							setDropDir(null);
-							setUploadDrag(false);
-							uploadInto(dir, event.dataTransfer.files);
-						}}
+						onDragOver={uploadHandlers.onDragOver}
+						onDragEnter={uploadHandlers.onDragEnter}
+						onDragLeave={uploadHandlers.onDragLeave}
+						onDrop={uploadHandlers.onDrop}
 					>
 						{/* The live region exists before its text, so the text is announced. */}
 						<div role="status" data-testid="files-watch-limited-region">
@@ -705,83 +731,31 @@ export function FileTreePane({
 								</p>
 							) : null}
 						</div>
-						{uploadDrag && (dropDir === "" || dropDir === null) ? (
+						{uploadToRoot ? (
 							<p className="pk-upload-hint" data-testid="file-tree-root-hint">
 								Drop to upload to {project.name}
 							</p>
 						) : null}
-						{root.isError ? (
-							<EmptyState
-								icon="alert"
-								title="The files could not be listed"
-								actions={
-									<Button
-										size="sm"
-										data-testid="file-tree-retry"
-										onClick={() => void root.refetch()}
-									>
-										Retry
-									</Button>
-								}
-							>
-								The workspace did not answer. Try again in a moment.
-							</EmptyState>
-						) : allHidden ? (
-							<EmptyState icon="file" title="Nothing to show">
-								Everything here is hidden. Turn on Show hidden files to see it.
-							</EmptyState>
-						) : empty ? (
-							<EmptyState
-								icon="file"
-								title="No files yet"
-								actions={
-									<Button
-										size="sm"
-										data-testid="files-empty-new-file"
-										onClick={() => api.newIn("", "file")}
-									>
-										New file
-									</Button>
-								}
-							>
-								Create a file, upload one, or use a terminal.
-							</EmptyState>
-						) : (
-							<>
-								<TreeRoot slug={project.slug} />
-								<RootSpaceDropZone name={project.name} />
-							</>
-						)}
+						<TreeListing
+							project={project}
+							failed={root.isError}
+							allHidden={allHidden}
+							empty={empty}
+							onRetry={() => void root.refetch()}
+							onNewFile={() => api.newIn("", "file")}
+						/>
 					</div>
 
 					{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
-					<ChangesList
-						projectId={project.id}
-						status={reviewSession ? baselineStatus.data : gitStatus.data}
-						error={reviewSession ? baselineStatus.isError : gitStatus.isError}
-						sessionLabel={
-							reviewSession && session?.agent
-								? sessionReviewLabel(session.agent)
-								: undefined
-						}
-						onReviewSession={
-							session && !reviewSession ? () => setReviewSession(true) : undefined
-						}
-						onShowGit={reviewSession ? () => setReviewSession(false) : undefined}
-						sessionRestore={
-							session?.recoveryPointId
-								? { workspaceId, project, pointId: session.recoveryPointId }
-								: undefined
-						}
-						onOpen={
-							reviewSession && session?.baselineObjectId
-								? (path) =>
-										openFileTab(path, {
-											diff: true,
-											baseline: session.baselineObjectId ?? undefined,
-										})
-								: undefined
-						}
+					<PaneChanges
+						workspaceId={workspaceId}
+						project={project}
+						session={session}
+						reviewSession={reviewSession}
+						setReviewSession={setReviewSession}
+						gitStatus={gitStatus}
+						baselineStatus={baselineStatus}
+						openFileTab={openFileTab}
 					/>
 					{browserOpens[0] ? (
 						<BrowserOpenDialog
@@ -907,7 +881,7 @@ export function FileTreePane({
 				</aside>
 			</TreeContext.Provider>
 			{/* The row stays where it is; a small copy of it follows the
-			    pointer, so it is clear what is being dragged (issue #237). */}
+			    pointer, so it is clear what is being dragged. */}
 			<DragOverlay dropAnimation={null}>
 				{dragged ? (
 					<div className="pk-tree-drag" data-testid="file-drag-overlay">
@@ -926,7 +900,7 @@ export function FileTreePane({
 /**
  * The empty area below the last row. Dropping a file here moves it to the
  * project root, which is otherwise only reachable through the path line
- * (issue #237, SPEC.md §11.2).
+ * (SPEC.md §11.2).
  */
 function RootSpaceDropZone({ name }: { name: string }) {
 	const drop = useDroppable({ id: ROOT_SPACE_DROP_ID });
@@ -1096,6 +1070,68 @@ function Directory({ dir, level }: { dir: string; level: number }) {
 	);
 }
 
+/** What a row's Git letter, dot and muted colour say, in words. */
+function rowStatus(
+	decoration: GitDecoration | undefined,
+	dirty: boolean,
+	ignored: boolean,
+): string | null {
+	if (decoration) return decoration.title;
+	if (dirty) return "contains changes";
+	if (ignored) return "ignored";
+	return null;
+}
+
+/** A row's twisty, icon, name and Git marks, inside the right-click trigger's span. */
+function RowFace({
+	name,
+	shown,
+	isDir,
+	open,
+	status,
+	decoration,
+	dirty,
+	ignored,
+}: {
+	name: string;
+	shown: string;
+	isDir: boolean;
+	open: boolean;
+	status: string | null;
+	decoration: GitDecoration | undefined;
+	dirty: boolean;
+	ignored: boolean;
+}) {
+	const folderIcon = open ? "folder-open" : "folder";
+	return (
+		<>
+			<span className="pk-tree-twisty">
+				{isDir ? (
+					<Icon name={open ? "chevron-down" : "chevron-right"} size="sm" />
+				) : null}
+			</span>
+			<Icon name={isDir ? folderIcon : fileIconName(name)} size="md" />
+			<span className="pk-tree-name">{shown}</span>
+			{status ? <span className="pk-visually-hidden">, {status}</span> : null}
+			{ignored && !decoration && !dirty ? (
+				<span className="pk-tree-tag" aria-hidden="true">
+					ignored
+				</span>
+			) : null}
+			{decoration ? (
+				<>
+					{decoration.kind === "conflict" ? <Icon name="alert" size="sm" /> : null}
+					<span className="pk-git-letter" aria-hidden="true">
+						{decoration.letter}
+					</span>
+				</>
+			) : dirty ? (
+				<span className="pk-git-dot" aria-hidden="true" />
+			) : null}
+		</>
+	);
+}
+
 function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: number }) {
 	const api = useTreeApi();
 	const path = joinPath(dir, entry.name);
@@ -1110,14 +1146,8 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 	const dirty = isDir && api.git.changedDirs.has(path);
 	const ignored = api.git.repo && isIgnored(path, api.git.ignored);
 	const title = decoration ? `${shown} — ${decoration.title}` : undefined;
-	// What the letter, the dot and the muted colour say, in words (issue #362).
-	const status = decoration
-		? decoration.title
-		: dirty
-			? "contains changes"
-			: ignored
-				? "ignored"
-				: null;
+	// What the letter, the dot and the muted colour say, in words.
+	const status = rowStatus(decoration, dirty, ignored);
 	const rowRef = useRef<HTMLDivElement | null>(null);
 
 	const selected = api.selection.paths.includes(path);
@@ -1199,36 +1229,16 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 				<ContextMenu>
 					<ContextMenuTrigger asChild>
 						<span className="pk-tree-face">
-							<span className="pk-tree-twisty">
-								{isDir ? (
-									<Icon name={open ? "chevron-down" : "chevron-right"} size="sm" />
-								) : null}
-							</span>
-							<Icon
-								name={
-									isDir ? (open ? "folder-open" : "folder") : fileIconName(entry.name)
-								}
-								size="md"
+							<RowFace
+								name={entry.name}
+								shown={shown}
+								isDir={isDir}
+								open={open}
+								status={status}
+								decoration={decoration}
+								dirty={dirty}
+								ignored={ignored}
 							/>
-							<span className="pk-tree-name">{shown}</span>
-							{status ? <span className="pk-visually-hidden">, {status}</span> : null}
-							{ignored && !decoration && !dirty ? (
-								<span className="pk-tree-tag" aria-hidden="true">
-									ignored
-								</span>
-							) : null}
-							{decoration ? (
-								<>
-									{decoration.kind === "conflict" ? (
-										<Icon name="alert" size="sm" />
-									) : null}
-									<span className="pk-git-letter" aria-hidden="true">
-										{decoration.letter}
-									</span>
-								</>
-							) : dirty ? (
-								<span className="pk-git-dot" aria-hidden="true" />
-							) : null}
 						</span>
 					</ContextMenuTrigger>
 					<Menu label={`Actions for ${shown}`}>
@@ -1240,7 +1250,7 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 					onOpenChange={(value) => api.setMenuPath(value ? path : null)}
 				>
 					<MenuTrigger asChild>
-						{/* Not a Tab stop: the row is, and Shift+F10 opens this (issue #366). */}
+						{/* Not a Tab stop: the row is, and Shift+F10 opens this. */}
 						<IconButton
 							icon="more"
 							label={`Actions for ${shown}`}
@@ -1250,7 +1260,7 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 							data-testid={`file-menu-${path}`}
 							onClick={(event) => event.stopPropagation()}
 							// A dialog opened from this menu returns focus here on close;
-							// hand it on to the row, the tree's Tab stop (issue #358).
+							// hand it on to the row, the tree's Tab stop.
 							onFocus={() => rowRef.current?.focus()}
 						/>
 					</MenuTrigger>
@@ -1302,7 +1312,7 @@ function RowMenuItems({ node }: { node: FileNode }): ReactNode {
 	const api = useTreeApi();
 	// A new file or folder goes inside a directory, or beside a file.
 	const dir = node.isDir ? node.path : parentOf(node.path);
-	// A menu opened on a selected row acts on the whole selection (issue #182).
+	// A menu opened on a selected row acts on the whole selection.
 	const targets = api.targetsFor(node);
 	const many = targets.length > 1;
 

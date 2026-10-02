@@ -149,14 +149,14 @@ export function directoryChoice(url: string): DirectoryChoice {
 	return "custom";
 }
 
-export function directoryUrl(form: CertificateForm): string {
+function directoryUrl(form: CertificateForm): string {
 	return form.directory === "custom"
 		? form.customDirectory.trim()
 		: ACME_DIRECTORY_PRESETS[form.directory];
 }
 
 /**
- * Whether Test only issues a real certificate (Epic 27 R11 as amended):
+ * Whether Test only issues a real certificate:
  * Let's Encrypt is tested against its staging service, every other
  * directory against itself.
  */
@@ -295,7 +295,7 @@ const CHECK_LABEL: Record<CertificateUploadCheck, string> = {
 
 /**
  * The API names a refused upload's check by its id ("the key-matches check
- * failed"); the page names it in words (Epic 27 R9).
+ * failed"); the page names it in words.
  */
 export function uploadRefusalText(message: string): string {
 	return message.replace(/the ([a-z-]+) check failed\./, (whole, id: string) => {
@@ -355,61 +355,72 @@ function checkUpload(
 	}
 }
 
+function checkAcme(
+	errors: Record<string, string>,
+	form: CertificateForm,
+	settings: CertificateSettingsView | null,
+) {
+	if (form.directory === "custom") {
+		const url = form.customDirectory.trim();
+		if (url === "") errors[FIELD_ID.customDirectory] = "Enter the directory URL.";
+		else if (!/^https:\/\/[^\s/]+/.test(url)) {
+			errors[FIELD_ID.customDirectory] = "The directory URL must start with https://.";
+		}
+	}
+	const email = form.email.trim();
+	if (email === "") errors[FIELD_ID.email] = "Enter the account email.";
+	else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+		errors[FIELD_ID.email] = "Enter an email address, such as it@example.edu.";
+	}
+	const keyId = form.eabKeyId.trim();
+	if (keyId !== "" && !EAB_KEY_ID.test(keyId)) {
+		errors[FIELD_ID.eabKeyId] = "Use only letters, digits, - and _.";
+	}
+	const hmac = form.eabHmacKey.trim();
+	if (hmac !== "" && keyId === "") {
+		errors[FIELD_ID.eabKeyId] = "Enter the key ID that goes with the HMAC key.";
+	}
+	if (hmac !== "" && !EAB_HMAC.test(hmac)) {
+		errors[FIELD_ID.eabHmacKey] = "Use the key exactly as the authority gave it.";
+	}
+	if (keyId !== "" && hmac === "" && !hmacStored(settings)) {
+		errors[FIELD_ID.eabHmacKey] = "Enter the HMAC key.";
+	}
+	if (form.mode === "dns01") checkDnsProvider(errors, form, settings);
+}
+
+function checkDnsProvider(
+	errors: Record<string, string>,
+	form: CertificateForm,
+	settings: CertificateSettingsView | null,
+) {
+	const fields = DNS_PROVIDER_FIELDS[form.provider];
+	for (const name of fields.plain) {
+		const value = plainValue(form, name).trim();
+		if (value === "")
+			errors[FIELD_ID.provider(name)] = `Enter the ${fieldLabel(name)}.`;
+		else if (!PLAIN.test(value)) {
+			errors[FIELD_ID.provider(name)] =
+				"Use only letters, digits and . _ : / @ -, with no spaces.";
+		}
+	}
+	for (const name of fields.secret) {
+		const problem = secretProblem(
+			name,
+			secretValue(form, name),
+			secretStored(settings, form.provider, name),
+		);
+		if (problem) errors[FIELD_ID.provider(name)] = problem;
+	}
+}
+
 /** Every problem the page can see before asking the API, keyed by field id. */
 export function validate(
 	form: CertificateForm,
 	settings: CertificateSettingsView | null,
 ): Record<string, string> {
 	const errors: Record<string, string> = {};
-	if (form.source === "acme") {
-		if (form.directory === "custom") {
-			const url = form.customDirectory.trim();
-			if (url === "") errors[FIELD_ID.customDirectory] = "Enter the directory URL.";
-			else if (!/^https:\/\/[^\s/]+/.test(url)) {
-				errors[FIELD_ID.customDirectory] =
-					"The directory URL must start with https://.";
-			}
-		}
-		const email = form.email.trim();
-		if (email === "") errors[FIELD_ID.email] = "Enter the account email.";
-		else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-			errors[FIELD_ID.email] = "Enter an email address, such as it@example.edu.";
-		}
-		const keyId = form.eabKeyId.trim();
-		if (keyId !== "" && !EAB_KEY_ID.test(keyId)) {
-			errors[FIELD_ID.eabKeyId] = "Use only letters, digits, - and _.";
-		}
-		const hmac = form.eabHmacKey.trim();
-		if (hmac !== "" && keyId === "") {
-			errors[FIELD_ID.eabKeyId] = "Enter the key ID that goes with the HMAC key.";
-		}
-		if (hmac !== "" && !EAB_HMAC.test(hmac)) {
-			errors[FIELD_ID.eabHmacKey] = "Use the key exactly as the authority gave it.";
-		}
-		if (keyId !== "" && hmac === "" && !hmacStored(settings)) {
-			errors[FIELD_ID.eabHmacKey] = "Enter the HMAC key.";
-		}
-		if (form.mode === "dns01") {
-			const fields = DNS_PROVIDER_FIELDS[form.provider];
-			for (const name of fields.plain) {
-				const value = plainValue(form, name).trim();
-				if (value === "")
-					errors[FIELD_ID.provider(name)] = `Enter the ${fieldLabel(name)}.`;
-				else if (!PLAIN.test(value)) {
-					errors[FIELD_ID.provider(name)] =
-						"Use only letters, digits and . _ : / @ -, with no spaces.";
-				}
-			}
-			for (const name of fields.secret) {
-				const problem = secretProblem(
-					name,
-					secretValue(form, name),
-					secretStored(settings, form.provider, name),
-				);
-				if (problem) errors[FIELD_ID.provider(name)] = problem;
-			}
-		}
-	}
+	if (form.source === "acme") checkAcme(errors, form, settings);
 	if (form.source === "files") {
 		checkUpload(errors, "site", form.site, settings);
 		if (form.separatePreview) checkUpload(errors, "preview", form.preview, settings);
@@ -481,7 +492,7 @@ export function settingsText(settings: CertificateSettingsView): string {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** How close an expiry is; "soon" is the 14 days before it (Epic 27 R12). */
+/** How close an expiry is; "soon" is the 14 days before it. */
 export function expiry(
 	notAfter: string,
 	now: Date,

@@ -145,7 +145,7 @@ test.skipIf(skip)("create, list, rename, and delete a terminal", async () => {
 });
 
 /**
- * Issues #267 and #268: a terminal carries its own colour scheme. It starts
+ * A terminal carries its own colour scheme. It starts
  * in whatever the user chose in their settings, the agent is told so it can
  * set COLORFGBG, and the pane menu can change it afterwards.
  */
@@ -200,7 +200,7 @@ test.skipIf(skip)("a terminal starts in the user's scheme and can change", async
 });
 
 /**
- * Issue #287: a new terminal is told the owner's zone, so a shell opened
+ * A new terminal is told the owner's zone, so a shell opened
  * after the setting changed runs in it without a workspace restart.
  */
 test.skipIf(skip)("a new terminal carries the user's timezone", async () => {
@@ -413,15 +413,6 @@ test.skipIf(skip)("renaming a terminal that does not exist is 404", async () => 
 	});
 	expect(renamed.statusCode).toBe(404);
 	expect(renamed.json().code).toBe("TERMINAL_NOT_FOUND");
-});
-
-test.skipIf(skip)("the preview route answers 501 for now", async () => {
-	const preview = await app.inject({
-		method: "GET",
-		url: `/workspaces/${workspaceId}/preview/3000/`,
-		headers: { cookie: alice.cookieHeader() },
-	});
-	expect(preview.statusCode).toBe(501);
 });
 
 async function makeProject(name: string): Promise<string> {

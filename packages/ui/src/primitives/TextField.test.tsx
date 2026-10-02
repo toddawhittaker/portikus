@@ -79,7 +79,7 @@ describe("TextField", () => {
 		expect(label?.parentElement?.contains(help)).toBe(true);
 		expect(input.getAttribute("aria-describedby")).toBeNull();
 	});
-	// Epic 25: a label row with help keeps the plain label's 18px line, so fields
+	// A label row with help keeps the plain label's 18px line, so fields
 	// with and without help line up in one row; the 24px button overflows it.
 	it("keeps the label row as tall as a plain label when it has help", () => {
 		render(

@@ -9,10 +9,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, expect, test } from "vitest";
+import { AgentFailure } from "./errors.js";
 import {
 	formatCommandLine,
 	isProtected,
-	ProcessStopFailure,
 	parseStatLine,
 	parseStatusUids,
 	readProcess,
@@ -177,8 +177,8 @@ test("a refused stop sends no signal", async () => {
 			{ startTicks, force: true },
 			fakeOptions(),
 		).catch((caught: unknown) => caught);
-		expect(error, String(pid)).toBeInstanceOf(ProcessStopFailure);
-		expect((error as ProcessStopFailure).code, String(pid)).toBe(code);
+		expect(error, String(pid)).toBeInstanceOf(AgentFailure);
+		expect((error as AgentFailure).code, String(pid)).toBe(code);
 	}
 	expect(signals).toEqual([]);
 });
@@ -332,6 +332,21 @@ test("the route answers each refusal with its status", async () => {
 	const ok = await post("302", { startTicks: 80, force: true });
 	expect(ok.statusCode).toBe(200);
 	expect(ok.json()).toEqual({ pid: 302, exited: false });
+});
+
+test("each refusal keeps its exact body", async () => {
+	const protectedOne = await post("1", { startTicks: 1 });
+	expect(protectedOne.json()).toEqual({
+		error: { code: "PROCESS_PROTECTED", message: "this process is protected" },
+	});
+	const changed = await post("302", { startTicks: 1 });
+	expect(changed.json()).toEqual({
+		error: { code: "PROCESS_CHANGED", message: "the process id was reused" },
+	});
+	const missing = await post("999", { startTicks: 1 });
+	expect(missing.json()).toEqual({
+		error: { code: "PROCESS_NOT_FOUND", message: "no such process" },
+	});
 });
 
 test("a pid that is not a positive integer is a 400", async () => {

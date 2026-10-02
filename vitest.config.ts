@@ -2,6 +2,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 const workspaceAliases = [
+	"agent-client",
 	"auth",
 	"config",
 	"contracts",
@@ -99,6 +100,7 @@ export default defineConfig({
 						"apps/worker/src/**/*.test.ts",
 						"apps/workspace-agent/src/**/*.test.ts",
 						"apps/workspace-controller/src/**/*.test.ts",
+						"scripts/**/*.test.ts",
 					],
 				},
 			},

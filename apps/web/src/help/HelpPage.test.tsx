@@ -94,7 +94,7 @@ test("every admin tab's intro has a Help anchor to land on", () => {
 	expect(new Set(ids).size).toBe(ids.length);
 });
 
-// Epic 25: Settings links to #student-keyboard, and each student topic has its own anchor.
+// Settings links to #student-keyboard, and each student topic has its own anchor.
 test("the student part has one anchored topic per section, keyboard included", () => {
 	const [student] = helpParts("student", false);
 	const ids = student?.topics.map((topic) => topic.id) ?? [];

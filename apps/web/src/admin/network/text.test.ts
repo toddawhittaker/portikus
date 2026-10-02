@@ -1,12 +1,11 @@
 import { type AdminEgressView, explainHost } from "@portikus/contracts";
 import { expect, test } from "vitest";
+import { shortTime } from "../../text.js";
 import { egressView } from "./testView.js";
 import {
-	ago,
 	applyAnnouncement,
 	applyState,
 	hostFromInput,
-	joinPorts,
 	listedHostCount,
 	parsePorts,
 	verdictText,
@@ -81,11 +80,6 @@ test("listed hosts count each enabled preset's hosts and the host entries once",
 	).toBe(1);
 });
 
-test("ports join as a sentence", () => {
-	expect(joinPorts([443])).toBe("443");
-	expect(joinPorts([22, 80, 443])).toBe("22, 80 and 443");
-});
-
 test("the ports field says what is wrong", () => {
 	expect(parsePorts("443, 22 80")).toEqual({ ports: [22, 80, 443] });
 	expect(parsePorts(" ")).toEqual({ error: "Enter at least one port, such as 443." });
@@ -99,14 +93,16 @@ test("the ports field says what is wrong", () => {
 	expect(parsePorts(many)).toEqual({ error: "List at most 20 ports." });
 });
 
-test("ages read as words, then as a date", () => {
-	const now = Date.parse("2026-09-27T12:00:00.000Z");
-	expect(ago("2026-09-27T11:59:30.000Z", now)).toBe("just now");
-	expect(ago("2026-09-27T11:59:00.000Z", now)).toBe("1 minute ago");
-	expect(ago("2026-09-27T11:30:00.000Z", now)).toBe("30 minutes ago");
-	expect(ago("2026-09-27T11:00:00.000Z", now)).toBe("1 hour ago");
-	expect(ago("2026-09-27T09:00:00.000Z", now)).toBe("3 hours ago");
-	expect(ago("2026-09-20T09:00:00.000Z", now)).toMatch(/Sep/);
+test("the apply status says how long ago within a day, then the exact date", () => {
+	const view = egressView();
+	const appliedAt = view.apply.appliedAt as string;
+	const at = Date.parse(appliedAt);
+	expect(applyState(view, at + 4 * 60_000).text).toBe(
+		"Applied 4 minutes ago. Every running workspace follows this policy.",
+	);
+	expect(applyState(view, at + 2 * 86_400_000).text).toBe(
+		`Applied ${shortTime(appliedAt)}. Every running workspace follows this policy.`,
+	);
 });
 
 test("the apply status names an error, a pending change, the last apply, or nothing yet", () => {

@@ -1,7 +1,7 @@
 /**
- * The Docker admin routes (issue #840): administrator only, every change
+ * The Docker admin routes: administrator only, every change
  * audited without the token, helper requests written atomically with mode
- * 0600, and a usage report that carries counts only (rulings S5, S7, S8).
+ * 0600, and a usage report that carries counts only.
  */
 import {
 	mkdir,
@@ -359,7 +359,7 @@ describe.skipIf(skip)("PUT /admin/docker/settings", () => {
 		expect(await dockerAudits()).toEqual([]);
 	});
 
-	test("a field left out keeps its saved value (review Q3)", async () => {
+	test("a field left out keeps its saved value", async () => {
 		await send(carol, "PUT", "/admin/docker/settings", { seedMaxGiB: 20 });
 		expect(await requests()).toEqual([]);
 		const res = await send(carol, "PUT", "/admin/docker/settings", {
@@ -575,7 +575,7 @@ describe.skipIf(skip)("GET /admin/docker/usage (ruling S7)", () => {
 					pulls: 3,
 					last_seen: recent,
 				},
-				// The same image and workspace on a day outside the window (review F1).
+				// The same image and workspace on a day outside the window.
 				{
 					image: "docker.io/library/redis:7",
 					workspace_id: a,
@@ -653,7 +653,7 @@ describe.skipIf(skip)("GET /admin/docker/usage (ruling S7)", () => {
 		expect(res.body).not.toContain(b);
 	});
 
-	test("the window is 120 calendar days, today included (issue #934)", async () => {
+	test("the window is 120 calendar days, today included", async () => {
 		const ws = await workspace("ws-edge", 0);
 		const now = new Date("2026-09-30T15:30:00.000Z");
 		const start = usageWindowStart(now);
@@ -716,7 +716,7 @@ describe.skipIf(skip)("GET /admin/docker/usage (ruling S7)", () => {
 		});
 	});
 
-	test("returns at most USAGE_ROWS_MAX rows with the full count (ruling S7)", async () => {
+	test("returns at most USAGE_ROWS_MAX rows with the full count", async () => {
 		const a = await workspace("ws-a", 0);
 		const n = USAGE_ROWS_MAX + 5;
 		await testDb.db
@@ -821,7 +821,7 @@ describe.skipIf(skip)("seed images matching the workspace image (issue #932)", (
 		});
 	});
 
-	test("a default seed that fails the seed-list check is never written (review S2-L3)", async () => {
+	test("a default seed that fails the seed-list check is never written", async () => {
 		// A Node major too long for an image tag (128 characters at most).
 		await activeImage("2026.09.15", `v24${"9".repeat(130)}.0.0`, "Python 3.13.5");
 		await send(carol, "GET", "/admin/docker");

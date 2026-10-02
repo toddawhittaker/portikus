@@ -2,7 +2,6 @@ import { MeResponse } from "@portikus/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, request, SessionEndedError } from "./api/request.js";
 
-export type Role = MeResponse["role"];
 export type MeUser = MeResponse;
 
 export type MeState =

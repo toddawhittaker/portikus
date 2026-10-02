@@ -22,7 +22,8 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError } from "../api/request.js";
+import { ApiError, errorText } from "../api/request.js";
+import { PORT_REFUSED_TEXT } from "../links.js";
 import { useListening } from "../running/services.js";
 import {
 	clearPreviewOriginData,
@@ -70,7 +71,7 @@ type State =
 	| { status: "blocked"; grant: Grant; probed: boolean }
 	/**
 	 * The application answered, but its development server refuses the
-	 * preview host and says which setting would allow it (issue #262).
+	 * preview host and says which setting would allow it.
 	 */
 	| {
 			status: "host-refused";
@@ -128,7 +129,7 @@ function allowedHostsLine(server: RefusedServer, refusedHost: string): string {
 	return ALLOWED_HOSTS_SETTING[server].line(suffixOf(refusedHost));
 }
 
-/** What a screen reader hears as the preview changes state (issue #363). */
+/** What a screen reader hears as the preview changes state. */
 function announcement(state: State, port: number): string {
 	switch (state.status) {
 		case "connecting":
@@ -178,7 +179,7 @@ export function PreviewLeaf({
 	/** True while a grant request is out, so a flickering list cannot start a second. */
 	const granting = useRef(false);
 	const history = useRef<PreviewHistory | null>(null);
-	/** Shown on Back once a press found nothing to go back to (issue #283). */
+	/** Shown on Back once a press found nothing to go back to. */
 	const [backHint, setBackHint] = useState<string | undefined>(undefined);
 
 	// The anchor entry that keeps Back away from the Portikus document goes in
@@ -264,10 +265,7 @@ export function PreviewLeaf({
 			}
 			setState({
 				status: "error",
-				message:
-					error instanceof ApiError
-						? error.message
-						: "Something went wrong. Please try again.",
+				message: errorText(error),
 			});
 		}
 	}, [workspaceId, port]);
@@ -432,7 +430,7 @@ export function PreviewLeaf({
 					) : null}
 				</span>
 				{/* Always enabled: the frame is cross-origin, so whether it has
-				    somewhere to go back to cannot be read (issue #271). A press
+				    somewhere to go back to cannot be read. A press
 				    with nothing behind it does nothing and says so. */}
 				<IconButton
 					icon="arrow-left"
@@ -506,7 +504,7 @@ export function PreviewLeaf({
 
 			<div className="pk-preview-body">
 				{/* Every state but the frame itself is one compact stack, centred
-				    in the pane rather than spread down it (issue #275). */}
+				    in the pane rather than spread down it. */}
 				{state.status === "connecting" ? (
 					<div className="pk-preview-state">
 						<p className="pk-preview-note" data-testid="preview-connecting">
@@ -568,11 +566,7 @@ export function PreviewLeaf({
 								</button>
 							}
 						>
-							<span data-testid="preview-port-refused">
-								Ports below 1024, and a few kept for services such as SSH, Docker and
-								PostgreSQL, cannot be opened as a preview. Run your app on a port from
-								1024 up, such as 3000 or 5173.
-							</span>
+							<span data-testid="preview-port-refused">{PORT_REFUSED_TEXT}</span>
 						</EmptyState>
 					</div>
 				) : null}
@@ -599,7 +593,7 @@ export function PreviewLeaf({
 				) : null}
 
 				{/* The development server answered, but it refuses the preview
-				    host. The student can allow it in one line (issue #262). */}
+				    host. The student can allow it in one line. */}
 				{state.status === "host-refused" ? (
 					<div className="pk-preview-state">
 						<EmptyState

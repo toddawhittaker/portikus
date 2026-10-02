@@ -1,7 +1,7 @@
 import { type Project, slugify } from "@portikus/contracts";
 import { Button, Dialog, DialogRoot, TextField } from "@portikus/ui";
 import { useState } from "react";
-import { DialogError } from "./DialogError.js";
+import { DialogError } from "../common/DialogError.js";
 import { useRenameProject } from "./queries.js";
 
 /**
@@ -52,6 +52,7 @@ export function RenameDialog({
 					</>
 				}
 			>
+				{/* jscpd:ignore-start -- rename and duplicate share a name field but not their actions. */}
 				<form
 					onSubmit={(event) => {
 						event.preventDefault();
@@ -76,6 +77,7 @@ export function RenameDialog({
 					<button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
 				</form>
 				<DialogError error={rename.error} />
+				{/* jscpd:ignore-end */}
 			</Dialog>
 		</DialogRoot>
 	);

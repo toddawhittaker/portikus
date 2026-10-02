@@ -6,8 +6,8 @@
  *
  * Listeners the agent attributes to the platform or a system account are
  * hidden behind a toggle, so a student sees their own Vite server and not
- * systemd-resolved (issue #265). A port that stops listening leaves the
- * list (issue #325). Selecting a row shows what holds it (issue #326).
+ * systemd-resolved. A port that stops listening leaves the
+ * list. Selecting a row shows what holds it.
  */
 
 import type { ListeningService, WorkspaceUsage } from "@portikus/contracts";
@@ -27,6 +27,7 @@ import { formatBytes, formatCpu } from "../monitor/format.js";
 import { useWorkspaceUsage } from "../monitor/usage.js";
 import { openPreviewInNewTab } from "../preview/grants.js";
 import "../preview/preview.css";
+import { PORT_REFUSED_TEXT } from "../links.js";
 import { PaneSplit } from "../shell/paneSplit.js";
 import {
 	isDocker,
@@ -72,14 +73,14 @@ export function RunningPane({
 	const services = showSystem ? all : all.filter((service) => !service.system);
 	const systemCount = all.filter((service) => service.system).length;
 	// The panel only describes a row that is still on screen. A port that
-	// stopped, or a system row the toggle just hid, closes it (issue #326).
+	// stopped, or a system row the toggle just hid, closes it.
 	const stillThere =
 		selectedPort !== null && services.some((service) => service.port === selectedPort);
 	if (selectedPort !== null && !stillThere) setSelectedPort(null);
 	const selected = stillThere
 		? services.find((service) => service.port === selectedPort)
 		: undefined;
-	// CPU and memory are only read while a row is selected (issue #338).
+	// CPU and memory are only read while a row is selected.
 	const usage = useWorkspaceUsage(workspaceId, selected !== undefined);
 
 	async function openTab(port: number) {
@@ -151,21 +152,7 @@ export function RunningPane({
 								<span className="pk-portrow-name" title={command}>
 									{command}
 								</span>
-								{isDocker(service) || reason !== null ? (
-									<span className="pk-portrow-tags pk-text-caption">
-										{isDocker(service) ? (
-											<span className="pk-portrow-kind">Docker</span>
-										) : null}
-										{reason !== null ? (
-											<span
-												className="pk-portrow-kind"
-												data-testid={`running-reason-${service.port}`}
-											>
-												{reason}
-											</span>
-										) : null}
-									</span>
-								) : null}
+								<RowTags service={service} reason={reason} />
 							</span>
 						</button>
 						{expanded ? (
@@ -176,9 +163,7 @@ export function RunningPane({
 						<span className="pk-portrow-actions">
 							{service.previewReachability === "denied" && !service.system ? (
 								<Toggletip label={`Can't be previewed, port ${service.port}`}>
-									Ports below 1024, and a few kept for services such as SSH, Docker and
-									PostgreSQL, cannot be opened as a preview. Run your web app on a port
-									from 1024 up, such as 3000 or 5173.
+									{PORT_REFUSED_TEXT}
 								</Toggletip>
 							) : null}
 							{commandLine !== undefined ? (
@@ -297,13 +282,37 @@ export function RunningPane({
 	);
 }
 
+/** The Docker tag and the reason a row cannot be previewed, when there are any. */
+function RowTags({
+	service,
+	reason,
+}: {
+	service: ListeningService;
+	reason: string | null;
+}) {
+	if (!isDocker(service) && reason === null) return null;
+	return (
+		<span className="pk-portrow-tags pk-text-caption">
+			{isDocker(service) ? <span className="pk-portrow-kind">Docker</span> : null}
+			{reason !== null ? (
+				<span
+					className="pk-portrow-kind"
+					data-testid={`running-reason-${service.port}`}
+				>
+					{reason}
+				</span>
+			) : null}
+		</span>
+	);
+}
+
 /** The Stop dialog's question, naming the program when it is known. */
 function stopTitle(service: ListeningService): string {
 	const name = service.container?.name ?? service.process?.command;
 	return name ? `Stop ${name} on port ${service.port}?` : `Stop port ${service.port}?`;
 }
 
-/** What is holding the selected port, including CPU and memory (issues #326, #338). */
+/** What is holding the selected port, including CPU and memory. */
 function RunningDetails({
 	service,
 	usage,

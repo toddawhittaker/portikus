@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bounded resource limits (Epic 12a Done item 18; SPEC.md 19.1 and 24.5).
+# Bounded resource limits (SPEC.md 19.1 and 24.5).
 #
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # a's cgroup limits match the profile, a bounded fork loop hits the process
@@ -49,7 +49,7 @@ lim_cpu_count() {
 check_output "a's CPU set has as many CPUs as the profile" "$lim_cpu" lim_cpu_count
 check_output "a's cpu.max sets no time quota beyond the CPU count" "max 100000" lim_cgroup cpu.max
 # Checks run in the agent's cgroup and terminals in their own unit's, so an
-# OOM kill must stop neither unit (issues #610 and #619).
+# OOM kill must stop neither unit.
 check_output "a's agent unit keeps running after an OOM kill (OOMPolicy=continue)" "continue" \
   sec_exec a root "systemctl show -p OOMPolicy --value portikus-workspace-agent"
 check_output "a's terminals unit keeps running after an OOM kill (OOMPolicy=continue)" "continue" \
@@ -59,9 +59,7 @@ check_output "a's terminals unit keeps running after an OOM kill (OOMPolicy=cont
 
 # Workspaces may together promise more memory than the VM has; when it runs
 # out, the kernel must kill workspace processes first (docs/CAPACITY.md).
-lim_platform_units="postgresql@17-main portikus-api portikus-worker portikus-controller caddy"
-# Keyed on the provider, not on the unit running, so a crashed Dex fails.
-if [ "$SEC_IDP" = dex ]; then lim_platform_units+=" portikus-dex"; fi
+lim_platform_units="postgresql@17-main portikus-api portikus-worker portikus-controller caddy portikus-dex"
 for lim_unit in $lim_platform_units; do
   check "${lim_unit} has a negative OOM score adjustment" \
     sec_ssh "p=\$(systemctl show -p MainPID --value ${lim_unit}); [ \"\$p\" -gt 0 ] && [ \"\$(cat /proc/\$p/oom_score_adj)\" -lt 0 ]"
@@ -73,7 +71,7 @@ for lim_unit in ${lim_platform_units/postgresql@17-main/}; do
     sec_ssh "m=\$(systemctl show -p MemoryMax --value ${lim_unit}) && [ -n \"\$m\" ] && [ \"\$m\" != infinity ]"
 done
 
-# ── The thin pool, reported only (Epic 12a risk 3) ───────────────
+# ── The thin pool, reported only ─────────────────────────────────
 
 lim_pool=$(sec_ssh "sudo lvs --noheadings --nosuffix --units g --separator , -o lv_name,lv_size,pool_lv,data_percent ${SEC_VG:-none}" | tr -d ' ')
 lim_pool_size=$(awk -F, '$1 == "thinpool" { print $2 }' <<<"$lim_pool")
@@ -156,7 +154,7 @@ check "the refusal came from a's container limit (pids.events max went up)" \
 
 # The same loop as the student, in the terminals unit's cgroup where every
 # shell runs: its TasksMax stops it below the container's limit, so the
-# agent can still answer while the children are held (issue #619).  The
+# agent can still answer while the children are held.  The
 # loop writes a marker once it is refused, and holds the children for ten
 # seconds so the agent can be asked meanwhile.
 lim_term_cg="/sys/fs/cgroup/system.slice/portikus-terminals.service"
@@ -259,7 +257,7 @@ check_output "a's cpu.max returns to no quota once the throttle is cleared" \
 # ── Disk ─────────────────────────────────────────────────────────
 
 # fallocate reserves blocks without writing them, so the thin pool is not used
-# up (Epic 12a decisions).  The file goes whatever happens.  It prints what
+# up.  The file goes whatever happens.  It prints what
 # fallocate said, so a refusal for space can be told from any other failure.
 lim_fallocate() { # KEY USER DIR SIZE
   sec_exec "$1" "$2" "f=$3/.sectest-fill-${SEC_RUN_ID}; fallocate -l $4 \$f 2>&1; rc=\$?; rm -f \$f; exit \$rc"
@@ -269,9 +267,9 @@ lim_refused() {
   local label="$1" said; shift
   said=$(lim_fallocate "$@" 2>&1 | tr '\n' ' ')
   if [[ "$said" == *"No space left on device"* ]]; then
-    sec_pass "$label"
+    ok "$label"
   else
-    sec_fail "${label} (fallocate said: ${said:-nothing, so it succeeded})"
+    bad "${label} (fallocate said: ${said:-nothing, so it succeeded})"
   fi
 }
 check "fallocate a little in a's home works (control)" lim_fallocate a student /home/student 64M

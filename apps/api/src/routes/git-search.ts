@@ -17,8 +17,9 @@ import {
 	readAgentError,
 	readJson,
 } from "../agent-client.js";
+import { sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
-import { agentUrl, scopedProject, sendAgentError, sendError } from "./project-scope.js";
+import { agentUrl, scopedProject, sendAgentError } from "./project-scope.js";
 
 /**
  * How long the agent has to answer, route by route. Each budget is the
@@ -34,7 +35,7 @@ const DIFF_BUDGET_MS = GIT_TIMEOUT_MS * 2 + AGENT_TIMEOUT_MS;
 /**
  * The agent is untrusted (SPEC.md §24.1), so its matches are cut to the
  * contract limit here too, and marked truncated the way the agent marks its
- * own cut (issue #397).
+ * own cut.
  */
 const RelayedSearchResponse = SearchResponse.transform((answer) =>
 	answer.matches.length > MAX_SEARCH_MATCHES
@@ -94,7 +95,7 @@ async function relay<T extends z.ZodTypeAny>(
 export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps): void {
 	const { db, config } = deps;
 
-	// GET git/status -- the repository state of one project (SPEC.md §12.1).
+	// SPEC.md §12.1.
 	app.get("/workspaces/:id/projects/:pid/git/status", async (request, reply) => {
 		const scope = await scopedProject(db, config, request, reply);
 		if (!scope) return;
@@ -112,7 +113,7 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 		);
 	});
 
-	// GET git/diff -- HEAD against the working tree for one file
+	// HEAD against the working tree for one file
 	// (SPEC.md §12.6). The path is checked here as well as in the agent, so
 	// a traversal attempt never leaves the control plane (SPEC.md §24.6).
 	app.get("/workspaces/:id/projects/:pid/git/diff", async (request, reply) => {
@@ -137,7 +138,7 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 		);
 	});
 
-	// GET baseline-status and baseline-diff -- the same Git shapes, compared
+	// Baseline status and diff: the same Git shapes, compared
 	// with the object recorded when a launcher started (SPEC.md §10.9, §12.7).
 	// The agent paths are /projects/:slug/baseline-status and baseline-diff.
 	const BaselineObject = z.string().regex(/^[0-9a-f]{40}$|^[0-9a-f]{64}$/);
@@ -198,7 +199,7 @@ export function registerGitSearchRoutes(app: FastifyInstance, deps: ServerDeps):
 		);
 	});
 
-	// GET search -- project-wide text search (SPEC.md §11.5).
+	// SPEC.md §11.5.
 	app.get("/workspaces/:id/projects/:pid/search", async (request, reply) => {
 		const scope = await scopedProject(db, config, request, reply);
 		if (!scope) return;

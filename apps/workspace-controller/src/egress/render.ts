@@ -10,9 +10,9 @@ import {
 import type { EgressEnv } from "./env.js";
 
 /** Ports on the bridge gateway (ADR 0038); fixed with the Incus ACL and Squid config. */
-export const EGRESS_DNS_PORT = 5300;
-export const SQUID_HTTP_PORT = 3129;
-export const SQUID_TLS_PORT = 3130;
+const EGRESS_DNS_PORT = 5300;
+const SQUID_HTTP_PORT = 3129;
+const SQUID_TLS_PORT = 3130;
 
 const TABLE = "inet portikus_egress";
 
@@ -126,7 +126,7 @@ export function policyAllowsNames(
 }
 
 /**
- * The registry caches' gate (S2): a workspace reaches a cache port only when
+ * The registry caches' gate: a workspace reaches a cache port only when
  * the policy would let it reach the registry itself, so the cache is never a
  * way around the allow-list or a blocked site. It drops every packet, new or
  * established, and nothing in the input chain accepts ahead of it.
@@ -147,7 +147,7 @@ function registryGateRules(
 }
 
 /**
- * While the ghcr.io cache is on (S3) the workspace's hosts entry points
+ * While the ghcr.io cache is on the workspace's hosts entry points
  * ghcr.io at the gateway, and its tcp 443 goes to the cache. The gate still
  * decides, because the redirected packet reaches input on the cache port.
  */

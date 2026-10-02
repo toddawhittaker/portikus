@@ -46,7 +46,7 @@
 	height: min(800px, calc(100vh - 64px));
 }
 
-/* A hairline and a full step of space set each group apart (review S2). */
+/* A hairline and a full step of space set each group apart. */
 .pk-settings-group + .pk-settings-group {
 	border-top: 1px solid var(--line);
 	padding-top: var(--space-6);

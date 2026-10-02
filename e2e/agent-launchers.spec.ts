@@ -31,7 +31,7 @@ test("Claude Code starts from the New menu", async ({ page, context }) => {
 	await expect(page.getByRole("tab", { name: /Claude Code/ })).toBeVisible();
 });
 
-/** Issue #608 item 1: the empty work area offers the launcher's two main actions. */
+/** The empty work area offers the launcher's two main actions. */
 test("the empty work area's buttons open a terminal and Claude Code", async ({
 	page,
 	context,

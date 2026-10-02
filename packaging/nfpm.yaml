@@ -1,4 +1,4 @@
-# nfpm configuration for the portikus control plane (ADR 0007, SPEC.md Epic 3.5).
+# nfpm configuration for the portikus control plane (ADR 0007).
 # Built by scripts/build-deb.sh, which sets PORTIKUS_VERSION.
 name: portikus
 arch: amd64
@@ -63,14 +63,14 @@ contents:
       owner: root
       group: root
 
-  # Node, bundled so the package needs nothing outside Debian (ruling 11).
+  # Node, bundled so the package needs nothing outside Debian.
   - src: ./dist/deploy/node
     dst: /usr/lib/portikus/node
     type: tree
     file_info:
       owner: root
       group: root
-  # The play that `portikus setup` runs on this host (ruling 8, ADR 0029).
+  # The play that `portikus setup` runs on this host (ADR 0029).
   - src: ./dist/deploy/ansible
     dst: /usr/share/portikus/ansible
     type: tree
@@ -86,7 +86,7 @@ contents:
       mode: 0644
   - src: ./packaging/debian/preseed.example
     dst: /usr/share/doc/portikus/preseed.example
-  # The apt repository's public key (ruling 17), dearmored by build-deb.sh.
+  # The apt repository's public key (SPEC.md 21.13), dearmored by build-deb.sh.
   - src: ./dist/deploy/portikus-archive-keyring.gpg
     dst: /usr/share/keyrings/portikus-archive-keyring.gpg
     file_info:
@@ -121,16 +121,11 @@ contents:
       owner: root
       group: root
       mode: 0755
-  # Shipped but never enabled by the package; Ansible enables it (ADR 0008).
-  - src: ./packaging/systemd/portikus-mock-idp.service
-    dst: /usr/lib/systemd/system/portikus-mock-idp.service
-    file_info: *unit_info
-
-  # Started by postinst without waiting (ruling 10); never enabled.
+  # Started by postinst without waiting; never enabled.
   - src: ./packaging/systemd/portikus-setup.service
     dst: /usr/lib/systemd/system/portikus-setup.service
     file_info: *unit_info
-  # The root workspace image job and its trigger (ruling 28, ADR 0030).
+  # The root workspace image job and its trigger (ADR 0030).
   # Enabled by Ansible, which creates the directories they need.
   - src: ./packaging/systemd/portikus-image-job.path
     dst: /usr/lib/systemd/system/portikus-image-job.path
@@ -138,7 +133,7 @@ contents:
   - src: ./packaging/systemd/portikus-image-job.service
     dst: /usr/lib/systemd/system/portikus-image-job.service
     file_info: *unit_info
-  # The daily read-only release check (issue #861), also enabled by Ansible.
+  # The daily read-only release check, also enabled by Ansible.
   - src: ./packaging/systemd/portikus-image-check.service
     dst: /usr/lib/systemd/system/portikus-image-check.service
     file_info: *unit_info
@@ -171,7 +166,7 @@ contents:
       owner: root
       group: root
       mode: 0755
-  # The Docker pull-through caches and their root helper (issue #840).
+  # The Docker pull-through caches and their root helper.
   # Enabled by Ansible, which installs docker-registry and makes their
   # filesystem, user and certificates.
   - src: ./packaging/systemd/portikus-registry-hub.service
@@ -213,6 +208,12 @@ contents:
   - src: ./infra/host/portikus-backup-mac
     dst: /usr/lib/portikus/backup/portikus-backup-mac
     file_info: *backup_script
+  - src: ./infra/host/portikus-backup-lib.sh
+    dst: /usr/lib/portikus/backup/portikus-backup-lib.sh
+    file_info:
+      owner: root
+      group: root
+      mode: 0644
   - src: ./infra/host/backup-channel.sh
     dst: /usr/lib/portikus/backup/portikus-backup-channel
     file_info: *backup_script
@@ -244,7 +245,7 @@ contents:
   - src: ./packaging/systemd/portikus-backup-key@.service
     dst: /usr/lib/systemd/system/portikus-backup-key@.service
     file_info: *unit_info
-  # The recipe a "rebuild" job builds from (ruling 23).
+  # The recipe a "rebuild" job builds from (ADR 0030).
   - src: ./infra/workspace-image/portikus.yaml
     dst: /usr/share/portikus/workspace-image/portikus.yaml
     file_info: &recipe_info

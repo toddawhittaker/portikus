@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, openToggletip, settledAxe, WCAG_TAGS } from "./helpers";
+import { expectNoViolations, loginAs, openToggletip } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Workspace
@@ -68,7 +68,7 @@ const IMAGE = {
 	],
 	otherWorkspaces: 2,
 	job: JOB,
-	// The notice at the top is checked with the rest of the page (issue #861).
+	// The notice at the top is checked with the rest of the page.
 	newerPublished: "2026.09.11",
 	disk: { freeBytes: 5368709120, totalBytes: 21474836480 },
 };
@@ -129,11 +129,6 @@ async function openTab(page: Page, colorScheme: "light" | "dark") {
 	await expect(page.getByTestId("image-job-result").getByText("zsh")).toBeVisible();
 }
 
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
-
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`the Workspace image tab has no automatic accessibility violations (${colorScheme})`, async ({
 		page,
@@ -181,7 +176,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expectNoViolations(page);
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("image-confirm")).toHaveCount(0);
-		// Delete confirms with the count of workspaces made from the image (issue #936).
+		// Delete confirms with the count of workspaces made from the image.
 		const remove = page.getByRole("button", { name: "Delete: 2026.09.10" });
 		await remove.click();
 		await expect(page.getByTestId("image-confirm")).toContainText(

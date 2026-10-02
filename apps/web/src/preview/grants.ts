@@ -7,21 +7,18 @@
  */
 import { PreviewEmbeddableResponse, PreviewGrantResponse } from "@portikus/contracts";
 import { z } from "zod";
-import { request } from "../api/request.js";
+import { request, sendJson } from "../api/request.js";
 
 export type Grant = PreviewGrantResponse;
-
-export { MIN_PREVIEW_PORT } from "../links.js";
 
 export async function requestGrant(
 	workspaceId: string,
 	port: number,
 	presentation: "embedded" | "top-level",
 ): Promise<Grant> {
-	return request(PreviewGrantResponse, `/workspaces/${workspaceId}/preview-grants`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ port, presentation }),
+	return sendJson(PreviewGrantResponse, `/workspaces/${workspaceId}/preview-grants`, {
+		port,
+		presentation,
 	});
 }
 
@@ -45,7 +42,7 @@ export async function probeEmbeddable(
 }
 
 /**
- * Open a preview in a new browser tab (issue #261, issue #272).
+ * Open a preview in a new browser tab.
  *
  * The blank tab is opened from inside the click, because a browser blocks a
  * window opened after an await. It is then pointed at the bootstrap URL, so

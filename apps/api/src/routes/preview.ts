@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { recordActivity } from "../activity.js";
 import { AgentCallError } from "../agent-client.js";
+import { sendError } from "../http.js";
 import { fromLoopback } from "../loopback.js";
 import {
 	createPreviewDeniedAudit,
@@ -39,6 +40,8 @@ import {
 	createPreviewLookupCache,
 	createPreviewSession,
 	loadPreviewSession,
+	type PreviewLookup,
+	type PreviewSessionRow,
 	revokedForStoppedWorkspace,
 	revokePreviewSession,
 	revokeWorkspacePreviewSessions,
@@ -47,13 +50,13 @@ import { check, createCounter } from "../rate-limit.js";
 import type { ServerDeps } from "../server.js";
 
 /** The preview-host cookie, `__Host-` prefixed wherever the site is https. */
-export function previewCookieName(config: ApiConfig): string {
+function previewCookieName(config: ApiConfig): string {
 	return config.PUBLIC_URL.startsWith("https:")
 		? "__Host-portikus-preview"
 		: "portikus-preview";
 }
 
-/** Authorized requests one preview session may make per window (ruling 12). */
+/** Authorized requests one preview session may make per window. */
 export const PREVIEW_SESSION_CAP = 2000;
 const PREVIEW_SESSION_CAP_WINDOW_MS = 10_000;
 
@@ -66,7 +69,7 @@ const TicketQuery = z.object({ t: z.string().min(1).max(200) });
  * another, and the same range either way. */
 const PortInput = z.object({ port: z.coerce.number().int().min(1).max(65535) });
 
-/** The status each agent refusal to stop a listener becomes (issue #273). */
+/** The status each agent refusal to stop a listener becomes. */
 function stopStatusFor(code: string): number {
 	if (code === "LISTENER_NOT_FOUND") return 404;
 	if (code === "LISTENER_IS_SYSTEM") return 403;
@@ -150,7 +153,7 @@ export function registerPreviewRoutes(
 	/**
 	 * The workspaces with a stop already running. Stopping asks the agent to
 	 * kill a process, so a second ask for the same workspace before the first
-	 * answers could kill whatever took the port next (issue #273).
+	 * answers could kill whatever took the port next.
 	 */
 	const stopping = new Set<string>();
 
@@ -204,21 +207,17 @@ export function registerPreviewRoutes(
 		const user = requireUser(request);
 		const params = IdParams.safeParse(request.params);
 		if (!params.success) {
-			return reply
-				.status(400)
-				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
 		}
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return reply
-				.status(404)
-				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 		return reply.send({ services: servicesOf(params.data.id) });
 	});
 
 	/**
-	 * Stop what holds a port inside the workspace (SPEC.md §18.2, issue #273).
+	 * Stop what holds a port inside the workspace (SPEC.md §18.2).
 	 * Only the owner may ask; the agent decides whether the listener is the
 	 * student's to stop, and its refusal is passed on unchanged.
 	 */
@@ -227,21 +226,19 @@ export function registerPreviewRoutes(
 		const params = IdParams.safeParse(request.params);
 		const port = PortInput.safeParse(request.params);
 		if (!params.success || !port.success) {
-			return reply
-				.status(400)
-				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id or port" });
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id or port");
 		}
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return reply
-				.status(404)
-				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 		if (workspace.state !== "running") {
-			return reply.status(409).send({
-				code: "WORKSPACE_NOT_RUNNING",
-				message: "The workspace is not running",
-			});
+			return sendError(
+				reply,
+				409,
+				"WORKSPACE_NOT_RUNNING",
+				"The workspace is not running",
+			);
 		}
 		// Stopping makes the control plane work on the student's behalf, just
 		// as a grant or a probe does, so it comes out of the same budget.
@@ -250,31 +247,34 @@ export function registerPreviewRoutes(
 				{ workspaceId: params.data.id },
 				"stop listener rate limit reached",
 			);
-			return reply.status(429).send({
-				code: "PREVIEW_RATE_LIMITED",
-				message: "Too many previews were opened just now. Wait a moment.",
-			});
+			return sendError(
+				reply,
+				429,
+				"PREVIEW_RATE_LIMITED",
+				"Too many previews were opened just now. Wait a moment.",
+			);
 		}
 		if (stopping.has(params.data.id)) {
-			return reply.status(409).send({
-				code: "STOP_IN_PROGRESS",
-				message: "A service in this workspace is already being stopped",
-			});
+			return sendError(
+				reply,
+				409,
+				"STOP_IN_PROGRESS",
+				"A service in this workspace is already being stopped",
+			);
 		}
 		stopping.add(params.data.id);
 		try {
 			await registry.stopListener(params.data.id, port.data.port);
 		} catch (error) {
 			if (error instanceof AgentCallError) {
+				// The agent's stop codes are not ApiError codes, so this body is built by hand.
 				return reply.status(stopStatusFor(error.code)).send({
 					code: error.code,
 					message: stopMessageFor(error.code),
 				});
 			}
 			request.log.error({ err: error }, "stop listener failed");
-			return reply
-				.status(502)
-				.send({ code: "AGENT_UNAVAILABLE", message: "The workspace did not answer" });
+			return sendError(reply, 502, "AGENT_UNAVAILABLE", "The workspace did not answer");
 		} finally {
 			stopping.delete(params.data.id);
 		}
@@ -285,44 +285,44 @@ export function registerPreviewRoutes(
 		const user = requireUser(request);
 		const params = IdParams.safeParse(request.params);
 		if (!params.success) {
-			return reply
-				.status(400)
-				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
 		}
 		const body = PreviewGrantRequest.safeParse(request.body);
 		if (!body.success) {
-			return reply
-				.status(400)
-				.send({ code: "VALIDATION_FAILED", message: "invalid grant request" });
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid grant request");
 		}
 
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return reply
-				.status(404)
-				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 		if (workspace.state !== "running") {
-			return reply.status(409).send({
-				code: "WORKSPACE_NOT_RUNNING",
-				message: "Start the workspace before opening a preview",
-			});
+			return sendError(
+				reply,
+				409,
+				"WORKSPACE_NOT_RUNNING",
+				"Start the workspace before opening a preview",
+			);
 		}
 		if (!portAllowed(config, body.data.port)) {
-			return reply.status(403).send({
-				code: "PREVIEW_PORT_NOT_ALLOWED",
-				message: `Port ${body.data.port} cannot be previewed`,
-			});
+			return sendError(
+				reply,
+				403,
+				"PREVIEW_PORT_NOT_ALLOWED",
+				`Port ${body.data.port} cannot be previewed`,
+			);
 		}
 		if (overPreviewLimit(user.id)) {
 			request.log.warn(
 				{ workspaceId: params.data.id },
 				"preview grant rate limit reached",
 			);
-			return reply.status(429).send({
-				code: "PREVIEW_RATE_LIMITED",
-				message: "Too many previews were opened just now. Wait a moment.",
-			});
+			return sendError(
+				reply,
+				429,
+				"PREVIEW_RATE_LIMITED",
+				"Too many previews were opened just now. Wait a moment.",
+			);
 		}
 
 		// A service bound only to loopback needs the agent's forward before the
@@ -340,12 +340,13 @@ export function registerPreviewRoutes(
 					},
 					"loopback forward could not be opened",
 				);
-				return reply.status(409).send({
-					code: "PREVIEW_FORWARD_FAILED",
-					message:
-						`Portikus could not reach port ${body.data.port} inside the ` +
+				return sendError(
+					reply,
+					409,
+					"PREVIEW_FORWARD_FAILED",
+					`Portikus could not reach port ${body.data.port} inside the ` +
 						"workspace. Try again, or bind the application to 0.0.0.0.",
-				});
+				);
 			}
 		}
 
@@ -389,32 +390,32 @@ export function registerPreviewRoutes(
 		const params = IdParams.safeParse(request.params);
 		const query = PortInput.safeParse(request.query);
 		if (!params.success || !query.success) {
-			return reply
-				.status(400)
-				.send({ code: "VALIDATION_FAILED", message: "invalid workspace or port" });
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace or port");
 		}
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return reply
-				.status(404)
-				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 		const port = query.data.port;
 		if (!portAllowed(config, port)) {
-			return reply.status(403).send({
-				code: "PREVIEW_PORT_NOT_ALLOWED",
-				message: `Port ${port} cannot be previewed`,
-			});
+			return sendError(
+				reply,
+				403,
+				"PREVIEW_PORT_NOT_ALLOWED",
+				`Port ${port} cannot be previewed`,
+			);
 		}
 		if (overPreviewLimit(user.id)) {
 			request.log.warn(
 				{ workspaceId: params.data.id },
 				"preview probe rate limit reached",
 			);
-			return reply.status(429).send({
-				code: "PREVIEW_RATE_LIMITED",
-				message: "Too many previews were opened just now. Wait a moment.",
-			});
+			return sendError(
+				reply,
+				429,
+				"PREVIEW_RATE_LIMITED",
+				"Too many previews were opened just now. Wait a moment.",
+			);
 		}
 
 		const unreachable: PreviewEmbeddableResponse = {
@@ -434,7 +435,7 @@ export function registerPreviewRoutes(
 		}
 
 		// The Preview tab's first look is when the agent learns whether the
-		// port speaks TLS (issue #957).
+		// port speaks TLS.
 		const settled =
 			(await registry.serviceWithProtocol(params.data.id, port)) ?? service;
 		// Asked as the preview host, because a development server that checks
@@ -449,19 +450,16 @@ export function registerPreviewRoutes(
 		return reply.header("cache-control", "no-store").send(verdict);
 	});
 
+	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	app.post("/workspaces/:id/preview/reset", async (request, reply) => {
 		const user = requireUser(request);
 		const params = IdParams.safeParse(request.params);
 		if (!params.success) {
-			return reply
-				.status(400)
-				.send({ code: "VALIDATION_FAILED", message: "invalid workspace id" });
+			return sendError(reply, 400, "VALIDATION_FAILED", "invalid workspace id");
 		}
 		const workspace = await previewWorkspace(params.data.id, user.id);
 		if (!workspace) {
-			return reply
-				.status(404)
-				.send({ code: "WORKSPACE_NOT_FOUND", message: "Workspace not found" });
+			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 		await revokeWorkspacePreviewSessions(db, params.data.id);
 		// A reset in this process takes effect at once, not two seconds late.
@@ -473,6 +471,7 @@ export function registerPreviewRoutes(
 		}
 		return reply.status(204).send();
 	});
+	// jscpd:ignore-end
 
 	// ── Preview host: Caddy proxies these two paths straight to the API ──
 
@@ -583,37 +582,53 @@ export function registerPreviewRoutes(
 
 	// ── The edge authorization subrequest (ADR 0018, BROWSER-HANDLING §10) ──
 
-	app.get("/preview/authorize", async (request, reply) => {
+	/**
+	 * The first authorize steps: the caller is Caddy, the host is a preview
+	 * host, and the cookie names a live session of an ungated user that is
+	 * under its request cap.
+	 */
+	async function signedInPreview(
+		request: FastifyRequest,
+		reply: FastifyReply,
+	): Promise<
+		AuthorizeStep<{
+			host: string;
+			parsed: PreviewHostParts;
+			session: PreviewSessionRow;
+			workspace: PreviewLookup["workspace"];
+		}>
+	> {
 		// Only Caddy on this machine may ask. The peer address is used, not
 		// request.ip, which trustProxy would let a forwarded header move.
 		if (!fromLoopback(request)) {
-			return page(reply, 403, refusedPage());
+			return { refused: page(reply, 403, refusedPage()) };
 		}
 
 		const host = requestHost(request.headers as Record<string, unknown>);
-		if (!host) return page(reply, 403, refusedPage());
+		if (!host) return { refused: page(reply, 403, refusedPage()) };
 		const parsed = parsePreviewHost(host, config.PREVIEW_SUFFIX);
-		if (!parsed) return page(reply, 403, refusedPage());
+		if (!parsed) return { refused: page(reply, 403, refusedPage()) };
 
 		const token = request.cookies[cookieName];
-		if (!token) return page(reply, 401, signInPage());
+		if (!token) return { refused: page(reply, 401, signInPage()) };
 		// The rows may be up to two seconds old; every check below still runs
 		// on each request (ADR 0034 rulings 10 and 11).
 		const { session, user, workspace } = await lookups.get(token);
 		if (!session) {
 			// Stopping revokes the sessions; the more specific cause wins.
 			if (await revokedForStoppedWorkspace(db, token, host)) {
-				return page(reply, 503, stoppedWorkspacePage());
+				return { refused: page(reply, 503, stoppedWorkspacePage()) };
 			}
-			return page(reply, 401, signInPage());
+			return { refused: page(reply, 401, signInPage()) };
 		}
 
 		// The preview session lives with the main one (BROWSER-HANDLING §9.2).
-		if (!user || user.id !== session.user_id) return page(reply, 401, signInPage());
+		if (!user || user.id !== session.user_id)
+			return { refused: page(reply, 401, signInPage()) };
 		// An account held at any session gate gets no preview (SPEC.md sections 5.1 and 5.3).
-		if (sessionGate(user)) return page(reply, 403, refusedPage());
+		if (sessionGate(user)) return { refused: page(reply, 403, refusedPage()) };
 
-		// A runaway page is held to 2,000 requests per 10 seconds (ruling 12).
+		// A runaway page is held to 2,000 requests per 10 seconds.
 		const capped = check(sessionCap, session.id);
 		if (!capped.allowed) {
 			if (capped.firstRefusal) {
@@ -623,8 +638,60 @@ export function registerPreviewRoutes(
 				);
 			}
 			reply.header("retry-after", String(capped.retryAfterSeconds));
-			return page(reply, 429, tooManyRequestsPage());
+			return { refused: page(reply, 429, tooManyRequestsPage()) };
 		}
+		return { ok: { host, parsed, session, workspace } };
+	}
+
+	/**
+	 * The listening service the request reaches, after the bridge has opened
+	 * a forward for a bridged port.
+	 */
+	async function reachableService(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		session: PreviewSessionRow,
+		port: number,
+		bridged: boolean,
+	): Promise<AuthorizeStep<ListeningService>> {
+		// Only this workspace's registry is consulted, so the bridge can never
+		// reach another student's service (BROWSER-HANDLING.md §16.3).
+		const service = registry.service(session.workspace_id, port);
+		if (!service || service.previewReachability === "denied") {
+			return { refused: page(reply, 503, inactiveServicePage(port)) };
+		}
+		if (!bridged) {
+			// The session's own port got its forward when the grant was issued.
+			if (service.previewReachability === "unknown") {
+				return { refused: page(reply, 503, inactiveServicePage(port)) };
+			}
+		} else {
+			// Every bridge request goes through the bridge, even when the port
+			// is already reachable: that is how a second session using a
+			// forward the bridge opened gets counted, so the forward outlives
+			// whichever session ends first. A port that needs no forward costs
+			// nothing here.
+			try {
+				await bridge.ensure(session.workspace_id, session.id, port);
+			} catch (error) {
+				request.log.warn(
+					{
+						workspaceId: session.workspace_id,
+						port,
+						code: error instanceof AgentCallError ? error.code : "INTERNAL",
+					},
+					"bridge forward could not be opened",
+				);
+				return { refused: page(reply, 503, inactiveServicePage(port)) };
+			}
+		}
+		return { ok: service };
+	}
+
+	app.get("/preview/authorize", async (request, reply) => {
+		const signedIn = await signedInPreview(request, reply);
+		if ("refused" in signedIn) return signedIn.refused;
+		const { host, parsed, session, workspace } = signedIn.ok;
 
 		const { workspace_id: sessionWorkspaceId, user_id: sessionUserId } = session;
 		/** Refuse with 403 and audit it, throttled (SPEC.md §24.11). */
@@ -666,51 +733,23 @@ export function registerPreviewRoutes(
 			return page(reply, 503, inactiveServicePage(port));
 		}
 
-		// Only this workspace's registry is consulted, so the bridge can never
-		// reach another student's service (BROWSER-HANDLING.md §16.3).
-		const service = registry.service(session.workspace_id, port);
-		if (!service || service.previewReachability === "denied") {
-			return page(reply, 503, inactiveServicePage(port));
-		}
-		if (target.kind !== "port") {
-			// The session's own port got its forward when the grant was issued.
-			if (service.previewReachability === "unknown") {
-				return page(reply, 503, inactiveServicePage(port));
-			}
-		} else {
-			// Every bridge request goes through the bridge, even when the port
-			// is already reachable: that is how a second session using a
-			// forward the bridge opened gets counted, so the forward outlives
-			// whichever session ends first. A port that needs no forward costs
-			// nothing here.
-			try {
-				await bridge.ensure(session.workspace_id, session.id, port);
-			} catch (error) {
-				request.log.warn(
-					{
-						workspaceId: session.workspace_id,
-						port,
-						code: error instanceof AgentCallError ? error.code : "INTERNAL",
-					},
-					"bridge forward could not be opened",
-				);
-				return page(reply, 503, inactiveServicePage(port));
-			}
-		}
+		const reached = await reachableService(
+			request,
+			reply,
+			session,
+			port,
+			target.kind === "port",
+		);
+		if ("refused" in reached) return reached.refused;
+		const service = reached.ok;
 
 		// Only a user-started navigation of a page or the Preview iframe counts;
 		// browsers set Sec-Fetch-User only then and scripts cannot forge it, so
 		// self-reloads, assets and fetches never keep a workspace awake (ADR 0032).
-		const dest = headers["sec-fetch-dest"];
-		if (
-			(dest === "document" || dest === "iframe") &&
-			headers["sec-fetch-user"] === "?1"
-		) {
-			await recordActivity(db, workspace.id);
-		}
+		if (userNavigation(headers)) await recordActivity(db, workspace.id);
 
 		// The gateway's first request for a port settles its protocol; later
-		// ones read the cached answer (issue #957).
+		// ones read the cached answer.
 		const settled =
 			(await registry.serviceWithProtocol(session.workspace_id, port)) ?? service;
 
@@ -726,6 +765,19 @@ export function registerPreviewRoutes(
 				.send()
 		);
 	});
+}
+
+/** An authorize step either refuses with a page or hands on what it found. */
+type AuthorizeStep<T> = { refused: FastifyReply } | { ok: T };
+
+type PreviewHostParts = NonNullable<ReturnType<typeof parsePreviewHost>>;
+
+/** A page or Preview-iframe navigation the user started. */
+function userNavigation(headers: Record<string, unknown>): boolean {
+	const dest = headers["sec-fetch-dest"];
+	return (
+		(dest === "document" || dest === "iframe") && headers["sec-fetch-user"] === "?1"
+	);
 }
 
 /** Only the agent's TLS probe makes an upstream HTTPS; anything else is HTTP. */

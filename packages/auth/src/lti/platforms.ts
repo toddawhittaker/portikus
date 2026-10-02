@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 
-/** One LMS registration from the platforms file (docs/archive/epics/EPIC-13.md ruling 14). */
+/** One LMS registration from the platforms file (ADR 0025). */
 export interface LtiPlatform {
 	name: string;
 	issuer: string;
@@ -39,7 +39,7 @@ export class PlatformsFileError extends Error {
 
 /**
  * Validate parsed platforms-file JSON. Throws {@link PlatformsFileError}
- * naming every problem, so the API can refuse to start (ruling 14).
+ * naming every problem, so the API can refuse to start.
  */
 export function parsePlatformsFile(data: unknown): LtiPlatform[] {
 	const parsed = fileSchema.safeParse(data);
@@ -101,7 +101,7 @@ export async function loadPlatformsFile(path: string): Promise<LtiPlatform[]> {
 
 /**
  * The registration for an issuer and client id. When `clientId` is absent
- * the issuer must have exactly one registration (ruling 19).
+ * the issuer must have exactly one registration.
  */
 export function findPlatform(
 	platforms: readonly LtiPlatform[],

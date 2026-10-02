@@ -1,6 +1,6 @@
 import { LogLevel } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import { applyLevel, type Logger } from "@portikus/observability";
+import { applyLevel, errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import type { ControllerClient } from "./controller-client.js";
 
@@ -46,16 +46,13 @@ export function createLogLevelSync(options: LogLevelSyncOptions): () => Promise<
 					pushed = override;
 				} catch (e) {
 					logger.debug(
-						{ error: e instanceof Error ? e.message : String(e) },
+						{ error: errorMessage(e) },
 						"could not set the controller log level",
 					);
 				}
 			}
 		} catch (e) {
-			logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"log level sync failed",
-			);
+			logger.warn({ error: errorMessage(e) }, "log level sync failed");
 		} finally {
 			inFlight = false;
 		}

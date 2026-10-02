@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test } from "vitest";
+import { AgentFailure } from "./errors.js";
 import { searchProject } from "./search.js";
 import { buildServer } from "./server.js";
-import { AgentFailure } from "./tmux.js";
 
 const run = promisify(execFile);
 

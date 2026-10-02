@@ -106,7 +106,7 @@ test("countIncusCpus reads a count or a CPU set, and null otherwise", () => {
 	expect(countIncusCpus("four")).toBeNull();
 });
 
-describe("keep running until (#955)", () => {
+describe("keep running until", () => {
 	const now = new Date("2026-10-01T12:00:00Z");
 	const hours = (n: number) => new Date(now.getTime() + n * 3_600_000);
 

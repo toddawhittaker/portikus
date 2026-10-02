@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The preview edge through the real Caddy (Epic 12a Done item 14, the Gate C
-# preview part; BROWSER-HANDLING.md 8 to 16, SPEC.md 24.7).
+# The preview edge through the real Caddy (the Gate C preview part;
+# BROWSER-HANDLING.md 8 to 16, SPEC.md 24.7).
 #
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # Each workspace serves a page naming itself on one port.  a's preview host
@@ -87,9 +87,9 @@ pe_refused() {
   local label="$1" want="$2" got; shift 2
   got=$(pe_get "$@")
   if [ "$got" = "$want" ] && ! pe_leaks; then
-    sec_pass "$label"
+    ok "$label"
   else
-    sec_fail "$label (got: ${got}$(pe_leaks && echo ', a workspace page came back'))"
+    bad "$label (got: ${got}$(pe_leaks && echo ', a workspace page came back'))"
   fi
 }
 # pe_serves COOKIE-FILE URL [curl args] -- "status page" for a control.
@@ -111,7 +111,7 @@ pe_a_label="${pe_a_first%-*}"
 echo "Preview hosts: a ${pe_a_host:-?}, b ${pe_b_host:-?}"
 
 if [ -z "$pe_a_boot" ] || [ -z "$pe_b_boot" ]; then
-  sec_fail "preview setup: both workspaces got a bootstrap URL"
+  bad "preview setup: both workspaces got a bootstrap URL"
 else
   check_output "a's bootstrap sets a preview session (control)" "303" pe_bootstrap "$pe_a_boot" pe-a.cookie
   check_output "b's bootstrap sets a preview session (control)" "303" pe_bootstrap "$pe_b_boot" pe-b.cookie

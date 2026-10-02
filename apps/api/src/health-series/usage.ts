@@ -8,7 +8,7 @@ import type { SeriesWindow } from "./range.js";
  * SAMPLE_RETENTION_MINUTES in apps/worker/src/guard.ts, which the API cannot
  * import. Keep the two equal.
  */
-export const USAGE_RETENTION_MINUTES = 245;
+const USAGE_RETENTION_MINUTES = 245;
 
 /** The heat map shows at most this many workspaces, the busiest (SPEC.md section 25.6). */
 export const USAGE_MAX_ROWS = 50;

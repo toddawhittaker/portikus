@@ -1,6 +1,6 @@
 import { type Kysely, sql } from "kysely";
 
-/** Automatic throttle lift after a quiet spell (ADR 0032, #596); percent 0 turns it off. */
+/** Automatic throttle lift after a quiet spell (ADR 0032); percent 0 turns it off. */
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`alter table settings
 		add column cpu_idle_lift_minutes int not null default 5

@@ -15,15 +15,12 @@ import {
 	sessionCookieOptions,
 } from "@portikus/auth";
 import type { ApiError, LinkError, MeResponse } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
 import { revokeSessionPreviewSessions } from "../preview/store.js";
 import type { ServerDeps } from "../server.js";
-import {
-	completeSignIn,
-	requestMetadata,
-	audit as writeAudit,
-} from "./start-session.js";
+import { completeSignIn, requestMetadata } from "./start-session.js";
 
 const DENIED_MESSAGE = "Your account is not authorized to use Portikus";
 
@@ -43,16 +40,13 @@ export function registerAuthRoutes(
 		target: string,
 		result: string,
 	): Promise<void> {
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor,
-				target,
-				action,
-				result,
-				metadata: JSON.stringify(requestMetadata(request)),
-			})
-			.execute();
+		await recordAudit(db, {
+			actor,
+			target,
+			action,
+			result,
+			metadata: requestMetadata(request),
+		});
 	}
 
 	function fail(
@@ -92,7 +86,7 @@ export function registerAuthRoutes(
 			}
 		}
 		if (!loginState) {
-			// A link attempt whose cookie is gone still belongs on the link page (ruling 18).
+			// A link attempt whose cookie is gone still belongs on the link page.
 			const { state } = request.query as { state?: unknown };
 			if (typeof state === "string" && (await findLinkIntent(db, state))) {
 				return reply.redirect("/link?error=expired", 302);
@@ -110,7 +104,7 @@ export function registerAuthRoutes(
 		const callbackUrl = new URL(request.url, auth.publicUrl);
 
 		// A stored intent under this state means the course account asked to
-		// link (docs/archive/epics/EPIC-13-1.md, "The flow" step 3); otherwise a sign-in.
+		// link (ADR 0026); otherwise a sign-in.
 		const intent = await findLinkIntent(db, loginState.state);
 		if (intent) {
 			return linkCallback(request, reply, callbackUrl, loginState, intent);
@@ -131,14 +125,13 @@ export function registerAuthRoutes(
 		const role = mapRole(claims, auth);
 		if (!role) {
 			// Prefix the subject so a crafted one cannot look like `user:<uuid>`.
-			await writeAudit(
-				db,
-				"auth.login",
-				`subject:${identity.subject}`,
-				identity.subject,
-				"denied",
-				requestMetadata(request),
-			);
+			await recordAudit(db, {
+				actor: `subject:${identity.subject}`,
+				target: identity.subject,
+				action: "auth.login",
+				result: "denied",
+				metadata: requestMetadata(request),
+			});
 			return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
 		}
 
@@ -154,7 +147,7 @@ export function registerAuthRoutes(
 	});
 
 	/**
-	 * The callback in link mode (ruling 3 and 18): it never creates, updates
+	 * The callback in link mode: it never creates, updates
 	 * or signs in a user. It only binds the SSO account to the intent, and
 	 * every outcome goes to /link.
 	 */
@@ -172,10 +165,16 @@ export function registerAuthRoutes(
 			ssoUserId: string | null,
 		) => {
 			const who = ssoUserId ?? intent.courseUserId;
-			await writeAudit(db, "user.linked", `user:${who}`, who, result, {
-				reason: code,
-				courseUserId: intent.courseUserId,
-				...requestMetadata(request),
+			await recordAudit(db, {
+				actor: `user:${who}`,
+				target: who,
+				action: "user.linked",
+				result: result,
+				metadata: {
+					reason: code,
+					courseUserId: intent.courseUserId,
+					...requestMetadata(request),
+				},
 			});
 			return reply.redirect(`/link?error=${code}`, 302);
 		};

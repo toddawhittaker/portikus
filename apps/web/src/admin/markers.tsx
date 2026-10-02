@@ -31,9 +31,8 @@ const NEUTRAL = new Set(NEUTRAL_KEYS.map((key) => MARKER_LABEL[key]));
 type GuardState = Pick<AdminWorkspaceSummary, "cpuThrottle" | "memoryFlag">;
 
 /**
- * The marker labels an account carries, in a fixed order (issue #302,
- * docs/archive/epics/EPIC-13-1.md ruling 24), then its workspace's resource
- * guard tags (ADR 0032).
+ * The marker labels an account carries, in a fixed order (ADR 0026),
+ * then its workspace's resource guard tags (ADR 0032).
  */
 export function markerLabels(
 	markers: AccountMarkers | undefined,
@@ -82,12 +81,12 @@ export function imageText(image: AdminImageVersion): string {
 
 const LTI_PREFIX = "lti:";
 
-/** True for a course account, made by an LTI launch (docs/archive/epics/EPIC-13.md ruling 12). */
+/** True for a course account, made by an LTI launch (ADR 0025). */
 export function isCourseAccount(issuer: string | null | undefined): boolean {
 	return issuer?.startsWith(LTI_PREFIX) ?? false;
 }
 
-/** "SSO", or "Course: <platform host>" for a course account (docs/archive/epics/EPIC-13-1.md ruling 24). */
+/** "SSO", or "Course: <platform host>" for a course account (ADR 0026). */
 export function sourceText(issuer: string | null | undefined): string {
 	if (!issuer || !isCourseAccount(issuer)) return "SSO";
 	return `Course: ${shortIssuer(issuer.slice(LTI_PREFIX.length))}`;
@@ -95,7 +94,7 @@ export function sourceText(issuer: string | null | undefined): string {
 
 export const ROLE_FILTERS = ["administrator", "instructor", "student"] as const;
 
-/** The Role column: an administrator says where the role came from (docs/archive/epics/EPIC-13-1.md ruling 24). */
+/** The Role column: an administrator says where the role came from (ADR 0026). */
 export function roleText(user: Pick<AdminUser, "role" | "grantedRole">): string {
 	if (user.role === "administrator") {
 		return user.grantedRole === "administrator"
@@ -120,7 +119,7 @@ export function shortIssuer(issuer: string | null | undefined): string {
 
 /**
  * Sorted by name, with every account that shares an email placed straight
- * after the first of them, so duplicates sit together (issue #302).
+ * after the first of them, so duplicates sit together.
  */
 export function sortAccounts(users: AdminUser[]): AdminUser[] {
 	const byName = [...users].sort((a, b) => a.displayName.localeCompare(b.displayName));

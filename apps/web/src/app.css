@@ -45,7 +45,7 @@ body {
 	color: var(--ink);
 }
 
-/* Skip-link pattern: off screen until it has focus (issue #357). */
+/* Skip-link pattern: off screen until it has focus. */
 .pk-skip-link:not(:focus) {
 	position: absolute;
 	width: 1px;
@@ -274,7 +274,7 @@ button.pk-statusbar-item:focus-visible {
 	gap: var(--space-1);
 	min-width: 0;
 }
-/* The unread count sits after the name in the accent, never over the picture (Epic 25 S8). */
+/* The unread count sits after the name in the accent, never over the picture. */
 .pk-account-badge {
 	/* A 24px hit area around the small pill (WCAG 2.5.8). */
 	display: grid;
@@ -410,7 +410,7 @@ button.pk-statusbar-item:focus-visible {
 }
 /*
  * A right-pane head that keeps only its action buttons: the tab already
- * names the pane, so the title is screen-reader-only (Epic 20, ruling 18).
+ * names the pane, so the title is screen-reader-only.
  */
 .pk-pane-head.pk-pane-head--actions {
 	justify-content: flex-end;
@@ -533,15 +533,6 @@ button.pk-statusbar-item:focus-visible {
 	color: var(--ink-muted);
 	font-variant-numeric: tabular-nums;
 }
-.pk-list-slug {
-	flex: 0 1 auto;
-	min-width: 0;
-	max-width: 45%;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	color: var(--ink-faint);
-}
 .pk-tag {
 	display: inline-flex;
 	align-items: center;
@@ -553,7 +544,7 @@ button.pk-statusbar-item:focus-visible {
 	color: var(--ink-muted);
 	font-size: 12px;
 	font-weight: 500;
-	/* A tag is one word group: it never wraps inside or shrinks (Epic 25 M2). */
+	/* A tag is one word group: it never wraps inside or shrinks. */
 	white-space: nowrap;
 	flex: none;
 }
@@ -695,12 +686,6 @@ button.pk-statusbar-item:hover {
 .pk-notice--warning .pk-notice-icon {
 	color: var(--status-warning);
 }
-.pk-notice--error {
-	background: var(--status-error-soft);
-}
-.pk-notice--error .pk-notice-icon {
-	color: var(--status-error);
-}
 .pk-notice-main {
 	flex: 1;
 	min-width: 0;
@@ -813,14 +798,6 @@ button.pk-statusbar-item:hover {
 	display: grid;
 	gap: 6px;
 }
-.pk-meter-head {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: var(--space-3);
-	font-size: 13px;
-	line-height: 18px;
-}
 .pk-meter-label {
 	font-weight: 500;
 	color: var(--ink);
@@ -842,19 +819,56 @@ button.pk-statusbar-item:hover {
 	height: 100%;
 	background: var(--accent);
 }
-.pk-meter--warning .pk-meter-fill {
-	background: var(--status-warning);
-}
 .pk-meter--warning .pk-meter-value {
 	color: var(--status-warning);
 	font-weight: 600;
 }
-.pk-meter--full .pk-meter-fill {
-	background: var(--status-error);
-}
 .pk-meter--full .pk-meter-value {
 	color: var(--status-error);
 	font-weight: 600;
+}
+/* The storage meters' ui Meter: warning text as above, and the error colour at the critical level. */
+.pk-meter--warning .pk-meter-figure,
+.pk-meter--full .pk-meter-figure {
+	font-weight: 600;
+}
+.pk-meter--warning .pk-meter-figure {
+	color: var(--status-warning);
+}
+.pk-meter--full .pk-meter-figure,
+.pk-meter--full .pk-meter-alert {
+	color: var(--status-error);
+}
+.pk-meter--full .pk-meter-bar::-webkit-meter-suboptimum-value,
+.pk-meter--full .pk-meter-bar::-webkit-meter-even-less-good-value {
+	background: var(--status-error);
+}
+.pk-meter--full .pk-meter-bar:-moz-meter-sub-optimum::-moz-meter-bar,
+.pk-meter--full .pk-meter-bar:-moz-meter-sub-sub-optimum::-moz-meter-bar {
+	background: var(--status-error);
+}
+.pk-meters .pk-meter-wrap {
+	max-width: none;
+}
+.pk-meters .pk-meter-label {
+	font-size: 13px;
+	line-height: 18px;
+	font-weight: 500;
+}
+.pk-meters .pk-meter-figure {
+	color: var(--ink-muted);
+}
+.pk-meters .pk-meter--warning .pk-meter-figure {
+	color: var(--status-warning);
+}
+.pk-meters .pk-meter--full .pk-meter-figure {
+	color: var(--status-error);
+}
+/* The next step under a full meter: short, muted, below the bar. */
+.pk-meter-step {
+	font-size: 13px;
+	line-height: 18px;
+	color: var(--ink-muted);
 }
 
 /* The status bar's always-visible memory and disk meters (SPEC.md §19.2). No transition, so reduced motion needs nothing. */
@@ -875,6 +889,12 @@ button.pk-statusbar-item:hover {
 }
 .pk-statusbar-meter .pk-meter-fill {
 	display: block;
+}
+.pk-statusbar-meter.pk-meter--warning .pk-meter-fill {
+	background: var(--status-warning);
+}
+.pk-statusbar-meter.pk-meter--full .pk-meter-fill {
+	background: var(--status-error);
 }
 /* When space is tight the project path gives way first, then the Git line, each with an ellipsis; the buttons never shrink. */
 .pk-statusbar-path,
@@ -903,7 +923,7 @@ button.pk-statusbar-item:hover {
 
 /*
  * Every Stop icon button is danger red in both themes, hover and focus
- * included (issues #324, #700). The button's own hover colour and transition
+ * included. The button's own hover colour and transition
  * would otherwise replace or blend the red.
  */
 .pk-iconbtn.pk-iconbtn-danger,
@@ -915,7 +935,7 @@ button.pk-statusbar-item:hover {
 }
 
 /*
- * Fixed-width action cells for process tables (issue #702): each button has
+ * Fixed-width action cells for process tables: each button has
  * its own column, a missing one leaves its cell empty, and every row is as
  * tall as a button whether it has buttons or not.
  */
@@ -949,7 +969,7 @@ button.pk-statusbar-item:hover {
 	color: var(--ink-muted);
 }
 
-/* Help page (Epic 25): contents beside the text when there is room, above it when not. */
+/* Help page: contents beside the text when there is room, above it when not. */
 .pk-help {
 	container-type: inline-size;
 }

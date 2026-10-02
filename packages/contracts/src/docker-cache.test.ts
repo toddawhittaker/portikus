@@ -1,5 +1,5 @@
 /**
- * Shared Docker pull storage shapes (issue #840). Seed image names reach a
+ * Shared Docker pull storage shapes. Seed image names reach a
  * root-run `docker pull`, so the name check is strict.
  */
 import { describe, expect, test } from "vitest";
@@ -86,7 +86,7 @@ describe("canonicalImageName", () => {
 		["ghcr.io/owner/tool", "ghcr.io/owner/tool:latest"],
 		[`alpine@${SHA}`, `docker.io/library/alpine@${SHA}`],
 		[`alpine:3@${SHA}`, `docker.io/library/alpine:3@${SHA}`],
-		// Only the first registry prefix is a registry (review F9).
+		// Only the first registry prefix is a registry.
 		["docker.io/ghcr.io/x", "docker.io/ghcr.io/x:latest"],
 	])("%s is %s", (name, canonical) => {
 		expect(canonicalImageName(name)).toBe(canonical);
@@ -166,7 +166,7 @@ describe("seedImageListFor", () => {
 });
 
 describe("DockerSettingsRequest", () => {
-	test("takes either field alone, but not neither (review Q3)", () => {
+	test("takes either field alone, but not neither", () => {
 		expect(DockerSettingsRequest.safeParse({ ghcrEnabled: true }).success).toBe(true);
 		expect(DockerSettingsRequest.safeParse({ seedMaxGiB: 4 }).success).toBe(true);
 		expect(DockerSettingsRequest.safeParse({}).success).toBe(false);
@@ -221,7 +221,7 @@ describe("RegistryStatusFile", () => {
 	};
 	const seenAt = "2026-09-30T10:00:00.000Z";
 
-	test("a status from before issue #931 still reads", () => {
+	test("an older status file still reads", () => {
 		expect(RegistryStatusFile.safeParse(status).success).toBe(true);
 	});
 
@@ -384,7 +384,7 @@ describe("AgentDockerInventory", () => {
 			containerImageIds: [SHA],
 		};
 		expect(AgentDockerInventory.safeParse(ok).success).toBe(true);
-		// An agent that sends no digests still parses (review F3).
+		// An agent that sends no digests still parses.
 		expect(AgentDockerInventory.parse(ok).images[0]?.repoDigests).toEqual([]);
 		const bad = { ...ok, images: [{ id: SHA, repoTags: [], layers: ["nope"] }] };
 		expect(AgentDockerInventory.safeParse(bad).success).toBe(false);
@@ -412,7 +412,7 @@ describe("StartInstanceRequest docker field", () => {
 	});
 });
 
-describe("seed images matching the workspace image (issue #932)", () => {
+describe("seed images matching the workspace image", () => {
 	const manifest = (
 		node: string | null,
 		python3: string | null,

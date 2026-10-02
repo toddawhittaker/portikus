@@ -50,8 +50,8 @@ export function WorkspacePage() {
 
 /**
  * Waits for the student's settings so the saved appearance is applied before
- * the shell first paints, even in a browser that has never seen them
- * (issue #300). A failed load does not hold the shell back.
+ * the shell first paints, even in a browser that has never seen them.
+ * A failed load does not hold the shell back.
  */
 function WorkspaceShellWhenSettled(props: { workspaceId: string; user: MeUser }) {
 	const settings = useEditorSettings();
@@ -108,8 +108,7 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 		() => ({ services: services ?? [], loaded: services !== undefined }),
 		[services],
 	);
-	// The student's terminal colour scheme, applied to the whole shell
-	// (issue #239).
+	// The student's terminal colour scheme, applied to the whole shell.
 	useTerminalThemeAttribute();
 
 	return (

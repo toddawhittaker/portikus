@@ -92,13 +92,13 @@ test("listing reports git directories and skips everything else", async () => {
 		{ slug: "alpha", isGitRepo: true },
 		{ slug: "beta", isGitRepo: false },
 	]);
-	// Each directory reports its own identity, and no two share one (issue #238).
+	// Each directory reports its own identity, and no two share one.
 	const ids = listed.projects.map((p) => p.directoryId);
 	expect(ids.every((id) => typeof id === "string" && id.length > 0)).toBe(true);
 	expect(new Set(ids).size).toBe(2);
 });
 
-/** Issue #238: a directory renamed with `mv` keeps its reported identity. */
+/** A directory renamed with `mv` keeps its reported identity. */
 test("a renamed directory keeps the identity it reported before", async () => {
 	await mkdir(join(projectsRoot, "alpha", ".git"), { recursive: true });
 	const before = await app.inject({ method: "GET", url: "/projects", headers: auth() });
@@ -141,7 +141,7 @@ test.skipIf(!haveGit)("a new project is created with and without git", async () 
 
 	const without = await create({ slug: "beta", source: "new", gitInit: false });
 	expect(without.json()).toEqual({ slug: "beta", isGitRepo: false });
-	expect(await readdir(join(projectsRoot, "beta"))).toEqual([".portikus"]); // Only the README folder (#857).
+	expect(await readdir(join(projectsRoot, "beta"))).toEqual([".portikus"]); // Only the README folder.
 
 	const again = await create({ slug: "alpha", source: "new", gitInit: true });
 	expect(again.statusCode).toBe(409);
@@ -155,7 +155,7 @@ test.skipIf(!haveGit)("initializing Git writes a default .gitignore", async () =
 		expect(created).toContain(entry);
 	}
 
-	// A project made without Git gets no .gitignore, only the .portikus README (#857).
+	// A project made without Git gets no .gitignore, only the .portikus README.
 	await create({ slug: "beta", source: "new", gitInit: false });
 	expect(await readdir(join(projectsRoot, "beta"))).toEqual([".portikus"]);
 
@@ -700,7 +700,7 @@ async function sparse(path: string, size: number) {
 	await truncate(path, size);
 }
 
-test("a folder past the download cap is refused before zip runs (#399)", async () => {
+test("a folder past the download cap is refused before zip runs", async () => {
 	const tempBase = await mkdtemp(join(tmpdir(), "portikus-archive-base-"));
 	const alpha = join(projectsRoot, "alpha");
 	await mkdir(join(alpha, "src"), { recursive: true });
@@ -716,7 +716,7 @@ test("a folder past the download cap is refused before zip runs (#399)", async (
 	}
 });
 
-test("a symlink to a file past the download cap is refused (#399)", async () => {
+test("a symlink to a file past the download cap is refused", async () => {
 	const alpha = join(projectsRoot, "alpha");
 	await mkdir(alpha, { recursive: true });
 	await sparse(join(alpha, "big.bin"), MAX_DOWNLOAD_BYTES + 1);
@@ -772,4 +772,41 @@ test("a size check answers for a file, a folder, or the project without zipping"
 	expect(file.statusCode).toBe(413);
 	expect(file.json().error.code).toBe("FILE_TOO_LARGE");
 	expect((await check("")).statusCode).toBe(413);
+});
+
+test("clone and init run git with the filesystem monitor turned off", async () => {
+	const fakeBin = await mkdtemp(join(tmpdir(), "portikus-fakebin-"));
+	const argsFile = join(fakeBin, "args");
+	// A git that records its arguments, then fails a clone and passes an init.
+	await writeFile(
+		join(fakeBin, "git"),
+		`#!/bin/sh\necho "$@" >> ${argsFile}\nfor arg in "$@"; do\n  if [ "$arg" = clone ]; then echo "fatal: no such repository" >&2; exit 128; fi\ndone\nexit 0\n`,
+		{ mode: 0o755 },
+	);
+	const realPath = process.env.PATH;
+	process.env.PATH = `${fakeBin}:${realPath}`;
+	try {
+		const cloned = await create({
+			slug: "cloned",
+			source: "clone",
+			url: "https://example.com/repo.git",
+			gitInit: true,
+		});
+		expect(cloned.statusCode).toBe(500);
+		expect(cloned.json()).toEqual({
+			error: { code: "GIT_FAILED", message: "fatal: no such repository" },
+		});
+		const fresh = await create({ slug: "fresh", source: "new", gitInit: true });
+		expect(fresh.statusCode).toBe(201);
+		const lines = (await readFile(argsFile, "utf8")).trim().split("\n");
+		expect(lines).toEqual([
+			expect.stringMatching(
+				/^-c core\.fsmonitor= clone -- https:\/\/example\.com\/repo\.git /,
+			),
+			"-c core.fsmonitor= init --initial-branch=main",
+		]);
+	} finally {
+		process.env.PATH = realPath;
+		await rm(fakeBin, { recursive: true, force: true });
+	}
 });

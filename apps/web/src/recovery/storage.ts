@@ -3,6 +3,7 @@
  * Warn at 80% full; at 95% say which class is nearly full and what to do.
  */
 import type { StorageFigure, WorkspaceUsage } from "@portikus/contracts";
+import { WARN_AT } from "../monitor/format.js";
 
 export type StorageClass = "home" | "docker" | "recovery";
 export type StorageLevel = "ok" | "warning" | "critical";
@@ -15,14 +16,23 @@ export const STORAGE_LABEL: Record<StorageClass, string> = {
 	recovery: "Recovery",
 };
 
-export const WARN_AT = 0.8;
 export const CRITICAL_AT = 0.95;
 
-const NEXT_STEP: Record<StorageClass, string> = {
+/** What to do when a class is nearly full; the status bar and the meters share it. */
+export const NEXT_STEP: Record<StorageClass, string> = {
 	home: "Delete files you no longer need.",
 	docker: "Use Reset Docker in the workspace dialog, or run docker system prune.",
 	recovery: "Older recovery points are removed automatically.",
 };
+
+/**
+ * The `high` to give a Meter so it says "nearly full" from exactly the
+ * warning share, as storageLevel does; the Meter warns only strictly past it.
+ */
+export function nearlyFullAbove(totalBytes: number): number | undefined {
+	if (totalBytes <= 0) return undefined;
+	return totalBytes * WARN_AT - 1;
+}
 
 /** How full one class is. A missing figure, or one with no size, never warns. */
 export function storageLevel(figure: StorageFigure | null): StorageLevel | null {

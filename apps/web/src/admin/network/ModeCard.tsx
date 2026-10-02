@@ -7,8 +7,9 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useEffect, useState } from "react";
+import { joinWords, plural } from "../../text.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
-import { applyAnnouncement, applyState, joinPorts, listedHostCount } from "./text.js";
+import { applyAnnouncement, applyState, listedHostCount } from "./text.js";
 
 const MODE_TEXT: Record<EgressMode, { name: string; summary: string }> = {
 	open: {
@@ -23,12 +24,8 @@ const MODE_TEXT: Record<EgressMode, { name: string; summary: string }> = {
 	},
 };
 
-function plural(count: number, one: string, many: string): string {
-	return `${count} ${count === 1 ? one : many}`;
-}
-
 /** The dialog's plain statement of what switching changes for students. */
-export function switchText(view: AdminEgressView, to: EgressMode): string {
+function switchText(view: AdminEgressView, to: EgressMode): string {
 	if (to === "open") {
 		return "Workspaces will reach any public site again, except your blocked sites. Private networks stay blocked. Your presets and list are kept for next time.";
 	}
@@ -37,7 +34,7 @@ export function switchText(view: AdminEgressView, to: EgressMode): string {
 	const listed =
 		hosts + ranges === 0
 			? "Nothing is listed yet, so workspaces will reach no site at all."
-			: `Workspaces will reach only the ${plural(hosts, "host", "hosts")} and ${plural(ranges, "range", "ranges")} listed, on ports ${joinPorts(view.ports)}.`;
+			: `Workspaces will reach only the ${plural(hosts, "host")} and ${plural(ranges, "range")} listed, on ports ${joinWords(view.ports.map(String))}.`;
 	return `${listed} Everything else fails with "Could not resolve host". Connections to anything else stop now, including downloads in progress.`;
 }
 

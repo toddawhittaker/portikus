@@ -13,7 +13,7 @@ const HOUR_MS = 3_600_000;
 /** Each journalctl read covers at most a day, or an hour once a day proved too slow. */
 const DAY_MS = 24 * HOUR_MS;
 /** One request reads at most this many slices ... */
-export const MAX_SLICES_PER_REQUEST = 24;
+const MAX_SLICES_PER_REQUEST = 24;
 /** ... and starts no new slice after this long. */
 const REQUEST_BUDGET_MS = SCAN_TIMEOUT_MS;
 /** The journal's oldest entry changes only on vacuum, so look it up this often. */

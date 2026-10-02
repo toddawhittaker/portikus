@@ -36,6 +36,7 @@ import { PreviewPicker } from "../preview/PreviewPicker.js";
 import { useShowRightPane } from "../shell/rightPane.js";
 import { useTerminals } from "../useTerminals.js";
 import { dropZone, insertionIndex } from "./dropZone.js";
+import { usePointerDismiss } from "./pointerDismiss.js";
 import { TerminalGroup } from "./TerminalGroup.js";
 import "./work.css";
 
@@ -54,33 +55,13 @@ type DragTarget =
  * that moves the keyboard itself, so the trigger must not take it back.
  */
 function useLauncherMenuFocus() {
-	const pointer = useRef(false);
+	const { pointer, track } = usePointerDismiss();
 	const launched = useRef(false);
 	const open = useRef(false);
-	const stop = useRef<(() => void) | null>(null);
-
-	useEffect(() => () => stop.current?.(), []);
 
 	function onOpenChange(next: boolean) {
 		open.current = next;
-		stop.current?.();
-		stop.current = null;
-		if (!next) return;
-		pointer.current = false;
-		const onPointerDown = () => {
-			pointer.current = true;
-		};
-		const onKeyDown = (event: globalThis.KeyboardEvent) => {
-			if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
-				pointer.current = false;
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown, true);
-		document.addEventListener("keydown", onKeyDown, true);
-		stop.current = () => {
-			document.removeEventListener("pointerdown", onPointerDown, true);
-			document.removeEventListener("keydown", onKeyDown, true);
-		};
+		track(next);
 	}
 
 	function declineTriggerFocus() {
@@ -134,10 +115,8 @@ export function WorkArea({
 	const layout = useLayout(store, (state) => state.layout);
 	const activeTabId = useLayout(store, (state) => state.activeTabId);
 	const focusedTerminalId = useLayout(store, (state) => state.focusedTerminalId);
-	const pendingLine = useLayout(store, (state) => state.pendingLine);
-	const pendingDiff = useLayout(store, (state) => state.pendingDiff);
+	const pendingView = useLayout(store, (state) => state.pendingView);
 	const diffBaseline = useLayout(store, (state) => state.diffBaseline);
-	const pendingEdit = useLayout(store, (state) => state.pendingEdit);
 	const unsavedTabs = useLayout(store, (state) => state.unsavedTabs);
 	const loaded = useLayoutPersistence(workspaceId, projectId, store, onSessionEnded);
 	const terminals = useTerminals(workspaceId, projectId, true, onSessionEnded);
@@ -155,6 +134,11 @@ export function WorkArea({
 	const strip = useRef<HTMLDivElement | null>(null);
 	const launcherMenu = useLauncherMenuFocus();
 
+	// Until both lists are in, an empty layout only means not loaded yet.
+	const showEmpty =
+		layout.tabs.length === 0 &&
+		loaded &&
+		(terminals.loaded || terminals.error !== null);
 	const byId = new Map(terminals.terminals.map((terminal) => [terminal.id, terminal]));
 
 	// Once the saved layout is in, every terminal list answer decides which
@@ -230,7 +214,7 @@ export function WorkArea({
 			store.getState().replaceLeaf(terminalId, created.id);
 			// The button the student clicked is gone with the ended pane, so
 			// the keyboard would land on nothing. Make the new terminal the
-			// focused one and its pane takes the keyboard (issue #264).
+			// focused one and its pane takes the keyboard.
 			store.getState().setFocused(created.id);
 		});
 	}
@@ -307,7 +291,7 @@ export function WorkArea({
 		(tabs[index < 0 ? 0 : index] ?? tabs[0])?.focus();
 	}
 
-	/** Give a pane a tab of its own after its current one (issue #370). */
+	/** Give a pane a tab of its own after its current one. */
 	function moveToNewTab(terminalId: string) {
 		const from = layout.tabs.findIndex((tab) =>
 			terminalIds(tab.root).includes(terminalId),
@@ -532,7 +516,7 @@ export function WorkArea({
 					</p>
 				) : null}
 
-				{layout.tabs.length === 0 ? (
+				{showEmpty ? (
 					<EmptyState
 						icon="terminal"
 						title="No terminals open"
@@ -585,13 +569,9 @@ export function WorkArea({
 							onLeave={leaveTerminal}
 							onMoveToNewTab={moveToNewTab}
 							onCloseTab={() => store.getState().closeTab(tab.id)}
-							pendingLine={pendingLine[tab.id]}
-							consumePendingLine={() => store.getState().consumePendingLine(tab.id)}
-							pendingDiff={pendingDiff[tab.id]}
+							pendingView={pendingView[tab.id]}
+							consumePendingView={() => store.getState().consumePendingView(tab.id)}
 							diffBaseline={diffBaseline[tab.id] ?? null}
-							consumePendingDiff={() => store.getState().consumePendingDiff(tab.id)}
-							pendingEdit={pendingEdit[tab.id]}
-							consumePendingEdit={() => store.getState().consumePendingEdit(tab.id)}
 							onUnsavedChange={(unsaved) =>
 								store.getState().setTabUnsaved(tab.id, unsaved)
 							}

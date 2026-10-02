@@ -4,11 +4,8 @@
 # 21.12).
 set -e
 
-# Units the package owns. The mock identity provider is included in the
-# was-running snapshot so an upgrade restarts it, but never enabled here:
-# only Ansible turns it on (ADR 0008).
+# Units the package owns.
 UNITS="portikus-controller.service portikus-worker.service portikus-api.service"
-ALL_UNITS="$UNITS portikus-mock-idp.service"
 
 case "$1" in
 	configure)
@@ -30,7 +27,7 @@ PK_OWNED=$(awk '!/^#/ && $3 == "setting" { print $2 }' "$KEYS_FILE")
 PK_SECRET_KEYS=$(awk '!/^#/ && $3 == "secret" { print $2 }' "$KEYS_FILE")
 export PK_OWNED PK_SECRET_KEYS
 
-# Each secret may live only in secrets.yaml (ruling 5), so clear them from
+# Each secret may live only in secrets.yaml (SPEC.md 21.12), so clear them from
 # debconf on every way out, a failure under set -e included.
 clear_secrets() {
 	for question in $SECRETS; do
@@ -279,7 +276,7 @@ apply_worker_grants() {
 if [ -d /run/systemd/system ]; then
 	# Note which units were running before the reload, so an upgrade restarts them.
 	running=""
-	for unit in $ALL_UNITS; do
+	for unit in $UNITS; do
 		if systemctl is-active --quiet "$unit"; then
 			running="$running $unit"
 		fi
@@ -297,9 +294,8 @@ if [ -d /run/systemd/system ]; then
 	# The Docker caches pick up a changed unit or helper; setup starts them first.
 	systemctl try-restart portikus-registry-hub.service portikus-registry-ghcr.service || true
 
-	# The mock provider first so the API can reach its issuer, then the api,
-	# which runs the database migrations in ExecStartPre.
-	for unit in portikus-mock-idp.service portikus-api.service portikus-controller.service; do
+	# The api first, which runs the database migrations in ExecStartPre.
+	for unit in portikus-api.service portikus-controller.service; do
 		case " $running " in
 			*" $unit "*) systemctl restart "$unit" || true ;;
 		esac
@@ -342,7 +338,7 @@ Setup is already running with the earlier answers; when it ends, run: sudo porti
 
 EOF
 elif [ -d /run/systemd/system ]; then
-	# Setup waits for the dpkg lock, so it must not block this script (ruling 10).
+	# Setup waits for the dpkg lock, so it must not block this script.
 	systemctl start --no-block portikus-setup.service
 	if [ -z "$2" ]; then
 		cat >&2 <<EOF

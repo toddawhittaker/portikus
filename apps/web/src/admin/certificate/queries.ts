@@ -7,15 +7,15 @@ import {
 	CertificatePreflight,
 } from "@portikus/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { request } from "../../api/request.js";
+import { request, sendJson } from "../../api/request.js";
 
 export const certificateKey = ["admin", "certificate"] as const;
 
-/** The admin download of Caddy's internal root certificate (Epic 27 R13). */
+/** The admin download of Caddy's internal root certificate. */
 export const ROOT_CERTIFICATE_URL = "/admin/certificate/root.crt";
 
 /** The page polls a queued or running job every two seconds, as the image page does. */
-export const CERTIFICATE_POLL_MS = 2000;
+const CERTIFICATE_POLL_MS = 2000;
 
 export function isActive(state: CertificateJobState | undefined): boolean {
 	return state === "queued" || state === "running";
@@ -50,15 +50,11 @@ export function useCertificateJob(id: string, pageState: CertificateJobState) {
 	});
 }
 
-/** Whether the names point here, before an ACME test or apply (Epic 27 R10). */
+/** Whether the names point here, before an ACME test or apply. */
 export function usePreflight() {
 	return useMutation({
 		mutationFn: (mode: "dns01" | "http01") =>
-			request(CertificatePreflight, "/admin/certificate/preflight", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ mode }),
-			}),
+			sendJson(CertificatePreflight, "/admin/certificate/preflight", { mode }),
 	});
 }
 
@@ -68,11 +64,7 @@ export function useRequestCertificateJob() {
 	return useMutation({
 		gcTime: 0,
 		mutationFn: (body: CertificateJobRequest) =>
-			request(CertificateJobView, "/admin/certificate/jobs", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(body),
-			}),
+			sendJson(CertificateJobView, "/admin/certificate/jobs", body),
 		onSuccess: () => client.invalidateQueries({ queryKey: certificateKey }),
 	});
 }

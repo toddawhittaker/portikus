@@ -13,7 +13,7 @@ import {
 	registryEventWorkspaceIp,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 
 /** Largest notification body read; 1000 events fit well inside it. */
@@ -91,7 +91,7 @@ export interface RegistryEventsOptions {
 }
 
 /**
- * Record one envelope (ruling 7, S7): each counting pull is matched to the
+ * Record one envelope: each counting pull is matched to the
  * running workspace whose bridge address the event names, and rolled up by
  * image, workspace and UTC day. The address is a hint only. After
  * REGISTRY_NAMES_PER_DAY_MAX distinct names in a UTC day, new names count
@@ -201,7 +201,7 @@ async function readBody(req: IncomingMessage): Promise<Buffer | null> {
 }
 
 /**
- * The registry notification webhook on 127.0.0.1 (ruling S7). A wrong or
+ * The registry notification webhook on 127.0.0.1. A wrong or
  * missing token header is 401; a body that fails the schema is 400 and
  * stores nothing. The ghcr.io cache posts with `?registry=ghcr.io`, since
  * an event does not say which registry it came from.
@@ -241,10 +241,7 @@ export function createRegistryEventsServer(options: RegistryEventsOptions): Serv
 			await recordRegistryEvents(db, envelope, registry, now(), seen);
 			answer(200);
 		})().catch((e: unknown) => {
-			logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"registry event failed",
-			);
+			logger.warn({ error: errorMessage(e) }, "registry event failed");
 			if (!res.headersSent) answer(500);
 		});
 	});

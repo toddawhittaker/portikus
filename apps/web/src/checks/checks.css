@@ -7,7 +7,7 @@
  * The check list. It looks like the other right-pane lists, but it states its
  * own grid rather than adding a column to `pk-list`'s: a single track that may
  * shrink. Without that the track grows to the width of the longest command and
- * carries the Run button out of the pane (issue #274).
+ * carries the Run button out of the pane.
  */
 .pk-check-list {
 	list-style: none;
@@ -39,7 +39,7 @@
 /* The whole row, action column included, carries the selection. */
 .pk-check-item.is-current .pk-check-row {
 	background: var(--surface-row-selected);
-	/* An ink bar, so the selection does not rest on a faint tint (issue #369). */
+	/* An ink bar, so the selection does not rest on a faint tint. */
 	box-shadow: var(--row-current-bar);
 }
 .pk-check-badge,
@@ -47,7 +47,7 @@
 	flex: none;
 }
 /*
- * Play takes the running green (issue #324; Stop uses .pk-iconbtn-danger). Colour
+ * Play takes the running green (Stop uses .pk-iconbtn-danger). Colour
  * is extra: the icon and the accessible name already say which is which, and
  * these tokens follow the theme. The button's own transition would blend the
  * two while a check flips, and its hover colour would replace the tint.
@@ -105,7 +105,7 @@
 
 /*
  * A narrow pane gives the name and command a line of their own, with the
- * badge and Run under them at the end edge, as Running does (Epic 25, M1).
+ * badge and Run under them at the end edge, as Running does.
  */
 @container pk-right (width < 18rem) {
 	.pk-check-row {
@@ -166,7 +166,7 @@
 /* One row of the edit dialog: name, command, and remove. */
 /*
  * The list and the output share the pane, and the handle between them is the
- * same one a terminal split uses (issue #337). The panel's own 45% height
+ * same one a terminal split uses. The panel's own 45% height
  * only applies when it is not inside the split.
  */
 .pk-pane-split {

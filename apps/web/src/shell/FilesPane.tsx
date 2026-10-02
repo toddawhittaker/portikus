@@ -34,7 +34,7 @@ export function FilesPane({
 	// for the Running surface too (BROWSER-HANDLING.md §12).
 	const { pane, show, monitorFocus, setMonitorFocus } = useRightPaneState();
 	const open = project !== undefined && !project.missing;
-	// Closing the search hands focus back to the button that opened it (issue #358),
+	// Closing the search hands focus back to the button that opened it,
 	// or to the chosen surface's tab when the pane has moved off Files meanwhile.
 	const searchButton = useRef<HTMLButtonElement>(null);
 	const currentTab = useRef<HTMLButtonElement>(null);
@@ -185,7 +185,7 @@ export function FilesPane({
 
 /**
  * The switcher: Radix Tabs, so the arrow keys move between surfaces and the
- * whole strip is one Tab stop (issue #365).
+ * whole strip is one Tab stop.
  */
 function Switchers({
 	show,

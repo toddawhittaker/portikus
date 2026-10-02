@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { rename, statfs, writeFile } from "node:fs/promises";
+import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminImage,
+	type ApiError,
 	IMAGE_LOG_LINES,
 	ImageAliasesFile,
 	ImageDiffQuery,
@@ -19,12 +20,19 @@ import {
 	type ImageView,
 	newerPublishedImage,
 } from "@portikus/contracts";
+import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { sendError } from "../http.js";
 import { diffManifests } from "../image/manifest-diff.js";
 import { imagesDirOf, readPublished } from "../image/release-notices.js";
-import { listDir, readJson, tailLines } from "../job-files.js";
+import {
+	currentJob,
+	listDir,
+	readJson,
+	tailLines,
+	writeRequestFile,
+} from "../job-files.js";
 import type { ServerDeps } from "../server.js";
-import { sendError } from "./project-scope.js";
 
 /** The disk the image store is on, which also holds Incus's image files on a standard install. */
 async function diskOf(path: string): Promise<AdminImage["disk"]> {
@@ -139,31 +147,17 @@ export function registerAdminImageRoutes(
 			.where("target", "=", job.id)
 			.executeTakeFirst();
 		if (seen) return;
-		await db
-			.insertInto("audit_events")
-			.values({
-				actor: "image-job",
-				target: job.id,
-				action: "image.job_finished",
-				result: job.state === "succeeded" ? "ok" : "failed",
-				metadata: JSON.stringify({
-					kind: job.kind,
-					result: job.state,
-					version: job.version,
-				}),
-			})
-			.execute();
-	}
-
-	/** The queued or running job, else the one started last. */
-	function currentOf(jobs: ImageJobView[]): ImageJobView | null {
-		const active =
-			jobs.find((j) => j.state === "running") ?? jobs.find((j) => j.state === "queued");
-		if (active) return active;
-		const byStart = [...jobs].sort((a, b) =>
-			(b.startedAt ?? "").localeCompare(a.startedAt ?? ""),
-		);
-		return byStart[0] ?? null;
+		await recordAudit(db, {
+			actor: "image-job",
+			target: job.id,
+			action: "image.job_finished",
+			result: job.state === "succeeded" ? "ok" : "failed",
+			metadata: {
+				kind: job.kind,
+				result: job.state,
+				version: job.version,
+			},
+		});
 	}
 
 	async function readStore(store: string) {
@@ -189,7 +183,7 @@ export function registerAdminImageRoutes(
 		if (off(reply) || !jobsDir || !imagesDir) return;
 		// Jobs first: the root job moves the aliases before it writes "succeeded",
 		// so a finished job is never paired with the aliases from before it.
-		const job = currentOf(await allJobs(jobsDir));
+		const job = currentJob(await allJobs(jobsDir));
 		const { aliases, images } = await readStore(imagesDir);
 		const counts = await db
 			.selectFrom("workspaces")
@@ -268,6 +262,7 @@ export function registerAdminImageRoutes(
 		return diffManifests(from, to);
 	});
 
+	// jscpd:ignore-start -- certificate and image jobs have their own readers and types.
 	app.get("/admin/image/jobs/:id", adminOnly, async (request, reply) => {
 		if (off(reply) || !jobsDir) return;
 		const id = ImageJobId.safeParse((request.params as { id: string }).id);
@@ -282,6 +277,60 @@ export function registerAdminImageRoutes(
 		const log = await tailLines(join(jobsDir, id.data, "log.txt"), IMAGE_LOG_LINES);
 		return reply.header("cache-control", "no-store").send({ job, log });
 	});
+	// jscpd:ignore-end
+
+	/** Why the store refuses this job before it is queued, or null. */
+	async function refuseImageJob(
+		wanted: ImageJobRequest,
+		imagesDir: string,
+	): Promise<{ status: 404 | 409; code: ApiError["code"]; message: string } | null> {
+		const { aliases } = await readStore(imagesDir);
+		if (wanted.kind === "activate") {
+			const health = await readJson(
+				join(imagesDir, wanted.version, "health.json"),
+				ImageHealth,
+			);
+			if (wanted.version === aliases.default) {
+				return {
+					status: 409,
+					code: "IMAGE_ALREADY_DEFAULT",
+					message: "That image is already the default.",
+				};
+			}
+			if (health?.result !== "passed") {
+				return {
+					status: 409,
+					code: "IMAGE_NOT_HEALTHY",
+					message: "Only an image that passed its health check can become the default.",
+				};
+			}
+		}
+		if (wanted.kind === "delete") {
+			// The job refuses these too; the API says why before anything is queued.
+			if (wanted.version === aliases.default || wanted.version === aliases.previous) {
+				return {
+					status: 409,
+					code: "IMAGE_IN_USE",
+					message: "The default and the previous image cannot be deleted.",
+				};
+			}
+			if (!(await listDir(imagesDir)).includes(wanted.version)) {
+				return {
+					status: 404,
+					code: "NOT_FOUND",
+					message: "No such image on this host.",
+				};
+			}
+		}
+		if (wanted.kind === "rollback" && (!aliases.previous || !aliases.default)) {
+			return {
+				status: 409,
+				code: "IMAGE_NO_PREVIOUS",
+				message: "There is no previous image to roll back to.",
+			};
+		}
+		return null;
+	}
 
 	app.post("/admin/image/jobs", adminOnly, async (request, reply) => {
 		if (off(reply) || !jobsDir || !imagesDir) return;
@@ -315,50 +364,9 @@ export function registerAdminImageRoutes(
 					"An image job is already waiting or running.",
 				);
 			}
-			const { aliases } = await readStore(imagesDir);
-			if (wanted.kind === "activate") {
-				const health = await readJson(
-					join(imagesDir, wanted.version, "health.json"),
-					ImageHealth,
-				);
-				if (wanted.version === aliases.default) {
-					return sendError(
-						reply,
-						409,
-						"IMAGE_ALREADY_DEFAULT",
-						"That image is already the default.",
-					);
-				}
-				if (health?.result !== "passed") {
-					return sendError(
-						reply,
-						409,
-						"IMAGE_NOT_HEALTHY",
-						"Only an image that passed its health check can become the default.",
-					);
-				}
-			}
-			if (wanted.kind === "delete") {
-				// The job refuses these too; the API says why before anything is queued.
-				if (wanted.version === aliases.default || wanted.version === aliases.previous) {
-					return sendError(
-						reply,
-						409,
-						"IMAGE_IN_USE",
-						"The default and the previous image cannot be deleted.",
-					);
-				}
-				if (!(await listDir(imagesDir)).includes(wanted.version)) {
-					return sendError(reply, 404, "NOT_FOUND", "No such image on this host.");
-				}
-			}
-			if (wanted.kind === "rollback" && (!aliases.previous || !aliases.default)) {
-				return sendError(
-					reply,
-					409,
-					"IMAGE_NO_PREVIOUS",
-					"There is no previous image to roll back to.",
-				);
+			const refused = await refuseImageJob(wanted, imagesDir);
+			if (refused) {
+				return sendError(reply, refused.status, refused.code, refused.message);
 			}
 
 			const id = randomUUID();
@@ -368,20 +376,14 @@ export function registerAdminImageRoutes(
 				requestedBy: admin.id,
 				request: wanted,
 			};
-			// Write aside, then rename, so the path unit never reads half a file.
-			const temp = join(jobsDir, `.request-${id}.tmp`);
-			await writeFile(temp, `${JSON.stringify(file)}\n`, { flag: "wx", mode: 0o640 });
-			await rename(temp, join(jobsDir, `request-${id}.json`));
-			await db
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${admin.id}`,
-					target: id,
-					action: "image.job_requested",
-					result: "ok",
-					metadata: JSON.stringify(wanted),
-				})
-				.execute();
+			await writeRequestFile(jobsDir, file, 0o640);
+			await recordAudit(db, {
+				actor: `user:${admin.id}`,
+				target: id,
+				action: "image.job_requested",
+				result: "ok",
+				metadata: wanted,
+			});
 			return reply.status(202).send(queuedView(file));
 		} finally {
 			writing = false;

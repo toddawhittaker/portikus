@@ -8,10 +8,12 @@ import {
 import { Button, Meter, TextField, Toggletip, useToast } from "@portikus/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { errorText } from "../../api/request.js";
+import { announced } from "../../common/announced.js";
+import { WARN_AT } from "../../monitor/format.js";
 import { AdminGroup } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { useAdminImage } from "../image/queries.js";
-import { announced, errorText } from "../SettingsTab.js";
 import { DownloadSize } from "./DownloadSize.js";
 import { Notice } from "./Notice.js";
 import {
@@ -47,7 +49,6 @@ const STATE_LABEL: Record<SeedJob["state"], string> = {
 const SUB_HEADING = "pk-text-compact m-0 font-semibold text-ink-muted";
 
 /** The seed meter turns to the warning colour from this share of its limit (DESIGN.md, status colour). */
-const SEED_WARN_SHARE = 0.8;
 
 /** The seed: what it holds now, its latest rebuild, the list for the next one and its size limit. */
 export function SeedCard({ data }: { data: DockerAdminResponse }) {
@@ -160,7 +161,7 @@ function CurrentSeed({
 								label="Seed size"
 								value={seed.sizeBytes}
 								max={data.seedMaxGiB * 1024 ** 3}
-								high={data.seedMaxGiB * 1024 ** 3 * SEED_WARN_SHARE}
+								high={data.seedMaxGiB * 1024 ** 3 * WARN_AT}
 								valueText={seedUseText(seed.sizeBytes, data.seedMaxGiB)}
 							/>
 						</dd>
@@ -213,8 +214,8 @@ function Segments({ parts }: { parts: Segment[] }) {
 }
 
 /**
- * The seed list lacks the images matching the default workspace image
- * (issue #932). One button swaps them in and rebuilds, unless the estimate
+ * The seed list lacks the images matching the default workspace image.
+ * One button swaps them in and rebuilds, unless the estimate
  * says the seed would pass its limit; nothing changes without the click.
  */
 function MatchNotice({
@@ -235,19 +236,20 @@ function MatchNotice({
 
 	function update() {
 		if (off) return;
-		match.mutate(undefined, {
-			onSuccess: () => {
+		// The promise settles even if a reread has already removed this notice.
+		match.mutateAsync().then(
+			() => {
 				toast.show({ tone: "success", title: "Seed list updated, rebuild requested" });
 				// This notice and its button go away; the list it changed keeps the place.
 				document.getElementById("docker-seed-list-title")?.focus();
 			},
-			onError: (error) =>
+			(error) =>
 				toast.show({
 					tone: "danger",
 					title: "Could not update the seed",
 					children: errorText(error),
 				}),
-		});
+		);
 	}
 
 	return (

@@ -76,7 +76,7 @@ async function sessionEnvironment(session: string, name: string): Promise<string
 }
 
 /**
- * Issue #267: a program that picks its own theme by auto-detection, Claude
+ * A program that picks its own theme by auto-detection, Claude
  * Code among them, reads COLORFGBG. A dark terminal is light text on dark,
  * a light one the other way round.
  */
@@ -91,7 +91,7 @@ test.skipIf(!haveTmux)("a light terminal says so through COLORFGBG", async () =>
 });
 
 /**
- * Issue #287: a terminal opened after the student changed the setting runs in
+ * A terminal opened after the student changed the setting runs in
  * the new zone at once, without waiting for a workspace restart.
  */
 test.skipIf(!haveTmux)("the terminal carries the owner's zone as TZ", async () => {

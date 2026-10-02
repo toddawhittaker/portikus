@@ -47,6 +47,26 @@ function send(socket: WebSocket, message: TerminalServerMessage): void {
 	if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
 }
 
+/** Send a terminal's attachments whatever changed since the last poll. */
+function announceChanges(entry: Watched, state: PaneState): void {
+	const last = entry.last;
+	if (state.path !== null && state.path !== last?.path) {
+		for (const socket of entry.sockets) {
+			send(socket, { type: "cwd", path: state.path });
+		}
+	}
+	if (last === null || state.alternate !== last.alternate) {
+		for (const socket of entry.sockets) {
+			send(socket, { type: "screen", alternate: state.alternate });
+		}
+	}
+	// tmux empties its history on `clear` but does not pass the
+	// erase-scrollback on, so say it here (SPEC.md §9.7).
+	if (last !== null && last.history > 0 && state.history === 0) {
+		for (const socket of entry.sockets) send(socket, { type: "clear" });
+	}
+}
+
 /** One poll for the whole agent, shared by every attachment it serves. */
 export function watchPanes(server: TmuxServer): PaneWatcher {
 	const watched = new Map<string, Watched>();
@@ -88,22 +108,7 @@ export function watchPanes(server: TmuxServer): PaneWatcher {
 			const state = panes.get(terminalId);
 			if (!state) continue;
 			if (state.alternate) anyAlternate = true;
-			const last = entry.last;
-			if (state.path !== null && state.path !== last?.path) {
-				for (const socket of entry.sockets) {
-					send(socket, { type: "cwd", path: state.path });
-				}
-			}
-			if (last === null || state.alternate !== last.alternate) {
-				for (const socket of entry.sockets) {
-					send(socket, { type: "screen", alternate: state.alternate });
-				}
-			}
-			// tmux empties its history on `clear` but does not pass the
-			// erase-scrollback on, so say it here (SPEC.md §9.7, issue #882).
-			if (last !== null && last.history > 0 && state.history === 0) {
-				for (const socket of entry.sockets) send(socket, { type: "clear" });
-			}
+			announceChanges(entry, state);
 			entry.last = state;
 		}
 

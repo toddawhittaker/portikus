@@ -3,16 +3,15 @@ import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	readSeededFile,
 	seedFile,
-	settledAxe,
 	toast,
-	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
 
 /**
- * "Extract here" in the Files pane (issue #817; SPEC.md §11.1, §11.2). A
+ * "Extract here" in the Files pane (SPEC.md §11.1, §11.2). A
  * student uploads a zip, extracts it, and sees its files in the tree; a
  * taken folder name gets a number, and an unsafe zip is explained.
  */
@@ -84,11 +83,6 @@ async function withUploadedZip(page: Page, context: BrowserContext) {
 		buffer: zipOf({ "README.md": "# starter\n" }),
 	});
 	await expect(page.getByTestId("file-row-starter.zip")).toBeVisible();
-}
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
 test.describe("extract here", () => {

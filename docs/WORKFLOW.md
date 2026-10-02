@@ -82,7 +82,11 @@ agent. It passes them to Playwright as `PORTIKUS_WEB_PORT`,
 servers it starts. Any number of `pnpm test:e2e` runs on one machine can
 therefore run at once. Arguments after `pnpm test:e2e` go to Playwright,
 for example `pnpm test:e2e --shard=1/3`. A direct `playwright test` falls
-back to the development ports 5173, 3000, 3002, and 7400.
+back to the development ports 5173, 3000, 3002, and 7400. Playwright never
+reuses a server already listening on a test port, so a taken port fails
+the run instead of testing someone else's code. Stopping the wrapper with
+Ctrl-C or SIGTERM passes the signal to Playwright, which stops the servers
+it started before the run's database is dropped.
 
 ### Logging in locally
 
@@ -227,12 +231,51 @@ agent working from a checkout can read it.
 - Plans of epics finished before this rule are kept in
   `docs/archive/epics/`; nothing new is added there.
 
+Before a feature epic's plan is written, the architect agent designs it
+(not for small fix batches). It reads wide: VISION.md, the epics still
+to come in SPEC.md section 29, BACKLOG.md and the open issues for the
+area. It reports where the code goes, what existing helpers and
+contracts the builders must reuse, and which task owns each shared file,
+migration number and contract change. For each significant choice it
+gives the smallest change and the shape the area should have; it
+recommends the smallest change unless the choice is hard to undo
+(schema, contracts between apps, public APIs, protocols, installed file
+formats), and brings large gaps to the user to decide. The plan cites
+its report.
+
+At each milestone gate in SPEC.md section 30, the architect also
+reviews the whole system, one app or area per run, for layers and
+boundaries that local decisions have bent. The user picks which
+findings become an epic.
+
+## Code style
+
+- Comments say why, never history. Do not write issue or PR numbers,
+  epic or task names, review codes, "ruling N", or pointers into epic
+  plans; the history lives in version control, and plans are deleted.
+  Cite a SPEC.md section or an ADR instead.
+- Do not copy a helper. Search for one that does the job and import it;
+  if two places need the same code, move it into a shared module.
+- A value that must match in two files or processes is one exported
+  constant, not two values and a comment.
+
+`pnpm lint` runs `scripts/check-comment-history.mjs`, which fails on
+history references in code comments and test titles; Knip, which fails
+on unused files, exports and dependencies; jscpd, which fails on any
+copied block of 70 tokens and 8 lines (a deliberate copy carries a
+`jscpd:ignore-start` comment saying why); and Biome's cognitive
+complexity rule, which fails on a function scoring over 30 (tests,
+e2e and the test fakes are exempt).
+
 ## Pull requests
 
 Every pull request cites the SPEC.md and STACK.md sections it serves and
 says how it was verified. The template asks for both. CI must be green.
-A pull request branch must be up to date with its base before it is merged;
-`gh pr update-branch <number>` does that.
+An epic pull request must be up to date with `main` before it is merged;
+`gh pr update-branch <number>` does that. Task pull requests into an
+epic branch need not be up to date, because each update costs a full CI
+run. They are updated only when GitHub refuses a merge because the
+branch is behind.
 
 There are two kinds of pull request, merged by different people at
 different times:
@@ -275,8 +318,13 @@ task pull requests without asking each time.
   report is uploaded as the `coverage-lcov` artifact and kept for three days. `make check` runs the
   same coverage command, so a local check catches the same failure.
 - **Browser end-to-end tests**: `pnpm test:e2e` with Playwright, split
-  across three parallel jobs with `--shard`, each with its own database
-  service. They start alongside Application checks rather than after it. A
+  across five parallel jobs, each with its own database service.
+  `scripts/e2e-shard-list.mjs` packs the spec files into shards by the
+  measured times in `e2e/shard-timings.json`; a file with no timing counts
+  as the average. To refresh the timings after tests are added or slowed,
+  run `node scripts/e2e-shard-list.mjs --refresh` (it reads the latest green
+  CI run on main through `gh`) and commit the file. They start alongside
+  Application checks rather than after it. A
   last job with the required name "Browser end-to-end tests" passes only
   when every shard passed. The Playwright browser download is cached.
   Skipped until the script exists.

@@ -288,7 +288,7 @@ test("a failed apply says why and that the previous certificate is still in use"
 	expect(screen.getByTestId("cert-job-state").textContent).toContain("Failed");
 });
 
-test("a stored secret reads as set and starts blank (Epic 27 R8)", async () => {
+test("a stored secret reads as set and starts blank", async () => {
 	serve(data());
 	renderWithQuery(<CertificateTab />);
 	const token = (await screen.findByLabelText("API token")) as HTMLInputElement;

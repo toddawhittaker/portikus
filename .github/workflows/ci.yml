@@ -83,6 +83,11 @@ jobs:
                 app=true
                 infra=true
                 ;;
+              # Infra tests read these sources, so a change here runs them.
+              apps/workspace-controller/src/egress/*|packages/contracts/src/*|packages/mock-lms/src/*)
+                app=true
+                infra=true
+                ;;
               *)
                 app=true
                 ;;
@@ -90,6 +95,9 @@ jobs:
           done <<< "$changed"
           echo "app=$app" >> "$GITHUB_OUTPUT"
           echo "infra=$infra" >> "$GITHUB_OUTPUT"
+      # Runs on every change, not only app ones; the script needs no install.
+      - name: Check comments for project history
+        run: node scripts/check-comment-history.mjs
 
   app:
     name: Application checks
@@ -294,7 +302,10 @@ jobs:
         run: pnpm typecheck && pnpm --filter @portikus/ui build
       - id: run
         if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
-        run: pnpm test:e2e --shard=${{ matrix.shard }}/5
+        # Shards are packed by measured time from e2e/shard-timings.json, not by test count.
+        run: |
+          node scripts/e2e-shard-list.mjs ${{ matrix.shard }} 5 e2e-shard-list.txt
+          pnpm test:e2e --test-list e2e-shard-list.txt
         env:
           TEST_DATABASE_URL: postgres://postgres:portikus@127.0.0.1:5432/portikus_test
       - name: Upload the Playwright report
@@ -323,7 +334,7 @@ jobs:
 
   # Sign-in through a real Dex at the commit site.yml pins, configured by the
   # role's own template and themed by the role's own task file, as on the
-  # pilot (docs/archive/epics/EPIC-12B.md, Part A item 12; ADR 0023). Not a required
+  # pilot (ADR 0023). Not a required
   # check, so a Dex upgrade shows its failure here without blocking merges.
   dex-signin:
     name: Dex sign-in
@@ -409,14 +420,13 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # The proto the API's client is built from must match the pinned Dex
-      # (docs/archive/epics/EPIC-14.md, risk 5).
+      # The proto the API's client is built from must match the pinned Dex.
       - name: Check the Dex API proto matches the pinned commit
         run: >-
           curl -sfL "https://raw.githubusercontent.com/dexidp/dex/${{ steps.pin.outputs.commit }}/api/v2/api.proto"
           | cmp - packages/auth/proto/dex-api.proto
       # PostgreSQL storage and the gRPC API behind mutual TLS, as the dex role
-      # will run them (docs/archive/epics/EPIC-14.md rulings 19 and 20), with the role's own
+      # will run them (ADR 0028), with the role's own
       # certificate script. grpc-other is a second authority, for a client
       # Dex must refuse.
       - name: Give Dex PostgreSQL storage and the gRPC API
@@ -464,8 +474,8 @@ jobs:
             curl -sf -o /dev/null "$dex/theme/$file"
           done
           echo "Dex serves the Portikus sign-in page and its theme files."
-      # The one-time users-file import the dex role runs (docs/archive/epics/EPIC-14.md
-      # ruling 23), into Dex's empty storage; the sign-in tests below use it.
+      # The one-time users-file import the dex role runs (ADR 0028), into
+      # Dex's empty storage; the sign-in tests below use it.
       - name: Import the users fixture into Dex
         env:
           PGPASSWORD: portikus
@@ -477,8 +487,9 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -U postgres -c 'create database dex_import'
-          # The command imports @portikus/db from its build, as on the VM.
-          pnpm exec tsc -b packages/db
+          # The command imports @portikus/db and @portikus/observability from
+          # their builds, as on the VM.
+          pnpm exec tsc -b packages/db packages/observability
           pnpm exec tsx packages/db/src/migrate.ts
           run_import() {
             pnpm exec tsx packages/auth/src/dex-import-main.ts \

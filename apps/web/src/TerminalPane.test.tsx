@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import {
 	EDITOR_SETTINGS_DEFAULTS,
 	MAX_UPLOAD_BYTES,
+	SCROLLBACK_LINES,
 	type Terminal,
 } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
@@ -19,7 +20,6 @@ import {
 	pastedPathInput,
 	pastePath,
 	RESIZE_SETTLE_MS,
-	SCROLLBACK_LINES,
 	sanitizePaste,
 	TerminalPane,
 	terminalTheme,
@@ -234,7 +234,7 @@ test("the first output frame makes the pane say its size again", async () => {
 	expect(socket.sent.filter((raw) => raw.includes("resize"))).toHaveLength(1);
 });
 
-test("a drag of the pane edge sends one settled size, not every step (#849)", async () => {
+test("a drag of the pane edge sends one settled size, not every step", async () => {
 	stubBrowserApis();
 	vi.stubGlobal("WebSocket", FakeWebSocket);
 	let observed: (() => void) | undefined;
@@ -494,7 +494,7 @@ test("an OSC 52 payload that is not base64 copies nothing", () => {
 	expect(decodeOsc52("not base64!!")).toBe("");
 });
 
-/** Issue #239: the light scheme is a light ground with readable ANSI colours. */
+/** The light scheme is a light ground with readable ANSI colours. */
 test("the light terminal theme is light and has its own ANSI palette", () => {
 	const dark = terminalTheme("dark");
 	const light = terminalTheme("light");
@@ -551,7 +551,7 @@ const ANSI_NAMES = [
 ];
 
 /**
- * Issue #267: on the pilot, line numbers and hints from Claude Code were
+ * On the pilot, line numbers and hints from Claude Code were
  * invisible on the light ground. Every one of the sixteen ANSI colours, and
  * the ordinary foreground, must be readable against it.
  */
@@ -574,7 +574,7 @@ test("every light ANSI colour is readable on the light background", () => {
 });
 
 /**
- * Issue #360: xterm's own defaults failed contrast on the dark ground. Every
+ * Xterm's own defaults failed contrast on the dark ground. Every
  * dark ANSI colour but black, which programs use as a background, must clear
  * AA on it.
  */
@@ -592,7 +592,7 @@ test("every dark ANSI colour except black is readable on the dark background", (
 	}
 });
 
-/** Issue #360: the dark palette is the design's --ansi-* tokens, not a copy that drifts. */
+/** The dark palette is the design's --ansi-* tokens, not a copy that drifts. */
 test("the dark ANSI palette matches the dark --ansi-* tokens in theme.css", () => {
 	const css = readFileSync(
 		resolve(import.meta.dirname, "../../../packages/ui/src/theme.css"),
@@ -624,7 +624,7 @@ test("the light ANSI palette matches the light --ansi-* tokens in theme.css", ()
 	}
 });
 
-/** Issue #357: before the settings arrive a terminal uses the default. */
+/** Before the settings arrive a terminal uses the default. */
 test("a terminal starts in the default screen-reader mode", async () => {
 	renderPane();
 	await waitFor(() => expect(opened.terminals).toHaveLength(1));
@@ -633,7 +633,7 @@ test("a terminal starts in the default screen-reader mode", async () => {
 	);
 });
 
-/** Issue #357: the student's setting turns it on, and a change applies without a reload. */
+/** The student's setting turns it on, and a change applies without a reload. */
 test("the screen-reader setting turns the mode on and off in an open terminal", async () => {
 	const client = createQueryClient(() => {});
 	const settings = {
@@ -655,14 +655,14 @@ test("the screen-reader setting turns the mode on and off in an open terminal", 
 	expect(opened.terminals).toHaveLength(1);
 });
 
-/** Issue #360: colours a program picks itself are lifted to AA too. */
+/** Colours a program picks itself are lifted to AA too. */
 test("the terminal enforces a 4.5:1 minimum contrast", async () => {
 	renderPane();
 	await waitFor(() => expect(opened.terminals).toHaveLength(1));
 	expect(opened.terminals[0]?.options.minimumContrastRatio).toBe(4.5);
 });
 
-/** Issue #359: Tab stays in the shell, so the way out is described on the input. */
+/** Tab stays in the shell, so the way out is described on the input. */
 test("the terminal input describes Alt+Shift+Q as the way out", async () => {
 	const { view } = renderPane();
 	await waitFor(() => expect(sockets).toHaveLength(1));
@@ -672,7 +672,7 @@ test("the terminal input describes Alt+Shift+Q as the way out", async () => {
 	expect(document.getElementById(id as string)?.textContent).toContain("Alt+Shift+Q");
 });
 
-/** Issue #363: connection changes are announced from a status region. */
+/** Connection changes are announced from a status region. */
 test("the reconnecting and lost flags sit in a status region", async () => {
 	const { view } = renderPane();
 	await waitFor(() => expect(sockets).toHaveLength(1));
@@ -707,7 +707,7 @@ function sentInput(): string {
 }
 
 /**
- * Issues #267 and #268: xterm.js 6 answers the OSC 11 background query by
+ * Xterm.js 6 answers the OSC 11 background query by
  * itself, and the pane paints the scheme its own terminal row carries. So a
  * program that asks is told the real background of that one terminal.
  */
@@ -741,7 +741,7 @@ test("a dark terminal reports the dark background instead", async () => {
 });
 
 /**
- * Issue #264: a pane that is born focused takes the keyboard, so the first
+ * A pane that is born focused takes the keyboard, so the first
  * keystroke after "New terminal here" reaches the new shell.
  */
 test("a pane created focused takes the keyboard", async () => {
@@ -766,7 +766,7 @@ function linesAboveCursor(term: import("@xterm/xterm").Terminal): number {
 }
 
 /**
- * Issue #335: `clear` on TERM=xterm-256color sends the terminfo clear and
+ * `clear` on TERM=xterm-256color sends the terminfo clear and
  * then erase-scrollback (CSI 3 J). After that sequence nothing is left above
  * the cursor. Ordinary output still keeps the scrollback limit.
  */
@@ -803,7 +803,7 @@ test("clear erases the scrollback and ordinary output still keeps it", async () 
 
 /**
  * tmux does not pass `clear`'s erase-scrollback on, so the agent sends a
- * clear frame instead and the pane drops its saved lines (issue #882).
+ * clear frame instead and the pane drops its saved lines.
  */
 test("a clear frame erases the scrollback", async () => {
 	renderPane();
@@ -824,7 +824,7 @@ test("a clear frame erases the scrollback", async () => {
 	await waitFor(() => expect(term.buffer.active.baseY).toBe(0));
 });
 
-// Image paste (Epic 9.2 brief, "Done").
+// Image paste.
 
 test("only a lone png or jpeg becomes a picture paste", () => {
 	expect(pastedImageType(["image/png"])).toBe("image/png");
@@ -885,7 +885,7 @@ function stubFileApi(existing: string[] = []): Call[] {
 		"fetch",
 		vi.fn(async (input: string, init: RequestInit = {}) => {
 			const url = String(input);
-			// The pane reads the screen-reader setting (issue #357); not a file call.
+			// The pane reads the screen-reader setting; not a file call.
 			if (url === "/me/settings") return json(500, { code: "INTERNAL", message: "" });
 			if (url.endsWith("/projects?state=active")) {
 				return json(200, {

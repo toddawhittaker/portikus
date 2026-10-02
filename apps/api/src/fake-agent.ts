@@ -99,7 +99,7 @@ export interface FakeAgent {
 	listening: Map<string, AgentListeningService[]>;
 	/** Ports with a loopback forward open, keyed the same way. */
 	forwards: Map<string, Set<number>>;
-	/** Ports the fake was asked to TLS-probe, in order, keyed the same way (issue #957). */
+	/** Ports the fake was asked to TLS-probe, in order, keyed the same way. */
 	probes: Map<string, number[]>;
 	/** While true, `POST /forwards` fails so the grant route's 409 shows. */
 	failForward: boolean;
@@ -130,13 +130,13 @@ export interface FakeAgent {
 }
 
 /** What the fake answers the Git routes of one project with. */
-export interface FakeGitAnswer {
+interface FakeGitAnswer {
 	status?: GitStatus;
 	diffs?: Record<string, GitDiff>;
 }
 
 /** One archive of the fake: a copy of the project's entries at that time. */
-export interface FakeRecoveryPoint {
+interface FakeRecoveryPoint {
 	key: string;
 	projectId: string;
 	sha256: string;
@@ -146,7 +146,7 @@ export interface FakeRecoveryPoint {
 type StorageFigure = { usedBytes: number; totalBytes: number } | null;
 
 /** The three storage classes `/usage` reports (SPEC.md §19.2). */
-export interface FakeStorage {
+interface FakeStorage {
 	home: StorageFigure;
 	docker: StorageFigure;
 	recovery: StorageFigure;
@@ -156,7 +156,7 @@ export interface FakeStorage {
  * One process of the fake. `ignoresTerm` survives SIGTERM, so the browser
  * offers Force stop; `stoppable` false is a protected process.
  */
-export interface FakeProcess {
+interface FakeProcess {
 	pid: number;
 	command: string;
 	cpuPercent: number;
@@ -184,7 +184,7 @@ function defaultProcesses(): FakeProcess[] {
 
 /** One entry of the fake filesystem. Paths are `<slug>/<path inside it>`. */
 /** `apparentSize` stands in for a file too large to hold, for the download cap. */
-export type FakeNode =
+type FakeNode =
 	| { type: "file"; content: Buffer; apparentSize?: number }
 	| { type: "dir" };
 
@@ -259,10 +259,10 @@ export function oneFileZip(name: string, contents: string): Buffer {
 
 /**
  * The files of a stored or deflated zip, read from its central directory, so
- * the fake can extract what a test uploads (issue #817). Directory entries
+ * the fake can extract what a test uploads. Directory entries
  * are skipped; addParents makes them.
  */
-export function readZipFiles(zip: Buffer): { name: string; data: Buffer }[] {
+function readZipFiles(zip: Buffer): { name: string; data: Buffer }[] {
 	const eocd = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
 	if (eocd < 0) throw new FakeFileError("ARCHIVE_INVALID", "not a zip file");
 	const count = zip.readUInt16LE(eocd + 10);
@@ -358,7 +358,7 @@ function removeTree(tree: Map<string, FakeNode>, slug: string): void {
 /** Move (or copy) a project's whole subtree onto a new slug. */
 /**
  * One directory under `~/projects` as the fake holds it. `directoryId` stands
- * in for the inode the real agent reports (issue #238): a rename keeps the
+ * in for the inode the real agent reports: a rename keeps the
  * same record, so the identity travels with the directory.
  */
 interface FakeDirectory {
@@ -421,7 +421,7 @@ export async function startFakeAgent(
 	// The same frames, with the terminal each arrived on.
 	const receivedByTerminal: { terminalId: string; text: string }[] = [];
 	// The agent build each terminal's attach reports; a test stages an
-	// upgrade for one terminal so parallel workers are not disturbed (issue #887).
+	// upgrade for one terminal so parallel workers are not disturbed.
 	const buildOf = new Map<string, string>();
 	const projects = new Map<string, FakeDirectory>();
 	const files = new Map<string, FakeNode>();
@@ -489,7 +489,7 @@ export async function startFakeAgent(
 	const listeningSockets = new Map<string, Set<WebSocket>>();
 	const forwards = new Map<string, Set<number>>();
 	const probes = new Map<string, number[]>();
-	/** Test apps that serve HTTPS, which only a probe reveals (issue #957). */
+	/** Test apps that serve HTTPS, which only a probe reveals. */
 	const httpsApps = new Set<number>();
 	const testApps: (Server | HttpsServer)[] = [];
 	const appHits = new Map<number, number>();
@@ -518,7 +518,7 @@ export async function startFakeAgent(
 	/**
 	 * Mirror the real agent: an open forward makes a loopback port reachable
 	 * and adds the agent's own listener on the workspace interface. The port
-	 * stays the student's, owned by their process (issue #299).
+	 * stays the student's, owned by their process.
 	 */
 	function markForwarded(key: string, port: number, open: boolean): void {
 		listening.set(
@@ -562,7 +562,7 @@ export async function startFakeAgent(
 			if (delayMs > 0) setTimeout(answer, delayMs).unref?.();
 			else answer();
 		};
-		// An application serving HTTPS, as `vite --https` does (issue #283).
+		// An application serving HTTPS, as `vite --https` does.
 		const server = https
 			? createHttpsServer(selfSignedCertificate(), handler)
 			: createServer(handler);
@@ -768,7 +768,7 @@ export async function startFakeAgent(
 			institutionalEnv?: Record<string, string>;
 		};
 		creates.push(body);
-		// The theme is kept so a test can check it reached here (issue #267).
+		// The theme is kept so a test can check it reached here.
 		terminals.set(body.id, {
 			cwd: body.cwd,
 			theme: body.theme,
@@ -838,7 +838,7 @@ export async function startFakeAgent(
 		const tree = fsOf(request);
 		if (body.source === "clone") {
 			// A url the test marks with "readme" clones a repository that names
-			// itself in its README heading, as the real agent reads it (#846).
+			// itself in its README heading, as the real agent reads it.
 			if (!(body.url ?? "").includes("readme")) {
 				return reply.status(201).send({ slug: body.slug, isGitRepo });
 			}
@@ -850,8 +850,8 @@ export async function startFakeAgent(
 			const suggestedName = projectNameFromRepository({ readme });
 			return reply.status(201).send({ slug: body.slug, isGitRepo, suggestedName });
 		}
-		// A repository the fake creates starts on main, as the real one does
-		// (#847). Its files are not seeded, because tests rely on a new
+		// A repository the fake creates starts on main, as the real one does.
+		// Its files are not seeded, because tests rely on a new
 		// project being empty; the agent's own tests cover those files.
 		if (isGitRepo) {
 			gitAnswers.set(answerKey(keyOf(request), body.slug), {
@@ -919,7 +919,7 @@ export async function startFakeAgent(
 		if (path !== "" && !tree.has(key)) {
 			return fileError(reply, new FakeFileError("FILE_NOT_FOUND", "no such file"));
 		}
-		// The same size check as the real agent, before any zipping (#399).
+		// The same size check as the real agent, before any zipping.
 		let total = 0;
 		for (const [name, node] of tree) {
 			if ((name === key || name.startsWith(`${key}/`)) && node.type === "file") {
@@ -1661,7 +1661,7 @@ export async function startFakeAgent(
 	});
 
 	// Rename a directory the way `mv` in the shell does: the same directory
-	// under a new name, so its identity is unchanged (issue #238).
+	// under a new name, so its identity is unchanged.
 	app.post("/__test/projects/:slug/move", async (request, reply) => {
 		const from = (request.params as { slug: string }).slug;
 		const to = (request.body as { to: string }).to;
@@ -1725,7 +1725,7 @@ export async function startFakeAgent(
 	});
 
 	// Say the pane's history was erased, the way the real agent does after
-	// `clear` (issue #882).
+	// `clear`.
 	app.post("/__test/terminals/:id/clear", async (request, reply) => {
 		const id = (request.params as { id: string }).id;
 		for (const peer of attached.get(id) ?? []) {
@@ -1736,7 +1736,7 @@ export async function startFakeAgent(
 
 	// Restart the agent with a new build as an upgrade does: every attachment
 	// of the terminal drops the way a stopping agent closes it, and the
-	// browser's reconnect is told the new build (issue #887).
+	// browser's reconnect is told the new build.
 	app.post("/__test/terminals/:id/agent-restart", async (request, reply) => {
 		const id = (request.params as { id: string }).id;
 		const body = request.body as { build: string };
@@ -1819,8 +1819,8 @@ export async function startFakeAgent(
 							}
 						}
 					}
-					// A shell runs in the zone the terminal was created with
-					// (issue #287), so `date` answers in that zone. The real
+					// A shell runs in the zone the terminal was created with,
+					// so `date` answers in that zone. The real
 					// shell does this through TZ; the fake formats it here.
 					if (/(^|\s)date(\s|$)/.test(inputData)) {
 						const zone = terminals.get(id)?.timezone ?? "UTC";
@@ -2127,7 +2127,7 @@ export async function startFakeAgent(
 	);
 
 	/**
-	 * Stop a listener, like the real agent (issue #273): a system row is
+	 * Stop a listener, like the real agent: a system row is
 	 * refused, an unknown port is a 404, and anything else simply disappears
 	 * from the list, which is what discovery would report a second later.
 	 */
@@ -2160,7 +2160,7 @@ export async function startFakeAgent(
 	});
 
 	/**
-	 * Settle a port's protocol, like the real agent (issue #957): the first
+	 * Settle a port's protocol, like the real agent: the first
 	 * request "probes" (a test app started with https answers https; a seeded
 	 * row keeps its hint) and later ones are answered from the result.
 	 */

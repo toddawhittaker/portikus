@@ -86,7 +86,7 @@ export function buildTestServer(
 }
 
 /** What one student owns in the authorization matrix world. */
-export interface MatrixStudent {
+interface MatrixStudent {
 	jar: CookieJar;
 	userId: string;
 	email: string;
@@ -111,15 +111,15 @@ export interface MatrixWorld {
 }
 
 /** A mock user the matrix signs in and then disables. */
-export const DISABLED_MOCK_USER: MockUser = {
+const DISABLED_MOCK_USER: MockUser = {
 	sub: "erin",
 	email: "erin@example.edu",
 	name: "Erin Disabled",
 	groups: ["portikus-students"],
 };
 
-/** A mock user in the instructor group (docs/archive/epics/EPIC-13.md ruling 4). */
-export const INSTRUCTOR_MOCK_USER: MockUser = {
+/** A mock user in the instructor group. */
+const INSTRUCTOR_MOCK_USER: MockUser = {
 	sub: "ivy",
 	email: "ivy@example.edu",
 	name: "Ivy Instructor",
@@ -200,7 +200,7 @@ async function matrixStudent(
 }
 
 /**
- * The world of the authorization matrix (Epic 12a, "The matrix"): students A
+ * The world of the authorization matrix (SPEC.md section 5.2): students A
  * and B, each with a running workspace on the fake agent, a project, and a
  * terminal; an administrator who owns nothing; and a disabled user whose
  * session row is still there. The mock provider must know

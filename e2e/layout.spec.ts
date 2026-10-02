@@ -142,7 +142,7 @@ test.describe("work area layout", () => {
 			.toBe(3);
 		const ids = await terminalIds(student.workspaceId, projectId);
 
-		// The layout is saved a second after it changes (plan, Layout).
+		// The layout is saved a second after it changes.
 		await expect
 			.poll(
 				async () => {
@@ -161,7 +161,7 @@ test.describe("work area layout", () => {
 		await expect(page.getByTestId("work-tabs").getByRole("tab")).toHaveCount(2, {
 			timeout: 15_000,
 		});
-		// The tab the student was on is the one that comes back (issue #161).
+		// The tab the student was on is the one that comes back.
 		await expect(page.getByTestId(`tab-${ids[2]}`)).toHaveAttribute(
 			"data-state",
 			"active",
@@ -228,7 +228,7 @@ test.describe("work area layout", () => {
 				.toBe(2);
 			const [, added] = await terminalIds(student.workspaceId, projectId);
 
-			// The first window reconciles on refetch and focus (plan, E2).
+			// The first window reconciles on refetch and focus.
 			await page.bringToFront();
 			await expect(page.getByTestId(`tab-${added}`)).toBeVisible({
 				timeout: 20_000,
@@ -271,7 +271,7 @@ test.describe("work area layout", () => {
 		await pane(page, terminalId).locator(".xterm-screen").click();
 		await page.keyboard.press("Control+d");
 
-		// The last leaf of a tab takes the tab with it (plan, decisions).
+		// The last leaf of a tab takes the tab with it.
 		await expect(page.getByTestId("work-tabs").getByRole("tab")).toHaveCount(0, {
 			timeout: 15_000,
 		});
@@ -723,7 +723,7 @@ test.describe("work area layout", () => {
 	});
 	/**
 	 * Leaving the workspace route and coming back keeps the selected tab and
-	 * the editor's cursor and scroll position (issue #161).
+	 * the editor's cursor and scroll position.
 	 */
 	test("the selected tab and the cursor come back after a round trip", async ({
 		page,
@@ -784,7 +784,7 @@ test.describe("work area layout", () => {
 
 	/**
 	 * Closing a tab goes back to the tab that was selected before it, then to
-	 * the neighbour on the left (SPEC.md §8.3, issue #223).
+	 * the neighbour on the left (SPEC.md §8.3).
 	 */
 	test("closing a tab selects the last tab that was selected", async ({
 		page,
@@ -826,5 +826,46 @@ test.describe("work area layout", () => {
 		await page.getByTestId("tab-file:a.ts-close").click();
 		await expect(page.getByTestId("work-tabs").getByRole("tab")).toHaveCount(1);
 		await expect(tab("b.ts")).toHaveAttribute("data-state", "active");
+	});
+
+	test("switching projects never flashes the empty work area", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const first = await createProject(student.workspaceId, { name: "First" });
+		const second = await createProject(student.workspaceId, { name: "Second" });
+		for (const project of [first, second]) {
+			await page.goto(workspacePath(student.workspaceId, project.id));
+			await newTerminal(page);
+			await expect
+				.poll(() => terminalIds(student.workspaceId, project.id), { timeout: 15_000 })
+				.toHaveLength(1);
+			await expect(page.locator("[data-testid^=terminal-pane-]")).toHaveCount(1);
+		}
+
+		// Record any moment the empty screen is in the page, however brief.
+		await page.evaluate(() => {
+			const seen = { empty: false };
+			(window as unknown as { seen: typeof seen }).seen = seen;
+			new MutationObserver(() => {
+				if (document.body.textContent?.includes("No terminals open")) seen.empty = true;
+			}).observe(document.body, {
+				childList: true,
+				subtree: true,
+				characterData: true,
+			});
+		});
+		for (const project of [first, second, first]) {
+			await page.getByTestId(`project-item-${project.id}`).getByRole("link").click();
+			const [id] = await terminalIds(student.workspaceId, project.id);
+			await expect(page.getByTestId(`terminal-pane-${id}`)).toBeVisible({
+				timeout: 15_000,
+			});
+		}
+		const flashed = await page.evaluate(
+			() => (window as unknown as { seen: { empty: boolean } }).seen.empty,
+		);
+		expect(flashed).toBe(false);
 	});
 });

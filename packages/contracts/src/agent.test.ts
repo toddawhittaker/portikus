@@ -37,12 +37,12 @@ test("AgentCreateTerminalRequest requires an id, a cwd, a theme and a zone", () 
 	expect(AgentCreateTerminalRequest.safeParse({ cwd: "/home/student" }).success).toBe(
 		false,
 	);
-	// The theme decides COLORFGBG in the shell (issue #267), so it is required.
+	// The theme decides COLORFGBG in the shell, so it is required.
 	expect(
 		AgentCreateTerminalRequest.safeParse({ id: terminalId, cwd: "/home/student" })
 			.success,
 	).toBe(false);
-	// The zone becomes TZ in the shell (issue #287), so it is required and
+	// The zone becomes TZ in the shell, so it is required and
 	// only a known zone name is taken.
 	expect(
 		AgentCreateTerminalRequest.safeParse({ ...input, timezone: undefined }).success,

@@ -1,5 +1,5 @@
 /**
- * Launch helpers for the LTI specs (docs/archive/epics/EPIC-13.md, "The mock LMS"). Each
+ * Launch helpers for the LTI specs (ADR 0025). Each
  * launch drives the mock's own launch page, so the browser takes the real
  * route: the mock, the tool's /lti/login, the mock's /authorize, and the
  * form post to /lti/launch.
@@ -21,7 +21,7 @@ export type PersonKey =
 	| "max"
 	| "rex"
 	| "una";
-export type CourseKey = "cs101" | "cs240" | "cs350";
+type CourseKey = "cs101" | "cs240" | "cs350";
 export type Defect =
 	| "bad_signature"
 	| "wrong_aud"
@@ -58,16 +58,16 @@ export async function launchAs(page: Page, options: LaunchOptions): Promise<void
 	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 30_000 });
 }
 
-/** The platform issuer the API stores LTI users under (ruling 12). */
-export const LTI_ISSUER = `lti:${MOCK_LMS_ORIGIN}`;
+/** The platform issuer the API stores LTI users under. */
+const LTI_ISSUER = `lti:${MOCK_LMS_ORIGIN}`;
 
-export function subjectOf(key: PersonKey): string {
+function subjectOf(key: PersonKey): string {
 	const person = PEOPLE.find((p) => p.key === key);
 	if (!person) throw new Error(`no seeded person ${key}`);
 	return person.sub;
 }
 
-export interface LtiUserRow {
+interface LtiUserRow {
 	id: string;
 	role: string;
 	display_name: string;

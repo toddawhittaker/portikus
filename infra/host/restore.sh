@@ -48,6 +48,8 @@ MANIFEST_LINE='^(portikus-backup 1|created [0-9]{8}T[0-9]{6}Z|vm [0-9.]+|package
 # backup.sh never writes a larger one.
 MANIFEST_MAX=4194304
 MAC_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-mac"
+# shellcheck source=/dev/null
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-lib.sh"
 
 info() { printf '[restore %s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf '[restore] FAIL: %s\n' "$*" >&2; exit 1; }
@@ -120,15 +122,6 @@ step() {
 }
 
 decrypt() { age -d -i "$IDENTITY" "${SET}/$1.age"; }
-
-# "<bytes> <sha256>" of standard input, as backup.sh records it.
-size_sum() {
-  python3 -c 'import hashlib, sys
-h, n = hashlib.sha256(), 0
-for b in iter(lambda: sys.stdin.buffer.read(1 << 20), b""):
-    h.update(b); n += len(b)
-print(n, h.hexdigest())'
-}
 
 # check_index IN OUT -- paths in an index come from a student's home.  An
 # absolute path or a ".." part cannot come from an export, so the set is
@@ -206,15 +199,7 @@ fi
 [ "$local_mode" = no ] || rm -f "${SET}/REQUESTED"
 
 # ── 2. The right VM ───────────────────────────────────────────────
-vm() { ssh -n -o BatchMode=yes -o ConnectTimeout=15 "deploy@${VM}" "$@"; }
-vm_in() { ssh -o BatchMode=yes -o ConnectTimeout=15 "deploy@${VM}" "$@"; }
-if [ "$local_mode" = yes ]; then
-  # The same commands as over SSH, run here; this is already root, so sudo is a no-op.
-  sudo() { "$@"; }
-  export -f sudo
-  vm() { bash -c "$*" </dev/null; }
-  vm_in() { bash -c "$*"; }
-fi
+[ "$local_mode" = no ] || use_local_vm
 psql_vm() { printf '%s\n' "$1" | vm_in "sudo runuser -u postgres -- psql -X -q -t -A -v ON_ERROR_STOP=1 -d portikus"; }
 
 if [ "$local_mode" = yes ]; then
@@ -303,7 +288,7 @@ decrypt db.dump | vm_in "sudo runuser -u postgres -- pg_restore --create --clean
 # sessions go too, so a cookie stolen before the backup does not work here.
 psql_vm "BEGIN; UPDATE workspaces SET state = 'stopped', desired_state = 'stopped'; DELETE FROM preview_sessions; DELETE FROM sessions; COMMIT;"
 step "database restored, every workspace marked stopped, every session ended"
-# Dex's accounts (docs/archive/epics/EPIC-14.md ruling 19), with Dex stopped so the
+# Dex's accounts (ADR 0028), with Dex stopped so the
 # database can be replaced; a set from before Dex had storage has none.
 if grep -q '^file dex\.dump ' "$manifest"; then
   if [ "$(dex_installed)" = yes ]; then

@@ -27,8 +27,8 @@ import { Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createZstdCompress, createZstdDecompress } from "node:zlib";
 import type { AgentCreateRecoveryPointResponse } from "@portikus/contracts";
+import { AgentFailure, isNoSpace } from "./errors.js";
 import { projectsDir, resolveProject } from "./projects.js";
-import { AgentFailure } from "./tmux.js";
 import { loadRecoveryMatcher, type RecoveryMatcher } from "./workspace-ignore.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -69,6 +69,46 @@ export interface ProjectWalk {
 	fingerprint: string;
 }
 
+interface WalkEntry {
+	info: Awaited<ReturnType<typeof lstat>>;
+	type: "dir" | "file" | "link";
+	target: string | null;
+	children: string[] | null;
+}
+
+/** One entry of a project walk, or null when the point leaves it out. */
+async function walkEntry(
+	projectPath: string,
+	rel: string,
+	matcher: RecoveryMatcher,
+): Promise<WalkEntry | null> {
+	let info: Awaited<ReturnType<typeof lstat>>;
+	try {
+		info = await lstat(join(projectPath, rel));
+	} catch (error) {
+		if (isMissing(error) || isDenied(error)) return null;
+		throw error;
+	}
+	if (info.isDirectory()) {
+		if (matcher.excludes(`${rel}/`)) return null;
+		// Unreadable (say a database's 0700 data directory) or removed while
+		// walking: left out, as tar --ignore-failed-read leaves out a file.
+		const children = await readdirOrNull(join(projectPath, rel));
+		if (children === null) return null;
+		return { info, type: "dir", target: null, children };
+	}
+	if (info.isSymbolicLink()) {
+		if (matcher.excludes(rel)) return null;
+		const target = await readlink(join(projectPath, rel));
+		return { info, type: "link", target, children: null };
+	}
+	if (info.isFile()) {
+		if (matcher.excludes(rel)) return null;
+		return { info, type: "file", target: null, children: null };
+	}
+	return null;
+}
+
 /**
  * List what a point of this project holds, using `lstat` only: a symlink is
  * an entry of its own and is never descended into. Sockets, FIFOs and
@@ -84,33 +124,9 @@ export async function walkProject(
 		names.sort();
 		for (const name of names) {
 			const rel = dirRel === "" ? name : `${dirRel}/${name}`;
-			let info: Awaited<ReturnType<typeof lstat>>;
-			try {
-				info = await lstat(join(projectPath, rel));
-			} catch (error) {
-				if (isMissing(error) || isDenied(error)) continue;
-				throw error;
-			}
-			let type: "dir" | "file" | "link";
-			let target: string | null = null;
-			let children: string[] | null = null;
-			if (info.isDirectory()) {
-				if (matcher.excludes(`${rel}/`)) continue;
-				// Unreadable (say a database's 0700 data directory) or removed while
-				// walking: left out, as tar --ignore-failed-read leaves out a file.
-				children = await readdirOrNull(join(projectPath, rel));
-				if (children === null) continue;
-				type = "dir";
-			} else if (info.isSymbolicLink()) {
-				if (matcher.excludes(rel)) continue;
-				type = "link";
-				target = await readlink(join(projectPath, rel));
-			} else if (info.isFile()) {
-				if (matcher.excludes(rel)) continue;
-				type = "file";
-			} else {
-				continue;
-			}
+			const entry = await walkEntry(projectPath, rel, matcher);
+			if (entry === null) continue;
+			const { info, type, target, children } = entry;
 			paths.push(rel);
 			lines.push(
 				JSON.stringify([
@@ -593,15 +609,7 @@ async function moveAside(
 		if (info.isDirectory()) {
 			if (matcher.excludes(`${rel}/`)) continue;
 			if ((await readdirOrNull(path)) === null) continue;
-			await mkdir(join(aside, rel), { mode: 0o700 });
-			await moveAside(projectPath, aside, rel, matcher, steps);
-			try {
-				await rmdir(path);
-				steps.push({ kind: "removedDir", path, mode: info.mode & 0o7777 });
-			} catch (error) {
-				const code = (error as NodeJS.ErrnoException).code;
-				if (code !== "ENOTEMPTY" && code !== "EEXIST") throw error;
-			}
+			await moveDirectoryAside(projectPath, aside, rel, matcher, steps, info.mode);
 		} else if (info.isFile() || info.isSymbolicLink()) {
 			if (matcher.excludes(rel)) continue;
 			// tar skips an unreadable file, so no point holds it.
@@ -610,6 +618,27 @@ async function moveAside(
 			await rename(path, to);
 			steps.push({ kind: "moved", from: path, to });
 		}
+	}
+}
+
+/** Move a directory's contents aside, then remove it unless kept children remain. */
+async function moveDirectoryAside(
+	projectPath: string,
+	aside: string,
+	rel: string,
+	matcher: RecoveryMatcher,
+	steps: Step[],
+	mode: number,
+): Promise<void> {
+	const path = join(projectPath, rel);
+	await mkdir(join(aside, rel), { mode: 0o700 });
+	await moveAside(projectPath, aside, rel, matcher, steps);
+	try {
+		await rmdir(path);
+		steps.push({ kind: "removedDir", path, mode: mode & 0o7777 });
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code !== "ENOTEMPTY" && code !== "EEXIST") throw error;
 	}
 }
 
@@ -684,9 +713,4 @@ function isDenied(error: unknown): boolean {
 function isMissing(error: unknown): boolean {
 	const code = (error as NodeJS.ErrnoException).code;
 	return code === "ENOENT" || code === "ENOTDIR";
-}
-
-function isNoSpace(error: unknown): boolean {
-	const code = (error as NodeJS.ErrnoException | undefined)?.code;
-	return code === "ENOSPC" || code === "EDQUOT";
 }

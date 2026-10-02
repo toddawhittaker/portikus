@@ -316,7 +316,7 @@ test("ProjectLayout holds tabs of split trees", () => {
 	).toBe(false);
 });
 
-test("ProjectLayout does not cap the number of tabs (issue #240)", () => {
+test("ProjectLayout does not cap the number of tabs", () => {
 	function tabs(count: number) {
 		return {
 			tabs: Array.from({ length: count }, (_, index) => ({
@@ -436,7 +436,7 @@ test("ProjectLayout caps how deep a split tree may nest", () => {
 	).toBe(false);
 });
 
-/** Issue #269: a folder name becomes the project's display name. */
+/** A folder name becomes the project's display name. */
 test("displayNameFromDirectory capitalises the words of a directory name", () => {
 	expect(displayNameFromDirectory("project-name")).toBe("Project Name");
 	expect(displayNameFromDirectory("my_site2")).toBe("My Site2");
@@ -455,7 +455,7 @@ test("displayNameFromDirectory falls back to the directory name and fits the fie
 	expect(long.length).toBeLessThanOrEqual(MAX_PROJECT_NAME_LENGTH);
 });
 
-test("a clone's name comes from the README's first heading, formatting removed (#846)", () => {
+test("a clone's name comes from the README's first heading, formatting removed", () => {
 	expect(
 		projectNameFromRepository({
 			readme:
@@ -467,7 +467,7 @@ test("a clone's name comes from the README's first heading, formatting removed (
 	);
 });
 
-test("a clone's name drops emoji from the README heading (#883)", () => {
+test("a clone's name drops emoji from the README heading", () => {
 	expect(projectNameFromRepository({ readme: "# 📡 pfSense Docker Alias\n" })).toBe(
 		"pfSense Docker Alias",
 	);
@@ -534,7 +534,7 @@ test("CreateProjectRequest allows nameFromRepository only for a clone", () => {
 	).toBe(false);
 });
 
-test("a clone's name drops flag emoji but keeps trademark signs (#883)", () => {
+test("a clone's name drops flag emoji but keeps trademark signs", () => {
 	expect(projectNameFromRepository({ readme: "# 🇺🇸 Census Tool\n" })).toBe(
 		"Census Tool",
 	);

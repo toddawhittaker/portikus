@@ -13,7 +13,7 @@ import {
 	touchPresence,
 	workspaceUpgradeGuard,
 } from "./presence.js";
-import { countActive, toWorkspace } from "./workspace-view.js";
+import { countActive, loadWorkspaceSettings, toWorkspace } from "./workspace-view.js";
 
 /** How often the watcher polls for workspace changes. */
 const POLL_INTERVAL_MS = 1000;
@@ -44,7 +44,7 @@ function signatureOf(workspace: Workspace): string {
 		workspace.cpuThrottle,
 		workspace.idleStopAt,
 		workspace.memoryFlag,
-		// A hold set, ended, cut or expired shows at once (#955).
+		// A hold set, ended, cut or expired shows at once.
 		workspace.keepRunningUntil,
 		workspace.keepRunningMaxHours,
 	]);
@@ -72,7 +72,7 @@ export function registerWorkspaceSocket(
 			.executeTakeFirst();
 		if (!row) return null;
 		const active = await countActive(db, id, config);
-		return toWorkspace(db, row as Record<string, unknown>, active, config);
+		return toWorkspace(row, active, config, await loadWorkspaceSettings(db));
 	}
 
 	function send(socket: WebSocket, workspace: Workspace): void {
@@ -151,7 +151,7 @@ export function registerWorkspaceSocket(
 		"/workspaces/:id/ws",
 		{
 			websocket: true,
-			// A HEAD twin would reach the socket handler and crash (issue #402).
+			// A HEAD twin would reach the socket handler and crash.
 			exposeHeadRoute: false,
 			preHandler: workspaceUpgradeGuard(db, config, { ownerOnly: false, adminSockets }),
 		},

@@ -3,12 +3,13 @@ import {
 	PACKAGE_SURVEY_KEEP_DAYS,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { startLoop } from "./loop.js";
 
 /** How often the worker looks for a running workspace not yet surveyed today. */
-export const PACKAGE_SURVEY_SECONDS = 600;
+const PACKAGE_SURVEY_SECONDS = 600;
 
 export interface PackageSurveyOptions {
 	db: Kysely<Database>;
@@ -90,10 +91,7 @@ export function createPackageSurvey(
 				.where("day", "<", sql<Date>`${day}::date - ${PACKAGE_SURVEY_KEEP_DAYS}::int`)
 				.execute();
 		} catch (e) {
-			logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"package survey failed",
-			);
+			logger.warn({ error: errorMessage(e) }, "package survey failed");
 		} finally {
 			inFlight = false;
 		}
@@ -147,10 +145,5 @@ export function createPackageSurvey(
 /** Run the survey now and then every PACKAGE_SURVEY_SECONDS; returns a stop function. */
 export function startPackageSurvey(options: PackageSurveyOptions): () => void {
 	const tick = createPackageSurvey(options);
-	const timer = setInterval(() => {
-		void tick();
-	}, PACKAGE_SURVEY_SECONDS * 1000);
-	timer.unref();
-	void tick();
-	return () => clearInterval(timer);
+	return startLoop(tick, PACKAGE_SURVEY_SECONDS * 1000);
 }

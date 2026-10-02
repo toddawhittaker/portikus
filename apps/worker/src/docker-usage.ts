@@ -6,21 +6,22 @@ import {
 	SeedImageList,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { Logger } from "@portikus/observability";
+import { errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { fetchDockerInventory } from "./agent-client.js";
+import { startLoop } from "./loop.js";
 
-/** How often every running workspace's Docker images are read (issue #840). */
+/** How often every running workspace's Docker images are read. */
 export const INVENTORY_SECONDS = 60 * 60;
 /**
  * Usage rows older than this are deleted, once a day. Never shorter than the
- * report's USAGE_WINDOW_DAYS, or the report would miss its oldest days (issue #934).
+ * report's USAGE_WINDOW_DAYS, or the report would miss its oldest days.
  */
 export const USAGE_RETENTION_DAYS = 120;
 const RETENTION_SECONDS = 24 * 60 * 60;
 const INSERT_CHUNK = 1000;
 
-export type InventoryReader = (
+type InventoryReader = (
 	address: string,
 	token: string,
 ) => Promise<AgentDockerInventory | null>;
@@ -29,7 +30,7 @@ export type InventoryReader = (
  * The name an inventory tag is compared under: canonical for Docker Hub and
  * ghcr.io, and as given (with `:latest` when bare) for any other registry,
  * which `canonicalImageName` would misread as a Docker Hub path. A name
- * outside the reference grammar is dropped (ruling S7).
+ * outside the reference grammar is dropped.
  */
 export function inventoryImageName(tag: string): string | null {
 	if (!isImageReference(tag)) return null;
@@ -58,7 +59,7 @@ export interface PresenceRow {
 }
 
 /**
- * One workspace's presence rows (ruling 7). A seed image counts as used
+ * One workspace's presence rows. A seed image counts as used
  * when a container references it, or when another local image, not itself
  * a seed image, has a layer list that starts with the seed image's layers
  * (an image built from it). Any other image is "used" when a container
@@ -119,7 +120,7 @@ export interface DockerUsageOptions {
 }
 
 /**
- * Build the inventory tick (ruling 7, S7): read each running workspace's
+ * Build the inventory tick: read each running workspace's
  * images through its agent and replace that workspace's presence rows. A
  * reply that fails the schema, or says Docker was unavailable, is no data:
  * the workspace's earlier rows stay until retention removes them.
@@ -157,10 +158,7 @@ export function createInventoryPoll(options: DockerUsageOptions): () => Promise<
 			}
 			logger.info({ workspaces: workspaces.length, read }, "docker inventory read");
 		} catch (e) {
-			logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"docker inventory failed",
-			);
+			logger.warn({ error: errorMessage(e) }, "docker inventory failed");
 		} finally {
 			inFlight = false;
 		}
@@ -217,22 +215,17 @@ export function startDockerUsage(
 			fetchDockerInventory(address, options.agentPort, token),
 	});
 	const now = options.now ?? (() => new Date());
-	const prune = (): void => {
-		pruneDockerUsage(options.db, now()).catch((e: unknown) =>
-			options.logger.warn(
-				{ error: e instanceof Error ? e.message : String(e) },
-				"docker usage prune failed",
-			),
-		);
+	const prune = async (): Promise<void> => {
+		try {
+			await pruneDockerUsage(options.db, now());
+		} catch (e) {
+			options.logger.warn({ error: errorMessage(e) }, "docker usage prune failed");
+		}
 	};
-	const inventoryTimer = setInterval(() => void tick(), INVENTORY_SECONDS * 1000);
-	const pruneTimer = setInterval(prune, RETENTION_SECONDS * 1000);
-	inventoryTimer.unref();
-	pruneTimer.unref();
-	void tick();
-	prune();
+	const stopInventory = startLoop(tick, INVENTORY_SECONDS * 1000);
+	const stopPrune = startLoop(prune, RETENTION_SECONDS * 1000);
 	return () => {
-		clearInterval(inventoryTimer);
-		clearInterval(pruneTimer);
+		stopInventory();
+		stopPrune();
 	};
 }

@@ -43,9 +43,9 @@ export default defineConfig({
 		proxy: {
 			"/health": api,
 			"/auth": api,
-			// The signed-in user's own editor settings (issue #159).
+			// The signed-in user's own editor settings.
 			"/me": api,
-			// LTI launch and the Course page's data (docs/archive/epics/EPIC-13.md). Anchored so
+			// LTI launch and the Course page's data. Anchored so
 			// the web app's own /course pages stay in the bundle.
 			"^/lti(/|\\?|$)": api,
 			"^/courses(/|\\?|$)": api,

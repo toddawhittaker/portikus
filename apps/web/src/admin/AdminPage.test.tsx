@@ -145,13 +145,13 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 
 	const nav = await screen.findByRole("navigation", { name: "Administration" });
 	const current = within(nav).getByRole("link", { current: "page" });
-	// Relabelled Users; the address stays ?tab=workspaces (docs/archive/epics/EPIC-13-1.md ruling 24).
+	// Relabelled Users; the address stays ?tab=workspaces (ADR 0026).
 	expect(current.textContent).toBe("Users");
 	expect(current.getAttribute("href")).toBe("/admin?tab=workspaces");
 	expect(within(nav).getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
 		"/admin?tab=settings",
 	);
-	// People, then what to look at, then what to change (Epic 25 R1).
+	// People, then what to look at, then what to change.
 	expect(
 		within(nav)
 			.getAllByRole("link")
@@ -295,7 +295,7 @@ test("the grace form takes minutes and still sends only the seconds", async () =
 	expect(writes[0]?.body).toEqual({ shutdownGraceSeconds: 900 });
 });
 
-test("the page title names the tab (issue #374, SPEC.md section 20.1)", async () => {
+test("the page title names the tab (SPEC.md section 20.1)", async () => {
 	stubAdmin(600);
 
 	renderApp("/admin");
@@ -347,7 +347,7 @@ test("the admin page is compact (SPEC.md section 20.1)", async () => {
 	expect(main.getAttribute("data-density")).toBe("compact");
 });
 
-test("grace-period errors are announced as alerts (issue #363)", async () => {
+test("grace-period errors are announced as alerts", async () => {
 	stubAdmin(600);
 
 	renderApp("/admin?tab=settings");
@@ -403,7 +403,7 @@ function workspacePosts(fetch: ReturnType<typeof stubFetch>): number {
 	).length;
 }
 
-test("Open my workspace makes the workspace and goes there (issue #534)", async () => {
+test("Open my workspace makes the workspace and goes there", async () => {
 	vi.stubGlobal("WebSocket", FakeWebSocket);
 	const fetch = stubAdminWithWorkspace(() =>
 		json(201, { ...WORKSPACE, ownerUserId: ADMIN.id }),
@@ -413,7 +413,7 @@ test("Open my workspace makes the workspace and goes there (issue #534)", async 
 	const item = await openMyWorkspaceItem();
 	expect(item.textContent).toBe("Open my workspace");
 	expect(screen.queryByTestId("back-to-workspace")).toBeNull();
-	// A menu item now, not a header button (issue #550).
+	// A menu item now, not a header button.
 	expect(screen.queryByRole("button", { name: "Open my workspace" })).toBeNull();
 	// Nothing is made until the administrator asks.
 	expect(workspacePosts(fetch)).toBe(0);
@@ -645,7 +645,7 @@ test("a statement over the limit is refused before any request", async () => {
 	expect(writes).toEqual([]);
 });
 
-test("a small gap starts each group of admin tabs (Epic 25 R1)", async () => {
+test("a small gap starts each group of admin tabs", async () => {
 	stubAdmin(600);
 	renderApp("/admin");
 	const nav = await screen.findByRole("navigation", { name: "Administration" });

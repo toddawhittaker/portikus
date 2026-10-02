@@ -1,16 +1,15 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
+	expectNoViolations,
 	loginAs,
 	query,
-	settledAxe,
 	toast,
-	WCAG_TAGS,
 	workspacePath,
 } from "./helpers";
 
 /**
- * Keep running until (#955, Epic 28 ruling R1): the student holds the
+ * Keep running until (SPEC.md §6.4): the student holds the
  * workspace up from the workspace dialog, sees when the hold ends in their
  * own timezone, and ends it early; the administrator's cap bounds the
  * choice. The worker does not run here, so only the API and the pages are
@@ -19,11 +18,6 @@ import {
 test.describe.configure({ mode: "serial" });
 
 const ZONE = "Asia/Tokyo";
-
-async function expectNoViolations(page: Page) {
-	const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
-	expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-}
 
 async function setCap(hours: number): Promise<void> {
 	await query("update settings set keep_running_max_hours = $1", [hours]);

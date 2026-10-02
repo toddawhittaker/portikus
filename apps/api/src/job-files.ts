@@ -1,4 +1,5 @@
-import { open, readdir, readFile } from "node:fs/promises";
+import { open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { ZodType } from "zod";
 
 /** log.txt can grow to megabytes during a build; only its tail is read. */
@@ -18,6 +19,19 @@ export async function readJson<T>(path: string, schema: ZodType<T>): Promise<T |
 	} catch {
 		return null;
 	}
+}
+
+/** The queued or running job, else the one started last. */
+export function currentJob<T extends { state: string; startedAt?: string | null }>(
+	jobs: T[],
+): T | null {
+	const active =
+		jobs.find((j) => j.state === "running") ?? jobs.find((j) => j.state === "queued");
+	if (active) return active;
+	const byStart = [...jobs].sort((a, b) =>
+		(b.startedAt ?? "").localeCompare(a.startedAt ?? ""),
+	);
+	return byStart[0] ?? null;
 }
 
 export async function listDir(path: string): Promise<string[]> {
@@ -48,4 +62,23 @@ export async function tailLines(path: string, count: number): Promise<string[]> 
 	const lines = data.toString("utf8").split("\n");
 	if (lines.at(-1) === "") lines.pop();
 	return lines.slice(-count);
+}
+
+/**
+ * Write a root helper's request file aside, then rename it, so the helper's
+ * path unit never reads half a file. The temp file is removed on failure.
+ */
+export async function writeRequestFile(
+	dir: string,
+	file: { id: string },
+	mode: number,
+): Promise<void> {
+	const temp = join(dir, `.request-${file.id}.tmp`);
+	try {
+		await writeFile(temp, `${JSON.stringify(file)}\n`, { flag: "wx", mode });
+		await rename(temp, join(dir, `request-${file.id}.json`));
+	} catch (e) {
+		await rm(temp, { force: true });
+		throw e;
+	}
 }

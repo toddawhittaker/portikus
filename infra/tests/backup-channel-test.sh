@@ -22,6 +22,7 @@
 #   - a result the VM did not take is sent again on the next run.
 #
 # Usage: ./infra/tests/backup-channel-test.sh
+# shellcheck disable=SC2154  # pass and fail come from lib.sh
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,10 +33,8 @@ trap 'rm -rf "${work}"' EXIT
 
 command -v age-keygen >/dev/null || { echo "backup-channel-test: age is not installed"; exit 1; }
 
-pass=0
-fail=0
-ok() { printf '\033[1;32mPASS\033[0m  %s\n' "$1"; pass=$((pass + 1)); }
-bad() { printf '\033[1;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail + 1)); }
+# shellcheck source=/dev/null
+. "${here}/lib.sh"
 expect() { if eval "$2"; then ok "$1"; else bad "$1"; fi; }
 
 VM_NAME=portikus
@@ -493,7 +492,7 @@ expect "the private key never reaches the VM" "! grep -rq '${secret}' '${fakes}'
 reset
 pull "$copy_req"
 FAKE_DIR_EXISTS=1 run_channel
-expect "an existing folder is refused, with the ruling's message" \
+expect "an existing folder is refused, with its message" \
   "[ \"\$(field \"r['request']['error']\")\" = '~/restored-2026-09-24-0230 already exists. Rename or delete it, then try again.' ] && [ ! -e '${fakes}/stream' ] && ! vm_commands | grep -q -- '-- mkdir'"
 
 reset

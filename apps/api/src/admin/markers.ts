@@ -1,6 +1,6 @@
 import { STALE_AFTER_DAYS } from "@portikus/contracts";
 
-/** What the marker rules need to know about one account (issue #302). */
+/** What the marker rules need to know about one account. */
 export interface MarkerInput {
 	id: string;
 	email: string | null;
@@ -12,7 +12,7 @@ export interface MarkerInput {
 export interface AccountFlags {
 	duplicateEmail: boolean;
 	stale: boolean;
-	/** Never signed in, but too new to call stale (issue #842). */
+	/** Never signed in, but too new to call stale. */
 	notSignedInYet: boolean;
 }
 
