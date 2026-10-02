@@ -54,7 +54,7 @@ import {
 } from "./listening.js";
 import { listeningRoutes } from "./listening-route.js";
 import { type PackagesRouteOptions, packagesRoutes } from "./packages-route.js";
-import { tmuxPidSource } from "./processes.js";
+import { protectedTree, tmuxPidSource } from "./processes.js";
 import { processesRoutes } from "./processes-route.js";
 import {
 	excludeOnPortikusWrite,
@@ -212,19 +212,18 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// Port discovery and loopback forwards know about each other: discovery
 	// reports a forwarded port as "forwarded", and a forward closes once its
 	// loopback listener is gone (BROWSER-HANDLING.md §11.1).
-	// The terminals' tmux server and attach clients are protected by PID (SPEC.md §18.3).
-	const tmuxPid = tmuxPidSource(options.usage?.procRoot ?? "/proc", () =>
-		serverPid(tmuxServer),
-	);
-	const terminalPids = async (fresh = false): Promise<ReadonlySet<number>> => {
-		const pids = registry.attachPids();
-		const server = await tmuxPid(fresh);
-		if (server !== null) pids.add(server);
-		return pids;
-	};
+	// Protected by process tree, by PID (SPEC.md §18.3).
+	const procRoot = options.usage?.procRoot ?? "/proc";
+	const tmuxPid = tmuxPidSource(procRoot, () => serverPid(tmuxServer));
+	const protectedPids = async (fresh = false): Promise<ReadonlySet<number>> =>
+		protectedTree(
+			procRoot,
+			options.usage?.selfPid ?? process.pid,
+			await tmuxPid(fresh),
+		);
 	const monitor = new ListeningMonitor({
 		// Never reuse a cached "no tmux server" answer when protecting it (SPEC.md §18.3).
-		terminalPids: () => terminalPids(true),
+		protectedPids: () => protectedPids(true),
 		...options.listening,
 		logger: app.log,
 		forwardedPorts: () => forwards.ports(),
@@ -245,7 +244,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	const recoveryRoot = options.recoveryRoot ?? "/var/lib/portikus/recovery";
 	const usage = new UsageSampler({
 		homePath: options.homeDir,
-		terminalPids,
+		protectedPids,
 		recoveryPath: recoveryRoot,
 		...options.usage,
 	});
@@ -722,7 +721,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		instance.register(dockerInventoryRoute, { run: options.dockerRunner });
 		instance.register(processesRoutes, {
 			procRoot: options.usage?.procRoot,
-			terminalPids: () => terminalPids(true),
+			protectedPids: () => protectedPids(true),
 		});
 		instance.register(eventsRoute, {
 			homeDir: options.homeDir,

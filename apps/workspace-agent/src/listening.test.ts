@@ -654,7 +654,7 @@ test("the tmux server's listener is refused as protected", async () => {
 	await writeProcNet([HEADER, row("00000000:1435", "0A", "3", 1000)].join("\n"));
 	await fakeProcess(88, "tmux: server", [3]);
 	const monitor = monitorFor({
-		terminalPids: async () => new Set([88]),
+		protectedPids: async () => new Set([88]),
 		kill: () => {
 			throw new Error("a protected process must never be signalled");
 		},

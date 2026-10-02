@@ -18,7 +18,7 @@ export async function processesRoutes(
 		procRoot: options.procRoot ?? "/proc",
 		selfPid: options.selfPid ?? process.pid,
 		studentUid: options.studentUid ?? process.getuid?.() ?? 1000,
-		terminalPids: options.terminalPids ?? (async () => new Set<number>()),
+		protectedPids: options.protectedPids ?? (async () => new Set<number>()),
 		kill: options.kill ?? ((pid, signal) => process.kill(pid, signal)),
 		...(options.graceMs === undefined ? {} : { graceMs: options.graceMs }),
 		...(options.pollMs === undefined ? {} : { pollMs: options.pollMs }),
