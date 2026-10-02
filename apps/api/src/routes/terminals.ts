@@ -134,7 +134,7 @@ const DEFAULT_NAME = /^Terminal (\d+)$/;
  * chosen name back; otherwise the name is the lowest "Terminal N" no live
  * terminal of the project is using, so a second project also starts at 1.
  */
-export function chooseTerminalName(
+function chooseTerminalName(
 	rows: Array<{
 		name: string;
 		project_id: string | null;

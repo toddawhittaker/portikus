@@ -59,7 +59,7 @@ export async function createGrant(
  * question about a preview that was just closed can still be answered. Runs
  * with the grant sweep, because the same route is the only writer here.
  */
-export async function sweepDeadPreviewSessions(db: Kysely<Database>): Promise<void> {
+async function sweepDeadPreviewSessions(db: Kysely<Database>): Promise<void> {
 	await db
 		.deleteFrom("preview_sessions")
 		.where((eb) =>
@@ -132,7 +132,7 @@ export interface PreviewSessionInput {
  * loop could grow the table without limit. Fifty is far above real use: a
  * student opens a handful of ports.
  */
-export const MAX_PREVIEW_SESSIONS_PER_USER = 50;
+const MAX_PREVIEW_SESSIONS_PER_USER = 50;
 
 /** Start a preview session and return the clear-text cookie value. */
 export async function createPreviewSession(
@@ -276,7 +276,7 @@ export async function revokeSessionPreviewSessions(
 		.execute();
 }
 
-export interface PreviewWorkspaceRow {
+interface PreviewWorkspaceRow {
 	id: string;
 	label: string;
 	state: string;
@@ -293,7 +293,7 @@ export interface PreviewLookup {
 
 /** How long a found set of rows is reused (ADR 0034 rulings 10 and 11). */
 export const PREVIEW_LOOKUP_TTL_MS = 2000;
-export const PREVIEW_LOOKUP_MAX_ENTRIES = 10_000;
+const PREVIEW_LOOKUP_MAX_ENTRIES = 10_000;
 
 /**
  * Remember the rows behind a preview cookie for two seconds, so a page of

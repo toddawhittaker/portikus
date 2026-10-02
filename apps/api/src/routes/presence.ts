@@ -61,7 +61,7 @@ export async function touchPresence(
 }
 
 /** Concurrent sockets allowed per workspace (SPEC.md §24.2). */
-export const MAX_CONNECTIONS_PER_WORKSPACE = 16;
+const MAX_CONNECTIONS_PER_WORKSPACE = 16;
 
 declare module "fastify" {
 	interface FastifyRequest {
