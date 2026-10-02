@@ -63,6 +63,8 @@ export function Toggletip({ label, children }: ToggletipProps): React.ReactEleme
 					sideOffset={4}
 					collisionPadding={8}
 					onOpenAutoFocus={(event) => event.preventDefault()}
+					// Focus never left the button; Radix's deferred return would steal it back from the next control.
+					onCloseAutoFocus={(event) => event.preventDefault()}
 				>
 					{children}
 				</RadixPopover.Content>

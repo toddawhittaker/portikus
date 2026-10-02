@@ -113,6 +113,19 @@ describe("Toggletip", () => {
 		await waitFor(() => expect(document.activeElement).toBe(button));
 	});
 
+	it("does not pull focus back after Escape once focus has moved on", async () => {
+		render(<Fixture />);
+		const button = screen.getByRole("button", { name: "About Idle stop" });
+		button.focus();
+		fireEvent.click(button);
+		await nextTick();
+		fireEvent.keyDown(button, { key: "Escape" });
+		const save = screen.getByRole("button", { name: "Save" });
+		save.focus();
+		await nextTick();
+		expect(document.activeElement).toBe(save);
+	});
+
 	it("closes when focus moves on to the next control", async () => {
 		render(<Fixture />);
 		const button = screen.getByRole("button", { name: "About Idle stop" });
