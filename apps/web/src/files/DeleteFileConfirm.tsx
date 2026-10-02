@@ -4,8 +4,8 @@
  * name the first few.
  */
 import { ConfirmDialog, ConfirmDialogRoot } from "@portikus/ui";
-import type { FileNode } from "./FileTree.js";
 import { displayName } from "./paths.js";
+import type { FileNode } from "./selection.js";
 
 /** How many names a multiple-delete confirmation spells out. */
 const NAMES_SHOWN = 3;

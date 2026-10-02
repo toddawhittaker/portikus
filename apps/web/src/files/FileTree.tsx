@@ -10,7 +10,6 @@
  */
 import { DndContext, DragOverlay, useDraggable, useDroppable } from "@dnd-kit/core";
 import {
-	type BrowserOpenRequest,
 	MAX_TREE_ENTRIES,
 	MAX_UPLOAD_BYTES,
 	type Project,
@@ -45,7 +44,6 @@ import {
 } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
 import { useTerminals } from "../useTerminals.js";
-import { BrowserOpenDialog } from "./BrowserOpenDialog.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
 import {
 	downloadErrorToast,
@@ -66,6 +64,7 @@ import {
 } from "./gitStatus.js";
 import { MoveDialog } from "./MoveDialog.js";
 import { NameDialog } from "./NameDialog.js";
+import { useWatchLimited } from "./ProjectEvents.js";
 import {
 	baseName,
 	displayName,
@@ -90,6 +89,7 @@ import {
 	actionTargets,
 	type ClickModifiers,
 	EMPTY_SELECTION,
+	type FileNode,
 	orderedSelection,
 	pruneSelection,
 	type Selection,
@@ -98,19 +98,11 @@ import {
 import { openAgentSession, sessionReviewLabel } from "./sessionReview.js";
 import { useExpanded, useFileViewStore, useShowHidden } from "./store.js";
 import { useGitStatus } from "./useGitStatus.js";
-import { useProjectEvents } from "./useProjectEvents.js";
 import {
 	dropId,
 	ROOT_SPACE_DROP_ID,
 	useTreeDragAndDrop,
 } from "./useTreeDragAndDrop.js";
-
-/** A row of the tree: a project-relative path and what it is. */
-export interface FileNode {
-	path: string;
-	name: string;
-	isDir: boolean;
-}
 
 /** How many uploads are in flight at once, so a big drop stays polite. */
 const UPLOAD_CONCURRENCY = 4;
@@ -318,20 +310,8 @@ export function FileTreePane({
 	const terminals = useTerminals(workspaceId, project.id, true, () => {});
 	const session = openAgentSession(terminals.terminals, focusedTerminalId);
 	const [reviewSession, setReviewSession] = useState(false);
-	const [browserOpens, setBrowserOpens] = useState<BrowserOpenRequest[]>([]);
-	const seenOpens = useRef(new Set<string>());
-	// One socket per open project keeps the tree, the open files and the Git
-	// status fresh without polling (SPEC.md §11.4, §25.1). The same socket
-	// carries browser-open requests (BROWSER-HANDLING.md §18).
-	const { limited: watchLimited } = useProjectEvents(
-		workspaceId,
-		project.id,
-		(request) => {
-			if (seenOpens.current.has(request.requestId)) return;
-			seenOpens.current.add(request.requestId);
-			setBrowserOpens((queue) => [...queue, request]);
-		},
-	);
+	// The workspace shell holds the events socket (SPEC.md §11.4).
+	const watchLimited = useWatchLimited();
 	const gitStatus = useGitStatus(workspaceId, project.id);
 	const baselineStatus = useGitStatus(workspaceId, project.id, {
 		baseline: reviewSession ? (session?.baselineObjectId ?? undefined) : undefined,
@@ -757,15 +737,6 @@ export function FileTreePane({
 						baselineStatus={baselineStatus}
 						openFileTab={openFileTab}
 					/>
-					{browserOpens[0] ? (
-						<BrowserOpenDialog
-							request={browserOpens[0]}
-							workspaceId={workspaceId}
-							projectId={project.id}
-							onOpenPreview={(port) => layoutStore.getState().openPreview(port)}
-							onClose={() => setBrowserOpens((queue) => queue.slice(1))}
-						/>
-					) : null}
 
 					{/* One hidden input serves every upload action. */}
 					<input
