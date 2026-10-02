@@ -55,8 +55,10 @@ export interface ImageFacts {
 	instances: Map<string, { fingerprint: string | null; serial: string | null }>;
 }
 
-/** Read the image facts from the newest health sample the worker wrote. */
-export async function loadImageFacts(db: Kysely<Database>): Promise<ImageFacts | null> {
+/** The host part of the newest health sample the worker wrote, or null. */
+async function loadNewestHost(
+	db: Kysely<Database>,
+): Promise<NonNullable<HealthSample["host"]> | null> {
 	const row = await db
 		.selectFrom("health_samples")
 		.select("sample")
@@ -66,8 +68,13 @@ export async function loadImageFacts(db: Kysely<Database>): Promise<ImageFacts |
 		.executeTakeFirst();
 	if (!row) return null;
 	const parsed = HealthSample.safeParse(row.sample);
-	if (!parsed.success || parsed.data.host === null) return null;
-	const host = parsed.data.host;
+	return parsed.success ? parsed.data.host : null;
+}
+
+/** Read the image facts from the newest health sample the worker wrote. */
+export async function loadImageFacts(db: Kysely<Database>): Promise<ImageFacts | null> {
+	const host = await loadNewestHost(db);
+	if (!host) return null;
 	return {
 		currentFingerprint: host.image.fingerprint,
 		instances: new Map(
@@ -106,17 +113,9 @@ export function toImageVersion(
 async function loadHostCpu(
 	db: Kysely<Database>,
 ): Promise<{ cpuCount: number; profileCpu: number } | null> {
-	const row = await db
-		.selectFrom("health_samples")
-		.select("sample")
-		.orderBy("observed_at", "desc")
-		.orderBy("id", "desc")
-		.limit(1)
-		.executeTakeFirst();
-	if (!row) return null;
-	const parsed = HealthSample.safeParse(row.sample);
-	if (!parsed.success || parsed.data.host === null) return null;
-	const { cpuCount, profileLimits } = parsed.data.host;
+	const host = await loadNewestHost(db);
+	if (!host) return null;
+	const { cpuCount, profileLimits } = host;
 	return { cpuCount, profileCpu: countIncusCpus(profileLimits.cpu) ?? cpuCount };
 }
 

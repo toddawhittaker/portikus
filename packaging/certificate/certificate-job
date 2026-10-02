@@ -299,6 +299,7 @@ def validate_settings(settings, acme_only=False):
     return settings
 
 
+# jscpd:ignore-start -- each job is a standalone root script, so this stays a copy.
 def validate_request(raw, file_id):
     """Return the request file's document, or raise Refused. Trusts nothing the API checked."""
     try:
@@ -330,6 +331,7 @@ def validate_request(raw, file_id):
         # `reset` comes only from portikus reset-certificate, never from a request file.
         raise Refused("unknown kind")
     return doc
+# jscpd:ignore-end
 
 
 # ---- Commands ----
@@ -1730,6 +1732,7 @@ class Runner:
                 journal(f"could not refresh status.json: {type(err).__name__}")
         return state
 
+    # jscpd:ignore-start -- each job is a standalone root script, so this stays a copy.
     def recover(self, jobs_fd, gid):
         """Mark a job the host lost as failed, put back a half-applied change, drop old jobs."""
         self.drop_old_jobs(jobs_fd)
@@ -1768,7 +1771,9 @@ class Runner:
                 journal(f"marked interrupted job {name} as failed")
             finally:
                 os.close(dir_fd)
+    # jscpd:ignore-end
 
+    # jscpd:ignore-start -- each job is a standalone root script, so this stays a copy.
     def drop_old_jobs(self, jobs_fd):
         jobs = []
         for name in os.listdir(jobs_fd):
@@ -1782,6 +1787,7 @@ class Runner:
                 jobs.append((st.st_mtime_ns, name))
         for _, name in sorted(jobs, reverse=True)[KEEP_JOBS:]:
             shutil.rmtree(os.path.join(self.jobs_dir, name), ignore_errors=True)
+    # jscpd:ignore-end
 
     def locked(self, blocking):
         """The lock's descriptor, or None when another job holds it and blocking is False."""

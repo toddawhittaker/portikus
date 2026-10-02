@@ -21,6 +21,19 @@ export async function readJson<T>(path: string, schema: ZodType<T>): Promise<T |
 	}
 }
 
+/** The queued or running job, else the one started last. */
+export function currentJob<T extends { state: string; startedAt?: string | null }>(
+	jobs: T[],
+): T | null {
+	const active =
+		jobs.find((j) => j.state === "running") ?? jobs.find((j) => j.state === "queued");
+	if (active) return active;
+	const byStart = [...jobs].sort((a, b) =>
+		(b.startedAt ?? "").localeCompare(a.startedAt ?? ""),
+	);
+	return byStart[0] ?? null;
+}
+
 export async function listDir(path: string): Promise<string[]> {
 	try {
 		return await readdir(path);

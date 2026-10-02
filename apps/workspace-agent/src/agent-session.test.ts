@@ -532,6 +532,25 @@ test("a pre-existing untracked symlink is not a session addition", async () => {
 	}
 });
 
+test("pre-existing untracked files keep their executable and symlink modes", async () => {
+	const { home, dir } = await tempRepo("modes");
+	try {
+		await writeFile(join(dir, "run.sh"), "#!/bin/sh\n");
+		await chmod(join(dir, "run.sh"), 0o755);
+		await writeFile(join(dir, "plain.txt"), "x\n");
+		await symlink("plain.txt", join(dir, "plain.link"));
+		const recorded = await recordBaseline(dir);
+		const objectId = recorded.baselineObjectId;
+		if (!objectId) throw new Error("expected a baseline");
+		const listed = await git(["ls-tree", `${objectId}^2`], dir);
+		expect(listed).toMatch(/^100755 blob \w+\trun\.sh$/m);
+		expect(listed).toMatch(/^100644 blob \w+\tplain\.txt$/m);
+		expect(listed).toMatch(/^120000 blob \w+\tplain\.link$/m);
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
 test("a clean filter does not run while recording a baseline", async () => {
 	const { home, dir } = await tempRepo("filter");
 	try {

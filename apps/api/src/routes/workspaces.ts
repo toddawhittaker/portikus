@@ -249,6 +249,7 @@ export function registerWorkspaceRoutes(
 	// End the hold early. The
 	// timers start again from now, as if the student had just acted. With no
 	// hold left (it may have just expired) nothing changes.
+	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	app.delete("/workspaces/:id/keep-running", async (request, reply) => {
 		const user = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
@@ -289,6 +290,7 @@ export function registerWorkspaceRoutes(
 		const active = await countActive(db, params.id, config);
 		return toWorkspace(updated, active, config, await loadWorkspaceSettings(db));
 	});
+	// jscpd:ignore-end
 
 	// Helper: set desired_state and write audit
 	async function setDesired(

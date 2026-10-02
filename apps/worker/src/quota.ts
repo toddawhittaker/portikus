@@ -24,6 +24,7 @@ export interface QuotaSyncOptions {
 	now?: () => Date;
 }
 
+// jscpd:ignore-start -- the limits and quota syncs share a shape but not their columns.
 /**
  * Build the tick that grows workspace volumes to the size an administrator
  * asked for (SPEC.md §20.1, ADR 0006). The API writes `quota_config`; this
@@ -132,6 +133,7 @@ export function createQuotaSync(options: QuotaSyncOptions): () => Promise<void> 
 		});
 	}
 }
+// jscpd:ignore-end
 
 /** Run the quota sync now and then every QUOTA_SYNC_SECONDS; returns a stop function. */
 export function startQuotaSync(options: QuotaSyncOptions): () => void {

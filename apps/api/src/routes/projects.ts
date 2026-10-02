@@ -787,6 +787,7 @@ export function registerProjectRoutes(
 		},
 	);
 
+	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	// SPEC.md §7.2.
 	app.post(
 		"/workspaces/:id/projects/:pid/git-init",
@@ -808,6 +809,7 @@ export function registerProjectRoutes(
 			return toProject(row, true, false);
 		},
 	);
+	// jscpd:ignore-end
 
 	/** Answers 204 when the download would be under the size cap. */
 	async function checkDownloadSize(
