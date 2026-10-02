@@ -37,6 +37,19 @@ describe("history in comments is found", () => {
 		expect(matches("mk/vm.mk", "# PR 4")).toEqual(["PR 4"]);
 	});
 
+	test("hash comments in Python, OpenTofu, systemd units and extensionless scripts", () => {
+		expect(matches("a.py", "x = 1  # see #12")).toEqual(["#12"]);
+		expect(matches("main.tf", "# Epic 2\nresource {}")).toEqual(["Epic 2"]);
+		expect(matches("a.service", "# PR 7\n[Unit]")).toEqual(["PR 7"]);
+		expect(matches("a.timer", "# issue 9")).toEqual(["issue 9"]);
+		expect(matches("packaging/scripts/postinst", "#!/bin/sh\n# see #77")).toEqual([
+			"#77",
+		]);
+		expect(matches("packaging/registry/registry-job", "# ruling 3")).toEqual([
+			"ruling 3",
+		]);
+	});
+
 	test("Jinja comments", () => {
 		expect(matches("t.conf.j2", "{# issue #12 #}\nx")).toEqual(["issue #12"]);
 	});

@@ -90,6 +90,9 @@ jobs:
           done <<< "$changed"
           echo "app=$app" >> "$GITHUB_OUTPUT"
           echo "infra=$infra" >> "$GITHUB_OUTPUT"
+      # Runs on every change, not only app ones; the script needs no install.
+      - name: Check comments for project history
+        run: node scripts/check-comment-history.mjs
 
   app:
     name: Application checks
