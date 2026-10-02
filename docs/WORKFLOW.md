@@ -244,6 +244,25 @@ reviews the whole system, one app or area per run, for layers and
 boundaries that local decisions have bent. The user picks which
 findings become an epic.
 
+## Code style
+
+- Comments say why, never history. Do not write issue or PR numbers,
+  epic or task names, review codes, "ruling N", or pointers into epic
+  plans; the history lives in version control, and plans are deleted.
+  Cite a SPEC.md section or an ADR instead.
+- Do not copy a helper. Search for one that does the job and import it;
+  if two places need the same code, move it into a shared module.
+- A value that must match in two files or processes is one exported
+  constant, not two values and a comment.
+
+`pnpm lint` runs `scripts/check-comment-history.mjs`, which fails on
+history references in code comments and test titles; Knip, which fails
+on unused files, exports and dependencies; jscpd, which fails on any
+copied block of 70 tokens and 8 lines (a deliberate copy carries a
+`jscpd:ignore-start` comment saying why); and Biome's cognitive
+complexity rule, which fails on a function scoring over 30 (tests,
+e2e and the test fakes are exempt).
+
 ## Pull requests
 
 Every pull request cites the SPEC.md and STACK.md sections it serves and

@@ -1991,3 +1991,43 @@ when the job fails.
 **What it would take.** Ship `managed-settings.json` from the package template too, or restore it at start, with a unit test.
 
 **Source.** Epic 28 pilot verification.
+
+## The worker's create budget can be short
+
+**What.** The worker gives a workspace create 300 seconds: 240 for the instance wait plus 60. Each volume create may take up to 60 seconds more, so a slow create can run out of budget.
+
+**What it would take.** Add the volume creates' time to the budget in the worker's controller client, with a unit test.
+
+**Source.** Epic 29 review.
+
+## The preview audit throttle has its own audit insert
+
+**What.** `apps/api/src/preview/audit-throttle.ts` writes its audit row itself instead of through `recordAudit`, because it needs the new row's id back.
+
+**What it would take.** Let `recordAudit` return the id, then use it there.
+
+**Source.** Epic 29 review.
+
+## presence.ts reads an untyped workspace row
+
+**What.** `workspaceRow` in `presence.ts` is untyped.
+
+**What it would take.** Give it the row type from `@portikus/db`, with a typecheck to prove it.
+
+**Source.** Epic 29 review.
+
+## Move the 'student@<label>' rule into a numbered section
+
+**What.** The SPEC.md rule for `student@<label>` lives only in section 29's Epic 8 entry, where readers looking for requirements will not find it.
+
+**What it would take.** Move the rule into the numbered section it belongs to and point the Epic 8 entry there.
+
+**Source.** Epic 29 review.
+
+## Make the comment check read regex literals and quoted strings
+
+**What.** `scripts/check-comment-history.mjs` does not understand regex literals, so a backtick inside one hides the rest of the file from the check (today only `apps/worker/src/grants.test.ts`). It also flags a CSS colour such as `/* grey #333 */`, a `#12` inside a quoted shell or YAML string, and a `.test("#123")` call read as a test title. None of these occur today.
+
+**What it would take.** Teach the scanner regex literals and quoted strings, or use a real parser per language, with tests for each case.
+
+**Source.** Epic 29 review.
