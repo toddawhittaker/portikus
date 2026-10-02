@@ -12,6 +12,19 @@ import {
 	Workspace,
 } from "./workspace.js";
 
+/** The shared workspace profile's limits, as Incus spells them. */
+export const ProfileLimits = z.object({
+	cpu: z.string().nullable(),
+	memory: z.string().nullable(),
+	processes: z.string().nullable(),
+});
+
+/** The image an Incus alias points to. */
+export const AliasImage = z.object({
+	fingerprint: z.string().nullable(),
+	serial: z.string().nullable(),
+});
+
 /** An account with no sign-in for this many days is marked stale. */
 export const STALE_AFTER_DAYS = 30;
 
@@ -285,15 +298,8 @@ export const HealthReport = z.object({
 				/** Thin-pool metadata use; null when the host has not reported it. */
 				metadataPercent: z.number().nonnegative().nullable(),
 			}),
-			profileLimits: z.object({
-				cpu: z.string().nullable(),
-				memory: z.string().nullable(),
-				processes: z.string().nullable(),
-			}),
-			image: z.object({
-				fingerprint: z.string().nullable(),
-				serial: z.string().nullable(),
-			}),
+			profileLimits: ProfileLimits,
+			image: AliasImage,
 		})
 		.nullable(),
 	workspacesByState: z.record(z.string(), z.number().int().nonnegative()),

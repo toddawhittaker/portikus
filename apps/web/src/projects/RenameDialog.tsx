@@ -52,6 +52,7 @@ export function RenameDialog({
 					</>
 				}
 			>
+				{/* jscpd:ignore-start -- rename and duplicate share a name field but not their actions. */}
 				<form
 					onSubmit={(event) => {
 						event.preventDefault();
@@ -76,6 +77,7 @@ export function RenameDialog({
 					<button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
 				</form>
 				<DialogError error={rename.error} />
+				{/* jscpd:ignore-end */}
 			</Dialog>
 		</DialogRoot>
 	);

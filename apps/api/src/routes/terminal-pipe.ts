@@ -38,7 +38,7 @@ const MAX_QUEUED_BYTES = 64 * 1024;
 const AGENT_HANDSHAKE_TIMEOUT_MS = 5000;
 
 /** Close codes a WebSocket peer is allowed to send on. */
-export function safeCloseCode(code: number): number {
+function safeCloseCode(code: number): number {
 	if (code === 1000 || (code >= 1001 && code <= 1003)) return code;
 	if (code >= 1007 && code <= 1011) return code;
 	if (code >= 3000 && code <= 4999) return code;
@@ -346,4 +346,100 @@ function toBuffer(data: RawData): Buffer {
 	if (Buffer.isBuffer(data)) return data;
 	if (Array.isArray(data)) return Buffer.concat(data);
 	return Buffer.from(data);
+}
+
+export interface OneWayPipeOptions {
+	db: Kysely<Database>;
+	socket: WebSocket;
+	/** The agent socket to read from, and its authorization header. */
+	url: string;
+	authHeader: string;
+	workspaceId: string;
+	sessionToken: string | null;
+	log: FastifyBaseLogger;
+	/** The fixed reason the browser hears when the agent closes. */
+	closeReason: (safeCode: number) => string;
+	/** The log message for an agent socket error. */
+	failureMessage: string;
+}
+
+/**
+ * Forward frames from one agent socket to one browser socket. Nothing travels
+ * the other way: a frame the browser sends is dropped, so a hostile page
+ * cannot reach the agent through this socket (SPEC.md §24.6).
+ */
+export async function pipeOneWay(options: OneWayPipeOptions): Promise<void> {
+	const { db, socket, workspaceId, sessionToken, log } = options;
+
+	const upstream = new WebSocketClient(options.url, {
+		headers: { authorization: options.authHeader },
+		handshakeTimeout: AGENT_HANDSHAKE_TIMEOUT_MS,
+		maxPayload: MAX_AGENT_FRAME_BYTES,
+	});
+
+	let closed = false;
+	const backpressure = pipeBackpressure(socket, upstream);
+
+	async function sessionStillValid(): Promise<void> {
+		const user = sessionToken ? await loadSession(db, sessionToken) : null;
+		if (user && !sessionGate(user)) return;
+		socket.close(4401, "session revoked");
+	}
+
+	const sessionTimer = setInterval(() => {
+		void sessionStillValid().catch(() => {});
+	}, SESSION_CHECK_INTERVAL_MS);
+
+	await new Promise<void>((resolve) => {
+		function finish(): void {
+			if (closed) return;
+			closed = true;
+			clearInterval(sessionTimer);
+			backpressure.cancel();
+			resolve();
+		}
+
+		socket.on("message", () => {});
+
+		// The browser's own reason bytes are never sent on: the agent is told
+		// only that the browser went away (SPEC.md §24.1).
+		socket.on("close", (code: number) => {
+			if (
+				upstream.readyState === WebSocketClient.OPEN ||
+				upstream.readyState === WebSocketClient.CONNECTING
+			) {
+				upstream.close(safeCloseCode(code), "browser closed");
+			}
+			finish();
+		});
+
+		socket.on("error", () => finish());
+
+		upstream.on("message", (data: RawData) => {
+			if (socket.readyState !== socket.OPEN) return;
+			socket.send(data.toString());
+			backpressure.apply();
+		});
+
+		// The agent's reason bytes are never relayed; the browser gets our own
+		// words for the close (SPEC.md §24.1).
+		upstream.on("close", (code: number) => {
+			if (socket.readyState === socket.OPEN) {
+				const safe = safeCloseCode(code);
+				socket.close(safe, options.closeReason(safe));
+			}
+			finish();
+		});
+
+		upstream.on("error", (error: Error) => {
+			// The slug is a student-chosen name, so it stays out of the log.
+			const line = { err: error, workspaceId };
+			if (closed) log.info(line, options.failureMessage);
+			else log.error(line, options.failureMessage);
+			if (socket.readyState === socket.OPEN) {
+				socket.close(1011, "agent unavailable");
+			}
+			finish();
+		});
+	});
 }

@@ -379,11 +379,8 @@ export async function deleteProject(slug: string, homeDir: string): Promise<void
 	await rm(target.path, { recursive: true, force: true });
 }
 
-export async function renameProject(
-	slug: string,
-	to: string,
-	homeDir: string,
-): Promise<AgentProject> {
+/** The existing project `slug` and the unused name `to`, or the failure to report. */
+async function sourceAndFreeTarget(slug: string, to: string, homeDir: string) {
 	const source = await resolveProject(slug, homeDir);
 	if (!source.exists) {
 		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
@@ -392,6 +389,15 @@ export async function renameProject(
 	if (target.exists) {
 		throw new AgentFailure("PROJECT_EXISTS", "a project with that name already exists");
 	}
+	return { source, target };
+}
+
+export async function renameProject(
+	slug: string,
+	to: string,
+	homeDir: string,
+): Promise<AgentProject> {
+	const { source, target } = await sourceAndFreeTarget(slug, to, homeDir);
 	await rename(source.path, target.path);
 	return { slug: to, isGitRepo: await isGitRepo(target.path) };
 }
@@ -401,14 +407,7 @@ export async function duplicateProject(
 	to: string,
 	homeDir: string,
 ): Promise<AgentProject> {
-	const source = await resolveProject(slug, homeDir);
-	if (!source.exists) {
-		throw new AgentFailure("PROJECT_NOT_FOUND", "no such project");
-	}
-	const target = await resolveProject(to, homeDir);
-	if (target.exists) {
-		throw new AgentFailure("PROJECT_EXISTS", "a project with that name already exists");
-	}
+	const { source, target } = await sourceAndFreeTarget(slug, to, homeDir);
 	try {
 		// --no-dereference keeps symlinks as symlinks, so a link pointing
 		// outside the project is copied, never followed (SPEC.md §24.6).

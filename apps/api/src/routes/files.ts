@@ -449,6 +449,7 @@ export function registerFileRoutes(
 			return reply.status(201).send({ ok: true });
 		});
 
+		// jscpd:ignore-start -- each route spells out its own checks, in order.
 		instance.post("/workspaces/:id/projects/:pid/move", async (request, reply) => {
 			const scope = await scopedProject(db, config, request, reply);
 			if (!scope) return;
@@ -473,6 +474,7 @@ export function registerFileRoutes(
 			await response.body?.cancel();
 			return reply.status(204).send();
 		});
+		// jscpd:ignore-end
 
 		// "Extract here" on a zip. One at a time
 		// per workspace, because a large zip holds the request for minutes.

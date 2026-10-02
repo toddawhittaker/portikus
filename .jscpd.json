@@ -1,0 +1,22 @@
+{
+	"path": ["apps", "packages", "e2e", "scripts", "infra", "packaging"],
+	"format": ["typescript", "tsx", "javascript", "bash", "python"],
+	"ignore": [
+		"**/node_modules/**",
+		"**/dist/**",
+		"**/.tsbuild/**",
+		"**/*.test.ts",
+		"**/*.test.tsx",
+		"**/*.spec.ts",
+		"**/test/**",
+		"**/tests/**",
+		"**/migrations/**",
+		"**/fake-*.ts"
+	],
+	"minTokens": 70,
+	"minLines": 8,
+	"gitignore": true,
+	"absolute": true,
+	"reporters": ["console"],
+	"exitCode": 1
+}

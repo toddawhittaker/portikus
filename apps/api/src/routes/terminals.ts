@@ -432,6 +432,7 @@ export function registerTerminalRoutes(
 	// Display name, colour scheme, or
 	// both (SPEC.md §9.6). A scheme change repaints the browser;
 	// the shell that is already running keeps the COLORFGBG it started with.
+	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	app.patch("/workspaces/:id/terminals/:tid", async (request, reply) => {
 		const user = requireUser(request);
 		const params = parseOr400(TerminalParam, request.params, reply);
@@ -461,6 +462,7 @@ export function registerTerminalRoutes(
 		}
 		return toTerminal(updated);
 	});
+	// jscpd:ignore-end
 
 	// Closing is a user action, so the
 	// terminal goes away entirely (SPEC.md §9.3). The "ended" state is for

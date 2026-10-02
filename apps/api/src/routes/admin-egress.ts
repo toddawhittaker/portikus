@@ -401,6 +401,7 @@ export function registerAdminEgressRoutes(
 		);
 	});
 
+	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	app.delete("/admin/egress/blocked-sites/:id", adminOnly, async (request, reply) => {
 		const admin = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply, "invalid entry id");
@@ -418,4 +419,5 @@ export function registerAdminEgressRoutes(
 			await audit(trx, admin.id, params.id, "egress.block_removed", gone);
 		});
 	});
+	// jscpd:ignore-end
 }

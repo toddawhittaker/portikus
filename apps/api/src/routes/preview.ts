@@ -450,6 +450,7 @@ export function registerPreviewRoutes(
 		return reply.header("cache-control", "no-store").send(verdict);
 	});
 
+	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	app.post("/workspaces/:id/preview/reset", async (request, reply) => {
 		const user = requireUser(request);
 		const params = IdParams.safeParse(request.params);
@@ -470,6 +471,7 @@ export function registerPreviewRoutes(
 		}
 		return reply.status(204).send();
 	});
+	// jscpd:ignore-end
 
 	// ── Preview host: Caddy proxies these two paths straight to the API ──
 
