@@ -224,7 +224,6 @@ export async function createWorkspace(
 		error_code: string | null;
 		quota_config: { homeGiB: number; dockerGiB: number; recoveryGiB?: number } | null;
 	},
-	now: Date,
 	retryDelaysMs: readonly number[],
 ): Promise<string | null> {
 	// A re-create keeps the sizes the row already has; the controller keeps a
@@ -253,7 +252,7 @@ export async function createWorkspace(
 					error_code: null,
 					error_message: null,
 				},
-				now,
+				new Date(),
 			);
 			if (!updated) return null;
 			await recordAudit(db, {
@@ -283,7 +282,7 @@ export async function createWorkspace(
 					ws.id,
 					"provisioning",
 					{ error_code: err.code, error_message: userMessage(err.code) },
-					now,
+					new Date(),
 				);
 				if (!refused) return null;
 				await recordAudit(db, {
@@ -306,7 +305,7 @@ export async function createWorkspace(
 					error_code: err.code,
 					error_message: userMessage(err.code),
 				},
-				now,
+				new Date(),
 			);
 			if (!updated) return null;
 			await recordAudit(db, {
@@ -366,7 +365,6 @@ export async function startInstance(
 		label: string;
 		quota_config: { dockerGiB?: number; recoveryGiB?: number } | null;
 	},
-	now: Date,
 ): Promise<void> {
 	// Rotate before the start call so the row always holds the token the
 	// agent is about to be given.
@@ -388,8 +386,8 @@ export async function startInstance(
 			db,
 			ws.id,
 			"starting",
-			{ state: "running", agent_address: result.ipv4, ...startedNow(now) },
-			now,
+			{ state: "running", agent_address: result.ipv4, ...startedNow(new Date()) },
+			new Date(),
 		);
 		if (updated) {
 			await recordAudit(db, {
@@ -411,7 +409,7 @@ export async function startInstance(
 				error_code: err.code,
 				error_message: userMessage(err.code),
 			},
-			now,
+			new Date(),
 		);
 		await recordAudit(db, {
 			actor: "worker",
@@ -611,8 +609,7 @@ export async function runOperation(
 		pending_operation_by: string | null;
 		dockerGiB: number;
 	},
-	now: Date,
-): Promise<number> {
+): Promise<void> {
 	const clear = {
 		pending_operation: null,
 		pending_operation_at: null,
@@ -636,7 +633,7 @@ export async function runOperation(
 			});
 			imageFingerprint = result.imageFingerprint;
 		}
-		const updated = await casUpdate(
+		await casUpdate(
 			db,
 			ws.id,
 			ws.state,
@@ -647,7 +644,7 @@ export async function runOperation(
 				error_message: null,
 				...(imageFingerprint ? { image_version: imageFingerprint } : {}),
 			},
-			now,
+			new Date(),
 		);
 		await recordAudit(db, {
 			actor: "worker",
@@ -656,10 +653,9 @@ export async function runOperation(
 			result: "ok",
 			metadata: imageFingerprint ? { ...metadata, imageFingerprint } : metadata,
 		});
-		return updated && ws.state !== "stopped" ? 1 : 0;
 	} catch (e) {
 		const err = toControllerError(e);
-		const updated = await casUpdate(
+		await casUpdate(
 			db,
 			ws.id,
 			ws.state,
@@ -669,7 +665,7 @@ export async function runOperation(
 				error_code: err.code,
 				error_message: OPERATION_FAILED_MESSAGE[ws.pending_operation],
 			},
-			now,
+			new Date(),
 		);
 		await recordAudit(db, {
 			actor: "worker",
@@ -678,6 +674,5 @@ export async function runOperation(
 			result: "failed",
 			metadata: { ...metadata, errorCode: err.code },
 		});
-		return updated && ws.state !== "error" ? 1 : 0;
 	}
 }

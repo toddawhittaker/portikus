@@ -245,7 +245,7 @@ async function trackDisconnections(ctx: SweepContext): Promise<void> {
 
 /** Step 3a: create provisioning workspaces. */
 async function createProvisioning(ctx: SweepContext): Promise<void> {
-	const { db, controller, config, now, log, createRetryDelaysMs, record } = ctx;
+	const { db, controller, config, log, createRetryDelaysMs, record } = ctx;
 	// 3a: provisioning -> create -> stopped/error
 	const provisioning = await db
 		.selectFrom("workspaces")
@@ -264,7 +264,6 @@ async function createProvisioning(ctx: SweepContext): Promise<void> {
 				controller,
 				config,
 				{ ...ws, incus_instance_name: name },
-				now,
 				createRetryDelaysMs,
 			);
 			if (outcome)
@@ -311,7 +310,7 @@ async function startInBackground(
 	if (!(await moveToStarting(db, ws.id, fromState, now))) return;
 	ctx.transitions++;
 	runInBackground(ws.id, "start", log, () =>
-		startInstance(db, controller, config, { ...ws, incus_instance_name: name }, now),
+		startInstance(db, controller, config, { ...ws, incus_instance_name: name }),
 	);
 }
 
@@ -544,7 +543,7 @@ async function runMaintenance(ctx: SweepContext): Promise<void> {
 			dockerGiB: dockerGiBOf(ws.quota_config, config),
 		};
 		runInBackground(ws.id, ws.pending_operation, log, async () => {
-			await runOperation(db, controller, operation, now);
+			await runOperation(db, controller, operation);
 		});
 	}
 }

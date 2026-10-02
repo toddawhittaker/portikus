@@ -411,7 +411,7 @@ test.skipIf(skip)(
 			return rebuild(name, req);
 		};
 		const by = await insertTestUser(tdb.db);
-		for (let i = 0; i < 6; i++) {
+		for (let i = 0; i < 7; i++) {
 			await insertWorkspace({
 				pending_operation: "rebuild",
 				pending_operation_at: new Date(Date.now() - 1000).toISOString(),
@@ -438,6 +438,50 @@ test.skipIf(skip)(
 			await settleInFlight();
 			fake.rebuild = rebuild;
 		}
+		expect(rebuildCalls).toBe(7);
+	},
+);
+
+test.skipIf(skip)(
+	"a start that waited for a slot and failed is stamped when it ended",
+	async () => {
+		let releaseRebuilds = (): void => {};
+		const held = new Promise<void>((r) => {
+			releaseRebuilds = r;
+		});
+		const rebuild = fake.rebuild.bind(fake);
+		fake.rebuild = async (name, req) => {
+			await held;
+			return rebuild(name, req);
+		};
+		const by = await insertTestUser(tdb.db);
+		for (let i = 0; i < 6; i++) {
+			await insertWorkspace({
+				pending_operation: "rebuild",
+				pending_operation_at: new Date(Date.now() - 1000).toISOString(),
+				pending_operation_by: by,
+			});
+		}
+		fake.startResult = new ControllerClientError("STORAGE_FULL", "pool is full");
+		const now = new Date(Date.now() - 60_000);
+		let id = "";
+		let releasedAt = 0;
+		try {
+			await reconcile(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+			id = await insertWorkspace({ state: "stopped", desired_state: "running" });
+			await insertConnection(id);
+			await reconcile(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+			await new Promise((r) => setTimeout(r, 50));
+			expect((await getWorkspace(id)).state).toBe("starting");
+			releasedAt = Date.now();
+		} finally {
+			releaseRebuilds();
+			await settleInFlight();
+			fake.rebuild = rebuild;
+		}
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("error");
+		expect(new Date(ws.updated_at).getTime()).toBeGreaterThanOrEqual(releasedAt);
 	},
 );
 
@@ -2042,7 +2086,7 @@ test.skipIf(skip)(
 		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
 		const ws = await getWorkspace(id);
 		expect(ws.state).toBe("running");
-		expect(ws.last_activity_at?.getTime()).toBe(now.getTime());
+		expect(ws.last_activity_at?.getTime()).toBeGreaterThanOrEqual(now.getTime());
 		expect(ws.idle_stop_at).toBeNull();
 	},
 );

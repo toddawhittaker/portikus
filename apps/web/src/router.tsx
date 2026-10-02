@@ -10,7 +10,7 @@ import {
 	useParams,
 	useRouterState,
 } from "@tanstack/react-router";
-import { lazy, type ReactNode, Suspense, useEffect } from "react";
+import { type ComponentType, lazy, type ReactNode, Suspense, useEffect } from "react";
 import { AcceptableUsePage } from "./acceptable-use/AcceptableUsePage.js";
 import { sanitizeLogSearch } from "./admin/logs/filters.js";
 import { ADMIN_TABS } from "./admin/tabs.js";
@@ -33,22 +33,38 @@ import { WorkArea } from "./work/WorkArea.js";
 // Pages most people never open load on first visit, keeping the shell's
 // first load small (SPEC.md section 25.1).
 // A file gone after a deploy reloads the page through shell/reloadOnStaleChunk.ts.
-const AdminPage = lazy(() =>
-	import("./admin/AdminPage.js").then((module) => ({ default: module.AdminPage })),
+const AdminPage = lazyPage(
+	() => import("./admin/AdminPage.js"),
+	(module) => module.AdminPage,
 );
-const CourseListPage = lazy(() =>
-	import("./course/CoursePage.js").then((module) => ({
-		default: module.CourseListPage,
-	})),
+const CourseListPage = lazyPage(
+	() => import("./course/CoursePage.js"),
+	(module) => module.CourseListPage,
 );
-const CourseMembersPage = lazy(() =>
-	import("./course/CoursePage.js").then((module) => ({
-		default: module.CourseMembersPage,
-	})),
+const CourseMembersPage = lazyPage(
+	() => import("./course/CoursePage.js"),
+	(module) => module.CourseMembersPage,
 );
-const HelpPage = lazy(() =>
-	import("./help/HelpPage.js").then((module) => ({ default: module.HelpPage })),
+const HelpPage = lazyPage(
+	() => import("./help/HelpPage.js"),
+	(module) => module.HelpPage,
 );
+
+/**
+ * A lazy page that keeps loading while a stale chunk reloads the page: Vite
+ * resolves the import with undefined once that reload has taken over, and
+ * reading a page from it would flash the router's error page first.
+ */
+export function lazyPage<M>(
+	load: () => Promise<M | undefined>,
+	pick: (module: M) => ComponentType,
+) {
+	return lazy(() =>
+		load().then((module) =>
+			module === undefined ? new Promise<never>(() => {}) : { default: pick(module) },
+		),
+	);
+}
 
 /** The same quiet, busy page a signed-in screen shows while it loads. */
 function Lazy({ children }: { children: ReactNode }) {
