@@ -152,7 +152,6 @@ export const IMAGE_TOOLS = [
 	"claude",
 	"codex",
 ] as const;
-export type ImageTool = (typeof IMAGE_TOOLS)[number];
 
 const ToolVersion = z.string().max(200).nullable();
 
