@@ -218,7 +218,7 @@ export async function terminalIds(
 }
 
 /** Where a project directory lives inside the workspace (SPEC.md §7.1). */
-export function projectPath(slug: string): string {
+function projectPath(slug: string): string {
 	return `/home/student/projects/${slug}`;
 }
 

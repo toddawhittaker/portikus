@@ -61,12 +61,6 @@ variable "cloud_init_user_data" {
   type        = string
 }
 
-variable "cloud_init_network_config" {
-  description = "cloud-init network-config as a string (optional)"
-  type        = string
-  default     = ""
-}
-
 variable "mac_address" {
   description = "MAC address of the VM's network interface; empty lets libvirt pick one"
   type        = string

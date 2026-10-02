@@ -12,9 +12,7 @@ sql_in_list() {
   printf '%s' "$out"
 }
 
-# Only what this run recorded is deleted: an earlier version removed every
-# workspace owned by a mock account, and on the pilot an operator signs in
-# as one of them.
+# Only what this run recorded is deleted; the VM may hold real accounts.
 cleanup_lifecycle() {
   echo ""
   echo "Cleaning up the control plane smoke resources..."

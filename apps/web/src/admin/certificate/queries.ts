@@ -15,7 +15,7 @@ export const certificateKey = ["admin", "certificate"] as const;
 export const ROOT_CERTIFICATE_URL = "/admin/certificate/root.crt";
 
 /** The page polls a queued or running job every two seconds, as the image page does. */
-export const CERTIFICATE_POLL_MS = 2000;
+const CERTIFICATE_POLL_MS = 2000;
 
 export function isActive(state: CertificateJobState | undefined): boolean {
 	return state === "queued" || state === "running";

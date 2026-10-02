@@ -8,8 +8,8 @@ import {
 export { AgentCallError };
 
 /** Archiving a large project is slow, but a hung agent must not hold the sweep for long. */
-export const CREATE_TIMEOUT_MS = 2 * 60 * 1000;
-export const DELETE_TIMEOUT_MS = 30 * 1000;
+const CREATE_TIMEOUT_MS = 2 * 60 * 1000;
+const DELETE_TIMEOUT_MS = 30 * 1000;
 
 /** The recovery operations the worker needs from a workspace agent (ADR 0020). */
 export interface RecoveryAgent {
@@ -74,7 +74,7 @@ export class HttpRecoveryAgent implements RecoveryAgent {
 }
 
 /** The agent's own docker calls take up to 10 s each; three run in turn. */
-export const INVENTORY_TIMEOUT_MS = 45 * 1000;
+const INVENTORY_TIMEOUT_MS = 45 * 1000;
 /** The agent caps docker's output at 4 MiB; its JSON reply stays below twice that. */
 const INVENTORY_JSON_LIMIT_BYTES = 8 * 1024 * 1024;
 

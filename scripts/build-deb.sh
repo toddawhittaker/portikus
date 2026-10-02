@@ -116,11 +116,11 @@ prune_tree() {
 	find "$tree" -name '.env*' -prune -exec rm -rf {} +
 	find "$tree" -type f \( -name '.npmrc' -o -name '*.test.js' \
 		-o -name '*.test.d.ts' -o -name '*.js.map' -o -name '*.d.ts.map' \) -delete
-	# Test doubles and test helpers. @portikus/auth/dist/testing stays: the
-	# mock identity provider service runs from it (ADR 0008).
+	# Test doubles and test helpers, the mock identity provider included.
 	rm -rf "$tree"/dist/fake-* "$tree"/dist/test-support.* "$tree/dist/security"
 	find "$tree" \( -path '*/@portikus/db/dist/testing.*' \
 		-o -path '*/@portikus/observability/dist/testing.*' \) -delete
+	find "$tree" -type d -path '*/@portikus/auth/dist/testing' -prune -exec rm -rf {} +
 	# The package ships read-only files owned by root.
 	chmod -R u=rwX,go=rX "$tree"
 }

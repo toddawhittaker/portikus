@@ -11,7 +11,7 @@ export interface SettingsControl {
 }
 
 /** Controls shown together under one heading inside a section. */
-export interface SettingsGroup {
+interface SettingsGroup {
 	title: string;
 	controls: readonly SettingsControl[];
 }

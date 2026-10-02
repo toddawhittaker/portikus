@@ -9,11 +9,11 @@ import { useState } from "react";
 import { announced } from "../common/announced.js";
 
 /** The terminals unit's own TasksMax, which a higher process limit does not raise (SPEC.md section 19.3). */
-export const TERMINALS_TASKS_MAX = 1700;
+const TERMINALS_TASKS_MAX = 1700;
 
 export type LimitKey = keyof UpdateLimitsRequest;
 
-export const LIMIT_FIELDS: {
+const LIMIT_FIELDS: {
 	key: LimitKey;
 	label: string;
 	min: number;
@@ -78,7 +78,7 @@ export function siteLimits(host: HealthReport["host"] | undefined): SiteLimits |
 const count = (n: number) => n.toLocaleString("en-US");
 
 /** "4 GiB" or "3.7 GiB" from MiB, one decimal at most. */
-export function gibText(mib: number): string {
+function gibText(mib: number): string {
 	return `${count(Math.round((mib / 1024) * 10) / 10)} GiB`;
 }
 

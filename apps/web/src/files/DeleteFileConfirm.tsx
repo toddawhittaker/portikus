@@ -11,7 +11,7 @@ import { displayName } from "./paths.js";
 const NAMES_SHOWN = 3;
 
 /** The sentence under the title, for one node or for many. */
-export function deleteDescription(nodes: readonly FileNode[]): string {
+function deleteDescription(nodes: readonly FileNode[]): string {
 	const first = nodes[0];
 	if (nodes.length === 1 && first) {
 		return first.isDir

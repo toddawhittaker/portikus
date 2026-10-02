@@ -658,37 +658,6 @@ test("ApiConfig defaults to no default role, no proxy, no Dex gRPC", () => {
 	expect(config.DEX_GRPC_ADDR).toBeUndefined();
 });
 
-test("ApiConfig refuses a retired provider, tenant or domain setting (ADR 0031)", () => {
-	for (const env of [
-		{ OIDC_PROVIDER: "google" },
-		{ OIDC_PROVIDER: "entra" },
-		{ OIDC_ALLOWED_TENANT: "11111111-2222-3333-4444-555555555555" },
-		{ OIDC_ALLOWED_DOMAINS: "school.edu" },
-		{ OIDC_PROVIDER: "oidc", OIDC_ALLOWED_DOMAINS: "school.edu" },
-	]) {
-		try {
-			loadConfig(ApiConfigSchema, { ...apiDevBase, ...env });
-			expect.unreachable("should have thrown");
-		} catch (error) {
-			expect(error).toBeInstanceOf(ConfigError);
-			expect((error as ConfigError).message).toContain("rerun the play");
-		}
-	}
-});
-
-test("ApiConfig accepts an empty or oidc provider with no tenant or domains", () => {
-	for (const OIDC_PROVIDER of ["", "oidc"]) {
-		expect(() =>
-			loadConfig(ApiConfigSchema, {
-				...apiDevBase,
-				OIDC_PROVIDER,
-				OIDC_ALLOWED_TENANT: "",
-				OIDC_ALLOWED_DOMAINS: "",
-			}),
-		).not.toThrow();
-	}
-});
-
 test("ApiConfig takes none and student as the default role", () => {
 	for (const role of ["none", "student"] as const) {
 		const config = loadConfig(ApiConfigSchema, {

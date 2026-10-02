@@ -40,12 +40,12 @@ const INTRO = {
 	text: "The image every new workspace starts from. Update it to the newest published image, or rebuild it with current packages and a chosen Node and Python. A new image must pass its health check before you make it the default. Existing workspaces keep their image until you rebuild each one.",
 };
 
-export const NODE_LABEL: Record<ImageNodeChoice, string> = {
+const NODE_LABEL: Record<ImageNodeChoice, string> = {
 	"24": "Node 24",
 	"26": "Node 26",
 };
 
-export const PYTHON_LABEL: Record<ImagePythonChoice, string> = {
+const PYTHON_LABEL: Record<ImagePythonChoice, string> = {
 	debian: "Debian's Python 3.13",
 	"uv-3.14": "Debian's plus Python 3.14 from uv",
 };

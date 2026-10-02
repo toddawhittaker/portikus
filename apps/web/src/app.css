@@ -533,15 +533,6 @@ button.pk-statusbar-item:focus-visible {
 	color: var(--ink-muted);
 	font-variant-numeric: tabular-nums;
 }
-.pk-list-slug {
-	flex: 0 1 auto;
-	min-width: 0;
-	max-width: 45%;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	color: var(--ink-faint);
-}
 .pk-tag {
 	display: inline-flex;
 	align-items: center;
@@ -694,12 +685,6 @@ button.pk-statusbar-item:hover {
 }
 .pk-notice--warning .pk-notice-icon {
 	color: var(--status-warning);
-}
-.pk-notice--error {
-	background: var(--status-error-soft);
-}
-.pk-notice--error .pk-notice-icon {
-	color: var(--status-error);
 }
 .pk-notice-main {
 	flex: 1;

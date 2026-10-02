@@ -133,7 +133,6 @@ Each workspace may use 4 GB (`workspace_memory_limit` in `infra/ansible/site.yml
 | portikus-worker | about 100 MiB | 512M |
 | portikus-controller | about 75 MiB | 512M |
 | portikus-dex | about 30 MiB | 256M |
-| portikus-mock-idp (test only) | a few tens of MiB | 256M |
 | Caddy | about 80 MiB | 1G |
 | PostgreSQL | about 25 MiB for the main process | none |
 

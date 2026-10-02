@@ -11,7 +11,7 @@ import { type ControllerClient, ControllerClientError } from "./controller-clien
 import { startLoop } from "./loop.js";
 
 /** How often the worker looks for a policy an administrator changed. */
-export const EGRESS_SYNC_SECONDS = 2;
+const EGRESS_SYNC_SECONDS = 2;
 
 /** How long a failed apply rests before the worker tries it again. */
 export const EGRESS_RETRY_SECONDS = 30;

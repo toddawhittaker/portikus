@@ -154,7 +154,7 @@ const DNS_NAME_PATTERN =
 const PROFILE_PATH = "/etc/profile.d/portikus.sh";
 
 /** Where the recovery volume is mounted inside the container (ADR 0020). */
-export const RECOVERY_PATH = "/var/lib/portikus/recovery";
+const RECOVERY_PATH = "/var/lib/portikus/recovery";
 
 /** How long to wait for Incus to replace a root filesystem. */
 const REBUILD_TIMEOUT_SECONDS = 600;
@@ -204,11 +204,7 @@ function assertStopped(name: string, status: string | undefined): void {
 }
 
 // The controller's own timeouts live in @portikus/contracts so the worker's budgets derive from them.
-export {
-	AGENT_RESTART_TIMEOUT_SECONDS,
-	INSTANCE_CREATE_WAIT_SECONDS,
-	VOLUME_CREATE_TIMEOUT_MS,
-};
+export { INSTANCE_CREATE_WAIT_SECONDS, VOLUME_CREATE_TIMEOUT_MS };
 
 /**
  * How long the agent has to answer /health once the instance is running. This

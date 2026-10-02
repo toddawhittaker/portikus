@@ -65,7 +65,7 @@ signin_email=$(sed -n 1p "$PORTIKUS_SMOKE_SIGNIN_FILE")
 AUTHORITY="${PORTIKUS_PUBLIC_HOST}:${PORTIKUS_PUBLIC_PORT}"
 REHEARSAL_NAME=portikus-rehearsal
 LOGS=$(mktemp -d "${TMPDIR:-/tmp}/portikus-rebuild-exercise.XXXXXX")
-M=(make -C "$ROOT" --no-print-directory TOFU_ENV=rehearsal-libvirt PORTIKUS_IDP=dex
+M=(make -C "$ROOT" --no-print-directory TOFU_ENV=rehearsal-libvirt
   "PORTIKUS_PUBLIC_HOST=${PORTIKUS_PUBLIC_HOST}" "PORTIKUS_PUBLIC_PORT=${PORTIKUS_PUBLIC_PORT}")
 
 names=() seconds=() results=()

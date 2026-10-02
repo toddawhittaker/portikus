@@ -33,7 +33,7 @@ export interface TextFieldProps
  * 18px line and the 24px button overflows it evenly, so a field with help lines
  * up with one without (the target stays 24px, WCAG 2.5.8).
  */
-export const LABEL_ROW_CLASS = "flex h-[18px] min-w-0 items-center gap-1";
+const LABEL_ROW_CLASS = "flex h-[18px] min-w-0 items-center gap-1";
 
 /** The label row: the label, then a help button beside it when there is one. */
 export function FieldLabel({

@@ -9,7 +9,6 @@
   ansible.builtin.stat:
     path: /usr/bin/portikus
   register: portikus_command
-  when: portikus_idp == 'dex'
 
 - name: Require the portikus command
   ansible.builtin.assert:
@@ -19,10 +18,8 @@
       /usr/bin/portikus is missing, so the local administrator cannot be
       made.  The installed package is older than this play; install the
       current Portikus package and run the play again.
-  when: portikus_idp == 'dex'
 
 - name: Make the local administrator
-  when: portikus_idp == 'dex'
   block:
     - name: Make the local administrator if there is none
       ansible.builtin.command:

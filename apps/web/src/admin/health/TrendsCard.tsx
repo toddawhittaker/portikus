@@ -10,7 +10,7 @@ import { useHealthSeries } from "./queries.js";
 import { RangeControl, useHealthRange } from "./RangeControl.js";
 import { UsageHeatMap } from "./UsageHeatMap.js";
 
-export const GROUP_STORAGE_PREFIX = "portikus.admin.healthGroup.";
+const GROUP_STORAGE_PREFIX = "portikus.admin.healthGroup.";
 
 /** Whether a group was left open; open unless this browser closed it. */
 export function readGroupOpen(id: string): boolean {

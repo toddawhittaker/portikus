@@ -1,7 +1,7 @@
 import type { UsageProcess } from "@portikus/contracts";
 
 export type ProcessColumn = "pid" | "cpu" | "memory" | "command";
-export type SortDirection = "asc" | "desc";
+type SortDirection = "asc" | "desc";
 
 export interface ProcessSort {
 	column: ProcessColumn;

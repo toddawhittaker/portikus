@@ -13,7 +13,7 @@ export const USAGE_POLL_MS = 1000;
 export const STORAGE_POLL_MS = 30_000;
 
 /** Until the first sample arrives, ask this often whatever the poll is. */
-export const FIRST_SAMPLE_POLL_MS = 2000;
+const FIRST_SAMPLE_POLL_MS = 2000;
 
 /**
  * The interval for one poll: quick until there is a sample, because the

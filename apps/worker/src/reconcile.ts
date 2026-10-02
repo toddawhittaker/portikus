@@ -41,7 +41,7 @@ export interface SweepResult {
 }
 
 /** How long "Still working?" shows before an idle workspace stops; fixed (ADR 0032). */
-export const IDLE_WARNING_MS = 5 * 60_000;
+const IDLE_WARNING_MS = 5 * 60_000;
 
 /** How long an errored workspace rests before the sweep retries a start. */
 const ERROR_RETRY_SECONDS = 10;
@@ -50,7 +50,7 @@ const ERROR_RETRY_SECONDS = 10;
  * Waits between create attempts when the controller is unreachable, so a
  * controller restart during a deploy does not leave a workspace in error.
  */
-export const CREATE_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000, 8000];
+const CREATE_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000, 8000];
 
 /**
  * Run `task` on every item, at most `limit` at a time. Each task must catch

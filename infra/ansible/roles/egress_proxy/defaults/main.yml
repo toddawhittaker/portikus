@@ -13,7 +13,7 @@ egress_proxy_hosts: []
 egress_proxy_discovery: []
 
 # The site's own name and port, which /etc/hosts pins to loopback, for an
-# issuer served by Caddy on this VM (Dex or the mock).  Empty means none.
+# issuer served by Caddy on this VM (Dex).  Empty means none.
 egress_proxy_site_host: ""
 egress_proxy_site_port: 443
 
