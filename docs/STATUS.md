@@ -3949,6 +3949,9 @@ Delivered:
   and reviews the whole system at each milestone gate; the end-of-epic
   code review also looks for dead code Knip cannot see and for comments
   that restate the code (WORKFLOW.md, "Epic plans").
+- Toggletips no longer pull focus back to their button a moment after
+  closing, which could close a tip opened next (seen as a flaky
+  a11y-workspace-states test).
 - The rehearsal VM ran the full smoke test, including the lifecycle,
   terminal, project, recovery and boundary files that the pilot skips.
 
