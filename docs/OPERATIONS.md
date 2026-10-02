@@ -155,8 +155,6 @@ On such a VM, every site signs in through Dex. `PORTIKUS_DEX_UPSTREAM`
 connects an institution's provider to it: `none` (the default), `entra`,
 `google`, `ldap` or `oidc`. "Sign-in providers", below, says how to set
 up each one. Pass the same connector settings on every `configure-vm`.
-`PORTIKUS_IDP=mock` replaces Dex with the in-repo test provider. Never
-use it on a VM others can reach, because anyone could sign in as anyone.
 On an apt-installed server the same choices are install answers
 (docs/INSTALL.md, "5. How people sign in").
 
@@ -197,14 +195,7 @@ across sign-ins.
 page, and the refusal is in Dex's log (`journalctl -u portikus-dex`), not
 in Portikus's audit table.
 
-`PORTIKUS_IDP` is `dex` (the default) or `mock`, the in-repo test
-provider used by development and CI, where anyone can sign in as anyone.
-The old values `entra`, `google` and `external` were removed with Epic
-14.2, and `PORTIKUS_DEX_UPSTREAM=microsoft` was replaced by `entra`; a
-play that still uses any of them stops before it changes anything, with
-a message pointing here. The settings `PORTIKUS_OIDC_ISSUER`,
-`PORTIKUS_OIDC_CLIENT_ID` and `PORTIKUS_OIDC_CLIENT_SECRET` are no longer
-read: the API's client is always the one the play makes in Dex.
+The API's client is always the one the play makes in Dex.
 
 Every setting below is an environment variable read by `make
 configure-vm`. Keep secrets off the command line, where shell history
@@ -672,9 +663,6 @@ egress rules.
   `make configure-vm PORTIKUS_EGRESS_EXTRA_HOSTS=keys.example.edu,192.0.2.10:8443`.
   Each host added is a place a compromised API could send requests, so
   add only what a sign-in or launch needs.
-- **`PORTIKUS_API_IP_ALLOW` is gone.** A play that still sets it stops
-  with a message naming `PORTIKUS_EGRESS_EXTRA_HOSTS`, and the play
-  deletes the old `10-idp-egress.conf` drop-in.
 - **When it fails.** If Squid stops, sign-ins through the `entra`,
   `google` or `oidc` connector, and every LMS launch, stop too; Dex's own
   passwords and LDAP do not use it. systemd restarts it after a failure.
@@ -1802,9 +1790,9 @@ by hand on the VM.
 |---|---|---|
 | Destroy the old VM | `make rehearsal-destroy` | 3 s |
 | Create the VM (OpenTofu, cloud-init) | `make rehearsal-up` | 47 s |
-| Converge it (Ansible, Dex built from source) | `make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_IDP=dex PORTIKUS_DEB=<package> PORTIKUS_USERS_FILE=<file>` | 5 min 12 s |
+| Converge it (Ansible, Dex built from source) | `make configure-vm TOFU_ENV=rehearsal-libvirt PORTIKUS_DEB=<package> PORTIKUS_USERS_FILE=<file>` | 5 min 12 s |
 | Build the workspace image | `make build-workspace-image TOFU_ENV=rehearsal-libvirt` | 2 min 32 s |
-| Smoke test, with a full Dex sign-in | `make smoke-test TOFU_ENV=rehearsal-libvirt PORTIKUS_IDP=dex PORTIKUS_SMOKE_SIGNIN_FILE=<file>` | 6 min 10 s |
+| Smoke test, with a full Dex sign-in | `make smoke-test TOFU_ENV=rehearsal-libvirt PORTIKUS_SMOKE_SIGNIN_FILE=<file>` | 6 min 10 s |
 | **From an empty host to a green smoke test** | | **14 min 41 s** |
 
 The smoke test passed all 209 checks. That includes the lifecycle block:

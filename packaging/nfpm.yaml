@@ -121,11 +121,6 @@ contents:
       owner: root
       group: root
       mode: 0755
-  # Shipped but never enabled by the package; Ansible enables it (ADR 0008).
-  - src: ./packaging/systemd/portikus-mock-idp.service
-    dst: /usr/lib/systemd/system/portikus-mock-idp.service
-    file_info: *unit_info
-
   # Started by postinst without waiting; never enabled.
   - src: ./packaging/systemd/portikus-setup.service
     dst: /usr/lib/systemd/system/portikus-setup.service

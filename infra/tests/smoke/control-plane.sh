@@ -10,9 +10,9 @@
 # code has been deployed).  Everything goes through Caddy on the public
 # host name, with a session cookie for each of three users, so the block
 # also covers roles, ownership, CSRF, and the authenticated presence
-# WebSocket.  With the mock provider the users sign in through it.  With any
-# other provider they are made in PostgreSQL with a session, as the security
-# suite does, so the block needs no password and works with IT's provider too.
+# WebSocket.  The users are made in PostgreSQL with a session, as the
+# security suite does, so the block needs no password and works with any
+# upstream provider behind Dex.
 
 echo ""
 echo "--- Control plane ---"
@@ -22,31 +22,18 @@ control_pass_start=$pass
 control_fail_start=$fail
 
 PROJECT="portikus"
-# The package's bundled Node (docs/SPEC.md section 21.12); older packages
-# used the system's.
-VM_NODE=$(ssh_cmd 'test -x /usr/lib/portikus/node/bin/node && echo /usr/lib/portikus/node/bin/node || echo node')
+# The package's bundled Node (docs/SPEC.md section 21.12).
+VM_NODE=/usr/lib/portikus/node/bin/node
 WS_PROBE="/tmp/portikus-ws-probe.mjs"
 WS_STOP="/tmp/portikus-ws-stop"
 TERM_PROBE="/tmp/portikus-term-probe.mjs"
 TERM_STOP="/tmp/portikus-term-stop"
 
 # Everything this run creates is recorded here and the cleanup below
-# deletes nothing else.  On the pilot the mock accounts belong to a real
-# person, whose workspace and volumes must survive the test.
+# deletes nothing else.
 created_workspace_ids=()
 created_instance_names=()
 created_user_subjects=()
-
-# Log a mock user in: follow /auth/login to the provider's account list,
-# then request the same page with the chosen account, which redirects
-# back through the callback and sets the session cookie.
-login_as() {
-  local user="$1"
-  local jar="/tmp/portikus-smoke-${user}.jar" page
-  ssh_cmd "rm -f ${jar}"
-  page=$(ssh_cmd "${CURL} -c ${jar} -b ${jar} -L -o /dev/null -w '%{url_effective}' '${API}/auth/login'")
-  ssh_cmd "${CURL} -c ${jar} -b ${jar} -L -o /dev/null -w '%{http_code}' '${page}&user=${user}'"
-}
 
 # Users made in PostgreSQL live under their own issuer, with subjects no
 # person has, so the cleanup can never reach a real account.
@@ -54,7 +41,7 @@ SMOKE_ISSUER="urn:portikus:smoketest"
 SMOKE_RUN_ID="$(date -u +%m%d%H%M%S)"
 
 # mint_user NAME DISPLAY_NAME ROLE -- a user row and a one-hour session,
-# with the cookie written to NAME's jar as login_as would.  The token goes
+# with the cookie written to NAME's jar as a browser sign-in would.  The token goes
 # over ssh standard input, never in a command line.
 mint_user() {
   local name="$1" display="$2" role="$3" subject token hash uid
@@ -170,12 +157,8 @@ check_output "POST /workspaces is 401 anonymously" "401" \
   http_status - "${API}/workspaces" "-X POST -H 'Origin: ${API}'"
 
 # 4b. Anything already on the VM belongs to somebody else.  List it and
-#     leave it alone, and remember which mock user rows were already there.
-#     POST /workspaces is idempotent, so on a VM where a mock account
-#     already has a workspace the test would be handed that workspace and
-#     later destroy it; the lifecycle checks are skipped instead.  They are
-#     also skipped for a workspace belonging to anyone else, because they
-#     shorten the platform grace period and would stop it.
+#     leave it alone.  The lifecycle checks are skipped while it is there,
+#     because they shorten the platform grace period and would stop it.
 echo ""
 echo "Looking for workspaces that exist before this run..."
 existing_workspaces=$(ssh_cmd "sudo -u postgres psql -t -A -F' ' -d portikus -c \"SELECT COALESCE(u.oidc_subject, '(unknown)'), w.id, w.incus_instance_name FROM workspaces w LEFT JOIN users u ON u.id = w.owner_user_id ORDER BY 1\"" 2>/dev/null || true)
@@ -186,7 +169,7 @@ if [ -n "$existing_workspaces" ]; then
   echo "$existing_workspaces" | awk '{ print "  " $0 }'
   # On a restored rehearsal copy every restored workspace is stopped, and
   # this run's own users cannot be handed one, so the lifecycle still runs.
-  if [ -n "$RESTORED_SET" ] && [ "$IDP" != mock ] && [ "${#restored_ids[@]}" -gt 0 ]; then
+  if [ -n "$RESTORED_SET" ] && [ "${#restored_ids[@]}" -gt 0 ]; then
     unrestored=$(echo "$existing_workspaces" | awk '{ print $2 }' | grep -cvxF -f <(printf '%s\n' "${restored_ids[@]}") || true)
     if [ "$unrestored" = 0 ]; then
       skip_lifecycle=no
@@ -197,27 +180,12 @@ else
   echo "None."
 fi
 
-# 5. Sign alice, bob, and carol in: through the mock when it is on,
-#    otherwise as users this run makes in PostgreSQL.
+# 5. Sign alice, bob, and carol in as users this run makes in PostgreSQL.
 echo ""
-if [ "$IDP" = "mock" ]; then
-  existing_users=$(ssh_cmd "sudo -u postgres psql -t -A -d portikus -c \"SELECT oidc_subject FROM users WHERE oidc_subject IN ('alice','bob','carol')\"" 2>/dev/null || true)
-  echo "Logging in as alice, bob, and carol through the mock provider..."
-  for mock_user in alice bob carol; do
-    login_as "$mock_user" >/dev/null 2>&1 || true
-    if ! echo "$existing_users" | grep -qx "$mock_user"; then
-      created_user_subjects+=("$mock_user")
-    fi
-  done
-  # The acceptable-use gate would answer 403 to every check below; the
-  # gate itself is checked by the security test.
-  ssh_cmd "sudo -u postgres psql -X -q -d portikus -c \"UPDATE users SET acceptable_use_version = (SELECT COALESCE((SELECT acceptable_use_version FROM settings WHERE id = 1), 1)), acceptable_use_accepted_at = now() WHERE oidc_subject IN ('alice','bob','carol') AND acceptable_use_version IS DISTINCT FROM (SELECT COALESCE((SELECT acceptable_use_version FROM settings WHERE id = 1), 1))\"" >/dev/null 2>&1 || true
-else
-  echo "Making alice, bob, and carol under ${SMOKE_ISSUER}, run ${SMOKE_RUN_ID}..."
-  mint_user alice "Alice Student" student
-  mint_user bob "Bob Student" student
-  mint_user carol "Carol Administrator" administrator
-fi
+echo "Making alice, bob, and carol under ${SMOKE_ISSUER}, run ${SMOKE_RUN_ID}..."
+mint_user alice "Alice Student" student
+mint_user bob "Bob Student" student
+mint_user carol "Carol Administrator" administrator
 alice_me=$(vm_get alice "${API}/auth/me")
 alice_name=$(echo "$alice_me" | json_field displayName)
 alice_id=$(echo "$alice_me" | json_field id)

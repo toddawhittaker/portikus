@@ -1,7 +1,7 @@
 # Documented operator entry point (STACK.md section 31).
 # Every target is a thin wrapper over a tool that stays usable on its own.
 
-.PHONY: help install check docs-check typecheck lint format test test-coverage build test-e2e dev clean \
+.PHONY: help install check docs-check typecheck lint format test test-coverage build dev clean \
        infra-check bootstrap-host wait-vm infra-plan infra-apply configure-vm smoke-test security-test destroy-pilot rebuild-pilot \
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy install-test \
        build-deb install-screens deploy-app build-workspace-image workspace-create workspace-destroy \
@@ -37,9 +37,6 @@ test-coverage: ## Run the Vitest tests with coverage and check the coverage floo
 
 build: ## Build every package and app
 	pnpm build
-
-test-e2e: ## Run the Playwright browser end-to-end tests
-	pnpm test:e2e
 
 dev: ## Run every app in watch mode
 	pnpm dev
@@ -242,11 +239,9 @@ wait-vm: ## Wait for the platform VM to finish first boot
 PORTIKUS_DEB_ABS := $(if $(PORTIKUS_DEB),$(abspath $(PORTIKUS_DEB)),)
 
 # ── Sign-in provider and accounts (docs/adr/0023, docs/adr/0031) ───
-# PORTIKUS_IDP is dex (the default) or mock (test only: anyone can sign in
-# as anyone).  An institution's provider is one Dex connector, named by
-# PORTIKUS_DEX_UPSTREAM: ldap, entra, google or oidc.  Dex reaches it through
-# the egress proxy; PORTIKUS_EGRESS_EXTRA_HOSTS adds hosts.
-PORTIKUS_IDP ?= dex
+# Every site signs in through Dex.  An institution's provider is one Dex
+# connector, named by PORTIKUS_DEX_UPSTREAM: ldap, entra, google or oidc.
+# Dex reaches it through the egress proxy; PORTIKUS_EGRESS_EXTRA_HOSTS adds hosts.
 # The retired Dex users file, kept on this machine and never copied to the VM
 # except for the one-time import into Dex's storage (ADR 0028).
 # The Users view manages Dex accounts now.
@@ -268,16 +263,14 @@ ANSIBLE_ENV = PORTIKUS_VM_IP=$(VM_IP) PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_MAN
 	PORTIKUS_IMAGE_VERSION=$(PORTIKUS_IMAGE_VERSION) \
 	PORTIKUS_VERSION=$(PORTIKUS_VERSION) PORTIKUS_DEB=$(PORTIKUS_DEB_ABS) \
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
-	PORTIKUS_IDP=$(PORTIKUS_IDP) \
 	PORTIKUS_USERS_FILE="$(abspath $(PORTIKUS_USERS_FILE))" \
 	PORTIKUS_OIDC_SCOPES="$(PORTIKUS_OIDC_SCOPES)" \
 	PORTIKUS_OIDC_STUDENT_GROUP=$(PORTIKUS_OIDC_STUDENT_GROUP) \
 	PORTIKUS_OIDC_ADMIN_GROUP=$(PORTIKUS_OIDC_ADMIN_GROUP) \
 	PORTIKUS_OIDC_INSTRUCTOR_GROUP=$(PORTIKUS_OIDC_INSTRUCTOR_GROUP) \
-	PORTIKUS_API_IP_ALLOW="$(PORTIKUS_API_IP_ALLOW)" \
 	PORTIKUS_LTI_PLATFORMS_FILE="$(abspath $(PORTIKUS_LTI_PLATFORMS_FILE))"
 
-configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_IDP=dex|mock picks the sign-in provider, PORTIKUS_DEX_UPSTREAM=none|ldap|entra|google|oidc connects an institution's provider to Dex, PORTIKUS_USERS_FILE=<path> the users file imported once into Dex)
+configure-vm: wait-vm ## Run Ansible to converge the platform VM (newest release; PORTIKUS_VERSION=<ver> rolls back, PORTIKUS_DEB=<path> installs a local build, PORTIKUS_PUBLIC_HOST=<name> names the site, PORTIKUS_PUBLIC_PORT=<port> the port it is served on, PORTIKUS_DEX_UPSTREAM=none|ldap|entra|google|oidc connects an institution's provider to Dex, PORTIKUS_USERS_FILE=<path> the users file imported once into Dex)
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml
 
 # ── LTI launch (ADR 0025) ───────────────────────────────────────────────────────
@@ -308,18 +301,18 @@ lti-mock-unregister: wait-vm ## Stop trusting the mock LMS: remove its registrat
 	$(LTI_MOCK_CLI) unregister
 	cd infra/ansible && $(ANSIBLE_ENV) ansible-playbook site.yml --tags lti
 
-smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_IDP=<provider> as configured; PORTIKUS_SMOKE_SIGNIN_FILE=<file> for a full Dex sign-in)
+smoke-test: ## Run infrastructure smoke tests against the VM (PORTIKUS_PUBLIC_HOST=<name> and PORTIKUS_PUBLIC_PORT=<port> if the site was configured with them; PORTIKUS_SMOKE_SIGNIN_FILE=<file> for a full Dex sign-in)
 	$(REQUIRE_VM_IP)
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
-		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_SMOKE_SIGNIN_FILE=$(PORTIKUS_SMOKE_SIGNIN_FILE) \
+		PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_SMOKE_SIGNIN_FILE=$(PORTIKUS_SMOKE_SIGNIN_FILE) \
 		bash infra/tests/smoke-test.sh $(VM_IP)
 
 # Safe on the live pilot: it creates and removes only its own users and two
 # workspaces, and fails if anything else changed (infra/README.md, "Security test").
-security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an earlier run; PORTIKUS_SECURITY_HEAVY=1 adds heavy limit tests on an otherwise empty VM; PORTIKUS_IDP=<provider> as configured)
+security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an earlier run; PORTIKUS_SECURITY_HEAVY=1 adds heavy limit tests on an otherwise empty VM)
 	$(REQUIRE_VM_IP)
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
-		PORTIKUS_IDP=$(PORTIKUS_IDP) PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
+		PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
 		bash infra/tests/security-test.sh $(VM_IP) $(if $(SWEEP),--sweep,)
 
 destroy-pilot: ## Destroy the pilot VM (irreversible), and forget its SSH host key in ~/.ssh/known_hosts

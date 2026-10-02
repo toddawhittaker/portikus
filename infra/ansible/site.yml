@@ -145,10 +145,6 @@
 
     # ── Authentication (SPEC 5.1, ADR 0008, ADR 0023, ADR 0031) ───
     # Every site signs in through Dex (ADR 0031, SPEC.md section 5.1).
-    # PORTIKUS_IDP is dex (the default) or mock, the in-repo test provider,
-    # where anyone who reaches the site can sign in as any account, the
-    # administrator included.
-    portikus_idp: "{{ lookup('env', 'PORTIKUS_IDP') | default('dex', true) }}"
     # Dex's one upstream connector, beside its local passwords (SPEC.md 5.1):
     #   none    local passwords only;
     #   ldap    an LDAP or Active Directory directory (PORTIKUS_LDAP_*);
@@ -192,8 +188,6 @@
     # by commas or spaces.  LDAP does not go through the egress proxy.
     portikus_ldap_ip_allow: >-
       {{ lookup('env', 'PORTIKUS_LDAP_IP_ALLOW') | replace(',', ' ') | split | select | list }}
-    portikus_mock_idp: "{{ portikus_idp == 'mock' }}"
-    portikus_mock_idp_port: 3002
     # Dex is built from source at this upstream commit (docs/adr/0023).
     # Bump both together, after reading the upstream release notes.
     dex_version: v2.45.1
@@ -219,17 +213,16 @@
     portikus_entra_issuer: "https://login.microsoftonline.com/{{ portikus_entra_tenant_id }}/v2.0"
     portikus_google_issuer: https://accounts.google.com
     # Nobody Dex admits is refused by Portikus for having no group: the local
-    # administrator and guests have none.  The mock keeps none,
-    # so its group-less test user is still refused.
-    portikus_oidc_default_role: "{{ 'student' if portikus_idp == 'dex' else 'none' }}"
+    # administrator and guests have none.
+    portikus_oidc_default_role: student
     # Dex puts groups in the token only when asked.  Behind Google they are
     # never asked for: the connector has none, and roles come from grants.
     portikus_oidc_scopes: >-
       {{ lookup('env', 'PORTIKUS_OIDC_SCOPES')
          | default('openid profile email groups'
-                     if portikus_idp == 'dex' and portikus_dex_upstream != 'google'
+                     if portikus_dex_upstream != 'google'
                    else 'openid profile email', true) }}
-    portikus_oidc_groups_claim: "{{ '' if portikus_idp == 'dex' and portikus_dex_upstream == 'google' else 'groups' }}"
+    portikus_oidc_groups_claim: "{{ '' if portikus_dex_upstream == 'google' else 'groups' }}"
     # The group names for ldap and oidc, and the app role values for entra;
     # Dex's oidc connector admits only people holding one of them.
     portikus_oidc_student_group: >-
@@ -269,7 +262,7 @@
     # The port the browser connects to.  It is not always 443: on the pilot
     # host another service owns 443, so the host forwards 8443 instead, and
     # the port has to appear in every URL the API builds (redirect URI,
-    # allowed origin, mock provider issuer).
+    # allowed origin, Dex issuer).
     portikus_public_port: >-
       {{ lookup('env', 'PORTIKUS_PUBLIC_PORT') | default('443', true) }}
     portikus_public_url: >-
@@ -344,15 +337,6 @@
   # nothing on the VM.  The guards are tagged always, so a run limited with
   # --tags is checked the same way.
   pre_tasks:
-    - name: Refuse the removed API address allow list
-      ansible.builtin.fail:
-        msg: >-
-          PORTIKUS_API_IP_ALLOW was removed: the API now reaches the internet
-          by host name through the egress proxy.  List extra hosts in
-          PORTIKUS_EGRESS_EXTRA_HOSTS instead (ADR 0027).
-      when: lookup('env', 'PORTIKUS_API_IP_ALLOW') | length > 0
-      tags: always
-
     # Every sign-in setting, checked in one place so the render test can
     # try each refusal (SPEC.md section 5.1).
     - name: Check the sign-in settings and load the users file
@@ -372,7 +356,7 @@
         fail_msg: >-
           PORTIKUS_OIDC_SCOPES asks for groups, but Dex's Google connector
           reads none.  Leave groups out; roles come from the Users view.
-      when: portikus_idp == 'dex' and portikus_dex_upstream == 'google'
+      when: portikus_dex_upstream == 'google'
       tags: always
 
     - name: Require extra egress hosts of the form host or host:port
@@ -471,15 +455,14 @@
         # The entra connector never calls userinfo, so Microsoft Graph
         # stays off the list.
         egress_proxy_discovery: >-
-          {{ [] if portikus_idp != 'dex'
-             else [{'issuer': portikus_entra_issuer, 'userinfo': false}]
+          {{ [{'issuer': portikus_entra_issuer, 'userinfo': false}]
                if portikus_dex_upstream == 'entra'
              else [{'issuer': portikus_google_issuer, 'userinfo': true}]
                if portikus_dex_upstream == 'google'
              else [{'issuer': portikus_dex_upstream_issuer, 'userinfo': true}]
                if portikus_dex_upstream == 'oidc'
              else [] }}
-        # Dex and the mock are served by Caddy on this VM under the site's name.
+        # Dex is served by Caddy on this VM under the site's name.
         egress_proxy_site_host: "{{ portikus_public_host }}"
         egress_proxy_site_port: "{{ portikus_public_port }}"
         egress_proxy_denied_ranges: "{{ workspace_egress_denied_ranges }}"

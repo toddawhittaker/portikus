@@ -133,8 +133,7 @@ safe to run on the live pilot while students use it:
 
 - It makes its own users directly in PostgreSQL, under the issuer
   `urn:portikus:sectest` with subjects `sectest-<run id>-a`, `-b`,
-  `-admin` and `-inst` (an instructor). Their sessions expire after one hour. It never signs in as a
-  mock account.
+  `-admin` and `-inst` (an instructor). Their sessions expire after one hour.
 - It creates two workspaces through the API as those users, keeps them
   running with a presence socket, and probes only those two.
 - It changes no setting and restarts no service.
@@ -165,10 +164,6 @@ The LTI checks work with or without a registered LMS. With none, every
 the first registered platform and posts tokens nobody signed; each must be
 refused and audited, and none may create a user or a session. While a mock
 LMS is registered, the run prints a warning naming it.
-
-A check marked `KNOWN-VULN #<issue>` is a known gap with an open issue. It
-does not fail the run. If such a check starts passing, the suite prints
-`XPASS` and fails, so the marker is removed with the fix.
 
 ## 8. Create a test workspace
 
@@ -375,9 +370,7 @@ VM produces a new one. Import the new copy after a rebuild and remove the
 old one. None of this applies to the pilot, whose certificate browsers
 already trust.
 
-Never publish a VM configured with `PORTIKUS_IDP=mock`: while the mock
-sign-in is on, every device on the LAN can sign in as any mock account,
-including the administrator. To take the site off the LAN:
+To take the site off the LAN:
 
 ```
 make unpublish-vm
@@ -389,33 +382,22 @@ leaves libvirt's own rules alone, so the VM keeps its outbound access.
 ### Identity provider
 
 Every site signs in through Dex (ADR 0023, ADR 0031, SPEC.md section
-5.1); LTI launches work beside it. `PORTIKUS_IDP` is one of:
-
-- `dex`, the default: Dex runs on the VM and keeps its own passwords,
-  which administrators manage in the Users view. An institution's
-  provider is added as one Dex connector with `PORTIKUS_DEX_UPSTREAM`:
-  `ldap` (LDAP or Active Directory), `entra` (Microsoft Entra ID, one
-  tenant, roles from app roles), `google` (Google Workspace, the listed
-  domains) or `oidc` (any other OpenID Connect provider, such as Okta,
-  Keycloak or Shibboleth with its OIDC plugin). `none`, the default, is
-  what the pilot uses.
-- `mock`: the in-repo test provider (ADR 0008), where anyone who reaches
-  the site can pick any account, the administrator included. For
-  development and tests only; never on a VM others can reach.
-
-The removed values `PORTIKUS_IDP=entra`, `google` and `external`, and
-`PORTIKUS_DEX_UPSTREAM=microsoft`, stop the play with a message naming
-docs/OPERATIONS.md, "Sign-in providers", which says how to register Dex
-with each provider and which settings to pass. Only the chosen provider
-runs. Ansible stops and disables the other and removes its configuration
-and secrets, and Caddy answers `/dex` or `/mock-idp` with 404 when it is
-not the provider.
+5.1); LTI launches work beside it. Dex runs on the VM and keeps its own
+passwords, which administrators manage in the Users view. An
+institution's provider is added as one Dex connector with
+`PORTIKUS_DEX_UPSTREAM`: `ldap` (LDAP or Active Directory), `entra`
+(Microsoft Entra ID, one tenant, roles from app roles), `google` (Google
+Workspace, the listed domains) or `oidc` (any other OpenID Connect
+provider, such as Okta, Keycloak or Shibboleth with its OIDC plugin).
+`none`, the default, is what the pilot uses. docs/OPERATIONS.md, "Sign-in
+providers", says how to register Dex with each provider and which
+settings to pass.
 
 The settings, all read from the environment by `make configure-vm`:
 
 | Setting | Used with | What it is |
 |---|---|---|
-| `PORTIKUS_DEX_UPSTREAM` | `dex` | `none` (the default), `ldap`, `entra`, `google` or `oidc`. |
+| `PORTIKUS_DEX_UPSTREAM` | any | `none` (the default), `ldap`, `entra`, `google` or `oidc`. |
 | `PORTIKUS_DEX_UPSTREAM_CLIENT_ID`, `PORTIKUS_DEX_UPSTREAM_CLIENT_SECRET` | `entra`, `google`, `oidc` | The client Dex is registered as, with the redirect URI `https://<public-host>:<port>/dex/callback`. The secret needs 16 characters or more. |
 | `PORTIKUS_ENTRA_TENANT_ID` | `entra` | The tenant's ID, a GUID. Dex's issuer for it is derived from it. |
 | `PORTIKUS_GOOGLE_DOMAINS` | `google` | The allowed domains, separated by commas. |
@@ -424,10 +406,10 @@ The settings, all read from the environment by `make configure-vm`:
 | `PORTIKUS_OIDC_UPSTREAM_EXTRA_SCOPES` | `oidc` | Scopes Dex asks for beyond `openid profile email`, separated by commas. |
 | `PORTIKUS_OIDC_STUDENT_GROUP`, `PORTIKUS_OIDC_INSTRUCTOR_GROUP`, `PORTIKUS_OIDC_ADMIN_GROUP` | `ldap`, `entra`, `oidc` | The group or app role names that give each role. They default to `portikus-students` and so on, or `Portikus.Student` and so on under `entra`. Under `entra` and `oidc` Dex admits only people holding one of them, so an `oidc` site whose provider uses other names must set all three. |
 | `PORTIKUS_OIDC_SCOPES` | any | The scopes the API asks Dex for. Defaults to `openid profile email groups`, without `groups` under `google`, where the play refuses it. |
-| `PORTIKUS_ADMIN_EMAIL` | `dex` | The local administrator's email, used only when the play creates it. Defaults to `admin@<public-host>`. |
+| `PORTIKUS_ADMIN_EMAIL` | any | The local administrator's email, used only when the play creates it. Defaults to `admin@<public-host>`. |
 | `PORTIKUS_LDAP_HOST`, `PORTIKUS_LDAP_SCHEMA`, `PORTIKUS_LDAP_BIND_DN`, `PORTIKUS_LDAP_BIND_PASSWORD`, `PORTIKUS_LDAP_USER_BASE_DN`, `PORTIKUS_LDAP_USER_FILTER`, `PORTIKUS_LDAP_GROUP_BASE_DN`, `PORTIKUS_LDAP_ROOT_CA`, `PORTIKUS_LDAP_IP_ALLOW` | Dex's `ldap` connector | The directory. The user filter and the directory's addresses are required. |
 | `PORTIKUS_EGRESS_EXTRA_HOSTS` | any | More hosts the API may reach through the egress proxy, as `host` or `host:port`. |
-| `PORTIKUS_USERS_FILE` | `dex` | The retired users file, imported once (below). |
+| `PORTIKUS_USERS_FILE` | any | The retired users file, imported once (below). |
 
 The Makefile exports these to Ansible from the environment, so the
 secrets never appear in a recipe line. Keep them out of shell history too:
@@ -435,12 +417,10 @@ secrets never appear in a recipe line. Keep them out of shell history too:
 before anything on the VM changes.
 
 Ansible turns them into these API settings in `/etc/portikus/api.env`:
-`OIDC_ISSUER_URL` (always Dex's issuer, or the mock's), the client Dex
-made for Portikus, `OIDC_SCOPES`, `OIDC_GROUPS_CLAIM` and the three
-group settings, `OIDC_DEFAULT_ROLE` (`student` under Dex, `none` under
-the mock, which refuses someone no group matches), `OUTBOUND_PROXY_URL`,
-and, under Dex only, `DEX_GRPC_ADDR`, `DEX_GRPC_CA`, `DEX_GRPC_CERT` and
-`DEX_GRPC_KEY`. The API has no provider-specific settings.
+`OIDC_ISSUER_URL` (always Dex's issuer), the client Dex made for
+Portikus, `OIDC_SCOPES`, `OIDC_GROUPS_CLAIM` and the three group
+settings, `OIDC_DEFAULT_ROLE` (`student`), `OUTBOUND_PROXY_URL`,
+`DEX_GRPC_ADDR`, `DEX_GRPC_CA`, `DEX_GRPC_CERT` and `DEX_GRPC_KEY`. The API has no provider-specific settings.
 
 The package ships `/usr/bin/portikus`, a root-only host command with one
 subcommand, `reset-admin`. At the end of every Dex play, Ansible runs
@@ -503,28 +483,11 @@ to a private address, refuses any address given directly unless it is
 listed, never matches a name through reverse DNS, and caches nothing. The play builds the list from
 the Dex connector's discovery document, the LMS keyset URLs and
 `PORTIKUS_EGRESS_EXTRA_HOSTS`, prints it, and checks the configuration
-with `squid -k parse` before installing it. `PORTIKUS_API_IP_ALLOW` and
-its `10-idp-egress.conf` drop-in are gone; a play that still sets the
-variable stops with a message. The API itself reaches no sign-in
+with `squid -k parse` before installing it. The API itself reaches no sign-in
 provider; Dex's `entra`, `google` and `oidc` connectors use the proxy,
 and the list holds their discovery hosts (under `entra` without the
 userinfo host, so not `graph.microsoft.com`). An LDAP directory is reached directly, through Dex's
 own `IPAddressAllow` drop-in built from `PORTIKUS_LDAP_IP_ALLOW`.
-
-#### The mock, for development
-
-```
-make configure-vm PORTIKUS_IDP=mock
-make smoke-test PORTIKUS_IDP=mock
-```
-
-The mock ships in the Debian package, disabled; Ansible enables it only
-with `PORTIKUS_IDP=mock`. It listens on loopback and is reachable only
-through Caddy at `/mock-idp`. Its accounts are `alice` and `bob`
-(students), `carol` (administrator), and `dave` (no groups, so login is
-refused). Its client secret is generated on the VM into
-`/etc/portikus/mock-client.secret`, and any other provider removes that
-file along with the mock's environment file.
 
 Passing the client secrets through the environment is a known gap: they
 belong in the SOPS-encrypted secrets under `infra/secrets`, which is not
