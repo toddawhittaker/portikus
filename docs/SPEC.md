@@ -2234,10 +2234,12 @@ first and refuses a gone PID (404 `PROCESS_NOT_FOUND`), different start
 ticks (field 22 of `stat`, which catches a reused PID; 409
 `PROCESS_CHANGED`), and a protected process (403 `PROCESS_PROTECTED`):
 PID 1, the agent itself, anything whose real or effective uid is not the
-student's, and the tmux server that holds the terminals (the main
+student's, the tmux server that holds the terminals (the main
 process of `portikus-terminals.service`), found by PID through the
 agent's own tmux socket (never by the name `tmux: server`, which any
-process can take). A "no server" answer is reused for 10 seconds by the
+process can take), and the agent's own `tmux attach-session` clients,
+by the PIDs the agent spawned them under, because stopping one closes
+the student's terminal. A "no server" answer is reused for 10 seconds by the
 usage sample, but never by a stop. Otherwise it sends
 SIGTERM, or SIGKILL when `force` is set, waits up to 3 seconds, and answers
 `{pid, exited}`; a zombie or a vanished PID has exited. It never escalates

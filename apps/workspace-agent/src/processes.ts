@@ -2,8 +2,8 @@
  * Reading and stopping one of the student's processes (SPEC.md §18.3;
  * SPEC.md §18.3). The agent runs as the student, so the
  * kernel already refuses anyone else's process; the protected list keeps
- * the agent, the tmux server the agent runs the terminals in, and PID 1 from
- * being signalled by accident. Command lines are returned to the student only and never logged.
+ * the agent, the tmux server and attach clients that carry the terminals,
+ * and PID 1 from being signalled by accident. Command lines are returned to the student only and never logged.
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -36,11 +36,11 @@ export interface ProcessOwner {
 	/** The student's uid, which the agent runs as. */
 	studentUid: number;
 	/**
-	 * The terminals' tmux server, found by the agent's own socket, or null
-	 * when none runs. By PID, not by name: any process can call itself
-	 * "tmux: server".
+	 * The terminals' tmux server, found by the agent's own socket, and the
+	 * agent's own attach clients. By PID, not by name: any process can call
+	 * itself "tmux: server".
 	 */
-	tmuxPid: number | null;
+	terminalPids: ReadonlySet<number>;
 }
 
 /** The fields of a stat line that a stop and a usage sample need. */
@@ -111,7 +111,7 @@ export function isProtected(facts: ProcessFacts, owner: ProcessOwner): boolean {
 		facts.pid === 1 ||
 		facts.pid === owner.selfPid ||
 		!ownedByStudent(facts, owner) ||
-		facts.pid === owner.tmuxPid
+		owner.terminalPids.has(facts.pid)
 	);
 }
 
@@ -169,9 +169,9 @@ export function tmuxPidSource(
 	};
 }
 
-export interface SignalOptions extends Omit<ProcessOwner, "tmuxPid"> {
-	/** The terminals' tmux server PID, or null when none runs. */
-	tmuxPid: () => Promise<number | null>;
+export interface SignalOptions extends Omit<ProcessOwner, "terminalPids"> {
+	/** The terminals' tmux server and attach client PIDs. */
+	terminalPids: () => Promise<ReadonlySet<number>>;
 	procRoot: string;
 	/** Sends the signal. Tests may replace it; production is `process.kill`. */
 	kill: (pid: number, signal: NodeJS.Signals) => void;
@@ -198,7 +198,7 @@ export async function signalProcess(
 	if (facts.startTicks !== startTicks) {
 		throw new AgentFailure("PROCESS_CHANGED", "the process id was reused");
 	}
-	const owner = { ...options, tmuxPid: await options.tmuxPid() };
+	const owner = { ...options, terminalPids: await options.terminalPids() };
 	if (isProtected(facts, owner)) {
 		throw new AgentFailure("PROCESS_PROTECTED", "this process is protected");
 	}

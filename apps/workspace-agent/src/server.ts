@@ -212,13 +212,19 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// Port discovery and loopback forwards know about each other: discovery
 	// reports a forwarded port as "forwarded", and a forward closes once its
 	// loopback listener is gone (BROWSER-HANDLING.md §11.1).
-	// The terminals' tmux server is protected by PID (SPEC.md §18.3).
+	// The terminals' tmux server and attach clients are protected by PID (SPEC.md §18.3).
 	const tmuxPid = tmuxPidSource(options.usage?.procRoot ?? "/proc", () =>
 		serverPid(tmuxServer),
 	);
+	const terminalPids = async (fresh = false): Promise<ReadonlySet<number>> => {
+		const pids = registry.attachPids();
+		const server = await tmuxPid(fresh);
+		if (server !== null) pids.add(server);
+		return pids;
+	};
 	const monitor = new ListeningMonitor({
 		// Never reuse a cached "no tmux server" answer when protecting it (SPEC.md §18.3).
-		tmuxPid: () => tmuxPid(true),
+		terminalPids: () => terminalPids(true),
 		...options.listening,
 		logger: app.log,
 		forwardedPorts: () => forwards.ports(),
@@ -239,7 +245,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	const recoveryRoot = options.recoveryRoot ?? "/var/lib/portikus/recovery";
 	const usage = new UsageSampler({
 		homePath: options.homeDir,
-		tmuxPid,
+		terminalPids,
 		recoveryPath: recoveryRoot,
 		...options.usage,
 	});
@@ -716,7 +722,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		instance.register(dockerInventoryRoute, { run: options.dockerRunner });
 		instance.register(processesRoutes, {
 			procRoot: options.usage?.procRoot,
-			tmuxPid: () => tmuxPid(true),
+			terminalPids: () => terminalPids(true),
 		});
 		instance.register(eventsRoute, {
 			homeDir: options.homeDir,
