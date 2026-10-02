@@ -13,7 +13,10 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
-import { longOperationRunning } from "../workspaces/long-operation.js";
+import {
+	holdLongOperation,
+	releaseLongOperation,
+} from "../workspaces/long-operation.js";
 
 /**
  * Recovery points through the API (SPEC.md §15, ADR 0020): owner only,
@@ -488,9 +491,11 @@ test.skipIf(skip)("refusing for a pending operation gives the slot back", async 
 		.where("id", "=", workspaceId)
 		.execute();
 	expect((await create(alice)).statusCode).toBe(409);
-	expect(longOperationRunning(workspaceId)).toBe(false);
+	expect(holdLongOperation(workspaceId)).toBe(true);
+	releaseLongOperation(workspaceId);
 	expect((await restore(alice, pointId)).statusCode).toBe(409);
-	expect(longOperationRunning(workspaceId)).toBe(false);
+	expect(holdLongOperation(workspaceId)).toBe(true);
+	releaseLongOperation(workspaceId);
 });
 
 test.skipIf(skip)(

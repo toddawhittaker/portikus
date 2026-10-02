@@ -111,7 +111,18 @@ test("focus returns to the original element after a queue of two dialogs closes"
 		hook.onBrowserOpen?.(request("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"));
 		hook.onBrowserOpen?.(request("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"));
 	});
+	const focusInDialog = () =>
+		waitFor(() =>
+			expect(
+				screen.getByTestId("browser-open-dialog").contains(document.activeElement),
+			).toBe(true),
+		);
+	await focusInDialog();
 	fireEvent.click(screen.getByTestId("browser-open-cancel"));
+	await waitFor(() =>
+		expect(screen.getByTestId("browser-open-origin").textContent).toContain("hbbbb"),
+	);
+	await focusInDialog();
 	fireEvent.click(screen.getByTestId("browser-open-cancel"));
 	await waitFor(() => expect(document.activeElement).toBe(opener));
 	opener.remove();

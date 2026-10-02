@@ -1,5 +1,7 @@
-import { screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import { type ReactNode, Suspense } from "react";
 import { afterEach, expect, test, vi } from "vitest";
+import { lazyPage } from "./router.js";
 import {
 	FakeWebSocket,
 	json,
@@ -238,4 +240,31 @@ test("the Logs tab's filters come from the URL, and unknown values are dropped (
 	expect(params.get("q")).toBe("boom");
 	expect(params.get("user")).toBe(user);
 	expect(params.has("workspace")).toBe(false);
+});
+
+test("a lazy page whose chunk resolves undefined keeps loading instead of failing", async () => {
+	const Page = lazyPage<{ Page: () => ReactNode }>(
+		() => Promise.resolve(undefined),
+		(module) => module.Page,
+	);
+	render(
+		<Suspense fallback={<p>loading</p>}>
+			<Page />
+		</Suspense>,
+	);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	expect(screen.getByText("loading")).toBeTruthy();
+});
+
+test("a lazy page renders the component picked from its module", async () => {
+	const Page = lazyPage(
+		() => Promise.resolve({ Page: () => <p>the page</p> }),
+		(module) => module.Page,
+	);
+	render(
+		<Suspense fallback={<p>loading</p>}>
+			<Page />
+		</Suspense>,
+	);
+	expect(await screen.findByText("the page")).toBeTruthy();
 });

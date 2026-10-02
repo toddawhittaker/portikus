@@ -33,11 +33,6 @@ export function holdLongOperation(workspaceId: string): boolean {
 	return true;
 }
 
-/** Whether the workspace's long-operation slot is held right now. */
-export function longOperationRunning(workspaceId: string): boolean {
-	return longOperations.has(workspaceId);
-}
-
 /** Give the long-operation slot back. */
 export function releaseLongOperation(workspaceId: string): void {
 	longOperations.delete(workspaceId);
