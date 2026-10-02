@@ -9,7 +9,7 @@ import {
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 /**
  * WebSocket authorization and isolation (SPEC.md §5.3, §5.4, §6.4):

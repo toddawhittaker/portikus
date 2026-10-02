@@ -3,7 +3,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { createSigninThrottle } from "./signin-throttle.js";
-import { buildTestServer, PUBLIC_URL } from "./test-support.js";
+import { buildTestServer, PUBLIC_URL } from "./testing/test-support.js";
 
 /** The sign-in rate limit (SPEC.md section 5.3). */
 

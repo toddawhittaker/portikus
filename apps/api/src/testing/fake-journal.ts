@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import type { JournalChild } from "./journal.js";
+import type { JournalChild } from "../logs/journal.js";
 
 // Test helpers: a scripted journalctl child process and its output lines.
 

@@ -22,7 +22,7 @@ import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { toAuthOptions } from "../auth-options.js";
 import { buildServer } from "../server.js";
-import { buildTestServer, PUBLIC_URL, testConfig } from "../test-support.js";
+import { buildTestServer, PUBLIC_URL, testConfig } from "../testing/test-support.js";
 
 /**
  * The Dex user routes (ADR 0028) against an

@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cursorAt, fakeSpawn, journalLine } from "./fake-journal.js";
+import { cursorAt, fakeSpawn, journalLine } from "../testing/fake-journal.js";
 import {
 	JournalReader,
 	journalArgs,

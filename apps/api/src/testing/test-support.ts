@@ -12,8 +12,8 @@ import { insertTestLtiMembership } from "@portikus/db/testing";
 import { type Logger, silentLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
-import { toAuthOptions } from "./auth-options.js";
-import { buildServer } from "./server.js";
+import { toAuthOptions } from "../auth-options.js";
+import { buildServer } from "../server.js";
 
 export const PUBLIC_URL = "http://127.0.0.1:5173";
 

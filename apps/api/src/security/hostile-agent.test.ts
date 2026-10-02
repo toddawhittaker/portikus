@@ -27,7 +27,7 @@ import {
 } from "vitest";
 import WebSocketClient from "ws";
 import { AGENT_TIMEOUT_MS } from "../agent-client.js";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 /**
  * The API against a hostile workspace agent. The agent runs as the student

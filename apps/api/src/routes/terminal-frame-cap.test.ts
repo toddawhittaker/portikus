@@ -11,7 +11,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { WebSocketServer } from "ws";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 /**
  * The agent runs as the student, who can replace it (ADR 0009), so a frame

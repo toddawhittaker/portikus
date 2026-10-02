@@ -1,6 +1,6 @@
 import { LogQuery } from "@portikus/contracts";
 import { describe, expect, test } from "vitest";
-import { cursorAt, fakeSpawn, journalLine } from "./fake-journal.js";
+import { cursorAt, fakeSpawn, journalLine } from "../testing/fake-journal.js";
 import { levelOf, matchesLine, parsePortikusLine, readLogPage } from "./filter.js";
 import { JournalReader } from "./journal.js";
 

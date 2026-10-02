@@ -4,14 +4,14 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import WebSocket from "ws";
-import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
+import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import {
 	buildMatrixWorld,
 	buildTestServer,
 	MATRIX_MOCK_USERS,
 	type MatrixWorld,
 	PUBLIC_URL,
-} from "../test-support.js";
+} from "../testing/test-support.js";
 import { ROUTE_POLICY, splitKey } from "./route-policy.js";
 
 /**
