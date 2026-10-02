@@ -138,6 +138,19 @@ const ADDED_PACKAGES_PATH = "/home/student/.portikus/apt-packages.txt";
 /** The most the controller reads of that file. */
 export const ADDED_PACKAGES_MAX_BYTES = 64 * 1024;
 
+/** The image's `student` user and group. */
+const STUDENT_UID = 1000;
+
+/** How long a command the controller runs inside a container may take before `timeout` ends it. */
+const IN_CONTAINER_SECONDS = 10;
+
+/** Sets the hostname to $1 and writes it to a new file renamed over /etc/hostname. */
+const HOSTNAME_SCRIPT = [
+	'hostname "$1" || exit 3',
+	"t=$(mktemp /etc/hostname.portikus.XXXXXX) || exit 4",
+	'printf \'%s\\n\' "$1" > "$t" && chmod 0644 "$t" && mv -fT "$t" /etc/hostname',
+].join("\n");
+
 /** Where the workspace agent reads its bearer token (ADR 0009). */
 const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
 
@@ -224,15 +237,6 @@ function validateName(name: string): void {
 
 function enc(name: string): string {
 	return encodeURIComponent(name);
-}
-
-/**
- * The exit status of a finished exec operation, or null when Incus did not
- * report one. Incus puts it in the operation's own metadata as `return`.
- */
-function execExitStatus(result: unknown): number | null {
-	const meta = (result as { metadata?: { return?: unknown } } | undefined)?.metadata;
-	return typeof meta?.return === "number" ? meta.return : null;
 }
 
 export class IncusWorkspaceProvider implements WorkspaceProvider {
@@ -484,6 +488,39 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			);
 		}
 
+		// Every file the controller writes goes in while the container is
+		// stopped, when no student process can race the delete-then-push of
+		// `replaceFile` with a named pipe (SPEC.md §24).
+		await this.client.replaceFile(
+			name,
+			"/etc/timezone",
+			`${opts.timezone}\n`,
+			{ uid: 0, gid: 0, mode: "0644" },
+			signal,
+		);
+
+		await this.client.replaceFile(
+			name,
+			PROFILE_PATH,
+			// TZ is a default, not an override: tmux sets the session's current
+			// zone and a login shell sources this file afterwards, so a student
+			// who changes their timezone must not get the start-time zone back.
+			// The zone was validated against the system list.
+			`export PORTIKUS_PREVIEW=true\n` +
+				`export PORTIKUS_PREVIEW_HOST_SUFFIX=${opts.previewHostSuffix}\n` +
+				`export TZ="\${TZ:-${opts.timezone}}"\n`,
+			{ uid: 0, gid: 0, mode: "0644" },
+			signal,
+		);
+
+		await this.client.replaceFile(
+			name,
+			AGENT_TOKEN_PATH,
+			opts.agentToken,
+			{ uid: STUDENT_UID, gid: STUDENT_UID, mode: "0600" },
+			signal,
+		);
+
 		const recoveryAttached =
 			opts.recoveryGiB !== undefined &&
 			(await this.ensureRecoveryDevice(name, opts.recoveryGiB, signal));
@@ -529,8 +566,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 		await this.setTimezone(name, opts.timezone, signal, opts.timeoutSeconds);
 
-		// Again after the start: a first start after create or copy runs the
-		// image's /etc/hosts template, which drops the line written above.
+		// After the start: a first start after create or copy runs the image's
+		// /etc/hosts template, which would drop the line.
 		if (ghcr !== null) {
 			try {
 				await writeGhcrHosts(this.client, name, ghcr, signal);
@@ -541,28 +578,6 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				);
 			}
 		}
-
-		await this.client.replaceFile(
-			name,
-			PROFILE_PATH,
-			// TZ is a default, not an override: tmux sets the session's current
-			// zone and a login shell sources this file afterwards, so a student
-			// who changes their timezone must not get the start-time zone back.
-			// The zone was validated against the system list.
-			`export PORTIKUS_PREVIEW=true\n` +
-				`export PORTIKUS_PREVIEW_HOST_SUFFIX=${opts.previewHostSuffix}\n` +
-				`export TZ="\${TZ:-${opts.timezone}}"\n`,
-			{ uid: 0, gid: 0, mode: "0644" },
-			signal,
-		);
-
-		await this.client.replaceFile(
-			name,
-			AGENT_TOKEN_PATH,
-			opts.agentToken,
-			{ uid: 1000, gid: 1000, mode: "0600" },
-			signal,
-		);
 
 		if (recoveryAttached) {
 			await this.prepareRecoveryMount(name, signal, opts.timeoutSeconds);
@@ -657,19 +672,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			["chmod", "0700", RECOVERY_PATH],
 		]) {
 			try {
-				const result = await this.client.request(
-					"POST",
-					`/1.0/instances/${enc(name)}/exec`,
-					{
-						command,
-						"wait-for-websocket": false,
-						"record-output": false,
-						interactive: false,
-					},
+				const { status } = await this.client.exec(
+					name,
+					command,
+					{ timeoutSeconds },
 					signal,
-					timeoutSeconds,
 				);
-				const status = execExitStatus(result);
 				if (status !== null && status !== 0) {
 					throw new Error(`${command[0]} exited ${status}`);
 				}
@@ -687,9 +695,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	 * Name the container after the workspace label so the shell prompt reads
 	 * `student@<label>` (SPEC.md section 29).
 	 *
-	 * Incus has no instance setting for the hostname, so this writes
-	 * `/etc/hostname` for the next boot and runs `hostname` for the current
-	 * one. It runs on every start, so an old container picks the label up.
+	 * Incus has no instance setting for the hostname, so this runs `hostname`
+	 * for the current boot and writes `/etc/hostname` for the next one, from
+	 * inside the running container: the image's template rewrites the file at
+	 * the first start, and a write from outside could meet a student's named
+	 * pipe (SPEC.md §24). It runs on every start, so an old container picks
+	 * the label up. The label was checked against the hostname pattern.
 	 */
 	private async setHostname(
 		name: string,
@@ -697,26 +708,26 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		signal: AbortSignal,
 		timeoutSeconds: number,
 	): Promise<void> {
-		await this.client.replaceFile(
+		const { status } = await this.client.exec(
 			name,
-			"/etc/hostname",
-			`${hostname}\n`,
-			{ uid: 0, gid: 0, mode: "0644" },
+			[
+				"timeout",
+				String(IN_CONTAINER_SECONDS),
+				"sh",
+				"-c",
+				HOSTNAME_SCRIPT,
+				"sh",
+				hostname,
+			],
+			{ timeoutSeconds },
 			signal,
 		);
-
-		await this.client.request(
-			"POST",
-			`/1.0/instances/${enc(name)}/exec`,
-			{
-				command: ["hostname", hostname],
-				"wait-for-websocket": false,
-				"record-output": false,
-				interactive: false,
-			},
-			signal,
-			timeoutSeconds,
-		);
+		if (status !== null && status !== 0) {
+			this.log.warn(
+				{ instance: name, status },
+				"could not write /etc/hostname; the label lasts this boot only",
+			);
+		}
 	}
 
 	/**
@@ -734,30 +745,15 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		signal: AbortSignal,
 		timeoutSeconds: number,
 	): Promise<void> {
-		await this.client.replaceFile(
+		const { status } = await this.client.exec(
 			name,
-			"/etc/timezone",
-			`${timezone}\n`,
-			{ uid: 0, gid: 0, mode: "0644" },
+			["ln", "-sfn", `/usr/share/zoneinfo/${timezone}`, "/etc/localtime"],
+			{ timeoutSeconds },
 			signal,
-		);
-
-		const result = await this.client.request(
-			"POST",
-			`/1.0/instances/${enc(name)}/exec`,
-			{
-				command: ["ln", "-sfn", `/usr/share/zoneinfo/${timezone}`, "/etc/localtime"],
-				"wait-for-websocket": false,
-				"record-output": false,
-				interactive: false,
-			},
-			signal,
-			timeoutSeconds,
 		);
 
 		// A missing zone file in the image makes `ln` fail, and the container
 		// would then run in the wrong zone with nothing said.
-		const status = execExitStatus(result);
 		if (status !== null && status !== 0) {
 			throw new IncusError(
 				"OPERATION_FAILED",
@@ -1397,20 +1393,11 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	}
 
 	async execInSeedBuilder(command: string[], timeoutSeconds: number): Promise<number> {
-		const result = await this.client.request(
-			"POST",
-			`/1.0/instances/${SEED_BUILDER}/exec`,
-			{
-				command,
-				"wait-for-websocket": false,
-				"record-output": false,
-				interactive: false,
-			},
-			undefined,
+		const { status } = await this.client.exec(SEED_BUILDER, command, {
 			timeoutSeconds,
-		);
+		});
 		// No reported status is not a success for a build step.
-		return execExitStatus(result) ?? -1;
+		return status ?? -1;
 	}
 
 	async seedImageVersion(): Promise<string> {
@@ -1570,28 +1557,37 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		this.log.info({ instance: name, ...limits }, "instance limits set");
 	}
 
+	/**
+	 * Read the apt hook's list from inside the running container, as the
+	 * student, so a named pipe or link planted there blocks or leaks nothing
+	 * outside it (SPEC.md §24). Anything but a regular file, or a read that
+	 * fails, is no list.
+	 */
 	async addedPackages(name: string): Promise<AddedPackagesResponse> {
 		validateName(name);
-		let file: Awaited<ReturnType<IncusClient["readFile"]>>;
-		try {
-			file = await this.client.readFile(
-				name,
+		const read = await this.client.exec(
+			name,
+			[
+				"timeout",
+				String(IN_CONTAINER_SECONDS),
+				"sh",
+				"-c",
+				'[ -f "$1" ] || exit 3; exec head -c "$2" -- "$1"',
+				"sh",
 				ADDED_PACKAGES_PATH,
-				ADDED_PACKAGES_MAX_BYTES,
-			);
-		} catch (err) {
-			// No list before the student's first apt run is normal, not an error.
-			if (err instanceof IncusError && err.code === "NOT_FOUND") {
-				return { image: null, packages: [] };
-			}
-			throw err;
-		}
-		// A symbolic link or directory there is not the hook's list.
-		if (file.type !== "file") return { image: null, packages: [] };
-		if (file.tooLarge) {
+				String(ADDED_PACKAGES_MAX_BYTES + 1),
+			],
+			{
+				timeoutSeconds: IN_CONTAINER_SECONDS + 5,
+				user: STUDENT_UID,
+				outputMaxBytes: ADDED_PACKAGES_MAX_BYTES,
+			},
+		);
+		if (read.tooLarge) {
 			throw new IncusError("BAD_REQUEST", "the added-packages list is over 64 KiB");
 		}
-		const { image, packages } = parseAptList(file.content.toString("utf8"));
+		if (read.status !== 0) return { image: null, packages: [] };
+		const { image, packages } = parseAptList(read.stdout.toString("utf8"));
 		return { image, packages };
 	}
 
@@ -1775,19 +1771,11 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	/** Restart the agent unit inside a running instance. */
 	async restartAgent(name: string): Promise<void> {
 		validateName(name);
-		const result = await this.client.request(
-			"POST",
-			`/1.0/instances/${enc(name)}/exec`,
-			{
-				command: ["systemctl", "restart", "portikus-workspace-agent.service"],
-				"wait-for-websocket": false,
-				"record-output": false,
-				interactive: false,
-			},
-			undefined,
-			AGENT_RESTART_TIMEOUT_SECONDS,
+		const { status } = await this.client.exec(
+			name,
+			["systemctl", "restart", "portikus-workspace-agent.service"],
+			{ timeoutSeconds: AGENT_RESTART_TIMEOUT_SECONDS },
 		);
-		const status = execExitStatus(result);
 		if (status !== null && status !== 0) {
 			throw new IncusError("OPERATION_FAILED", `systemctl restart exited ${status}`);
 		}

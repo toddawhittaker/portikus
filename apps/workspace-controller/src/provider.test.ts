@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -401,7 +402,7 @@ test("create reuses existing volumes on 409", async () => {
 	expect(result.created).toBe(true);
 });
 
-test("start pushes the agent token, then waits for agent health", async () => {
+test("start writes its files before the container runs, then waits for agent health", async () => {
 	let pollCount = 0;
 	const pushes: Array<{
 		url: string;
@@ -410,20 +411,23 @@ test("start pushes the agent token, then waits for agent health", async () => {
 	}> = [];
 	let agentRequestsAtPush = -1;
 	const execs: string[] = [];
-	const fileMethods: string[] = [];
+	// Every request in order, so file writes can be placed against the start.
+	const order: string[] = [];
 	handler = async (req, res) => {
 		const body = await readBody(req);
 		if (req.url?.includes("/exec")) {
+			order.push("exec");
 			execs.push(body);
 			respond(res, 200, sync({}));
 		} else if (req.url?.includes("/files")) {
-			fileMethods.push(req.method ?? "");
+			order.push(`${req.method} files`);
 			if (req.method === "POST") {
 				pushes.push({ url: req.url, headers: req.headers, body });
 				agentRequestsAtPush = agentRequests;
 			}
 			respond(res, 200, sync({}));
 		} else if (req.method === "PUT" && req.url?.includes("/state")) {
+			order.push("start");
 			respond(res, 200, sync({}));
 		} else if (req.method === "GET" && req.url?.includes("/state")) {
 			pollCount++;
@@ -448,39 +452,37 @@ test("start pushes the agent token, then waits for agent health", async () => {
 
 	expect(result.ipv4).toBe("127.0.0.1");
 	expect(pollCount).toBeGreaterThanOrEqual(3);
-	// The hostname lands first, then the timezone, then the shell profile,
-	// then the agent token.
-	expect(pushes).toHaveLength(4);
-	// Each is deleted first, so a student's named pipe there cannot block the write.
-	expect(fileMethods).toEqual([
-		"DELETE",
-		"POST",
-		"DELETE",
-		"POST",
-		"DELETE",
-		"POST",
-		"DELETE",
-		"POST",
+	// While the container is stopped no student process can put a named pipe
+	// back between a delete and a push, and nothing is ever read (SPEC.md §24).
+	expect(order.filter((o) => o !== "exec")).toEqual([
+		"DELETE files",
+		"POST files",
+		"DELETE files",
+		"POST files",
+		"DELETE files",
+		"POST files",
+		"start",
 	]);
-	const hostnamePush = pushes[0];
-	const timezonePush = pushes[1];
-	const profilePush = pushes[2];
-	const push = pushes[3];
-	if (!hostnamePush || !timezonePush || !profilePush || !push) {
-		throw new Error("expected four file pushes");
+	const [timezonePush, profilePush, push] = pushes;
+	if (!timezonePush || !profilePush || !push) {
+		throw new Error("expected three file pushes");
 	}
-	expect(hostnamePush.url).toContain("path=%2Fetc%2Fhostname");
-	expect(hostnamePush.body).toBe("tw7\n");
-	expect(hostnamePush.headers["x-incus-uid"]).toBe("0");
-	// Every login shell reads this, so a terminal sees the preview suffix.
-	// It is owned by root, world readable, and has no secret.
 	// The container runs in the owner's zone from this start on:
 	// /etc/timezone for the tools that read it, /etc/localtime for libc.
 	expect(timezonePush.url).toContain("path=%2Fetc%2Ftimezone");
 	expect(timezonePush.body).toBe("America/New_York\n");
 	expect(timezonePush.headers["x-incus-uid"]).toBe("0");
 	expect(timezonePush.headers["x-incus-mode"]).toBe("0644");
-	expect(execs.some((body) => body.includes("hostname"))).toBe(true);
+	// The hostname is set and written from inside the running container.
+	const hostname = execs.find((body) => body.includes("/etc/hostname"));
+	if (!hostname) throw new Error("expected an exec setting the hostname");
+	expect(JSON.parse(hostname).command.slice(0, 4)).toEqual([
+		"timeout",
+		"10",
+		"sh",
+		"-c",
+	]);
+	expect(JSON.parse(hostname).command.at(-1)).toBe("tw7");
 	const localtime = execs.find((body) => body.includes("localtime"));
 	if (!localtime) throw new Error("expected an exec linking /etc/localtime");
 	expect(JSON.parse(localtime).command).toEqual([
@@ -489,6 +491,8 @@ test("start pushes the agent token, then waits for agent health", async () => {
 		"/usr/share/zoneinfo/America/New_York",
 		"/etc/localtime",
 	]);
+	// Every login shell reads this, so a terminal sees the preview suffix.
+	// It is owned by root, world readable, and has no secret.
 	expect(profilePush.url).toContain("path=%2Fetc%2Fprofile.d%2Fportikus.sh");
 	expect(profilePush.body).toBe(
 		"export PORTIKUS_PREVIEW=true\nexport PORTIKUS_PREVIEW_HOST_SUFFIX=preview.portikus.example.edu\n" +
@@ -506,6 +510,44 @@ test("start pushes the agent token, then waits for agent health", async () => {
 	// The token file lands before the first health request.
 	expect(agentRequestsAtPush).toBe(before);
 	expect(agentRequests).toBeGreaterThan(before);
+});
+
+test("the hostname script sets the name and renames a new /etc/hostname into place", async () => {
+	let hostnameExec: string[] = [];
+	handler = async (req, res) => {
+		const body = await readBody(req);
+		if (req.url?.includes("/exec") && body.includes("/etc/hostname")) {
+			hostnameExec = JSON.parse(body).command;
+		}
+		if (req.method === "GET" && req.url?.includes("/state")) {
+			respond(res, 200, sync(runningWithAddress("127.0.0.1")));
+		} else {
+			respond(res, 200, sync({}));
+		}
+	};
+	await provider.start("ws-test", {
+		timeoutSeconds: 10,
+		agentToken: AGENT_TOKEN,
+		hostname: "tw7",
+		previewHostSuffix: "preview.portikus.example.edu",
+		timezone: "America/New_York",
+	});
+	// Run the script with a stand-in `hostname` and /etc/hostname pointed at
+	// a named pipe in a folder of our own: the pipe is replaced, never opened.
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hostname-"));
+	const target = path.join(dir, "hostname");
+	execFileSync("mkfifo", [target]);
+	fs.mkdirSync(path.join(dir, "bin"));
+	fs.writeFileSync(path.join(dir, "bin", "hostname"), "#!/bin/sh\nexit 0\n", {
+		mode: 0o755,
+	});
+	const script = (hostnameExec[4] ?? "").replaceAll("/etc/hostname", target);
+	execFileSync("timeout", ["5", "sh", "-c", script, "sh", "tw7"], {
+		env: { ...process.env, PATH: `${dir}/bin:${process.env.PATH}` },
+		stdio: "ignore",
+	});
+	expect(fs.lstatSync(target).isFile()).toBe(true);
+	expect(fs.readFileSync(target, "utf8")).toBe("tw7\n");
 });
 
 /**
@@ -1090,6 +1132,26 @@ function incusError(res: http.ServerResponse, code: number, error: string): void
 	});
 }
 
+/** Run the real in-container hosts edit against the fake's /etc/hosts. */
+function runHostsEdit(state: FakeIncus, command: string[]): number {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fake-etc-"));
+	const hosts = path.join(dir, "hosts");
+	const file = state.files.get("/etc/hosts");
+	if (file?.type === "file") fs.writeFileSync(hosts, file.content);
+	try {
+		execFileSync(command[0] ?? "", [...command.slice(1, -1), hosts], {
+			stdio: "ignore",
+		});
+	} catch (err) {
+		return (err as { status?: number }).status ?? 1;
+	}
+	state.files.set("/etc/hosts", {
+		type: "file",
+		content: fs.readFileSync(hosts, "utf8"),
+	});
+	return 0;
+}
+
 function serveIncus(state: FakeIncus): void {
 	handler = async (req, res) => {
 		const body = await readBody(req);
@@ -1171,17 +1233,13 @@ function serveIncus(state: FakeIncus): void {
 			);
 		} else if (p === "/1.0/instances/ws-test/files") {
 			const path = url.searchParams.get("path") ?? "";
+			state.fileOps.push(`${method} ${path}`);
+			// Incus 7.5 says "file" for a named pipe and then blocks opening it,
+			// so the controller must never read here (SPEC.md §24).
 			if (method === "GET" || method === "HEAD") {
-				const file = state.files.get(path);
-				if (!file) {
-					incusError(res, 404, "not found");
-					return;
-				}
-				res.writeHead(200, { "X-Incus-type": file.type });
-				res.end(file.content);
+				incusError(res, 500, `the controller read ${path}`);
 				return;
 			}
-			state.fileOps.push(`${method} ${path}`);
 			if (method === "DELETE" && !state.files.delete(path)) {
 				incusError(res, 404, "not found");
 				return;
@@ -1189,6 +1247,10 @@ function serveIncus(state: FakeIncus): void {
 			if (method === "POST") {
 				const type = String(req.headers["x-incus-type"] ?? "file");
 				const existing = state.files.get(path);
+				if (type !== "directory" && existing?.type === "fifo") {
+					incusError(res, 500, `opened the named pipe at ${path}`);
+					return;
+				}
 				if (type === "directory" && existing && existing.type !== "directory") {
 					incusError(res, 400, "not a directory");
 					return;
@@ -1229,7 +1291,12 @@ function serveIncus(state: FakeIncus): void {
 		} else if (p === "/1.0/instances/ws-test/state" && method === "GET") {
 			respond(res, 200, sync(runningWithAddress("127.0.0.1")));
 		} else if (p === "/1.0/instances/ws-test/exec") {
-			state.execs.push(JSON.parse(body).command);
+			const command: string[] = JSON.parse(body).command;
+			state.execs.push(command);
+			if (command.at(-1) === "/etc/hosts") {
+				respond(res, 200, sync({ metadata: { return: runHostsEdit(state, command) } }));
+				return;
+			}
 			respond(res, 200, sync({}));
 		} else if (p === "/1.0/instances" && method === "POST") {
 			state.instanceCreates.push(JSON.parse(body));
@@ -2034,7 +2101,10 @@ describe("admin operations", () => {
 		/** Volume name to its snapshots. */
 		volumes: Map<string, string[]>;
 		usedBy: Map<string, string[]>;
-		file: { status: number; type: string; body: string } | null;
+		/** What the in-container read of the apt list ends with and prints. */
+		read: { status: number; stdout: string };
+		/** The last exec's JSON body. */
+		execBody: Record<string, unknown> | null;
 		requests: string[];
 		/** Fail the first request whose "METHOD path" starts with this, once. */
 		failOnce: string | null;
@@ -2054,7 +2124,8 @@ describe("admin operations", () => {
 				[`${WS}-docker`, []],
 			]),
 			usedBy: new Map(),
-			file: null,
+			read: { status: 3, stdout: "" },
+			execBody: null,
 			requests: [],
 			failOnce: null,
 		};
@@ -2105,19 +2176,23 @@ describe("admin operations", () => {
 				state.devices = { ...state.devices, ...JSON.parse(body).devices };
 				state.etagSeq++;
 				respond(res, 200, sync({}));
-			} else if (
-				p === `/1.0/instances/${WS}/files` &&
-				(method === "GET" || method === "HEAD")
-			) {
-				if (!state.file) {
-					incusError(res, 404, "not found");
-					return;
-				}
-				res.writeHead(state.file.status, {
-					"Content-Type": "application/octet-stream",
-					"X-Incus-type": state.file.type,
-				});
-				res.end(state.file.body);
+			} else if (p === `/1.0/instances/${WS}/exec` && method === "POST") {
+				state.execBody = JSON.parse(body);
+				respond(
+					res,
+					200,
+					sync({
+						metadata: {
+							return: state.read.status,
+							output: { "1": `/1.0/instances/${WS}/logs/exec-output/exec_1.stdout` },
+						},
+					}),
+				);
+			} else if (p.includes("/logs/exec-output/") && method === "GET") {
+				res.writeHead(200, { "Content-Type": "application/octet-stream" });
+				res.end(state.read.stdout);
+			} else if (p.includes("/logs/exec-output/") && method === "DELETE") {
+				respond(res, 200, sync({}));
 			} else if (p === POOL && method === "GET") {
 				respond(
 					res,
@@ -2233,36 +2308,79 @@ describe("admin operations", () => {
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 	});
 
-	test("addedPackages reads the list and keeps only package names", async () => {
+	test("addedPackages reads the list inside the container as the student", async () => {
 		const state = opsState();
-		state.file = {
-			status: 200,
-			type: "file",
-			body: "# portikus-image: 2026.09.9\nhtop\n$(reboot)\n../x\nripgrep\n",
+		state.read = {
+			status: 0,
+			stdout: "# portikus-image: 2026.09.9\nhtop\n$(reboot)\n../x\nripgrep\n",
 		};
 		serveOps(state);
 		expect(await ops.addedPackages(WS)).toEqual({
 			image: "2026.09.9",
 			packages: ["htop", "ripgrep"],
 		});
+		// Never the files API: Incus reports a named pipe as a file (SPEC.md §24).
 		expect(state.requests).toEqual([
-			`HEAD /1.0/instances/${WS}/files`,
-			`GET /1.0/instances/${WS}/files`,
+			`POST /1.0/instances/${WS}/exec`,
+			`GET /1.0/instances/${WS}/logs/exec-output/exec_1.stdout`,
+			`DELETE /1.0/instances/${WS}/logs/exec-output/exec_1.stdout`,
+		]);
+		expect(state.execBody).toMatchObject({
+			user: 1000,
+			group: 1000,
+			"record-output": true,
+		});
+		const command = state.execBody?.command as string[];
+		expect(command.slice(0, 4)).toEqual(["timeout", "10", "sh", "-c"]);
+		expect(command.slice(5)).toEqual([
+			"sh",
+			"/home/student/.portikus/apt-packages.txt",
+			String(64 * 1024 + 1),
 		]);
 	});
 
-	test("addedPackages reads a missing file, a symbolic link or a directory as no list, and refuses an oversized one", async () => {
+	test("the read script prints a regular file and refuses a named pipe without opening it", () => {
+		const state = opsState();
+		serveOps(state);
+		return ops.addedPackages(WS).then(() => {
+			const command = state.execBody?.command as string[];
+			const script = command[4] ?? "";
+			const dir = fs.mkdtempSync(path.join(os.tmpdir(), "apt-list-"));
+			const list = path.join(dir, "apt-packages.txt");
+			fs.writeFileSync(list, "htop\n");
+			expect(
+				execFileSync("timeout", [
+					"5",
+					"sh",
+					"-c",
+					script,
+					"sh",
+					list,
+					"100",
+				]).toString(),
+			).toBe("htop\n");
+			fs.rmSync(list);
+			execFileSync("mkfifo", [list]);
+			const run = () =>
+				execFileSync("timeout", ["5", "sh", "-c", script, "sh", list, "100"], {
+					stdio: "ignore",
+				});
+			expect(run).toThrow(expect.objectContaining({ status: 3 }));
+		});
+	});
+
+	test("addedPackages reads a failed read as no list, and refuses an oversized one", async () => {
 		const state = opsState();
 		serveOps(state);
 		const none = { image: null, packages: [] };
+		// 3: not a regular file (missing, a link to a non-file, a folder, a pipe).
 		expect(await ops.addedPackages(WS)).toEqual(none);
-		state.file = { status: 200, type: "symlink", body: "/etc/shadow" };
+		// 124: `timeout` ended a read that blocked.
+		state.read = { status: 124, stdout: "" };
 		expect(await ops.addedPackages(WS)).toEqual(none);
-		state.file = { status: 200, type: "directory", body: "[]" };
-		expect(await ops.addedPackages(WS)).toEqual(none);
-		state.file = { status: 200, type: "file", body: "a\n".repeat(40 * 1024) };
+		state.read = { status: 0, stdout: "a\n".repeat(40 * 1024) };
 		await expect(ops.addedPackages(WS)).rejects.toMatchObject({ code: "BAD_REQUEST" });
-		state.failOnce = `GET /1.0/instances/${WS}/files`;
+		state.failOnce = `POST /1.0/instances/${WS}/exec`;
 		await expect(ops.addedPackages(WS)).rejects.not.toMatchObject({
 			code: "NOT_FOUND",
 		});
@@ -2713,10 +2831,48 @@ describe("the Docker seed", () => {
 			"CERT\n",
 		);
 		expect(state.files.get("/etc/hosts")?.content).toMatch(/^10\.200\.0\.1 ghcr\.io /m);
+		// The hosts line is edited inside the running container, after the start.
+		const hostsEditAt = state.log.indexOf("POST /1.0/instances/ws-test/exec");
+		expect(hostsEditAt).toBeGreaterThan(startAt);
+		expect(state.fileOps.filter((op) => /^(GET|HEAD) /.test(op))).toEqual([]);
 
+		state.status = "Stopped";
 		await own.start("ws-test", { ...START, docker: { hubMirror: false, ghcr: false } });
 		expect(state.files.has("/etc/docker/certs.d/ghcr.io/ca.crt")).toBe(false);
 		expect(state.files.get("/etc/hosts")?.content).toBe("127.0.0.1 localhost\n");
+	});
+
+	test("a named pipe at /etc/hosts, daemon.json or the agent files is replaced, never read", async () => {
+		const state = fakeIncus();
+		const template = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ai-")), "t.md");
+		fs.writeFileSync(template, "Platform rules\n");
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			agentInstructionsPath: template,
+		});
+		serveIncus(state);
+		for (const p of [
+			"/etc/hosts",
+			"/etc/docker/daemon.json",
+			"/etc/claude-code/CLAUDE.md",
+			"/etc/codex/config.toml",
+		]) {
+			state.files.set(p, { type: "fifo", content: "" });
+		}
+		await own.start("ws-test", { ...START, docker: { hubMirror: true, ghcr: false } });
+		expect(state.fileOps.filter((op) => /^(GET|HEAD) /.test(op))).toEqual([]);
+		for (const p of ["/etc/docker/daemon.json", "/etc/claude-code/CLAUDE.md"]) {
+			expect(state.files.get(p)?.type).toBe("file");
+		}
+		// The in-container edit found no regular file and wrote a fresh one.
+		expect(state.files.get("/etc/hosts")?.content).toMatch(
+			/^127\.0\.0\.1\tlocalhost$/m,
+		);
 	});
 
 	test("the ghcr.io hosts line survives the first start's /etc/hosts template", async () => {
@@ -2759,15 +2915,15 @@ describe("the Docker seed", () => {
 		expect(state.fileOps.filter((op) => op.includes("docker"))).toEqual([]);
 	});
 
-	test("a symbolic link at /etc/docker writes nothing there, and the workspace still starts", async () => {
+	test("a file at /etc/docker leaves Docker's settings out, and the workspace still starts", async () => {
 		const state = fakeIncus();
-		state.files.set("/etc/docker", { type: "symlink", content: "/home/student/d" });
+		state.files.set("/etc/docker", { type: "file", content: "x" });
 		serveIncus(state);
 		await provider.start("ws-test", {
 			...START,
 			docker: { hubMirror: true, ghcr: false },
 		});
-		expect(state.fileOps.filter((op) => /docker|hosts/.test(op))).toEqual([]);
+		expect(state.files.get("/etc/docker")).toEqual({ type: "file", content: "x" });
 		expect(state.status).toBe("Running");
 	});
 });

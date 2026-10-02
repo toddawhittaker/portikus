@@ -170,10 +170,12 @@ export class IncusClient {
 	}
 
 	/**
-	 * Put `body` at `filePath` without ever opening what is there: a student
-	 * who is root can leave a named pipe, and opening one blocks (SPEC.md
+	 * Put `body` at `filePath` without opening what is there: a student can
+	 * leave a named pipe, and opening one blocks an Incus thread (SPEC.md
 	 * §24). Deleting first replaces a pipe, link or file alike; anything that
-	 * cannot be deleted, such as a non-empty directory, is refused.
+	 * cannot be deleted, such as a non-empty directory, is refused. Use it
+	 * only on a stopped instance: in a running one a student's process could
+	 * put a pipe back between the two requests.
 	 */
 	async replaceFile(
 		instance: string,
@@ -192,52 +194,11 @@ export class IncusClient {
 		await this.pushFile(instance, filePath, body, owner, signal);
 	}
 
-	/** What a path is, from a HEAD request: Incus answers it without opening the file. */
-	private fileType(
-		instance: string,
-		filePath: string,
-		signal?: AbortSignal,
-	): Promise<string> {
-		return new Promise((resolve, reject) => {
-			const timer = signal
-				? undefined
-				: setTimeout(() => {
-						reject(new IncusError("TIMEOUT", "request timed out"));
-						req.destroy();
-					}, DEFAULT_REQUEST_TIMEOUT_MS);
-			const req = http.request(
-				{
-					socketPath: this.socketPath,
-					method: "HEAD",
-					path: this.filesPath(instance, filePath),
-					signal,
-				},
-				(res) => {
-					clearTimeout(timer);
-					res.resume();
-					const status = res.statusCode ?? 0;
-					if (status === 404) {
-						reject(new IncusError("NOT_FOUND", `${filePath} not found`));
-					} else if (status !== 200) {
-						reject(new IncusError("OPERATION_FAILED", `HTTP ${status}`));
-					} else {
-						const type = res.headers["x-incus-type"];
-						resolve(typeof type === "string" ? type : "unknown");
-					}
-				},
-			);
-			req.on("error", (err: NodeJS.ErrnoException) => {
-				clearTimeout(timer);
-				reject(
-					err.name === "AbortError"
-						? new IncusError("TIMEOUT", "request timed out")
-						: new IncusError("INCUS_UNAVAILABLE", `cannot read file: ${err.message}`),
-				);
-			});
-			req.end();
-		});
-	}
-
+	/**
+	 * There is deliberately no read through the files API: Incus reports a
+	 * named pipe as a regular file in HEAD, and a GET on one blocks an Incus
+	 * thread for good (SPEC.md §24). Reads go through `exec` instead.
+	 */
 	private filesPath(instance: string, filePath: string): string {
 		return (
 			`/1.0/instances/${encodeURIComponent(instance)}/files` +
@@ -247,23 +208,71 @@ export class IncusClient {
 	}
 
 	/**
-	 * Read a file from an instance through the Incus files API. Incus does not
-	 * follow a final symbolic link, so `type` says what the path is. A body
-	 * longer than `maxBytes` is cut off and reported as `tooLarge`. Anything
-	 * but a regular file or a directory is reported with empty content and
-	 * never opened, since opening a student's named pipe blocks.
+	 * Run a command in a running instance and wait for it to end. With
+	 * `outputMaxBytes`, Incus records stdout to a log on the host, which is
+	 * read back (cut off past the limit) and deleted. A command that never
+	 * ends blocks only inside the instance, and ends when the instance stops.
 	 */
-	async readFile(
+	async exec(
 		instance: string,
-		filePath: string,
+		command: string[],
+		opts: { timeoutSeconds: number; user?: number; outputMaxBytes?: number },
+		signal?: AbortSignal,
+	): Promise<{ status: number | null; stdout: Buffer; tooLarge: boolean }> {
+		const record = opts.outputMaxBytes !== undefined;
+		const result = await this.request(
+			"POST",
+			`/1.0/instances/${encodeURIComponent(instance)}/exec`,
+			{
+				command,
+				"wait-for-websocket": false,
+				"record-output": record,
+				interactive: false,
+				...(opts.user !== undefined ? { user: opts.user, group: opts.user } : {}),
+			},
+			signal,
+			opts.timeoutSeconds,
+		);
+		const meta = (
+			result as
+				| { metadata?: { return?: unknown; output?: Record<string, unknown> } }
+				| undefined
+		)?.metadata;
+		const status = typeof meta?.return === "number" ? meta.return : null;
+		if (!record) return { status, stdout: Buffer.alloc(0), tooLarge: false };
+		const logs = Object.values(meta?.output ?? {}).filter(
+			(l): l is string => typeof l === "string",
+		);
+		const stdoutLog = meta?.output?.["1"];
+		try {
+			if (typeof stdoutLog !== "string") {
+				throw new IncusError("OPERATION_FAILED", "Incus recorded no output");
+			}
+			const out = await this.getBytes(
+				this.withProject(stdoutLog),
+				opts.outputMaxBytes ?? 0,
+				signal,
+			);
+			return { status, stdout: out.content, tooLarge: out.tooLarge };
+		} finally {
+			for (const log of logs) {
+				await this.rawRequest("DELETE", this.withProject(log), undefined, signal).catch(
+					() => undefined,
+				);
+			}
+		}
+	}
+
+	/**
+	 * GET a raw body, such as an exec output log on the host. Never pointed
+	 * at the files API: Incus reports a named pipe there as a file, and
+	 * opening one blocks an Incus thread until something writes to it.
+	 */
+	private getBytes(
+		path: string,
 		maxBytes: number,
 		signal?: AbortSignal,
-	): Promise<{ type: string; content: Buffer; tooLarge: boolean }> {
-		const type = await this.fileType(instance, filePath, signal);
-		if (type !== "file" && type !== "directory") {
-			return { type, content: Buffer.alloc(0), tooLarge: false };
-		}
-		const path = this.filesPath(instance, filePath);
+	): Promise<{ content: Buffer; tooLarge: boolean }> {
 		return new Promise((resolve, reject) => {
 			const timer = signal
 				? undefined
@@ -284,7 +293,7 @@ export class IncusClient {
 						if (status === 200 && size > maxBytes) {
 							tooLarge = true;
 							clearTimeout(timer);
-							resolve({ type: "file", content: Buffer.alloc(0), tooLarge });
+							resolve({ content: Buffer.alloc(0), tooLarge });
 							req.destroy();
 							return;
 						}
@@ -309,12 +318,7 @@ export class IncusClient {
 							);
 							return;
 						}
-						const type = res.headers["x-incus-type"];
-						resolve({
-							type: typeof type === "string" ? type : "unknown",
-							content: body,
-							tooLarge: false,
-						});
+						resolve({ content: body, tooLarge: false });
 					});
 				},
 			);
@@ -323,9 +327,7 @@ export class IncusClient {
 				if (err.name === "AbortError") {
 					reject(new IncusError("TIMEOUT", "request timed out"));
 				} else {
-					reject(
-						new IncusError("INCUS_UNAVAILABLE", `cannot read file: ${err.message}`),
-					);
+					reject(new IncusError("INCUS_UNAVAILABLE", `cannot read: ${err.message}`));
 				}
 			});
 			req.end();

@@ -528,64 +528,111 @@ test("an operation wait is bounded at its own timeout plus 5 seconds", async () 
 	}
 });
 
-test("readFile returns the body and the type Incus reports", async () => {
-	let receivedUrl = "";
-	handler = (req, res) => {
-		receivedUrl = req.url ?? "";
-		res.writeHead(200, {
-			"Content-Type": "application/octet-stream",
-			"X-Incus-type": "file",
-		});
-		res.end("htop\n");
+/**
+ * A fake exec endpoint: the command is answered as an operation that ends
+ * with `ret`, and with recorded output Incus names a stdout and a stderr log.
+ */
+function execServer(
+	ret: number,
+	stdout: string,
+	seen: { body?: Record<string, unknown>; requests: string[] },
+) {
+	return async (req: http.IncomingMessage, res: http.ServerResponse) => {
+		const chunks: Buffer[] = [];
+		for await (const c of req) chunks.push(c as Buffer);
+		seen.requests.push(`${req.method} ${req.url}`);
+		const url = req.url ?? "";
+		if (req.method === "POST" && url.startsWith("/1.0/instances/ws-a/exec")) {
+			seen.body = JSON.parse(Buffer.concat(chunks).toString());
+			respond(res, 202, {
+				type: "async",
+				status: "Operation created",
+				status_code: 100,
+				operation: "/1.0/operations/op1",
+			});
+		} else if (url.startsWith("/1.0/operations/op1/wait")) {
+			const record = seen.body?.["record-output"] === true;
+			respond(
+				res,
+				200,
+				waitReply({
+					status_code: 200,
+					metadata: {
+						return: ret,
+						...(record
+							? {
+									output: {
+										"1": "/1.0/instances/ws-a/logs/exec-output/exec_1.stdout",
+										"2": "/1.0/instances/ws-a/logs/exec-output/exec_1.stderr",
+									},
+								}
+							: {}),
+					},
+				}),
+			);
+		} else if (req.method === "GET" && url.includes("/logs/exec-output/")) {
+			res.writeHead(200, { "Content-Type": "application/octet-stream" });
+			res.end(stdout);
+		} else {
+			respond(res, 200, { type: "sync", status: "Success", status_code: 200 });
+		}
 	};
+}
+
+test("exec runs a command and reports its exit status, with no output kept", async () => {
+	const seen: { body?: Record<string, unknown>; requests: string[] } = { requests: [] };
+	handler = execServer(3, "", seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
-	const file = await client.readFile("ws-a", "/home/student/x y.txt", 100);
-	expect(file).toEqual({
-		type: "file",
-		content: Buffer.from("htop\n"),
-		tooLarge: false,
+	const result = await client.exec("ws-a", ["true"], { timeoutSeconds: 5 });
+	expect(result).toEqual({ status: 3, stdout: Buffer.alloc(0), tooLarge: false });
+	expect(seen.body).toEqual({
+		command: ["true"],
+		"wait-for-websocket": false,
+		"record-output": false,
+		interactive: false,
 	});
-	expect(receivedUrl).toBe(
-		"/1.0/instances/ws-a/files?path=%2Fhome%2Fstudent%2Fx%20y.txt&project=testproj",
-	);
+	expect(seen.requests).toEqual([
+		"POST /1.0/instances/ws-a/exec?project=testproj",
+		"GET /1.0/operations/op1/wait?timeout=5",
+	]);
 });
 
-test("readFile stops reading past the limit", async () => {
-	handler = (_req, res) => {
-		res.writeHead(200, { "X-Incus-type": "file" });
-		res.end("x".repeat(1000));
-	};
+test("exec reads stdout from the host log as the user given, then deletes both logs", async () => {
+	const seen: { body?: Record<string, unknown>; requests: string[] } = { requests: [] };
+	handler = execServer(0, "htop\n", seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
-	const file = await client.readFile("ws-a", "/f", 999);
-	expect(file.tooLarge).toBe(true);
-	expect(file.content.length).toBe(0);
+	const result = await client.exec("ws-a", ["cat", "x"], {
+		timeoutSeconds: 5,
+		user: 1000,
+		outputMaxBytes: 100,
+	});
+	expect(result).toEqual({ status: 0, stdout: Buffer.from("htop\n"), tooLarge: false });
+	expect(seen.body).toMatchObject({ "record-output": true, user: 1000, group: 1000 });
+	expect(seen.requests.slice(2)).toEqual([
+		"GET /1.0/instances/ws-a/logs/exec-output/exec_1.stdout?project=testproj",
+		"DELETE /1.0/instances/ws-a/logs/exec-output/exec_1.stdout?project=testproj",
+		"DELETE /1.0/instances/ws-a/logs/exec-output/exec_1.stderr?project=testproj",
+	]);
 });
 
-test("readFile maps a missing file to NOT_FOUND", async () => {
-	handler = (_req, res) => {
-		respond(res, 404, { type: "error", error: "not found", error_code: 404 });
-	};
+test("exec stops reading output past the limit", async () => {
+	const seen: { body?: Record<string, unknown>; requests: string[] } = { requests: [] };
+	handler = execServer(0, "x".repeat(1000), seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
-	await expect(client.readFile("ws-a", "/f", 10)).rejects.toMatchObject({
-		code: "NOT_FOUND",
+	const result = await client.exec("ws-a", ["cat", "x"], {
+		timeoutSeconds: 5,
+		outputMaxBytes: 999,
 	});
-});
-
-test("readFile maps a server error that is not an envelope to OPERATION_FAILED", async () => {
-	handler = (_req, res) => {
-		res.writeHead(500);
-		res.end("oops");
-	};
-	const client = new IncusClient({ socketPath, project: "testproj" });
-	await expect(client.readFile("ws-a", "/f", 10)).rejects.toMatchObject({
-		code: "OPERATION_FAILED",
-	});
+	expect(result.tooLarge).toBe(true);
+	expect(result.stdout.length).toBe(0);
+	expect(seen.requests.filter((r) => r.startsWith("DELETE"))).toHaveLength(2);
 });
 
 /**
- * A fake files API that behaves as Incus does on a real host: a push with
- * "overwrite" opens the existing path for writing, which never returns for
- * a named pipe with no reader; HEAD and DELETE only look at the path.
+ * A fake files API that behaves as Incus 7.5 does on a real host: a push
+ * with "overwrite" and a GET open the path, which never returns for a named
+ * pipe with no peer; HEAD reports the pipe as a regular file; DELETE only
+ * looks at the path.
  */
 function pipeAt(pipePath: string, log: string[]) {
 	let pipe = pipePath;
@@ -595,7 +642,7 @@ function pipeAt(pipePath: string, log: string[]) {
 		log.push(`${req.method} ${p}`);
 		req.resume();
 		if (req.method === "HEAD") {
-			res.writeHead(200, { "X-Incus-type": p === pipe ? "fifo" : "file" });
+			res.writeHead(200, { "X-Incus-type": "file", "X-Incus-mode": "0644" });
 			res.end();
 			return;
 		}
@@ -674,16 +721,23 @@ test("replaceFile writes a missing file and refuses a path it cannot delete", as
 	expect(pushes).toHaveLength(1);
 });
 
-test("readFile reports a named pipe by its type and never opens it", async () => {
+test("HEAD cannot tell a named pipe from a file, and the client has no read", async () => {
 	const log: string[] = [];
 	handler = pipeAt("/etc/hosts", log);
+	const answer = await new Promise<http.IncomingMessage>((resolve) => {
+		http
+			.request(
+				{
+					socketPath,
+					method: "HEAD",
+					path: "/1.0/instances/ws-a/files?path=%2Fetc%2Fhosts",
+				},
+				resolve,
+			)
+			.end();
+	});
+	expect(answer.headers["x-incus-type"]).toBe("file");
+	// The rule of SPEC.md §24 as code: nothing on the client GETs the files API.
 	const client = new IncusClient({ socketPath, project: "testproj" });
-	const file = await client.readFile(
-		"ws-a",
-		"/etc/hosts",
-		100,
-		AbortSignal.timeout(2000),
-	);
-	expect(file).toEqual({ type: "fifo", content: Buffer.alloc(0), tooLarge: false });
-	expect(log).toEqual(["HEAD /etc/hosts"]);
+	expect("readFile" in client).toBe(false);
 });
