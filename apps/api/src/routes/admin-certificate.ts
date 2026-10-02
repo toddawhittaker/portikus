@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { requireRole, requireUser } from "@portikus/auth";
 import {
 	type AdminCertificate,
+	type ApiError,
 	CERTIFICATE_LOG_LINES,
 	CertificateJobId,
 	CertificateJobRequest,
 	type CertificateJobRequestFile,
-	type CertificateJobView,
 	CertificatePreflightRequest,
 	type CertificateSettings,
 	type CertificateSettingsView,
@@ -36,7 +36,7 @@ import {
 } from "../certificate/preflight.js";
 import { checkUpload } from "../certificate/upload-check.js";
 import { sendError } from "../http.js";
-import { listDir, tailLines, writeRequestFile } from "../job-files.js";
+import { currentJob, listDir, tailLines, writeRequestFile } from "../job-files.js";
 import type { ServerDeps } from "../server.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
@@ -119,6 +119,27 @@ function missingSecret(
  * file into CERTIFICATE_JOBS_DIR. Secrets travel only in that file and
  * never come back out. With CERTIFICATE_JOBS_DIR unset every route is 404.
  */
+/**
+ * The uploads to check and the names each must cover: a separate preview
+ * certificate covers the wildcard, otherwise the site certificate covers both.
+ */
+export function uploadsToCheck(
+	settings: Extract<CertificateSettings, { source: "files" }>,
+	siteName: string,
+	previewSuffix: string,
+) {
+	const wildcard = `*.${previewSuffix}`;
+	if (settings.preview) {
+		return [
+			{ label: "Site certificate", upload: settings.site, names: [siteName] },
+			{ label: "Preview certificate", upload: settings.preview, names: [wildcard] },
+		];
+	}
+	return [
+		{ label: "Site certificate", upload: settings.site, names: [siteName, wildcard] },
+	];
+}
+
 export function registerAdminCertificateRoutes(
 	app: FastifyInstance,
 	{ db, config }: ServerDeps,
@@ -137,18 +158,56 @@ export function registerAdminCertificateRoutes(
 		return true;
 	}
 
-	function currentOf(jobs: CertificateJobView[]): CertificateJobView | null {
-		const active =
-			jobs.find((j) => j.state === "running") ?? jobs.find((j) => j.state === "queued");
-		if (active) return active;
-		const byStart = [...jobs].sort((a, b) =>
-			(b.startedAt ?? "").localeCompare(a.startedAt ?? ""),
-		);
-		return byStart[0] ?? null;
-	}
-
 	async function rootAvailable(dir: string): Promise<boolean> {
 		return (await listDir(dir)).includes("root.crt");
+	}
+
+	/** Why new settings cannot be tested or applied, or null when they can. */
+	async function refuseSettings(
+		settings: CertificateSettings,
+		stored: CertificateSettingsView | null,
+	): Promise<{ status: 400 | 409; code: ApiError["code"]; message: string } | null> {
+		const missing = missingSecret(settings, stored);
+		if (missing) {
+			return {
+				status: 400,
+				code: "CERTIFICATE_SECRET_REQUIRED",
+				message: `Enter ${missing}; no stored value can be kept.`,
+			};
+		}
+		if (settings.source === "files") {
+			for (const { label, upload, names } of uploadsToCheck(
+				settings,
+				siteName,
+				config.PREVIEW_SUFFIX,
+			)) {
+				const refusal = checkUpload(upload, names);
+				if (refusal) {
+					return {
+						status: 400,
+						code: "CERTIFICATE_UPLOAD_REFUSED",
+						message: `${label}: the ${refusal.check} check failed. ${refusal.message}`,
+					};
+				}
+			}
+		}
+		if (settings.source === "acme") {
+			const preflight = await runPreflight({
+				config,
+				net,
+				nonces,
+				mode: settings.challenge.mode,
+			});
+			const failed = preflight.checks.filter((c) => c.result === "failed");
+			if (failed.length > 0) {
+				return {
+					status: 409,
+					code: "CERTIFICATE_PREFLIGHT_FAILED",
+					message: `Pre-flight failed. ${failed.map((c) => c.message).join(" ")}`,
+				};
+			}
+		}
+		return null;
 	}
 
 	app.get("/admin/certificate", adminOnly, async (_request, reply) => {
@@ -162,7 +221,7 @@ export function registerAdminCertificateRoutes(
 			settings: status?.settings ?? null,
 			previousAvailable: status?.previousAvailable ?? false,
 			status,
-			job: currentOf(jobs),
+			job: currentJob(jobs),
 			rootCertificateAvailable: await rootAvailable(statusDir),
 		};
 		return reply.header("cache-control", "no-store").send(out);
@@ -245,62 +304,9 @@ export function registerAdminCertificateRoutes(
 				);
 			}
 			if (wanted.kind === "test" || wanted.kind === "apply") {
-				const settings = wanted.settings;
-				const missing = missingSecret(settings, status?.settings ?? null);
-				if (missing) {
-					return sendError(
-						reply,
-						400,
-						"CERTIFICATE_SECRET_REQUIRED",
-						`Enter ${missing}; no stored value can be kept.`,
-					);
-				}
-				if (settings.source === "files") {
-					const wildcard = `*.${config.PREVIEW_SUFFIX}`;
-					const uploads = settings.preview
-						? [
-								{ label: "Site certificate", upload: settings.site, names: [siteName] },
-								{
-									label: "Preview certificate",
-									upload: settings.preview,
-									names: [wildcard],
-								},
-							]
-						: [
-								{
-									label: "Site certificate",
-									upload: settings.site,
-									names: [siteName, wildcard],
-								},
-							];
-					for (const { label, upload, names } of uploads) {
-						const refusal = checkUpload(upload, names);
-						if (refusal) {
-							return sendError(
-								reply,
-								400,
-								"CERTIFICATE_UPLOAD_REFUSED",
-								`${label}: the ${refusal.check} check failed. ${refusal.message}`,
-							);
-						}
-					}
-				}
-				if (settings.source === "acme") {
-					const preflight = await runPreflight({
-						config,
-						net,
-						nonces,
-						mode: settings.challenge.mode,
-					});
-					const failed = preflight.checks.filter((c) => c.result === "failed");
-					if (failed.length > 0) {
-						return sendError(
-							reply,
-							409,
-							"CERTIFICATE_PREFLIGHT_FAILED",
-							`Pre-flight failed. ${failed.map((c) => c.message).join(" ")}`,
-						);
-					}
+				const refused = await refuseSettings(wanted.settings, status?.settings ?? null);
+				if (refused) {
+					return sendError(reply, refused.status, refused.code, refused.message);
 				}
 			}
 

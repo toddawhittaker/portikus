@@ -18,6 +18,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
 import { TerminalPane } from "../TerminalPane.js";
+import { usePointerDismiss } from "./pointerDismiss.js";
 
 /** The dnd-kit ids for one pane's drag handle and its drop area. */
 function paneDragId(terminalId: string): string {
@@ -58,31 +59,7 @@ export interface TerminalLeafProps {
  * a keyboard dismiss still focuses it.
  */
 function usePointerDismissFocus() {
-	const pointer = useRef(false);
-	const stop = useRef<(() => void) | null>(null);
-
-	useEffect(() => () => stop.current?.(), []);
-
-	function onOpenChange(next: boolean) {
-		stop.current?.();
-		stop.current = null;
-		if (!next) return;
-		pointer.current = false;
-		const onPointerDown = () => {
-			pointer.current = true;
-		};
-		const onKeyDown = (event: globalThis.KeyboardEvent) => {
-			if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
-				pointer.current = false;
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown, true);
-		document.addEventListener("keydown", onKeyDown, true);
-		stop.current = () => {
-			document.removeEventListener("pointerdown", onPointerDown, true);
-			document.removeEventListener("keydown", onKeyDown, true);
-		};
-	}
+	const { pointer, track: onOpenChange } = usePointerDismiss();
 
 	// An action that moves the keyboard elsewhere runs once the menu has
 	// closed, instead of the trigger taking the keyboard back.

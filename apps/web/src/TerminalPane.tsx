@@ -33,6 +33,7 @@ import {
 	firstNoticeOf,
 	forgetAgentBuild,
 	TERMINAL_GONE_NEXT_STEP,
+	type TerminalFrame,
 	terminalGoneMessage,
 	upgradedAgentNotice,
 } from "./terminalFrames.js";
@@ -49,6 +50,8 @@ const MAX_RECONNECT_ATTEMPTS = 5;
  * that was too large, and a server error.
  */
 const FATAL_CLOSE_CODES = new Set([1008, 1009, 1011]);
+
+type TerminalErrorFrame = Extract<TerminalFrame, { kind: "error" }>;
 
 /** Quiet time after the pane's last size change before the size is sent. */
 export const RESIZE_SETTLE_MS = 100;
@@ -688,70 +691,75 @@ export function TerminalPane({
 				setConnected(true);
 			};
 
+			/** The shell exited: close the pane. */
+			function onExitFrame() {
+				stopped = true;
+				setReconnecting(false);
+				setConnected(false);
+				handlers.current.onExited(terminalId);
+				next.close();
+			}
+
+			function onErrorFrame(frame: TerminalErrorFrame) {
+				if (!frame.reason) {
+					term.writeln(`\r\n[portikus] terminal error: ${frame.code}`);
+					return;
+				}
+				// The session went with a terminals restart: close the pane
+				// and say why, once per restart (SPEC.md §9.7).
+				stopped = true;
+				setReconnecting(false);
+				setConnected(false);
+				forgetAgentBuild(workspaceId);
+				if (firstNoticeOf(frame.at ?? "")) {
+					handlers.current.toast.show({
+						tone: "warning",
+						title: terminalGoneMessage(frame.reason),
+						children: TERMINAL_GONE_NEXT_STEP,
+					});
+				}
+				handlers.current.onExited(terminalId);
+				next.close();
+			}
+
 			next.onmessage = (event: MessageEvent) => {
 				const frame = decodeTerminalFrame(event.data);
-				if (frame.kind === "output") {
-					term.write(frame.bytes);
-					// The size in the connect URL is measured before the pane's box
-					// has settled, and a correction sent in the meantime is lost:
-					// this socket was not open yet, or the workspace agent had not
-					// yet started the PTY. Output means both are ready, so say the
-					// size again. Without this tmux keeps repainting a taller
-					// screen than xterm.js has, which scrolls the shell prompt out
-					// of view and leaves a blank pane (SPEC.md §9.7).
-					if (!sizeConfirmed) {
-						sizeConfirmed = true;
-						sendSize();
-					}
-					return;
-				}
-				if (frame.kind === "exit") {
-					stopped = true;
-					setReconnecting(false);
-					setConnected(false);
-					handlers.current.onExited(terminalId);
-					next.close();
-					return;
-				}
-				if (frame.kind === "cwd") {
-					handlers.current.onCwd(frame.path);
-					return;
-				}
-				if (frame.kind === "screen") {
-					alternateScreen = frame.alternate;
-					return;
-				}
-				if (frame.kind === "clear") {
-					// Erase the saved lines only; tmux has already cleared the screen.
-					term.write("\u001b[3J");
-					return;
-				}
-				if (frame.kind === "agent") {
-					if (upgradedAgentNotice(workspaceId, frame.build)) {
-						handlers.current.toast.show({ title: AGENT_UPGRADED_MESSAGE });
-					}
-					return;
-				}
-				if (frame.kind === "error" && frame.reason) {
-					// The session went with a terminals restart: close the pane
-					// and say why, once per restart (SPEC.md §9.7).
-					stopped = true;
-					setReconnecting(false);
-					setConnected(false);
-					forgetAgentBuild(workspaceId);
-					if (firstNoticeOf(frame.at ?? "")) {
-						handlers.current.toast.show({
-							tone: "warning",
-							title: terminalGoneMessage(frame.reason),
-							children: TERMINAL_GONE_NEXT_STEP,
-						});
-					}
-					handlers.current.onExited(terminalId);
-					next.close();
-					return;
-				}
-				if (frame.kind === "error") {
-					term.writeln(`\r\n[portikus] terminal error: ${frame.code}`);
+				switch (frame.kind) {
+					case "output":
+						term.write(frame.bytes);
+						// The size in the connect URL is measured before the pane's box
+						// has settled, and a correction sent in the meantime is lost:
+						// this socket was not open yet, or the workspace agent had not
+						// yet started the PTY. Output means both are ready, so say the
+						// size again. Without this tmux keeps repainting a taller
+						// screen than xterm.js has, which scrolls the shell prompt out
+						// of view and leaves a blank pane (SPEC.md §9.7).
+						if (!sizeConfirmed) {
+							sizeConfirmed = true;
+							sendSize();
+						}
+						return;
+					case "exit":
+						onExitFrame();
+						return;
+					case "cwd":
+						handlers.current.onCwd(frame.path);
+						return;
+					case "screen":
+						alternateScreen = frame.alternate;
+						return;
+					case "clear":
+						// Erase the saved lines only; tmux has already cleared the screen.
+						term.write("\u001b[3J");
+						return;
+					case "agent":
+						if (upgradedAgentNotice(workspaceId, frame.build)) {
+							handlers.current.toast.show({ title: AGENT_UPGRADED_MESSAGE });
+						}
+						return;
+					case "error":
+						onErrorFrame(frame);
+						return;
 				}
 			};
 

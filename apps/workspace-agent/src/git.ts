@@ -184,73 +184,22 @@ export function parsePorcelainV2(text: string): GitStatus {
 		const kind = record[0];
 
 		if (kind === "#") {
-			const [, key, ...rest] = record.split(" ");
-			const value = rest.join(" ");
-			if (key === "branch.head") {
-				if (value === "(detached)") {
-					status.detached = true;
-				} else {
-					status.branch = value;
-				}
-			} else if (key === "branch.upstream") {
-				status.upstream = value;
-			} else if (key === "branch.ab") {
-				const [ahead, behind] = value.split(" ");
-				status.ahead = Number.parseInt(ahead?.replace("+", "") ?? "0", 10) || 0;
-				status.behind = Number.parseInt(behind?.replace("-", "") ?? "0", 10) || 0;
-			}
+			readBranchHeader(status, record);
 			continue;
 		}
 
+		let item: string | GitEntry | null;
 		if (kind === "!") {
-			if (budget <= 0) {
-				status.truncated = true;
-				continue;
-			}
-			budget -= 1;
-			status.ignored.push(record.slice(2));
-			continue;
-		}
-
-		let entry: GitEntry;
-		if (kind === "?") {
-			entry = { path: record.slice(2), x: "?", y: "?", unmerged: false };
-		} else if (kind === "1") {
-			const fields = record.split(" ");
-			const xy = fields[1] ?? "..";
-			entry = {
-				path: fields.slice(8).join(" "),
-				x: xy[0] ?? ".",
-				y: xy[1] ?? ".",
-				unmerged: false,
-			};
-		} else if (kind === "2") {
-			const fields = record.split(" ");
-			const xy = fields[1] ?? "..";
-			// The original path is the next NUL-separated field.
-			i += 1;
-			entry = {
-				path: fields.slice(9).join(" "),
-				x: xy[0] ?? ".",
-				y: xy[1] ?? ".",
-				unmerged: false,
-				origPath: records[i] ?? "",
-			};
-			if (!entry.origPath) delete entry.origPath;
-		} else if (kind === "u") {
-			const fields = record.split(" ");
-			const xy = fields[1] ?? "UU";
-			status.conflicts += 1;
+			item = record.slice(2);
+		} else {
+			// A rename's original path is the next NUL-separated field.
+			const origPath = kind === "2" ? (records[i + 1] ?? "") : undefined;
+			if (kind === "2") i += 1;
+			item = parseEntry(record, origPath);
+			if (!item) continue;
 			// Every `u` record is a conflict, including both-added (AA) and
 			// both-deleted (DD) (SPEC.md §12.8).
-			entry = {
-				path: fields.slice(10).join(" "),
-				x: xy[0] ?? "U",
-				y: xy[1] ?? "U",
-				unmerged: true,
-			};
-		} else {
-			continue;
+			if (item.unmerged) status.conflicts += 1;
 		}
 
 		if (budget <= 0) {
@@ -258,9 +207,68 @@ export function parsePorcelainV2(text: string): GitStatus {
 			continue;
 		}
 		budget -= 1;
-		status.entries.push(entry);
+		if (typeof item === "string") status.ignored.push(item);
+		else status.entries.push(item);
 	}
 	return status;
+}
+
+/** Apply one `# branch.*` header line to `status`. */
+function readBranchHeader(status: GitStatus, record: string): void {
+	const [, key, ...rest] = record.split(" ");
+	const value = rest.join(" ");
+	if (key === "branch.head") {
+		if (value === "(detached)") {
+			status.detached = true;
+		} else {
+			status.branch = value;
+		}
+	} else if (key === "branch.upstream") {
+		status.upstream = value;
+	} else if (key === "branch.ab") {
+		const [ahead, behind] = value.split(" ");
+		status.ahead = Number.parseInt(ahead?.replace("+", "") ?? "0", 10) || 0;
+		status.behind = Number.parseInt(behind?.replace("-", "") ?? "0", 10) || 0;
+	}
+}
+
+/** One changed, untracked, renamed or unmerged record; null for any other kind. */
+function parseEntry(record: string, origPath: string | undefined): GitEntry | null {
+	const kind = record[0];
+	if (kind === "?") {
+		return { path: record.slice(2), x: "?", y: "?", unmerged: false };
+	}
+	const fields = record.split(" ");
+	if (kind === "1") {
+		const xy = fields[1] ?? "..";
+		return {
+			path: fields.slice(8).join(" "),
+			x: xy[0] ?? ".",
+			y: xy[1] ?? ".",
+			unmerged: false,
+		};
+	}
+	if (kind === "2") {
+		const xy = fields[1] ?? "..";
+		const entry: GitEntry = {
+			path: fields.slice(9).join(" "),
+			x: xy[0] ?? ".",
+			y: xy[1] ?? ".",
+			unmerged: false,
+		};
+		if (origPath) entry.origPath = origPath;
+		return entry;
+	}
+	if (kind === "u") {
+		const xy = fields[1] ?? "UU";
+		return {
+			path: fields.slice(10).join(" "),
+			x: xy[0] ?? "U",
+			y: xy[1] ?? "U",
+			unmerged: true,
+		};
+	}
+	return null;
 }
 
 /** The project directory, or a failure if the project is missing. */
@@ -418,6 +426,26 @@ async function pathState(dir: string, relPath: string): Promise<PathState> {
 }
 
 /**
+ * The project directory for a diff of `relPath`, and whether it is a
+ * repository root. A directory is not a diffable file on either side: git
+ * would show a tree listing as if it were the file's content. A missing path
+ * is fine: the older side may still have it.
+ */
+async function diffablePath(
+	homeDir: string,
+	slug: string,
+	relPath: string,
+): Promise<{ dir: string; repo: boolean; target: { path: string } }> {
+	const dir = await projectDir(homeDir, slug);
+	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: false });
+	const info = await lstat(target.path).catch(() => null);
+	if (info && !info.isFile()) {
+		throw new AgentFailure("PATH_INVALID", "not a file");
+	}
+	return { dir, repo: await isRepoRoot(dir), target };
+}
+
+/**
  * The HEAD version of a file against its working-tree version (SPEC.md §12.6).
  * Read-only: this never commits, adds, stashes, checks out, branches or tags
  * (SPEC.md §12.5).
@@ -428,18 +456,7 @@ export async function gitDiff(
 	relPath: string,
 	options: { log?: GitDebugLog } = {},
 ): Promise<GitDiff> {
-	const dir = await projectDir(homeDir, slug);
-	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: false });
-
-	// A directory is not a diffable file on either side: git would happily
-	// show a tree listing as if it were the file's content.
-	// A missing path is fine here: HEAD may still have it.
-	const info = await lstat(target.path).catch(() => null);
-	if (info && !info.isFile()) {
-		throw new AgentFailure("PATH_INVALID", "not a file");
-	}
-
-	const repo = await isRepoRoot(dir);
+	const { dir, repo, target } = await diffablePath(homeDir, slug, relPath);
 	const state = repo ? await pathState(dir, relPath) : { unmerged: false };
 	const origPath = state.origPath;
 	const headPath = origPath ?? relPath;
@@ -583,6 +600,36 @@ async function extraBaselinePaths(dir: string): Promise<string[]> {
 	return paths;
 }
 
+/** Write one extra file or symlink as a blob; null when it cannot be read. */
+async function hashExtraFile(
+	dir: string,
+	path: string,
+): Promise<{ path: string; oid: string; mode: string } | null> {
+	const full = join(dir, path);
+	const info = await lstat(full).catch(() => null);
+	if (!info) return null;
+	let oid = "";
+	let mode = "";
+	if (info.isSymbolicLink()) {
+		// The blob is the link text. Hashing the path would follow it.
+		const target = await readlink(full).catch(() => null);
+		if (target === null) return null;
+		oid = (await hashStdin(dir, target, true)) ?? "";
+		mode = "120000";
+	} else if (info.isFile()) {
+		const hashed = await runGit(
+			["hash-object", "-w", "--no-filters", "--", path],
+			dir,
+			128,
+		);
+		oid = hashed.ok ? hashed.stdout.toString().trim() : "";
+		mode = info.mode & 0o111 ? "100755" : "100644";
+	} else {
+		return null;
+	}
+	return OBJECT_ID.test(oid) ? { path, oid, mode } : null;
+}
+
 /**
  * A parentless commit whose tree is only the extra files. The baseline
  * commit keeps the tracked tree and points at this as its second parent.
@@ -596,30 +643,8 @@ async function attachUntracked(dir: string, base: string): Promise<string> {
 	try {
 		const blobs: { path: string; oid: string; mode: string }[] = [];
 		for (const path of paths) {
-			const full = join(dir, path);
-			const info = await lstat(full).catch(() => null);
-			if (!info) continue;
-			let oid = "";
-			let mode = "";
-			if (info.isSymbolicLink()) {
-				// The blob is the link text. Hashing the path would follow it.
-				const target = await readlink(full).catch(() => null);
-				if (target === null) continue;
-				oid = (await hashStdin(dir, target, true)) ?? "";
-				mode = "120000";
-			} else if (info.isFile()) {
-				const hashed = await runGit(
-					["hash-object", "-w", "--no-filters", "--", path],
-					dir,
-					128,
-				);
-				oid = hashed.ok ? hashed.stdout.toString().trim() : "";
-				mode = info.mode & 0o111 ? "100755" : "100644";
-			} else {
-				continue;
-			}
-			if (!OBJECT_ID.test(oid)) continue;
-			blobs.push({ path, oid, mode });
+			const blob = await hashExtraFile(dir, path);
+			if (blob) blobs.push(blob);
 		}
 		if (blobs.length === 0) return base;
 		const empty = await runGit(["read-tree", "--empty"], dir, 64, GIT_TIMEOUT_MS, {
@@ -939,14 +964,7 @@ export async function baselineDiff(
 	if (!OBJECT_ID.test(objectId)) {
 		throw new AgentFailure("BAD_REQUEST", "invalid object");
 	}
-	const dir = await projectDir(homeDir, slug);
-	const target = await resolveInProject(homeDir, slug, relPath, { mustExist: false });
-	const info = await lstat(target.path).catch(() => null);
-	if (info && !info.isFile()) {
-		throw new AgentFailure("PATH_INVALID", "not a file");
-	}
-
-	const repo = await isRepoRoot(dir);
+	const { dir, repo, target } = await diffablePath(homeDir, slug, relPath);
 	const state = repo
 		? await baselinePathState(dir, objectId, relPath)
 		: { unmerged: false };

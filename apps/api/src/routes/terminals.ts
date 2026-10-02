@@ -9,10 +9,10 @@ import {
 	UpdateTerminalRequest,
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import { z } from "zod";
-import { AgentCallError, agentClientFor } from "../agent-client.js";
+import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
 import { parseOr400, sendError } from "../http.js";
 import type { ServerDeps } from "../server.js";
 import { toEditorSettings } from "./me.js";
@@ -76,6 +76,19 @@ function institutionalEnv(
 		if (key) return { OPENAI_API_KEY: key };
 	}
 	return undefined;
+}
+
+/**
+ * The API does not choose the CLI. It forwards the launcher kind and, when
+ * this process has it, the matching institutional key (SPEC.md §10.2,
+ * §10.6, §24.8).
+ */
+function launcherFields(agent: "claude" | "codex" | undefined) {
+	const keys = institutionalEnv(agent);
+	return {
+		...(agent === undefined ? {} : { agent }),
+		...(keys === undefined ? {} : { institutionalEnv: keys }),
+	};
 }
 
 function toTerminal(row: {
@@ -176,6 +189,38 @@ async function userTerminalSettings(
 	return { terminalTheme: settings.terminalTheme, timezone: settings.timezone };
 }
 
+interface TerminalProject {
+	id: string;
+	slug: string;
+	path: string;
+}
+
+function terminalProject(
+	db: Kysely<Database>,
+	workspaceId: string,
+	projectId: string,
+): Promise<TerminalProject | undefined> {
+	return db
+		.selectFrom("projects")
+		.select(["id", "slug", "path"])
+		.where("id", "=", projectId)
+		.where("workspace_id", "=", workspaceId)
+		.executeTakeFirst();
+}
+
+/** The answer to an agent that could not create a terminal. */
+function createFailed(reply: FastifyReply, error: unknown) {
+	if (error instanceof AgentCallError && error.code === "INVALID_CWD") {
+		return sendError(reply, 400, "VALIDATION_FAILED", error.message);
+	}
+	return sendError(
+		reply,
+		503,
+		"AGENT_UNAVAILABLE",
+		"The workspace agent could not create the terminal.",
+	);
+}
+
 function listTerminalRows(db: Kysely<Database>, workspaceId: string) {
 	return db
 		.selectFrom("terminals")
@@ -236,6 +281,47 @@ export function registerTerminalRoutes(
 		return body;
 	});
 
+	/**
+	 * A coding agent's session gets a recovery point first, so the state
+	 * before it can be restored (SPEC.md §10.9). It fails open, giving null.
+	 */
+	async function agentSessionPoint(
+		request: FastifyRequest,
+		agent: AgentClient,
+		workspaceId: string,
+		project: TerminalProject,
+		userId: string,
+	): Promise<string | null> {
+		try {
+			if ((await countProjectPoints(db, project.id)) >= MAX_POINTS_PER_PROJECT) {
+				// Ids only (ADR 0012); the student is not told .
+				request.log.warn(
+					{ workspaceId, projectId: project.id },
+					"agent-session recovery point skipped: point cap",
+				);
+			} else {
+				const point = await makeRecoveryPoint(db, config, agent, {
+					workspaceId,
+					project,
+					reason: "agent-session",
+					createdBy: userId,
+					timeoutMs: AGENT_SESSION_POINT_TIMEOUT_MS,
+				});
+				return point.id;
+			}
+		} catch (error) {
+			request.log.warn(
+				{
+					workspaceId,
+					projectId: project.id,
+					code: error instanceof AgentCallError ? error.code : "INTERNAL",
+				},
+				"agent-session recovery point failed",
+			);
+		}
+		return null;
+	}
+
 	app.post("/workspaces/:id/terminals", async (request, reply) => {
 		const user = requireUser(request);
 		const params = parseOr400(WorkspaceParam, request.params, reply);
@@ -272,14 +358,9 @@ export function registerTerminalRoutes(
 		}
 
 		// A terminal may belong to one project of this workspace (SPEC.md §7.5).
-		let project: { id: string; slug: string; path: string } | null = null;
+		let project: TerminalProject | null = null;
 		if (body.data.projectId) {
-			const row = await db
-				.selectFrom("projects")
-				.select(["id", "slug", "path"])
-				.where("id", "=", body.data.projectId)
-				.where("workspace_id", "=", params.id)
-				.executeTakeFirst();
+			const row = await terminalProject(db, params.id, body.data.projectId);
 			if (!row) {
 				return sendError(reply, 404, "PROJECT_NOT_FOUND", "Project not found");
 			}
@@ -297,38 +378,10 @@ export function registerTerminalRoutes(
 		const settings = await userTerminalSettings(db, user.id);
 		const theme = body.data.theme ?? settings.terminalTheme;
 
-		// A coding agent's session gets a recovery point first, so the state
-		// before it can be restored (SPEC.md §10.9). It fails open.
-		let recoveryPointId: string | null = null;
-		if (body.data.agent !== undefined && project) {
-			try {
-				if ((await countProjectPoints(db, project.id)) >= MAX_POINTS_PER_PROJECT) {
-					// Ids only (ADR 0012); the student is not told .
-					request.log.warn(
-						{ workspaceId: params.id, projectId: project.id },
-						"agent-session recovery point skipped: point cap",
-					);
-				} else {
-					const point = await makeRecoveryPoint(db, config, agent, {
-						workspaceId: params.id,
-						project,
-						reason: "agent-session",
-						createdBy: user.id,
-						timeoutMs: AGENT_SESSION_POINT_TIMEOUT_MS,
-					});
-					recoveryPointId = point.id;
-				}
-			} catch (error) {
-				request.log.warn(
-					{
-						workspaceId: params.id,
-						projectId: project.id,
-						code: error instanceof AgentCallError ? error.code : "INTERNAL",
-					},
-					"agent-session recovery point failed",
-				);
-			}
-		}
+		const recoveryPointId =
+			body.data.agent !== undefined && project
+				? await agentSessionPoint(request, agent, params.id, project, user.id)
+				: null;
 
 		await db
 			.insertInto("terminals")
@@ -348,32 +401,19 @@ export function registerTerminalRoutes(
 		let baselineObjectId: string | null = null;
 		let baselineHead: string | null = null;
 		try {
-			// The API does not choose the CLI. It forwards the launcher kind
-			// and, when this process has it, the matching institutional key
-			// (SPEC.md §10.2, §10.6, §24.8).
-			const keys = institutionalEnv(body.data.agent);
 			const created = await agent.createTerminal({
 				id,
 				cwd,
 				theme,
 				timezone: settings.timezone,
-				...(body.data.agent === undefined ? {} : { agent: body.data.agent }),
-				...(keys === undefined ? {} : { institutionalEnv: keys }),
+				...launcherFields(body.data.agent),
 			});
 			baselineObjectId = gitObjectOrNull(created.baselineObjectId);
 			baselineHead = gitObjectOrNull(created.baselineHead);
 		} catch (error) {
 			// The row only means something if the agent has the tmux session.
 			await db.deleteFrom("terminals").where("id", "=", id).execute();
-			if (error instanceof AgentCallError && error.code === "INVALID_CWD") {
-				return sendError(reply, 400, "VALIDATION_FAILED", error.message);
-			}
-			return sendError(
-				reply,
-				503,
-				"AGENT_UNAVAILABLE",
-				"The workspace agent could not create the terminal.",
-			);
+			return createFailed(reply, error);
 		}
 
 		const saved = await db
@@ -392,6 +432,7 @@ export function registerTerminalRoutes(
 	// Display name, colour scheme, or
 	// both (SPEC.md §9.6). A scheme change repaints the browser;
 	// the shell that is already running keeps the COLORFGBG it started with.
+	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	app.patch("/workspaces/:id/terminals/:tid", async (request, reply) => {
 		const user = requireUser(request);
 		const params = parseOr400(TerminalParam, request.params, reply);
@@ -421,6 +462,7 @@ export function registerTerminalRoutes(
 		}
 		return toTerminal(updated);
 	});
+	// jscpd:ignore-end
 
 	// Closing is a user action, so the
 	// terminal goes away entirely (SPEC.md §9.3). The "ended" state is for

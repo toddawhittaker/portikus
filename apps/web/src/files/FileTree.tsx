@@ -59,6 +59,7 @@ import { ChangesList } from "./ChangesList.js";
 import { fileIconName } from "./fileIcon.js";
 import {
 	decorations as buildDecorations,
+	type GitDecoration,
 	type GitDecorations,
 	isIgnored,
 	NO_DECORATIONS,
@@ -177,6 +178,117 @@ async function runWithLimit<T>(
 	await Promise.all(workers);
 }
 
+/** The Changes list, showing Git or the open agent session's changes (SPEC.md §12.6). */
+function PaneChanges({
+	workspaceId,
+	project,
+	session,
+	reviewSession,
+	setReviewSession,
+	gitStatus,
+	baselineStatus,
+	openFileTab,
+}: {
+	workspaceId: string;
+	project: Project;
+	session: ReturnType<typeof openAgentSession>;
+	reviewSession: boolean;
+	setReviewSession: (on: boolean) => void;
+	gitStatus: ReturnType<typeof useGitStatus>;
+	baselineStatus: ReturnType<typeof useGitStatus>;
+	openFileTab: (path: string, options?: { diff?: boolean; baseline?: string }) => void;
+}) {
+	const shown = reviewSession ? baselineStatus : gitStatus;
+	return (
+		<ChangesList
+			projectId={project.id}
+			status={shown.data}
+			error={shown.isError}
+			sessionLabel={
+				reviewSession && session?.agent ? sessionReviewLabel(session.agent) : undefined
+			}
+			onReviewSession={
+				session && !reviewSession ? () => setReviewSession(true) : undefined
+			}
+			onShowGit={reviewSession ? () => setReviewSession(false) : undefined}
+			sessionRestore={
+				session?.recoveryPointId
+					? { workspaceId, project, pointId: session.recoveryPointId }
+					: undefined
+			}
+			onOpen={
+				reviewSession && session?.baselineObjectId
+					? (path) =>
+							openFileTab(path, {
+								diff: true,
+								baseline: session.baselineObjectId ?? undefined,
+							})
+					: undefined
+			}
+		/>
+	);
+}
+
+/** What the tree area shows: an error, an empty project, or the tree itself. */
+function TreeListing({
+	project,
+	failed,
+	allHidden,
+	empty,
+	onRetry,
+	onNewFile,
+}: {
+	project: Project;
+	failed: boolean;
+	allHidden: boolean;
+	empty: boolean;
+	onRetry: () => void;
+	onNewFile: () => void;
+}) {
+	if (failed) {
+		return (
+			<EmptyState
+				icon="alert"
+				title="The files could not be listed"
+				actions={
+					<Button size="sm" data-testid="file-tree-retry" onClick={onRetry}>
+						Retry
+					</Button>
+				}
+			>
+				The workspace did not answer. Try again in a moment.
+			</EmptyState>
+		);
+	}
+	if (allHidden) {
+		return (
+			<EmptyState icon="file" title="Nothing to show">
+				Everything here is hidden. Turn on Show hidden files to see it.
+			</EmptyState>
+		);
+	}
+	if (empty) {
+		return (
+			<EmptyState
+				icon="file"
+				title="No files yet"
+				actions={
+					<Button size="sm" data-testid="files-empty-new-file" onClick={onNewFile}>
+						New file
+					</Button>
+				}
+			>
+				Create a file, upload one, or use a terminal.
+			</EmptyState>
+		);
+	}
+	return (
+		<>
+			<TreeRoot slug={project.slug} />
+			<RootSpaceDropZone name={project.name} />
+		</>
+	);
+}
 export function FileTreePane({
 	workspaceId,
 	project,
@@ -524,6 +636,7 @@ export function FileTreePane({
 	const entries = root.data ? visibleEntries(root.data.entries, showHidden) : [];
 	const empty = root.isSuccess && entries.length === 0;
 	const allHidden = empty && (root.data?.entries.length ?? 0) > 0;
+	const uploadToRoot = uploadDrag && (dropDir === "" || dropDir === null);
 
 	return (
 		// The context wraps the header too, so a file can be dragged back to
@@ -601,14 +714,8 @@ export function FileTreePane({
 					{/* Desktop drag-and-drop upload (SPEC.md §11.2). */}
 					{/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, not a control */}
 					<div
-						className={`pk-pane-body${
-							uploadDrag && (dropDir === "" || dropDir === null)
-								? " is-upload-root"
-								: ""
-						}`}
-						data-upload-root={
-							uploadDrag && (dropDir === "" || dropDir === null) ? "true" : undefined
-						}
+						className={`pk-pane-body${uploadToRoot ? " is-upload-root" : ""}`}
+						data-upload-root={uploadToRoot ? "true" : undefined}
 						data-testid="file-tree-body"
 						onDragOver={uploadHandlers.onDragOver}
 						onDragEnter={uploadHandlers.onDragEnter}
@@ -624,83 +731,31 @@ export function FileTreePane({
 								</p>
 							) : null}
 						</div>
-						{uploadDrag && (dropDir === "" || dropDir === null) ? (
+						{uploadToRoot ? (
 							<p className="pk-upload-hint" data-testid="file-tree-root-hint">
 								Drop to upload to {project.name}
 							</p>
 						) : null}
-						{root.isError ? (
-							<EmptyState
-								icon="alert"
-								title="The files could not be listed"
-								actions={
-									<Button
-										size="sm"
-										data-testid="file-tree-retry"
-										onClick={() => void root.refetch()}
-									>
-										Retry
-									</Button>
-								}
-							>
-								The workspace did not answer. Try again in a moment.
-							</EmptyState>
-						) : allHidden ? (
-							<EmptyState icon="file" title="Nothing to show">
-								Everything here is hidden. Turn on Show hidden files to see it.
-							</EmptyState>
-						) : empty ? (
-							<EmptyState
-								icon="file"
-								title="No files yet"
-								actions={
-									<Button
-										size="sm"
-										data-testid="files-empty-new-file"
-										onClick={() => api.newIn("", "file")}
-									>
-										New file
-									</Button>
-								}
-							>
-								Create a file, upload one, or use a terminal.
-							</EmptyState>
-						) : (
-							<>
-								<TreeRoot slug={project.slug} />
-								<RootSpaceDropZone name={project.name} />
-							</>
-						)}
+						<TreeListing
+							project={project}
+							failed={root.isError}
+							allHidden={allHidden}
+							empty={empty}
+							onRetry={() => void root.refetch()}
+							onNewFile={() => api.newIn("", "file")}
+						/>
 					</div>
 
 					{/* The Changes surface sits under the tree (SPEC.md §12.6). */}
-					<ChangesList
-						projectId={project.id}
-						status={reviewSession ? baselineStatus.data : gitStatus.data}
-						error={reviewSession ? baselineStatus.isError : gitStatus.isError}
-						sessionLabel={
-							reviewSession && session?.agent
-								? sessionReviewLabel(session.agent)
-								: undefined
-						}
-						onReviewSession={
-							session && !reviewSession ? () => setReviewSession(true) : undefined
-						}
-						onShowGit={reviewSession ? () => setReviewSession(false) : undefined}
-						sessionRestore={
-							session?.recoveryPointId
-								? { workspaceId, project, pointId: session.recoveryPointId }
-								: undefined
-						}
-						onOpen={
-							reviewSession && session?.baselineObjectId
-								? (path) =>
-										openFileTab(path, {
-											diff: true,
-											baseline: session.baselineObjectId ?? undefined,
-										})
-								: undefined
-						}
+					<PaneChanges
+						workspaceId={workspaceId}
+						project={project}
+						session={session}
+						reviewSession={reviewSession}
+						setReviewSession={setReviewSession}
+						gitStatus={gitStatus}
+						baselineStatus={baselineStatus}
+						openFileTab={openFileTab}
 					/>
 					{browserOpens[0] ? (
 						<BrowserOpenDialog
@@ -1015,6 +1070,68 @@ function Directory({ dir, level }: { dir: string; level: number }) {
 	);
 }
 
+/** What a row's Git letter, dot and muted colour say, in words. */
+function rowStatus(
+	decoration: GitDecoration | undefined,
+	dirty: boolean,
+	ignored: boolean,
+): string | null {
+	if (decoration) return decoration.title;
+	if (dirty) return "contains changes";
+	if (ignored) return "ignored";
+	return null;
+}
+
+/** A row's twisty, icon, name and Git marks, inside the right-click trigger's span. */
+function RowFace({
+	name,
+	shown,
+	isDir,
+	open,
+	status,
+	decoration,
+	dirty,
+	ignored,
+}: {
+	name: string;
+	shown: string;
+	isDir: boolean;
+	open: boolean;
+	status: string | null;
+	decoration: GitDecoration | undefined;
+	dirty: boolean;
+	ignored: boolean;
+}) {
+	const folderIcon = open ? "folder-open" : "folder";
+	return (
+		<>
+			<span className="pk-tree-twisty">
+				{isDir ? (
+					<Icon name={open ? "chevron-down" : "chevron-right"} size="sm" />
+				) : null}
+			</span>
+			<Icon name={isDir ? folderIcon : fileIconName(name)} size="md" />
+			<span className="pk-tree-name">{shown}</span>
+			{status ? <span className="pk-visually-hidden">, {status}</span> : null}
+			{ignored && !decoration && !dirty ? (
+				<span className="pk-tree-tag" aria-hidden="true">
+					ignored
+				</span>
+			) : null}
+			{decoration ? (
+				<>
+					{decoration.kind === "conflict" ? <Icon name="alert" size="sm" /> : null}
+					<span className="pk-git-letter" aria-hidden="true">
+						{decoration.letter}
+					</span>
+				</>
+			) : dirty ? (
+				<span className="pk-git-dot" aria-hidden="true" />
+			) : null}
+		</>
+	);
+}
+
 function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: number }) {
 	const api = useTreeApi();
 	const path = joinPath(dir, entry.name);
@@ -1030,13 +1147,7 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 	const ignored = api.git.repo && isIgnored(path, api.git.ignored);
 	const title = decoration ? `${shown} — ${decoration.title}` : undefined;
 	// What the letter, the dot and the muted colour say, in words.
-	const status = decoration
-		? decoration.title
-		: dirty
-			? "contains changes"
-			: ignored
-				? "ignored"
-				: null;
+	const status = rowStatus(decoration, dirty, ignored);
 	const rowRef = useRef<HTMLDivElement | null>(null);
 
 	const selected = api.selection.paths.includes(path);
@@ -1118,36 +1229,16 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 				<ContextMenu>
 					<ContextMenuTrigger asChild>
 						<span className="pk-tree-face">
-							<span className="pk-tree-twisty">
-								{isDir ? (
-									<Icon name={open ? "chevron-down" : "chevron-right"} size="sm" />
-								) : null}
-							</span>
-							<Icon
-								name={
-									isDir ? (open ? "folder-open" : "folder") : fileIconName(entry.name)
-								}
-								size="md"
+							<RowFace
+								name={entry.name}
+								shown={shown}
+								isDir={isDir}
+								open={open}
+								status={status}
+								decoration={decoration}
+								dirty={dirty}
+								ignored={ignored}
 							/>
-							<span className="pk-tree-name">{shown}</span>
-							{status ? <span className="pk-visually-hidden">, {status}</span> : null}
-							{ignored && !decoration && !dirty ? (
-								<span className="pk-tree-tag" aria-hidden="true">
-									ignored
-								</span>
-							) : null}
-							{decoration ? (
-								<>
-									{decoration.kind === "conflict" ? (
-										<Icon name="alert" size="sm" />
-									) : null}
-									<span className="pk-git-letter" aria-hidden="true">
-										{decoration.letter}
-									</span>
-								</>
-							) : dirty ? (
-								<span className="pk-git-dot" aria-hidden="true" />
-							) : null}
 						</span>
 					</ContextMenuTrigger>
 					<Menu label={`Actions for ${shown}`}>

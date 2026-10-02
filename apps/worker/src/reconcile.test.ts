@@ -2324,3 +2324,83 @@ test.skipIf(skip)("a hold does not lift a CPU throttle", async () => {
 
 	expect((await getWorkspace(id)).cpu_throttle).toEqual(throttle);
 });
+
+/** Pins of the list refresh's remaining branches (SPEC.md section 6.5). */
+test.skipIf(skip)("drift: instance Running while row stopped -> running", async () => {
+	const id = await insertWorkspace({
+		state: "stopped",
+		desired_state: "stopped",
+		incus_instance_name: "ws-drift-up",
+	});
+	fake.listResult = [{ name: "ws-drift-up", status: "Running", ipv4: "10.0.0.7" }];
+
+	await sweep(tdb.db, fake, cfg, new Date());
+
+	const ws = await getWorkspace(id);
+	expect(ws.state).toBe("running");
+	expect(ws.agent_address).toBe("10.0.0.7");
+	expect((await getAudits(id)).map((a) => a.action)).toContain(
+		"workspace.observed_running",
+	);
+});
+
+test.skipIf(skip)(
+	"a starting row whose instance is Stopped becomes an error",
+	async () => {
+		const id = await insertWorkspace({
+			state: "starting",
+			desired_state: "running",
+			incus_instance_name: "ws-start-failed",
+		});
+		fake.listResult = [{ name: "ws-start-failed", status: "Stopped", ipv4: null }];
+
+		await sweep(tdb.db, fake, cfg, new Date());
+
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("error");
+		expect(ws.error_code).toBe("OPERATION_FAILED");
+		const audit = (await getAudits(id)).find(
+			(a) => a.action === "workspace.start_failed",
+		);
+		expect(audit?.metadata).toEqual({ resolvedFromList: true });
+	},
+);
+
+test.skipIf(skip)(
+	"a stopping row whose instance is Stopped becomes stopped",
+	async () => {
+		const id = await insertWorkspace({
+			state: "stopping",
+			desired_state: "stopped",
+			incus_instance_name: "ws-stop-done",
+		});
+		fake.listResult = [{ name: "ws-stop-done", status: "Stopped", ipv4: null }];
+
+		await sweep(tdb.db, fake, cfg, new Date());
+
+		expect((await getWorkspace(id)).state).toBe("stopped");
+		const audit = (await getAudits(id)).find((a) => a.action === "workspace.stop");
+		expect(audit?.metadata).toEqual({ resolvedFromList: true });
+	},
+);
+
+test.skipIf(skip)(
+	"a stopping row whose instance is Running becomes running",
+	async () => {
+		const id = await insertWorkspace({
+			state: "stopping",
+			desired_state: "running",
+			incus_instance_name: "ws-stop-undone",
+		});
+		await insertConnection(id);
+		fake.listResult = [{ name: "ws-stop-undone", status: "Running", ipv4: "10.0.0.8" }];
+
+		await sweep(tdb.db, fake, cfg, new Date());
+
+		expect((await getWorkspace(id)).state).toBe("running");
+		const audit = (await getAudits(id)).find(
+			(a) => a.action === "workspace.observed_running",
+		);
+		expect(audit?.metadata).toEqual({ resolvedFromList: true });
+	},
+);

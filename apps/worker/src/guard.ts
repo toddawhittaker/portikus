@@ -88,53 +88,15 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			const at = now();
 			const byName = new Map(usage.map((u) => [u.name, u]));
 
-			const settings = await db
-				.selectFrom("settings")
-				.select([
-					"cpu_guard_threshold_percent",
-					"memory_guard_threshold_percent",
-					"guard_window_minutes",
-					"cpu_throttle_share_percent",
-					"idle_stop_minutes",
-					"cpu_idle_lift_minutes",
-					"cpu_idle_lift_percent",
-					"cpu_throttle_hold_after",
-					"cpu_throttle_hold_hours",
-				])
-				.where("id", "=", 1)
-				.executeTakeFirst();
-
-			const rows = await db
-				.selectFrom("workspaces")
-				.select([
-					"id",
-					"incus_instance_name",
-					"guard_config",
-					"cpu_throttle",
-					"memory_flag",
-				])
-				.where("state", "=", "running")
-				.where("incus_instance_name", "is not", null)
-				.execute();
-
+			const settings = await loadSettings();
+			const rows = await loadRunning();
 			for (const row of rows) {
 				const inst = row.incus_instance_name
 					? byName.get(row.incus_instance_name)
 					: undefined;
 				if (!inst) continue;
 				try {
-					let throttle = row.cpu_throttle;
-					await recordSample(row.id, inst, at);
-					if (settings) {
-						const effective = effectiveGuard(settings, row.guard_config);
-						const lift = idleLift(settings);
-						if (throttle && lift && (await judgeLift(row.id, inst, throttle, lift, at)))
-							throttle = null;
-						else if (!throttle)
-							throttle = await judgeCpu(row.id, inst, effective, settings, at);
-						if (!row.memory_flag) await judgeMemory(row.id, effective, at);
-					}
-					await syncAllowance(row.id, inst, throttle?.allowance ?? null);
+					await checkWorkspace(row, inst, settings, at);
 				} catch (e) {
 					logger.warn(
 						{
@@ -157,6 +119,60 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			inFlight = false;
 		}
 	};
+
+	function loadSettings() {
+		return db
+			.selectFrom("settings")
+			.select([
+				"cpu_guard_threshold_percent",
+				"memory_guard_threshold_percent",
+				"guard_window_minutes",
+				"cpu_throttle_share_percent",
+				"idle_stop_minutes",
+				"cpu_idle_lift_minutes",
+				"cpu_idle_lift_percent",
+				"cpu_throttle_hold_after",
+				"cpu_throttle_hold_hours",
+			])
+			.where("id", "=", 1)
+			.executeTakeFirst();
+	}
+
+	function loadRunning() {
+		return db
+			.selectFrom("workspaces")
+			.select([
+				"id",
+				"incus_instance_name",
+				"guard_config",
+				"cpu_throttle",
+				"memory_flag",
+			])
+			.where("state", "=", "running")
+			.where("incus_instance_name", "is not", null)
+			.execute();
+	}
+
+	/** Sample one running workspace, judge it, and make its allowance match. */
+	async function checkWorkspace(
+		row: Awaited<ReturnType<typeof loadRunning>>[number],
+		inst: InstanceUsage,
+		settings: Awaited<ReturnType<typeof loadSettings>>,
+		at: Date,
+	): Promise<void> {
+		let throttle = row.cpu_throttle;
+		await recordSample(row.id, inst, at);
+		if (settings) {
+			const effective = effectiveGuard(settings, row.guard_config);
+			const lift = idleLift(settings);
+			if (throttle && lift && (await judgeLift(row.id, inst, throttle, lift, at)))
+				throttle = null;
+			else if (!throttle)
+				throttle = await judgeCpu(row.id, inst, effective, settings, at);
+			if (!row.memory_flag) await judgeMemory(row.id, effective, at);
+		}
+		await syncAllowance(row.id, inst, throttle?.allowance ?? null);
+	}
 
 	async function recordSample(
 		id: string,

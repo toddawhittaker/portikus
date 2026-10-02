@@ -56,6 +56,7 @@ import {
 import { type IncusClient, IncusError } from "./incus.js";
 import { parseIdmap, readInstanceProcesses, readUnitStartTime } from "./processes.js";
 
+// jscpd:ignore-start -- the worker's client mirrors this interface across HTTP.
 export interface WorkspaceProvider extends SeedBuildHost {
 	/** The current Docker seed, or null when none is built. */
 	seedInfo(): Promise<SeedInfo | null>;
@@ -110,6 +111,7 @@ export interface WorkspaceProvider extends SeedBuildHost {
 	/** Swap `<name>-home-import` in as the home and keep the old one; stopped only. */
 	replaceHome(name: string): Promise<ReplaceHomeResponse>;
 }
+// jscpd:ignore-end
 
 /**
  * Refused because the instance is not stopped. The server answers 409, so

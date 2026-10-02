@@ -98,32 +98,14 @@ export interface RestorePreset {
 	unavailable?: string | null;
 }
 
-/**
- * Restore one workspace from one set into a side copy in that student's home
- * (SPEC.md §24.9; ADR 0040). Nothing is overwritten. Opened from a set, the
- * admin picks the workspace; opened with `preset`, the admin picks the set.
- */
-export function RestoreDialog({
-	set,
-	preset,
-	workspaces,
-	pending,
-	serverError,
-	onClose,
-	onRestore,
-}: {
-	set: HostBackupSet | null;
-	preset?: RestorePreset | null;
-	workspaces: BackupWorkspace[];
-	pending: boolean;
-	serverError: string | null;
-	onClose: () => void;
-	onRestore: (workspaceId: string, stamp: string) => void;
-}) {
-	const [choice, setChoice] = useState<string | undefined>(undefined);
+/** Everything the restore dialog shows, worked out from its inputs and the admin's choice. */
+function restoreModel(
+	set: HostBackupSet | null,
+	preset: RestorePreset | null | undefined,
+	workspaces: BackupWorkspace[],
+	choice: string | undefined,
+) {
 	const fromSet = set !== null;
-	const open = fromSet || (preset !== null && preset !== undefined);
-
 	// From a set: the workspaces it covers. From a workspace: the verified sets
 	// holding it, newest first, since the host refuses the others.
 	const covered = set
@@ -148,9 +130,9 @@ export function RestoreDialog({
 		(preset?.sets ?? []).some((s) => s.instances.includes(presetWorkspace.instance));
 	const loading = preset !== null && preset !== undefined && preset.sets === undefined;
 
-	const picked = fromSet ? covered.find((w) => w.id === choice) : presetWorkspace;
-	const stamp = fromSet ? set.stamp : (choice ?? holding[0]?.stamp);
-	const pickedSet = fromSet ? set : holding.find((s) => s.stamp === stamp);
+	const picked = set ? covered.find((w) => w.id === choice) : presetWorkspace;
+	const stamp = set ? set.stamp : (choice ?? holding[0]?.stamp);
+	const pickedSet = set ? set : holding.find((s) => s.stamp === stamp);
 	const ready = picked !== undefined && pickedSet !== undefined;
 	const stopped = picked !== undefined && picked.state !== "running";
 	const unavailable = fromSet ? null : (preset?.unavailable ?? null);
@@ -158,6 +140,67 @@ export function RestoreDialog({
 		? covered.length === 0
 		: unavailable !== null || (!loading && holding.length === 0);
 	const folder = pickedSet ? restoreDirFor(pickedSet.stamp) : null;
+	return {
+		fromSet,
+		covered,
+		missing,
+		presetWorkspace,
+		holding,
+		onlyUnverified,
+		loading,
+		picked,
+		stamp,
+		pickedSet,
+		ready,
+		stopped,
+		unavailable,
+		noChoices,
+		folder,
+	};
+}
+
+type RestoreModel = ReturnType<typeof restoreModel>;
+
+/** Which note explains why the Restore copy button cannot be used yet. */
+function restoreBlockerId(m: RestoreModel): string | undefined {
+	if (m.noChoices) return "backup-restore-none";
+	if (!m.ready) return "backup-restore-choose";
+	if (m.stopped) return "backup-restore-stopped";
+	return undefined;
+}
+
+function noChoicesText(m: RestoreModel): string {
+	if (m.fromSet) return "None of the workspaces in this set exist on the platform now.";
+	if (m.onlyUnverified)
+		return "Only unverified backup sets hold this workspace, and they cannot be restored.";
+	return "No backup set holds this workspace yet.";
+}
+
+/**
+ * Restore one workspace from one set into a side copy in that student's home
+ * (SPEC.md §24.9; ADR 0040). Nothing is overwritten. Opened from a set, the
+ * admin picks the workspace; opened with `preset`, the admin picks the set.
+ */
+export function RestoreDialog({
+	set,
+	preset,
+	workspaces,
+	pending,
+	serverError,
+	onClose,
+	onRestore,
+}: {
+	set: HostBackupSet | null;
+	preset?: RestorePreset | null;
+	workspaces: BackupWorkspace[];
+	pending: boolean;
+	serverError: string | null;
+	onClose: () => void;
+	onRestore: (workspaceId: string, stamp: string) => void;
+}) {
+	const [choice, setChoice] = useState<string | undefined>(undefined);
+	const open = set !== null || (preset !== null && preset !== undefined);
+	const m = restoreModel(set, preset, workspaces, choice);
 
 	function close() {
 		setChoice(undefined);
@@ -169,9 +212,9 @@ export function RestoreDialog({
 			{open ? (
 				<Dialog
 					testId="backup-restore-dialog"
-					title={fromSet ? "Restore a workspace" : "Restore from backup"}
+					title={set ? "Restore a workspace" : "Restore from backup"}
 					description={
-						fromSet
+						set
 							? `From the backup of ${setTime(set.stamp)}. The files are copied into a new folder in the student's home, next to their current files. Nothing is overwritten.`
 							: "The files are copied into a new folder in the student's home, next to their current files. Nothing is overwritten."
 					}
@@ -182,18 +225,11 @@ export function RestoreDialog({
 								variant="primary"
 								data-testid="backup-restore-confirm"
 								loading={pending}
-								aria-disabled={!ready || stopped ? true : undefined}
-								aria-describedby={
-									noChoices
-										? "backup-restore-none"
-										: !ready
-											? "backup-restore-choose"
-											: stopped
-												? "backup-restore-stopped"
-												: undefined
-								}
+								aria-disabled={!m.ready || m.stopped ? true : undefined}
+								aria-describedby={restoreBlockerId(m)}
 								onClick={() => {
-									if (ready && !stopped) onRestore(picked.id, pickedSet.stamp);
+									if (m.picked && m.pickedSet && !m.stopped)
+										onRestore(m.picked.id, m.pickedSet.stamp);
 								}}
 							>
 								Restore copy
@@ -201,106 +237,147 @@ export function RestoreDialog({
 						</>
 					}
 				>
-					{unavailable ? (
+					{m.unavailable ? (
 						<p
 							id="backup-restore-none"
 							className="m-0 text-[13px]"
 							data-testid="backup-restore-none"
 						>
-							{unavailable}
+							{m.unavailable}
 						</p>
 					) : (
-						<div className="flex flex-col gap-3">
-							{noChoices ? (
-								<p
-									id="backup-restore-none"
-									className="m-0 text-[13px]"
-									data-testid="backup-restore-none"
-								>
-									{fromSet
-										? "None of the workspaces in this set exist on the platform now."
-										: onlyUnverified
-											? "Only unverified backup sets hold this workspace, and they cannot be restored."
-											: "No backup set holds this workspace yet."}
-								</p>
-							) : fromSet ? (
-								<Select
-									id="backup-restore-workspace"
-									label="Workspace"
-									placeholder="Choose a workspace"
-									value={choice ?? ""}
-									onValueChange={setChoice}
-									options={covered.map((w) => ({
-										value: w.id,
-										label: `${workspaceName(w.instance, workspaces)}${w.state === "running" ? "" : `, ${w.state}`}`,
-									}))}
-								/>
-							) : (
-								<Select
-									id="backup-restore-set"
-									label="Backup set"
-									placeholder={loading ? "Loading backup sets…" : "Choose a backup set"}
-									disabled={loading}
-									value={stamp ?? ""}
-									onValueChange={setChoice}
-									options={holding.map((s) => ({
-										value: s.stamp,
-										label: `${setTime(s.stamp)}${s.complete ? "" : ", incomplete"}`,
-									}))}
-								/>
-							)}
-							{!noChoices && !loading && !ready ? (
-								<p id="backup-restore-choose" className="pk-muted m-0 text-[13px]">
-									{fromSet ? "Choose a workspace to restore." : "Choose a backup set."}
-								</p>
-							) : null}
-							{missing > 0 && covered.length > 0 ? (
-								<p className="pk-muted m-0 text-[13px]">
-									{missing} workspace{missing === 1 ? "" : "s"} in this set no longer
-									exist{missing === 1 ? "s" : ""} and cannot be restored here.
-								</p>
-							) : null}
-							<dl className="pk-dl text-[13px]">
-								{presetWorkspace ? (
-									<>
-										<dt>Workspace</dt>
-										<dd data-testid="backup-restore-workspace-name">
-											{workspaceName(presetWorkspace.instance, workspaces)}
-										</dd>
-									</>
-								) : null}
-								<dt>Copied into</dt>
-								<dd className="font-mono" data-testid="backup-restore-folder">
-									{folder ? `~/${folder}` : "Not chosen yet"}
-								</dd>
-							</dl>
-							<p className="pk-muted m-0 text-[13px]">
-								The workspace must be running. If the folder already exists, or the home
-								does not have room for the copy, the host refuses and nothing changes.
-								The student is told when the copy is done.
-							</p>
-							{stopped ? (
-								<p
-									id="backup-restore-stopped"
-									className="m-0 text-[13px] text-status-warning"
-								>
-									{STOPPED_WARNING}
-								</p>
-							) : null}
-							{/* Always mounted so the warning is announced when it appears. */}
-							<span className="sr-only" role="status">
-								{stopped ? STOPPED_WARNING : ""}
-							</span>
-							{serverError ? (
-								<p className="m-0 text-[13px] text-status-error" role="alert">
-									{serverError}
-								</p>
-							) : null}
-						</div>
+						<RestoreBody
+							m={m}
+							workspaces={workspaces}
+							choice={choice}
+							setChoice={setChoice}
+							serverError={serverError}
+						/>
 					)}
 				</Dialog>
 			) : null}
 		</DialogRoot>
+	);
+}
+
+function RestorePicker({
+	m,
+	workspaces,
+	choice,
+	setChoice,
+}: {
+	m: RestoreModel;
+	workspaces: BackupWorkspace[];
+	choice: string | undefined;
+	setChoice: (value: string) => void;
+}) {
+	if (m.noChoices)
+		return (
+			<p
+				id="backup-restore-none"
+				className="m-0 text-[13px]"
+				data-testid="backup-restore-none"
+			>
+				{noChoicesText(m)}
+			</p>
+		);
+	if (m.fromSet)
+		return (
+			<Select
+				id="backup-restore-workspace"
+				label="Workspace"
+				placeholder="Choose a workspace"
+				value={choice ?? ""}
+				onValueChange={setChoice}
+				options={m.covered.map((w) => ({
+					value: w.id,
+					label: `${workspaceName(w.instance, workspaces)}${w.state === "running" ? "" : `, ${w.state}`}`,
+				}))}
+			/>
+		);
+	return (
+		<Select
+			id="backup-restore-set"
+			label="Backup set"
+			placeholder={m.loading ? "Loading backup sets…" : "Choose a backup set"}
+			disabled={m.loading}
+			value={m.stamp ?? ""}
+			onValueChange={setChoice}
+			options={m.holding.map((s) => ({
+				value: s.stamp,
+				label: `${setTime(s.stamp)}${s.complete ? "" : ", incomplete"}`,
+			}))}
+		/>
+	);
+}
+
+function RestoreBody({
+	m,
+	workspaces,
+	choice,
+	setChoice,
+	serverError,
+}: {
+	m: RestoreModel;
+	workspaces: BackupWorkspace[];
+	choice: string | undefined;
+	setChoice: (value: string) => void;
+	serverError: string | null;
+}) {
+	const { missing } = m;
+	return (
+		<div className="flex flex-col gap-3">
+			<RestorePicker
+				m={m}
+				workspaces={workspaces}
+				choice={choice}
+				setChoice={setChoice}
+			/>
+			{!m.noChoices && !m.loading && !m.ready ? (
+				<p id="backup-restore-choose" className="pk-muted m-0 text-[13px]">
+					{m.fromSet ? "Choose a workspace to restore." : "Choose a backup set."}
+				</p>
+			) : null}
+			{missing > 0 && m.covered.length > 0 ? (
+				<p className="pk-muted m-0 text-[13px]">
+					{missing} workspace{missing === 1 ? "" : "s"} in this set no longer exist
+					{missing === 1 ? "s" : ""} and cannot be restored here.
+				</p>
+			) : null}
+			<dl className="pk-dl text-[13px]">
+				{m.presetWorkspace ? (
+					<>
+						<dt>Workspace</dt>
+						<dd data-testid="backup-restore-workspace-name">
+							{workspaceName(m.presetWorkspace.instance, workspaces)}
+						</dd>
+					</>
+				) : null}
+				<dt>Copied into</dt>
+				<dd className="font-mono" data-testid="backup-restore-folder">
+					{m.folder ? `~/${m.folder}` : "Not chosen yet"}
+				</dd>
+			</dl>
+			<p className="pk-muted m-0 text-[13px]">
+				The workspace must be running. If the folder already exists, or the home does
+				not have room for the copy, the host refuses and nothing changes. The student is
+				told when the copy is done.
+			</p>
+			{m.stopped ? (
+				<p id="backup-restore-stopped" className="m-0 text-[13px] text-status-warning">
+					{STOPPED_WARNING}
+				</p>
+			) : null}
+			{/* Always mounted so the warning is announced when it appears. */}
+			<span className="sr-only" role="status">
+				{m.stopped ? STOPPED_WARNING : ""}
+			</span>
+			{serverError ? (
+				<p className="m-0 text-[13px] text-status-error" role="alert">
+					{serverError}
+				</p>
+			) : null}
+		</div>
 	);
 }
 

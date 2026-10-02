@@ -139,22 +139,28 @@ export function createHandler(options: MockLmsOptions) {
 		);
 	}
 
-	async function authorize(params: URLSearchParams, res: ServerResponse) {
-		const refuse = (message: string) => html(res, 400, errorPage(message));
+	/** What is wrong with the OIDC parameters of an authorize request, if anything. */
+	function authorizeRequestProblem(params: URLSearchParams): string | null {
 		if (!(params.get("scope") ?? "").split(" ").includes("openid")) {
-			return refuse("scope must include openid.");
+			return "scope must include openid.";
 		}
 		if (params.get("response_type") !== "id_token")
-			return refuse("response_type must be id_token.");
+			return "response_type must be id_token.";
 		const mode = params.get("response_mode");
 		if (mode !== null && mode !== "form_post")
-			return refuse("response_mode must be form_post.");
-		if (params.get("client_id") !== CLIENT_ID)
-			return refuse("client_id is not this tool's.");
+			return "response_mode must be form_post.";
+		if (params.get("client_id") !== CLIENT_ID) return "client_id is not this tool's.";
 		// Posting a signed token to any other address would make this an open redirector.
 		if (params.get("redirect_uri") !== `${toolUrl}/lti/launch`) {
-			return refuse("redirect_uri is not this tool's launch URL.");
+			return "redirect_uri is not this tool's launch URL.";
 		}
+		return null;
+	}
+
+	async function authorize(params: URLSearchParams, res: ServerResponse) {
+		const refuse = (message: string) => html(res, 400, errorPage(message));
+		const requestProblem = authorizeRequestProblem(params);
+		if (requestProblem) return refuse(requestProblem);
 		const state = params.get("state") ?? "";
 		const nonce = params.get("nonce") ?? "";
 		if (state === "" || nonce === "") return refuse("state and nonce are required.");

@@ -518,6 +518,41 @@ export function FileLeaf({
 		);
 	}
 
+	/** A file shown rather than edited: an image, an SVG, a PDF, or a download panel. */
+	function viewerBody(data: NonNullable<typeof file.data>) {
+		// The etag, when there is one, makes a change on disk a new address.
+		const inlineUrl = fileInlineUrl(
+			workspaceId,
+			projectId,
+			path,
+			data.etag || undefined,
+		);
+		if (kind === "image" || kind === "svg") {
+			return (
+				<ImageView
+					src={inlineUrl}
+					path={path}
+					size={data.size}
+					download={downloadButton}
+					fallback={downloadPanel}
+				/>
+			);
+		}
+		if (kind === "pdf") {
+			return (
+				<PdfView
+					url={inlineUrl}
+					path={path}
+					download={downloadButton}
+					fallback={downloadPanel}
+				/>
+			);
+		}
+		return downloadPanel(
+			data.tooLarge ? "This file is too large to edit here" : "Not a text file",
+		);
+	}
+
 	function body() {
 		if (text === null && gone) {
 			return (
@@ -541,39 +576,7 @@ export function FileLeaf({
 				</EmptyState>
 			);
 		}
-		if (viewer && data) {
-			// The etag, when there is one, makes a change on disk a new address.
-			const inlineUrl = fileInlineUrl(
-				workspaceId,
-				projectId,
-				path,
-				data.etag || undefined,
-			);
-			if (kind === "image" || kind === "svg") {
-				return (
-					<ImageView
-						src={inlineUrl}
-						path={path}
-						size={data.size}
-						download={downloadButton}
-						fallback={downloadPanel}
-					/>
-				);
-			}
-			if (kind === "pdf") {
-				return (
-					<PdfView
-						url={inlineUrl}
-						path={path}
-						download={downloadButton}
-						fallback={downloadPanel}
-					/>
-				);
-			}
-			return downloadPanel(
-				data.tooLarge ? "This file is too large to edit here" : "Not a text file",
-			);
-		}
+		if (viewer && data) return viewerBody(data);
 		if (text === null || !revealReady) {
 			return <p className="pk-file-note">Loading…</p>;
 		}
@@ -726,43 +729,15 @@ export function FileLeaf({
 					{/* Only the view on screen draws the toggle, so the controls
 					    are never there twice. */}
 					{inDiff ? null : toggle}
-					{showStatus ? (
-						<span
-							className="pk-file-status"
-							data-testid={`file-status-${path}`}
-							data-status={status}
-						>
-							{status === "saved" ? <Icon name="check" size="sm" /> : null}
-							{STATUS_LABEL[status]}
-						</span>
-					) : null}
+					{showStatus ? <StatusPill path={path} status={status} /> : null}
 				</div>
 				{conflict !== null ? (
-					<div className="pk-file-conflict" role="alert" data-testid="file-conflict">
-						<span>
-							This file changed on disk while you were editing it. The version on disk
-							is on the left and yours is on the right; you can edit yours and save
-							later.
-						</span>
-						<Button
-							size="sm"
-							variant="primary"
-							onClick={keepMine}
-							data-testid="keep-mine"
-						>
-							Keep mine
-						</Button>
-						<Button size="sm" onClick={() => void takeTheirs()} data-testid="take-disk">
-							Take disk
-						</Button>
-						<Button
-							size="sm"
-							onClick={() => setShowConflict((shown) => !shown)}
-							data-testid="keep-editing"
-						>
-							{showConflict ? "Keep editing" : "Show differences"}
-						</Button>
-					</div>
+					<ConflictBar
+						showConflict={showConflict}
+						onKeepMine={keepMine}
+						onTakeDisk={() => void takeTheirs()}
+						onToggle={() => setShowConflict((shown) => !shown)}
+					/>
 				) : null}
 				{note !== null ? (
 					<div className="pk-file-banner" role="status" data-testid="file-banner">
@@ -788,6 +763,51 @@ export function FileLeaf({
 				/>
 			) : null}
 		</>
+	);
+}
+
+/** The save state pill in the file header. */
+function StatusPill({ path, status }: { path: string; status: Status }) {
+	return (
+		<span
+			className="pk-file-status"
+			data-testid={`file-status-${path}`}
+			data-status={status}
+		>
+			{status === "saved" ? <Icon name="check" size="sm" /> : null}
+			{STATUS_LABEL[status]}
+		</span>
+	);
+}
+
+/** The banner shown while the file on disk and the tab's text disagree (SPEC.md §13.3). */
+function ConflictBar({
+	showConflict,
+	onKeepMine,
+	onTakeDisk,
+	onToggle,
+}: {
+	showConflict: boolean;
+	onKeepMine: () => void;
+	onTakeDisk: () => void;
+	onToggle: () => void;
+}) {
+	return (
+		<div className="pk-file-conflict" role="alert" data-testid="file-conflict">
+			<span>
+				This file changed on disk while you were editing it. The version on disk is on
+				the left and yours is on the right; you can edit yours and save later.
+			</span>
+			<Button size="sm" variant="primary" onClick={onKeepMine} data-testid="keep-mine">
+				Keep mine
+			</Button>
+			<Button size="sm" onClick={onTakeDisk} data-testid="take-disk">
+				Take disk
+			</Button>
+			<Button size="sm" onClick={onToggle} data-testid="keep-editing">
+				{showConflict ? "Keep editing" : "Show differences"}
+			</Button>
+		</div>
 	);
 }
 

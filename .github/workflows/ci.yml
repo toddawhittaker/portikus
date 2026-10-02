@@ -83,6 +83,11 @@ jobs:
                 app=true
                 infra=true
                 ;;
+              # Infra tests read these sources, so a change here runs them.
+              apps/workspace-controller/src/egress/*|packages/contracts/src/*|packages/mock-lms/src/*)
+                app=true
+                infra=true
+                ;;
               *)
                 app=true
                 ;;

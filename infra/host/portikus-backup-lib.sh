@@ -64,3 +64,20 @@ if out:
 else:
     sys.stdout.write(line)' "$@"
 }
+
+# enough_free_space -- is there room in BACKUP_DIR for one more set: the
+# newest complete set's size plus a fifth, and at least MIN_FREE_MB? Reads
+# HOST_DIR, SET_PATTERN, MIN_FREE_MB and BACKUP_DIR from the caller (ADR 0039).
+enough_free_space() {
+  local s newest="" size need avail
+  for s in $(find "$HOST_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | grep -E "$SET_PATTERN" | sort -r); do
+    [ -e "${HOST_DIR}/${s}/FAILED" ] || { newest=$s; break; }
+  done
+  need=$((MIN_FREE_MB * 1048576))
+  if [ -n "$newest" ]; then
+    size=$(du -sb "${HOST_DIR}/${newest}" | cut -f1)
+    [ $((size * 6 / 5)) -le "$need" ] || need=$((size * 6 / 5))
+  fi
+  avail=$(df -B1 --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ')
+  [ "$avail" -ge "$need" ]
+}

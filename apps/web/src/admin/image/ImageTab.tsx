@@ -454,12 +454,14 @@ function JobGroup({
 						</dd>
 					</>
 				) : null}
+				{/* jscpd:ignore-start -- the certificate and image job panels list different facts. */}
 				{shown.startedAt ? (
 					<>
 						<dt className="pk-muted">Started</dt>
 						<dd className="m-0">{longTime(shown.startedAt)}</dd>
 					</>
 				) : null}
+				{/* jscpd:ignore-end */}
 			</dl>
 			<JobLog idPrefix="image" log={log} />
 			{made && defaultVersion ? (

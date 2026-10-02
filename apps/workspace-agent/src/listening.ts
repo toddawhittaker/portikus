@@ -178,44 +178,55 @@ export async function readSocketOwners(
 	for (const entry of entries) {
 		const pid = Number.parseInt(entry, 10);
 		if (!Number.isInteger(pid) || String(pid) !== entry) continue;
-		let descriptors: string[];
+		await addProcessSockets(procRoot, entry, pid, studentUid, owners);
+	}
+	return owners;
+}
+
+/** Record the sockets one process holds, unless an earlier process holds them. */
+async function addProcessSockets(
+	procRoot: string,
+	entry: string,
+	pid: number,
+	studentUid: number,
+	owners: Map<string, SocketOwner>,
+): Promise<void> {
+	let descriptors: string[];
+	try {
+		descriptors = await readdir(join(procRoot, entry, "fd"));
+	} catch {
+		return;
+	}
+	let command: string | undefined;
+	let commandLine: string | undefined;
+	let commandRead = false;
+	for (const descriptor of descriptors) {
+		let target: string;
 		try {
-			descriptors = await readdir(join(procRoot, entry, "fd"));
+			target = await readlink(join(procRoot, entry, "fd", descriptor));
 		} catch {
 			continue;
 		}
-		let command: string | undefined;
-		let commandLine: string | undefined;
-		let commandRead = false;
-		for (const descriptor of descriptors) {
-			let target: string;
-			try {
-				target = await readlink(join(procRoot, entry, "fd", descriptor));
-			} catch {
-				continue;
-			}
-			const match = /^socket:\[(\d+)]$/.exec(target);
-			if (!match) continue;
-			if (!commandRead) {
-				commandRead = true;
-				command = await readComm(procRoot, entry);
-				if (await isStudentProcess(procRoot, entry, studentUid)) {
-					commandLine = (await readCommandLine(procRoot, pid)) ?? undefined;
-				}
-			}
-			// The first process found for an inode wins; a forked child holding
-			// the same socket tells the student nothing extra.
-			const inode = match[1] ?? "";
-			if (!owners.has(inode)) {
-				owners.set(inode, {
-					pid,
-					command,
-					...(commandLine !== undefined ? { commandLine } : {}),
-				});
+		const match = /^socket:\[(\d+)]$/.exec(target);
+		if (!match) continue;
+		if (!commandRead) {
+			commandRead = true;
+			command = await readComm(procRoot, entry);
+			if (await isStudentProcess(procRoot, entry, studentUid)) {
+				commandLine = (await readCommandLine(procRoot, pid)) ?? undefined;
 			}
 		}
+		// The first process found for an inode wins; a forked child holding
+		// the same socket tells the student nothing extra.
+		const inode = match[1] ?? "";
+		if (!owners.has(inode)) {
+			owners.set(inode, {
+				pid,
+				command,
+				...(commandLine !== undefined ? { commandLine } : {}),
+			});
+		}
 	}
-	return owners;
 }
 
 async function readComm(procRoot: string, pid: string): Promise<string | undefined> {

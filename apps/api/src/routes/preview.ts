@@ -40,6 +40,8 @@ import {
 	createPreviewLookupCache,
 	createPreviewSession,
 	loadPreviewSession,
+	type PreviewLookup,
+	type PreviewSessionRow,
 	revokedForStoppedWorkspace,
 	revokePreviewSession,
 	revokeWorkspacePreviewSessions,
@@ -448,6 +450,7 @@ export function registerPreviewRoutes(
 		return reply.header("cache-control", "no-store").send(verdict);
 	});
 
+	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	app.post("/workspaces/:id/preview/reset", async (request, reply) => {
 		const user = requireUser(request);
 		const params = IdParams.safeParse(request.params);
@@ -468,6 +471,7 @@ export function registerPreviewRoutes(
 		}
 		return reply.status(204).send();
 	});
+	// jscpd:ignore-end
 
 	// ── Preview host: Caddy proxies these two paths straight to the API ──
 
@@ -578,35 +582,51 @@ export function registerPreviewRoutes(
 
 	// ── The edge authorization subrequest (ADR 0018, BROWSER-HANDLING §10) ──
 
-	app.get("/preview/authorize", async (request, reply) => {
+	/**
+	 * The first authorize steps: the caller is Caddy, the host is a preview
+	 * host, and the cookie names a live session of an ungated user that is
+	 * under its request cap.
+	 */
+	async function signedInPreview(
+		request: FastifyRequest,
+		reply: FastifyReply,
+	): Promise<
+		AuthorizeStep<{
+			host: string;
+			parsed: PreviewHostParts;
+			session: PreviewSessionRow;
+			workspace: PreviewLookup["workspace"];
+		}>
+	> {
 		// Only Caddy on this machine may ask. The peer address is used, not
 		// request.ip, which trustProxy would let a forwarded header move.
 		if (!fromLoopback(request)) {
-			return page(reply, 403, refusedPage());
+			return { refused: page(reply, 403, refusedPage()) };
 		}
 
 		const host = requestHost(request.headers as Record<string, unknown>);
-		if (!host) return page(reply, 403, refusedPage());
+		if (!host) return { refused: page(reply, 403, refusedPage()) };
 		const parsed = parsePreviewHost(host, config.PREVIEW_SUFFIX);
-		if (!parsed) return page(reply, 403, refusedPage());
+		if (!parsed) return { refused: page(reply, 403, refusedPage()) };
 
 		const token = request.cookies[cookieName];
-		if (!token) return page(reply, 401, signInPage());
+		if (!token) return { refused: page(reply, 401, signInPage()) };
 		// The rows may be up to two seconds old; every check below still runs
 		// on each request (ADR 0034 rulings 10 and 11).
 		const { session, user, workspace } = await lookups.get(token);
 		if (!session) {
 			// Stopping revokes the sessions; the more specific cause wins.
 			if (await revokedForStoppedWorkspace(db, token, host)) {
-				return page(reply, 503, stoppedWorkspacePage());
+				return { refused: page(reply, 503, stoppedWorkspacePage()) };
 			}
-			return page(reply, 401, signInPage());
+			return { refused: page(reply, 401, signInPage()) };
 		}
 
 		// The preview session lives with the main one (BROWSER-HANDLING §9.2).
-		if (!user || user.id !== session.user_id) return page(reply, 401, signInPage());
+		if (!user || user.id !== session.user_id)
+			return { refused: page(reply, 401, signInPage()) };
 		// An account held at any session gate gets no preview (SPEC.md sections 5.1 and 5.3).
-		if (sessionGate(user)) return page(reply, 403, refusedPage());
+		if (sessionGate(user)) return { refused: page(reply, 403, refusedPage()) };
 
 		// A runaway page is held to 2,000 requests per 10 seconds.
 		const capped = check(sessionCap, session.id);
@@ -618,8 +638,60 @@ export function registerPreviewRoutes(
 				);
 			}
 			reply.header("retry-after", String(capped.retryAfterSeconds));
-			return page(reply, 429, tooManyRequestsPage());
+			return { refused: page(reply, 429, tooManyRequestsPage()) };
 		}
+		return { ok: { host, parsed, session, workspace } };
+	}
+
+	/**
+	 * The listening service the request reaches, after the bridge has opened
+	 * a forward for a bridged port.
+	 */
+	async function reachableService(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		session: PreviewSessionRow,
+		port: number,
+		bridged: boolean,
+	): Promise<AuthorizeStep<ListeningService>> {
+		// Only this workspace's registry is consulted, so the bridge can never
+		// reach another student's service (BROWSER-HANDLING.md §16.3).
+		const service = registry.service(session.workspace_id, port);
+		if (!service || service.previewReachability === "denied") {
+			return { refused: page(reply, 503, inactiveServicePage(port)) };
+		}
+		if (!bridged) {
+			// The session's own port got its forward when the grant was issued.
+			if (service.previewReachability === "unknown") {
+				return { refused: page(reply, 503, inactiveServicePage(port)) };
+			}
+		} else {
+			// Every bridge request goes through the bridge, even when the port
+			// is already reachable: that is how a second session using a
+			// forward the bridge opened gets counted, so the forward outlives
+			// whichever session ends first. A port that needs no forward costs
+			// nothing here.
+			try {
+				await bridge.ensure(session.workspace_id, session.id, port);
+			} catch (error) {
+				request.log.warn(
+					{
+						workspaceId: session.workspace_id,
+						port,
+						code: error instanceof AgentCallError ? error.code : "INTERNAL",
+					},
+					"bridge forward could not be opened",
+				);
+				return { refused: page(reply, 503, inactiveServicePage(port)) };
+			}
+		}
+		return { ok: service };
+	}
+
+	app.get("/preview/authorize", async (request, reply) => {
+		const signedIn = await signedInPreview(request, reply);
+		if ("refused" in signedIn) return signedIn.refused;
+		const { host, parsed, session, workspace } = signedIn.ok;
 
 		const { workspace_id: sessionWorkspaceId, user_id: sessionUserId } = session;
 		/** Refuse with 403 and audit it, throttled (SPEC.md §24.11). */
@@ -661,48 +733,20 @@ export function registerPreviewRoutes(
 			return page(reply, 503, inactiveServicePage(port));
 		}
 
-		// Only this workspace's registry is consulted, so the bridge can never
-		// reach another student's service (BROWSER-HANDLING.md §16.3).
-		const service = registry.service(session.workspace_id, port);
-		if (!service || service.previewReachability === "denied") {
-			return page(reply, 503, inactiveServicePage(port));
-		}
-		if (target.kind !== "port") {
-			// The session's own port got its forward when the grant was issued.
-			if (service.previewReachability === "unknown") {
-				return page(reply, 503, inactiveServicePage(port));
-			}
-		} else {
-			// Every bridge request goes through the bridge, even when the port
-			// is already reachable: that is how a second session using a
-			// forward the bridge opened gets counted, so the forward outlives
-			// whichever session ends first. A port that needs no forward costs
-			// nothing here.
-			try {
-				await bridge.ensure(session.workspace_id, session.id, port);
-			} catch (error) {
-				request.log.warn(
-					{
-						workspaceId: session.workspace_id,
-						port,
-						code: error instanceof AgentCallError ? error.code : "INTERNAL",
-					},
-					"bridge forward could not be opened",
-				);
-				return page(reply, 503, inactiveServicePage(port));
-			}
-		}
+		const reached = await reachableService(
+			request,
+			reply,
+			session,
+			port,
+			target.kind === "port",
+		);
+		if ("refused" in reached) return reached.refused;
+		const service = reached.ok;
 
 		// Only a user-started navigation of a page or the Preview iframe counts;
 		// browsers set Sec-Fetch-User only then and scripts cannot forge it, so
 		// self-reloads, assets and fetches never keep a workspace awake (ADR 0032).
-		const dest = headers["sec-fetch-dest"];
-		if (
-			(dest === "document" || dest === "iframe") &&
-			headers["sec-fetch-user"] === "?1"
-		) {
-			await recordActivity(db, workspace.id);
-		}
+		if (userNavigation(headers)) await recordActivity(db, workspace.id);
 
 		// The gateway's first request for a port settles its protocol; later
 		// ones read the cached answer.
@@ -721,6 +765,19 @@ export function registerPreviewRoutes(
 				.send()
 		);
 	});
+}
+
+/** An authorize step either refuses with a page or hands on what it found. */
+type AuthorizeStep<T> = { refused: FastifyReply } | { ok: T };
+
+type PreviewHostParts = NonNullable<ReturnType<typeof parsePreviewHost>>;
+
+/** A page or Preview-iframe navigation the user started. */
+function userNavigation(headers: Record<string, unknown>): boolean {
+	const dest = headers["sec-fetch-dest"];
+	return (
+		(dest === "document" || dest === "iframe") && headers["sec-fetch-user"] === "?1"
+	);
 }
 
 /** Only the agent's TLS probe makes an upstream HTTPS; anything else is HTTP. */

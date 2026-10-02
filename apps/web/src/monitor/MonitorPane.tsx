@@ -259,6 +259,7 @@ function Figures({
 					)}
 				</tbody>
 			</table>
+			{/* jscpd:ignore-start -- the admin and student stop dialogs show different processes */}
 			{stopping ? (
 				<ConfirmDialogRoot open onOpenChange={(open) => !open && close()}>
 					<ConfirmDialog
@@ -274,6 +275,7 @@ function Figures({
 					/>
 				</ConfirmDialogRoot>
 			) : null}
+			{/* jscpd:ignore-end */}
 		</>
 	);
 }

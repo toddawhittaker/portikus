@@ -121,6 +121,7 @@ def _no_duplicates(pairs):
     return out
 
 
+# jscpd:ignore-start -- each job is a standalone root script, so this stays a copy.
 def validate_request(raw, file_id):
     """Return the checked `request` object, or raise Refused. Mirrors RegistryJobRequestFile."""
     try:
@@ -151,6 +152,7 @@ def validate_request(raw, file_id):
         if not isinstance(request["token"], str) or not TOKEN_RE.fullmatch(request["token"]):
             raise Refused("the token is not an access token")
     return request
+# jscpd:ignore-end
 
 
 # ---- Files ----

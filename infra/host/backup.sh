@@ -182,22 +182,6 @@ with open(sum_path, "w") as f:
 info() { printf '[backup] %s\n' "$*"; }
 die() { printf '[backup] FAIL: %s\n' "$*" >&2; exit 1; }
 
-# enough_free_space -- is there room in BACKUP_DIR for one more set: the
-# newest complete set's size plus a fifth, and at least MIN_FREE_MB? The
-# same check as in backup-channel.sh (ADR 0039).
-enough_free_space() {
-  local s newest="" size need avail
-  for s in $(find "$HOST_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | grep -E "$SET_PATTERN" | sort -r); do
-    [ -e "${HOST_DIR}/${s}/FAILED" ] || { newest=$s; break; }
-  done
-  need=$((MIN_FREE_MB * 1048576))
-  if [ -n "$newest" ]; then
-    size=$(du -sb "${HOST_DIR}/${newest}" | cut -f1)
-    [ $((size * 6 / 5)) -le "$need" ] || need=$((size * 6 / 5))
-  fi
-  avail=$(df -B1 --output=avail "$BACKUP_DIR" | tail -1 | tr -d ' ')
-  [ "$avail" -ge "$need" ]
-}
 # must NAME PATTERN VALUE -- stop unless the VM's answer has the expected form.
 must() { [[ "$3" =~ $2 ]] || die "the VM sent a ${1} that is not in the expected form; nothing was kept"; }
 # lines TEXT -- TEXT one line at a time, and nothing at all when it is empty.

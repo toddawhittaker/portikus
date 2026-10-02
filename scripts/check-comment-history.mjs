@@ -59,6 +59,23 @@ function kindOf(path) {
 	return null;
 }
 
+// Skips the string literal opening at i; returns the index past it and the line.
+function skipString(src, start, startLine) {
+	const quote = src[start];
+	let i = start + 1;
+	let line = startLine;
+	while (i < src.length && src[i] !== quote) {
+		if (src[i] === "\\") {
+			i++;
+		} else if (src[i] === "\n") {
+			line++;
+			if (quote !== "`") break;
+		}
+		i++;
+	}
+	return { i: i + 1, line };
+}
+
 // Returns [{ line, text }] per comment line; string literals are skipped so
 // "https://" inside a string is not taken for a comment.
 function cComments(src) {
@@ -85,17 +102,7 @@ function cComments(src) {
 			line += lines.length - 1;
 			i = stop + 2;
 		} else if (ch === '"' || ch === "'" || ch === "`") {
-			i++;
-			while (i < src.length && src[i] !== ch) {
-				if (src[i] === "\\") {
-					i++;
-				} else if (src[i] === "\n") {
-					line++;
-					if (ch !== "`") break;
-				}
-				i++;
-			}
-			i++;
+			({ i, line } = skipString(src, i, line));
 		} else {
 			i++;
 		}

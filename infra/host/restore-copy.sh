@@ -45,6 +45,7 @@ MAC_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-mac"
 # shellcheck source=/dev/null
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/portikus-backup-lib.sh"
 
+# jscpd:ignore-start -- a sourced function cannot shift the caller's arguments.
 die() { printf '[restore-copy] FAIL: %s\n' "$*" >&2; exit 1; }
 info() { printf '[restore-copy] %s\n' "$*"; }
 
@@ -57,6 +58,7 @@ while [ $# -gt 0 ]; do
     *) break ;;
   esac
 done
+# jscpd:ignore-end
 if [ "$LOCAL" = yes ]; then
   [ -z "$OPERATOR$VM_NAME" ] || die "--local takes no --operator or --vm-name"
   OPERATOR=root VM_NAME=local

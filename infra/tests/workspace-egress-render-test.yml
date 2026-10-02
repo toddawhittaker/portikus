@@ -62,7 +62,7 @@
       ansible.builtin.set_fact:
         helper_ports: >-
           {{ dict(lookup('ansible.builtin.file', '../../apps/workspace-controller/src/egress/render.ts')
-             | regex_findall('export const (EGRESS_DNS_PORT|SQUID_HTTP_PORT|SQUID_TLS_PORT) = ([0-9]+);')) }}
+             | regex_findall('const (EGRESS_DNS_PORT|SQUID_HTTP_PORT|SQUID_TLS_PORT) = ([0-9]+);')) }}
 
     - name: Check the helper redirects to the ports the ACL, firewall and Squid open
       ansible.builtin.assert:

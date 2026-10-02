@@ -38,6 +38,7 @@ import { toAuthOptions } from "../auth-options.js";
 import type { PreflightNet } from "../certificate/preflight.js";
 import { buildServer } from "../server.js";
 import { PUBLIC_URL, testConfig } from "../test-support.js";
+import { uploadsToCheck } from "./admin-certificate.js";
 
 const skip = !hasTestDb();
 
@@ -536,5 +537,39 @@ describe.skipIf(skip)("GET /edge/certificate-ask", () => {
 
 	test("answers only Caddy on this machine", async () => {
 		expect((await ask(SITE, "203.0.113.9")).statusCode).toBe(403);
+	});
+});
+
+describe("uploadsToCheck", () => {
+	const site = { certificate: "site", privateKey: "site-key" };
+	const preview = { certificate: "preview", privateKey: "preview-key" };
+
+	test("one certificate must cover the site and the preview wildcard", () => {
+		expect(
+			uploadsToCheck(
+				{ source: "files", site },
+				"portikus.example.edu",
+				"p.example.edu",
+			),
+		).toEqual([
+			{
+				label: "Site certificate",
+				upload: site,
+				names: ["portikus.example.edu", "*.p.example.edu"],
+			},
+		]);
+	});
+
+	test("a separate preview certificate covers only the wildcard", () => {
+		expect(
+			uploadsToCheck(
+				{ source: "files", site, preview },
+				"portikus.example.edu",
+				"p.example.edu",
+			),
+		).toEqual([
+			{ label: "Site certificate", upload: site, names: ["portikus.example.edu"] },
+			{ label: "Preview certificate", upload: preview, names: ["*.p.example.edu"] },
+		]);
 	});
 });

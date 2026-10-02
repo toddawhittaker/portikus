@@ -66,6 +66,7 @@ export async function listeningRoutes(
 	});
 
 	/** Settle a port's protocol when a preview first asks. */
+	// jscpd:ignore-start -- each route spells out its own checks, in order.
 	instance.post("/listening/:port/probe", async (request, reply) => {
 		const { port } = request.params as { port: string };
 		const parsed = PortNumber.safeParse(Number.parseInt(port, 10));
@@ -85,6 +86,7 @@ export async function listeningRoutes(
 		}
 		return { service };
 	});
+	// jscpd:ignore-end
 
 	instance.get("/forwards", async () => ({ forwards: forwards.list() }));
 

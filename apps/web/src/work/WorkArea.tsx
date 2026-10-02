@@ -36,6 +36,7 @@ import { PreviewPicker } from "../preview/PreviewPicker.js";
 import { useShowRightPane } from "../shell/rightPane.js";
 import { useTerminals } from "../useTerminals.js";
 import { dropZone, insertionIndex } from "./dropZone.js";
+import { usePointerDismiss } from "./pointerDismiss.js";
 import { TerminalGroup } from "./TerminalGroup.js";
 import "./work.css";
 
@@ -54,33 +55,13 @@ type DragTarget =
  * that moves the keyboard itself, so the trigger must not take it back.
  */
 function useLauncherMenuFocus() {
-	const pointer = useRef(false);
+	const { pointer, track } = usePointerDismiss();
 	const launched = useRef(false);
 	const open = useRef(false);
-	const stop = useRef<(() => void) | null>(null);
-
-	useEffect(() => () => stop.current?.(), []);
 
 	function onOpenChange(next: boolean) {
 		open.current = next;
-		stop.current?.();
-		stop.current = null;
-		if (!next) return;
-		pointer.current = false;
-		const onPointerDown = () => {
-			pointer.current = true;
-		};
-		const onKeyDown = (event: globalThis.KeyboardEvent) => {
-			if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
-				pointer.current = false;
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown, true);
-		document.addEventListener("keydown", onKeyDown, true);
-		stop.current = () => {
-			document.removeEventListener("pointerdown", onPointerDown, true);
-			document.removeEventListener("keydown", onKeyDown, true);
-		};
+		track(next);
 	}
 
 	function declineTriggerFocus() {
