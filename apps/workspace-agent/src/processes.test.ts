@@ -24,6 +24,8 @@ import { processesRoutes } from "./processes-route.js";
 const STUDENT = 1000;
 const SELF = 4242;
 const TMUX = 305;
+/** One of the agent's own `tmux attach-session` clients. */
+const ATTACH = 306;
 let fakeProc: string;
 const signals: [number, string][] = [];
 
@@ -54,7 +56,7 @@ function fakeOptions() {
 		procRoot: fakeProc,
 		selfPid: SELF,
 		studentUid: STUDENT,
-		tmuxPid: async () => TMUX,
+		terminalPids: async () => new Set([TMUX, ATTACH]),
 		kill: (pid: number, signal: string) => {
 			signals.push([pid, signal]);
 		},
@@ -70,6 +72,7 @@ beforeAll(async () => {
 	// A student's process that renamed itself; the real server is 305.
 	await fakeProcess(300, "tmux: server", STUDENT, 60);
 	await fakeProcess(TMUX, "tmux: server", STUDENT, 65);
+	await fakeProcess(ATTACH, "tmux: client", STUDENT, 66);
 	await fakeProcess(301, "sshd", 0, 70);
 	await fakeProcess(302, "evil (x) y", STUDENT, 80);
 	await fakeProcess(303, "defunct", STUDENT, 90, "Z");
@@ -101,9 +104,13 @@ test("the stat line is read between the first ( and the last )", () => {
 	expect(parseStatusUids("Name:\tx\n")).toBeNull();
 });
 
-test("PID 1, the agent, its tmux server and anyone else's process are protected", async () => {
-	const owner = { selfPid: SELF, studentUid: STUDENT, tmuxPid: TMUX };
-	const protectedPids = [1, SELF, TMUX, 301, 304];
+test("PID 1, the agent, its terminals' tmux processes and anyone else's process are protected", async () => {
+	const owner = {
+		selfPid: SELF,
+		studentUid: STUDENT,
+		terminalPids: new Set([TMUX, ATTACH]),
+	};
+	const protectedPids = [1, SELF, TMUX, ATTACH, 301, 304];
 	for (const pid of protectedPids) {
 		const facts = await readProcess(fakeProc, pid);
 		expect(facts && isProtected(facts, owner), String(pid)).toBe(true);
@@ -166,6 +173,7 @@ test("a refused stop sends no signal", async () => {
 		[1, 1, "PROCESS_PROTECTED"],
 		[SELF, 50, "PROCESS_PROTECTED"],
 		[TMUX, 65, "PROCESS_PROTECTED"],
+		[ATTACH, 66, "PROCESS_PROTECTED"],
 		[301, 70, "PROCESS_PROTECTED"],
 		[304, 95, "PROCESS_PROTECTED"],
 		[302, 81, "PROCESS_CHANGED"],
@@ -250,7 +258,7 @@ function realOptions() {
 		procRoot: "/proc",
 		selfPid: process.pid,
 		studentUid: process.getuid?.() ?? 0,
-		tmuxPid: async () => null,
+		terminalPids: async () => new Set<number>(),
 		kill: (pid: number, signal: NodeJS.Signals) => process.kill(pid, signal),
 		graceMs: 1000,
 	};

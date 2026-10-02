@@ -89,7 +89,7 @@ test("two samples produce process and workspace CPU from every process", async (
 		studentUid: STUDENT,
 		selfPid: 4242,
 		// The agent's tmux server is never stoppable, whatever its name.
-		tmuxPid: async () => 9,
+		terminalPids: async () => new Set([9]),
 	});
 	try {
 		await writeSample(root, {

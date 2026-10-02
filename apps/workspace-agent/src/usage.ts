@@ -44,8 +44,8 @@ export interface UsageSamplerOptions {
 	selfPid?: number;
 	/** The student's uid. Defaults to the uid the agent runs as. */
 	studentUid?: number;
-	/** The terminals' tmux server PID, never stoppable. Defaults to none. */
-	tmuxPid?: () => Promise<number | null>;
+	/** The terminals' tmux server and attach client PIDs, never stoppable. Defaults to none. */
+	terminalPids?: () => Promise<ReadonlySet<number>>;
 	now?: () => number;
 	statfs?: (path: string) => Promise<DiskStat>;
 }
@@ -226,7 +226,7 @@ export class UsageSampler {
 	private readonly cgroupRoot: string | null;
 	private readonly selfPid: number;
 	private readonly studentUid: number;
-	private readonly tmuxPid: () => Promise<number | null>;
+	private readonly terminalPids: () => Promise<ReadonlySet<number>>;
 	private readonly now: () => number;
 	private readonly readDisk: (path: string) => Promise<DiskStat>;
 	private previous: Sample | null = null;
@@ -241,7 +241,7 @@ export class UsageSampler {
 		this.readDisk = options.statfs ?? readDisk;
 		this.selfPid = options.selfPid ?? process.pid;
 		this.studentUid = options.studentUid ?? process.getuid?.() ?? 1000;
-		this.tmuxPid = options.tmuxPid ?? (async () => null);
+		this.terminalPids = options.terminalPids ?? (async () => new Set<number>());
 		if (options.cgroupRoot === null) this.cgroupRoot = null;
 		else if (typeof options.cgroupRoot === "string")
 			this.cgroupRoot = options.cgroupRoot;
@@ -357,7 +357,7 @@ export class UsageSampler {
 		const owner = {
 			selfPid: this.selfPid,
 			studentUid: this.studentUid,
-			tmuxPid: await this.tmuxPid(),
+			terminalPids: await this.terminalPids(),
 		};
 		await Promise.all(
 			names.map(async (name) => {

@@ -4041,6 +4041,9 @@ Delivered:
   pages included), and socket frames decoded with the shared schemas.
   Queued browser-open dialogs return focus to the element that had it.
 - The listening monitor reads the tmux process id uncached.
+- Workspace agent: a stop refuses the agent's own tmux attach clients as
+  well as the tmux server, so Stop on a "tmux" row in the Monitor no
+  longer closes the student's terminal.
 
 Gaps:
 

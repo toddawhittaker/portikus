@@ -302,8 +302,8 @@ export interface ListeningMonitorOptions {
 	studentUid?: number;
 	/** How a process is signalled. Tests override it. */
 	kill?: (pid: number, signal: NodeJS.Signals) => void;
-	/** The terminals' tmux server PID, which a stop must not signal (SPEC.md §18.3). */
-	tmuxPid?: () => Promise<number | null>;
+	/** The terminals' tmux server and attach client PIDs, which a stop must not signal (SPEC.md §18.3). */
+	terminalPids?: () => Promise<ReadonlySet<number>>;
 	/** How a container is stopped. Tests override it. */
 	dockerStop?: (container: string) => Promise<void>;
 	/** How a listener is checked for TLS. Tests override it. */
@@ -363,7 +363,7 @@ export class ListeningMonitor {
 	private readonly selfPid: number;
 	private readonly studentUid: number;
 	private readonly kill: (pid: number, signal: NodeJS.Signals) => void;
-	private readonly tmuxPid: () => Promise<number | null>;
+	private readonly terminalPids: () => Promise<ReadonlySet<number>>;
 	private readonly dockerStop: (container: string) => Promise<void>;
 	private readonly graceMs: number;
 	private readonly probe: TlsProbe;
@@ -399,7 +399,7 @@ export class ListeningMonitor {
 		this.selfPid = options.selfPid ?? process.pid;
 		this.studentUid = options.studentUid ?? process.getuid?.() ?? 1000;
 		this.kill = options.kill ?? ((pid, signal) => process.kill(pid, signal));
-		this.tmuxPid = options.tmuxPid ?? (async () => null);
+		this.terminalPids = options.terminalPids ?? (async () => new Set<number>());
 		this.dockerStop = options.dockerStop ?? dockerStopContainer;
 		this.graceMs = options.graceMs ?? STOP_GRACE_MS;
 		this.probe = options.probeTls ?? probeTls;
@@ -554,7 +554,7 @@ export class ListeningMonitor {
 				procRoot: this.procRoot,
 				selfPid: this.selfPid,
 				studentUid: this.studentUid,
-				tmuxPid: this.tmuxPid,
+				terminalPids: this.terminalPids,
 				kill: this.kill,
 			});
 		} catch (error) {
