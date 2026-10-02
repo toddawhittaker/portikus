@@ -68,6 +68,8 @@
         mode: "0755"
       notify: Restart caddy
 
+  # A failed check must not leave the staging binary behind.
+  always:
     - name: Remove the staging binary
       ansible.builtin.file:
         path: "{{ caddy_build_output }}"

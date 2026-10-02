@@ -236,19 +236,20 @@ function MatchNotice({
 
 	function update() {
 		if (off) return;
-		match.mutate(undefined, {
-			onSuccess: () => {
+		// The promise settles even if a reread has already removed this notice.
+		match.mutateAsync().then(
+			() => {
 				toast.show({ tone: "success", title: "Seed list updated, rebuild requested" });
 				// This notice and its button go away; the list it changed keeps the place.
 				document.getElementById("docker-seed-list-title")?.focus();
 			},
-			onError: (error) =>
+			(error) =>
 				toast.show({
 					tone: "danger",
 					title: "Could not update the seed",
 					children: errorText(error),
 				}),
-		});
+		);
 	}
 
 	return (

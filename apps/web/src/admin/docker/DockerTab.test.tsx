@@ -7,6 +7,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/re
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { DockerTab } from "./DockerTab.js";
+import { dockerKey } from "./queries.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -671,6 +672,48 @@ test("the drift notice's button posts the match, starts a rebuild and keeps focu
 	// Nothing else writes the list.
 	expect(bodyOf(fetch, "PUT", "/admin/docker/seed/images")).toBeUndefined();
 	// The notice and its button go; focus lands on the list it changed.
+	await waitFor(() =>
+		expect(document.activeElement?.id).toBe("docker-seed-list-title"),
+	);
+});
+
+test("the drift notice's toast and focus survive a reread that removes the notice", async () => {
+	// The list is rewritten as soon as the match arrives; the answer comes later.
+	let matched = false;
+	let answer: (response: Response) => void = () => {};
+	stubFetch((url, init) => {
+		if (url === "/admin/docker/seed/match" && init?.method === "POST") {
+			matched = true;
+			// stubFetch awaits whatever the handler returns.
+			return new Promise<Response>((resolve) => {
+				answer = resolve;
+			}) as unknown as Response;
+		}
+		if (url === "/admin/docker")
+			return json(
+				200,
+				data({
+					seedImages: matched
+						? ["node:26-slim", "python:3.14-slim"]
+						: ["node:24-slim", "python:3.13-slim"],
+					match: MATCH_26_314,
+				}),
+			);
+		if (url === "/admin/docker/seed/jobs") return json(200, { jobs: [] });
+		if (url === "/admin/docker/usage") return json(200, USAGE);
+		return json(404, { code: "NOT_FOUND", message: "Not found." });
+	});
+	const client = renderWithQuery(<DockerTab />);
+	const notice = await screen.findByTestId("docker-seed-drift");
+	fireEvent.click(
+		within(notice).getByRole("button", { name: "Update list and rebuild" }),
+	);
+	await waitFor(() => expect(matched).toBe(true));
+	// Another reread lands first and takes the notice away.
+	await client.invalidateQueries({ queryKey: dockerKey });
+	await waitFor(() => expect(screen.queryByTestId("docker-seed-drift")).toBeNull());
+	answer(json(202, job({ state: "queued" })));
+	expect(await screen.findByText("Seed list updated, rebuild requested")).toBeTruthy();
 	await waitFor(() =>
 		expect(document.activeElement?.id).toBe("docker-seed-list-title"),
 	);
