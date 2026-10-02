@@ -1,7 +1,6 @@
 import { requireUser } from "@portikus/auth";
 import {
 	ListNotificationsQuery,
-	MAX_NOTIFICATIONS_PER_USER,
 	type Notification,
 	type NotificationList,
 	type NotificationTone,
@@ -12,9 +11,10 @@ import type { Database, NotificationsTable } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
+import { recordNotification } from "../notifications/record.js";
 import { check, createCounter } from "../rate-limit.js";
-import type { ServerDeps } from "../server.js";
 
 /** How many notifications one user may record per minute before 429. */
 export const NOTIFICATION_RECORDS_PER_MINUTE = 30;
@@ -41,42 +41,6 @@ async function unreadCount(db: Kysely<Database>, userId: string): Promise<number
 		.where("read_at", "is", null)
 		.executeTakeFirstOrThrow();
 	return Number(row.n);
-}
-
-/**
- * Record one notification for a user and keep only their newest rows
- * (ADR 0033). The API also uses it to tell a student something happened.
- */
-export async function recordNotification(
-	db: Kysely<Database>,
-	userId: string,
-	notification: { tone: NotificationTone; title: string; body: string },
-): Promise<Selectable<NotificationsTable>> {
-	const row = await db
-		.insertInto("notifications")
-		.values({
-			user_id: userId,
-			tone: notification.tone,
-			title: notification.title,
-			body: notification.body,
-		})
-		.returningAll()
-		.executeTakeFirstOrThrow();
-	// Keep only this user's newest rows; the worker also prunes by age.
-	await db
-		.deleteFrom("notifications")
-		.where("user_id", "=", userId)
-		.where("id", "not in", (eb) =>
-			eb
-				.selectFrom("notifications")
-				.select("id")
-				.where("user_id", "=", userId)
-				.orderBy("created_at", "desc")
-				.orderBy("id", "desc")
-				.limit(MAX_NOTIFICATIONS_PER_USER),
-		)
-		.execute();
-	return row;
 }
 
 /**

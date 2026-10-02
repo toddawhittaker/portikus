@@ -12,7 +12,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
-import { longOperationRunning } from "./project-scope.js";
+import { longOperationRunning } from "../workspaces/long-operation.js";
 
 /**
  * Recovery points through the API (SPEC.md §15, ADR 0020): owner only,

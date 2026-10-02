@@ -8,6 +8,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { type AgentClient, agentClientFor } from "../agent-client.js";
+import type { ServerDeps } from "../deps.js";
 import { apiRequestSeries } from "../health-series/api-requests.js";
 import { eventSeries } from "../health-series/events.js";
 import { hostSeries, newestCpuCount } from "../health-series/host.js";
@@ -16,7 +17,6 @@ import { seriesWindow } from "../health-series/range.js";
 import { usageSeries } from "../health-series/usage.js";
 import { sendError } from "../http.js";
 import { imagesDirOf, readPublished } from "../image/release-notices.js";
-import type { ServerDeps } from "../server.js";
 
 /** The worker samples every minute; older than this means it stopped. */
 const WORKER_STALE_AFTER_MS = 2 * 60_000;

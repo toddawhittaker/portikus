@@ -6,7 +6,7 @@ import { toAuthOptions } from "./auth-options.js";
 import { startCertificateNotices } from "./certificate/notices.js";
 import { imagesDirOf, startReleaseNotices } from "./image/release-notices.js";
 import { startLogLevelSync } from "./log-level.js";
-import { loadLtiDeps } from "./routes/lti.js";
+import { loadLtiDeps } from "./lti/deps.js";
 import { buildServer } from "./server.js";
 import { closeOnSigterm } from "./shutdown.js";
 

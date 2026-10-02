@@ -18,9 +18,9 @@ import type { ApiError, LinkError, MeResponse } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
+import type { ServerDeps } from "../deps.js";
 import { revokeSessionPreviewSessions } from "../preview/store.js";
-import type { ServerDeps } from "../server.js";
-import { completeSignIn, requestMetadata } from "./start-session.js";
+import { completeSignIn, requestMetadata } from "../sessions/start-session.js";
 
 const DENIED_MESSAGE = "Your account is not authorized to use Portikus";
 

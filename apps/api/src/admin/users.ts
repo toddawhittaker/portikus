@@ -2,11 +2,12 @@ import { dexLocalUserId } from "@portikus/auth";
 import { type AdminUser, Role } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyReply } from "fastify";
-import { type Kysely, sql } from "kysely";
-import { accountFlags, groupByEmail } from "../admin/markers.js";
+import type { Kysely } from "kysely";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import type { ServerDeps } from "../server.js";
-import { loadImageFacts, toWorkspaceSummary } from "./admin-workspaces.js";
+import { countActiveByWorkspace } from "../workspaces/workspace-view.js";
+import { accountFlags, groupByEmail } from "./markers.js";
+import { loadImageFacts, toWorkspaceSummary } from "./workspace-summary.js";
 
 /** The users columns the administration pages read. */
 export const USER_COLUMNS = [
@@ -105,14 +106,7 @@ export async function listAdminUsers({
 	const workspaces = await db.selectFrom("workspaces").selectAll().execute();
 	const links = await db.selectFrom("account_links").select("course_user_id").execute();
 	const linked = new Set(links.map((row) => row.course_user_id));
-	const cutoff = new Date(Date.now() - config.PRESENCE_TTL_SECONDS * 1000);
-	const counts = await db
-		.selectFrom("workspace_connections")
-		.select(["workspace_id", sql<number>`count(*)::int`.as("count")])
-		.where("last_seen_at", ">", sql<Date>`${cutoff.toISOString()}::timestamptz`)
-		.groupBy("workspace_id")
-		.execute();
-	const active = new Map(counts.map((row) => [row.workspace_id, row.count]));
+	const active = await countActiveByWorkspace(db, config);
 	const byOwner = new Map(workspaces.map((row) => [row.owner_user_id, row]));
 	const facts = await loadImageFacts(db);
 	const defaults = {

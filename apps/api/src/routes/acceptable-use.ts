@@ -7,8 +7,8 @@ import {
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import type { ServerDeps } from "../server.js";
 
 /** The settings row's version; with no row yet it is the column default, 1. */
 const CURRENT_VERSION = sql<number>`coalesce((select acceptable_use_version from settings where id = 1), 1)`;

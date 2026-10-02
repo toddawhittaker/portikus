@@ -35,9 +35,9 @@ import {
 	systemNet,
 } from "../certificate/preflight.js";
 import { checkUpload } from "../certificate/upload-check.js";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import { currentJob, listDir, tailLines, writeRequestFile } from "../job-files.js";
-import type { ServerDeps } from "../server.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 const BUSY_MESSAGE = "A certificate job is already waiting or running.";

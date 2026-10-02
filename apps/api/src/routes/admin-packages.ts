@@ -7,7 +7,7 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
-import type { ServerDeps } from "../server.js";
+import type { ServerDeps } from "../deps.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 const today = sql<Date>`(now() at time zone 'utc')::date`;

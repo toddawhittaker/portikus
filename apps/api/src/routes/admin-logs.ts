@@ -1,11 +1,11 @@
 import { requireRole } from "@portikus/auth";
 import { LogCountsQuery, type LogPage, LogQuery } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { ServerDeps } from "../deps.js";
 import { sendNoStoreError } from "../http.js";
 import { LogCounter } from "../logs/counts.js";
 import { readLogPage } from "../logs/filter.js";
 import { JournalReader, LogsBusyError, LogsUnavailableError } from "../logs/journal.js";
-import type { ServerDeps } from "../server.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

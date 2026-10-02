@@ -7,10 +7,10 @@ import {
 import { ChangePasswordRequest } from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import type { ServerDeps } from "../server.js";
+import { requestMetadata } from "../sessions/start-session.js";
 import { createPasswordChangeThrottle } from "../signin-throttle.js";
-import { requestMetadata } from "./start-session.js";
 
 /** Thrown inside the transaction when Dex no longer holds the password. */
 class PasswordGone extends Error {}

@@ -179,3 +179,39 @@ export async function findWorkspaceOwnedBy(
 		.executeTakeFirst();
 	return row ?? null;
 }
+
+/** Connections seen within the presence TTL, per workspace, in one query (SPEC.md §6.4). */
+export async function countActiveByWorkspace(
+	db: Kysely<Database>,
+	config: ApiConfig,
+): Promise<Map<string, number>> {
+	const cutoff = new Date(Date.now() - config.PRESENCE_TTL_SECONDS * 1000);
+	const counts = await db
+		.selectFrom("workspace_connections")
+		.select(["workspace_id", sql<number>`count(*)::int`.as("count")])
+		.where("last_seen_at", ">", sql<Date>`${cutoff.toISOString()}::timestamptz`)
+		.groupBy("workspace_id")
+		.execute();
+	return new Map(counts.map((row) => [row.workspace_id, row.count]));
+}
+
+/** One workspace as the Workspace contract shows it. */
+export async function workspaceView(
+	db: Kysely<Database>,
+	config: ApiConfig,
+	row: WorkspaceRow,
+): Promise<Workspace> {
+	const active = await countActive(db, row.id, config);
+	return toWorkspace(row, active, config, await loadWorkspaceSettings(db));
+}
+
+/** Many workspaces as Workspace views, with one settings read and one count query. */
+export async function workspaceViews(
+	db: Kysely<Database>,
+	config: ApiConfig,
+	rows: WorkspaceRow[],
+): Promise<Workspace[]> {
+	const settings = await loadWorkspaceSettings(db);
+	const active = await countActiveByWorkspace(db, config);
+	return rows.map((row) => toWorkspace(row, active.get(row.id) ?? 0, config, settings));
+}

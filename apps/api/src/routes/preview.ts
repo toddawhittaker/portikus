@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { recordActivity } from "../activity.js";
 import { AgentCallError } from "../agent-client.js";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import { fromLoopback } from "../loopback.js";
 import {
@@ -47,7 +48,6 @@ import {
 	revokeWorkspacePreviewSessions,
 } from "../preview/store.js";
 import { check, createCounter } from "../rate-limit.js";
-import type { ServerDeps } from "../server.js";
 
 /** The preview-host cookie, `__Host-` prefixed wherever the site is https. */
 function previewCookieName(config: ApiConfig): string {

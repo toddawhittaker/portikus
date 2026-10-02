@@ -1,10 +1,10 @@
 import type { WebSocket } from "@fastify/websocket";
 import { MAX_EVENT_SOCKETS_PER_WORKSPACE } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { ServerDeps } from "../server.js";
-import { createPendingWork, workspaceUpgradeGuard } from "./presence.js";
-import { type ProjectScope, scopedProject } from "./project-scope.js";
-import { pipeOneWay } from "./terminal-pipe.js";
+import type { ServerDeps } from "../deps.js";
+import { createPendingWork, workspaceUpgradeGuard } from "../workspaces/presence.js";
+import { type ProjectScope, scopedProject } from "../workspaces/project-scope.js";
+import { pipeOneWay } from "../workspaces/terminal-pipe.js";
 
 /**
  * Event sockets open per workspace, counted here rather than trusted to the

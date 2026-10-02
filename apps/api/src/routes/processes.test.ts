@@ -16,7 +16,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
-import { PROCESS_STOPS_PER_MINUTE } from "./processes.js";
+import { PROCESS_STOPS_PER_MINUTE } from "../workspaces/process-stop.js";
 
 const skip = !hasTestDb();
 const AGENT_TOKEN = "fake-agent-token";

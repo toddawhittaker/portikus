@@ -1,9 +1,6 @@
 import { requireUser } from "@portikus/auth";
 import {
 	Appearance,
-	EDITOR_SETTINGS_DEFAULTS,
-	EditorSettings,
-	isSystemTimezone,
 	MAX_PROFILE_PICTURE_BYTES,
 	type MeSettings,
 	PICTURE_TOO_LARGE_MESSAGE,
@@ -14,33 +11,15 @@ import {
 } from "@portikus/contracts";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import type { ServerDeps } from "../server.js";
+import { toEditorSettings } from "../users/editor-settings.js";
 
 /**
  * The zone list this build knows, built once. It is the same list for every
  * request, and working it out per request costs a few hundred strings.
  */
 const TIMEZONES: string[] = [...systemTimezones()];
-
-/**
- * Fill in the defaults for anything the user has not set, and ignore anything
- * stored that is no longer a setting we know.
- *
- * Each field is parsed on its own, so one bad stored value (for example a
- * zone name this build no longer knows) falls back to its own
- * default and takes none of the student's other settings with it.
- */
-export function toEditorSettings(stored: unknown): EditorSettings {
-	const raw = (stored ?? {}) as Record<string, unknown>;
-	const out: Record<string, unknown> = { ...EDITOR_SETTINGS_DEFAULTS };
-	for (const [key, schema] of Object.entries(EditorSettings.shape)) {
-		const parsed = schema.safeParse(raw[key]);
-		if (parsed.success) out[key] = parsed.data;
-	}
-	if (!isSystemTimezone(out.timezone)) out.timezone = EDITOR_SETTINGS_DEFAULTS.timezone;
-	return out as EditorSettings;
-}
 
 /** Whether the user has saved an appearance, rather than getting the default. */
 function hasStoredAppearance(stored: unknown): boolean {
