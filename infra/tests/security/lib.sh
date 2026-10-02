@@ -469,7 +469,7 @@ g443() {
   v2=$(curl -sk --noproxy '*' -D - -o /dev/null --max-time 10 "https://${gw}/v2/" | tr -d '\r' \
     | awk 'NR == 1 { c = $2 } tolower($1) == "docker-distribution-api-version:" { v = $2 } END { print (c ? c : "000") "/" (v ? v : "none") }')
   s=$(curl -sk --noproxy '*' -o /dev/null -w '%{http_code}' --max-time 10 --resolve "${site}:443:${gw}" "https://${site}/health")
-  fp() { openssl s_client -connect "$1" -servername ghcr.io </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null; }
+  fp() { timeout 10 openssl s_client -connect "$1" -servername ghcr.io </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null; }
   a=$(fp "${gw}:443"); b=$(fp "${gw}:5001")
   if [ -n "$a" ] && [ "$a" = "$b" ]; then c=same-as-5001; else c="different(${a:-none})"; fi
   echo "${v2}/${s}/${c}"
