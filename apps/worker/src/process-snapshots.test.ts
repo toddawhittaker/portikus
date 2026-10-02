@@ -3,7 +3,7 @@
  * SPEC.md §20.1): each pending Refresh is served once, from the
  * controller, and old snapshots are deleted.
  */
-import type { InstanceProcess } from "@portikus/contracts";
+import type { InstanceProcess, WorkspaceState } from "@portikus/contracts";
 import {
 	createTestDb,
 	hasTestDb,
@@ -52,7 +52,7 @@ beforeEach(async () => {
 	controller.processesResult = [ROW];
 });
 
-async function workspace(state = "running"): Promise<string> {
+async function workspace(state: WorkspaceState = "running"): Promise<string> {
 	const row = await tdb.db
 		.insertInto("workspaces")
 		.values({

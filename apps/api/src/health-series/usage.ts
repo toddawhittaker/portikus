@@ -1,20 +1,16 @@
-import { effectiveGuard, type HealthSeries } from "@portikus/contracts";
+import {
+	effectiveGuard,
+	GUARD_SAMPLE_SECONDS,
+	type HealthSeries,
+	restartedBetween,
+	SAMPLE_RETENTION_MINUTES,
+} from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { Kysely } from "kysely";
 import type { SeriesWindow } from "./range.js";
 
-/**
- * How long the worker keeps `workspace_usage_samples`: its
- * SAMPLE_RETENTION_MINUTES in apps/worker/src/guard.ts, which the API cannot
- * import. Keep the two equal.
- */
-const USAGE_RETENTION_MINUTES = 245;
-
 /** The heat map shows at most this many workspaces, the busiest (SPEC.md section 25.6). */
 export const USAGE_MAX_ROWS = 50;
-
-/** One guard sample interval, for the restart tail (apps/worker/src/guard.ts). */
-const SAMPLE_MS = 60_000;
 
 interface Sample {
 	observedAt: Date;
@@ -23,15 +19,6 @@ interface Sample {
 	cpuLimit: number;
 	memoryBytes: number;
 	memoryLimitBytes: number;
-}
-
-/** The worker's restartedBetween: the boot marker changed or the counter dropped. */
-function restartedBetween(prev: Sample, cur: Sample): boolean {
-	const bothMarkers = prev.bootMarker !== null && cur.bootMarker !== null;
-	return (
-		(bothMarkers && prev.bootMarker !== cur.bootMarker) ||
-		cur.cpuUsageNs < prev.cpuUsageNs
-	);
 }
 
 /**
@@ -45,7 +32,7 @@ export function pairCpuPercent(prev: Sample, cur: Sample): number | null {
 	if (elapsedMs <= 0 || cur.cpuLimit <= 0) return null;
 	let usedNs: bigint;
 	if (restartedBetween(prev, cur)) {
-		const tailMs = Math.min(elapsedMs, SAMPLE_MS);
+		const tailMs = Math.min(elapsedMs, GUARD_SAMPLE_SECONDS * 1000);
 		usedNs = cur.cpuUsageNs + BigInt(tailMs) * 1_000_000n * BigInt(cur.cpuLimit);
 	} else {
 		usedNs = cur.cpuUsageNs - prev.cpuUsageNs;
@@ -56,7 +43,7 @@ export function pairCpuPercent(prev: Sample, cur: Sample): number | null {
 /** The start of the first bucket the heat map shows: never before retention. */
 export function usageFrom(window: SeriesWindow): Date {
 	const bucketMs = window.bucketSeconds * 1000;
-	const cutoff = window.to.getTime() - USAGE_RETENTION_MINUTES * 60_000;
+	const cutoff = window.to.getTime() - SAMPLE_RETENTION_MINUTES * 60_000;
 	if (cutoff <= window.from.getTime()) return window.from;
 	const offset = Math.floor((cutoff - window.from.getTime()) / bucketMs) * bucketMs;
 	return new Date(window.from.getTime() + offset);
@@ -76,7 +63,7 @@ export async function usageSeries(
 ): Promise<HealthSeries["usage"]> {
 	const from = usageFrom(window);
 	const body = {
-		retentionMinutes: USAGE_RETENTION_MINUTES,
+		retentionMinutes: SAMPLE_RETENTION_MINUTES,
 		from: from.toISOString(),
 	};
 	const rows = await db

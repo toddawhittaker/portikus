@@ -7,6 +7,7 @@ import {
 	openWorkspaceSocket,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import type { WorkspaceState } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -345,7 +346,7 @@ test.skipIf(skip)(
 	},
 );
 
-async function archive(state: string): Promise<void> {
+async function archive(state: WorkspaceState): Promise<void> {
 	await testDb.db
 		.updateTable("workspaces")
 		.set({ state, desired_state: "stopped", archived_at: new Date().toISOString() })

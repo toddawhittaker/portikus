@@ -346,10 +346,7 @@ export function createListeningRegistry(deps: RegistryDeps): ListeningRegistry {
 
 		const running = new Set<string>();
 		for (const row of rows) {
-			const client = agentClientFor(
-				row as unknown as Record<string, unknown>,
-				config.AGENT_PORT,
-			);
+			const client = agentClientFor(row, config.AGENT_PORT);
 			if (!client) continue;
 			running.add(row.id);
 			const existing = entries.get(row.id);

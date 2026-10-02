@@ -1,4 +1,8 @@
-import { DEFAULT_KEEP_RUNNING_MAX_HOURS, PendingOperation } from "@portikus/contracts";
+import {
+	DEFAULT_KEEP_RUNNING_MAX_HOURS,
+	PendingOperation,
+	type WorkspaceState,
+} from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
 import { type Logger, silentLogger } from "@portikus/observability";
 import { type ExpressionBuilder, type Kysely, sql } from "kysely";
@@ -303,7 +307,7 @@ async function startInBackground(
 		label: string;
 		quota_config: { dockerGiB?: number; recoveryGiB?: number } | null;
 	},
-	fromState: string,
+	fromState: WorkspaceState,
 ): Promise<void> {
 	const { db, controller, config, now, log } = ctx;
 	const name = ws.incus_instance_name;
@@ -554,7 +558,7 @@ type ListedInstance = Awaited<ReturnType<ControllerClient["list"]>>[number];
 interface TrackedRow {
 	id: string;
 	incus_instance_name: string;
-	state: string;
+	state: WorkspaceState;
 	agent_address: string | null;
 }
 

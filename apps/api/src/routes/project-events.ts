@@ -1,5 +1,5 @@
 import type { WebSocket } from "@fastify/websocket";
-import { MAX_EVENT_SOCKETS_PER_WORKSPACE } from "@portikus/contracts";
+import { CloseCode, MAX_EVENT_SOCKETS_PER_WORKSPACE } from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ServerDeps } from "../deps.js";
 import { createPendingWork, workspaceUpgradeGuard } from "../workspaces/presence.js";
@@ -37,9 +37,9 @@ function releaseEventSocket(workspaceId: string): void {
  * (SPEC.md §24.1).
  */
 function browserCloseReason(code: number): string {
-	if (code === 4404) return "project not found";
-	if (code === 1008) return "too many watchers";
-	if (code === 1011) return "watcher failed";
+	if (code === CloseCode.NOT_FOUND) return "project not found";
+	if (code === CloseCode.POLICY) return "too many watchers";
+	if (code === CloseCode.SERVER_ERROR) return "watcher failed";
 	return "agent closed";
 }
 
@@ -87,12 +87,12 @@ export function registerProjectEventsSocket(
 			if (!scope) {
 				// The guard above always sets the scope, so getting here is a
 				// bug in this file rather than anything the student did.
-				socket.close(1011, "watcher failed");
+				socket.close(CloseCode.SERVER_ERROR, "watcher failed");
 				socket.resume();
 				return;
 			}
 			if (!takeEventSocket(scope.workspaceId)) {
-				socket.close(1008, "too many watchers");
+				socket.close(CloseCode.POLICY, "too many watchers");
 				socket.resume();
 				return;
 			}

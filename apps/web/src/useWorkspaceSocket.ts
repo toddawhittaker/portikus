@@ -1,4 +1,4 @@
-import type { ListeningService, Workspace } from "@portikus/contracts";
+import { CloseCode, type ListeningService, type Workspace } from "@portikus/contracts";
 import { ServerMessage } from "@portikus/events";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { wsUrl } from "./api/ws.js";
@@ -10,8 +10,6 @@ export const ACTIVITY_MS = 60_000;
 const ACTIVITY_EVENTS = ["keydown", "pointerdown", "paste"] as const;
 const RECONNECT_MS = 3_000;
 const MAX_RECONNECT_MS = 60_000;
-/** The API closes with this code when the session is gone (SPEC.md §26). */
-const SESSION_ENDED_CODE = 4401;
 
 function socketUrl(workspaceId: string): string {
 	return wsUrl(`/workspaces/${workspaceId}/ws`);
@@ -124,7 +122,7 @@ export function useWorkspaceSocket(
 			next.onclose = (event: CloseEvent) => {
 				if (heartbeat !== undefined) clearInterval(heartbeat);
 				if (stopped) return;
-				if (event.code === SESSION_ENDED_CODE) {
+				if (event.code === CloseCode.SESSION_ENDED) {
 					sessionEnded.current();
 					return;
 				}

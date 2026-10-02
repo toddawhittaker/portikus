@@ -8,6 +8,7 @@ import {
 	REGISTRY_EVENTS_TOKEN_HEADER,
 	REGISTRY_NAMES_PER_DAY_MAX,
 	type RegistryEvent,
+	type WorkspaceState,
 } from "@portikus/contracts";
 import {
 	createTestDb,
@@ -104,7 +105,10 @@ describe.skipIf(skip)("registry events (ruling S7)", () => {
 		await tdb.truncate();
 	});
 
-	async function workspace(address: string | null, state = "running"): Promise<string> {
+	async function workspace(
+		address: string | null,
+		state: WorkspaceState = "running",
+	): Promise<string> {
 		counter++;
 		const row = await tdb.db
 			.insertInto("workspaces")

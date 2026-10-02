@@ -8,6 +8,7 @@
 import {
 	type BrowserOpenRequest,
 	BrowserOpenRequest as BrowserOpenRequestSchema,
+	CloseCode,
 	FsEvent,
 	WatchLimited,
 } from "@portikus/contracts";
@@ -25,7 +26,11 @@ const HEALTHY_MS = 5_000;
  * Close codes that mean the server refused us: the session is gone, the
  * project is gone, or the request was rejected. Retrying cannot help.
  */
-const REFUSED_CODES = new Set([4401, 4404, 1008]);
+const REFUSED_CODES = new Set<number>([
+	CloseCode.SESSION_ENDED,
+	CloseCode.NOT_FOUND,
+	CloseCode.POLICY,
+]);
 /** Frames are collected this long before anything is refetched. */
 const INVALIDATE_DEBOUNCE_MS = 300;
 

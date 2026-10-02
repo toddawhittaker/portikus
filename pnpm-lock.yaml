@@ -514,6 +514,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@portikus/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       kysely:
         specifier: 0.29.6
         version: 0.29.6

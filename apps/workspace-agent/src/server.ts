@@ -76,7 +76,7 @@ import {
 } from "./projects.js";
 import { registerRecoveryRoutes } from "./recovery-routes.js";
 import { registerSearchRoutes } from "./search-routes.js";
-import { readTerminalsExit, TerminalRegistry } from "./terminals.js";
+import { readTerminalsExit, sendText, TerminalRegistry } from "./terminals.js";
 import {
 	closeSession,
 	commandForAgent,
@@ -738,7 +738,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				const query = AttachQuery.safeParse(request.query ?? {});
 				if (!params.success || !query.success) {
 					socket.resume();
-					socket.send(JSON.stringify({ type: "error", code: "TERMINAL_NOT_FOUND" }));
+					sendText(socket, { type: "error", code: "TERMINAL_NOT_FOUND" });
 					socket.close(1008, "invalid attach request");
 					return;
 				}
@@ -746,7 +746,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				try {
 					await registry.attach(terminalId, socket, query.data);
 					if (options.build) {
-						socket.send(JSON.stringify({ type: "agent", build: options.build }));
+						sendText(socket, { type: "agent", build: options.build });
 					}
 					socket.resume();
 					request.log.debug(
@@ -756,7 +756,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				} catch (error) {
 					const code = error instanceof AgentFailure ? error.code : "TMUX_FAILED";
 					socket.resume();
-					socket.send(JSON.stringify({ type: "error", code }));
+					sendText(socket, { type: "error", code });
 					socket.close(1008, code);
 				}
 			},

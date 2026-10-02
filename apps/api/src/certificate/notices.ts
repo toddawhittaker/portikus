@@ -8,7 +8,7 @@ import {
 import type { Database } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import type { Kysely } from "kysely";
-import { notifyOnce } from "../image/release-notices.js";
+import { notifyOnce } from "../notifications/notify-once.js";
 import { allJobs, noteFinished } from "./jobs.js";
 
 /** The status directory sits beside the job directory: /var/lib/portikus/certificate. */
