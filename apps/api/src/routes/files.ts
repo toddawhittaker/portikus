@@ -48,7 +48,7 @@ function headersDeadline() {
 }
 
 /** The most bytes the API relays for one download, whatever the agent sends. */
-export const DOWNLOAD_RELAY_LIMIT = MAX_DOWNLOAD_BYTES + ZIP_OVERHEAD_BYTES;
+const DOWNLOAD_RELAY_LIMIT = MAX_DOWNLOAD_BYTES + ZIP_OVERHEAD_BYTES;
 
 /**
  * A download body cut off at DOWNLOAD_RELAY_LIMIT. The agent refuses a

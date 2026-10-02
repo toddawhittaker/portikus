@@ -8,7 +8,7 @@ export const API_LATENCY_BOUNDS_MS = [
 	5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000,
 ] as const;
 
-export const API_REQUEST_RETENTION_DAYS = 7;
+const API_REQUEST_RETENTION_DAYS = 7;
 
 const MINUTE_MS = 60_000;
 const PRUNE_EVERY_MS = 3_600_000;

@@ -19,10 +19,10 @@ import { imagesDirOf, readPublished } from "../image/release-notices.js";
 import type { ServerDeps } from "../server.js";
 
 /** The worker samples every minute; older than this means it stopped. */
-export const WORKER_STALE_AFTER_MS = 2 * 60_000;
+const WORKER_STALE_AFTER_MS = 2 * 60_000;
 
 /** How long an agent has to answer `/health` before it counts as down. */
-export const AGENT_PROBE_TIMEOUT_MS = 2000;
+const AGENT_PROBE_TIMEOUT_MS = 2000;
 
 /** Ask one agent whether it answers. Never throws. */
 async function agentAnswers(agent: AgentClient): Promise<boolean> {

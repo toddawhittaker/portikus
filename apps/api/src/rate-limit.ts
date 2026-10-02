@@ -121,7 +121,7 @@ export type UserLimit = (
 	reply: FastifyReply,
 ) => Promise<boolean>;
 
-export function createUserLimit(scope: string, counter: Counter): UserLimit {
+function createUserLimit(scope: string, counter: Counter): UserLimit {
 	return (request, reply) => allowUser(counter, scope, request, reply);
 }
 

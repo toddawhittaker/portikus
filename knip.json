@@ -1,0 +1,41 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"ignoreBinaries": ["openssl", "prlimit", "rg", "mkfifo", "unshare"],
+	"workspaces": {
+		".": {
+			"entry": [
+				"scripts/*.mjs",
+				"e2e/*.mjs",
+				"playwright.config.ts",
+				"e2e/**/*.{spec,setup}.ts"
+			],
+			"project": ["scripts/**/*.{ts,mjs}", "e2e/**/*.{ts,mjs}", "*.ts"],
+			"playwright": false
+		},
+		"apps/*": {
+			"project": ["src/**/*.{ts,tsx}"]
+		},
+		"apps/web": {
+			"project": ["src/**/*.{ts,tsx}", "src/**/*.css"]
+		},
+		"apps/worker": {
+			"entry": ["src/backup-channel-main.ts"],
+			"project": ["src/**/*.ts"]
+		},
+		"apps/workspace-controller": {
+			"entry": ["src/egress-apply-main.ts"],
+			"project": ["src/**/*.ts"]
+		},
+		"packages/*": {
+			"project": ["src/**/*.{ts,tsx}"]
+		},
+		"packages/auth": {
+			"entry": ["src/**/*-main.ts"],
+			"project": ["src/**/*.ts"]
+		},
+		"packages/mock-lms": {
+			"entry": ["src/main.ts"],
+			"project": ["src/**/*.ts"]
+		}
+	}
+}

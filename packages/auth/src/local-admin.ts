@@ -12,8 +12,8 @@ import { precreateDexAccount } from "./links.js";
 export const LOCAL_ADMIN_USER_ID = "local-admin";
 
 /** Exit codes of `reset-admin --if-missing` when the account exists (SPEC.md section 5.1). */
-export const EXIT_EXISTS_FLAG_SET = 10;
-export const EXIT_EXISTS_FLAG_CLEAR = 11;
+const EXIT_EXISTS_FLAG_SET = 10;
+const EXIT_EXISTS_FLAG_CLEAR = 11;
 
 /** Dex already holds another password with the email the new one needs. */
 export class LocalAdminEmailTaken extends Error {
@@ -24,7 +24,7 @@ export class LocalAdminEmailTaken extends Error {
 	}
 }
 
-export interface ResetLocalAdminInput {
+interface ResetLocalAdminInput {
 	db: Kysely<Database>;
 	dex: DexApi;
 	/** The site's Dex issuer, OIDC_ISSUER_URL. */
@@ -36,7 +36,7 @@ export interface ResetLocalAdminInput {
 	ifMissing?: boolean;
 }
 
-export type ResetLocalAdminResult =
+type ResetLocalAdminResult =
 	| { outcome: "created" | "reset"; userId: string; email: string; password: string }
 	| { outcome: "exists"; mustChangePassword: boolean };
 

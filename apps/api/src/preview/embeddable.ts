@@ -43,7 +43,7 @@ const PROBE_TIMEOUT_MS = 3_000;
  */
 export const MAX_REFUSAL_BODY_BYTES = 4_096;
 
-export type EmbeddableReason =
+type EmbeddableReason =
 	| "x-frame-options"
 	| "frame-ancestors"
 	| "unreachable"
