@@ -687,7 +687,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 	/**
 	 * Name the container after the workspace label so the shell prompt reads
-	 * `student@<label>` (SPEC.md section 29, Epic 8).
+	 * `student@<label>` (SPEC.md section 29).
 	 *
 	 * Incus has no instance setting for the hostname, so this writes
 	 * `/etc/hostname` for the next boot and runs `hostname` for the current

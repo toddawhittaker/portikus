@@ -31,9 +31,8 @@ const NEUTRAL = new Set(NEUTRAL_KEYS.map((key) => MARKER_LABEL[key]));
 type GuardState = Pick<AdminWorkspaceSummary, "cpuThrottle" | "memoryFlag">;
 
 /**
- * The marker labels an account carries, in a fixed order (issue #302,
- * ADR 0026), then its workspace's resource
- * guard tags (ADR 0032).
+ * The marker labels an account carries, in a fixed order (ADR 0026),
+ * then its workspace's resource guard tags (ADR 0032).
  */
 export function markerLabels(
 	markers: AccountMarkers | undefined,

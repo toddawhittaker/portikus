@@ -72,7 +72,7 @@ function CountChart({
 	);
 }
 
-/** Guard events and workspace activity per bucket (SPEC.md §25.6, #598 items 4 and 5). */
+/** Guard events and workspace activity per bucket (SPEC.md §25.6). */
 export function EventCharts({
 	series,
 	frame,

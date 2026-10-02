@@ -826,7 +826,7 @@ export function FileTreePane({
 				</aside>
 			</TreeContext.Provider>
 			{/* The row stays where it is; a small copy of it follows the
-			    pointer, so it is clear what is being dragged (issue #237). */}
+			    pointer, so it is clear what is being dragged. */}
 			<DragOverlay dropAnimation={null}>
 				{dragged ? (
 					<div className="pk-tree-drag" data-testid="file-drag-overlay">
@@ -845,7 +845,7 @@ export function FileTreePane({
 /**
  * The empty area below the last row. Dropping a file here moves it to the
  * project root, which is otherwise only reachable through the path line
- * (issue #237, SPEC.md §11.2).
+ * (SPEC.md §11.2).
  */
 function RootSpaceDropZone({ name }: { name: string }) {
 	const drop = useDroppable({ id: ROOT_SPACE_DROP_ID });

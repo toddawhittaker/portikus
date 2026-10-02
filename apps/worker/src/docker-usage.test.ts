@@ -59,7 +59,7 @@ test("each running workspace's images are read every hour, so short sessions are
 	expect(INVENTORY_SECONDS).toBe(60 * 60);
 });
 
-test("usage rows are kept at least as long as the report looks back (issue #934)", () => {
+test("usage rows are kept at least as long as the report looks back", () => {
 	// The window counts today, so its oldest day starts USAGE_WINDOW_DAYS - 1 days
 	// before today's midnight; a full USAGE_WINDOW_DAYS of retention covers it.
 	expect(USAGE_RETENTION_DAYS).toBeGreaterThanOrEqual(USAGE_WINDOW_DAYS);
@@ -75,14 +75,14 @@ describe("inventoryImageName", () => {
 		expect(inventoryImageName("<none>:<none>")).toBeNull();
 	});
 
-	test("drops names outside the reference grammar (ruling S7)", () => {
+	test("drops names outside the reference grammar", () => {
 		expect(inventoryImageName("Evil Name:1")).toBeNull();
 		expect(inventoryImageName("a/b/c/d/e/f:1")).toBeNull();
 		expect(inventoryImageName(`x:${"t".repeat(300)}`)).toBeNull();
 	});
 });
 
-describe("presenceRows: the seed-use rule (ruling 7)", () => {
+describe("presenceRows: the seed-use rule", () => {
 	test("no container and no derived image: every seed image is unused", () => {
 		const rows = presenceRows(inventory(), SEED);
 		expect(rows.every((r) => r.inSeed && !r.used)).toBe(true);
@@ -137,7 +137,7 @@ describe("presenceRows: the seed-use rule (ruling 7)", () => {
 		).toBe(false);
 	});
 
-	test("a digest-pinned seed name matches by RepoDigests (review F3)", () => {
+	test("a digest-pinned seed name matches by RepoDigests", () => {
 		const digest = `sha256:${"e".repeat(64)}`;
 		const pinned = `docker.io/library/python:3.12@${digest}`;
 		const python = {

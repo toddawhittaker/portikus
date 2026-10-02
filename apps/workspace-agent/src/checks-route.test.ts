@@ -318,7 +318,7 @@ async function running(pid: number): Promise<boolean> {
 	}
 }
 
-test("stopping a check stops its setsid and nohup children too (#624)", async () => {
+test("stopping a check stops its setsid and nohup children too", async () => {
 	const pidFile = join(homeDir, "check-children");
 	await writeChecks(
 		JSON.stringify({

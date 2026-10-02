@@ -17,7 +17,7 @@ const INTRO = {
 	text: "Which internet sites workspaces can reach. Open mode allows every public site except the ones you block. Allow-list mode allows only the presets, hosts and ranges you list.",
 };
 
-/** The admin Network tab: the workspace egress allow-list (issue #284, SPEC.md section 20.1). */
+/** The admin Network tab: the workspace egress allow-list (SPEC.md section 20.1). */
 export function NetworkTab() {
 	const egress = useEgress();
 	const [draft, setDraft] = useState<EntryDraft | null>(null);

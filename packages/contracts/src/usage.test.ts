@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { UsageProcess } from "./usage.js";
 
-test("a process row from an agent older than Epic 21 still parses", () => {
+test("a process row from an older agent still parses", () => {
 	const row = UsageProcess.parse({
 		pid: 7,
 		cpuPercent: 1,

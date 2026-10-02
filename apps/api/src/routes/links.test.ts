@@ -502,7 +502,7 @@ describe.skipIf(skip)("confirming", () => {
 		expect((await get("/auth/me", course.jar)).json().id).toBe(course.id);
 	});
 
-	test("an SSO account disabled after the callback cannot be linked (review S3)", async () => {
+	test("an SSO account disabled after the callback cannot be linked", async () => {
 		const alice = await ssoAccount("alice");
 		const course = await courseAccount();
 		await callback(await startAndPick(course.jar, "alice"), course.jar);
@@ -521,7 +521,7 @@ describe.skipIf(skip)("confirming", () => {
 		expect((await get("/auth/me", course.jar)).json().id).toBe(course.id);
 	});
 
-	test("an administrator SSO account cannot be linked (review N4)", async () => {
+	test("an administrator SSO account cannot be linked", async () => {
 		const alice = await ssoAccount("alice");
 		const course = await courseAccount();
 		await callback(await startAndPick(course.jar, "alice"), course.jar);

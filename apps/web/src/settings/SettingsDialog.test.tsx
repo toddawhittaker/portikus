@@ -1,5 +1,5 @@
 /**
- * The editor settings dialog (issue #159, SPEC.md §13.5): it shows what the
+ * The editor settings dialog (SPEC.md §13.5): it shows what the
  * server holds and sends the changes back.
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
@@ -128,7 +128,7 @@ function buttonNamed(label: string): HTMLElement {
 	return button;
 }
 
-/** Issue #288, plus appearance in the same dialog. */
+/** The settings dialog, appearance included. */
 test("each section holds its own fields", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);

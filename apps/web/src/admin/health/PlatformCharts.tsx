@@ -194,7 +194,7 @@ export function AvailabilityStrip({
 	);
 }
 
-/** Running workspaces over the range (#598 item 2). */
+/** Running workspaces over the range. */
 export function RunningChart({
 	series,
 	frame,
@@ -216,7 +216,7 @@ export function RunningChart({
 	);
 }
 
-/** Host CPU, network and disk over the range (#598 items 6, 7 and 8). */
+/** Host CPU, network and disk over the range. */
 export function HostRateCharts({
 	series,
 	frame,

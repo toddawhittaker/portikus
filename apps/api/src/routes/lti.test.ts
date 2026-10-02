@@ -510,7 +510,7 @@ describe.skipIf(skip)("a good launch", () => {
 		delete c.email;
 	};
 
-	test("with no username the label is the email's local part (issue #558)", async () => {
+	test("with no username the label is the email's local part", async () => {
 		expect(await labelFor("s-1")).toBe("sam");
 		expect(
 			await labelFor("s-2", (c) => {
@@ -689,7 +689,7 @@ describe.skipIf(skip)("a launch from a linked course identity", () => {
 		});
 	});
 
-	test("never starts an administrator session (ruling 21)", async () => {
+	test("never starts an administrator session", async () => {
 		const { ssoId } = await linked("administrator");
 		const { res } = await launch({ sub: "student-1" });
 		expect(res.statusCode).toBe(403);
@@ -743,7 +743,7 @@ describe.skipIf(skip)("a launch from a linked course identity", () => {
 
 	const origin = new URL(PUBLIC_URL).origin;
 
-	test("a launch session dies once its account is promoted (review S1)", async () => {
+	test("a launch session dies once its account is promoted", async () => {
 		const { ssoId, cookie } = await linkedSession();
 		const session = await testDb.db
 			.selectFrom("sessions")
@@ -768,7 +768,7 @@ describe.skipIf(skip)("a launch from a linked course identity", () => {
 		expect(me.statusCode).toBe(401);
 	});
 
-	test("GET /me/links names the course identity that launched this session (review S2)", async () => {
+	test("GET /me/links names the course identity that launched this session", async () => {
 		const { courseId, cookie } = await linkedSession();
 		const res = await app.inject({ url: "/me/links", headers: { cookie } });
 		expect(res.json()).toMatchObject({
@@ -777,7 +777,7 @@ describe.skipIf(skip)("a launch from a linked course identity", () => {
 		});
 	});
 
-	test("the launch session can unlink its own course identity, and then ends (review S2)", async () => {
+	test("the launch session can unlink its own course identity, and then ends", async () => {
 		const { courseId, ssoId, cookie } = await linkedSession();
 		const res = await app.inject({
 			method: "POST",
@@ -806,7 +806,7 @@ describe.skipIf(skip)("a launch from a linked course identity", () => {
 		expect(back.json().id).toBe(courseId);
 	});
 
-	test("an unlink from the SSO side ends every session that came through the identity (review N1)", async () => {
+	test("an unlink from the SSO side ends every session that came through the identity", async () => {
 		const { courseId, ssoId, cookie } = await linkedSession();
 		const second = await launch({ sub: "student-1" });
 		const secondCookie = `portikus_session=${sessionCookie(second.res)}`;
@@ -860,7 +860,7 @@ describe.skipIf(skip)("a launch from a linked course identity", () => {
 		expect(still.json().id).toBe(ssoId);
 	});
 
-	test("a launch session cannot unlink another course identity (review N2)", async () => {
+	test("a launch session cannot unlink another course identity", async () => {
 		const { ssoId, cookie } = await linkedSession();
 		const other = await insertTestUser(testDb.db, {
 			oidc_issuer: "lti:https://other.test.invalid",

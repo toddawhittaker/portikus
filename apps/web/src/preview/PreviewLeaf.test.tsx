@@ -751,7 +751,7 @@ test("a port that stays quiet past the grace says nothing is listening", async (
 	vi.useRealTimers();
 });
 
-// --- a port speaking HTTPS (issue #283, step 2) ---
+// --- a port speaking HTTPS ---
 
 test("a port speaking HTTPS previews like any other", async () => {
 	stubFetch(() => json(200, GRANT));

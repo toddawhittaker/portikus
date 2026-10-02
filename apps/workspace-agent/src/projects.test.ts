@@ -700,7 +700,7 @@ async function sparse(path: string, size: number) {
 	await truncate(path, size);
 }
 
-test("a folder past the download cap is refused before zip runs (#399)", async () => {
+test("a folder past the download cap is refused before zip runs", async () => {
 	const tempBase = await mkdtemp(join(tmpdir(), "portikus-archive-base-"));
 	const alpha = join(projectsRoot, "alpha");
 	await mkdir(join(alpha, "src"), { recursive: true });
@@ -716,7 +716,7 @@ test("a folder past the download cap is refused before zip runs (#399)", async (
 	}
 });
 
-test("a symlink to a file past the download cap is refused (#399)", async () => {
+test("a symlink to a file past the download cap is refused", async () => {
 	const alpha = join(projectsRoot, "alpha");
 	await mkdir(alpha, { recursive: true });
 	await sparse(join(alpha, "big.bin"), MAX_DOWNLOAD_BYTES + 1);

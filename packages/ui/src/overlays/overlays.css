@@ -182,7 +182,7 @@
 /*
  * Every tab shares the width equally up to 220px and shrinks with the rest
  * down to the floor, where only the kind icon and the close control are left
- * (issue #240, the Chrome model).
+ * (the Chrome model).
  */
 .pk-tab {
 	position: relative;
@@ -255,7 +255,7 @@
 	font-style: italic;
 }
 /* The unsaved dot sits where the close control does and the two swap on
-   hover or focus, as Chrome and VS Code do (issue #240). */
+   hover or focus, as Chrome and VS Code do. */
 .pk-tab-dirty {
 	flex: none;
 	width: 20px;

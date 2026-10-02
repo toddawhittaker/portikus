@@ -3,7 +3,7 @@ import type { Appearance } from "@portikus/contracts";
 /**
  * Appearance: the theme follows the operating system unless the person picks
  * one in Settings (design/system/README.md, "Colour"). The choice is a
- * per-user setting (issue #300, SPEC.md §13.5). This browser keeps a copy
+ * per-user setting (SPEC.md §13.5). This browser keeps a copy
  * under `pk-theme` so the first paint, and the sign-in page, use it before
  * the settings arrive. Some browsers refuse storage, so every access is
  * guarded.

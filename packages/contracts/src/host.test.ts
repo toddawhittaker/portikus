@@ -58,7 +58,7 @@ describe("host contracts", () => {
 		expect(HostSnapshot.parse(withRates)).toEqual(withRates);
 	});
 
-	test("a snapshot from before Epic 19 parses with null rates", () => {
+	test("a snapshot without rates parses with null rates", () => {
 		expect(HostSnapshot.parse(snapshot)).toEqual({ ...snapshot, rates: null });
 	});
 
@@ -75,7 +75,7 @@ describe("host contracts", () => {
 		).toBe(false);
 	});
 
-	test("a sample from before Epic 19 parses with a null running count", () => {
+	test("a sample without a running count parses with a null running count", () => {
 		const old = { controller: { reachable: true, errorCode: null }, host: snapshot };
 		expect(HealthSample.parse(old)).toEqual({
 			...old,

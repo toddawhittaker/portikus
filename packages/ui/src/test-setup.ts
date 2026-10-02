@@ -12,7 +12,7 @@ import { afterEach } from "vitest";
 afterEach(cleanup);
 
 // The first render of a lazy route (the admin page) imports it cold, which
-// takes over the default one second when the worker is busy (CI on #864).
+// takes over the default one second when the worker is busy.
 configure({ asyncUtilTimeout: 5_000 });
 
 if (!globalThis.ResizeObserver) {

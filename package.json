@@ -9,7 +9,7 @@
 	},
 	"scripts": {
 		"typecheck": "tsc -b",
-		"lint": "biome check --error-on-warnings .",
+		"lint": "biome check --error-on-warnings . && node scripts/check-comment-history.mjs",
 		"lint:fix": "biome check --write .",
 		"format": "biome format --write .",
 		"test": "vitest run",

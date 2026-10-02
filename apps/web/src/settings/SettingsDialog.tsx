@@ -1,6 +1,6 @@
 /**
- * The student's settings (issues #159, #239, #287, #288, #329 and #340,
- * SPEC.md §13.5). The left pane is the section list and a search box; the
+ * The student's settings (SPEC.md §13.5).
+ * The left pane is the section list and a search box; the
  * right pane is the section that was chosen. Search reads that same list.
  * Every setting, the appearance included, is kept on the server per user
  * and saved the moment it changes; typed values (the auto-save

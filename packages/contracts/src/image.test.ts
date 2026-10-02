@@ -138,7 +138,7 @@ describe("the files the root job writes", () => {
 	});
 });
 
-describe("compareImageVersions (issue #861)", () => {
+describe("compareImageVersions", () => {
 	test("orders by year, month and serial as numbers", () => {
 		expect(compareImageVersions("2026.09.13", "2026.09.9")).toBeGreaterThan(0);
 		expect(compareImageVersions("2026.10.1", "2026.09.13")).toBeGreaterThan(0);
@@ -156,7 +156,7 @@ describe("compareImageVersions (issue #861)", () => {
 	});
 });
 
-describe("newerPublishedImage (issue #861)", () => {
+describe("newerPublishedImage", () => {
 	test("names a published image newer than every image on the server", () => {
 		expect(newerPublishedImage("2026.09.13", ["2026.09.12", "2026.09.9"])).toBe(
 			"2026.09.13",

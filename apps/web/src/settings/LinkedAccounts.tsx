@@ -43,7 +43,7 @@ export function LinkedAccounts() {
 		tab.opener = null;
 		setStartError(null);
 		setWaiting(true);
-		// The start is posted from this tab, where the click happened (security review of #515).
+		// The start is posted from this tab, where the click happened.
 		startLink().then(
 			({ redirectUrl }) => {
 				tab.location.href = redirectUrl;
