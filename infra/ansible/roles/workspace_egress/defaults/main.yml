@@ -1,5 +1,5 @@
 ---
-# Workspace egress in allow-list mode (issue #284, ADR 0038).  The bridge,
+# Workspace egress in allow-list mode (ADR 0038).  The bridge,
 # its gateway and the denied ranges come from site.yml.
 workspace_egress_bridge: "{{ incus_network_name }}"
 workspace_egress_gateway: "{{ incus_network_cidr | ansible.utils.ipaddr('address') }}"
@@ -9,7 +9,7 @@ workspace_egress_subnet: "{{ incus_network_cidr | ansible.utils.ipaddr('network/
 # without it names its real resolver here.
 workspace_egress_upstream: 127.0.0.53
 
-# The worker's blocked-name counter on loopback (ruling 13): DNS lookups on
+# The worker's blocked-name counter on loopback (ADR 0043): DNS lookups on
 # the first port, Squid's refused names as UDP lines on the second.
 workspace_egress_dns_counter_port: 5399
 workspace_egress_tls_counter_port: 5398

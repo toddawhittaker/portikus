@@ -3,7 +3,7 @@ import { expectNoViolations, loginAs, query, toast } from "./helpers";
 
 /**
  * The Resource guard card's saves in the admin Settings tab: the automatic
- * throttle lift (#596, ADR 0032) and the throttle hold (SPEC.md §19.4).
+ * throttle lift (ADR 0032) and the throttle hold (SPEC.md §19.4).
  * Save writes every field of the card to the one settings row, so these
  * tests share a file and run serially; in parallel they overwrite each other.
  */

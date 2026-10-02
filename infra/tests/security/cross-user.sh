@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Cross-user files and terminals through the real edge (Epic 12a Done items
-# 12 and 13, the Gate C file and terminal parts; SPEC.md 5.2, 24 and 30).
+# Cross-user files and terminals through the real edge (the Gate C file and
+# terminal parts; SPEC.md 5.2, 24 and 30).
 #
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # a owns a project with a secret file and a terminal.  b, the administrator
@@ -81,7 +81,7 @@ else
     "/workspaces/${xu_b}/projects/${xu_pid}/file?path=secret.txt"
   xu_expect "b's workspace with a's project id is 404 on download" 404 b GET \
     "/workspaces/${xu_b}/projects/${xu_pid}/download"
-  # The administrator does not see student files either (Epic 12a decisions).
+  # The administrator does not see student files either (SPEC.md 5.2).
   xu_expect "the administrator gets 404 on a's file" 404 admin GET "$xu_file"
   xu_expect "the administrator gets 404 on a's project list" 404 admin GET "/workspaces/${xu_a}/projects"
   xu_expect "the administrator gets 404 on a's project download" 404 admin GET "$xu_download"

@@ -1,6 +1,6 @@
 /**
  * The terminal tells assistive technology how to leave it and announces
- * connection changes (SPEC.md §25.8; issues #359 and #363).
+ * connection changes (SPEC.md §25.8).
  */
 import { expect, test } from "@playwright/test";
 import {

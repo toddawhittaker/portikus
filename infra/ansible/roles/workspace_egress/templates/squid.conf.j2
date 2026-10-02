@@ -66,7 +66,7 @@ ssl_bump splice open_sni
 ssl_bump terminate all
 
 # Only refused names leave Squid, as one name per UDP line to the worker's
-# counter (ruling 13), each as it happens.  No other access log is written.
+# counter (ADR 0043), each as it happens.  No other access log is written.
 # A listed name the origin answers with an error is not a refusal.
 logformat portikus_name_tls %ssl::>sni
 logformat portikus_name_http %>rd

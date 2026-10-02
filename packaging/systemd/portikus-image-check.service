@@ -1,4 +1,4 @@
-# Portikus daily release check (docs/SPEC.md section 22.4, issue #861).
+# Portikus daily release check (docs/SPEC.md section 22.4).
 # Started by portikus-image-check.timer. It reads the list of published
 # workspace images and apt's cache for the portikus package, and writes
 # /var/lib/portikus/images/published.json. It never downloads an image,

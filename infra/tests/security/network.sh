@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Network isolation (Epic 12a Done items 15, 16 and 17; SPEC.md 23.2 to 23.5).
+# Network isolation (SPEC.md 23.2 to 23.5).
 #
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # A workspace may reach the Internet and nothing else: not the VM's services,

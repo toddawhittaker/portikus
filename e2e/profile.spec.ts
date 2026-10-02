@@ -3,7 +3,7 @@ import { createStudent, query, WEB_ORIGIN, workspacePath } from "./helpers";
 import { API_ORIGIN } from "./ports";
 
 /**
- * The Profile section of Settings (issue #300, SPEC.md §13.5): links are
+ * The Profile section of Settings (SPEC.md §13.5): links are
  * checked, saved when the student leaves the field, and shown only as plain
  * anchors, and a picture is capped by the server and replaces the initials
  * in the account menu button.
@@ -35,7 +35,7 @@ test("the sign-in name is the username, not the identity provider's subject", as
 	context,
 }) => {
 	const student = await createStudent(context);
-	// A Dex subject is an opaque base64 blob (Epic 12b).
+	// A Dex subject is an opaque base64 blob.
 	await query(
 		"update users set oidc_subject = $1, preferred_username = $2 where id = $3",
 		[`CiQ${student.userId}`, "e2e-name", student.userId],
@@ -86,7 +86,7 @@ test("a profile link is saved and shown as a plain anchor; a bad one is refused"
 	await expect(site).toHaveAttribute("rel", "noopener");
 });
 
-/** Epic 25 ruling: no silent loss; a link typed before Escape is saved. */
+/** No silent loss: a link typed before Escape is saved. */
 test("a link still being typed is saved when Escape closes Settings", async ({
 	page,
 	context,
@@ -125,7 +125,7 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 
 	const dialog = await openProfile(page);
 	const choose = dialog.getByRole("button", { name: "Choose picture…" });
-	// The native file input is hidden; the labelled button opens its picker (review S3).
+	// The native file input is hidden; the labelled button opens its picker.
 	await expect(dialog.getByTestId("profile-picture-input")).toBeHidden();
 	const [chooser] = await Promise.all([
 		page.waitForEvent("filechooser"),
@@ -169,7 +169,7 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 	await expect(choose).toBeFocused();
 });
 
-test("group titles stand apart and a long email wraps inside the dialog (issue #609)", async ({
+test("group titles stand apart and a long email wraps inside the dialog", async ({
 	page,
 	context,
 }) => {
@@ -180,7 +180,7 @@ test("group titles stand apart and a long email wraps inside the dialog (issue #
 	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
 
 	const dialog = await openProfile(page);
-	// Read-only values are text in a description list, not form fields (review S1).
+	// Read-only values are text in a description list, not form fields.
 	const field = signInValue(dialog, "Email");
 	await expect(field).toHaveText(email);
 	await expect(dialog.getByTestId("profile-signin").getByRole("textbox")).toHaveCount(
@@ -198,7 +198,7 @@ test("group titles stand apart and a long email wraps inside the dialog (issue #
 	expect(fits).toEqual({ wraps: true, inside: true, noScroll: true });
 
 	// Group titles are body-size semibold, set apart by a rule and a full step
-	// of space; the first group has no rule (review S2).
+	// of space; the first group has no rule.
 	const first = dialog.getByRole("heading", { level: 3 }).first();
 	const second = dialog.getByRole("heading", { name: "About you" });
 	const label = dialog.locator("[data-testid=profile-signin] dt").first();

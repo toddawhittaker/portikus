@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { createProject, createStudent, seedListening, workspacePath } from "./helpers";
 
 /**
- * The details panel under a selected Running row (SPEC.md §18.2, issue #326).
+ * The details panel under a selected Running row (SPEC.md §18.2).
  * Ports are seeded through the fake agent, the same way the preview tests do.
  */
 test.describe("running details", () => {

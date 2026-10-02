@@ -1,6 +1,6 @@
 /**
- * Monitor's process list layout and Stop colour (SPEC.md §18.3, §25.8;
- * issues #700 and #702). Every row is the same height, the command
+ * Monitor's process list layout and Stop colour (SPEC.md §18.3, §25.8).
+ * Every row is the same height, the command
  * disclosure and Stop each keep one column, and Stop is the danger red in
  * both themes, like Running and Checks.
  */

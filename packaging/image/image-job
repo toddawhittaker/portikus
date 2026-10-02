@@ -421,7 +421,7 @@ def health_passed(images_dir, version):
     return isinstance(health, dict) and health.get("result") == "passed"
 
 
-# ---- Health check (ruling 26) ----
+# ---- Health check ----
 
 # A Claude Code that ignores the image's managed settings would hand the broker
 # a login URL whose callback is localhost in the workspace. It never logs in.
@@ -443,7 +443,7 @@ def health_checks(parameters):
         ("docker info", ["docker", "info", "--format", "{{.ServerVersion}} {{.Driver}} {{.DockerRootDir}}"],
          lambda out: out.split()[1:] == ["overlay2", "/var/lib/docker"]),
         ("claude --version", ["claude", "--version"], None),
-        # Login must offer the paste-code URL and open no browser, even with BROWSER set (issue #848).
+        # Login must offer the paste-code URL and open no browser, even with BROWSER set.
         ("claude login flow", ["sh", "-c", CLAUDE_LOGIN_CHECK], lambda out: out == "paste-code"),
         ("codex --version", ["codex", "--version"], None),
     ]
@@ -496,7 +496,7 @@ def health_check(job, version, parameters, sleep=time.sleep):
     }
 
 
-# ---- Manifest (ruling 24) ----
+# ---- Manifest ----
 
 def manifest_from_squashfs(squashfs, version, recipe_version, source, node, python, log=None):
     """Unpack the image's root filesystem and read its packages and tool versions."""
@@ -630,7 +630,7 @@ class Runner:
         self.prune(job, keep=version)
 
     def prune(self, job, keep):
-        """Keep three images: the default, the previous, and the one just made (issue #936).
+        """Keep three images: the default, the previous, and the one just made.
 
         Every other image is deleted from Incus and the store. An image either
         alias points at is never deleted, even under another versioned name.
@@ -774,7 +774,7 @@ class Runner:
                        PORTIKUS_IMAGE_VERSION=version,
                        PORTIKUS_NODE_MAJOR=request["node"],
                        PORTIKUS_PYTHON=request["python"],
-                       # Ruling 23: this action alone takes the newest Claude Code and Codex.
+                       # This action alone takes the newest Claude Code and Codex.
                        PORTIKUS_CLAUDE_VERSION="latest",
                        PORTIKUS_CODEX_VERSION="latest")
             out = os.path.join(work, "out")
@@ -795,7 +795,7 @@ class Runner:
     def activate(self, job, request):
         version = request["version"]
         job.version = version
-        # Checked here too, so a hand-written request cannot skip the API's check (ruling 26).
+        # Checked here too, so a hand-written request cannot skip the API's check.
         if not health_passed(self.images_dir, version):
             raise Refused(f"Image {version} has not passed its health check.", "activate")
         aliases = alias_map()
@@ -824,7 +824,7 @@ class Runner:
         write_aliases(self.images_dir, aliases)
 
     def delete(self, job, request):
-        """Delete one image that is neither the default nor the previous (issue #936).
+        """Delete one image that is neither the default nor the previous.
 
         Instances keep working: on LVM thin each instance's root is its own
         thin volume, so Incus can drop the image and its volume beneath them.
@@ -1041,7 +1041,7 @@ class Runner:
         return job.version
 
     def run_check(self):
-        """The daily check (portikus-image-check.timer, issue #861): write published.json.
+        """The daily check (portikus-image-check.timer): write published.json.
 
         It names the newest published image and a newer portikus package, and
         changes nothing else; the API decides what to tell administrators.

@@ -30,7 +30,7 @@ PK_OWNED=$(awk '!/^#/ && $3 == "setting" { print $2 }' "$KEYS_FILE")
 PK_SECRET_KEYS=$(awk '!/^#/ && $3 == "secret" { print $2 }' "$KEYS_FILE")
 export PK_OWNED PK_SECRET_KEYS
 
-# Each secret may live only in secrets.yaml (ruling 5), so clear them from
+# Each secret may live only in secrets.yaml (SPEC.md 21.12), so clear them from
 # debconf on every way out, a failure under set -e included.
 clear_secrets() {
 	for question in $SECRETS; do
@@ -342,7 +342,7 @@ Setup is already running with the earlier answers; when it ends, run: sudo porti
 
 EOF
 elif [ -d /run/systemd/system ]; then
-	# Setup waits for the dpkg lock, so it must not block this script (ruling 10).
+	# Setup waits for the dpkg lock, so it must not block this script.
 	systemctl start --no-block portikus-setup.service
 	if [ -z "$2" ]; then
 		cat >&2 <<EOF

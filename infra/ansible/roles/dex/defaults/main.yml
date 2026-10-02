@@ -9,14 +9,14 @@ dex_marker: /usr/local/share/portikus/dex-commit
 # The pinned build's pages, with the Portikus theme and accessibility fixes; Dex reads them from frontend.dir.
 dex_web_dir: /usr/local/share/portikus/dex-web
 # The bcrypt shape allowed: cost 10 to 12, as higher costs let counted
-# password attempts burn the VM's CPU (docs/archive/epics/EPIC-12B.md, the users file).
+# password attempts burn the VM's CPU.
 dex_bcrypt_pattern: '^\$2[aby]\$1[0-2]\$[./A-Za-z0-9]{53}$'
 
 # The gRPC API (dex_grpc_addr and dex_grpc_dir, set in site.yml).
 # Certificates are reissued when they have less than this many days left.
 dex_grpc_renew_days: 30
 
-# The one-time import of the users file (ruling 23), run by the portikus
+# The one-time import of the users file (ADR 0028), run by the portikus
 # role once the package is installed.
 dex_import_script: /usr/lib/portikus/api/node_modules/@portikus/auth/dist/dex-import-main.js
 dex_import_input: /run/portikus-dex-import.json

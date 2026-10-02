@@ -37,7 +37,7 @@ test.describe("file tree", () => {
 		return page.getByTestId(`file-row-${path}`);
 	}
 
-	/** Issue #221: hidden and generated names are on by default (SPEC.md §11.3). */
+	/** Hidden and generated names are on by default (SPEC.md §11.3). */
 	test("shows generated and dotted names until Show hidden is turned off", async ({
 		page,
 		context,
@@ -59,7 +59,7 @@ test.describe("file tree", () => {
 		await expect(row(page, "node_modules")).toHaveCount(0);
 	});
 
-	/** Issue #221: an untracked name is italic and dimmer (SPEC.md §12.1). */
+	/** An untracked name is italic and dimmer (SPEC.md §12.1). */
 	test("draws an untracked file's name in italic", async ({ page, context }) => {
 		const student = await createStudent(context);
 		const project = await createProject(student.workspaceId, { name: "Untracked" });
@@ -208,10 +208,7 @@ test.describe("file tree", () => {
 		expect(download.url()).toContain("/file?path=README.md&download=1");
 	});
 
-	test("a full tab strip still opens another file (issue #240)", async ({
-		page,
-		context,
-	}) => {
+	test("a full tab strip still opens another file", async ({ page, context }) => {
 		const student = await createStudent(context);
 		const project = await createProject(student.workspaceId, { name: "Full" });
 		await seedFile(student.workspaceId, project.slug, "README.md", "# hello\n");
@@ -268,7 +265,7 @@ test.describe("file tree", () => {
 		);
 	});
 
-	/** Issue #237: the drag is visible, and the empty pane is a root target. */
+	/** The drag is visible, and the empty pane is a root target. */
 	test("a drag shows what it carries and drops on the empty pane", async ({
 		page,
 		context,
@@ -335,7 +332,7 @@ test.describe("file tree", () => {
 			.toBe("# replaced\n");
 	});
 
-	/** SPEC.md §11.2, issue #182: several rows at once. */
+	/** SPEC.md §11.2: several rows at once. */
 	test("Shift-click selects a run of files and deletes them together", async ({
 		page,
 		context,
@@ -369,7 +366,7 @@ test.describe("file tree", () => {
 		await expect(row(page, "README.md")).toBeVisible();
 	});
 
-	/** Issue #185: the icon says what kind of file the row holds. */
+	/** The icon says what kind of file the row holds. */
 	test("a markdown file and a TypeScript file get different icons", async ({
 		page,
 		context,
@@ -387,7 +384,7 @@ test.describe("file tree", () => {
 		).toHaveAttribute("data-icon", "file-code");
 	});
 
-	/** Issue #183: an upload dragged over the pane says where it will land. */
+	/** An upload dragged over the pane says where it will land. */
 	test("dragging a file over the pane highlights the project root", async ({
 		page,
 		context,
@@ -410,7 +407,7 @@ test.describe("file tree", () => {
 			"Drop to upload to Dropping",
 		);
 
-		// Issue #220: crossing a top-level file row must not drop the target.
+		// Crossing a top-level file row must not drop the target.
 		const file = row(page, "README.md");
 		await file.dispatchEvent("dragenter", { dataTransfer: transfer });
 		await file.dispatchEvent("dragover", { dataTransfer: transfer });
@@ -419,7 +416,7 @@ test.describe("file tree", () => {
 		await expect(page.getByTestId("file-tree-root-hint")).toBeVisible();
 	});
 
-	/** Issue #186: the name field is ready to type into. */
+	/** The name field is ready to type into. */
 	test("the New file dialog takes typing straight away", async ({ page, context }) => {
 		const student = await createStudent(context);
 		await openProject(page, student.workspaceId, "Typing");
@@ -475,7 +472,7 @@ test.describe("file tree", () => {
 		await expect(row(page, "README.md")).toBeVisible();
 	});
 
-	/** Issue #274: the tree's selection is the same neutral tone, never green. */
+	/** The tree's selection is the same neutral tone, never green. */
 	test("the selected file row is picked out in a neutral tone", async ({
 		page,
 		context,

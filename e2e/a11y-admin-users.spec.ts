@@ -120,7 +120,7 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.getByTestId("bulk-enable").click();
 		const dialog = page.getByRole("alertdialog", { name: "Enable 1 account?" });
 		await expect(dialog).toBeVisible();
-		// Enabling takes nothing away, so the confirm is not drawn as danger (S3).
+		// Enabling takes nothing away, so the confirm is not drawn as danger.
 		const confirm = dialog.getByRole("button", { name: "Enable" });
 		await expect(confirm).not.toHaveClass(/bg-status-danger/);
 		await expectNoViolations(page);

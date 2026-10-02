@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 import { loginAs, query } from "./helpers";
 
 /**
- * The API request charts on the Health tab (SPEC.md section 25.6,
- * issue #599). The running API also writes its own per-minute totals, so the
+ * The API request charts on the Health tab (SPEC.md section 25.6). The
+ * running API also writes its own per-minute totals, so the
  * seeded minute is large enough that its figures dominate any real traffic
  * added to it, and the assertions allow for that.
  */

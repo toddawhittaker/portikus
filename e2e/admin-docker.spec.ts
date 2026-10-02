@@ -18,7 +18,7 @@ import {
 } from "./registry-jobs";
 
 /**
- * The Docker tab (issue #840) against the real API. The tests play the root
+ * The Docker tab against the real API. The tests play the root
  * cache helper (its request files and status.json) and the worker (the seed
  * job rows and the usage tables) by hand.
  */
@@ -215,7 +215,7 @@ test("the ghcr.io switch is on by default, says what breaks, and round-trips", a
 	await expect(toggle).not.toBeChecked();
 	await writeRegistryStatus();
 
-	// A ghcr.io name is refused while the cache is off (ruling S8).
+	// A ghcr.io name is refused while the cache is off.
 	const add = page.getByTestId("docker-seed").getByLabel("Image", { exact: true });
 	await add.fill("ghcr.io/owner/tool:1");
 	await page.getByRole("button", { name: "Add image" }).click();
@@ -751,7 +751,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 }
 
 /**
- * The drift notice (issue #932, ruling R4). The API reads the default image's
+ * The drift notice (SPEC.md §16.6). The API reads the default image's
  * manifest from the image store, which admin-image.spec.ts resets while this
  * file runs, so these tests add the image's match to the real answer in the
  * browser. The API tests cover reading the manifest, the default list and the
@@ -776,10 +776,12 @@ test("the drift notice's button asks the API to swap the images and rebuild", as
 	await setSeedList(["node:24-slim", "redis:7", "python:3.13-slim"]);
 	await withMatch(page);
 	let posted = 0;
+	const next = ["redis:7", "node:26-slim", "python:3.14-slim"];
+	// The list is swapped only after the toast. The page shows the toast and
+	// moves focus once its reread lands, and only while the notice is still
+	// mounted; a reread that already holds the new list unmounts it first.
 	await page.route("**/admin/docker/seed/match", async (route) => {
 		posted += 1;
-		const next = ["redis:7", "node:26-slim", "python:3.14-slim"];
-		await setSeedList(next);
 		await route.fulfill({
 			status: 202,
 			json: {
@@ -806,11 +808,14 @@ test("the drift notice's button asks the API to swap the images and rebuild", as
 	).toBeVisible();
 	await notice.getByRole("button", { name: "Update list and rebuild" }).click();
 	await expect(toast(page, "Seed list updated, rebuild requested")).toBeVisible();
-	// The list reread holds the new images, so the notice goes.
-	await expect(notice).toHaveCount(0);
 	expect(posted).toBe(1);
-	// Its button went with it; focus waits on the heading of the list it changed.
+	// Focus waits on the heading of the list it changed.
 	await expect(page.locator("#docker-seed-list-title")).toBeFocused();
+	// A list that holds the new images has no notice.
+	await setSeedList(next);
+	await page.reload();
+	await expect(page.getByTestId("docker-seed-list")).toBeVisible();
+	await expect(notice).toHaveCount(0);
 });
 
 test("over the size limit the drift notice says so and offers no button", async ({

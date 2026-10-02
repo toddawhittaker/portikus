@@ -14,8 +14,8 @@ import {
 } from "./helpers";
 
 /**
- * The admin Workspaces tab and its detail panel (SPEC.md §20.1, issue #302;
- * docs/archive/epics/EPIC-11.md task 5). Carol is the mock provider's administrator. Every
+ * The admin Workspaces tab and its detail panel (SPEC.md §20.1). Carol is
+ * the mock provider's administrator. Every
  * test makes its own accounts straight in the database, filters the table
  * down to them, and never touches another test's rows.
  */
@@ -383,7 +383,7 @@ for (const { name, button, dialogId, confirmLabel, done, operation, action } of 
 	});
 }
 
-test("a workspace on an old image says Old image, not Stale, and loses it when its rebuild finishes (issue #860)", async ({
+test("a workspace on an old image says Old image, not Stale, and loses it when its rebuild finishes", async ({
 	page,
 	browser,
 }) => {
@@ -459,7 +459,7 @@ async function finishOperation(
 	);
 }
 
-// Issue #881: the panel and the row say what is running, then how it ended.
+// The panel and the row say what is running, then how it ended.
 for (const { name, button, dialogId, running, endAction, ok, message, role } of [
 	{
 		name: "a rebuild that succeeds",

@@ -93,7 +93,7 @@ test("a window dragged through many widths sends the terminal one settled size",
 	context,
 }) => {
 	// Every size sent makes tmux reflow and Claude Code redraw; redraws for
-	// sizes already gone overlap on screen (#849).
+	// sizes already gone overlap on screen.
 	const resizes: { cols: number; rows: number }[] = [];
 	page.on("websocket", (socket) => {
 		socket.on("framesent", ({ payload }) => {
@@ -232,7 +232,7 @@ test("an ended terminal offers a new one in its place", async ({ page, context }
 });
 
 /**
- * Issue #264: the button the student clicked went away with the ended pane,
+ * The button the student clicked went away with the ended pane,
  * so the keyboard has to land in the new terminal without another click.
  */
 test("New terminal here leaves the keyboard in the new terminal", async ({
@@ -291,7 +291,7 @@ async function paneBackground(page: Page, terminalId: string): Promise<string> {
 }
 
 /**
- * Issue #268: the colour scheme belongs to one terminal, is chosen from that
+ * The colour scheme belongs to one terminal, is chosen from that
  * pane's menu, and survives a reload because it is stored on the row.
  */
 test("one terminal can be light while another stays dark", async ({
@@ -347,7 +347,7 @@ async function paneChromeBackground(page: Page, terminalId: string): Promise<str
 }
 
 /**
- * Issue #286: the chrome around a terminal takes its colours from that
+ * The chrome around a terminal takes its colours from that
  * terminal, not from the per-user default. Two panes side by side, one light
  * and one dark: the light one carries the light theme and paints its chrome
  * in the light background.
@@ -421,7 +421,7 @@ test("a revived terminal keeps the name it was given", async ({ page, context })
 	await expect(page.getByRole("tab", { name: "Terminal 1" })).toHaveCount(0);
 });
 
-// Issue #474: the limit is a toast that names it, not an outage line.
+// The limit is a toast that names it, not an outage line.
 test("a workspace is held to twenty terminals and says so in a toast", async ({
 	page,
 	context,
@@ -780,7 +780,7 @@ test("the wheel moves a full-screen program a line at a time", async ({
 /**
  * `clear` empties the scrollback (SPEC.md §9.1). tmux keeps the erase to
  * itself, so the agent sends a clear frame and the browser drops its saved
- * lines (issue #882).
+ * lines.
  */
 test("a clear frame empties the scrollback", async ({ page, context }) => {
 	const student = await createStudent(context);

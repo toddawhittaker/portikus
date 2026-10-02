@@ -1,5 +1,5 @@
 /**
- * The Epic 25 work-area polish, in both colour schemes (SPEC.md §25.8):
+ * The work-area polish, in both colour schemes (SPEC.md §25.8):
  * the refused-port preview, the diff's named columns, Markdown task lists,
  * a file tree that shows no selection until it has focus, and the terminal
  * menu's Light terminal checkbox.

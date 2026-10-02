@@ -139,8 +139,7 @@ test.describe("project search", () => {
 	});
 
 	test("a file link lands in the editor at its line", async ({ page, context }) => {
-		// The Epic 5 acceptance: `src/app.ts:3` printed in a terminal
-		// (SPEC.md §14.9).
+		// `src/app.ts:3` printed in a terminal (SPEC.md §14.9).
 		const student = await createStudent(context);
 		const project = await createProject(student.workspaceId, { name: "File link" });
 		await seedFile(student.workspaceId, project.slug, FILE, TEXT);
@@ -165,7 +164,7 @@ test.describe("project search", () => {
 		});
 		await page.goto(workspacePath(student.workspaceId, project.id));
 		await expect(page.getByTestId("search-open")).toBeVisible();
-		// The header's placeholder search icon is gone (issue #241); the files
+		// The header's placeholder search icon is gone; the files
 		// pane and this shortcut are the only ways in.
 		await expect(
 			page.getByTestId("app-header").getByRole("button", { name: /search/i }),

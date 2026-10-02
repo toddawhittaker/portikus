@@ -1,4 +1,4 @@
-# Portikus Docker cache requests (issue #840, the pattern of ADR 0030).
+# Portikus Docker cache requests (the pattern of ADR 0030).
 # The API writes request-<id>.json into the request directory; this starts
 # the root cache helper, which takes every request before it exits.
 [Unit]

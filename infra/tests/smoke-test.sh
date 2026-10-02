@@ -27,7 +27,7 @@
 #
 # When the VM has a mock LMS registration (make lti-mock-register), the LTI
 # block launches through it, and starts it on this host first if it is not
-# already running (docs/archive/epics/EPIC-13.md, ruling 26).
+# already running (ADR 0025).
 # shellcheck disable=SC2034  # the sourced files read these globals
 # shellcheck disable=SC1090,SC1091  # the sourced files are checked on their own
 # shellcheck disable=SC2154  # pass, fail and run_lifecycle are set by the sourced files

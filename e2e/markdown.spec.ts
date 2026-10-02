@@ -10,8 +10,7 @@ import {
 
 /**
  * Markdown tabs: the raw text and the rendered preview side by side, the one
- * Diff button, and the two sides scrolling together (SPEC.md §13.2, §13.4,
- * issue #218).
+ * Diff button, and the two sides scrolling together (SPEC.md §13.2, §13.4).
  */
 test.describe("markdown tab", () => {
 	// Monaco is a large chunk the dev server transforms on first use.
@@ -72,7 +71,7 @@ test.describe("markdown tab", () => {
 		await expect(preview.locator("script")).toHaveCount(0);
 
 		// Nothing in the preview can be typed into, and the view buttons are
-		// gone: the split is the only layout (issue #218).
+		// gone: the split is the only layout.
 		await expect(preview.locator("[contenteditable]")).toHaveCount(0);
 		await expect(page.getByTestId("markdown-mode-code")).toHaveCount(0);
 		await expect(page.getByTestId("markdown-mode-rich")).toHaveCount(0);
@@ -89,7 +88,7 @@ test.describe("markdown tab", () => {
 		await expect(block).toContainText("title: Project notes");
 	});
 
-	test("lists render with their markers (issue #154)", async ({ page, context }) => {
+	test("lists render with their markers", async ({ page, context }) => {
 		const student = await createStudent(context);
 		await openFileTab(
 			page,
@@ -123,7 +122,7 @@ test.describe("markdown tab", () => {
 		expect(padding).toBeGreaterThan(10);
 	});
 
-	test("the preview keeps the editor's top line at its own top (issue #229)", async ({
+	test("the preview keeps the editor's top line at its own top", async ({
 		page,
 		context,
 	}) => {
@@ -138,7 +137,7 @@ test.describe("markdown tab", () => {
 		});
 
 		// The code side has a scrollbar slider with real height, inside its
-		// own panel rather than past its right edge (issue #154).
+		// own panel rather than past its right edge.
 		const slider = editor.locator(".scrollbar.vertical .slider").first();
 		await expect(slider).toBeVisible();
 		const sliderBox = await slider.boundingBox();
@@ -202,7 +201,7 @@ test.describe("markdown tab", () => {
 			timeout: 60_000,
 		});
 
-		// Wrapping is on for a student who has chosen nothing (issue #270), so
+		// Wrapping is on for a student who has chosen nothing, so
 		// the one paragraph line is drawn as many rows.
 		await expect
 			.poll(() => editor.locator(".view-line").count(), { timeout: 15_000 })
@@ -290,10 +289,7 @@ test.describe("markdown tab", () => {
 			.toContain("## Ports and hosts");
 	});
 
-	test("Diff replaces the whole Markdown tab, and back (issue #218)", async ({
-		page,
-		context,
-	}) => {
+	test("Diff replaces the whole Markdown tab, and back", async ({ page, context }) => {
 		const student = await createStudent(context);
 		const project = await openFileTab(
 			page,

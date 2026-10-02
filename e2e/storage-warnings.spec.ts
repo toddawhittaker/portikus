@@ -169,7 +169,7 @@ for (const theme of ["light", "dark"] as const) {
 		await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
 		await expect(page.getByTestId("storage-warning")).toBeVisible({ timeout: 15_000 });
 		expect(await warningContrast(page)).toBeGreaterThanOrEqual(4.5);
-		// The tone colour wins over the button's own (issue #608 item 3).
+		// The tone colour wins over the button's own.
 		const warning = await warningColour(page, "--status-warning");
 		expect(warning.actual).toBe(warning.expected);
 

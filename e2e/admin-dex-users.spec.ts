@@ -3,8 +3,8 @@ import { expect, type Page, test } from "@playwright/test";
 import { expectNoViolations, loginAs, query, WEB_ORIGIN } from "./helpers";
 
 /**
- * Add, reset and remove Dex users from the Users view (docs/archive/epics/EPIC-14.md
- * rulings 21, 22 and 24), against the fake Dex gRPC API the e2e environment
+ * Add, reset and remove Dex users from the Users view (ADR 0028), against
+ * the fake Dex gRPC API the e2e environment
  * runs (e2e/fake-dex-grpc.mjs). Every test adds its own user.
  */
 

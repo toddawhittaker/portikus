@@ -66,7 +66,7 @@ test.describe("diff tab", () => {
 		await openDiffTab(page, student, "Modified", { [PATH]: diff() });
 
 		await expect(page.getByTestId(`diff-status-${PATH}`)).toHaveText("Modified");
-		// Each column says which version it is (review S13).
+		// Each column says which version it is.
 		await expect(page.getByTestId("diff-sides")).toHaveText("Last commitYour changes");
 		const editor = page.getByTestId(`diff-editor-${PATH}`);
 		await expect(editor.locator(".monaco-diff-editor")).toBeVisible({
@@ -216,7 +216,7 @@ test.describe("diff tab", () => {
 		page,
 		context,
 	}) => {
-		// Issue #160: the diff is a view of the file's tab, so the same file
+		// The diff is a view of the file's tab, so the same file
 		// never appears twice in the strip.
 		const student = await createStudent(context);
 		const project = await createProject(student.workspaceId, { name: "One tab" });

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for the VM security suite (Epic 12a, infra/tests/security-test.sh).
+# Shared helpers for the VM security suite (infra/tests/security-test.sh).
 #
 # Sourcing this file defines functions and nothing else, so the cleanup scope
 # test can load it with a stubbed ssh and no VM.
@@ -115,7 +115,7 @@ sec_summary() {
   echo "--- Security results: ${pass} passed, ${fail} failed, ${#sec_known[@]} known, ${#sec_warnings[@]} warning(s) ---"
 }
 
-# ── Sign-in provider (#408) ──────────────────────────────────────
+# ── Sign-in provider ─────────────────────────────────────────────
 
 # With the mock provider on, anyone who reaches the site can sign in as
 # anyone, administrators included.  Only PORTIKUS_IDP=mock allows that, and
@@ -125,7 +125,7 @@ sec_check_idp() {
   local issuer
   if [ "$SEC_IDP" = "mock" ]; then
     if sec_ssh "systemctl is-active --quiet portikus-mock-idp" >/dev/null 2>&1; then
-      sec_warn "mock sign-in on: anyone who reaches ${SEC_API} can sign in as anyone (PORTIKUS_IDP=mock, #408)"
+      sec_warn "mock sign-in on: anyone who reaches ${SEC_API} can sign in as anyone (PORTIKUS_IDP=mock)"
     else
       ok "mock sign-in is off"
     fi

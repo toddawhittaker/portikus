@@ -10,7 +10,7 @@ import {
 
 /**
  * The Running tab's "Show the full command" disclosure (SPEC.md §18.2,
- * §24.11, issue #701). Only the student's own listener has a command line;
+ * §24.11). Only the student's own listener has a command line;
  * a Docker row never has the button, even when a command line arrives.
  */
 const LONG = "node server.js --port 3000 --host 0.0.0.0 --config ./config/dev.json";

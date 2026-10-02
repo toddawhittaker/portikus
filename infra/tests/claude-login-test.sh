@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests that Claude Code login in a workspace offers the paste-code URL and
-# opens no browser (issue #848, BROWSER-HANDLING.md 19.2).  The image's
+# opens no browser (BROWSER-HANDLING.md 19.2).  The image's
 # managed settings are extracted from the image definition.  When `claude` is
 # installed here, the settings are also tried on it; the smoke test tries them
 # on the image's own Claude Code.  Needs no VM and never logs in.

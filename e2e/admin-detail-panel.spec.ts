@@ -12,8 +12,8 @@ import {
 } from "./helpers";
 
 /**
- * The workspace detail panel's layout (SPEC.md section 20.1,
- * issue #602). Each test makes its own accounts, all named
+ * The workspace detail panel's layout (SPEC.md section 20.1). Each test
+ * makes its own accounts, all named
  * with one tag, and filters the Users table down to them.
  */
 test.use({ viewport: { width: 1920, height: 1080 } });
@@ -233,7 +233,7 @@ test.describe("at 1024 px", () => {
 		);
 		const panel = await openPanel(page, long);
 		await expect(panel.getByTestId("detail-lift-throttle")).toBeVisible();
-		// The throttle says what it means, without the kernel's allowance (S7).
+		// The throttle says what it means, without the kernel's allowance.
 		await expect(panel.getByTestId("detail-guard-cpu")).not.toContainText("ms/");
 		await expect(panel.getByTestId("detail-limits")).toContainText("6 GiB memory");
 		const box = await panel.boundingBox();

@@ -1,6 +1,6 @@
 /**
  * A launch inside the LMS's frame never starts the flow there; it offers a
- * new tab (docs/archive/epics/EPIC-13.md rulings 16 and 17).
+ * new tab (ADR 0025).
  */
 import { expect, test } from "@playwright/test";
 import { query, WEB_ORIGIN } from "./helpers";

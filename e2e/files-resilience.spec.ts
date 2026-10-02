@@ -12,7 +12,7 @@ import { FAKE_AGENT_URL } from "./ports";
 
 /**
  * A full home folder and a project too large to watch (SPEC.md §11.4,
- * §13.5, §28; issues #621 and #622).
+ * §13.5, §28).
  */
 test.describe("file resilience", () => {
 	test.describe.configure({ timeout: 90_000 });

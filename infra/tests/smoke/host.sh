@@ -44,9 +44,9 @@ check "IPv4 forwarding"                       ssh_cmd 'test "$(/usr/sbin/sysctl 
 # 11. The storage volume group sits on a disk or a loop-backed file
 check "the storage volume group has a physical volume" test -n "${STORAGE_PVS}"
 
-# 12. configure-vm keeps the VM's Incus script in step with the repository
-#     (docs/archive/epics/EPIC-12B.md, item 17).  A host set up from the
-#     package has no copy, so this run brings its own and removes it at exit.
+# 12. configure-vm keeps the VM's Incus script in step with the repository.
+#     A host set up from the package has no copy, so this run brings its
+#     own and removes it at exit.
 WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
 repo_script_sum=$(sha256sum "${TESTS_DIR}/../incus/workspace.sh" | cut -d' ' -f1)
 if ssh_cmd test -d /var/lib/portikus/incus; then

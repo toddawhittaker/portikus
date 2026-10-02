@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Workspace egress in open mode, open mode with blocked sites, and
-# allow-list mode (issue #284, ADR 0038, ADR 0043).
+# allow-list mode (ADR 0038, ADR 0043).
 #
 # Sourced by infra/tests/security-test.sh once workspaces a and b are running.
 # Every mode keeps the redirect targets on the bridge gateway closed to
@@ -354,7 +354,7 @@ we_check_allow_list() {
     sec_docker_exec a "for t in ${we_b_ip}:5173 ${we_b_ip}:7400; do nc -z -w 3 \${t%:*} \${t#*:} && echo \"\$t open\"; done; true"
 
   # The refused lookup and the refused TLS name both reach the site-wide
-  # counts, which hold no workspace, user or address (ruling 13).
+  # counts, which hold no workspace, user or address (ADR 0043).
   check "the refused name is counted from DNS and from Squid" we_counted example.com
   check_output "the blocked-name counts have no workspace, user or address column" "" \
     sec_psql "SELECT string_agg(column_name, ',') FROM information_schema.columns WHERE table_name = 'egress_blocked_names' AND column_name NOT IN ('day', 'name', 'source', 'count')"
@@ -495,7 +495,7 @@ we_check_reboots() {
 
 # ── Logs ─────────────────────────────────────────────────────────
 
-# No Squid log and no egress DNS log holds a workspace address (ruling 13);
+# No Squid log and no egress DNS log holds a workspace address (ADR 0043);
 # only names leave the workspace proxy, to the counter.
 we_cache_log_lines() { sec_ssh "sudo cat /var/log/portikus-workspace-proxy/cache.log 2>/dev/null | wc -l"; }
 we_cache_log_start=$(we_cache_log_lines)

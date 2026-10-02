@@ -112,7 +112,7 @@ test.describe("git status in the workspace", () => {
 		await openProject(page, student.workspaceId, "Open diff");
 
 		await page.getByTestId("change-row-README.md").click();
-		// A diff is a view of the file's own tab, not a tab of its own (#160).
+		// A diff is a view of the file's own tab, not a tab of its own.
 		await expect(page.getByTestId("tab-file:README.md")).toBeVisible();
 		await expect(page.getByTestId("tab-diff:README.md")).toHaveCount(0);
 	});

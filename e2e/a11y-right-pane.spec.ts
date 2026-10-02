@@ -13,7 +13,7 @@ import {
 
 /**
  * Accessibility of the right pane, preview, search, admin and page titles
- * (SPEC.md §25.8; issues #363, #365, #371, #374).
+ * (SPEC.md §25.8).
  */
 test.describe("right pane accessibility", () => {
 	test("the pane switcher is one Tab stop the arrow keys walk", async ({
@@ -92,7 +92,7 @@ test.describe("right pane accessibility", () => {
 	});
 });
 
-test.describe("right pane headings and panel contrast (Epic 20)", () => {
+test.describe("right pane headings and panel contrast", () => {
 	test("each tab's pane has a screen-reader heading and no repeated visible title", async ({
 		page,
 		context,
@@ -169,7 +169,7 @@ test.describe("admin and standalone page accessibility", () => {
 		});
 
 		// Other tests add students with repeated names, so compare two known rows.
-		// Each row's details button is named after its user (Epic 11).
+		// Each row's details button is named after its user.
 		const table = page.getByTestId("admin-accounts");
 		await expect(
 			table.getByRole("button", { name: /^Show details for Carol Admin, / }),

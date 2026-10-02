@@ -1,4 +1,4 @@
-# Portikus Docker cache status, every minute (issue #840).
+# Portikus Docker cache status, every minute.
 [Unit]
 Description=Portikus Docker cache status every minute
 

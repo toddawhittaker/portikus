@@ -3,7 +3,7 @@
 # If the helper died before loading any table (a crash, a failed import,
 # the memory cap, the start timeout), the missing table would leave the last
 # allow-list open.  Then drop all workspace forwarding and the Docker cache
-# ports on the gateway (issue #840, ruling S2), unless applied.json
+# ports on the gateway, unless applied.json
 # is absent (a site that never applied a policy) or plainly records open mode
 # with no blocked site (ADR 0043).
 # The arguments exist for the tests.

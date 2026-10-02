@@ -9,7 +9,7 @@ import {
 } from "./helpers";
 
 /**
- * Pasting a picture into a terminal (Epic 9.2 brief, issue #355). The fake
+ * Pasting a picture into a terminal (SPEC.md §9.7). The fake
  * agent echoes every input frame as `echo:<frame>`, so the rows show exactly
  * what the terminal was sent. Chromium only, as in clipboard.spec.ts.
  */

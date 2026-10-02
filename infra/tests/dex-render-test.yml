@@ -2,8 +2,7 @@
 # Renders the dex role's real configuration and unit templates and checks
 # them, with no VM: PostgreSQL storage, the gRPC API behind mutual TLS, each
 # upstream connector, the sign-in lines of api.env, and the guards on the
-# settings and the users file (docs/archive/epics/EPIC-14.md rulings 11, 13,
-# 19, 20, 23 and 28; SPEC.md section 5.1).  `make infra-check`
+# settings and the users file (SPEC.md section 5.1, ADR 0028).  `make infra-check`
 # runs it; the CI dex-signin job runs it to get a configuration it can
 # start Dex with:
 #
@@ -342,7 +341,7 @@
              == ['portikus-students', 'portikus-instructors', 'portikus-administrators']"
         fail_msg: "{{ dex_env | to_json }}"
 
-    # ── Upstream connectors (rulings 11, 13 and 28; SPEC.md section 5.1) ──
+    # ── Upstream connectors (SPEC.md section 5.1) ──
 
     - name: Render each upstream connector
       ansible.builtin.template:

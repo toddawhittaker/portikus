@@ -1,7 +1,7 @@
 /**
  * Screen-reader mode and the accessibility parts of Settings (SPEC.md §13.5
- * and §25.8; issues #357, #359, #363 and #373), and how Settings saves:
- * each preference at once, announced by one status line (Epic 25 review M5).
+ * and §25.8), and how Settings saves:
+ * each preference at once, announced by one status line.
  */
 import { expect, type Page, test } from "@playwright/test";
 import {
@@ -170,7 +170,7 @@ test("the terminal colours switch is named Light terminal", async ({
 	await expect(dialog.getByRole("switch", { name: "Light terminal" })).toBeChecked();
 });
 
-/** Review S4: the keys and the library limits moved to the Help page. */
+/** The keys and the library limits are on the Help page. */
 test("Accessibility points to the keys on the Help page in a new tab", async ({
 	page,
 	context,
@@ -195,7 +195,7 @@ test("Accessibility points to the keys on the Help page in a new tab", async ({
 });
 
 /**
- * Review M5: a preference is saved as it changes, the status line says so,
+ * A preference is saved as it changes, the status line says so,
  * and closing keeps it. A typed delay is saved when Escape closes the dialog.
  */
 test("preferences save at once, Saved is announced, and Escape keeps a typed delay", async ({
@@ -256,7 +256,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expectNoViolations(page, "[data-testid=dialog-editor-settings]");
 
 		// A toggletip opens from the keyboard, is checked with the dialog, and
-		// Escape closes only the tip (review N9).
+		// Escape closes only the tip.
 		const help = dialog.getByRole("button", { name: "About Screen reader mode" });
 		await help.focus();
 		await page.keyboard.press("Enter");

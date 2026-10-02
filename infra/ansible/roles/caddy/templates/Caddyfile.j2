@@ -58,7 +58,7 @@ import {{ caddy_certificate_dir }}/tls.caddy
 	# must check, alongside the preview cookie and the X-Forwarded-Method and
 	# -Uri that forward_auth adds.  The answer carries the internal upstream
 	# in X-Portikus-Upstream (ADR 0018) and whether that port speaks TLS in
-	# X-Portikus-Upstream-Scheme (#283).  A non-2xx answer goes back to the
+	# X-Portikus-Upstream-Scheme (ADR 0041).  A non-2xx answer goes back to the
 	# browser unchanged, body and status, so the API owns the explanation
 	# page.  On the bridge path the URI still carries the reserved prefix, so
 	# the API can read the requested port out of X-Forwarded-Uri.
@@ -148,7 +148,7 @@ import {{ caddy_certificate_dir }}/tls.caddy
 # Proxy to the authorized upstream.  The upstream placeholder reads the
 # header forward_auth has just copied off the authorization response, never
 # client text.  A transport is fixed per reverse_proxy, so a port that
-# speaks TLS (#283) gets a second proxy chosen by the scheme header, which
+# speaks TLS (ADR 0041) gets a second proxy chosen by the scheme header, which
 # also comes only from the authorization response.  Everything else falls
 # to the plain proxy.
 (portikus_preview_proxy) {
@@ -183,8 +183,7 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	}
 	# frame-ancestors 'none' keeps the control plane out of any iframe,
 	# including a preview. /lti/* is the one exception: an LMS may frame the
-	# launch, and the API sends a frame-ancestors naming the registered
-	# platforms itself (docs/archive/epics/EPIC-13.md, ruling 17).
+	# launch, so the API sends its own frame-ancestors there (ADR 0025).
 	@not_lti not path /lti/*
 	header @not_lti Content-Security-Policy "frame-ancestors 'none'"
 
@@ -229,7 +228,7 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# Dex, the sign-in provider (ADR 0023). It mounts its routes under the
 	# issuer's path, so the prefix is passed through unchanged. Dex has no
 	# lockout, so every password form post first asks the API's sign-in
-	# throttle (#398), and every other /dex/auth request counts as a sign-in
+	# throttle (SPEC 5.3), and every other /dex/auth request counts as a sign-in
 	# start, because Dex keeps each one in memory for ten minutes. A 429 goes
 	# back to the browser unchanged.
 	handle /dex/* {

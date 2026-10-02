@@ -1,11 +1,11 @@
-# Portikus Docker Hub pull-through cache (issue #840, security ruling S1).
+# Portikus Docker Hub pull-through cache (ADR 0045).
 # Debian's docker-registry 2.8 in proxy mode on the workspace gateway only,
 # 10.200.0.1:5000, storing on its own loop-file filesystem. Enabled by
 # Ansible, which masks Debian's own docker-registry.service.
 [Unit]
 Description=Portikus Docker Hub pull-through cache
 # The gateway address exists once Incus has made the bridge; the egress
-# helper loads its gate on the cache ports first (ruling S2).
+# helper loads its gate on the cache ports first.
 After=network-online.target incus.service portikus-egress-apply.service
 Wants=network-online.target
 RequiresMountsFor=/var/lib/portikus-registry

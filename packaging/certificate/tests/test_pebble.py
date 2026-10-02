@@ -1,8 +1,8 @@
 """The certificate job against Pebble, Let's Encrypt's test ACME server, and a real Caddy (ADR 0046).
 
 HTTP-01 with on-demand preview certificates and external account binding
-(EAB) are tested only here, since the pilot cannot do either for real
-(Epic 27 answers A2 and A4). A live Caddy plays the site with the Caddyfile
+(EAB) are tested only here, since the pilot cannot do either for real.
+A live Caddy plays the site with the Caddyfile
 layout setup writes; systemctl's reload becomes `caddy reload --force`.
 
 Skipped unless PEBBLE, PEBBLE_CHALLTESTSRV and CADDY name the binaries

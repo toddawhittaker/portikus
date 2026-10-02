@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2154  # pass, fail and the SEC_ globals come from lib.sh
-# VM security suite (Epic 12a; SPEC.md sections 23, 24 and 30 Gate C).
+# VM security suite (SPEC.md sections 23, 24 and 30 Gate C).
 #
 # Safe to run on the live pilot.  It makes its own users in PostgreSQL and
 # two workspaces through the API, probes only those, and removes only them.
@@ -73,7 +73,7 @@ check_output "a opens its own presence socket through the edge (control)" "101" 
   sec_ws_upgrade a "/workspaces/$(sec_ws_id a)/ws" "$SEC_API"
 
 # With the mock provider on, anyone who reaches the site can sign in as an
-# administrator (issue #408).  That is allowed only where the operator says
+# administrator.  That is allowed only where the operator says
 # so with PORTIKUS_IDP=mock, and then it is a warning; otherwise the mock must
 # be off and the API must not trust it.
 sec_check_idp
