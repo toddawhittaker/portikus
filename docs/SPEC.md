@@ -3529,7 +3529,14 @@ container. A student is root there and can replace any command, so the
 bounds are the controller's own: output comes back over the exec
 websocket and the controller reads at most 64 KiB, then kills the
 command and closes the sockets; nothing is recorded to a file on the
-host; and an exec that times out is cancelled.
+host. Incus 7.5 refuses to cancel an exec operation, but closing the
+control socket kills the command; a process it left in the background
+can hold one Incus read open until that process exits.
+An edit that runs without sockets (the hosts line, `hostname`, the
+timezone link) is only waited for: past its timeout it is left until it
+exits or the container stops, and a retried start force-stops the
+container. A start that keeps failing is retried after a wait that
+doubles from 10 seconds to 30 minutes, kept in the worker's memory.
 
 ### 24.2 Student code is untrusted
 

@@ -2210,8 +2210,6 @@ describe("admin operations", () => {
 					200,
 					sync({ status_code: 200, metadata: { return: state.read.status } }),
 				);
-			} else if (p === "/1.0/operations/read-1" && method === "DELETE") {
-				respond(res, 200, sync({}));
 			} else if (p === POOL && method === "GET") {
 				respond(
 					res,

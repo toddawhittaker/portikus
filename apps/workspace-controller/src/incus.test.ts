@@ -658,7 +658,7 @@ test("exec reads stdout over the exec websocket as the user given, never from a 
 	expect(seen.requests.some((r) => r.includes("/logs/"))).toBe(false);
 });
 
-test("exec stops a flood of output at the limit: kills the command, closes, cancels", async () => {
+test("exec stops a flood of output at the limit: kills the command and closes every socket", async () => {
 	const seen = execSeen();
 	handler = execServer(0, "flood", seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
@@ -669,7 +669,8 @@ test("exec stops a flood of output at the limit: kills the command, closes, canc
 	expect(result).toEqual({ status: null, stdout: Buffer.alloc(0), tooLarge: true });
 	await vi.waitFor(() => expect(seen.closed).toBe(4));
 	expect(seen.control).toEqual([JSON.stringify({ command: "signal", signal: 9 })]);
-	expect(seen.requests).toContain("DELETE /1.0/operations/op1");
+	// Incus 7.5 refuses to cancel an exec, so nothing asks it to.
+	expect(seen.requests.some((r) => r.startsWith("DELETE"))).toBe(false);
 });
 
 test("one stdout message over the limit takes the same kill path", async () => {
@@ -683,17 +684,17 @@ test("one stdout message over the limit takes the same kill path", async () => {
 	expect(result).toEqual({ status: null, stdout: Buffer.alloc(0), tooLarge: true });
 	await vi.waitFor(() => expect(seen.closed).toBe(4));
 	expect(seen.control).toEqual([JSON.stringify({ command: "signal", signal: 9 })]);
-	expect(seen.requests).toContain("DELETE /1.0/operations/op1");
+	// Incus 7.5 refuses to cancel an exec, so nothing asks it to.
+	expect(seen.requests.some((r) => r.startsWith("DELETE"))).toBe(false);
 });
 
-test("an exec whose wait times out is cancelled", async () => {
+test("an exec whose wait times out fails with TIMEOUT", async () => {
 	const seen = execSeen();
 	handler = execServer("timeout", "", seen);
 	const client = new IncusClient({ socketPath, project: "testproj" });
 	await expect(
 		client.exec("ws-a", ["sleep", "100"], { timeoutSeconds: 1 }),
 	).rejects.toMatchObject({ code: "TIMEOUT" });
-	expect(seen.requests.at(-1)).toBe("DELETE /1.0/operations/op1");
 });
 
 /**

@@ -224,8 +224,11 @@ export class IncusClient {
 	 * `outputMaxBytes`, stdout comes back over the exec websocket and at most
 	 * that much is read; past it, or past the timeout, the command is killed
 	 * and the sockets closed. Output is never recorded to a file on the host,
-	 * where a student's command could fill the disk (SPEC.md §24). A wait that
-	 * fails or times out cancels the operation.
+	 * where a student's command could fill the disk (SPEC.md §24). Incus 7.5
+	 * refuses to cancel an exec operation, but closing the control socket
+	 * kills the command, so a command with sockets never outlives this call.
+	 * One without (no `outputMaxBytes`) is only waited for: past the timeout
+	 * it is left until it exits or the container stops.
 	 */
 	async exec(
 		instance: string,
@@ -260,51 +263,34 @@ export class IncusClient {
 				tooLarge: false,
 			};
 		}
-		try {
-			let out: { stdout: Buffer; tooLarge: boolean } = {
-				stdout: Buffer.alloc(0),
-				tooLarge: false,
-			};
-			if (withOutput) {
-				const fds = (envelope.metadata as { metadata?: { fds?: ExecFds } } | undefined)
-					?.metadata?.fds;
-				if (!fds)
-					throw new IncusError("OPERATION_FAILED", "Incus sent no exec sockets");
-				out = await this.readExecOutput(
-					operation,
-					fds,
-					opts.outputMaxBytes ?? 0,
-					opts.timeoutSeconds,
-				);
-				if (out.tooLarge) {
-					await this.cancelOperation(operation);
-					return { status: null, ...out };
-				}
-			}
-			const result = await this.waitForOperation(
+		let out: { stdout: Buffer; tooLarge: boolean } = {
+			stdout: Buffer.alloc(0),
+			tooLarge: false,
+		};
+		if (withOutput) {
+			const fds = (envelope.metadata as { metadata?: { fds?: ExecFds } } | undefined)
+				?.metadata?.fds;
+			if (!fds) throw new IncusError("OPERATION_FAILED", "Incus sent no exec sockets");
+			out = await this.readExecOutput(
 				operation,
+				fds,
+				opts.outputMaxBytes ?? 0,
 				opts.timeoutSeconds,
-				signal,
 			);
-			const ret = (result as { metadata?: { return?: unknown } } | undefined)?.metadata
-				?.return;
-			return { status: typeof ret === "number" ? ret : null, ...out };
-		} catch (err) {
-			await this.cancelOperation(operation);
-			throw err;
+			if (out.tooLarge) return { status: null, ...out };
 		}
-	}
-
-	/** Best effort: Incus may refuse to cancel an operation that has ended. */
-	private async cancelOperation(operation: string): Promise<void> {
-		await this.rawRequest("DELETE", operation).catch(() => undefined);
+		const result = await this.waitForOperation(operation, opts.timeoutSeconds, signal);
+		const ret = (result as { metadata?: { return?: unknown } } | undefined)?.metadata
+			?.return;
+		return { status: typeof ret === "number" ? ret : null, ...out };
 	}
 
 	/**
 	 * Connect the exec's sockets (Incus starts the command only once all are
 	 * connected), end stdin, and collect stdout until it closes. Over
 	 * `maxBytes` on stdout or stderr, or past `timeoutSeconds`, the command is
-	 * killed through the control socket and every socket is closed.
+	 * sent SIGKILL through the control socket; every socket is then closed,
+	 * which on its own also makes Incus kill the command.
 	 */
 	private readExecOutput(
 		operation: string,
