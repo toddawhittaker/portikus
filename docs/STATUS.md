@@ -3890,8 +3890,8 @@ Gaps:
 ## Epic 29 — Code quality cleanup
 
 Built on `epic/29-code-quality` (plan #988, task PRs #989 to #997, #999,
-#1001 to #1009, #1012 to #1016, #1018 to #1022, #1024, #1025, the Knip
-PR, this fold). #998 and #1000 were rebuilt
+#1001 to #1009, #1012 to #1016, #1018 to #1022, #1024 to #1026, the
+complexity and copied-code PRs, this fold). #998 and #1000 were rebuilt
 as #1002 and #1003. No migration. SPEC.md sections 22.4, 24.1, 24.11 and
 29, and WORKFLOW.md, "Code style".
 
@@ -3939,7 +3939,9 @@ Delivered:
   and needless exports. Upgrade code a released version still needs and
   the TLS debconf questions (used by preseeding) stay.
 - Knip runs in `pnpm lint` and fails on unused files, exports and
-  dependencies.
+  dependencies. jscpd fails on any copied block, and Biome fails on a
+  product function whose cognitive complexity is over 30; the copies it
+  found were merged and every function over 30 was split.
 - Agents: an architect agent designs feature epics before their plans
   and reviews the whole system at each milestone gate; the end-of-epic
   code review also looks for dead code Knip cannot see and for comments

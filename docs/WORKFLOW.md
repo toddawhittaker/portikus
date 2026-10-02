@@ -256,8 +256,12 @@ findings become an epic.
   constant, not two values and a comment.
 
 `pnpm lint` runs `scripts/check-comment-history.mjs`, which fails on
-history references in code comments and test titles, and Knip, which
-fails on unused files, exports and dependencies.
+history references in code comments and test titles; Knip, which fails
+on unused files, exports and dependencies; jscpd, which fails on any
+copied block of 70 tokens and 8 lines (a deliberate copy carries a
+`jscpd:ignore-start` comment saying why); and Biome's cognitive
+complexity rule, which fails on a function scoring over 30 (tests,
+e2e and the test fakes are exempt).
 
 ## Pull requests
 
