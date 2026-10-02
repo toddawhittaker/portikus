@@ -1,4 +1,5 @@
 import {
+	CloseCode,
 	MAX_UPLOAD_BYTES,
 	SCROLLBACK_LINES,
 	type Terminal as TerminalMeta,
@@ -41,15 +42,17 @@ import { currentPlatform, decide } from "./work/terminalClipboard.js";
 
 const RECONNECT_MS = 3_000;
 const MAX_RECONNECT_MS = 60_000;
-/** The API closes with this code when the session is gone. */
-const SESSION_ENDED_CODE = 4401;
 /** Give up after this many consecutive failed connection attempts. */
 const MAX_RECONNECT_ATTEMPTS = 5;
 /**
  * Close codes that will not get better by retrying: a policy refusal, a frame
  * that was too large, and a server error.
  */
-const FATAL_CLOSE_CODES = new Set([1008, 1009, 1011]);
+const FATAL_CLOSE_CODES = new Set<number>([
+	CloseCode.POLICY,
+	1009,
+	CloseCode.SERVER_ERROR,
+]);
 
 type TerminalErrorFrame = Extract<TerminalFrame, { kind: "error" }>;
 
@@ -766,7 +769,7 @@ export function TerminalPane({
 			next.onclose = (event: CloseEvent) => {
 				setConnected(false);
 				if (stopped) return;
-				if (event.code === SESSION_ENDED_CODE) {
+				if (event.code === CloseCode.SESSION_ENDED) {
 					stopped = true;
 					handlers.current.onSessionEnded();
 					return;

@@ -1,3 +1,4 @@
+import type { WorkspaceState } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { Logger, LogLevel } from "@portikus/observability";
 import { collectingLogger } from "@portikus/observability/testing";
@@ -48,7 +49,7 @@ async function makeOwner(): Promise<string> {
 }
 
 /** A workspace in the given state, pointed at the fake agent. */
-async function makeWorkspace(state: string): Promise<string> {
+async function makeWorkspace(state: WorkspaceState): Promise<string> {
 	const row = await testDb.db
 		.insertInto("workspaces")
 		.values({

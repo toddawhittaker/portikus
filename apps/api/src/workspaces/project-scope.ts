@@ -1,6 +1,6 @@
 import { requireUser } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
-import type { ApiErrorCode } from "@portikus/contracts";
+import type { AgentErrorCode, ApiErrorCode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely, Selectable } from "kysely";
@@ -40,7 +40,9 @@ export interface Scope {
 }
 
 /** The status and code each agent error becomes (SPEC.md §27). */
-const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>> = {
+const AGENT_ERROR_STATUS: Partial<
+	Record<AgentErrorCode | "AGENT_UNAVAILABLE", [number, ApiErrorCode]>
+> = {
 	PROJECT_EXISTS: [409, "PROJECT_EXISTS"],
 	PROJECT_NOT_FOUND: [404, "PROJECT_NOT_FOUND"],
 	INVALID_SLUG: [400, "INVALID_SLUG"],
@@ -72,7 +74,9 @@ const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>> = {
 };
 
 /** A student-facing message that replaces the agent's own, by agent code. */
-const AGENT_ERROR_MESSAGE: Partial<Record<string, string>> = {
+const AGENT_ERROR_MESSAGE: Partial<
+	Record<AgentErrorCode | "AGENT_UNAVAILABLE", string>
+> = {
 	RESTORE_INCOMPLETE:
 		"The project may be partly restored. Restore the 'Before restore' point to undo.",
 };

@@ -2,26 +2,22 @@ import {
 	allowanceFor,
 	type EffectiveGuard,
 	effectiveGuard,
+	GUARD_SAMPLE_SECONDS,
 	type InstanceUsage,
 	idleLift,
+	restartedBetween,
+	SAMPLE_RETENTION_MINUTES,
 	type ThrottleHoldPlatform,
 	throttleHold,
 } from "@portikus/contracts";
-import { type Database, recordAudit } from "@portikus/db";
+import { type Database, notifyAdministrators, recordAudit } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
 import { startLoop } from "./loop.js";
-import { notifyAdministrators } from "./notifications.js";
-
-/** How often the guard samples every running workspace (ADR 0032). */
-const GUARD_SAMPLE_SECONDS = 60;
 
 /** How long one usage listing may take before the tick gives up. */
 const USAGE_TIMEOUT_MS = 20_000;
-
-/** Samples older than the longest allowed window plus five minutes are pruned. */
-export const SAMPLE_RETENTION_MINUTES = 240 + 5;
 
 export interface GuardOptions {
 	db: Kysely<Database>;
@@ -38,16 +34,11 @@ interface RunSample {
 	boot_marker: string | null;
 }
 
-/**
- * Whether the instance booted between two consecutive samples: the boot
- * marker changed, or the CPU counter dropped. A counter cannot drop within
- * one boot, and a restarted init can reuse the old marker.
- */
-function restartedBetween(prev: RunSample, cur: RunSample): boolean {
-	const bothMarkers = prev.boot_marker !== null && cur.boot_marker !== null;
-	return (
-		(bothMarkers && prev.boot_marker !== cur.boot_marker) ||
-		BigInt(cur.cpu_usage_ns) < BigInt(prev.cpu_usage_ns)
+/** The shared restart test over the stored row shape. */
+function restartedBetweenRows(prev: RunSample, cur: RunSample): boolean {
+	return restartedBetween(
+		{ bootMarker: prev.boot_marker, cpuUsageNs: BigInt(prev.cpu_usage_ns) },
+		{ bootMarker: cur.boot_marker, cpuUsageNs: BigInt(cur.cpu_usage_ns) },
 	);
 }
 
@@ -226,7 +217,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			const cur = samples[i];
 			if (!prev || !cur) continue;
 			const after = BigInt(cur.cpu_usage_ns);
-			if (restartedBetween(prev, cur)) {
+			if (restartedBetweenRows(prev, cur)) {
 				const gapMs = cur.observed_at.getTime() - prev.observed_at.getTime();
 				const tailMs = Math.min(Math.max(gapMs, 0), GUARD_SAMPLE_SECONDS * 1000);
 				usedNs += after + BigInt(tailMs) * 1_000_000n * BigInt(cur.cpu_limit);
@@ -429,7 +420,7 @@ export function createGuard(options: GuardOptions): () => Promise<void> {
 			const cur = all[i];
 			if (!prev || !cur) continue;
 			const gapMs = cur.observed_at.getTime() - prev.observed_at.getTime();
-			if (restartedBetween(prev, cur) || gapMs > 2 * GUARD_SAMPLE_SECONDS * 1000)
+			if (restartedBetweenRows(prev, cur) || gapMs > 2 * GUARD_SAMPLE_SECONDS * 1000)
 				runStart = i;
 		}
 		const samples = all.slice(runStart);

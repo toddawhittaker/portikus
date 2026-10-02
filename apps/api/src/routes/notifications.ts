@@ -7,13 +7,16 @@ import {
 	RecordNotificationRequest,
 	UpdateNotificationRequest,
 } from "@portikus/contracts";
-import type { Database, NotificationsTable } from "@portikus/db";
+import {
+	type Database,
+	type NotificationsTable,
+	recordNotification,
+} from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import { recordNotification } from "../notifications/record.js";
 import { check, createCounter } from "../rate-limit.js";
 
 /** How many notifications one user may record per minute before 429. */

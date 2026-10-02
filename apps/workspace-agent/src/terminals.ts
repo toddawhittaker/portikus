@@ -123,7 +123,8 @@ export async function readTerminalsExit(
 	}
 }
 
-function sendText(socket: WebSocket, message: TerminalServerMessage): void {
+/** Send one typed text frame to a terminal socket (SPEC.md §9.5). */
+export function sendText(socket: WebSocket, message: TerminalServerMessage): void {
 	socket.send(JSON.stringify(message));
 }
 

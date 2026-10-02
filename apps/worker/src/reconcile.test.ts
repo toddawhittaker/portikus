@@ -1,3 +1,5 @@
+import type { PendingOperation } from "@portikus/contracts";
+import type { Database } from "@portikus/db";
 import {
 	createTestDb,
 	hasTestDb,
@@ -5,7 +7,12 @@ import {
 	type TestDb,
 } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
-import type { KyselyPlugin, PluginTransformQueryArgs, RootOperationNode } from "kysely";
+import type {
+	Insertable,
+	KyselyPlugin,
+	PluginTransformQueryArgs,
+	RootOperationNode,
+} from "kysely";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "vitest";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
@@ -102,9 +109,9 @@ async function setGlobalGrace(seconds: number): Promise<void> {
 
 /** Insert a workspace row and return its id. */
 async function insertWorkspace(
-	overrides: Record<string, unknown> = {},
+	overrides: Partial<Insertable<Database["workspaces"]>> = {},
 ): Promise<string> {
-	const defaults = {
+	const defaults: Insertable<Database["workspaces"]> = {
 		label: testLabel(),
 		owner_user_id: await insertTestUser(tdb.db),
 		incus_instance_name: `ws-${Math.random().toString(36).slice(2, 14)}`,
@@ -1403,8 +1410,8 @@ beforeEach(() => {
 
 /** A workspace row with a pending operation asked for by a real user. */
 async function insertPending(
-	operation: string,
-	overrides: Record<string, unknown> = {},
+	operation: PendingOperation,
+	overrides: Partial<Insertable<Database["workspaces"]>> = {},
 ): Promise<string> {
 	const by = await insertTestUser(tdb.db);
 	return insertWorkspace({

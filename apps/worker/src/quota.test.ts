@@ -1,3 +1,4 @@
+import type { WorkspaceState } from "@portikus/contracts";
 import {
 	createTestDb,
 	hasTestDb,
@@ -34,7 +35,7 @@ type Sizes = { homeGiB: number; dockerGiB: number };
 async function insertWorkspace(opts: {
 	config: Sizes | null;
 	applied: Sizes | null;
-	state?: string;
+	state?: WorkspaceState;
 	imageVersion?: string | null;
 }): Promise<{ id: string; instance: string }> {
 	counter++;

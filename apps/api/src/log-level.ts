@@ -62,10 +62,10 @@ export function startLogLevelSync(options: LogLevelSyncOptions): LogLevelSync {
 
 		const stillRunning = new Set<string>();
 		for (const row of rows) {
-			const workspaceId = row.id as string;
+			const workspaceId = row.id;
 			stillRunning.add(workspaceId);
 			if (pushed.has(workspaceId) && pushed.get(workspaceId) === level) continue;
-			const agent = agentClientFor(row as Record<string, unknown>, agentPort);
+			const agent = agentClientFor(row, agentPort);
 			if (!agent) continue;
 			try {
 				await agent.setLogLevel(level);

@@ -1,3 +1,9 @@
+import type {
+	DesiredState,
+	NotificationTone,
+	PendingOperation,
+	WorkspaceState,
+} from "@portikus/contracts";
 import type { ColumnType, Generated } from "kysely";
 
 /**
@@ -104,8 +110,8 @@ interface WorkspacesTable {
 	/** DNS label naming the container hostname and preview hosts. */
 	label: string;
 	incus_instance_name: string | null;
-	state: string;
-	desired_state: Generated<string>;
+	state: WorkspaceState;
+	desired_state: Generated<DesiredState>;
 	image_version: string | null;
 	quota_config: ColumnType<
 		{ homeGiB: number; dockerGiB: number; recoveryGiB?: number } | null,
@@ -120,7 +126,7 @@ interface WorkspacesTable {
 	agent_token: string | null;
 	agent_address: string | null;
 	/** "reset-docker", "rebuild", "rebuild-reset-docker" (ADR 0021) or "replace-home". */
-	pending_operation: string | null;
+	pending_operation: PendingOperation | null;
 	/** For "replace-home": `{ restoreRequestId }`. */
 	pending_operation_args: ColumnType<
 		unknown | null,
@@ -420,7 +426,7 @@ interface AccountLinkIntentsTable {
 export interface NotificationsTable {
 	id: Generated<string>;
 	user_id: string;
-	tone: string;
+	tone: NotificationTone;
 	title: string;
 	body: string;
 	created_at: ColumnType<Date, string | undefined, never>;

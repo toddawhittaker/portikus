@@ -1,4 +1,4 @@
-import type { InstanceUsage } from "@portikus/contracts";
+import { type InstanceUsage, SAMPLE_RETENTION_MINUTES } from "@portikus/contracts";
 import {
 	createTestDb,
 	hasTestDb,
@@ -9,7 +9,7 @@ import { collectingLogger } from "@portikus/observability/testing";
 import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { FakeControllerClient } from "./fake-controller.js";
-import { createGuard, SAMPLE_RETENTION_MINUTES } from "./guard.js";
+import { createGuard } from "./guard.js";
 
 const skip = !hasTestDb();
 let tdb: TestDb;

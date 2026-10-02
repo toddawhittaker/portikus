@@ -128,3 +128,31 @@ export function keepRunningRefusal(
 	}
 	return null;
 }
+
+/** How often the worker's guard samples every running workspace (ADR 0032). */
+export const GUARD_SAMPLE_SECONDS = 60;
+
+/** The longest guard window an administrator may set (ADR 0032). */
+export const MAX_GUARD_WINDOW_MINUTES = 240;
+
+/**
+ * Usage samples older than the longest window plus five minutes are pruned.
+ * The heat map never reaches further back.
+ */
+export const SAMPLE_RETENTION_MINUTES = MAX_GUARD_WINDOW_MINUTES + 5;
+
+/**
+ * Whether the instance booted between two consecutive samples: the boot
+ * marker changed, or the CPU counter dropped. A counter cannot drop within
+ * one boot, and a restarted init can reuse the old marker (ADR 0032).
+ */
+export function restartedBetween(
+	prev: { bootMarker: string | null; cpuUsageNs: bigint },
+	cur: { bootMarker: string | null; cpuUsageNs: bigint },
+): boolean {
+	const bothMarkers = prev.bootMarker !== null && cur.bootMarker !== null;
+	return (
+		(bothMarkers && prev.bootMarker !== cur.bootMarker) ||
+		cur.cpuUsageNs < prev.cpuUsageNs
+	);
+}

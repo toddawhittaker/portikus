@@ -6,8 +6,14 @@ import {
 	BackupRequestArgs,
 	BackupVmListing,
 	HostBackupStatus,
+	type WorkspaceState,
 } from "@portikus/contracts";
-import { type Database, recordAudit } from "@portikus/db";
+import {
+	type Database,
+	type Notice,
+	recordAudit,
+	recordNotification,
+} from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql, type Transaction } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
@@ -61,23 +67,14 @@ function auditTarget(row: {
 	return args.stamp ?? args.file ?? args.volume ?? "backups";
 }
 
-async function notifyOwner(
-	db: Db,
-	workspaceId: string,
-	tone: string,
-	title: string,
-	body: string,
-): Promise<void> {
+/** Tell a workspace's owner something happened to it (ADR 0033). */
+async function notifyOwner(db: Db, workspaceId: string, notice: Notice): Promise<void> {
 	const ws = await db
 		.selectFrom("workspaces")
 		.select("owner_user_id")
 		.where("id", "=", workspaceId)
 		.executeTakeFirst();
-	if (!ws) return;
-	await db
-		.insertInto("notifications")
-		.values({ user_id: ws.owner_user_id, tone, title, body })
-		.execute();
+	if (ws) await recordNotification(db, ws.owner_user_id, notice);
 }
 
 const MONTHS = [
@@ -155,13 +152,11 @@ async function finishHostRequest(
 		args.stamp &&
 		args.dir
 	) {
-		await notifyOwner(
-			db,
-			row.workspace_id,
-			"success",
-			"A copy of your files was restored",
-			`An administrator restored a copy of your files from ${describeStamp(args.stamp)} into ~/${args.dir}.`,
-		);
+		await notifyOwner(db, row.workspace_id, {
+			tone: "success",
+			title: "A copy of your files was restored",
+			body: `An administrator restored a copy of your files from ${describeStamp(args.stamp)} into ~/${args.dir}.`,
+		});
 	}
 }
 
@@ -511,7 +506,7 @@ function replaceNotice(
 	failed: boolean,
 	touched: boolean,
 	stamp: string | undefined,
-): { tone: "danger" | "success"; title: string; body: string } {
+): Notice {
 	const when = stamp ? ` from ${describeStamp(stamp)}` : "";
 	if (!failed) {
 		return {
@@ -541,7 +536,7 @@ export async function runReplaceHome(
 	ws: {
 		id: string;
 		instance: string;
-		state: string;
+		state: WorkspaceState;
 		pendingAt: Date | null;
 		pendingBy: string | null;
 		args: unknown;
@@ -601,7 +596,7 @@ export async function runReplaceHome(
 				},
 			});
 			const notice = replaceNotice(failed, touched, stamp);
-			await notifyOwner(trx, ws.id, notice.tone, notice.title, notice.body);
+			await notifyOwner(trx, ws.id, notice);
 			return nextState !== ws.state ? 1 : 0;
 		});
 	};

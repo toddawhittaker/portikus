@@ -1,5 +1,6 @@
 import type { WebSocket } from "@fastify/websocket";
 import { loadSession, sessionGate } from "@portikus/auth";
+import { CloseCode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { TerminalGoneReason, TerminalServerMessage } from "@portikus/events";
 import type { FastifyBaseLogger } from "fastify";
@@ -227,7 +228,7 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 		lastSessionCheck = Date.now();
 		const user = sessionToken ? await loadSession(db, sessionToken) : null;
 		if (user && !sessionGate(user)) return true;
-		socket.close(4401, "session revoked");
+		socket.close(CloseCode.SESSION_ENDED, "session revoked");
 		return false;
 	}
 
@@ -327,7 +328,7 @@ export async function pipeTerminal(options: PipeOptions): Promise<void> {
 			if (closed) log.info(line, "terminal agent socket failed");
 			else log.error(line, "terminal agent socket failed");
 			if (socket.readyState === socket.OPEN) {
-				socket.close(1011, "agent unavailable");
+				socket.close(CloseCode.SERVER_ERROR, "agent unavailable");
 			}
 			finish();
 		});
@@ -383,7 +384,7 @@ export async function pipeOneWay(options: OneWayPipeOptions): Promise<void> {
 	async function sessionStillValid(): Promise<void> {
 		const user = sessionToken ? await loadSession(db, sessionToken) : null;
 		if (user && !sessionGate(user)) return;
-		socket.close(4401, "session revoked");
+		socket.close(CloseCode.SESSION_ENDED, "session revoked");
 	}
 
 	const sessionTimer = setInterval(() => {
@@ -437,7 +438,7 @@ export async function pipeOneWay(options: OneWayPipeOptions): Promise<void> {
 			if (closed) log.info(line, options.failureMessage);
 			else log.error(line, options.failureMessage);
 			if (socket.readyState === socket.OPEN) {
-				socket.close(1011, "agent unavailable");
+				socket.close(CloseCode.SERVER_ERROR, "agent unavailable");
 			}
 			finish();
 		});

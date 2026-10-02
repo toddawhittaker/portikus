@@ -5,7 +5,12 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { HealthReport, type HealthSample, HealthSeries } from "@portikus/contracts";
+import {
+	HealthReport,
+	type HealthSample,
+	HealthSeries,
+	type WorkspaceState,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
@@ -102,7 +107,7 @@ async function getHealth(jar: CookieJar = carol) {
 /** A workspace in the given state, with the fake agent behind it or not. */
 async function workspace(
 	subject: string,
-	state: string,
+	state: WorkspaceState,
 	agentAddress: string | null,
 ): Promise<void> {
 	const jar = new CookieJar();
