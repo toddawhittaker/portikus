@@ -3957,6 +3957,8 @@ Delivered:
 - The security suite expects the gateway's port 443 to be open while
   the ghcr.io cache is on and proves it reaches only the cache; with the
   cache off it expects the port closed.
+- Local end-to-end runs no longer leave test servers behind when stopped
+  with Ctrl-C or SIGTERM, and never reuse a server already on a test port.
 - The fake Dex test helper makes new certificates when its cached ones
   are within a day of expiry, so local end-to-end runs no longer fail
   on stale certificates left in the temporary directory.

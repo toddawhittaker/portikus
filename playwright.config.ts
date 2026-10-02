@@ -117,7 +117,6 @@ export default defineConfig({
 				FAKE_AGENT_PORT: String(FAKE_AGENT_PORT),
 				FAKE_AGENT_TOKEN: FAKE_AGENT_TOKEN,
 			},
-			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,
 		},
 		{
@@ -130,14 +129,12 @@ export default defineConfig({
 				MOCK_OIDC_CLIENT_SECRET: "portikus-dev-secret",
 				MOCK_OIDC_REDIRECT_URI: `${WEB_URL}/auth/callback`,
 			},
-			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,
 		},
 		{
 			// The mock LMS (packages/mock-lms), trusted by the platforms file above.
 			command: `node packages/mock-lms/dist/main.js --tool-url ${WEB_URL} --port ${MOCK_LMS_PORT} --bind 127.0.0.1 --issuer ${MOCK_LMS_ORIGIN}`,
 			url: `${MOCK_LMS_ORIGIN}/.well-known/jwks.json`,
-			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,
 		},
 		{
@@ -148,7 +145,6 @@ export default defineConfig({
 				FAKE_DEX_GRPC_PORT: String(FAKE_DEX_GRPC_PORT),
 				FAKE_DEX_GRPC_CERT_DIR: dexCertDir,
 			},
-			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,
 		},
 		{
@@ -203,14 +199,12 @@ export default defineConfig({
 				// admin-image.spec.ts waits for the timer's release notices.
 				RELEASE_NOTICE_SECONDS: "2",
 			},
-			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,
 		},
 		{
 			command: "pnpm --filter @portikus/web dev",
 			url: WEB_URL,
 			env: { PORTIKUS_WEB_PORT: String(WEB_PORT), PORTIKUS_API_PORT: String(API_PORT) },
-			reuseExistingServer: !process.env.CI,
 			timeout: 120_000,
 		},
 	],

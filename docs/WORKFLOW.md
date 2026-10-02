@@ -82,7 +82,11 @@ agent. It passes them to Playwright as `PORTIKUS_WEB_PORT`,
 servers it starts. Any number of `pnpm test:e2e` runs on one machine can
 therefore run at once. Arguments after `pnpm test:e2e` go to Playwright,
 for example `pnpm test:e2e --shard=1/3`. A direct `playwright test` falls
-back to the development ports 5173, 3000, 3002, and 7400.
+back to the development ports 5173, 3000, 3002, and 7400. Playwright never
+reuses a server already listening on a test port, so a taken port fails
+the run instead of testing someone else's code. Stopping the wrapper with
+Ctrl-C or SIGTERM passes the signal to Playwright, which stops the servers
+it started before the run's database is dropped.
 
 ### Logging in locally
 
