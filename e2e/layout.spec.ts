@@ -827,4 +827,45 @@ test.describe("work area layout", () => {
 		await expect(page.getByTestId("work-tabs").getByRole("tab")).toHaveCount(1);
 		await expect(tab("b.ts")).toHaveAttribute("data-state", "active");
 	});
+
+	test("switching projects never flashes the empty work area", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const first = await createProject(student.workspaceId, { name: "First" });
+		const second = await createProject(student.workspaceId, { name: "Second" });
+		for (const project of [first, second]) {
+			await page.goto(workspacePath(student.workspaceId, project.id));
+			await newTerminal(page);
+			await expect
+				.poll(() => terminalIds(student.workspaceId, project.id), { timeout: 15_000 })
+				.toHaveLength(1);
+			await expect(page.locator("[data-testid^=terminal-pane-]")).toHaveCount(1);
+		}
+
+		// Record any moment the empty screen is in the page, however brief.
+		await page.evaluate(() => {
+			const seen = { empty: false };
+			(window as unknown as { seen: typeof seen }).seen = seen;
+			new MutationObserver(() => {
+				if (document.body.textContent?.includes("No terminals open")) seen.empty = true;
+			}).observe(document.body, {
+				childList: true,
+				subtree: true,
+				characterData: true,
+			});
+		});
+		for (const project of [first, second, first]) {
+			await page.getByTestId(`project-item-${project.id}`).getByRole("link").click();
+			const [id] = await terminalIds(student.workspaceId, project.id);
+			await expect(page.getByTestId(`terminal-pane-${id}`)).toBeVisible({
+				timeout: 15_000,
+			});
+		}
+		const flashed = await page.evaluate(
+			() => (window as unknown as { seen: { empty: boolean } }).seen.empty,
+		);
+		expect(flashed).toBe(false);
+	});
 });

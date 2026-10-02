@@ -492,6 +492,29 @@ test("Leave terminal moves the keyboard to the active tab", async () => {
 	expect(document.activeElement).toBe(screen.getByTestId("tab-tab1"));
 });
 
+/** The empty screen waits for the terminal list, so switching never flashes it. */
+test("the empty work area stays hidden while the terminal list loads", async () => {
+	let answer: (response: Response) => void = () => {};
+	vi.stubGlobal(
+		"fetch",
+		vi.fn((input: string) => {
+			if (String(input).endsWith("/layout")) {
+				return Promise.resolve({ status: 204, ok: true } as Response);
+			}
+			return new Promise<Response>((resolve) => {
+				answer = resolve;
+			});
+		}),
+	);
+	renderArea();
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	expect(screen.queryByText("No terminals open")).toBeNull();
+	answer({ status: 200, ok: true, json: async () => ({ terminals: [] }) } as Response);
+	await screen.findByText("No terminals open");
+});
+
 /** The empty work area offers the two launcher actions. */
 test("the empty work area opens a terminal or Claude Code from its buttons", async () => {
 	const { fetchMock } = stubFetch({ terminals: [] });
