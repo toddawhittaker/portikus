@@ -149,7 +149,7 @@ export function directoryChoice(url: string): DirectoryChoice {
 	return "custom";
 }
 
-export function directoryUrl(form: CertificateForm): string {
+function directoryUrl(form: CertificateForm): string {
 	return form.directory === "custom"
 		? form.customDirectory.trim()
 		: ACME_DIRECTORY_PRESETS[form.directory];

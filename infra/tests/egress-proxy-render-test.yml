@@ -118,17 +118,16 @@
       ansible.builtin.set_fact:
         egress_discovery: >-
           {{ egress_discovery | default({}) | combine({item.name: (lookup('ansible.builtin.template', egress_workdir.path ~ '/discovery.j2',
-               template_vars={'portikus_idp': item.idp, 'portikus_dex_upstream': item.upstream,
+               template_vars={'portikus_dex_upstream': item.upstream,
                               'portikus_entra_issuer': egress_entra_issuer,
                               'portikus_google_issuer': 'https://accounts.google.com',
                               'portikus_dex_upstream_issuer': 'https://sso.example.edu/oauth2/default'}) | trim | from_yaml)}) }}
       loop:
-        - {name: none, idp: dex, upstream: none}
-        - {name: ldap, idp: dex, upstream: ldap}
-        - {name: entra, idp: dex, upstream: entra}
-        - {name: google, idp: dex, upstream: google}
-        - {name: oidc, idp: dex, upstream: oidc}
-        - {name: mock, idp: mock, upstream: entra}
+        - {name: none, upstream: none}
+        - {name: ldap, upstream: ldap}
+        - {name: entra, upstream: entra}
+        - {name: google, upstream: google}
+        - {name: oidc, upstream: oidc}
       vars:
         egress_entra_issuer: https://login.microsoftonline.com/3fa85f64-5717-4562-b3fc-2c963f66afa6/v2.0
 
@@ -138,7 +137,6 @@
         that:
           - egress_discovery.none == []
           - egress_discovery.ldap == []
-          - egress_discovery.mock == []
           - "egress_discovery.entra == [{'issuer': 'https://login.microsoftonline.com/3fa85f64-5717-4562-b3fc-2c963f66afa6/v2.0', 'userinfo': false}]"
           - "egress_discovery.google == [{'issuer': 'https://accounts.google.com', 'userinfo': true}]"
           - "egress_discovery.oidc == [{'issuer': 'https://sso.example.edu/oauth2/default', 'userinfo': true}]"

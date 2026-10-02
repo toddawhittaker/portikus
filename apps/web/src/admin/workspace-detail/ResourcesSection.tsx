@@ -29,7 +29,7 @@ import {
 } from "../queries.js";
 import { PANEL_HELP, SECTION_HEADING, TipTerm } from "./shared.js";
 
-export function storageText(quota: { homeGiB: number; dockerGiB: number }): string {
+function storageText(quota: { homeGiB: number; dockerGiB: number }): string {
 	return `Home ${quota.homeGiB} GiB · Docker ${quota.dockerGiB} GiB`;
 }
 
@@ -116,7 +116,7 @@ function StorageMeters({
 }
 
 /** "Not measured: the workspace is not running" and the like, when the agent sent no usage. */
-export function usageGap(agent: AdminWorkspaceDetail["agent"]): string {
+function usageGap(agent: AdminWorkspaceDetail["agent"]): string {
 	return agent === "stopped"
 		? "Not measured: the workspace is not running"
 		: "Not measured: the workspace agent is not answering";

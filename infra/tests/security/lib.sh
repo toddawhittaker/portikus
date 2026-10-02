@@ -25,7 +25,6 @@
 #   sec_ws_ip KEY, sec_agent_token KEY, sec_ws_id KEY, sec_instance KEY
 #   ok LABEL, bad LABEL, check LABEL CMD..., check_output LABEL EXPECTED CMD...
 #                                  from infra/tests/lib.sh
-#   known_vuln ISSUE LABEL CMD...
 #   sec_warn LABEL                 a finding the operator allowed, listed in the summary
 #   sec_na LABEL REASON            a check that cannot prove anything here, listed in the summary
 # shellcheck disable=SC2034  # globals are read by the runner and the modules
@@ -52,8 +51,6 @@ sec_created_instances=()
 sec_presence_pids=()
 declare -A SEC_USER_ID=() SEC_WS_ID=() SEC_INSTANCE=()
 
-sec_known=()
-sec_xpass=()
 sec_warnings=()
 sec_not_applicable=()
 
@@ -64,21 +61,6 @@ sec_not_applicable=()
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 
 sec_info() { printf '%s\n' "$*"; }
-
-# known_vuln ISSUE LABEL CMD... -- CMD asserts the secure behaviour.  It is
-# expected to fail until issue ISSUE is fixed; when it passes, the marker is
-# stale and the run fails so somebody removes it.
-known_vuln() {
-  local issue="$1" label="$2"; shift 2
-  if "$@" >/dev/null 2>&1; then
-    printf '\033[1;31mXPASS\033[0m #%s %s (fixed? remove the marker)\n' "$issue" "$label"
-    sec_xpass+=("#${issue} ${label}")
-    fail=$((fail + 1))
-  else
-    printf '\033[1;33mKNOWN-VULN\033[0m #%s %s\n' "$issue" "$label"
-    sec_known+=("#${issue} ${label}")
-  fi
-}
 
 # sec_warn LABEL -- not a failure, because the operator chose it, but never
 # silent: the summary lists it.
@@ -104,41 +86,7 @@ sec_summary() {
     echo "Warnings (allowed on this VM by the operator):"
     for item in "${sec_warnings[@]}"; do echo "  ${item}"; done
   fi
-  if [ "${#sec_known[@]}" -gt 0 ]; then
-    echo "Expected failures (KNOWN-VULN):"
-    for item in "${sec_known[@]}"; do echo "  ${item}"; done
-  fi
-  if [ "${#sec_xpass[@]}" -gt 0 ]; then
-    echo "Marked checks that now pass (remove the marker):"
-    for item in "${sec_xpass[@]}"; do echo "  ${item}"; done
-  fi
-  echo "--- Security results: ${pass} passed, ${fail} failed, ${#sec_known[@]} known, ${#sec_warnings[@]} warning(s) ---"
-}
-
-# ── Sign-in provider ─────────────────────────────────────────────
-
-# With the mock provider on, anyone who reaches the site can sign in as
-# anyone, administrators included.  Only PORTIKUS_IDP=mock allows that, and
-# then as a warning.  Otherwise the mock must be off and the API must not
-# name it as its issuer.
-sec_check_idp() {
-  local issuer
-  if [ "$SEC_IDP" = "mock" ]; then
-    if sec_ssh "systemctl is-active --quiet portikus-mock-idp" >/dev/null 2>&1; then
-      sec_warn "mock sign-in on: anyone who reaches ${SEC_API} can sign in as anyone (PORTIKUS_IDP=mock)"
-    else
-      ok "mock sign-in is off"
-    fi
-    return 0
-  fi
-  check "the mock identity provider is not running" \
-    sec_ssh "! systemctl is-active --quiet portikus-mock-idp"
-  issuer=$(sec_ssh "sudo sed -n 's/^OIDC_ISSUER_URL=//p' /etc/portikus/api.env" 2>/dev/null)
-  if [ -n "$issuer" ] && [[ "$issuer" != */mock-idp ]]; then
-    ok "the API's issuer is not the mock (${issuer})"
-  else
-    bad "the API's issuer is not the mock (got: ${issuer:-none})"
-  fi
+  echo "--- Security results: ${pass} passed, ${fail} failed, ${#sec_warnings[@]} warning(s) ---"
 }
 
 # ── Transport ────────────────────────────────────────────────────
@@ -180,11 +128,6 @@ sec_init() {
   SEC_SWEEP=no
   [ "${2:-}" = "--sweep" ] && SEC_SWEEP=yes
   SEC_HEAVY="${PORTIKUS_SECURITY_HEAVY:-0}"
-  SEC_IDP="${PORTIKUS_IDP:-dex}"
-  case "$SEC_IDP" in
-    dex | mock) ;;
-    *) echo "security-test: PORTIKUS_IDP must be dex or mock (got: ${SEC_IDP})" >&2; exit 2 ;;
-  esac
   SEC_RUN_ID="$(date -u +%m%d%H%M%S)"
   SEC_PUBLIC_HOST="${PORTIKUS_PUBLIC_HOST:-portikus.${SEC_VM}.nip.io}"
   SEC_PUBLIC_PORT="${PORTIKUS_PUBLIC_PORT:-443}"

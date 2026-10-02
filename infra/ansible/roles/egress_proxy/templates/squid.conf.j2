@@ -24,7 +24,7 @@ acl portikus_private dst {{ egress_proxy_denied_ranges | join(' ') }}
 http_access deny !localhost
 
 {% if egress_proxy_site_host %}
-# The site itself, pinned to loopback in /etc/hosts: the issuer of Dex or the mock.
+# The site itself, pinned to loopback in /etc/hosts: the Dex issuer.
 acl portikus_site dstdomain -n {{ egress_proxy_site_host }}
 acl portikus_site_port port {{ egress_proxy_site_port }}
 acl portikus_site_address dst 127.0.0.1

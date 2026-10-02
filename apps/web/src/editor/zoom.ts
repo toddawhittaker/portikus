@@ -13,7 +13,7 @@ export const DEFAULT_ZOOM = 100;
 export const MIN_ZOOM = 50;
 export const MAX_ZOOM = 300;
 /** One keypress or one wheel notch. */
-export const ZOOM_STEP = 10;
+const ZOOM_STEP = 10;
 
 export function clampZoom(percent: number): number {
 	if (!Number.isFinite(percent)) return DEFAULT_ZOOM;

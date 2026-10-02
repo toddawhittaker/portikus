@@ -82,6 +82,14 @@ than as a checklist:
   page or component file; two values linked only by a "must match"
   comment; a comment citing an issue, epic, task, review, ruling or epic
   plan instead of a SPEC.md section or ADR.
+- **Dead code and restating comments.** Code nothing reaches that the
+  lint checks cannot see (Knip covers TypeScript files, exports and
+  dependencies): shell functions never called, Ansible tasks or
+  variables nothing sets or reads, Make targets nothing uses, branches
+  that can never run, switches that are always one value, and
+  compatibility code for a state no install can be in. A comment that
+  says only what the next line already says. Search the whole repo, string
+  uses included, before calling something dead.
 - **Fit with the repo.** A new dependency, module, or layer where something
   already in the repository does the job (CLAUDE.md "Design defaults").
   A new pattern where the repo already has an established one.

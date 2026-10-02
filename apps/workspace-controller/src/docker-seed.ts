@@ -40,11 +40,11 @@ export class SeedBuildBusyError extends IncusError {
 
 const DOCKER = "/usr/bin/docker";
 /** One `docker pull` may take this long before the build fails. */
-export const SEED_PULL_TIMEOUT_SECONDS = 1800;
+const SEED_PULL_TIMEOUT_SECONDS = 1800;
 const CLEANUP_TIMEOUT_SECONDS = 300;
 
 /** Pull every image, clean up, stop dockerd; never through a shell. */
-export function seedCommands(images: readonly string[]): {
+function seedCommands(images: readonly string[]): {
 	pulls: string[][];
 	cleanup: string[][];
 } {

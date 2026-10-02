@@ -11,7 +11,6 @@
       ansible.builtin.include_tasks: ../ansible/roles/dex/tasks/settings.yml
       vars:
         portikus_users_file: "{{ dex_render_workdir.path }}/no-such-users.json"
-        portikus_idp: "{{ dex_guard.idp | default('dex') }}"
         portikus_dex_upstream: "{{ dex_guard.upstream }}"
         portikus_entra_tenant_id: "{{ given.portikus_entra_tenant_id }}"
         portikus_google_domains: "{{ given.portikus_google_domains }}"

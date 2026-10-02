@@ -25,6 +25,21 @@ const ALLOWED = [
 	/ADR 0034,? rulings? \d+/g,
 ];
 
+// Extensionless scripts that carry hash comments.
+const HASH_SCRIPTS = new Set([
+	"infra/host/portikus-backup-export",
+	"infra/host/portikus-backup-mac",
+	"packaging/backup/backup-key",
+	"packaging/bin/portikus",
+	"packaging/certificate/certificate-job",
+	"packaging/debian/config",
+	"packaging/image/image-job",
+	"packaging/registry/registry-job",
+	"packaging/scripts/postinst",
+	"packaging/scripts/postrm",
+	"packaging/scripts/prerm",
+]);
+
 // Paths not scanned.
 const SKIPPED = [
 	// Design mockups are mirrored from the external design tool, not written here.
@@ -38,7 +53,8 @@ function kindOf(path) {
 	const base = path.split("/").pop();
 	if (base === "Makefile" || /(^|\/)mk\/[^/]+\.mk$/.test(path)) return "hash";
 	if (/\.(ts|tsx|mts|cts|mjs|cjs|js|css)$/.test(path)) return "c";
-	if (/\.(sh|bash|ya?ml)$/.test(path)) return "hash";
+	if (HASH_SCRIPTS.has(path)) return "hash";
+	if (/\.(sh|bash|ya?ml|py|tf|service|timer)$/.test(path)) return "hash";
 	if (/\.j2$/.test(path)) return "jinja";
 	return null;
 }

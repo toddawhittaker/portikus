@@ -15,10 +15,10 @@ import { z } from "zod";
 import { request, sendJson } from "../api/request.js";
 import { gatePath, type MeState } from "../useMe.js";
 
-export const notificationsKey = ["me", "notifications"] as const;
+const notificationsKey = ["me", "notifications"] as const;
 
 /** How often the badge asks for the unread count (SPEC.md section 8.5). */
-export const NOTIFICATIONS_POLL_MS = 30_000;
+const NOTIFICATIONS_POLL_MS = 30_000;
 
 /**
  * The newest notifications and the unread count. Polled, and refetched when

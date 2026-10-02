@@ -227,6 +227,23 @@ agent working from a checkout can read it.
 - Plans of epics finished before this rule are kept in
   `docs/archive/epics/`; nothing new is added there.
 
+Before a feature epic's plan is written, the architect agent designs it
+(not for small fix batches). It reads wide: VISION.md, the epics still
+to come in SPEC.md section 29, BACKLOG.md and the open issues for the
+area. It reports where the code goes, what existing helpers and
+contracts the builders must reuse, and which task owns each shared file,
+migration number and contract change. For each significant choice it
+gives the smallest change and the shape the area should have; it
+recommends the smallest change unless the choice is hard to undo
+(schema, contracts between apps, public APIs, protocols, installed file
+formats), and brings large gaps to the user to decide. The plan cites
+its report.
+
+At each milestone gate in SPEC.md section 30, the architect also
+reviews the whole system, one app or area per run, for layers and
+boundaries that local decisions have bent. The user picks which
+findings become an epic.
+
 ## Code style
 
 - Comments say why, never history. Do not write issue or PR numbers,
@@ -239,7 +256,8 @@ agent working from a checkout can read it.
   constant, not two values and a comment.
 
 `pnpm lint` runs `scripts/check-comment-history.mjs`, which fails on
-history references in code comments and test titles.
+history references in code comments and test titles, and Knip, which
+fails on unused files, exports and dependencies.
 
 ## Pull requests
 

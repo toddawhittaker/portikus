@@ -8,9 +8,7 @@
 #
 # Usage: ./infra/tests/smoke-test.sh <vm-ip>
 # Environment:
-#   PORTIKUS_IDP                dex (the default) or mock: the sign-in
-#                               provider the VM was configured with.
-#   PORTIKUS_SMOKE_SIGNIN_FILE  with dex, a file of mode 0600 holding a test
+#   PORTIKUS_SMOKE_SIGNIN_FILE  a file of mode 0600 holding a test
 #                               user's email and password on two lines; the
 #                               run then does a full password sign-in.
 #   PORTIKUS_PUBLIC_HOST, PORTIKUS_PUBLIC_PORT as the VM was configured.
@@ -37,20 +35,11 @@ VM="${1:?Usage: smoke-test.sh <vm-ip>}"
 SSH_USER="${PORTIKUS_SSH_USER:-deploy}"
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-IDP="${PORTIKUS_IDP:-dex}"
-case "$IDP" in
-  dex | mock) ;;
-  *) echo "smoke-test: PORTIKUS_IDP must be dex or mock (got: ${IDP})" >&2; exit 2 ;;
-esac
 # The password is read into this shell only.  It reaches the VM on an ssh
 # standard input, never in a command line.
 SIGNIN_EMAIL=""
 SIGNIN_PASSWORD=""
 if [ -n "${PORTIKUS_SMOKE_SIGNIN_FILE:-}" ]; then
-  if [ "$IDP" != "dex" ]; then
-    echo "smoke-test: PORTIKUS_SMOKE_SIGNIN_FILE is for PORTIKUS_IDP=dex only" >&2
-    exit 2
-  fi
   if [ "$(stat -c %a "$PORTIKUS_SMOKE_SIGNIN_FILE" 2>/dev/null)" != "600" ]; then
     echo "smoke-test: ${PORTIKUS_SMOKE_SIGNIN_FILE} must exist with mode 0600" >&2
     exit 2

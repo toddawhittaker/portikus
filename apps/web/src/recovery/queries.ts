@@ -7,7 +7,7 @@ import { request, sendJson } from "../api/request.js";
 const base = (workspaceId: string, projectId: string) =>
 	`/workspaces/${workspaceId}/projects/${projectId}/recovery-points`;
 
-export const recoveryKeys = {
+const recoveryKeys = {
 	list: (workspaceId: string, projectId: string) =>
 		["recovery-points", workspaceId, projectId] as const,
 };

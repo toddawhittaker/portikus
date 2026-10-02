@@ -8,10 +8,10 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, errorText, request } from "../../api/request.js";
 
-export const egressKey = ["admin", "egress"] as const;
+const egressKey = ["admin", "egress"] as const;
 
 /** Poll fast while a change waits for the worker to apply it, slowly otherwise. */
-export function egressRefreshMs(view: AdminEgressView | undefined): number {
+function egressRefreshMs(view: AdminEgressView | undefined): number {
 	if (view && view.version !== (view.apply.appliedVersion ?? 0)) return 1_000;
 	return 10_000;
 }
@@ -26,7 +26,7 @@ export function useEgress() {
 }
 
 /** True when another administrator changed the policy after this page loaded it. */
-export function isStale(error: unknown): boolean {
+function isStale(error: unknown): boolean {
 	return error instanceof ApiError && error.code === "EGRESS_VERSION_STALE";
 }
 
@@ -49,7 +49,7 @@ function send(method: string, url: string, body?: unknown): Promise<AdminEgressV
 	});
 }
 
-export type EgressWrite =
+type EgressWrite =
 	| { kind: "mode"; version: number; mode: EgressMode }
 	| { kind: "presets"; version: number; presets: EgressPresetId[] }
 	| { kind: "ports"; version: number; ports: number[] }

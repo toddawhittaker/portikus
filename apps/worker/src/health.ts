@@ -15,13 +15,13 @@ import { notifyAdministrators } from "./notifications.js";
 export const HEALTH_SAMPLE_SECONDS = 60;
 
 /** How long one host snapshot may take before the sample records a failure. */
-export const HOST_SNAPSHOT_TIMEOUT_MS = 20_000;
+const HOST_SNAPSHOT_TIMEOUT_MS = 20_000;
 
 /** How long samples are kept. */
-export const HEALTH_RETENTION_DAYS = 7;
+const HEALTH_RETENTION_DAYS = 7;
 
 /** A level re-arms only once the fill falls this many points below it. */
-export const POOL_REARM_POINTS = 5;
+const POOL_REARM_POINTS = 5;
 
 /** 0 below every threshold, else the highest threshold the pool is held at. */
 export type PoolLevel = 0 | typeof POOL_WARN_PERCENT | typeof POOL_FULL_PERCENT;

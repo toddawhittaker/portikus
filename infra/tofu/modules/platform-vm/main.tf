@@ -163,10 +163,9 @@ resource "terraform_data" "disk_compat" {
 # ── cloud-init ISO ──────────────────────────────────────────────
 
 resource "libvirt_cloudinit_disk" "init" {
-  name           = "${var.vm_name}-cloudinit.iso"
-  pool           = libvirt_pool.portikus.name
-  user_data      = var.cloud_init_user_data
-  network_config = var.cloud_init_network_config != "" ? var.cloud_init_network_config : null
+  name      = "${var.vm_name}-cloudinit.iso"
+  pool      = libvirt_pool.portikus.name
+  user_data = var.cloud_init_user_data
 }
 
 # ── VM ──────────────────────────────────────────────────────────

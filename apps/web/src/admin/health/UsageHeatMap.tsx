@@ -14,7 +14,7 @@ type Measure = "cpu" | "memory";
 type Row = HealthSeries["usage"]["workspaces"][number];
 
 /** The API's row cap (SPEC.md section 25.6). */
-export const HEAT_MAP_MAX_ROWS = 50;
+const HEAT_MAP_MAX_ROWS = 50;
 
 /** Accent steps for values under the threshold, lightest first. */
 const STEPS = ["bg-accent/10", "bg-accent/30", "bg-accent/55", "bg-accent/80"];

@@ -10,9 +10,9 @@ import {
 import type { EgressEnv } from "./env.js";
 
 /** Ports on the bridge gateway (ADR 0038); fixed with the Incus ACL and Squid config. */
-export const EGRESS_DNS_PORT = 5300;
-export const SQUID_HTTP_PORT = 3129;
-export const SQUID_TLS_PORT = 3130;
+const EGRESS_DNS_PORT = 5300;
+const SQUID_HTTP_PORT = 3129;
+const SQUID_TLS_PORT = 3130;
 
 const TABLE = "inet portikus_egress";
 

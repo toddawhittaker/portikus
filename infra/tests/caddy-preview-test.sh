@@ -53,22 +53,20 @@ command -v ansible >/dev/null || {
   exit 1
 }
 
-# render IDP DEST [ARGS...] — the template as site.yml would render it for
-# that sign-in provider (dex or mock), with any further -e settings.
+# render DEST [ARGS...] — the template as site.yml would render it, with
+# any further -e settings.
 render() {
   ansible localhost -c local -m ansible.builtin.template \
-    -a "src=${TEMPLATE} dest=${2} mode=0644" \
+    -a "src=${TEMPLATE} dest=${1} mode=0644" \
     -e "portikus_public_host=${PUBLIC_HOST}" \
     -e "portikus_preview_suffix=${PREVIEW_SUFFIX}" \
     -e "portikus_public_port=${PUBLIC_PORT}" \
     -e "portikus_api_port=${API_PORT}" \
-    -e "portikus_idp=${1}" \
     -e "caddy_admin_socket=${ADMIN_SOCKET}" \
     -e "dex_port=5556" \
     -e "caddy_certificate_dir=${work}/certificate" \
-    -e "caddy_challenge_port=${CHALLENGE_PORT}" \
-    -e "portikus_mock_idp_port=3002" "${@:3}" >"${work}/render.log" 2>&1 || {
-    echo "error: rendering ${TEMPLATE} for ${1} failed" >&2
+    -e "caddy_challenge_port=${CHALLENGE_PORT}" "${@:2}" >"${work}/render.log" 2>&1 || {
+    echo "error: rendering ${TEMPLATE} failed" >&2
     cat "${work}/render.log" >&2
     exit 1
   }
@@ -89,8 +87,7 @@ cat >"${work}/certificate/tls.caddy" <<'EOF'
 EOF
 
 rendered="${work}/Caddyfile"
-render dex "${rendered}"
-render mock "${work}/Caddyfile.mock"
+render "${rendered}"
 
 # Split the rendered file into the application block and the preview block,
 # so each set of assertions can only see its own virtual host.  The snippets
@@ -402,14 +399,12 @@ for step in 'respond @dex_unused' 'respond @dex_long_uri' 'respond @dex_auth_oth
     bad "${step} runs before the request reaches Dex"
   fi
 done
-has "with Dex, the mock provider's prefix is a 404" 'handle /mock-idp\* \{' "${app}"
-lacks "with Dex, nothing proxies to the mock provider" '127\.0\.0\.1:3002' "${app}"
 lacks "the /edge routes are never proxied on the public site" 'handle /edge' "${rendered}"
 
 # The API trusts any /edge request from loopback, and everything Caddy
 # proxies arrives from loopback.  So every route that proxies to the API
 # must have a path matcher that cannot cover /edge: this lists the handle
-# matcher above each API proxy, in all three files, and compares it with
+# matcher above each API proxy and compares it with
 # the known routes.  A bare `handle {` or a broader prefix fails here.
 api_routes() {
   awk -v api="reverse_proxy 127.0.0.1:${API_PORT}" '
@@ -419,19 +414,17 @@ api_routes() {
   ' "$1" | sort -u
 }
 edge_open=0
-for f in "${rendered}" "${work}/Caddyfile.mock"; do
-  [ -n "$(api_routes "${f}")" ] || { bad "no API route was found in $(basename "${f}")"; edge_open=1; }
-  while IFS= read -r m; do
-    case "${m}" in
-      /auth/\* | /workspaces\* | /admin\* | /lti/\* | /courses\* | /me/\* | /health | \
-        /.well-known/portikus-preflight/\* | /__portikus/bootstrap | /__portikus/reset) ;;
-      *)
-        bad "the route '${m}' in $(basename "${f}") proxies to the API and could cover /edge"
-        edge_open=1
-        ;;
-    esac
-  done < <(api_routes "${f}")
-done
+[ -n "$(api_routes "${rendered}")" ] || { bad "no API route was found in the Caddyfile"; edge_open=1; }
+while IFS= read -r m; do
+  case "${m}" in
+    /auth/\* | /workspaces\* | /admin\* | /lti/\* | /courses\* | /me/\* | /health | \
+      /.well-known/portikus-preflight/\* | /__portikus/bootstrap | /__portikus/reset) ;;
+    *)
+      bad "the route '${m}' proxies to the API and could cover /edge"
+      edge_open=1
+      ;;
+  esac
+done < <(api_routes "${rendered}")
 [ "${edge_open}" = 1 ] || ok "every route that proxies to the API has a path that cannot cover /edge"
 # /__portikus/ports/* reaches the API only through forward_auth, whose fixed
 # uri replaces the client's path; so does every other forward_auth.
@@ -441,11 +434,6 @@ if [ "$(grep -cE '^[[:space:]]+forward_auth .*127\.0\.0\.1:'"${API_PORT}"' \{$' 
 else
   bad "every authorization subrequest to the API names its own fixed path"
 fi
-
-has "with the mock, /dex is a 404" 'handle /dex\* \{' "${work}/Caddyfile.mock"
-lacks "with the mock, nothing proxies to Dex" '127\.0\.0\.1:5556' "${work}/Caddyfile.mock"
-has "with the mock, the mock provider is served" \
-  'reverse_proxy 127\.0\.0\.1:3002' "${work}/Caddyfile.mock"
 
 echo ""
 echo "--- The API is told which suffix Caddy serves ---"
@@ -514,16 +502,12 @@ if [ -z "${caddy_bin}" ]; then
   echo "SKIP  caddy validate and the live proxy checks: no caddy binary (set CADDY to one)"
 else
   echo ""
-  for idp in dex mock; do
-    config="${rendered}"
-    [ "${idp}" = dex ] || config="${rendered}.${idp}"
-    if "${caddy_bin}" validate --adapter caddyfile --config "${config}" >"${work}/validate.log" 2>&1; then
-      ok "caddy validate accepts the configuration for ${idp}"
-    else
-      bad "caddy validate accepts the configuration for ${idp}"
-      cat "${work}/validate.log" >&2
-    fi
-  done
+  if "${caddy_bin}" validate --adapter caddyfile --config "${rendered}" >"${work}/validate.log" 2>&1; then
+    ok "caddy validate accepts the configuration"
+  else
+    bad "caddy validate accepts the configuration"
+    cat "${work}/validate.log" >&2
+  fi
 
   echo ""
   echo "--- Live: TLS and plain upstreams behind the preview host (ADR 0041) ---"
@@ -637,11 +621,10 @@ PY
     -e "portikus_preview_suffix=${PREVIEW_SUFFIX}" \
     -e "portikus_public_port=${live_public}" \
     -e "portikus_api_port=${live_api}" \
-    -e "portikus_idp=mock" \
     -e "caddy_admin_socket=${ADMIN_SOCKET}" \
+    -e "dex_port=5556" \
     -e "caddy_certificate_dir=${work}/certificate" \
-    -e "caddy_challenge_port=${live_challenge}" \
-    -e "portikus_mock_idp_port=3002" >"${work}/render.log" 2>&1
+    -e "caddy_challenge_port=${live_challenge}" >"${work}/render.log" 2>&1
   # Keep the test Caddy's admin, certificates and ports out of the host's
   # own, in the template's one global block.
   awk -v data="${work}/caddy-data" -v port="${live_http}" '

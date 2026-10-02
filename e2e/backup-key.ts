@@ -22,7 +22,7 @@ export const BACKUP_KEY_STATE = join(
 export const SERVER_KEY = fakeKey("e2e server");
 export const OFFSITE_KEY = fakeKey("e2e off site");
 
-export function setKeyState(state: FakeKeyState): void {
+function setKeyState(state: FakeKeyState): void {
 	writeFileSync(BACKUP_KEY_STATE, JSON.stringify(state));
 }
 

@@ -17,8 +17,6 @@ proxy_listeners() {
 check_output "the proxy listens on loopback only" "127.0.0.1:3128" proxy_listeners
 check_output "api.env sends the API's outbound requests through the proxy" "http://127.0.0.1:3128" \
   ssh_cmd "sudo sed -n 's/^OUTBOUND_PROXY_URL=//p' /etc/portikus/api.env"
-check "the old API address allow drop-in is gone" \
-  ssh_cmd "test ! -e /etc/systemd/system/portikus-api.service.d/10-idp-egress.conf"
 # systemd prints the ranges in no fixed order, so compare them sorted.
 api_ip_allow() {
   ssh_cmd "systemctl show portikus-api -p IPAddressAllow --value" | tr ' ' '\n' | sed '/^$/d' | LC_ALL=C sort | paste -sd' '
@@ -49,9 +47,7 @@ check_output "the API's account reaches both, so that refusal is the firewall's"
 proxy_connect() {
   ssh_cmd "${CURL} -o /dev/null -w '%{http_connect}' -x http://127.0.0.1:3128 '$1'"
 }
-if [ "$IDP" = dex ] || [ "$IDP" = mock ]; then
-  # Dex and the mock are the API's issuer on the site's own name.
-  check_output "the proxy reaches the site's own issuer" "200" proxy_connect "${API}/"
-fi
+# Dex is the API's issuer on the site's own name.
+check_output "the proxy reaches the site's own issuer" "200" proxy_connect "${API}/"
 check_output "the proxy refuses a host that is not listed" "403" proxy_connect "https://example.com/"
 echo ""

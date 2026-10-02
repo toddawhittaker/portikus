@@ -4,10 +4,10 @@ import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
 
 /** How often the worker looks for a pending Refresh (ADR 0037). */
-export const PROCESS_SNAPSHOT_TICK_MS = 1000;
+const PROCESS_SNAPSHOT_TICK_MS = 1000;
 
 /** How long one controller read may take before it is recorded as a timeout. */
-export const PROCESS_SNAPSHOT_TIMEOUT_MS = 10_000;
+const PROCESS_SNAPSHOT_TIMEOUT_MS = 10_000;
 
 /** Snapshots older than this are deleted, with their process names. */
 export const PROCESS_SNAPSHOT_MAX_AGE_MS = 60 * 60 * 1000;

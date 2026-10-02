@@ -25,18 +25,6 @@ import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./guardFields.js";
 import { usePlatformSettings, useUpdatePlatformSettings } from "./queries.js";
 
 /**
- * Reads a seconds input, or null when it is not a whole number at or above 0.
- * The upper bound is the largest value the API's 32-bit integer column takes.
- */
-const MAX_SECONDS = 2147483647;
-
-export function parseSeconds(value: string): number | null {
-	if (!/^\d+$/.test(value.trim())) return null;
-	const seconds = Number(value.trim());
-	return seconds > MAX_SECONDS ? null : seconds;
-}
-
-/**
  * The platform-wide settings: when workspaces stop, the resource guard and
  * the acceptable-use statement (SPEC.md §6.4, §19.4, ADR 0032). One column
  * of sections split by hairlines; the log level lives on the Logs tab.
@@ -178,7 +166,7 @@ const GUARD_HELP: Record<GuardSettingKey, string> = {
 };
 
 /** Reads one Resource guard field, or null when the entry is not allowed. */
-export function parseGuardSetting(key: GuardSettingKey, text: string): number | null {
+function parseGuardSetting(key: GuardSettingKey, text: string): number | null {
 	const field = GUARD_SETTING_FIELDS.find((item) => item.key === key);
 	const trimmed = text.trim();
 	if (!field || !/^\d+$/.test(trimmed)) return null;
@@ -473,7 +461,7 @@ function ResourceGuardSection() {
 }
 
 /** Checks a statement before it is sent; null when it can be saved. */
-export function acceptableUseError(text: string): string | null {
+function acceptableUseError(text: string): string | null {
 	if (text.trim() === "") return "Enter the statement, or reset it to the default.";
 	if (text.length > MAX_ACCEPTABLE_USE_LENGTH) {
 		return `The statement can be at most ${MAX_ACCEPTABLE_USE_LENGTH.toLocaleString("en")} characters.`;

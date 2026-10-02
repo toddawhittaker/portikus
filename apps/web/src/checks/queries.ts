@@ -16,7 +16,7 @@ import { request, toApiError } from "../api/request.js";
 const base = (workspaceId: string, projectId: string) =>
 	`/workspaces/${workspaceId}/projects/${projectId}`;
 
-export const checkKeys = {
+const checkKeys = {
 	list: (workspaceId: string, projectId: string) =>
 		["checks", workspaceId, projectId] as const,
 };

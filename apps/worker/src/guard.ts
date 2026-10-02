@@ -15,10 +15,10 @@ import { startLoop } from "./loop.js";
 import { notifyAdministrators } from "./notifications.js";
 
 /** How often the guard samples every running workspace (ADR 0032). */
-export const GUARD_SAMPLE_SECONDS = 60;
+const GUARD_SAMPLE_SECONDS = 60;
 
 /** How long one usage listing may take before the tick gives up. */
-export const USAGE_TIMEOUT_MS = 20_000;
+const USAGE_TIMEOUT_MS = 20_000;
 
 /** Samples older than the longest allowed window plus five minutes are pruned. */
 export const SAMPLE_RETENTION_MINUTES = 240 + 5;
@@ -43,7 +43,7 @@ interface RunSample {
  * marker changed, or the CPU counter dropped. A counter cannot drop within
  * one boot, and a restarted init can reuse the old marker.
  */
-export function restartedBetween(prev: RunSample, cur: RunSample): boolean {
+function restartedBetween(prev: RunSample, cur: RunSample): boolean {
 	const bothMarkers = prev.boot_marker !== null && cur.boot_marker !== null;
 	return (
 		(bothMarkers && prev.boot_marker !== cur.boot_marker) ||

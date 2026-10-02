@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import type { InstanceProcess } from "@portikus/contracts";
 
 /** The student's uid in every workspace image. */
-export const STUDENT_UID = 1000;
+const STUDENT_UID = 1000;
 
 /** How many rows each ranking keeps; the answer is their union. */
 const TOP = 10;
@@ -139,7 +139,7 @@ export function parseStatus(text: string): StatusFields | null {
  * relative to the instance's root cgroup. Cgroups that vanish mid-walk are
  * skipped.
  */
-export async function readCgroupMembers(root: string): Promise<Map<number, string>> {
+async function readCgroupMembers(root: string): Promise<Map<number, string>> {
 	const members = new Map<number, string>();
 	const pending = [""];
 	let seen = 0;

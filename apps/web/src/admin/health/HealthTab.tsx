@@ -34,7 +34,7 @@ export function sampleAge(sampledAt: string, now: number): string {
 }
 
 /** The Health tab's intro under its heading. */
-export const HEALTH_INTRO = {
+const HEALTH_INTRO = {
 	id: "admin-health",
 	helpAnchor: "admin-health",
 	text: "How the platform is doing right now and over time. Look here first when students report slow or failing workspaces.",

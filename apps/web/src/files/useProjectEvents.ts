@@ -27,7 +27,7 @@ const HEALTHY_MS = 5_000;
  */
 const REFUSED_CODES = new Set([4401, 4404, 1008]);
 /** Frames are collected this long before anything is refetched. */
-export const INVALIDATE_DEBOUNCE_MS = 300;
+const INVALIDATE_DEBOUNCE_MS = 300;
 
 /** What a batch of frames asks the query cache to refetch. */
 export interface Invalidations {

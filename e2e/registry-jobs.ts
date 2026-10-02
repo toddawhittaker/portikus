@@ -11,7 +11,7 @@ import { API_PORT } from "./ports";
  */
 export const REGISTRY_JOBS_DIR = join(tmpdir(), `portikus-e2e-registry-${API_PORT}`);
 
-export interface FakeRegistryStatus {
+interface FakeRegistryStatus {
 	sizeBytes?: number;
 	usedBytes?: number;
 	hubUp?: boolean;

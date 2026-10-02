@@ -267,7 +267,7 @@ function AuditResults({ filters }: { filters: AuditFilters }) {
 	);
 }
 
-export function pageText(pageNumber: number, count: number): string {
+function pageText(pageNumber: number, count: number): string {
 	return `Page ${pageNumber}, ${count} ${count === 1 ? "event" : "events"}`;
 }
 

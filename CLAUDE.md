@@ -67,6 +67,7 @@ It does the work itself only for a one-line lookup or edit. Agents live in
 | Agent | Use for |
 |---|---|
 | explorer | Finding where things are. Cheap. Feed its report to other agents. |
+| architect | Read-only design before a feature epic's plan, and the review at each SPEC.md section 30 milestone gate (WORKFLOW.md, "Epic plans"). |
 | builder | Implementing a scoped change against a named SPEC.md section. |
 | tester | Designing tests that pin SPEC.md invariants, then running them. |
 | security-reviewer | Read-only review against SPEC.md section 24 trust boundaries. |
@@ -98,9 +99,8 @@ Orchestration rules:
   reasoning, high for intensive debugging. Time-box debugging agents.
 - Never `git add -A`; stage paths explicitly, above all under `infra/`.
 - Delete local branches and agent worktrees after a merge.
-- Hand the merge queue to merger, not to a shell loop in the main
-  session; it reruns flakes and escalates only conflicts and real
-  failures.
+- Hand the merge queue to merger, not a shell loop in the main session;
+  it reruns flakes and escalates only conflicts and real failures.
 
 ## Testing rules
 
@@ -123,11 +123,11 @@ Orchestration rules:
   CI is green, merger squash-merges it and deletes the branch. The user's
   review happens once, at the epic level.
 - After every task PR for an epic has landed, run code-reviewer over the
-  epic head, security-reviewer when the epic touches auth, the preview
-  gateway, the workspace agent, file APIs, Incus, or nested Docker, and
-  a11y-reviewer when it touches `apps/web` or `packages/ui`. Fix or defer
-  every finding through further task PRs, also landed by merger without
-  review, then run a confirmation review with each reviewer that ran.
+  epic head and the whole repo's dead code, security-reviewer when the
+  epic touches auth, the preview gateway, the workspace agent, file APIs,
+  Incus, or nested Docker, and a11y-reviewer when it touches `apps/web` or
+  `packages/ui`. Fix or defer every finding through further task PRs,
+  also landed by merger without review, then confirm with each reviewer.
 - An epic's plan lives only on its branch and is folded into SPEC.md and
   deleted by its last task; cite SPEC.md or ADRs (WORKFLOW.md, "Epic plans").
 - `main` changes only by pull request, and merging it is the user's

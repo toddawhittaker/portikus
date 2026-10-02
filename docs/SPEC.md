@@ -299,7 +299,7 @@ LDAP support does not need to be implemented directly in P0 if the institutional
 
 Added by Epic 14 (docs/archive/epics/EPIC-14.md, ADRs 0027 and 0028) and changed by Epic 14.2 (ADR 0031): every site signs people in through Dex, the small OIDC (OpenID Connect) provider Portikus runs beside the API, and LTI (Learning Tools Interoperability) launch works beside it.
 
-- The API trusts one issuer, Dex. It keeps a plain OIDC client against `OIDC_ISSUER_URL` with no provider-specific branches, and always calls userinfo, because Dex puts `groups` there. The development and test sites (`portikus_idp: mock`) point it at the in-repo mock provider instead. `OIDC_DEFAULT_ROLE` stays; Ansible sets it to `student` on every Dex site, so the local administrator and guests, who have no groups, are not refused, and to `none` for the mock.
+- The API trusts one issuer, Dex. It keeps a plain OIDC client against `OIDC_ISSUER_URL` with no provider-specific branches, and always calls userinfo, because Dex puts `groups` there. Local development and CI point it at the in-repo mock provider instead. `OIDC_DEFAULT_ROLE` stays; Ansible sets it to `student` on every site, so the local administrator and guests, who have no groups, are not refused.
 - Dex's own passwords are always on, kept in PostgreSQL and managed by administrators from the Users view. Add user asks for the person's name as well as email, username and role, because Dex sends only the username as the name; the account keeps that name through sign-in.
 - An institution's provider is one Dex connector beside the local passwords, never more than one per site. Dex decides who may sign in; a person Dex refuses sees Dex's error page, never reaches Portikus, and is recorded in Dex's log:
 

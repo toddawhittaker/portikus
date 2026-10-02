@@ -16,9 +16,9 @@ const jobsKey = [...dockerKey, "seed-jobs"] as const;
 const usageKey = [...dockerKey, "usage"] as const;
 
 /** The cache's helper writes its status once a minute, so the page rereads it. */
-export const DOCKER_POLL_MS = 15_000;
+const DOCKER_POLL_MS = 15_000;
 /** A queued or running seed rebuild is polled every two seconds, like image jobs. */
-export const SEED_JOB_POLL_MS = 2000;
+const SEED_JOB_POLL_MS = 2000;
 
 export function isActive(state: SeedJobState | undefined): boolean {
 	return state === "queued" || state === "running";

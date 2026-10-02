@@ -97,10 +97,10 @@ export async function readHostSnapshot(
 }
 
 /** Written every minute by the lvm role's root timer (ADR 0034). */
-export const THIN_POOL_STATUS_PATH = "/run/portikus-thinpool.json";
+const THIN_POOL_STATUS_PATH = "/run/portikus-thinpool.json";
 
 /** A status file older than this is ignored, since its timer has stopped. */
-export const THIN_POOL_STATUS_MAX_AGE_MS = 5 * 60_000;
+const THIN_POOL_STATUS_MAX_AGE_MS = 5 * 60_000;
 
 /**
  * The thin pool's metadata use from the host's status file, or null when the

@@ -5,7 +5,7 @@ import { type Kysely, sql } from "kysely";
 import { startLoop } from "./loop.js";
 
 /** How often the worker prunes notification history. */
-export const NOTIFICATION_PRUNE_SECONDS = 60 * 60;
+const NOTIFICATION_PRUNE_SECONDS = 60 * 60;
 
 /** Notifications older than this are deleted. */
 export const NOTIFICATION_MAX_AGE_DAYS = 90;
