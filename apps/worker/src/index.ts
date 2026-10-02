@@ -83,7 +83,7 @@ async function main(): Promise<void> {
 		envLevel: config.LOG_LEVEL,
 		controller,
 	});
-	startLoop(syncLogLevel, LOG_LEVEL_SYNC_SECONDS * 1000);
+	startLoop("log level sync", logger, syncLogLevel, LOG_LEVEL_SYNC_SECONDS * 1000);
 
 	// Host samples, quota grows and the resource guard each run on their own timer, off the sweep.
 	startHealthSampling({ db, controller, logger });

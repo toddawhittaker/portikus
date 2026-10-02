@@ -20,17 +20,14 @@ export interface LogLevelSyncOptions {
  * one that pushes. It pushes the override itself, not its own effective
  * level, so clearing the override sends the controller back to its own
  * environment level. A failed push is logged at debug and retried on the next
- * tick, and a tick is skipped while the previous one is still running.
+ * tick.
  */
 export function createLogLevelSync(options: LogLevelSyncOptions): () => Promise<void> {
 	const { db, logger, envLevel, controller } = options;
 	// Undefined means nothing has been pushed yet; null is a real value.
 	let pushed: LogLevel | null | undefined;
-	let inFlight = false;
 
 	return async function tick(): Promise<void> {
-		if (inFlight) return;
-		inFlight = true;
 		try {
 			const row = await db
 				.selectFrom("settings")
@@ -53,8 +50,6 @@ export function createLogLevelSync(options: LogLevelSyncOptions): () => Promise<
 			}
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "log level sync failed");
-		} finally {
-			inFlight = false;
 		}
 	};
 }

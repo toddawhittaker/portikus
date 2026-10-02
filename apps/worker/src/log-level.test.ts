@@ -140,13 +140,3 @@ test("a database failure is logged at warn, not debug", async () => {
 	expect(failure).toBeDefined();
 	expect(failure?.level).toBe("warn");
 });
-
-test.skipIf(skip)("a tick that lands while one is in flight is skipped", async () => {
-	const { tick, pushes } = build();
-
-	const first = tick();
-	const second = tick();
-	await Promise.all([first, second]);
-
-	expect(pushes()).toEqual([null]);
-});
