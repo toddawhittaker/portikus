@@ -41,10 +41,11 @@ export function registerGitRoutes(app: FastifyInstance, s: FakeAgentState): void
 			return fileError(reply, new FakeFileError("PATH_INVALID", "invalid path"));
 		}
 		const diff = gitAnswers.get(answerKey(keyOf(request), slug))?.diffs?.[path];
-		if (!diff) {
-			return fileError(reply, new FakeFileError("FILE_NOT_FOUND", "no such file"));
-		}
-		return diff;
+		// Like the real agent, a path on neither side is an empty addition,
+		// not a 404: the older side may still have had it (SPEC.md §12.6).
+		return (
+			diff ?? { status: "A", before: null, after: null, binary: false, tooLarge: false }
+		);
 	});
 
 	// Session review uses the same seeded Git answers (SPEC.md §12.7).

@@ -240,6 +240,18 @@ describe.skipIf(skip)("git", () => {
 		});
 	});
 
+	test("a diff of an unknown path is an empty addition, not a 404", async () => {
+		const response = await get(`/${projectId}/git/diff?path=nope.txt`);
+		expect(response.statusCode).toBe(200);
+		expect(response.json()).toEqual({
+			status: "A",
+			before: null,
+			after: null,
+			binary: false,
+			tooLarge: false,
+		});
+	});
+
 	test("a diff of a directory is the agent's 400", async () => {
 		// A missing path is a valid diff at the real agent (the older side may
 		// still have it), so a directory is the refusal to pin.
