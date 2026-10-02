@@ -3962,6 +3962,10 @@ Delivered:
 - The fake Dex test helper makes new certificates when its cached ones
   are within a day of expiry, so local end-to-end runs no longer fail
   on stale certificates left in the temporary directory.
+- CI's five browser-test shards are packed by measured file time from
+  `e2e/shard-timings.json` instead of equal test counts, so they finish
+  within seconds of each other (refresh the timings with
+  `node scripts/e2e-shard-list.mjs --refresh`).
 - The rehearsal VM ran the full smoke test, including the lifecycle,
   terminal, project, recovery and boundary files that the pilot skips.
 
