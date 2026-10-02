@@ -129,6 +129,15 @@ describe("the file tree", () => {
 		expect(row.textContent).toContain("M");
 	});
 
+	it("opens a row's actions menu on right-click", async () => {
+		renderPane();
+		const name = await screen.findByText("README.md");
+		fireEvent.contextMenu(name);
+		expect(
+			await screen.findByRole("menu", { name: "Actions for README.md" }),
+		).toBeTruthy();
+	});
+
 	/** SPEC.md §8.3: a file opens as a tab in the work area. */
 	it("opens a clicked file as a tab", async () => {
 		const store = renderPane();

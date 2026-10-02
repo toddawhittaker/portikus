@@ -158,6 +158,12 @@ function errorText(errorCode: string | null | undefined): string {
 		: "Portikus could not start the machine behind this window. Nothing you did caused this. Ask your administrator for help.";
 }
 
+/** Why a workspace stopped on its own, after "Still working?" went unanswered. */
+function idleStopText(minutes: number | null): string {
+	if (minutes === null) return "Stopped because nothing happened in it for a while.";
+	return `Stopped after ${minutes} ${minutes === 1 ? "minute" : "minutes"} without activity.`;
+}
+
 /**
  * The center of the shell while the workspace is not running yet
  * (SPEC.md §6.3): what is happening, in order.
@@ -271,11 +277,7 @@ export function WorkspaceStarting({
 							)}
 							{idleStop && (phase === "stopping" || phase === "stopped") && (
 								<p className="pk-text-body" data-testid="idle-stopped">
-									{idleStop.minutes === null
-										? "Stopped because nothing happened in it for a while."
-										: `Stopped after ${idleStop.minutes} ${
-												idleStop.minutes === 1 ? "minute" : "minutes"
-											} without activity.`}
+									{idleStopText(idleStop.minutes)}
 								</p>
 							)}
 						</div>

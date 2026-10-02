@@ -28,6 +28,52 @@ export function badgeText(unread: number): string | null {
 	return unread > 9 ? "9+" : String(unread);
 }
 
+/** What the bar is showing: the project in view, or the workspace or page. */
+function AppbarContext({
+	project,
+	workspaceId,
+	context,
+}: {
+	project: Project | undefined;
+	workspaceId: string | undefined;
+	context: string;
+}) {
+	if (project) {
+		return (
+			<span className="pk-appbar-context">
+				<strong>{project.name}</strong>
+				<span className="pk-mono-small">~/projects/{project.slug}</span>
+			</span>
+		);
+	}
+	return (
+		<span className="pk-appbar-context">
+			{workspaceId ? "Your workspace" : context}
+		</span>
+	);
+}
+
+/** The profile picture, or the initials when there is none. */
+function AccountPicture({
+	picture,
+	displayName,
+}: {
+	picture: string | null;
+	displayName: string;
+}) {
+	if (picture) {
+		return (
+			<img
+				className="pk-initials object-cover"
+				src={picture}
+				alt=""
+				data-testid="account-picture"
+			/>
+		);
+	}
+	return <span className="pk-initials">{initials(displayName)}</span>;
+}
+
 /**
  * The top bar: the mark, the project in view, and the account menu.
  * The workspace dialog lives on the status bar (SPEC.md §6).
@@ -80,16 +126,7 @@ export function AppHeader({
 		<header className="pk-appbar" data-testid="app-header">
 			<NameMark size={18} href={workspaceId ? `/workspaces/${workspaceId}` : "/"} />
 			<span className="pk-appbar-divider" aria-hidden="true" />
-			{project ? (
-				<span className="pk-appbar-context">
-					<strong>{project.name}</strong>
-					<span className="pk-mono-small">~/projects/{project.slug}</span>
-				</span>
-			) : (
-				<span className="pk-appbar-context">
-					{workspaceId ? "Your workspace" : context}
-				</span>
-			)}
+			<AppbarContext project={project} workspaceId={workspaceId} context={context} />
 			<span className="pk-appbar-spacer" />
 
 			{hasCourse && workspaceId ? (
@@ -143,16 +180,7 @@ export function AppHeader({
 								badge ? `${user.displayName}, ${unreadLabel}` : user.displayName
 							}
 						>
-							{picture ? (
-								<img
-									className="pk-initials object-cover"
-									src={picture}
-									alt=""
-									data-testid="account-picture"
-								/>
-							) : (
-								<span className="pk-initials">{initials(user.displayName)}</span>
-							)}
+							<AccountPicture picture={picture} displayName={user.displayName} />
 							{/* The gap is only visual. This space keeps the text readable when copied. */}{" "}
 							<span>{user.displayName}</span>
 							<Icon name="chevron-down" size="sm" />

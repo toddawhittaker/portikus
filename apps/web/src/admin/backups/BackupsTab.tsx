@@ -543,136 +543,178 @@ function SetsPart({
 				]}
 				empty={host.sets.length === 0 ? "No backup sets yet." : null}
 			>
-				{host.sets.map((set) => {
-					const when = setTime(set.stamp);
-					const isNewest = set.stamp === newest;
-					const deleting = waitingRequest(requests, "delete_set", { stamp: set.stamp });
-					const noteId = `backup-set-note-${set.stamp}`;
-					const emptyId = `backup-set-empty-${set.stamp}`;
-					const unverifiedId = `backup-set-unverified-${set.stamp}`;
-					// Absent from an older host, which does not check sets.
-					const unverified = set.verified === false;
-					const restoreOff =
-						!host.keyInstalled || unverified || set.instances.length === 0;
-					// Joined with ". " so each part gets one stop when read aloud.
-					const notes: { key: string; node: ReactNode }[] = [];
-					if (unverified && host.keyInstalled) {
-						notes.push({
-							key: "tag",
-							node: <span className="pk-tag pk-tag--warning">Not verified</span>,
-						});
-						notes.push({
-							key: "unverified",
-							node: (
-								<span id={unverifiedId} className="pk-muted">
-									This server's key did not make this set, so it cannot be restored
-								</span>
-							),
-						});
-					}
-					if (set.instances.length === 0) {
-						notes.push({
-							key: "empty",
-							node: (
-								<span id={emptyId} className="pk-muted">
-									No workspaces to restore from this set
-								</span>
-							),
-						});
-					}
-					if (isNewest) {
-						notes.push({
-							key: "newest",
-							node: (
-								<span id={noteId} className="pk-muted">
-									The newest complete set is always kept
-								</span>
-							),
-						});
-					}
-					return (
-						<tr key={set.stamp} data-testid={`backup-set-${set.stamp}`}>
-							<th scope="row">{when}</th>
-							<td>
-								{set.complete ? (
-									"Complete"
-								) : (
-									<span className="pk-tag pk-tag--warning">Incomplete</span>
-								)}
-								{set.failedVolumes.length > 0 ? (
-									<span className="pk-muted">
-										{" "}
-										{set.failedVolumes.length} volume
-										{set.failedVolumes.length === 1 ? "" : "s"} failed
-									</span>
-								) : null}
-								{set.skippedVolumes ? (
-									<span
-										className="pk-muted"
-										data-testid={`backup-set-skipped-${set.stamp}`}
-									>
-										{" "}
-										{set.skippedVolumes} volume
-										{set.skippedVolumes === 1 ? "" : "s"} of no workspace skipped
-									</span>
-								) : null}
-								{notes.map((note) => (
-									<Fragment key={note.key}>
-										{". "}
-										{note.node}
-									</Fragment>
-								))}
-								{notes.length > 0 ? "." : null}
-							</td>
-							<td className="tabular-nums">{formatBytes(set.sizeBytes)}</td>
-							<td className="tabular-nums">{set.instances.length}</td>
-							<td className="pk-cell-actions">
-								<div className="flex justify-end gap-2">
-									<Button
-										size="sm"
-										data-testid="backup-set-restore"
-										aria-label={`Restore a workspace from ${when}`}
-										aria-disabled={restoreOff ? true : undefined}
-										aria-describedby={
-											!host.keyInstalled
-												? "backups-key-note"
-												: unverified
-													? unverifiedId
-													: set.instances.length === 0
-														? emptyId
-														: undefined
-										}
-										onClick={() => {
-											if (!restoreOff) onRestore(set);
-										}}
-									>
-										Restore…
-									</Button>
-									{/* Stays mounted while deleting so focus is not lost. */}
-									<Button
-										size="sm"
-										data-testid="backup-set-delete"
-										aria-label={
-											deleting
-												? `Deleting the set from ${when}`
-												: `Delete the set from ${when}`
-										}
-										aria-disabled={isNewest || deleting ? true : undefined}
-										aria-describedby={isNewest ? noteId : undefined}
-										onClick={() => {
-											if (!isNewest && !deleting)
-												onDelete({ kind: "set", stamp: set.stamp });
-										}}
-									>
-										{deleting ? "Deleting…" : "Delete…"}
-									</Button>
-								</div>
-							</td>
-						</tr>
-					);
-				})}
+				{host.sets.map((set) => (
+					<SetRow
+						key={set.stamp}
+						set={set}
+						keyInstalled={host.keyInstalled}
+						isNewest={set.stamp === newest}
+						deleting={
+							waitingRequest(requests, "delete_set", { stamp: set.stamp }) !== undefined
+						}
+						onRestore={onRestore}
+						onDelete={onDelete}
+					/>
+				))}
 			</Table>
 		</Part>
+	);
+}
+
+/** The notes after a set's result, joined with ". " so each gets one stop when read aloud. */
+function setNotes(
+	set: HostBackupSet,
+	keyInstalled: boolean,
+	isNewest: boolean,
+): { key: string; node: ReactNode }[] {
+	const notes: { key: string; node: ReactNode }[] = [];
+	if (set.verified === false && keyInstalled) {
+		notes.push({
+			key: "tag",
+			node: <span className="pk-tag pk-tag--warning">Not verified</span>,
+		});
+		notes.push({
+			key: "unverified",
+			node: (
+				<span id={`backup-set-unverified-${set.stamp}`} className="pk-muted">
+					This server's key did not make this set, so it cannot be restored
+				</span>
+			),
+		});
+	}
+	if (set.instances.length === 0) {
+		notes.push({
+			key: "empty",
+			node: (
+				<span id={`backup-set-empty-${set.stamp}`} className="pk-muted">
+					No workspaces to restore from this set
+				</span>
+			),
+		});
+	}
+	if (isNewest) {
+		notes.push({
+			key: "newest",
+			node: (
+				<span id={`backup-set-note-${set.stamp}`} className="pk-muted">
+					The newest complete set is always kept
+				</span>
+			),
+		});
+	}
+	return notes;
+}
+
+/** Which note explains why a set's Restore button is off, if it is. */
+function setRestoreBlockerId(
+	set: HostBackupSet,
+	keyInstalled: boolean,
+): string | undefined {
+	if (!keyInstalled) return "backups-key-note";
+	// Absent from an older host, which does not check sets.
+	if (set.verified === false) return `backup-set-unverified-${set.stamp}`;
+	if (set.instances.length === 0) return `backup-set-empty-${set.stamp}`;
+	return undefined;
+}
+
+function SetResult({
+	set,
+	notes,
+}: {
+	set: HostBackupSet;
+	notes: { key: string; node: ReactNode }[];
+}) {
+	return (
+		<>
+			{set.complete ? (
+				"Complete"
+			) : (
+				<span className="pk-tag pk-tag--warning">Incomplete</span>
+			)}
+			{set.failedVolumes.length > 0 ? (
+				<span className="pk-muted">
+					{" "}
+					{set.failedVolumes.length} volume
+					{set.failedVolumes.length === 1 ? "" : "s"} failed
+				</span>
+			) : null}
+			{set.skippedVolumes ? (
+				<span className="pk-muted" data-testid={`backup-set-skipped-${set.stamp}`}>
+					{" "}
+					{set.skippedVolumes} volume
+					{set.skippedVolumes === 1 ? "" : "s"} of no workspace skipped
+				</span>
+			) : null}
+			{notes.map((note) => (
+				<Fragment key={note.key}>
+					{". "}
+					{note.node}
+				</Fragment>
+			))}
+			{notes.length > 0 ? "." : null}
+		</>
+	);
+}
+
+function SetRow({
+	set,
+	keyInstalled,
+	isNewest,
+	deleting,
+	onRestore,
+	onDelete,
+}: {
+	set: HostBackupSet;
+	keyInstalled: boolean;
+	isNewest: boolean;
+	deleting: boolean;
+	onRestore: (set: HostBackupSet) => void;
+	onDelete: (target: DeleteTarget) => void;
+}) {
+	const when = setTime(set.stamp);
+	const noteId = `backup-set-note-${set.stamp}`;
+	const restoreOff =
+		!keyInstalled || set.verified === false || set.instances.length === 0;
+	return (
+		<tr data-testid={`backup-set-${set.stamp}`}>
+			<th scope="row">{when}</th>
+			<td>
+				<SetResult set={set} notes={setNotes(set, keyInstalled, isNewest)} />
+			</td>
+			<td className="tabular-nums">{formatBytes(set.sizeBytes)}</td>
+			<td className="tabular-nums">{set.instances.length}</td>
+			<td className="pk-cell-actions">
+				<div className="flex justify-end gap-2">
+					<Button
+						size="sm"
+						data-testid="backup-set-restore"
+						aria-label={`Restore a workspace from ${when}`}
+						aria-disabled={restoreOff ? true : undefined}
+						aria-describedby={setRestoreBlockerId(set, keyInstalled)}
+						onClick={() => {
+							if (!restoreOff) onRestore(set);
+						}}
+					>
+						Restore…
+					</Button>
+					{/* Stays mounted while deleting so focus is not lost. */}
+					<Button
+						size="sm"
+						data-testid="backup-set-delete"
+						aria-label={
+							deleting ? `Deleting the set from ${when}` : `Delete the set from ${when}`
+						}
+						aria-disabled={isNewest || deleting ? true : undefined}
+						aria-describedby={isNewest ? noteId : undefined}
+						onClick={() => {
+							if (!isNewest && !deleting) onDelete({ kind: "set", stamp: set.stamp });
+						}}
+					>
+						{deleting ? "Deleting…" : "Delete…"}
+					</Button>
+				</div>
+			</td>
+		</tr>
 	);
 }
 
