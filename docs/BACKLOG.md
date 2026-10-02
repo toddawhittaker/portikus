@@ -2023,3 +2023,11 @@ when the job fails.
 **What it would take.** Move the rule into the numbered section it belongs to and point the Epic 8 entry there.
 
 **Source.** Epic 29 review.
+
+## Make the comment check read regex literals and quoted strings
+
+**What.** `scripts/check-comment-history.mjs` does not understand regex literals, so a backtick inside one hides the rest of the file from the check (today only `apps/worker/src/grants.test.ts`). It also flags a CSS colour such as `/* grey #333 */`, a `#12` inside a quoted shell or YAML string, and a `.test("#123")` call read as a test title. None of these occur today.
+
+**What it would take.** Teach the scanner regex literals and quoted strings, or use a real parser per language, with tests for each case.
+
+**Source.** Epic 29 review.
