@@ -781,6 +781,15 @@ Reasons:
 
 If a framework/library requires ESLint-specific rules that materially improve safety, ESLint may be added narrowly rather than replacing Biome wholesale.
 
+`pnpm lint` runs, in order, and fails on any finding:
+
+- **Biome**, with its recommended rules plus cognitive complexity at a limit of 30 for product code (tests, e2e and the test fakes are exempt);
+- `scripts/check-comment-history.mjs`, a small in-repo check that code comments and test titles carry no project history (issue, epic, ruling references);
+- **Knip**, for unused files, exports and dependencies across the workspace — Biome cannot see across package boundaries;
+- **jscpd**, for copied blocks of 70 tokens and 8 lines or more; a deliberate copy carries an ignore comment with its reason.
+
+Each is an exact-pinned root dev dependency (the comment check needs none) and the whole run takes a few seconds. They were added after a code-quality review found drifted copies, history comments and unused exports that review alone kept missing.
+
 ## 15. Observability
 
 Operational metrics live in PostgreSQL, not in OpenTelemetry (ADR 0022). The
@@ -1627,6 +1636,8 @@ git CLI
 Vitest
 Playwright
 Biome
+Knip
+jscpd
 OpenTelemetry
 ```
 
