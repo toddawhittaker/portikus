@@ -98,7 +98,7 @@ test("an unverified state is marked unconfirmed, with the reason in its accessib
 });
 
 test("the state turning unconfirmed is announced in its own status region", () => {
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	const wrap = (workspace: Workspace) => (
 		<QueryClientProvider client={client}>
 			<ToastProvider>
@@ -505,7 +505,7 @@ test("opened in restart mode, the dialog shows Restart's confirmation; Cancel le
 
 test("a restart confirmation opened while the state settles waits with a reason, then restarts", async () => {
 	const fetchMock = stubFetch(() => json(202, { ok: true }));
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	const ui = (workspace: Workspace) => (
 		<QueryClientProvider client={client}>
 			<ToastProvider>

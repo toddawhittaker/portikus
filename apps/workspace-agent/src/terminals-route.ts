@@ -25,7 +25,7 @@ const AttachQuery = z.object({
 	rows: z.coerce.number().int().min(1).max(1000).optional(),
 });
 
-export interface TerminalsRouteOptions {
+interface TerminalsRouteOptions {
 	homeDir: string;
 	tmuxServer: TmuxServer;
 	registry: TerminalRegistry;

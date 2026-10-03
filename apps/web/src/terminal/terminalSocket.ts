@@ -1,7 +1,7 @@
 import { CloseCode } from "@portikus/contracts";
 import { sessionEnded } from "../api/sessionEnded.js";
 import { wsUrl } from "../api/ws.js";
-import { decodeTerminalFrame, type TerminalFrame } from "./terminalFrames.js";
+import { decodeTerminalFrame, type TerminalGoneReason } from "./terminalFrames.js";
 
 export const RECONNECT_MS = 3_000;
 export const MAX_RECONNECT_MS = 60_000;
@@ -17,7 +17,7 @@ const FATAL_CLOSE_CODES = new Set<number>([
 	CloseCode.SERVER_ERROR,
 ]);
 
-type TerminalGoneFrame = Extract<TerminalFrame, { kind: "error" }>;
+type TerminalGoneFrame = { reason: TerminalGoneReason; at?: string };
 
 /** What the pane does with each event on its terminal socket (SPEC.md §9.7). */
 export interface TerminalSocketEvents {
@@ -110,7 +110,7 @@ export function openTerminalSocket(
 						return;
 					}
 					stopped = true;
-					events.onGone(frame);
+					events.onGone({ reason: frame.reason, at: frame.at });
 					next.close();
 					return;
 				case "cwd":

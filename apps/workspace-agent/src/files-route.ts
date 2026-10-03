@@ -100,8 +100,6 @@ export async function filesRoutes(
 	options: { homeDir: string },
 ): Promise<void> {
 	const { homeDir } = options;
-	// The file routes. Paths are logged at debug only and file contents
-	// never (STACK.md §15, ADR 0012).
 	instance.get("/projects/:slug/tree", async (request, reply) => {
 		const { slug } = request.params as { slug: string };
 		try {

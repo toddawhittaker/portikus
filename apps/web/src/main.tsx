@@ -4,7 +4,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createQueryClient } from "./api/queryClient.js";
-import { sessionEnded, setSessionEndedHandler } from "./api/sessionEnded.js";
+import { setSessionEndedHandler } from "./api/sessionEnded.js";
 import "./app.css";
 import { recordNotification } from "./notifications/queries.js";
 import { router } from "./router.js";
@@ -30,7 +30,7 @@ applyThemePreference(readThemePreference());
 setSessionEndedHandler(() => {
 	void router.navigate({ to: "/session-ended" });
 });
-const queryClient = createQueryClient(sessionEnded);
+const queryClient = createQueryClient();
 
 createRoot(container).render(
 	<StrictMode>

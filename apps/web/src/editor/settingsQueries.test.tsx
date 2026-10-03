@@ -28,7 +28,7 @@ function settings(appearance: string, appearanceStored: boolean) {
 }
 
 function load() {
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	const wrapper = ({ children }: { children: React.ReactNode }) => (
 		<QueryClientProvider client={client}>{children}</QueryClientProvider>
 	);

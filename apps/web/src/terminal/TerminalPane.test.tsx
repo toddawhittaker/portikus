@@ -121,7 +121,7 @@ function renderPane(
 	visible = true,
 	overrides: Partial<Terminal> = {},
 	focusOnMount = false,
-	client = createQueryClient(() => {}),
+	client = createQueryClient(),
 ) {
 	stubBrowserApis();
 	vi.stubGlobal("WebSocket", FakeWebSocket);
@@ -248,7 +248,7 @@ test("a drag of the pane edge sends one settled size, not every step", async () 
 			disconnect() {}
 		},
 	);
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	vi.useFakeTimers();
 	try {
 		const view = render(
@@ -633,7 +633,7 @@ test("a terminal starts in the default screen-reader mode", async () => {
 
 /** The student's setting turns it on, and a change applies without a reload. */
 test("the screen-reader setting turns the mode on and off in an open terminal", async () => {
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	const settings = {
 		...EDITOR_SETTINGS_DEFAULTS,
 		screenReaderMode: true,

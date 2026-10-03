@@ -665,7 +665,7 @@ export function TerminalPane({
 				// and say why, once per restart (SPEC.md §9.7).
 				onGone: (frame) => {
 					forgetAgentBuild(workspaceId);
-					if (frame.reason && firstNoticeOf(frame.at ?? "")) {
+					if (firstNoticeOf(frame.at ?? "")) {
 						handlers.current.toast.show({
 							tone: "warning",
 							title: terminalGoneMessage(frame.reason),
