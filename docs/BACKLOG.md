@@ -1997,3 +1997,19 @@ when the job fails.
 **What it would take.** Have the rehearsal setup write that copy and set the variable.
 
 **Source.** Epic 32.
+
+## Force-stop after a failed start
+
+**What.** When a start fails after the start request was sent, the instance may stay running half set up until the sweep sees it.
+
+**What it would take.** Force-stop the instance in that failure path so the sweep never sees a half-set-up instance.
+
+**Source.** Epic 32.
+
+## Exec socket errors
+
+**What.** An exec whose socket errors is reported as "exec timed out".
+
+**What it would take.** Report a socket error as its own error, with a test.
+
+**Source.** Epic 32.

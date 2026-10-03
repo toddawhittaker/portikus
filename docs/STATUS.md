@@ -4201,7 +4201,21 @@ Delivered:
   hook, and `FileLeaf` is view code only. A review fix closed a race
   between typing and the save follow-up, with a test.
 
-Verified: rehearsal VM … (to be filled)
+Verified: battery at 64d52b3e: `make check` green (6,310 tests;
+coverage lines 93.94 %, branches 86.02 %, statements 92.04 %, functions
+91.59 %), e2e 736 passed, 1 skipped, 1 flake under host load
+(`agent-upgrade.spec.ts` "a page opened on an already upgraded agent
+shows no toast": the poll for zero attachments can miss the
+about-3-second drop window; it passes alone). Rehearsal VM at
+0.1.886+g6f1f8acd: smoke 362/0 with the Dex sign-in, Caddy 149/0,
+security 392/1 (the expected off-pilot probe), rebuild-exercise passed,
+hand checks passed except a late worker restart during a start (fixed by
+#1094). Second rehearsal at 0.1.888+g3bd51b32: smoke 362/0, worker
+restarts at 0.7 s, 2.5 s and after Running all end fully set up, stop
+checks with a SIGTERM-ignoring process pass, and a fresh workspace's
+hostname, timezone, profile, token and recovery mount are correct.
+
+Pilot: (to be filled)
 
 Gaps:
 
@@ -4216,3 +4230,16 @@ Gaps:
 - `provider.ts` is still over 800 lines (about 1,470).
 - Set-limits, CPU allowance, replace-home, deleting kept volumes and the
   added-packages read do not take the caller's signal yet.
+- The start's own timeout can still run out after Incus has started the
+  instance. The worker then retries, and each retry force-stops first, so
+  only a worker that also dies at that moment leaves a half-set-up
+  workspace.
+- A worker restart before the start request shows the workspace in error
+  for about 10 seconds, until the automatic retry.
+- The sweep can show a workspace running about a second before the
+  controller finishes its setup.
+- An exec whose socket errors is reported as "exec timed out". This
+  was already so, and was seen once in the optional package survey right
+  after a start.
+- `/etc/hostname` holds the instance name until the second start (the
+  image template, already so).
