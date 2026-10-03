@@ -11,7 +11,6 @@ const KEYS: readonly { keys: string; what: string }[] = [
 		keys: tabFocusKey(),
 		what: "In the editor, switch whether Tab types a tab or moves focus out of the editor.",
 	},
-	{ keys: "Alt+F1", what: "In the editor, open the editor's own accessibility help." },
 	{
 		keys: "Alt+Shift+Left Arrow, Alt+Shift+Right Arrow",
 		what: "Move the focused tab left or right. Delete closes it. A tab's menu also has Move left and Move right.",
@@ -357,8 +356,8 @@ export const STUDENT_HELP: HelpPart = {
 						</li>
 						<li>
 							The editor reads the current line. Error underlines, the diff view, and
-							inline hints are drawn visually; use Alt+F1 and the editor's own commands
-							to reach them.
+							inline hints are drawn visually and are not read out. F1 opens the
+							editor's command list.
 						</li>
 					</ul>
 				</>

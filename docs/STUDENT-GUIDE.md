@@ -189,8 +189,7 @@ These keys are hard to discover:
 | Keys | What they do |
 |---|---|
 | Alt+Shift+Q | Leave a terminal. While a terminal has the keyboard, Tab goes to the shell. Each terminal's three-dots menu also has Leave terminal. |
-| Ctrl+M | In the editor, switch whether Tab types a tab or moves focus out of the editor. |
-| Alt+F1 | In the editor, open the editor's own accessibility help. |
+| Ctrl+M, or Ctrl+Shift+M on a Mac | In the editor, switch whether Tab types a tab or moves focus out of the editor. |
 | Alt+Shift+Left Arrow, Alt+Shift+Right Arrow | Move the focused tab left or right. Delete closes it. |
 | Shift+F10 | Open the menu of the focused row in the file tree. The Menu key does the same. |
 | F8 | Move to notifications. Inside the editor F8 goes to the next problem instead, so leave the editor first. |
@@ -206,8 +205,8 @@ What the terminal and editor cannot do:
   whole screen, so a screen reader may read repeated or partial lines. There
   is no way to review what they draw other than moving through the lines.
 - The editor reads the current line. Error underlines, the diff view, and
-  inline hints are drawn visually; use Alt+F1 and the editor's own commands
-  to reach them.
+  inline hints are drawn visually and are not read out. F1 opens the
+  editor's command list.
 
 ## When something goes wrong
 

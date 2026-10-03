@@ -469,6 +469,15 @@ test.describe("file editor", () => {
 		);
 		await expect(textbox).toHaveAccessibleName(name);
 
+		// F1 opens the editor's command list, as the Help page says.
+		await lines(page).click();
+		await expect(textbox).toBeFocused();
+		await page.keyboard.press("F1");
+		const commands = page.locator(".quick-input-widget");
+		await expect(commands).toBeVisible();
+		await page.keyboard.press("Escape");
+		await expect(commands).toBeHidden();
+
 		// The key the name offers does let Tab leave, so the editor is no trap.
 		await lines(page).click();
 		await expect(textbox).toBeFocused();
