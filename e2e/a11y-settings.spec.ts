@@ -240,6 +240,38 @@ test("preferences save at once, Saved is announced, and Escape keeps a typed del
 	await expect(dialog.getByTestId("editor-settings-delay")).toHaveValue("17");
 });
 
+test("each field reads label, control, then hint, and the hint describes the control", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+	const dialog = await openSettings(page);
+
+	const delay = dialog.getByRole("textbox", { name: "Auto-save delay", exact: true });
+	await expect(delay).toHaveAccessibleDescription("Seconds, 1 to 60");
+	await expect(
+		dialog.getByRole("group", { name: "Color scheme" }),
+	).toHaveAccessibleDescription("Light, dark, or follow this computer.");
+	await expect(
+		dialog.getByRole("switch", { name: "Light terminal" }),
+	).toHaveAccessibleDescription("What a new terminal starts with.");
+
+	// The hint sits below the control, as in every other field.
+	const below = async (control: string, hint: string) => {
+		const a = await dialog.getByRole("radio", { name: control }).boundingBox();
+		const b = await dialog.getByText(hint, { exact: true }).boundingBox();
+		return a !== null && b !== null && b.y >= a.y + a.height;
+	};
+	expect(await below("System", "Light, dark, or follow this computer.")).toBe(true);
+
+	// The short label drops the unit, so search still finds the field by it.
+	await dialog.getByLabel("Search").fill("seconds");
+	await dialog.getByRole("button", { name: "Auto-save delay", exact: true }).click();
+	await expect(delay).toBeFocused();
+});
+
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`Settings Preferences and Profile have no axe violations in ${colorScheme}`, async ({
 		page,

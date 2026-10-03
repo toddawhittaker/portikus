@@ -8,9 +8,10 @@ export function useShowSetting(highlightId: string | null, ready: boolean) {
 		const node = document.getElementById(`settings-control-${highlightId}`);
 		if (!node) return;
 		node.scrollIntoView({ block: "nearest" });
-		const focusable = node.querySelector<HTMLElement>(
-			"input:not([disabled]), button:not([disabled]), textarea, select",
-		);
+		// The field itself, not the help button that sits before it beside the label.
+		const focusable =
+			node.querySelector<HTMLElement>("input:not([disabled]), textarea, select") ??
+			node.querySelector<HTMLElement>("button:not([disabled])");
 		(focusable ?? node).focus();
 	}, [highlightId, ready]);
 }
@@ -18,10 +19,12 @@ export function useShowSetting(highlightId: string | null, ready: boolean) {
 export function ControlFrame({
 	control,
 	highlighted,
+	className = "",
 	children,
 }: {
 	control: SettingsControl;
 	highlighted: boolean;
+	className?: string;
 	children: ReactNode;
 }) {
 	return (
@@ -29,7 +32,7 @@ export function ControlFrame({
 			id={`settings-control-${control.id}`}
 			tabIndex={-1}
 			data-highlighted={highlighted ? "true" : "false"}
-			className={`rounded-sm outline-none ${
+			className={`rounded-sm outline-none ${className} ${
 				highlighted ? "bg-surface-selected px-2 py-2" : ""
 			}`}
 		>
