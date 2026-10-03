@@ -1,13 +1,11 @@
 import { Button, Skeleton } from "@portikus/ui";
 import { useRef, useState } from "react";
 import { AdminSection } from "../AdminSection.js";
+import { AllowListGroup } from "./AllowListGroup.js";
 import { BlockedCard } from "./BlockedCard.js";
 import { BlockedSitesCard } from "./BlockedSitesCard.js";
-import { EntriesCard } from "./EntriesCard.js";
 import { EntryDialog, type EntryDraft } from "./EntryDialog.js";
 import { ModeCard } from "./ModeCard.js";
-import { PortsCard } from "./PortsCard.js";
-import { PresetsCard } from "./PresetsCard.js";
 import { egressErrorText, useEgress } from "./queries.js";
 import { TestHostCard } from "./TestHostCard.js";
 
@@ -63,24 +61,20 @@ export function NetworkTab() {
 
 	return (
 		<AdminSection title="Network" intro={INTRO}>
-			<div className="grid gap-6" data-testid="egress-tab">
+			<div className="@container grid gap-6" data-testid="egress-tab">
 				<ModeCard view={view} />
-				{view.mode === "open" ? (
-					<p className="m-0 text-[13px] text-ink-muted" data-testid="egress-open-note">
-						Open mode is on, so only the blocked sites are used. The presets, hosts and
-						ports are for allow-list mode; you can prepare them before you switch.
-					</p>
-				) : null}
-				<div className="grid items-start gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-					<div className="grid gap-6">
+				<div className="grid gap-6 @5xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+					<div className="grid content-start gap-6">
 						{/* The list that matters in the current mode comes first. */}
 						{view.mode === "open" ? <BlockedSitesCard view={view} /> : null}
-						<PresetsCard view={view} />
-						<EntriesCard view={view} onEdit={edit} />
-						<PortsCard view={view} />
+						<AllowListGroup view={view} onEdit={edit} />
 						{view.mode === "allow-list" ? <BlockedSitesCard view={view} /> : null}
 					</div>
-					<div className="grid gap-6">
+					{/* Kept in view beside the long lists, so a test is always one field away. */}
+					<div
+						className="grid gap-6 self-start @5xl:sticky @5xl:top-0"
+						data-testid="egress-side"
+					>
 						<TestHostCard view={view} onAllow={allowFrom("egress-test-title")} />
 						<BlockedCard view={view} onAllow={allowFrom("egress-blocked-title")} />
 					</div>

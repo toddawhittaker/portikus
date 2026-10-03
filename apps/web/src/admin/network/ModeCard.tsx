@@ -8,6 +8,7 @@ import {
 } from "@portikus/ui";
 import { useEffect, useState } from "react";
 import { joinWords, plural } from "../../text.js";
+import { AdminGroup } from "../AdminSection.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 import { applyAnnouncement, applyState, listedHostCount } from "./text.js";
 
@@ -68,31 +69,26 @@ export function ModeCard({ view }: { view: AdminEgressView }) {
 	}
 
 	return (
-		<section className="pk-card p-6" aria-labelledby="egress-mode-title">
-			<div className="flex flex-wrap items-start gap-6">
-				<div className="min-w-0 flex-1">
-					<div className="flex items-center gap-1">
-						<h3 className="pk-text-heading m-0" id="egress-mode-title">
-							Internet access from workspaces
-						</h3>
-						<Toggletip label="open and allow-list modes">
-							Open lets workspaces reach any public site except the ones you block.
-							Allow-list lets them reach only the presets, hosts and ranges you list.
-							Private networks are always blocked.
-						</Toggletip>
-					</div>
-					<p
-						className="pk-text-body pk-muted mt-1 mb-0"
-						data-testid="egress-mode-summary"
-					>
-						{status.tone === "applied"
-							? MODE_TEXT[view.mode].summary
-							: `Saved setting: ${MODE_TEXT[view.mode].summary}`}
-					</p>
-				</div>
+		<AdminGroup
+			id="egress-mode-title"
+			title="Internet access from workspaces"
+			testId="egress-mode-card"
+			help={
+				<Toggletip label="open and allow-list modes">
+					Open lets workspaces reach any public site except the ones you block.
+					Allow-list lets them reach only the presets, hosts and ranges you list.
+					Private networks are always blocked.
+				</Toggletip>
+			}
+			description={
+				status.tone === "applied"
+					? MODE_TEXT[view.mode].summary
+					: `Saved setting: ${MODE_TEXT[view.mode].summary}`
+			}
+			actions={
 				<fieldset
 					aria-labelledby="egress-mode-title"
-					className="pk-segmented ml-auto text-[13px]"
+					className="pk-segmented text-[13px]"
 					data-testid="egress-mode"
 				>
 					{(["open", "allow-list"] as const).map((mode) => (
@@ -110,14 +106,16 @@ export function ModeCard({ view }: { view: AdminEgressView }) {
 						</button>
 					))}
 				</fieldset>
-			</div>
+			}
+		>
+			{/* Only a state that needs attention gets a coloured fill. */}
 			<p
-				className={`m-0 mt-4 flex items-start gap-2 rounded-sm px-3 py-2 text-[13px] ${
+				className={`m-0 flex items-start gap-2 text-[13px] ${
 					status.tone === "error"
-						? "bg-status-error-soft text-ink"
+						? "rounded-sm bg-status-error-soft px-3 py-2 text-ink"
 						: status.tone === "pending"
-							? "bg-status-starting-soft text-ink"
-							: "bg-surface-sunken text-ink-muted"
+							? "rounded-sm bg-status-starting-soft px-3 py-2 text-ink"
+							: "text-ink-muted"
 				}`}
 				data-testid="egress-apply-status"
 				data-tone={status.tone}
@@ -140,11 +138,13 @@ export function ModeCard({ view }: { view: AdminEgressView }) {
 						/>
 					)}
 				</span>
-				<span className="min-w-0 flex-1">{status.text}</span>
-				<Toggletip label="apply status">
-					Saved changes reach the workspaces within seconds. Applied means every running
-					workspace follows the saved setting.
-				</Toggletip>
+				<span className="min-w-0">{status.text}</span>
+				<span className="-my-1 flex-none">
+					<Toggletip label="apply status">
+						Saved changes reach the workspaces within seconds. Applied means every
+						running workspace follows the saved setting.
+					</Toggletip>
+				</span>
 			</p>
 			{/* Announces state changes only; the visible age text ticks every 30 seconds. */}
 			<p className="sr-only" role="status" data-testid="egress-apply-announce">
@@ -180,6 +180,6 @@ export function ModeCard({ view }: { view: AdminEgressView }) {
 					</ConfirmDialog>
 				) : null}
 			</ConfirmDialogRoot>
-		</section>
+		</AdminGroup>
 	);
 }
