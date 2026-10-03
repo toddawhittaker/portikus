@@ -26,6 +26,9 @@ export const CONTROLLER_BUDGET_HEADER = "x-portikus-budget-ms";
 export const INSTANCE_CREATE_BUDGET_MS =
 	INSTANCE_CREATE_WAIT_SECONDS * 1000 + 3 * VOLUME_CREATE_TIMEOUT_MS + 60_000;
 
+/** The worker's budget for a quick controller call; also the controller's fallback for one (ADR 0034). */
+export const CONTROLLER_SHORT_BUDGET_MS = 30_000;
+
 /** How long one agent restart after an upgrade may take. */
 export const AGENT_RESTART_TIMEOUT_SECONDS = 60;
 
