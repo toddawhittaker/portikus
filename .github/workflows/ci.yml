@@ -298,7 +298,8 @@ jobs:
         run: |
           pnpm exec playwright install --only-shell chromium
           # Pass only on a known-good answer; an apt failure must not read as "nothing missing".
-          out=$(pnpm exec playwright install-deps --dry-run chromium 2>&1) || { echo "$out"; exit 1; }
+          # The dry run exits non-zero whenever anything is missing, so judge it by its output alone.
+          out=$(pnpm exec playwright install-deps --dry-run chromium 2>&1) || true
           if echo "$out" | grep -q 'All system dependencies are installed.'; then exit 0; fi
           if ! echo "$out" | grep -q 'Missing system dependencies'; then echo "Unexpected output:"; echo "$out"; exit 1; fi
           missing=$(echo "$out" | grep '^  ' | grep -Ev '^  x?fonts-' || true)
