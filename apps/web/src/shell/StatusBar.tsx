@@ -202,8 +202,11 @@ export function StatusBar({
 						data-testid="workspace-state-unverified"
 					>
 						<Icon name="alert" size="sm" />
-						unconfirmed
-						<span className="pk-visually-hidden">. {UNVERIFIED_EXPLANATION}</span>
+						<span aria-hidden="true">unconfirmed</span>
+						{/* One hidden run, so the name reads "unconfirmed. Portikus…" with no stray space. */}
+						<span className="pk-visually-hidden">
+							unconfirmed. {UNVERIFIED_EXPLANATION}
+						</span>
 					</span>
 				) : null}
 				<Icon name="chevron-up" size="sm" />
