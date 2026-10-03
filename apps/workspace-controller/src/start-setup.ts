@@ -1,9 +1,8 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type IncusClient, IncusError } from "./incus.js";
 
-// The in-container steps of a workspace start. Every file goes in while the
-// container is stopped, when no student process can race the
-// delete-then-push of `replaceFile` with a named pipe (SPEC.md §24).
+// The in-container steps of a workspace start.
 
 /** The image's `student` user and group. */
 export const STUDENT_UID = 1000;
@@ -112,7 +111,18 @@ export async function waitForAddress(
 			}
 		}
 
-		await new Promise((r) => setTimeout(r, 500));
+		try {
+			await sleep(500, undefined, { signal });
+		} catch (err) {
+			// The start's own limit ran out: report it as the timeout below. A caller's abort is rethrown.
+			if (
+				signal?.reason instanceof DOMException &&
+				signal.reason.name === "TimeoutError"
+			) {
+				break;
+			}
+			throw err;
+		}
 	}
 
 	throw new IncusError(
@@ -201,6 +211,7 @@ export async function prepareRecoveryMount(
 				throw new Error(`${command[0]} exited ${status}`);
 			}
 		} catch (err) {
+			if (signal?.aborted) throw err;
 			log.warn(
 				{ instance: name, err: errorMessage(err) },
 				"could not prepare the recovery mount",
@@ -210,23 +221,30 @@ export async function prepareRecoveryMount(
 	}
 }
 
-/** Poll the workspace agent's /health until it answers 200 (SPEC.md 6.3). */
+/**
+ * Poll the workspace agent's /health until it answers 200 (SPEC.md 6.3).
+ * `signal` only ends the wait early; the 15 s limit stays (ADR 0034).
+ */
 export async function waitForAgent(
 	log: Logger,
 	ipv4: string,
 	agentPort: number,
 	agentToken: string,
+	signal?: AbortSignal,
 ): Promise<void> {
 	const url = `http://${ipv4}:${agentPort}/health`;
 	const deadline = Date.now() + AGENT_HEALTH_TIMEOUT_MS;
 	let attempt = 0;
 	while (Date.now() < deadline) {
+		signal?.throwIfAborted();
 		attempt += 1;
 		log.debug({ ipv4, attempt }, "polling the workspace agent");
 		try {
 			const res = await fetch(url, {
 				headers: { Authorization: `Bearer ${agentToken}` },
-				signal: AbortSignal.timeout(2000),
+				signal: signal
+					? AbortSignal.any([signal, AbortSignal.timeout(2000)])
+					: AbortSignal.timeout(2000),
 			});
 			// Read the body so the connection is released either way.
 			await res.arrayBuffer().catch(() => undefined);
@@ -236,7 +254,7 @@ export async function waitForAgent(
 		} catch {
 			// Agent not listening yet; retry until the deadline.
 		}
-		await new Promise((r) => setTimeout(r, 1000));
+		await sleep(1000, undefined, { signal });
 	}
 
 	throw new IncusError(

@@ -6,10 +6,12 @@ import type { IncusClient } from "./incus.js";
 import { IncusError } from "./incus.js";
 import { IncusWorkspaceProvider } from "./provider.js";
 import {
+	AGENT_HEALTH_TIMEOUT_MS,
 	AGENT_TOKEN_PATH,
 	PROFILE_PATH,
 	setHostname,
 	setTimezone,
+	waitForAgent,
 } from "./start-setup.js";
 
 /**
@@ -161,5 +163,57 @@ describe("setHostname and setTimezone", () => {
 		);
 		expect(err).toBeInstanceOf(IncusError);
 		expect((err as Error).message).toContain("/usr/share/zoneinfo/Europe/London");
+	});
+});
+
+// The caller's signal only ends the agent wait early; its own 15 s stays (ADR 0034).
+describe("waitForAgent and the caller's signal", () => {
+	let agent: http.Server;
+	let port: number;
+	let polls: number;
+
+	beforeEach(async () => {
+		polls = 0;
+		agent = http.createServer((_req, res) => {
+			polls++;
+			res.writeHead(503);
+			res.end();
+		});
+		await new Promise<void>((r) => agent.listen(0, "127.0.0.1", r));
+		port = (agent.address() as AddressInfo).port;
+	});
+
+	afterEach(async () => {
+		vi.restoreAllMocks();
+		await new Promise<void>((r) => agent.close(() => r()));
+	});
+
+	test("keeps its 15 s limit while the caller's budget allows", async () => {
+		// Each clock read jumps 6 s, so the 15 s limit ends the wait after a few polls.
+		const realNow = Date.now();
+		let reads = 0;
+		vi.spyOn(Date, "now").mockImplementation(() => realNow + 6_000 * reads++);
+		const caller = new AbortController();
+		const err = await waitForAgent(
+			silentLogger(),
+			"127.0.0.1",
+			port,
+			"t",
+			caller.signal,
+		).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(IncusError);
+		expect((err as IncusError).code).toBe("TIMEOUT");
+		expect((err as Error).message).toContain(`${AGENT_HEALTH_TIMEOUT_MS}ms`);
+		expect(polls).toBeGreaterThan(0);
+		expect(caller.signal.aborted).toBe(false);
+	});
+
+	test("an aborted caller ends the wait without another poll", async () => {
+		const caller = new AbortController();
+		caller.abort(new IncusError("TIMEOUT", "the caller hung up"));
+		await expect(
+			waitForAgent(silentLogger(), "127.0.0.1", port, "t", caller.signal),
+		).rejects.toThrow("the caller hung up");
+		expect(polls).toBe(0);
 	});
 });

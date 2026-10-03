@@ -145,6 +145,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 			cpuAllowance?: string;
 			docker?: WorkspaceDockerConfig;
 		},
+		_signal?: AbortSignal,
 	): Promise<StartInstanceResponse> {
 		this.validate(name);
 		this.checkError();
@@ -171,6 +172,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 	async stop(
 		name: string,
 		_opts: { timeoutSeconds: number },
+		_signal?: AbortSignal,
 	): Promise<StopInstanceResponse> {
 		this.validate(name);
 		this.checkError();
@@ -202,7 +204,11 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 		return true;
 	}
 
-	async resetDocker(name: string, opts: { dockerGiB: number }): Promise<void> {
+	async resetDocker(
+		name: string,
+		opts: { dockerGiB: number },
+		_signal?: AbortSignal,
+	): Promise<void> {
 		const inst = this.stoppedInstance(name);
 		inst.dockerGeneration += 1;
 		inst.quota = { ...inst.quota, dockerGiB: opts.dockerGiB };
@@ -211,6 +217,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 	async rebuild(
 		name: string,
 		opts: { resetDocker: boolean; dockerGiB: number },
+		_signal?: AbortSignal,
 	): Promise<RebuildInstanceResponse> {
 		const inst = this.stoppedInstance(name);
 		if (opts.resetDocker) {
@@ -261,6 +268,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 	async growVolumes(
 		name: string,
 		sizes: GrowVolumesRequest,
+		_signal?: AbortSignal,
 	): Promise<GrowVolumesResponse> {
 		this.validate(name);
 		this.checkError();

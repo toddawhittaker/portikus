@@ -3,10 +3,12 @@ import {
 	CONTROLLER_SHORT_BUDGET_MS,
 	type ControllerErrorCode,
 	CreateInstanceRequest,
+	GROW_BUDGET_MS,
 	GrowVolumesRequest,
 	INSTANCE_CREATE_BUDGET_MS,
 	InstanceName,
 	KeptHomeVolumeName,
+	MAINTENANCE_BUDGET_MS,
 	PreChangeSnapshotName,
 	RebuildInstanceRequest,
 	ResetDockerRequest,
@@ -16,6 +18,8 @@ import {
 	SetLogLevelRequest,
 	StartInstanceRequest,
 	StopInstanceRequest,
+	startBudgetMs,
+	stopBudgetMs,
 	WorkspaceVolumeName,
 } from "@portikus/contracts";
 import {
@@ -296,19 +300,24 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		const body = parseOr400(StartInstanceRequest, request.body ?? {}, reply);
 		if (body === null) return reply;
 		const started = Date.now();
+		const signal = callerSignal(request, reply, startBudgetMs(body.timeoutSeconds));
 		try {
-			const result = await singleFlight(`start:${params.name}`, undefined, () =>
-				provider.start(params.name, {
-					timeoutSeconds: body.timeoutSeconds,
-					agentToken: body.agentToken,
-					hostname: body.hostname,
-					previewHostSuffix: body.previewHostSuffix,
-					timezone: body.timezone,
-					dockerGiB: body.dockerGiB,
-					recoveryGiB: body.recoveryGiB,
-					cpuAllowance: body.cpuAllowance,
-					docker: body.docker,
-				}),
+			const result = await singleFlight(`start:${params.name}`, signal, (shared) =>
+				provider.start(
+					params.name,
+					{
+						timeoutSeconds: body.timeoutSeconds,
+						agentToken: body.agentToken,
+						hostname: body.hostname,
+						previewHostSuffix: body.previewHostSuffix,
+						timezone: body.timezone,
+						dockerGiB: body.dockerGiB,
+						recoveryGiB: body.recoveryGiB,
+						cpuAllowance: body.cpuAllowance,
+						docker: body.docker,
+					},
+					shared,
+				),
 			);
 			request.log.info(
 				{ instance: params.name, durationMs: Date.now() - started },
@@ -316,7 +325,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, signal.aborted ? signal.reason : err);
 		}
 	});
 
@@ -326,11 +335,10 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		const body = parseOr400(StopInstanceRequest, request.body ?? {}, reply);
 		if (body === null) return reply;
 		const started = Date.now();
+		const signal = callerSignal(request, reply, stopBudgetMs(body.timeoutSeconds));
 		try {
-			const result = await singleFlight(`stop:${params.name}`, undefined, () =>
-				provider.stop(params.name, {
-					timeoutSeconds: body.timeoutSeconds,
-				}),
+			const result = await singleFlight(`stop:${params.name}`, signal, (shared) =>
+				provider.stop(params.name, { timeoutSeconds: body.timeoutSeconds }, shared),
 			);
 			request.log.info(
 				{
@@ -342,7 +350,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, signal.aborted ? signal.reason : err);
 		}
 	});
 
@@ -354,9 +362,10 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		const body = parseOr400(ResetDockerRequest, request.body ?? {}, reply);
 		if (body === null) return reply;
 		const started = Date.now();
+		const signal = callerSignal(request, reply, MAINTENANCE_BUDGET_MS);
 		try {
-			await singleFlight(`reset-docker:${params.name}`, undefined, () =>
-				provider.resetDocker(params.name, { dockerGiB: body.dockerGiB }),
+			await singleFlight(`reset-docker:${params.name}`, signal, (shared) =>
+				provider.resetDocker(params.name, { dockerGiB: body.dockerGiB }, shared),
 			);
 			request.log.info(
 				{ instance: params.name, durationMs: Date.now() - started },
@@ -364,7 +373,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(204).send();
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, signal.aborted ? signal.reason : err);
 		}
 	});
 
@@ -374,9 +383,10 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		const body = parseOr400(RebuildInstanceRequest, request.body ?? {}, reply);
 		if (body === null) return reply;
 		const started = Date.now();
+		const signal = callerSignal(request, reply, MAINTENANCE_BUDGET_MS);
 		try {
-			const result = await singleFlight(`rebuild:${params.name}`, undefined, () =>
-				provider.rebuild(params.name, body),
+			const result = await singleFlight(`rebuild:${params.name}`, signal, (shared) =>
+				provider.rebuild(params.name, body, shared),
 			);
 			request.log.info(
 				{
@@ -388,7 +398,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, signal.aborted ? signal.reason : err);
 		}
 	});
 
@@ -542,12 +552,13 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		if (!validName(params.name, reply)) return reply;
 		const body = parseOr400(GrowVolumesRequest, request.body ?? {}, reply);
 		if (body === null) return reply;
+		const signal = callerSignal(request, reply, GROW_BUDGET_MS);
 		try {
-			const result = await provider.growVolumes(params.name, body);
+			const result = await provider.growVolumes(params.name, body, signal);
 			request.log.info({ instance: params.name, ...result }, "volumes grown");
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, signal.aborted ? signal.reason : err);
 		}
 	});
 
