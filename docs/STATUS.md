@@ -4122,6 +4122,19 @@ Delivered:
 - Lint: `pnpm lint` fails on import cycles, imports between apps,
   server packages in `apps/web` and testing helpers in product code, and
   warns about non-test source files over 800 lines.
+- Security suite: its snapshot of the settings row skips
+  `controller_checked_at`, which the worker updates on every sweep.
+
+Verified on the rehearsal VM at c6b43f0e (0.1.873): smoke 362/0 with the
+Dex sign-in, lifecycle and LTI; Caddy preview 129/0; backup tests 92/0,
+96/0 and 129/0; OpenTofu plan unchanged; security suite 391 passed, with
+the settings-snapshot failure fixed above and the host-port probe that
+cannot pass off the pilot. Live checks: retries at 10 s, 30 s, 1 min,
+2 min and 5 min, then one warning and no more; Stop on an errored running
+workspace; "unconfirmed" between 110 and 125 seconds after the worker
+stopped; 25 parallel terminal creates leave 20 with distinct names; a
+31-day ended terminal pruned; admin deep-path reloads and the root
+certificate download through Caddy.
 
 Gaps:
 
@@ -4134,8 +4147,10 @@ Gaps:
   cancel the Incus operation; a retry adopts what exists (ADR 0034).
   Routes other than create and the process read ignore the budget.
 - The CI helper's fallback package refresh is untested on CI.
-- The Caddy tab-path matcher is checked with `caddy validate` and live
-  requests, not yet through `caddy-preview-test.sh` on a VM.
+- The image job, replace-home imports and backups through the
+  controller were not exercised against the 30-second Incus request
+  default; a long Incus call on those paths without its own timeout
+  would now fail at 30 seconds.
 - No Playwright test for start retries, since nothing new is shown.
 - The 14 files over 800 lines are warned about, not split.
 - The #1041 part S3 refactors are still open.
