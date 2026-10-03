@@ -38,6 +38,7 @@ describe("the live workspace push signature", () => {
 		["quotaConfig", { quotaConfig: { homeGiB: 30, dockerGiB: 20 } }],
 		["errorMessage", { errorMessage: "disk full" }],
 		["state", { state: "stopping" }],
+		["stateVerified", { stateVerified: false }],
 	] as const)("changes when %s changes", (_field, change) => {
 		expect(signatureOf({ ...workspace, ...change } as Workspace)).not.toBe(before);
 	});

@@ -55,7 +55,7 @@ function toMemoryFlag(value: unknown): Workspace["memoryFlag"] {
 
 export type WorkspaceRow = Selectable<Database["workspaces"]>;
 
-/** The settings columns a Workspace view needs: when a throttle lifts and the cap on a hold. */
+/** The settings columns a Workspace view needs: when a throttle lifts, the cap on a hold, and when the controller last answered. */
 export type WorkspaceSettings = Pick<
 	Selectable<Database["settings"]>,
 	| "cpu_idle_lift_minutes"

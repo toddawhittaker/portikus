@@ -11,6 +11,7 @@ import { useShowMonitor } from "./rightPane.js";
 import { useCountdown } from "./useCountdown.js";
 import {
 	resolveStatus,
+	UNVERIFIED_EXPLANATION,
 	WorkspaceDialog,
 	type WorkspaceDialogMode,
 } from "./WorkspaceDialog.js";
@@ -35,9 +36,9 @@ const METER_CLEAR_BELOW = 0.8;
 /** Disk turns to the error tone here, the storage warning's "nearly full" line. */
 const METER_FULL_AT = CRITICAL_AT;
 
-/** Why the state carries an "unconfirmed" marker (SPEC.md §18.3). */
-export const UNVERIFIED_EXPLANATION =
-	"Portikus can't reach the workspace host right now, so this may be out of date.";
+/** Fixed text for the live region when the state turns unconfirmed (SPEC.md §18.3). */
+export const UNVERIFIED_ANNOUNCEMENT =
+	"Workspace state is unconfirmed. Portikus can't reach the workspace host right now.";
 
 /** Fixed text for the live region, so a changing figure is not re-announced. */
 export const MEMORY_ANNOUNCEMENT = "Your workspace is using most of its memory.";
@@ -91,6 +92,7 @@ export function StatusBar({
 }) {
 	const setStatusOpen = (open: boolean) => onDialogChange(open ? "open" : "closed");
 	const resolved = resolveStatus(workspace);
+	const unverified = workspace?.stateVerified === false;
 	const running = workspace?.state === "running";
 	// The agent may still answer in error, and the error screen shows its figures (SPEC.md §28).
 	const errored = workspace?.state === "error";
@@ -150,6 +152,9 @@ export function StatusBar({
 			<span role="status" className="sr-only" data-testid="memory-warning-announce">
 				{memory && memory.level !== "ok" ? MEMORY_ANNOUNCEMENT : ""}
 			</span>
+			<span role="status" className="sr-only" data-testid="state-unverified-announce">
+				{unverified ? UNVERIFIED_ANNOUNCEMENT : ""}
+			</span>
 			{memory ? (
 				<MeterButton
 					label="Memory"
@@ -196,7 +201,7 @@ export function StatusBar({
 				<span data-testid="workspace-state" role="status">
 					{resolved.label}
 				</span>
-				{workspace && !workspace.stateVerified ? (
+				{unverified ? (
 					<span
 						className="pk-statusbar-item pk-tone-warning"
 						data-testid="workspace-state-unverified"
