@@ -473,6 +473,8 @@ If the workspace is stopped because the student stopped it by hand, the platform
 
 Loading skeletons appear only while the workspace is connecting, starting or reopening tabs; a stopped or failed workspace shows a plain message in the side panes instead. If the workspace failed to start, the work area offers "Try again", which is the same start request, and "Workspace details", which opens the workspace dialog. The raw error message and code sit under a collapsed "Technical details".
 
+If a start fails while the workspace should run, the worker retries it at most five times, waiting 10 seconds, 30 seconds, 1 minute, 2 minutes and then 5 minutes after each failure. The count is stored on the workspace row (`start_retries`), so a worker restart does not start it over. After the fifth failed retry the workspace stays in error with its message, and the worker logs one warning. The student's Start, Stop or Restart sets the count back to zero, and so does a successful start. Opening the workspace in the browser does not.
+
 Target cold-start performance is defined in the non-functional requirements.
 
 ### 6.4 Disconnect grace period
@@ -525,6 +527,8 @@ If graceful stop does not complete within the configured timeout, the platform m
 A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every controller call the worker makes (creates, starts, stops and maintenance operations) runs in one background runner, at most one call per workspace at a time. Creates, starts and maintenance share a cap of 6 calls at once; stops sit outside the cap, so they never wait behind a slow rebuild (ADR 0034). Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 25 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`.
 
 A stop succeeds when the instance reaches Stopped within the timeout. The controller decides from the instance's state, never from the text of an Incus error, so a stop that races another stop or a shutdown from inside still ends Stopped with no error. Its first state read tolerates any error except not-found, because for about a second of some shutdowns Incus answers the state read itself with HTTP 500 "Invalid PID -1" (Epic 22).
+
+Stop on a workspace in error stops its instance if the instance still runs. The worker sees this in the instance list, moves the workspace to `stopping`, clears the error and stops it as usual. If the instance is already stopped or gone, the workspace stays in error.
 
 A stop or restart confirmation opened while the workspace is changing state keeps its Confirm button disabled and says why, until the workspace settles. The Confirm button stays focusable (`aria-disabled`) and the reason is announced to screen readers.
 
@@ -3556,8 +3560,8 @@ can hold one Incus read open until that process exits.
 An edit that runs without sockets (the hosts line, `hostname`, the
 timezone link) is only waited for: past its timeout it is left until it
 exits or the container stops, and a retried start force-stops the
-container. A start that keeps failing is retried after a wait that
-doubles from 10 seconds to 30 minutes, kept in the worker's memory.
+container. A start that keeps failing is retried at most five times
+(section 6.3).
 
 ### 24.2 Student code is untrusted
 
