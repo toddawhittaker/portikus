@@ -3,10 +3,12 @@ import {
 	CONTROLLER_SHORT_BUDGET_MS,
 	type ControllerErrorCode,
 	CreateInstanceRequest,
+	GROW_BUDGET_MS,
 	GrowVolumesRequest,
 	INSTANCE_CREATE_BUDGET_MS,
 	InstanceName,
 	KeptHomeVolumeName,
+	MAINTENANCE_BUDGET_MS,
 	PreChangeSnapshotName,
 	RebuildInstanceRequest,
 	ResetDockerRequest,
@@ -16,6 +18,8 @@ import {
 	SetLogLevelRequest,
 	StartInstanceRequest,
 	StopInstanceRequest,
+	startBudgetMs,
+	stopBudgetMs,
 	WorkspaceVolumeName,
 } from "@portikus/contracts";
 import {
@@ -33,14 +37,11 @@ import Fastify, {
 	type FastifyRequest,
 } from "fastify";
 import { tokenAuth } from "./auth.js";
-import { SeedBuildBusyError, SeedBuilds } from "./docker-seed.js";
+import { SeedBuildBusyError, type SeedBuildHost, SeedBuilds } from "./docker-seed.js";
 import { type EgressRouteOptions, registerEgressRoutes } from "./egress/routes.js";
+import { VolumeInUseError } from "./host.js";
 import { IncusError } from "./incus.js";
-import {
-	InstanceNotStoppedError,
-	VolumeInUseError,
-	type WorkspaceProvider,
-} from "./provider.js";
+import { InstanceNotStoppedError, type WorkspaceProvider } from "./provider.js";
 
 const ERROR_STATUS: Record<ControllerErrorCode, number> = {
 	BAD_REQUEST: 400,
@@ -104,17 +105,18 @@ export function callerSignal(
 			? Math.min(header, fallbackMs)
 			: fallbackMs;
 	const controller = new AbortController();
-	const timer = setTimeout(
-		() =>
-			controller.abort(new IncusError("TIMEOUT", "the caller's time budget ran out")),
-		budgetMs,
-	);
+	// Fastify logs only on reply, so an operator would otherwise not see why work stopped.
+	const abort = (why: string) => {
+		if (controller.signal.aborted) return;
+		const instance = (request.params as { name?: string } | undefined)?.name;
+		request.log.info({ route: request.routeOptions?.url, instance }, why);
+		controller.abort(new IncusError("TIMEOUT", why));
+	};
+	const timer = setTimeout(() => abort("caller budget ran out"), budgetMs);
 	timer.unref();
 	reply.raw.once("close", () => {
 		clearTimeout(timer);
-		if (!reply.raw.writableEnded) {
-			controller.abort(new IncusError("TIMEOUT", "the caller hung up"));
-		}
+		if (!reply.raw.writableEnded) abort("caller hung up");
 	});
 	return controller.signal;
 }
@@ -135,8 +137,8 @@ interface ServerOptions {
 	logger?: Logger;
 	/** Where the egress routes meet the root helper; tests point it elsewhere. */
 	egress?: EgressRouteOptions;
-	/** The seed build runner; tests pass their own. */
-	seedBuilds?: SeedBuilds;
+	/** Where a Docker seed is built. */
+	seedHost: SeedBuildHost;
 }
 
 export function buildServer(opts: ServerOptions): FastifyInstance {
@@ -286,7 +288,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			const status = result.created ? 201 : 200;
 			return reply.code(status).send(result);
 		} catch (err) {
-			return sendError(reply, signal.aborted ? signal.reason : err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -296,19 +298,24 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		const body = parseOr400(StartInstanceRequest, request.body ?? {}, reply);
 		if (body === null) return reply;
 		const started = Date.now();
+		const signal = callerSignal(request, reply, startBudgetMs(body.timeoutSeconds));
 		try {
-			const result = await singleFlight(`start:${params.name}`, undefined, () =>
-				provider.start(params.name, {
-					timeoutSeconds: body.timeoutSeconds,
-					agentToken: body.agentToken,
-					hostname: body.hostname,
-					previewHostSuffix: body.previewHostSuffix,
-					timezone: body.timezone,
-					dockerGiB: body.dockerGiB,
-					recoveryGiB: body.recoveryGiB,
-					cpuAllowance: body.cpuAllowance,
-					docker: body.docker,
-				}),
+			const result = await singleFlight(`start:${params.name}`, signal, (shared) =>
+				provider.start(
+					params.name,
+					{
+						timeoutSeconds: body.timeoutSeconds,
+						agentToken: body.agentToken,
+						hostname: body.hostname,
+						previewHostSuffix: body.previewHostSuffix,
+						timezone: body.timezone,
+						dockerGiB: body.dockerGiB,
+						recoveryGiB: body.recoveryGiB,
+						cpuAllowance: body.cpuAllowance,
+						docker: body.docker,
+					},
+					shared,
+				),
 			);
 			request.log.info(
 				{ instance: params.name, durationMs: Date.now() - started },
@@ -316,7 +323,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -326,11 +333,10 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		const body = parseOr400(StopInstanceRequest, request.body ?? {}, reply);
 		if (body === null) return reply;
 		const started = Date.now();
+		const signal = callerSignal(request, reply, stopBudgetMs(body.timeoutSeconds));
 		try {
-			const result = await singleFlight(`stop:${params.name}`, undefined, () =>
-				provider.stop(params.name, {
-					timeoutSeconds: body.timeoutSeconds,
-				}),
+			const result = await singleFlight(`stop:${params.name}`, signal, (shared) =>
+				provider.stop(params.name, { timeoutSeconds: body.timeoutSeconds }, shared),
 			);
 			request.log.info(
 				{
@@ -342,7 +348,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -354,9 +360,10 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		const body = parseOr400(ResetDockerRequest, request.body ?? {}, reply);
 		if (body === null) return reply;
 		const started = Date.now();
+		const signal = callerSignal(request, reply, MAINTENANCE_BUDGET_MS);
 		try {
-			await singleFlight(`reset-docker:${params.name}`, undefined, () =>
-				provider.resetDocker(params.name, { dockerGiB: body.dockerGiB }),
+			await singleFlight(`reset-docker:${params.name}`, signal, (shared) =>
+				provider.resetDocker(params.name, { dockerGiB: body.dockerGiB }, shared),
 			);
 			request.log.info(
 				{ instance: params.name, durationMs: Date.now() - started },
@@ -364,7 +371,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(204).send();
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -374,9 +381,10 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		const body = parseOr400(RebuildInstanceRequest, request.body ?? {}, reply);
 		if (body === null) return reply;
 		const started = Date.now();
+		const signal = callerSignal(request, reply, MAINTENANCE_BUDGET_MS);
 		try {
-			const result = await singleFlight(`rebuild:${params.name}`, undefined, () =>
-				provider.rebuild(params.name, body),
+			const result = await singleFlight(`rebuild:${params.name}`, signal, (shared) =>
+				provider.rebuild(params.name, body, shared),
 			);
 			request.log.info(
 				{
@@ -388,7 +396,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -432,7 +440,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(200).send({ processes });
 		} catch (err) {
-			return sendError(reply, signal.aborted ? signal.reason : err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -542,17 +550,18 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		if (!validName(params.name, reply)) return reply;
 		const body = parseOr400(GrowVolumesRequest, request.body ?? {}, reply);
 		if (body === null) return reply;
+		const signal = callerSignal(request, reply, GROW_BUDGET_MS);
 		try {
-			const result = await provider.growVolumes(params.name, body);
+			const result = await provider.growVolumes(params.name, body, signal);
 			request.log.info({ instance: params.name, ...result }, "volumes grown");
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, err, signal);
 		}
 	});
 
 	// The Docker seed: one build at a time, polled by the worker.
-	const seedBuilds = opts.seedBuilds ?? new SeedBuilds(provider, rootLogger);
+	const seedBuilds = new SeedBuilds(opts.seedHost, rootLogger);
 
 	app.post("/docker-seed/builds", async (request, reply) => {
 		const body = parseOr400(SeedBuildRequest, request.body, reply);
@@ -593,7 +602,10 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 function sendError(
 	reply: { code: (n: number) => { send: (b: unknown) => unknown } },
 	err: unknown,
+	signal?: AbortSignal,
 ): unknown {
+	// Once the caller's deadline has passed, its reason (a TIMEOUT) is the answer, not the side effect.
+	if (signal?.aborted) err = signal.reason;
 	if (
 		err instanceof InstanceNotStoppedError ||
 		err instanceof VolumeInUseError ||

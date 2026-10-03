@@ -163,7 +163,7 @@ test("setting the same end twice in a row is announced both times", async () => 
 
 test("the status region is the same node when the section goes, so nothing remounts", () => {
 	stubKeepRunning();
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	const held = { ...WORKSPACE, keepRunningMaxHours: 0, keepRunningUntil: inHours(1) };
 	const view = (workspace: Workspace) => (
 		<QueryClientProvider client={client}>

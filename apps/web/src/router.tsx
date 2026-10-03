@@ -309,7 +309,6 @@ function ProjectScreen() {
 			openPath={open}
 			openLine={line}
 			openPreviewPort={preview}
-			onSessionEnded={() => router.navigate({ to: "/session-ended" })}
 		/>
 	);
 }

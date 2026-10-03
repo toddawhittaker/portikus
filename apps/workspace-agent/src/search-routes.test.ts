@@ -27,7 +27,7 @@ vi.mock("./search.js", () => ({
 	),
 }));
 
-const { registerSearchRoutes } = await import("./search-routes.js");
+const { searchRoutes } = await import("./search-routes.js");
 
 let app: FastifyInstance | null = null;
 
@@ -39,7 +39,7 @@ afterEach(async () => {
 
 async function build(): Promise<FastifyInstance> {
 	app = Fastify();
-	registerSearchRoutes(app, "/nowhere");
+	await app.register(searchRoutes, { homeDir: "/nowhere" });
 	await app.ready();
 	return app;
 }

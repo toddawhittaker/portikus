@@ -16,19 +16,22 @@ import {
 	vi,
 } from "vitest";
 import { type WebSocket, WebSocketServer } from "ws";
-import { IncusClient } from "./incus.js";
+import { SEED_INFO_KEY, VolumeInUseError } from "./host.js";
+import { IncusClient, IncusError } from "./incus.js";
 import {
-	AGENT_HEALTH_TIMEOUT_MS,
+	incusError,
+	readBody,
+	respond,
+	runningWithAddress,
+	sync,
+} from "./incus-test-http.js";
+import {
 	INSTANCE_CREATE_WAIT_SECONDS,
 	IncusWorkspaceProvider,
 	InstanceNotStoppedError,
-	SEED_BUILD_VOLUME,
-	SEED_BUILDER,
-	SEED_INFO_KEY,
-	SEED_OLD_VOLUME,
 	VOLUME_CREATE_TIMEOUT_MS,
-	VolumeInUseError,
 } from "./provider.js";
+import { AGENT_HEALTH_TIMEOUT_MS } from "./start-setup.js";
 
 let socketPath: string;
 let server: http.Server;
@@ -51,40 +54,6 @@ afterAll(async () => {
 		server.close((err) => (err ? reject(err) : resolve())),
 	);
 });
-
-function respond(res: http.ServerResponse, status: number, body: unknown): void {
-	// Incus sends an ETag on every instance read; the start's allowance check needs one.
-	res.writeHead(status, { "Content-Type": "application/json", ETag: '"e1"' });
-	res.end(JSON.stringify(body));
-}
-
-function readBody(req: http.IncomingMessage): Promise<string> {
-	return new Promise((resolve) => {
-		const chunks: Buffer[] = [];
-		req.on("data", (c: Buffer) => chunks.push(c));
-		req.on("end", () => resolve(Buffer.concat(chunks).toString()));
-	});
-}
-
-function runningWithAddress(address: string) {
-	return {
-		status: "Running",
-		network: {
-			eth0: {
-				addresses: [{ family: "inet", address, scope: "global" }],
-			},
-		},
-	};
-}
-
-function sync(metadata: unknown) {
-	return {
-		type: "sync",
-		status: "Success",
-		status_code: 200,
-		metadata,
-	};
-}
 
 const AGENT_TOKEN = "a".repeat(64);
 
@@ -123,6 +92,9 @@ afterEach(() => {
 });
 
 let provider: IncusWorkspaceProvider;
+
+/** What an aborted call rejects with, so the worker answers 504 TIMEOUT, not 500. */
+const TIMED_OUT = { name: "IncusError", code: "TIMEOUT" };
 let statusPath: string;
 
 beforeEach(() => {
@@ -1093,16 +1065,6 @@ function fakeIncus(): FakeIncus {
 		log: [],
 		instanceCreates: [],
 	};
-}
-
-function incusError(res: http.ServerResponse, code: number, error: string): void {
-	respond(res, code, {
-		type: "error",
-		status: "Failure",
-		status_code: code,
-		error,
-		error_code: code,
-	});
 }
 
 /** Run the real in-container hosts edit against the fake's /etc/hosts. */
@@ -2734,6 +2696,8 @@ describe("the Docker seed", () => {
 		spy.mockRestore();
 	});
 
+	const CREATE_LEFT = new IncusError("TIMEOUT", "caller left");
+
 	/** Abort the create just before the request whose body names `volume`. */
 	function abortAt(ac: AbortController, match: (body: unknown) => boolean) {
 		const real = IncusClient.prototype.request;
@@ -2741,7 +2705,7 @@ describe("the Docker seed", () => {
 			this: IncusClient,
 			...args
 		) {
-			if (match(args[2])) ac.abort(new Error("caller left"));
+			if (match(args[2])) ac.abort(CREATE_LEFT);
 			return real.apply(this, args);
 		});
 	}
@@ -2754,7 +2718,9 @@ describe("the Docker seed", () => {
 			ac,
 			(b) => (b as { name?: string } | undefined)?.name === "ws-test-recovery",
 		);
-		await expect(provider.create("ws-test", SIZES, ac.signal)).rejects.toBeDefined();
+		await expect(provider.create("ws-test", SIZES, ac.signal)).rejects.toMatchObject(
+			TIMED_OUT,
+		);
 		spy.mockRestore();
 		expect(state.instanceCreates).toEqual([]);
 	});
@@ -2767,7 +2733,9 @@ describe("the Docker seed", () => {
 			ac,
 			(b) => (b as { source?: unknown } | undefined)?.source !== undefined,
 		);
-		await expect(provider.create("ws-test", SIZES, ac.signal)).rejects.toBeDefined();
+		await expect(provider.create("ws-test", SIZES, ac.signal)).rejects.toMatchObject(
+			TIMED_OUT,
+		);
 		const bodies = spy.mock.calls.map(
 			(c) => c[2] as { name?: string; source?: unknown },
 		);
@@ -3008,238 +2976,194 @@ describe("the Docker seed", () => {
 	});
 });
 
-describe("the seed builder", () => {
-	interface Builder {
-		log: string[];
-		bodies: Map<string, unknown[]>;
-		exists: boolean;
-		volumes: Set<string>;
-		usedBy: string[];
-		used: number;
-		/** A volume whose rename Incus refuses. */
-		failRename?: string;
+// Once the caller has gone, nothing more is sent to Incus (SPEC.md 25.3, ADR 0034).
+describe("the caller's deadline on lifecycle calls", () => {
+	const CALLER_LEFT = new IncusError("TIMEOUT", "caller left");
+
+	/** Abort `ac` just before the first request `match` picks, then send it as normal. */
+	function abortAt(
+		ac: AbortController,
+		match: (method: string, path: string) => boolean,
+	) {
+		const real = IncusClient.prototype.request;
+		return vi.spyOn(IncusClient.prototype, "request").mockImplementation(function (
+			this: IncusClient,
+			...args
+		) {
+			if (match(args[0], args[1])) ac.abort(CALLER_LEFT);
+			return real.apply(this, args);
+		});
 	}
 
-	function serveBuilder(): Builder {
-		const b: Builder = {
-			log: [],
-			bodies: new Map(),
-			exists: false,
-			volumes: new Set(),
-			usedBy: [],
-			used: 3 * 1024 ** 3,
-		};
-		const vol = "/1.0/storage-pools/mypool/volumes/custom";
+	test("a stop whose caller left during the graceful stop still sends the forced stop", async () => {
+		const puts: Array<{ force?: boolean }> = [];
+		const inner = stopsFail("Stopped", puts);
+		const ac = new AbortController();
 		handler = async (req, res) => {
-			const body = await readBody(req);
-			const url = new URL(req.url ?? "/", "http://incus");
-			const p = url.pathname;
-			const m = req.method ?? "";
-			const key = `${m} ${p}${p.endsWith("/files") ? `?${url.searchParams.get("path")}` : ""}`;
-			b.log.push(key);
-			if (body && !p.endsWith("/files")) {
-				b.bodies.set(key, [...(b.bodies.get(key) ?? []), JSON.parse(body)]);
-			}
-			const inst = `/1.0/instances/${SEED_BUILDER}`;
-			const notFound = () => incusError(res, 404, "not found");
-			if (p === "/1.0/instances" && m === "POST") {
-				b.exists = true;
-				respond(res, 200, sync({}));
-			} else if (p === inst && m === "DELETE") {
-				if (!b.exists) return notFound();
-				b.exists = false;
-				respond(res, 200, sync({}));
-			} else if (p === `${inst}/state` && m === "PUT") {
-				if (!b.exists) return notFound();
-				respond(res, 200, sync({}));
-			} else if (p === `${inst}/state` && m === "GET") {
-				respond(res, 200, sync(runningWithAddress("10.200.0.50")));
-			} else if (p === `${inst}/exec`) {
-				respond(res, 200, sync({ metadata: { return: 0 } }));
-			} else if (p === `${inst}/files` && (m === "GET" || m === "HEAD")) {
-				if (url.searchParams.get("path") !== "/etc/docker") return notFound();
-				res.writeHead(200, { "X-Incus-type": "directory" });
-				res.end("");
-			} else if (p === `${inst}/files`) {
-				if (m === "DELETE") return notFound();
-				respond(res, 200, sync({}));
-			} else if (p === vol && m === "POST") {
-				b.volumes.add(JSON.parse(body).name);
-				respond(res, 200, sync({}));
-			} else if (p.startsWith(`${vol}/`)) {
-				const rest = decodeURIComponent(p.slice(vol.length + 1));
-				const name = rest.replace(/\/state$/, "");
-				if (!b.volumes.has(name)) return notFound();
-				if (rest.endsWith("/state")) {
-					respond(res, 200, sync({ usage: { used: b.used } }));
-				} else if (m === "GET") {
-					respond(res, 200, sync({ name, config: {}, used_by: b.usedBy }));
-				} else if (m === "DELETE") {
-					b.volumes.delete(name);
-					respond(res, 200, sync({}));
-				} else if (m === "POST") {
-					if (name === b.failRename) return incusError(res, 500, "rename failed");
-					b.volumes.delete(name);
-					b.volumes.add(JSON.parse(body).name);
-					respond(res, 200, sync({}));
-				} else {
-					respond(res, 200, sync({}));
+			if (req.method === "PUT") ac.abort(CALLER_LEFT);
+			await inner(req, res);
+		};
+		const result = await provider.stop("ws-test", { timeoutSeconds: 5 }, ac.signal);
+		expect(result.forced).toBe(true);
+		expect(puts.map((p) => p.force)).toEqual([false, true]);
+	});
+
+	test("a stop whose caller left before the graceful stop sends nothing", async () => {
+		const puts: Array<{ force?: boolean }> = [];
+		handler = stopsFail("Stopped", puts);
+		const ac = new AbortController();
+		ac.abort(CALLER_LEFT);
+		await expect(
+			provider.stop("ws-test", { timeoutSeconds: 5 }, ac.signal),
+		).rejects.toMatchObject(TIMED_OUT);
+		expect(puts).toEqual([]);
+	});
+
+	test("an aborted Docker reset makes no new volume", async () => {
+		const state = fakeIncus();
+		serveIncus(state);
+		const ac = new AbortController();
+		const spy = abortAt(ac, (method) => method === "DELETE");
+		await expect(
+			provider.resetDocker("ws-test", { dockerGiB: 20 }, ac.signal),
+		).rejects.toMatchObject(TIMED_OUT);
+		spy.mockRestore();
+		expect(state.createdVolumes).toEqual([]);
+		expect(state.patches).toEqual([]);
+	});
+
+	test("an aborted rebuild sends no rebuild request", async () => {
+		const state = fakeIncus();
+		serveIncus(state);
+		const ac = new AbortController();
+		const spy = abortAt(ac, (method) => method === "DELETE");
+		await expect(
+			provider.rebuild("ws-test", { resetDocker: true, dockerGiB: 20 }, ac.signal),
+		).rejects.toMatchObject(TIMED_OUT);
+		spy.mockRestore();
+		expect(state.rebuilds).toEqual([]);
+		expect(state.createdVolumes).toEqual([]);
+	});
+
+	test("every Incus request in a rebuild carries the caller's signal", async () => {
+		serveIncus(fakeIncus());
+		const spy = vi.spyOn(IncusClient.prototype, "request");
+		const get = vi.spyOn(IncusClient.prototype, "getWithEtag");
+		const put = vi.spyOn(IncusClient.prototype, "putIfMatch");
+		const ac = new AbortController();
+		await provider.rebuild("ws-test", { resetDocker: true, dockerGiB: 20 }, ac.signal);
+		expect(spy.mock.calls.length).toBeGreaterThan(3);
+		for (const call of spy.mock.calls) {
+			expect(call[3], `${call[0]} ${call[1]}`).toBe(ac.signal);
+		}
+		// The Docker device detach reads and writes the instance by ETag.
+		expect(get).toHaveBeenCalled();
+		expect(put).toHaveBeenCalled();
+		for (const call of get.mock.calls)
+			expect(call[1], `GET ${call[0]}`).toBe(ac.signal);
+		for (const call of put.mock.calls)
+			expect(call[3], `PUT ${call[0]}`).toBe(ac.signal);
+		spy.mockRestore();
+		get.mockRestore();
+		put.mockRestore();
+	});
+
+	test("an aborted start writes no file and never starts the instance", async () => {
+		const state = fakeIncus();
+		serveIncus(state);
+		const ac = new AbortController();
+		const spy = abortAt(ac, (m, p) => m === "GET" && p === "/1.0/instances/ws-test");
+		await expect(
+			provider.start("ws-test", { ...START, dockerGiB: 20 }, ac.signal),
+		).rejects.toMatchObject(TIMED_OUT);
+		spy.mockRestore();
+		expect(state.fileOps).toEqual([]);
+		expect(state.status).toBe("Stopped");
+	});
+
+	test("a start whose caller left after the start request still finishes its setup", async () => {
+		const state = fakeIncus();
+		const ca = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ca-")), "ca.crt");
+		fs.writeFileSync(ca, "CERT\n");
+		const { logger, lines } = collectingLogger();
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			ghcrCaPath: ca,
+			logger,
+		});
+		serveIncus(state);
+		const ac = new AbortController();
+		const spy = abortAt(
+			ac,
+			(m, p) => m === "PUT" && p === "/1.0/instances/ws-test/state",
+		);
+		const before = agentRequests;
+		const result = await own.start(
+			"ws-test",
+			{ ...START, recoveryGiB: 3, docker: { hubMirror: true, ghcr: true } },
+			ac.signal,
+		);
+		spy.mockRestore();
+		expect(ac.signal.aborted).toBe(true);
+		expect(result.ipv4).toBe("127.0.0.1");
+		expect(state.execs.some((c) => c.includes("/etc/localtime"))).toBe(true);
+		expect(state.files.get("/etc/hosts")?.content).toMatch(/ ghcr\.io /);
+		expect(state.execs).toContainEqual([
+			"chown",
+			"1000:1000",
+			"/var/lib/portikus/recovery",
+		]);
+		expect(state.execs).toContainEqual(["chmod", "0700", "/var/lib/portikus/recovery"]);
+		expect(agentRequests).toBeGreaterThan(before);
+		expect(lines.some((l) => String(l.msg).includes("after the caller left"))).toBe(
+			true,
+		);
+	});
+
+	test("a start aborted during the Docker settings writes nothing more and never starts", async () => {
+		const state = fakeIncus();
+		const { logger, lines } = collectingLogger();
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			logger,
+		});
+		serveIncus(state);
+		const ac = new AbortController();
+		const real = IncusClient.prototype.pushFile;
+		let opsAtAbort = -1;
+		const spy = vi
+			.spyOn(IncusClient.prototype, "pushFile")
+			.mockImplementation(function (this: IncusClient, ...args) {
+				if (opsAtAbort < 0) {
+					opsAtAbort = state.fileOps.length;
+					ac.abort(CALLER_LEFT);
 				}
-			} else if (p === "/1.0/images/aliases/portikus") {
-				respond(res, 200, sync({ target: "fp1" }));
-			} else if (p === "/1.0/images/fp1") {
-				respond(res, 200, sync({ properties: { serial: "2026.09.15" } }));
-			} else {
-				incusError(res, 404, `unexpected ${m} ${p}`);
-			}
-		};
-		return b;
-	}
-
-	test("the builder is an ordinary workspace container with only a fresh Docker volume", async () => {
-		const b = serveBuilder();
-		await provider.prepareSeedBuilder({ maxBytes: 8 * 1024 ** 3, ghcr: false });
-		const [create] = (b.bodies.get("POST /1.0/instances") ?? []) as Array<
-			Record<string, unknown>
-		>;
-		expect(create).toEqual({
-			name: SEED_BUILDER,
-			source: { type: "image", alias: "portikus" },
-			profiles: ["workspace"],
-			devices: {
-				docker: {
-					type: "disk",
-					pool: "mypool",
-					source: SEED_BUILD_VOLUME,
-					path: "/var/lib/docker",
-				},
-			},
-		});
-		// Nothing loosens the profile: no privileged or nesting keys of its own.
-		expect(create).not.toHaveProperty("config");
-		const [volume] =
-			b.bodies.get("POST /1.0/storage-pools/mypool/volumes/custom") ?? [];
-		// Shifted before the builder writes, so copies show real owners, not nobody.
-		expect(volume).toEqual({
-			name: SEED_BUILD_VOLUME,
-			config: { size: "9GiB", "security.shifted": "true" },
-		});
-	});
-
-	test("the builder gets the Hub mirror before it starts, and dockerd must answer", async () => {
-		const b = serveBuilder();
-		await provider.prepareSeedBuilder({ maxBytes: 8 * 1024 ** 3, ghcr: false });
-		const push = b.log.indexOf(
-			`POST /1.0/instances/${SEED_BUILDER}/files?/etc/docker/daemon.json`,
-		);
-		const start = b.log.indexOf(`PUT /1.0/instances/${SEED_BUILDER}/state`, 2);
-		expect(push).toBeGreaterThan(0);
-		expect(push).toBeLessThan(start);
-		const execs = b.bodies.get(`POST /1.0/instances/${SEED_BUILDER}/exec`) as Array<{
-			command: string[];
-		}>;
-		expect(execs.at(-1)?.command).toEqual(["/usr/bin/docker", "info"]);
-	});
-
-	test("a builder left by an earlier build is removed first", async () => {
-		const b = serveBuilder();
-		b.exists = true;
-		b.volumes.add(SEED_BUILD_VOLUME);
-		await provider.prepareSeedBuilder({ maxBytes: 1024 ** 3, ghcr: false });
-		expect(b.log.slice(0, 3)).toEqual([
-			`PUT /1.0/instances/${SEED_BUILDER}/state`,
-			`DELETE /1.0/instances/${SEED_BUILDER}`,
-			`DELETE /1.0/storage-pools/mypool/volumes/custom/${SEED_BUILD_VOLUME}`,
-		]);
-	});
-
-	test("commands run with no shell, one argument each", async () => {
-		const b = serveBuilder();
-		b.exists = true;
-		expect(
-			await provider.execInSeedBuilder(["/usr/bin/docker", "pull", "python:3.12"], 60),
-		).toBe(0);
-		const [exec] = b.bodies.get(`POST /1.0/instances/${SEED_BUILDER}/exec`) as Array<{
-			command: string[];
-		}>;
-		expect(exec?.command).toEqual(["/usr/bin/docker", "pull", "python:3.12"]);
-	});
-
-	test("finish measures the volume, then stops and deletes the builder", async () => {
-		const b = serveBuilder();
-		b.exists = true;
-		b.volumes.add(SEED_BUILD_VOLUME);
-		expect(await provider.finishSeedBuilder()).toBe(3 * 1024 ** 3);
-		const measured = b.log.indexOf(
-			`GET /1.0/storage-pools/mypool/volumes/custom/${SEED_BUILD_VOLUME}/state`,
-		);
-		expect(measured).toBe(0);
-		expect(b.exists).toBe(false);
-	});
-
-	test("install puts the old seed back when the new one cannot take its name (F5)", async () => {
-		const b = serveBuilder();
-		b.volumes.add(SEED_BUILD_VOLUME);
-		b.volumes.add("portikus-docker-seed");
-		b.failRename = SEED_BUILD_VOLUME;
+				return real.apply(this, args);
+			});
 		await expect(
-			provider.installSeed({
-				images: ["node:22"],
-				sizeBytes: 5,
-				imageVersion: "x",
-				builtAt: "2026-09-30T12:00:00.000Z",
-			}),
-		).rejects.toThrow();
-		expect(b.volumes.has("portikus-docker-seed")).toBe(true);
-		expect(b.volumes.has(SEED_OLD_VOLUME)).toBe(false);
-	});
-
-	test("install stores its info on the volume and swaps it in for the old seed", async () => {
-		const b = serveBuilder();
-		b.volumes.add(SEED_BUILD_VOLUME);
-		b.volumes.add("portikus-docker-seed");
-		const info = {
-			images: ["node:22"],
-			sizeBytes: 5,
-			imageVersion: "2026.09.15",
-			builtAt: "2026-09-30T12:00:00.000Z",
-		};
-		await provider.installSeed(info);
-		const [patch] = b.bodies.get(
-			`PATCH /1.0/storage-pools/mypool/volumes/custom/${SEED_BUILD_VOLUME}`,
-		) as Array<{ config: Record<string, string> }>;
-		expect(JSON.parse(patch?.config[SEED_INFO_KEY] ?? "")).toEqual(info);
-		expect([...b.volumes]).toEqual(["portikus-docker-seed"]);
-		const renames = b.log.filter((l) => l.startsWith("POST /1.0/storage-pools"));
-		expect(renames).toEqual([
-			"POST /1.0/storage-pools/mypool/volumes/custom/portikus-docker-seed",
-			`POST /1.0/storage-pools/mypool/volumes/custom/${SEED_BUILD_VOLUME}`,
-		]);
-		expect(b.log.at(-1)).toBe(
-			`DELETE /1.0/storage-pools/mypool/volumes/custom/${SEED_OLD_VOLUME}`,
-		);
-	});
-
-	test("install refuses a build volume anything still uses (S4)", async () => {
-		const b = serveBuilder();
-		b.volumes.add(SEED_BUILD_VOLUME);
-		b.volumes.add("portikus-docker-seed");
-		b.usedBy = [`/1.0/instances/${SEED_BUILDER}`];
-		await expect(
-			provider.installSeed({
-				images: ["node:22"],
-				sizeBytes: 5,
-				imageVersion: "x",
-				builtAt: "2026-09-30T12:00:00.000Z",
-			}),
-		).rejects.toBeInstanceOf(VolumeInUseError);
-		expect(b.log.some((l) => l.startsWith("PATCH") || l.startsWith("POST"))).toBe(
+			own.start(
+				"ws-test",
+				{ ...START, docker: { hubMirror: true, ghcr: false } },
+				ac.signal,
+			),
+		).rejects.toMatchObject(TIMED_OUT);
+		spy.mockRestore();
+		await new Promise((r) => setTimeout(r, 50));
+		expect(opsAtAbort).toBeGreaterThanOrEqual(0);
+		expect(state.fileOps.length).toBe(opsAtAbort);
+		expect(state.log).not.toContain("PUT /1.0/instances/ws-test/state");
+		expect(lines.some((l) => String(l.msg).includes("starting without them"))).toBe(
 			false,
 		);
-	});
-
-	test("the image version is the default image's serial", async () => {
-		serveBuilder();
-		expect(await provider.seedImageVersion()).toBe("2026.09.15");
 	});
 });

@@ -2,8 +2,12 @@ import * as http from "node:http";
 import {
 	CONTROLLER_BUDGET_HEADER,
 	EGRESS_HELPER_TIMEOUT_MS,
+	GROW_BUDGET_MS,
 	INSTANCE_CREATE_BUDGET_MS,
 	INSTANCE_CREATE_WAIT_SECONDS,
+	MAINTENANCE_BUDGET_MS,
+	startBudgetMs,
+	stopBudgetMs,
 } from "@portikus/contracts";
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 import {
@@ -168,7 +172,8 @@ test("each call has its budget and sends it to the controller", async () => {
 	const cases: Array<[string, () => Promise<unknown>, number]> = [
 		["list", () => client.list(), 30_000],
 		["setLogLevel", () => client.setLogLevel("info"), 30_000],
-		["start", () => client.start("ws-a", req), 90_000],
+		["start", () => client.start("ws-a", req), startBudgetMs(req.timeoutSeconds)],
+		["stop", () => client.stop("ws-a", 30), stopBudgetMs(30)],
 		[
 			"create",
 			() => client.create({ name: "ws-a", homeGiB: 1, dockerGiB: 1, recoveryGiB: 1 }),
@@ -177,9 +182,13 @@ test("each call has its budget and sends it to the controller", async () => {
 		[
 			"rebuild",
 			() => client.rebuild("ws-a", { resetDocker: false, dockerGiB: 1 }),
-			900_000,
+			MAINTENANCE_BUDGET_MS,
 		],
-		["resetDocker", () => client.resetDocker("ws-a", { dockerGiB: 1 }), 900_000],
+		[
+			"resetDocker",
+			() => client.resetDocker("ws-a", { dockerGiB: 1 }),
+			MAINTENANCE_BUDGET_MS,
+		],
 		["hostSnapshot", () => client.hostSnapshot(), 30_000],
 		["usage", () => client.usage(), 30_000],
 		["setCpuAllowance", () => client.setCpuAllowance("ws-a", null), 30_000],
@@ -187,7 +196,7 @@ test("each call has its budget and sends it to the controller", async () => {
 		[
 			"growVolumes",
 			() => client.growVolumes("ws-a", { homeGiB: 1, dockerGiB: 1 }),
-			300_000,
+			GROW_BUDGET_MS,
 		],
 	];
 	for (const [name, call, budgetMs] of cases) {

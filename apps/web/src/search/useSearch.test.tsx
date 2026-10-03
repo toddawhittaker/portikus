@@ -19,7 +19,7 @@ afterEach(() => {
 
 /** Render one probe with its own query client, and allow a rerender. */
 function renderProbe(ui: ReactElement) {
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	const view = render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 	return {
 		rerender: (next: ReactElement) =>

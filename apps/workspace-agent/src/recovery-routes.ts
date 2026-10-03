@@ -31,10 +31,10 @@ function badRequest() {
 	return { error: { code: "BAD_REQUEST", message: "invalid recovery point request" } };
 }
 
-export function registerRecoveryRoutes(
+export async function recoveryRoutes(
 	instance: FastifyInstance,
 	paths: RecoveryPaths,
-): void {
+): Promise<void> {
 	const locks = new RecoveryLocks();
 
 	instance.post("/projects/:slug/recovery-points", async (request, reply) => {

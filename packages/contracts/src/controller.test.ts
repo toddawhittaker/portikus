@@ -3,13 +3,17 @@ import {
 	ControllerError,
 	CpuAllowance,
 	DebianPackageName,
+	GROW_BUDGET_MS,
 	InstanceUsage,
 	InstanceUsageResponse,
 	KeptHomeVolumeName,
+	MAINTENANCE_BUDGET_MS,
 	PreChangeSnapshotName,
 	SetCpuAllowanceRequest,
 	SetInstanceLimitsRequest,
 	StartInstanceRequest,
+	startBudgetMs,
+	stopBudgetMs,
 	WorkspaceVolumeName,
 } from "./controller.js";
 
@@ -178,4 +182,11 @@ describe("the admin-operations controller contracts (SPEC.md §19.3, §20.1)", (
 			StartInstanceRequest.safeParse({ ...start, cpuAllowance: "50%" }).success,
 		).toBe(false);
 	});
+});
+
+test("the controller call budgets keep their values (ADR 0034)", () => {
+	expect(startBudgetMs(60)).toBe(90_000);
+	expect(stopBudgetMs(30)).toBe(85_000);
+	expect(MAINTENANCE_BUDGET_MS).toBe(900_000);
+	expect(GROW_BUDGET_MS).toBe(300_000);
 });

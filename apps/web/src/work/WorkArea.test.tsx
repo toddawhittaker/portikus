@@ -12,7 +12,7 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { WorkArea } from "./WorkArea";
 
-vi.mock("../TerminalPane", () => ({
+vi.mock("../terminal/TerminalPane", () => ({
 	TerminalPane: ({
 		terminal,
 		focusOnMount,
@@ -130,7 +130,6 @@ function renderArea(props: { openPath?: string; openLine?: number } = {}) {
 					workspaceId={WORKSPACE}
 					projectId={PROJECT}
 					projectPath="~/projects/todo-api"
-					onSessionEnded={vi.fn()}
 					{...props}
 				/>
 			</ToastProvider>

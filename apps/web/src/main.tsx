@@ -4,6 +4,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createQueryClient } from "./api/queryClient.js";
+import { setSessionEndedHandler } from "./api/sessionEnded.js";
 import "./app.css";
 import { recordNotification } from "./notifications/queries.js";
 import { router } from "./router.js";
@@ -26,9 +27,10 @@ window.addEventListener("load", () => clearStaleChunkFlag());
 // Before the first paint, so a remembered dark theme does not flash light.
 applyThemePreference(readThemePreference());
 
-const queryClient = createQueryClient(() => {
+setSessionEndedHandler(() => {
 	void router.navigate({ to: "/session-ended" });
 });
+const queryClient = createQueryClient();
 
 createRoot(container).render(
 	<StrictMode>

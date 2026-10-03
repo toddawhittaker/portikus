@@ -1,5 +1,4 @@
 import {
-	CloseCode,
 	MAX_UPLOAD_BYTES,
 	SCROLLBACK_LINES,
 	type Terminal as TerminalMeta,
@@ -13,10 +12,9 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 import { useEffect, useId, useRef, useState } from "react";
-import { wsUrl } from "./api/ws.js";
-import { useScreenReaderMode } from "./editor/settingsQueries.js";
-import { fileErrorToast, tooLargeToast } from "./files/errors.js";
-import { savePastedImage } from "./files/queries.js";
+import { useScreenReaderMode } from "../editor/settingsQueries.js";
+import { fileErrorToast, tooLargeToast } from "../files/errors.js";
+import { savePastedImage } from "../files/queries.js";
 import {
 	canOpenInNewTab,
 	FILE_LINE_PATTERN,
@@ -26,35 +24,18 @@ import {
 	previewRouteFor,
 	type TerminalLink,
 	wrappedUrlsOnRow,
-} from "./links.js";
-import { useProjects } from "./projects/queries.js";
+} from "../links.js";
+import { useProjects } from "../projects/queries.js";
+import { currentPlatform, decide } from "./terminalClipboard.js";
 import {
 	AGENT_UPGRADED_MESSAGE,
-	decodeTerminalFrame,
 	firstNoticeOf,
 	forgetAgentBuild,
 	TERMINAL_GONE_NEXT_STEP,
-	type TerminalFrame,
 	terminalGoneMessage,
 	upgradedAgentNotice,
 } from "./terminalFrames.js";
-import { currentPlatform, decide } from "./work/terminalClipboard.js";
-
-const RECONNECT_MS = 3_000;
-const MAX_RECONNECT_MS = 60_000;
-/** Give up after this many consecutive failed connection attempts. */
-const MAX_RECONNECT_ATTEMPTS = 5;
-/**
- * Close codes that will not get better by retrying: a policy refusal, a frame
- * that was too large, and a server error.
- */
-const FATAL_CLOSE_CODES = new Set<number>([
-	CloseCode.POLICY,
-	1009,
-	CloseCode.SERVER_ERROR,
-]);
-
-type TerminalErrorFrame = Extract<TerminalFrame, { kind: "error" }>;
+import { openTerminalSocket, type TerminalSocket } from "./terminalSocket.js";
 
 /** Quiet time after the pane's last size change before the size is sent. */
 export const RESIZE_SETTLE_MS = 100;
@@ -134,7 +115,6 @@ export interface TerminalPaneProps {
 	visible: boolean;
 	/** The shell exited, or the socket will not come back (SPEC.md §9.7). */
 	onExited: (terminalId: string) => void;
-	onSessionEnded: () => void;
 	/** The agent reported the terminal's current directory (SPEC.md §9.3). */
 	onCwd: (path: string) => void;
 	/** Take the keyboard when this pane first appears. Read at mount only. */
@@ -143,17 +123,6 @@ export interface TerminalPaneProps {
 	onFocus: (terminalId: string) => void;
 	/** Alt+Shift+Q: move focus out of the terminal to the tab strip. */
 	onLeave: () => void;
-}
-
-function socketUrl(
-	workspaceId: string,
-	terminalId: string,
-	cols: number,
-	rows: number,
-): string {
-	return wsUrl(
-		`/workspaces/${workspaceId}/terminals/${terminalId}/ws?cols=${cols}&rows=${rows}`,
-	);
 }
 
 /**
@@ -252,7 +221,6 @@ export function TerminalPane({
 	visible,
 	focusOnMount,
 	onExited,
-	onSessionEnded,
 	onCwd,
 	onFocus,
 	onLeave,
@@ -274,7 +242,6 @@ export function TerminalPane({
 	// render does not tear down the terminal and its socket.
 	const handlers = useRef({
 		onExited,
-		onSessionEnded,
 		onCwd,
 		onFocus,
 		onLeave,
@@ -285,7 +252,6 @@ export function TerminalPane({
 	});
 	handlers.current = {
 		onExited,
-		onSessionEnded,
 		onCwd,
 		onFocus,
 		onLeave,
@@ -475,16 +441,10 @@ export function TerminalPane({
 			},
 		});
 
-		let stopped = false;
-		let socket: WebSocket | null = null;
-		let retry: ReturnType<typeof setTimeout> | undefined;
-		let backoffMs = RECONNECT_MS;
-		let attempts = 0;
+		let channel: TerminalSocket | null = null;
 
 		function send(message: unknown) {
-			if (socket && socket.readyState === WebSocket.OPEN) {
-				socket.send(JSON.stringify(message));
-			}
+			channel?.send(message);
 		}
 
 		function sendInput(data: string) {
@@ -661,13 +621,6 @@ export function TerminalPane({
 		}
 		container.addEventListener("pointerdown", onPointerDown);
 
-		// Stop retrying and tell the user, rather than pretending to be live.
-		function giveUp() {
-			stopped = true;
-			setReconnecting(false);
-			setLost(true);
-		}
-
 		/** Measure the pane and tell the server the size xterm.js now has. */
 		const sendSize = () => {
 			// A pane with no box on screen cannot be measured; keep the last size.
@@ -677,117 +630,63 @@ export function TerminalPane({
 			send({ type: "resize", cols: term.cols, rows: term.rows });
 		};
 
-		function connect() {
-			if (stopped) return;
-			// True once this socket has been told the size the pane really has.
-			let sizeConfirmed = false;
-			const next = new WebSocket(
-				socketUrl(workspaceId, terminalId, term.cols, term.rows),
-			);
-			next.binaryType = "arraybuffer";
-			socket = next;
+		/** The pane is done with this terminal: stop showing it as live and close it. */
+		function ended() {
+			setReconnecting(false);
+			setConnected(false);
+			handlers.current.onExited(terminalId);
+		}
 
-			next.onopen = () => {
-				backoffMs = RECONNECT_MS;
-				attempts = 0;
-				setReconnecting(false);
-				setConnected(true);
-			};
-
-			/** The shell exited: close the pane. */
-			function onExitFrame() {
-				stopped = true;
-				setReconnecting(false);
-				setConnected(false);
-				handlers.current.onExited(terminalId);
-				next.close();
-			}
-
-			function onErrorFrame(frame: TerminalErrorFrame) {
-				if (!frame.reason) {
-					term.writeln(`\r\n[portikus] terminal error: ${frame.code}`);
-					return;
-				}
+		function connect(): TerminalSocket {
+			return openTerminalSocket(workspaceId, terminalId, {
+				size: () => ({ cols: term.cols, rows: term.rows }),
+				onOpen: () => {
+					setReconnecting(false);
+					setConnected(true);
+				},
+				onClose: () => setConnected(false),
+				onReconnecting: () => setReconnecting(true),
+				// Stop retrying and tell the user, rather than pretending to be live.
+				onLost: () => {
+					setReconnecting(false);
+					setLost(true);
+				},
+				onOutput: (bytes) => term.write(bytes),
+				// The size in the connect URL is measured before the pane's box
+				// has settled, and a correction sent in the meantime is lost:
+				// this socket was not open yet, or the workspace agent had not
+				// yet started the PTY. Output means both are ready, so say the
+				// size again. Without this tmux keeps repainting a taller
+				// screen than xterm.js has, which scrolls the shell prompt out
+				// of view and leaves a blank pane (SPEC.md §9.7).
+				onFirstOutput: sendSize,
+				onExit: ended,
 				// The session went with a terminals restart: close the pane
 				// and say why, once per restart (SPEC.md §9.7).
-				stopped = true;
-				setReconnecting(false);
-				setConnected(false);
-				forgetAgentBuild(workspaceId);
-				if (firstNoticeOf(frame.at ?? "")) {
-					handlers.current.toast.show({
-						tone: "warning",
-						title: terminalGoneMessage(frame.reason),
-						children: TERMINAL_GONE_NEXT_STEP,
-					});
-				}
-				handlers.current.onExited(terminalId);
-				next.close();
-			}
-
-			next.onmessage = (event: MessageEvent) => {
-				const frame = decodeTerminalFrame(event.data);
-				switch (frame.kind) {
-					case "output":
-						term.write(frame.bytes);
-						// The size in the connect URL is measured before the pane's box
-						// has settled, and a correction sent in the meantime is lost:
-						// this socket was not open yet, or the workspace agent had not
-						// yet started the PTY. Output means both are ready, so say the
-						// size again. Without this tmux keeps repainting a taller
-						// screen than xterm.js has, which scrolls the shell prompt out
-						// of view and leaves a blank pane (SPEC.md §9.7).
-						if (!sizeConfirmed) {
-							sizeConfirmed = true;
-							sendSize();
-						}
-						return;
-					case "exit":
-						onExitFrame();
-						return;
-					case "cwd":
-						handlers.current.onCwd(frame.path);
-						return;
-					case "screen":
-						alternateScreen = frame.alternate;
-						return;
-					case "clear":
-						// Erase the saved lines only; tmux has already cleared the screen.
-						term.write("\u001b[3J");
-						return;
-					case "agent":
-						if (upgradedAgentNotice(workspaceId, frame.build)) {
-							handlers.current.toast.show({ title: AGENT_UPGRADED_MESSAGE });
-						}
-						return;
-					case "error":
-						onErrorFrame(frame);
-						return;
-				}
-			};
-
-			next.onclose = (event: CloseEvent) => {
-				setConnected(false);
-				if (stopped) return;
-				if (event.code === CloseCode.SESSION_ENDED) {
-					stopped = true;
-					handlers.current.onSessionEnded();
-					return;
-				}
-				if (FATAL_CLOSE_CODES.has(event.code)) {
-					giveUp();
-					return;
-				}
-				attempts++;
-				if (attempts >= MAX_RECONNECT_ATTEMPTS) {
-					giveUp();
-					return;
-				}
-				setReconnecting(true);
-				const wait = backoffMs;
-				backoffMs = Math.min(backoffMs * 2, MAX_RECONNECT_MS);
-				retry = setTimeout(connect, wait);
-			};
+				onGone: (frame) => {
+					forgetAgentBuild(workspaceId);
+					if (firstNoticeOf(frame.at ?? "")) {
+						handlers.current.toast.show({
+							tone: "warning",
+							title: terminalGoneMessage(frame.reason),
+							children: TERMINAL_GONE_NEXT_STEP,
+						});
+					}
+					ended();
+				},
+				onError: (code) => term.writeln(`\r\n[portikus] terminal error: ${code}`),
+				onCwd: (path) => handlers.current.onCwd(path),
+				onScreen: (alternate) => {
+					alternateScreen = alternate;
+				},
+				// Erase the saved lines only; tmux has already cleared the screen.
+				onClear: () => term.write("\u001b[3J"),
+				onAgent: (build) => {
+					if (upgradedAgentNotice(workspaceId, build)) {
+						handlers.current.toast.show({ title: AGENT_UPGRADED_MESSAGE });
+					}
+				},
+			});
 		}
 
 		const input = term.onData((data) => send({ type: "input", data }));
@@ -806,11 +705,10 @@ export function TerminalPane({
 		});
 		observer.observe(container);
 
-		connect();
+		channel = connect();
 
 		return () => {
-			stopped = true;
-			if (retry !== undefined) clearTimeout(retry);
+			channel?.stop();
 			if (settle !== undefined) clearTimeout(settle);
 			observer.disconnect();
 			container.removeEventListener("wheel", onWheel, { capture: true });
@@ -821,7 +719,6 @@ export function TerminalPane({
 			container.removeEventListener("pointerdown", onPointerDown);
 			selection.dispose();
 			input.dispose();
-			socket?.close();
 			term.dispose();
 			xterm.current = null;
 			fit.current = null;

@@ -18,7 +18,7 @@ const noop = () => {};
 /** Renders the screen twice through one provider, to see a phase change. */
 function renderPhases(first: Workspace, second: Workspace) {
 	stubFetch(() => json(503, { code: "AGENT_UNAVAILABLE", message: "no" }));
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	const ui = (workspace: Workspace) => (
 		<QueryClientProvider client={client}>
 			<ToastProvider>

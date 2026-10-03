@@ -9,6 +9,7 @@ import { render } from "@testing-library/react";
 import type * as React from "react";
 import { vi } from "vitest";
 import { createQueryClient } from "./api/queryClient.js";
+import { setSessionEndedHandler } from "./api/sessionEnded.js";
 import { routeTree } from "./router.js";
 
 export const USER = {
@@ -108,9 +109,10 @@ export function renderApp(path: string) {
 		routeTree,
 		history: createMemoryHistory({ initialEntries: [path] }),
 	});
-	const queryClient = createQueryClient(() => {
+	setSessionEndedHandler(() => {
 		void router.navigate({ to: "/session-ended" });
 	});
+	const queryClient = createQueryClient();
 	const { unmount } = render(
 		<QueryClientProvider client={queryClient}>
 			<ToastProvider>
@@ -127,7 +129,9 @@ export function renderApp(path: string) {
  * returned so a test can refetch the way the project events socket does.
  */
 export function renderWithQuery(ui: React.ReactElement): QueryClient {
-	const queryClient = createQueryClient(() => {});
+	// A handler left by an earlier renderApp must not navigate a dead router.
+	setSessionEndedHandler(() => {});
+	const queryClient = createQueryClient();
 	render(
 		<QueryClientProvider client={queryClient}>
 			<ToastProvider>{ui}</ToastProvider>

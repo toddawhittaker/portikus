@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
-import type {
-	GrowVolumesRequest,
-	GrowVolumesResponse,
-	HostSnapshot,
+import {
+	type GrowVolumesRequest,
+	type GrowVolumesResponse,
+	type HostSnapshot,
+	VOLUME_CREATE_TIMEOUT_MS,
 } from "@portikus/contracts";
 import { createHostRateReader } from "./host-rates.js";
 import { type IncusClient, IncusError } from "./incus.js";
@@ -201,6 +202,8 @@ export function parseIncusSize(size: unknown): number | null {
 
 /** On a seeded Docker volume: the GiB added for the seed, kept on top of the quota. */
 export const SEED_SHARE_KEY = "user.portikus.seed-gib";
+/** The seed volume's config key holding its `SeedInfo` as JSON. */
+export const SEED_INFO_KEY = "user.portikus.seed";
 
 /**
  * Grow a workspace's home and Docker volumes (SPEC.md §20.1). Both sizes are
@@ -215,18 +218,22 @@ export async function growVolumes(
 	pool: string,
 	name: string,
 	sizes: GrowVolumesRequest,
+	signal?: AbortSignal,
 ): Promise<GrowVolumesResponse> {
 	const wanted = [
 		{ volume: `${name}-home`, gib: sizes.homeGiB },
 		{ volume: `${name}-docker`, gib: sizes.dockerGiB },
 	];
-	const path = (volume: string) =>
-		`/1.0/storage-pools/${enc(pool)}/volumes/custom/${enc(volume)}`;
 
 	const current: Array<number | null> = [];
 	for (const want of wanted) {
 		const { volume } = want;
-		const info = (await client.request("GET", path(volume))) as {
+		const info = (await client.request(
+			"GET",
+			volumePath(pool, volume),
+			undefined,
+			signal,
+		)) as {
 			config?: Record<string, unknown>;
 		};
 		const share = Number(info.config?.[SEED_SHARE_KEY] ?? 0);
@@ -250,10 +257,83 @@ export async function growVolumes(
 	for (const [i, { volume, gib }] of wanted.entries()) {
 		if (current[i] === gib * 2 ** 30) continue;
 		// PATCH merges into the volume's config, so its volatile keys survive.
-		await client.request("PATCH", path(volume), { config: { size: `${gib}GiB` } });
+		await client.request(
+			"PATCH",
+			volumePath(pool, volume),
+			{ config: { size: `${gib}GiB` } },
+			signal,
+		);
 	}
 
 	return { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
+}
+
+/** Refused because a volume is still attached to an instance; answered 409. */
+export class VolumeInUseError extends IncusError {
+	constructor(volume: string) {
+		super("OPERATION_FAILED", `volume ${volume} is in use`);
+		this.name = "VolumeInUseError";
+	}
+}
+
+export function volumePath(pool: string, volume: string): string {
+	return `/1.0/storage-pools/${enc(pool)}/volumes/custom/${enc(volume)}`;
+}
+
+/** Make a custom volume; one that already exists is left as it is. */
+export async function ensureVolume(
+	client: IncusClient,
+	pool: string,
+	volName: string,
+	sizeGiB: number,
+	extraConfig: Record<string, string> = {},
+	signal?: AbortSignal,
+): Promise<void> {
+	try {
+		await client.request(
+			"POST",
+			`/1.0/storage-pools/${enc(pool)}/volumes/custom`,
+			{
+				name: volName,
+				config: { size: `${sizeGiB}GiB`, ...extraConfig },
+			},
+			signal,
+			undefined,
+			VOLUME_CREATE_TIMEOUT_MS,
+		);
+	} catch (err) {
+		if (err instanceof IncusError && err.code === "ALREADY_EXISTS") {
+			return;
+		}
+		throw err;
+	}
+}
+
+export async function volumeExists(
+	client: IncusClient,
+	pool: string,
+	volume: string,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	try {
+		await client.request("GET", volumePath(pool, volume), undefined, signal);
+		return true;
+	} catch (err) {
+		if (err instanceof IncusError && err.code === "NOT_FOUND") return false;
+		throw err;
+	}
+}
+
+export async function deleteVolumeIfPresent(
+	client: IncusClient,
+	pool: string,
+	volume: string,
+): Promise<void> {
+	try {
+		await client.request("DELETE", volumePath(pool, volume));
+	} catch (err) {
+		if (!(err instanceof IncusError && err.code === "NOT_FOUND")) throw err;
+	}
 }
 
 /**

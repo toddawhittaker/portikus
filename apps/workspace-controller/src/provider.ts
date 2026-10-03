@@ -44,21 +44,35 @@ import {
 	writeDockerConfig,
 	writeGhcrHosts,
 } from "./docker-config.js";
-import type { SeedBuildHost } from "./docker-seed.js";
 import {
+	ensureVolume,
 	growVolumes,
 	parseIncusSize,
-	readCurrentImage,
 	readHostSnapshot,
 	readInactiveFileBytes,
 	readPoolUse,
+	SEED_INFO_KEY,
 	SEED_SHARE_KEY,
+	VolumeInUseError,
+	volumeExists,
+	volumePath,
 } from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
 import { parseIdmap, readInstanceProcesses, readUnitStartTime } from "./processes.js";
+import {
+	prepareRecoveryMount,
+	RECOVERY_PATH,
+	STUDENT_UID,
+	setHostname,
+	setTimezone,
+	waitForAddress,
+	waitForAgent,
+	withCaller,
+	writeStartFiles,
+} from "./start-setup.js";
 
 // jscpd:ignore-start -- the worker's client mirrors this interface across HTTP.
-export interface WorkspaceProvider extends SeedBuildHost {
+export interface WorkspaceProvider {
 	/** The current Docker seed, or null when none is built. */
 	seedInfo(signal?: AbortSignal): Promise<SeedInfo | null>;
 	/** Stops early, making nothing more, once `signal` aborts (ADR 0034). */
@@ -80,21 +94,35 @@ export interface WorkspaceProvider extends SeedBuildHost {
 			cpuAllowance?: string;
 			docker?: WorkspaceDockerConfig;
 		},
+		signal?: AbortSignal,
 	): Promise<StartInstanceResponse>;
-	stop(name: string, opts: { timeoutSeconds: number }): Promise<StopInstanceResponse>;
+	stop(
+		name: string,
+		opts: { timeoutSeconds: number },
+		signal?: AbortSignal,
+	): Promise<StopInstanceResponse>;
 	list(): Promise<InstanceStatus[]>;
 	healthy(): Promise<boolean>;
 	/** Replace the Docker volume with a clean one; the instance must be stopped. */
-	resetDocker(name: string, opts: { dockerGiB: number }): Promise<void>;
+	resetDocker(
+		name: string,
+		opts: { dockerGiB: number },
+		signal?: AbortSignal,
+	): Promise<void>;
 	/** Replace the root filesystem from the current image; the instance must be stopped. */
 	rebuild(
 		name: string,
 		opts: { resetDocker: boolean; dockerGiB: number },
+		signal?: AbortSignal,
 	): Promise<RebuildInstanceResponse>;
 	/** One read-only look at the host for the admin Health tab (SPEC.md §25.6). */
 	hostSnapshot(): Promise<HostSnapshot>;
 	/** Grow the home and Docker volumes; a smaller size is refused (SPEC.md §20.1). */
-	growVolumes(name: string, sizes: GrowVolumesRequest): Promise<GrowVolumesResponse>;
+	growVolumes(
+		name: string,
+		sizes: GrowVolumesRequest,
+		signal?: AbortSignal,
+	): Promise<GrowVolumesResponse>;
 	/** CPU time and memory of every running instance, from Incus (ADR 0032). */
 	usage(): Promise<InstanceUsage[]>;
 	/** Set or, with null, remove `limits.cpu.allowance` (ADR 0032). */
@@ -127,28 +155,14 @@ export class InstanceNotStoppedError extends IncusError {
 	}
 }
 
-/** Refused because a volume is still attached to an instance; answered 409. */
-export class VolumeInUseError extends IncusError {
-	constructor(volume: string) {
-		super("OPERATION_FAILED", `volume ${volume} is in use`);
-		this.name = "VolumeInUseError";
-	}
-}
-
 /** Where the image's apt hook writes the packages the student added. */
 const ADDED_PACKAGES_PATH = "/home/student/.portikus/apt-packages.txt";
 
 /** The most the controller reads of that file. */
 export const ADDED_PACKAGES_MAX_BYTES = 64 * 1024;
 
-/** The image's `student` user and group. */
-const STUDENT_UID = 1000;
-
 /** How long a command the controller runs inside a container may take before `timeout` ends it. */
 const IN_CONTAINER_SECONDS = 10;
-
-/** Where the workspace agent reads its bearer token (ADR 0009). */
-const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
 
 /** A lowercase DNS label; anything else must never reach the container. */
 const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
@@ -157,28 +171,8 @@ const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 const DNS_NAME_PATTERN =
 	/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
 
-/**
- * Shell profile read by every login shell in the container, so a terminal,
- * a template, and a coding agent all see where previews are published
- * (BROWSER-HANDLING.md section 14). It never holds a secret.
- */
-const PROFILE_PATH = "/etc/profile.d/portikus.sh";
-
-/** Where the recovery volume is mounted inside the container (ADR 0020). */
-const RECOVERY_PATH = "/var/lib/portikus/recovery";
-
 /** How long to wait for Incus to replace a root filesystem. */
 const REBUILD_TIMEOUT_SECONDS = 600;
-
-/** The seed volume's config key holding its `SeedInfo` as JSON. */
-export const SEED_INFO_KEY = "user.portikus.seed";
-/** The seed builder container and its Docker volume, while a build runs. */
-export const SEED_BUILDER = "portikus-seed-builder";
-export const SEED_BUILD_VOLUME = "portikus-docker-seed-build";
-/** The previous seed during the swap. */
-export const SEED_OLD_VOLUME = "portikus-docker-seed-old";
-/** How long the builder has to run with dockerd answering. */
-const SEED_BUILDER_START_SECONDS = 120;
 
 /** The Incus key the resource guard throttles with (ADR 0032). */
 const CPU_ALLOWANCE_KEY = "limits.cpu.allowance";
@@ -216,13 +210,6 @@ function assertStopped(name: string, status: string | undefined): void {
 
 // The controller's own timeouts live in @portikus/contracts so the worker's budgets derive from them.
 export { INSTANCE_CREATE_WAIT_SECONDS, VOLUME_CREATE_TIMEOUT_MS };
-
-/**
- * How long the agent has to answer /health once the instance is running. This
- * is its own budget, not the rest of the start timeout, so one broken agent
- * cannot hold the worker's serial start loop for the whole start deadline.
- */
-export const AGENT_HEALTH_TIMEOUT_MS = 15_000;
 
 function validateName(name: string): void {
 	const result = InstanceName.safeParse(name);
@@ -318,9 +305,23 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 		}
 
-		await this.ensureVolume(`${name}-home`, sizes.homeGiB, {}, signal);
+		await ensureVolume(
+			this.client,
+			this.pool,
+			`${name}-home`,
+			sizes.homeGiB,
+			{},
+			signal,
+		);
 		await this.ensureDockerVolume(name, sizes.dockerGiB, signal);
-		await this.ensureVolume(`${name}-recovery`, sizes.recoveryGiB, {}, signal);
+		await ensureVolume(
+			this.client,
+			this.pool,
+			`${name}-recovery`,
+			sizes.recoveryGiB,
+			{},
+			signal,
+		);
 
 		const imageFingerprint = await this.imageFingerprint(signal);
 		const quota = { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
@@ -427,6 +428,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			cpuAllowance?: string;
 			docker?: WorkspaceDockerConfig;
 		},
+		caller?: AbortSignal,
 	): Promise<StartInstanceResponse> {
 		validateName(name);
 		if (!HOSTNAME_PATTERN.test(opts.hostname) || opts.hostname.length > 40) {
@@ -447,7 +449,9 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			throw new IncusError("INVALID_NAME", `invalid timezone: ${opts.timezone}`);
 		}
 
-		const signal = AbortSignal.timeout(opts.timeoutSeconds * 1000);
+		// The start keeps its own limit; the caller's deadline is added on top (ADR 0034).
+		const own = AbortSignal.timeout(opts.timeoutSeconds * 1000);
+		const signal = withCaller(caller, opts.timeoutSeconds * 1000);
 
 		// A retry after a start that failed late finds the container running.
 		// Every write below deletes then pushes, which is only safe while no
@@ -468,84 +472,53 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 
 		// Written before the start, so dockerd reads it; never fatal.
+		const docker = opts.docker;
 		let ghcr: boolean | null = null;
-		if (opts.docker !== undefined) {
-			try {
-				ghcr = await writeDockerConfig(
-					this.client,
+		if (docker !== undefined) {
+			ghcr =
+				(await this.optionalStep(
 					name,
-					opts.docker,
-					{ caPath: this.ghcrCaPath, cacheOffPath: this.cacheOffPath, log: this.log },
 					signal,
-				);
-			} catch (err) {
-				this.log.warn(
-					{ instance: name, err: errorMessage(err) },
 					"could not write the Docker registry settings; starting without them",
-				);
-			}
+					() =>
+						writeDockerConfig(
+							this.client,
+							name,
+							docker,
+							{
+								caPath: this.ghcrCaPath,
+								cacheOffPath: this.cacheOffPath,
+								log: this.log,
+							},
+							signal,
+						),
+				)) ?? null;
 		}
 
 		// Rewritten at every start, so an edit or deletion lasts one session.
-		try {
-			const written = await writeAgentInstructions(
-				this.client,
-				name,
-				this.agentInstructionsPath,
-				signal,
-			);
-			if (!written) {
-				this.log.warn(
-					{ instance: name, path: this.agentInstructionsPath },
-					"the coding-agent instructions template is missing; starting without them",
-				);
-			}
-		} catch (err) {
+		const written = await this.optionalStep(
+			name,
+			signal,
+			"could not write the coding-agent instructions; starting without them",
+			() =>
+				writeAgentInstructions(this.client, name, this.agentInstructionsPath, signal),
+		);
+		if (written === false) {
 			this.log.warn(
-				{ instance: name, err: errorMessage(err) },
-				"could not write the coding-agent instructions; starting without them",
+				{ instance: name, path: this.agentInstructionsPath },
+				"the coding-agent instructions template is missing; starting without them",
 			);
 		}
 
-		// Every file the controller writes goes in while the container is
-		// stopped, when no student process can race the delete-then-push of
-		// `replaceFile` with a named pipe (SPEC.md §24). A pipe left at
-		// /etc/hostname would also hang the container's own init at boot.
-		await this.client.replaceFile(
+		await writeStartFiles(
+			this.client,
 			name,
-			"/etc/hostname",
-			`${opts.hostname}\n`,
-			{ uid: 0, gid: 0, mode: "0644" },
-			signal,
-		);
-
-		await this.client.replaceFile(
-			name,
-			"/etc/timezone",
-			`${opts.timezone}\n`,
-			{ uid: 0, gid: 0, mode: "0644" },
-			signal,
-		);
-
-		await this.client.replaceFile(
-			name,
-			PROFILE_PATH,
-			// TZ is a default, not an override: tmux sets the session's current
-			// zone and a login shell sources this file afterwards, so a student
-			// who changes their timezone must not get the start-time zone back.
-			// The zone was validated against the system list.
-			`export PORTIKUS_PREVIEW=true\n` +
-				`export PORTIKUS_PREVIEW_HOST_SUFFIX=${opts.previewHostSuffix}\n` +
-				`export TZ="\${TZ:-${opts.timezone}}"\n`,
-			{ uid: 0, gid: 0, mode: "0644" },
-			signal,
-		);
-
-		await this.client.replaceFile(
-			name,
-			AGENT_TOKEN_PATH,
-			opts.agentToken,
-			{ uid: STUDENT_UID, gid: STUDENT_UID, mode: "0600" },
+			{
+				hostname: opts.hostname,
+				timezone: opts.timezone,
+				previewHostSuffix: opts.previewHostSuffix,
+				agentToken: opts.agentToken,
+			},
 			signal,
 		);
 
@@ -570,6 +543,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			signal,
 		);
 
+		// Once the start request is sent, Incus starts the instance whatever the
+		// caller does, so the setup below runs to the end on its own limits: the
+		// worker's sweep would mark a half-set-up workspace running (ADR 0034).
+		signal.throwIfAborted();
 		// Something may have started it since the check above.
 		if (status !== "Running") {
 			try {
@@ -577,43 +554,68 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					"PUT",
 					`/1.0/instances/${enc(name)}/state`,
 					{ action: "start" },
-					signal,
+					own,
 					opts.timeoutSeconds,
 				);
 			} catch (err) {
-				if ((await this.instanceStatus(name, signal).catch(() => null)) !== "Running") {
+				if ((await this.instanceStatus(name, own).catch(() => null)) !== "Running") {
 					throw err;
 				}
 			}
 		}
 
 		const deadline = Date.now() + opts.timeoutSeconds * 1000;
-		const ipv4 = await this.waitForAddress(name, deadline, signal);
+		const ipv4 = await waitForAddress(this.client, name, deadline, own);
 
-		await this.setHostname(name, opts.hostname, signal, opts.timeoutSeconds);
+		await setHostname(
+			this.client,
+			this.log,
+			name,
+			opts.hostname,
+			opts.timeoutSeconds,
+			own,
+		);
 
-		await this.setTimezone(name, opts.timezone, signal, opts.timeoutSeconds);
+		await setTimezone(this.client, name, opts.timezone, opts.timeoutSeconds, own);
 
 		// After the start: a first start after create or copy runs the image's
 		// /etc/hosts template, which would drop the line.
 		if (ghcr !== null) {
-			try {
-				await writeGhcrHosts(this.client, name, ghcr, signal);
-			} catch (err) {
-				this.log.warn(
-					{ instance: name, err: errorMessage(err) },
-					"could not write the ghcr.io hosts line",
-				);
-			}
+			await this.optionalStep(name, own, "could not write the ghcr.io hosts line", () =>
+				writeGhcrHosts(this.client, name, ghcr, own),
+			);
 		}
 
 		if (recoveryAttached) {
-			await this.prepareRecoveryMount(name, signal, opts.timeoutSeconds);
+			await prepareRecoveryMount(this.client, this.log, name, opts.timeoutSeconds, own);
 		}
 
-		await this.waitForAgent(ipv4, opts.agentToken);
+		// The agent wait has its own 15 s, not the start's timeout.
+		await waitForAgent(this.log, ipv4, this.agentPort, opts.agentToken);
+		if (caller?.aborted) {
+			this.log.info({ instance: name }, "start finished after the caller left");
+		}
 
 		return { ipv4 };
+	}
+
+	/**
+	 * Run a start step whose failure only costs a feature: warn and go on.
+	 * An abort is not such a failure, so it ends the start (ADR 0034).
+	 */
+	private async optionalStep<T>(
+		name: string,
+		signal: AbortSignal,
+		message: string,
+		step: () => Promise<T>,
+	): Promise<T | undefined> {
+		try {
+			return await step();
+		} catch (err) {
+			if (signal.aborted) throw err;
+			this.log.warn({ instance: name, err: errorMessage(err) }, message);
+			return undefined;
+		}
 	}
 
 	/**
@@ -635,7 +637,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		if (inst.devices?.docker) {
 			return;
 		}
-		await this.ensureDockerVolume(name, sizeGiB);
+		await this.ensureDockerVolume(name, sizeGiB, signal);
 		// PATCH merges devices, so it adds this one and cannot drop another.
 		await this.client.request(
 			"PATCH",
@@ -666,7 +668,14 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			if (inst.devices?.recovery) {
 				return true;
 			}
-			await this.ensureVolume(`${name}-recovery`, sizeGiB);
+			await ensureVolume(
+				this.client,
+				this.pool,
+				`${name}-recovery`,
+				sizeGiB,
+				{},
+				signal,
+			);
 			// PATCH merges devices, so it adds this one and cannot drop another.
 			await this.client.request(
 				"PATCH",
@@ -677,6 +686,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			this.log.info({ instance: name }, "recovery volume attached");
 			return true;
 		} catch (err) {
+			if (signal.aborted) throw err;
 			this.log.warn(
 				{ instance: name, err: errorMessage(err) },
 				"could not attach the recovery volume; starting without it",
@@ -685,180 +695,29 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 	}
 
-	/**
-	 * A new volume's root belongs to root, and the agent runs as the student
-	 * (ADR 0020). Never fatal. chown and chmod fail when the mount is missing,
-	 * where `install -d` would quietly make a directory on the root filesystem.
-	 */
-	private async prepareRecoveryMount(
-		name: string,
-		signal: AbortSignal,
-		timeoutSeconds: number,
-	): Promise<void> {
-		for (const command of [
-			["chown", "1000:1000", RECOVERY_PATH],
-			["chmod", "0700", RECOVERY_PATH],
-		]) {
-			try {
-				const { status } = await this.client.exec(
-					name,
-					command,
-					{ timeoutSeconds },
-					signal,
-				);
-				if (status !== null && status !== 0) {
-					throw new Error(`${command[0]} exited ${status}`);
-				}
-			} catch (err) {
-				this.log.warn(
-					{ instance: name, err: errorMessage(err) },
-					"could not prepare the recovery mount",
-				);
-				return;
-			}
-		}
-	}
-
-	/**
-	 * Name the container after the workspace label so the shell prompt reads
-	 * `student@<label>` (SPEC.md section 29). Incus has no instance setting
-	 * for the hostname, so `start` writes `/etc/hostname` for the next boot
-	 * and this runs `hostname` for the current one, which the first boot
-	 * after a create needs: the image's template rewrites the file then.
-	 */
-	private async setHostname(
-		name: string,
-		hostname: string,
-		signal: AbortSignal,
-		timeoutSeconds: number,
-	): Promise<void> {
-		await this.client.exec(name, ["hostname", hostname], { timeoutSeconds }, signal);
-	}
-
-	/**
-	 * Run the container in the owner's timezone, so timestamps in
-	 * a shell, in logs, and on Git commits match the clock on the wall.
-	 *
-	 * `/etc/timezone` is what the Debian tools read and `/etc/localtime` is
-	 * what the C library reads, so both are set. The zone name was checked
-	 * against the known list before this point, so it is safe in a command.
-	 * This runs on every start, so a change takes effect at the next start.
-	 */
-	private async setTimezone(
-		name: string,
-		timezone: string,
-		signal: AbortSignal,
-		timeoutSeconds: number,
-	): Promise<void> {
-		const { status } = await this.client.exec(
-			name,
-			["ln", "-sfn", `/usr/share/zoneinfo/${timezone}`, "/etc/localtime"],
-			{ timeoutSeconds },
-			signal,
-		);
-
-		// A missing zone file in the image makes `ln` fail, and the container
-		// would then run in the wrong zone with nothing said.
-		if (status !== null && status !== 0) {
-			throw new IncusError(
-				"OPERATION_FAILED",
-				`could not set the timezone to ${timezone}: ` +
-					`/usr/share/zoneinfo/${timezone} is missing from the image ` +
-					`(ln exited ${status})`,
-			);
-		}
-	}
-
-	private async waitForAddress(
-		name: string,
-		deadline: number,
-		signal: AbortSignal,
-	): Promise<string> {
-		while (Date.now() < deadline) {
-			const state = (await this.client.request(
-				"GET",
-				`/1.0/instances/${enc(name)}/state`,
-				undefined,
-				signal,
-			)) as {
-				status: string;
-				network?: Record<
-					string,
-					{
-						addresses?: Array<{
-							family: string;
-							address: string;
-							scope: string;
-						}>;
-					}
-				>;
-			};
-
-			if (state.status === "Running" && state.network?.eth0) {
-				const addr = state.network.eth0.addresses?.find(
-					(a) => a.family === "inet" && a.scope === "global",
-				);
-				if (addr) {
-					return addr.address;
-				}
-			}
-
-			await new Promise((r) => setTimeout(r, 500));
-		}
-
-		throw new IncusError(
-			"TIMEOUT",
-			`instance ${name} did not reach Running with IPv4 before the start deadline`,
-		);
-	}
-
-	/** Poll the workspace agent's /health until it answers 200 (SPEC.md 6.3). */
-	private async waitForAgent(ipv4: string, agentToken: string): Promise<void> {
-		const url = `http://${ipv4}:${this.agentPort}/health`;
-		const deadline = Date.now() + AGENT_HEALTH_TIMEOUT_MS;
-		let attempt = 0;
-		while (Date.now() < deadline) {
-			attempt += 1;
-			this.log.debug({ ipv4, attempt }, "polling the workspace agent");
-			try {
-				const res = await fetch(url, {
-					headers: { Authorization: `Bearer ${agentToken}` },
-					signal: AbortSignal.timeout(2000),
-				});
-				// Read the body so the connection is released either way.
-				await res.arrayBuffer().catch(() => undefined);
-				if (res.status === 200) {
-					return;
-				}
-			} catch {
-				// Agent not listening yet; retry until the deadline.
-			}
-			await new Promise((r) => setTimeout(r, 1000));
-		}
-
-		throw new IncusError(
-			"TIMEOUT",
-			`workspace agent at ${ipv4} did not become healthy within ${AGENT_HEALTH_TIMEOUT_MS}ms`,
-		);
-	}
-
 	async stop(
 		name: string,
 		opts: { timeoutSeconds: number },
+		caller?: AbortSignal,
 	): Promise<StopInstanceResponse> {
 		validateName(name);
 
 		// Stopping an already-stopped instance is a no-op, not a failure.
 		// Mid-shutdown this read can fail with "Invalid PID -1";
 		// the stop below then settles on the real state.
-		const current = await this.instanceStatus(name).catch((err: unknown) => {
+		const current = await this.instanceStatus(name, caller).catch((err: unknown) => {
 			if (err instanceof IncusError && err.code === "NOT_FOUND") throw err;
+			if (caller?.aborted) throw err;
 			return undefined;
 		});
 		if (current === "Stopped") {
 			return { forced: false };
 		}
 
+		// Once the graceful stop is sent, it runs through to the forced stop whatever the caller does:
+		// a half-done stop would leave a SIGTERM-ignoring workspace running (ADR 0034).
+		caller?.throwIfAborted();
+		const ownLimit = (opts.timeoutSeconds + 5) * 1000;
 		try {
 			await this.client.request(
 				"PUT",
@@ -868,9 +727,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					timeout: opts.timeoutSeconds,
 					force: false,
 				},
-				AbortSignal.timeout((opts.timeoutSeconds + 5) * 1000),
+				AbortSignal.timeout(ownLimit),
 				opts.timeoutSeconds,
 			);
+			this.logIfCallerLeft(name, caller);
 			return { forced: false };
 		} catch {
 			try {
@@ -882,7 +742,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 						timeout: opts.timeoutSeconds,
 						force: true,
 					},
-					AbortSignal.timeout((opts.timeoutSeconds + 5) * 1000),
+					AbortSignal.timeout(ownLimit),
 					opts.timeoutSeconds,
 				);
 			} catch (err) {
@@ -892,21 +752,33 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					throw err;
 				}
 			}
+			this.logIfCallerLeft(name, caller);
 			return { forced: true };
 		}
 	}
 
+	private logIfCallerLeft(name: string, caller: AbortSignal | undefined): void {
+		if (caller?.aborted) {
+			this.log.info({ instance: name }, "stop finished after the caller left");
+		}
+	}
+
 	/** Polls the state for up to `timeoutSeconds` (at most 10) and reports whether it reached Stopped. */
-	private async settlesStopped(name: string, timeoutSeconds: number): Promise<boolean> {
+	private async settlesStopped(
+		name: string,
+		timeoutSeconds: number,
+		signal?: AbortSignal,
+	): Promise<boolean> {
 		const deadline = Date.now() + Math.min(timeoutSeconds, 10) * 1000;
 		for (;;) {
-			if ((await this.instanceStatus(name).catch(() => null)) === "Stopped") {
+			signal?.throwIfAborted();
+			if ((await this.instanceStatus(name, signal).catch(() => null)) === "Stopped") {
 				return true;
 			}
 			if (Date.now() >= deadline) {
 				return false;
 			}
-			await new Promise((r) => setTimeout(r, 250));
+			await sleep(250, undefined, { signal });
 		}
 	}
 
@@ -979,11 +851,15 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	 * the device off, delete the volume, make a new one, put the device back.
 	 * The only volume this ever deletes is exactly `<name>-docker`.
 	 */
-	async resetDocker(name: string, opts: { dockerGiB: number }): Promise<void> {
+	async resetDocker(
+		name: string,
+		opts: { dockerGiB: number },
+		signal?: AbortSignal,
+	): Promise<void> {
 		validateName(name);
 		const path = `/1.0/instances/${enc(name)}`;
 		const dockerVolume = `${name}-docker`;
-		const { metadata, etag } = await this.client.getWithEtag(path);
+		const { metadata, etag } = await this.client.getWithEtag(path, signal);
 		const inst = metadata as InstanceConfig;
 		assertStopped(name, inst.status);
 
@@ -1007,13 +883,20 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			// PATCH cannot remove a device (Incus merges the map), so write the
 			// rest back exactly as read, guarded by the ETag.
 			const { docker: _removed, ...devices } = inst.devices;
-			await this.client.putIfMatch(path, { ...writableFields(inst), devices }, etag);
+			await this.client.putIfMatch(
+				path,
+				{ ...writableFields(inst), devices },
+				etag,
+				signal,
+			);
 		}
 
 		try {
 			await this.client.request(
 				"DELETE",
-				`/1.0/storage-pools/${enc(this.pool)}/volumes/custom/${enc(dockerVolume)}`,
+				volumePath(this.pool, dockerVolume),
+				undefined,
+				signal,
 			);
 		} catch (err) {
 			if (!(err instanceof IncusError && err.code === "NOT_FOUND")) {
@@ -1021,11 +904,14 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 		}
 
-		await this.ensureDockerVolume(name, opts.dockerGiB);
+		await this.ensureDockerVolume(name, opts.dockerGiB, signal);
 
-		await this.client.request("PATCH", path, {
-			devices: { docker: this.dockerDevice(name) },
-		});
+		await this.client.request(
+			"PATCH",
+			path,
+			{ devices: { docker: this.dockerDevice(name) } },
+			signal,
+		);
 		this.log.info({ instance: name }, "docker volume replaced");
 	}
 
@@ -1037,25 +923,28 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	async rebuild(
 		name: string,
 		opts: { resetDocker: boolean; dockerGiB: number },
+		signal?: AbortSignal,
 	): Promise<RebuildInstanceResponse> {
 		validateName(name);
 		const inst = (await this.client.request(
 			"GET",
 			`/1.0/instances/${enc(name)}`,
+			undefined,
+			signal,
 		)) as InstanceConfig;
 		assertStopped(name, inst.status);
 
-		const imageFingerprint = await this.imageFingerprint();
+		const imageFingerprint = await this.imageFingerprint(signal);
 
 		if (opts.resetDocker) {
-			await this.resetDocker(name, { dockerGiB: opts.dockerGiB });
+			await this.resetDocker(name, { dockerGiB: opts.dockerGiB }, signal);
 		}
 
 		await this.client.request(
 			"POST",
 			`/1.0/instances/${enc(name)}/rebuild`,
 			{ source: { type: "image", alias: this.imageAlias } },
-			undefined,
+			signal,
 			REBUILD_TIMEOUT_SECONDS,
 		);
 		this.log.info({ instance: name, imageFingerprint }, "instance rebuilt");
@@ -1213,32 +1102,6 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 	}
 
-	private async ensureVolume(
-		volName: string,
-		sizeGiB: number,
-		extraConfig: Record<string, string> = {},
-		signal?: AbortSignal,
-	): Promise<void> {
-		try {
-			await this.client.request(
-				"POST",
-				`/1.0/storage-pools/${enc(this.pool)}/volumes/custom`,
-				{
-					name: volName,
-					config: { size: `${sizeGiB}GiB`, ...extraConfig },
-				},
-				signal,
-				undefined,
-				VOLUME_CREATE_TIMEOUT_MS,
-			);
-		} catch (err) {
-			if (err instanceof IncusError && err.code === "ALREADY_EXISTS") {
-				return;
-			}
-			throw err;
-		}
-	}
-
 	/**
 	 * Make `<name>-docker` as a thin copy of the seed when one exists, sized
 	 * at the Docker size plus the seed's, else empty. A volume
@@ -1268,7 +1131,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				// A copy cannot be smaller than its source, which is the build volume's size.
 				const source = (await this.client.request(
 					"GET",
-					this.volumePath(SEED_VOLUME_NAME),
+					volumePath(this.pool, SEED_VOLUME_NAME),
 					undefined,
 					signal,
 				)) as { config?: Record<string, unknown> };
@@ -1304,10 +1167,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					"could not copy the Docker seed; making an empty Docker volume",
 				);
 				// A half-made copy would otherwise be adopted below.
-				await this.client.request("DELETE", this.volumePath(volume)).catch(() => {});
+				await this.client
+					.request("DELETE", volumePath(this.pool, volume))
+					.catch(() => {});
 			}
 		}
-		await this.ensureVolume(volume, dockerGiB, {}, signal);
+		await ensureVolume(this.client, this.pool, volume, dockerGiB, {}, signal);
 	}
 
 	/**
@@ -1318,7 +1183,11 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	private async seedBytesFor(name: string, signal?: AbortSignal): Promise<number> {
 		try {
 			const seed = await this.seedInfo(signal);
-			if (!seed || (await this.volumeExists(`${name}-docker`, signal))) return 0;
+			if (
+				!seed ||
+				(await volumeExists(this.client, this.pool, `${name}-docker`, signal))
+			)
+				return 0;
 			return seed.sizeBytes;
 		} catch (err) {
 			if (signal?.aborted) throw err;
@@ -1331,7 +1200,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		try {
 			volume = (await this.client.request(
 				"GET",
-				this.volumePath(SEED_VOLUME_NAME),
+				volumePath(this.pool, SEED_VOLUME_NAME),
 				undefined,
 				signal,
 			)) as { config?: Record<string, string> };
@@ -1349,183 +1218,6 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 	}
 
-	async prepareSeedBuilder(opts: { maxBytes: number; ghcr: boolean }): Promise<void> {
-		// A build the controller forgot (a restart) leaves these behind.
-		await this.discardSeedBuild();
-		// One GiB over the cap, so an oversize seed fails the size check with a
-		// clear message rather than filling the volume.
-		// Shifted from the start, so files keep real owners when copies are attached elsewhere.
-		await this.ensureVolume(
-			SEED_BUILD_VOLUME,
-			Math.ceil(opts.maxBytes / 1024 ** 3) + 1,
-			{
-				"security.shifted": "true",
-			},
-		);
-		// An ordinary workspace container: the workspace profile (network, ACL,
-		// unprivileged, isolated idmap) and nothing that loosens it.
-		await this.client.request(
-			"POST",
-			"/1.0/instances",
-			{
-				name: SEED_BUILDER,
-				source: { type: "image", alias: this.imageAlias },
-				profiles: [this.profile],
-				devices: {
-					docker: {
-						type: "disk",
-						pool: this.pool,
-						source: SEED_BUILD_VOLUME,
-						path: "/var/lib/docker",
-					},
-				},
-			},
-			undefined,
-			INSTANCE_CREATE_WAIT_SECONDS,
-		);
-		const seedGhcr = await writeDockerConfig(
-			this.client,
-			SEED_BUILDER,
-			{ hubMirror: true, ghcr: opts.ghcr },
-			{ caPath: this.ghcrCaPath, cacheOffPath: this.cacheOffPath, log: this.log },
-		);
-		await this.client.request(
-			"PUT",
-			`/1.0/instances/${SEED_BUILDER}/state`,
-			{ action: "start" },
-			undefined,
-			SEED_BUILDER_START_SECONDS,
-		);
-		const deadline = Date.now() + SEED_BUILDER_START_SECONDS * 1000;
-		await this.waitForAddress(
-			SEED_BUILDER,
-			deadline,
-			AbortSignal.timeout(SEED_BUILDER_START_SECONDS * 1000),
-		);
-		// The first start ran the image's /etc/hosts template over our line.
-		await writeGhcrHosts(this.client, SEED_BUILDER, seedGhcr);
-		while ((await this.execInSeedBuilder(["/usr/bin/docker", "info"], 30)) !== 0) {
-			if (Date.now() >= deadline) {
-				throw new IncusError("TIMEOUT", "dockerd in the seed builder did not start");
-			}
-			await new Promise((r) => setTimeout(r, 1000));
-		}
-	}
-
-	async execInSeedBuilder(command: string[], timeoutSeconds: number): Promise<number> {
-		const { status } = await this.client.exec(SEED_BUILDER, command, {
-			timeoutSeconds,
-		});
-		// No reported status is not a success for a build step.
-		return status ?? -1;
-	}
-
-	async seedImageVersion(): Promise<string> {
-		const image = await readCurrentImage(this.client, this.imageAlias);
-		const version = image.serial ?? image.fingerprint;
-		if (!version) throw new IncusError("IMAGE_NOT_FOUND", "no workspace image");
-		return version.slice(0, 100);
-	}
-
-	async finishSeedBuilder(): Promise<number> {
-		const state = (await this.client.request(
-			"GET",
-			`${this.volumePath(SEED_BUILD_VOLUME)}/state`,
-		)) as { usage?: { used?: number } } | undefined;
-		const used = state?.usage?.used;
-		if (typeof used !== "number" || !(used >= 0)) {
-			throw new IncusError("OPERATION_FAILED", "Incus did not report the seed's size");
-		}
-		// dockerd is already stopped, so a clean stop is quick.
-		await this.stop(SEED_BUILDER, { timeoutSeconds: 60 });
-		await this.client.request("DELETE", `/1.0/instances/${SEED_BUILDER}`);
-		return Math.trunc(used);
-	}
-
-	async installSeed(info: SeedInfo): Promise<void> {
-		// A shifted volume must never be attached to two instances; the
-		// builder is gone, so nothing may still use the build volume.
-		const build = (await this.client.request(
-			"GET",
-			this.volumePath(SEED_BUILD_VOLUME),
-		)) as { used_by?: string[] };
-		if ((build.used_by ?? []).length > 0) {
-			throw new VolumeInUseError(SEED_BUILD_VOLUME);
-		}
-		await this.client.request("PATCH", this.volumePath(SEED_BUILD_VOLUME), {
-			config: { [SEED_INFO_KEY]: JSON.stringify(info) },
-		});
-		// Copies already made are independent of the old seed.
-		await this.deleteVolumeIfPresent(SEED_OLD_VOLUME);
-		const hadSeed = await this.volumeExists(SEED_VOLUME_NAME);
-		if (hadSeed) {
-			await this.client.request("POST", this.volumePath(SEED_VOLUME_NAME), {
-				name: SEED_OLD_VOLUME,
-			});
-		}
-		try {
-			await this.client.request("POST", this.volumePath(SEED_BUILD_VOLUME), {
-				name: SEED_VOLUME_NAME,
-			});
-		} catch (err) {
-			// Put the old seed back, so new workspaces still get one.
-			if (hadSeed) {
-				await this.client
-					.request("POST", this.volumePath(SEED_OLD_VOLUME), { name: SEED_VOLUME_NAME })
-					.catch((restoreErr: unknown) =>
-						this.log.warn(
-							{
-								err: errorMessage(restoreErr),
-							},
-							"could not restore the previous Docker seed",
-						),
-					);
-			}
-			throw err;
-		}
-		try {
-			await this.deleteVolumeIfPresent(SEED_OLD_VOLUME);
-		} catch (err) {
-			this.log.warn(
-				{ err: errorMessage(err) },
-				"could not delete the previous Docker seed; the next build retries",
-			);
-		}
-		this.log.info({ sizeBytes: info.sizeBytes }, "docker seed installed");
-	}
-
-	async discardSeedBuild(): Promise<void> {
-		try {
-			await this.client.request(
-				"PUT",
-				`/1.0/instances/${SEED_BUILDER}/state`,
-				{ action: "stop", force: true, timeout: 30 },
-				undefined,
-				60,
-			);
-		} catch (err) {
-			if (err instanceof IncusError && err.code === "NOT_FOUND") {
-				await this.deleteVolumeIfPresent(SEED_BUILD_VOLUME);
-				return;
-			}
-			// Already stopped: Incus refuses to stop it again; the delete decides.
-		}
-		try {
-			await this.client.request("DELETE", `/1.0/instances/${SEED_BUILDER}`);
-		} catch (err) {
-			if (!(err instanceof IncusError && err.code === "NOT_FOUND")) throw err;
-		}
-		await this.deleteVolumeIfPresent(SEED_BUILD_VOLUME);
-	}
-
-	private async deleteVolumeIfPresent(volume: string): Promise<void> {
-		try {
-			await this.client.request("DELETE", this.volumePath(volume));
-		} catch (err) {
-			if (!(err instanceof IncusError && err.code === "NOT_FOUND")) throw err;
-		}
-	}
-
 	async hostSnapshot(): Promise<HostSnapshot> {
 		return readHostSnapshot(this.client, {
 			pool: this.pool,
@@ -1538,9 +1230,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	async growVolumes(
 		name: string,
 		sizes: GrowVolumesRequest,
+		signal?: AbortSignal,
 	): Promise<GrowVolumesResponse> {
 		validateName(name);
-		return growVolumes(this.client, this.pool, name, sizes);
+		return growVolumes(this.client, this.pool, name, sizes, signal);
 	}
 
 	/**
@@ -1611,20 +1304,6 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		return { image, packages };
 	}
 
-	private volumePath(volume: string): string {
-		return `/1.0/storage-pools/${enc(this.pool)}/volumes/custom/${enc(volume)}`;
-	}
-
-	private async volumeExists(volume: string, signal?: AbortSignal): Promise<boolean> {
-		try {
-			await this.client.request("GET", this.volumePath(volume), undefined, signal);
-			return true;
-		} catch (err) {
-			if (err instanceof IncusError && err.code === "NOT_FOUND") return false;
-			throw err;
-		}
-	}
-
 	async keptVolumes(): Promise<KeptVolumesResponse> {
 		const volumes = (await this.client.request(
 			"GET",
@@ -1643,7 +1322,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			if (!WorkspaceVolumeName.safeParse(volume.name).success) continue;
 			const snapshots = (await this.client.request(
 				"GET",
-				`${this.volumePath(volume.name)}/snapshots?recursion=1`,
+				`${volumePath(this.pool, volume.name)}/snapshots?recursion=1`,
 			)) as Array<{ name: string; created_at?: string }>;
 			for (const snapshot of snapshots) {
 				// Incus may name a snapshot `<volume>/<snapshot>`.
@@ -1669,7 +1348,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 		await this.client.request(
 			"DELETE",
-			`${this.volumePath(volume)}/snapshots/${enc(snapshot)}`,
+			`${volumePath(this.pool, volume)}/snapshots/${enc(snapshot)}`,
 		);
 		this.log.info({ volume, snapshot }, "snapshot deleted");
 	}
@@ -1678,13 +1357,13 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		if (!KeptHomeVolumeName.safeParse(volume).success) {
 			throw new IncusError("BAD_REQUEST", "only kept homes can be deleted");
 		}
-		const info = (await this.client.request("GET", this.volumePath(volume))) as {
+		const info = (await this.client.request("GET", volumePath(this.pool, volume))) as {
 			used_by?: string[];
 		};
 		if ((info.used_by ?? []).length > 0) {
 			throw new VolumeInUseError(volume);
 		}
-		await this.client.request("DELETE", this.volumePath(volume));
+		await this.client.request("DELETE", volumePath(this.pool, volume));
 		this.log.info({ volume }, "kept home deleted");
 	}
 
@@ -1709,7 +1388,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				`instance ${name} has an unexpected home device; refusing to replace it`,
 			);
 		}
-		const importExists = await this.volumeExists(importVolume);
+		const importExists = await volumeExists(this.client, this.pool, importVolume);
 		if (home && !importExists) {
 			throw new IncusError("NOT_FOUND", `volume ${importVolume} not found`);
 		}
@@ -1719,14 +1398,14 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			await this.client.putIfMatch(path, { ...writableFields(inst), devices }, etag);
 		}
 
-		if (importExists && (await this.volumeExists(homeVolume))) {
+		if (importExists && (await volumeExists(this.client, this.pool, homeVolume))) {
 			const keptName = `${name}-home-replaced-${Math.floor(Date.now() / 1000)}`;
-			await this.client.request("POST", this.volumePath(homeVolume), {
+			await this.client.request("POST", volumePath(this.pool, homeVolume), {
 				name: keptName,
 			});
 		}
 		if (importExists) {
-			await this.client.request("POST", this.volumePath(importVolume), {
+			await this.client.request("POST", volumePath(this.pool, importVolume), {
 				name: homeVolume,
 			});
 		}

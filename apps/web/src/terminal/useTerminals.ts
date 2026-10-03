@@ -15,7 +15,8 @@ import { useToast } from "@portikus/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { z } from "zod";
-import { ApiError, request, SessionEndedError, sendJson } from "./api/request.js";
+import { ApiError, request, SessionEndedError, sendJson } from "../api/request.js";
+import { sessionEnded } from "../api/sessionEnded.js";
 
 /** How often an idle tab re-reads the list, so a second browser's terminal shows up. */
 const REFETCH_MS = 15_000;
@@ -48,7 +49,6 @@ export function useTerminals(
 	workspaceId: string,
 	projectId: string,
 	running: boolean,
-	onSessionEnded: () => void,
 ): Terminals {
 	const queryClient = useQueryClient();
 	const toast = useToast();
@@ -145,8 +145,8 @@ export function useTerminals(
 		close.error ??
 		null;
 	useEffect(() => {
-		if (failure instanceof SessionEndedError) onSessionEnded();
-	}, [failure, onSessionEnded]);
+		if (failure instanceof SessionEndedError) sessionEnded();
+	}, [failure]);
 
 	return {
 		terminals: query.data?.terminals ?? [],

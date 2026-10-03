@@ -52,7 +52,7 @@ const NO_CHANGES = {
 let gitStatus: typeof NO_CHANGES = NO_CHANGES;
 
 function renderPane(store = createLayoutStore()) {
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	render(
 		<QueryClientProvider client={client}>
 			<ToastProvider>

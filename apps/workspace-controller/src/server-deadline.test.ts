@@ -2,10 +2,18 @@ import { EventEmitter } from "node:events";
 import {
 	CONTROLLER_BUDGET_HEADER,
 	type CreateInstanceResponse,
+	GROW_BUDGET_MS,
+	type GrowVolumesResponse,
 	INSTANCE_CREATE_BUDGET_MS,
+	MAINTENANCE_BUDGET_MS,
+	type RebuildInstanceResponse,
+	type StartInstanceResponse,
+	type StopInstanceResponse,
+	startBudgetMs,
+	stopBudgetMs,
 } from "@portikus/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { FakeWorkspaceProvider } from "./fake-provider.js";
 import { buildServer, callerSignal } from "./server.js";
 
@@ -22,21 +30,47 @@ const RESULT: CreateInstanceResponse = {
 
 interface Call {
 	signal: AbortSignal;
-	resolve: (r: CreateInstanceResponse) => void;
+	resolve: (r: unknown) => void;
 	reject: (e: unknown) => void;
 }
 
-/** A provider whose creates wait until the test settles them. */
+/** A provider whose creates and lifecycle calls wait until the test settles them. */
 class GatedProvider extends FakeWorkspaceProvider {
 	calls: Call[] = [];
+	private gate<T>(signal?: AbortSignal): Promise<T> {
+		return new Promise((resolve, reject) => {
+			this.calls.push({
+				signal: signal as AbortSignal,
+				resolve: resolve as Call["resolve"],
+				reject,
+			});
+		});
+	}
 	override create(
 		_name: string,
 		_sizes: { homeGiB: number; dockerGiB: number; recoveryGiB: number },
 		signal?: AbortSignal,
 	): Promise<CreateInstanceResponse> {
-		return new Promise((resolve, reject) => {
-			this.calls.push({ signal: signal as AbortSignal, resolve, reject });
-		});
+		return this.gate(signal);
+	}
+	override start(_n: string, _o: unknown, signal?: AbortSignal) {
+		return this.gate<StartInstanceResponse>(signal);
+	}
+	override stop(_n: string, _o: unknown, signal?: AbortSignal) {
+		return this.gate<StopInstanceResponse>(signal);
+	}
+	override resetDocker(_n: string, _o: unknown, signal?: AbortSignal) {
+		return this.gate<void>(signal);
+	}
+	override rebuild(_n: string, _o: unknown, signal?: AbortSignal) {
+		return this.gate<RebuildInstanceResponse>(signal);
+	}
+	override growVolumes(_n: string, _o: unknown, signal?: AbortSignal) {
+		// No single-flight here, so the provider itself stops on the abort, as the real one does.
+		const work = this.gate<GrowVolumesResponse>(signal);
+		const call = this.calls.at(-1);
+		signal?.addEventListener("abort", () => call?.reject(signal.reason));
+		return work;
 	}
 }
 
@@ -46,7 +80,7 @@ let base: string;
 
 beforeEach(async () => {
 	provider = new GatedProvider();
-	app = buildServer({ provider, token: TOKEN });
+	app = buildServer({ provider, seedHost: provider, token: TOKEN });
 	base = await app.listen({ port: 0, host: "127.0.0.1" });
 });
 
@@ -179,12 +213,50 @@ test("the processes read gets the caller's signal", async () => {
 
 function fakeExchange(headers: Record<string, string>) {
 	const raw = Object.assign(new EventEmitter(), { writableEnded: false });
+	const info = vi.fn();
 	return {
-		request: { headers } as unknown as FastifyRequest,
+		request: {
+			headers,
+			params: { name: "ws-abc" },
+			routeOptions: { url: "/instances/:name/start" },
+			log: { info },
+		} as unknown as FastifyRequest,
 		reply: { raw } as unknown as FastifyReply,
 		raw,
+		info,
 	};
 }
+
+test("a caller hanging up logs one info line naming the route and instance", () => {
+	const { request, reply, raw, info } = fakeExchange({});
+	const signal = callerSignal(request, reply, 30_000);
+	raw.emit("close");
+	expect(signal.aborted).toBe(true);
+	expect(info).toHaveBeenCalledTimes(1);
+	expect(info).toHaveBeenCalledWith(
+		{ route: "/instances/:name/start", instance: "ws-abc" },
+		"caller hung up",
+	);
+});
+
+test("a caller budget running out logs one info line", () => {
+	vi.useFakeTimers();
+	try {
+		const { request, reply, raw, info } = fakeExchange({
+			[CONTROLLER_BUDGET_HEADER]: "1000",
+		});
+		callerSignal(request, reply, 30_000);
+		vi.advanceTimersByTime(1000);
+		raw.emit("close");
+		expect(info).toHaveBeenCalledTimes(1);
+		expect(info).toHaveBeenCalledWith(
+			{ route: "/instances/:name/start", instance: "ws-abc" },
+			"caller budget ran out",
+		);
+	} finally {
+		vi.useRealTimers();
+	}
+});
 
 test("without a budget header the signal falls back to the given budget", () => {
 	vi.useFakeTimers();
@@ -222,6 +294,147 @@ test("a budget header above the fallback is clamped to it", () => {
 	} finally {
 		vi.useRealTimers();
 	}
+});
+
+// Every lifecycle route honours the caller's deadline like create (SPEC.md 25.3, ADR 0034).
+const ROUTES = [
+	{
+		path: "/instances/ws-abc/start",
+		body: {
+			timeoutSeconds: 40,
+			agentToken: "a".repeat(64),
+			hostname: "tw7",
+			previewHostSuffix: "preview.example.edu",
+			timezone: "America/New_York",
+		},
+		budgetMs: startBudgetMs(40),
+		result: { ipv4: "10.0.0.2" } as unknown,
+		shared: true,
+	},
+	{
+		path: "/instances/ws-abc/stop",
+		body: { timeoutSeconds: 40 },
+		budgetMs: stopBudgetMs(40),
+		result: { forced: false },
+		shared: true,
+	},
+	{
+		path: "/instances/ws-abc/reset-docker",
+		body: { dockerGiB: 20 },
+		budgetMs: MAINTENANCE_BUDGET_MS,
+		result: undefined,
+		shared: true,
+	},
+	{
+		path: "/instances/ws-abc/rebuild",
+		body: { resetDocker: false, dockerGiB: 20 },
+		budgetMs: MAINTENANCE_BUDGET_MS,
+		result: { imageFingerprint: "def" },
+		shared: true,
+	},
+	{
+		path: "/instances/ws-abc/volumes",
+		body: { homeGiB: 30, dockerGiB: 30 },
+		budgetMs: GROW_BUDGET_MS,
+		result: { homeGiB: 30, dockerGiB: 30 },
+		shared: false,
+	},
+];
+
+describe.each(ROUTES)("$path", (route) => {
+	function call(
+		opts: { budgetMs?: number; signal?: AbortSignal } = {},
+	): Promise<Response> {
+		return fetch(`${base}${route.path}`, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${TOKEN}`,
+				"content-type": "application/json",
+				...(opts.budgetMs ? { [CONTROLLER_BUDGET_HEADER]: String(opts.budgetMs) } : {}),
+			},
+			body: JSON.stringify(route.body),
+			signal: opts.signal,
+		});
+	}
+
+	/** Every delay given to setTimeout while the route takes the call. */
+	async function timerDelays(res: () => Promise<Response>): Promise<unknown[]> {
+		const timers = vi.spyOn(globalThis, "setTimeout");
+		const pending = res();
+		const [c] = await calls(1);
+		const delays = timers.mock.calls.map((a) => a[1]);
+		timers.mockRestore();
+		c?.resolve(route.result);
+		expect((await pending).ok).toBe(true);
+		return delays;
+	}
+
+	test("a caller hanging up aborts the provider's signal", async () => {
+		const hangUp = new AbortController();
+		const res = call({ signal: hangUp.signal }).catch(() => null);
+		const [c] = await calls(1);
+		expect(c?.signal.aborted).toBe(false);
+		hangUp.abort();
+		await res;
+		await aborted(c?.signal as AbortSignal);
+	});
+
+	test("a short budget header answers TIMEOUT", async () => {
+		const res = call({ budgetMs: 100 });
+		const [c] = await calls(1);
+		const answer = await res;
+		expect(answer.status).toBe(504);
+		expect(((await answer.json()) as { code: string }).code).toBe("TIMEOUT");
+		expect(c?.signal.aborted).toBe(true);
+	});
+
+	test("an over-large budget header is clamped to the formula", async () => {
+		const delays = await timerDelays(() => call({ budgetMs: route.budgetMs * 10 }));
+		expect(delays).toContain(route.budgetMs);
+		expect(delays).not.toContain(route.budgetMs * 10);
+	});
+
+	test("no budget header uses the formula", async () => {
+		expect(await timerDelays(() => call())).toContain(route.budgetMs);
+	});
+
+	test.runIf(route.shared)(
+		"one of two callers leaving keeps the shared run going for the other",
+		async () => {
+			const leaver = new AbortController();
+			const gone = call({ signal: leaver.signal }).catch(() => null);
+			const [c] = await calls(1);
+			const stays = call();
+			await new Promise((r) => setTimeout(r, 50));
+			leaver.abort();
+			await gone;
+			await new Promise((r) => setTimeout(r, 50));
+			expect(c?.signal.aborted).toBe(false);
+			c?.resolve(route.result);
+			expect((await stays).ok).toBe(true);
+			expect(provider.calls).toHaveLength(1);
+		},
+	);
+
+	test.runIf(route.shared)(
+		"the shared run aborts once both callers have left",
+		async () => {
+			const one = new AbortController();
+			const two = new AbortController();
+			const a = call({ signal: one.signal }).catch(() => null);
+			const [c] = await calls(1);
+			const b = call({ signal: two.signal }).catch(() => null);
+			await new Promise((r) => setTimeout(r, 50));
+			one.abort();
+			await a;
+			await new Promise((r) => setTimeout(r, 50));
+			expect(c?.signal.aborted).toBe(false);
+			two.abort();
+			await b;
+			await aborted(c?.signal as AbortSignal);
+			expect(provider.calls).toHaveLength(1);
+		},
+	);
 });
 
 test("a malformed budget header falls back", () => {

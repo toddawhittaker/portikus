@@ -524,7 +524,7 @@ A stop should allow the workspace operating system and inner services a bounded 
 
 If graceful stop does not complete within the configured timeout, the platform may force-stop the workspace and must record the event.
 
-A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every controller call the worker makes (creates, starts, stops and maintenance operations) runs in one background runner, at most one call per workspace at a time. Creates, starts and maintenance share a cap of 6 calls at once; stops sit outside the cap, so they never wait behind a slow rebuild (ADR 0034). Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 25 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`.
+A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every controller call the worker makes (creates, starts, stops and maintenance operations) runs in one background runner, at most one call per workspace at a time. Creates, starts and maintenance share a cap of 6 calls at once; stops sit outside the cap, so they never wait behind a slow rebuild (ADR 0034). Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 25 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`, and the controller stops its own work on that call once the budget runs out or the worker hangs up.
 
 A stop succeeds when the instance reaches Stopped within the timeout. The controller decides from the instance's state, never from the text of an Incus error, so a stop that races another stop or a shutdown from inside still ends Stopped with no error. Its first state read tolerates any error except not-found, because for about a second of some shutdowns Incus answers the state read itself with HTTP 500 "Invalid PID -1" (Epic 22).
 
@@ -4108,7 +4108,7 @@ One crashed service or one busy workspace must not take the platform down for ev
 - Caddy, PostgreSQL, Dex and every Portikus service restart on failure after 5 seconds.
 - The platform's services outrank workspaces: `system.slice` has CPU weight 1000 (a workspace has 100) and `MemoryLow=512M`, and PostgreSQL and the API each have `MemoryLow=256M`.
 - Each workspace's network is capped at 200 Mbit/s each way (`workspace_network_limit` in `site.yml`).
-- Every worker call to the controller and every controller call to Incus has a time budget, and stops run in the background so a stuck stop never delays a start (section 6.5). The worker sends its budget with each call; a create and a process read stop their remaining Incus and host work once that budget runs out or the worker hangs up, and an aborted create never falls back to an empty Docker volume (ADR 0034).
+- Every worker call to the controller and every controller call to Incus has a time budget, and stops run in the background so a stuck stop never delays a start (section 6.5). The worker sends its budget with each call; every lifecycle call (create, start, stop, reset-Docker, rebuild), volume growth and the process read stop their remaining Incus and host work once that budget runs out or the worker hangs up, except that a stop whose graceful request has been sent always runs on to the forced stop, a start whose request has been sent to Incus always finishes its remaining steps (otherwise the sweep would mark a half-started instance running), and an aborted create never falls back to an empty Docker volume (ADR 0034).
 - The database pool waits at most 5 s for a connection, a statement at most 30 s, and an idle transaction at most 60 s; a pool timeout or an unreachable database answers 503 `SERVICE_BUSY`.
 
 ### 25.4 Availability
@@ -4894,7 +4894,8 @@ Includes:
   fallbacks are each tried once; an existing label never changes;
   the label names the preview hosts and is pushed into the
   container as its hostname at every start, so the prompt reads
-  `student@<label>.<public host>`;
+  `student@<label>.<public host>`; a failed hostname set logs a warning
+  and the start carries on;
 - authorization;
 - WebSockets/HMR;
 - embedded Preview tab;
@@ -5475,6 +5476,31 @@ Acceptance:
 - parallel terminal creates never exceed the cap;
 - the status bar shows "unconfirmed" when the controller cannot be
   reached.
+
+### Epic 32 — Split the busiest hotspots, one deadline for every controller call
+
+Built on `epic/32-hotspots`. No migration. See sections 6.5 and 25.3
+and ADR 0034.
+
+Includes:
+
+- the worker's budget and hang-up honoured by start, stop,
+  reset-Docker, rebuild and volume growth, as they already were by
+  create and the process read, with the budget formulas in the
+  contracts package;
+- a started stop that always runs on to its forced stop;
+- a failed hostname set logged as a warning while the start carries on;
+- the workspace agent's routes as plugins in their own files, the
+  controller's start steps and Docker seed builder in their own
+  modules, and the web terminal socket and file buffer state in their
+  own modules.
+
+Acceptance:
+
+- a worker that gives up on a lifecycle call leaves the controller
+  sending Incus nothing more for it;
+- a stop with a process ignoring SIGTERM ends stopped inside its budget;
+- routes, statuses and bodies of the workspace agent are unchanged.
 
 ### Estimated total
 

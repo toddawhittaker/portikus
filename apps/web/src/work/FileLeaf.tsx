@@ -1,30 +1,23 @@
 /**
- * A file tab: the Monaco editor, autosave and conflict resolution
- * (SPEC.md §8.3, §13.1, §13.3, §13.5). Local text is never thrown away
- * without the student clicking a button.
+ * A file tab: the Monaco editor, the viewers and the conflict view
+ * (SPEC.md §8.3, §13.1, §13.3, §13.4). The text and its saving live in
+ * useFileBuffer.
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { Button, EmptyState, Icon, PaneHandle } from "@portikus/ui";
 import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from "react";
 import { Group, Panel } from "react-resizable-panels";
-import { ApiError } from "../api/request.js";
 import type { CodeEditorHandle } from "../editor/CodeEditor.js";
 import { lineForTop, readBlocks, topForLine } from "../editor/scrollSync.js";
 import { useEditorSettings } from "../editor/settingsQueries.js";
 import { DownloadFileButton } from "../files/DownloadFileButton.js";
-import { isStorageFull, STORAGE_FULL_SAVE_MESSAGE } from "../files/errors.js";
-import {
-	FileConflictError,
-	fileInlineUrl,
-	flushWrite,
-	useFile,
-	useSaveFile,
-} from "../files/queries.js";
+import { fileInlineUrl } from "../files/queries.js";
 import { viewerKind } from "../files/viewable.js";
 import { type PendingView, useEditorViewState } from "../layout/store.js";
 import { formatBytes } from "../monitor/format.js";
 import { DiffLeaf } from "./DiffLeaf.js";
 import { ImageView, PdfView } from "./FileViewer.js";
+import { type BufferStatus, useFileBuffer } from "./useFileBuffer.js";
 
 // Monaco is large, so it is its own chunk and is only fetched when a file tab
 // is actually opened (STACK.md §3).
@@ -69,9 +62,7 @@ function isMarkdownPath(path: string): boolean {
 	return lower.endsWith(".md") || lower.endsWith(".markdown");
 }
 
-type Status = "loading" | "saved" | "unsaved" | "saving" | "conflict" | "failed";
-
-const STATUS_LABEL: Record<Status, string> = {
+const STATUS_LABEL: Record<BufferStatus, string> = {
 	loading: "Loading…",
 	saved: "Saved",
 	unsaved: "Unsaved",
@@ -116,39 +107,16 @@ export function FileLeaf({
 	// Where the cursor and scroll were when this file was last on screen, so
 	// leaving the workspace and coming back puts them back.
 	const viewState = useEditorViewState(path);
-	const file = useFile(workspaceId, projectId, path);
-	const save = useSaveFile(workspaceId, projectId, path);
-
-	// `text` is null until the first load; `etag` is the version the text was
-	// edited from; `dirty` says the student has changes the server has not seen.
-	const [text, setText] = useState<string | null>(null);
-	const [etag, setEtag] = useState("");
-	const [dirty, setDirty] = useState(false);
-	const [status, setStatus] = useState<Status>("loading");
-
-	// The tab strip shows a dot instead of the close button while the file has
-	// edits that are not on disk. Reported on unmount as clean, so
-	// a closed tab leaves nothing behind.
-	const reportUnsaved = useRef(onUnsavedChange);
-	reportUnsaved.current = onUnsavedChange;
-	const unsaved = status === "unsaved" || status === "saving";
-	useEffect(() => {
-		reportUnsaved.current?.(unsaved);
-	}, [unsaved]);
-	useEffect(() => {
-		return () => reportUnsaved.current?.(false);
-	}, []);
-	// The version on disk that this tab's text no longer follows from, and
-	// what that version says. Null when there is nothing to resolve.
-	const [conflict, setConflict] = useState<{ etag: string; text: string } | null>(null);
-	// A conflict opens as a diff; the student can put it aside and carry on
-	// typing, and the banner brings the diff back.
-	const [showConflict, setShowConflict] = useState(false);
-	// Counts the edits made on the conflict side. The editor below only takes
-	// new text when its version changes, and typing in the conflict diff does
-	// not change the etag, so without this counter "Keep editing" would come
-	// back to an editor still holding the text from before those keystrokes.
-	const [conflictEdits, setConflictEdits] = useState(0);
+	const buffer = useFileBuffer({
+		workspaceId,
+		projectId,
+		path,
+		settings,
+		onUnsavedChange,
+	});
+	const { file, readError, gone } = buffer;
+	const { text, etag, status, conflict, showConflict, conflictEdits, saveError } =
+		buffer.state;
 	// An image, SVG or PDF is shown rather than edited.
 	const kind = viewerKind(path);
 	const svg = kind === "svg";
@@ -182,22 +150,6 @@ export function FileLeaf({
 	// The preview may lag the keystrokes so typing stays smooth, but it is
 	// never a frame behind on the first render.
 	const previewText = useDeferredValue(text ?? "");
-	// The file was deleted on disk while it was open, so the next save has to
-	// create it rather than replace a version (SPEC.md §13.3).
-	const [deleted, setDeleted] = useState(false);
-	const [saveError, setSaveError] = useState<string | null>(null);
-	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	// True while a write is in flight: a second one would send a stale etag
-	// and be refused as a false conflict.
-	const writing = useRef(false);
-	// Every version this tab has already seen, so a refetch that was in flight
-	// during a save cannot put the older text back.
-	const known = useRef(new Set<string>());
-	// The last few bodies this tab wrote. A write of its own makes the file
-	// change on disk, which the project events socket reports, and that read
-	// can come back before the write's own answer does. Without this the
-	// editor would see its own text as someone else's edit.
-	const sent = useRef<string[]>([]);
 
 	// A file can be opened again while its tab is already there, so the
 	// request is taken every time the store gets a new one, not only on mount.
@@ -220,218 +172,7 @@ export function FileLeaf({
 		setRevealReady(true);
 	}, [pendingView?.seq]);
 
-	// The save reads the newest text and etag, not the ones captured when the
-	// timer was set.
-	const latest = useRef({ text, etag, deleted });
-	latest.current = { text, etag, deleted };
-
-	// The pending timer reads the newest settings, so a change takes effect on
-	// the next keystroke rather than on the next reload.
-	const settingsRef = useRef(settings);
-	settingsRef.current = settings;
-
-	function cancelTimer() {
-		if (timer.current !== null) clearTimeout(timer.current);
-		timer.current = null;
-	}
-
-	// Closing the tab or the browser mid-debounce must not lose the text, so
-	// the pending write goes out with `keepalive` (SPEC.md §13.5).
-	const flushOnUnmount = useRef(() => {});
-	flushOnUnmount.current = () => {
-		if (timer.current === null) return;
-		clearTimeout(timer.current);
-		timer.current = null;
-		const current = latest.current;
-		if (current.text === null) return;
-		flushWrite(
-			workspaceId,
-			projectId,
-			path,
-			current.text,
-			current.deleted ? null : current.etag,
-		);
-	};
-	useEffect(
-		() => () => {
-			flushOnUnmount.current();
-		},
-		[],
-	);
-
-	async function write(body: string, against: string | null, retried = false) {
-		// Three is enough to cover the reads that were already on their way
-		// when this write went out.
-		sent.current = [...sent.current.slice(-2), body];
-		writing.current = true;
-		setStatus("saving");
-		setSaveError(null);
-		try {
-			const result = await save.mutateAsync({ text: body, etag: against });
-			known.current.add(result.etag);
-			setEtag(result.etag);
-			setDeleted(false);
-			setConflict(null);
-			// The student may have typed while that write was in the air. Only
-			// what was actually sent is saved; anything newer is still unsaved.
-			if (latest.current.text === body) {
-				setDirty(false);
-				setStatus("saved");
-			} else {
-				setDirty(true);
-				setStatus("unsaved");
-				// With auto-save off the student asked for this save, so the
-				// keystrokes that arrived during it go out at once rather than
-				// waiting for another Ctrl+S.
-				scheduleSave(settingsRef.current.autoSave ? undefined : 0);
-			}
-		} catch (error) {
-			if (error instanceof FileConflictError) {
-				// The refusal carries the version on disk but not its text, and
-				// the conflict view needs both sides.
-				const fresh = await file.refetch();
-				const disk = fresh.data;
-				const readable = disk !== undefined && !disk.binary && !disk.tooLarge;
-				// The file on disk may hold a version this tab itself wrote or
-				// loaded. Then nobody else has touched it, the refusal came from an
-				// etag that had gone stale here, and a conflict would be a lie. Save
-				// again against the version the server just gave, once.
-				if (
-					!retried &&
-					readable &&
-					(known.current.has(disk.etag) || sent.current.includes(disk.text))
-				) {
-					await write(body, disk.etag, true);
-					return;
-				}
-				setConflict({
-					etag: readable ? disk.etag : error.etag,
-					text: readable ? disk.text : "",
-				});
-				setShowConflict(true);
-				setStatus("conflict");
-				return;
-			}
-			setSaveError(
-				isStorageFull(error)
-					? STORAGE_FULL_SAVE_MESSAGE
-					: error instanceof Error
-						? error.message
-						: "The save failed.",
-			);
-			setStatus("failed");
-		} finally {
-			writing.current = false;
-		}
-	}
-
-	/**
-	 * Write the newest text after `delayMs`. The default is the student's
-	 * auto-save delay; a Ctrl+S that has more to write passes zero.
-	 */
-	function scheduleSave(delayMs = settingsRef.current.autoSaveDelaySeconds * 1000) {
-		cancelTimer();
-		timer.current = setTimeout(() => {
-			timer.current = null;
-			// One write at a time: a second would carry the etag the first is
-			// about to replace. Wait another debounce instead.
-			if (writing.current) {
-				scheduleSave(delayMs);
-				return;
-			}
-			const current = latest.current;
-			if (current.text === null) return;
-			void write(current.text, current.deleted ? null : current.etag);
-		}, delayMs);
-	}
-
-	function onChange(next: string) {
-		setText(next);
-		setDirty(true);
-		// An unresolved conflict waits for the student; autosaving would only
-		// produce another 412 (SPEC.md §13.3).
-		if (conflict !== null) return;
-		setStatus("unsaved");
-		// With auto-save off the text waits for Ctrl+S (SPEC.md §13.5).
-		if (settingsRef.current.autoSave) scheduleSave();
-	}
-
-	/** A keystroke on the student's side of the conflict diff. */
-	function onConflictChange(next: string) {
-		setConflictEdits((count) => count + 1);
-		onChange(next);
-	}
-
-	function saveNow() {
-		if (!dirty || conflict !== null) return;
-		const current = latest.current;
-		if (current.text === null) return;
-		if (writing.current) {
-			// A write is already in the air; this one follows it at once.
-			scheduleSave(0);
-			return;
-		}
-		cancelTimer();
-		void write(current.text, current.deleted ? null : current.etag);
-	}
-
-	// What the server last sent decides what happens: the first load fills the
-	// editor, a later change with no local edits refreshes it silently, and a
-	// later change with local edits is a conflict (SPEC.md §13.3).
 	const data = file.data;
-	useEffect(() => {
-		if (!data || data.binary || data.tooLarge) return;
-		if (known.current.has(data.etag)) return;
-		if (sent.current.includes(data.text)) {
-			// This is the editor's own text coming back, not an outside edit.
-			known.current.add(data.etag);
-			// While a write is in flight its answer carries the etag to save
-			// against next; this read may already be one version behind.
-			if (!writing.current) setEtag(data.etag);
-			if (text !== null && dirty) return;
-		}
-		if (text !== null && dirty) {
-			setConflict({ etag: data.etag, text: data.text });
-			setShowConflict(true);
-			setStatus("conflict");
-			return;
-		}
-		known.current.add(data.etag);
-		setText(data.text);
-		setEtag(data.etag);
-		setDeleted(false);
-		setStatus("saved");
-	}, [data, text, dirty]);
-
-	// A read that fails once the file is open keeps the editor: the student's
-	// text is the only copy of their work (SPEC.md §13.3).
-	const readError = file.error;
-	const gone = readError instanceof ApiError && readError.status === 404;
-	useEffect(() => {
-		if (gone) setDeleted(true);
-	}, [gone]);
-
-	async function takeTheirs() {
-		cancelTimer();
-		const fresh = await file.refetch();
-		if (!fresh.data) return;
-		known.current.add(fresh.data.etag);
-		setText(fresh.data.text);
-		setEtag(fresh.data.etag);
-		setDirty(false);
-		setDeleted(false);
-		setConflict(null);
-		setShowConflict(false);
-		setStatus("saved");
-	}
-
-	function keepMine() {
-		cancelTimer();
-		const current = latest.current;
-		if (current.text === null || conflict === null) return;
-		setShowConflict(false);
-		void write(current.text, conflict.etag);
-	}
 
 	// A PDF or raster image is shown even when it happens to hold no NUL byte
 	// and the server calls it text.
@@ -600,8 +341,8 @@ export function FileLeaf({
 					projectId={projectId}
 					value={text}
 					version={`${etag}:${conflictEdits}`}
-					onChange={onChange}
-					onSave={saveNow}
+					onChange={buffer.onChange}
+					onSave={buffer.saveNow}
 					wordWrap={settings.wordWrap ? "on" : "off"}
 					revealLine={reveal?.line}
 					revealNonce={reveal?.nonce}
@@ -661,7 +402,7 @@ export function FileLeaf({
 					modified={text}
 					version={conflict.etag}
 					editable
-					onChange={onConflictChange}
+					onChange={buffer.onConflictChange}
 					testId={`conflict-editor-${path}`}
 				/>
 			</Suspense>
@@ -734,9 +475,9 @@ export function FileLeaf({
 				{conflict !== null ? (
 					<ConflictBar
 						showConflict={showConflict}
-						onKeepMine={keepMine}
-						onTakeDisk={() => void takeTheirs()}
-						onToggle={() => setShowConflict((shown) => !shown)}
+						onKeepMine={buffer.keepMine}
+						onTakeDisk={() => void buffer.takeDisk()}
+						onToggle={buffer.toggleConflict}
 					/>
 				) : null}
 				{note !== null ? (
@@ -767,7 +508,7 @@ export function FileLeaf({
 }
 
 /** The save state pill in the file header. */
-function StatusPill({ path, status }: { path: string; status: Status }) {
+function StatusPill({ path, status }: { path: string; status: BufferStatus }) {
 	return (
 		<span
 			className="pk-file-status"

@@ -1,19 +1,5 @@
-import { basename } from "node:path";
-import type { Readable } from "node:stream";
-import websocket, { type WebSocket } from "@fastify/websocket";
-import {
-	AgentCreateProjectRequest,
-	AgentCreateTerminalRequest,
-	AgentDuplicateProjectRequest,
-	AgentRenameProjectRequest,
-	contentDisposition,
-	ExtractRequest,
-	MAX_TERMINALS_PER_WORKSPACE,
-	MkdirRequest,
-	MoveRequest,
-	SetLogLevelRequest,
-	TerminalId,
-} from "@portikus/contracts";
+import websocket from "@fastify/websocket";
+import { SetLogLevelRequest } from "@portikus/contracts";
 import {
 	applyLevel,
 	type Logger,
@@ -22,31 +8,16 @@ import {
 	registerRequestLogging,
 	silentLogger,
 } from "@portikus/observability";
-import Fastify, {
-	type FastifyBaseLogger,
-	type FastifyInstance,
-	type FastifyRequest,
-} from "fastify";
-import { z } from "zod";
+import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { tokenAuth } from "./auth.js";
 import { startUrlBroker } from "./broker.js";
 import { checksRoute } from "./checks-route.js";
 import { type DockerRunner, dockerInventoryRoute } from "./docker-inventory.js";
-import { AgentFailure, abortOnDisconnect, ERROR_STATUS, sendError } from "./errors.js";
+import { ERROR_STATUS } from "./errors.js";
 import { eventsRoute } from "./events-route.js";
-import { extractZip } from "./extract.js";
-import {
-	listDir,
-	mkdir,
-	move,
-	readFile,
-	remove,
-	resolveInProject,
-	writeFile,
-} from "./files.js";
+import { filesRoutes } from "./files-route.js";
 import { Forwards } from "./forwards.js";
-import { recordBaseline } from "./git.js";
-import { registerGitRoutes } from "./git-routes.js";
+import { gitRoutes } from "./git-routes.js";
 import {
 	ListeningMonitor,
 	type ListeningMonitorOptions,
@@ -56,71 +27,14 @@ import { listeningRoutes } from "./listening-route.js";
 import { type PackagesRouteOptions, packagesRoutes } from "./packages-route.js";
 import { protectedTree, tmuxPidSource } from "./processes.js";
 import { processesRoutes } from "./processes-route.js";
-import {
-	excludeOnPortikusWrite,
-	PASTES_DIR,
-	removeOldPastes,
-} from "./project-files.js";
-import {
-	archiveDir,
-	archiveProject,
-	checkDownloadSize,
-	createProject,
-	deleteProject,
-	duplicateProject,
-	getProject,
-	gitInitProject,
-	listProjects,
-	renameProject,
-	resolveProject,
-} from "./projects.js";
-import { registerRecoveryRoutes } from "./recovery-routes.js";
-import { registerSearchRoutes } from "./search-routes.js";
-import { readTerminalsExit, sendText, TerminalRegistry } from "./terminals.js";
-import {
-	closeSession,
-	commandForAgent,
-	createSession,
-	hasSession,
-	listSessions,
-	serverPid,
-	type TmuxServer,
-} from "./tmux.js";
+import { projectsRoutes } from "./projects-route.js";
+import { recoveryRoutes } from "./recovery-routes.js";
+import { searchRoutes } from "./search-routes.js";
+import { TerminalRegistry } from "./terminals.js";
+import { terminalsRoutes } from "./terminals-route.js";
+import { serverPid, type TmuxServer } from "./tmux.js";
 import { UsageSampler, type UsageSamplerOptions } from "./usage.js";
 import { ProjectWatchers } from "./watch.js";
-
-const IdParam = z.object({ terminalId: TerminalId });
-
-/** File routes carry the project-relative path in the query; "" is the root. */
-const PathQuery = z.object({
-	path: z.string().max(1024).optional(),
-	download: z.string().optional(),
-	upload: z.string().optional(),
-	check: z.string().optional(),
-});
-
-function queryPath(request: FastifyRequest): {
-	path: string;
-	download: boolean;
-	upload: boolean;
-	check: boolean;
-} {
-	const parsed = PathQuery.safeParse(request.query ?? {});
-	if (!parsed.success) {
-		throw new AgentFailure("PATH_INVALID", "invalid path");
-	}
-	return {
-		path: parsed.data.path ?? "",
-		download: parsed.data.download === "1",
-		upload: parsed.data.upload === "1",
-		check: parsed.data.check === "1",
-	};
-}
-
-const AttachQuery = z.object({
-	cols: z.coerce.number().int().min(1).max(1000).optional(),
-	rows: z.coerce.number().int().min(1).max(1000).optional(),
-});
 
 export interface ServerOptions {
 	tokenPath: string;
@@ -300,419 +214,18 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			return reply.code(204).send();
 		});
 
-		instance.get("/terminals", async (request, reply) => {
-			try {
-				const sessions = await listSessions(tmuxServer);
-				return {
-					terminals: sessions.map((session) => ({
-						id: session.id,
-						cwd: session.cwd,
-						attachments: registry.countAttachments(session.id),
-					})),
-				};
-			} catch (error) {
-				return sendError(request, reply, error, "TMUX_FAILED");
-			}
+		instance.register(terminalsRoutes, {
+			homeDir: options.homeDir,
+			tmuxServer,
+			registry,
+			terminalsExitPath: options.terminalsExitPath,
+			build: options.build,
 		});
-
-		// How the terminals unit last stopped, so the control plane can explain
-		// terminals that vanished (SPEC.md §9.7). Registered before the
-		// terminal id routes so the path is not read as an id.
-		instance.get("/terminals/last-exit", async () => ({
-			exit: await readTerminalsExit(options.terminalsExitPath),
-		}));
-
-		instance.post("/terminals", async (request, reply) => {
-			const parsed = AgentCreateTerminalRequest.safeParse(request.body);
-			if (!parsed.success) {
-				return reply.code(400).send({
-					error: {
-						code: "INVALID_CWD",
-						message: parsed.error.issues.map((issue) => issue.message).join("; "),
-					},
-				});
-			}
-			try {
-				if (await hasSession(parsed.data.id, tmuxServer)) {
-					throw new AgentFailure("TERMINAL_EXISTS", "terminal already exists");
-				}
-				const sessions = await listSessions(tmuxServer);
-				if (sessions.length >= MAX_TERMINALS_PER_WORKSPACE) {
-					throw new AgentFailure(
-						"TERMINAL_LIMIT",
-						"this workspace already has the maximum number of terminals",
-					);
-				}
-				const created = await createSession(
-					parsed.data.id,
-					parsed.data.cwd,
-					options.homeDir,
-					parsed.data.theme,
-					parsed.data.timezone,
-					tmuxServer,
-					parsed.data.agent
-						? {
-								command: commandForAgent(parsed.data.agent),
-								institutionalEnv: parsed.data.institutionalEnv,
-								recordBaseline,
-							}
-						: undefined,
-				);
-				request.log.debug(
-					{ terminalId: created.id, session: `pk-${created.id}` },
-					"tmux session created",
-				);
-				return reply.code(201).send({
-					id: created.id,
-					cwd: created.cwd,
-					attachments: 0,
-					baselineObjectId: created.baselineObjectId,
-					baselineHead: created.baselineHead,
-				});
-			} catch (error) {
-				return sendError(request, reply, error, "TMUX_FAILED");
-			}
-		});
-
-		instance.delete("/terminals/:terminalId", async (request, reply) => {
-			const params = IdParam.safeParse(request.params);
-			if (!params.success) {
-				return reply
-					.code(404)
-					.send({ error: { code: "TERMINAL_NOT_FOUND", message: "no such terminal" } });
-			}
-			const { terminalId } = params.data;
-			try {
-				if (!(await hasSession(terminalId, tmuxServer))) {
-					throw new AgentFailure("TERMINAL_NOT_FOUND", "no such terminal");
-				}
-				const { stopped } = await closeSession(terminalId, tmuxServer);
-				registry.closeAll(terminalId, 1000, "terminal deleted");
-				// Stragglers get their SIGKILL after the grace period, without
-				// holding the response (SPEC.md §9.7).
-				stopped.catch((error: unknown) => {
-					request.log.warn(
-						{ terminalId, error: error instanceof Error ? error.message : error },
-						"could not stop a closed terminal's processes",
-					);
-				});
-				request.log.debug(
-					{ terminalId, session: `pk-${terminalId}` },
-					"tmux session killed",
-				);
-				return reply.code(204).send();
-			} catch (error) {
-				return sendError(request, reply, error, "TMUX_FAILED");
-			}
-		});
-
-		instance.get("/projects", async (request, reply) => {
-			try {
-				return { projects: await listProjects(options.homeDir) };
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-		});
-
-		instance.get("/projects/:slug", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			try {
-				return await getProject(slug, options.homeDir);
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-		});
-
-		instance.post("/projects", async (request, reply) => {
-			const parsed = AgentCreateProjectRequest.safeParse(request.body);
-			if (!parsed.success) {
-				return reply.code(400).send({
-					error: {
-						code: "INVALID_SLUG",
-						message: parsed.error.issues.map((issue) => issue.message).join("; "),
-					},
-				});
-			}
-			try {
-				const project = await createProject(parsed.data, options.homeDir);
-				request.log.debug(
-					{ slug: project.slug, operation: "create", source: parsed.data.source },
-					"project operation",
-				);
-				return reply.code(201).send(project);
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-		});
-
-		instance.delete("/projects/:slug", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			try {
-				await deleteProject(slug, options.homeDir);
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-			request.log.info({ slug, operation: "delete" }, "project deleted");
-			return reply.code(204).send();
-		});
-
-		instance.post("/projects/:slug/rename", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			const parsed = AgentRenameProjectRequest.safeParse(request.body);
-			if (!parsed.success) {
-				return reply
-					.code(400)
-					.send({ error: { code: "INVALID_SLUG", message: "invalid target slug" } });
-			}
-			try {
-				const project = await renameProject(slug, parsed.data.to, options.homeDir);
-				request.log.debug(
-					{ slug, operation: "rename", to: project.slug },
-					"project operation",
-				);
-				return project;
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-		});
-
-		instance.post("/projects/:slug/duplicate", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			const parsed = AgentDuplicateProjectRequest.safeParse(request.body);
-			if (!parsed.success) {
-				return reply
-					.code(400)
-					.send({ error: { code: "INVALID_SLUG", message: "invalid target slug" } });
-			}
-			try {
-				const project = await duplicateProject(slug, parsed.data.to, options.homeDir);
-				request.log.debug(
-					{ slug, operation: "duplicate", to: project.slug },
-					"project operation",
-				);
-				return project;
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-		});
-
-		instance.post("/projects/:slug/git-init", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			try {
-				const project = await gitInitProject(slug, options.homeDir);
-				request.log.debug({ slug, operation: "git-init" }, "project operation");
-				return project;
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-		});
-
-		// A failed exclude update must never fail the student's write.
-		async function noteWrite(
-			request: FastifyRequest,
-			slug: string,
-			path: string,
-		): Promise<void> {
-			if (path !== ".portikus" && !path.startsWith(".portikus/")) return;
-			try {
-				const project = await resolveProject(slug, options.homeDir);
-				await excludeOnPortikusWrite(project.path, path);
-			} catch (error) {
-				request.log.warn({ slug, err: error }, "could not update the exclude file");
-			}
-		}
-
-		// A failed cleanup must never fail the paste that triggered it.
-		async function cleanPastes(request: FastifyRequest, slug: string): Promise<void> {
-			try {
-				const project = await resolveProject(slug, options.homeDir);
-				await removeOldPastes(project.path);
-			} catch (error) {
-				request.log.warn({ slug, err: error }, "could not remove old pastes");
-			}
-		}
-
-		registerSearchRoutes(instance, options.homeDir);
-		// The file routes. Paths are logged at debug only and file contents
-		// never (STACK.md §15, ADR 0012).
-		instance.get("/projects/:slug/tree", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			try {
-				const { path } = queryPath(request);
-				return await listDir(options.homeDir, slug, path);
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-		});
-
-		instance.get("/projects/:slug/file", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			try {
-				const { path, download } = queryPath(request);
-				const file = await readFile(options.homeDir, slug, path, { download });
-				if (file.etag) {
-					reply.header("etag", file.etag);
-				}
-				reply.header("content-length", String(file.size));
-				if (download) {
-					reply.header("content-disposition", contentDisposition(basename(path)));
-				}
-				return reply.type(file.contentType).send(file.stream ?? file.body);
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-		});
-
-		// The write route reads the raw request stream for every content type, so
-		// the parsers that displace Fastify's JSON and text ones live in this
-		// scope alone; every other route keeps Fastify's defaults. The size cap is
-		// enforced while the body streams to disk, not by a route body limit,
-		// which a stream parser never consults (SPEC.md §11.2).
-		instance.register(async (writeScope) => {
-			const rawStream = (
-				_request: FastifyRequest,
-				payload: Readable,
-				done: (error: Error | null, body?: Readable) => void,
-			) => {
-				done(null, payload);
-			};
-			writeScope.addContentTypeParser("*", rawStream);
-			writeScope.addContentTypeParser("application/json", rawStream);
-			writeScope.addContentTypeParser("text/plain", rawStream);
-
-			writeScope.put("/projects/:slug/file", async (request, reply) => {
-				const { slug } = request.params as { slug: string };
-				try {
-					const { path, upload } = queryPath(request);
-					const ifMatch = request.headers["if-match"];
-					const ifNoneMatch = request.headers["if-none-match"];
-					// ?upload=1 is the explicit signal. The octet-stream content type is
-					// still accepted as an alias for the clients that send it.
-					const contentType = request.headers["content-type"] ?? "";
-					const result = await writeFile(options.homeDir, slug, path, request.raw, {
-						ifMatch: typeof ifMatch === "string" ? unquote(ifMatch) : undefined,
-						ifNoneMatch: ifNoneMatch === "*",
-						upload: upload || contentType.startsWith("application/octet-stream"),
-					});
-					await noteWrite(request, slug, path);
-					if (path.startsWith(`${PASTES_DIR}/`)) {
-						await cleanPastes(request, slug);
-					}
-					reply.header("etag", result.etag);
-					return reply.code(200).send(result);
-				} catch (error) {
-					if (
-						error instanceof AgentFailure &&
-						error.code === "FILE_TOO_LARGE" &&
-						!request.raw.readableEnded
-					) {
-						// The rest of the body is never read, so the connection cannot be
-						// reused; say so, and only tear the socket down once the 413 has
-						// gone out, or the client sees a reset instead (SPEC.md §13.5).
-						reply.header("connection", "close");
-						reply.raw.once("finish", () => {
-							request.raw.destroy();
-						});
-					}
-					return sendError(request, reply, error, "INTERNAL");
-				}
-			});
-		});
-
-		instance.delete("/projects/:slug/file", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			try {
-				const { path } = queryPath(request);
-				await remove(options.homeDir, slug, path);
-				return reply.code(204).send();
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-		});
-
-		instance.post("/projects/:slug/mkdir", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			try {
-				const parsed = MkdirRequest.safeParse(request.body);
-				if (!parsed.success) {
-					throw new AgentFailure("PATH_INVALID", "invalid path");
-				}
-				await mkdir(options.homeDir, slug, parsed.data.path);
-				await noteWrite(request, slug, parsed.data.path);
-				return reply.code(201).send({ ok: true });
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-		});
-
-		instance.post("/projects/:slug/extract", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			try {
-				const parsed = ExtractRequest.safeParse(request.body);
-				if (!parsed.success) {
-					throw new AgentFailure("PATH_INVALID", "invalid path");
-				}
-				// An API timeout closes the connection; unzip must not outlive it.
-				const path = await extractZip(
-					options.homeDir,
-					slug,
-					parsed.data.path,
-					abortOnDisconnect(reply),
-				);
-				return reply.code(201).send({ path });
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-		});
-
-		instance.post("/projects/:slug/move", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			try {
-				const parsed = MoveRequest.safeParse(request.body);
-				if (!parsed.success) {
-					throw new AgentFailure("PATH_INVALID", "invalid path");
-				}
-				await move(options.homeDir, slug, parsed.data.from, parsed.data.to);
-				await noteWrite(request, slug, parsed.data.to);
-				return reply.code(204).send();
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-		});
-
-		instance.get("/projects/:slug/archive", async (request, reply) => {
-			const { slug } = request.params as { slug: string };
-			let archive: Readable;
-			// A download the browser gave up on must not leave zip running.
-			const signal = abortOnDisconnect(reply);
-			try {
-				const { path, check } = queryPath(request);
-				if (check) {
-					// Only the size check, so the browser can explain a refusal
-					// before it starts a download.
-					const target = await resolveInProject(options.homeDir, slug, path, {
-						mustExist: true,
-					});
-					await checkDownloadSize(target.path);
-					return reply.code(204).send();
-				}
-				if (path === "") {
-					archive = await archiveProject(slug, options.homeDir, signal);
-				} else {
-					const target = await resolveInProject(options.homeDir, slug, path, {
-						mustExist: true,
-					});
-					archive = await archiveDir(target.path, signal);
-				}
-			} catch (error) {
-				return sendError(request, reply, error, "INTERNAL");
-			}
-			request.log.debug({ slug, operation: "archive" }, "project operation");
-			return reply.type("application/zip").send(archive);
-		});
-
-		registerGitRoutes(instance, { homeDir: options.homeDir });
-		registerRecoveryRoutes(instance, { homeDir: options.homeDir, recoveryRoot });
+		instance.register(projectsRoutes, { homeDir: options.homeDir });
+		instance.register(searchRoutes, { homeDir: options.homeDir });
+		instance.register(filesRoutes, { homeDir: options.homeDir });
+		instance.register(gitRoutes, { homeDir: options.homeDir });
+		instance.register(recoveryRoutes, { homeDir: options.homeDir, recoveryRoot });
 		instance.register(checksRoute, { homeDir: options.homeDir });
 		instance.register(packagesRoutes, {
 			...options.packages,
@@ -729,47 +242,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			maxSockets: options.maxEventSockets,
 			watchers,
 		});
-
-		instance.get(
-			"/terminals/:terminalId/attach",
-			{ websocket: true },
-			async (socket: WebSocket, request) => {
-				// Attaching is asynchronous, so hold incoming frames until the
-				// PTY and its listeners exist; otherwise early input is lost.
-				socket.pause();
-				const params = IdParam.safeParse(request.params);
-				const query = AttachQuery.safeParse(request.query ?? {});
-				if (!params.success || !query.success) {
-					socket.resume();
-					sendText(socket, { type: "error", code: "TERMINAL_NOT_FOUND" });
-					socket.close(1008, "invalid attach request");
-					return;
-				}
-				const { terminalId } = params.data;
-				try {
-					await registry.attach(terminalId, socket, query.data);
-					if (options.build) {
-						sendText(socket, { type: "agent", build: options.build });
-					}
-					socket.resume();
-					request.log.debug(
-						{ terminalId, cols: query.data.cols, rows: query.data.rows },
-						"terminal attached",
-					);
-				} catch (error) {
-					const code = error instanceof AgentFailure ? error.code : "TMUX_FAILED";
-					socket.resume();
-					sendText(socket, { type: "error", code });
-					socket.close(1008, code);
-				}
-			},
-		);
 	});
 
 	return app;
-}
-
-/** Strip the quotes an HTTP entity tag is usually sent with. */
-function unquote(value: string): string {
-	return value.replace(/^W\//, "").replace(/^"|"$/g, "");
 }
