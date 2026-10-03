@@ -1004,7 +1004,8 @@ layout position, creation time, and the time it ended. The control plane
 marks a terminal ended when its workspace begins stopping; closing a
 terminal deliberately deletes its row instead. An ended terminal is shown
 as ended with an action to create a new one, and a listing returns every
-open terminal plus the 20 most recently ended ones. On attach the agent
+open terminal plus the 20 most recently ended ones. The worker deletes
+an ended row 30 days after it ended. On attach the agent
 replays the pane's recent history from tmux, up to the capture limit, into
 the browser's scrollback, so a reload shows earlier output above the
 prompt; the platform still stores no terminal output anywhere. tmux does
@@ -1033,7 +1034,8 @@ Limits, enforced by the server:
 - at most 20 terminals per workspace. The cap stops a runaway client from
   creating terminals without end; it is not the resource limit, which is
   the container's CPU, memory and process limits. A refused create shows
-  the user a toast naming the limit;
+  the user a toast naming the limit. Parallel creates are serialized per
+  workspace, so they cannot pass the cap together;
 - at most 4 simultaneous attachments per terminal;
 - at most 64 KiB of data in one input frame, and at most 1 MiB in any
   frame the browser sends;
