@@ -2224,6 +2224,8 @@ P0 should include:
 
 Error messages must suggest a next action where possible.
 
+The state is marked unconfirmed when Portikus cannot vouch for it. The worker records in `settings.controller_checked_at` each time it reaches the workspace controller. The API sends `stateVerified: true` on the Workspace only while that time is within the last two minutes; before any check, or after a longer gap, it sends `false`. In every state, the status bar then shows a warning-toned "unconfirmed" with an alert icon inside the state button, and the button's accessible name adds "Portikus can't reach the workspace host right now, so this may be out of date." The state text itself is unchanged.
+
 The "Your workspace" dialog, opened from the status bar, puts the state and its Restart and Stop (or Start) buttons first. Below them come "Storage", with one meter per class that also states its figure as text ("X of Y"); "Docker", with Reset Docker and a line saying what it throws away and what it keeps; the rebuild note; and a collapsed "Technical details" with the desired state, connections and image. While the workspace is in error, the dialog shows the error message and the same storage figures as the error screen (section 28).
 
 As Monitor narrows, the PID column hides below 16rem and the Memory column below 14rem, so Command, CPU and the two action cells always fit; the Stop button still names the PID (Epic 25).
@@ -4098,7 +4100,7 @@ High availability is not required for P0.
 
 A single pilot VM is acceptable.
 
-The system must fail clearly rather than presenting stale or misleading workspace state.
+The system must fail clearly rather than presenting stale or misleading workspace state. When the worker has not reached the workspace controller for two minutes, the status bar marks the state unconfirmed (section 18.3).
 
 ### 25.5 Data durability
 
@@ -4536,8 +4538,8 @@ Known gaps after Epic 3, to be closed later:
 - OpenAPI generation from the Zod contracts (ADR 0003) is not wired up yet.
   Tracked in `docs/BACKLOG.md`.
 - When the controller is unreachable the worker records an audit event, but
-  the API still reports the last known state instead of marking it
-  unverified. Tracked in `docs/BACKLOG.md`.
+  the API still reported the last known state instead of marking it
+  unverified. Closed by Epic 31: see section 18.3.
 - Deployment copied the source tree to the VM and built it there, with no
   way to roll back. Closed by Epic 3.5.
 

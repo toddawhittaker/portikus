@@ -174,6 +174,7 @@ const SETTINGS = {
 	cpuThrottleHoldAfter: 3,
 	cpuThrottleHoldHours: 24,
 	keepRunningMaxHours: 12,
+	stateVerified: true,
 	idleStopMinutes: 60,
 	acceptableUseText: null,
 	acceptableUseVersion: 1,

@@ -58,8 +58,14 @@ export type WorkspaceRow = Selectable<Database["workspaces"]>;
 /** The settings columns a Workspace view needs: when a throttle lifts and the cap on a hold. */
 export type WorkspaceSettings = Pick<
 	Selectable<Database["settings"]>,
-	"cpu_idle_lift_minutes" | "cpu_idle_lift_percent" | "keep_running_max_hours"
+	| "cpu_idle_lift_minutes"
+	| "cpu_idle_lift_percent"
+	| "keep_running_max_hours"
+	| "controller_checked_at"
 >;
+
+/** State counts as verified while the controller answered the worker this recently (SPEC.md §18.3). */
+const STATE_VERIFIED_WITHIN_MS = 2 * 60 * 1000;
 
 /** Read the settings row once per request; undefined before the first one exists. */
 export async function loadWorkspaceSettings(
@@ -71,6 +77,7 @@ export async function loadWorkspaceSettings(
 			"cpu_idle_lift_minutes",
 			"cpu_idle_lift_percent",
 			"keep_running_max_hours",
+			"controller_checked_at",
 		])
 		.where("id", "=", 1)
 		.executeTakeFirst();
@@ -86,7 +93,11 @@ export function toWorkspace(
 	activeConnections: number,
 	config: ApiConfig,
 	settings: WorkspaceSettings | undefined,
+	now: Date = new Date(),
 ): Workspace {
+	const checked = settings?.controller_checked_at ?? null;
+	const stateVerified =
+		checked !== null && now.getTime() - checked.getTime() <= STATE_VERIFIED_WITHIN_MS;
 	const lift = row.cpu_throttle && settings ? idleLift(settings) : null;
 	return {
 		id: row.id,
@@ -118,6 +129,7 @@ export function toWorkspace(
 			settings?.keep_running_max_hours ?? DEFAULT_KEEP_RUNNING_MAX_HOURS,
 			fromJson<GuardConfig>(row.guard_config),
 		),
+		stateVerified,
 		createdAt: row.created_at.toISOString(),
 		updatedAt: row.updated_at.toISOString(),
 	};

@@ -40,6 +40,7 @@ const sampleWorkspace = {
 	lastActivityAt: null,
 	keepRunningUntil: null,
 	keepRunningMaxHours: 12,
+	stateVerified: true,
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 };
@@ -86,6 +87,7 @@ test("Workspace round-trips a complete response", () => {
 		lastActivityAt: null,
 		keepRunningUntil: null,
 		keepRunningMaxHours: 12,
+		stateVerified: true,
 		createdAt: now,
 		updatedAt: now,
 	};
