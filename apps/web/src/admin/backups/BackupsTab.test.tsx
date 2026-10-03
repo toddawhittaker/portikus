@@ -554,14 +554,15 @@ test("empty lists say so, and an unlisted VM says not listed yet", async () => {
 	expect(screen.getByText("No requests yet.")).toBeTruthy();
 	// An empty list is one line of text, never a table of headers alone.
 	expect(screen.queryAllByRole("table")).toHaveLength(0);
-	const cleanUp = screen.getByTestId("backups-cleanup-summary");
-	expect(cleanUp.textContent).toBe(
-		"Clean up: 0 dumps; snapshots and kept homes not listed yet",
+	expect(screen.getByTestId("backups-cleanup-count").textContent).toBe(
+		"0 dumps; snapshots and kept homes not listed yet",
 	);
-	expect(cleanUp.closest("details")?.open).toBe(false);
+	expect(screen.getByTestId("backups-cleanup-summary").closest("details")?.open).toBe(
+		false,
+	);
 });
 
-test("the page reads as Backups, Restores, Clean up, then Recent requests", async () => {
+test("the page reads as Backups, Restores, Recent requests, then Clean up", async () => {
 	stubBackups(backups());
 	renderApp("/admin/backups");
 	await screen.findByTestId("backups-status");
@@ -575,11 +576,11 @@ test("the page reads as Backups, Restores, Clean up, then Recent requests", asyn
 		"H4 Status",
 		"H4 Backup sets",
 		"H3 Restores",
+		"H3 Recent requests",
 		"H3 Clean up",
 		"H4 Pre-change snapshots",
 		"H4 Kept homes",
 		"H4 Pre-change database dumps",
-		"H3 Recent requests",
 	]);
 	// Back up now sits in the Backups group's heading row.
 	const group = screen
@@ -618,7 +619,9 @@ test("Clean up is open with counts when anything is there to delete", async () =
 	stubBackups(backups());
 	renderApp("/admin/backups");
 	const summary = await screen.findByTestId("backups-cleanup-summary");
-	expect(summary.textContent).toBe("Clean up: 1 snapshot, 1 kept home, 1 dump");
+	expect(screen.getByTestId("backups-cleanup-count").textContent).toBe(
+		"1 snapshot, 1 kept home, 1 dump",
+	);
 	expect(summary.closest("details")?.open).toBe(true);
 });
 
@@ -631,8 +634,48 @@ test("Clean up is closed when snapshots, kept homes and dumps are all empty", as
 	});
 	renderApp("/admin/backups");
 	const summary = await screen.findByTestId("backups-cleanup-summary");
-	expect(summary.textContent).toBe("Clean up: 0 snapshots, 0 kept homes, 0 dumps");
+	expect(screen.getByTestId("backups-cleanup-count").textContent).toBe(
+		"0 snapshots, 0 kept homes, 0 dumps",
+	);
 	expect(summary.closest("details")?.open).toBe(false);
+});
+
+test("the Clean up heading is named alone, with its count beside it and no colon", async () => {
+	stubBackups(backups());
+	renderApp("/admin/backups");
+	const summary = await screen.findByTestId("backups-cleanup-summary");
+	expect(within(summary).getByRole("heading", { level: 3 }).textContent).toBe(
+		"Clean up",
+	);
+	expect(summary.textContent).not.toContain(":");
+});
+
+test("with no requests, Restores and Recent requests share one Activity group", async () => {
+	stubBackups({ ...backups(), requests: [] });
+	renderApp("/admin/backups");
+	const activity = await screen.findByTestId("backups-activity");
+	expect(within(activity).getByRole("heading", { level: 3 }).textContent).toBe(
+		"Activity",
+	);
+	expect(
+		within(activity)
+			.getAllByRole("heading", { level: 4 })
+			.map((h) => h.textContent),
+	).toEqual(["Restores", "Recent requests"]);
+	expect(within(activity).getByText("No workspaces restored recently.")).toBeTruthy();
+	expect(within(activity).getByText("No requests yet.")).toBeTruthy();
+	expect(screen.queryByTestId("backups-restores")).toBeNull();
+	expect(screen.queryByRole("heading", { level: 3, name: "Restores" })).toBeNull();
+});
+
+test("with requests, Restores and Recent requests are their own groups", async () => {
+	stubBackups(backups());
+	renderApp("/admin/backups");
+	await screen.findByTestId("backups-restores");
+	expect(screen.queryByTestId("backups-activity")).toBeNull();
+	expect(
+		screen.getByRole("heading", { level: 3, name: "Recent requests" }),
+	).toBeTruthy();
 });
 
 describe("restore from a workspace's panel (preset workspace)", () => {
