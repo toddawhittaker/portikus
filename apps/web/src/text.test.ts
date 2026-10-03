@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { joinWords, plural, shortTime, timeAgo } from "./text.js";
+import { joinWords, plural, shortId, shortTime, timeAgo } from "./text.js";
 
 const NOW = Date.parse("2026-09-22T12:00:00.000Z");
 
@@ -35,4 +35,11 @@ test("joinWords lists words with commas and a final and or or", () => {
 	expect(joinWords(["A", "B"])).toBe("A and B");
 	expect(joinWords(["A", "B", "C"])).toBe("A, B and C");
 	expect(joinWords(["Error", "Warn"], "or")).toBe("Error or Warn");
+});
+
+test("IDs shorten to their first 8 characters, keeping a prefix", () => {
+	expect(shortId("22222222-2222-4222-8222-222222222222")).toBe("22222222");
+	expect(shortId("user:11111111-1111-4111-8111-111111111111")).toBe("user:11111111");
+	expect(shortId("worker")).toBe("worker");
+	expect(shortId("subject:not-a-uuid")).toBe("subject:not-a-uuid");
 });

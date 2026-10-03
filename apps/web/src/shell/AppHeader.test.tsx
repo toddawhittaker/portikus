@@ -289,7 +289,24 @@ test("the menu item shows the unread count after its name, and the address is cu
 	expect(within(item).getByText("4 unread").getAttribute("aria-hidden")).toBe("true");
 	const address = screen.getByTitle(email);
 	expect(address.textContent).toBe(email);
-	expect(address.className).toContain("pk-account-email");
+	expect(address.className).toContain("pk-account-line");
+});
+
+// A narrow bar shows only the picture, so the menu names the account first.
+test("the account menu shows the display name with the address under it", () => {
+	renderHeader(WORKSPACE, { ...USER, email: "alice@example.edu" });
+	openAccountMenu();
+	const name = screen.getByTestId("account-menu-name");
+	expect(name.textContent).toBe(USER.displayName);
+	expect(name.nextElementSibling?.textContent).toBe("alice@example.edu");
+});
+
+test("an account with no address shows only the name in the menu", () => {
+	renderHeader(WORKSPACE, { ...USER, email: null });
+	openAccountMenu();
+	const name = screen.getByTestId("account-menu-name");
+	expect(name.textContent).toBe(USER.displayName);
+	expect(name.nextElementSibling).toBeNull();
 });
 
 // Closed without reading, the badge still exists and takes focus back; the

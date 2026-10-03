@@ -26,3 +26,17 @@
 .pk-table th[aria-sort] .pk-table-sort {
 	color: var(--ink);
 }
+
+/* The faint chevron an unsorted header shows on hover or focus. It sits in the
+   cell padding before the label, so it takes no width and never spills past the cell. */
+.pk-table-sort-hint {
+	position: absolute;
+	inset-inline-end: calc(100% + 3px);
+	color: var(--ink-faint);
+	opacity: 0;
+	pointer-events: none;
+}
+
+.pk-table-sort:is(:hover, :focus-visible) ~ .pk-table-sort-hint {
+	opacity: 1;
+}

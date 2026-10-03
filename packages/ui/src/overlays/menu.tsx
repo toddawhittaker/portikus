@@ -81,6 +81,11 @@ export interface MenuItemProps {
 	shortcut?: Key[];
 	danger?: boolean;
 	disabled?: boolean;
+	/**
+	 * Shown and reachable but does nothing for now, such as while a request
+	 * runs: aria-disabled, so the keyboard does not skip it (SPEC.md section 25.8).
+	 */
+	unavailable?: boolean;
 	onSelect?: () => void;
 	/** When set, the item is a link rather than a button. */
 	href?: string;
@@ -97,6 +102,7 @@ export function MenuItem({
 	shortcut,
 	danger,
 	disabled,
+	unavailable,
 	onSelect,
 	href,
 	target,
@@ -122,8 +128,15 @@ export function MenuItem({
 			asChild={href !== undefined}
 			className={href === undefined ? itemClass(danger) : undefined}
 			disabled={disabled}
+			// Passed last by Radix, so it must carry `disabled` too.
+			aria-disabled={unavailable || disabled || undefined}
 			aria-keyshortcuts={shortcut ? keyShortcuts(shortcut) : undefined}
-			onSelect={onSelect}
+			onSelect={
+				unavailable
+					? // Kept open, so the press visibly does nothing.
+						(event) => event.preventDefault()
+					: onSelect
+			}
 			data-testid={href === undefined ? testId : undefined}
 		>
 			{href === undefined ? (

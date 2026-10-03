@@ -2,7 +2,7 @@ import {
 	AdminPackagesResponse,
 	PACKAGE_SURVEY_MIN_SURVEYED,
 } from "@portikus/contracts";
-import { Toggletip } from "@portikus/ui";
+import { Skeleton, Toggletip } from "@portikus/ui";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, request } from "../../api/request.js";
 import { AdminGroup } from "../AdminSection.js";
@@ -36,7 +36,11 @@ export function PackagesSection() {
 						: "The package survey could not be loaded."}
 				</p>
 			) : !survey.data ? (
-				<div aria-busy="true" data-testid="packages-loading" />
+				// About the height of a short table, so the page does not jump when it loads.
+				<div aria-busy="true" data-testid="packages-loading">
+					<p className="sr-only">Loading the package survey…</p>
+					<Skeleton variant="block" height={120} />
+				</div>
 			) : (
 				<PackagesTable survey={survey.data} />
 			)}

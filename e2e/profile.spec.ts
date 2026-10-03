@@ -44,7 +44,10 @@ test("the sign-in name is the username, not the identity provider's subject", as
 	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
 
 	const dialog = await openProfile(page);
-	await expect(signInValue(dialog, "Sign-in name")).toHaveText("e2e-name");
+	const name = signInValue(dialog, "Sign-in name");
+	await expect(name).toHaveText("e2e-name");
+	// An ID, so it reads in the monospace face, as IDs do on the admin pages.
+	expect(await name.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/mono/i);
 });
 
 test("a profile link is saved and shown as a plain anchor; a bad one is refused", async ({
@@ -124,13 +127,14 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 	await expect(page.getByTestId("account-picture")).toHaveCount(0);
 
 	const dialog = await openProfile(page);
-	// The shared file field, named by its label; Enter on it opens the picker.
-	const choose = dialog.getByLabel("Profile picture");
-	await expect(choose).toHaveAttribute("type", "file");
-	await choose.focus();
+	// A button described by the hint opens the hidden file field's picker.
+	const choose = dialog.getByRole("button", { name: "Choose picture…" });
+	await expect(choose).toHaveAccessibleDescription(/A PNG or JPEG of up to 1 MiB/);
+	const input = dialog.getByTestId("profile-picture-input");
+	await expect(input).toBeHidden();
 	const [chooser] = await Promise.all([
 		page.waitForEvent("filechooser"),
-		page.keyboard.press("Enter"),
+		choose.click(),
 	]);
 	await chooser.setFiles({
 		name: "big.png",
@@ -139,6 +143,9 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 	});
 	await expect(dialog.getByTestId("profile-picture-error")).toHaveText(
 		"The picture must be at most 1 MiB",
+	);
+	await expect(choose).toHaveAccessibleDescription(
+		/A PNG or JPEG of up to 1 MiB.*The picture must be at most 1 MiB/,
 	);
 	await expect(page.getByTestId("account-picture")).toHaveCount(0);
 
@@ -152,7 +159,7 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 	expect(refused.status()).toBe(413);
 	expect((await refused.json()).code).toBe("FILE_TOO_LARGE");
 
-	await choose.setInputFiles({ name: "me.png", mimeType: "image/png", buffer: PNG });
+	await input.setInputFiles({ name: "me.png", mimeType: "image/png", buffer: PNG });
 	await expect(dialog.getByTestId("profile-picture")).toBeVisible();
 	await expect(page.getByTestId("account-picture")).toHaveAttribute(
 		"src",
@@ -220,6 +227,41 @@ test("group titles stand apart and a long email wraps inside the dialog", async 
 	).toEqual(["1px", "24px"]);
 	expect(await first.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe("0px");
 	await expect(dialog.getByText("All optional.")).toHaveCount(0);
+});
+
+test("the section heading is for screen readers, so the first group starts the pane", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+	const dialog = await openProfile(page);
+
+	const heading = dialog.getByRole("heading", {
+		level: 2,
+		name: "Profile",
+		exact: true,
+	});
+	await expect(heading).toHaveCount(1);
+	const size = await heading.evaluate((el) => {
+		const box = el.getBoundingClientRect();
+		return [box.width, box.height];
+	});
+	expect(size).toEqual([1, 1]);
+	// The first group's heading sits at the top of the pane's padding.
+	const gap = await dialog
+		.getByRole("heading", { level: 3, name: "From your institution sign-in" })
+		.evaluate((el) => {
+			const section = el.closest("section[aria-labelledby=settings-section-profile]");
+			const pane = section?.parentElement as Element;
+			return (
+				el.getBoundingClientRect().top -
+				pane.getBoundingClientRect().top -
+				Number.parseFloat(getComputedStyle(pane).paddingTop)
+			);
+		});
+	expect(gap).toBeLessThan(1);
 });
 
 test("read-only sign-in details sit as label and value pairs on one line", async ({

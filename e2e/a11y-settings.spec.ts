@@ -315,8 +315,8 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(help).toBeFocused();
 
 		await dialog.getByRole("button", { name: "Profile", exact: true }).click();
-		// The picture field with its error showing: a file over the cap is refused before it is sent.
-		await dialog.getByLabel("Profile picture").setInputFiles({
+		// The picture button with its error showing: a file over the cap is refused before it is sent.
+		await dialog.getByTestId("profile-picture-input").setInputFiles({
 			name: "big.png",
 			mimeType: "image/png",
 			buffer: Buffer.alloc(1024 * 1024 + 1),

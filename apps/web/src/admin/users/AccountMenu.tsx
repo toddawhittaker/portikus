@@ -40,6 +40,12 @@ const LIFECYCLE_ICON: Record<LifecycleAction, IconName> = {
 	restart: "restart",
 };
 
+const PENDING_LABEL: Record<LifecycleAction, string> = {
+	start: "Starting…",
+	stop: "Stopping…",
+	restart: "Restarting…",
+};
+
 /** Heaviest last, so a slip of the hand lands on something mild. */
 const CONFIRM_GROUPS: readonly (readonly BulkAction[])[] = [
 	["rebuild"],
@@ -103,11 +109,14 @@ export function AccountMenu({
 							<MenuItem
 								key={action}
 								icon={LIFECYCLE_ICON[action]}
-								disabled={lifecycle.pending !== null}
+								unavailable={lifecycle.pending !== null}
 								testId={`account-menu-${action}`}
 								onSelect={() => lifecycle.run(workspace.id, user.displayName, action)}
 							>
-								{ACTION_LABEL[action]}
+								{/* The running request names itself, which is why the others wait. */}
+								{lifecycle.pending === action
+									? PENDING_LABEL[action]
+									: ACTION_LABEL[action]}
 							</MenuItem>
 						))
 					: null}

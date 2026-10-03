@@ -93,12 +93,16 @@ async function openSettings(page: Page): Promise<Locator> {
 	return dialog;
 }
 
-/** The scrolling pane that holds the open section, and that section's h2. */
+/**
+ * The scrolling pane that holds the open section, and the section's own box;
+ * the section's h2 is visually hidden, so it only finds the section.
+ */
 async function settingsFrame(dialog: Locator, name: string) {
 	const heading = dialog.getByRole("heading", { level: 2, name, exact: true });
-	await expect(heading).toBeVisible();
+	await expect(heading).toBeAttached();
+	const section = heading.locator("xpath=..");
 	const pane = heading.locator("xpath=../..");
-	const frame = await measure(pane, heading);
+	const frame = await measure(pane, section);
 	return {
 		clientWidth: frame.clientWidth,
 		left: frame.left,

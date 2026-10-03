@@ -232,11 +232,12 @@ test("the table shows each account's role label", async () => {
 		"Administrator (granted)",
 	);
 	// Badges in cells are not live regions; only the header's open-workspace
-	// status, the count and the bulk result are.
+	// status, the count, the bulk result and the sort announcement are.
 	expect(screen.getAllByRole("status").map((node) => node.dataset.testid)).toEqual([
 		"open-my-workspace-status",
 		"admin-row-count",
 		"bulk-result",
+		"admin-sort-announce",
 	]);
 });
 
@@ -281,6 +282,10 @@ test("the toolbar row holds the count or the bulk actions, and is always there",
 	stubUsers();
 	await openTable();
 	const toolbar = screen.getByTestId("admin-table-toolbar");
+	// Before anything is ticked, the row says what it is for.
+	expect(within(toolbar).getByTestId("bulk-hint").textContent).toBe(
+		"Select accounts to act on several at once.",
+	);
 	fireEvent.change(screen.getByLabelText("Role"), { target: { value: "student" } });
 	expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 3 of 5");
 	fireEvent.click(screen.getByRole("checkbox", { name: "Select Alice Example" }));
@@ -288,6 +293,7 @@ test("the toolbar row holds the count or the bulk actions, and is always there",
 	expect(screen.getByTestId("admin-table-toolbar")).toBe(toolbar);
 	expect(within(toolbar).getByTestId("bulk-actions")).toBeDefined();
 	expect(screen.getByTestId("admin-row-count").textContent).toBe("");
+	expect(within(toolbar).queryByTestId("bulk-hint")).toBeNull();
 	fireEvent.click(screen.getByRole("checkbox", { name: "Select Alice Example" }));
 	expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 3 of 5");
 });

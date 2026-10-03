@@ -13,7 +13,6 @@ import {
 	AuditTab,
 	filtersFromSearch,
 	resultTagClass,
-	shortId,
 	targetLabel,
 } from "./AuditTab.js";
 import { auditQueryString } from "./queries.js";
@@ -312,13 +311,6 @@ test("an API error is announced", async () => {
 	);
 });
 
-test("IDs shorten to their first 8 characters, keeping a prefix", () => {
-	expect(shortId(WORKSPACE_ID)).toBe("22222222");
-	expect(shortId(`user:${USER_ID}`)).toBe("user:11111111");
-	expect(shortId("worker")).toBe("worker");
-	expect(shortId("subject:not-a-uuid")).toBe("subject:not-a-uuid");
-});
-
 test("the short time names month, day, hour and minute but not the year", () => {
 	const text = shortTime("2026-09-22T10:00:00.000Z");
 	expect(text).toMatch(/Sep/);
@@ -440,7 +432,9 @@ test("only Time sorts, and it flips the page's own order", async () => {
 		json(200, {
 			events: [
 				event(9, { at: "2026-09-22T10:02:00.000Z" }),
+				// 8 and 7 share a second, so only the API's order tells them apart.
 				event(8, { at: "2026-09-22T10:01:00.000Z" }),
+				event(7, { at: "2026-09-22T10:01:00.000Z" }),
 			],
 			nextBefore: null,
 		}),
@@ -453,13 +447,16 @@ test("only Time sorts, and it flips the page's own order", async () => {
 			.getAllByRole("row")
 			.slice(1)
 			.map((row) => row.getAttribute("data-testid"));
-	expect(ids()).toEqual(["audit-row-9", "audit-row-8"]);
+	expect(ids()).toEqual(["audit-row-9", "audit-row-8", "audit-row-7"]);
 	expect(
 		within(table).getAllByRole("button", { name: /^(Time|Actor|Action)$/ }),
 	).toHaveLength(1);
 
 	fireEvent.click(within(table).getByRole("button", { name: "Time" }));
-	expect(ids()).toEqual(["audit-row-8", "audit-row-9"]);
+	expect(ids()).toEqual(["audit-row-7", "audit-row-8", "audit-row-9"]);
+	expect(screen.getByTestId("audit-sort-announce").textContent).toBe(
+		"Sorted by Time, ascending",
+	);
 	expect(
 		within(table).getByRole("columnheader", { name: "Time" }).getAttribute("aria-sort"),
 	).toBe("ascending");
