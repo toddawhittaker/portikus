@@ -151,10 +151,10 @@ test("the status bar memory meter warns at 85% and opens Monitor sorted by memor
 	// Until its first sample the status bar asks every 2 s, not every 30 s.
 	const warning = page.getByTestId("memory-meter");
 	await expect(warning).toHaveAttribute("data-level", "warning", { timeout: 5000 });
-	// The ui Meter adds "nearly full" to the figure, and the name holds the visible words.
-	await expect(warning).toHaveText("Memory90.0 GB of 100 GB, nearly full");
+	// It shows a percentage; the name starts with it and adds the figure and "nearly full".
+	await expect(warning).toHaveText("Memory90%");
 	await expect(warning).toHaveAccessibleName(
-		"Memory 90.0 GB of 100 GB, nearly full. See what's using memory",
+		"Memory 90%, 90.0 GB of 100 GB, nearly full. See what's using memory",
 	);
 	await expect(page.getByTestId("memory-warning-announce")).toHaveText(
 		"Your workspace is using most of its memory.",
@@ -180,7 +180,7 @@ test("below 85% the status bar still shows memory, in the plain tone and unannou
 	const meter = page.getByTestId("memory-meter");
 	await expect(meter).toHaveAttribute("data-level", "ok");
 	await expect(meter).toHaveAccessibleName(
-		"Memory 84.0 GB of 100 GB. See what's using memory",
+		"Memory 84%, 84.0 GB of 100 GB. See what's using memory",
 	);
 	await expect(page.getByTestId("memory-warning-announce")).toHaveText("");
 });

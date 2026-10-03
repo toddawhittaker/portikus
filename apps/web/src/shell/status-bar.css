@@ -8,7 +8,8 @@
 	align-items: center;
 	gap: var(--space-1) var(--space-4);
 	min-height: 28px;
-	padding: var(--space-1) var(--space-3);
+	/* 2px top and bottom keep a single line at 28px with its 20px buttons and the 1px edge. */
+	padding: var(--space-0\.5) var(--space-3);
 	background: var(--surface-sunken);
 	border-top: 1px solid var(--line);
 	font-size: 12px;
@@ -91,8 +92,10 @@ button.pk-statusbar-meter {
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
+/* The path keeps a stub, such as "~/proj…", rather than vanishing. */
 .pk-statusbar-path {
 	flex: 0 1000 auto;
+	min-width: 5rem;
 }
 .pk-statusbar-git {
 	flex: 0 1 auto;
@@ -117,9 +120,5 @@ button.pk-statusbar-meter {
 	}
 	.pk-statusbar-meter .pk-meter-line {
 		flex-wrap: wrap;
-	}
-	/* The path still gives way first, but keeps a stub rather than vanishing. */
-	.pk-statusbar-path {
-		min-width: 5rem;
 	}
 }

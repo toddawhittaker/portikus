@@ -21,6 +21,12 @@ export type MeterProps = MeterName & {
 	high?: number;
 	/** A value to mark with a tick, such as an automatic clear point; nearby text says what it is. */
 	mark?: number;
+	/**
+	 * Shown beside the bar instead of the full words where room is short, such
+	 * as "85%". The meter still reads the full words, and past `high` the alert
+	 * icon still shows. A control around the Meter keeps these words in its name.
+	 */
+	shortText?: string;
 	className?: string;
 };
 
@@ -56,6 +62,7 @@ export function Meter({
 	valueText,
 	high,
 	mark,
+	shortText,
 	className,
 }: MeterProps): React.ReactElement {
 	const text = meterText({ value, max, high, valueText });
@@ -87,7 +94,7 @@ export function Meter({
 			{/* The meter's aria-valuetext already reads these words. */}
 			<span className="pk-meter-text" aria-hidden={true}>
 				{warn ? <Icon name="alert" size="sm" className="pk-meter-alert" /> : null}
-				<span className="pk-meter-figure">{text}</span>
+				<span className="pk-meter-figure">{shortText ?? text}</span>
 			</span>
 		</span>
 	);

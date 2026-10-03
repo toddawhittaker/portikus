@@ -108,6 +108,35 @@ for (const scheme of ["light", "dark"] as const) {
 		});
 	}
 
+	test(`at 1440 px the bar keeps to one 28 px line with every warning showing (${scheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		await page.setViewportSize({ width: 1440, height: 720 });
+		await busyBar(page, context);
+		// The meters show a percentage; the full figure and "nearly full" are in the name.
+		await expect(page.getByTestId("memory-meter")).toHaveText("Memory90%");
+		await expect(page.getByTestId("memory-meter")).toHaveAccessibleName(
+			"Memory 90%, 90.0 GB of 100 GB, nearly full. See what's using memory",
+		);
+		const bar = page.getByTestId("status-bar");
+		const box = await bar.boundingBox();
+		expect(box?.height).toBe(28);
+		// Both groups sit on the same line: their vertical centres match.
+		const centres = await bar.evaluate((node) =>
+			[
+				...node.querySelectorAll<HTMLElement>(
+					".pk-statusbar-where, .pk-statusbar-status",
+				),
+			].map((group) => {
+				const rect = group.getBoundingClientRect();
+				return Math.round(rect.top + rect.height / 2);
+			}),
+		);
+		expect(new Set(centres).size).toBe(1);
+	});
+
 	test(`in a 360 px container the buttons wrap their own text, Keep running included (${scheme})`, async ({
 		page,
 		context,

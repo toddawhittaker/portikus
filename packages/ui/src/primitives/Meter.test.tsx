@@ -115,6 +115,42 @@ describe("Meter", () => {
 		expect(meter.value).toBe(0);
 	});
 
+	it("shortText replaces the visible words only; the meter still reads them all", () => {
+		const { container } = render(
+			<Meter
+				label="Memory"
+				value={9}
+				max={10}
+				high={8}
+				valueText="9 of 10"
+				shortText="90%"
+			/>,
+		);
+		expect(container.querySelector(".pk-meter-figure")?.textContent).toBe("90%");
+		expect(
+			screen.getByRole("meter", { name: "Memory" }).getAttribute("aria-valuetext"),
+		).toBe("9 of 10, nearly full");
+		// Past `high` the alert icon still marks it, so colour is not the only sign.
+		expect(
+			container.querySelector('.pk-meter-text [data-icon="alert"]'),
+		).not.toBeNull();
+	});
+
+	it("shortText below `high` shows no alert icon", () => {
+		const { container } = render(
+			<Meter
+				label="Memory"
+				value={4}
+				max={10}
+				high={8}
+				valueText="4 of 10"
+				shortText="40%"
+			/>,
+		);
+		expect(container.querySelector(".pk-meter-figure")?.textContent).toBe("40%");
+		expect(container.querySelector('.pk-meter-text [data-icon="alert"]')).toBeNull();
+	});
+
 	it("meterText gives the words the meter shows, for a control that wraps one", () => {
 		expect(meterText({ value: 8, max: 10, high: 8, valueText: "8 of 10" })).toBe(
 			"8 of 10",

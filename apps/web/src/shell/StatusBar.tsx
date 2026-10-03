@@ -49,8 +49,10 @@ export interface UsageMeter {
 	totalBytes: number;
 	/** The Meter's warning mark: the threshold in force, so it warns exactly when `level` does. */
 	high: number;
-	/** "{used} of {total}". */
+	/** "{used} of {total}", read by the meter and in the button's name. */
 	valueText: string;
+	/** "{percent}%", the visible text, so the bar keeps to one line. */
+	shortText: string;
 	level: "ok" | "warning" | "full";
 }
 
@@ -75,6 +77,8 @@ export function usageMeter(
 		// The Meter warns strictly past `high`; this level warns from the threshold itself.
 		high: figure.totalBytes * warnAt - 1,
 		valueText: `${formatBytes(figure.usedBytes)} of ${formatBytes(figure.totalBytes)}`,
+		// Rounded down, so 94.9% never reads as the 95% where Disk turns full.
+		shortText: `${Math.floor(share * 100)}%`,
 		level,
 	};
 }
@@ -243,9 +247,10 @@ const METER_CLASS: Record<UsageMeter["level"], string> = {
 };
 
 /**
- * An always-visible meter (SPEC.md §19.2) on the ui Meter. Its name is the
- * visible text, then what it opens. High use adds the alert icon and
- * "nearly full", so it is not told by colour alone (SPEC.md §25.8).
+ * An always-visible meter (SPEC.md §19.2) on the ui Meter. It shows the
+ * label and a percentage; its name starts with those visible words, then
+ * the full figure and what it opens. High use adds the alert icon, and
+ * "nearly full" to the name, so it is not told by colour alone (SPEC.md §25.8).
  */
 function MeterButton({
 	label,
@@ -275,11 +280,11 @@ function MeterButton({
 			data-testid={testId}
 			data-level={meter.level}
 			aria-haspopup={dialog ? "dialog" : undefined}
-			aria-label={`${label} ${meterText(shown)}. ${action}`}
+			aria-label={`${label} ${meter.shortText}, ${meterText(shown)}. ${action}`}
 			onClick={onClick}
 		>
 			<span className="pk-meter-label">{label}</span>
-			<Meter label={label} {...shown} />
+			<Meter label={label} {...shown} shortText={meter.shortText} />
 		</button>
 	);
 }

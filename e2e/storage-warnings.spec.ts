@@ -195,10 +195,10 @@ test("the disk meter always shows the home volume and opens the workspace dialog
 	await page.goto(workspacePath(student.workspaceId));
 
 	const disk = page.getByTestId("disk-meter");
-	await expect(disk).toHaveText("Disk40.0 GB of 100 GB", { timeout: 15_000 });
+	await expect(disk).toHaveText("Disk40%", { timeout: 15_000 });
 	await expect(disk).toHaveAttribute("data-level", "ok");
 	await expect(disk).toHaveAccessibleName(
-		"Disk 40.0 GB of 100 GB. Open workspace storage",
+		"Disk 40%, 40.0 GB of 100 GB. Open workspace storage",
 	);
 	await expect(page.getByTestId("storage-warning")).toHaveCount(0);
 	await disk.click();
@@ -210,7 +210,7 @@ test("the disk meter always shows the home volume and opens the workspace dialog
 	await expect(disk).toBeFocused();
 });
 
-test("at the smallest supported width the buttons wrap under the Git line, and Running stays whole", async ({
+test("at the smallest supported width the path and Git line give way, and Running stays whole", async ({
 	page,
 	context,
 }) => {
@@ -278,15 +278,11 @@ test("at the smallest supported width the buttons wrap under the Git line, and R
 					button.getBoundingClientRect().right <= edge &&
 					button.scrollWidth <= button.clientWidth,
 			),
-			gitInside: gitLine.getBoundingClientRect().right <= edge,
-			// The buttons take a second line rather than pushing anything off the bar.
-			buttonsBelow:
-				(
-					bar.querySelector('[data-testid="workspace-status"]') as HTMLElement
-				).getBoundingClientRect().top > gitLine.getBoundingClientRect().bottom,
+			gitTruncated: gitLine.scrollWidth > gitLine.clientWidth,
 		};
 	});
-	expect(layout).toEqual({ buttonsWhole: true, gitInside: true, buttonsBelow: true });
+	expect(layout.buttonsWhole).toBe(true);
+	expect(layout.gitTruncated).toBe(true);
 	const running = page.getByTestId("workspace-status");
 	await expect(running).toBeInViewport({ ratio: 1 });
 	await running.focus();
