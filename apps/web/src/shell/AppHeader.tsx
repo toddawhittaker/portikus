@@ -11,7 +11,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { errorText } from "../api/request.js";
 import { useOpenWorkspace } from "../api/workspace.js";
 import { useCourses } from "../course/queries.js";
@@ -84,6 +84,7 @@ export function AppHeader({
 	user,
 	project,
 	context = "Administration",
+	nav,
 }: {
 	/** Absent on the administration page, which belongs to no workspace. */
 	workspaceId?: string;
@@ -93,6 +94,8 @@ export function AppHeader({
 	project: Project | undefined;
 	/** What the bar names when there is no workspace, such as "Course". */
 	context?: string;
+	/** Page navigation shown after the context, such as the admin tabs. */
+	nav?: ReactNode;
 }) {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -124,10 +127,16 @@ export function AppHeader({
 	}
 
 	return (
-		<header className="pk-appbar" data-testid="app-header">
+		<header className="pk-appbar @container" data-testid="app-header">
 			<NameMark size={18} href={workspaceId ? `/workspaces/${workspaceId}` : "/"} />
-			<span className="pk-appbar-divider" aria-hidden="true" />
-			<AppbarContext project={project} workspaceId={workspaceId} context={context} />
+			{/* On a narrow bar the context gives way first: below 80rem beside page tabs, whose label names the page, else below 40rem. */}
+			<span
+				className={nav ? "contents @max-7xl:hidden" : "contents @max-[40rem]:hidden"}
+			>
+				<span className="pk-appbar-divider" aria-hidden="true" />
+				<AppbarContext project={project} workspaceId={workspaceId} context={context} />
+			</span>
+			{nav}
 			<span className="pk-appbar-spacer" />
 
 			{hasCourse && workspaceId ? (
@@ -183,7 +192,16 @@ export function AppHeader({
 						>
 							<AccountPicture picture={picture} displayName={user.displayName} />
 							{/* The gap is only visual. This space keeps the text readable when copied. */}{" "}
-							<span>{user.displayName}</span>
+							{/* On a narrow bar the picture stands for the name; the button's label still says it. */}
+							<span
+								className={
+									nav
+										? "pk-account-name @max-7xl:hidden"
+										: "pk-account-name @max-[40rem]:hidden"
+								}
+							>
+								{user.displayName}
+							</span>
 							<Icon name="chevron-down" size="sm" />
 						</button>
 					</MenuTrigger>

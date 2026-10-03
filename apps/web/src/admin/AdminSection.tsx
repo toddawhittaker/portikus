@@ -29,7 +29,7 @@ export function AdminSection({
 }) {
 	const headingId = useId();
 	return (
-		<section className="mt-6 flex flex-col gap-4" aria-labelledby={headingId}>
+		<section className="flex flex-col gap-4" aria-labelledby={headingId}>
 			<div className="flex items-center gap-4">
 				<div className="flex items-baseline gap-3">
 					<h2
