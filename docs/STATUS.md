@@ -4215,7 +4215,7 @@ restarts at 0.7 s, 2.5 s and after Running all end fully set up, stop
 checks with a SIGTERM-ignoring process pass, and a fresh workspace's
 hostname, timezone, profile, token and recovery mount are correct.
 
-Pilot: (to be filled)
+Pilot: 0.1.888+g3bd51b32 installed 2026-10-03 with apt (setup failed=0, no migrations), smoke 233 passed, 0 failed (Dex password sign-in skipped: no pilot sign-in file; lifecycle, terminal and project checks skipped: a workspace exists); controller log clean after the install.
 
 Gaps:
 
