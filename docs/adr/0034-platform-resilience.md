@@ -55,9 +55,10 @@ alternative are listed briefly at the end.
    the next sweep's starts wait up to 75 s behind one slow stop, which is
    the delay the audit measured. On worker shutdown in-flight stops are
    abandoned and the next sweep resolves their rows, as after a crash.
-   A worker restart also aborts in-flight starts at the controller
-   (decision 7); stops already sent still finish, and the next sweep
-   resolves the row.
+   A worker restart aborts in-flight starts at the controller only before
+   the start request has been sent to Incus (decision 7); a start already
+   sent and a stop already sent still finish, and the next sweep resolves
+   the row.
 10. **The preview gateway caches the three database lookups for 2
     seconds, not the decision.** The cache maps the preview cookie's token
     hash to the preview session, main session user and workspace rows, and
@@ -122,7 +123,16 @@ alternative are listed briefly at the end.
    to it, so no existing bound gets tighter. Once a graceful stop has
    been sent, the stop always runs through to the forced stop whatever
    the caller does, so a platform stop is never lost to a departed
-   caller.
+   caller. A start works the same way: once the start request has been
+   sent to Incus, the start ignores the caller and finishes every
+   remaining step (address wait, hostname, timezone link, ghcr hosts line,
+   recovery mount ownership, agent wait) on its own limits. A caller who
+   leaves before that point stops everything with no further Incus
+   request. The reason is that the sweep accepts any instance Incus
+   reports as Running, so a half-finished start would be marked running.
+   The controller logs one info line when a caller hangs up or its budget
+   runs out, and another when a start or stop finishes after its caller
+   left.
 8. The controller gives every Incus request a 30-second default timeout
    when the caller passes no signal.
 12. Each preview session may make 2,000 authorized requests per 10

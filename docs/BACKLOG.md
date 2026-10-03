@@ -1989,3 +1989,11 @@ when the job fails.
 **What it would take.** Split each along the seam where it starts doing a second job, as Epic 32 did for the agent's server and the controller's start steps, keeping existing tests' assertions.
 
 **Source.** Epic 32.
+
+## Rehearsal VM LTI setup
+
+**What.** A rebuilt rehearsal VM points LTI at the pilot's mock LMS unless `PORTIKUS_LTI_PLATFORMS_FILE` is set to a copy aimed at the rehearsal host's mock (10.101.0.1:8766).
+
+**What it would take.** Have the rehearsal setup write that copy and set the variable.
+
+**Source.** Epic 32.

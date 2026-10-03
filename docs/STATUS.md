@@ -4177,6 +4177,10 @@ Delivered:
 - Controller: once a graceful stop has been sent, the stop always runs
   on to the forced stop, so a resource-guard or admin stop is never lost
   to a worker that gave up.
+- Controller: once the start request has been sent to Incus, a start
+  always finishes its remaining steps, and the controller logs when a
+  caller hangs up or runs out of budget and when a start or stop
+  finishes after its caller left (#1094).
 - Controller: the start's in-container setup is a list of named steps in
   `start-setup.ts`, in the same order. A failed hostname set now logs a
   warning and the start carries on.
@@ -4201,10 +4205,6 @@ Verified: rehearsal VM … (to be filled)
 
 Gaps:
 
-- An abort after Incus has accepted the start request leaves the
-  instance running with the later start steps (hostname, the ghcr hosts
-  line, the recovery mount's owner and mode, the agent wait) undone
-  until the next start. This was true before and fails closed.
 - A stop that outlives the worker's budget still finishes, but the
   worker gets `TIMEOUT` and may mark the row errored until the sweep
   sees the instance stopped.
