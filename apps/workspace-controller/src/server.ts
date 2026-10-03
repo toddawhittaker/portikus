@@ -37,14 +37,11 @@ import Fastify, {
 	type FastifyRequest,
 } from "fastify";
 import { tokenAuth } from "./auth.js";
-import { SeedBuildBusyError, SeedBuilds } from "./docker-seed.js";
+import { SeedBuildBusyError, type SeedBuildHost, SeedBuilds } from "./docker-seed.js";
 import { type EgressRouteOptions, registerEgressRoutes } from "./egress/routes.js";
+import { VolumeInUseError } from "./host.js";
 import { IncusError } from "./incus.js";
-import {
-	InstanceNotStoppedError,
-	VolumeInUseError,
-	type WorkspaceProvider,
-} from "./provider.js";
+import { InstanceNotStoppedError, type WorkspaceProvider } from "./provider.js";
 
 const ERROR_STATUS: Record<ControllerErrorCode, number> = {
 	BAD_REQUEST: 400,
@@ -139,8 +136,8 @@ interface ServerOptions {
 	logger?: Logger;
 	/** Where the egress routes meet the root helper; tests point it elsewhere. */
 	egress?: EgressRouteOptions;
-	/** The seed build runner; tests pass their own. */
-	seedBuilds?: SeedBuilds;
+	/** Where a Docker seed is built. */
+	seedHost: SeedBuildHost;
 }
 
 export function buildServer(opts: ServerOptions): FastifyInstance {
@@ -563,7 +560,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 	});
 
 	// The Docker seed: one build at a time, polled by the worker.
-	const seedBuilds = opts.seedBuilds ?? new SeedBuilds(provider, rootLogger);
+	const seedBuilds = new SeedBuilds(opts.seedHost, rootLogger);
 
 	app.post("/docker-seed/builds", async (request, reply) => {
 		const body = parseOr400(SeedBuildRequest, request.body, reply);

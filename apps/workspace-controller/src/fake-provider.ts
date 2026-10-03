@@ -22,11 +22,12 @@ import {
 	type WorkspaceDockerConfig,
 	WorkspaceVolumeName,
 } from "@portikus/contracts";
+import type { SeedBuildHost } from "./docker-seed.js";
+import { VolumeInUseError } from "./host.js";
 import { IncusError } from "./incus.js";
 import {
 	ADDED_PACKAGES_MAX_BYTES,
 	InstanceNotStoppedError,
-	VolumeInUseError,
 	type WorkspaceProvider,
 } from "./provider.js";
 
@@ -60,7 +61,7 @@ interface FakeInstance {
 	addedPackagesFile: { type: "file" | "symlink" | "directory"; content: string } | null;
 }
 
-export class FakeWorkspaceProvider implements WorkspaceProvider {
+export class FakeWorkspaceProvider implements WorkspaceProvider, SeedBuildHost {
 	readonly instances = new Map<string, FakeInstance>();
 	readonly volumes = new Map<string, FakeVolume>();
 	readonly hostCpuCount = 4;

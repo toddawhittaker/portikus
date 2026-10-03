@@ -17,7 +17,7 @@ let app: FastifyInstance;
 
 beforeEach(() => {
 	provider = new FakeWorkspaceProvider();
-	app = buildServer({ provider, token: TOKEN });
+	app = buildServer({ provider, seedHost: provider, token: TOKEN });
 });
 
 afterEach(async () => {
@@ -372,7 +372,7 @@ test("two concurrent starts cause one provider call", async () => {
 
 function buildLogging(level: LogLevel = "info") {
 	const { logger, lines } = collectingLogger(level);
-	const logged = buildServer({ provider, token: TOKEN, logger });
+	const logged = buildServer({ provider, seedHost: provider, token: TOKEN, logger });
 	return {
 		logged,
 		logger,
