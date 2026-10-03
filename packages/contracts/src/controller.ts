@@ -12,6 +12,20 @@ export const INSTANCE_CREATE_WAIT_SECONDS = 240;
 /** A volume create on a busy thin pool can pass the default 30 s, so each gets 60 s. */
 export const VOLUME_CREATE_TIMEOUT_MS = 60_000;
 
+/**
+ * The caller's remaining time budget in milliseconds, sent on every controller
+ * call so the controller stops work nobody will wait for (ADR 0034).
+ */
+export const CONTROLLER_BUDGET_HEADER = "x-portikus-budget-ms";
+
+/**
+ * The worker's budget for an instance create: the instance wait, three volume
+ * creates (home, Docker, recovery), and a 60 s margin. The controller also uses
+ * it when a create request carries no budget header (ADR 0034).
+ */
+export const INSTANCE_CREATE_BUDGET_MS =
+	INSTANCE_CREATE_WAIT_SECONDS * 1000 + 3 * VOLUME_CREATE_TIMEOUT_MS + 60_000;
+
 /** How long one agent restart after an upgrade may take. */
 export const AGENT_RESTART_TIMEOUT_SECONDS = 60;
 

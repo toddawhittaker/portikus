@@ -4089,7 +4089,7 @@ One crashed service or one busy workspace must not take the platform down for ev
 - Caddy, PostgreSQL, Dex and every Portikus service restart on failure after 5 seconds.
 - The platform's services outrank workspaces: `system.slice` has CPU weight 1000 (a workspace has 100) and `MemoryLow=512M`, and PostgreSQL and the API each have `MemoryLow=256M`.
 - Each workspace's network is capped at 200 Mbit/s each way (`workspace_network_limit` in `site.yml`).
-- Every worker call to the controller and every controller call to Incus has a time budget, and stops run in the background so a stuck stop never delays a start (section 6.5).
+- Every worker call to the controller and every controller call to Incus has a time budget, and stops run in the background so a stuck stop never delays a start (section 6.5). The worker sends its budget with each call; a create and a process read stop their remaining Incus and host work once that budget runs out or the worker hangs up, and an aborted create never falls back to an empty Docker volume (ADR 0034).
 - The database pool waits at most 5 s for a connection, a statement at most 30 s, and an idle transaction at most 60 s; a pool timeout or an unreachable database answers 503 `SERVICE_BUSY`.
 
 ### 25.4 Availability

@@ -1,4 +1,5 @@
 import { availableParallelism } from "node:os";
+import { setTimeout as sleep } from "node:timers/promises";
 import {
 	type AddedPackagesResponse,
 	AGENT_RESTART_TIMEOUT_SECONDS,
@@ -59,10 +60,12 @@ import { parseIdmap, readInstanceProcesses, readUnitStartTime } from "./processe
 // jscpd:ignore-start -- the worker's client mirrors this interface across HTTP.
 export interface WorkspaceProvider extends SeedBuildHost {
 	/** The current Docker seed, or null when none is built. */
-	seedInfo(): Promise<SeedInfo | null>;
+	seedInfo(signal?: AbortSignal): Promise<SeedInfo | null>;
+	/** Stops early, making nothing more, once `signal` aborts (ADR 0034). */
 	create(
 		name: string,
 		sizes: { homeGiB: number; dockerGiB: number; recoveryGiB: number },
+		signal?: AbortSignal,
 	): Promise<CreateInstanceResponse>;
 	start(
 		name: string,
@@ -287,22 +290,24 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	async create(
 		name: string,
 		sizes: { homeGiB: number; dockerGiB: number; recoveryGiB: number },
+		signal?: AbortSignal,
 	): Promise<CreateInstanceResponse> {
 		validateName(name);
 
 		// Refuse before any volume is made; start, stop, rebuild and adopting an
 		// instance that already exists are never refused.
-		if (!(await this.instanceExists(name))) {
+		if (!(await this.instanceExists(name, signal))) {
 			const use = await readPoolUse(
 				this.client,
 				this.pool,
 				new Date(),
 				this.thinPoolStatusPath,
+				signal,
 			);
 			let fill = poolFillPercent(use);
 			// A seeded Docker volume will fill the pool by up to the seed's size.
 			if (fill < POOL_FULL_PERCENT) {
-				const seedBytes = await this.seedBytesFor(name);
+				const seedBytes = await this.seedBytesFor(name, signal);
 				fill = poolFillPercent({ ...use, usedBytes: use.usedBytes + seedBytes });
 			}
 			if (fill >= POOL_FULL_PERCENT) {
@@ -313,11 +318,11 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 		}
 
-		await this.ensureVolume(`${name}-home`, sizes.homeGiB);
-		await this.ensureDockerVolume(name, sizes.dockerGiB);
-		await this.ensureVolume(`${name}-recovery`, sizes.recoveryGiB);
+		await this.ensureVolume(`${name}-home`, sizes.homeGiB, {}, signal);
+		await this.ensureDockerVolume(name, sizes.dockerGiB, signal);
+		await this.ensureVolume(`${name}-recovery`, sizes.recoveryGiB, {}, signal);
 
-		const imageFingerprint = await this.imageFingerprint();
+		const imageFingerprint = await this.imageFingerprint(signal);
 		const quota = { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
 
 		try {
@@ -334,7 +339,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 						recovery: this.recoveryDevice(name),
 					},
 				},
-				undefined,
+				signal,
 				INSTANCE_CREATE_WAIT_SECONDS,
 			);
 		} catch (err) {
@@ -347,9 +352,14 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		return { created: true, imageFingerprint, quota };
 	}
 
-	private async instanceExists(name: string): Promise<boolean> {
+	private async instanceExists(name: string, signal?: AbortSignal): Promise<boolean> {
 		try {
-			await this.client.request("GET", `/1.0/instances/${enc(name)}`);
+			await this.client.request(
+				"GET",
+				`/1.0/instances/${enc(name)}`,
+				undefined,
+				signal,
+			);
 			return true;
 		} catch (err) {
 			if (err instanceof IncusError && err.code === "NOT_FOUND") return false;
@@ -357,11 +367,13 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 	}
 
-	private async imageFingerprint(): Promise<string> {
+	private async imageFingerprint(signal?: AbortSignal): Promise<string> {
 		try {
 			const alias = (await this.client.request(
 				"GET",
 				`/1.0/images/aliases/${enc(this.imageAlias)}`,
+				undefined,
+				signal,
 			)) as { target: string };
 			return alias.target;
 		} catch (err) {
@@ -1168,9 +1180,11 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				idmap: parseIdmap(inst.config?.["volatile.idmap.current"]),
 				cpuLimit:
 					countIncusCpus(inst.expanded_config?.["limits.cpu"]) ?? this.hostCpuCount,
-				wait: () => new Promise((r) => setTimeout(r, 1000)),
+				wait: () => sleep(1000, undefined, { signal }),
+				signal,
 			});
 		} catch (err) {
+			if (signal?.aborted) throw err;
 			throw new IncusError(
 				"OPERATION_FAILED",
 				err instanceof Error ? err.message : "could not read processes",
@@ -1203,6 +1217,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		volName: string,
 		sizeGiB: number,
 		extraConfig: Record<string, string> = {},
+		signal?: AbortSignal,
 	): Promise<void> {
 		try {
 			await this.client.request(
@@ -1212,7 +1227,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					name: volName,
 					config: { size: `${sizeGiB}GiB`, ...extraConfig },
 				},
-				undefined,
+				signal,
 				undefined,
 				VOLUME_CREATE_TIMEOUT_MS,
 			);
@@ -1230,13 +1245,19 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	 * that already exists is kept, never replaced. A copy that fails falls
 	 * back to an empty volume, so a broken seed never blocks a workspace.
 	 * The copy is only ever attached as this one instance's Docker device.
+	 * An abort is not a broken seed, so it never falls back (ADR 0034).
 	 */
-	private async ensureDockerVolume(name: string, dockerGiB: number): Promise<void> {
+	private async ensureDockerVolume(
+		name: string,
+		dockerGiB: number,
+		signal?: AbortSignal,
+	): Promise<void> {
 		const volume = `${name}-docker`;
 		let seed: SeedInfo | null = null;
 		try {
-			seed = await this.seedInfo();
+			seed = await this.seedInfo(signal);
 		} catch (err) {
+			if (signal?.aborted) throw err;
 			this.log.warn(
 				{ instance: name, err: errorMessage(err) },
 				"could not read the Docker seed; making an empty Docker volume",
@@ -1248,6 +1269,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				const source = (await this.client.request(
 					"GET",
 					this.volumePath(SEED_VOLUME_NAME),
+					undefined,
+					signal,
 				)) as { config?: Record<string, unknown> };
 				const sourceGiB = Math.ceil(
 					(parseIncusSize(source.config?.size) ?? 0) / 2 ** 30,
@@ -1268,13 +1291,14 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 						},
 						source: { type: "copy", pool: this.pool, name: SEED_VOLUME_NAME },
 					},
-					undefined,
+					signal,
 					undefined,
 					VOLUME_CREATE_TIMEOUT_MS,
 				);
 				return;
 			} catch (err) {
 				if (err instanceof IncusError && err.code === "ALREADY_EXISTS") return;
+				if (signal?.aborted) throw err;
 				this.log.warn(
 					{ instance: name, err: errorMessage(err) },
 					"could not copy the Docker seed; making an empty Docker volume",
@@ -1283,7 +1307,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 				await this.client.request("DELETE", this.volumePath(volume)).catch(() => {});
 			}
 		}
-		await this.ensureVolume(volume, dockerGiB);
+		await this.ensureVolume(volume, dockerGiB, {}, signal);
 	}
 
 	/**
@@ -1291,22 +1315,25 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	 * 0. An unreadable seed counts as 0, as ensureDockerVolume then makes an
 	 * empty volume.
 	 */
-	private async seedBytesFor(name: string): Promise<number> {
+	private async seedBytesFor(name: string, signal?: AbortSignal): Promise<number> {
 		try {
-			const seed = await this.seedInfo();
-			if (!seed || (await this.volumeExists(`${name}-docker`))) return 0;
+			const seed = await this.seedInfo(signal);
+			if (!seed || (await this.volumeExists(`${name}-docker`, signal))) return 0;
 			return seed.sizeBytes;
-		} catch {
+		} catch (err) {
+			if (signal?.aborted) throw err;
 			return 0;
 		}
 	}
 
-	async seedInfo(): Promise<SeedInfo | null> {
+	async seedInfo(signal?: AbortSignal): Promise<SeedInfo | null> {
 		let volume: { config?: Record<string, string> };
 		try {
 			volume = (await this.client.request(
 				"GET",
 				this.volumePath(SEED_VOLUME_NAME),
+				undefined,
+				signal,
 			)) as { config?: Record<string, string> };
 		} catch (err) {
 			if (err instanceof IncusError && err.code === "NOT_FOUND") return null;
@@ -1588,9 +1615,9 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		return `/1.0/storage-pools/${enc(this.pool)}/volumes/custom/${enc(volume)}`;
 	}
 
-	private async volumeExists(volume: string): Promise<boolean> {
+	private async volumeExists(volume: string, signal?: AbortSignal): Promise<boolean> {
 		try {
-			await this.client.request("GET", this.volumePath(volume));
+			await this.client.request("GET", this.volumePath(volume), undefined, signal);
 			return true;
 		} catch (err) {
 			if (err instanceof IncusError && err.code === "NOT_FOUND") return false;
