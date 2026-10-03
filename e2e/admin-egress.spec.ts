@@ -545,6 +545,16 @@ for (const colorScheme of ["light", "dark"] as const) {
 		expect(await side.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(
 			true,
 		);
+		// The scrolled column is a named region the keyboard can reach and scroll.
+		await expect(side).toHaveRole("region");
+		await expect(side).toHaveAccessibleName("Test a host and refused names");
+		await side.focus();
+		await expect(side).toBeFocused();
+		await page.keyboard.press("End");
+		await expect.poll(() => side.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+		await side.evaluate((node) => {
+			node.scrollTop = 0;
+		});
 
 		// Every row is reached by Tab and scrolled into view.
 		const allow = (name: string) =>

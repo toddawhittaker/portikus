@@ -144,6 +144,16 @@ test("every group is a section named by its h3, and the allow-list parts are h4s
 	}
 });
 
+test("the side column is a named region the keyboard can reach to scroll", async () => {
+	stubEgress(egressView({ mode: "open" }));
+	renderWithQuery(<NetworkTab />);
+	await shown();
+	const side = screen.getByRole("region", { name: "Test a host and refused names" });
+	expect(side.tabIndex).toBe(0);
+	expect(within(side).getByRole("region", { name: "Test a host" })).toBeDefined();
+	expect(within(side).getByRole("region", { name: "Refused names" })).toBeDefined();
+});
+
 test("a preset row shows its state with the checkbox alone", async () => {
 	stubEgress(egressView({ presets: ["github"] }));
 	renderWithQuery(<NetworkTab />);

@@ -15,7 +15,7 @@ import {
 	setTime,
 	waitingRequest,
 } from "./model.js";
-import { Part, Table } from "./parts.js";
+import { FocusCatchGroup, Table } from "./parts.js";
 
 export type Host = NonNullable<AdminBackups["host"]>;
 
@@ -30,7 +30,12 @@ export function StatusPart({
 	local: boolean;
 }) {
 	return (
-		<Part id="backups-status-title" title="Status" testId="backups-status">
+		<FocusCatchGroup
+			level={4}
+			id="backups-status-title"
+			title="Status"
+			testId="backups-status"
+		>
 			{/*
 			 * Pairs sit side by side once the card is wide enough, with more room
 			 * between pairs than between a label and its value.
@@ -76,7 +81,7 @@ export function StatusPart({
 						: `Not installed on ${local ? "this server" : "the host"}, so workspaces cannot be restored`}
 				</dd>
 			</dl>
-		</Part>
+		</FocusCatchGroup>
 	);
 }
 
@@ -93,7 +98,7 @@ export function SetsPart({
 }) {
 	const newest = newestCompleteStamp(host.sets);
 	return (
-		<Part id="backups-sets-title" title="Backup sets">
+		<FocusCatchGroup level={4} id="backups-sets-title" title="Backup sets">
 			{!host.keyInstalled ? (
 				<p id="backups-key-note" className="pk-muted m-0 text-[13px]">
 					Restore is off until the restore key is installed on the host.
@@ -140,7 +145,7 @@ export function SetsPart({
 					/>
 				))}
 			</Table>
-		</Part>
+		</FocusCatchGroup>
 	);
 }
 

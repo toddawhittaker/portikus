@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { AdminGroup, AdminSection, Part } from "./AdminSection.js";
+import { AdminGroup, AdminSection } from "./AdminSection.js";
 
 test("renders a region named by its h2, with the count, actions and content", () => {
 	render(
@@ -88,22 +88,35 @@ test("AdminGroup shows a description under its heading only when given", () => {
 	).toHaveLength(1);
 });
 
-test("Part is an h4 region with its description and actions", () => {
+test("a level 4 group is an h4 region, not a card, with its description and actions", () => {
 	render(
-		<Part
+		<AdminGroup
 			id="p"
+			level={4}
 			title="Ports"
 			description="Which ports workspaces can reach."
 			actions={<button type="button">Reset</button>}
 			testId="ports"
 		>
 			<p>Body</p>
-		</Part>,
+		</AdminGroup>,
 	);
 	const region = screen.getByRole("region", { name: "Ports" });
 	expect(region.dataset.testid).toBe("ports");
+	expect(region.classList.contains("pk-card")).toBe(false);
 	const heading = within(region).getByRole("heading", { level: 4, name: "Ports" });
 	expect(heading.tabIndex).toBe(-1);
 	expect(within(region).getByText("Which ports workspaces can reach.")).toBeTruthy();
 	expect(within(region).getByRole("button", { name: "Reset" })).toBeTruthy();
+});
+
+test("a level 3 group is a card whose h3 script can focus", () => {
+	render(
+		<AdminGroup id="g" title="Schedule">
+			<p>Body</p>
+		</AdminGroup>,
+	);
+	const region = screen.getByRole("region", { name: "Schedule" });
+	expect(region.classList.contains("pk-card")).toBe(true);
+	expect(within(region).getByRole("heading", { level: 3 }).tabIndex).toBe(-1);
 });

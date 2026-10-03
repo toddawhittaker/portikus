@@ -79,6 +79,13 @@ test("the section loads the survey from the API", async () => {
 	expect(screen.getByRole("heading", { level: 3 }).textContent).toBe(
 		"Packages students add",
 	);
+	// The shared admin card, spaced by its parent's gap rather than its own margin.
+	const card = screen.getByRole("region", { name: "Packages students add" });
+	expect(card.classList.contains("pk-card")).toBe(true);
+	expect(card.className).not.toMatch(/\bmt-/);
+	expect(
+		screen.getByTestId("packages-table").closest(".pk-table-wrap")?.className,
+	).toBe("pk-table-wrap");
 });
 
 test("a failed load is announced", async () => {

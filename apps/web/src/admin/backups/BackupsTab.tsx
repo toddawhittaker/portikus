@@ -8,6 +8,7 @@ import { Button, EmptyState, Skeleton, useToast } from "@portikus/ui";
 import { useState } from "react";
 import { errorText } from "../../api/request.js";
 import { AdminSection } from "../AdminSection.js";
+import { Notice } from "../Notice.js";
 import { ActivityGroups } from "./Activity.js";
 import {
 	DeleteDialog,
@@ -18,7 +19,7 @@ import {
 import { BackupKeyPart } from "./BackupKeyPart.js";
 import { CleanUpGroup } from "./CleanUp.js";
 import { longTime, waitingRequest } from "./model.js";
-import { Group } from "./parts.js";
+import { FocusCatchGroup } from "./parts.js";
 import {
 	useAdminBackups,
 	useBackupKey,
@@ -81,14 +82,14 @@ export function BackupsTab() {
 
 function KeyGroup({ status }: { status: BackupKeyStatus }) {
 	return (
-		<Group
+		<FocusCatchGroup
 			id="backups-key-group-title"
 			title="Backup key"
 			description="The key that unlocks every backup of this server. Keep a copy off the server: copies of the backups kept elsewhere are useless without it."
 			testId="backups-key-group"
 		>
 			<BackupKeyPart status={status} />
-		</Group>
+		</FocusCatchGroup>
 	);
 }
 
@@ -152,18 +153,15 @@ function BackupsView({
 	return (
 		<AdminSection title="Backups" intro={INTRO}>
 			{data.hostStale && data.hostReportedAt ? (
-				<div
-					className="pk-card border-status-warning bg-status-warning-soft p-4 text-status-warning"
-					data-testid="backups-host-stale"
-				>
+				<Notice tone="warning" testId="backups-host-stale">
 					<strong>
 						The host has not reported since {longTime(data.hostReportedAt)}.
 					</strong>{" "}
 					The page shows what it last said. Requests wait until it reports again.
-				</div>
+				</Notice>
 			) : null}
 
-			<Group
+			<FocusCatchGroup
 				id="backups-sets-group-title"
 				title="Status and sets"
 				actions={
@@ -204,7 +202,7 @@ function BackupsView({
 					}}
 					onDelete={setDeleting}
 				/>
-			</Group>
+			</FocusCatchGroup>
 
 			{keyStatus ? <KeyGroup status={keyStatus} /> : null}
 

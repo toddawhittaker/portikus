@@ -9,7 +9,7 @@ import {
 	stateText,
 	workspaceName,
 } from "./model.js";
-import { Group, Part, Table } from "./parts.js";
+import { FocusCatch, FocusCatchGroup, Table } from "./parts.js";
 
 /** How many recent requests the page lists; the API keeps 50. */
 const RECENT_SHOWN = 10;
@@ -33,41 +33,52 @@ type Props = {
  * so they share one Activity group instead of two cards that each say so.
  */
 export function ActivityGroups({ requests, workspaces, onReplace }: Props) {
-	if (requests.length === 0) {
-		return (
-			<Group id="backups-activity-title" title="Activity" testId="backups-activity">
-				<Part id="backups-restores-title" title="Restores" help={REPLACE_HELP}>
-					<RestoresTable
-						requests={requests}
-						workspaces={workspaces}
-						onReplace={onReplace}
-					/>
-				</Part>
-				<Part id="backups-recent-title" title="Recent requests">
-					<RecentTable requests={requests} workspaces={workspaces} />
-				</Part>
-			</Group>
-		);
-	}
 	return (
-		<>
-			<Group
-				id="backups-restores-title"
-				title="Restores"
-				help={REPLACE_HELP}
-				description="Each restored copy sits next to the student's files. To swap their whole home folder for the one in the same backup set, choose Replace home."
-				testId="backups-restores"
-			>
-				<RestoresTable
-					requests={requests}
-					workspaces={workspaces}
-					onReplace={onReplace}
-				/>
-			</Group>
-			<Group id="backups-recent-title" title="Recent requests">
-				<RecentTable requests={requests} workspaces={workspaces} />
-			</Group>
-		</>
+		// The first request swaps one card for two, which drops whatever had focus inside.
+		<FocusCatch id="backups-restores-title">
+			{requests.length === 0 ? (
+				<FocusCatchGroup
+					id="backups-activity-title"
+					title="Activity"
+					testId="backups-activity"
+				>
+					<FocusCatchGroup
+						level={4}
+						id="backups-restores-title"
+						title="Restores"
+						help={REPLACE_HELP}
+					>
+						<RestoresTable
+							requests={requests}
+							workspaces={workspaces}
+							onReplace={onReplace}
+						/>
+					</FocusCatchGroup>
+					<FocusCatchGroup level={4} id="backups-recent-title" title="Recent requests">
+						<RecentTable requests={requests} workspaces={workspaces} />
+					</FocusCatchGroup>
+				</FocusCatchGroup>
+			) : (
+				<>
+					<FocusCatchGroup
+						id="backups-restores-title"
+						title="Restores"
+						help={REPLACE_HELP}
+						description="Each restored copy sits next to the student's files. To swap their whole home folder for the one in the same backup set, choose Replace home."
+						testId="backups-restores"
+					>
+						<RestoresTable
+							requests={requests}
+							workspaces={workspaces}
+							onReplace={onReplace}
+						/>
+					</FocusCatchGroup>
+					<FocusCatchGroup id="backups-recent-title" title="Recent requests">
+						<RecentTable requests={requests} workspaces={workspaces} />
+					</FocusCatchGroup>
+				</>
+			)}
+		</FocusCatch>
 	);
 }
 

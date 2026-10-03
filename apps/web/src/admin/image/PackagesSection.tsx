@@ -5,6 +5,7 @@ import {
 import { Toggletip } from "@portikus/ui";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, request } from "../../api/request.js";
+import { AdminGroup } from "../AdminSection.js";
 
 /** "27 September 2026" for a survey day, which is a UTC date. */
 export function surveyDay(day: string): string {
@@ -27,12 +28,9 @@ export function PackagesSection() {
 		queryFn: () => request(AdminPackagesResponse, "/admin/packages"),
 	});
 	return (
-		<section className="pk-card mt-6 p-6" aria-labelledby="image-packages-title">
-			<h3 className="pk-text-heading m-0" id="image-packages-title">
-				Packages students add
-			</h3>
+		<AdminGroup id="image-packages-title" title="Packages students add">
 			{survey.isError ? (
-				<p className="pk-error text-status-error mt-4" role="alert">
+				<p className="pk-error m-0 text-status-error" role="alert">
 					{survey.error instanceof ApiError
 						? survey.error.message
 						: "The package survey could not be loaded."}
@@ -42,14 +40,14 @@ export function PackagesSection() {
 			) : (
 				<PackagesTable survey={survey.data} />
 			)}
-		</section>
+		</AdminGroup>
 	);
 }
 
 export function PackagesTable({ survey }: { survey: AdminPackagesResponse }) {
 	if (survey.day === null || survey.packages.length === 0) {
 		return (
-			<p className="pk-muted m-0 mt-4 text-[13px]" data-testid="packages-empty">
+			<p className="pk-muted m-0 text-[13px]" data-testid="packages-empty">
 				{survey.day === null
 					? "No workspace has been surveyed yet."
 					: survey.surveyed < PACKAGE_SURVEY_MIN_SURVEYED
@@ -60,7 +58,7 @@ export function PackagesTable({ survey }: { survey: AdminPackagesResponse }) {
 	}
 	const surveyed = `${survey.surveyed} workspace${survey.surveyed === 1 ? "" : "s"} surveyed on ${surveyDay(survey.day)}`;
 	return (
-		<div className="pk-table-wrap mt-4">
+		<div className="pk-table-wrap">
 			<table className="pk-table" data-testid="packages-table">
 				<caption className="pk-text-label pk-muted text-left">
 					Packages added with sudo apt, out of {surveyed}.

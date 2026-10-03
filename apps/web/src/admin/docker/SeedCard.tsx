@@ -14,8 +14,8 @@ import { WARN_AT } from "../../monitor/format.js";
 import { AdminGroup } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { useAdminImage } from "../image/queries.js";
+import { Notice } from "../Notice.js";
 import { DownloadSize } from "./DownloadSize.js";
-import { Notice } from "./Notice.js";
 import {
 	dockerKey,
 	isActive,

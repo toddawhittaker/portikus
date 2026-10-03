@@ -1,6 +1,6 @@
 import type { AdminEgressView, EgressPresetId } from "@portikus/contracts";
 import { Checkbox, useToast } from "@portikus/ui";
-import { Part } from "../AdminSection.js";
+import { AdminGroup } from "../AdminSection.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 
 /** One-click presets; each covers its hosts and their subdomains (SPEC.md section 20.1). */
@@ -28,7 +28,8 @@ export function PresetsPart({ view }: { view: AdminEgressView }) {
 	}
 
 	return (
-		<Part
+		<AdminGroup
+			level={4}
 			id="egress-presets-title"
 			title="Presets"
 			description="Turn on the services your courses use. Each covers the listed sites and every name under them."
@@ -76,6 +77,6 @@ export function PresetsPart({ view }: { view: AdminEgressView }) {
 					);
 				})}
 			</ul>
-		</Part>
+		</AdminGroup>
 	);
 }

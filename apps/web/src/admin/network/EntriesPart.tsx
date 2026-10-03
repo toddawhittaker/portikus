@@ -11,7 +11,7 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useRef, useState } from "react";
-import { Part } from "../AdminSection.js";
+import { AdminGroup } from "../AdminSection.js";
 import type { EntryDraft } from "./EntryDialog.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 
@@ -46,7 +46,8 @@ export function EntriesPart({
 	}
 
 	return (
-		<Part
+		<AdminGroup
+			level={4}
 			id="egress-entries-title"
 			title="Your hosts and ranges"
 			help={
@@ -167,6 +168,6 @@ export function EntriesPart({
 					</ConfirmDialog>
 				) : null}
 			</ConfirmDialogRoot>
-		</Part>
+		</AdminGroup>
 	);
 }

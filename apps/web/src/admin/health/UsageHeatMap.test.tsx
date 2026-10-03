@@ -229,6 +229,12 @@ test("one tab stop on the table; arrow keys show and announce a cell's exact val
 	const readout = screen.getByTestId("health-heat-map-readout");
 	expect(readout.getAttribute("aria-hidden")).toBe("true");
 	expect(readout.textContent).toContain("arrow keys");
+	// The hint on screen is hidden from readers, so the table is described by a copy.
+	const hint = document.getElementById(table.getAttribute("aria-describedby") ?? "");
+	expect(hint?.textContent).toBe(
+		"Keyboard: focus the map, then use the arrow keys to read each value.",
+	);
+	expect(hint?.closest("[aria-hidden]")).toBeNull();
 
 	table.focus();
 	fireEvent.keyDown(table, { key: "ArrowRight" });
