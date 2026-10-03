@@ -2498,8 +2498,10 @@ under the page title. The admin `<main>` and the Settings dialog's section
 pane reserve a stable scrollbar gutter, so content does not shift between
 tall and short tabs. `AdminGroup`, at heading level 3 or 4 with an
 optional description, is the one card frame for admin groups and their
-parts. The Users, Logs and Audit tables have sortable headers that carry
-`aria-sort` and announce "Sorted by …" through a polite status region;
+parts. Every sortable table, the Users, Logs, Audit and Processes
+tables and Monitor included, uses the shared sort header in
+`apps/web/src/table/`, which carries `aria-sort` and announces
+"Sorted by …" through a polite status region;
 Audit sorts by Time only, because it is paged on the server. The Users
 table has a per-row "more" menu for the lifecycle actions.
 
@@ -4297,7 +4299,8 @@ Added by Epic 24: a dialog whose opener is gone after it closes (a removed row, 
 Added by Epic 33: status regions on the workspace page set `aria-live`
 explicitly, so an open modal does not silence them, and a modal in
 `packages/ui` also hides page content that mounts after it opened (ADR
-0047). No live region carries a ticking time. Every drag has a click
+0047). No live region carries a ticking time. Every sortable table, Monitor
+included, announces each sort change politely. Every drag has a click
 alternative: a tab menu (right-click or Shift+F10) moves a tab left or
 right, a terminal pane's actions menu has "Move into" another tab, and
 "Reset pane sizes" evens out a tab's splits. The file tree is a

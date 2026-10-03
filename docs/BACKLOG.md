@@ -1833,11 +1833,3 @@ when the job fails.
 **What it would take.** Report a socket error as its own error, with a test.
 
 **Source.** Epic 32.
-
-## Shared SortHeader in Monitor and the admin Processes table
-
-**What.** `ProcessesSection.tsx` and `MonitorPane.tsx` each keep their own `SortHeader`, while the admin tables use the shared one in `admin/table/SortHeader.tsx` with its "Sorted by …" announcement.
-
-**What it would take.** Move the shared header to a module both areas import, switch both tables to it, and keep their tests' assertions.
-
-**Source.** Epic 33.
