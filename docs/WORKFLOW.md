@@ -265,7 +265,10 @@ on unused files, exports and dependencies; jscpd, which fails on any
 copied block of 70 tokens and 8 lines (a deliberate copy carries a
 `jscpd:ignore-start` comment saying why); and Biome's cognitive
 complexity rule, which fails on a function scoring over 30 (tests,
-e2e and the test fakes are exempt).
+e2e and the test fakes are exempt). Biome also fails on an import
+cycle, on an app or package importing an app, on `apps/web` importing
+a server-side package, and on product code importing a `testing`
+helper.
 
 ## Pull requests
 

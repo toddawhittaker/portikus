@@ -793,7 +793,7 @@ If a framework/library requires ESLint-specific rules that materially improve sa
 
 `pnpm lint` runs, in order, and fails on any finding:
 
-- **Biome**, with its recommended rules plus cognitive complexity at a limit of 30 for product code (tests, e2e and the test fakes are exempt);
+- **Biome**, with its recommended rules plus cognitive complexity at a limit of 30 for product code (tests, e2e and the test fakes are exempt), and import rules: no import cycles (`noImportCycles`); no app or package importing an app; no server-side package (`db`, `auth`, `config`, `observability`) in `apps/web`; and test helpers (`testing` modules) imported only from tests (`noRestrictedImports` in the `biome.json` overrides). A relative import cannot reach into another package because each TypeScript project sets `rootDir`, so matching `@portikus/...` names covers the boundaries. Biome was chosen over dependency-cruiser because it needs no new dependency and runs in the same pass; dependency-cruiser cannot parse TypeScript 7 sources without adding `@swc/core` or a second TypeScript;
 - `scripts/check-comment-history.mjs`, a small in-repo check that code comments and test titles carry no project history (issue, epic, ruling references);
 - **Knip**, for unused files, exports and dependencies across the workspace — Biome cannot see across package boundaries;
 - **jscpd**, for copied blocks of 70 tokens and 8 lines or more; a deliberate copy carries an ignore comment with its reason.
