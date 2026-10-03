@@ -64,6 +64,7 @@ import {
 	setTimezone,
 	waitForAddress,
 	waitForAgent,
+	withCaller,
 	writeStartFiles,
 } from "./start-setup.js";
 
@@ -230,12 +231,6 @@ function validateName(name: string): void {
 	if (!result.success) {
 		throw new IncusError("INVALID_NAME", `invalid instance name: ${name}`);
 	}
-}
-
-/** A step's own limit with the caller's deadline on top, never tighter than the limit (ADR 0034). */
-function withCaller(caller: AbortSignal | undefined, ms: number): AbortSignal {
-	const own = AbortSignal.timeout(ms);
-	return caller ? AbortSignal.any([caller, own]) : own;
 }
 
 function enc(name: string): string {
@@ -478,26 +473,27 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 
 		// Written before the start, so dockerd reads it; never fatal.
 		const docker = opts.docker;
-		const ghcr =
-			docker === undefined
-				? null
-				: ((await this.optionalStep(
-						name,
-						signal,
-						"could not write the Docker registry settings; starting without them",
-						() =>
-							writeDockerConfig(
-								this.client,
-								name,
-								docker,
-								{
-									caPath: this.ghcrCaPath,
-									cacheOffPath: this.cacheOffPath,
-									log: this.log,
-								},
-								signal,
-							),
-					)) ?? null);
+		let ghcr: boolean | null = null;
+		if (docker !== undefined) {
+			ghcr =
+				(await this.optionalStep(
+					name,
+					signal,
+					"could not write the Docker registry settings; starting without them",
+					() =>
+						writeDockerConfig(
+							this.client,
+							name,
+							docker,
+							{
+								caPath: this.ghcrCaPath,
+								cacheOffPath: this.cacheOffPath,
+								log: this.log,
+							},
+							signal,
+						),
+				)) ?? null;
+		}
 
 		// Rewritten at every start, so an edit or deletion lasts one session.
 		const written = await this.optionalStep(
@@ -713,6 +709,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			return { forced: false };
 		}
 
+		// Once the graceful stop is sent, it runs through to the forced stop whatever the caller does:
+		// a half-done stop would leave a SIGTERM-ignoring workspace running (ADR 0034).
+		caller?.throwIfAborted();
+		const ownLimit = (opts.timeoutSeconds + 5) * 1000;
 		try {
 			await this.client.request(
 				"PUT",
@@ -722,13 +722,11 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					timeout: opts.timeoutSeconds,
 					force: false,
 				},
-				withCaller(caller, (opts.timeoutSeconds + 5) * 1000),
+				AbortSignal.timeout(ownLimit),
 				opts.timeoutSeconds,
 			);
 			return { forced: false };
-		} catch (err) {
-			// The caller has gone, so no forced stop goes out (ADR 0034).
-			if (caller?.aborted) throw err;
+		} catch {
 			try {
 				await this.client.request(
 					"PUT",
@@ -738,14 +736,13 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 						timeout: opts.timeoutSeconds,
 						force: true,
 					},
-					withCaller(caller, (opts.timeoutSeconds + 5) * 1000),
+					AbortSignal.timeout(ownLimit),
 					opts.timeoutSeconds,
 				);
 			} catch (err) {
-				if (caller?.aborted) throw err;
 				// The instance may already be stopping (Incus then fails with
 				// "Invalid PID -1"), so trust the state, not the error.
-				if (!(await this.settlesStopped(name, opts.timeoutSeconds, caller))) {
+				if (!(await this.settlesStopped(name, opts.timeoutSeconds))) {
 					throw err;
 				}
 			}
