@@ -74,6 +74,27 @@ test.describe("diff tab", () => {
 		});
 		await expect(editor).toContainText("const answer = 1;");
 		await expect(editor).toContainText("const answer = 42;");
+		// Each side's text box says which version and file it holds (SPEC.md §25.8).
+		const boxes = editor.getByRole("textbox");
+		await expect(boxes).toHaveCount(2);
+		await expect(boxes.nth(0)).toHaveAccessibleName(
+			`Diff, earlier version, ${PATH}. Ctrl+M makes Tab leave the editor.`,
+		);
+		await expect(boxes.nth(1)).toHaveAccessibleName(
+			`Diff, your changes, ${PATH}. Ctrl+M makes Tab leave the editor.`,
+		);
+		// Turning screen-reader mode on keeps both names.
+		await page.getByTestId("screen-reader-toggle").focus();
+		await page.keyboard.press("Enter");
+		await expect(page.getByTestId("screen-reader-status")).toHaveText(
+			"Screen-reader mode is on.",
+		);
+		await expect(boxes.nth(0)).toHaveAccessibleName(
+			`Diff, earlier version, ${PATH}. Ctrl+M makes Tab leave the editor.`,
+		);
+		await expect(boxes.nth(1)).toHaveAccessibleName(
+			`Diff, your changes, ${PATH}. Ctrl+M makes Tab leave the editor.`,
+		);
 		// A modified file needs no explanation.
 		await expect(page.getByTestId("diff-note")).toHaveCount(0);
 	});

@@ -21,6 +21,10 @@ export async function loadEditorFeatures(): Promise<void> {
 		import("monaco-editor/editor/contrib/wordOperations/browser/wordOperations.js"),
 		import("monaco-editor/editor/contrib/linesOperations/browser/linesOperations.js"),
 		import("monaco-editor/editor/contrib/comment/browser/comment.js"),
+		// The key every editor's name offers for letting Tab leave (SPEC.md §25.8).
+		import(
+			"monaco-editor/editor/contrib/toggleTabFocusMode/browser/toggleTabFocusMode.js"
+		),
 		import(
 			"monaco-editor/editor/standalone/browser/quickAccess/standaloneCommandsQuickAccess.js"
 		),

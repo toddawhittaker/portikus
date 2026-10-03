@@ -31,7 +31,18 @@ const editorState = {
 	calls: [] as string[],
 	/** The options the diff editor was built with, then each later update. */
 	options: [] as Record<string, unknown>[],
+	/** Each side's latest name, and how many diff option updates came before it. */
+	names: {} as Record<"original" | "modified", { label: unknown; after: number }>,
 };
+
+function nameSide(side: "original" | "modified") {
+	return (next: Record<string, unknown>) => {
+		editorState.names[side] = {
+			label: next.ariaLabel,
+			after: editorState.options.length,
+		};
+	};
+}
 
 vi.mock("../editor/features.js", () => ({ loadEditorFeatures: async () => {} }));
 vi.mock("monaco-editor/basic-languages/monaco.contribution.js", () => ({}));
@@ -56,7 +67,9 @@ vi.mock("monaco-editor/editor/editor.api.js", () => ({
 				},
 				// The Markdown split scrolls the working-copy side by line;
 				// nothing scrolls in jsdom, so this only has to answer.
+				getOriginalEditor: () => ({ updateOptions: nameSide("original") }),
 				getModifiedEditor: () => ({
+					updateOptions: nameSide("modified"),
 					onDidScrollChange: () => {},
 					getVisibleRanges: () => [],
 					getTopForLineNumber: () => 0,
@@ -78,6 +91,8 @@ vi.mock("monaco-editor/editor/editor.api.js", () => ({
 const WORKSPACE = "ws-1";
 const PROJECT = "p-1";
 const PATH = "src/app.ts";
+const ORIGINAL_NAME = `Diff, earlier version, ${PATH}. Ctrl+M makes Tab leave the editor.`;
+const MODIFIED_NAME = `Diff, your changes, ${PATH}. Ctrl+M makes Tab leave the editor.`;
 
 let answer: { status: number; body: unknown };
 
@@ -109,6 +124,7 @@ beforeEach(() => {
 	editorState.models = null;
 	editorState.calls.length = 0;
 	editorState.options.length = 0;
+	editorState.names = {} as typeof editorState.names;
 	answer = { status: 200, body: diff() };
 	stubServer();
 });
@@ -315,6 +331,11 @@ test("the diff editor's screen-reader support follows the setting", async () => 
 			accessibilitySupport: initial === "on" ? "auto" : "on",
 		}),
 	);
+	// Monaco blanks both sides' names on a diff update, so they are set again after it.
+	expect(editorState.names).toEqual({
+		original: { label: ORIGINAL_NAME, after: 2 },
+		modified: { label: MODIFIED_NAME, after: 2 },
+	});
 });
 
 /** Each side of the diff names the file and the way out of the text box. */
@@ -322,8 +343,10 @@ test("each side of the diff names the file", async () => {
 	renderLeaf();
 	await screen.findByTestId(`diff-editor-${PATH}`);
 	await waitFor(() => expect(editorState.options).toHaveLength(1));
-	expect(editorState.options[0]).toMatchObject({
-		originalAriaLabel: `Diff, earlier version, ${PATH}. Ctrl+M makes Tab leave the editor.`,
-		modifiedAriaLabel: `Diff, your changes, ${PATH}. Ctrl+M makes Tab leave the editor.`,
+	// Set on the inner editors after the diff editor exists, since Monaco's own
+	// first option pass blanks names given to the diff editor.
+	expect(editorState.names).toEqual({
+		original: { label: ORIGINAL_NAME, after: 1 },
+		modified: { label: MODIFIED_NAME, after: 1 },
 	});
 });

@@ -128,7 +128,6 @@ test("the keyboard topic lists each key beside what it does", async () => {
 	expect(terms).toEqual([
 		"Alt+Shift+Q",
 		"Ctrl+M",
-		"Alt+F1",
 		"Alt+Shift+Left Arrow, Alt+Shift+Right Arrow",
 		"Shift+F10",
 		"F8",
@@ -144,8 +143,8 @@ test("the keyboard topic lists each key beside what it does", async () => {
 	const descriptions = Array.from(section.querySelectorAll("dl dd")).map(
 		(dd) => dd.textContent,
 	);
-	expect(descriptions[3]).toContain("A tab's menu also has Move left and Move right.");
-	expect(descriptions[4]).toMatch(/^Open the menu of the focused tab/);
+	expect(descriptions[2]).toContain("A tab's menu also has Move left and Move right.");
+	expect(descriptions[3]).toMatch(/^Open the menu of the focused tab/);
 });
 
 test("the terminals topic names the click alternatives to dragging", async () => {

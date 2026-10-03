@@ -17,7 +17,8 @@ import { useEffect, useRef } from "react";
 import { z } from "zod";
 import { request } from "../api/request.js";
 
-const adminKeys = {
+/** The admin caches' query keys, also used by writes elsewhere that change them. */
+export const adminKeys = {
 	settings: ["admin", "settings"] as const,
 	users: ["admin", "users"] as const,
 	workspace: (id: string) => ["admin", "workspace", id] as const,
@@ -41,9 +42,6 @@ export function usePlatformSettings() {
 		queryFn: () => request(PlatformSettings, "/admin/settings"),
 	});
 }
-
-/** The Users list's cache key, for a write elsewhere that changes it. */
-export const ADMIN_USERS_KEY = adminKeys.users;
 
 const usersQuery = {
 	queryKey: adminKeys.users,

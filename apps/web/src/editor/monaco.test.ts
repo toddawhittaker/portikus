@@ -18,3 +18,13 @@ test("the editor's name says which file and how Tab leaves it", () => {
 		"Editor, src/app.ts. Ctrl+M makes Tab leave the editor.",
 	);
 });
+
+/** Monaco binds the toggle to Ctrl+Shift+M on macOS. */
+test("on a Mac the editor's name gives the Mac key", () => {
+	expect(editorAriaLabel("Editor", "src/app.ts", "mac")).toBe(
+		"Editor, src/app.ts. Ctrl+Shift+M makes Tab leave the editor.",
+	);
+	expect(editorAriaLabel("Editor", "src/app.ts", "other")).toBe(
+		"Editor, src/app.ts. Ctrl+M makes Tab leave the editor.",
+	);
+});

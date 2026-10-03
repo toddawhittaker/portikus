@@ -25,5 +25,6 @@ declare module "monaco-editor/editor/contrib/contextmenu/browser/contextmenu.js"
 declare module "monaco-editor/editor/contrib/wordOperations/browser/wordOperations.js";
 declare module "monaco-editor/editor/contrib/linesOperations/browser/linesOperations.js";
 declare module "monaco-editor/editor/contrib/comment/browser/comment.js";
+declare module "monaco-editor/editor/contrib/toggleTabFocusMode/browser/toggleTabFocusMode.js";
 declare module "monaco-editor/editor/standalone/browser/quickAccess/standaloneCommandsQuickAccess.js";
 declare module "monaco-editor/editor/standalone/browser/quickAccess/standaloneGotoLineQuickAccess.js";

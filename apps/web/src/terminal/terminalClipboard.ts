@@ -1,3 +1,5 @@
+import type { Platform } from "../platform.js";
+
 /**
  * What a key press in a terminal means for the clipboard (plan, "Clipboard in
  * the terminal"). Kept as one pure decision so the whole matrix can be tested
@@ -24,7 +26,7 @@ export interface ClipboardKeyEvent {
 export function decide(
 	event: ClipboardKeyEvent,
 	hasSelection: boolean,
-	platform: "mac" | "other" = "other",
+	platform: Platform = "other",
 ): ClipboardAction {
 	if (event.type !== "keydown") return "passthrough";
 	if (event.altKey) return "passthrough";
@@ -40,11 +42,4 @@ export function decide(
 	}
 	if (key === "v") return "paste";
 	return "passthrough";
-}
-
-/** True when this browser is on macOS, where Command carries the clipboard. */
-export function currentPlatform(): "mac" | "other" {
-	if (typeof navigator === "undefined") return "other";
-	const value = `${navigator.platform ?? ""} ${navigator.userAgent ?? ""}`;
-	return /mac/i.test(value) ? "mac" : "other";
 }

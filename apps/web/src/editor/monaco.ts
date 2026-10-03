@@ -15,6 +15,7 @@ import type * as Monaco from "monaco-editor";
 // in this build.
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import JsonWorker from "monaco-editor/language/json/json.worker.js?worker";
+import { currentPlatform, type Platform, tabFocusKey } from "../platform.js";
 import { loadEditorFeatures } from "./features.js";
 import { detectLanguage } from "./language.js";
 import {
@@ -105,8 +106,12 @@ export function accessibilitySupport(screenReaderMode: boolean): "on" | "auto" {
  * The accessible name of an editor's text box: what it is, which file, and how
  * to make Tab leave it (Monaco's tab-focus toggle, SPEC.md §25.8).
  */
-export function editorAriaLabel(kind: string, path: string): string {
-	return `${kind}, ${path}. Ctrl+M makes Tab leave the editor.`;
+export function editorAriaLabel(
+	kind: string,
+	path: string,
+	platform: Platform = currentPlatform(),
+): string {
+	return `${kind}, ${path}. ${tabFocusKey(platform)} makes Tab leave the editor.`;
 }
 
 const LIGHT_THEME = "portikus-light";
