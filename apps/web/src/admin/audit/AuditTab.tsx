@@ -8,6 +8,8 @@ import { shortTime } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
 import { personLabel, personOptions, resolvePerson } from "../people.js";
 import { useAdminUsers } from "../queries.js";
+import { SortHeader } from "../table/SortHeader.js";
+import { type SortState, sortRows } from "../table/sort.js";
 import { type AuditFilters, useAuditPage } from "./queries.js";
 
 function text(value: unknown): string {
@@ -49,6 +51,8 @@ export function AuditTab() {
 	const [actionDraft, setActionDraft] = useState(filters.action);
 	const [draftKey, setDraftKey] = useState(key);
 	const [personError, setPersonError] = useState<string | null>(null);
+	// Kept here, so paging and new filters keep the order.
+	const [sort, setSort] = useState<SortState<"time">>(NEWEST_FIRST);
 	// A new link (for example "All events" from a workspace) refills the form.
 	if (draftKey !== key) {
 		setDraftKey(key);
@@ -174,19 +178,39 @@ export function AuditTab() {
 				) : null}
 			</form>
 			{/* Only the results re-key on new filters, so the focused form button stays. */}
-			<AuditResults key={key} filters={filters} />
+			<AuditResults key={key} filters={filters} sort={sort} setSort={setSort} />
 		</AdminSection>
 	);
 }
 
-function AuditResults({ filters }: { filters: AuditFilters }) {
+/** The order the API pages in. */
+const NEWEST_FIRST: SortState<"time"> = { column: "time", direction: "descending" };
+
+/**
+ * The table holds one page of 50 from a much longer history, so only Time
+ * sorts: flipping a page's own order is honest, while sorting a page by
+ * actor or action would read as the whole history's order. Filters do that job.
+ */
+function AuditResults({
+	filters,
+	sort,
+	setSort,
+}: {
+	filters: AuditFilters;
+	sort: SortState<"time">;
+	setSort: (sort: SortState<"time">) => void;
+}) {
 	// The `before` cursor of every page shown so far; the last one is current.
 	const [cursors, setCursors] = useState<(number | null)[]>([null]);
 	const before = cursors[cursors.length - 1] ?? null;
 	const page = useAuditPage(filters, before);
 
 	const nextBefore = page.data?.nextBefore ?? null;
-	const events = page.data?.events ?? [];
+	const events = sortRows(
+		page.data?.events ?? [],
+		(event) => Date.parse(event.at),
+		sort.direction,
+	);
 	const atNewest = cursors.length < 2;
 	const atOldest = nextBefore === null;
 
@@ -207,11 +231,19 @@ function AuditResults({ filters }: { filters: AuditFilters }) {
 					aria-busy={page.isFetching}
 				>
 					<caption className="sr-only">
-						Audit events, newest first, {events.length} shown
+						Audit events,{" "}
+						{sort.direction === "descending" ? "newest first" : "oldest first"},{" "}
+						{events.length} shown
 					</caption>
 					<thead>
 						<tr>
-							<th scope="col">Time</th>
+							<SortHeader
+								column="time"
+								label="Time"
+								sort={sort}
+								onSort={setSort}
+								first="descending"
+							/>
 							<th scope="col">Actor</th>
 							<th scope="col">Action</th>
 							<th scope="col">Target</th>

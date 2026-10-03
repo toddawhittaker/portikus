@@ -25,7 +25,7 @@ import {
 	memoryFlagText,
 	throttleText,
 } from "./workspace-detail/GuardSection.js";
-import { lifecycleActions } from "./workspace-detail/HeadState.js";
+import { lifecycleActions } from "./workspace-detail/lifecycle.js";
 import {
 	adminStep,
 	limitsPending,

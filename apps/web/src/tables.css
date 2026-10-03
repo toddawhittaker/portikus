@@ -1,0 +1,28 @@
+/* Page tables and their sortable headers; the base .pk-table rules live in packages/ui. */
+
+/* Admin tables that scroll with the page (SPEC.md section 20.1). */
+.pk-table--page thead th {
+	/* The table scrolls with <main>, whose p-8 would otherwise show rows above the header. */
+	top: -2rem;
+}
+
+/* Sortable column headers, from design/system/components/bundle.css. The 24 px
+   height keeps the button a full pointer target (WCAG 2.5.8). */
+.pk-table-sort {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-height: 24px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+}
+
+.pk-table-sort:hover,
+.pk-table th[aria-sort] .pk-table-sort {
+	color: var(--ink);
+}

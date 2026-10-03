@@ -567,6 +567,7 @@ test.describe("the Users table layout", () => {
 			"Role",
 			"Workspace",
 			"Activity",
+			"Actions",
 		]);
 
 		// The checkbox sits on the middle of the select controls.

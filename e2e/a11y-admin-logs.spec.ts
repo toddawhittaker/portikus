@@ -41,6 +41,20 @@ for (const colorScheme of ["light", "dark"] as const) {
 
 		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+
+		// Sorted by Level from the keyboard: the header says so, and so does the caption.
+		const table = page.getByTestId("logs-table");
+		await table.getByRole("button", { name: "Level" }).focus();
+		await page.keyboard.press("Enter");
+		await expect(table.getByRole("columnheader", { name: "Level" })).toHaveAttribute(
+			"aria-sort",
+			"descending",
+		);
+		await expect(table).toHaveAccessibleName(
+			"Loaded log lines, sorted by Level, descending",
+		);
+		const sorted = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+		expect(sorted.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});
 }
 

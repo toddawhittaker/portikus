@@ -3,15 +3,9 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ApiError } from "../../api/request.js";
 import { json, renderApp, stubFetch, USER } from "../../test-utils.js";
-import {
-	emptyText,
-	levelTagClass,
-	levelText,
-	linesText,
-	messageOf,
-	partialText,
-	refreshNote,
-} from "./LogsTab.js";
+import { emptyText } from "./filters.js";
+import { linesText, partialText, refreshNote } from "./LogResults.js";
+import { levelTagClass, levelText, messageOf } from "./line.js";
 import { refreshInterval, retryBusy } from "./queries.js";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -247,6 +241,41 @@ test("Load older stays focusable while busy, then hands focus to the first new r
 	const toggles = screen.getAllByTestId("log-row-toggle");
 	await waitFor(() => expect(document.activeElement).toBe(toggles[1]));
 	expect(screen.getByTestId("logs-announce").textContent).toBe("2 lines");
+});
+
+test("a header sorts the loaded lines, the caption says so, and Load older still focuses the new line", async () => {
+	stubLogs((params) =>
+		params.get("cursor")
+			? json(200, page([logLine(1, { msg: "older", level: "error" })]))
+			: json(
+					200,
+					page(
+						[logLine(5, { msg: "newest", level: "info" }), logLine(4, { msg: "next" })],
+						cursor(4),
+					),
+				),
+	);
+	renderApp("/admin/logs");
+	await screen.findByText("newest");
+	const table = screen.getByTestId("logs-table");
+	const messages = () =>
+		screen.getAllByTestId("log-message").map((cell) => cell.textContent);
+	expect(messages()).toEqual(["newest", "next"]);
+
+	fireEvent.click(within(table).getByRole("button", { name: "Level" }));
+	// The first press puts the most severe on top: Warn before Info.
+	expect(messages()).toEqual(["next", "newest"]);
+	expect(table.querySelector("caption")?.textContent).toBe(
+		"Loaded log lines, sorted by Level, descending",
+	);
+
+	fireEvent.click(screen.getByRole("button", { name: "Load older lines" }));
+	await screen.findByText("older");
+	expect(messages()).toEqual(["older", "next", "newest"]);
+	// The new line is the error, now first in the table.
+	await waitFor(() =>
+		expect(document.activeElement).toBe(screen.getAllByTestId("log-row-toggle")[0]),
+	);
 });
 
 test("Refresh puts focus on the Logs heading before it goes away", async () => {

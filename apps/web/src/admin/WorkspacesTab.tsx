@@ -1,107 +1,42 @@
-import {
-	type AdminUser,
-	type AdminWorkspaceSummary,
-	WorkspaceState,
-} from "@portikus/contracts";
+import { WorkspaceState } from "@portikus/contracts";
 import {
 	Button,
 	Checkbox,
 	CONTROL_CLASS,
-	ConfirmDialog,
-	ConfirmDialogRoot,
 	FIELD_CLASS,
 	LABEL_CLASS,
 	TextField,
 	Toggletip,
 } from "@portikus/ui";
-import { useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import { z } from "zod";
-import { ApiError, errorText, request } from "../api/request.js";
-import { joinWords, timeAgo } from "../text.js";
+import { useState } from "react";
 import { AdminSection } from "./AdminSection.js";
 import { AddDexUser } from "./DexUserDialogs.js";
+import { ROLE_FILTERS, sortAccounts } from "./markers.js";
+import { useAdminUsers } from "./queries.js";
+import { SortHeader } from "./table/SortHeader.js";
+import { type SortState, sortText } from "./table/sort.js";
+import { accountMenuTestId } from "./users/AccountMenu.js";
+import { AccountRow, rowButtonId } from "./users/AccountRow.js";
 import {
-	imageText,
-	Markers,
-	markerLabels,
-	ROLE_FILTERS,
-	roleText,
-	sortAccounts,
-	sourceText,
-} from "./markers.js";
-import { adminActionUrl, useAdminUsers } from "./queries.js";
+	type BulkAction,
+	BulkActions,
+	type BulkConfirm,
+	olderImageTargets,
+} from "./users/BulkActions.js";
+import {
+	type AccountFilters,
+	filterAccounts,
+	isFiltered,
+	NO_FILTERS,
+} from "./users/filters.js";
+import {
+	ACCOUNT_COLUMN_LABEL,
+	type AccountColumn,
+	DEFAULT_ACCOUNT_SORT,
+	sortAccountRows,
+} from "./users/sort.js";
 import { WorkspaceDetail } from "./WorkspaceDetail.js";
-import { WorkspaceStateBadge } from "./WorkspaceStateBadge.js";
-
-export interface AccountFilters {
-	text: string;
-	/** "all", "none" for accounts with no workspace, or a workspace state. */
-	state: string;
-	/** "all", "current" or "older". */
-	image: string;
-	/** "all" or a role. */
-	role: string;
-	showArchived: boolean;
-}
-
-export const NO_FILTERS: AccountFilters = {
-	text: "",
-	state: "all",
-	image: "all",
-	role: "all",
-	showArchived: false,
-};
-
-/** The rows the filters leave. Archived rows are hidden unless asked for. */
-export function filterAccounts(
-	users: AdminUser[],
-	filters: AccountFilters,
-): AdminUser[] {
-	const needle = filters.text.trim().toLowerCase();
-	return users.filter((user) => {
-		const workspace = user.workspace;
-		if (!filters.showArchived && user.markers.archived) return false;
-		if (filters.state === "none" && workspace) return false;
-		if (filters.state !== "all" && filters.state !== "none") {
-			if (workspace?.state !== filters.state) return false;
-		}
-		if (filters.role !== "all" && user.role !== filters.role) return false;
-		if (filters.image !== "all") {
-			const current = workspace?.image.current;
-			if (filters.image === "current" && current !== true) return false;
-			if (filters.image === "older" && current !== false) return false;
-		}
-		if (needle === "") return true;
-		return [
-			user.displayName,
-			user.email,
-			user.preferredUsername,
-			sourceText(user.issuer),
-			workspace?.label,
-			workspace?.id,
-		].some((field) => field?.toLowerCase().includes(needle));
-	});
-}
-
-/** The Activity column: "Now, 2 connections" while connected, else when a browser last connected. */
-export function activityText(workspace: AdminWorkspaceSummary, now: number): string {
-	const count = workspace.activeConnections;
-	if (count > 0) return `Now, ${count} ${count === 1 ? "connection" : "connections"}`;
-	return timeAgo(workspace.lastActiveConnectionAt, now);
-}
-
-/** True when any filter differs from the defaults. */
-export function isFiltered(filters: AccountFilters): boolean {
-	return (
-		filters.text.trim() !== "" ||
-		filters.state !== NO_FILTERS.state ||
-		filters.image !== NO_FILTERS.image ||
-		filters.role !== NO_FILTERS.role ||
-		filters.showArchived !== NO_FILTERS.showArchived
-	);
-}
 
 const SELECT_CLASS = `${CONTROL_CLASS} w-44 cursor-pointer`;
 
@@ -111,132 +46,11 @@ const ROLE_OPTION: Record<(typeof ROLE_FILTERS)[number], string> = {
 	student: "Student",
 };
 
-export type BulkAction = "disable" | "enable" | "archive" | "unarchive" | "rebuild";
-
-const BULK_ACTIONS: readonly BulkAction[] = [
-	"disable",
-	"enable",
-	"archive",
-	"unarchive",
-	"rebuild",
-];
-
-interface BulkCopy {
-	button: string;
-	/** Fits "Could not <verb> <name>". */
-	verb: string;
-	title: string;
-	confirm: string;
-	done: string;
-	consequence: string;
-	/** The existing single-row route for one account. */
-	url: (user: AdminUser) => string;
-}
-
-const BULK: Record<BulkAction, BulkCopy> = {
-	disable: {
-		button: "Disable…",
-		verb: "disable",
-		title: "Disable",
-		confirm: "Disable",
-		done: "Disabled",
-		consequence:
-			"They are signed out everywhere, their previews close, and their workspaces stop. Nothing is deleted.",
-		url: (user) => adminActionUrl("users", user.id, "disable"),
-	},
-	enable: {
-		button: "Enable…",
-		verb: "enable",
-		title: "Enable",
-		confirm: "Enable",
-		done: "Enabled",
-		consequence: "They can sign in again.",
-		url: (user) => adminActionUrl("users", user.id, "enable"),
-	},
-	archive: {
-		button: "Archive workspace…",
-		verb: "archive the workspace of",
-		title: "Archive the workspaces of",
-		confirm: "Archive",
-		done: "Archived the workspace of",
-		consequence:
-			"Each workspace stops and cannot be started until it is unarchived. Its files stay where they are.",
-		url: (user) => adminActionUrl("workspaces", user.workspace?.id ?? "", "archive"),
-	},
-	unarchive: {
-		button: "Unarchive workspace…",
-		verb: "unarchive the workspace of",
-		title: "Unarchive the workspaces of",
-		confirm: "Unarchive",
-		done: "Unarchived the workspace of",
-		consequence: "Each workspace stays stopped until someone starts it.",
-		url: (user) => adminActionUrl("workspaces", user.workspace?.id ?? "", "unarchive"),
-	},
-	rebuild: {
-		button: "Rebuild workspace…",
-		verb: "rebuild the workspace of",
-		title: "Rebuild",
-		confirm: "Rebuild",
-		done: "Rebuild requested for",
-		// The dialog builds its own text for Rebuild; see RebuildDescription.
-		consequence: "",
-		url: (user) => `/admin/workspaces/${user.workspace?.id ?? ""}/rebuild`,
-	},
-};
-
-/** The rows "Rebuild all on older images…" acts on (SPEC.md section 20.1). */
-export function olderImageTargets(rows: AdminUser[]): AdminUser[] {
-	return rows.filter(
-		(user) =>
-			user.workspace !== null &&
-			user.workspace.archivedAt === null &&
-			user.workspace.image.current === false,
-	);
-}
-
-/** A 409 means another operation already waits or runs, so the row is skipped. */
-export function bulkOutcome(error: unknown): "skipped" | "failed" {
-	return error instanceof ApiError && error.status === 409 ? "skipped" : "failed";
-}
-
-/** The names of the targets whose workspace is running and so will restart. */
-function runningNames(users: AdminUser[]): string[] {
-	return users
-		.filter((user) => user.workspace?.state === "running")
-		.map((user) => user.displayName);
-}
-
-/** Whether one bulk action does anything for one account. Nobody disables themselves. */
-export function bulkApplies(
-	action: BulkAction,
-	user: AdminUser,
-	currentUserId: string,
-): boolean {
-	switch (action) {
-		case "disable":
-			return user.disabledAt === null && user.id !== currentUserId;
-		case "enable":
-			return user.disabledAt !== null;
-		case "archive":
-			return user.workspace !== null && user.workspace.archivedAt === null;
-		case "unarchive":
-			return user.workspace !== null && user.workspace.archivedAt !== null;
-		case "rebuild":
-			return user.workspace !== null && user.workspace.archivedAt === null;
-	}
-}
-
-interface BulkResult {
-	action: BulkAction;
-	done: string[];
-	skipped: string[];
-	failed: { id: string; name: string; reason: string }[];
-}
-
 /** One row per account, with its workspace beside it (SPEC.md §20.1). */
 export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	const users = useAdminUsers();
 	const [filters, setFilters] = useState<AccountFilters>(NO_FILTERS);
+	const [sort, setSort] = useState<SortState<AccountColumn>>(DEFAULT_ACCOUNT_SORT);
 	// The Health tab's resource guard list links here with ?user= (ADR 0032).
 	const search = useSearch({ strict: false }) as { user?: string };
 	const [selectedId, setSelectedId] = useState<string | null>(search.user ?? null);
@@ -245,7 +59,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	const [confirming, setConfirming] = useState<BulkConfirm | null>(null);
 
 	const all = sortAccounts(users.data?.users ?? []);
-	const rows = filterAccounts(all, filters);
+	const rows = sortAccountRows(filterAccounts(all, filters), sort);
 	const selected = all.find((user) => user.id === selectedId) ?? null;
 	const running = all.filter((user) => user.workspace?.state === "running").length;
 	const now = Date.now();
@@ -263,6 +77,25 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 			if (on) next.add(id);
 			else next.delete(id);
 			return next;
+		});
+	}
+
+	/** A row menu's confirmed action: the bulk dialog, for one account. */
+	function confirmForRow(userId: string, action: BulkAction) {
+		const user = rows.find((row) => row.id === userId);
+		if (!user) return;
+		// An archived row leaves the table unless archived rows are shown, so focus goes to the summary.
+		const leaves = action === "archive" && !filters.showArchived;
+		setConfirming({
+			action,
+			users: [user],
+			resetDocker: false,
+			returnTo: () =>
+				leaves
+					? null
+					: document.querySelector<HTMLElement>(
+							`[data-testid="${accountMenuTestId(userId)}"]`,
+						),
 		});
 	}
 
@@ -408,7 +241,9 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				<div className="pk-table-wrap min-w-0 flex-1 overflow-clip">
 					<table className="pk-table pk-table--page" data-testid="admin-accounts">
 						<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
-							Accounts and their workspaces. Choose a name to see details.
+							Accounts and their workspaces,{" "}
+							{sortText(ACCOUNT_COLUMN_LABEL[sort.column], sort.direction)}. Choose a
+							name to see details.
 						</caption>
 						<thead>
 							<tr>
@@ -426,45 +261,53 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 										}
 									/>
 								</th>
-								<th scope="col">
-									<HeaderWithHelp label="Account">
-										<Toggletip label="Account tags">
-											Stale is about the account, never the workspace: no sign-in for 30
-											days, or another account with the same email signed in since.
-											Linked is a course account joined to an SSO account. Throttled,
-											Held and High memory come from the resource guard. Not signed in
-											yet is an account made less than 30 days ago that has never signed
-											in.
-										</Toggletip>
-									</HeaderWithHelp>
-								</th>
-								<th scope="col">
-									<HeaderWithHelp label="Role">
-										<Toggletip label="Role">
-											From SSO means the role comes from your sign-in provider's groups.
-											Granted means an administrator gave it here, and only a granted
-											role can be taken away here. Only SSO accounts can be granted a
-											role.
-										</Toggletip>
-									</HeaderWithHelp>
-								</th>
-								<th scope="col">
-									<HeaderWithHelp label="Workspace">
-										<Toggletip label="Old image">
-											Old image means the workspace runs an image other than the
-											default. Rebuild it to move it to the default image. Projects and
-											home stay.
-										</Toggletip>
-									</HeaderWithHelp>
-								</th>
-								<th scope="col">
-									<HeaderWithHelp label="Activity">
-										<Toggletip label="Activity">
-											Now means the workspace is open, with the number of pages and
-											terminals attached to it. Otherwise, how long ago someone last
-											opened it.
-										</Toggletip>
-									</HeaderWithHelp>
+								<SortHeader
+									column="account"
+									label="Account"
+									sort={sort}
+									onSort={setSort}
+								>
+									<Toggletip label="Account tags">
+										Stale is about the account, never the workspace: no sign-in for 30
+										days, or another account with the same email signed in since. Linked
+										is a course account joined to an SSO account. Throttled, Held and
+										High memory come from the resource guard. Not signed in yet is an
+										account made less than 30 days ago that has never signed in.
+									</Toggletip>
+								</SortHeader>
+								<SortHeader column="role" label="Role" sort={sort} onSort={setSort}>
+									<Toggletip label="Role">
+										From SSO means the role comes from your sign-in provider's groups.
+										Granted means an administrator gave it here, and only a granted role
+										can be taken away here. Only SSO accounts can be granted a role.
+									</Toggletip>
+								</SortHeader>
+								<SortHeader
+									column="workspace"
+									label="Workspace"
+									sort={sort}
+									onSort={setSort}
+								>
+									<Toggletip label="Old image">
+										Old image means the workspace runs an image other than the default.
+										Rebuild it to move it to the default image. Projects and home stay.
+									</Toggletip>
+								</SortHeader>
+								<SortHeader
+									column="activity"
+									label="Activity"
+									sort={sort}
+									onSort={setSort}
+									first="descending"
+								>
+									<Toggletip label="Activity">
+										Now means the workspace is open, with the number of pages and
+										terminals attached to it. Otherwise, how long ago someone last
+										opened it.
+									</Toggletip>
+								</SortHeader>
+								<th scope="col" className="pk-cell-actions">
+									<span className="sr-only">Actions</span>
 								</th>
 							</tr>
 						</thead>
@@ -474,10 +317,12 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 									key={user.id}
 									user={user}
 									now={now}
+									currentUserId={currentUserId}
 									selected={user.id === selectedId}
 									checked={checked.has(user.id)}
 									onCheck={(on) => toggle(user.id, on)}
 									onSelect={() => setSelectedId(user.id)}
+									onConfirm={(action) => confirmForRow(user.id, action)}
 								/>
 							))}
 						</tbody>
@@ -503,382 +348,5 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				) : null}
 			</div>
 		</AdminSection>
-	);
-}
-
-/** A column header's text with its help button after it, outside the text. */
-function HeaderWithHelp({ label, children }: { label: string; children: ReactNode }) {
-	return (
-		<span className="flex items-center gap-1">
-			<span>{label}</span>
-			{children}
-		</span>
-	);
-}
-
-/** Each opening starts with Reset Docker off (SPEC.md section 20.1). */
-interface BulkConfirm {
-	action: BulkAction;
-	users: AdminUser[];
-	resetDocker: boolean;
-}
-
-/**
- * The toolbar row over the table: the filtered count, or the bulk actions
- * while rows are ticked. It keeps one height, so ticking a row never moves
- * the table. Each action calls the existing single-row route once per
- * account.
- */
-function BulkActions({
-	rowCount,
-	rows,
-	currentUserId,
-	confirming,
-	setConfirming,
-	onDone,
-}: {
-	rowCount: string;
-	rows: AdminUser[];
-	currentUserId: string;
-	confirming: BulkConfirm | null;
-	setConfirming: (next: BulkConfirm | null) => void;
-	onDone: () => void;
-}) {
-	const client = useQueryClient();
-	const resultRef = useRef<HTMLDivElement>(null);
-	const finished = useRef(false);
-	const isOpen = confirming !== null;
-	// A success from an earlier dialog must not redirect focus when this one is cancelled.
-	useEffect(() => {
-		if (isOpen) finished.current = false;
-	}, [isOpen]);
-	const [running, setRunning] = useState(false);
-	const [result, setResult] = useState<BulkResult | null>(null);
-
-	const targets = (action: BulkAction) =>
-		rows.filter((user) => bulkApplies(action, user, currentUserId));
-	const offered = BULK_ACTIONS.filter((action) => targets(action).length > 0);
-
-	async function run(action: BulkAction, users: AdminUser[], resetDocker: boolean) {
-		if (running) return;
-		setRunning(true);
-		const outcome: BulkResult = { action, done: [], skipped: [], failed: [] };
-		const init: RequestInit =
-			action === "rebuild"
-				? {
-						method: "POST",
-						headers: { "content-type": "application/json" },
-						body: JSON.stringify({ resetDocker }),
-					}
-				: { method: "POST" };
-		// One at a time, so each refusal is tied to its row.
-		for (const user of users) {
-			try {
-				await request(z.unknown(), BULK[action].url(user), init);
-				outcome.done.push(user.displayName);
-			} catch (error) {
-				if (action === "rebuild" && bulkOutcome(error) === "skipped") {
-					outcome.skipped.push(user.displayName);
-					continue;
-				}
-				outcome.failed.push({
-					id: user.id,
-					name: user.displayName,
-					reason: errorText(error),
-				});
-			}
-		}
-		// The bar and the dialog are gone, so focus lands on the summary.
-		finished.current = true;
-		setRunning(false);
-		setConfirming(null);
-		setResult(outcome);
-		onDone();
-		// Refetch once for the whole run, not once per row.
-		void client.invalidateQueries({ queryKey: ["admin"] });
-	}
-
-	return (
-		<>
-			{/* One block, so an empty result adds no gap above the table. */}
-			<div className="flex flex-col">
-				<div
-					className="flex min-h-[var(--pk-control)] items-center"
-					data-testid="admin-table-toolbar"
-				>
-					<span
-						className="pk-text-compact pk-muted"
-						role="status"
-						data-testid="admin-row-count"
-					>
-						{rows.length > 0 ? "" : rowCount}
-					</span>
-					{rows.length > 0 ? (
-						<fieldset
-							className="m-0 flex min-w-0 flex-wrap items-center gap-2 border-0 p-0"
-							data-testid="bulk-actions"
-						>
-							<legend className="pk-text-compact float-left mr-2">
-								{rows.length} selected
-							</legend>
-							{offered.map((action) => (
-								<Button
-									key={action}
-									size="sm"
-									data-testid={`bulk-${action}`}
-									onClick={() =>
-										setConfirming({
-											action,
-											users: targets(action),
-											resetDocker: false,
-										})
-									}
-								>
-									{BULK[action].button}
-								</Button>
-							))}
-						</fieldset>
-					) : null}
-				</div>
-				<div role="status" data-testid="bulk-result" ref={resultRef} tabIndex={-1}>
-					{result ? <BulkSummary result={result} /> : null}
-				</div>
-			</div>
-			{/* Stays mounted, so each change to the count is announced. */}
-			<span className="sr-only" aria-live="polite" data-testid="bulk-count">
-				{rows.length > 0 ? `${rows.length} selected` : ""}
-			</span>
-			<ConfirmDialogRoot
-				open={confirming !== null}
-				onOpenChange={(open) => (open || running ? undefined : setConfirming(null))}
-			>
-				{confirming ? (
-					<ConfirmDialog
-						id="bulk-dialog"
-						testId="bulk-dialog"
-						title={
-							confirming.action === "rebuild"
-								? rebuildTitle(confirming.users.length)
-								: `${BULK[confirming.action].title} ${confirming.users.length} ${confirming.users.length === 1 ? "account" : "accounts"}?`
-						}
-						description={
-							confirming.action === "rebuild" ? (
-								<RebuildDescription
-									users={confirming.users}
-									resetDocker={confirming.resetDocker}
-								/>
-							) : (
-								<>
-									<span className="block" data-testid="bulk-dialog-names">
-										{joinWords(confirming.users.map((user) => user.displayName))}.
-									</span>
-									<span className="block">{BULK[confirming.action].consequence}</span>
-								</>
-							)
-						}
-						confirmLabel={BULK[confirming.action].confirm}
-						// Enabling and unarchiving take nothing away, so they are not drawn as danger.
-						destructive={
-							confirming.action !== "enable" && confirming.action !== "unarchive"
-						}
-						pending={running}
-						returnFocusTo={() => {
-							if (!finished.current) return null;
-							finished.current = false;
-							return resultRef.current;
-						}}
-						onConfirm={() =>
-							void run(confirming.action, confirming.users, confirming.resetDocker)
-						}
-					>
-						{confirming.action === "rebuild" ? (
-							<Checkbox
-								label="Also reset Docker"
-								checked={confirming.resetDocker}
-								onChange={(event) =>
-									setConfirming({ ...confirming, resetDocker: event.target.checked })
-								}
-							/>
-						) : null}
-					</ConfirmDialog>
-				) : null}
-			</ConfirmDialogRoot>
-		</>
-	);
-}
-
-export function rebuildTitle(count: number): string {
-	return `Rebuild ${count} ${count === 1 ? "workspace" : "workspaces"}?`;
-}
-
-/** The single Rebuild dialog's warning, plus who restarts (SPEC.md §22.3). */
-export function rebuildWarning(users: AdminUser[], resetDocker: boolean): string[] {
-	const lines = [
-		`${joinWords(users.map((user) => user.displayName))}.`,
-		`Each workspace is recreated from the current image. System packages installed with sudo apt are lost. Projects and home stay${resetDocker ? "; Docker images and volumes are removed." : ", and so do Docker images and volumes."}`,
-	];
-	const restarting = runningNames(users);
-	if (restarting.length > 0) {
-		lines.push(
-			`${joinWords(restarting)} ${restarting.length === 1 ? "is" : "are"} running and will restart.`,
-		);
-	}
-	return lines;
-}
-
-function RebuildDescription({
-	users,
-	resetDocker,
-}: {
-	users: AdminUser[];
-	resetDocker: boolean;
-}) {
-	const [names, ...rest] = rebuildWarning(users, resetDocker);
-	return (
-		<>
-			<span className="block" data-testid="bulk-dialog-names">
-				{names}
-			</span>
-			{rest.map((line) => (
-				<span key={line} className="block">
-					{line}
-				</span>
-			))}
-		</>
-	);
-}
-
-function BulkSummary({ result }: { result: BulkResult }) {
-	const copy = BULK[result.action];
-	return (
-		<div className="pk-text-compact flex flex-col gap-1 pt-2">
-			{result.done.length > 0 ? (
-				<p className="m-0">
-					{copy.done} {joinWords(result.done)}.
-				</p>
-			) : null}
-			{result.skipped.length > 0 ? (
-				<p className="m-0">
-					Skipped {joinWords(result.skipped)}: another operation is already waiting or
-					running.
-				</p>
-			) : null}
-			{result.failed.length > 0 ? (
-				<ul className="m-0 list-none p-0 text-status-error">
-					{result.failed.map((failure) => (
-						<li key={failure.id}>
-							Could not {copy.verb} {failure.name}: {failure.reason}
-						</li>
-					))}
-				</ul>
-			) : null}
-		</div>
-	);
-}
-
-/** The Account cell's second line: the email, or the username when there is none. */
-function accountContact(user: Pick<AdminUser, "email" | "preferredUsername">): string {
-	return user.email ?? user.preferredUsername ?? "—";
-}
-
-function rowButtonId(userId: string): string {
-	return `admin-row-open-${userId}`;
-}
-
-function AccountRow({
-	user,
-	now,
-	selected,
-	checked,
-	onCheck,
-	onSelect,
-}: {
-	user: AdminUser;
-	now: number;
-	selected: boolean;
-	checked: boolean;
-	onCheck: (on: boolean) => void;
-	onSelect: () => void;
-}) {
-	const workspace = user.workspace;
-	const labels = markerLabels(user.markers, workspace);
-	return (
-		<tr
-			className={`align-top ${selected ? "bg-surface-hover" : ""}`}
-			aria-current={selected ? "true" : undefined}
-			data-testid={`account-row-${user.id}`}
-			data-markers={labels.join(",")}
-		>
-			<td
-				className="py-2"
-				// The ink bar marks the selected row without relying on colour.
-				style={selected ? { boxShadow: "var(--row-current-bar)" } : undefined}
-				data-testid={`account-cell-${user.id}`}
-			>
-				<Checkbox
-					label={<span className="sr-only">Select {user.displayName}</span>}
-					checked={checked}
-					onChange={(event) => onCheck(event.target.checked)}
-				/>
-			</td>
-			<td className="py-2 whitespace-normal">
-				<div className="pk-cell-stack" data-testid={`account-name-${user.id}`}>
-					<span className="pk-cell-primary flex-wrap gap-x-2 gap-y-1">
-						<button
-							type="button"
-							id={rowButtonId(user.id)}
-							className="pk-focus-inset cursor-pointer rounded-sm bg-transparent p-0 text-left font-semibold text-ink [overflow-wrap:anywhere]"
-							aria-label={`Show details for ${user.displayName}, ${user.email ?? user.preferredUsername ?? user.id}`}
-							aria-expanded={selected}
-							aria-controls={selected ? "workspace-detail" : undefined}
-							onClick={onSelect}
-						>
-							{user.displayName}
-						</button>
-						<Markers markers={user.markers} workspace={workspace} />
-					</span>
-					<span
-						className="pk-cell-secondary block max-w-[28ch] truncate"
-						title={accountContact(user)}
-						data-testid={`account-contact-${user.id}`}
-					>
-						{accountContact(user)}
-					</span>
-				</div>
-			</td>
-			<td className="py-2 whitespace-normal" data-testid={`account-role-${user.id}`}>
-				{roleText(user)}
-			</td>
-			<td className="py-2">
-				{workspace ? (
-					<div className="flex flex-col items-start gap-1">
-						<span className="pk-mono-small">{workspace.label}</span>
-						<WorkspaceStateBadge
-							state={workspace.state}
-							desiredState={workspace.desiredState}
-							pendingOperation={workspace.pendingOperation}
-							statusRole={false}
-						/>
-						{workspace.image.current === false ? (
-							<span
-								className="pk-tag pk-tag--warning"
-								title={imageText(workspace.image)}
-								data-testid={`account-image-${user.id}`}
-							>
-								Old image
-							</span>
-						) : null}
-					</div>
-				) : (
-					<span className="pk-muted">No workspace</span>
-				)}
-			</td>
-			<td
-				className="py-2 whitespace-normal"
-				data-testid={`account-activity-${user.id}`}
-			>
-				{workspace ? activityText(workspace, now) : "—"}
-			</td>
-		</tr>
 	);
 }

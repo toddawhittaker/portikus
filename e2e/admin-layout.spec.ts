@@ -299,9 +299,15 @@ test.describe("admin layout", () => {
 		const rows = page.locator("[data-testid^=account-row-]");
 		await expect(rows).toHaveCount(40);
 
-		await rows.last().getByRole("button").focus();
+		await rows
+			.last()
+			.getByRole("button", { name: /^Show details for/ })
+			.focus();
 		const header = table.locator("thead th").first();
-		const firstId = await rows.first().getByRole("button").getAttribute("id");
+		const firstId = await rows
+			.first()
+			.getByRole("button", { name: /^Show details for/ })
+			.getAttribute("id");
 		// Press until the first row's name has focus, however many stops a row has.
 		let checked = 0;
 		let reachedTop = false;
