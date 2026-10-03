@@ -15,6 +15,17 @@
 	background: var(--surface);
 	border-bottom: 1px solid var(--line);
 }
+/* Below 24rem (a 320 px window) the wordmark goes, but stays the link's name. */
+@container (max-width: 24rem) {
+	.pk-appbar > .pk-namemark > span {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+}
 .pk-appbar-divider {
 	width: 1px;
 	height: 20px;

@@ -30,9 +30,10 @@ function CourseFrame({ children }: { children: React.ReactNode }) {
 			<AppHeader user={me.user} workspace={null} project={undefined} context="Course" />
 			{/* The admin page's frame (SPEC.md section 20.1): <main> scrolls, content
 			    at most 1440 px wide, compact density. scroll-pt-16 keeps a focused
-			    Remove clear of the sticky table header. */}
+			    Remove clear of the sticky table header. A phone-width window
+			    gives the table the padding's room back. */}
 			<main
-				className="flex-1 scroll-pt-16 overflow-auto p-8"
+				className="flex-1 scroll-pt-16 overflow-auto p-4 sm:p-8"
 				data-testid="page-course"
 				data-density="compact"
 				aria-labelledby="course-title"
@@ -239,11 +240,16 @@ function CourseMembers() {
 						<tbody>
 							{data.members.map((member) => (
 								<tr key={member.userId}>
+									{/* Named by the name alone, so the other cells' row header is not
+									    read with the role and launch folded under it. */}
 									<th
 										scope="row"
 										className="whitespace-normal py-2 font-semibold [overflow-wrap:anywhere]"
+										aria-labelledby={`member-name-${member.userId}`}
 									>
-										{member.displayName}
+										<span id={`member-name-${member.userId}`}>
+											{member.displayName}
+										</span>
 										<span
 											className={`${NARROW_ONLY} pk-cell-muted text-[12px] font-normal`}
 										>

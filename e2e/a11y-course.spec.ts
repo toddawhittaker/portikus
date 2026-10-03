@@ -108,11 +108,23 @@ for (const colorScheme of ["light", "dark"] as const) {
 				table.getByRole("columnheader", { name: "Last launch" }),
 			).toBeHidden();
 			expect(await sidewaysOverflow(course)).toEqual({ table: 0, main: 0, page: 0 });
-			const samName = samRow.getByRole("rowheader");
+			// The row header is named by the name alone, so the other cells are not
+			// announced with the folded role and launch as well.
+			const samName = samRow.getByRole("rowheader", { name: LONG_NAME, exact: true });
 			await expect(samName).toContainText("Student");
 			await expect(samName).toContainText("Last launch");
 			await expect(samName.locator("time")).toBeVisible();
 			await expect(samRow.getByRole("button", { name: /Remove/ })).toBeVisible();
+			await expectNoViolations(course);
+
+			// At 320 px (400% zoom of a 1280 px window) nothing scrolls sideways either.
+			await course.setViewportSize({ width: 320, height: 900 });
+			expect(await sidewaysOverflow(course)).toEqual({ table: 0, main: 0, page: 0 });
+			await expect(samName.locator("time")).toBeVisible();
+			// Taller rows push it down the scrolling <main>, never off to the side.
+			const remove = samRow.getByRole("button", { name: /Remove/ });
+			await remove.scrollIntoViewIfNeeded();
+			await expect(remove).toBeInViewport({ ratio: 1 });
 			await expectNoViolations(course);
 		} finally {
 			await context.close();
