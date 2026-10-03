@@ -17,10 +17,10 @@ const BaselineDiffQuery = ObjectQuery.extend({ path: ProjectPath });
  * The read-only Git routes (SPEC.md §12.1, §12.6, §12.8). Paths are logged at
  * debug only and file contents never (STACK.md §15).
  */
-export function registerGitRoutes(
+export async function gitRoutes(
 	instance: FastifyInstance,
 	options: { homeDir: string },
-): void {
+): Promise<void> {
 	instance.get("/projects/:slug/git/status", async (request, reply) => {
 		const { slug } = request.params as { slug: string };
 		try {

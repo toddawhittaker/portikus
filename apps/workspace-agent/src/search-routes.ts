@@ -4,8 +4,11 @@ import { abortOnDisconnect, sendError } from "./errors.js";
 import { searchProject } from "./search.js";
 
 /** `GET /projects/:slug/search` (SPEC.md §11.5). */
-export function registerSearchRoutes(app: FastifyInstance, homeDir: string): void {
-	app.get("/projects/:slug/search", async (request, reply) => {
+export async function searchRoutes(
+	instance: FastifyInstance,
+	options: { homeDir: string },
+): Promise<void> {
+	instance.get("/projects/:slug/search", async (request, reply) => {
 		const { slug } = request.params as { slug: string };
 		const parsed = SearchQuery.safeParse(request.query ?? {});
 		if (!parsed.success) {
@@ -17,7 +20,7 @@ export function registerSearchRoutes(app: FastifyInstance, homeDir: string): voi
 		// (SPEC.md §11.5).
 		const signal = abortOnDisconnect(reply);
 		try {
-			return await searchProject(homeDir, slug, parsed.data.q, {
+			return await searchProject(options.homeDir, slug, parsed.data.q, {
 				hidden: parsed.data.hidden,
 				signal,
 			});
