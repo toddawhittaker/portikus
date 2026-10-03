@@ -24,7 +24,9 @@ function CourseFrame({ children }: { children: React.ReactNode }) {
 	if (me.status === "anonymous") return <Navigate to="/" />;
 	if (me.status === "forbidden") return <Navigate to="/not-authorized" />;
 	return (
-		<div className="pk-root">
+		// Unlike the workspace and admin pages, the Course page works in a narrow
+		// window beside the learning system, so it drops the shell's 1024 px floor.
+		<div className="pk-root min-w-0!">
 			<AppHeader user={me.user} workspace={null} project={undefined} context="Course" />
 			{/* The admin page's frame (SPEC.md section 20.1): <main> scrolls, content
 			    at most 1440 px wide, compact density. scroll-pt-16 keeps a focused
@@ -109,6 +111,13 @@ function CourseList() {
 		</>
 	);
 }
+
+/**
+ * Below this container width the Role and Last launch columns fold into the
+ * Name cell; at a 768 px window all five columns still fit.
+ */
+const WIDE_ONLY = "@max-2xl:hidden";
+const NARROW_ONLY = "hidden @max-2xl:block";
 
 /** "23 Sep 2026, 14:05" in the browser's own locale and zone. */
 function launchText(iso: string): string {
@@ -200,7 +209,8 @@ function CourseMembers() {
 			</span>
 			{data && data.members.length > 0 ? (
 				// overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main>.
-				<div className="pk-table-wrap mt-4 overflow-clip">
+				// A narrow wrap folds Role and Last launch under the name, so nothing scrolls sideways.
+				<div className="pk-table-wrap @container mt-4 overflow-clip">
 					<table className="pk-table pk-table--page" data-testid="course-members">
 						<caption className="sr-only">
 							People who have opened Portikus from this course
@@ -208,8 +218,10 @@ function CourseMembers() {
 						<thead>
 							<tr>
 								<th scope="col">Name</th>
-								<th scope="col">Role</th>
-								<th scope="col">
+								<th scope="col" className={WIDE_ONLY}>
+									Role
+								</th>
+								<th scope="col" className={WIDE_ONLY}>
 									<span className="inline-flex items-center gap-1">
 										Last launch
 										<Toggletip label="Last launch">
@@ -227,11 +239,25 @@ function CourseMembers() {
 						<tbody>
 							{data.members.map((member) => (
 								<tr key={member.userId}>
-									<th scope="row" className="font-semibold">
+									<th
+										scope="row"
+										className="whitespace-normal py-2 font-semibold [overflow-wrap:anywhere]"
+									>
 										{member.displayName}
+										<span
+											className={`${NARROW_ONLY} pk-cell-muted text-[12px] font-normal`}
+										>
+											{ROLE_LABEL[member.role]}
+											<span aria-hidden="true"> · </span>
+											<span className="sr-only">, </span>
+											Last launch{" "}
+											<time dateTime={member.lastLaunchAt}>
+												{launchText(member.lastLaunchAt)}
+											</time>
+										</span>
 									</th>
-									<td>{ROLE_LABEL[member.role]}</td>
-									<td>
+									<td className={WIDE_ONLY}>{ROLE_LABEL[member.role]}</td>
+									<td className={WIDE_ONLY}>
 										<time dateTime={member.lastLaunchAt}>
 											{launchText(member.lastLaunchAt)}
 										</time>

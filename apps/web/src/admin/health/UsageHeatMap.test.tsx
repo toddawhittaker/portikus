@@ -6,10 +6,11 @@ import {
 	RouterProvider,
 } from "@tanstack/react-router";
 import { fireEvent, screen, within } from "@testing-library/react";
+import { useState } from "react";
 import { expect, test } from "vitest";
 import { renderWithQuery } from "../../test-utils.js";
-import type { ChartFrame } from "./charts/scales.js";
-import { cellText, stepClass, UsageHeatMap } from "./UsageHeatMap.js";
+import { type ChartFrame, readoutTime } from "./charts/scales.js";
+import { cellText, moveCell, stepClass, UsageHeatMap } from "./UsageHeatMap.js";
 
 const FROM = Date.parse("2026-09-26T12:00:00.000Z");
 const OWNER = "00000000-0000-4000-8000-000000000001";
@@ -48,10 +49,12 @@ function body(
 	};
 }
 
-function renderMap(series: HealthSeries, f: ChartFrame) {
-	const rootRoute = createRootRoute({
-		component: () => <UsageHeatMap series={series} frame={f} />,
-	});
+function renderMap(
+	series: HealthSeries,
+	f: ChartFrame,
+	component = () => <UsageHeatMap series={series} frame={f} />,
+) {
+	const rootRoute = createRootRoute({ component });
 	const router = createRouter({
 		routeTree: rootRoute,
 		history: createMemoryHistory({ initialEntries: ["/admin/health"] }),
@@ -180,4 +183,122 @@ test("no workspaces shows an empty message", async () => {
 		"No workspace has usage figures in this range.",
 	);
 	expect(screen.queryByRole("table")).toBeNull();
+});
+
+test("the cursor moves by row and column, clamps at the edges and starts at the newest bucket", () => {
+	expect(moveCell("ArrowRight", null, 3, 4)).toEqual({ row: 0, column: 3 });
+	expect(moveCell("ArrowDown", null, 3, 4)).toEqual({ row: 0, column: 3 });
+	expect(moveCell("ArrowDown", { row: 0, column: 1 }, 3, 4)).toEqual({
+		row: 1,
+		column: 1,
+	});
+	expect(moveCell("ArrowDown", { row: 2, column: 1 }, 3, 4)).toEqual({
+		row: 2,
+		column: 1,
+	});
+	expect(moveCell("ArrowUp", { row: 0, column: 1 }, 3, 4)).toEqual({
+		row: 0,
+		column: 1,
+	});
+	expect(moveCell("ArrowLeft", { row: 1, column: 0 }, 3, 4)).toEqual({
+		row: 1,
+		column: 0,
+	});
+	expect(moveCell("Home", { row: 2, column: 2 }, 3, 4)).toEqual({ row: 2, column: 0 });
+	expect(moveCell("End", { row: 2, column: 0 }, 3, 4)).toEqual({ row: 2, column: 3 });
+	expect(moveCell("Enter", { row: 0, column: 0 }, 3, 4)).toBeNull();
+	expect(moveCell("ArrowDown", null, 0, 4)).toBeNull();
+});
+
+test("one tab stop on the table; arrow keys show and announce a cell's exact value", async () => {
+	const f = frame("1h", 60, 4);
+	const second = {
+		...row(f),
+		workspaceId: "00000000-0000-4000-8000-0000000000a2",
+		owner: { id: OWNER, displayName: "Bo Diaz" },
+		cells: [{ at: at(f, 3), cpuPercent: 7, memoryPercent: 9 }],
+	};
+	renderMap(body(f, [row(f), second]), f);
+
+	const table = await screen.findByRole("table", {
+		name: "Per-workspace CPU, highest per minute",
+	});
+	expect(table.getAttribute("tabindex")).toBe("0");
+	// No cell is a tab stop of its own.
+	expect(table.querySelectorAll("td[tabindex], td div[tabindex]")).toHaveLength(0);
+	const readout = screen.getByTestId("health-heat-map-readout");
+	expect(readout.getAttribute("aria-hidden")).toBe("true");
+	expect(readout.textContent).toContain("arrow keys");
+
+	table.focus();
+	fireEvent.keyDown(table, { key: "ArrowRight" });
+	// The newest bucket of the first row.
+	const time = (index: number) => readoutTime(Date.parse(at(f, index)), "1h");
+	expect(readout.textContent).toBe(`Ann Lee, ${time(3)}, no data`);
+	fireEvent.keyDown(table, { key: "ArrowLeft" });
+	expect(readout.textContent).toBe(
+		`Ann Lee, ${time(2)}, 85%, at or over the 80% threshold`,
+	);
+	const marked = table.querySelectorAll('[data-cursor="true"]');
+	expect(marked).toHaveLength(1);
+	expect(marked[0]?.textContent).toBe("85%, at or over the 80% threshold");
+	expect(marked[0]?.className).toContain("outline-ink");
+
+	fireEvent.keyDown(table, { key: "ArrowDown" });
+	fireEvent.keyDown(table, { key: "End" });
+	expect(readout.textContent).toBe(`Bo Diaz, ${time(3)}, 7%`);
+	// The same words go to a polite live region for a screen reader in focus mode.
+	const live = document.querySelector('[aria-live="polite"]');
+	expect(live?.textContent).toBe(`Bo Diaz, ${time(3)}, 7%`);
+
+	// The memory toggle keeps the cursor and reads the new measure.
+	fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+	expect(readout.textContent).toBe(`Bo Diaz, ${time(3)}, 9%`);
+
+	fireEvent.blur(table);
+	expect(table.querySelectorAll('[data-cursor="true"]')).toHaveLength(0);
+	expect(readout.textContent).toContain("arrow keys");
+});
+
+test("a refresh that reorders the rows keeps the cursor on the same workspace", async () => {
+	const f = frame("1h", 60, 4);
+	const ann = row(f);
+	const bo = {
+		...row(f),
+		workspaceId: "00000000-0000-4000-8000-0000000000a2",
+		owner: { id: OWNER, displayName: "Bo Diaz" },
+		cells: [{ at: at(f, 3), cpuPercent: 7, memoryPercent: 9 }],
+	};
+	function Refreshing() {
+		const [series, setSeries] = useState(body(f, [ann, bo]));
+		return (
+			<>
+				<button type="button" onClick={() => setSeries(body(f, [bo, ann]))}>
+					Refresh
+				</button>
+				<UsageHeatMap series={series} frame={f} />
+			</>
+		);
+	}
+	renderMap(body(f, []), f, Refreshing);
+
+	const table = await screen.findByTestId("health-heat-map-table");
+	fireEvent.keyDown(table, { key: "ArrowLeft" });
+	fireEvent.keyDown(table, { key: "ArrowDown" });
+	const readout = screen.getByTestId("health-heat-map-readout");
+	expect(readout.textContent).toMatch(/^Bo Diaz, /);
+	fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+	expect(readout.textContent).toMatch(/^Bo Diaz, /);
+	const marked = table.querySelector('[data-cursor="true"]');
+	expect(marked?.closest("tr")?.textContent).toContain("Bo Diaz");
+});
+
+test("arrow keys on an owner link are left to the link", async () => {
+	const f = frame("1h", 60, 4);
+	renderMap(body(f, [row(f)]), f);
+	const link = await screen.findByRole("link", { name: "Ann Lee" });
+	fireEvent.keyDown(link, { key: "ArrowRight" });
+	expect(screen.getByTestId("health-heat-map-readout").textContent).toContain(
+		"arrow keys",
+	);
 });

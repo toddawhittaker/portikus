@@ -8,6 +8,8 @@
 export interface SettingsControl {
 	id: string;
 	label: string;
+	/** Words search also matches that the short label leaves out, such as a unit. */
+	terms?: string;
 }
 
 /** Controls shown together under one heading inside a section. */
@@ -69,7 +71,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 				title: "Editor",
 				controls: [
 					{ id: "auto-save", label: "Auto-save" },
-					{ id: "auto-save-delay", label: "Auto-save delay in seconds" },
+					{ id: "auto-save-delay", label: "Auto-save delay", terms: "seconds" },
 					{ id: "word-wrap", label: "Word wrap" },
 				],
 			},
@@ -105,7 +107,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 ];
 
 /**
- * Sections and controls whose title or label contains `query`. A blank query
+ * Sections and controls whose title, label or search terms contain `query`. A blank query
  * matches nothing: the window shows the section list itself until someone
  * types. Matching is case-insensitive.
  */
@@ -122,7 +124,8 @@ export function settingsHits(
 		}
 		for (const group of section.groups) {
 			for (const control of group.controls) {
-				if (control.label.toLowerCase().includes(needle)) {
+				const text = `${control.label} ${control.terms ?? ""}`.toLowerCase();
+				if (text.includes(needle)) {
 					hits.push({
 						sectionId: section.id,
 						controlId: control.id,

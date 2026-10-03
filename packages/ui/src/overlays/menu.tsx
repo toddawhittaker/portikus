@@ -176,6 +176,54 @@ export function MenuCheckboxItem({
 	);
 }
 
+export interface MenuRadioGroupProps {
+	/** The group's accessible name, usually the text of the `MenuLabel` above it. */
+	label: string;
+	value: string;
+	onValueChange: (value: string) => void;
+	children?: React.ReactNode;
+}
+
+/** A set of items of which exactly one is chosen, such as a width. */
+export function MenuRadioGroup({
+	label,
+	value,
+	onValueChange,
+	children,
+}: MenuRadioGroupProps): React.ReactElement {
+	const P = parts(React.useContext(MenuKindContext));
+	return (
+		<P.RadioGroup aria-label={label} value={value} onValueChange={onValueChange}>
+			{children}
+		</P.RadioGroup>
+	);
+}
+
+export interface MenuRadioItemProps {
+	value: string;
+	testId?: string;
+	children?: React.ReactNode;
+}
+
+/** One choice in a `MenuRadioGroup`, marked with the checkbox item's tick. */
+export function MenuRadioItem({
+	value,
+	testId,
+	children,
+}: MenuRadioItemProps): React.ReactElement {
+	const P = parts(React.useContext(MenuKindContext));
+	return (
+		<P.RadioItem className={itemClass(false)} value={value} data-testid={testId}>
+			<span className="pk-menu-check grid size-[var(--size-icon-sm)] place-items-center">
+				<P.ItemIndicator>
+					<Icon name="check" size="sm" />
+				</P.ItemIndicator>
+			</span>
+			<span className="pk-menu-item-label flex-1">{children}</span>
+		</P.RadioItem>
+	);
+}
+
 function itemClass(danger: boolean | undefined): string {
 	return `pk-menu-item ${danger ? "pk-menu-item--danger" : ""}`;
 }

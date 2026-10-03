@@ -190,8 +190,34 @@ test("empty lists are one line each, and Clean up stays closed until there is so
 	await expect(page.getByText("No workspaces restored recently.")).toBeVisible();
 	await expect(page.getByRole("table")).toHaveCount(0);
 
+	// With no requests, Restores and Recent requests share one Activity card.
+	const activity = page.getByTestId("backups-activity");
+	await expect(activity.getByRole("heading", { level: 3 })).toHaveText("Activity");
+	await expect(activity.getByRole("heading", { level: 4 })).toHaveText([
+		"Restores",
+		"Recent requests",
+	]);
+	await expect(page.getByTestId("backups-restores")).toHaveCount(0);
+
+	// The Clean up count sits on the heading's baseline, with no colon.
 	const summary = page.getByTestId("backups-cleanup-summary");
-	await expect(summary).toHaveText(/^Clean up: /);
+	const heading = summary.getByRole("heading", { level: 3 });
+	await expect(heading).toHaveText("Clean up");
+	await expect(summary).not.toContainText(":");
+	// An empty inline-block's bottom edge is the text baseline of its parent.
+	const baseline = (testId: string) =>
+		page.getByTestId(testId).evaluate((el) => {
+			const probe = document.createElement("span");
+			probe.style.display = "inline-block";
+			const target = el.matches("summary") ? el.querySelector("h3") : el;
+			target?.append(probe);
+			const bottom = probe.getBoundingClientRect().bottom;
+			probe.remove();
+			return Math.round(bottom);
+		});
+	expect(await baseline("backups-cleanup-count")).toBe(
+		await baseline("backups-cleanup-summary"),
+	);
 	await expect(page.getByText("No pre-change dumps.")).toBeHidden();
 	await summary.click();
 	await expect(page.getByText("No pre-change dumps.")).toBeVisible();

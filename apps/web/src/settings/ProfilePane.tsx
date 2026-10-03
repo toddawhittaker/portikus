@@ -1,5 +1,5 @@
 import { GithubLink, githubHref, WebsiteLink } from "@portikus/contracts";
-import { Button, LABEL_CLASS, TextField, Toggletip } from "@portikus/ui";
+import { Button, LABEL_CLASS, Skeleton, TextField, Toggletip } from "@portikus/ui";
 import { useRef } from "react";
 import { useMe } from "../useMe.js";
 import { ControlFrame, useShowSetting } from "./controls.js";
@@ -8,6 +8,9 @@ import { useProfile, useRemovePicture, useUploadPicture } from "./profileQueries
 import { SETTINGS_SECTIONS } from "./sections.js";
 
 const PROFILE = SETTINGS_SECTIONS.find((section) => section.id === "profile");
+
+/** Label and value side by side, as the admin tabs show read-only pairs. */
+const PAIRS_CLASS = "m-0 grid gap-x-6 gap-y-2";
 
 /** The profile links the student has typed but not saved yet. */
 export interface LinkDraft {
@@ -50,6 +53,28 @@ function SavedLink({ href, testId }: { href: string; testId: string }) {
 		>
 			{href}
 		</a>
+	);
+}
+
+/** Bars in the shape of the sign-in list, so the pane does not jump when it loads. */
+function ProfileSkeleton() {
+	const values = ["40%", "55%", "30%", "45%"];
+	return (
+		<div className="grid gap-4" aria-busy="true" data-testid="profile-loading">
+			<p className="sr-only">Loading your profile…</p>
+			<div className="grid gap-1">
+				<Skeleton width="30%" />
+				<Skeleton width="70%" />
+			</div>
+			<div className={`${PAIRS_CLASS} grid-cols-[8rem_minmax(0,1fr)]`}>
+				{values.map((width) => (
+					<div className="col-span-2 grid grid-cols-subgrid" key={width}>
+						<Skeleton width="80%" />
+						<Skeleton width={width} />
+					</div>
+				))}
+			</div>
+		</div>
 	);
 }
 
@@ -222,9 +247,7 @@ export function ProfilePane({
 			<h2 id="settings-section-profile" className="pk-text-heading text-ink">
 				Profile
 			</h2>
-			{me.status === "loading" || profile.isPending ? (
-				<p className="pk-text-body text-ink-muted">Loading your profile…</p>
-			) : null}
+			{me.status === "loading" || profile.isPending ? <ProfileSkeleton /> : null}
 			{me.status !== "loading" && !profile.isPending && !ready ? (
 				<p className="pk-text-body text-status-error" data-testid="account-error">
 					Your account details could not be loaded.
@@ -236,23 +259,26 @@ export function ProfilePane({
 						className="pk-settings-group grid gap-4"
 						aria-labelledby="settings-profile-signin"
 					>
-						<h3
-							id="settings-profile-signin"
-							className="pk-text-body font-semibold text-ink"
+						<div className="grid gap-1">
+							<h3 id="settings-profile-signin" className="pk-text-heading text-ink">
+								{signIn?.title}
+							</h3>
+							<p className="pk-text-compact m-0 text-ink-muted">
+								These come from the institution sign-in and cannot be changed here.
+							</p>
+						</div>
+						<dl
+							className={`${PAIRS_CLASS} grid-cols-[max-content_minmax(0,1fr)]`}
+							data-testid="profile-signin"
 						>
-							{signIn?.title}
-						</h3>
-						<p className="pk-text-compact m-0 text-ink-muted">
-							These come from the institution sign-in and cannot be changed here.
-						</p>
-						<dl className="m-0 grid gap-4" data-testid="profile-signin">
 							{signIn?.controls.map((control) => (
 								<ControlFrame
 									key={control.id}
 									control={control}
 									highlighted={highlightId === control.id}
+									className="col-span-2 grid grid-cols-subgrid items-baseline"
 								>
-									<dt className="pk-text-label flex min-w-0 items-center gap-1 text-ink-muted">
+									<dt className="pk-text-compact flex min-w-0 items-center gap-1 text-ink-muted">
 										{control.label}
 										{control.id === "workspace-label" ? (
 											<Toggletip label={control.label}>
@@ -272,13 +298,9 @@ export function ProfilePane({
 						className="pk-settings-group grid gap-4"
 						aria-labelledby="settings-profile-about"
 					>
-						<h3
-							id="settings-profile-about"
-							className="pk-text-body font-semibold text-ink"
-						>
+						<h3 id="settings-profile-about" className="pk-text-heading text-ink">
 							{about?.title}
 						</h3>
-						<p className="pk-text-compact m-0 text-ink-muted">All optional.</p>
 						{picture ? (
 							<ControlFrame control={picture} highlighted={highlightId === picture.id}>
 								{editable(picture.id)}
@@ -301,7 +323,7 @@ export function ProfilePane({
 						<div className="flex min-w-0 items-center gap-1">
 							<h3
 								id="settings-profile-linked"
-								className="pk-text-body font-semibold text-ink"
+								className="pk-text-heading text-ink"
 								tabIndex={-1}
 							>
 								{linked?.title}

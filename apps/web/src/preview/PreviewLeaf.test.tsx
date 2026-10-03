@@ -5,7 +5,14 @@
  */
 import type { ListeningService } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ListeningContext } from "../running/services.js";
 import { json, openToggletip, stubFetch } from "../test-utils.js";
@@ -557,7 +564,7 @@ test("the bar keeps host, Back, Forward, Reload and new tab; the rest is in the 
 	openMore();
 	const menu = await screen.findByRole("menu", { name: "More preview actions" });
 	const names = Array.from(
-		menu.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"]'),
+		menu.querySelectorAll('[role="menuitem"], [role="menuitemradio"]'),
 	).map((item) => item.textContent);
 	expect(names).toEqual([
 		"Copy URL",
@@ -570,6 +577,9 @@ test("the bar keeps host, Back, Forward, Reload and new tab; the rest is in the 
 		"Show in Running",
 	]);
 	expect(menu.textContent).toContain("Width");
+	// The widths are one choice of several, not independent checks.
+	expect(within(menu).getByRole("group", { name: "Width" })).toBeTruthy();
+	expect(within(menu).getAllByRole("menuitemradio")).toHaveLength(5);
 	expect(screen.getByTestId("preview-width-fit").getAttribute("aria-checked")).toBe(
 		"true",
 	);
