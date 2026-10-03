@@ -206,6 +206,9 @@ export function OperationEndToasts() {
 export function useOperationEndToasts(users: AdminUser[] | undefined) {
 	const toast = useToast();
 	const pending = useRef(new Map<string, Watched>());
+	// Bumped each time a workspace is seen pending, so a retry can tell that a
+	// later operation started, even one that has ended again since.
+	const seenPending = useRef(new Map<string, number>());
 	const alive = useRef(true);
 	useEffect(() => {
 		alive.current = true;
@@ -223,11 +226,21 @@ export function useOperationEndToasts(users: AdminUser[] | undefined) {
 
 		async function announce(ended: Watched[]) {
 			let waiting = ended;
+			const seenAtStart = new Map(
+				ended.map((item) => [
+					item.workspaceId,
+					seenPending.current.get(item.workspaceId),
+				]),
+			);
 			for (let attempt = 0; attempt < OUTCOME_TRIES; attempt++) {
 				if (attempt > 0) {
 					await new Promise((resolve) => setTimeout(resolve, OUTCOME_RETRY_MS));
-					// Pending again means a later operation, whose result is not this one's.
-					waiting = waiting.filter((item) => !pending.current.has(item.workspaceId));
+					// Seen pending since means a later operation, whose result is not this one's.
+					waiting = waiting.filter(
+						(item) =>
+							seenPending.current.get(item.workspaceId) ===
+							seenAtStart.get(item.workspaceId),
+					);
 				}
 				if (waiting.length === 0 || !alive.current) return;
 				const outcomes = await readOutcomes(waiting).catch(
@@ -256,6 +269,10 @@ export function useOperationEndToasts(users: AdminUser[] | undefined) {
 		for (const [workspaceId, user] of listed) {
 			const operation = user.workspace?.pendingOperation;
 			if (operation) {
+				seenPending.current.set(
+					workspaceId,
+					(seenPending.current.get(workspaceId) ?? 0) + 1,
+				);
 				pending.current.set(workspaceId, {
 					workspaceId,
 					ownerName: user.displayName,

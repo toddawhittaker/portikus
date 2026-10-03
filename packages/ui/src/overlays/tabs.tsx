@@ -225,6 +225,24 @@ export function Tabs({
 		return trigger ? tabs[rendered.indexOf(trigger)] : undefined;
 	}
 
+	// The tab just asked to close. Once it is gone, focus goes to the selected
+	// tab rather than dropping to the page (WAI-ARIA tabs pattern, SPEC.md §25.8).
+	const closing = React.useRef<string | null>(null);
+	function close(id: string) {
+		closing.current = id;
+		onClose?.(id);
+	}
+	React.useEffect(() => {
+		const id = closing.current;
+		if (id === null || tabs.some((tab) => tab.id === id)) return;
+		closing.current = null;
+		const focused = document.activeElement;
+		// Something else took focus, such as a dialog: leave it there.
+		if (focused && focused !== document.body && !list.current?.contains(focused))
+			return;
+		document.getElementById(tabDomId(activeId))?.focus();
+	}, [tabs, activeId]);
+
 	const menuIndex = menuTabId === null ? -1 : ids.indexOf(menuTabId);
 	const menuTab = tabs[menuIndex];
 
@@ -277,7 +295,7 @@ export function Tabs({
 										key={tab.id}
 										tab={tab}
 										hintId={hintId}
-										onClose={onClose}
+										onClose={close}
 										onMove={move}
 									/>
 								))}
@@ -300,10 +318,7 @@ export function Tabs({
 									Move right
 								</MenuItem>
 								<MenuSeparator />
-								<MenuItem
-									onSelect={() => onClose?.(menuTab.id)}
-									testId="tab-menu-close"
-								>
+								<MenuItem onSelect={() => close(menuTab.id)} testId="tab-menu-close">
 									Close tab
 								</MenuItem>
 							</Menu>

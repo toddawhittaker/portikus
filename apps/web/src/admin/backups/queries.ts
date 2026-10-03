@@ -14,7 +14,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { request, sendJson, toApiError } from "../../api/request.js";
-import { ADMIN_USERS_KEY } from "../queries.js";
+import { adminKeys } from "../queries.js";
 
 const backupsKey = ["admin", "backups"] as const;
 
@@ -89,7 +89,7 @@ export function useReplaceHome() {
 			`/admin/backups/restores/${encodeURIComponent(restoreId)}/replace-home`,
 			{ method: "POST" },
 		],
-		ADMIN_USERS_KEY,
+		adminKeys.users,
 	);
 }
 

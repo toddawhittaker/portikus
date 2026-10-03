@@ -140,6 +140,7 @@ test("each press is announced in a polite region, a repeat press too", () => {
 	render(<AnnouncedTable />);
 	const region = screen.getByTestId("announce");
 	expect(region.getAttribute("role")).toBe("status");
+	expect(region.getAttribute("aria-live")).toBe("polite");
 	// Nothing is said before the first press.
 	expect(region.textContent).toBe("");
 	fireEvent.click(screen.getByRole("button", { name: "Time" }));

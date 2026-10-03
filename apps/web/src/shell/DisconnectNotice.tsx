@@ -8,7 +8,8 @@ import { stopTime, useCountdown } from "./useCountdown.js";
  */
 export function disconnectAnnouncement(deadline: string): string {
 	const target = Date.parse(deadline);
-	if (Number.isNaN(target)) return "";
+	// A deadline already past has no stop ahead to warn of.
+	if (Number.isNaN(target) || target <= Date.now()) return "";
 	return `You're disconnected. Your workspace will stop at ${stopTime(target)} unless a window reconnects.`;
 }
 

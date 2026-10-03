@@ -1,3 +1,4 @@
+import { tabFocusKey } from "../../platform.js";
 import type { HelpPart } from "./part.js";
 
 /** The keys that are hard to discover (moved here from Settings). */
@@ -7,10 +8,9 @@ const KEYS: readonly { keys: string; what: string }[] = [
 		what: "Leave a terminal. While a terminal has the keyboard, Tab goes to the shell. Each terminal's three-dots menu also has Leave terminal.",
 	},
 	{
-		keys: "Ctrl+M",
+		keys: tabFocusKey(),
 		what: "In the editor, switch whether Tab types a tab or moves focus out of the editor.",
 	},
-	{ keys: "Alt+F1", what: "In the editor, open the editor's own accessibility help." },
 	{
 		keys: "Alt+Shift+Left Arrow, Alt+Shift+Right Arrow",
 		what: "Move the focused tab left or right. Delete closes it. A tab's menu also has Move left and Move right.",
@@ -21,7 +21,7 @@ const KEYS: readonly { keys: string; what: string }[] = [
 	},
 	{
 		keys: "F8",
-		what: "Move to notifications. Inside the editor F8 goes to the next problem instead, so leave the editor first.",
+		what: "Move to notifications, from anywhere, the editor included.",
 	},
 ];
 
@@ -355,9 +355,8 @@ export const STUDENT_HELP: HelpPart = {
 							is no way to review what they draw other than moving through the lines.
 						</li>
 						<li>
-							The editor reads the current line. Error underlines, the diff view, and
-							inline hints are drawn visually; use Alt+F1 and the editor's own commands
-							to reach them.
+							The editor reads the current line. Colours, such as the diff view's added
+							and removed lines, are not read out. F1 opens the editor's command list.
 						</li>
 					</ul>
 				</>
