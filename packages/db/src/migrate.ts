@@ -1,6 +1,6 @@
 import type { Kysely } from "kysely";
 import { type Migration, Migrator } from "kysely/migration";
-import { createDb } from "./index.js";
+import { createDb } from "./connection.js";
 import { migrations } from "./migrations/index.js";
 import type { Database } from "./schema.js";
 
