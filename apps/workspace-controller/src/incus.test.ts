@@ -483,6 +483,26 @@ test("a request with no signal times out at the default", async () => {
 	}
 });
 
+test("a request with a long-lived signal still times out at the default", async () => {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		handler = () => {
+			// Never answer.
+		};
+		const client = new IncusClient({ socketPath, project: "testproj" });
+		const signal = new AbortController().signal;
+		const caught = client
+			.request("GET", "/1.0/hang", undefined, signal)
+			.catch((e: unknown) => e);
+		await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS - 1);
+		expect(await Promise.race([caught, Promise.resolve("pending")])).toBe("pending");
+		await vi.advanceTimersByTimeAsync(1);
+		expect((await caught) as IncusError).toMatchObject({ code: "TIMEOUT" });
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
 test("a request can be given its own longer bound", async () => {
 	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 	try {

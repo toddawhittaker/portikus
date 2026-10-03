@@ -1,5 +1,6 @@
 import {
 	CONTROLLER_BUDGET_HEADER,
+	CONTROLLER_SHORT_BUDGET_MS,
 	type ControllerErrorCode,
 	CreateInstanceRequest,
 	GrowVolumesRequest,
@@ -86,14 +87,11 @@ function validName(name: string, reply: FastifyReply): boolean {
 	return false;
 }
 
-/** A process read's budget when the caller sends none; the worker's short budget. */
-const PROCESSES_FALLBACK_MS = 30_000;
-
 /**
  * One signal for a request: aborted when the caller's budget header runs out
- * (or `fallbackMs` without one), or when the caller hangs up before the reply
- * is sent (ADR 0034). The fallback matters because the Incus client drops its
- * own request timeout once it is given a signal.
+ * (or `fallbackMs` without one; a larger header is clamped to it, since a
+ * timer past 2^31-1 ms fires at once), or when the caller hangs up before the reply
+ * is sent (ADR 0034). Incus requests keep their own default timeout too.
  */
 export function callerSignal(
 	request: FastifyRequest,
@@ -101,7 +99,10 @@ export function callerSignal(
 	fallbackMs: number,
 ): AbortSignal {
 	const header = Number(request.headers[CONTROLLER_BUDGET_HEADER]);
-	const budgetMs = Number.isSafeInteger(header) && header > 0 ? header : fallbackMs;
+	const budgetMs =
+		Number.isSafeInteger(header) && header > 0
+			? Math.min(header, fallbackMs)
+			: fallbackMs;
 	const controller = new AbortController();
 	const timer = setTimeout(
 		() =>
@@ -422,7 +423,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 	app.get("/instances/:name/processes", async (request, reply) => {
 		const params = request.params as { name: string };
 		if (!validName(params.name, reply)) return reply;
-		const signal = callerSignal(request, reply, PROCESSES_FALLBACK_MS);
+		const signal = callerSignal(request, reply, CONTROLLER_SHORT_BUDGET_MS);
 		try {
 			const processes = await singleFlight(
 				`processes:${params.name}`,

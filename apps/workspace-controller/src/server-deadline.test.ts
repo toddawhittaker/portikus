@@ -207,3 +207,33 @@ test("a reply that finished normally does not abort the signal", () => {
 	raw.emit("close");
 	expect(signal.aborted).toBe(false);
 });
+
+test("a budget header above the fallback is clamped to it", () => {
+	vi.useFakeTimers();
+	try {
+		const { request, reply } = fakeExchange({
+			[CONTROLLER_BUDGET_HEADER]: String(Number.MAX_SAFE_INTEGER),
+		});
+		const signal = callerSignal(request, reply, 30_000);
+		vi.advanceTimersByTime(29_999);
+		expect(signal.aborted).toBe(false);
+		vi.advanceTimersByTime(1);
+		expect(signal.aborted).toBe(true);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+test("a malformed budget header falls back", () => {
+	vi.useFakeTimers();
+	try {
+		const { request, reply } = fakeExchange({ [CONTROLLER_BUDGET_HEADER]: "soon" });
+		const signal = callerSignal(request, reply, 30_000);
+		vi.advanceTimersByTime(29_999);
+		expect(signal.aborted).toBe(false);
+		vi.advanceTimersByTime(1);
+		expect(signal.aborted).toBe(true);
+	} finally {
+		vi.useRealTimers();
+	}
+});

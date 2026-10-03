@@ -43,6 +43,7 @@ const workspace: Workspace = {
 	lastActivityAt: null,
 	keepRunningUntil: null,
 	keepRunningMaxHours: 12,
+	stateVerified: true,
 	createdAt: now,
 	updatedAt: now,
 };

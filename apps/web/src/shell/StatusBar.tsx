@@ -35,6 +35,10 @@ const METER_CLEAR_BELOW = 0.8;
 /** Disk turns to the error tone here, the storage warning's "nearly full" line. */
 const METER_FULL_AT = CRITICAL_AT;
 
+/** Why the state carries an "unconfirmed" marker (SPEC.md §18.3). */
+export const UNVERIFIED_EXPLANATION =
+	"Portikus can't reach the workspace host right now, so this may be out of date.";
+
 /** Fixed text for the live region, so a changing figure is not re-announced. */
 export const MEMORY_ANNOUNCEMENT = "Your workspace is using most of its memory.";
 
@@ -192,6 +196,19 @@ export function StatusBar({
 				<span data-testid="workspace-state" role="status">
 					{resolved.label}
 				</span>
+				{workspace && !workspace.stateVerified ? (
+					<span
+						className="pk-statusbar-item pk-tone-warning"
+						data-testid="workspace-state-unverified"
+					>
+						<Icon name="alert" size="sm" />
+						<span aria-hidden="true">unconfirmed</span>
+						{/* One hidden run, so the name reads "unconfirmed. Portikus…" with no stray space. */}
+						<span className="pk-visually-hidden">
+							unconfirmed. {UNVERIFIED_EXPLANATION}
+						</span>
+					</span>
+				) : null}
 				<Icon name="chevron-up" size="sm" />
 			</button>
 

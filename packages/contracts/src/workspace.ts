@@ -167,6 +167,8 @@ export const Workspace = z.object({
 	keepRunningUntil: z.string().datetime().nullable(),
 	/** How far ahead a hold may reach for this workspace, in hours; 0 means off. */
 	keepRunningMaxHours: KeepRunningMaxHours,
+	/** False when the worker has not reached the controller lately, so state may be stale (SPEC.md §18.3). */
+	stateVerified: z.boolean(),
 	createdAt: z.string().datetime(),
 	updatedAt: z.string().datetime(),
 });

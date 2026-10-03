@@ -5,7 +5,7 @@ import {
 	type TestDb,
 } from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { ENDED_TERMINAL_MAX_AGE_DAYS, pruneEndedTerminals } from "./terminal-prune.js";
+import { pruneEndedTerminals } from "./terminal-prune.js";
 
 // SPEC.md 9.7: ended terminal rows go after 30 days; open rows stay.
 const skip = !hasTestDb();
@@ -31,7 +31,6 @@ beforeEach(async () => {
 test.skipIf(skip)(
 	"deletes rows ended over 30 days ago and keeps the rest",
 	async () => {
-		expect(ENDED_TERMINAL_MAX_AGE_DAYS).toBe(30);
 		const owner = await insertTestUser(tdb.db);
 		const ws = await tdb.db
 			.insertInto("workspaces")

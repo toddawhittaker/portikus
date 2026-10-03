@@ -106,6 +106,8 @@ test.skipIf(skip)("GET /workspaces/:id returns the owner's workspace", async () 
 	const res = await get(`/workspaces/${id}`, alice);
 	expect(res.statusCode).toBe(200);
 	expect(res.json().id).toBe(id);
+	// The workspace page shares this URL, so the JSON must never be cached.
+	expect(res.headers["cache-control"]).toBe("no-store");
 });
 
 test.skipIf(skip)("another student gets 404 for someone else's workspace", async () => {
