@@ -624,7 +624,7 @@ function rightPane() {
 	return {
 		pane: "files" as const,
 		show: vi.fn(),
-		monitorSort: { column: "cpu" as const, direction: "desc" as const },
+		monitorSort: { column: "cpu" as const, direction: "descending" as const },
 		setMonitorSort: vi.fn(),
 		monitorFocus: false,
 		setMonitorFocus: vi.fn(),
@@ -695,7 +695,7 @@ test("at 85% memory the meter warns, announces it, and opens Monitor by memory",
 	fireEvent.click(meter);
 	expect(api.setMonitorSort).toHaveBeenCalledWith({
 		column: "memory",
-		direction: "desc",
+		direction: "descending",
 	});
 	expect(api.show).toHaveBeenCalledWith("monitor");
 	expect(api.setMonitorFocus).toHaveBeenCalledWith(true);

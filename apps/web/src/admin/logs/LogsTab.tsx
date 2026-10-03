@@ -15,6 +15,7 @@ import {
 } from "@portikus/ui";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useRef, useState } from "react";
+import { SortAnnouncement, useAnnouncedSort } from "../../table/announce.js";
 import { AdminSection } from "../AdminSection.js";
 import {
 	personLabel,
@@ -23,7 +24,6 @@ import {
 	workspaceLabel,
 } from "../people.js";
 import { useAdminUsers } from "../queries.js";
-import { SortAnnouncement, useAnnouncedSort } from "../table/announce.js";
 import {
 	DEFAULT_LEVELS,
 	DEFAULT_WINDOW,
