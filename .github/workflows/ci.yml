@@ -173,9 +173,7 @@ jobs:
       - name: Install tmux, zip, and ripgrep
         if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
         timeout-minutes: 5
-        run: |
-          sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y -o Acquire::Retries=3 --no-install-recommends tmux zip unzip ripgrep
+        run: scripts/ci-apt-install.sh tmux zip unzip ripgrep
       - uses: pnpm/action-setup@v6
         if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
       - uses: actions/setup-node@v7
@@ -291,11 +289,16 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-      # With the browser cached this only installs the system libraries.
+      # The runner image already has the libraries headless Chromium needs, so
+      # skip --with-deps: it runs apt-get update, which stalls when Ubuntu's
+      # mirrors are slow. The image lacks only extra fonts for non-Latin
+      # scripts, which no test needs; the check fails if a library goes missing.
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
-        # One attempt: a killed attempt leaves apt holding the dpkg lock, so a retry cannot succeed.
-        timeout-minutes: 12
-        run: pnpm exec playwright install --with-deps --only-shell chromium
+        timeout-minutes: 5
+        run: |
+          pnpm exec playwright install --only-shell chromium
+          missing=$(pnpm exec playwright install-deps --dry-run chromium | grep '^  ' | grep -Ev '^  x?fonts-' || true)
+          if [ -n "$missing" ]; then echo "The runner image lacks libraries Chromium needs:"; echo "$missing"; exit 1; fi
       # The Playwright servers run the compiled output, and Vite serves the
       # ui package's theme and fonts from its dist, so build both first.
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
@@ -692,7 +695,7 @@ jobs:
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         # age is for the backup scope test below.
         timeout-minutes: 5
-        run: sudo apt-get install -y -o Acquire::Retries=3 shellcheck age
+        run: scripts/ci-apt-install.sh shellcheck age
       - name: shellcheck
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: find . -name '*.sh' -not -path './node_modules/*' -not -path './dist/*' -not -path './.claude/*' -print0 | xargs -0 shellcheck && shellcheck packaging/scripts/* packaging/bin/portikus packaging/backup/backup-key infra/host/portikus-backup-export
@@ -792,6 +795,6 @@ jobs:
           persist-credentials: false
       - name: Install apt-ftparchive
         timeout-minutes: 5
-        run: command -v apt-ftparchive || { sudo apt-get update -o Acquire::Retries=3 && sudo apt-get install -y -o Acquire::Retries=3 --no-install-recommends apt-utils; }
+        run: command -v apt-ftparchive || scripts/ci-apt-install.sh apt-utils
       - name: Test publish-apt-repo.sh in a Debian 13 container
         run: scripts/tests/publish-apt-repo-test.sh
