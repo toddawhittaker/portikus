@@ -1,6 +1,7 @@
 import { CloseCode, type ListeningService, type Workspace } from "@portikus/contracts";
 import { ServerMessage } from "@portikus/events";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { sessionEnded } from "./api/sessionEnded.js";
 import { wsUrl } from "./api/ws.js";
 
 const HEARTBEAT_MS = 15_000;
@@ -34,15 +35,10 @@ export interface WorkspaceSocket {
  * counts as presence (SPEC.md §6.4), so it stays open for as long as the
  * page is on a workspace screen.
  */
-export function useWorkspaceSocket(
-	workspaceId: string | null,
-	onSessionEnded: () => void,
-): WorkspaceSocket {
+export function useWorkspaceSocket(workspaceId: string | null): WorkspaceSocket {
 	const [workspace, setWorkspace] = useState<Workspace | null>(null);
 	const [listening, setListening] = useState<ListeningService[] | null>(null);
 	const [attempt, setAttempt] = useState(0);
-	const sessionEnded = useRef(onSessionEnded);
-	sessionEnded.current = onSessionEnded;
 
 	const reconnect = useCallback(() => setAttempt((value) => value + 1), []);
 	const current = useRef<WebSocket | null>(null);
@@ -123,7 +119,7 @@ export function useWorkspaceSocket(
 				if (heartbeat !== undefined) clearInterval(heartbeat);
 				if (stopped) return;
 				if (event.code === CloseCode.SESSION_ENDED) {
-					sessionEnded.current();
+					sessionEnded();
 					return;
 				}
 				if (!opened) {
@@ -135,7 +131,7 @@ export function useWorkspaceSocket(
 						.then((response) => {
 							if (stopped) return;
 							if (response.status === 401) {
-								sessionEnded.current();
+								sessionEnded();
 								return;
 							}
 							retry = setTimeout(() => connect(id), wait);

@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 function openSocket() {
-	const hook = renderHook(() => useWorkspaceSocket(WORKSPACE.id, () => {}));
+	const hook = renderHook(() => useWorkspaceSocket(WORKSPACE.id));
 	const socket = RecordingSocket.last as RecordingSocket;
 	act(() => socket.open());
 	return { hook, socket };
@@ -68,7 +68,7 @@ test("sendActivity reports at once, whatever the last report was", () => {
 });
 
 test("nothing is sent before the socket opens, so the next press tries again", () => {
-	renderHook(() => useWorkspaceSocket(WORKSPACE.id, () => {}));
+	renderHook(() => useWorkspaceSocket(WORKSPACE.id));
 	const socket = RecordingSocket.last as RecordingSocket;
 	fireEvent.keyDown(document.body, { key: "a" });
 	expect(socket.sent).toEqual([]);

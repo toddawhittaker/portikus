@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { ApiError } from "./api/request";
+import { ApiError } from "../api/request";
 import { terminalFailureMessage, terminalsKey, useTerminals } from "./useTerminals";
 
 const WORKSPACE = "22222222-2222-4222-8222-222222222222";
@@ -48,7 +48,7 @@ test("a created terminal is in the cached list before any refetch", async () => 
 			<ToastProvider>{children}</ToastProvider>
 		</QueryClientProvider>
 	);
-	const { result } = renderHook(() => useTerminals(WORKSPACE, PROJECT, true, vi.fn()), {
+	const { result } = renderHook(() => useTerminals(WORKSPACE, PROJECT, true), {
 		wrapper,
 	});
 	await waitFor(() => expect(result.current.loaded).toBe(true));
@@ -99,7 +99,7 @@ test("a refused create is a toast, not the inline error", async () => {
 			<ToastProvider>{children}</ToastProvider>
 		</QueryClientProvider>
 	);
-	const { result } = renderHook(() => useTerminals(WORKSPACE, PROJECT, true, vi.fn()), {
+	const { result } = renderHook(() => useTerminals(WORKSPACE, PROJECT, true), {
 		wrapper,
 	});
 	await waitFor(() => expect(result.current.loaded).toBe(true));

@@ -43,7 +43,7 @@ import {
 	useState,
 } from "react";
 import { useLayout, useLayoutStore } from "../layout/store.js";
-import { useTerminals } from "../useTerminals.js";
+import { useTerminals } from "../terminal/useTerminals.js";
 import { DeleteFileConfirm } from "./DeleteFileConfirm.js";
 import {
 	downloadErrorToast,
@@ -307,7 +307,7 @@ export function FileTreePane({
 	const openFileTab = useLayout(layoutStore, (state) => state.openFile);
 	const focusedTerminalId = useLayout(layoutStore, (state) => state.focusedTerminalId);
 	const root = useTree(workspaceId, project.id, "");
-	const terminals = useTerminals(workspaceId, project.id, true, () => {});
+	const terminals = useTerminals(workspaceId, project.id, true);
 	const session = openAgentSession(terminals.terminals, focusedTerminalId);
 	const [reviewSession, setReviewSession] = useState(false);
 	// The workspace shell holds the events socket (SPEC.md §11.4).
