@@ -197,26 +197,62 @@ test("group titles stand apart and a long email wraps inside the dialog", async 
 	});
 	expect(fits).toEqual({ wraps: true, inside: true, noScroll: true });
 
-	// Group titles are body-size semibold, set apart by a rule and a full step
+	// Group titles use the heading style and field labels regular weight, so
+	// the two never look alike. Groups are set apart by a rule and a full step
 	// of space; the first group has no rule.
-	const first = dialog.getByRole("heading", { level: 3 }).first();
+	const first = dialog.getByRole("region", {
+		name: "From your institution sign-in",
+	});
 	const second = dialog.getByRole("heading", { name: "About you" });
 	const label = dialog.locator("[data-testid=profile-signin] dt").first();
-	const title = await second.evaluate((el) => ({
+	const style = (el: Element) => ({
 		weight: getComputedStyle(el).fontWeight,
 		size: getComputedStyle(el).fontSize,
-	}));
-	expect(title).toEqual({ weight: "600", size: "14px" });
-	expect(await label.evaluate((el) => getComputedStyle(el).fontSize)).toBe("13px");
+	});
+	expect(await second.evaluate(style)).toEqual({ weight: "600", size: "15px" });
+	expect(await label.evaluate(style)).toEqual({ weight: "400", size: "13px" });
+	expect(await dialog.getByText("GitHub", { exact: true }).evaluate(style)).toEqual({
+		weight: "400",
+		size: "13px",
+	});
 	expect(
 		await second.evaluate((el) => {
 			const group = getComputedStyle(el.parentElement as Element);
 			return [group.borderTopWidth, group.paddingTop];
 		}),
 	).toEqual(["1px", "24px"]);
-	expect(
-		await first.evaluate(
-			(el) => getComputedStyle(el.parentElement as Element).borderTopWidth,
-		),
-	).toBe("0px");
+	expect(await first.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe("0px");
+	await expect(dialog.getByText("All optional.")).toHaveCount(0);
+});
+
+test("read-only sign-in details sit as label and value pairs on one line", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+	const dialog = await openProfile(page);
+
+	const rows = await dialog
+		.locator("[data-testid=profile-signin] dt")
+		.evaluateAll((terms) =>
+			terms.map((term) => {
+				const value = term.nextElementSibling as Element;
+				const a = term.getBoundingClientRect();
+				const b = value.getBoundingClientRect();
+				return {
+					left: Math.round(a.left),
+					valueLeft: Math.round(b.left),
+					sameRow: b.left >= a.right && b.top < a.bottom && b.bottom > a.top,
+				};
+			}),
+		);
+	expect(rows).toHaveLength(4);
+	for (const row of rows) {
+		expect(row.sameRow).toBe(true);
+		// Every value starts in the same column.
+		expect(row.valueLeft).toBe(rows[0]?.valueLeft);
+		expect(row.left).toBe(rows[0]?.left);
+	}
 });

@@ -809,7 +809,7 @@ test("the long explanations are toggletips beside their controls", async () => {
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await screen.findByRole("region", { name: "Accessibility" });
 	for (const name of [
-		"About Auto-save delay in seconds",
+		"About Auto-save delay",
 		"About Terminal colors",
 		"About Screen reader mode",
 		"About Workspace timezone",

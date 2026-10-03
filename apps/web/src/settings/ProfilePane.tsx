@@ -9,6 +9,9 @@ import { SETTINGS_SECTIONS } from "./sections.js";
 
 const PROFILE = SETTINGS_SECTIONS.find((section) => section.id === "profile");
 
+/** Label and value side by side, as the admin tabs show read-only pairs. */
+const PAIRS_CLASS = "m-0 grid gap-x-6 gap-y-2";
+
 /** The profile links the student has typed but not saved yet. */
 export interface LinkDraft {
 	github?: string;
@@ -59,12 +62,14 @@ function ProfileSkeleton() {
 	return (
 		<div className="grid gap-4" aria-busy="true" data-testid="profile-loading">
 			<p className="sr-only">Loading your profile…</p>
-			<Skeleton width="30%" />
-			<Skeleton width="70%" />
-			<div className="grid gap-4">
+			<div className="grid gap-1">
+				<Skeleton width="30%" />
+				<Skeleton width="70%" />
+			</div>
+			<div className={`${PAIRS_CLASS} grid-cols-[8rem_minmax(0,1fr)]`}>
 				{values.map((width) => (
-					<div className="grid gap-1" key={width}>
-						<Skeleton width="20%" />
+					<div className="col-span-2 grid grid-cols-subgrid" key={width}>
+						<Skeleton width="80%" />
 						<Skeleton width={width} />
 					</div>
 				))}
@@ -254,23 +259,26 @@ export function ProfilePane({
 						className="pk-settings-group grid gap-4"
 						aria-labelledby="settings-profile-signin"
 					>
-						<h3
-							id="settings-profile-signin"
-							className="pk-text-body font-semibold text-ink"
+						<div className="grid gap-1">
+							<h3 id="settings-profile-signin" className="pk-text-heading text-ink">
+								{signIn?.title}
+							</h3>
+							<p className="pk-text-compact m-0 text-ink-muted">
+								These come from the institution sign-in and cannot be changed here.
+							</p>
+						</div>
+						<dl
+							className={`${PAIRS_CLASS} grid-cols-[max-content_minmax(0,1fr)]`}
+							data-testid="profile-signin"
 						>
-							{signIn?.title}
-						</h3>
-						<p className="pk-text-compact m-0 text-ink-muted">
-							These come from the institution sign-in and cannot be changed here.
-						</p>
-						<dl className="m-0 grid gap-4" data-testid="profile-signin">
 							{signIn?.controls.map((control) => (
 								<ControlFrame
 									key={control.id}
 									control={control}
 									highlighted={highlightId === control.id}
+									className="col-span-2 grid grid-cols-subgrid items-baseline"
 								>
-									<dt className="pk-text-label flex min-w-0 items-center gap-1 text-ink-muted">
+									<dt className="pk-text-compact flex min-w-0 items-center gap-1 text-ink-muted">
 										{control.label}
 										{control.id === "workspace-label" ? (
 											<Toggletip label={control.label}>
@@ -290,13 +298,9 @@ export function ProfilePane({
 						className="pk-settings-group grid gap-4"
 						aria-labelledby="settings-profile-about"
 					>
-						<h3
-							id="settings-profile-about"
-							className="pk-text-body font-semibold text-ink"
-						>
+						<h3 id="settings-profile-about" className="pk-text-heading text-ink">
 							{about?.title}
 						</h3>
-						<p className="pk-text-compact m-0 text-ink-muted">All optional.</p>
 						{picture ? (
 							<ControlFrame control={picture} highlighted={highlightId === picture.id}>
 								{editable(picture.id)}
@@ -319,7 +323,7 @@ export function ProfilePane({
 						<div className="flex min-w-0 items-center gap-1">
 							<h3
 								id="settings-profile-linked"
-								className="pk-text-body font-semibold text-ink"
+								className="pk-text-heading text-ink"
 								tabIndex={-1}
 							>
 								{linked?.title}
