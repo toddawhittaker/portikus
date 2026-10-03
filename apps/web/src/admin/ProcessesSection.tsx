@@ -48,6 +48,12 @@ export type ProcessSortColumn = "cpu" | "memory";
 
 const SORT_LABELS: Record<ProcessSortColumn, string> = { cpu: "CPU", memory: "Memory" };
 
+/**
+ * Room before a sortable column for the faint hint chevron, which sits in the
+ * cell's start padding (tables.css); its values line up under the label.
+ */
+const HINT_ROOM = "ps-[calc(var(--size-icon-sm)+3px)]";
+
 const BUSIEST_FIRST: SortState<ProcessSortColumn> = {
 	column: "cpu",
 	direction: "descending",
@@ -284,7 +290,9 @@ export function ProcessesSection({
 						Read at {readTime(reading.snapshot.takenAt ?? "")}
 					</p>
 					<table
-						className="pk-text-compact w-full text-left"
+						// An 8 px gap between columns, none after the last. Headers are muted
+						// and the sorted one is full ink, as in every .pk-table (tables.css).
+						className="pk-text-compact w-full text-left [&_:is(th,td):not(:last-child)]:pe-[var(--space-2)] [&_th]:text-ink-muted [&_th[aria-sort]]:text-ink"
 						data-testid="processes-table"
 					>
 						<caption className="sr-only">
@@ -302,6 +310,7 @@ export function ProcessesSection({
 									sort={sort}
 									onSort={setSort}
 									first="descending"
+									className={HINT_ROOM}
 								/>
 								<SortHeader
 									column="memory"
@@ -309,6 +318,7 @@ export function ProcessesSection({
 									sort={sort}
 									onSort={setSort}
 									first="descending"
+									className={HINT_ROOM}
 								/>
 								<th scope="col">
 									<span className="sr-only">Actions</span>
@@ -327,8 +337,8 @@ export function ProcessesSection({
 										<td className="pk-mono-small">{row.pid}</td>
 										<td>{ownerText(row.uid)}</td>
 										<td className="pk-mono-small break-all">{row.name}</td>
-										<td>{formatCpu(row.cpuPercent)}</td>
-										<td>{formatBytes(row.residentBytes)}</td>
+										<td className={HINT_ROOM}>{formatCpu(row.cpuPercent)}</td>
+										<td className={HINT_ROOM}>{formatBytes(row.residentBytes)}</td>
 										<td>
 											<div className="pk-action-slots">
 												{row.protected ? (

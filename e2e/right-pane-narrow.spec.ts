@@ -240,8 +240,19 @@ for (const theme of ["light", "dark"] as const) {
 			await expect(page.getByTestId("monitor-process-4242")).toBeVisible({
 				timeout: 15_000,
 			});
+			// The table, 8 px column gaps included, stays inside the pane's padding,
+			// and nothing in Monitor scrolls sideways.
 			const table = await box(page.getByTestId("monitor-processes"));
-			expect(table.x + table.width).toBeLessThanOrEqual(pane.x + pane.width);
+			const contentEnd = await page.getByTestId("monitor").evaluate((element) => {
+				const rect = element.getBoundingClientRect();
+				return rect.right - Number.parseFloat(getComputedStyle(element).paddingRight);
+			});
+			expect(table.x + table.width).toBeLessThanOrEqual(contentEnd + 0.5);
+			expect(
+				await page
+					.getByTestId("monitor")
+					.evaluate((element) => element.scrollWidth <= element.clientWidth),
+			).toBe(true);
 			const stop = await box(page.getByTestId("monitor-stop-4242"));
 			expect(stop.x + stop.width).toBeLessThanOrEqual(pane.x + pane.width);
 			// PID gives way first, then Memory, so Command, CPU and the actions fit.
@@ -251,8 +262,8 @@ for (const theme of ["light", "dark"] as const) {
 				await expect(pidHeader).toBeHidden();
 				await expect(memoryHeader).toBeHidden();
 			} else {
-				// The default width keeps every column, even with a seven-digit PID.
-				await expect(pidHeader).toBeVisible();
+				// The 280 px default has given up PID only; Stop still names it.
+				await expect(pidHeader).toBeHidden();
 				await expect(memoryHeader).toBeVisible();
 			}
 			await expect(page.getByRole("columnheader", { name: /^CPU/ })).toBeVisible();
