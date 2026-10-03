@@ -52,7 +52,7 @@ function renderOutput(screenReaderMode: boolean) {
 			close() {}
 		},
 	);
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	const settings = { ...EDITOR_SETTINGS_DEFAULTS, screenReaderMode, timezones: [] };
 	client.setQueryData(editorSettingsKey, settings);
 	render(

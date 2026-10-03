@@ -310,6 +310,8 @@ export function useFileBuffer({
 	}
 
 	function edit(next: string, inConflictView: boolean) {
+		// The save decisions read this before the next render, as the reducer does.
+		latest.current = { ...latest.current, text: next };
 		dispatch({ type: "edit", text: next, inConflictView });
 		// An unresolved conflict waits; autosaving would only produce another 412.
 		if (conflict !== null) return;

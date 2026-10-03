@@ -146,7 +146,7 @@ function Raise() {
 
 test("each toast shown records one notification", async () => {
 	const fetchMock = stubFetch(() => json(201, {}));
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	render(
 		<QueryClientProvider client={client}>
 			<ToastProvider onShow={(toast) => void recordNotification(client, toast)}>
@@ -168,7 +168,7 @@ test("each toast shown records one notification", async () => {
 
 test("a toast behind the acceptable-use gate is not recorded until the user accepts", async () => {
 	const fetchMock = stubFetch(() => json(201, {}));
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	const gated = { status: "authenticated", user: { ...USER, mustAcceptUse: true } };
 	client.setQueryData(["me"], gated);
 	render(
@@ -193,7 +193,7 @@ test("a failed record is dropped: no retry, no second toast, the toast stays", a
 		throw new TypeError("Failed to fetch");
 	});
 	vi.stubGlobal("fetch", fetchMock);
-	const client = createQueryClient(() => {});
+	const client = createQueryClient();
 	render(
 		<QueryClientProvider client={client}>
 			<ToastProvider onShow={(toast) => void recordNotification(client, toast)}>

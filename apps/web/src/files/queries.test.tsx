@@ -29,7 +29,7 @@ test("a successful save invalidates the diff of the same file", async () => {
 				}),
 		),
 	);
-	const queryClient = createQueryClient(() => {});
+	const queryClient = createQueryClient();
 	const invalidate = vi.spyOn(queryClient, "invalidateQueries");
 	const wrapper = ({ children }: { children: React.ReactNode }) => (
 		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
