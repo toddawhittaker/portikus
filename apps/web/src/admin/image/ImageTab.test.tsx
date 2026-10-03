@@ -90,6 +90,34 @@ test("says the section is off when the API answers 404", async () => {
 	expect(await screen.findByText("Image management is off on this site")).toBeTruthy();
 });
 
+const NO_SURVEY = { day: null, surveyed: 0, packages: [] };
+
+test("the tab ends with Packages students add, after the image actions", async () => {
+	stubFetch((url) =>
+		url === "/admin/packages" ? json(200, NO_SURVEY) : json(200, data()),
+	);
+	renderWithQuery(<ImageTab />);
+	await screen.findByTestId("image-default");
+	const headings = screen.getAllByRole("heading").map((h) => h.textContent);
+	expect(headings.at(-1)).toBe("Packages students add");
+	expect((await screen.findByTestId("packages-empty")).textContent).toBe(
+		"No workspace has been surveyed yet.",
+	);
+});
+
+test("the survey still shows when image management is off or fails", async () => {
+	stubFetch((url) =>
+		url === "/admin/packages"
+			? json(200, NO_SURVEY)
+			: json(404, { code: "NOT_FOUND", message: "Not found." }),
+	);
+	renderWithQuery(<ImageTab />);
+	await screen.findByText("Image management is off on this site");
+	expect(
+		screen.getByRole("heading", { level: 3, name: "Packages students add" }),
+	).toBeTruthy();
+});
+
 test("shows the default, previous, counts, and a failed image cannot be made default", async () => {
 	stubFetch(() => json(200, data()));
 	renderWithQuery(<ImageTab />);

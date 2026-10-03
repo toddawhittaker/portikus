@@ -17,7 +17,8 @@ export function surveyDay(day: string): string {
 }
 
 /**
- * "Packages students add" on the Health tab (SPEC.md §20.1, ADR 0042):
+ * "Packages students add" on the Workspace image tab, beside the actions that
+ * act on its candidates (SPEC.md §20.1, ADR 0042):
  * site-wide counts from the latest survey day, never a workspace's own list.
  */
 export function PackagesSection() {
@@ -26,8 +27,8 @@ export function PackagesSection() {
 		queryFn: () => request(AdminPackagesResponse, "/admin/packages"),
 	});
 	return (
-		<section className="pk-card mt-6 p-6" aria-labelledby="health-packages-title">
-			<h3 className="pk-text-heading m-0" id="health-packages-title">
+		<section className="pk-card mt-6 p-6" aria-labelledby="image-packages-title">
+			<h3 className="pk-text-heading m-0" id="image-packages-title">
 				Packages students add
 			</h3>
 			{survey.isError ? (

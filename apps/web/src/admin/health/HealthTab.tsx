@@ -13,7 +13,6 @@ import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { shortTime } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
 import { WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
-import { PackagesSection } from "./PackagesSection.js";
 import { useHealth } from "./queries.js";
 import { TrendsCard } from "./TrendsCard.js";
 
@@ -89,7 +88,6 @@ export function HealthTab() {
 					<Skeleton variant="block" height={280} />
 				</div>
 			)}
-			<PackagesSection />
 		</AdminSection>
 	);
 }

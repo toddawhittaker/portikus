@@ -2583,7 +2583,8 @@ built to the frame rules above.
 - The Settings tab edits the two throttle-hold settings (section 19.4).
 - **Workspace image** (Epic 15) shows, updates, rebuilds, activates and
   rolls back the workspace image (section 22.4).
-- The Health tab gains "Packages students add": for the latest completed
+- The Workspace image tab ends with "Packages students add", beside the
+  actions that act on its candidates: for the latest completed
   UTC day that surveyed at least 3 workspaces, how many surveyed
   workspaces added each package with `sudo apt install`, with first and
   last seen, and a base-image candidate mark when at least 2 workspaces
@@ -4166,7 +4167,8 @@ Changed by Epic 25: the Health tab reads top to bottom as the worker-stale
 banner; "At a glance", four cards side by side when there is room
 (Platform, Resource guard, Failures in the last 24 hours, Workspaces by
 state); the Trends card in four groups, Host, Workspaces, API and Events,
-open by default and remembered per browser; then "Packages students add".
+open by default and remembered per browser. "Packages students add" is
+on the Workspace image tab, not here (section 20.1).
 Each chart names its unit in its title, its Y ticks are bare numbers, and
 axis text is 12 px at any width. A chart with no samples in the range is
 one line of text with no axis.
