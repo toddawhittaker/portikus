@@ -13,6 +13,7 @@ import {
 	MenuItem,
 	MenuRoot,
 	MenuSeparator,
+	MenuSub,
 	MenuTrigger,
 } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
@@ -46,6 +47,12 @@ export interface TerminalLeafProps {
 	onLeave: () => void;
 	/** Give this pane a tab of its own, the keyboard way to drag it. */
 	onMoveToNewTab: (terminalId: string) => void;
+	/** The other tabs this pane can join, named as the tab strip names them. */
+	moveTargets: { tabId: string; label: string }[];
+	/** Put this pane into another tab's split, the click way to drag it there. */
+	onMoveInto: (terminalId: string, tabId: string) => void;
+	/** Share this tab's space out evenly again, the click way to drag splitters. */
+	onResetSizes: () => void;
 	/** The only pane in its tab, which already has a tab of its own. */
 	alone: boolean;
 	/** The zone to shade while a pane is being dragged over this one. */
@@ -105,6 +112,9 @@ export function TerminalLeaf({
 	onReplace,
 	onLeave,
 	onMoveToNewTab,
+	moveTargets,
+	onMoveInto,
+	onResetSizes,
 	alone,
 	dropEdge = null,
 }: TerminalLeafProps) {
@@ -218,6 +228,24 @@ export function TerminalLeaf({
 						</MenuItem>
 						<MenuItem disabled={alone} onSelect={() => onMoveToNewTab(terminal.id)}>
 							<span data-testid="terminal-move-to-new-tab">Move to new tab</span>
+						</MenuItem>
+						<MenuSub
+							label="Move into"
+							disabled={moveTargets.length === 0}
+							testId="terminal-move-into"
+						>
+							{moveTargets.map((target) => (
+								<MenuItem
+									key={target.tabId}
+									testId={`terminal-move-into-${target.tabId}`}
+									onSelect={() => onMoveInto(terminal.id, target.tabId)}
+								>
+									{target.label}
+								</MenuItem>
+							))}
+						</MenuSub>
+						<MenuItem disabled={alone} onSelect={onResetSizes}>
+							<span data-testid="terminal-reset-sizes">Reset pane sizes</span>
 						</MenuItem>
 						<MenuSeparator />
 						<MenuItem

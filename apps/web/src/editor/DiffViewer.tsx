@@ -9,6 +9,7 @@ import {
 	accessibilitySupport,
 	baseEditorOptions,
 	currentThemeName,
+	editorAriaLabel,
 	getMonaco,
 	languageForPath,
 	watchTheme,
@@ -99,6 +100,8 @@ export function DiffViewer({
 				useInlineViewWhenSpaceIsLimited: false,
 				renderOverviewRuler: false,
 				accessibilitySupport: accessibilitySupport(screenReaderRef.current),
+				originalAriaLabel: editorAriaLabel("Diff, earlier version", path),
+				modifiedAriaLabel: editorAriaLabel("Diff, your changes", path),
 			});
 			editor.setModel(models);
 			if (editableRef.current) {

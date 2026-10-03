@@ -186,6 +186,69 @@ describe("Tabs", () => {
 			const description = document.getElementById(describedBy)?.textContent ?? "";
 			expect(description).toContain("Delete");
 			expect(description).toContain("Alt+Shift");
+			expect(description).toContain("Shift+F10");
 		}
+	});
+
+	/** The pointer way to reorder without dragging (WCAG 2.5.7). */
+	it("moves a tab right from its menu and announces it", () => {
+		const props = renderTabs();
+
+		fireEvent.contextMenu(screen.getByRole("tab", { name: /app.ts/ }));
+		const menu = screen.getByRole("menu", { name: "Actions for app.ts" });
+		expect(menu).toBeTruthy();
+		fireEvent.click(screen.getByRole("menuitem", { name: "Move right" }));
+
+		expect(props.onReorder).toHaveBeenCalledWith(1, 2);
+		const live = document.querySelector("[aria-live='polite']");
+		expect(live?.textContent).toBe("app.ts moved to position 3 of 3");
+	});
+
+	it("moves a tab left from its menu", () => {
+		const props = renderTabs();
+
+		fireEvent.contextMenu(screen.getByRole("tab", { name: /app.ts/ }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Move left" }));
+
+		expect(props.onReorder).toHaveBeenCalledWith(1, 0);
+	});
+
+	it("disables Move left on the first tab and Move right on the last", () => {
+		renderTabs();
+
+		fireEvent.contextMenu(screen.getByRole("tab", { name: /zsh — todo-api/ }));
+		expect(
+			screen.getByRole("menuitem", { name: "Move left" }).getAttribute("aria-disabled"),
+		).toBe("true");
+		expect(
+			screen
+				.getByRole("menuitem", { name: "Move right" })
+				.getAttribute("aria-disabled"),
+		).toBeNull();
+		fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+		fireEvent.contextMenu(screen.getByRole("tab", { name: /zsh — old/ }));
+		expect(
+			screen
+				.getByRole("menuitem", { name: "Move right" })
+				.getAttribute("aria-disabled"),
+		).toBe("true");
+	});
+
+	it("closes a tab from its menu", () => {
+		const props = renderTabs();
+
+		fireEvent.contextMenu(screen.getByRole("tab", { name: /app.ts/ }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Close tab" }));
+
+		expect(props.onClose).toHaveBeenCalledWith("t2");
+	});
+
+	it("opens no menu off the tabs", () => {
+		renderTabs();
+
+		fireEvent.contextMenu(screen.getByRole("tablist"));
+
+		expect(screen.queryByRole("menu")).toBeNull();
 	});
 });

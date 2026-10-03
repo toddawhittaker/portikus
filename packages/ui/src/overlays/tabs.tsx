@@ -17,6 +17,13 @@ import { CSS } from "@dnd-kit/utilities";
 import * as RadixTabs from "@radix-ui/react-tabs";
 import * as React from "react";
 import { Icon, IconButton, type IconName } from "../primitives/index.js";
+import {
+	ContextMenu,
+	ContextMenuTrigger,
+	Menu,
+	MenuItem,
+	MenuSeparator,
+} from "./menu.js";
 
 export interface TabItem {
 	id: string;
@@ -176,6 +183,8 @@ export function Tabs({
 	const [announcement, setAnnouncement] = React.useState("");
 	const list = React.useRef<HTMLDivElement | null>(null);
 	const hintId = React.useId();
+	// The tab whose right-click menu is open: one menu serves the whole strip.
+	const [menuTabId, setMenuTabId] = React.useState<string | null>(null);
 
 	// Selecting a tab brings it back into view, however the selection was made
 	// (click, keyboard, Ctrl+Tab, or opening a file).
@@ -209,6 +218,16 @@ export function Tabs({
 		setAnnouncement(`${tab.label} moved to position ${to + 1} of ${tabs.length}`);
 	}
 
+	/** Which tab a right-click or Shift+F10 landed on, if any. */
+	function tabAt(target: EventTarget): TabItem | undefined {
+		const trigger = target instanceof Element ? target.closest('[role="tab"]') : null;
+		const rendered = [...(list.current?.querySelectorAll('[role="tab"]') ?? [])];
+		return trigger ? tabs[rendered.indexOf(trigger)] : undefined;
+	}
+
+	const menuIndex = menuTabId === null ? -1 : ids.indexOf(menuTabId);
+	const menuTab = tabs[menuIndex];
+
 	function handleDragEnd(event: DragEndEvent) {
 		const { active, over } = event;
 		if (!over || active.id === over.id) return;
@@ -232,22 +251,64 @@ export function Tabs({
 				onDragEnd={handleDragEnd}
 			>
 				<SortableContext items={ids} strategy={horizontalListSortingStrategy}>
-					<RadixTabs.List
-						ref={list}
-						aria-label={label ?? "Open tabs"}
-						className="pk-tablist"
-						onWheel={onWheel}
-					>
-						{tabs.map((tab) => (
-							<TabTrigger
-								key={tab.id}
-								tab={tab}
-								hintId={hintId}
-								onClose={onClose}
-								onMove={move}
-							/>
-						))}
-					</RadixTabs.List>
+					{/* The menu is the pointer way to move a tab without dragging
+					    it (WCAG 2.5.7, SPEC.md §25.8). */}
+					<ContextMenu>
+						<ContextMenuTrigger
+							asChild={true}
+							onContextMenu={(event) => {
+								const tab = tabAt(event.target);
+								// Off the tabs there is nothing to act on, so no menu.
+								if (!tab) {
+									event.preventDefault();
+									return;
+								}
+								setMenuTabId(tab.id);
+							}}
+						>
+							<RadixTabs.List
+								ref={list}
+								aria-label={label ?? "Open tabs"}
+								className="pk-tablist"
+								onWheel={onWheel}
+							>
+								{tabs.map((tab) => (
+									<TabTrigger
+										key={tab.id}
+										tab={tab}
+										hintId={hintId}
+										onClose={onClose}
+										onMove={move}
+									/>
+								))}
+							</RadixTabs.List>
+						</ContextMenuTrigger>
+						{menuTab ? (
+							<Menu label={`Actions for ${menuTab.label}`}>
+								<MenuItem
+									disabled={menuIndex === 0}
+									onSelect={() => move(menuTab, -1)}
+									testId="tab-move-left"
+								>
+									Move left
+								</MenuItem>
+								<MenuItem
+									disabled={menuIndex === tabs.length - 1}
+									onSelect={() => move(menuTab, 1)}
+									testId="tab-move-right"
+								>
+									Move right
+								</MenuItem>
+								<MenuSeparator />
+								<MenuItem
+									onSelect={() => onClose?.(menuTab.id)}
+									testId="tab-menu-close"
+								>
+									Close tab
+								</MenuItem>
+							</Menu>
+						) : null}
+					</ContextMenu>
 				</SortableContext>
 			</DndContext>
 			<div className="pk-tabs-actions flex items-center gap-0.5 px-1">
@@ -256,7 +317,8 @@ export function Tabs({
 				)}
 			</div>
 			<span id={hintId} className="pk-visually-hidden">
-				Delete closes the tab. Alt+Shift+Left or Right Arrow moves it.
+				Delete closes the tab. Alt+Shift+Left or Right Arrow moves it. Shift+F10 opens
+				its menu.
 			</span>
 			<span className="pk-visually-hidden" aria-live="polite">
 				{announcement}

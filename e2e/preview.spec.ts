@@ -652,6 +652,15 @@ test.describe("application preview", () => {
 			menu.getByRole("menuitem", { name: "Reset preview data…" }),
 		).toBeVisible();
 		await expect(menu.getByRole("menuitem", { name: "Show in Running" })).toBeVisible();
+		// The width choices are radio items; scan them open in both themes.
+		for (const colorScheme of ["light", "dark"] as const) {
+			await page.emulateMedia({ colorScheme });
+			const results = await (await settledAxe(page))
+				.withTags(WCAG_TAGS)
+				.include('[role="menu"]')
+				.analyze();
+			expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+		}
 		await menu.getByRole("menuitemradio", { name: "768 px wide" }).click();
 		await expect(page.getByTestId("preview-frame")).toHaveCSS("max-width", "768px");
 	});

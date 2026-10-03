@@ -23,6 +23,8 @@ export {
 	type MenuRadioItemProps,
 	MenuRoot,
 	MenuSeparator,
+	MenuSub,
+	type MenuSubProps,
 	MenuTrigger,
 } from "./menu";
 export { PaneHandle, type PaneHandleProps } from "./pane-handle";

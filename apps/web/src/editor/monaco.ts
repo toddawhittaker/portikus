@@ -92,11 +92,21 @@ export const baseEditorOptions: Monaco.editor.IEditorOptions = {
 };
 
 /**
- * Monaco's screen-reader support follows the student's setting.
- * Never "auto": a browser cannot tell that a screen reader is running.
+ * Monaco's screen-reader support follows the student's setting. With the
+ * setting off this is "auto", not "off": "off" makes Monaco name its text box
+ * "The editor is not accessible at this time." and drop the file name
+ * (SPEC.md §25.8).
  */
-export function accessibilitySupport(screenReaderMode: boolean): "on" | "off" {
-	return screenReaderMode ? "on" : "off";
+export function accessibilitySupport(screenReaderMode: boolean): "on" | "auto" {
+	return screenReaderMode ? "on" : "auto";
+}
+
+/**
+ * The accessible name of an editor's text box: what it is, which file, and how
+ * to make Tab leave it (Monaco's tab-focus toggle, SPEC.md §25.8).
+ */
+export function editorAriaLabel(kind: string, path: string): string {
+	return `${kind}, ${path}. Ctrl+M makes Tab leave the editor.`;
 }
 
 const LIGHT_THEME = "portikus-light";

@@ -224,6 +224,49 @@ export function MenuRadioItem({
 	);
 }
 
+export interface MenuSubProps {
+	/** The text of the item that opens the submenu; it also names the submenu. */
+	label: string;
+	disabled?: boolean;
+	testId?: string;
+	children?: React.ReactNode;
+}
+
+/** An item that opens a nested menu, such as a list of places to move to. */
+export function MenuSub({
+	label,
+	disabled,
+	testId,
+	children,
+}: MenuSubProps): React.ReactElement {
+	const P = parts(React.useContext(MenuKindContext));
+	return (
+		<P.Sub>
+			<P.SubTrigger
+				className={`${itemClass(false)} pk-menu-subtrigger`}
+				disabled={disabled}
+				data-testid={testId}
+			>
+				<span className="pk-menu-item-label flex-1">{label}</span>
+				{/* Wrapped, so the menu's icon gutter still applies to this item. */}
+				<span aria-hidden="true" className="grid place-items-center">
+					<Icon name="chevron-right" size="sm" />
+				</span>
+			</P.SubTrigger>
+			<P.Portal>
+				<P.SubContent
+					aria-label={label}
+					className="pk-menu min-w-50 rounded-md border border-line bg-surface-raised p-1 shadow-md"
+					sideOffset={4}
+					collisionPadding={8}
+				>
+					{children}
+				</P.SubContent>
+			</P.Portal>
+		</P.Sub>
+	);
+}
+
 function itemClass(danger: boolean | undefined): string {
 	return `pk-menu-item ${danger ? "pk-menu-item--danger" : ""}`;
 }

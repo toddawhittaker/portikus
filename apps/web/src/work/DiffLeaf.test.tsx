@@ -299,7 +299,8 @@ test("the diff editor's screen-reader support follows the setting", async () => 
 	const client = renderLeaf();
 	await screen.findByTestId(`diff-editor-${PATH}`);
 	await waitFor(() => expect(editorState.options).toHaveLength(1));
-	const initial = EDITOR_SETTINGS_DEFAULTS.screenReaderMode ? "on" : "off";
+	// Off is "auto", never "off", which would name the text box "not accessible".
+	const initial = EDITOR_SETTINGS_DEFAULTS.screenReaderMode ? "on" : "auto";
 	expect(editorState.options[0]?.accessibilitySupport).toBe(initial);
 
 	act(() => {
@@ -311,7 +312,18 @@ test("the diff editor's screen-reader support follows the setting", async () => 
 	});
 	await waitFor(() =>
 		expect(editorState.options.at(-1)).toEqual({
-			accessibilitySupport: initial === "on" ? "off" : "on",
+			accessibilitySupport: initial === "on" ? "auto" : "on",
 		}),
 	);
+});
+
+/** Each side of the diff names the file and the way out of the text box. */
+test("each side of the diff names the file", async () => {
+	renderLeaf();
+	await screen.findByTestId(`diff-editor-${PATH}`);
+	await waitFor(() => expect(editorState.options).toHaveLength(1));
+	expect(editorState.options[0]).toMatchObject({
+		originalAriaLabel: `Diff, earlier version, ${PATH}. Ctrl+M makes Tab leave the editor.`,
+		modifiedAriaLabel: `Diff, your changes, ${PATH}. Ctrl+M makes Tab leave the editor.`,
+	});
 });
