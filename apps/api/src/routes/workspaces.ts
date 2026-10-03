@@ -302,6 +302,9 @@ export function registerWorkspaceRoutes(
 			.updateTable("workspaces")
 			.set({
 				desired_state: desired,
+				// A student's Start, Stop or Restart earns a fresh set of
+				// automatic start retries (SPEC.md §6.3).
+				start_retries: 0,
 				updated_at: new Date().toISOString(),
 			})
 			.where("id", "=", params.id)
