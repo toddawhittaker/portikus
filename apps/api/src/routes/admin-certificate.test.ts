@@ -37,7 +37,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 import { toAuthOptions } from "../auth-options.js";
 import type { PreflightNet } from "../certificate/preflight.js";
 import { buildServer } from "../server.js";
-import { PUBLIC_URL, testConfig } from "../test-support.js";
+import { PUBLIC_URL, testConfig } from "../testing/test-support.js";
 import { uploadsToCheck } from "./admin-certificate.js";
 
 const skip = !hasTestDb();

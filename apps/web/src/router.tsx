@@ -10,14 +10,7 @@ import {
 	useParams,
 	useRouterState,
 } from "@tanstack/react-router";
-import {
-	type ComponentType,
-	type LazyExoticComponent,
-	lazy,
-	type ReactNode,
-	Suspense,
-	useEffect,
-} from "react";
+import { type ComponentType, lazy, type ReactNode, Suspense, useEffect } from "react";
 import { AcceptableUsePage } from "./acceptable-use/AcceptableUsePage.js";
 import { sanitizeLogSearch } from "./admin/logs/filters.js";
 import { ADMIN_TABS } from "./admin/tabs.js";
@@ -37,65 +30,41 @@ import { gatePath, useMe } from "./useMe.js";
 import { WorkspacePage } from "./WorkspacePage.js";
 import { WorkArea } from "./work/WorkArea.js";
 
-const RELOADED_KEY = "portikus.chunk-reload";
+// Pages most people never open load on first visit, keeping the shell's
+// first load small (SPEC.md section 25.1).
+// A file gone after a deploy reloads the page through shell/reloadOnStaleChunk.ts.
+const AdminPage = lazyPage(
+	() => import("./admin/AdminPage.js"),
+	(module) => module.AdminPage,
+);
+const CourseListPage = lazyPage(
+	() => import("./course/CoursePage.js"),
+	(module) => module.CourseListPage,
+);
+const CourseMembersPage = lazyPage(
+	() => import("./course/CoursePage.js"),
+	(module) => module.CourseMembersPage,
+);
+const HelpPage = lazyPage(
+	() => import("./help/HelpPage.js"),
+	(module) => module.HelpPage,
+);
 
 /**
- * After a deploy an open tab can ask for a page file that no longer exists.
- * Reload once to fetch the new build; if that fails too, or storage is off,
- * the error goes on to the router's error page. True when reloading.
+ * A lazy page that keeps loading while a stale chunk reloads the page: Vite
+ * resolves the import with undefined once that reload has taken over, and
+ * reading a page from it would flash the router's error page first.
  */
-export function reloadOnceForStaleChunk(): boolean {
-	try {
-		if (sessionStorage.getItem(RELOADED_KEY)) return false;
-		sessionStorage.setItem(RELOADED_KEY, "1");
-	} catch {
-		return false;
-	}
-	window.location.reload();
-	return true;
-}
-
-/** A page loaded on first visit, reloading once if its file is gone. */
-export function lazyPage<T extends ComponentType>(
-	load: () => Promise<{ default: T }>,
-): LazyExoticComponent<T> {
+export function lazyPage<M>(
+	load: () => Promise<M | undefined>,
+	pick: (module: M) => ComponentType,
+) {
 	return lazy(() =>
-		load().then(
-			(module) => {
-				try {
-					sessionStorage.removeItem(RELOADED_KEY);
-				} catch {
-					// Storage off: the next stale file just shows the error page.
-				}
-				return module;
-			},
-			(error: unknown) => {
-				// Never settles, so nothing renders while the page reloads.
-				if (reloadOnceForStaleChunk()) return new Promise<never>(() => {});
-				throw error;
-			},
+		load().then((module) =>
+			module === undefined ? new Promise<never>(() => {}) : { default: pick(module) },
 		),
 	);
 }
-
-// Pages most people never open load on first visit, keeping the shell's
-// first load small (SPEC.md section 25.1).
-const AdminPage = lazyPage(() =>
-	import("./admin/AdminPage.js").then((module) => ({ default: module.AdminPage })),
-);
-const CourseListPage = lazyPage(() =>
-	import("./course/CoursePage.js").then((module) => ({
-		default: module.CourseListPage,
-	})),
-);
-const CourseMembersPage = lazyPage(() =>
-	import("./course/CoursePage.js").then((module) => ({
-		default: module.CourseMembersPage,
-	})),
-);
-const HelpPage = lazyPage(() =>
-	import("./help/HelpPage.js").then((module) => ({ default: module.HelpPage })),
-);
 
 /** The same quiet, busy page a signed-in screen shows while it loads. */
 function Lazy({ children }: { children: ReactNode }) {

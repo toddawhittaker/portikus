@@ -361,8 +361,9 @@ A detached `HEAD` shows no short object id, because the contract does not
 carry one. Untracked and unmerged paths share the letter `U` and are told
 apart by colour, icon and the `data-git` attribute. A project that is not a
 Git repository diffs every file as "added". The agent has no cap on
-concurrent searches. `fake-agent.ts` ships inside the Debian package as
-dead code. Relative image paths in Markdown are not resolved, so an image
+concurrent searches. The fake agent, now under
+`apps/api/src/testing/fake-agent/`, is stripped from the Debian package
+since Epic 30. Relative image paths in Markdown are not resolved, so an image
 in a repository does not render. Code blocks inside Markdown have no syntax
 highlighting. The test database name and the Playwright ports are shared,
 so two local test runs at once collide (`docs/WORKFLOW.md`). Two CI flakes
@@ -3976,3 +3977,101 @@ Gaps:
   `WorkspaceProvider` interface, so a copy added inside them is not
   caught.
 - Five smaller items are in BACKLOG.md.
+
+## Epic 30 — Architecture review fixes
+
+Built on `epic/30-architecture-fixes` (task PRs #1043 to #1054 and this
+fold). No migration. SPEC.md sections 6.5, 18.3, 28 and 29, STACK.md
+sections 2 and 9, and ADR 0034.
+
+Delivered:
+
+- Worker: every controller call (creates, starts, stops and maintenance)
+  runs in one background runner keyed by workspace. At most six creates,
+  starts and operations run at once, and stops never wait behind that
+  cap, so a slow rebuild no longer delays other students. A re-create
+  keeps the stored volume sizes, and a start sends the stored recovery
+  size. Stamps are taken when a controller call ends.
+- Worker loops: `startLoop` owns the busy guard and error logging for
+  every interval loop. VM backup deletes are claimed with SKIP LOCKED,
+  and a stale claim is retried after 15 minutes.
+- Controller: every bad request body answers `BAD_REQUEST`. It never
+  reads a file through the Incus files API, because Incus 7.5 reports a
+  named pipe as a regular file and a GET on one leaves an incusd thread
+  blocked for good. Every file it writes is deleted and then pushed
+  while the container is stopped; a start that finds the container
+  running force-stops it first. `daemon.json` is written whole, and the
+  ghcr.io hosts line is edited inside the container after the start,
+  keeping the student's own lines. The apt list is read inside the
+  container as the student; output comes back over the exec websocket,
+  capped at 64 KiB per read and per message, and the command is then
+  killed. Nothing is recorded to a host log. Verified on the rehearsal
+  VM with pipes at nine paths, an output flood and a retry against a
+  pipe-making loop.
+- Worker: a start that keeps failing is retried after a wait that
+  doubles from 10 seconds to 30 minutes, held in memory and reset when
+  the workspace runs or its desired state changes; each retry logs its
+  attempt number.
+- Workspace agent: a stop protects only the platform's own processes, by
+  PID: PID 1, the agent, its tmux attach clients, the tmux server and its
+  pane shells. A program run inside a terminal and a program the agent
+  starts for the student, such as a check run and its children, stay
+  stoppable from both the Monitor and the Running pane; stopping a pane
+  shell is refused.
+- Workspace agent: port stops refuse protected processes and reused
+  process ids through the shared process-stop check, unexpected errors
+  fall back to `INTERNAL`, `runGit` lives in its own file, and one
+  helper aborts work when a client disconnects. The unused
+  `PORTIKUS_WORKSPACE_ID` setting is gone; the URL broker always sends
+  the nil workspace id and the API names the workspace itself.
+- API rate limits all count through the shared fixed-window counter, so
+  no per-key list grows without bound. The workspace socket pushes any
+  view change except the moving timestamps.
+- API layers: `routes/` holds only route files, with shared code in
+  `workspaces/`, `sessions/`, `admin/`, `users/`, `notifications/` and
+  `lti/`; `ServerDeps` lives in `deps.ts`, and `apps/api/src` has no
+  import cycles. `workspaceView` builds every workspace view, and
+  `requestPendingOperation` serves Rebuild, Reset Docker and the home
+  replace with the audit row in the same transaction.
+- API test doubles live in `apps/api/src/testing/`, with the fake agent
+  split by area. A vitest relay suite runs the project, file, Git,
+  search and checks routes against the real workspace agent. A refused
+  port stop is pinned as a 403. build-deb strips and checks test code
+  at any depth.
+- Shared values have one source: notifications, WebSocket close codes,
+  workspace state unions, guard arithmetic and the agent error map.
+- Web: the project events socket lives in the workspace shell, so
+  browser-open requests and on-disk changes arrive whatever right-pane
+  tab shows. Student-facing errors are plain sentences while admin pages
+  keep raw detail. One settings query, one stale-chunk reload (lazy
+  pages included), and socket frames decoded with the shared schemas.
+  Queued browser-open dialogs return focus to the element that had it.
+- The listening monitor reads the tmux process id uncached.
+- Workspace agent: a stop refuses the agent's own tmux attach clients as
+  well as the tmux server, so Stop on a "tmux" row in the Monitor no
+  longer closes the student's terminal.
+
+Gaps:
+
+- The fake agent's session baseline-diff route answers 404, which is not
+  checked against the real agent.
+- Terminals, events, recovery, listening and processes have no real-agent
+  relay test (terminals have `terminal-real-agent.test.ts`). Browser
+  tests still use the fake agent.
+- A student's own edits to `/etc/docker/daemon.json` are reset at every
+  start.
+- A process the student leaves in the background can keep one Incus
+  stdout read open until it exits, at most once a day per workspace (the
+  package survey).
+- An in-container edit without sockets that times out is left running
+  until it exits or the container stops (Incus refuses to cancel it).
+- A start that fails for good has no final error state, and Stop on an
+  errored row whose container still runs does nothing (#1057). The retry
+  wait is lost when the worker restarts.
+- No CI check for import cycles yet (#1011).
+- File-save errors in the editor still show raw messages.
+- No browser test for a live workspace relabel, and the uncached tmux
+  process id has no test.
+- The preview, process-stop and terminal error maps stay local because
+  they answer differently from the shared map.
+- Review items S3 and S4 are deferred to #1041.

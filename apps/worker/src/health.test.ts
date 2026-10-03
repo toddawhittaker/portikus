@@ -67,7 +67,9 @@ test.skipIf(skip)(
 test.skipIf(skip)(
 	"each sample counts the workspaces the database says are running",
 	async () => {
-		for (const [i, state] of ["running", "running", "stopped", "starting"].entries()) {
+		for (const [i, state] of (
+			["running", "running", "stopped", "starting"] as const
+		).entries()) {
 			await tdb.db
 				.insertInto("workspaces")
 				.values({
@@ -192,7 +194,7 @@ test.skipIf(skip)("a database failure is logged and does not throw", async () =>
 	expect(lines.some((l) => l.msg === "health sample failed")).toBe(true);
 });
 
-test("the sampler runs once at start, then once every 60 seconds until stopped", () => {
+test("the sampler runs once at start, then once every 60 seconds until stopped", async () => {
 	vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
 	let calls = 0;
 	const tick = async () => {
@@ -204,16 +206,16 @@ test("the sampler runs once at start, then once every 60 seconds until stopped",
 		tick,
 	);
 	expect(calls).toBe(1);
-	vi.advanceTimersByTime(HEALTH_SAMPLE_SECONDS * 1000 - 1);
+	await vi.advanceTimersByTimeAsync(HEALTH_SAMPLE_SECONDS * 1000 - 1);
 	expect(calls).toBe(1);
-	vi.advanceTimersByTime(1);
+	await vi.advanceTimersByTimeAsync(1);
 	expect(calls).toBe(2);
-	vi.advanceTimersByTime(HEALTH_SAMPLE_SECONDS * 1000);
+	await vi.advanceTimersByTimeAsync(HEALTH_SAMPLE_SECONDS * 1000);
 	expect(calls).toBe(3);
-	vi.advanceTimersByTime(HEALTH_SAMPLE_SECONDS * 1000);
+	await vi.advanceTimersByTimeAsync(HEALTH_SAMPLE_SECONDS * 1000);
 	expect(calls).toBe(4);
 	stop();
-	vi.advanceTimersByTime(HEALTH_SAMPLE_SECONDS * 5000);
+	await vi.advanceTimersByTimeAsync(HEALTH_SAMPLE_SECONDS * 5000);
 	expect(calls).toBe(4);
 });
 

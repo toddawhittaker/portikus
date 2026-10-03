@@ -3,6 +3,9 @@
  * (SPEC.md §9.7). Binary frames are raw PTY output; text frames are JSON.
  * Kept out of the React component so it can be tested without a DOM.
  */
+import { TerminalServerMessage } from "@portikus/events";
+import { unparsedFrame } from "./frameFallback.js";
+
 /** Why a terminal's session is gone, when the control plane knows (SPEC.md §9.7). */
 export type TerminalGoneReason = "out_of_memory" | "restarted";
 
@@ -27,39 +30,27 @@ export function decodeTerminalFrame(data: unknown): TerminalFrame {
 	} catch {
 		return { kind: "ignored" };
 	}
-	if (typeof message !== "object" || message === null) return { kind: "ignored" };
-	const { type, code, path, alternate, reason, at, build } = message as {
-		type?: unknown;
-		build?: unknown;
-		code?: unknown;
-		reason?: unknown;
-		at?: unknown;
-		path?: unknown;
-		alternate?: unknown;
-	};
-	if (type === "exit") return { kind: "exit" };
-	if (type === "cwd" && typeof path === "string" && path !== "") {
-		return { kind: "cwd", path };
+	const parsed = TerminalServerMessage.safeParse(message);
+	if (!parsed.success) {
+		return unparsedFrame(message);
 	}
-	if (type === "screen" && typeof alternate === "boolean") {
-		return { kind: "screen", alternate };
+	const frame = parsed.data;
+	switch (frame.type) {
+		case "exit":
+			return { kind: "exit" };
+		case "cwd":
+			return { kind: "cwd", path: frame.path };
+		case "screen":
+			return { kind: "screen", alternate: frame.alternate };
+		case "clear":
+			return { kind: "clear" };
+		case "agent":
+			return { kind: "agent", build: frame.build };
+		case "error":
+			return frame.reason
+				? { kind: "error", code: frame.code, reason: frame.reason, at: frame.at ?? "" }
+				: { kind: "error", code: frame.code };
 	}
-	if (type === "clear") return { kind: "clear" };
-	if (type === "agent" && typeof build === "string" && build !== "") {
-		return { kind: "agent", build };
-	}
-	if (type === "error") {
-		const frame: TerminalFrame = {
-			kind: "error",
-			code: typeof code === "string" ? code : "unknown",
-		};
-		if (reason === "out_of_memory" || reason === "restarted") {
-			frame.reason = reason;
-			frame.at = typeof at === "string" ? at : "";
-		}
-		return frame;
-	}
-	return { kind: "ignored" };
 }
 
 /** The toast for terminals lost to a terminals unit restart (SPEC.md §9.7). */

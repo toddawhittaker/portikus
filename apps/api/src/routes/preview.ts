@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { recordActivity } from "../activity.js";
 import { AgentCallError } from "../agent-client.js";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import { fromLoopback } from "../loopback.js";
 import {
@@ -47,7 +48,6 @@ import {
 	revokeWorkspacePreviewSessions,
 } from "../preview/store.js";
 import { check, createCounter } from "../rate-limit.js";
-import type { ServerDeps } from "../server.js";
 
 /** The preview-host cookie, `__Host-` prefixed wherever the site is https. */
 function previewCookieName(config: ApiConfig): string {
@@ -72,7 +72,7 @@ const PortInput = z.object({ port: z.coerce.number().int().min(1).max(65535) });
 /** The status each agent refusal to stop a listener becomes. */
 function stopStatusFor(code: string): number {
 	if (code === "LISTENER_NOT_FOUND") return 404;
-	if (code === "LISTENER_IS_SYSTEM") return 403;
+	if (code === "LISTENER_IS_SYSTEM" || code === "PROCESS_PROTECTED") return 403;
 	if (code === "STOP_FAILED") return 409;
 	return 502;
 }
@@ -80,6 +80,7 @@ function stopStatusFor(code: string): number {
 function stopMessageFor(code: string): string {
 	if (code === "LISTENER_NOT_FOUND") return "Nothing is listening on that port";
 	if (code === "LISTENER_IS_SYSTEM") return "That service belongs to the system";
+	if (code === "PROCESS_PROTECTED") return "That process is protected";
 	if (code === "STOP_FAILED") return "That service did not stop";
 	return "The workspace did not answer";
 }
@@ -121,22 +122,11 @@ export function registerPreviewRoutes(
 	const lookups = createPreviewLookupCache(db);
 	const sessionCap = createCounter(PREVIEW_SESSION_CAP, PREVIEW_SESSION_CAP_WINDOW_MS);
 
-	/** When each user's recent grants and probes were asked for, newest last. */
-	const requestTimes = new Map<string, number[]>();
+	const previewRequests = createCounter(PREVIEW_REQUESTS_PER_WINDOW, PREVIEW_WINDOW_MS);
 
 	/** Record this preview request, and say whether it is over the limit. */
 	function overPreviewLimit(userId: string): boolean {
-		const now = Date.now();
-		const recent = (requestTimes.get(userId) ?? []).filter(
-			(at) => now - at < PREVIEW_WINDOW_MS,
-		);
-		if (recent.length >= PREVIEW_REQUESTS_PER_WINDOW) {
-			requestTimes.set(userId, recent);
-			return true;
-		}
-		recent.push(now);
-		requestTimes.set(userId, recent);
-		return false;
+		return !check(previewRequests, userId).allowed;
 	}
 
 	/**

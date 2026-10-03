@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
+import { type FakeChild, fakeSpawn, journalLine } from "../testing/fake-journal.js";
 import { LogCounter } from "./counts.js";
-import { type FakeChild, fakeSpawn, journalLine } from "./fake-journal.js";
 import { JournalReader } from "./journal.js";
 
 const NOW = new Date("2026-09-26T12:30:30.000Z");

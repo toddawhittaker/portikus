@@ -1,9 +1,10 @@
+import type { WorkspaceState } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { Logger, LogLevel } from "@portikus/observability";
 import { collectingLogger } from "@portikus/observability/testing";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { type FakeAgent, startFakeAgent } from "./fake-agent.js";
 import { startLogLevelSync } from "./log-level.js";
+import { type FakeAgent, startFakeAgent } from "./testing/fake-agent/index.js";
 
 /** Workspace labels are unique, so each test row needs its own. */
 let labelCounter = 0;
@@ -48,7 +49,7 @@ async function makeOwner(): Promise<string> {
 }
 
 /** A workspace in the given state, pointed at the fake agent. */
-async function makeWorkspace(state: string): Promise<string> {
+async function makeWorkspace(state: WorkspaceState): Promise<string> {
 	const row = await testDb.db
 		.insertInto("workspaces")
 		.values({

@@ -26,8 +26,8 @@ import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { toAuthOptions } from "../auth-options.js";
-import type { ServerDeps } from "../server.js";
-import { requestMetadata, startSession } from "./start-session.js";
+import type { ServerDeps } from "../deps.js";
+import { requestMetadata, startSession } from "../sessions/start-session.js";
 
 const CourseUserParam = z.object({ courseUserId: z.string().uuid() });
 

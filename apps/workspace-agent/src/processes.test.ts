@@ -15,6 +15,7 @@ import {
 	isProtected,
 	parseStatLine,
 	parseStatusUids,
+	protectedTree,
 	readProcess,
 	stopProcess,
 	tmuxPidSource,
@@ -24,12 +25,25 @@ import { processesRoutes } from "./processes-route.js";
 const STUDENT = 1000;
 const SELF = 4242;
 const TMUX = 305;
+/** One of the agent's own `tmux attach-session` clients. */
+const ATTACH = 306;
 let fakeProc: string;
 const signals: [number, string][] = [];
 
-function stat(pid: number, name: string, state: string, startTicks: number): string {
-	// Fields 3 to 22: state, then 18 fillers, then starttime.
-	const after = [state, ...Array.from({ length: 18 }, () => "0"), String(startTicks)];
+function stat(
+	pid: number,
+	name: string,
+	state: string,
+	startTicks: number,
+	ppid = 0,
+): string {
+	// Fields 3 to 22: state, ppid, then 17 fillers, then starttime.
+	const after = [
+		state,
+		String(ppid),
+		...Array.from({ length: 17 }, () => "0"),
+		String(startTicks),
+	];
 	return `${pid} (${name}) ${after.join(" ")} 0 0\n`;
 }
 
@@ -54,7 +68,7 @@ function fakeOptions() {
 		procRoot: fakeProc,
 		selfPid: SELF,
 		studentUid: STUDENT,
-		tmuxPid: async () => TMUX,
+		protectedPids: async () => new Set([TMUX, ATTACH]),
 		kill: (pid: number, signal: string) => {
 			signals.push([pid, signal]);
 		},
@@ -70,6 +84,7 @@ beforeAll(async () => {
 	// A student's process that renamed itself; the real server is 305.
 	await fakeProcess(300, "tmux: server", STUDENT, 60);
 	await fakeProcess(TMUX, "tmux: server", STUDENT, 65);
+	await fakeProcess(ATTACH, "tmux: client", STUDENT, 66);
 	await fakeProcess(301, "sshd", 0, 70);
 	await fakeProcess(302, "evil (x) y", STUDENT, 80);
 	await fakeProcess(303, "defunct", STUDENT, 90, "Z");
@@ -88,9 +103,10 @@ afterEach(() => {
 });
 
 test("the stat line is read between the first ( and the last )", () => {
-	expect(parseStatLine(stat(9, "a) b (c", "R", 1234))).toEqual({
+	expect(parseStatLine(stat(9, "a) b (c", "R", 1234, 7))).toEqual({
 		name: "a) b (c",
 		state: "R",
+		ppid: 7,
 		startTicks: 1234,
 		utime: 0,
 		stime: 0,
@@ -101,9 +117,13 @@ test("the stat line is read between the first ( and the last )", () => {
 	expect(parseStatusUids("Name:\tx\n")).toBeNull();
 });
 
-test("PID 1, the agent, its tmux server and anyone else's process are protected", async () => {
-	const owner = { selfPid: SELF, studentUid: STUDENT, tmuxPid: TMUX };
-	const protectedPids = [1, SELF, TMUX, 301, 304];
+test("PID 1, the agent, its terminals' tmux processes and anyone else's process are protected", async () => {
+	const owner = {
+		selfPid: SELF,
+		studentUid: STUDENT,
+		protectedPids: new Set([TMUX, ATTACH]),
+	};
+	const protectedPids = [1, SELF, TMUX, ATTACH, 301, 304];
 	for (const pid of protectedPids) {
 		const facts = await readProcess(fakeProc, pid);
 		expect(facts && isProtected(facts, owner), String(pid)).toBe(true);
@@ -112,6 +132,40 @@ test("PID 1, the agent, its tmux server and anyone else's process are protected"
 	for (const pid of [300, 302]) {
 		const own = await readProcess(fakeProc, pid);
 		expect(own && isProtected(own, owner), String(pid)).toBe(false);
+	}
+});
+
+test("only the agent, its attach clients, tmux and its pane shells are protected", async () => {
+	const root = await mkdtemp(join(tmpdir(), "portikus-tree-"));
+	try {
+		// [pid, ppid]: the agent 10 with an attach client 11 and a check run 13
+		// whose child is 14; the tmux server 20 with pane shells 21 and 22; a
+		// program 23 under a shell and its child 24; an unrelated process 30.
+		const tree: [number, number][] = [
+			[1, 0],
+			[10, 1],
+			[11, 10],
+			[13, 10],
+			[14, 13],
+			[20, 1],
+			[21, 20],
+			[22, 20],
+			[23, 21],
+			[24, 23],
+			[30, 1],
+		];
+		for (const [pid, ppid] of tree) {
+			await mkdir(join(root, String(pid)));
+			await writeFile(join(root, String(pid), "stat"), stat(pid, "x", "S", 1, ppid));
+		}
+		await mkdir(join(root, "self"));
+		const sorted = (pids: Set<number>) => [...pids].sort((a, b) => a - b);
+		expect(sorted(await protectedTree(root, 10, 20, [11]))).toEqual([
+			10, 11, 20, 21, 22,
+		]);
+		expect(sorted(await protectedTree(root, 10, null, [11]))).toEqual([10, 11]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
 	}
 });
 
@@ -166,6 +220,7 @@ test("a refused stop sends no signal", async () => {
 		[1, 1, "PROCESS_PROTECTED"],
 		[SELF, 50, "PROCESS_PROTECTED"],
 		[TMUX, 65, "PROCESS_PROTECTED"],
+		[ATTACH, 66, "PROCESS_PROTECTED"],
 		[301, 70, "PROCESS_PROTECTED"],
 		[304, 95, "PROCESS_PROTECTED"],
 		[302, 81, "PROCESS_CHANGED"],
@@ -250,7 +305,7 @@ function realOptions() {
 		procRoot: "/proc",
 		selfPid: process.pid,
 		studentUid: process.getuid?.() ?? 0,
-		tmuxPid: async () => null,
+		protectedPids: async () => new Set<number>(),
 		kill: (pid: number, signal: NodeJS.Signals) => process.kill(pid, signal),
 		graceMs: 1000,
 	};

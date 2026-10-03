@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type FakeKeyState, fakeKey } from "../apps/api/src/fake-backup-key";
+import { type FakeKeyState, fakeKey } from "../apps/api/src/testing/fake-backup-key";
 import { API_PORT } from "./ports";
 
 /**

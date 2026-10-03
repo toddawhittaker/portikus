@@ -16,6 +16,8 @@ export interface BrowserOpenDialogProps {
 	/** The preview tab the rest of the app already opens for a port. */
 	onOpenPreview: (port: number) => void;
 	onClose: () => void;
+	/** Where focus goes on close, when it should not be the dialog's own opener. */
+	returnFocusTo?: () => HTMLElement | null;
 }
 
 /** http(s) only. `javascript:` and every other scheme stop here. */
@@ -37,6 +39,7 @@ export function BrowserOpenDialog({
 	projectId,
 	onOpenPreview,
 	onClose,
+	returnFocusTo,
 }: BrowserOpenDialogProps) {
 	const toast = useToast();
 	const [copyError, setCopyError] = useState<{ id: string; message: string } | null>(
@@ -102,6 +105,7 @@ export function BrowserOpenDialog({
 		>
 			<Dialog
 				testId="browser-open-dialog"
+				returnFocusTo={returnFocusTo}
 				title="Open this link?"
 				description={
 					<>

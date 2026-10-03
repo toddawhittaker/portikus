@@ -6,6 +6,7 @@ import type { Kysely } from "kysely";
 import { fromLoopback } from "../loopback.js";
 import { portAllowed } from "../preview/policy.js";
 import type { ListeningRegistry } from "../preview/registry.js";
+import { type Counter, check, createCounter } from "../rate-limit.js";
 import { type NonceStore, PREFLIGHT_PATH } from "./preflight.js";
 
 /**
@@ -26,7 +27,8 @@ import { type NonceStore, PREFLIGHT_PATH } from "./preflight.js";
 const CERTIFICATE_ASK_PATH = "/edge/certificate-ask";
 const NONCE_ROUTE = `${PREFLIGHT_PATH}:nonce`;
 
-/** Most new preview names one workspace may get approved per rolling hour. */
+/** Most new preview names one workspace may get approved per fixed one-hour
+ * window; a burst of up to twice this across a window edge is accepted. */
 export const NEW_NAMES_PER_WORKSPACE_PER_HOUR = 10;
 const WINDOW_MS = 60 * 60 * 1000;
 
@@ -37,33 +39,26 @@ const WINDOW_MS = 60 * 60 * 1000;
  * acceptable because the CA's own limits still apply.
  */
 export class PreviewApprovals {
+	// Approved names stay approved: Caddy holds their certificates, and the
+	// new-name limit below bounds how fast this set can grow.
 	private readonly approved = new Set<string>();
-	private readonly recent = new Map<string, number[]>();
-	private readonly warned = new Map<string, number>();
+	private readonly newNames: Counter;
 
 	constructor(
 		private readonly warn: (workspaceId: string) => void = () => {},
-		private readonly now: () => number = Date.now,
-	) {}
+		now: () => number = Date.now,
+	) {
+		this.newNames = createCounter(NEW_NAMES_PER_WORKSPACE_PER_HOUR, WINDOW_MS, now);
+	}
 
 	/** True if `name` was approved before or the workspace still has room this hour. */
 	admit(workspaceId: string, name: string): boolean {
 		if (this.approved.has(name)) return true;
-		const now = this.now();
-		const times = (this.recent.get(workspaceId) ?? []).filter(
-			(t) => now - t < WINDOW_MS,
-		);
-		if (times.length >= NEW_NAMES_PER_WORKSPACE_PER_HOUR) {
-			this.recent.set(workspaceId, times);
-			const last = this.warned.get(workspaceId);
-			if (last === undefined || now - last >= WINDOW_MS) {
-				this.warned.set(workspaceId, now);
-				this.warn(workspaceId);
-			}
+		const decision = check(this.newNames, workspaceId);
+		if (!decision.allowed) {
+			if (decision.firstRefusal) this.warn(workspaceId);
 			return false;
 		}
-		times.push(now);
-		this.recent.set(workspaceId, times);
 		this.approved.add(name);
 		return true;
 	}

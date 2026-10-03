@@ -27,7 +27,7 @@ import {
 } from "@portikus/contracts";
 import { errorMessage } from "@portikus/observability";
 import { AgentFailure } from "./errors.js";
-import { runGit, STDERR_LIMIT } from "./git.js";
+import { runGit, STDERR_LIMIT } from "./git-runner.js";
 import {
 	excludePortikusFiles,
 	PORTIKUS_IGNORE_LINES,

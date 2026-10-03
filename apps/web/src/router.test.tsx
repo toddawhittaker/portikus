@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { Suspense } from "react";
-import { afterEach, describe, expect, test, vi } from "vitest";
-import { lazyPage, reloadOnceForStaleChunk } from "./router.js";
+import { type ReactNode, Suspense } from "react";
+import { afterEach, expect, test, vi } from "vitest";
+import { lazyPage } from "./router.js";
 import {
 	FakeWebSocket,
 	json,
@@ -242,58 +242,29 @@ test("the Logs tab's filters come from the URL, and unknown values are dropped (
 	expect(params.has("workspace")).toBe(false);
 });
 
-describe("a page file missing after a deploy", () => {
-	afterEach(() => {
-		sessionStorage.clear();
-		vi.restoreAllMocks();
-	});
+test("a lazy page whose chunk resolves undefined keeps loading instead of failing", async () => {
+	const Page = lazyPage<{ Page: () => ReactNode }>(
+		() => Promise.resolve(undefined),
+		(module) => module.Page,
+	);
+	render(
+		<Suspense fallback={<p>loading</p>}>
+			<Page />
+		</Suspense>,
+	);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	expect(screen.getByText("loading")).toBeTruthy();
+});
 
-	function stubReload() {
-		const reload = vi.fn();
-		vi.spyOn(window, "location", "get").mockReturnValue({
-			...window.location,
-			reload,
-		});
-		return reload;
-	}
-
-	test("reloads the page once, and the next failure is left to the error page", async () => {
-		const reload = stubReload();
-		const Page = lazyPage<() => null>(() =>
-			Promise.reject(new TypeError("Failed to fetch dynamically imported module")),
-		);
-		render(
-			<Suspense fallback={<p>Loading</p>}>
-				<Page />
-			</Suspense>,
-		);
-		await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
-		// Still waiting on the reload, not showing a broken page.
-		expect(screen.getByText("Loading")).toBeDefined();
-		expect(reloadOnceForStaleChunk()).toBe(false);
-		expect(reload).toHaveBeenCalledTimes(1);
-	});
-
-	test("a page that loads clears the guard for the next deploy", async () => {
-		const reload = stubReload();
-		sessionStorage.setItem("portikus.chunk-reload", "1");
-		const Page = lazyPage(() => Promise.resolve({ default: () => <p>Loaded</p> }));
-		render(
-			<Suspense fallback={null}>
-				<Page />
-			</Suspense>,
-		);
-		expect(await screen.findByText("Loaded")).toBeDefined();
-		expect(reloadOnceForStaleChunk()).toBe(true);
-		expect(reload).toHaveBeenCalledTimes(1);
-	});
-
-	test("with storage blocked it never reloads", () => {
-		const reload = stubReload();
-		vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-			throw new DOMException("blocked", "SecurityError");
-		});
-		expect(reloadOnceForStaleChunk()).toBe(false);
-		expect(reload).not.toHaveBeenCalled();
-	});
+test("a lazy page renders the component picked from its module", async () => {
+	const Page = lazyPage(
+		() => Promise.resolve({ Page: () => <p>the page</p> }),
+		(module) => module.Page,
+	);
+	render(
+		<Suspense fallback={<p>loading</p>}>
+			<Page />
+		</Suspense>,
+	);
+	expect(await screen.findByText("the page")).toBeTruthy();
 });

@@ -128,11 +128,8 @@ export interface DockerUsageOptions {
 export function createInventoryPoll(options: DockerUsageOptions): () => Promise<void> {
 	const { db, logger, readInventory } = options;
 	const now = options.now ?? (() => new Date());
-	let inFlight = false;
 
 	return async function tick(): Promise<void> {
-		if (inFlight) return;
-		inFlight = true;
 		try {
 			const seed = await db
 				.selectFrom("docker_seed")
@@ -159,8 +156,6 @@ export function createInventoryPoll(options: DockerUsageOptions): () => Promise<
 			logger.info({ workspaces: workspaces.length, read }, "docker inventory read");
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "docker inventory failed");
-		} finally {
-			inFlight = false;
 		}
 	};
 }
@@ -222,8 +217,18 @@ export function startDockerUsage(
 			options.logger.warn({ error: errorMessage(e) }, "docker usage prune failed");
 		}
 	};
-	const stopInventory = startLoop(tick, INVENTORY_SECONDS * 1000);
-	const stopPrune = startLoop(prune, RETENTION_SECONDS * 1000);
+	const stopInventory = startLoop(
+		"docker inventory",
+		options.logger,
+		tick,
+		INVENTORY_SECONDS * 1000,
+	);
+	const stopPrune = startLoop(
+		"docker usage prune",
+		options.logger,
+		prune,
+		RETENTION_SECONDS * 1000,
+	);
 	return () => {
 		stopInventory();
 		stopPrune();

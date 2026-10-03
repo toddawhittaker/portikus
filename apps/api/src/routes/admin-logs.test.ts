@@ -12,7 +12,7 @@ import { LogCounts, LogPage } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 const skip = !hasTestDb();
 // The e2e fake reads FAKE_JOURNAL_FILE as the API's journal. journalctl gets

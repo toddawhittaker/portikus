@@ -19,7 +19,8 @@ import {
 } from "./backups.js";
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
-import { type ReconcileConfig, reconcile, settleStops } from "./reconcile.js";
+import { settleInFlight } from "./lifecycle.js";
+import { type ReconcileConfig, reconcile } from "./reconcile.js";
 
 const skip = !hasTestDb();
 let tdb: TestDb;
@@ -598,15 +599,49 @@ test.skipIf(skip)("a refused delete fails; one already gone is done", async () =
 		["backup.kept_home_delete_failed", "failed"],
 	]);
 
-	// A claimed one left by a worker that died runs again.
+	// A claimed one left by a worker that died runs again once the claim is stale.
 	const gone = await insertRequest({
 		kind: "delete_snapshot",
 		args: { volume: `${INSTANCE}-home`, snapshot: "pre-x" },
 		state: "claimed",
+		claimed_at: new Date(NOW.getTime() - BACKUP_CLAIM_TIMEOUT_MS - 1000),
+	});
+	const fresh = await insertRequest({
+		kind: "delete_snapshot",
+		args: { volume: `${INSTANCE}-home`, snapshot: "pre-y" },
+		state: "claimed",
+		claimed_at: NOW,
 	});
 	fake.deleteError = new ControllerClientError("NOT_FOUND", "no such snapshot");
 	await runVmDeletes(tdb.db, fake, () => NOW);
 	expect((await requestRow(gone)).state).toBe("done");
+	expect((await requestRow(fresh)).state).toBe("claimed");
+});
+
+test.skipIf(skip)("two overlapping delete runs run each delete once", async () => {
+	const id = await insertRequest({
+		kind: "delete_snapshot",
+		args: { volume: `${INSTANCE}-docker`, snapshot: "pre-upgrade" },
+	});
+	let release = (): void => {};
+	const gate = new Promise<void>((r) => {
+		release = r;
+	});
+	const original = fake.deleteSnapshot.bind(fake);
+	fake.deleteSnapshot = async (volume, snapshot) => {
+		await gate;
+		return original(volume, snapshot);
+	};
+	const first = runVmDeletes(tdb.db, fake, () => NOW);
+	// Let the first run claim the row before the second one looks.
+	await new Promise((r) => setTimeout(r, 200));
+	const second = runVmDeletes(tdb.db, fake, () => NOW);
+	await new Promise((r) => setTimeout(r, 200));
+	release();
+	await Promise.all([first, second]);
+	expect(fake.calls.filter((c) => c.method === "deleteSnapshot")).toHaveLength(1);
+	expect(await auditRows()).toHaveLength(1);
+	expect((await requestRow(id)).state).toBe("done");
 });
 
 // --- replace home ---------------------------------------------------------
@@ -862,7 +897,7 @@ test.skipIf(skip)(
 			.executeTakeFirstOrThrow();
 		const sweepAt = async (at: Date) => {
 			await reconcile(tdb.db, fake, cfg, at, { lastRefreshAt: at });
-			await settleStops();
+			await settleInFlight();
 		};
 
 		// No point tried since the request: the workspace keeps running.

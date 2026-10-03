@@ -1,6 +1,7 @@
-import { Kysely, PostgresDialect } from "kysely";
+import { MAX_NOTIFICATIONS_PER_USER, type NotificationTone } from "@portikus/contracts";
+import { Kysely, PostgresDialect, type Selectable } from "kysely";
 import pg from "pg";
-import type { Database } from "./schema.js";
+import type { Database, NotificationsTable } from "./schema.js";
 
 export { migrateToLatest } from "./migrate.js";
 export type { Database, NotificationsTable } from "./schema.js";
@@ -105,20 +106,91 @@ export interface AuditEvent {
 	metadata?: Record<string, unknown> | null;
 }
 
+function auditInsert(db: Kysely<Database>, event: AuditEvent) {
+	const { actor, target, action, result, metadata } = event;
+	return db.insertInto("audit_events").values({
+		actor,
+		target,
+		action,
+		result,
+		metadata: metadata == null ? null : JSON.stringify(metadata),
+	});
+}
+
 /** Write one audit row (SPEC.md section 24). Accepts the db or a transaction. */
 export async function recordAudit(
 	db: Kysely<Database>,
 	event: AuditEvent,
 ): Promise<void> {
-	const { actor, target, action, result, metadata } = event;
-	await db
-		.insertInto("audit_events")
+	await auditInsert(db, event).execute();
+}
+
+/**
+ * `recordAudit` that also returns the new row's id. Reading it back needs
+ * SELECT on audit_events, which the worker's insert-only role lacks (SPEC.md
+ * section 24.9).
+ */
+export async function recordAuditReturningId(
+	db: Kysely<Database>,
+	event: AuditEvent,
+): Promise<number> {
+	const row = await auditInsert(db, event).returning("id").executeTakeFirstOrThrow();
+	return row.id;
+}
+
+/** What one notification says (ADR 0033). */
+export interface Notice {
+	tone: NotificationTone;
+	title: string;
+	body: string;
+}
+
+/**
+ * Record one notification for a user and keep only their newest rows
+ * (ADR 0033). Accepts the db or a transaction.
+ */
+export async function recordNotification(
+	db: Kysely<Database>,
+	userId: string,
+	notice: Notice,
+): Promise<Selectable<NotificationsTable>> {
+	const row = await db
+		.insertInto("notifications")
 		.values({
-			actor,
-			target,
-			action,
-			result,
-			metadata: metadata == null ? null : JSON.stringify(metadata),
+			user_id: userId,
+			tone: notice.tone,
+			title: notice.title,
+			body: notice.body,
 		})
+		.returningAll()
+		.executeTakeFirstOrThrow();
+	// The worker also prunes by age.
+	await db
+		.deleteFrom("notifications")
+		.where("user_id", "=", userId)
+		.where("id", "not in", (eb) =>
+			eb
+				.selectFrom("notifications")
+				.select("id")
+				.where("user_id", "=", userId)
+				.orderBy("created_at", "desc")
+				.orderBy("id", "desc")
+				.limit(MAX_NOTIFICATIONS_PER_USER),
+		)
 		.execute();
+	return row;
+}
+
+/** One notification for every enabled administrator (ADR 0033). */
+export async function notifyAdministrators(
+	db: Kysely<Database>,
+	notice: Notice,
+): Promise<void> {
+	const admins = await db
+		.selectFrom("users")
+		.select("id")
+		.where("role", "=", "administrator")
+		.where("disabled_at", "is", null)
+		.execute();
+	for (const admin of admins) await recordNotification(db, admin.id, notice);
 }

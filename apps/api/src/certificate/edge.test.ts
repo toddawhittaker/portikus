@@ -12,7 +12,7 @@ import {
 	type TestDb,
 } from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { testConfig } from "../test-support.js";
+import { testConfig } from "../testing/test-support.js";
 import {
 	askAllows,
 	NEW_NAMES_PER_WORKSPACE_PER_HOUR,

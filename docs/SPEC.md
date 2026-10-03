@@ -522,7 +522,7 @@ A stop should allow the workspace operating system and inner services a bounded 
 
 If graceful stop does not complete within the configured timeout, the platform may force-stop the workspace and must record the event.
 
-A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 25 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`.
+A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every controller call the worker makes (creates, starts, stops and maintenance operations) runs in one background runner, at most one call per workspace at a time. Creates, starts and maintenance share a cap of 6 calls at once; stops sit outside the cap, so they never wait behind a slow rebuild (ADR 0034). Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 25 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`.
 
 A stop succeeds when the instance reaches Stopped within the timeout. The controller decides from the instance's state, never from the text of an Incus error, so a stop that races another stop or a shutdown from inside still ends Stopped with no error. Its first state read tolerates any error except not-found, because for about a second of some shutdowns Incus answers the state read itself with HTTP 500 "Invalid PID -1" (Epic 22).
 
@@ -2037,9 +2037,13 @@ can turn it off; the change reaches each workspace at its next start.
 controller whether to use the Hub mirror and the ghcr.io cache, each only
 when the egress policy lets that registry's names through (section 23.6).
 The controller, with the container stopped, writes `/etc/docker/daemon.json`
-(keeping the overlay2 pin of section 16.2 and whatever else the image put
-there, adding `registry-mirrors` only for the Hub mirror), and adds or
-removes the ghcr.io hosts line and certificate. If the cache is down,
+whole (the overlay2 pin of section 16.2, the only setting the image puts
+there, plus `registry-mirrors` only for the Hub mirror) and adds or
+removes the ghcr.io certificate. A student's own edits to `daemon.json`
+last until the next start. After the start a command inside the
+container adds or removes the ghcr.io hosts line and keeps the student's
+other lines; if `/etc/hosts` is not a regular file it is replaced by a
+fresh one. If the cache is down,
 Docker falls back to Docker Hub directly.
 
 **Seed.** One global seed volume, `portikus-docker-seed`, holds a list of
@@ -2229,11 +2233,19 @@ takes `{startTicks, force}`. It rereads `/proc/<pid>/stat` and `status`
 first and refuses a gone PID (404 `PROCESS_NOT_FOUND`), different start
 ticks (field 22 of `stat`, which catches a reused PID; 409
 `PROCESS_CHANGED`), and a protected process (403 `PROCESS_PROTECTED`):
-PID 1, the agent itself, anything whose real or effective uid is not the
-student's, and the tmux server that holds the terminals (the main
-process of `portikus-terminals.service`), found by PID through the
-agent's own tmux socket (never by the name `tmux: server`, which any
-process can take). A "no server" answer is reused for 10 seconds by the
+PID 1, anything whose real or effective uid is not the student's, and
+the platform's own machinery, by PID: the agent itself, its
+`tmux attach-session` clients (the PIDs the terminal registry spawned),
+and the tmux server that holds the terminals (the main process of
+`portikus-terminals.service`, found through the agent's own tmux
+socket, never by the name `tmux: server`, which any process can take)
+with its direct children, the pane shells, read from the parent links
+in `/proc` at the moment of the stop. Stopping any of these closes a
+terminal or breaks the agent. A program the student asked to run stays
+stoppable, wherever it sits in the tree: everything below a pane shell,
+and a program the agent starts on the student's behalf, such as a check
+run (§18.1), with all its descendants. There is no list of protected
+names. A "no server" answer is reused for 10 seconds by the
 usage sample, but never by a stop. Otherwise it sends
 SIGTERM, or SIGKILL when `force` is set, waits up to 3 seconds, and answers
 `{pid, exited}`; a zombie or a vanished PID has exited. It never escalates
@@ -2676,8 +2688,9 @@ authority) and for a failed renewal, once per certificate per condition.
 Under HTTP-01, preview certificates are on demand: Caddy asks the API on
 loopback, which approves the site and a preview name only for a
 non-system listening port in a running workspace, and at most 10 new
-names per workspace per rolling hour, counted in memory so an API
-restart resets it. Changing the site's address is out (#935).
+names per workspace per fixed clock hour (the count resets at the start
+of each window, it does not roll), counted in memory so an API restart
+resets it. Changing the site's address is out (#935).
 
 ### 20.2 User impersonation
 
@@ -3507,6 +3520,31 @@ nothing, so a route answers 503, or the global handler answers 500 where
 a route does not check; the API's typed agent methods raise
 `AgentStreamError`, which answers `AGENT_UNAVAILABLE`. In the worker the
 error is thrown.
+
+When the controller writes a file into a container it replaces the file:
+it deletes the path and then writes it, so a student cannot leave a link
+or other special file there to redirect the write. It does this only
+while the container is stopped, so no student process can put a named
+pipe back between the two steps; a start that finds the container
+already running (a retry after a start that failed late) force-stops it
+first. It never reads a file through the Incus
+files API, because Incus 7.5 reports a named pipe there as a regular file
+and opening one blocks an Incus thread until something opens the other
+end or Incus restarts.
+What it must change or read in a running container (the ghcr.io hosts
+line and the apt hook's package list) it does with a command inside the
+container. A student is root there and can replace any command, so the
+bounds are the controller's own: output comes back over the exec
+websocket and the controller reads at most 64 KiB, then kills the
+command and closes the sockets; nothing is recorded to a file on the
+host. Incus 7.5 refuses to cancel an exec operation, but closing the
+control socket kills the command; a process it left in the background
+can hold one Incus read open until that process exits.
+An edit that runs without sockets (the hosts line, `hostname`, the
+timezone link) is only waited for: past its timeout it is left until it
+exits or the container stops, and a retried start force-stops the
+container. A start that keeps failing is retried after a wait that
+doubles from 10 seconds to 30 minutes, kept in the worker's memory.
 
 ### 24.2 Student code is untrusted
 
@@ -4390,6 +4428,10 @@ ENOSPC
 ```
 
 Technical details should remain available for administrators and debugging.
+
+Student-facing views show every error as a plain sentence, with a
+fallback per view for an unexpected code. Admin views keep the raw error
+text and code.
 
 When a workspace fails to start and the workspace agent still reports storage figures, the error screen shows the storage meters. It offers "Reset Docker…" (the Reset Docker confirmation) as its main action only when the error is `STORAGE_FULL` and Docker storage is at the critical level, because resetting Docker when project storage is what filled up would destroy data for nothing.
 
@@ -5352,6 +5394,36 @@ Acceptance:
 - the smoke test gives the same counts before and after;
 - `pnpm lint` fails on an issue, epic, task, ruling or review reference
   in a code comment.
+
+### Epic 30 — Architecture review fixes
+
+Built on `epic/30-architecture-fixes`. No migration and no change to
+request or response bodies between apps. See sections 6.5, 18.3, 20.1,
+24.1 and 28, STACK.md sections 2 and 9, and ADR 0034.
+
+Includes:
+
+- one background runner in the worker for every controller call, keyed
+  by workspace, with stops outside the shared cap;
+- controller writes that replace the file and reads that refuse
+  non-regular files;
+- workspace agent fixes: guarded port stops, an `INTERNAL` fallback for
+  unexpected errors, and no unused workspace id setting;
+- every API rate limit on the shared fixed-window counter;
+- API layers: `routes/` holds only route files, test doubles live in
+  `src/testing/`, and relay tests run against the real workspace agent;
+- one source for notifications, close codes, workspace state types,
+  guard arithmetic and the agent error map;
+- student-facing errors in plain sentences, and the project events
+  socket kept open whatever right-pane tab shows.
+
+Acceptance:
+
+- a slow rebuild does not delay another workspace's start or stop;
+- `apps/api/src` has no import cycles, and the Debian package carries no
+  test code;
+- the API's project, file, Git, search and checks routes pass their relay
+  tests against the real workspace agent.
 
 ### Estimated total
 

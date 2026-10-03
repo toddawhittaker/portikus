@@ -32,7 +32,7 @@ import { tokenAuth } from "./auth.js";
 import { startUrlBroker } from "./broker.js";
 import { checksRoute } from "./checks-route.js";
 import { type DockerRunner, dockerInventoryRoute } from "./docker-inventory.js";
-import { AgentFailure, ERROR_STATUS, sendError } from "./errors.js";
+import { AgentFailure, abortOnDisconnect, ERROR_STATUS, sendError } from "./errors.js";
 import { eventsRoute } from "./events-route.js";
 import { extractZip } from "./extract.js";
 import {
@@ -54,7 +54,7 @@ import {
 } from "./listening.js";
 import { listeningRoutes } from "./listening-route.js";
 import { type PackagesRouteOptions, packagesRoutes } from "./packages-route.js";
-import { tmuxPidSource } from "./processes.js";
+import { protectedTree, tmuxPidSource } from "./processes.js";
 import { processesRoutes } from "./processes-route.js";
 import {
 	excludeOnPortikusWrite,
@@ -76,7 +76,7 @@ import {
 } from "./projects.js";
 import { registerRecoveryRoutes } from "./recovery-routes.js";
 import { registerSearchRoutes } from "./search-routes.js";
-import { readTerminalsExit, TerminalRegistry } from "./terminals.js";
+import { readTerminalsExit, sendText, TerminalRegistry } from "./terminals.js";
 import {
 	closeSession,
 	commandForAgent,
@@ -142,8 +142,6 @@ export interface ServerOptions {
 	 * the broker; production passes `/run/portikus/browser.sock`.
 	 */
 	brokerSocketPath?: string;
-	/** Workspace id stamped on browser-open frames. */
-	workspaceId?: string;
 	/** Overrides where usage is read. For tests. */
 	usage?: UsageSamplerOptions;
 	/** Mount point of the recovery volume (ADR 0020). */
@@ -194,7 +192,6 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			socketPath: options.brokerSocketPath,
 			homeDir: options.homeDir,
 			watchers,
-			workspaceId: options.workspaceId,
 			log: app.log,
 		});
 		closeBroker = async () => {
@@ -215,7 +212,19 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	// Port discovery and loopback forwards know about each other: discovery
 	// reports a forwarded port as "forwarded", and a forward closes once its
 	// loopback listener is gone (BROWSER-HANDLING.md §11.1).
+	// The platform's own processes are protected by PID (SPEC.md §18.3).
+	const procRoot = options.usage?.procRoot ?? "/proc";
+	const tmuxPid = tmuxPidSource(procRoot, () => serverPid(tmuxServer));
+	const protectedPids = async (fresh = false): Promise<ReadonlySet<number>> =>
+		protectedTree(
+			procRoot,
+			options.usage?.selfPid ?? process.pid,
+			await tmuxPid(fresh),
+			registry.attachPids(),
+		);
 	const monitor = new ListeningMonitor({
+		// Never reuse a cached "no tmux server" answer when protecting it (SPEC.md §18.3).
+		protectedPids: () => protectedPids(true),
 		...options.listening,
 		logger: app.log,
 		forwardedPorts: () => forwards.ports(),
@@ -234,13 +243,9 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 	monitor.start();
 
 	const recoveryRoot = options.recoveryRoot ?? "/var/lib/portikus/recovery";
-	// The terminals' tmux server is protected by PID (SPEC.md §18.3).
-	const tmuxPid = tmuxPidSource(options.usage?.procRoot ?? "/proc", () =>
-		serverPid(tmuxServer),
-	);
 	const usage = new UsageSampler({
 		homePath: options.homeDir,
-		tmuxPid,
+		protectedPids,
 		recoveryPath: recoveryRoot,
 		...options.usage,
 	});
@@ -306,7 +311,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					})),
 				};
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "TMUX_FAILED");
 			}
 		});
 
@@ -365,7 +370,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					baselineHead: created.baselineHead,
 				});
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "TMUX_FAILED");
 			}
 		});
 
@@ -397,7 +402,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				);
 				return reply.code(204).send();
 			} catch (error) {
-				return sendError(request, reply, error);
+				return sendError(request, reply, error, "TMUX_FAILED");
 			}
 		});
 
@@ -648,15 +653,11 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					throw new AgentFailure("PATH_INVALID", "invalid path");
 				}
 				// An API timeout closes the connection; unzip must not outlive it.
-				const aborted = new AbortController();
-				reply.raw.once("close", () => {
-					if (!reply.raw.writableEnded) aborted.abort();
-				});
 				const path = await extractZip(
 					options.homeDir,
 					slug,
 					parsed.data.path,
-					aborted.signal,
+					abortOnDisconnect(reply),
 				);
 				return reply.code(201).send({ path });
 			} catch (error) {
@@ -683,8 +684,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 			const { slug } = request.params as { slug: string };
 			let archive: Readable;
 			// A download the browser gave up on must not leave zip running.
-			const controller = new AbortController();
-			reply.raw.once("close", () => controller.abort());
+			const signal = abortOnDisconnect(reply);
 			try {
 				const { path, check } = queryPath(request);
 				if (check) {
@@ -697,12 +697,12 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 					return reply.code(204).send();
 				}
 				if (path === "") {
-					archive = await archiveProject(slug, options.homeDir, controller.signal);
+					archive = await archiveProject(slug, options.homeDir, signal);
 				} else {
 					const target = await resolveInProject(options.homeDir, slug, path, {
 						mustExist: true,
 					});
-					archive = await archiveDir(target.path, controller.signal);
+					archive = await archiveDir(target.path, signal);
 				}
 			} catch (error) {
 				return sendError(request, reply, error, "INTERNAL");
@@ -722,7 +722,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 		instance.register(dockerInventoryRoute, { run: options.dockerRunner });
 		instance.register(processesRoutes, {
 			procRoot: options.usage?.procRoot,
-			tmuxPid: () => tmuxPid(true),
+			protectedPids: () => protectedPids(true),
 		});
 		instance.register(eventsRoute, {
 			homeDir: options.homeDir,
@@ -741,7 +741,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				const query = AttachQuery.safeParse(request.query ?? {});
 				if (!params.success || !query.success) {
 					socket.resume();
-					socket.send(JSON.stringify({ type: "error", code: "TERMINAL_NOT_FOUND" }));
+					sendText(socket, { type: "error", code: "TERMINAL_NOT_FOUND" });
 					socket.close(1008, "invalid attach request");
 					return;
 				}
@@ -749,7 +749,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				try {
 					await registry.attach(terminalId, socket, query.data);
 					if (options.build) {
-						socket.send(JSON.stringify({ type: "agent", build: options.build }));
+						sendText(socket, { type: "agent", build: options.build });
 					}
 					socket.resume();
 					request.log.debug(
@@ -759,7 +759,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 				} catch (error) {
 					const code = error instanceof AgentFailure ? error.code : "TMUX_FAILED";
 					socket.resume();
-					socket.send(JSON.stringify({ type: "error", code }));
+					sendText(socket, { type: "error", code });
 					socket.close(1008, code);
 				}
 			},

@@ -86,6 +86,18 @@ export const ERROR_STATUS: Record<AgentErrorCode, number> = {
 };
 
 /**
+ * A signal that aborts when the caller goes away before the response has
+ * finished, so long work started for it (ripgrep, zip, unzip, tar) stops.
+ */
+export function abortOnDisconnect(reply: FastifyReply): AbortSignal {
+	const controller = new AbortController();
+	reply.raw.once("close", () => {
+		if (!reply.raw.writableFinished) controller.abort();
+	});
+	return controller.signal;
+}
+
+/**
  * Turn a failure into a response body that never carries internal detail. An
  * unexpected error from a file or project route is INTERNAL, not TMUX_FAILED,
  * which belongs to the terminal paths (SPEC.md §27).
@@ -94,7 +106,7 @@ export function sendError(
 	request: FastifyRequest,
 	reply: FastifyReply,
 	error: unknown,
-	fallback: AgentErrorCode = "TMUX_FAILED",
+	fallback: AgentErrorCode = "INTERNAL",
 ) {
 	if (error instanceof FileChanged) {
 		reply.header("etag", error.etag);

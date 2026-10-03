@@ -14,7 +14,7 @@ import {
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 const skip = !hasTestDb();
 const AGENT_TOKEN = "broken-agent-token";

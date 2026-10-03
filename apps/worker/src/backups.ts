@@ -6,11 +6,18 @@ import {
 	BackupRequestArgs,
 	BackupVmListing,
 	HostBackupStatus,
+	type WorkspaceState,
 } from "@portikus/contracts";
-import { type Database, recordAudit } from "@portikus/db";
+import {
+	type Database,
+	type Notice,
+	recordAudit,
+	recordNotification,
+} from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql, type Transaction } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
+import { startLoop } from "./loop.js";
 
 /**
  * The VM half of the backup channel and the VM-side backup work (SPEC.md §24.9;
@@ -60,23 +67,14 @@ function auditTarget(row: {
 	return args.stamp ?? args.file ?? args.volume ?? "backups";
 }
 
-async function notifyOwner(
-	db: Db,
-	workspaceId: string,
-	tone: string,
-	title: string,
-	body: string,
-): Promise<void> {
+/** Tell a workspace's owner something happened to it (ADR 0033). */
+async function notifyOwner(db: Db, workspaceId: string, notice: Notice): Promise<void> {
 	const ws = await db
 		.selectFrom("workspaces")
 		.select("owner_user_id")
 		.where("id", "=", workspaceId)
 		.executeTakeFirst();
-	if (!ws) return;
-	await db
-		.insertInto("notifications")
-		.values({ user_id: ws.owner_user_id, tone, title, body })
-		.execute();
+	if (ws) await recordNotification(db, ws.owner_user_id, notice);
 }
 
 const MONTHS = [
@@ -154,13 +152,11 @@ async function finishHostRequest(
 		args.stamp &&
 		args.dir
 	) {
-		await notifyOwner(
-			db,
-			row.workspace_id,
-			"success",
-			"A copy of your files was restored",
-			`An administrator restored a copy of your files from ${describeStamp(args.stamp)} into ~/${args.dir}.`,
-		);
+		await notifyOwner(db, row.workspace_id, {
+			tone: "success",
+			title: "A copy of your files was restored",
+			body: `An administrator restored a copy of your files from ${describeStamp(args.stamp)} into ~/${args.dir}.`,
+		});
 	}
 }
 
@@ -338,28 +334,63 @@ export async function refreshRestorePresence(
 }
 
 /**
- * Run the snapshot and kept-home deletes through the controller, one at a
- * time. A claimed one left by a worker that died is run again: a delete of
- * something already gone counts as done.
+ * Claim the oldest VM delete that is pending, or claimed longer ago than
+ * BACKUP_CLAIM_TIMEOUT_MS, or null. The stale case is a worker that died
+ * mid-delete; running it again is safe because a delete of something already
+ * gone counts as done. SKIP LOCKED keeps two runs off the same row
+ * (SPEC.md section 24.9).
  */
+async function claimVmDelete(
+	db: Kysely<Database>,
+	now: Date,
+): Promise<{
+	id: string;
+	kind: string;
+	args: unknown;
+	workspace_id: string | null;
+} | null> {
+	const staleBefore = new Date(now.getTime() - BACKUP_CLAIM_TIMEOUT_MS);
+	return db.transaction().execute(async (trx) => {
+		const row = await trx
+			.selectFrom("backup_requests")
+			.select(["id", "kind", "args", "workspace_id"])
+			.where("kind", "in", VM_KINDS)
+			.where((eb) =>
+				eb.or([
+					eb("state", "=", "pending"),
+					eb.and([
+						eb("state", "=", "claimed"),
+						eb.or([eb("claimed_at", "is", null), eb("claimed_at", "<", staleBefore)]),
+					]),
+				]),
+			)
+			.orderBy("requested_at", "asc")
+			.orderBy("id", "asc")
+			.limit(1)
+			.forUpdate()
+			.skipLocked()
+			.executeTakeFirst();
+		if (!row) return null;
+		await trx
+			.updateTable("backup_requests")
+			.set({ state: "claimed", claimed_at: now.toISOString() })
+			.where("id", "=", row.id)
+			.execute();
+		return row;
+	});
+}
+
+/** Run the snapshot and kept-home deletes through the controller, one at a time. */
 export async function runVmDeletes(
 	db: Kysely<Database>,
 	controller: ControllerClient,
 	now: () => Date,
 ): Promise<number> {
-	const rows = await db
-		.selectFrom("backup_requests")
-		.select(["id", "kind", "args", "workspace_id"])
-		.where("kind", "in", VM_KINDS)
-		.where("state", "in", ["pending", "claimed"])
-		.orderBy("requested_at", "asc")
-		.execute();
-	for (const row of rows) {
-		await db
-			.updateTable("backup_requests")
-			.set({ state: "claimed", claimed_at: now().toISOString() })
-			.where("id", "=", row.id)
-			.execute();
+	let ran = 0;
+	for (;;) {
+		const row = await claimVmDelete(db, now());
+		if (!row) break;
+		ran++;
 		let error: string | null = null;
 		try {
 			if (row.kind === "delete_snapshot") {
@@ -397,7 +428,7 @@ export async function runVmDeletes(
 			});
 		});
 	}
-	return rows.length;
+	return ran;
 }
 
 /** List pre-change snapshots and kept homes into `backup_status.vm`. */
@@ -447,12 +478,12 @@ export function startBackupVmLoop(options: {
 	controller: ControllerClient;
 	logger: Logger;
 }): () => void {
-	const timer = setInterval(() => {
-		void backupVmTick(options);
-	}, BACKUP_VM_LOOP_SECONDS * 1000);
-	timer.unref();
-	void backupVmTick(options);
-	return () => clearInterval(timer);
+	return startLoop(
+		"backup volume",
+		options.logger,
+		() => backupVmTick(options),
+		BACKUP_VM_LOOP_SECONDS * 1000,
+	);
 }
 
 /** What the student sees when a replace fails after the home was touched. */
@@ -475,7 +506,7 @@ function replaceNotice(
 	failed: boolean,
 	touched: boolean,
 	stamp: string | undefined,
-): { tone: "danger" | "success"; title: string; body: string } {
+): Notice {
 	const when = stamp ? ` from ${describeStamp(stamp)}` : "";
 	if (!failed) {
 		return {
@@ -505,7 +536,7 @@ export async function runReplaceHome(
 	ws: {
 		id: string;
 		instance: string;
-		state: string;
+		state: WorkspaceState;
 		pendingAt: Date | null;
 		pendingBy: string | null;
 		args: unknown;
@@ -565,7 +596,7 @@ export async function runReplaceHome(
 				},
 			});
 			const notice = replaceNotice(failed, touched, stamp);
-			await notifyOwner(trx, ws.id, notice.tone, notice.title, notice.body);
+			await notifyOwner(trx, ws.id, notice);
 			return nextState !== ws.state ? 1 : 0;
 		});
 	};

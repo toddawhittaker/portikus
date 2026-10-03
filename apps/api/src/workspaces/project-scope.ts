@@ -1,6 +1,6 @@
 import { requireUser } from "@portikus/auth";
 import type { ApiConfig } from "@portikus/config";
-import type { ApiErrorCode } from "@portikus/contracts";
+import type { AgentErrorCode, ApiErrorCode } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely, Selectable } from "kysely";
@@ -40,7 +40,9 @@ export interface Scope {
 }
 
 /** The status and code each agent error becomes (SPEC.md §27). */
-const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>> = {
+const AGENT_ERROR_STATUS: Partial<
+	Record<AgentErrorCode | "AGENT_UNAVAILABLE", [number, ApiErrorCode]>
+> = {
 	PROJECT_EXISTS: [409, "PROJECT_EXISTS"],
 	PROJECT_NOT_FOUND: [404, "PROJECT_NOT_FOUND"],
 	INVALID_SLUG: [400, "INVALID_SLUG"],
@@ -72,7 +74,9 @@ const AGENT_ERROR_STATUS: Partial<Record<string, [number, ApiErrorCode]>> = {
 };
 
 /** A student-facing message that replaces the agent's own, by agent code. */
-const AGENT_ERROR_MESSAGE: Partial<Record<string, string>> = {
+const AGENT_ERROR_MESSAGE: Partial<
+	Record<AgentErrorCode | "AGENT_UNAVAILABLE", string>
+> = {
 	RESTORE_INCOMPLETE:
 		"The project may be partly restored. Restore the 'Before restore' point to undo.",
 };
@@ -96,42 +100,6 @@ export function sendAgentError(reply: FastifyReply, error: unknown): void {
 		"AGENT_UNAVAILABLE",
 		"The workspace agent could not be reached.",
 	);
-}
-
-/**
- * Workspaces with a long project operation (clone, template, duplicate,
- * download) running right now. Clone and copy hold a request open for
- * minutes, and two at once on one workspace race over the same directories.
- * This is per API process; the pilot runs exactly one (ADR 0010).
- */
-const longOperations = new Set<string>();
-
-/**
- * Claim the one long-operation slot for a workspace. Returns false after
- * answering 409, so the caller just returns.
- */
-export function claimLongOperation(workspaceId: string, reply: FastifyReply): boolean {
-	if (longOperations.has(workspaceId)) {
-		sendError(
-			reply,
-			409,
-			"OPERATION_IN_PROGRESS",
-			"Another project operation is already running on this workspace.",
-		);
-		return false;
-	}
-	longOperations.add(workspaceId);
-	return true;
-}
-
-/** Whether the workspace's long-operation slot is held right now. */
-export function longOperationRunning(workspaceId: string): boolean {
-	return longOperations.has(workspaceId);
-}
-
-/** Give the long-operation slot back. */
-export function releaseLongOperation(workspaceId: string): void {
-	longOperations.delete(workspaceId);
 }
 
 /**

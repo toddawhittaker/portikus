@@ -6,16 +6,22 @@ import {
 	type TestDb,
 } from "@portikus/db/testing";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { loadWorkspaceSettings, toWorkspace } from "./workspace-view.js";
+import {
+	loadWorkspaceSettings,
+	toWorkspace,
+	workspaceView,
+	workspaceViews,
+} from "./workspace-view.js";
 
 const skip = !hasTestDb();
 let tdb: TestDb;
 
-// toWorkspace reads only the quota sizes from the config.
+// The views read only the quota sizes and the presence TTL from the config.
 const config = {
 	WORKSPACE_HOME_SIZE_GIB: 25,
 	WORKSPACE_DOCKER_SIZE_GIB: 20,
 	WORKSPACE_RECOVERY_SIZE_GIB: 10,
+	PRESENCE_TTL_SECONDS: 60,
 } as ApiConfig;
 
 const at = "2026-09-26T10:00:00.000Z";
@@ -142,3 +148,27 @@ test.skipIf(skip)("with neither set, both are null", async () => {
 	expect(view.cpuThrottle).toBeNull();
 	expect(view.memoryFlag).toBeNull();
 });
+
+test.skipIf(skip)(
+	"the list view counts each workspace's live connections, as the single view does (SPEC.md §6.4)",
+	async () => {
+		const busy = await workspaceRow({});
+		const idle = await workspaceRow({});
+		const stale = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+		await tdb.db
+			.insertInto("workspace_connections")
+			.values([
+				{ workspace_id: busy.id },
+				{ workspace_id: busy.id },
+				{ workspace_id: busy.id, last_seen_at: stale },
+				{ workspace_id: idle.id, last_seen_at: stale },
+			])
+			.execute();
+		const views = await workspaceViews(tdb.db, config, [busy, idle]);
+		expect(views.map((view) => view.activeConnections)).toEqual([2, 0]);
+		expect(views).toEqual([
+			await workspaceView(tdb.db, config, busy),
+			await workspaceView(tdb.db, config, idle),
+		]);
+	},
+);

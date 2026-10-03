@@ -17,7 +17,7 @@ import type { Kysely } from "kysely";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { toAuthOptions } from "./auth-options.js";
 import { buildServer } from "./server.js";
-import { PUBLIC_URL, testConfig } from "./test-support.js";
+import { PUBLIC_URL, testConfig } from "./testing/test-support.js";
 
 /** Minimal stub: the health route does not touch the database. */
 function makeApp(oidc?: OidcClient) {

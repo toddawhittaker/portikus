@@ -1,19 +1,23 @@
 import { requireUser } from "@portikus/auth";
 import {
 	ListNotificationsQuery,
-	MAX_NOTIFICATIONS_PER_USER,
 	type Notification,
 	type NotificationList,
 	type NotificationTone,
 	RecordNotificationRequest,
 	UpdateNotificationRequest,
 } from "@portikus/contracts";
-import type { Database, NotificationsTable } from "@portikus/db";
+import {
+	type Database,
+	type NotificationsTable,
+	recordNotification,
+} from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
+import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
-import type { ServerDeps } from "../server.js";
+import { check, createCounter } from "../rate-limit.js";
 
 /** How many notifications one user may record per minute before 429. */
 export const NOTIFICATION_RECORDS_PER_MINUTE = 30;
@@ -43,42 +47,6 @@ async function unreadCount(db: Kysely<Database>, userId: string): Promise<number
 }
 
 /**
- * Record one notification for a user and keep only their newest rows
- * (ADR 0033). The API also uses it to tell a student something happened.
- */
-export async function recordNotification(
-	db: Kysely<Database>,
-	userId: string,
-	notification: { tone: NotificationTone; title: string; body: string },
-): Promise<Selectable<NotificationsTable>> {
-	const row = await db
-		.insertInto("notifications")
-		.values({
-			user_id: userId,
-			tone: notification.tone,
-			title: notification.title,
-			body: notification.body,
-		})
-		.returningAll()
-		.executeTakeFirstOrThrow();
-	// Keep only this user's newest rows; the worker also prunes by age.
-	await db
-		.deleteFrom("notifications")
-		.where("user_id", "=", userId)
-		.where("id", "not in", (eb) =>
-			eb
-				.selectFrom("notifications")
-				.select("id")
-				.where("user_id", "=", userId)
-				.orderBy("created_at", "desc")
-				.orderBy("id", "desc")
-				.limit(MAX_NOTIFICATIONS_PER_USER),
-		)
-		.execute();
-	return row;
-}
-
-/**
  * The signed-in user's notification history (SPEC.md section 8.5, ADR 0033).
  * Every query is scoped to the caller, so no one can read or change another
  * user's notifications. Titles and bodies are never logged (ADR 0012).
@@ -87,15 +55,10 @@ export function registerNotificationRoutes(
 	app: FastifyInstance,
 	{ db }: ServerDeps,
 ): void {
-	const recordTimes = new Map<string, number[]>();
+	const records = createCounter(NOTIFICATION_RECORDS_PER_MINUTE, WINDOW_MS);
 
 	function overRecordLimit(userId: string): boolean {
-		const now = Date.now();
-		const recent = (recordTimes.get(userId) ?? []).filter((at) => now - at < WINDOW_MS);
-		const over = recent.length >= NOTIFICATION_RECORDS_PER_MINUTE;
-		if (!over) recent.push(now);
-		recordTimes.set(userId, recent);
-		return over;
+		return !check(records, userId).allowed;
 	}
 
 	app.get("/me/notifications", async (request, reply) => {

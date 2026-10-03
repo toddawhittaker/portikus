@@ -38,7 +38,7 @@
 				"**/*.test.ts",
 				"**/*.test.tsx",
 				"e2e/**",
-				"**/fake-agent.ts",
+				"apps/api/src/testing/**",
 				"**/fake-controller.ts",
 				"**/fake-provider.ts"
 			],

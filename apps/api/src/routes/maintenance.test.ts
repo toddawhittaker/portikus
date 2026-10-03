@@ -8,8 +8,11 @@ import {
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
-import { claimLongOperation, releaseLongOperation } from "./project-scope.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
+import {
+	claimLongOperation,
+	releaseLongOperation,
+} from "../workspaces/long-operation.js";
 
 /**
  * Reset Docker and Rebuild requests (SPEC.md §16.4, §17.2; ADR 0021). The

@@ -116,11 +116,14 @@ prune_tree() {
 	find "$tree" -name '.env*' -prune -exec rm -rf {} +
 	find "$tree" -type f \( -name '.npmrc' -o -name '*.test.js' \
 		-o -name '*.test.d.ts' -o -name '*.js.map' -o -name '*.d.ts.map' \) -delete
-	# Test doubles and test helpers, the mock identity provider included.
-	rm -rf "$tree"/dist/fake-* "$tree"/dist/test-support.* "$tree/dist/security"
-	find "$tree" \( -path '*/@portikus/db/dist/testing.*' \
-		-o -path '*/@portikus/observability/dist/testing.*' \) -delete
-	find "$tree" -type d -path '*/@portikus/auth/dist/testing' -prune -exec rm -rf {} +
+	# Test doubles and test helpers, the mock identity provider included, at
+	# any depth of our own dist trees (the app's and each @portikus package's),
+	# never inside a third-party dependency.
+	rm -rf "$tree/dist/security"
+	find "$tree" \( -path "$tree/dist/*" -o -path '*/@portikus/*/dist/*' \) \
+		! -path '*/@portikus/*/node_modules/*' \
+		\( -name 'fake-*' -o -name 'test-support.*' -o -name testing -o -name 'testing.*' \) \
+		-prune -exec rm -rf {} +
 	# The package ships read-only files owned by root.
 	chmod -R u=rwX,go=rX "$tree"
 }
@@ -173,9 +176,9 @@ deb="dist/deb/portikus_${version}_amd64.deb"
 listing="$(dpkg-deb -c "$deb" | awk '{ print $6 }')"
 ours="$({
 	grep -v 'node_modules/' <<<"$listing"
-	grep 'node_modules/@portikus/' <<<"$listing" | grep -v '/@portikus/auth/dist/testing/'
+	grep 'node_modules/@portikus/' <<<"$listing" | grep -v 'node_modules/@portikus/[^/]*/node_modules/'
 } || true)"
-test_only='/dist/(fake-|test-support\.|security(/|$)|testing(/|\.|$))|\.test\.(js|d\.ts)$'
+test_only='/dist/(.*/)?(fake-|test-support\.|testing(/|\.|$))|/dist/security(/|$)|\.test\.(js|d\.ts)$'
 found="$(grep -E "$test_only" <<<"$ours" || true)"
 if [ -n "$found" ]; then
 	echo "Test-only files are in the package:" >&2

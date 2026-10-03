@@ -1,19 +1,19 @@
 import type { WebSocket } from "@fastify/websocket";
 import { loadSession, sessionGate } from "@portikus/auth";
-import type { ListeningService, Workspace } from "@portikus/contracts";
+import { CloseCode, type ListeningService, type Workspace } from "@portikus/contracts";
 import { ClientMessage, type ServerMessage } from "@portikus/events";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { recordActivity } from "../activity.js";
+import type { ServerDeps } from "../deps.js";
 import type { ListeningRegistry } from "../preview/registry.js";
-import type { ServerDeps } from "../server.js";
 import {
 	createPendingWork,
 	dropPresence,
 	openPresence,
 	touchPresence,
 	workspaceUpgradeGuard,
-} from "./presence.js";
-import { countActive, loadWorkspaceSettings, toWorkspace } from "./workspace-view.js";
+} from "../workspaces/presence.js";
+import { workspaceView } from "../workspaces/workspace-view.js";
 
 /** How often the watcher polls for workspace changes. */
 const POLL_INTERVAL_MS = 1000;
@@ -30,24 +30,13 @@ interface Watcher {
 	signature: string;
 }
 
-function signatureOf(workspace: Workspace): string {
-	return JSON.stringify([
-		workspace.state,
-		workspace.desiredState,
-		workspace.errorCode,
-		workspace.shutdownDeadline,
-		workspace.activeConnections,
-		// A Reset Docker or Rebuild request must reach the browser at once (SPEC.md §27).
-		workspace.pendingOperation,
-		workspace.archivedAt,
-		// The throttle and memory notices and "Still working?" must appear at once (ADR 0032).
-		workspace.cpuThrottle,
-		workspace.idleStopAt,
-		workspace.memoryFlag,
-		// A hold set, ended, cut or expired shows at once.
-		workspace.keepRunningUntil,
-		workspace.keepRunningMaxHours,
-	]);
+/**
+ * Every field of the view except the times that move on their own, so any
+ * other change (a relabel, a new image, an error message) pushes at once.
+ */
+export function signatureOf(workspace: Workspace): string {
+	const { lastActivityAt, lastActiveConnectionAt, updatedAt, ...rest } = workspace;
+	return JSON.stringify(rest);
 }
 
 /**
@@ -71,8 +60,7 @@ export function registerWorkspaceSocket(
 			.where("id", "=", id)
 			.executeTakeFirst();
 		if (!row) return null;
-		const active = await countActive(db, id, config);
-		return toWorkspace(row, active, config, await loadWorkspaceSettings(db));
+		return workspaceView(db, config, row);
 	}
 
 	function send(socket: WebSocket, workspace: Workspace): void {
@@ -102,7 +90,7 @@ export function registerWorkspaceSocket(
 				: null;
 			if (user && !sessionGate(user)) continue;
 			watcher.sockets.delete(subscriber);
-			subscriber.socket.close(4401, "session revoked");
+			subscriber.socket.close(CloseCode.SESSION_ENDED, "session revoked");
 			await dropConnection(subscriber.connectionId);
 		}
 	}
@@ -184,7 +172,7 @@ export function registerWorkspaceSocket(
 				request.log.error({ err: error, workspaceId }, "workspace socket setup failed");
 				releaseAdmin();
 				track(dropConnection(connectionId).catch(() => {}));
-				socket.close(1011, "internal error");
+				socket.close(CloseCode.SERVER_ERROR, "internal error");
 				socket.resume();
 			}
 
@@ -252,7 +240,7 @@ export function registerWorkspaceSocket(
 							? await loadSession(db, request.sessionToken)
 							: null;
 						if (!user || sessionGate(user)) {
-							socket.close(4401, "session expired");
+							socket.close(CloseCode.SESSION_ENDED, "session expired");
 							return;
 						}
 
@@ -266,7 +254,7 @@ export function registerWorkspaceSocket(
 							{ err: error, workspaceId },
 							"workspace socket message failed",
 						);
-						socket.close(1011, "internal error");
+						socket.close(CloseCode.SERVER_ERROR, "internal error");
 					}
 				}
 

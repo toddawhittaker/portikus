@@ -1,5 +1,6 @@
 import * as http from "node:http";
 import type { ControllerErrorCode } from "@portikus/contracts";
+import WebSocket from "ws";
 
 /** Bound for an Incus request whose caller passed no signal (ADR 0034). */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -30,6 +31,17 @@ interface IncusEnvelope {
 	error_code?: number;
 	/** The response's ETag header, read for the guarded update below. */
 	etag?: string;
+}
+
+/** The most one message on an exec's control or stdin socket may carry. */
+const CONTROL_MAX_PAYLOAD = 4096;
+
+/** The secrets Incus gives for an exec's stdin, stdout, stderr and control sockets. */
+interface ExecFds {
+	"0": string;
+	"1": string;
+	"2": string;
+	control: string;
 }
 
 export interface IncusClientOptions {
@@ -169,6 +181,36 @@ export class IncusClient {
 		);
 	}
 
+	/**
+	 * Put `body` at `filePath` without opening what is there: a student can
+	 * leave a named pipe, and opening one blocks an Incus thread (SPEC.md
+	 * §24). Deleting first replaces a pipe, link or file alike; anything that
+	 * cannot be deleted, such as a non-empty directory, is refused. Use it
+	 * only on a stopped instance: in a running one a student's process could
+	 * put a pipe back between the two requests.
+	 */
+	async replaceFile(
+		instance: string,
+		filePath: string,
+		body: string,
+		owner: { uid: number; gid: number; mode: string },
+		signal?: AbortSignal,
+	): Promise<void> {
+		try {
+			await this.deleteFile(instance, filePath, signal);
+		} catch (err) {
+			if (!(err instanceof IncusError && err.code === "NOT_FOUND")) {
+				throw new Error(`${filePath} cannot be replaced: ${(err as Error).message}`);
+			}
+		}
+		await this.pushFile(instance, filePath, body, owner, signal);
+	}
+
+	/**
+	 * There is deliberately no read through the files API: Incus reports a
+	 * named pipe as a regular file in HEAD, and a GET on one blocks an Incus
+	 * thread for good (SPEC.md §24). Reads go through `exec` instead.
+	 */
 	private filesPath(instance: string, filePath: string): string {
 		return (
 			`/1.0/instances/${encodeURIComponent(instance)}/files` +
@@ -178,85 +220,136 @@ export class IncusClient {
 	}
 
 	/**
-	 * Read a file from an instance through the Incus files API. Incus does not
-	 * follow a final symbolic link, so `type` says what the path is. A body
-	 * longer than `maxBytes` is cut off and reported as `tooLarge`.
+	 * Run a command in a running instance and wait for it to end. With
+	 * `outputMaxBytes`, stdout comes back over the exec websocket and at most
+	 * that much is read; past it, or past the timeout, the command is killed
+	 * and the sockets closed. Output is never recorded to a file on the host,
+	 * where a student's command could fill the disk (SPEC.md §24). Incus 7.5
+	 * refuses to cancel an exec operation, but closing the control socket
+	 * kills the command, so a command with sockets never outlives this call.
+	 * One without (no `outputMaxBytes`) is only waited for: past the timeout
+	 * it is left until it exits or the container stops.
 	 */
-	readFile(
+	async exec(
 		instance: string,
-		filePath: string,
-		maxBytes: number,
+		command: string[],
+		opts: { timeoutSeconds: number; user?: number; outputMaxBytes?: number },
 		signal?: AbortSignal,
-	): Promise<{ type: string; content: Buffer; tooLarge: boolean }> {
-		const path =
-			`/1.0/instances/${encodeURIComponent(instance)}/files` +
-			`?path=${encodeURIComponent(filePath)}` +
-			`&project=${encodeURIComponent(this.project)}`;
-		return new Promise((resolve, reject) => {
-			const timer = signal
-				? undefined
-				: setTimeout(() => {
-						reject(new IncusError("TIMEOUT", "request timed out"));
-						req.destroy();
-					}, DEFAULT_REQUEST_TIMEOUT_MS);
-			const req = http.request(
-				{ socketPath: this.socketPath, method: "GET", path, signal },
-				(res) => {
-					const status = res.statusCode ?? 0;
-					const chunks: Buffer[] = [];
-					let size = 0;
-					let tooLarge = false;
-					res.on("data", (chunk: Buffer) => {
-						if (tooLarge) return;
-						size += chunk.length;
-						if (status === 200 && size > maxBytes) {
-							tooLarge = true;
-							clearTimeout(timer);
-							resolve({ type: "file", content: Buffer.alloc(0), tooLarge });
-							req.destroy();
-							return;
-						}
-						chunks.push(chunk);
-					});
-					res.on("end", () => {
-						clearTimeout(timer);
-						if (tooLarge) return;
-						const body = Buffer.concat(chunks);
-						if (status !== 200) {
-							let envelope: IncusEnvelope | null = null;
-							try {
-								envelope = JSON.parse(body.toString()) as IncusEnvelope;
-							} catch {
-								// Not an Incus envelope; fall through with the status alone.
-							}
-							reject(
-								this.mapEnvelopeError(
-									envelope ?? ({ error: `HTTP ${status}` } as IncusEnvelope),
-									status,
-								) ?? new IncusError("OPERATION_FAILED", `HTTP ${status}`),
-							);
-							return;
-						}
-						const type = res.headers["x-incus-type"];
-						resolve({
-							type: typeof type === "string" ? type : "unknown",
-							content: body,
-							tooLarge: false,
-						});
-					});
-				},
+	): Promise<{ status: number | null; stdout: Buffer; tooLarge: boolean }> {
+		const withOutput = opts.outputMaxBytes !== undefined;
+		const envelope = await this.rawRequest(
+			"POST",
+			this.withProject(`/1.0/instances/${encodeURIComponent(instance)}/exec`),
+			{
+				command,
+				"wait-for-websocket": withOutput,
+				"record-output": false,
+				interactive: false,
+				...(opts.user !== undefined ? { user: opts.user, group: opts.user } : {}),
+			},
+			signal,
+		);
+		const operation = envelope.operation;
+		if (!operation) {
+			// Like `request`, a reply that is not an operation is the result itself.
+			if (withOutput) {
+				throw new IncusError("OPERATION_FAILED", "Incus answered exec without sockets");
+			}
+			const ret = (envelope.metadata as { metadata?: { return?: unknown } } | undefined)
+				?.metadata?.return;
+			return {
+				status: typeof ret === "number" ? ret : null,
+				stdout: Buffer.alloc(0),
+				tooLarge: false,
+			};
+		}
+		let out: { stdout: Buffer; tooLarge: boolean } = {
+			stdout: Buffer.alloc(0),
+			tooLarge: false,
+		};
+		if (withOutput) {
+			const fds = (envelope.metadata as { metadata?: { fds?: ExecFds } } | undefined)
+				?.metadata?.fds;
+			if (!fds) throw new IncusError("OPERATION_FAILED", "Incus sent no exec sockets");
+			out = await this.readExecOutput(
+				operation,
+				fds,
+				opts.outputMaxBytes ?? 0,
+				opts.timeoutSeconds,
 			);
-			req.on("error", (err: NodeJS.ErrnoException) => {
+			if (out.tooLarge) return { status: null, ...out };
+		}
+		const result = await this.waitForOperation(operation, opts.timeoutSeconds, signal);
+		const ret = (result as { metadata?: { return?: unknown } } | undefined)?.metadata
+			?.return;
+		return { status: typeof ret === "number" ? ret : null, ...out };
+	}
+
+	/**
+	 * Connect the exec's sockets (Incus starts the command only once all are
+	 * connected), end stdin, and collect stdout until it closes. Over
+	 * `maxBytes` on stdout or stderr, or past `timeoutSeconds`, the command is
+	 * sent SIGKILL through the control socket; every socket is then closed,
+	 * which on its own also makes Incus kill the command.
+	 */
+	private readExecOutput(
+		operation: string,
+		fds: ExecFds,
+		maxBytes: number,
+		timeoutSeconds: number,
+	): Promise<{ stdout: Buffer; tooLarge: boolean }> {
+		// The cap holds per message too: a larger one fails its socket.
+		const open = (secret: string, maxPayload: number): WebSocket =>
+			new WebSocket(
+				`ws+unix://${this.socketPath}:${operation}/websocket?secret=${encodeURIComponent(secret)}`,
+				{ maxPayload },
+			);
+		const control = open(fds.control, CONTROL_MAX_PAYLOAD);
+		const stdin = open(fds["0"], CONTROL_MAX_PAYLOAD);
+		const stdout = open(fds["1"], maxBytes + 1);
+		const stderr = open(fds["2"], maxBytes + 1);
+		const sockets = [control, stdin, stdout, stderr];
+		return new Promise((resolve, reject) => {
+			const chunks: Buffer[] = [];
+			let outBytes = 0;
+			let errBytes = 0;
+			let settled = false;
+			const finish = (
+				kill: boolean,
+				result?: { stdout: Buffer; tooLarge: boolean },
+			): void => {
+				if (settled) return;
+				settled = true;
 				clearTimeout(timer);
-				if (err.name === "AbortError") {
-					reject(new IncusError("TIMEOUT", "request timed out"));
-				} else {
-					reject(
-						new IncusError("INCUS_UNAVAILABLE", `cannot read file: ${err.message}`),
-					);
+				if (kill && control.readyState === WebSocket.OPEN) {
+					control.send(JSON.stringify({ command: "signal", signal: 9 }));
 				}
+				for (const ws of sockets) ws.terminate();
+				if (result) resolve(result);
+				else reject(new IncusError("TIMEOUT", "exec timed out"));
+			};
+			const timer = setTimeout(() => finish(true), timeoutSeconds * 1000);
+			const tooLarge = (): void =>
+				finish(true, { stdout: Buffer.alloc(0), tooLarge: true });
+			for (const ws of sockets) {
+				ws.on("error", (err: Error & { code?: string }) => {
+					if (err.code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH") tooLarge();
+					else finish(true);
+				});
+			}
+			stdin.on("open", () => stdin.close());
+			stdout.on("message", (data: Buffer) => {
+				outBytes += data.length;
+				if (outBytes > maxBytes) tooLarge();
+				else chunks.push(Buffer.from(data));
 			});
-			req.end();
+			stderr.on("message", (data: Buffer) => {
+				errBytes += data.length;
+				if (errBytes > maxBytes) tooLarge();
+			});
+			stdout.on("close", () =>
+				finish(false, { stdout: Buffer.concat(chunks), tooLarge: false }),
+			);
 		});
 	}
 

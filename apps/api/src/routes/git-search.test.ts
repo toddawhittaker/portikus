@@ -10,8 +10,8 @@ import type { GitDiff, GitStatus } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 /**
  * The brokered Git and search routes (SPEC.md §11.5, §12.1, §12.6). Only the
@@ -205,7 +205,7 @@ test.skipIf(skip)("git diff comes back for the owner", async () => {
 	expect(response.json()).toEqual(DIFF);
 });
 
-test.skipIf(skip)("a diff of an unknown path is a 404", async () => {
+test.skipIf(skip)("a diff of an unknown path is an empty addition", async () => {
 	const response = await get(
 		alice,
 		workspaceId,
@@ -213,8 +213,14 @@ test.skipIf(skip)("a diff of an unknown path is a 404", async () => {
 		"git/diff",
 		"?path=nope.md",
 	);
-	expect(response.statusCode).toBe(404);
-	expect(response.json().code).toBe("FILE_NOT_FOUND");
+	expect(response.statusCode).toBe(200);
+	expect(response.json()).toEqual({
+		status: "A",
+		before: null,
+		after: null,
+		binary: false,
+		tooLarge: false,
+	});
 });
 
 test.skipIf(skip)("search comes back for the owner", async () => {

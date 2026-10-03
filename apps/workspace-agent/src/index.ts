@@ -38,14 +38,6 @@ try {
 	);
 }
 
-const workspaceFromEnv = process.env.PORTIKUS_WORKSPACE_ID ?? "";
-const workspaceId =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-		workspaceFromEnv,
-	)
-		? workspaceFromEnv
-		: undefined;
-
 // The package's own change time (ctime, as the controller compares) names the agent code; an upgrade changes it.
 const build = await stat(fileURLToPath(import.meta.url)).then(
 	(file) => file.ctime.toISOString(),
@@ -60,7 +52,6 @@ const app = buildServer({
 	tmuxExternalServer: config.TMUX_EXTERNAL_SERVER,
 	logger,
 	brokerSocketPath: "/run/portikus/browser.sock",
-	workspaceId,
 	build,
 });
 

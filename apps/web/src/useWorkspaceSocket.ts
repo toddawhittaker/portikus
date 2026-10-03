@@ -1,6 +1,6 @@
-import { ListeningService, type Workspace } from "@portikus/contracts";
+import { CloseCode, type ListeningService, type Workspace } from "@portikus/contracts";
+import { ServerMessage } from "@portikus/events";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { z } from "zod";
 import { wsUrl } from "./api/ws.js";
 
 const HEARTBEAT_MS = 15_000;
@@ -10,8 +10,6 @@ export const ACTIVITY_MS = 60_000;
 const ACTIVITY_EVENTS = ["keydown", "pointerdown", "paste"] as const;
 const RECONNECT_MS = 3_000;
 const MAX_RECONNECT_MS = 60_000;
-/** The API closes with this code when the session is gone (SPEC.md §26). */
-const SESSION_ENDED_CODE = 4401;
 
 function socketUrl(workspaceId: string): string {
 	return wsUrl(`/workspaces/${workspaceId}/ws`);
@@ -108,30 +106,23 @@ export function useWorkspaceSocket(
 			};
 
 			next.onmessage = (event: MessageEvent) => {
+				let parsed: ReturnType<typeof ServerMessage.safeParse>;
 				try {
-					const message = JSON.parse(String(event.data)) as {
-						type?: string;
-						workspace?: Workspace;
-						services?: unknown;
-					};
-					if (message.type === "workspace" && message.workspace) {
-						setWorkspace(message.workspace);
-					}
-					if (message.type === "listening-services") {
-						// The frame is written by the API, but it is parsed all the
-						// same: the browser draws a port list straight from it.
-						const parsed = z.array(ListeningService).safeParse(message.services);
-						if (parsed.success) setListening(parsed.data);
-					}
+					parsed = ServerMessage.safeParse(JSON.parse(String(event.data)));
 				} catch {
-					// Ignore anything that is not a message we understand.
+					return;
 				}
+				// Anything that is not a message we understand is ignored.
+				if (!parsed.success) return;
+				const message = parsed.data;
+				if (message.type === "workspace") setWorkspace(message.workspace);
+				if (message.type === "listening-services") setListening(message.services);
 			};
 
 			next.onclose = (event: CloseEvent) => {
 				if (heartbeat !== undefined) clearInterval(heartbeat);
 				if (stopped) return;
-				if (event.code === SESSION_ENDED_CODE) {
+				if (event.code === CloseCode.SESSION_ENDED) {
 					sessionEnded.current();
 					return;
 				}

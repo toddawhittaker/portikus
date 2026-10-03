@@ -21,9 +21,10 @@ import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { toAuthOptions } from "../auth-options.js";
+import { loadLtiDeps } from "../lti/deps.js";
 import { buildServer } from "../server.js";
-import { PUBLIC_URL, testConfig } from "../test-support.js";
-import { loadLtiDeps, targetPath, toolJwks } from "./lti.js";
+import { PUBLIC_URL, testConfig } from "../testing/test-support.js";
+import { targetPath, toolJwks } from "./lti.js";
 
 /**
  * LTI 1.3 login and launch against a real database and a local keyset

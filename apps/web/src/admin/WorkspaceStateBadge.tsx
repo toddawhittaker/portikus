@@ -1,16 +1,20 @@
-import type { PendingOperation } from "@portikus/contracts";
-import { type DesiredState, StateBadge, type WorkspaceState } from "@portikus/ui";
+import {
+	DesiredState,
+	type PendingOperation,
+	WorkspaceState,
+} from "@portikus/contracts";
+import {
+	StateBadge,
+	type DesiredState as UiDesiredState,
+	type WorkspaceState as UiWorkspaceState,
+} from "@portikus/ui";
 import { PENDING_LABEL } from "../shell/StatusBar.js";
 
-export const KNOWN_STATES: readonly string[] = [
-	"provisioning",
-	"starting",
-	"running",
-	"stopping",
-	"stopped",
-	"error",
-];
-const KNOWN_DESIRED: readonly string[] = ["running", "stopped", "restarting"];
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+// The ui package cannot import contracts, so its copy of the states is checked here.
+const uiStatesMatchContracts: Same<UiWorkspaceState, WorkspaceState> &
+	Same<UiDesiredState, DesiredState> = true;
+void uiStatesMatchContracts;
 
 /**
  * A state the badge knows is drawn as one; anything newer shows its raw name.
@@ -37,16 +41,13 @@ export function WorkspaceStateBadge({
 			/>
 		);
 	}
-	if (!KNOWN_STATES.includes(state)) return <span className="pk-tag">{state}</span>;
+	const known = WorkspaceState.safeParse(state);
+	if (!known.success) return <span className="pk-tag">{state}</span>;
 	return (
 		<StateBadge
-			state={state as WorkspaceState}
+			state={known.data}
 			statusRole={statusRole}
-			desiredState={
-				KNOWN_DESIRED.includes(desiredState)
-					? (desiredState as DesiredState)
-					: undefined
-			}
+			desiredState={DesiredState.safeParse(desiredState).data}
 		/>
 	);
 }

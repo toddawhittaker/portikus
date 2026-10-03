@@ -43,6 +43,15 @@ describe("the fixed-window counter (ADR 0034 ruling 15)", () => {
 		});
 	});
 
+	test("drops the windows of keys that have gone quiet, so memory stays bounded", () => {
+		const { counter, advance } = fixture();
+		for (let i = 0; i < 1000; i++) check(counter, `u${i}`);
+		expect(counter.size()).toBe(1000);
+		advance(60_000);
+		check(counter, "fresh");
+		expect(counter.size()).toBe(1);
+	});
+
 	test("a preview page of 2,000 assets fits one window; a runaway loop does not", () => {
 		const { counter } = fixture(2000, 10_000);
 		for (let i = 0; i < 2000; i++) expect(check(counter, "s").allowed).toBe(true);

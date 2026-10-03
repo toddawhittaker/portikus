@@ -26,7 +26,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { buildServer as buildAgentServer } from "@portikus/workspace-agent";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 /**
  * File operations through the API, in front of two REAL agents with separate

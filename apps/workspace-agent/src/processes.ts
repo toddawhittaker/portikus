@@ -1,17 +1,17 @@
 /**
- * Reading and stopping one of the student's processes (SPEC.md §18.3;
- * SPEC.md §18.3). The agent runs as the student, so the
- * kernel already refuses anyone else's process; the protected list keeps
- * the agent, the tmux server the agent runs the terminals in, and PID 1 from
- * being signalled by accident. Command lines are returned to the student only and never logged.
+ * Reading and stopping one of the student's processes (SPEC.md §18.3). The
+ * agent runs as the student, so the kernel already refuses anyone else's
+ * process; the protected set keeps PID 1, the agent, its attach clients,
+ * the tmux server and its pane shells from being signalled by accident.
+ * Command lines are returned to the student only and never logged.
  */
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PROCESS_COMMAND_LINE_LIMIT } from "@portikus/contracts";
 import { AgentFailure } from "./errors.js";
 
 /** How long a stopped process has to exit before the answer is "still running". */
-const STOP_GRACE_MS = 3000;
+export const STOP_GRACE_MS = 3000;
 
 const POLL_MS = 100;
 
@@ -36,17 +36,18 @@ export interface ProcessOwner {
 	/** The student's uid, which the agent runs as. */
 	studentUid: number;
 	/**
-	 * The terminals' tmux server, found by the agent's own socket, or null
-	 * when none runs. By PID, not by name: any process can call itself
+	 * The agent's attach clients, the tmux server and its pane shells, from
+	 * {@link protectedTree}. By PID, not by name: any process can call itself
 	 * "tmux: server".
 	 */
-	tmuxPid: number | null;
+	protectedPids: ReadonlySet<number>;
 }
 
 /** The fields of a stat line that a stop and a usage sample need. */
 export interface StatLine {
 	name: string;
 	state: string;
+	ppid: number;
 	startTicks: number;
 	utime: number;
 	stime: number;
@@ -61,15 +62,17 @@ export function parseStatLine(text: string): StatLine | null {
 		.slice(close + 1)
 		.trim()
 		.split(/\s+/);
-	// Field 3 (state) is index 0 after the name; utime (14) and stime (15)
-	// are indexes 11 and 12; starttime (22) is index 19.
+	// Field 3 (state) is index 0 after the name, ppid (4) index 1; utime (14)
+	// and stime (15) are indexes 11 and 12; starttime (22) is index 19.
 	const state = fields[0];
+	const ppid = Number(fields[1]);
 	const utime = Number(fields[11]);
 	const stime = Number(fields[12]);
 	const startTicks = Number(fields[19]);
 	if (!state || !Number.isSafeInteger(startTicks) || startTicks < 0) return null;
+	if (!Number.isSafeInteger(ppid) || ppid < 0) return null;
 	if (!Number.isFinite(utime) || !Number.isFinite(stime)) return null;
-	return { name: text.slice(open + 1, close), state, startTicks, utime, stime };
+	return { name: text.slice(open + 1, close), state, ppid, startTicks, utime, stime };
 }
 
 /** Real and effective uid from a `status` file. */
@@ -111,7 +114,7 @@ export function isProtected(facts: ProcessFacts, owner: ProcessOwner): boolean {
 		facts.pid === 1 ||
 		facts.pid === owner.selfPid ||
 		!ownedByStudent(facts, owner) ||
-		facts.pid === owner.tmuxPid
+		owner.protectedPids.has(facts.pid)
 	);
 }
 
@@ -129,6 +132,39 @@ export async function readCommandLine(
 ): Promise<string | null> {
 	const raw = await readText(join(procRoot, String(pid), "cmdline"));
 	return raw === null ? null : formatCommandLine(raw);
+}
+
+/**
+ * The PIDs no stop may signal besides PID 1 (SPEC.md §18.3): the agent, its
+ * terminals' attach clients, and the tmux server with its direct children,
+ * the pane shells. Only the platform's own machinery: a program the agent
+ * starts for the student, such as a check run, stays stoppable, and so does
+ * anything a pane shell runs. Read from `/proc` parent links each call.
+ */
+export async function protectedTree(
+	procRoot: string,
+	selfPid: number,
+	tmuxPid: number | null,
+	attachPids: Iterable<number>,
+): Promise<Set<number>> {
+	const tree = new Set<number>([selfPid, ...attachPids]);
+	if (tmuxPid === null) return tree;
+	tree.add(tmuxPid);
+	let names: string[];
+	try {
+		names = await readdir(procRoot);
+	} catch {
+		names = [];
+	}
+	await Promise.all(
+		names.map(async (name) => {
+			if (!/^[1-9]\d*$/.test(name)) return;
+			const text = await readText(join(procRoot, name, "stat"));
+			const stat = text === null ? null : parseStatLine(text);
+			if (stat?.ppid === tmuxPid) tree.add(Number(name));
+		}),
+	);
+	return tree;
 }
 
 /** How long a "no tmux server" answer is reused before tmux is asked again. */
@@ -169,14 +205,49 @@ export function tmuxPidSource(
 	};
 }
 
-export interface StopOptions extends Omit<ProcessOwner, "tmuxPid"> {
-	/** The terminals' tmux server PID, or null when none runs. */
-	tmuxPid: () => Promise<number | null>;
+export interface SignalOptions extends Omit<ProcessOwner, "protectedPids"> {
+	/** Fresh from {@link protectedTree} for every stop. */
+	protectedPids: () => Promise<ReadonlySet<number>>;
 	procRoot: string;
 	/** Sends the signal. Tests may replace it; production is `process.kill`. */
 	kill: (pid: number, signal: NodeJS.Signals) => void;
+}
+
+export interface StopOptions extends SignalOptions {
 	graceMs?: number;
 	pollMs?: number;
+}
+
+/**
+ * The one way a stop path signals a process (SPEC.md §18.3). It re-reads the
+ * process so a reused PID or a protected process is never hit. False when the
+ * process exited between the read and the signal.
+ */
+export async function signalProcess(
+	pid: number,
+	startTicks: number,
+	signal: NodeJS.Signals,
+	options: SignalOptions,
+): Promise<boolean> {
+	const facts = await readProcess(options.procRoot, pid);
+	if (!facts) throw new AgentFailure("PROCESS_NOT_FOUND", "no such process");
+	if (facts.startTicks !== startTicks) {
+		throw new AgentFailure("PROCESS_CHANGED", "the process id was reused");
+	}
+	const owner = { ...options, protectedPids: await options.protectedPids() };
+	if (isProtected(facts, owner)) {
+		throw new AgentFailure("PROCESS_PROTECTED", "this process is protected");
+	}
+	try {
+		options.kill(pid, signal);
+		return true;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+		if ((error as NodeJS.ErrnoException).code === "EPERM") {
+			throw new AgentFailure("PROCESS_PROTECTED", "this process is protected");
+		}
+		throw error;
+	}
 }
 
 /**
@@ -188,24 +259,9 @@ export async function stopProcess(
 	request: { startTicks: number; force: boolean },
 	options: StopOptions,
 ): Promise<{ pid: number; exited: boolean }> {
-	const facts = await readProcess(options.procRoot, pid);
-	if (!facts) throw new AgentFailure("PROCESS_NOT_FOUND", "no such process");
-	if (facts.startTicks !== request.startTicks) {
-		throw new AgentFailure("PROCESS_CHANGED", "the process id was reused");
-	}
-	const owner = { ...options, tmuxPid: await options.tmuxPid() };
-	if (isProtected(facts, owner)) {
-		throw new AgentFailure("PROCESS_PROTECTED", "this process is protected");
-	}
-	try {
-		options.kill(pid, request.force ? "SIGKILL" : "SIGTERM");
-	} catch (error) {
-		// It exited between the read and the signal.
-		if ((error as NodeJS.ErrnoException).code === "ESRCH") return { pid, exited: true };
-		if ((error as NodeJS.ErrnoException).code === "EPERM") {
-			throw new AgentFailure("PROCESS_PROTECTED", "this process is protected");
-		}
-		throw error;
+	const signal = request.force ? "SIGKILL" : "SIGTERM";
+	if (!(await signalProcess(pid, request.startTicks, signal, options))) {
+		return { pid, exited: true };
 	}
 	const deadline = Date.now() + (options.graceMs ?? STOP_GRACE_MS);
 	const pollMs = options.pollMs ?? POLL_MS;

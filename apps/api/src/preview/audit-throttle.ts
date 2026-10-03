@@ -1,4 +1,4 @@
-import type { Database } from "@portikus/db";
+import { type Database, recordAuditReturningId } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 
 /** One `preview.denied` row per workspace, user and reason per this window. */
@@ -54,18 +54,13 @@ export function createPreviewDeniedAudit(
 					.execute();
 				return;
 			}
-			const rowId = db
-				.insertInto("audit_events")
-				.values({
-					actor: `user:${userId}`,
-					target: workspaceId,
-					action: "preview.denied",
-					result: "denied",
-					metadata: JSON.stringify({ reason, workspaceId, count: 1 }),
-				})
-				.returning("id")
-				.executeTakeFirstOrThrow()
-				.then((row) => row.id);
+			const rowId = recordAuditReturningId(db, {
+				actor: `user:${userId}`,
+				target: workspaceId,
+				action: "preview.denied",
+				result: "denied",
+				metadata: { reason, workspaceId, count: 1 },
+			});
 			windows.set(key, { startedAt: at, rowId });
 			try {
 				await rowId;

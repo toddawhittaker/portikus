@@ -8,7 +8,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { flushSync } from "react-dom";
 import { z } from "zod";
-import { ApiError, sendJson } from "../api/request.js";
+import { ApiError, errorText, sendJson } from "../api/request.js";
 
 /** The server's minimum (contracts ChangePasswordRequest). */
 const MIN_PASSWORD_LENGTH = 15;
@@ -151,7 +151,7 @@ export function ChangePasswordForm({
 			/>
 			{error && !onField ? (
 				<p role="alert" className="pk-text-body m-0 text-status-error">
-					{error.message}
+					{errorText(error, "Your password was not changed. Try again.")}
 				</p>
 			) : null}
 			<div>

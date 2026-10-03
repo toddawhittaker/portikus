@@ -13,17 +13,15 @@ import {
 import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Insertable, sql } from "kysely";
+import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import { lifecycleLimit } from "../rate-limit.js";
-import type { ServerDeps } from "../server.js";
 import {
-	countActive,
 	findOwnedWorkspace,
 	findWorkspaceOwnedBy,
 	fromJson,
-	loadWorkspaceSettings,
-	toWorkspace,
-} from "./workspace-view.js";
+	workspaceView,
+} from "../workspaces/workspace-view.js";
 
 /** Eight random hex characters for the fallback workspace label. */
 function randomHex8(): string {
@@ -57,12 +55,7 @@ export function registerWorkspaceRoutes(
 			.executeTakeFirst();
 
 		if (existing) {
-			const active = await countActive(db, existing.id, config);
-			return reply
-				.status(200)
-				.send(
-					await toWorkspace(existing, active, config, await loadWorkspaceSettings(db)),
-				);
+			return reply.status(200).send(await workspaceView(db, config, existing));
 		}
 
 		// Generate id and instance name.
@@ -115,12 +108,7 @@ export function registerWorkspaceRoutes(
 					.selectAll()
 					.where("owner_user_id", "=", ownerUserId)
 					.executeTakeFirstOrThrow();
-				const active = await countActive(db, row.id, config);
-				return reply
-					.status(200)
-					.send(
-						await toWorkspace(row, active, config, await loadWorkspaceSettings(db)),
-					);
+				return reply.status(200).send(await workspaceView(db, config, row));
 			}
 			throw err;
 		}
@@ -137,9 +125,7 @@ export function registerWorkspaceRoutes(
 			.selectAll()
 			.where("id", "=", id)
 			.executeTakeFirstOrThrow();
-		return reply
-			.status(201)
-			.send(await toWorkspace(created, 0, config, await loadWorkspaceSettings(db)));
+		return reply.status(201).send(await workspaceView(db, config, created));
 	});
 
 	app.get("/workspaces/:id", async (request, reply) => {
@@ -153,8 +139,7 @@ export function registerWorkspaceRoutes(
 			return sendError(reply, 404, "WORKSPACE_NOT_FOUND", "Workspace not found");
 		}
 
-		const active = await countActive(db, params.id, config);
-		return toWorkspace(row, active, config, await loadWorkspaceSettings(db));
+		return workspaceView(db, config, row);
 	});
 
 	app.post("/workspaces/:id/start", async (request, reply) => {
@@ -242,8 +227,7 @@ export function registerWorkspaceRoutes(
 					previous && previous > now ? new Date(previous).toISOString() : null,
 			},
 		});
-		const active = await countActive(db, params.id, config);
-		return toWorkspace(updated, active, config, await loadWorkspaceSettings(db));
+		return workspaceView(db, config, updated);
 	});
 
 	// End the hold early. The
@@ -273,12 +257,7 @@ export function registerWorkspaceRoutes(
 			.returningAll()
 			.executeTakeFirst();
 		if (!updated) {
-			return toWorkspace(
-				row,
-				await countActive(db, params.id, config),
-				config,
-				await loadWorkspaceSettings(db),
-			);
+			return workspaceView(db, config, row);
 		}
 		await recordAudit(db, {
 			actor: `user:${user.id}`,
@@ -287,8 +266,7 @@ export function registerWorkspaceRoutes(
 			result: "ok",
 			metadata: { reason: "ended_early" },
 		});
-		const active = await countActive(db, params.id, config);
-		return toWorkspace(updated, active, config, await loadWorkspaceSettings(db));
+		return workspaceView(db, config, updated);
 	});
 	// jscpd:ignore-end
 

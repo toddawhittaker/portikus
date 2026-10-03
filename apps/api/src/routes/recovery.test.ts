@@ -6,13 +6,17 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import type { WorkspaceState } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { createLogger } from "@portikus/observability";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
-import { longOperationRunning } from "./project-scope.js";
+import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
+import {
+	holdLongOperation,
+	releaseLongOperation,
+} from "../workspaces/long-operation.js";
 
 /**
  * Recovery points through the API (SPEC.md §15, ADR 0020): owner only,
@@ -97,7 +101,7 @@ beforeEach(async () => {
 	};
 });
 
-async function setState(state: string) {
+async function setState(state: WorkspaceState) {
 	await testDb.db
 		.updateTable("workspaces")
 		.set({
@@ -487,9 +491,11 @@ test.skipIf(skip)("refusing for a pending operation gives the slot back", async 
 		.where("id", "=", workspaceId)
 		.execute();
 	expect((await create(alice)).statusCode).toBe(409);
-	expect(longOperationRunning(workspaceId)).toBe(false);
+	expect(holdLongOperation(workspaceId)).toBe(true);
+	releaseLongOperation(workspaceId);
 	expect((await restore(alice, pointId)).statusCode).toBe(409);
-	expect(longOperationRunning(workspaceId)).toBe(false);
+	expect(holdLongOperation(workspaceId)).toBe(true);
+	releaseLongOperation(workspaceId);
 });
 
 test.skipIf(skip)(

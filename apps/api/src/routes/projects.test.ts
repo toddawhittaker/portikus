@@ -9,8 +9,8 @@ import { MAX_DOWNLOAD_BYTES } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
-import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 /**
  * Project routes (SPEC.md §7, §26). The row is the record; the directory

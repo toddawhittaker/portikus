@@ -2,12 +2,12 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { GitResult } from "./git.js";
+import type { GitResult } from "./git-runner.js";
 
 const gitResult = vi.hoisted(() => ({ value: undefined as GitResult | undefined }));
 
-vi.mock("./git.js", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("./git.js")>();
+vi.mock("./git-runner.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./git-runner.js")>();
 	return { ...actual, runGit: async () => gitResult.value };
 });
 

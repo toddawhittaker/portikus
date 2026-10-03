@@ -1,18 +1,13 @@
 import { requireRole, requireUser } from "@portikus/auth";
 import {
-	type AdminImageVersion,
 	type AdminWorkspaceDetail,
-	type AdminWorkspaceSummary,
 	type AuditEvent,
 	allowanceFor,
 	type CpuThrottle,
-	countIncusCpus,
 	effectiveGuard,
 	type GuardConfig,
-	HealthSample,
 	isQuotaGrowOnly,
 	type MemoryFlag,
-	type PendingOperation,
 	QUOTA_SHRINK_MESSAGE,
 	type QuotaConfig,
 	type StorageFigure,
@@ -25,17 +20,21 @@ import {
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { type Kysely, sql } from "kysely";
+import {
+	iso,
+	loadHostCpu,
+	loadImageFacts,
+	toImageVersion,
+} from "../admin/workspace-summary.js";
 import { type AgentClient, agentClientFor, readJson } from "../agent-client.js";
+import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import type { ListeningRegistry } from "../preview/registry.js";
-import type { ServerDeps } from "../server.js";
 import {
-	countActive,
 	fromJson,
-	loadWorkspaceSettings,
-	toWorkspace,
 	type WorkspaceRow,
-} from "./workspace-view.js";
+	workspaceView,
+} from "../workspaces/workspace-view.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 
@@ -48,104 +47,6 @@ const RECENT_AUDIT_LIMIT = 10;
 /** The maintenance routes; the admin buttons are on when they are registered. */
 const REBUILD_ROUTE = "/admin/workspaces/:id/rebuild";
 const RESET_DOCKER_ROUTE = "/workspaces/:id/reset-docker";
-
-/** What the newest health sample says about images, or null without one. */
-export interface ImageFacts {
-	currentFingerprint: string | null;
-	instances: Map<string, { fingerprint: string | null; serial: string | null }>;
-}
-
-/** The host part of the newest health sample the worker wrote, or null. */
-async function loadNewestHost(
-	db: Kysely<Database>,
-): Promise<NonNullable<HealthSample["host"]> | null> {
-	const row = await db
-		.selectFrom("health_samples")
-		.select("sample")
-		.orderBy("observed_at", "desc")
-		.orderBy("id", "desc")
-		.limit(1)
-		.executeTakeFirst();
-	if (!row) return null;
-	const parsed = HealthSample.safeParse(row.sample);
-	return parsed.success ? parsed.data.host : null;
-}
-
-/** Read the image facts from the newest health sample the worker wrote. */
-export async function loadImageFacts(db: Kysely<Database>): Promise<ImageFacts | null> {
-	const host = await loadNewestHost(db);
-	if (!host) return null;
-	return {
-		currentFingerprint: host.image.fingerprint,
-		instances: new Map(
-			host.instances.map((one) => [
-				one.name,
-				{ fingerprint: one.imageFingerprint, serial: one.imageSerial },
-			]),
-		),
-	};
-}
-
-/**
- * The readable image of one instance: its `image.serial`, else the first 12
- * characters of its fingerprint, compared with the current image.
- */
-export function toImageVersion(
-	instanceName: string | null,
-	storedFingerprint: string | null,
-	facts: ImageFacts | null,
-): AdminImageVersion {
-	const seen = instanceName === null ? undefined : facts?.instances.get(instanceName);
-	const fingerprint = seen?.fingerprint ?? storedFingerprint;
-	const label = seen?.serial ?? (fingerprint ? fingerprint.slice(0, 12) : null);
-	const current =
-		facts?.currentFingerprint && fingerprint
-			? fingerprint === facts.currentFingerprint
-			: null;
-	return { label, fingerprint, current };
-}
-
-/**
- * The host's CPU count and the profile's CPU count, from the newest health
- * sample. Like the guard, a profile without a readable `limits.cpu` counts as
- * the whole host.
- */
-async function loadHostCpu(
-	db: Kysely<Database>,
-): Promise<{ cpuCount: number; profileCpu: number } | null> {
-	const host = await loadNewestHost(db);
-	if (!host) return null;
-	const { cpuCount, profileLimits } = host;
-	return { cpuCount, profileCpu: countIncusCpus(profileLimits.cpu) ?? cpuCount };
-}
-
-function iso(value: Date | null): string | null {
-	return value ? value.toISOString() : null;
-}
-
-/** One workspace as a row of the admin list shows it. */
-export function toWorkspaceSummary(
-	row: WorkspaceRow,
-	activeConnections: number,
-	facts: ImageFacts | null,
-	defaults: QuotaConfig,
-): AdminWorkspaceSummary {
-	return {
-		id: row.id,
-		label: row.label,
-		state: row.state,
-		desiredState: row.desired_state,
-		activeConnections,
-		lastActiveConnectionAt: iso(row.last_active_connection_at),
-		quotaConfig: fromJson<QuotaConfig>(row.quota_config) ?? defaults,
-		quotaApplied: fromJson<QuotaConfig>(row.quota_applied),
-		image: toImageVersion(row.incus_instance_name, row.image_version, facts),
-		archivedAt: iso(row.archived_at),
-		pendingOperation: row.pending_operation as PendingOperation | null,
-		cpuThrottle: fromJson<CpuThrottle>(row.cpu_throttle),
-		memoryFlag: fromJson<MemoryFlag>(row.memory_flag),
-	};
-}
 
 /**
  * One `/usage` call: a success means the agent answers, and its sample
@@ -308,7 +209,7 @@ export function registerAdminWorkspaceRoutes(
 
 		const facts = await loadImageFacts(db);
 		const body: AdminWorkspaceDetail = {
-			workspace: toWorkspace(row, await countActive(db, id, config), config, settings),
+			workspace: await workspaceView(db, config, row),
 			owner: {
 				id: owner.id,
 				displayName: owner.display_name,
@@ -384,14 +285,7 @@ export function registerAdminWorkspaceRoutes(
 			});
 		}
 		const updated = (await loadRow(id)) as WorkspaceRow;
-		reply.send(
-			await toWorkspace(
-				updated,
-				await countActive(db, id, config),
-				config,
-				await loadWorkspaceSettings(db),
-			),
-		);
+		reply.send(await workspaceView(db, config, updated));
 	}
 
 	app.post("/admin/workspaces/:id/archive", adminOnly, async (request, reply) =>
@@ -470,12 +364,7 @@ export function registerAdminWorkspaceRoutes(
 			}
 		}
 		const updated = (await loadRow(id)) as WorkspaceRow;
-		return toWorkspace(
-			updated,
-			await countActive(db, id, config),
-			config,
-			await loadWorkspaceSettings(db),
-		);
+		return workspaceView(db, config, updated);
 	});
 	// Per-workspace guard overrides (ADR 0032).
 	app.put("/admin/workspaces/:id/guard", adminOnly, async (request, reply) => {
@@ -716,11 +605,6 @@ export function registerAdminWorkspaceRoutes(
 			);
 		}
 		const updated = (await loadRow(id)) as WorkspaceRow;
-		return toWorkspace(
-			updated,
-			await countActive(db, id, config),
-			config,
-			await loadWorkspaceSettings(db),
-		);
+		return workspaceView(db, config, updated);
 	});
 }

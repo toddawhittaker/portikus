@@ -6,14 +6,18 @@ import {
 	openWorkspaceSocket,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { type HealthSample, QUOTA_SHRINK_MESSAGE } from "@portikus/contracts";
+import {
+	type HealthSample,
+	QUOTA_SHRINK_MESSAGE,
+	type WorkspaceState,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
-import { type ImageFacts, toImageVersion } from "./admin-workspaces.js";
+import { type ImageFacts, toImageVersion } from "../admin/workspace-summary.js";
+import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 /**
  * The admin workspace detail, archive and storage routes (SPEC.md §20.1,
@@ -1137,7 +1141,7 @@ describe("re-provision", () => {
 		await start();
 	});
 
-	async function setState(state: string): Promise<void> {
+	async function setState(state: WorkspaceState): Promise<void> {
 		await testDb.db
 			.updateTable("workspaces")
 			.set({
@@ -1205,7 +1209,7 @@ describe("re-provision", () => {
 				"starting",
 				"stopping",
 				"provisioning",
-			]) {
+			] as const) {
 				await setState(state);
 				const res = await post(carol, `/admin/workspaces/${workspaceId}/reprovision`);
 				expect(res.statusCode).toBe(409);

@@ -33,24 +33,6 @@ export async function pruneNotifications(
 	return Number(old.numDeletedRows) + Number(extra.numAffectedRows ?? 0n);
 }
 
-/** One notification for every enabled administrator (ADR 0033). */
-export async function notifyAdministrators(
-	db: Kysely<Database>,
-	notice: { tone: "warning" | "danger"; title: string; body: string },
-): Promise<void> {
-	const admins = await db
-		.selectFrom("users")
-		.select("id")
-		.where("role", "=", "administrator")
-		.where("disabled_at", "is", null)
-		.execute();
-	if (admins.length === 0) return;
-	await db
-		.insertInto("notifications")
-		.values(admins.map((admin) => ({ user_id: admin.id, ...notice })))
-		.execute();
-}
-
 /** Prune now and every hour on its own timer; errors are logged, never thrown. */
 export function startNotificationPrune(options: {
 	db: Kysely<Database>;
@@ -65,5 +47,10 @@ export function startNotificationPrune(options: {
 			logger.error({ error: errorMessage(e) }, "notification prune error");
 		}
 	};
-	return startLoop(tick, NOTIFICATION_PRUNE_SECONDS * 1000);
+	return startLoop(
+		"notification prune",
+		options.logger,
+		tick,
+		NOTIFICATION_PRUNE_SECONDS * 1000,
+	);
 }

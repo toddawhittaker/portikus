@@ -13,8 +13,12 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
-import { type FakeAgent, oneFileZip, startFakeAgent } from "../fake-agent.js";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import {
+	type FakeAgent,
+	oneFileZip,
+	startFakeAgent,
+} from "../testing/fake-agent/index.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import { INLINE_CSP, inlineType } from "./files.js";
 
 /**

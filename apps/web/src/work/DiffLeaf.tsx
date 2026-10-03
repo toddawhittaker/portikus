@@ -6,6 +6,7 @@
  */
 import { EmptyState } from "@portikus/ui";
 import { lazy, type ReactNode, Suspense, useEffect } from "react";
+import { errorText } from "../api/request.js";
 import { DownloadFileButton } from "../files/DownloadFileButton.js";
 import { DIFF_KIND, WORD } from "../files/gitStatus.js";
 import { useGitDiff } from "../files/useGitDiff.js";
@@ -60,7 +61,7 @@ export function DiffLeaf({
 		if (diff.error && !data) {
 			return (
 				<EmptyState icon="file" title="This diff could not be shown">
-					{diff.error.message}
+					{errorText(diff.error, "The changes could not be loaded. Try again.")}
 				</EmptyState>
 			);
 		}
@@ -166,7 +167,8 @@ export function DiffLeaf({
 			</div>
 			{diff.error && data ? (
 				<div className="pk-file-banner" role="status" data-testid="diff-error">
-					This diff could not be refreshed: {diff.error.message}
+					This diff could not be refreshed:{" "}
+					{errorText(diff.error, "the workspace did not answer.")}
 				</div>
 			) : null}
 			{note !== null ? (

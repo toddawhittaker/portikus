@@ -4,12 +4,11 @@ import {
 	POOL_WARN_PERCENT,
 	poolFillPercent,
 } from "@portikus/contracts";
-import type { Database } from "@portikus/db";
+import { type Database, notifyAdministrators } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
 import { type Kysely, sql } from "kysely";
 import { type ControllerClient, ControllerClientError } from "./controller-client.js";
 import { startLoop } from "./loop.js";
-import { notifyAdministrators } from "./notifications.js";
 
 /** How often the worker samples the host. */
 export const HEALTH_SAMPLE_SECONDS = 60;
@@ -51,20 +50,17 @@ export interface HealthSamplerOptions {
  * Build the tick that writes one `health_samples` row (SPEC.md §25.6). A row
  * is written even when the controller cannot be reached, so the age of the
  * newest row doubles as the worker's heartbeat. Old rows are pruned in the
- * same tick. A tick is skipped while the previous one is still running.
+ * same tick.
  */
 export function createHealthSampler(
 	options: HealthSamplerOptions,
 ): () => Promise<void> {
 	const { db, controller, logger } = options;
 	const now = options.now ?? (() => new Date());
-	let inFlight = false;
 	// Kept in memory only: a worker restart may repeat one alert, which is accepted.
 	let poolLevel: PoolLevel = 0;
 
 	return async function tick(): Promise<void> {
-		if (inFlight) return;
-		inFlight = true;
 		try {
 			let sample: HealthSample;
 			// The database, not the controller, is the source of truth for state.
@@ -122,8 +118,6 @@ export function createHealthSampler(
 			}
 		} catch (e) {
 			logger.warn({ error: errorMessage(e) }, "health sample failed");
-		} finally {
-			inFlight = false;
 		}
 	};
 }
@@ -149,5 +143,10 @@ export function startHealthSampling(
 	options: HealthSamplerOptions,
 	tick: () => Promise<void> = createHealthSampler(options),
 ): () => void {
-	return startLoop(tick, HEALTH_SAMPLE_SECONDS * 1000);
+	return startLoop(
+		"health sampling",
+		options.logger,
+		tick,
+		HEALTH_SAMPLE_SECONDS * 1000,
+	);
 }

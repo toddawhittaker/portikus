@@ -123,7 +123,8 @@ export async function readTerminalsExit(
 	}
 }
 
-function sendText(socket: WebSocket, message: TerminalServerMessage): void {
+/** Send one typed text frame to a terminal socket (SPEC.md §9.5). */
+export function sendText(socket: WebSocket, message: TerminalServerMessage): void {
 	socket.send(JSON.stringify(message));
 }
 
@@ -144,6 +145,17 @@ export class TerminalRegistry {
 		/** One pane poll for the whole agent (SPEC.md §9.1, §9.3). */
 		private readonly panes: PaneWatcher = watchPanes(server),
 	) {}
+
+	/** The PIDs of the running attach clients, which no stop may signal (SPEC.md §18.3). */
+	attachPids(): Set<number> {
+		const pids = new Set<number>();
+		for (const set of this.attachments.values()) {
+			for (const attachment of set) {
+				if (attachment.pty) pids.add(attachment.pty.pid);
+			}
+		}
+		return pids;
+	}
 
 	/** How many browsers are attached to one terminal. */
 	countAttachments(id: string): number {

@@ -1,3 +1,4 @@
+import type { PendingOperation, WorkspaceState } from "@portikus/contracts";
 import { type Kysely, sql } from "kysely";
 import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
@@ -99,7 +100,8 @@ describe("database migrations and schema", () => {
 				.values({
 					label: testLabel(),
 					owner_user_id: userId,
-					state: "flying",
+					// Past the type on purpose: the CHECK constraint is under test.
+					state: "flying" as WorkspaceState,
 				})
 				.execute(),
 		).rejects.toThrow(/check|violates/i);
@@ -1888,7 +1890,7 @@ describe("database migrations and schema", () => {
 		"a workspace accepts only the three pending operations",
 		async () => {
 			const { workspaceId } = await insertProject();
-			for (const op of ["reset-docker", "rebuild", "rebuild-reset-docker"]) {
+			for (const op of ["reset-docker", "rebuild", "rebuild-reset-docker"] as const) {
 				await t.db
 					.updateTable("workspaces")
 					.set({ pending_operation: op })
@@ -1898,7 +1900,8 @@ describe("database migrations and schema", () => {
 			await expect(
 				t.db
 					.updateTable("workspaces")
-					.set({ pending_operation: "reinstall" })
+					// Past the type on purpose: the CHECK constraint is under test.
+					.set({ pending_operation: "reinstall" as PendingOperation })
 					.where("id", "=", workspaceId)
 					.execute(),
 			).rejects.toThrow(/check|violates/i);

@@ -1,5 +1,6 @@
 import { Button } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
+import { errorText } from "../api/request.js";
 import { LINK_CHANNEL, type LinkMessage } from "../link/channel.js";
 import { startLink, useMyLinks, useUnlink } from "./profileQueries.js";
 
@@ -171,7 +172,7 @@ export function LinkedAccounts() {
 			</p>
 			{unlink.error ? (
 				<p className="pk-text-body m-0 text-status-error" role="alert">
-					{unlink.error.message}
+					{errorText(unlink.error, "The account could not be unlinked. Try again.")}
 				</p>
 			) : null}
 		</div>

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { testConfig } from "../test-support.js";
+import { testConfig } from "../testing/test-support.js";
 import { portAllowed, previewOriginFor, requestHost } from "./policy.js";
 
 const config = testConfig("http://127.0.0.1:3002");

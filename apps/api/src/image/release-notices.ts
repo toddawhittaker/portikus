@@ -5,9 +5,10 @@ import {
 	newerPublishedImage,
 	PublishedReleasesFile,
 } from "@portikus/contracts";
-import { type Database, recordAudit } from "@portikus/db";
+import type { Database } from "@portikus/db";
 import { errorMessage, type Logger } from "@portikus/observability";
-import { type Kysely, sql } from "kysely";
+import type { Kysely } from "kysely";
+import { notifyOnce } from "../notifications/notify-once.js";
 
 /** The image store sits beside the job directory: /var/lib/portikus/images. */
 export function imagesDirOf(jobsDir: string): string {
@@ -37,66 +38,6 @@ async function versionsOnServer(imagesDir: string): Promise<ImageVersion[]> {
 		return [];
 	}
 	return names.filter((name) => ImageVersion.safeParse(name).success);
-}
-
-export interface Notice {
-	action: string;
-	target: string;
-	title: string;
-	body: string;
-	/** Defaults to "release-check" and "neutral". */
-	actor?: string;
-	tone?: "neutral" | "warning" | "danger";
-}
-
-/**
- * One neutral notification per enabled administrator, the first time this
- * action and target are seen. The audit row is the record that it was sent.
- */
-export async function notifyOnce(
-	db: Kysely<Database>,
-	notice: Notice,
-): Promise<boolean> {
-	return db.transaction().execute(async (trx) => {
-		// The hourly timer and a page load can race; this makes the check and insert one step.
-		await sql`select pg_advisory_xact_lock(hashtext('portikus.release-notice'))`.execute(
-			trx,
-		);
-		const seen = await trx
-			.selectFrom("audit_events")
-			.select("id")
-			.where("action", "=", notice.action)
-			.where("target", "=", notice.target)
-			.executeTakeFirst();
-		if (seen) return false;
-		await recordAudit(trx, {
-			actor: notice.actor ?? "release-check",
-			target: notice.target,
-			action: notice.action,
-			result: "ok",
-			metadata: {},
-		});
-		const admins = await trx
-			.selectFrom("users")
-			.select("id")
-			.where("role", "=", "administrator")
-			.where("disabled_at", "is", null)
-			.execute();
-		if (admins.length > 0) {
-			await trx
-				.insertInto("notifications")
-				.values(
-					admins.map((admin) => ({
-						user_id: admin.id,
-						tone: notice.tone ?? "neutral",
-						title: notice.title,
-						body: notice.body,
-					})),
-				)
-				.execute();
-		}
-		return true;
-	});
 }
 
 /**

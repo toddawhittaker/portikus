@@ -17,8 +17,8 @@ import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { type Kysely, sql, type Transaction } from "kysely";
 import type { z } from "zod";
+import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
-import type { ServerDeps } from "../server.js";
 
 const adminOnly = { preHandler: requireRole("administrator") };
 

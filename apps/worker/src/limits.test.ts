@@ -1,3 +1,4 @@
+import type { WorkspaceState } from "@portikus/contracts";
 import {
 	createTestDb,
 	hasTestDb,
@@ -34,7 +35,7 @@ type Limits = { cpu?: number; memoryMiB?: number; processes?: number };
 async function insertWorkspace(opts: {
 	config: Limits | null;
 	applied: Limits | null;
-	state?: string;
+	state?: WorkspaceState;
 }): Promise<{ id: string; instance: string }> {
 	counter++;
 	const instance = `ws-limits-${counter}`;

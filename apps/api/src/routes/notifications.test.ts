@@ -15,7 +15,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import { NOTIFICATION_RECORDS_PER_MINUTE } from "./notifications.js";
 
 // SPEC.md section 8.5 and ADR 0033: a user's own notification history.

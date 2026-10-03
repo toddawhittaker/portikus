@@ -1,4 +1,4 @@
-import type { AddedPackagesResponse } from "@portikus/contracts";
+import type { AddedPackagesResponse, WorkspaceState } from "@portikus/contracts";
 import {
 	createTestDb,
 	hasTestDb,
@@ -44,7 +44,7 @@ class ListsController extends FakeControllerClient {
 }
 
 async function insertWorkspace(
-	state = "running",
+	state: WorkspaceState = "running",
 ): Promise<{ id: string; instance: string }> {
 	counter++;
 	const instance = `ws-survey-${counter}`;
@@ -55,7 +55,7 @@ async function insertWorkspace(
 			owner_user_id: await insertTestUser(tdb.db),
 			incus_instance_name: instance,
 			state,
-			desired_state: state,
+			desired_state: state === "running" ? "running" : "stopped",
 			image_version: "2026.09.9",
 		})
 		.returning("id")

@@ -18,7 +18,7 @@ import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { toAuthOptions } from "../auth-options.js";
 import { buildServer } from "../server.js";
-import { PUBLIC_URL, testConfig } from "../test-support.js";
+import { PUBLIC_URL, testConfig } from "../testing/test-support.js";
 
 /**
  * Linking a course account to an SSO account (ADR 0026).

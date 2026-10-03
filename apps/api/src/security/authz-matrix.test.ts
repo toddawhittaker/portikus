@@ -10,15 +10,19 @@ import {
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
-import { type FakeBackupKey, fakeKey, startFakeBackupKey } from "../fake-backup-key.js";
+import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import {
+	type FakeBackupKey,
+	fakeKey,
+	startFakeBackupKey,
+} from "../testing/fake-backup-key.js";
 import {
 	buildMatrixWorld,
 	buildTestServer,
 	MATRIX_MOCK_USERS,
 	type MatrixWorld,
 	PUBLIC_URL,
-} from "../test-support.js";
+} from "../testing/test-support.js";
 import { type AccessClass, ROUTE_POLICY, splitKey } from "./route-policy.js";
 
 /**

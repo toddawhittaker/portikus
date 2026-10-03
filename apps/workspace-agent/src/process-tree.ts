@@ -5,7 +5,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { STOP_GRACE_MS } from "./listening.js";
+import { STOP_GRACE_MS } from "./processes.js";
 
 /** One process, identified by pid and start time so a reused pid is never hit. */
 export interface TreeProcess {

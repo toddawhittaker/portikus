@@ -12,9 +12,9 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import { collectingLogger } from "@portikus/observability/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
-import { type FakeAgent, startFakeAgent } from "../fake-agent.js";
 import { createPreviewSession, PREVIEW_LOOKUP_TTL_MS } from "../preview/store.js";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import { PREVIEW_SESSION_CAP } from "./preview.js";
 
 const skip = !hasTestDb();
@@ -469,6 +469,26 @@ test.skipIf(skip)("a system listener is refused", async () => {
 	const response = await stop(alice, workspaceId, 5355);
 	expect(response.statusCode).toBe(403);
 	expect(response.json().code).toBe("LISTENER_IS_SYSTEM");
+});
+
+test.skipIf(skip)("a listener owned by a protected process is refused", async () => {
+	agent.processes.set(workspaceId, [
+		{
+			pid: 4242,
+			command: "node",
+			cpuPercent: 0,
+			residentBytes: 0,
+			startTicks: 1,
+			stoppable: false,
+			commandLine: null,
+		},
+	]);
+	await seedListening([{ port: 5173, process: { pid: 4242, command: "node" } }]);
+	await untilPorts([5173]);
+	const response = await stop(alice, workspaceId, 5173);
+	expect(response.statusCode).toBe(403);
+	expect(response.json().code).toBe("PROCESS_PROTECTED");
+	await untilPorts([5173]);
 });
 
 /**

@@ -22,7 +22,7 @@ import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { tailLines } from "../job-files.js";
-import { buildTestServer, PUBLIC_URL } from "../test-support.js";
+import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 
 // A pass-through spy, so a test can see the order the route reads files in.
 vi.mock("node:fs/promises", async (importOriginal) => {

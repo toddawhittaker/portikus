@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { errorMessage } from "@portikus/observability";
 import type { IncusClient } from "./incus.js";
-import { IncusError } from "./incus.js";
 
 /**
  * The coding agents' platform instructions (SPEC.md §3). One
@@ -29,33 +28,10 @@ export function codexSystemConfig(template: string): string {
 	);
 }
 
-type FilesClient = Pick<IncusClient, "pushFile" | "deleteFile">;
+type FilesClient = Pick<IncusClient, "pushFile" | "replaceFile">;
 
 const ROOT_DIR = { uid: 0, gid: 0, mode: "0755", type: "directory" } as const;
 const ROOT_FILE = { uid: 0, gid: 0, mode: "0644" } as const;
-
-/**
- * Put `body` at `path` without ever reading or opening what is there: a
- * student who is root can leave a named pipe, and opening one blocks.
- * Deleting first replaces a pipe, link or file alike; anything that cannot
- * be deleted, such as a non-empty directory, is refused.
- */
-export async function replaceFile(
-	client: FilesClient,
-	name: string,
-	path: string,
-	body: string,
-	signal?: AbortSignal,
-): Promise<void> {
-	try {
-		await client.deleteFile(name, path, signal);
-	} catch (err) {
-		if (!(err instanceof IncusError && err.code === "NOT_FOUND")) {
-			throw new Error(`${path} cannot be replaced: ${(err as Error).message}`);
-		}
-	}
-	await client.pushFile(name, path, body, ROOT_FILE, signal);
-}
 
 /**
  * Write both system files from the template, undoing any edit or deletion.
@@ -86,7 +62,7 @@ export async function writeAgentInstructions(
 			// Incus answers success whatever already sits at the folder path;
 			// a non-folder there makes the file push below fail instead.
 			await client.pushFile(name, dir, "", ROOT_DIR, signal);
-			await replaceFile(client, name, path, body, signal);
+			await client.replaceFile(name, path, body, ROOT_FILE, signal);
 		} catch (err) {
 			failures.push(`${path}: ${errorMessage(err)}`);
 		}
