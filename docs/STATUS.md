@@ -4246,8 +4246,8 @@ Gaps:
 
 ## Epic 33 — UI polish: admin layouts, Settings, accessibility
 
-Built on `epic/33-ui-polish` (task PRs #1097, #1099 to #1116, the sort
-and Settings review fixes, and this fold), issues #1087 and #1096. No
+Built on `epic/33-ui-polish` (task PRs #1097, #1099 to #1116, #1118
+and this fold), issues #1087 and #1096. No
 migration. SPEC.md sections 19.2, 20.1 and 25.8, and ADR 0047.
 
 Delivered:
@@ -4274,6 +4274,12 @@ Delivered:
   `aria-sort`. Users has a per-row "more" menu with start, stop,
   restart, rebuild, archive and disable. `WorkspacesTab.tsx` and
   `LogsTab.tsx` are split under 800 lines.
+- Review fixes (#1118): sort changes on Users, Logs and Audit are
+  announced, unsorted headers say they sort, and same-time rows keep
+  their order. Users row-menu lifecycle items stay focusable while busy.
+  Settings headings are screen-reader only, the profile picture is a
+  Choose picture button, the account menu names the account, and the
+  Packages list loads with a Skeleton.
 - Admin operations: the end of a rebuild, Docker reset or Replace home
   folder is announced on any admin tab, whether or not the detail panel
   is open, and several ends share one toast. `StateBadge` has a `moving`
@@ -4315,4 +4321,4 @@ Gaps:
 - The apt repository test had one unexplained early local failure
   (#1097).
 - Monitor and the admin Processes table keep their own sort headers
-  (BACKLOG.md).
+  and do not announce sorts (BACKLOG.md).
