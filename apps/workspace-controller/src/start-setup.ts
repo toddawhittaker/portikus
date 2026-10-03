@@ -27,6 +27,12 @@ export const RECOVERY_PATH = "/var/lib/portikus/recovery";
  */
 export const AGENT_HEALTH_TIMEOUT_MS = 15_000;
 
+/** A step's own limit with the caller's deadline on top, never tighter than the limit (ADR 0034). */
+export function withCaller(caller: AbortSignal | undefined, ms: number): AbortSignal {
+	const own = AbortSignal.timeout(ms);
+	return caller ? AbortSignal.any([caller, own]) : own;
+}
+
 const ROOT_FILE = { uid: 0, gid: 0, mode: "0644" };
 
 /**
@@ -121,7 +127,7 @@ export async function waitForAddress(
 			) {
 				break;
 			}
-			throw err;
+			throw signal?.aborted ? signal.reason : err;
 		}
 	}
 
@@ -242,9 +248,7 @@ export async function waitForAgent(
 		try {
 			const res = await fetch(url, {
 				headers: { Authorization: `Bearer ${agentToken}` },
-				signal: signal
-					? AbortSignal.any([signal, AbortSignal.timeout(2000)])
-					: AbortSignal.timeout(2000),
+				signal: withCaller(signal, 2000),
 			});
 			// Read the body so the connection is released either way.
 			await res.arrayBuffer().catch(() => undefined);

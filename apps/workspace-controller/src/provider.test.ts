@@ -16,7 +16,7 @@ import {
 	vi,
 } from "vitest";
 import { type WebSocket, WebSocketServer } from "ws";
-import { IncusClient } from "./incus.js";
+import { IncusClient, IncusError } from "./incus.js";
 import {
 	INSTANCE_CREATE_WAIT_SECONDS,
 	IncusWorkspaceProvider,
@@ -123,6 +123,9 @@ afterEach(() => {
 });
 
 let provider: IncusWorkspaceProvider;
+
+/** What an aborted call rejects with, so the worker answers 504 TIMEOUT, not 500. */
+const TIMED_OUT = { name: "IncusError", code: "TIMEOUT" };
 let statusPath: string;
 
 beforeEach(() => {
@@ -2734,6 +2737,8 @@ describe("the Docker seed", () => {
 		spy.mockRestore();
 	});
 
+	const CREATE_LEFT = new IncusError("TIMEOUT", "caller left");
+
 	/** Abort the create just before the request whose body names `volume`. */
 	function abortAt(ac: AbortController, match: (body: unknown) => boolean) {
 		const real = IncusClient.prototype.request;
@@ -2741,7 +2746,7 @@ describe("the Docker seed", () => {
 			this: IncusClient,
 			...args
 		) {
-			if (match(args[2])) ac.abort(new Error("caller left"));
+			if (match(args[2])) ac.abort(CREATE_LEFT);
 			return real.apply(this, args);
 		});
 	}
@@ -2754,7 +2759,9 @@ describe("the Docker seed", () => {
 			ac,
 			(b) => (b as { name?: string } | undefined)?.name === "ws-test-recovery",
 		);
-		await expect(provider.create("ws-test", SIZES, ac.signal)).rejects.toBeDefined();
+		await expect(provider.create("ws-test", SIZES, ac.signal)).rejects.toMatchObject(
+			TIMED_OUT,
+		);
 		spy.mockRestore();
 		expect(state.instanceCreates).toEqual([]);
 	});
@@ -2767,7 +2774,9 @@ describe("the Docker seed", () => {
 			ac,
 			(b) => (b as { source?: unknown } | undefined)?.source !== undefined,
 		);
-		await expect(provider.create("ws-test", SIZES, ac.signal)).rejects.toBeDefined();
+		await expect(provider.create("ws-test", SIZES, ac.signal)).rejects.toMatchObject(
+			TIMED_OUT,
+		);
 		const bodies = spy.mock.calls.map(
 			(c) => c[2] as { name?: string; source?: unknown },
 		);
@@ -3246,6 +3255,8 @@ describe("the seed builder", () => {
 
 // Once the caller has gone, nothing more is sent to Incus (SPEC.md 25.3, ADR 0034).
 describe("the caller's deadline on lifecycle calls", () => {
+	const CALLER_LEFT = new IncusError("TIMEOUT", "caller left");
+
 	/** Abort `ac` just before the first request `match` picks, then send it as normal. */
 	function abortAt(
 		ac: AbortController,
@@ -3256,24 +3267,33 @@ describe("the caller's deadline on lifecycle calls", () => {
 			this: IncusClient,
 			...args
 		) {
-			if (match(args[0], args[1])) ac.abort(new Error("caller left"));
+			if (match(args[0], args[1])) ac.abort(CALLER_LEFT);
 			return real.apply(this, args);
 		});
 	}
 
-	test("a stop whose caller left during the graceful stop sends no forced stop", async () => {
+	test("a stop whose caller left during the graceful stop still sends the forced stop", async () => {
 		const puts: Array<{ force?: boolean }> = [];
-		const inner = stopsFail("Running", puts);
+		const inner = stopsFail("Stopped", puts);
 		const ac = new AbortController();
 		handler = async (req, res) => {
-			if (req.method === "PUT") ac.abort(new Error("caller left"));
+			if (req.method === "PUT") ac.abort(CALLER_LEFT);
 			await inner(req, res);
 		};
+		const result = await provider.stop("ws-test", { timeoutSeconds: 5 }, ac.signal);
+		expect(result.forced).toBe(true);
+		expect(puts.map((p) => p.force)).toEqual([false, true]);
+	});
+
+	test("a stop whose caller left before the graceful stop sends nothing", async () => {
+		const puts: Array<{ force?: boolean }> = [];
+		handler = stopsFail("Stopped", puts);
+		const ac = new AbortController();
+		ac.abort(CALLER_LEFT);
 		await expect(
 			provider.stop("ws-test", { timeoutSeconds: 5 }, ac.signal),
-		).rejects.toBeDefined();
-		await new Promise((r) => setTimeout(r, 50));
-		expect(puts.map((p) => p.force)).toEqual([false]);
+		).rejects.toMatchObject(TIMED_OUT);
+		expect(puts).toEqual([]);
 	});
 
 	test("an aborted Docker reset makes no new volume", async () => {
@@ -3283,7 +3303,7 @@ describe("the caller's deadline on lifecycle calls", () => {
 		const spy = abortAt(ac, (method) => method === "DELETE");
 		await expect(
 			provider.resetDocker("ws-test", { dockerGiB: 20 }, ac.signal),
-		).rejects.toBeDefined();
+		).rejects.toMatchObject(TIMED_OUT);
 		spy.mockRestore();
 		expect(state.createdVolumes).toEqual([]);
 		expect(state.patches).toEqual([]);
@@ -3296,7 +3316,7 @@ describe("the caller's deadline on lifecycle calls", () => {
 		const spy = abortAt(ac, (method) => method === "DELETE");
 		await expect(
 			provider.rebuild("ws-test", { resetDocker: true, dockerGiB: 20 }, ac.signal),
-		).rejects.toBeDefined();
+		).rejects.toMatchObject(TIMED_OUT);
 		spy.mockRestore();
 		expect(state.rebuilds).toEqual([]);
 		expect(state.createdVolumes).toEqual([]);
@@ -3305,13 +3325,24 @@ describe("the caller's deadline on lifecycle calls", () => {
 	test("every Incus request in a rebuild carries the caller's signal", async () => {
 		serveIncus(fakeIncus());
 		const spy = vi.spyOn(IncusClient.prototype, "request");
+		const get = vi.spyOn(IncusClient.prototype, "getWithEtag");
+		const put = vi.spyOn(IncusClient.prototype, "putIfMatch");
 		const ac = new AbortController();
 		await provider.rebuild("ws-test", { resetDocker: true, dockerGiB: 20 }, ac.signal);
 		expect(spy.mock.calls.length).toBeGreaterThan(3);
 		for (const call of spy.mock.calls) {
 			expect(call[3], `${call[0]} ${call[1]}`).toBe(ac.signal);
 		}
+		// The Docker device detach reads and writes the instance by ETag.
+		expect(get).toHaveBeenCalled();
+		expect(put).toHaveBeenCalled();
+		for (const call of get.mock.calls)
+			expect(call[1], `GET ${call[0]}`).toBe(ac.signal);
+		for (const call of put.mock.calls)
+			expect(call[3], `PUT ${call[0]}`).toBe(ac.signal);
 		spy.mockRestore();
+		get.mockRestore();
+		put.mockRestore();
 	});
 
 	test("an aborted start writes no file and never starts the instance", async () => {
@@ -3321,9 +3352,51 @@ describe("the caller's deadline on lifecycle calls", () => {
 		const spy = abortAt(ac, (m, p) => m === "GET" && p === "/1.0/instances/ws-test");
 		await expect(
 			provider.start("ws-test", { ...START, dockerGiB: 20 }, ac.signal),
-		).rejects.toBeDefined();
+		).rejects.toMatchObject(TIMED_OUT);
 		spy.mockRestore();
 		expect(state.fileOps).toEqual([]);
 		expect(state.status).toBe("Stopped");
+	});
+
+	test("a start aborted during the Docker settings writes nothing more and never starts", async () => {
+		const state = fakeIncus();
+		const { logger, lines } = collectingLogger();
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			logger,
+		});
+		serveIncus(state);
+		const ac = new AbortController();
+		const real = IncusClient.prototype.pushFile;
+		let opsAtAbort = -1;
+		const spy = vi
+			.spyOn(IncusClient.prototype, "pushFile")
+			.mockImplementation(function (this: IncusClient, ...args) {
+				if (opsAtAbort < 0) {
+					opsAtAbort = state.fileOps.length;
+					ac.abort(CALLER_LEFT);
+				}
+				return real.apply(this, args);
+			});
+		await expect(
+			own.start(
+				"ws-test",
+				{ ...START, docker: { hubMirror: true, ghcr: false } },
+				ac.signal,
+			),
+		).rejects.toMatchObject(TIMED_OUT);
+		spy.mockRestore();
+		await new Promise((r) => setTimeout(r, 50));
+		expect(opsAtAbort).toBeGreaterThanOrEqual(0);
+		expect(state.fileOps.length).toBe(opsAtAbort);
+		expect(state.log).not.toContain("PUT /1.0/instances/ws-test/state");
+		expect(lines.some((l) => String(l.msg).includes("starting without them"))).toBe(
+			false,
+		);
 	});
 });

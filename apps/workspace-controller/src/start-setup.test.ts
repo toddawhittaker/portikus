@@ -11,6 +11,7 @@ import {
 	PROFILE_PATH,
 	setHostname,
 	setTimezone,
+	waitForAddress,
 	waitForAgent,
 } from "./start-setup.js";
 
@@ -215,5 +216,34 @@ describe("waitForAgent and the caller's signal", () => {
 			waitForAgent(silentLogger(), "127.0.0.1", port, "t", caller.signal),
 		).rejects.toThrow("the caller hung up");
 		expect(polls).toBe(0);
+	});
+});
+
+// The start's own limit ending mid-wait is a TIMEOUT the worker answers with 504, not a 500.
+describe("waitForAddress and its signal", () => {
+	const neverRunning = {
+		async request(): Promise<unknown> {
+			return { status: "Starting" };
+		},
+	} as unknown as Pick<IncusClient, "request">;
+
+	test("its own limit running out mid-sleep is a TIMEOUT", async () => {
+		const err = await waitForAddress(
+			neverRunning,
+			"ws-test",
+			Date.now() + 60_000,
+			AbortSignal.timeout(50),
+		).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(IncusError);
+		expect((err as IncusError).code).toBe("TIMEOUT");
+	});
+
+	test("a caller's abort reason is rethrown", async () => {
+		const caller = new AbortController();
+		const reason = new Error("the caller hung up");
+		setTimeout(() => caller.abort(reason), 50);
+		await expect(
+			waitForAddress(neverRunning, "ws-test", Date.now() + 60_000, caller.signal),
+		).rejects.toBe(reason);
 	});
 });

@@ -290,7 +290,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			const status = result.created ? 201 : 200;
 			return reply.code(status).send(result);
 		} catch (err) {
-			return sendError(reply, signal.aborted ? signal.reason : err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -325,7 +325,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, signal.aborted ? signal.reason : err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -350,7 +350,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, signal.aborted ? signal.reason : err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -373,7 +373,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(204).send();
 		} catch (err) {
-			return sendError(reply, signal.aborted ? signal.reason : err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -398,7 +398,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, signal.aborted ? signal.reason : err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -442,7 +442,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			);
 			return reply.code(200).send({ processes });
 		} catch (err) {
-			return sendError(reply, signal.aborted ? signal.reason : err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -558,7 +558,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			request.log.info({ instance: params.name, ...result }, "volumes grown");
 			return reply.code(200).send(result);
 		} catch (err) {
-			return sendError(reply, signal.aborted ? signal.reason : err);
+			return sendError(reply, err, signal);
 		}
 	});
 
@@ -604,7 +604,10 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 function sendError(
 	reply: { code: (n: number) => { send: (b: unknown) => unknown } },
 	err: unknown,
+	signal?: AbortSignal,
 ): unknown {
+	// Once the caller's deadline has passed, its reason (a TIMEOUT) is the answer, not the side effect.
+	if (signal?.aborted) err = signal.reason;
 	if (
 		err instanceof InstanceNotStoppedError ||
 		err instanceof VolumeInUseError ||
