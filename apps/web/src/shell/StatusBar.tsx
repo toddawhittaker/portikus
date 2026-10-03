@@ -1,5 +1,5 @@
 import type { Project, Workspace } from "@portikus/contracts";
-import { Icon } from "@portikus/ui";
+import { Icon, Meter, meterText } from "@portikus/ui";
 import { useRef } from "react";
 import { gitBar } from "../files/gitStatus.js";
 import { useGitStatus } from "../files/useGitStatus.js";
@@ -15,6 +15,7 @@ import {
 	WorkspaceDialog,
 	type WorkspaceDialogMode,
 } from "./WorkspaceDialog.js";
+import "./status-bar.css";
 
 export { PENDING_LABEL } from "./WorkspaceDialog.js";
 
@@ -43,11 +44,15 @@ export const UNVERIFIED_ANNOUNCEMENT =
 /** Fixed text for the live region, so a changing figure is not re-announced. */
 export const MEMORY_ANNOUNCEMENT = "Your workspace is using most of its memory.";
 
-export interface Meter {
-	/** "{used} of {total}". */
-	value: string;
-	/** How full, 0 to 100, for the bar. */
-	percent: number;
+export interface UsageMeter {
+	usedBytes: number;
+	totalBytes: number;
+	/** The Meter's warning mark: the threshold in force, so it warns exactly when `level` does. */
+	high: number;
+	/** "{used} of {total}", read by the meter and in the button's name. */
+	valueText: string;
+	/** "{percent}%", the visible text, so the bar keeps to one line. */
+	shortText: string;
 	level: "ok" | "warning" | "full";
 }
 
@@ -60,18 +65,20 @@ export function usageMeter(
 	figure: { usedBytes: number; totalBytes: number } | null | undefined,
 	warning = false,
 	canBeFull = false,
-): Meter | null {
+): UsageMeter | null {
 	if (!figure || figure.totalBytes <= 0) return null;
 	const share = figure.usedBytes / figure.totalBytes;
+	const warnAt = warning ? METER_CLEAR_BELOW : METER_WARN_AT;
 	const level =
-		canBeFull && share >= METER_FULL_AT
-			? "full"
-			: share >= (warning ? METER_CLEAR_BELOW : METER_WARN_AT)
-				? "warning"
-				: "ok";
+		canBeFull && share >= METER_FULL_AT ? "full" : share >= warnAt ? "warning" : "ok";
 	return {
-		value: `${formatBytes(figure.usedBytes)} of ${formatBytes(figure.totalBytes)}`,
-		percent: Math.min(100, share * 100),
+		usedBytes: figure.usedBytes,
+		totalBytes: figure.totalBytes,
+		// The Meter warns strictly past `high`; this level warns from the threshold itself.
+		high: figure.totalBytes * warnAt - 1,
+		valueText: `${formatBytes(figure.usedBytes)} of ${formatBytes(figure.totalBytes)}`,
+		// Rounded down, so 94.9% never reads as the 95% where Disk turns full.
+		shortText: `${Math.floor(share * 100)}%`,
 		level,
 	};
 }
@@ -118,104 +125,108 @@ export function StatusBar({
 
 	return (
 		<footer className="pk-statusbar" data-testid="status-bar">
-			<span
-				className="pk-statusbar-item pk-statusbar-mono pk-statusbar-path"
-				title={project ? `~/projects/${project.slug}` : "~/projects"}
-			>
-				{project ? `~/projects/${project.slug}` : "~/projects"}
-			</span>
-			{project && !project.missing ? (
-				<GitSegment workspaceId={workspaceId} projectId={project.id} />
-			) : null}
-			<span className="pk-statusbar-spacer" />
-			{countdown && (
-				<span className="pk-statusbar-item pk-tone-warning">
-					Stopping in {countdown.clock}
-				</span>
-			)}
-			{holdUntil ? (
-				<button
-					type="button"
-					className="pk-statusbar-item"
-					aria-haspopup="dialog"
-					data-testid="keep-running-indicator"
-					onClick={() => setStatusOpen(true)}
-				>
-					Kept running until {formatHoldEnd(holdUntil, timeZone)}
-					<Icon name="chevron-up" size="sm" />
-				</button>
-			) : null}
-			{/* Announce a storage class or memory crossing a threshold (SPEC.md §19.2). */}
-			<span role="status" className="sr-only" data-testid="storage-warning-announce">
-				{warning?.announcement ?? ""}
-			</span>
-			<span role="status" className="sr-only" data-testid="memory-warning-announce">
-				{memory && memory.level !== "ok" ? MEMORY_ANNOUNCEMENT : ""}
-			</span>
-			<span role="status" className="sr-only" data-testid="state-unverified-announce">
-				{unverified ? UNVERIFIED_ANNOUNCEMENT : ""}
-			</span>
-			{memory ? (
-				<MeterButton
-					label="Memory"
-					meter={memory}
-					action="See what's using memory"
-					testId="memory-meter"
-					onClick={() => showMonitor("memory")}
-				/>
-			) : null}
-			{disk ? (
-				<MeterButton
-					label="Disk"
-					meter={disk}
-					action="Open workspace storage"
-					testId="disk-meter"
-					dialog
-					onClick={() => setStatusOpen(true)}
-				/>
-			) : null}
-			{warning ? (
-				<button
-					type="button"
-					className={`pk-statusbar-item ${warning.level === "critical" ? "pk-tone-error" : "pk-tone-warning"}`}
-					aria-haspopup="dialog"
-					data-testid="storage-warning"
-					data-level={warning.level}
-					onClick={() => setStatusOpen(true)}
-				>
-					{warning.text}
-					<Icon name="chevron-up" size="sm" />
-				</button>
-			) : null}
-			<button
-				type="button"
-				className="pk-statusbar-item pk-statusbar-plain"
-				aria-haspopup="dialog"
-				data-testid="workspace-status"
-				onClick={() => setStatusOpen(true)}
-			>
+			{/* Where you are, then the workspace; the second group wraps under the first when narrow. */}
+			<div className="pk-statusbar-where">
 				<span
-					className={`pk-dot ${TONE_CLASS[resolved.tone] ?? "pk-tone-stopped"}`}
-					aria-hidden="true"
-				/>
-				<span data-testid="workspace-state" role="status">
-					{resolved.label}
+					className="pk-statusbar-item pk-statusbar-mono pk-statusbar-path"
+					title={project ? `~/projects/${project.slug}` : "~/projects"}
+				>
+					{project ? `~/projects/${project.slug}` : "~/projects"}
 				</span>
-				{unverified ? (
-					<span
-						className="pk-statusbar-item pk-tone-warning"
-						data-testid="workspace-state-unverified"
-					>
-						<Icon name="alert" size="sm" />
-						<span aria-hidden="true">unconfirmed</span>
-						{/* One hidden run, so the name reads "unconfirmed. Portikus…" with no stray space. */}
-						<span className="pk-visually-hidden">
-							unconfirmed. {UNVERIFIED_EXPLANATION}
-						</span>
-					</span>
+				{project && !project.missing ? (
+					<GitSegment workspaceId={workspaceId} projectId={project.id} />
 				) : null}
-				<Icon name="chevron-up" size="sm" />
-			</button>
+			</div>
+			<div className="pk-statusbar-status">
+				{countdown && (
+					<span className="pk-statusbar-item pk-tone-warning">
+						Stopping in {countdown.clock}
+					</span>
+				)}
+				{holdUntil ? (
+					<button
+						type="button"
+						className="pk-statusbar-item"
+						aria-haspopup="dialog"
+						data-testid="keep-running-indicator"
+						onClick={() => setStatusOpen(true)}
+					>
+						Kept running until {formatHoldEnd(holdUntil, timeZone)}
+						<Icon name="chevron-up" size="sm" />
+					</button>
+				) : null}
+				{/* Announce a storage class or memory crossing a threshold (SPEC.md §19.2). */}
+				<span role="status" className="sr-only" data-testid="storage-warning-announce">
+					{warning?.announcement ?? ""}
+				</span>
+				<span role="status" className="sr-only" data-testid="memory-warning-announce">
+					{memory && memory.level !== "ok" ? MEMORY_ANNOUNCEMENT : ""}
+				</span>
+				<span role="status" className="sr-only" data-testid="state-unverified-announce">
+					{unverified ? UNVERIFIED_ANNOUNCEMENT : ""}
+				</span>
+				{memory ? (
+					<MeterButton
+						label="Memory"
+						meter={memory}
+						action="See what's using memory"
+						testId="memory-meter"
+						onClick={() => showMonitor("memory")}
+					/>
+				) : null}
+				{disk ? (
+					<MeterButton
+						label="Disk"
+						meter={disk}
+						action="Open workspace storage"
+						testId="disk-meter"
+						dialog
+						onClick={() => setStatusOpen(true)}
+					/>
+				) : null}
+				{warning ? (
+					<button
+						type="button"
+						className={`pk-statusbar-item ${warning.level === "critical" ? "pk-tone-error" : "pk-tone-warning"}`}
+						aria-haspopup="dialog"
+						data-testid="storage-warning"
+						data-level={warning.level}
+						onClick={() => setStatusOpen(true)}
+					>
+						{warning.text}
+						<Icon name="chevron-up" size="sm" />
+					</button>
+				) : null}
+				<button
+					type="button"
+					className="pk-statusbar-item pk-statusbar-plain"
+					aria-haspopup="dialog"
+					data-testid="workspace-status"
+					onClick={() => setStatusOpen(true)}
+				>
+					<span
+						className={`pk-dot ${TONE_CLASS[resolved.tone] ?? "pk-tone-stopped"}`}
+						aria-hidden="true"
+					/>
+					<span data-testid="workspace-state" role="status">
+						{resolved.label}
+					</span>
+					{unverified ? (
+						<span
+							className="pk-statusbar-item pk-tone-warning"
+							data-testid="workspace-state-unverified"
+						>
+							<Icon name="alert" size="sm" />
+							<span aria-hidden="true">unconfirmed</span>
+							{/* One hidden run, so the name reads "unconfirmed. Portikus…" with no stray space. */}
+							<span className="pk-visually-hidden">
+								unconfirmed. {UNVERIFIED_EXPLANATION}
+							</span>
+						</span>
+					) : null}
+					<Icon name="chevron-up" size="sm" />
+				</button>
+			</div>
 
 			<WorkspaceDialog
 				workspaceId={workspaceId}
@@ -229,16 +240,17 @@ export function StatusBar({
 	);
 }
 
-const METER_CLASS: Record<Meter["level"], string> = {
+const METER_CLASS: Record<UsageMeter["level"], string> = {
 	ok: "",
 	warning: "pk-meter--warning",
 	full: "pk-meter--full",
 };
 
 /**
- * An always-visible meter (SPEC.md §19.2). Its name starts with
- * the visible text; the bar is decoration. High use adds the alert icon and
- * "high" to the name, so it is not told by colour alone.
+ * An always-visible meter (SPEC.md §19.2) on the ui Meter. It shows the
+ * label and a percentage; its name starts with those visible words, then
+ * the full figure and what it opens. High use adds the alert icon, and
+ * "nearly full" to the name, so it is not told by colour alone (SPEC.md §25.8).
  */
 function MeterButton({
 	label,
@@ -249,14 +261,18 @@ function MeterButton({
 	onClick,
 }: {
 	label: string;
-	meter: Meter;
+	meter: UsageMeter;
 	action: string;
 	testId: string;
 	dialog?: boolean;
 	onClick: () => void;
 }) {
-	const high = meter.level !== "ok";
-	const note = meter.level === "full" ? ", nearly full" : high ? ", high" : "";
+	const shown = {
+		value: meter.usedBytes,
+		max: meter.totalBytes,
+		high: meter.high,
+		valueText: meter.valueText,
+	};
 	return (
 		<button
 			type="button"
@@ -264,17 +280,11 @@ function MeterButton({
 			data-testid={testId}
 			data-level={meter.level}
 			aria-haspopup={dialog ? "dialog" : undefined}
-			aria-label={`${label} ${meter.value}${note}. ${action}`}
+			aria-label={`${label} ${meter.shortText}, ${meterText(shown)}. ${action}`}
 			onClick={onClick}
 		>
 			<span className="pk-meter-label">{label}</span>
-			<span className="pk-meter-value">
-				{high ? <Icon name="alert" size="sm" /> : null}
-				{meter.value}
-			</span>
-			<span className="pk-meter-track" aria-hidden="true">
-				<span className="pk-meter-fill" style={{ width: `${meter.percent}%` }} />
-			</span>
+			<Meter label={label} {...shown} shortText={meter.shortText} />
 		</button>
 	);
 }

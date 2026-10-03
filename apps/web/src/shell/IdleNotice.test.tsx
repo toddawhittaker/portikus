@@ -1,5 +1,6 @@
 import type { Workspace } from "@portikus/contracts";
-import { fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { Dialog, DialogRoot } from "@portikus/ui";
+import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { WORKSPACE } from "../test-utils.js";
 import { IdleNotice, idleMinutes, useIdleStopReason } from "./IdleNotice.js";
@@ -30,6 +31,44 @@ test("asks Still working?, counts down, and Keep working has focus and answers",
 	expect(document.activeElement).toBe(button);
 	fireEvent.click(button);
 	expect(onKeepWorking).toHaveBeenCalledTimes(1);
+});
+
+test("over an open dialog it is an alert dialog of its own, announced and focusable", async () => {
+	const onKeepWorking = vi.fn();
+	const deadline = new Date(Date.now() + 4 * 60_000 + 30_000).toISOString();
+	function Page({ idle }: { idle: boolean }) {
+		return (
+			<>
+				<DialogRoot open>
+					<Dialog title="Workspace">
+						<button type="button">Inside the dialog</button>
+					</Dialog>
+				</DialogRoot>
+				{idle ? (
+					<IdleNotice deadline={deadline} minutes={60} onKeepWorking={onKeepWorking} />
+				) : null}
+			</>
+		);
+	}
+	const view = render(<Page idle={false} />);
+	const inside = await screen.findByRole("button", { name: "Inside the dialog" });
+	inside.focus();
+
+	view.rerender(<Page idle />);
+
+	// Found by role, so it is not hidden from screen readers by the open dialog.
+	const alert = await screen.findByRole("alertdialog", { name: "Still working?" });
+	expect(alert.textContent).toContain("will stop in 5 minutes");
+	await waitFor(() => expect(alert.contains(document.activeElement)).toBe(true));
+	const button = screen.getByRole("button", { name: "Keep working" });
+	button.focus();
+	expect(document.activeElement).toBe(button);
+	fireEvent.click(button);
+	expect(onKeepWorking).toHaveBeenCalledTimes(1);
+
+	// Answered, the notice goes and focus is back in the dialog underneath.
+	view.rerender(<Page idle={false} />);
+	await waitFor(() => expect(document.activeElement).toBe(inside));
 });
 
 test("without an activity time it still explains the stop", () => {

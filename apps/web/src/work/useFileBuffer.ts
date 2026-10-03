@@ -121,10 +121,18 @@ export function bufferReducer(state: BufferState, action: BufferAction): BufferS
 			if (state.conflict !== null) return next;
 			return { ...next, status: "unsaved" };
 		}
+		// A failed save's message stays until a save succeeds, so each retry on a
+		// full disk does not announce it again (SPEC.md §25.8).
 		case "saveStart":
-			return { ...state, status: "saving", saveError: null };
+			return { ...state, status: "saving" };
 		case "saveDone": {
-			const next = { ...state, etag: action.etag, deleted: false, conflict: null };
+			const next = {
+				...state,
+				etag: action.etag,
+				deleted: false,
+				conflict: null,
+				saveError: null,
+			};
 			// Only what was sent is saved; anything typed meanwhile is still unsaved.
 			if (state.text === action.sent) return { ...next, dirty: false, status: "saved" };
 			return { ...next, dirty: true, status: "unsaved" };
@@ -143,6 +151,7 @@ export function bufferReducer(state: BufferState, action: BufferAction): BufferS
 				conflict: null,
 				showConflict: false,
 				status: "saved",
+				saveError: null,
 			};
 		case "keepMine":
 			return { ...state, showConflict: false };

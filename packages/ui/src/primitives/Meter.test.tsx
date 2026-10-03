@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { Meter } from "./Meter.js";
+import { Meter, meterText } from "./Meter.js";
 
 describe("Meter", () => {
 	it("is a native meter with a name, a value and the value as text", () => {
@@ -113,5 +113,59 @@ describe("Meter", () => {
 		const meter = screen.getByRole("meter") as HTMLMeterElement;
 		expect(meter.max).toBe(1);
 		expect(meter.value).toBe(0);
+	});
+
+	it("shortText replaces the visible words only; the meter still reads them all", () => {
+		const { container } = render(
+			<Meter
+				label="Memory"
+				value={9}
+				max={10}
+				high={8}
+				valueText="9 of 10"
+				shortText="90%"
+			/>,
+		);
+		expect(container.querySelector(".pk-meter-figure")?.textContent).toBe("90%");
+		expect(
+			screen.getByRole("meter", { name: "Memory" }).getAttribute("aria-valuetext"),
+		).toBe("9 of 10, nearly full");
+		// Past `high` the alert icon still marks it, so colour is not the only sign.
+		expect(
+			container.querySelector('.pk-meter-text [data-icon="alert"]'),
+		).not.toBeNull();
+	});
+
+	it("shortText below `high` shows no alert icon", () => {
+		const { container } = render(
+			<Meter
+				label="Memory"
+				value={4}
+				max={10}
+				high={8}
+				valueText="4 of 10"
+				shortText="40%"
+			/>,
+		);
+		expect(container.querySelector(".pk-meter-figure")?.textContent).toBe("40%");
+		expect(container.querySelector('.pk-meter-text [data-icon="alert"]')).toBeNull();
+	});
+
+	it("meterText gives the words the meter shows, for a control that wraps one", () => {
+		expect(meterText({ value: 8, max: 10, high: 8, valueText: "8 of 10" })).toBe(
+			"8 of 10",
+		);
+		expect(meterText({ value: 9, max: 10, high: 8, valueText: "9 of 10" })).toBe(
+			"9 of 10, nearly full",
+		);
+		expect(meterText({ value: 11, max: 10, high: 8, valueText: "11 of 10" })).toBe(
+			"11 of 10, over the limit",
+		);
+		const { container } = render(
+			<Meter label="Disk" value={9} max={10} high={8} valueText="9 of 10" />,
+		);
+		expect(container.querySelector(".pk-meter-figure")?.textContent).toBe(
+			meterText({ value: 9, max: 10, high: 8, valueText: "9 of 10" }),
+		);
 	});
 });
