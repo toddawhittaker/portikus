@@ -56,6 +56,17 @@ import {
 } from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
 import { parseIdmap, readInstanceProcesses, readUnitStartTime } from "./processes.js";
+import {
+	AGENT_HEALTH_TIMEOUT_MS,
+	prepareRecoveryMount,
+	RECOVERY_PATH,
+	STUDENT_UID,
+	setHostname,
+	setTimezone,
+	waitForAddress,
+	waitForAgent,
+	writeStartFiles,
+} from "./start-setup.js";
 
 // jscpd:ignore-start -- the worker's client mirrors this interface across HTTP.
 export interface WorkspaceProvider extends SeedBuildHost {
@@ -141,14 +152,8 @@ const ADDED_PACKAGES_PATH = "/home/student/.portikus/apt-packages.txt";
 /** The most the controller reads of that file. */
 export const ADDED_PACKAGES_MAX_BYTES = 64 * 1024;
 
-/** The image's `student` user and group. */
-const STUDENT_UID = 1000;
-
 /** How long a command the controller runs inside a container may take before `timeout` ends it. */
 const IN_CONTAINER_SECONDS = 10;
-
-/** Where the workspace agent reads its bearer token (ADR 0009). */
-const AGENT_TOKEN_PATH = "/etc/portikus/agent.token";
 
 /** A lowercase DNS label; anything else must never reach the container. */
 const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
@@ -156,16 +161,6 @@ const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 /** A lowercase DNS name, checked again here as defence in depth. */
 const DNS_NAME_PATTERN =
 	/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
-
-/**
- * Shell profile read by every login shell in the container, so a terminal,
- * a template, and a coding agent all see where previews are published
- * (BROWSER-HANDLING.md section 14). It never holds a secret.
- */
-const PROFILE_PATH = "/etc/profile.d/portikus.sh";
-
-/** Where the recovery volume is mounted inside the container (ADR 0020). */
-const RECOVERY_PATH = "/var/lib/portikus/recovery";
 
 /** How long to wait for Incus to replace a root filesystem. */
 const REBUILD_TIMEOUT_SECONDS = 600;
@@ -215,14 +210,11 @@ function assertStopped(name: string, status: string | undefined): void {
 }
 
 // The controller's own timeouts live in @portikus/contracts so the worker's budgets derive from them.
-export { INSTANCE_CREATE_WAIT_SECONDS, VOLUME_CREATE_TIMEOUT_MS };
-
-/**
- * How long the agent has to answer /health once the instance is running. This
- * is its own budget, not the rest of the start timeout, so one broken agent
- * cannot hold the worker's serial start loop for the whole start deadline.
- */
-export const AGENT_HEALTH_TIMEOUT_MS = 15_000;
+export {
+	AGENT_HEALTH_TIMEOUT_MS,
+	INSTANCE_CREATE_WAIT_SECONDS,
+	VOLUME_CREATE_TIMEOUT_MS,
+};
 
 function validateName(name: string): void {
 	const result = InstanceName.safeParse(name);
@@ -507,45 +499,15 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			);
 		}
 
-		// Every file the controller writes goes in while the container is
-		// stopped, when no student process can race the delete-then-push of
-		// `replaceFile` with a named pipe (SPEC.md §24). A pipe left at
-		// /etc/hostname would also hang the container's own init at boot.
-		await this.client.replaceFile(
+		await writeStartFiles(
+			this.client,
 			name,
-			"/etc/hostname",
-			`${opts.hostname}\n`,
-			{ uid: 0, gid: 0, mode: "0644" },
-			signal,
-		);
-
-		await this.client.replaceFile(
-			name,
-			"/etc/timezone",
-			`${opts.timezone}\n`,
-			{ uid: 0, gid: 0, mode: "0644" },
-			signal,
-		);
-
-		await this.client.replaceFile(
-			name,
-			PROFILE_PATH,
-			// TZ is a default, not an override: tmux sets the session's current
-			// zone and a login shell sources this file afterwards, so a student
-			// who changes their timezone must not get the start-time zone back.
-			// The zone was validated against the system list.
-			`export PORTIKUS_PREVIEW=true\n` +
-				`export PORTIKUS_PREVIEW_HOST_SUFFIX=${opts.previewHostSuffix}\n` +
-				`export TZ="\${TZ:-${opts.timezone}}"\n`,
-			{ uid: 0, gid: 0, mode: "0644" },
-			signal,
-		);
-
-		await this.client.replaceFile(
-			name,
-			AGENT_TOKEN_PATH,
-			opts.agentToken,
-			{ uid: STUDENT_UID, gid: STUDENT_UID, mode: "0600" },
+			{
+				hostname: opts.hostname,
+				timezone: opts.timezone,
+				previewHostSuffix: opts.previewHostSuffix,
+				agentToken: opts.agentToken,
+			},
 			signal,
 		);
 
@@ -588,11 +550,18 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 
 		const deadline = Date.now() + opts.timeoutSeconds * 1000;
-		const ipv4 = await this.waitForAddress(name, deadline, signal);
+		const ipv4 = await waitForAddress(this.client, name, deadline, signal);
 
-		await this.setHostname(name, opts.hostname, signal, opts.timeoutSeconds);
+		await setHostname(
+			this.client,
+			this.log,
+			name,
+			opts.hostname,
+			opts.timeoutSeconds,
+			signal,
+		);
 
-		await this.setTimezone(name, opts.timezone, signal, opts.timeoutSeconds);
+		await setTimezone(this.client, name, opts.timezone, opts.timeoutSeconds, signal);
 
 		// After the start: a first start after create or copy runs the image's
 		// /etc/hosts template, which would drop the line.
@@ -608,10 +577,16 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 
 		if (recoveryAttached) {
-			await this.prepareRecoveryMount(name, signal, opts.timeoutSeconds);
+			await prepareRecoveryMount(
+				this.client,
+				this.log,
+				name,
+				opts.timeoutSeconds,
+				signal,
+			);
 		}
 
-		await this.waitForAgent(ipv4, opts.agentToken);
+		await waitForAgent(this.log, ipv4, this.agentPort, opts.agentToken);
 
 		return { ipv4 };
 	}
@@ -683,163 +658,6 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			);
 			return false;
 		}
-	}
-
-	/**
-	 * A new volume's root belongs to root, and the agent runs as the student
-	 * (ADR 0020). Never fatal. chown and chmod fail when the mount is missing,
-	 * where `install -d` would quietly make a directory on the root filesystem.
-	 */
-	private async prepareRecoveryMount(
-		name: string,
-		signal: AbortSignal,
-		timeoutSeconds: number,
-	): Promise<void> {
-		for (const command of [
-			["chown", "1000:1000", RECOVERY_PATH],
-			["chmod", "0700", RECOVERY_PATH],
-		]) {
-			try {
-				const { status } = await this.client.exec(
-					name,
-					command,
-					{ timeoutSeconds },
-					signal,
-				);
-				if (status !== null && status !== 0) {
-					throw new Error(`${command[0]} exited ${status}`);
-				}
-			} catch (err) {
-				this.log.warn(
-					{ instance: name, err: errorMessage(err) },
-					"could not prepare the recovery mount",
-				);
-				return;
-			}
-		}
-	}
-
-	/**
-	 * Name the container after the workspace label so the shell prompt reads
-	 * `student@<label>` (SPEC.md section 29). Incus has no instance setting
-	 * for the hostname, so `start` writes `/etc/hostname` for the next boot
-	 * and this runs `hostname` for the current one, which the first boot
-	 * after a create needs: the image's template rewrites the file then.
-	 */
-	private async setHostname(
-		name: string,
-		hostname: string,
-		signal: AbortSignal,
-		timeoutSeconds: number,
-	): Promise<void> {
-		await this.client.exec(name, ["hostname", hostname], { timeoutSeconds }, signal);
-	}
-
-	/**
-	 * Run the container in the owner's timezone, so timestamps in
-	 * a shell, in logs, and on Git commits match the clock on the wall.
-	 *
-	 * `/etc/timezone` is what the Debian tools read and `/etc/localtime` is
-	 * what the C library reads, so both are set. The zone name was checked
-	 * against the known list before this point, so it is safe in a command.
-	 * This runs on every start, so a change takes effect at the next start.
-	 */
-	private async setTimezone(
-		name: string,
-		timezone: string,
-		signal: AbortSignal,
-		timeoutSeconds: number,
-	): Promise<void> {
-		const { status } = await this.client.exec(
-			name,
-			["ln", "-sfn", `/usr/share/zoneinfo/${timezone}`, "/etc/localtime"],
-			{ timeoutSeconds },
-			signal,
-		);
-
-		// A missing zone file in the image makes `ln` fail, and the container
-		// would then run in the wrong zone with nothing said.
-		if (status !== null && status !== 0) {
-			throw new IncusError(
-				"OPERATION_FAILED",
-				`could not set the timezone to ${timezone}: ` +
-					`/usr/share/zoneinfo/${timezone} is missing from the image ` +
-					`(ln exited ${status})`,
-			);
-		}
-	}
-
-	private async waitForAddress(
-		name: string,
-		deadline: number,
-		signal: AbortSignal,
-	): Promise<string> {
-		while (Date.now() < deadline) {
-			const state = (await this.client.request(
-				"GET",
-				`/1.0/instances/${enc(name)}/state`,
-				undefined,
-				signal,
-			)) as {
-				status: string;
-				network?: Record<
-					string,
-					{
-						addresses?: Array<{
-							family: string;
-							address: string;
-							scope: string;
-						}>;
-					}
-				>;
-			};
-
-			if (state.status === "Running" && state.network?.eth0) {
-				const addr = state.network.eth0.addresses?.find(
-					(a) => a.family === "inet" && a.scope === "global",
-				);
-				if (addr) {
-					return addr.address;
-				}
-			}
-
-			await new Promise((r) => setTimeout(r, 500));
-		}
-
-		throw new IncusError(
-			"TIMEOUT",
-			`instance ${name} did not reach Running with IPv4 before the start deadline`,
-		);
-	}
-
-	/** Poll the workspace agent's /health until it answers 200 (SPEC.md 6.3). */
-	private async waitForAgent(ipv4: string, agentToken: string): Promise<void> {
-		const url = `http://${ipv4}:${this.agentPort}/health`;
-		const deadline = Date.now() + AGENT_HEALTH_TIMEOUT_MS;
-		let attempt = 0;
-		while (Date.now() < deadline) {
-			attempt += 1;
-			this.log.debug({ ipv4, attempt }, "polling the workspace agent");
-			try {
-				const res = await fetch(url, {
-					headers: { Authorization: `Bearer ${agentToken}` },
-					signal: AbortSignal.timeout(2000),
-				});
-				// Read the body so the connection is released either way.
-				await res.arrayBuffer().catch(() => undefined);
-				if (res.status === 200) {
-					return;
-				}
-			} catch {
-				// Agent not listening yet; retry until the deadline.
-			}
-			await new Promise((r) => setTimeout(r, 1000));
-		}
-
-		throw new IncusError(
-			"TIMEOUT",
-			`workspace agent at ${ipv4} did not become healthy within ${AGENT_HEALTH_TIMEOUT_MS}ms`,
-		);
 	}
 
 	async stop(
@@ -1397,7 +1215,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			SEED_BUILDER_START_SECONDS,
 		);
 		const deadline = Date.now() + SEED_BUILDER_START_SECONDS * 1000;
-		await this.waitForAddress(
+		await waitForAddress(
+			this.client,
 			SEED_BUILDER,
 			deadline,
 			AbortSignal.timeout(SEED_BUILDER_START_SECONDS * 1000),
