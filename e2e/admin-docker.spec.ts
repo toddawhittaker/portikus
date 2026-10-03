@@ -200,16 +200,25 @@ test("the ghcr.io switch is on by default, says what breaks, and round-trips", a
 	await open(page);
 	const toggle = page.getByRole("switch", { name: "Cache ghcr.io images" });
 	await expect(toggle).toBeChecked();
-	const warning = page.locator("#docker-ghcr-warning");
-	await expect(warning).toContainText("cannot docker push to ghcr.io");
-	await expect(warning).toContainText("cannot pull private ghcr.io images");
-	await expect(warning).toContainText("tools other than Docker");
-	await expect(warning).toContainText(
+	await expect(page.locator("#docker-ghcr-warning")).toHaveText(
+		"While on, workspaces cannot push to ghcr.io.",
+	);
+	await expect(toggle).toHaveAccessibleDescription(
+		"While on, workspaces cannot push to ghcr.io.",
+	);
+	const about = page.getByRole("button", { name: "About the ghcr.io cache" });
+	await about.click();
+	const tip = openToggletip(page);
+	await expect(tip).toContainText("cannot pull private ghcr.io images");
+	await expect(tip).toContainText("tools other than Docker");
+	await expect(tip).toContainText(
 		"Turning it off reaches a running workspace only when it next starts",
 	);
-	await expect(warning).toContainText(
+	await expect(tip).toContainText(
 		"Build and push images from GitHub Actions; pull them here.",
 	);
+	await page.keyboard.press("Escape");
+	await expect(about).toBeFocused();
 
 	await toggle.click();
 	expect(await takeRegistryRequest()).toEqual({ kind: "set-ghcr", enabled: false });
@@ -334,8 +343,8 @@ test("Rebuild seed shows its progress, then the new seed", async ({ page }) => {
 	await setSeedList(["python:3.12", "node:22"]);
 	await open(page);
 	// The status region is there before the first job, so its arrival is announced.
-	const none = page.getByTestId("docker-seed-job-none");
-	await expect(none).toHaveText("The seed has not been rebuilt yet.");
+	const none = page.getByTestId("docker-seed-none");
+	await expect(none).toHaveText("No seed yet, so new Docker storage starts empty.");
 	const region = await page
 		.getByTestId("docker-seed")
 		.getByRole("status")
@@ -718,6 +727,57 @@ for (const colorScheme of ["light", "dark"] as const) {
 		).toBeVisible();
 		await expectNoViolations(page);
 		expect(await registryRequests()).toEqual([]);
+	});
+}
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`an empty Docker tab says so in one line per card, and has no accessibility violations (${colorScheme})`, async ({
+		page,
+	}) => {
+		await writeRegistryStatus();
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await page.emulateMedia({ colorScheme });
+		await open(page);
+		const seed = page.getByTestId("docker-seed");
+		await expect(page.getByTestId("docker-seed-none")).toHaveText(
+			"No seed yet, so new Docker storage starts empty.",
+		);
+		await expect(
+			seed.getByRole("heading", { level: 4, name: "Current seed" }),
+		).toHaveCount(0);
+		await expect(
+			seed.getByRole("heading", { level: 4, name: "Latest rebuild" }),
+		).toHaveCount(0);
+		await expect(page.getByTestId("docker-usage-none")).toHaveText(
+			"No images used in the last 120 days.",
+		);
+		await expect(
+			page.getByTestId("docker-usage").getByRole("heading", { level: 4 }),
+		).toHaveCount(0);
+
+		// Wide enough for two columns: the pull cache and ghcr.io share a row, the account sits under them.
+		const cache = await page.getByTestId("docker-cache").boundingBox();
+		const ghcr = await page.getByTestId("docker-ghcr").boundingBox();
+		const hub = await page.getByTestId("docker-hub").boundingBox();
+		expect(ghcr?.y).toBe(cache?.y);
+		expect(ghcr?.x).toBeGreaterThan((cache?.x ?? 0) + (cache?.width ?? 0));
+		expect(hub?.x).toBe(cache?.x);
+		expect(hub?.y).toBeGreaterThan((cache?.y ?? 0) + (cache?.height ?? 0));
+
+		// The Docker Hub warning stays in the form's column.
+		const form = await page
+			.getByRole("form", { name: "Docker Hub account" })
+			.boundingBox();
+		const warning = await page.getByTestId("docker-hub-warning").boundingBox();
+		expect(warning?.width).toBeLessThanOrEqual(form?.width ?? 0);
+		await expectNoViolations(page);
+
+		const tip = page.getByRole("button", { name: "About the ghcr.io cache" });
+		await tip.click();
+		await expect(openToggletip(page)).toBeVisible();
+		await expectNoViolations(page);
+		await page.keyboard.press("Escape");
+		await expect(tip).toBeFocused();
 	});
 }
 

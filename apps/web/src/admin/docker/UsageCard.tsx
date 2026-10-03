@@ -65,6 +65,11 @@ export function UsageCard({ data }: { data: DockerAdminResponse }) {
 				</p>
 			) : !usage.data ? (
 				<Skeleton variant="block" height={120} />
+			) : !data.seed && usage.data.notInSeed.length === 0 ? (
+				// With no seed every used image is outside it, so nothing was used at all.
+				<p className="pk-muted m-0 text-[13px]" data-testid="docker-usage-none">
+					No images used in the last {usage.data.windowDays} days.
+				</p>
 			) : (
 				<>
 					<p className="pk-muted m-0 text-[13px]" data-testid="docker-usage-window">
