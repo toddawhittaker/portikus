@@ -539,6 +539,17 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("cert-upload-preview")).toBeVisible();
 		await expectNoViolations(page);
 
+		// The shared file input with its error and hint, the error read out on picking.
+		const key = page.getByTestId("cert-upload-site").getByLabel("Private key");
+		await key.setInputFiles({
+			name: "site.der",
+			mimeType: "application/octet-stream",
+			buffer: Buffer.from("not a pem file"),
+		});
+		await expect(key).toHaveAttribute("aria-invalid", "true");
+		await expect(key).toHaveAccessibleDescription(/not in PEM format.*Not set\./);
+		await expectNoViolations(page);
+
 		// A toggletip opens and Escape closes it back onto its button.
 		const tip = page.getByRole("button", { name: "About renewal" });
 		await tip.click();
@@ -578,3 +589,53 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(page.getByRole("button", { name: "Roll back" })).toBeFocused();
 	});
 }
+
+test("the Certificate tab uses the card's width and lists install steps as pairs", async ({
+	page,
+}) => {
+	await routePage(page);
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await loginAs(page, "carol");
+	await page.goto("/admin/certificate");
+	await expect(page.getByTestId("cert-current")).toBeVisible({ timeout: 15_000 });
+
+	// Roll back's reason, when shown, sits under the buttons; here a roll back is possible.
+	await expect(page.locator("#cert-rollback-note")).toHaveCount(0);
+
+	// The source choice is the left column and the chosen source's fields the right.
+	const source = page.getByRole("group", { name: "Source" });
+	const email = page.getByLabel("Account email");
+	const left = await source.boundingBox();
+	const right = await email.boundingBox();
+	expect(left && right && right.x > left.x + left.width).toBe(true);
+	// Apply and Test only stay under the fields.
+	const testOnly = await page.getByRole("button", { name: "Test only" }).boundingBox();
+	expect(Math.round(testOnly?.x ?? 0)).toBe(Math.round(right?.x ?? -1));
+
+	// The file inputs are reached and opened from the keyboard like any control.
+	await page.getByRole("radio", { name: "Upload files", exact: true }).check();
+	const certificate = page
+		.getByTestId("cert-upload-site")
+		.getByLabel("Certificate", { exact: true });
+	await page.getByRole("radio", { name: "Upload files", exact: true }).focus();
+	await page.keyboard.press("Tab");
+	await expect(certificate).toBeFocused();
+	const [chooser] = await Promise.all([
+		page.waitForEvent("filechooser"),
+		page.keyboard.press("Space"),
+	]);
+	expect(chooser.element()).toBeTruthy();
+
+	const steps = page.getByTestId("cert-root-steps");
+	await expect(steps.locator("dt")).toHaveText([
+		"Windows",
+		"macOS",
+		"Linux",
+		"Firefox",
+	]);
+	await expect(steps.locator("dd")).toHaveCount(4);
+	// The command stays on one line.
+	const command = steps.getByText("sudo update-ca-certificates");
+	const box = await command.boundingBox();
+	expect(box?.height ?? 99).toBeLessThan(24);
+});
