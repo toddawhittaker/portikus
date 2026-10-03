@@ -23,10 +23,10 @@ import { RightPaneContext } from "./rightPane.js";
 import {
 	MEMORY_ANNOUNCEMENT,
 	StatusBar,
-	UNVERIFIED_EXPLANATION,
+	UNVERIFIED_ANNOUNCEMENT,
 	usageMeter,
 } from "./StatusBar.js";
-import type { WorkspaceDialogMode } from "./WorkspaceDialog.js";
+import { UNVERIFIED_EXPLANATION, type WorkspaceDialogMode } from "./WorkspaceDialog.js";
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -95,6 +95,42 @@ test("an unverified state is marked unconfirmed, with the reason in its accessib
 		expect(button.textContent).toContain(UNVERIFIED_EXPLANATION);
 		cleanup();
 	}
+});
+
+test("the state turning unconfirmed is announced in its own status region", () => {
+	const client = createQueryClient(() => {});
+	const wrap = (workspace: Workspace) => (
+		<QueryClientProvider client={client}>
+			<ToastProvider>
+				<Bar workspace={workspace} />
+			</ToastProvider>
+		</QueryClientProvider>
+	);
+	const { rerender } = render(wrap(WORKSPACE));
+	const region = screen.getByTestId("state-unverified-announce");
+	expect(region.getAttribute("role")).toBe("status");
+	expect(region.textContent).toBe("");
+
+	rerender(wrap({ ...WORKSPACE, stateVerified: false }));
+	expect(screen.getByTestId("state-unverified-announce").textContent).toBe(
+		UNVERIFIED_ANNOUNCEMENT,
+	);
+	expect(screen.getByTestId("workspace-state").textContent).not.toContain(
+		"unconfirmed",
+	);
+});
+
+test("the workspace dialog shows the unconfirmed warning beside the state", () => {
+	renderBar();
+	openStatus();
+	expect(screen.queryByTestId("workspace-status-unverified")).toBeNull();
+	cleanup();
+
+	renderBar({ ...WORKSPACE, stateVerified: false });
+	openStatus();
+	const line = screen.getByTestId("workspace-status-unverified");
+	expect(line.className).toContain("pk-tone-warning");
+	expect(line.textContent).toBe(UNVERIFIED_EXPLANATION);
 });
 
 test("no workspace yet reads as Connecting", () => {

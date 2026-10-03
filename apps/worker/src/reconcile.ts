@@ -1,6 +1,7 @@
 import {
 	DEFAULT_KEEP_RUNNING_MAX_HOURS,
 	PendingOperation,
+	STOP_FAILED_ERROR_CODE,
 	type WorkspaceState,
 } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
@@ -291,7 +292,7 @@ async function startStopped(ctx: SweepContext): Promise<void> {
 
 	for (const ws of toStart) {
 		record(ws.id, "start");
-		await startInBackground(ctx, ws, "stopped");
+		await startInBackground(ctx, ws, "stopped", false);
 	}
 }
 
@@ -305,6 +306,7 @@ async function startInBackground(
 		quota_config: { dockerGiB?: number; recoveryGiB?: number } | null;
 	},
 	fromState: WorkspaceState,
+	lastRetry: boolean,
 ): Promise<void> {
 	const { db, controller, config, now, log } = ctx;
 	const name = ws.incus_instance_name;
@@ -312,7 +314,14 @@ async function startInBackground(
 	if (!(await moveToStarting(db, ws.id, fromState, now))) return;
 	ctx.transitions++;
 	runInBackground(ws.id, "start", log, () =>
-		startInstance(db, controller, config, { ...ws, incus_instance_name: name }, log),
+		startInstance(
+			db,
+			controller,
+			config,
+			{ ...ws, incus_instance_name: name },
+			log,
+			lastRetry,
+		),
 	);
 }
 
@@ -494,7 +503,7 @@ async function retryErrored(ctx: SweepContext): Promise<void> {
 		const attempt = ws.start_retries + 1;
 		record(ws.id, "retry start");
 		log.info({ workspaceId: ws.id, attempt }, "retrying a failed start");
-		await startInBackground(ctx, ws, "error");
+		await startInBackground(ctx, ws, "error", attempt === MAX_START_RETRIES);
 	}
 
 	// Error with desired stopped is at rest here; step 4 stops an instance
@@ -569,6 +578,7 @@ interface TrackedRow {
 	state: WorkspaceState;
 	desired_state: string;
 	agent_address: string | null;
+	error_code: string | null;
 }
 
 /** Step 4: the instance the row tracks is gone (SPEC §25.4). */
@@ -691,18 +701,27 @@ async function resolveDrift(
 		}
 	}
 	// Stop on an errored workspace whose instance still runs (SPEC.md §6.5).
+	// A failed stop is tried once per Stop; the student's next Stop clears it.
 	if (
 		ws.state === "error" &&
 		ws.desired_state === "stopped" &&
+		ws.error_code !== STOP_FAILED_ERROR_CODE &&
 		inst.status === "Running"
 	) {
-		const updated = await casUpdate(
-			db,
-			ws.id,
-			"error",
-			{ state: "stopping", error_code: null, error_message: null },
-			now,
-		);
+		// Inline so a Start pressed since the read wins over this stop.
+		const updated = await db
+			.updateTable("workspaces")
+			.set({
+				state: "stopping",
+				error_code: null,
+				error_message: null,
+				updated_at: now.toISOString(),
+			})
+			.where("id", "=", ws.id)
+			.where("state", "=", "error")
+			.where("desired_state", "=", "stopped")
+			.returning("id")
+			.executeTakeFirst();
 		if (updated) {
 			ctx.transitions++;
 			record(ws.id, "stop errored instance");
@@ -893,7 +912,8 @@ async function refreshFromList(
 		};
 	}
 
-	// The admin health view reads this to tell a stalled worker apart.
+	// The API marks workspace state unconfirmed when this is older than two
+	// minutes (SPEC.md 18.3).
 	await db
 		.updateTable("settings")
 		.set({ controller_checked_at: now.toISOString() })
@@ -904,7 +924,14 @@ async function refreshFromList(
 	// Find rows that might be drifted.
 	const tracked = await db
 		.selectFrom("workspaces")
-		.select(["id", "incus_instance_name", "state", "desired_state", "agent_address"])
+		.select([
+			"id",
+			"incus_instance_name",
+			"state",
+			"desired_state",
+			"agent_address",
+			"error_code",
+		])
 		.where("incus_instance_name", "is not", null)
 		.where("state", "in", ["running", "stopped", "starting", "stopping", "error"])
 		.execute();
