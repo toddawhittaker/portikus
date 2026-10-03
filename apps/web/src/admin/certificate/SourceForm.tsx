@@ -187,8 +187,8 @@ export function SourceForm({ data, busy }: { data: AdminCertificate; busy: boole
 
 	return (
 		<form
-			// From @4xl the source choice sits left and the chosen source's fields right, using the card's width.
-			className="grid gap-5 @4xl:grid-cols-[minmax(0,22rem)_minmax(0,48rem)] @4xl:gap-x-10"
+			// From @3xl the source choice sits left and the chosen source's fields right, using the card's width.
+			className="grid gap-5 @3xl:grid-cols-[minmax(0,22rem)_minmax(0,48rem)] @3xl:gap-x-10"
 			noValidate
 			aria-labelledby="cert-change-title"
 			onSubmit={(event) => {

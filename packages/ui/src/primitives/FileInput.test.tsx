@@ -23,7 +23,7 @@ describe("FileInput", () => {
 		expect(screen.getByLabelText("Bare").hasAttribute("aria-describedby")).toBe(false);
 	});
 
-	it("links its error before the hint and marks the input invalid", () => {
+	it("links its hint then its error, as TextField does, and marks the input invalid", () => {
 		render(
 			<FileInput
 				id="chain"
@@ -34,7 +34,7 @@ describe("FileInput", () => {
 		);
 		const input = screen.getByLabelText("Chain");
 		expect(input.getAttribute("aria-invalid")).toBe("true");
-		expect(input.getAttribute("aria-describedby")).toBe("chain-err chain-hint");
+		expect(input.getAttribute("aria-describedby")).toBe("chain-hint chain-err");
 		expect(document.getElementById("chain-err")?.textContent).toBe(
 			"Not in PEM format.",
 		);

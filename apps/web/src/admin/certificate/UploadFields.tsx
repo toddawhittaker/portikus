@@ -73,7 +73,9 @@ function FileField({
 	error: string | undefined;
 	onText: (text: string) => void;
 }) {
-	const [problem, setProblem] = useState<string | null>(null);
+	// The pick count keys the alert, so a second bad file with the same problem is read out again.
+	const [problem, setProblem] = useState<{ text: string; pick: number } | null>(null);
+	const [picks, setPicks] = useState(0);
 	return (
 		<FileInput
 			id={id}
@@ -83,7 +85,9 @@ function FileField({
 			error={
 				problem ? (
 					// Mounted afresh on each pick, so the problem is read out at once (SPEC.md section 25.8).
-					<span role="alert">{problem}</span>
+					<span key={problem.pick} role="alert">
+						{problem.text}
+					</span>
 				) : (
 					error
 				)
@@ -91,7 +95,10 @@ function FileField({
 			onChange={async (event) => {
 				const file = event.target.files?.[0];
 				const text = file ? await file.text() : "";
-				setProblem(pemProblem(text));
+				const found = pemProblem(text);
+				const pick = picks + 1;
+				setPicks(pick);
+				setProblem(found ? { text: found, pick } : null);
 				onText(text);
 			}}
 		/>

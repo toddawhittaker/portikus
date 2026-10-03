@@ -6,6 +6,8 @@ import {
 import {
 	CONTROL_CLASS,
 	FIELD_CLASS,
+	FieldMessages,
+	fieldDescribedBy,
 	HINT_CLASS,
 	LABEL_CLASS,
 	Select,
@@ -260,17 +262,10 @@ function SecretField({
 				spellCheck={false}
 				value={value}
 				aria-invalid={error ? true : undefined}
-				aria-describedby={error ? `${id}-err ${id}-hint` : `${id}-hint`}
+				aria-describedby={fieldDescribedBy({ id, hint, error })}
 				onChange={(event) => onChange(event.target.value)}
 			/>
-			{error ? (
-				<p className="m-0 text-[12px] text-status-error leading-4" id={`${id}-err`}>
-					{error}
-				</p>
-			) : null}
-			<p className={HINT_CLASS} id={`${id}-hint`}>
-				{hint}
-			</p>
+			<FieldMessages id={id} hint={hint} error={error} />
 		</div>
 	);
 }

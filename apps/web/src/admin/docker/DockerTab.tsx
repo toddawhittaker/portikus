@@ -74,13 +74,15 @@ export function DockerTab() {
 	const data = docker.data;
 	return (
 		<AdminSection title="Docker" intro={INTRO}>
-			{/* The three short cards share a row when the tab is wide; the seed and use tables need the full width. */}
+			{/* When the tab is wide, the two short cards stack beside the Hub account so no grid cell is left empty. The seed and use tables need the full width. */}
 			<div
 				className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,36rem),1fr))] items-start gap-4"
 				data-testid="docker-settings"
 			>
-				<CacheCard data={data} />
-				<GhcrCard data={data} />
+				<div className="grid content-start gap-4">
+					<CacheCard data={data} />
+					<GhcrCard data={data} />
+				</div>
 				<HubAccountCard data={data} />
 			</div>
 			<SeedCard data={data} />

@@ -539,7 +539,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("cert-upload-preview")).toBeVisible();
 		await expectNoViolations(page);
 
-		// The shared file input with its error and hint, the error read out on picking.
+		// The shared file input with its hint then its error, as TextField reads them; the error is read out on picking.
 		const key = page.getByTestId("cert-upload-site").getByLabel("Private key");
 		await key.setInputFiles({
 			name: "site.der",
@@ -547,7 +547,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 			buffer: Buffer.from("not a pem file"),
 		});
 		await expect(key).toHaveAttribute("aria-invalid", "true");
-		await expect(key).toHaveAccessibleDescription(/not in PEM format.*Not set\./);
+		await expect(key).toHaveAccessibleDescription(/^Not set\..*not in PEM format/);
 		await expectNoViolations(page);
 
 		// A toggletip opens and Escape closes it back onto its button.
@@ -638,4 +638,31 @@ test("the Certificate tab uses the card's width and lists install steps as pairs
 	const command = steps.getByText("sudo update-ca-certificates");
 	const box = await command.boundingBox();
 	expect(box?.height ?? 99).toBeLessThan(24);
+});
+
+test("at 1024 pixels the form keeps two columns, and the table splits its width by content", async ({
+	page,
+}) => {
+	await routePage(page);
+	await page.setViewportSize({ width: 1024, height: 800 });
+	await loginAs(page, "carol");
+	await page.goto("/admin/certificate");
+	await expect(page.getByTestId("cert-current")).toBeVisible({ timeout: 15_000 });
+
+	const left = await page.getByRole("group", { name: "Source" }).boundingBox();
+	const right = await page.getByLabel("Account email").boundingBox();
+	expect(right?.x ?? 0).toBeGreaterThan((left?.x ?? 0) + (left?.width ?? 0));
+	expect(right?.y ?? 99).toBeLessThan((left?.y ?? 0) + (left?.height ?? 0));
+
+	// Certificate 28 percent, Issuer 24, Covers 28, Expires the rest.
+	const table = page.getByRole("table", { name: "Certificates in use" });
+	const width = (await table.boundingBox())?.width ?? 1;
+	const shares = await Promise.all(
+		["Certificate", "Issuer", "Covers", "Expires"].map(async (name) => {
+			const header = table.getByRole("columnheader", { name, exact: true });
+			const box = await header.boundingBox();
+			return Math.round(((box?.width ?? 0) / width) * 100);
+		}),
+	);
+	expect(shares).toEqual([28, 24, 28, 20]);
 });

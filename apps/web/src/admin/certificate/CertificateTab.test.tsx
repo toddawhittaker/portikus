@@ -626,6 +626,42 @@ test("a file that is not PEM is refused where it was chosen", async () => {
 	expect(input.getAttribute("aria-invalid")).toBe("true");
 });
 
+test("the multi-line service account key reads its hint, then its error, like every field", async () => {
+	serve(
+		data({
+			settings: {
+				...SETTINGS,
+				challenge: {
+					mode: "dns01",
+					provider: "googleclouddns",
+					fields: { gcp_project: "portikus-dns" },
+					secretsSet: {},
+				},
+			},
+		}),
+	);
+	renderWithQuery(<CertificateTab />);
+	fireEvent.click(await screen.findByTestId("cert-apply"));
+	const key = await screen.findByLabelText(/service account/i);
+	await waitFor(() => expect(key.getAttribute("aria-invalid")).toBe("true"));
+	expect(key.tagName).toBe("TEXTAREA");
+	expect(key.getAttribute("aria-describedby")).toBe(
+		"cert-dns-service_account_json-hint cert-dns-service_account_json-err",
+	);
+});
+
+test("a second bad file with the same problem mounts a fresh alert, so it is read out again", async () => {
+	serve(data({ settings: { source: "internal" } }));
+	renderWithQuery(<CertificateTab />);
+	fireEvent.click(await screen.findByTestId("cert-source-files"));
+	choose("Certificate", "binary DER bytes", "one.der");
+	const first = await screen.findByRole("alert");
+	choose("Certificate", "other DER bytes", "two.der");
+	await waitFor(() => expect(screen.getByRole("alert")).not.toBe(first));
+	expect(first.isConnected).toBe(false);
+	expect(screen.getByRole("alert").textContent).toBe(first.textContent);
+});
+
 test("the root certificate is offered for download with install steps", async () => {
 	serve(data({ settings: { source: "internal" }, rootCertificateAvailable: true }));
 	renderWithQuery(<CertificateTab />);

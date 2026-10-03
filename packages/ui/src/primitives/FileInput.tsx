@@ -1,7 +1,7 @@
 import type * as React from "react";
 import { cx } from "./cx.js";
-import { Icon } from "./Icon.js";
-import { CONTROL_CLASS, FIELD_CLASS, HINT_CLASS, LABEL_CLASS } from "./TextField.js";
+import { FieldMessages, fieldDescribedBy } from "./FieldMessages.js";
+import { CONTROL_CLASS, FIELD_CLASS, LABEL_CLASS } from "./TextField.js";
 
 export interface FileInputProps
 	extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "id" | "type"> {
@@ -24,10 +24,6 @@ export function FileInput({
 	className,
 	...rest
 }: FileInputProps): React.ReactElement {
-	const describedBy =
-		[error ? `${id}-err` : null, hint ? `${id}-hint` : null]
-			.filter(Boolean)
-			.join(" ") || undefined;
 	return (
 		<div className={cx(FIELD_CLASS, className)}>
 			<label className={LABEL_CLASS} htmlFor={id}>
@@ -45,22 +41,9 @@ export function FileInput({
 					"file:me-3 file:h-full file:cursor-pointer file:border-0 file:border-e file:border-line-strong file:border-solid file:bg-surface-sunken file:px-[var(--pk-pad)] file:font-medium file:font-sans file:text-[length:var(--pk-font)] file:text-ink hover:file:bg-surface-hover",
 				)}
 				aria-invalid={error ? true : undefined}
-				aria-describedby={describedBy}
+				aria-describedby={fieldDescribedBy({ id, hint, error })}
 			/>
-			{error ? (
-				<p
-					className="pk-error m-0 flex items-center gap-1 text-[12px] leading-4 text-status-error [overflow-wrap:anywhere]"
-					id={`${id}-err`}
-				>
-					<Icon name="alert" size="sm" />
-					{error}
-				</p>
-			) : null}
-			{hint ? (
-				<p className={HINT_CLASS} id={`${id}-hint`}>
-					{hint}
-				</p>
-			) : null}
+			<FieldMessages id={id} hint={hint} error={error} />
 		</div>
 	);
 }
