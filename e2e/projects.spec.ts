@@ -3,6 +3,7 @@ import { displayNameFromDirectory } from "../packages/contracts/src/project.ts";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	moveProjectDir,
 	projectDirs,
 	projectIds,
@@ -652,4 +653,32 @@ test.describe("projects", () => {
 		await menu.click();
 		await expect(page.getByRole("menuitem", { name: "Rename" })).toBeVisible();
 	});
+
+	/** SPEC.md §25.8: the count is said as words, not run into the label. */
+	for (const theme of ["light", "dark"] as const) {
+		test(`the Archived projects button names its count, ${theme} theme`, async ({
+			page,
+			context,
+		}) => {
+			await context.addInitScript((value) => {
+				localStorage.setItem("pk-theme", value);
+			}, theme);
+			const student = await createStudent(context);
+			const project = await createProject(student.workspaceId, {
+				name: `Archive name ${theme}`,
+			});
+			await page.goto(workspacePath(student.workspaceId, project.id));
+			await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+
+			const button = page.getByRole("button", {
+				name: "Archived projects, 0 projects",
+				exact: true,
+			});
+			await expect(button).toBeVisible({ timeout: 15_000 });
+			await button.click();
+			await expect(button).toHaveAttribute("aria-expanded", "true");
+
+			await expectNoViolations(page, ".pk-pane-foot");
+		});
+	}
 });

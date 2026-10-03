@@ -239,3 +239,18 @@ test("a click with no work area to open into does nothing", async () => {
 	expect(screen.getByTestId("search-result-src/app.ts-3")).toBeTruthy();
 	expect(document.querySelectorAll(".pk-toast")).toHaveLength(0);
 });
+
+/** SPEC.md §25.8: a result's name says which file and line, not "3const…". */
+test("a result is named by its file, line and text", async () => {
+	stubSearch({ matches: [match({ text: "\t  const answer = 42;" })] });
+	renderWithQuery(
+		<SearchPanel workspaceId={WORKSPACE} projectId={PROJECT} onClose={() => {}} />,
+	);
+
+	type("answer");
+
+	const row = await screen.findByRole("button", {
+		name: "src/app.ts, line 3: const answer = 42;",
+	});
+	expect(row.getAttribute("data-testid")).toBe("search-result-src/app.ts-3");
+});

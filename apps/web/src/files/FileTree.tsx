@@ -97,6 +97,7 @@ import {
 } from "./selection.js";
 import { openAgentSession, sessionReviewLabel } from "./sessionReview.js";
 import { useExpanded, useFileViewStore, useShowHidden } from "./store.js";
+import { selectionAfterExtend, useTreeKeys } from "./treeKeys.js";
 import { useGitStatus } from "./useGitStatus.js";
 import {
 	dropId,
@@ -130,6 +131,8 @@ interface TreeApi {
 	/** The selected rows (SPEC.md §11.2). */
 	selection: Selection;
 	clickRow: (path: string, modifiers: ClickModifiers) => void;
+	/** Shift+Arrow: run the selection from the anchor to `to`. */
+	extendTo: (from: string, to: string) => void;
 	/** The rows an action on `path` applies to: the selection, or that row. */
 	targetsFor: (node: FileNode) => FileNode[];
 	download: (nodes: readonly FileNode[]) => void;
@@ -409,6 +412,16 @@ export function FileTreePane({
 		[visibleNodes],
 	);
 
+	const extendTo = useCallback(
+		(from: string, to: string) => {
+			const order = visibleNodes().map((node) => node.path);
+			setSelection((current) =>
+				selectionAfterExtend(pruneSelection(current, order), from, to, order),
+			);
+		},
+		[visibleNodes],
+	);
+
 	/** What an action on one row applies to: the selection, or just that row. */
 	const targetsFor = useCallback(
 		(node: FileNode): FileNode[] => {
@@ -576,6 +589,7 @@ export function FileTreePane({
 			visibleNodes,
 			selection,
 			clickRow,
+			extendTo,
 			targetsFor,
 			download,
 			extract,
@@ -603,6 +617,7 @@ export function FileTreePane({
 			visibleNodes,
 			selection,
 			clickRow,
+			extendTo,
 			targetsFor,
 			download,
 			extract,
@@ -703,7 +718,12 @@ export function FileTreePane({
 						onDrop={uploadHandlers.onDrop}
 					>
 						{/* The live region exists before its text, so the text is announced. */}
-						<div role="status" data-testid="files-watch-limited-region">
+						{/* aria-live as well, so an open dialog's aria-hidden does not silence it. */}
+						<div
+							role="status"
+							aria-live="polite"
+							data-testid="files-watch-limited-region"
+						>
 							{watchLimited ? (
 								<p className="pk-watch-limited" data-testid="files-watch-limited">
 									This project is too large to update live. It refreshes when you return
@@ -927,84 +947,14 @@ function TreeRoot({ slug }: { slug: string }) {
 		if (next !== focusedPath) setFocusedPath(next);
 	});
 
-	function focusRow(element: HTMLElement | undefined) {
-		if (!element) return;
-		const path = element.getAttribute("data-path");
-		if (path !== null) api.setFocusedPath(path);
-		element.focus();
-	}
-
-	function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-		// A key pressed on the row's own button or link belongs to that control.
-		if (event.target instanceof Element && event.target.closest("button, a, input")) {
-			return;
-		}
-		const current =
-			event.target instanceof Element
-				? event.target.closest<HTMLElement>("[role=treeitem]")
-				: null;
-		if (!current) return;
-		const path = current.getAttribute("data-path") ?? "";
-		const isDir = current.getAttribute("data-kind") === "dir";
-		const open = api.expanded.includes(path);
-		const all = rows();
-		const index = all.indexOf(current);
-
-		switch (event.key) {
-			case "ArrowDown":
-				event.preventDefault();
-				focusRow(all[index + 1]);
-				break;
-			case "ArrowUp":
-				event.preventDefault();
-				focusRow(all[index - 1]);
-				break;
-			case "ArrowRight":
-				event.preventDefault();
-				if (isDir && !open) api.setOpen(path, true);
-				else if (isDir) focusRow(all[index + 1]);
-				break;
-			case "ArrowLeft": {
-				event.preventDefault();
-				if (isDir && open) {
-					api.setOpen(path, false);
-					break;
-				}
-				const parent = parentOf(path);
-				const up = all.find((row) => row.getAttribute("data-path") === parent);
-				focusRow(up);
-				break;
-			}
-			case "Enter":
-			case " ":
-				event.preventDefault();
-				if (isDir) api.toggle(path);
-				else api.openFile({ path, name: baseName(path), isDir: false });
-				break;
-			case "F10":
-				if (!event.shiftKey) break;
-				event.preventDefault();
-				api.setMenuPath(path);
-				break;
-			case "ContextMenu":
-				event.preventDefault();
-				api.setMenuPath(path);
-				break;
-			case "Delete":
-				// Delete acts on the selection when the focused row is part of it.
-				event.preventDefault();
-				api.remove({ path, name: baseName(path), isDir });
-				break;
-			default:
-				break;
-		}
-	}
+	const onKeyDown = useTreeKeys(api);
 
 	return (
 		// The ARIA tree pattern on plain elements: the roles carry the meaning.
 		<div
 			ref={ref}
 			role="tree"
+			aria-multiselectable="true"
 			aria-label={`Files in ${slug}`}
 			aria-describedby={helpId}
 			className="pk-tree"
@@ -1012,8 +962,10 @@ function TreeRoot({ slug }: { slug: string }) {
 			onKeyDown={onKeyDown}
 		>
 			<span id={helpId} className="pk-visually-hidden">
-				Arrow keys move and open folders, Enter opens a file, Shift+F10 or the Menu key
-				opens the actions for a row, Delete deletes it.
+				Arrow keys move and open folders, Home and End go to the first and last row, and
+				typing a name jumps to it. Shift with an arrow extends the selection, Ctrl+Space
+				adds or removes a row. Enter opens a file, Shift+F10 or the Menu key opens the
+				actions for a row, Delete deletes it.
 			</span>
 			<Directory dir="" level={1} />
 		</div>
@@ -1142,10 +1094,13 @@ function Row({ dir, entry, level }: { dir: string; entry: TreeEntry; level: numb
 			role="treeitem"
 			aria-level={level}
 			aria-expanded={isDir ? open : undefined}
-			aria-selected={
-				selected || (api.selection.paths.length === 0 && api.focusedPath === path)
-			}
+			aria-selected={selected}
 			data-selected={selected ? "true" : undefined}
+			data-current={
+				api.selection.paths.length === 0 && api.focusedPath === path
+					? "true"
+					: undefined
+			}
 			tabIndex={api.focusedPath === path ? 0 : -1}
 			data-path={path}
 			data-kind={isDir ? "dir" : "file"}

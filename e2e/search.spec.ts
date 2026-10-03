@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	lastSearch,
 	seedFile,
 	seedSearch,
@@ -56,6 +57,56 @@ test.describe("project search", () => {
 		await expect(row.locator("mark")).toHaveText("answer");
 		await expect(page.getByTestId("search-truncated")).toBeHidden();
 	});
+
+	/** SPEC.md §25.8: a result is named by file and line, and shows its focus. */
+	test("a result is named by its file and line and draws a focus ring", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const project = await openSearch(page, student, "Search names");
+		await seedSearch(student.workspaceId, project.slug, [
+			match(FILE, 1, 7, "const answer = 42;"),
+		]);
+
+		await page.getByTestId("search-input").fill("answer");
+		const result = page.getByRole("button", {
+			name: `${FILE}, line 1: const answer = 42;`,
+			exact: true,
+		});
+		await expect(result).toBeVisible();
+
+		// Reached from the keyboard, so :focus-visible applies.
+		await page.getByTestId("search-input").focus();
+		await page.keyboard.press("ArrowDown");
+		await expect(result).toBeFocused();
+		const ring = await result.evaluate((element) => {
+			const style = getComputedStyle(element);
+			return { width: style.outlineWidth, style: style.outlineStyle };
+		});
+		expect(ring).toEqual({ width: "2px", style: "solid" });
+	});
+
+	for (const theme of ["light", "dark"] as const) {
+		test(`the results pass axe in the ${theme} theme`, async ({ page, context }) => {
+			await context.addInitScript((value) => {
+				localStorage.setItem("pk-theme", value);
+			}, theme);
+			const student = await createStudent(context);
+			const project = await openSearch(page, student, `Search axe ${theme}`);
+			await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+			await seedSearch(student.workspaceId, project.slug, [
+				match(FILE, 1, 7, "const answer = 42;"),
+				match("docs/notes.md", 5, 1, "answer written down"),
+			]);
+
+			await page.getByTestId("search-input").fill("answer");
+			await expect(page.getByTestId(`search-result-${FILE}-1`)).toBeVisible();
+			await page.keyboard.press("ArrowDown");
+
+			await expectNoViolations(page, '[data-testid="search-panel"]');
+		});
+	}
 
 	test("a truncated search says only the first matches are shown", async ({
 		page,

@@ -61,6 +61,11 @@
 	background: var(--surface-hover);
 }
 
+.pk-search-row:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+
 .pk-search-line {
 	display: inline-block;
 	min-width: 3.5em;
@@ -68,6 +73,8 @@
 }
 
 .pk-search-hit {
+	/* A mark is black by default, which disappears on the dark theme. */
+	color: inherit;
 	background: color-mix(in srgb, var(--accent) 32%, transparent);
 	border-radius: 2px;
 }
