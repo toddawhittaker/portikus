@@ -26,6 +26,22 @@ export const CONTROLLER_BUDGET_HEADER = "x-portikus-budget-ms";
 export const INSTANCE_CREATE_BUDGET_MS =
 	INSTANCE_CREATE_WAIT_SECONDS * 1000 + 3 * VOLUME_CREATE_TIMEOUT_MS + 60_000;
 
+/** A start may wait for the agent for its timeout, plus 30 s margin (ADR 0034). */
+export function startBudgetMs(timeoutSeconds: number): number {
+	return (timeoutSeconds + 30) * 1000;
+}
+
+/** A stop may take a graceful and a forced try, the settle poll (up to 10 s), plus margin (ADR 0034). */
+export function stopBudgetMs(timeoutSeconds: number): number {
+	return (2 * timeoutSeconds + 25) * 1000;
+}
+
+/** The budget for a rebuild or a Docker reset: 15 minutes (ADR 0034). */
+export const MAINTENANCE_BUDGET_MS = 15 * 60_000;
+
+/** Resizing a workspace's volumes: a few slow LVM resizes on a busy pool fit in five minutes (ADR 0034). */
+export const GROW_BUDGET_MS = 300_000;
+
 /** The worker's budget for a quick controller call; also the controller's fallback for one (ADR 0034). */
 export const CONTROLLER_SHORT_BUDGET_MS = 30_000;
 
