@@ -79,7 +79,7 @@ test("See what's using CPU opens Monitor sorted by CPU, and the notice says when
 
 	// Move Monitor off its default sort first, so the button's sort is what shows.
 	await page.getByRole("tab", { name: "Monitor" }).click();
-	await page.getByRole("button", { name: "PID", exact: true }).click();
+	await page.getByRole("button", { name: "Command", exact: true }).click();
 	await page.getByRole("tab", { name: "Files" }).click();
 
 	await notice.getByRole("button", { name: "See what's using CPU" }).click();

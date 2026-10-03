@@ -15,6 +15,9 @@ import { z } from "zod";
 import { ApiError, request, sendJson } from "../api/request.js";
 import { formatBytes, formatCpu } from "../monitor/format.js";
 import { stopErrorText } from "../monitor/stop.js";
+import { SortAnnouncement, useAnnouncedSort } from "../table/announce.js";
+import { SortHeader } from "../table/SortHeader.js";
+import { type SortState, sortText } from "../table/sort.js";
 
 /** The browser polls once a second for at most 20 seconds (SPEC.md §20.1). */
 const POLL_MS = 1000;
@@ -43,14 +46,28 @@ export function snapshotAnswers(
 
 export type ProcessSortColumn = "cpu" | "memory";
 
-/** Highest first; ties keep PID order so the table does not jump. */
+const SORT_LABELS: Record<ProcessSortColumn, string> = { cpu: "CPU", memory: "Memory" };
+
+/**
+ * Room before a sortable column for the faint hint chevron, which sits in the
+ * cell's start padding (tables.css); its values line up under the label.
+ */
+const HINT_ROOM = "ps-[calc(var(--size-icon-sm)+3px)]";
+
+const BUSIEST_FIRST: SortState<ProcessSortColumn> = {
+	column: "cpu",
+	direction: "descending",
+};
+
+/** Ties keep PID order in both directions, so the table does not jump. */
 export function sortProcesses(
 	rows: readonly InstanceProcess[],
-	column: ProcessSortColumn,
+	sort: SortState<ProcessSortColumn>,
 ): InstanceProcess[] {
 	const value = (row: InstanceProcess) =>
-		column === "cpu" ? row.cpuPercent : row.residentBytes;
-	return [...rows].sort((a, b) => value(b) - value(a) || a.pid - b.pid);
+		sort.column === "cpu" ? row.cpuPercent : row.residentBytes;
+	const sign = sort.direction === "ascending" ? 1 : -1;
+	return [...rows].sort((a, b) => sign * (value(a) - value(b)) || a.pid - b.pid);
 }
 
 export function ownerText(uid: number): string {
@@ -119,7 +136,11 @@ export function ProcessesSection({
 	ownerName: string;
 }) {
 	const [reading, setReading] = useState<Reading>({ phase: "idle" });
-	const [sort, setSort] = useState<ProcessSortColumn>("cpu");
+	const {
+		sort,
+		setSort,
+		announcement: sortSpoken,
+	} = useAnnouncedSort(BUSIEST_FIRST, SORT_LABELS);
 	const [stopping, setStopping] = useState<Stopping | null>(null);
 	const [stopped, setStopped] = useState<Set<string>>(() => new Set());
 	const [announcement, setAnnouncement] = useState("");
@@ -245,6 +266,7 @@ export function ProcessesSection({
 			<span role="status" className="sr-only" data-testid="processes-announce">
 				{announcement}
 			</span>
+			<SortAnnouncement text={sortSpoken} testId="processes-sort-announce" />
 			{!running ? (
 				<p className="pk-text-compact pk-muted m-0">The workspace is not running.</p>
 			) : reading.phase === "idle" ? (
@@ -268,23 +290,35 @@ export function ProcessesSection({
 						Read at {readTime(reading.snapshot.takenAt ?? "")}
 					</p>
 					<table
-						className="pk-text-compact w-full text-left"
+						// An 8 px gap between columns, none after the last. Headers are muted
+						// and the sorted one is full ink, as in every .pk-table (tables.css).
+						className="pk-text-compact w-full text-left [&_:is(th,td):not(:last-child)]:pe-[var(--space-2)] [&_th]:text-ink-muted [&_th[aria-sort]]:text-ink"
 						data-testid="processes-table"
 					>
 						<caption className="sr-only">
-							Processes, highest {sort === "cpu" ? "CPU" : "memory"} first
+							Processes, {sortText(SORT_LABELS[sort.column], sort.direction)}
 						</caption>
 						<thead>
 							<tr>
+								{/* Only CPU and Memory sort: the reading is for finding what is busy. */}
 								<th scope="col">PID</th>
 								<th scope="col">Owner</th>
 								<th scope="col">Name</th>
-								<SortHeader column="cpu" label="CPU" sort={sort} onSort={setSort} />
 								<SortHeader
-									column="memory"
-									label="Memory"
+									column="cpu"
+									label={SORT_LABELS.cpu}
 									sort={sort}
 									onSort={setSort}
+									first="descending"
+									className={HINT_ROOM}
+								/>
+								<SortHeader
+									column="memory"
+									label={SORT_LABELS.memory}
+									sort={sort}
+									onSort={setSort}
+									first="descending"
+									className={HINT_ROOM}
 								/>
 								<th scope="col">
 									<span className="sr-only">Actions</span>
@@ -303,8 +337,8 @@ export function ProcessesSection({
 										<td className="pk-mono-small">{row.pid}</td>
 										<td>{ownerText(row.uid)}</td>
 										<td className="pk-mono-small break-all">{row.name}</td>
-										<td>{formatCpu(row.cpuPercent)}</td>
-										<td>{formatBytes(row.residentBytes)}</td>
+										<td className={HINT_ROOM}>{formatCpu(row.cpuPercent)}</td>
+										<td className={HINT_ROOM}>{formatBytes(row.residentBytes)}</td>
 										<td>
 											<div className="pk-action-slots">
 												{row.protected ? (
@@ -399,30 +433,5 @@ function StopDescription({ stopping }: { stopping: Stopping }) {
 				The student is told that an administrator stopped a process.
 			</span>
 		</>
-	);
-}
-
-function SortHeader({
-	column,
-	label,
-	sort,
-	onSort,
-}: {
-	column: ProcessSortColumn;
-	label: string;
-	sort: ProcessSortColumn;
-	onSort: (next: ProcessSortColumn) => void;
-}) {
-	return (
-		<th scope="col" aria-sort={sort === column ? "descending" : "none"}>
-			<button
-				type="button"
-				className="pk-focus-ring rounded-sm"
-				onClick={() => onSort(column)}
-			>
-				{label}
-				{sort === column ? <span aria-hidden="true"> ↓</span> : null}
-			</button>
-		</th>
 	);
 }

@@ -146,7 +146,10 @@ test("an administrator reads the processes, stops one, and force-stops another",
 	await expect(section.getByTestId(`processes-protected-${AGENT.pid}`)).toHaveText(
 		"Protected: the system or Portikus needs this process, so it cannot be stopped here.",
 	);
-	await expect(table.getByRole("button", { name: "Memory" })).toHaveText("Memory ↓");
+	await expect(table.getByRole("columnheader", { name: "Memory" })).toHaveAttribute(
+		"aria-sort",
+		"descending",
+	);
 
 	await section.getByRole("button", { name: "Stop <b>miner</b> (PID 42)" }).click();
 	const dialog = page.getByTestId("dialog-admin-stop-process");

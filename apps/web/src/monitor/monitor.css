@@ -62,31 +62,25 @@
 	font-size: 12px;
 }
 
-.pk-monitor-procs th button {
-	padding: 0;
-	border: 0;
-	background: transparent;
-	color: inherit;
-	font: inherit;
-	cursor: pointer;
+/* The sorted column reads in full ink, as in the admin tables (tables.css). */
+.pk-monitor-procs th[aria-sort] .pk-table-sort {
+	color: var(--ink);
 }
 
-.pk-monitor-procs th[aria-sort="ascending"] button::after,
-.pk-monitor-procs th[aria-sort="descending"] button::after {
-	margin-left: 4px;
+/*
+ * No faint hint chevron: it needs 17 px of start padding per sortable column,
+ * which the 280 px default pane cannot spare. An unsorted header still turns
+ * full ink on hover and is described as sortable.
+ */
+.pk-monitor-procs .pk-table-sort-hint {
+	display: none;
 }
 
-.pk-monitor-procs th[aria-sort="ascending"] button::after {
-	content: "↑";
-}
-
-.pk-monitor-procs th[aria-sort="descending"] button::after {
-	content: "↓";
-}
-
+/* An 8 px gap between columns keeps headers apart and leaves room for the sort hint. */
 .pk-monitor-procs th,
 .pk-monitor-procs td {
-	padding: 2px var(--space-1) 2px 0;
+	padding-block: 2px;
+	padding-inline: 0 var(--space-2);
 	white-space: nowrap;
 }
 
@@ -101,8 +95,11 @@
 	max-width: 0;
 }
 
+.pk-monitor-procs :is(th, td):last-child {
+	padding-inline-end: 0;
+}
+
 .pk-monitor-procs td.pk-monitor-actions {
-	padding-right: 0;
 	text-align: right;
 	vertical-align: middle;
 }
@@ -115,13 +112,15 @@
  * As the pane narrows, PID goes first and then Memory, so Command, CPU and
  * the two actions always fit and Stop never leaves the pane.
  * The Stop button still names the PID. Widen the pane to see both again.
+ * The widths fit a seven-digit PID and the 8 px column gaps inside the
+ * pane's padding, so the 280 px default pane shows every column but PID.
  */
-@container pk-right (width < 16rem) {
+@container pk-right (width < 19.5rem) {
 	.pk-monitor-procs .pk-monitor-pid {
 		display: none;
 	}
 }
-@container pk-right (width < 14rem) {
+@container pk-right (width < 16rem) {
 	.pk-monitor-procs .pk-monitor-mem {
 		display: none;
 	}
