@@ -445,6 +445,31 @@ test.describe("file editor", () => {
 	 */
 	const LONG_LINE = `const text = "${"x".repeat(600)}";\n`;
 
+	/**
+	 * The editor's text box says which file it holds and how Tab leaves it,
+	 * whether or not screen-reader mode is on (SPEC.md §25.8). With the mode
+	 * off Monaco used to call it "not accessible at this time".
+	 */
+	test("the editor's text box names the file and the way out", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openFileTab(page, student, "Named", PATH, CONTENT);
+		await expect(lines(page)).toContainText("const answer", { timeout: 60_000 });
+		const name = `Editor, ${PATH}. Ctrl+M makes Tab leave the editor.`;
+		const textbox = page.getByTestId(`editor-${PATH}`).getByRole("textbox");
+		await expect(textbox).toHaveAccessibleName(name);
+
+		// Turning screen-reader mode on keeps the same name.
+		await page.getByTestId("screen-reader-toggle").focus();
+		await page.keyboard.press("Enter");
+		await expect(page.getByTestId("screen-reader-status")).toHaveText(
+			"Screen-reader mode is on.",
+		);
+		await expect(textbox).toHaveAccessibleName(name);
+	});
+
 	/** A student who has changed nothing gets wrapping. */
 	test("a long line wraps for a student who chose nothing", async ({
 		page,

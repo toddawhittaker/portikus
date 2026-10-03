@@ -70,6 +70,43 @@ test("Stop from the menu posts the workspace's stop and says so", async () => {
 	).toBeDefined();
 });
 
+test("while a stop runs, the lifecycle items stay reachable but do nothing", async () => {
+	stubUsers();
+	const base = globalThis.fetch;
+	let release: (response: Response) => void = () => {};
+	const held = new Promise<Response>((resolve) => {
+		release = resolve;
+	});
+	const posts: string[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			if (init?.method !== "POST") return base(input, init);
+			posts.push(String(input));
+			return held;
+		}),
+	);
+	await openTable();
+	openMenu(uuid(1));
+	fireEvent.click(await screen.findByTestId("account-menu-stop"));
+	await waitFor(() => expect(posts).toHaveLength(1));
+
+	openMenu(uuid(1));
+	const stop = await screen.findByTestId("account-menu-stop");
+	const restart = screen.getByTestId("account-menu-restart");
+	expect(stop.textContent).toBe("Stopping…");
+	expect(stop.getAttribute("aria-disabled")).toBe("true");
+	expect(restart.getAttribute("aria-disabled")).toBe("true");
+	// Radix's disabled would take them out of the arrow-key order.
+	expect(restart.hasAttribute("data-disabled")).toBe(false);
+	fireEvent.click(restart);
+	expect(posts).toHaveLength(1);
+
+	release(new Response(null, { status: 204 }));
+	await waitFor(() => expect(stop.textContent).toBe("Stop"));
+	expect(stop.hasAttribute("aria-disabled")).toBe(false);
+});
+
 test("Disable from the menu confirms one account, leaves ticks alone and returns focus to the row's button", async () => {
 	const writes = stubUsers();
 	await openTable();
@@ -129,6 +166,9 @@ test("pressing a column header sorts the rows and says so in the caption", async
 	expect(order()[0]).toBe("Sam Course");
 	expect(table.querySelector("caption")?.textContent).toContain(
 		"sorted by Account, descending",
+	);
+	expect(screen.getByTestId("admin-sort-announce").textContent).toBe(
+		"Sorted by Account, descending",
 	);
 
 	// Activity starts with the most recent: Alice is connected now.

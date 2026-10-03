@@ -1,3 +1,5 @@
+import { UUID } from "./links.js";
+
 /** Small wording helpers shared across the app, so the same thing reads the same way everywhere. */
 
 /** "Just now", "4 minutes ago", "3 hours ago", "2 days ago"; an em dash when there is no time. */
@@ -33,4 +35,12 @@ export function joinWords(
 ): string {
 	if (words.length <= 1) return words[0] ?? "";
 	return `${words.slice(0, -1).join(", ")} ${conjunction} ${words[words.length - 1]}`;
+}
+
+/** The first 8 characters of a UUID, keeping a `user:` style prefix. */
+export function shortId(value: string): string {
+	const colon = value.indexOf(":");
+	const prefix = colon === -1 ? "" : value.slice(0, colon + 1);
+	const rest = value.slice(prefix.length);
+	return UUID.test(rest) ? `${prefix}${rest.slice(0, 8)}` : value;
 }

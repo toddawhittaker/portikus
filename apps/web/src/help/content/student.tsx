@@ -13,11 +13,11 @@ const KEYS: readonly { keys: string; what: string }[] = [
 	{ keys: "Alt+F1", what: "In the editor, open the editor's own accessibility help." },
 	{
 		keys: "Alt+Shift+Left Arrow, Alt+Shift+Right Arrow",
-		what: "Move the focused tab left or right. Delete closes it.",
+		what: "Move the focused tab left or right. Delete closes it. A tab's menu also has Move left and Move right.",
 	},
 	{
 		keys: "Shift+F10",
-		what: "Open the menu of the focused row in the file tree. The Menu key does the same.",
+		what: "Open the menu of the focused tab, or of the focused row in the file tree. The Menu key does the same.",
 	},
 	{
 		keys: "F8",
@@ -155,6 +155,18 @@ export const STUDENT_HELP: HelpPart = {
 						<li>
 							A terminal's three-dots menu splits it right or down, moves it to a new
 							tab, renames it, switches it between light and dark, or closes it.
+						</li>
+						<li>
+							You can drag a terminal's title bar onto another pane or tab. Without
+							dragging, choose <strong>Move into</strong> in its three-dots menu and
+							pick a tab; the terminal joins that tab's split.{" "}
+							<strong>Reset pane sizes</strong> in the same menu gives every pane in the
+							tab an equal share again.
+						</li>
+						<li>
+							Right-click a tab, or press <kbd className="pk-mono-body">Shift+F10</kbd>{" "}
+							on it, for <strong>Move left</strong>, <strong>Move right</strong> and{" "}
+							<strong>Close tab</strong>.
 						</li>
 						<li>
 							After the workspace stops or restarts, an old terminal says it ended.

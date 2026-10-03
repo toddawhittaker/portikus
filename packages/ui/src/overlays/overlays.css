@@ -43,7 +43,12 @@
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);
 }
-.pk-menu-item[data-disabled] {
+/* A submenu's item stays marked while its submenu is open. */
+.pk-menu-subtrigger[data-state="open"] {
+	background: var(--surface-hover);
+}
+.pk-menu-item[data-disabled],
+.pk-menu-item[aria-disabled="true"] {
 	color: var(--ink-faint);
 }
 .pk-menu-item--danger {

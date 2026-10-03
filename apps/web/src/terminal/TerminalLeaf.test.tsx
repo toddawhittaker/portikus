@@ -40,6 +40,7 @@ function renderLeaf(
 	overrides: Partial<Terminal> = {},
 	handlers: Record<string, ReturnType<typeof vi.fn>> = {},
 	alone = false,
+	moveTargets: { tabId: string; label: string }[] = [],
 ) {
 	const props = {
 		onFocus: vi.fn(),
@@ -51,6 +52,8 @@ function renderLeaf(
 		onReplace: vi.fn(),
 		onLeave: vi.fn(),
 		onMoveToNewTab: vi.fn(),
+		onMoveInto: vi.fn(),
+		onResetSizes: vi.fn(),
 		...handlers,
 	};
 	render(
@@ -69,6 +72,9 @@ function renderLeaf(
 			onReplace={props.onReplace}
 			onLeave={props.onLeave}
 			onMoveToNewTab={props.onMoveToNewTab}
+			moveTargets={moveTargets}
+			onMoveInto={props.onMoveInto}
+			onResetSizes={props.onResetSizes}
 			alone={alone}
 		/>,
 	);
@@ -238,6 +244,46 @@ test("Move to new tab is disabled for a pane that is already alone in its tab", 
 	const item = screen
 		.getByTestId("terminal-move-to-new-tab")
 		.closest('[role="menuitem"]');
+	expect(item?.getAttribute("aria-disabled")).toBe("true");
+});
+
+/** A pane can join another tab's split without a drag (WCAG 2.5.7). */
+test("Move into lists the other tabs and moves this pane into the one chosen", () => {
+	const props = renderLeaf({}, {}, false, [
+		{ tabId: "tab-b", label: "bash" },
+		{ tabId: "tab-c", label: "Claude Code" },
+	]);
+	openActions();
+	fireEvent.click(screen.getByRole("menuitem", { name: "Move into" }));
+	const submenu = screen.getByRole("menu", { name: "Move into" });
+	expect(
+		[...submenu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
+	).toEqual(["bash", "Claude Code"]);
+
+	fireEvent.click(screen.getByTestId("terminal-move-into-tab-c"));
+	expect(props.onMoveInto).toHaveBeenCalledWith(terminal.id, "tab-c");
+});
+
+test("Move into is disabled when no other tab can take the pane", () => {
+	renderLeaf();
+	openActions();
+	expect(
+		screen.getByRole("menuitem", { name: "Move into" }).getAttribute("aria-disabled"),
+	).toBe("true");
+});
+
+/** Splitters have a click alternative to dragging them (WCAG 2.5.7). */
+test("Reset pane sizes asks the tab to share its space out evenly", () => {
+	const props = renderLeaf();
+	openActions();
+	fireEvent.click(screen.getByTestId("terminal-reset-sizes"));
+	expect(props.onResetSizes).toHaveBeenCalled();
+});
+
+test("Reset pane sizes is disabled for a pane alone in its tab", () => {
+	renderLeaf({}, {}, true);
+	openActions();
+	const item = screen.getByTestId("terminal-reset-sizes").closest('[role="menuitem"]');
 	expect(item?.getAttribute("aria-disabled")).toBe("true");
 });
 

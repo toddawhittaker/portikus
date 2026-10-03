@@ -23,7 +23,7 @@ import {
 	workspaceLabel,
 } from "../people.js";
 import { useAdminUsers } from "../queries.js";
-import type { SortState } from "../table/sort.js";
+import { SortAnnouncement, useAnnouncedSort } from "../table/announce.js";
 import {
 	DEFAULT_LEVELS,
 	DEFAULT_WINDOW,
@@ -39,7 +39,7 @@ import {
 import { LogResults } from "./LogResults.js";
 import { LEVEL_LABELS, SERVICE_LABELS } from "./line.js";
 import { ServiceLogLevel } from "./ServiceLogLevel.js";
-import { DEFAULT_LOG_SORT, type LogColumn } from "./sort.js";
+import { DEFAULT_LOG_SORT, LOG_COLUMN_LABEL } from "./sort.js";
 
 /** The form's copy of the filters; times are `datetime-local` values. */
 interface Draft {
@@ -98,7 +98,10 @@ export function LogsTab() {
 	const [invalid, setInvalid] = useState<Record<string, string>>({});
 	// Kept here, not in the results, so a new filter does not reset it.
 	const [auto, setAuto] = useState(true);
-	const [sort, setSort] = useState<SortState<LogColumn>>(DEFAULT_LOG_SORT);
+	const { sort, setSort, announcement } = useAnnouncedSort(
+		DEFAULT_LOG_SORT,
+		LOG_COLUMN_LABEL,
+	);
 	const formRef = useRef<HTMLFormElement>(null);
 	// A new link (a chart bar, "View logs") refills the form.
 	if (draftKey !== key) {
@@ -366,6 +369,7 @@ export function LogsTab() {
 				sort={sort}
 				setSort={setSort}
 			/>
+			<SortAnnouncement text={announcement} testId="logs-sort-announce" />
 		</AdminSection>
 	);
 }

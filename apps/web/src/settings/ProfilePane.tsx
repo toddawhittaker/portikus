@@ -1,12 +1,21 @@
 import { GithubLink, githubHref, WebsiteLink } from "@portikus/contracts";
-import { Button, FileInput, Skeleton, TextField, Toggletip } from "@portikus/ui";
+import {
+	Button,
+	FieldMessages,
+	fieldDescribedBy,
+	LABEL_CLASS,
+	Skeleton,
+	TextField,
+	Toggletip,
+} from "@portikus/ui";
+import { useRef } from "react";
 import { useMe } from "../useMe.js";
 import { ControlFrame, useShowSetting } from "./controls.js";
 import { LinkedAccounts } from "./LinkedAccounts.js";
 import { useProfile, useRemovePicture, useUploadPicture } from "./profileQueries.js";
 import { SETTINGS_SECTIONS } from "./sections.js";
 
-const PICTURE_INPUT_ID = "profile-picture-file";
+const PICTURE_ID = "profile-picture";
 
 const PROFILE = SETTINGS_SECTIONS.find((section) => section.id === "profile");
 
@@ -99,6 +108,16 @@ export function ProfilePane({
 	const user = me.status === "authenticated" ? me.user : null;
 	const saved = profile.data;
 	const pictureError = upload.error ?? remove.error;
+	const pictureErrorText = pictureError
+		? pictureError instanceof Error
+			? pictureError.message
+			: "The picture was not saved."
+		: null;
+	const pictureHint = upload.isPending
+		? "Saving your picture…"
+		: "A PNG or JPEG of up to 1 MiB. It is saved as soon as you choose it and shows in the account menu.";
+	const pictureInput = useRef<HTMLInputElement>(null);
+	const chooseButton = useRef<HTMLButtonElement>(null);
 	const github = checkLink(GithubLink, links.github);
 	const website = checkLink(WebsiteLink, links.website);
 	const commitOnEnter = (event: { key: string }) => {
@@ -119,46 +138,33 @@ export function ProfilePane({
 		switch (controlId) {
 			case "profile-picture":
 				return (
-					<div className="flex items-start gap-3">
-						{saved?.picture ? (
-							<img
-								src={saved.picture}
-								alt="Your profile"
-								data-testid="profile-picture"
-								className="size-12 shrink-0 rounded-full border border-line object-cover"
-							/>
-						) : (
-							<span
-								className="grid size-12 shrink-0 place-items-center rounded-full border border-line bg-surface-sunken text-[15px] font-semibold text-ink"
-								data-testid="account-initials"
-								aria-hidden="true"
-							>
-								{initials(user?.displayName ?? "")}
-							</span>
-						)}
-						<div className="grid min-w-0 flex-1 justify-items-start gap-3">
-							<FileInput
-								id={PICTURE_INPUT_ID}
-								className="w-full"
-								label="Profile picture"
+					<div className="grid gap-2">
+						<span className={LABEL_CLASS}>Profile picture</span>
+						<div className="flex flex-wrap items-center gap-3">
+							{saved?.picture ? (
+								<img
+									src={saved.picture}
+									alt="Your profile"
+									data-testid="profile-picture"
+									className="size-12 shrink-0 rounded-full border border-line object-cover"
+								/>
+							) : (
+								<span
+									className="grid size-12 shrink-0 place-items-center rounded-full border border-line bg-surface-sunken text-[15px] font-semibold text-ink"
+									data-testid="account-initials"
+									aria-hidden="true"
+								>
+									{initials(user?.displayName ?? "")}
+								</span>
+							)}
+							{/* A button, not the browser's file field: the field's "No file chosen"
+							    reads as if the saved picture were missing. */}
+							<input
+								ref={pictureInput}
+								type="file"
 								accept="image/png,image/jpeg"
+								hidden
 								data-testid="profile-picture-input"
-								aria-busy={upload.isPending ? true : undefined}
-								hint={
-									upload.isPending
-										? "Saving your picture…"
-										: "A PNG or JPEG of up to 1 MiB. It is saved as soon as you choose it and shows in the account menu."
-								}
-								error={
-									pictureError ? (
-										// Mounted afresh on each failure, so it is read out at once (SPEC.md section 25.8).
-										<span role="alert" data-testid="profile-picture-error">
-											{pictureError instanceof Error
-												? pictureError.message
-												: "The picture was not saved."}
-										</span>
-									) : null
-								}
 								onChange={(event) => {
 									const file = event.target.files?.[0];
 									if (file) upload.mutate(file);
@@ -166,14 +172,27 @@ export function ProfilePane({
 									event.target.value = "";
 								}}
 							/>
+							<Button
+								ref={chooseButton}
+								variant="secondary"
+								data-testid="profile-picture-choose"
+								aria-describedby={fieldDescribedBy({
+									id: PICTURE_ID,
+									hint: pictureHint,
+									error: pictureErrorText,
+								})}
+								loading={upload.isPending}
+								onClick={() => pictureInput.current?.click()}
+							>
+								Choose picture…
+							</Button>
 							{saved?.picture ? (
 								<Button
 									variant="secondary"
 									onClick={() =>
 										remove.mutate(undefined, {
 											// The button goes away with the picture; keep focus beside it.
-											onSuccess: () =>
-												document.getElementById(PICTURE_INPUT_ID)?.focus(),
+											onSuccess: () => chooseButton.current?.focus(),
 										})
 									}
 									loading={remove.isPending}
@@ -182,6 +201,18 @@ export function ProfilePane({
 								</Button>
 							) : null}
 						</div>
+						<FieldMessages
+							id={PICTURE_ID}
+							hint={pictureHint}
+							error={
+								pictureErrorText ? (
+									// Mounted afresh on each failure, so it is read out at once (SPEC.md section 25.8).
+									<span role="alert" data-testid="profile-picture-error">
+										{pictureErrorText}
+									</span>
+								) : null
+							}
+						/>
 					</div>
 				);
 			case "github":
@@ -235,8 +266,9 @@ export function ProfilePane({
 	const [picture, ...linkControls] = about?.controls ?? [];
 
 	return (
-		<section className="grid gap-6" aria-labelledby="settings-section-profile">
-			<h2 id="settings-section-profile" className="pk-text-heading text-ink">
+		<section className="relative grid gap-6" aria-labelledby="settings-section-profile">
+			{/* The section list already shows which section is open (SPEC.md section 25.8). */}
+			<h2 id="settings-section-profile" className="sr-only">
 				Profile
 			</h2>
 			{me.status === "loading" || profile.isPending ? <ProfileSkeleton /> : null}
@@ -279,7 +311,14 @@ export function ProfilePane({
 											</Toggletip>
 										) : null}
 									</dt>
-									<dd className="pk-text-body pk-settings-value m-0 text-ink">
+									<dd
+										className={
+											// A sign-in name is an ID; a Dex local one is a long encoded subject.
+											control.id === "sign-in-name" && user?.signInName
+												? "pk-mono-small pk-settings-value m-0 text-ink"
+												: "pk-text-body pk-settings-value m-0 text-ink"
+										}
+									>
 										{signInValue(control.id)}
 									</dd>
 								</ControlFrame>

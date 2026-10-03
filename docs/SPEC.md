@@ -1587,8 +1587,12 @@ output renders about half as fast. The default is the one constant
 `EDITOR_SETTINGS_DEFAULTS.screenReaderMode` in the contracts package. When
 on, every terminal and the check output run in xterm.js screen-reader
 mode, and every Monaco editor, the diff editor included, runs with
-`accessibilitySupport` "on"; when off, Monaco's support is "off", never
-"auto", because a browser cannot detect a screen reader. A change applies
+`accessibilitySupport` "on"; when off, Monaco's support is "auto", not
+"off". A browser cannot detect a screen reader, so in practice "auto"
+behaves as off, but it keeps the editor's own name, which "off" replaces
+with "The editor is not accessible at this time.". That name gives the
+file and the way out, such as "Editor, src/app.ts. Ctrl+M makes Tab leave
+the editor.", and each side of a diff is named the same way. A change applies
 to open terminals and editors without a reload. It is set in Settings or
 by the workspace page's first Tab stop, a skip-link-style button that is
 hidden until focused, reads "Turn on screen-reader mode" or "Turn off

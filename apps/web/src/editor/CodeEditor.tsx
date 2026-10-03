@@ -10,6 +10,7 @@ import {
 	accessibilitySupport,
 	baseEditorOptions,
 	currentThemeName,
+	editorAriaLabel,
 	getMonaco,
 	languageForFile,
 	watchTheme,
@@ -172,6 +173,7 @@ export function CodeEditor({
 				fontSize: fontSizeFor(zoomRef.current),
 				wordWrap: wrapRef.current,
 				accessibilitySupport: accessibilitySupport(screenReaderRef.current),
+				ariaLabel: editorAriaLabel("Editor", path),
 			});
 			// Editor-only zoom by keyboard (SPEC.md §13.1). Monaco swallows these
 			// keys, so the browser's own zoom does not also fire.

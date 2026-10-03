@@ -12,6 +12,7 @@ import {
 	MenuRadioItem,
 	MenuRoot,
 	MenuSeparator,
+	MenuSub,
 	MenuTrigger,
 } from "./menu";
 
@@ -71,6 +72,29 @@ describe("Menu", () => {
 		expect(disabled.getAttribute("data-disabled")).not.toBeNull();
 		fireEvent.click(disabled);
 		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("keeps an unavailable item reachable but does not select it", () => {
+		const onSelect = vi.fn();
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="Workspace actions">
+					<MenuItem unavailable onSelect={onSelect}>
+						Stop
+					</MenuItem>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.pointerDown(screen.getByText("Actions"), { button: 0 });
+
+		const item = screen.getByRole("menuitem", { name: "Stop" });
+		expect(item.getAttribute("aria-disabled")).toBe("true");
+		// Not Radix's disabled, which the arrow keys skip.
+		expect(item.hasAttribute("data-disabled")).toBe(false);
+		fireEvent.click(item);
+		expect(onSelect).not.toHaveBeenCalled();
+		expect(screen.getByRole("menu")).toBeTruthy();
 	});
 
 	it("renders a download item as a link that saves under a name", () => {
@@ -221,5 +245,46 @@ describe("Menu", () => {
 		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
 		const check = screen.getByRole("menuitemcheckbox", { name: "Light terminal" });
 		expect(check.firstElementChild?.classList.contains("pk-menu-check")).toBe(true);
+	});
+
+	it("opens a submenu named by its item, from the keyboard", () => {
+		const onSelect = vi.fn();
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="Pane">
+					<MenuSub label="Move into">
+						<MenuItem onSelect={onSelect}>bash</MenuItem>
+					</MenuSub>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
+		const item = screen.getByRole("menuitem", { name: "Move into" });
+		expect(item.getAttribute("aria-haspopup")).toBe("menu");
+
+		fireEvent.keyDown(item, { key: "ArrowRight" });
+		expect(screen.getByRole("menu", { name: "Move into" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("menuitem", { name: "bash" }));
+		expect(onSelect).toHaveBeenCalledTimes(1);
+	});
+
+	it("a disabled submenu item does not open", () => {
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="Pane">
+					<MenuSub label="Move into" disabled>
+						<MenuItem>bash</MenuItem>
+					</MenuSub>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
+		const item = screen.getByRole("menuitem", { name: "Move into" });
+		expect(item.getAttribute("aria-disabled")).toBe("true");
+
+		fireEvent.keyDown(item, { key: "ArrowRight" });
+		expect(screen.queryByRole("menu", { name: "Move into" })).toBeNull();
 	});
 });

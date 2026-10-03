@@ -53,6 +53,14 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(table).toHaveAccessibleName(
 			"Loaded log lines, sorted by Level, descending",
 		);
+		await expect(page.getByTestId("logs-sort-announce")).toHaveText(
+			"Sorted by Level, descending",
+		);
+		// Pressed again, the flip is announced as well.
+		await page.keyboard.press("Enter");
+		await expect(page.getByTestId("logs-sort-announce")).toHaveText(
+			"Sorted by Level, ascending",
+		);
 		const sorted = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(sorted.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});
