@@ -296,6 +296,12 @@ jobs:
         # One attempt: a killed attempt leaves apt holding the dpkg lock, so a retry cannot succeed.
         timeout-minutes: 12
         run: pnpm exec playwright install --with-deps --only-shell chromium
+      - name: TEMP probe
+        if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
+        run: |
+          pnpm exec playwright install-deps --dry-run chromium || true
+          for p in tmux zip unzip ripgrep shellcheck age apt-utils; do dpkg -s $p >/dev/null 2>&1 && echo "HAVE $p" || echo "MISSING $p"; done
+          cat /etc/os-release | head -3; echo "ImageVersion=$ImageVersion"
       # The Playwright servers run the compiled output, and Vite serves the
       # ui package's theme and fonts from its dist, so build both first.
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
