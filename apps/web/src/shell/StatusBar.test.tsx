@@ -109,6 +109,8 @@ test("the state turning unconfirmed is announced in its own status region", () =
 	const { rerender } = render(wrap(WORKSPACE));
 	const region = screen.getByTestId("state-unverified-announce");
 	expect(region.getAttribute("role")).toBe("status");
+	// Explicitly live, so an open modal dialog's aria-hidden leaves it audible.
+	expect(region.getAttribute("aria-live")).toBe("polite");
 	expect(region.textContent).toBe("");
 
 	rerender(wrap({ ...WORKSPACE, stateVerified: false }));
@@ -302,6 +304,9 @@ test("at 80% the status bar names the class", async () => {
 	);
 	expect(screen.getByTestId("storage-warning-announce").getAttribute("role")).toBe(
 		"status",
+	);
+	expect(screen.getByTestId("storage-warning-announce").getAttribute("aria-live")).toBe(
+		"polite",
 	);
 });
 

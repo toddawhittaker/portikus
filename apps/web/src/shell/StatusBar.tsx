@@ -156,13 +156,28 @@ export function StatusBar({
 					</button>
 				) : null}
 				{/* Announce a storage class or memory crossing a threshold (SPEC.md §19.2). */}
-				<span role="status" className="sr-only" data-testid="storage-warning-announce">
+				<span
+					role="status"
+					aria-live="polite"
+					className="sr-only"
+					data-testid="storage-warning-announce"
+				>
 					{warning?.announcement ?? ""}
 				</span>
-				<span role="status" className="sr-only" data-testid="memory-warning-announce">
+				<span
+					role="status"
+					aria-live="polite"
+					className="sr-only"
+					data-testid="memory-warning-announce"
+				>
 					{memory && memory.level !== "ok" ? MEMORY_ANNOUNCEMENT : ""}
 				</span>
-				<span role="status" className="sr-only" data-testid="state-unverified-announce">
+				<span
+					role="status"
+					aria-live="polite"
+					className="sr-only"
+					data-testid="state-unverified-announce"
+				>
 					{unverified ? UNVERIFIED_ANNOUNCEMENT : ""}
 				</span>
 				{memory ? (
@@ -208,7 +223,7 @@ export function StatusBar({
 						className={`pk-dot ${TONE_CLASS[resolved.tone] ?? "pk-tone-stopped"}`}
 						aria-hidden="true"
 					/>
-					<span data-testid="workspace-state" role="status">
+					<span data-testid="workspace-state" role="status" aria-live="polite">
 						{resolved.label}
 					</span>
 					{unverified ? (

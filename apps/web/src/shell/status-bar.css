@@ -103,7 +103,7 @@ button.pk-statusbar-meter {
 
 /* The Git line of the status bar is muted when there is no repository. */
 .pk-statusbar-muted {
-	color: var(--ink-faint);
+	color: var(--ink-muted);
 }
 
 /* Too narrow for a button's one line, such as "Kept running until …": its text wraps rather than overflowing. Last, so it wins over the rules above. */

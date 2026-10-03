@@ -29,6 +29,9 @@ test("asks Still working?, counts down, and Keep working has focus and answers",
 
 	const button = screen.getByRole("button", { name: "Keep working" });
 	expect(document.activeElement).toBe(button);
+	// Heard through the focused button; a live region would re-read each minute.
+	expect(notice.getAttribute("role")).toBeNull();
+	expect(notice.getAttribute("aria-live")).toBeNull();
 	fireEvent.click(button);
 	expect(onKeepWorking).toHaveBeenCalledTimes(1);
 });
