@@ -71,6 +71,13 @@ test("the state is a button labelled with the workspace state, and the leave-ter
 	expect(button.tagName).toBe("BUTTON");
 	expect(screen.getByTestId("workspace-state").textContent).toBe("Running");
 	expect(screen.queryByText(/Leave terminal/)).toBeNull();
+	// The state is announced from a region outside the button, so an open
+	// dialog's aria-hidden still hides the button.
+	expect(button.querySelector('[role="status"]')).toBeNull();
+	const region = screen.getByTestId("workspace-state-announce");
+	expect(region.textContent).toBe("Running");
+	expect(region.getAttribute("aria-live")).toBe("polite");
+	expect(button.contains(region)).toBe(false);
 });
 
 test("a stopped workspace is labelled Stopped", () => {

@@ -180,6 +180,15 @@ export function StatusBar({
 				>
 					{unverified ? UNVERIFIED_ANNOUNCEMENT : ""}
 				</span>
+				{/* Outside the button, so an open dialog's aria-hidden still hides the button. */}
+				<span
+					role="status"
+					aria-live="polite"
+					className="sr-only"
+					data-testid="workspace-state-announce"
+				>
+					{resolved.label}
+				</span>
 				{memory ? (
 					<MeterButton
 						label="Memory"
@@ -223,9 +232,7 @@ export function StatusBar({
 						className={`pk-dot ${TONE_CLASS[resolved.tone] ?? "pk-tone-stopped"}`}
 						aria-hidden="true"
 					/>
-					<span data-testid="workspace-state" role="status" aria-live="polite">
-						{resolved.label}
-					</span>
+					<span data-testid="workspace-state">{resolved.label}</span>
 					{unverified ? (
 						<span
 							className="pk-statusbar-item pk-tone-warning"

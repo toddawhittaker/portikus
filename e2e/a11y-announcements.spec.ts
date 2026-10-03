@@ -15,7 +15,7 @@ const REGIONS = [
 	"storage-warning-announce",
 	"memory-warning-announce",
 	"state-unverified-announce",
-	"workspace-state",
+	"workspace-state-announce",
 	"screen-reader-status",
 ];
 
@@ -26,6 +26,13 @@ test("status regions stay audible while Settings is open", async ({
 	const student = await createStudent(context);
 	await page.goto(workspacePath(student.workspaceId));
 	await expect(page.getByTestId("workspace-status")).toBeVisible({ timeout: 15_000 });
+	// The dialog hides the page as it is when it opens, so let it finish loading.
+	await expect(
+		page.getByTestId("empty-projects").getByRole("button", { name: "New project" }),
+	).toBeVisible({
+		timeout: 15_000,
+	});
+	await expect(page.getByTestId("memory-meter")).toBeVisible({ timeout: 15_000 });
 
 	await page.getByTestId("me").click();
 	await page.getByRole("menuitem", { name: "Settings" }).click();
@@ -39,6 +46,16 @@ test("status regions stay audible while Settings is open", async ({
 			.evaluate((node) => node.closest('[aria-hidden="true"]') !== null);
 		expect(hidden, `${id} is under aria-hidden`).toBe(false);
 	}
+
+	// Keeping the regions audible must not leave a control around them reachable.
+	const exposed = await page
+		.getByRole("button")
+		.evaluateAll((buttons) =>
+			buttons
+				.filter((button) => !button.closest('[role="dialog"]'))
+				.map((button) => button.getAttribute("data-testid") ?? button.textContent),
+		);
+	expect(exposed).toEqual([]);
 });
 
 test("the disconnect stop is announced once, with a fixed time, from an always-mounted region", async ({
