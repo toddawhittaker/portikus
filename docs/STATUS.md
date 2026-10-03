@@ -4154,3 +4154,92 @@ Gaps:
 - No Playwright test for start retries, since nothing new is shown.
 - The 14 files over 800 lines are warned about, not split.
 - The #1041 part S3 refactors are still open.
+
+## Epic 32 — Split the busiest hotspots, one deadline for every controller call
+
+Built on `epic/32-hotspots` (task PRs #1082 to #1091 and this fold),
+issue #1041. No migration. SPEC.md sections 6.5 and 25.3, and ADR 0034
+decisions 7 and 9.
+
+Delivered:
+
+- Contracts: the start, stop, maintenance and growth budgets live in
+  `packages/contracts` beside the create budget, with values unchanged.
+  The worker and the controller both read them there.
+- Controller: start, stop, reset-Docker, rebuild and volume growth
+  honour the worker's budget header and its hang-up, as create and the
+  process read already did. The signal reaches every Incus request and
+  polling loop. Without the header, or above it, the controller uses the
+  contract formula. Concurrent callers share one run, aborted only when
+  all have left. On abort the controller sends Incus nothing more and
+  never cancels a started operation. Steps keep their own limits, and
+  the caller's signal only adds to them.
+- Controller: once a graceful stop has been sent, the stop always runs
+  on to the forced stop, so a resource-guard or admin stop is never lost
+  to a worker that gave up.
+- Controller: once the start request has been sent to Incus, a start
+  always finishes its remaining steps, and the controller logs when a
+  caller hangs up or runs out of budget and when a start or stop
+  finishes after its caller left (#1094).
+- Controller: the start's in-container setup is a list of named steps in
+  `start-setup.ts`, in the same order. A failed hostname set now logs a
+  warning and the start carries on.
+- Controller: the Docker seed builder is its own `IncusSeedBuilder` in
+  `seed-builder.ts`, and the provider and builder share the volume
+  helpers in `host.ts`. `provider.ts` went from 1,681 to about 1,470
+  lines.
+- Workspace agent: the terminal, project, file, Git, search and recovery
+  routes are Fastify plugins in their own files, and `server.ts` only
+  wires them (about 250 lines). Routes, statuses and bodies are
+  unchanged.
+- Web: the terminal socket's connect, backoff, close codes and frame
+  handling live in `terminal/terminalSocket.ts`, all terminal files are
+  under `apps/web/src/terminal/`, and a lost session goes through one
+  `sessionEnded()` instead of a prop passed through five components.
+- Web: the editor's buffer state (autosave, version checks, conflicts,
+  deleted on disk, flush on close) is a reducer-based `useFileBuffer`
+  hook, and `FileLeaf` is view code only. A review fix closed a race
+  between typing and the save follow-up, with a test.
+
+Verified: battery at 64d52b3e: `make check` green (6,310 tests;
+coverage lines 93.94 %, branches 86.02 %, statements 92.04 %, functions
+91.59 %), e2e 736 passed, 1 skipped, 1 flake under host load
+(`agent-upgrade.spec.ts` "a page opened on an already upgraded agent
+shows no toast": the poll for zero attachments can miss the
+about-3-second drop window; it passes alone). Rehearsal VM at
+0.1.886+g6f1f8acd: smoke 362/0 with the Dex sign-in, Caddy 149/0,
+security 392/1 (the expected off-pilot probe), rebuild-exercise passed,
+hand checks passed except a late worker restart during a start (fixed by
+#1094). Second rehearsal at 0.1.888+g3bd51b32: smoke 362/0, worker
+restarts at 0.7 s, 2.5 s and after Running all end fully set up, stop
+checks with a SIGTERM-ignoring process pass, and a fresh workspace's
+hostname, timezone, profile, token and recovery mount are correct.
+
+Pilot: 0.1.888+g3bd51b32 installed 2026-10-03 with apt (setup failed=0, no migrations), smoke 233 passed, 0 failed (Dex password sign-in skipped: no pilot sign-in file; lifecycle, terminal and project checks skipped: a workspace exists); controller log clean after the install.
+
+Gaps:
+
+- A stop that outlives the worker's budget still finishes, but the
+  worker gets `TIMEOUT` and may mark the row errored until the sweep
+  sees the instance stopped.
+- The agent now prunes old pastes after any write under
+  `.portikus/pastes/`, including a folder create or a move, not only a
+  file write.
+- The file tree's terminal list now also sends a lost session to the
+  session-ended page.
+- `provider.ts` is still over 800 lines (about 1,470).
+- Set-limits, CPU allowance, replace-home, deleting kept volumes and the
+  added-packages read do not take the caller's signal yet.
+- The start's own timeout can still run out after Incus has started the
+  instance. The worker then retries, and each retry force-stops first, so
+  only a worker that also dies at that moment leaves a half-set-up
+  workspace.
+- A worker restart before the start request shows the workspace in error
+  for about 10 seconds, until the automatic retry.
+- The sweep can show a workspace running about a second before the
+  controller finishes its setup.
+- An exec whose socket errors is reported as "exec timed out". This
+  was already so, and was seen once in the optional package survey right
+  after a start.
+- `/etc/hostname` holds the instance name until the second start (the
+  image template, already so).

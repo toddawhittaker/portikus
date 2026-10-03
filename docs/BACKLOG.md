@@ -1973,3 +1973,43 @@ when the job fails.
 **What it would take.** Take the recovery point only after the capped insert succeeds, or delete it when the create is refused, with an API test.
 
 **Source.** Epic 31.
+
+## Caller deadlines on the remaining controller calls
+
+**What.** Set-limits, CPU allowance, replace-home, deleting kept volumes and the added-packages read do not take the worker's budget signal; the lifecycle calls do (ADR 0034 decision 7).
+
+**What it would take.** Pass `callerSignal` from each route into its provider method and Incus requests, with a deadline test per route like the lifecycle ones.
+
+**Source.** Epic 32.
+
+## Files over 800 lines
+
+**What.** Lint warns about non-test source files over 800 lines. Still over: the controller's `provider.ts` (about 1,470), `FileTree.tsx`, `BackupsTab.tsx` (issue #1087), `reconcile.ts`, the API's projects routes, `git.ts`, `ImageTab.tsx`, `WorkspacesTab.tsx` and `listening.ts`.
+
+**What it would take.** Split each along the seam where it starts doing a second job, as Epic 32 did for the agent's server and the controller's start steps, keeping existing tests' assertions.
+
+**Source.** Epic 32.
+
+## Rehearsal VM LTI setup
+
+**What.** A rebuilt rehearsal VM points LTI at the pilot's mock LMS unless `PORTIKUS_LTI_PLATFORMS_FILE` is set to a copy aimed at the rehearsal host's mock (10.101.0.1:8766).
+
+**What it would take.** Have the rehearsal setup write that copy and set the variable.
+
+**Source.** Epic 32.
+
+## Force-stop after a failed start
+
+**What.** When a start fails after the start request was sent, the instance may stay running half set up until the sweep sees it.
+
+**What it would take.** Force-stop the instance in that failure path so the sweep never sees a half-set-up instance.
+
+**Source.** Epic 32.
+
+## Exec socket errors
+
+**What.** An exec whose socket errors is reported as "exec timed out".
+
+**What it would take.** Report a socket error as its own error, with a test.
+
+**Source.** Epic 32.

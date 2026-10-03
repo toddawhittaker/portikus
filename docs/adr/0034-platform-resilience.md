@@ -55,6 +55,10 @@ alternative are listed briefly at the end.
    the next sweep's starts wait up to 75 s behind one slow stop, which is
    the delay the audit measured. On worker shutdown in-flight stops are
    abandoned and the next sweep resolves their rows, as after a crash.
+   A worker restart aborts in-flight starts at the controller only before
+   the start request has been sent to Incus (decision 7); a start already
+   sent and a stop already sent still finish, and the next sweep resolves
+   the row.
 10. **The preview gateway caches the three database lookups for 2
     seconds, not the decision.** The cache maps the preview cookie's token
     hash to the preview session, main session user and workspace rows, and
@@ -98,15 +102,37 @@ alternative are listed briefly at the end.
    60 s margin), list and log level 30 s, rebuild and reset-Docker 15
    minutes. Over budget is `ControllerClientError("TIMEOUT")`. The worker
    sends its budget on every call in the `x-portikus-budget-ms` header.
-   For a create and a process read the controller turns that budget, or
-   the caller hanging up, into one abort signal that reaches every Incus
-   request and the host-side process walk; without the header it uses
-   the same create budget, or 30 s for a process read. Concurrent creates
-   of one instance share one run, which is aborted only when every caller
-   has left. An aborted create makes nothing more, and never falls back
-   to an empty Docker volume. Start, stop, rebuild, reset-Docker and
-   volume growth do not use the header yet, and an Incus operation
-   already started is not cancelled on the Incus side.
+   The controller turns that budget, or the caller hanging up, into one
+   abort signal for create, start, stop, reset-Docker, rebuild, volume
+   growth and the process read; the signal reaches every Incus request,
+   polling loop and the host-side process walk. Without the header, or
+   with one above the route's budget, the controller uses the same
+   formula from `@portikus/contracts` (`startBudgetMs`, `stopBudgetMs`,
+   `MAINTENANCE_BUDGET_MS`, `GROW_BUDGET_MS`,
+   `INSTANCE_CREATE_BUDGET_MS`), or 30 s for a process read. Concurrent
+   calls of one kind on one instance share one run, which is aborted only
+   when every caller has left. On abort the controller stops waiting and
+   sends Incus nothing more; an aborted create makes nothing more and
+   never falls back to an empty Docker volume. An Incus operation already
+   started is not cancelled, because Incus offers no cancel for these
+   operations (`may_cancel` is false). Existing repair paths cover
+   half-done work: a start force-stops a running instance before
+   rewriting its files, `ensureDockerDevice` re-attaches the Docker
+   volume, volume creates adopt what exists, and growth is safe to
+   repeat. A step keeps its own limit and the caller's signal only adds
+   to it, so no existing bound gets tighter. Once a graceful stop has
+   been sent, the stop always runs through to the forced stop whatever
+   the caller does, so a platform stop is never lost to a departed
+   caller. A start works the same way: once the start request has been
+   sent to Incus, the start ignores the caller and finishes every
+   remaining step (address wait, hostname, timezone link, ghcr hosts line,
+   recovery mount ownership, agent wait) on its own limits. A caller who
+   leaves before that point stops everything with no further Incus
+   request. The reason is that the sweep accepts any instance Incus
+   reports as Running, so a half-finished start would be marked running.
+   The controller logs one info line when a caller hangs up or its budget
+   runs out, and another when a start or stop finishes after its caller
+   left.
 8. The controller gives every Incus request a 30-second default timeout
    when the caller passes no signal.
 12. Each preview session may make 2,000 authorized requests per 10
@@ -161,8 +187,11 @@ rebuild. SPEC.md section 6.5 states the rule.
 - Preview access can lag a change of authorization by 2 seconds.
 - A full pool fails writes in the workspace that hit it instead of
   freezing every workspace, and new workspaces wait until there is room.
-- A create shares one deadline with the worker: once the worker gives
-  up, the controller stops making volumes and never makes the instance.
+- Every lifecycle call (create, start, stop, reset-Docker, rebuild),
+  volume growth and the process read share one deadline with the
+  worker. Once the worker gives up, a create stops making volumes and
+  never makes the instance, and the other calls send Incus nothing
+  more, except a stop already sent, which runs to its forced stop.
   An Incus operation already under way finishes on its own, and a retry
   adopts what it made. Neither the Docker seed copy nor the 240 s
   instance create is cancelled by an abort, so a retry that finds
