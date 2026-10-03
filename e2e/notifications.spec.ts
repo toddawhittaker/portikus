@@ -270,6 +270,14 @@ test("the badge sits after the account button, and the menu stays narrow", async
 	expect(pill.x).toBeGreaterThanOrEqual(account.x + account.width);
 	expect(pill.height).toBeGreaterThanOrEqual(24);
 	expect(pill.width).toBeGreaterThanOrEqual(24);
+	// The visible pill is the whole target, with text no smaller than 12px (SPEC.md 25.8).
+	const shown = await page.locator(".pk-account-badge-pill").boundingBox();
+	expect(shown?.height).toBeGreaterThanOrEqual(24);
+	expect(shown?.width).toBeGreaterThanOrEqual(24);
+	const fontSize = await page
+		.locator(".pk-account-badge-pill")
+		.evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize));
+	expect(fontSize).toBeGreaterThanOrEqual(12);
 	const colors = await page.evaluate(() => {
 		const style = getComputedStyle(document.documentElement);
 		const probe = document.createElement("span");

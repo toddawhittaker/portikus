@@ -1,0 +1,235 @@
+/*
+ * The app header, its account menu and unread badge, the admin tabs it
+ * carries, and the notification history it opens. Values are design tokens only.
+ */
+
+/* AppHeader */
+.pk-appbar {
+	flex: none;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	height: 48px;
+	padding: 0 var(--space-3) 0 var(--space-4);
+	background: var(--surface);
+	border-bottom: 1px solid var(--line);
+}
+.pk-appbar-divider {
+	width: 1px;
+	height: 20px;
+	margin: 0 var(--space-2);
+	background: var(--line);
+}
+.pk-appbar-context {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1\.5);
+	min-width: 0;
+	font-size: 13px;
+	line-height: 18px;
+	color: var(--ink-muted);
+}
+.pk-appbar-context strong {
+	color: var(--ink);
+	font-weight: 600;
+}
+.pk-appbar-spacer {
+	flex: 1;
+}
+/* Page tabs inside the bar; the current one is underlined on the bar's bottom line. */
+.pk-adminnav {
+	display: flex;
+	align-items: stretch;
+	align-self: stretch;
+	gap: var(--space-1);
+	margin-inline-start: var(--space-2);
+}
+.pk-adminnav a {
+	position: relative;
+	display: flex;
+	align-items: center;
+	padding: 0 var(--space-2);
+	color: var(--ink-muted);
+	font-size: 13px;
+	font-weight: 500;
+	text-decoration: none;
+	white-space: nowrap;
+}
+.pk-adminnav a:hover,
+.pk-adminnav a[aria-current="page"] {
+	color: var(--ink);
+}
+.pk-adminnav a[aria-current="page"]::after {
+	content: "";
+	position: absolute;
+	inset-inline: var(--space-2);
+	bottom: -1px;
+	height: 2px;
+	background: var(--accent);
+}
+.pk-adminnav a:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset-inset);
+}
+.pk-account {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	height: var(--pk-control);
+	padding: 0 var(--space-2);
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--ink);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	min-width: 0;
+}
+.pk-account > * {
+	flex: none;
+}
+/* A long name gives way to the admin tabs rather than pushing the bar wider. */
+.pk-account > .pk-account-name {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pk-account:hover {
+	background: var(--surface-hover);
+}
+.pk-summary:focus-visible,
+.pk-account:focus-visible,
+.pk-wsbutton:focus-visible,
+button.pk-statusbar-item:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+.pk-initials {
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	border-radius: var(--radius-sm);
+	background: var(--surface-sunken);
+	border: 1px solid var(--line);
+	color: var(--ink-muted);
+	font-size: 12px;
+	font-weight: 600;
+}
+/* Notifications (SPEC.md section 8.5) */
+.pk-account-wrap {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-width: 0;
+}
+/* The unread count sits after the name in the accent, never over the picture. */
+.pk-account-badge {
+	/* A 24px hit area around the small pill (WCAG 2.5.8). */
+	display: grid;
+	place-items: center;
+	min-width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	font: inherit;
+	cursor: pointer;
+}
+/* The pill fills the whole target, so what you see is what you can click. */
+.pk-account-badge-pill {
+	box-sizing: border-box;
+	min-width: 24px;
+	height: 24px;
+	padding: 0 var(--space-1\.5);
+	border-radius: var(--radius-sm);
+	background: var(--accent);
+	color: var(--on-accent);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 24px;
+	text-align: center;
+}
+.pk-account-badge:hover .pk-account-badge-pill {
+	background: var(--accent-hover);
+}
+.pk-account-badge:focus-visible {
+	outline: var(--ring-width) solid var(--focus);
+	outline-offset: var(--ring-offset);
+}
+/* The account menu's address: cut with an ellipsis rather than widening the menu. */
+.pk-account-email {
+	display: block;
+	max-inline-size: 18rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pk-notification-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+.pk-notification {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-3);
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+}
+.pk-notification--unread {
+	background: var(--surface-sunken);
+	border-color: var(--line-strong);
+}
+.pk-notification-icon {
+	margin-top: 2px;
+	color: var(--ink-muted);
+}
+.pk-notification--success .pk-notification-icon {
+	color: var(--status-running);
+}
+.pk-notification--warning .pk-notification-icon {
+	color: var(--status-warning);
+}
+.pk-notification--danger .pk-notification-icon {
+	color: var(--status-danger);
+}
+.pk-notification-dot {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	margin-top: 8px;
+	border-radius: 50%;
+	background: var(--accent);
+}
+.pk-wsbutton {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	height: var(--pk-control);
+	padding: 0 var(--space-1) 0 var(--space-3);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-sm);
+	background: var(--surface-raised);
+	color: var(--ink);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+/* Text only, no trailing icon, so the padding is even. */
+.pk-wsbutton-text {
+	padding: 0 var(--space-3);
+}
+.pk-wsbutton:hover {
+	background: var(--surface-hover);
+}

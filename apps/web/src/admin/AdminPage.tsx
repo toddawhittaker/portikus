@@ -32,6 +32,29 @@ const TAB_LABEL: Record<AdminTab, string> = {
 /** The first tab of each group after the first gets a thin gap before it. */
 const GROUP_START = new Set<AdminTab>(["health", "network"]);
 
+/**
+ * The tabs, in the app header to give the tables its height back.
+ * Links, not a tab widget, so each tab has an address.
+ */
+function AdminNav({ tab }: { tab: AdminTab }) {
+	return (
+		<nav aria-label="Administration" className="pk-adminnav">
+			{ADMIN_TABS.map((item) => (
+				<Link
+					key={item}
+					to="/admin/$tab"
+					params={{ tab: item }}
+					data-testid={`admin-tab-${item}`}
+					aria-current={item === tab ? "page" : undefined}
+					className={GROUP_START.has(item) ? "ms-4" : undefined}
+				>
+					{TAB_LABEL[item]}
+				</Link>
+			))}
+		</nav>
+	);
+}
+
 /** The administration screen. Students never get here (SPEC.md §5.2, §6.4). */
 export function AdminPage() {
 	const me = useMe();
@@ -61,7 +84,12 @@ export function AdminPage() {
 
 	return (
 		<div className="pk-root">
-			<AppHeader user={me.user} workspace={null} project={undefined} />
+			<AppHeader
+				user={me.user}
+				workspace={null}
+				project={undefined}
+				nav={<AdminNav tab={tab} />}
+			/>
 			<main
 				className="flex-1 scroll-pt-16 overflow-auto p-8 [scrollbar-gutter:stable]"
 				data-testid="page-admin"
@@ -75,33 +103,10 @@ export function AdminPage() {
 					<p aria-live="polite" className="sr-only" data-testid="admin-tab-announce">
 						{tabAnnouncement}
 					</p>
-					<h1 className="pk-text-title" id="admin-title">
+					{/* The header shows "Administration" and the tabs; the h1 keeps the outline. */}
+					<h1 className="sr-only" id="admin-title">
 						Administration
 					</h1>
-					{/* Links, not a tab widget, so each tab has an address. */}
-					<nav
-						aria-label="Administration"
-						className="mt-4 flex gap-1 border-line border-b"
-					>
-						{ADMIN_TABS.map((item) => (
-							<Link
-								key={item}
-								to="/admin/$tab"
-								params={{ tab: item }}
-								data-testid={`admin-tab-${item}`}
-								aria-current={item === tab ? "page" : undefined}
-								className={`pk-focus-ring -mb-px rounded-t-sm border-b-2 px-3 py-2 font-semibold text-[13px] no-underline ${
-									GROUP_START.has(item) ? "ml-4" : ""
-								} ${
-									item === tab
-										? "border-accent text-ink"
-										: "border-transparent text-ink-muted hover:text-ink"
-								}`}
-							>
-								{TAB_LABEL[item]}
-							</Link>
-						))}
-					</nav>
 					{tab === "users" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
 					{tab === "health" ? <HealthTab /> : null}
 					{tab === "logs" ? <LogsTab /> : null}
