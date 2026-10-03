@@ -9,6 +9,7 @@ import {
 	keepRunningRefusal,
 	MAX_WORKSPACE_LABEL_LENGTH,
 	SetKeepRunningRequest,
+	STOP_FAILED_ERROR_CODE,
 } from "@portikus/contracts";
 import { type Database, isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -305,6 +306,14 @@ export function registerWorkspaceRoutes(
 				// A student's Start, Stop or Restart earns a fresh set of
 				// automatic start retries (SPEC.md §6.3).
 				start_retries: 0,
+				// A new Stop lets the worker try a failed stop again (SPEC.md §6.5).
+				...(desired === "stopped"
+					? {
+							error_code: sql<
+								string | null
+							>`case when error_code = ${STOP_FAILED_ERROR_CODE} then null else error_code end`,
+						}
+					: {}),
 				updated_at: new Date().toISOString(),
 			})
 			.where("id", "=", params.id)

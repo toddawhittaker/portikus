@@ -5,6 +5,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import { STOP_FAILED_ERROR_CODE } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -166,6 +167,24 @@ test.skipIf(skip)(
 			expect((await post(`/workspaces/${id}/${action}`, alice)).statusCode).toBe(202);
 			expect(await retries()).toBe(0);
 		}
+	},
+);
+
+test.skipIf(skip)(
+	"a new Stop clears a failed stop so the worker tries the stop again",
+	async () => {
+		const id = (await post("/workspaces", alice)).json().id;
+		await testDb.db
+			.updateTable("workspaces")
+			.set({
+				state: "error",
+				desired_state: "stopped",
+				error_code: STOP_FAILED_ERROR_CODE,
+			})
+			.where("id", "=", id)
+			.execute();
+		expect((await post(`/workspaces/${id}/stop`, alice)).statusCode).toBe(202);
+		expect((await get(`/workspaces/${id}`, alice)).json().errorCode).toBeNull();
 	},
 );
 
