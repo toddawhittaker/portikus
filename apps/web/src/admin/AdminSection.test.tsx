@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { AdminGroup, AdminSection } from "./AdminSection.js";
+import { AdminGroup, AdminSection, Part } from "./AdminSection.js";
 
 test("renders a region named by its h2, with the count, actions and content", () => {
 	render(
@@ -86,4 +86,24 @@ test("AdminGroup shows a description under its heading only when given", () => {
 	expect(
 		screen.getByRole("region", { name: "Schedule" }).querySelectorAll("p"),
 	).toHaveLength(1);
+});
+
+test("Part is an h4 region with its description and actions", () => {
+	render(
+		<Part
+			id="p"
+			title="Ports"
+			description="Which ports workspaces can reach."
+			actions={<button type="button">Reset</button>}
+			testId="ports"
+		>
+			<p>Body</p>
+		</Part>,
+	);
+	const region = screen.getByRole("region", { name: "Ports" });
+	expect(region.dataset.testid).toBe("ports");
+	const heading = within(region).getByRole("heading", { level: 4, name: "Ports" });
+	expect(heading.tabIndex).toBe(-1);
+	expect(within(region).getByText("Which ports workspaces can reach.")).toBeTruthy();
+	expect(within(region).getByRole("button", { name: "Reset" })).toBeTruthy();
 });

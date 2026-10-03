@@ -3,7 +3,7 @@ import { Button, FIELD_CLASS, LABEL_CLASS, TextField, useToast } from "@portikus
 import { useState } from "react";
 import { announced } from "../../common/announced.js";
 import { joinWords } from "../../text.js";
-import { Part } from "./Part.js";
+import { Part } from "../AdminSection.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 import { parsePorts } from "./text.js";
 

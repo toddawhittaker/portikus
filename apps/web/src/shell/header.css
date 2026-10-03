@@ -3,14 +3,17 @@
  * carries, and the notification history it opens. Values are design tokens only.
  */
 
-/* AppHeader */
+/* AppHeader. Its height is a variable so panes under it can size to the rest of the window. */
+:root {
+	--pk-appbar-height: 48px;
+}
 .pk-appbar {
 	flex: none;
 	box-sizing: border-box;
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
-	height: 48px;
+	height: var(--pk-appbar-height);
 	padding: 0 var(--space-3) 0 var(--space-4);
 	background: var(--surface);
 	border-bottom: 1px solid var(--line);

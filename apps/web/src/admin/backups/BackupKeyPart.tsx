@@ -1,5 +1,11 @@
 import { BACKUP_KEY_MAX_BYTES, type BackupKeyStatus } from "@portikus/contracts";
-import { Button, ConfirmDialog, ConfirmDialogRoot, useToast } from "@portikus/ui";
+import {
+	Button,
+	ConfirmDialog,
+	ConfirmDialogRoot,
+	FileInput,
+	useToast,
+} from "@portikus/ui";
 import { useId, useState } from "react";
 import { ApiError, errorText } from "../../api/request.js";
 import { longTime } from "./model.js";
@@ -216,25 +222,17 @@ function UploadDialog({
 					disabledReason={error ? null : "Choose the key file first."}
 					onConfirm={() => send(false)}
 				>
-					<div className="grid gap-1">
-						<label htmlFor={inputId} className="text-[13px] font-semibold">
-							Backup key file
-						</label>
-						<input
-							id={inputId}
-							data-testid="backup-key-file"
-							type="file"
-							accept=".txt,text/plain"
-							aria-invalid={error ? true : undefined}
-							aria-describedby={error ? `${inputId}-error` : undefined}
-							onChange={(event) => void choose(event.target.files?.[0])}
-						/>
-						{error ? (
-							<p id={`${inputId}-error`} className="m-0 text-status-error" role="alert">
-								{error}
-							</p>
-						) : null}
-					</div>
+					<FileInput
+						id={inputId}
+						label="Backup key file"
+						data-testid="backup-key-file"
+						accept=".txt,text/plain"
+						error={
+							// Mounted afresh on each failure, so it is read out at once (SPEC.md section 25.8).
+							error ? <span role="alert">{error}</span> : null
+						}
+						onChange={(event) => void choose(event.target.files?.[0])}
+					/>
 				</ConfirmDialog>
 			)}
 		</ConfirmDialogRoot>

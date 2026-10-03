@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { EGRESS_PRESETS } from "../packages/contracts/dist/egress.js";
-import { loginAs, openToggletip, query } from "./helpers";
+import { expectNoViolations, loginAs, openToggletip, query } from "./helpers";
 
 /**
  * The admin Network tab: the workspace egress allow-list (SPEC.md
@@ -509,3 +509,54 @@ test("the groups follow the tab's width, and the host test stays in view beside 
 		(allowBox?.y ?? 0) + (allowBox?.height ?? 0),
 	);
 });
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`a long Refused names list keeps the side column inside a short window (${colorScheme})`, async ({
+		page,
+	}) => {
+		await reset("allow-list");
+		// Counts above anything another spec seeds, so these are the 20 shown.
+		const names = Array.from({ length: 20 }, (_, i) => `n${i}.side.${SUFFIX}`);
+		for (const [i, name] of names.entries()) {
+			await query(
+				`insert into egress_blocked_names (day, name, source, count)
+				 values (current_date, $1, 'dns', $2)`,
+				[name, 100_000 - i],
+			);
+		}
+		await page.emulateMedia({ colorScheme });
+		await page.setViewportSize({ width: 1440, height: 600 });
+		await open(page);
+		const side = page.getByTestId("egress-side");
+		await expect(page.getByTestId("egress-blocked-row")).toHaveCount(20);
+
+		// Capped to what <main> shows, and scrolled on its own: with the page at
+		// its end, the whole column is on screen.
+		const main = page.locator("main");
+		await main.evaluate((node) => {
+			node.scrollTop = node.scrollHeight;
+		});
+		const mainBox = await main.boundingBox();
+		const sideBox = await side.boundingBox();
+		expect(sideBox?.y ?? 0).toBeGreaterThanOrEqual(mainBox?.y ?? 0);
+		expect((sideBox?.y ?? 0) + (sideBox?.height ?? 0)).toBeLessThanOrEqual(
+			(mainBox?.y ?? 0) + (mainBox?.height ?? 0),
+		);
+		expect(await side.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(
+			true,
+		);
+
+		// Every row is reached by Tab and scrolled into view.
+		const allow = (name: string) =>
+			page.getByRole("button", { name: `Allow ${name}…`, exact: true });
+		await allow(names[0] ?? "").focus();
+		for (const name of names.slice(1)) {
+			await page.keyboard.press("Tab");
+			await expect(allow(name)).toBeFocused();
+		}
+		await expect(allow(names.at(-1) ?? "")).toBeInViewport();
+
+		await expectNoViolations(page);
+		await reset();
+	});
+}
