@@ -6,6 +6,8 @@ import {
 	type LogService,
 } from "@portikus/contracts";
 import { UUID } from "../../links.js";
+import { joinWords } from "../../text.js";
+import { LEVEL_LABELS } from "./line.js";
 
 /** The preset time windows; anything else in `since` is an exact time. */
 export const LOG_WINDOWS = ["1h", "1d", "7d"] as const;
@@ -162,4 +164,38 @@ export function fromLocalInput(value: string): string {
 	if (value === "") return "";
 	const time = new Date(value).getTime();
 	return Number.isNaN(time) ? "" : new Date(time).toISOString();
+}
+
+/** Levels joined for a sentence: "Error or Warn", "Error, Warn or Info". */
+function levelList(levels: readonly LogLevel[]): string {
+	const words = LOG_LEVELS.filter((level) => levels.includes(level)).map(
+		(level) => LEVEL_LABELS[level],
+	);
+	return joinWords(words, "or");
+}
+
+/**
+ * What an empty result says, once: what was searched, and what to widen
+ * (docs/DESIGN.md section 5).
+ */
+export function emptyText(filters: LogFilters): string {
+	const preset = LOG_WINDOWS.find((item) => item === filters.since);
+	const time =
+		preset && !filters.until
+			? `in the ${WINDOW_LABELS[preset].replace(/^Last /, "last ")}`
+			: "in this time range";
+	const others =
+		filters.q !== "" ||
+		filters.user !== "" ||
+		filters.workspace !== "" ||
+		filters.services.length > 0;
+	const head = `No lines ${time} at ${levelList(filters.levels)}${others ? " match the other filters" : ""}.`;
+	const longer = Boolean(preset) && preset !== "7d" && !filters.until;
+	const missing = LOG_LEVELS.find((level) => !filters.levels.includes(level));
+	const include = missing ? LEVEL_LABELS[missing] : null;
+	if (longer && include) return `${head} Try a longer time, or include ${include}.`;
+	if (longer) return `${head} Try a longer time.`;
+	if (include) return `${head} Try including ${include}.`;
+	if (others) return `${head} Try removing a filter.`;
+	return head;
 }
