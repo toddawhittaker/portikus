@@ -138,7 +138,7 @@ test("a new local administrator changes the password first, then accepts", async
 	await page.goto("/admin");
 	await expect(page).toHaveURL(/\/acceptable-use$/, { timeout: 15_000 });
 	await page.getByRole("button", { name: "Accept and continue" }).click();
-	await expect(page).toHaveURL(/\/admin$/, { timeout: 15_000 });
+	await expect(page).toHaveURL(/\/admin\/users$/, { timeout: 15_000 });
 	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 });
 

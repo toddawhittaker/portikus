@@ -8,6 +8,7 @@ import {
 	MOCK_ISSUER,
 	openToggletip,
 	query,
+	routeApi,
 	toast,
 } from "./helpers";
 
@@ -412,7 +413,7 @@ test("Restore from backup restores this workspace from a set that holds it", asy
 	const stamp = "20260924T023000Z";
 	// The backup host is played by stubbing its report, so this spec never
 	// touches the shared backup channel the Backups tab's serial tests use.
-	await page.route("**/admin/backups", async (route) => {
+	await routeApi(page, "**/admin/backups", async (route) => {
 		if (route.request().method() !== "GET") return route.fallback();
 		const response = await route.fetch();
 		const body = await response.json();

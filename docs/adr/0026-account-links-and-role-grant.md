@@ -62,7 +62,8 @@ never starts a session for an administrator, because an LMS
 administrator can act as any user in the LMS.
 
 **The Users view.** The admin Workspaces tab is relabelled Users (its
-address, `?tab=workspaces`, is unchanged) and gains a Role column, a role
+address was `?tab=workspaces`; each tab now has its own path, this one
+`/admin/users`, and the old address redirects there, SPEC.md section 20.1) and gains a Role column, a role
 filter, and a Source column showing "SSO" or "Course: <platform host>".
 Rows can be ticked for bulk Disable, Enable, Archive and Unarchive, each
 calling the existing single-row route once per row in the browser; there

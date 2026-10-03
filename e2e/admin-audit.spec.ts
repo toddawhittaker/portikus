@@ -37,7 +37,7 @@ test.describe("admin audit", () => {
 		await seedEvents(otherId, 1);
 
 		await loginAs(page, "carol");
-		await page.goto(`/admin?tab=audit&workspace=${workspaceId}`);
+		await page.goto(`/admin/audit?workspace=${workspaceId}`);
 
 		const table = page.getByRole("table", { name: /Audit events, newest first/ });
 		await expect(table).toBeVisible({ timeout: 15_000 });
@@ -96,7 +96,7 @@ test.describe("admin audit", () => {
 		);
 
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=audit&action=e2e.person.");
+		await page.goto("/admin/audit?action=e2e.person.");
 		const table = page.getByRole("table", { name: /Audit events, newest first/ });
 		await expect(table).toBeVisible({ timeout: 15_000 });
 
@@ -133,7 +133,7 @@ test.describe("admin audit", () => {
 		page,
 	}) => {
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=audit");
+		await page.goto("/admin/audit");
 		const input = page.getByRole("combobox", { name: "Person" });
 		const apply = page.getByRole("button", { name: "Apply filters" });
 		await expect(apply).toBeVisible({ timeout: 15_000 });
@@ -186,7 +186,7 @@ test.describe("admin audit", () => {
 		);
 
 		await loginAs(page, "carol");
-		await page.goto(`/admin?tab=audit&action=${prefix}`);
+		await page.goto(`/admin/audit?action=${prefix}`);
 		const table = page.getByRole("table", { name: /Audit events, newest first/ });
 		await expect(table).toBeVisible({ timeout: 15_000 });
 
@@ -232,7 +232,7 @@ test.describe("admin audit", () => {
 
 			await page.emulateMedia({ colorScheme });
 			await loginAs(page, "carol");
-			await page.goto(`/admin?tab=audit&workspace=${student.workspaceId}`);
+			await page.goto(`/admin/audit?workspace=${student.workspaceId}`);
 			await expect(page.getByTestId("audit-target-link")).toHaveText("E2E Student", {
 				timeout: 15_000,
 			});

@@ -104,7 +104,7 @@ function stubHealth(body: LogCounts | Response) {
 test("Enter on a bar opens the Logs tab for that bucket and the picked level", async () => {
 	localStorage.setItem("portikus.admin.healthRange", "1h");
 	stubHealth(counts());
-	const { router } = renderApp("/admin?tab=health");
+	const { router } = renderApp("/admin/health");
 
 	const plot = await screen.findByTestId("health-chart-logs-plot");
 	expect(screen.getByTestId("health-chart-logs-summary").textContent).toBe(
@@ -116,16 +116,16 @@ test("Enter on a bar opens the Logs tab for that bucket and the picked level", a
 
 	await waitFor(() =>
 		expect(router.state.location.search).toEqual({
-			tab: "logs",
 			level: "warn",
 			since: "2026-09-26T09:59:00.000Z",
 			until: "2026-09-26T10:00:00.000Z",
 		}),
 	);
+	expect(router.state.location.pathname).toBe("/admin/logs");
 });
 
 test("an unavailable journal is said in the chart's place", async () => {
 	stubHealth(json(503, { code: "LOGS_UNAVAILABLE", message: "No journal here." }));
-	renderApp("/admin?tab=health");
+	renderApp("/admin/health");
 	expect(await screen.findByText("No journal here.")).toBeDefined();
 });

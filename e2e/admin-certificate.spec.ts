@@ -15,7 +15,13 @@ import {
 	writeLog,
 	writeStatus,
 } from "./certificate-jobs";
-import { expectNoViolations, loginAs, openToggletip, WEB_ORIGIN } from "./helpers";
+import {
+	expectNoViolations,
+	loginAs,
+	openToggletip,
+	routeApi,
+	WEB_ORIGIN,
+} from "./helpers";
 
 /**
  * The Certificate tab (docs/SPEC.md section 20.1; ADR 0046). The first
@@ -99,7 +105,7 @@ function mismatchedPair(): { cert: string; otherKey: string } {
 
 async function open(page: Page) {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=certificate");
+	await page.goto("/admin/certificate");
 	await expect(
 		page.getByRole("heading", { level: 2, name: "Certificate", exact: true }),
 	).toBeVisible({ timeout: 15_000 });
@@ -478,7 +484,9 @@ const PAGE = {
 };
 
 async function routePage(page: Page) {
-	await page.route("**/admin/certificate", (route) => route.fulfill({ json: PAGE }));
+	await routeApi(page, "**/admin/certificate", (route) =>
+		route.fulfill({ json: PAGE }),
+	);
 	await page.route(`**/admin/certificate/jobs/${JOB_ID}`, (route) =>
 		route.fulfill({
 			json: { job: FAILED_JOB, log: ["starting a separate caddy", "dns-01 failed"] },
@@ -510,7 +518,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await routePage(page);
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=certificate");
+		await page.goto("/admin/certificate");
 		await expect(page.getByTestId("cert-job-message")).toBeVisible({ timeout: 15_000 });
 		await expect(page.getByTestId("cert-expiry-notice")).toContainText("expires in");
 		await expect(page.getByTestId("intro-admin-certificate")).toBeVisible();
@@ -550,7 +558,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await routePage(page);
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=certificate");
+		await page.goto("/admin/certificate");
 		await expect(page.getByTestId("cert-current")).toBeVisible({ timeout: 15_000 });
 
 		await page.getByRole("radio", { name: /^Internal authority/ }).check();

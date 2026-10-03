@@ -39,7 +39,7 @@ async function markApplied(): Promise<void> {
 
 async function open(page: Page): Promise<void> {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=network");
+	await page.goto("/admin/network");
 	await expect(page.getByTestId("egress-tab")).toBeVisible({ timeout: 15_000 });
 }
 

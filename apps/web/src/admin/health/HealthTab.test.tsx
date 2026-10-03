@@ -302,12 +302,12 @@ test("each guard row links to the owner's detail panel", async () => {
 		if (url.startsWith("/admin/health/series")) return json(200, SERIES);
 		throw new Error(`unexpected request: ${url}`);
 	});
-	renderApp("/admin?tab=health");
+	renderApp("/admin/health");
 
 	const table = await screen.findByTestId("health-guard");
 	const links = within(table).getAllByRole("link", { name: "Alice Example" });
 	expect(links).toHaveLength(2);
-	expect(links[0]?.getAttribute("href")).toBe(`/admin?tab=workspaces&user=${OWNER.id}`);
+	expect(links[0]?.getAttribute("href")).toBe(`/admin/users?user=${OWNER.id}`);
 });
 
 test("a failed load is announced", async () => {

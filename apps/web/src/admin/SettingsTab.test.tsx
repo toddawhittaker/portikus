@@ -32,7 +32,7 @@ function stubSettings() {
 
 test("Settings is three sections in one column, and the log level is not among them", async () => {
 	stubSettings();
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const column = await screen.findByTestId("settings-sections");
 	const headings = within(column)
@@ -48,7 +48,7 @@ test("Settings is three sections in one column, and the log level is not among t
 
 test("the resource guard is four named groups, each with its fields and one line", async () => {
 	stubSettings();
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const guard = await screen.findByRole("region", { name: "Resource guard" });
 	const groups = within(guard).getAllByRole("group");
@@ -84,7 +84,7 @@ test("the resource guard is four named groups, each with its fields and one line
 
 test("the grace period, idle stop and keep-running cap sit side by side, each with its own Save", async () => {
 	stubSettings();
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const stop = await screen.findByRole("region", { name: "When workspaces stop" });
 	expect(
@@ -103,7 +103,7 @@ test("the grace period, idle stop and keep-running cap sit side by side, each wi
 
 test("every setting has a help button beside its label, and the page an intro", async () => {
 	stubSettings();
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	await screen.findByTestId("settings-sections");
 	for (const label of [

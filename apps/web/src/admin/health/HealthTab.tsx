@@ -386,8 +386,9 @@ function GuardList({ guard }: { guard: HealthReport["guard"] }) {
 								<tr key={row.key}>
 									<td className="whitespace-normal py-1.5 align-top">
 										<Link
-											to="/admin"
-											search={{ tab: "workspaces", user: row.owner.id }}
+											to="/admin/$tab"
+											params={{ tab: "users" }}
+											search={{ user: row.owner.id }}
 											className="pk-link break-words"
 										>
 											{row.owner.displayName}

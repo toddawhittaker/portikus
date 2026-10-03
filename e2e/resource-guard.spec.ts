@@ -118,7 +118,7 @@ test("the Health tab lists a throttled workspace and links to its panel", async 
 	await throttle(student.workspaceId);
 
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=health");
+	await page.goto("/admin/health");
 	const list = page.getByTestId("health-guard");
 	await expect(list).toBeVisible({ timeout: 15_000 });
 	await list.getByRole("link", { name: student.name }).click();

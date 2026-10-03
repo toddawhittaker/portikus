@@ -54,7 +54,7 @@ function renderMap(series: HealthSeries, f: ChartFrame) {
 	});
 	const router = createRouter({
 		routeTree: rootRoute,
-		history: createMemoryHistory({ initialEntries: ["/admin?tab=health"] }),
+		history: createMemoryHistory({ initialEntries: ["/admin/health"] }),
 	});
 	// biome-ignore lint/suspicious/noExplicitAny: the test router is not the registered one
 	renderWithQuery(<RouterProvider router={router as any} />);
@@ -118,7 +118,7 @@ test("a table row per workspace reads each bucket, hatches the threshold and lin
 	).toBeDefined();
 
 	const link = within(rows[0] as HTMLElement).getByRole("link", { name: "Ann Lee" });
-	expect(link.getAttribute("href")).toBe(`/admin?tab=workspaces&user=${OWNER}`);
+	expect(link.getAttribute("href")).toBe(`/admin/users?user=${OWNER}`);
 	expect(screen.queryByTestId("health-heat-map-retention")).toBeNull();
 });
 

@@ -25,7 +25,7 @@ test("at 1024 px the message keeps a readable width and every column fits", asyn
 	await loginAs(page, "carol");
 	await expect(async () => {
 		await page.goto(
-			`/admin?tab=logs&level=info&q=AGENT_UNAVAILABLE&user=${student.userId}`,
+			`/admin/logs?level=info&q=AGENT_UNAVAILABLE&user=${student.userId}`,
 		);
 		await expect(page.getByTestId("log-row").first()).toBeVisible({ timeout: 2_000 });
 	}).toPass({ timeout: 20_000 });

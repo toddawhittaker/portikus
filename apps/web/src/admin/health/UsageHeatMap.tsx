@@ -191,8 +191,9 @@ function HeatRow({
 		<tr data-testid="health-heat-map-row">
 			<th scope="row" className="truncate py-0.5 pr-2 text-left font-normal">
 				<Link
-					to="/admin"
-					search={{ tab: "workspaces", user: row.owner.id }}
+					to="/admin/$tab"
+					params={{ tab: "users" }}
+					search={{ user: row.owner.id }}
 					className="pk-link"
 				>
 					{row.owner.displayName}

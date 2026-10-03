@@ -78,7 +78,7 @@ async function seedPlatformSample(
 
 async function openHealth(page: Page): Promise<void> {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=health");
+	await page.goto("/admin/health");
 	await expect(page.getByTestId("health")).toBeVisible({ timeout: 15_000 });
 	await expect(page.getByTestId("health-trends")).toBeVisible();
 }

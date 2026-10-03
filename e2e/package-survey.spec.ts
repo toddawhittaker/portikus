@@ -34,7 +34,7 @@ async function seedDay(day: string, surveyed: number, counts: Record<string, num
 
 async function openHealth(page: Page): Promise<void> {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=health");
+	await page.goto("/admin/health");
 	await expect(page.getByTestId("health")).toBeVisible({ timeout: 15_000 });
 }
 

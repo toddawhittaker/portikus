@@ -2596,8 +2596,18 @@ Changed by Epic 25 (UI polish and help):
 
 - **Tab order.** Users, Health, Logs, Audit, Network, Backups, Settings,
   with a small gap before Health and before Network and no group labels.
-  The `?tab=` values did not change. Every tab has a PageIntro and
+  Every tab has a PageIntro and
   toggletips on its fields and headers (section 8.6).
+- **Tab addresses.** Each tab has its own path, `/admin/<tab>`:
+  `/admin/users`, `/admin/health`, `/admin/logs`, `/admin/audit`,
+  `/admin/network`, `/admin/backups`, `/admin/image`,
+  `/admin/certificate`, `/admin/docker` and `/admin/settings`. `/admin`
+  opens Users. An older `/admin?tab=<x>` link redirects to `/admin/<x>`
+  and keeps its other search keys; `?tab=workspaces` goes to
+  `/admin/users`. Moving between tabs adds a history entry, so the back
+  button returns to the previous tab. The edge serves the page for a
+  document request to `/admin` or `/admin/<one segment>`; deeper paths
+  under `/admin/` stay with the API.
 - **Users table.** Five columns: selection; Account (the name with its
   tags, then email or username); Role; Workspace (label, state, and an
   "Old image" tag when out of date); and Activity ("Now" with the

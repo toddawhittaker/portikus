@@ -102,7 +102,7 @@ test("a site a separate host backs up shows no key section", async () => {
 		() => json(404, { code: "NOT_FOUND", message: "Not found." }),
 		() => json(500, {}),
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	expect(await screen.findByTestId("backups-status")).toBeTruthy();
 	expect(screen.queryByTestId("backups-key-group")).toBeNull();
 	expect(screen.getByTestId("backups-key").textContent).toBe("Installed on the host");
@@ -113,7 +113,7 @@ test("a key not yet downloaded shows the reminder and the public half", async ()
 		() => json(200, status()),
 		() => json(500, {}),
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const group = await screen.findByTestId("backups-key-group");
 	expect(within(group).getByTestId("backup-key-reminder").textContent).toContain(
 		"Backup key not yet downloaded.",
@@ -132,7 +132,7 @@ test("a downloaded key shows no reminder", async () => {
 		() => json(200, status({ downloaded: true, downloadedAt: "2026-09-28T10:00:00Z" })),
 		() => json(500, {}),
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const group = await screen.findByTestId("backups-key-group");
 	expect(within(group).queryByTestId("backup-key-reminder")).toBeNull();
 	expect(within(group).getByTestId("backup-key-downloaded").textContent).not.toBe(
@@ -146,7 +146,7 @@ test("the key section shows before the server's first backup report", async () =
 		() => json(500, {}),
 		{ ...HOST, host: null, hostReportedAt: null, hostStale: true },
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	expect((await screen.findByTestId("backups-not-connected")).textContent).toContain(
 		"has not reported yet",
 	);
@@ -173,7 +173,7 @@ test("download asks first, says what the key unlocks, and saves the file", async
 			});
 		},
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	fireEvent.click(await screen.findByTestId("backup-key-download"));
 	const dialog = await screen.findByTestId("backup-key-download-dialog");
 	expect(dialog.textContent).toContain("unlocks every backup of this server");
@@ -196,7 +196,7 @@ test("cancelling the download sends nothing", async () => {
 		() => json(200, status()),
 		() => json(500, {}),
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	fireEvent.click(await screen.findByTestId("backup-key-download"));
 	const dialog = await screen.findByTestId("backup-key-download-dialog");
 	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -216,7 +216,7 @@ test("a failed download says so and saves nothing", async () => {
 				message: "The server's backup key helper did not answer.",
 			}),
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	fireEvent.click(await screen.findByTestId("backup-key-download"));
 	const dialog = await screen.findByTestId("backup-key-download-dialog");
 	fireEvent.click(within(dialog).getByTestId("dialog-confirm"));
@@ -243,7 +243,7 @@ test("an upload onto a different key needs the replace step", async () => {
 						message: "This server already has a different backup key.",
 					}),
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	fireEvent.click(await screen.findByTestId("backup-key-upload"));
 	const dialog = await screen.findByTestId("backup-key-upload-dialog");
 	const confirm = within(dialog).getByTestId("dialog-confirm");
@@ -290,7 +290,7 @@ test("a failure on the replace step shows on the replace step", async () => {
 						message: "This server already has a different backup key.",
 					}),
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	fireEvent.click(await screen.findByTestId("backup-key-upload"));
 	const dialog = await screen.findByTestId("backup-key-upload-dialog");
 	chooseFile(dialog, KEY_TEXT);
@@ -314,7 +314,7 @@ test("a file the server refuses shows why in the dialog", async () => {
 				message: "That file is not a backup key.",
 			}),
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	fireEvent.click(await screen.findByTestId("backup-key-upload"));
 	const dialog = await screen.findByTestId("backup-key-upload-dialog");
 	chooseFile(dialog, "hello\n");
@@ -332,7 +332,7 @@ test("a file larger than any key is refused before it is sent", async () => {
 		() => json(200, status({ installed: false, recipient: null })),
 		() => json(500, {}),
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const group = await screen.findByTestId("backups-key-group");
 	// No key: nothing to download, and nothing to be reminded of.
 	expect(within(group).queryByTestId("backup-key-download")).toBeNull();

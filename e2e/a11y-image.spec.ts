@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { expectNoViolations, loginAs, openToggletip } from "./helpers";
+import { expectNoViolations, loginAs, openToggletip, routeApi } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Workspace
@@ -106,7 +106,7 @@ const FAILED_JOB = {
 };
 
 async function routeImage(page: Page, job: object) {
-	await page.route("**/admin/image", (route) =>
+	await routeApi(page, "**/admin/image", (route) =>
 		route.fulfill({ json: { ...IMAGE, job } }),
 	);
 	await page.route(`**/admin/image/jobs/${JOB_ID}`, (route) =>
@@ -115,7 +115,7 @@ async function routeImage(page: Page, job: object) {
 }
 
 async function openTab(page: Page, colorScheme: "light" | "dark") {
-	await page.route("**/admin/image", (route) => route.fulfill({ json: IMAGE }));
+	await routeApi(page, "**/admin/image", (route) => route.fulfill({ json: IMAGE }));
 	await page.route("**/admin/image/diff?**", (route) => route.fulfill({ json: DIFF }));
 	await page.route(`**/admin/image/jobs/${JOB_ID}`, (route) =>
 		route.fulfill({
@@ -124,7 +124,7 @@ async function openTab(page: Page, colorScheme: "light" | "dark") {
 	);
 	await page.emulateMedia({ colorScheme });
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=image");
+	await page.goto("/admin/image");
 	await expect(page.getByTestId("image-job-result")).toBeVisible({ timeout: 15_000 });
 	await expect(page.getByTestId("image-job-result").getByText("zsh")).toBeVisible();
 }
@@ -196,7 +196,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await routeImage(page, RUNNING_JOB);
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=image");
+		await page.goto("/admin/image");
 		await expect(page.getByTestId("image-job-state")).toContainText(
 			"Installing packages",
 		);
@@ -209,7 +209,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await routeImage(page, FAILED_JOB);
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=image");
+		await page.goto("/admin/image");
 		// The status region carries the reason, so a screen reader hears why.
 		await expect(page.getByTestId("image-job-state")).toContainText(FAILED_JOB.message);
 		await expectNoViolations(page);
@@ -218,12 +218,12 @@ for (const colorScheme of ["light", "dark"] as const) {
 	test(`image management turned off has no automatic accessibility violations (${colorScheme})`, async ({
 		page,
 	}) => {
-		await page.route("**/admin/image", (route) =>
+		await routeApi(page, "**/admin/image", (route) =>
 			route.fulfill({ status: 404, json: { code: "NOT_FOUND", message: "Not found" } }),
 		);
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=image");
+		await page.goto("/admin/image");
 		await expect(page.getByTestId("image-off")).toBeVisible({ timeout: 15_000 });
 		await expectNoViolations(page);
 	});
@@ -231,7 +231,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 	test(`a failed image request has no automatic accessibility violations (${colorScheme})`, async ({
 		page,
 	}) => {
-		await page.route("**/admin/image", (route) =>
+		await routeApi(page, "**/admin/image", (route) =>
 			route.fulfill({
 				status: 500,
 				json: { code: "INTERNAL", message: "The image list could not be read." },
@@ -239,7 +239,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		);
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=image");
+		await page.goto("/admin/image");
 		await expect(page.getByRole("alert").first()).toBeVisible({ timeout: 15_000 });
 		await expect(page.getByTestId("image-off")).toHaveCount(0);
 		await expectNoViolations(page);
@@ -250,7 +250,7 @@ test("Make default from the table sends focus to the job heading, not the page",
 	page,
 }) => {
 	let job: object = JOB;
-	await page.route("**/admin/image", (route) =>
+	await routeApi(page, "**/admin/image", (route) =>
 		route.fulfill({ json: { ...IMAGE, job } }),
 	);
 	await page.route("**/admin/image/diff?**", (route) => route.fulfill({ json: DIFF }));
@@ -271,7 +271,7 @@ test("Make default from the table sends focus to the job heading, not the page",
 		return route.fulfill({ status: 202, json: job });
 	});
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=image");
+	await page.goto("/admin/image");
 	const make = page
 		.getByTestId("image-row-2026.09.10")
 		.getByRole("button", { name: "Make default: 2026.09.10" });
@@ -287,7 +287,7 @@ test("Update from the newer-image notice sends focus to the job heading once the
 	page,
 }) => {
 	let current: object = { ...IMAGE, job: null };
-	await page.route("**/admin/image", (route) => route.fulfill({ json: current }));
+	await routeApi(page, "**/admin/image", (route) => route.fulfill({ json: current }));
 	await page.route("**/admin/image/jobs/*", (route) =>
 		route.fulfill({ json: { job: RUNNING_JOB, log: ["x"] } }),
 	);
@@ -297,7 +297,7 @@ test("Update from the newer-image notice sends focus to the job heading once the
 		return route.fulfill({ status: 202, json: { ...RUNNING_JOB, state: "queued" } });
 	});
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=image");
+	await page.goto("/admin/image");
 	const update = page
 		.getByTestId("image-newer-published")
 		.getByRole("button", { name: "Update to 2026.09.11" });
@@ -321,7 +321,7 @@ test("Delete sends focus to the job heading once the deleted row goes", async ({
 		version: "2026.09.10",
 		request: { kind: "delete", version: "2026.09.10" },
 	};
-	await page.route("**/admin/image", (route) => route.fulfill({ json: current }));
+	await routeApi(page, "**/admin/image", (route) => route.fulfill({ json: current }));
 	await page.route("**/admin/image/jobs/*", (route) =>
 		route.fulfill({ json: { job: deleting, log: ["x"] } }),
 	);
@@ -336,7 +336,7 @@ test("Delete sends focus to the job heading once the deleted row goes", async ({
 		return route.fulfill({ status: 202, json: { ...deleting, state: "queued" } });
 	});
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=image");
+	await page.goto("/admin/image");
 	const remove = page.getByRole("button", { name: "Delete: 2026.09.10" });
 	await remove.focus();
 	await page.keyboard.press("Enter");
@@ -351,7 +351,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 	test(`a nearly full main disk says so in words, not by colour alone (${colorScheme})`, async ({
 		page,
 	}) => {
-		await page.route("**/admin/image", (route) =>
+		await routeApi(page, "**/admin/image", (route) =>
 			route.fulfill({
 				json: {
 					...IMAGE,
@@ -364,7 +364,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		);
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=image");
+		await page.goto("/admin/image");
 		const disk = page.getByRole("meter", { name: "Main disk space" });
 		await expect(disk).toHaveAttribute(
 			"aria-valuetext",

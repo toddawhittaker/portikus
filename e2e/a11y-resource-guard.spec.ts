@@ -73,18 +73,18 @@ for (const scheme of ["light", "dark"] as const) {
 		await throttleAndWarn(student.workspaceId);
 
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=settings");
+		await page.goto("/admin/settings");
 		await expect(page.getByLabel("Statement")).toBeVisible({ timeout: 15_000 });
 		await page.getByTestId("idle-input").fill("5");
 		await page.getByTestId("idle-save").click();
 		await expect(page.getByRole("alert")).toBeVisible();
 		await expectNoViolations(page);
 
-		await page.goto("/admin?tab=health");
+		await page.goto("/admin/health");
 		await expect(page.getByTestId("health-guard")).toBeVisible({ timeout: 15_000 });
 		await expectNoViolations(page);
 
-		await page.goto(`/admin?tab=workspaces&user=${student.userId}`);
+		await page.goto(`/admin/users?user=${student.userId}`);
 		const panel = page.getByRole("region", { name });
 		await expect(panel.getByTestId("detail-lift-throttle")).toBeVisible({
 			timeout: 15_000,

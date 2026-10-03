@@ -73,7 +73,7 @@ async function guardTotals(): Promise<string> {
 
 async function openHealth(page: Page, range: "1 hour" | "1 day"): Promise<void> {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=health");
+	await page.goto("/admin/health");
 	await expect(page.getByTestId("health-trends")).toBeVisible({ timeout: 15_000 });
 	await page.getByRole("button", { name: range, exact: true }).click();
 	await expect(page.getByRole("button", { name: range, exact: true })).toHaveAttribute(
@@ -134,7 +134,7 @@ test.describe("admin health activity", () => {
 		expect(results.violations).toEqual([]);
 
 		await row.getByRole("link", { name }).click();
-		await expect(page).toHaveURL(new RegExp(`tab=workspaces.*user=${student.userId}`));
+		await expect(page).toHaveURL(new RegExp(`/admin/users\\?.*user=${student.userId}`));
 		await expect(page.getByTestId("workspace-detail")).toBeVisible();
 
 		await query("delete from workspace_usage_samples where workspace_id = $1", [
