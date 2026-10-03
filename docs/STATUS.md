@@ -4154,3 +4154,65 @@ Gaps:
 - No Playwright test for start retries, since nothing new is shown.
 - The 14 files over 800 lines are warned about, not split.
 - The #1041 part S3 refactors are still open.
+
+## Epic 32 — Split the busiest hotspots, one deadline for every controller call
+
+Built on `epic/32-hotspots` (task PRs #1082 to #1091 and this fold),
+issue #1041. No migration. SPEC.md sections 6.5 and 25.3, and ADR 0034
+decisions 7 and 9.
+
+Delivered:
+
+- Contracts: the start, stop, maintenance and growth budgets live in
+  `packages/contracts` beside the create budget, with values unchanged.
+  The worker and the controller both read them there.
+- Controller: start, stop, reset-Docker, rebuild and volume growth
+  honour the worker's budget header and its hang-up, as create and the
+  process read already did. The signal reaches every Incus request and
+  polling loop. Without the header, or above it, the controller uses the
+  contract formula. Concurrent callers share one run, aborted only when
+  all have left. On abort the controller sends Incus nothing more and
+  never cancels a started operation. Steps keep their own limits, and
+  the caller's signal only adds to them.
+- Controller: once a graceful stop has been sent, the stop always runs
+  on to the forced stop, so a resource-guard or admin stop is never lost
+  to a worker that gave up.
+- Controller: the start's in-container setup is a list of named steps in
+  `start-setup.ts`, in the same order. A failed hostname set now logs a
+  warning and the start carries on.
+- Controller: the Docker seed builder is its own `IncusSeedBuilder` in
+  `seed-builder.ts`, and the provider and builder share the volume
+  helpers in `host.ts`. `provider.ts` went from 1,681 to about 1,470
+  lines.
+- Workspace agent: the terminal, project, file, Git, search and recovery
+  routes are Fastify plugins in their own files, and `server.ts` only
+  wires them (about 250 lines). Routes, statuses and bodies are
+  unchanged.
+- Web: the terminal socket's connect, backoff, close codes and frame
+  handling live in `terminal/terminalSocket.ts`, all terminal files are
+  under `apps/web/src/terminal/`, and a lost session goes through one
+  `sessionEnded()` instead of a prop passed through five components.
+- Web: the editor's buffer state (autosave, version checks, conflicts,
+  deleted on disk, flush on close) is a reducer-based `useFileBuffer`
+  hook, and `FileLeaf` is view code only. A review fix closed a race
+  between typing and the save follow-up, with a test.
+
+Verified: rehearsal VM … (to be filled)
+
+Gaps:
+
+- An abort after Incus has accepted the start request leaves the
+  instance running with the later start steps (hostname, the ghcr hosts
+  line, the recovery mount's owner and mode, the agent wait) undone
+  until the next start. This was true before and fails closed.
+- A stop that outlives the worker's budget still finishes, but the
+  worker gets `TIMEOUT` and may mark the row errored until the sweep
+  sees the instance stopped.
+- The agent now prunes old pastes after any write under
+  `.portikus/pastes/`, including a folder create or a move, not only a
+  file write.
+- The file tree's terminal list now also sends a lost session to the
+  session-ended page.
+- `provider.ts` is still over 800 lines (about 1,470).
+- Set-limits, CPU allowance, replace-home, deleting kept volumes and the
+  added-packages read do not take the caller's signal yet.

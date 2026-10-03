@@ -1973,3 +1973,19 @@ when the job fails.
 **What it would take.** Take the recovery point only after the capped insert succeeds, or delete it when the create is refused, with an API test.
 
 **Source.** Epic 31.
+
+## Caller deadlines on the remaining controller calls
+
+**What.** Set-limits, CPU allowance, replace-home, deleting kept volumes and the added-packages read do not take the worker's budget signal; the lifecycle calls do (ADR 0034 decision 7).
+
+**What it would take.** Pass `callerSignal` from each route into its provider method and Incus requests, with a deadline test per route like the lifecycle ones.
+
+**Source.** Epic 32.
+
+## Files over 800 lines
+
+**What.** Lint warns about non-test source files over 800 lines. Still over: the controller's `provider.ts` (about 1,470), `FileTree.tsx`, `BackupsTab.tsx` (issue #1087), `reconcile.ts`, the API's projects routes, `git.ts`, `ImageTab.tsx`, `WorkspacesTab.tsx` and `listening.ts`.
+
+**What it would take.** Split each along the seam where it starts doing a second job, as Epic 32 did for the agent's server and the controller's start steps, keeping existing tests' assertions.
+
+**Source.** Epic 32.
