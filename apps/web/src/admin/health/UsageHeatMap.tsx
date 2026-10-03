@@ -17,6 +17,9 @@ type Row = HealthSeries["usage"]["workspaces"][number];
 /** The API's row cap (SPEC.md section 25.6). */
 const HEAT_MAP_MAX_ROWS = 50;
 
+const HEAT_MAP_HINT =
+	"Keyboard: focus the map, then use the arrow keys to read each value.";
+
 /** Accent steps for values under the threshold, lightest first. */
 const STEPS = ["bg-accent/10", "bg-accent/30", "bg-accent/55", "bg-accent/80"];
 
@@ -106,6 +109,7 @@ export function UsageHeatMap({
 	const name = measure === "cpu" ? "CPU" : "memory";
 	const per = bucketPhrase(frame.bucketSeconds);
 	const captionId = useId();
+	const hintId = useId();
 	// Held as a workspace and a bucket time, so a refresh that reorders the rows
 	// or slides the window along keeps the cursor on the same figure.
 	const [cursor, setCursor] = useState<{ workspaceId: string; time: number } | null>(
@@ -217,6 +221,7 @@ export function UsageHeatMap({
 							tabIndex={0}
 							onKeyDown={onKeyDown}
 							onBlur={() => setCursor(null)}
+							aria-describedby={hintId}
 							data-testid="health-heat-map-table"
 						>
 							<caption className="sr-only">
@@ -262,11 +267,11 @@ export function UsageHeatMap({
 						aria-hidden="true"
 						data-testid="health-heat-map-readout"
 					>
-						{readout ?? (
-							<span className="pk-muted">
-								Keyboard: focus the map, then use the arrow keys to read each value.
-							</span>
-						)}
+						{readout ?? <span className="pk-muted">{HEAT_MAP_HINT}</span>}
+					</p>
+					{/* The visible hint is hidden while the readout takes its line, so the table keeps this copy. */}
+					<p className="sr-only" id={hintId} data-testid="health-heat-map-hint">
+						{HEAT_MAP_HINT}
 					</p>
 					<p className="sr-only" aria-live="polite">
 						{announcement}

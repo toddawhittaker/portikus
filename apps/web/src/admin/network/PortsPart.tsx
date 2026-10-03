@@ -3,7 +3,7 @@ import { Button, FIELD_CLASS, LABEL_CLASS, TextField, useToast } from "@portikus
 import { useState } from "react";
 import { announced } from "../../common/announced.js";
 import { joinWords } from "../../text.js";
-import { Part } from "../AdminSection.js";
+import { AdminGroup } from "../AdminSection.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 import { parsePorts } from "./text.js";
 
@@ -35,7 +35,8 @@ export function PortsPart({ view }: { view: AdminEgressView }) {
 	}
 
 	return (
-		<Part
+		<AdminGroup
+			level={4}
 			id="egress-ports-title"
 			title="Ports"
 			description={`In allow-list mode, listed sites are reached only on these ports. The default, ${joinWords(EGRESS_DEFAULT_PORTS.map(String))}, covers SSH, web and secure web. Separate ports with commas.`}
@@ -73,6 +74,6 @@ export function PortsPart({ view }: { view: AdminEgressView }) {
 					</Button>
 				</div>
 			</form>
-		</Part>
+		</AdminGroup>
 	);
 }

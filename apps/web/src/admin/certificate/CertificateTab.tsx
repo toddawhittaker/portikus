@@ -18,8 +18,8 @@ import { useState } from "react";
 import { ApiError, errorText } from "../../api/request.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
-import { Notice } from "../docker/Notice.js";
 import { JobLog } from "../JobLog.js";
+import { Notice } from "../Notice.js";
 import {
 	daysText,
 	expiry,

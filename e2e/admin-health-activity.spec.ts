@@ -172,6 +172,10 @@ test.describe("admin health activity", () => {
 			const table = map.getByTestId("health-heat-map-table");
 			const readout = map.getByTestId("health-heat-map-readout");
 			await expect(readout).toHaveText(/arrow keys/);
+			// The visible hint is hidden from readers, so the table carries it as its description.
+			await expect(table).toHaveAccessibleDescription(
+				"Keyboard: focus the map, then use the arrow keys to read each value.",
+			);
 
 			// Tab from the measure switch lands on the table itself, not on a cell.
 			await map.getByRole("button", { name: "Memory" }).focus();

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
 import { OFFSITE_KEY, resetKey, SERVER_KEY } from "./backup-key";
 import { expectNoViolations, loginAs, query, toast } from "./helpers";
+import { expectTokenFill } from "./token-colour";
 
 /**
  * The backup key on a server that backs itself up (ADR 0044): the reminder
@@ -239,6 +240,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme });
 		await openTab(page);
 		await expect(page.getByTestId("backup-key-reminder")).toBeVisible();
+		// A warning fill, not a plain card.
+		await expectTokenFill(
+			page.getByTestId("backup-key-reminder"),
+			"--status-warning-soft",
+		);
 		await expectNoViolations(page);
 
 		const download = page.getByTestId("backup-key-download");

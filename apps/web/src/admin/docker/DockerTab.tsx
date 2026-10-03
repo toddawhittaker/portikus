@@ -15,7 +15,7 @@ import { ApiError, errorText } from "../../api/request.js";
 import { announced } from "../../common/announced.js";
 import { AdminGroup, AdminSection } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
-import { Notice } from "./Notice.js";
+import { Notice } from "../Notice.js";
 import {
 	useClearCache,
 	useDockerAdmin,

@@ -12,6 +12,7 @@ import { ApiError } from "../../api/request.js";
 import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { shortTime } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
+import { Notice } from "../Notice.js";
 import { WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
 import { useHealth } from "./queries.js";
 import { TrendsCard } from "./TrendsCard.js";
@@ -145,16 +146,13 @@ export function HealthView({
 	return (
 		<div className="flex flex-col gap-6" data-testid="health">
 			{report.workerStale ? (
-				<div
-					className="pk-card border-status-warning bg-status-warning-soft p-4 text-status-warning"
-					data-testid="health-worker-stale"
-				>
+				<Notice tone="warning" testId="health-worker-stale">
 					{/* Only the fixed text is live, so each refresh does not repeat the age. */}
 					<strong role="alert">Worker not reporting.</strong>{" "}
 					{report.sampledAt
 						? `The last health sample was taken ${sampleAge(report.sampledAt, now)}.`
 						: "No health sample has been taken yet."}
-				</div>
+				</Notice>
 			) : null}
 			{report.packageUpdate ? (
 				// The platform never upgrades itself.

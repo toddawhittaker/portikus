@@ -30,7 +30,7 @@ function stubSettings() {
 	});
 }
 
-test("Settings is three sections in one column, and the log level is not among them", async () => {
+test("Settings is three admin cards in one column, and the log level is not among them", async () => {
 	stubSettings();
 	renderApp("/admin/settings");
 
@@ -43,6 +43,11 @@ test("Settings is three sections in one column, and the log level is not among t
 		"Resource guard",
 		"Acceptable use",
 	]);
+	for (const name of headings) {
+		const card = within(column).getByRole("region", { name: name ?? "" });
+		expect(card.classList.contains("pk-card")).toBe(true);
+		expect(card.parentElement).toBe(column);
+	}
 	expect(screen.queryByTestId("log-level-select")).toBeNull();
 });
 

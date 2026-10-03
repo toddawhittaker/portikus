@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type FakeKeyState, fakeKey } from "../apps/api/src/testing/fake-backup-key";
@@ -23,7 +23,11 @@ export const SERVER_KEY = fakeKey("e2e server");
 export const OFFSITE_KEY = fakeKey("e2e off site");
 
 function setKeyState(state: FakeKeyState): void {
-	writeFileSync(BACKUP_KEY_STATE, JSON.stringify(state));
+	// Written aside and renamed in, so the helper never reads a half-written file
+	// while a page in another worker asks for the key.
+	const aside = `${BACKUP_KEY_STATE}.${process.pid}.tmp`;
+	writeFileSync(aside, JSON.stringify(state));
+	renameSync(aside, BACKUP_KEY_STATE);
 }
 
 /** The server's own key, never downloaded: the reminder shows. */

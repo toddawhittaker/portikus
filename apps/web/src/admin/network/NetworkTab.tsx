@@ -67,10 +67,10 @@ export function NetworkTab() {
 
 	return (
 		<AdminSection title="Network" intro={INTRO}>
-			<div className="@container grid gap-6" data-testid="egress-tab">
+			<div className="@container grid gap-4" data-testid="egress-tab">
 				<ModeCard view={view} />
-				<div className="grid gap-6 @5xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-					<div className="grid content-start gap-6">
+				<div className="grid gap-4 @5xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+					<div className="grid content-start gap-4">
 						{/* The list that matters in the current mode comes first. */}
 						{view.mode === "open" ? <BlockedSitesCard view={view} /> : null}
 						<AllowListGroup view={view} onEdit={edit} />
@@ -80,15 +80,19 @@ export function NetworkTab() {
 					 * Kept in view beside the long lists, so a test is always one field away.
 					 * Capped to what <main> shows (the window less the app bar and main's
 					 * p-8 above and below) and scrolled on its own, so a long Refused names
-					 * list cannot push its bottom out of reach.
+					 * list cannot push its bottom out of reach. A tab stop of its own lets
+					 * the keyboard scroll it (WCAG 2.1.1).
 					 */}
-					<div
-						className="grid content-start gap-6 self-start @5xl:sticky @5xl:top-0 @5xl:max-h-[calc(100dvh-var(--pk-appbar-height)-4rem)] @5xl:overflow-y-auto @5xl:overscroll-contain"
+					<section
+						className="pk-focus-ring grid content-start gap-4 self-start rounded-md @5xl:sticky @5xl:top-0 @5xl:max-h-[calc(100dvh-var(--pk-appbar-height)-4rem)] @5xl:overflow-y-auto @5xl:overscroll-contain"
+						aria-label="Test a host and refused names"
+						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolled region the keyboard must reach
+						tabIndex={0}
 						data-testid="egress-side"
 					>
 						<TestHostCard view={view} onAllow={allowFrom("egress-test-title")} />
 						<BlockedCard view={view} onAllow={allowFrom("egress-blocked-title")} />
-					</div>
+					</section>
 				</div>
 			</div>
 			{draft ? (

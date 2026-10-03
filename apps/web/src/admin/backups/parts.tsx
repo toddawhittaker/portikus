@@ -1,5 +1,5 @@
 import { type FocusEvent, type ReactNode, useEffect, useRef } from "react";
-import { AdminGroup, Part as SharedPart } from "../AdminSection.js";
+import { AdminGroup } from "../AdminSection.js";
 
 /**
  * Catches focus when a finished delete removes the focused row, such as its
@@ -19,8 +19,8 @@ export function useFocusCatch(target: () => HTMLElement | null) {
 	};
 }
 
-/** Puts focus on the heading `id` names when a removed row inside had it. */
-function HeadingCatch({ id, children }: { id: string; children: ReactNode }) {
+/** Puts focus on the heading `id` names when a removed element inside had it. */
+export function FocusCatch({ id, children }: { id: string; children: ReactNode }) {
 	const onFocus = useFocusCatch(() => document.getElementById(id));
 	return (
 		// `contents` keeps the card or part a direct child of its parent's gap layout.
@@ -31,21 +31,12 @@ function HeadingCatch({ id, children }: { id: string; children: ReactNode }) {
 	);
 }
 
-/** An `AdminGroup` whose heading takes focus when a removed row had it. */
-export function Group(props: Parameters<typeof AdminGroup>[0]) {
+/** An `AdminGroup` of either level whose heading takes focus when a removed row had it. */
+export function FocusCatchGroup(props: Parameters<typeof AdminGroup>[0]) {
 	return (
-		<HeadingCatch id={props.id}>
+		<FocusCatch id={props.id}>
 			<AdminGroup {...props} />
-		</HeadingCatch>
-	);
-}
-
-/** A shared admin `Part` whose heading takes focus when a removed row had it. */
-export function Part(props: Parameters<typeof SharedPart>[0]) {
-	return (
-		<HeadingCatch id={props.id}>
-			<SharedPart {...props} />
-		</HeadingCatch>
+		</FocusCatch>
 	);
 }
 

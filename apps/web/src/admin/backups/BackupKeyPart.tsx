@@ -8,6 +8,7 @@ import {
 } from "@portikus/ui";
 import { useId, useState } from "react";
 import { ApiError, errorText } from "../../api/request.js";
+import { Notice } from "../Notice.js";
 import { longTime } from "./model.js";
 import { useDownloadBackupKey, useUploadBackupKey } from "./queries.js";
 
@@ -27,14 +28,11 @@ export function BackupKeyPart({ status }: { status: BackupKeyStatus }) {
 	return (
 		<div className="grid gap-4" data-testid="backup-key">
 			{status.installed && !status.downloaded ? (
-				<div
-					className="pk-card border-status-warning bg-status-warning-soft p-4 text-status-warning"
-					data-testid="backup-key-reminder"
-				>
+				<Notice tone="warning" testId="backup-key-reminder">
 					<strong>Backup key not yet downloaded.</strong> Download it and store it off
 					this server. Without it, a copy of your backups kept elsewhere cannot be
 					restored if this server is lost.
-				</div>
+				</Notice>
 			) : null}
 			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
 				<dt className="pk-muted">Key</dt>
@@ -143,9 +141,12 @@ function UploadDialog({
 	const inputId = useId();
 	const [key, setKey] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	// Keys the alert, so a second bad pick with the same message is read out again.
+	const [picks, setPicks] = useState(0);
 	const [mustReplace, setMustReplace] = useState(false);
 
 	async function choose(file: File | undefined) {
+		setPicks((n) => n + 1);
 		setError(null);
 		setKey(null);
 		if (!file) return;
@@ -229,7 +230,11 @@ function UploadDialog({
 						accept=".txt,text/plain"
 						error={
 							// Mounted afresh on each failure, so it is read out at once (SPEC.md section 25.8).
-							error ? <span role="alert">{error}</span> : null
+							error ? (
+								<span key={picks} role="alert">
+									{error}
+								</span>
+							) : null
 						}
 						onChange={(event) => void choose(event.target.files?.[0])}
 					/>

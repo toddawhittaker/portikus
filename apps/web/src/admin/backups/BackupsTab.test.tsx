@@ -1,234 +1,21 @@
-import type { AdminBackups, BackupRequestView } from "@portikus/contracts";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+import { json, openToggletip, renderApp, stubFetch, USER } from "../../test-utils.js";
+import { ActivityGroups } from "./Activity.js";
 import {
-	json,
-	openToggletip,
-	renderApp,
-	renderWithQuery,
-	stubFetch,
-	USER,
-} from "../../test-utils.js";
-import { RestoreFromBackupDialog } from "./BackupDialogs.js";
-import {
-	newestCompleteStamp,
-	requestText,
-	runningText,
-	stampIso,
-	stateText,
-	waitingRequest,
-	workspaceName,
-} from "./model.js";
+	ALICE_INSTANCE,
+	backups,
+	FAILED,
+	NEW,
+	OLD,
+	stubBackups,
+	view,
+	WORKSPACES,
+} from "./testBackups.js";
+
+/** The Backups tab's layout, status, sets and Clean up; restores are in Restore.test.tsx. */
 
 afterEach(() => vi.unstubAllGlobals());
-
-const OLD = "20260920T023000Z";
-const NEW = "20260924T023000Z";
-const FAILED = "20260925T023000Z";
-const ALICE_WS = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-const BOB_WS = "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-const ALICE_INSTANCE = `ws-${"a".repeat(24)}`;
-const BOB_INSTANCE = `ws-${"b".repeat(24)}`;
-const COPY_ID = "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-
-function view(overrides: Partial<BackupRequestView>): BackupRequestView {
-	return {
-		id: "dddddddd-bbbb-4ccc-8ddd-eeeeeeeeeeee",
-		kind: "backup",
-		args: {},
-		state: "done",
-		requestedAt: "2026-09-26T10:00:00.000Z",
-		claimedAt: null,
-		finishedAt: null,
-		error: null,
-		workspaceId: null,
-		result: null,
-		...overrides,
-	};
-}
-
-const WORKSPACES: AdminBackups["workspaces"] = [
-	{
-		id: ALICE_WS,
-		instance: ALICE_INSTANCE,
-		label: "alice",
-		ownerName: "Alice Smith",
-		state: "running",
-	},
-	{
-		id: BOB_WS,
-		instance: BOB_INSTANCE,
-		label: "bob",
-		ownerName: "Bob Jones",
-		state: "stopped",
-	},
-];
-
-function backups(overrides: Partial<AdminBackups> = {}): AdminBackups {
-	return {
-		host: {
-			vm: "portikus-vm",
-			reportedAt: "2026-09-26T10:00:00.000Z",
-			nextRunAt: "2026-09-27T02:30:00.000Z",
-			lastRun: {
-				startedAt: "2026-09-25T02:30:00.000Z",
-				endedAt: "2026-09-25T02:40:00.000Z",
-				result: "failed",
-			},
-			lastFailure: { at: "2026-09-25T02:40:00.000Z", reason: "the pool was busy" },
-			running: null,
-			keyInstalled: true,
-			sets: [
-				{
-					stamp: FAILED,
-					complete: false,
-					sizeBytes: 1024,
-					instances: [ALICE_INSTANCE],
-					failedVolumes: [`${BOB_INSTANCE}-home`],
-				},
-				{
-					stamp: NEW,
-					complete: true,
-					sizeBytes: 5 * 1024 ** 3,
-					instances: [ALICE_INSTANCE, BOB_INSTANCE],
-					failedVolumes: [],
-					skippedVolumes: 2,
-				},
-				{
-					stamp: OLD,
-					complete: true,
-					sizeBytes: 4 * 1024 ** 3,
-					instances: [ALICE_INSTANCE, BOB_INSTANCE],
-					failedVolumes: [],
-				},
-			],
-			dumps: [
-				{
-					file: "portikus-pre-upgrade.dump",
-					sizeBytes: 2048,
-					modifiedAt: "2026-09-23T09:00:00.000Z",
-				},
-			],
-		},
-		hostReportedAt: new Date().toISOString(),
-		hostStale: false,
-		vm: {
-			snapshots: [
-				{
-					volume: `${ALICE_INSTANCE}-home`,
-					name: "pre-upgrade",
-					createdAt: "2026-09-23T09:00:00.000Z",
-				},
-			],
-			keptHomes: [
-				{
-					volume: `${ALICE_INSTANCE}-home-replaced-1790000000`,
-					instance: ALICE_INSTANCE,
-					createdAt: "2026-09-22T09:00:00.000Z",
-				},
-			],
-		},
-		vmListedAt: new Date().toISOString(),
-		requests: [
-			view({
-				id: COPY_ID,
-				kind: "restore_copy",
-				args: { stamp: NEW, instance: ALICE_INSTANCE, dir: "restored-2026-09-24-0230" },
-				workspaceId: ALICE_WS,
-			}),
-			view({
-				id: "eeeeeeee-bbbb-4ccc-8ddd-eeeeeeeeeeee",
-				kind: "delete_set",
-				args: { stamp: OLD },
-				state: "failed",
-				error: "refused by the host: no such set",
-			}),
-		],
-		workspaces: WORKSPACES,
-		...overrides,
-	};
-}
-
-/** Serves the Backups API and records every write. */
-function stubBackups(
-	data: AdminBackups,
-	write: () => Response = () => json(202, view({})),
-) {
-	const writes: { method: string; url: string; body: unknown }[] = [];
-	stubFetch((url, init) => {
-		if (url === "/auth/me") return json(200, { ...USER, role: "administrator" });
-		if (url === "/admin/backups" && (init?.method ?? "GET") === "GET") {
-			return json(200, data);
-		}
-		// A separate host backs this site up, so the server holds no key (ADR 0044).
-		if (url === "/admin/backups/key") {
-			return json(404, { code: "NOT_FOUND", message: "Not found." });
-		}
-		if (url.startsWith("/admin/backups")) {
-			writes.push({
-				method: init?.method ?? "GET",
-				url,
-				body: init?.body ? JSON.parse(String(init.body)) : null,
-			});
-			return write();
-		}
-		return json(200, {});
-	});
-	return writes;
-}
-
-test("a stamp reads as its UTC time", () => {
-	expect(stampIso(NEW)).toBe("2026-09-24T02:30:00Z");
-});
-
-test("the newest complete set is the one the host keeps", () => {
-	expect(newestCompleteStamp(backups().host?.sets ?? [])).toBe(NEW);
-	expect(newestCompleteStamp([])).toBeNull();
-});
-
-test("requests read in words, naming the workspace", () => {
-	const copy = backups().requests[0] as BackupRequestView;
-	expect(requestText(copy, WORKSPACES)).toMatch(
-		/^Restore Alice Smith \(alice\) from .* into ~\/restored-2026-09-24-0230$/,
-	);
-	expect(requestText(view({ kind: "delete_dump", args: { file: "x.dump" } }), [])).toBe(
-		"Delete dump x.dump",
-	);
-	expect(
-		requestText(view({ kind: "delete_kept_home", args: { volume: "v" } }), []),
-	).toBe("Delete kept home v");
-	expect(
-		requestText(
-			view({ kind: "delete_snapshot", args: { volume: "v", snapshot: "pre-a" } }),
-			[],
-		),
-	).toBe("Delete snapshot pre-a of v");
-	expect(
-		requestText(
-			view({ kind: "import_home", args: { instance: BOB_INSTANCE } }),
-			WORKSPACES,
-		),
-	).toBe("Import the home of Bob Jones (bob)");
-	expect(workspaceName("ws-unknown", [])).toBe("ws-unknown");
-	expect(stateText(view({ state: "pending" }))).toBe("Waiting for the host");
-	expect(stateText(view({ state: "pending", kind: "delete_snapshot" }))).toBe(
-		"Waiting for the platform",
-	);
-	expect(stateText(view({ state: "claimed" }))).toBe("Running");
-	expect(stateText(view({ state: "failed" }))).toBe("Failed");
-});
-
-test("running now names the nightly run or the request", () => {
-	const pending = view({ state: "pending" });
-	expect(runningText(null, [], [])).toBe("Nothing");
-	expect(runningText("nightly", [], [])).toBe("The nightly backup");
-	expect(runningText(pending.id, [pending], [])).toBe("Back up now");
-	expect(runningText("ffffffff-bbbb-4ccc-8ddd-eeeeeeeeeeee", [], [])).toBe(
-		"A requested job",
-	);
-	expect(waitingRequest([pending], "backup")).toBe(pending);
-	expect(waitingRequest([pending], "delete_set")).toBeUndefined();
-});
 
 test("a site whose host never reported says backups are not connected", async () => {
 	stubBackups(backups({ host: null, hostReportedAt: null, hostStale: true }));
@@ -286,9 +73,9 @@ test("a stale host turns Back up now off and says why", async () => {
 	expect(screen.getByTestId("backup-run-note").textContent).toBe(
 		"Back up now waits until the host reports again.",
 	);
-	expect(screen.getByTestId("backups-host-stale").textContent).toContain(
-		"The host has not reported since",
-	);
+	const stale = screen.getByTestId("backups-host-stale");
+	expect(stale.textContent).toContain("The host has not reported since");
+	expect(stale.classList.contains("bg-status-warning-soft")).toBe(true);
 	fireEvent.click(run);
 	expect(writes).toEqual([]);
 });
@@ -397,123 +184,6 @@ test("a set that is not verified is marked and cannot be restored", async () => 
 	expect(
 		within(verified).getByTestId("backup-set-restore").getAttribute("aria-disabled"),
 	).toBeNull();
-});
-
-test("restore picks a running workspace and names the folder", async () => {
-	const writes = stubBackups(backups());
-	renderApp("/admin/backups");
-	const row = await screen.findByTestId(`backup-set-${NEW}`);
-	fireEvent.click(within(row).getByTestId("backup-set-restore"));
-	const dialog = await screen.findByTestId("backup-restore-dialog");
-	expect(within(dialog).getByTestId("backup-restore-folder").textContent).toBe(
-		"~/restored-2026-09-24-0230",
-	);
-	const confirm = within(dialog).getByTestId("backup-restore-confirm");
-	expect(confirm.getAttribute("aria-disabled")).toBe("true");
-	expect(confirm.getAttribute("aria-describedby")).toBe("backup-restore-choose");
-	expect(within(dialog).getByText("Choose a workspace to restore.")).toBeTruthy();
-	// Mounted empty before any choice, so a later warning is announced.
-	expect(within(dialog).getByRole("status").textContent).toBe("");
-
-	fireEvent.click(within(dialog).getByLabelText("Workspace"));
-	fireEvent.click(
-		await screen.findByRole("option", { name: "Bob Jones (bob), stopped" }),
-	);
-	await waitFor(() =>
-		expect(within(dialog).getByRole("status").textContent).toContain(
-			"Start this workspace first.",
-		),
-	);
-	fireEvent.click(confirm);
-	expect(writes).toEqual([]);
-
-	fireEvent.click(within(dialog).getByLabelText("Workspace"));
-	fireEvent.click(await screen.findByRole("option", { name: "Alice Smith (alice)" }));
-	await waitFor(() => expect(confirm.getAttribute("aria-disabled")).toBeNull());
-	fireEvent.click(confirm);
-	await waitFor(() =>
-		expect(writes).toEqual([
-			{
-				method: "POST",
-				url: "/admin/backups/restores",
-				body: { stamp: NEW, workspaceId: ALICE_WS },
-			},
-		]),
-	);
-});
-
-test("a refused restore keeps the dialog open with the reason", async () => {
-	stubBackups(backups(), () =>
-		json(409, { code: "WORKSPACE_NOT_RUNNING", message: "Start the workspace first" }),
-	);
-	renderApp("/admin/backups");
-	const row = await screen.findByTestId(`backup-set-${NEW}`);
-	fireEvent.click(within(row).getByTestId("backup-set-restore"));
-	const dialog = await screen.findByTestId("backup-restore-dialog");
-	fireEvent.click(within(dialog).getByLabelText("Workspace"));
-	fireEvent.click(await screen.findByRole("option", { name: "Alice Smith (alice)" }));
-	fireEvent.click(within(dialog).getByTestId("backup-restore-confirm"));
-	expect((await within(dialog).findByRole("alert")).textContent).toBe(
-		"Start the workspace first",
-	);
-});
-
-test("without the restore key, Restore is off and says why", async () => {
-	const data = backups();
-	stubBackups({ ...data, host: data.host && { ...data.host, keyInstalled: false } });
-	renderApp("/admin/backups");
-	const row = await screen.findByTestId(`backup-set-${NEW}`);
-	const restore = within(row).getByTestId("backup-set-restore");
-	expect(restore.getAttribute("aria-disabled")).toBe("true");
-	expect(restore.getAttribute("aria-describedby")).toBe("backups-key-note");
-	fireEvent.click(restore);
-	expect(screen.queryByTestId("backup-restore-dialog")).toBeNull();
-});
-
-test("replace home needs the workspace label typed", async () => {
-	const writes = stubBackups(backups());
-	renderApp("/admin/backups");
-	const copy = await screen.findByTestId("backup-copy");
-	expect(copy.textContent).toContain("Copied");
-	fireEvent.click(within(copy).getByTestId("backup-copy-replace"));
-	const dialog = await screen.findByTestId("backup-replace-dialog");
-	expect(dialog.textContent).toContain(
-		"Each active project gets a recovery point first.",
-	);
-	const confirm = within(dialog).getByTestId("dialog-confirm") as HTMLButtonElement;
-	expect(confirm.disabled).toBe(true);
-	fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "alice" } });
-	expect(confirm.disabled).toBe(false);
-	fireEvent.click(confirm);
-	await waitFor(() =>
-		expect(writes).toEqual([
-			{
-				method: "POST",
-				url: `/admin/backups/restores/${COPY_ID}/replace-home`,
-				body: null,
-			},
-		]),
-	);
-});
-
-test("a failed copy shows the host's reason and no Replace", async () => {
-	const data = backups();
-	stubBackups({
-		...data,
-		requests: [
-			view({
-				kind: "restore_copy",
-				args: { stamp: NEW, instance: ALICE_INSTANCE, dir: "restored-2026-09-24-0230" },
-				workspaceId: ALICE_WS,
-				state: "failed",
-				error: "~/restored-2026-09-24-0230 already exists.",
-			}),
-		],
-	});
-	renderApp("/admin/backups");
-	const copy = await screen.findByTestId("backup-copy");
-	expect(copy.textContent).toContain("already exists");
-	expect(within(copy).queryByTestId("backup-copy-replace")).toBeNull();
 });
 
 test("snapshots, dumps and kept homes each delete through their own route", async () => {
@@ -668,6 +338,23 @@ test("with no requests, Restores and Recent requests share one Activity group", 
 	expect(screen.queryByRole("heading", { level: 3, name: "Restores" })).toBeNull();
 });
 
+test("focus inside Activity moves to the Restores heading when the first request splits it", () => {
+	const { rerender } = render(
+		<ActivityGroups requests={[]} workspaces={WORKSPACES} onReplace={() => {}} />,
+	);
+	screen.getByRole("button", { name: /Replace home/ }).focus();
+	rerender(
+		<ActivityGroups
+			requests={[view({ state: "pending" })]}
+			workspaces={WORKSPACES}
+			onReplace={() => {}}
+		/>,
+	);
+	expect(document.activeElement).toBe(
+		screen.getByRole("heading", { level: 3, name: "Restores" }),
+	);
+});
+
 test("with requests, Restores and Recent requests are their own groups", async () => {
 	stubBackups(backups());
 	renderApp("/admin/backups");
@@ -676,158 +363,6 @@ test("with requests, Restores and Recent requests are their own groups", async (
 	expect(
 		screen.getByRole("heading", { level: 3, name: "Recent requests" }),
 	).toBeTruthy();
-});
-
-describe("restore from a workspace's panel (preset workspace)", () => {
-	test("lists only the sets holding the workspace, newest first, and restores the chosen one", async () => {
-		const writes = stubBackups(backups());
-		renderWithQuery(
-			<RestoreFromBackupDialog workspaceId={BOB_WS} onClose={() => {}} />,
-		);
-		const dialog = await screen.findByTestId("backup-restore-dialog");
-		expect(within(dialog).getByRole("heading").textContent).toBe("Restore from backup");
-		expect(
-			(await within(dialog).findByTestId("backup-restore-workspace-name")).textContent,
-		).toBe("Bob Jones (bob)");
-		// The newest set holding Bob is chosen for you; FAILED does not hold him.
-		await waitFor(() =>
-			expect(within(dialog).getByTestId("backup-restore-folder").textContent).toBe(
-				"~/restored-2026-09-24-0230",
-			),
-		);
-		fireEvent.click(within(dialog).getByLabelText("Backup set"));
-		const options = await screen.findAllByRole("option");
-		expect(options.map((o) => o.textContent)).toEqual([
-			"Sep 24, 2026, 02:30 UTC",
-			"Sep 20, 2026, 02:30 UTC",
-		]);
-		fireEvent.click(options[1] as HTMLElement);
-		await waitFor(() =>
-			expect(within(dialog).getByTestId("backup-restore-folder").textContent).toBe(
-				"~/restored-2026-09-20-0230",
-			),
-		);
-		// Bob's workspace is stopped, so the copy cannot be made yet.
-		const confirm = within(dialog).getByTestId("backup-restore-confirm");
-		expect(confirm.getAttribute("aria-disabled")).toBe("true");
-		expect(confirm.getAttribute("aria-describedby")).toBe("backup-restore-stopped");
-		fireEvent.click(confirm);
-		expect(writes).toEqual([]);
-	});
-
-	test("a running workspace is restored from the chosen set", async () => {
-		const writes = stubBackups(backups());
-		const onClose = vi.fn();
-		renderWithQuery(
-			<RestoreFromBackupDialog workspaceId={ALICE_WS} onClose={onClose} />,
-		);
-		const dialog = await screen.findByTestId("backup-restore-dialog");
-		const confirm = within(dialog).getByTestId("backup-restore-confirm");
-		await waitFor(() => expect(confirm.getAttribute("aria-disabled")).toBeNull());
-		fireEvent.click(confirm);
-		await waitFor(() =>
-			expect(writes).toEqual([
-				{
-					method: "POST",
-					url: "/admin/backups/restores",
-					body: { stamp: FAILED, workspaceId: ALICE_WS },
-				},
-			]),
-		);
-		await waitFor(() => expect(onClose).toHaveBeenCalled());
-	});
-
-	test("a set that is not verified is not offered", async () => {
-		const data = backups();
-		stubBackups({
-			...data,
-			host: data.host && {
-				...data.host,
-				sets: data.host.sets.map((each) =>
-					each.stamp === NEW ? { ...each, verified: false } : each,
-				),
-			},
-		});
-		renderWithQuery(
-			<RestoreFromBackupDialog workspaceId={BOB_WS} onClose={() => {}} />,
-		);
-		const dialog = await screen.findByTestId("backup-restore-dialog");
-		await waitFor(() =>
-			expect(within(dialog).getByTestId("backup-restore-folder").textContent).toBe(
-				"~/restored-2026-09-20-0230",
-			),
-		);
-		fireEvent.click(within(dialog).getByLabelText("Backup set"));
-		const options = await screen.findAllByRole("option");
-		expect(options.map((o) => o.textContent)).toEqual(["Sep 20, 2026, 02:30 UTC"]);
-	});
-
-	test("a workspace no set holds says so and cannot restore", async () => {
-		stubBackups(backups());
-		renderWithQuery(
-			<RestoreFromBackupDialog
-				workspaceId="99999999-bbbb-4ccc-8ddd-eeeeeeeeeeee"
-				onClose={() => {}}
-			/>,
-		);
-		const dialog = await screen.findByTestId("backup-restore-dialog");
-		expect((await within(dialog).findByTestId("backup-restore-none")).textContent).toBe(
-			"No backup set holds this workspace yet.",
-		);
-		const confirm = within(dialog).getByTestId("backup-restore-confirm");
-		expect(confirm.getAttribute("aria-disabled")).toBe("true");
-		expect(confirm.getAttribute("aria-describedby")).toBe("backup-restore-none");
-	});
-
-	test("a workspace only unverified sets hold says they cannot be restored", async () => {
-		const data = backups();
-		stubBackups({
-			...data,
-			host: data.host && {
-				...data.host,
-				sets: data.host.sets.map((each) => ({ ...each, verified: false })),
-			},
-		});
-		renderWithQuery(
-			<RestoreFromBackupDialog workspaceId={ALICE_WS} onClose={() => {}} />,
-		);
-		const dialog = await screen.findByTestId("backup-restore-dialog");
-		expect((await within(dialog).findByTestId("backup-restore-none")).textContent).toBe(
-			"Only unverified backup sets hold this workspace, and they cannot be restored.",
-		);
-		expect(
-			within(dialog)
-				.getByTestId("backup-restore-confirm")
-				.getAttribute("aria-disabled"),
-		).toBe("true");
-	});
-
-	test("a site without a backup host says backups are not connected", async () => {
-		stubBackups(backups({ host: null, workspaces: [] }));
-		renderWithQuery(
-			<RestoreFromBackupDialog workspaceId={ALICE_WS} onClose={() => {}} />,
-		);
-		const dialog = await screen.findByTestId("backup-restore-dialog");
-		// Only that one line: no "no set holds this workspace", no folder, no running rule.
-		expect((await within(dialog).findByTestId("backup-restore-none")).textContent).toBe(
-			"Backups are not connected on this site.",
-		);
-		expect(
-			within(dialog).queryByText("No backup set holds this workspace yet."),
-		).toBeNull();
-		expect(within(dialog).queryByTestId("backup-restore-folder")).toBeNull();
-		expect(within(dialog).queryByRole("combobox")).toBeNull();
-		const confirm = within(dialog).getByTestId("backup-restore-confirm");
-		expect(confirm.getAttribute("aria-disabled")).toBe("true");
-		expect(confirm.getAttribute("aria-describedby")).toBe("backup-restore-none");
-	});
-
-	test("renders and fetches nothing while no workspace is given", () => {
-		const fetch = stubBackups(backups());
-		renderWithQuery(<RestoreFromBackupDialog workspaceId={null} onClose={() => {}} />);
-		expect(screen.queryByTestId("backup-restore-dialog")).toBeNull();
-		expect(fetch).toEqual([]);
-	});
 });
 
 test("a failed request shows its error in the recent list", async () => {

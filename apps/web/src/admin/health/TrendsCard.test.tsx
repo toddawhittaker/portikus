@@ -1,5 +1,5 @@
 import type { HealthSeries } from "@portikus/contracts";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { readGroupOpen, TrendsCard } from "./TrendsCard.js";
@@ -75,6 +75,18 @@ test("the charts load for the stored range and switch with the control", async (
 
 	fireEvent.click(screen.getByRole("button", { name: "1 hour" }));
 	await waitFor(() => expect(requested.at(-1)).toBe("/admin/health/series?range=1h"));
+});
+
+test("Trends is an admin card with the range control in its heading row", () => {
+	stubFetch(() => json(500, { code: "INTERNAL", message: "Something broke." }));
+	renderWithQuery(<TrendsCard warnPercent={80} />);
+	const card = screen.getByRole("region", { name: "Trends" });
+	expect(card.classList.contains("pk-card")).toBe(true);
+	const heading = within(card).getByRole("heading", { level: 3, name: "Trends" });
+	const row = heading.closest(".flex-wrap");
+	expect(
+		within(row as HTMLElement).getByRole("button", { name: "1 hour" }),
+	).toBeTruthy();
 });
 
 test("a failed load is announced", async () => {

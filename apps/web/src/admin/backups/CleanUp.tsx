@@ -5,7 +5,7 @@ import { formatBytes } from "../../monitor/format.js";
 import { plural } from "../../text.js";
 import type { DeleteTarget } from "./BackupDialogs.js";
 import { longTime, waitingRequest, workspaceName } from "./model.js";
-import { Part, Table, useFocusCatch } from "./parts.js";
+import { FocusCatchGroup, Table, useFocusCatch } from "./parts.js";
 import type { Host } from "./StatusAndSets.js";
 
 /**
@@ -82,7 +82,8 @@ function VmParts({
 	const notListed = vm === null ? "Not listed yet." : null;
 	return (
 		<>
-			<Part
+			<FocusCatchGroup
+				level={4}
 				id="backups-snapshots-title"
 				title="Pre-change snapshots"
 				help={
@@ -139,8 +140,9 @@ function VmParts({
 						);
 					})}
 				</Table>
-			</Part>
-			<Part
+			</FocusCatchGroup>
+			<FocusCatchGroup
+				level={4}
 				id="backups-kept-title"
 				title="Kept homes"
 				help={
@@ -194,7 +196,7 @@ function VmParts({
 						);
 					})}
 				</Table>
-			</Part>
+			</FocusCatchGroup>
 		</>
 	);
 }
@@ -209,7 +211,8 @@ function DumpsPart({
 	onDelete: (target: DeleteTarget) => void;
 }) {
 	return (
-		<Part
+		<FocusCatchGroup
+			level={4}
 			id="backups-dumps-title"
 			title="Pre-change database dumps"
 			help={
@@ -253,6 +256,6 @@ function DumpsPart({
 					);
 				})}
 			</Table>
-		</Part>
+		</FocusCatchGroup>
 	);
 }
