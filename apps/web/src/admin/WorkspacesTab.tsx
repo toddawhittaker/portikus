@@ -30,7 +30,6 @@ import {
 	isFiltered,
 	NO_FILTERS,
 } from "./users/filters.js";
-import { useOperationEndToasts } from "./users/operationEnd.js";
 import {
 	ACCOUNT_COLUMN_LABEL,
 	type AccountColumn,
@@ -50,8 +49,6 @@ const ROLE_OPTION: Record<(typeof ROLE_FILTERS)[number], string> = {
 /** One row per account, with its workspace beside it (SPEC.md §20.1). */
 export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	const users = useAdminUsers();
-	// Here, not in the panel, so an operation that ends after the panel closes is still announced.
-	useOperationEndToasts(users.data?.users);
 	const [filters, setFilters] = useState<AccountFilters>(NO_FILTERS);
 	const [sort, setSort] = useState<SortState<AccountColumn>>(DEFAULT_ACCOUNT_SORT);
 	// The Health tab's resource guard list links here with ?user= (ADR 0032).

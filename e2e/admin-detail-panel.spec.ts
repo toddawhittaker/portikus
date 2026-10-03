@@ -9,6 +9,7 @@ import {
 	MOCK_ISSUER,
 	openToggletip,
 	query,
+	recordToasts,
 	routeApi,
 	toast,
 } from "./helpers";
@@ -546,22 +547,7 @@ for (const { how, endAction, ok, message } of [
 			await expect(page.getByRole("region", { name: other.name })).toBeVisible();
 		}
 		await expect(panel).toHaveCount(0);
-		// Count every toast shown, since a success toast closes itself before a later poll.
-		await page.evaluate(() => {
-			const shown: string[] = [];
-			(window as unknown as { shownToasts: string[] }).shownToasts = shown;
-			new MutationObserver((changes) => {
-				for (const change of changes) {
-					for (const node of change.addedNodes) {
-						if (!(node instanceof HTMLElement)) continue;
-						const toasts = node.matches(".pk-toast")
-							? [node]
-							: [...node.querySelectorAll(".pk-toast")];
-						for (const added of toasts) shown.push(added.textContent ?? "");
-					}
-				}
-			}).observe(document.body, { childList: true, subtree: true });
-		});
+		const shownToasts = await recordToasts(page);
 
 		await finishOperation(student.workspaceId, endAction, ok);
 		const title = message.replace("{name}", student.name);
@@ -571,9 +557,8 @@ for (const { how, endAction, ok, message } of [
 		await expect(badge).toHaveCount(0, { timeout: 15_000 });
 		// A later poll brings no second toast.
 		await page.waitForTimeout(6000);
-		const shown = await page.evaluate(
-			() => (window as unknown as { shownToasts: string[] }).shownToasts,
+		expect((await shownToasts()).filter((text) => text.includes(title))).toHaveLength(
+			1,
 		);
-		expect(shown.filter((text) => text.includes(title))).toHaveLength(1);
 	});
 }

@@ -6,9 +6,12 @@ import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../../api/queryClient.js";
 import { json, renderApp, stubFetch } from "../../test-utils.js";
 import {
+	endToasts,
+	OperationEndToasts,
 	OUTCOME_RETRY_MS,
 	operationOutcome,
 	outcomeToast,
+	readOutcomes,
 	useOperationEndToasts,
 } from "./operationEnd.js";
 import { ADMIN_ME, listed, summary, uuid } from "./testRows.js";
@@ -24,6 +27,7 @@ function auditEvent(
 	id: number,
 	action: string,
 	metadata: Record<string, unknown> | null = null,
+	target = WORKSPACE_ID,
 ): AuditEvent {
 	return {
 		id,
@@ -31,7 +35,7 @@ function auditEvent(
 		actor: "worker",
 		actorName: null,
 		action,
-		target: WORKSPACE_ID,
+		target,
 		result: action.endsWith("_failed") ? "failed" : "ok",
 		metadata,
 	};
@@ -138,7 +142,7 @@ function stubAudit(audit: () => AuditEvent[]) {
 	const asked: string[] = [];
 	stubFetch((url) => {
 		asked.push(url);
-		if (url === `/admin/audit?workspace=${WORKSPACE_ID}&action=workspace.`) {
+		if (url.startsWith("/admin/audit?action=workspace.")) {
 			return json(200, { events: audit(), nextBefore: null });
 		}
 		throw new Error(`unexpected request: ${url}`);
@@ -226,6 +230,122 @@ test("a result audited a poll after the operation cleared is read on a retry", a
 	expect(asked).toHaveLength(2);
 });
 
+test("a retry stops for a workspace that is pending again, so a later result is not claimed", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	const first = auditEvent(8, "workspace.rebuild_requested");
+	let audit = [first];
+	const asked = stubAudit(() => audit);
+	const update = renderWatcher(rows("rebuild"));
+	update(rows(null));
+	await waitFor(() => expect(asked).toHaveLength(1));
+
+	// A second rebuild starts before the first loop retries, and its result lands.
+	update(rows("rebuild"));
+	audit = [
+		auditEvent(10, "workspace.rebuilt"),
+		auditEvent(9, "workspace.rebuild_requested"),
+		first,
+	];
+	await vi.advanceTimersByTimeAsync(OUTCOME_RETRY_MS * 7);
+	expect(asked).toHaveLength(1);
+	expect(screen.queryByText(/workspace finished/)).toBeNull();
+
+	// The second rebuild's own end is announced once, by its own loop.
+	update(rows(null));
+	expect(
+		await screen.findByText("Rebuild of Alice Example's workspace finished"),
+	).toBeTruthy();
+	expect(asked).toHaveLength(2);
+});
+
+/** Three accounts, each with a workspace and the same pending operation. */
+function many(pending: PendingOperation | null): AdminUser[] {
+	return [1, 2, 3].map((n) =>
+		listed(n, `Owner ${n}`, {
+			workspace: summary({ id: uuid(10 + n), pendingOperation: pending }),
+		}),
+	);
+}
+
+test("operations that end in the same poll share one summary toast and one audit read", async () => {
+	const asked = stubAudit(() => [
+		auditEvent(23, "workspace.rebuild_failed", { errorCode: "X" }, uuid(13)),
+		auditEvent(22, "workspace.rebuilt", null, uuid(12)),
+		auditEvent(21, "workspace.rebuilt", null, uuid(11)),
+	]);
+	const update = renderWatcher(many("rebuild"));
+	update(many(null));
+	const toast = await screen.findByText("Rebuild finished for 2 workspaces; 1 failed");
+	expect(toast.closest('[role="alert"]')).not.toBeNull();
+	expect(
+		screen.getByText("Failed: Owner 3. Look for the errors in the Logs tab."),
+	).toBeTruthy();
+	expect(asked).toEqual(["/admin/audit?action=workspace.rebuil"]);
+});
+
+test("the outcome read pages until every workspace has its newest row", async () => {
+	const pages: Record<string, { events: AuditEvent[]; nextBefore: number | null }> = {
+		"/admin/audit?action=workspace.docker_reset": {
+			events: [auditEvent(30, "workspace.docker_reset", null, uuid(11))],
+			nextBefore: 30,
+		},
+		"/admin/audit?action=workspace.docker_reset&before=30": {
+			events: [auditEvent(20, "workspace.docker_reset", null, uuid(12))],
+			nextBefore: 20,
+		},
+	};
+	const asked: string[] = [];
+	stubFetch((url) => {
+		asked.push(url);
+		const page = pages[url];
+		if (page) return json(200, page);
+		throw new Error(`unexpected request: ${url}`);
+	});
+	const outcomes = await readOutcomes([
+		{ workspaceId: uuid(11), ownerName: "A", operation: "reset-docker" },
+		{ workspaceId: uuid(12), ownerName: "B", operation: "reset-docker" },
+	]);
+	expect([...outcomes.keys()].sort()).toEqual([uuid(11), uuid(12)]);
+	// Both are found by the second page, so the third is never asked for.
+	expect(asked).toHaveLength(2);
+});
+
+test("endToasts keeps a single end as it is and sums up several", () => {
+	const end = (ownerName: string, ok: boolean) => ({
+		ownerName,
+		outcome: { operation: "rebuild" as const, ok, detail: null },
+	});
+	expect(endToasts([end("Ann", true)])).toEqual([
+		{ tone: "success", title: "Rebuild of Ann's workspace finished" },
+	]);
+	expect(endToasts([end("Ann", true), end("Ben", true)])).toEqual([
+		{ tone: "success", title: "Rebuild finished for 2 workspaces" },
+	]);
+	expect(endToasts([end("Ann", false), end("Ben", false)])).toEqual([
+		{
+			tone: "danger",
+			title: "Rebuild failed for 2 workspaces",
+			children: "Failed: Ann, Ben. Look for the errors in the Logs tab.",
+		},
+	]);
+	const failures = ["A", "B", "C", "D", "E", "F", "G"].map((name) => end(name, false));
+	expect(endToasts([end("Ok", true), ...failures])[0]).toEqual({
+		tone: "danger",
+		title: "Rebuild finished for 1 workspace; 7 failed",
+		children: "Failed: A, B, C, D, E and 2 more. Look for the errors in the Logs tab.",
+	});
+	// Different operations get a toast each.
+	expect(
+		endToasts([
+			end("Ann", true),
+			{
+				ownerName: "Ben",
+				outcome: { operation: "replace-home", ok: true, detail: null },
+			},
+		]),
+	).toHaveLength(2);
+});
+
 test("the Users view announces a rebuild that ends while no panel is open", async () => {
 	let pending: PendingOperation | null = "rebuild";
 	stubFetch((url) => {
@@ -258,3 +378,59 @@ test("the Users view announces a rebuild that ends while no panel is open", asyn
 	);
 	expect(toast.closest('[role="alert"]')).not.toBeNull();
 }, 15000);
+
+/** Answers the Users list from `list()`, and counts how often it is asked. */
+function stubList(list: () => AdminUser[]) {
+	const calls = { users: 0 };
+	stubFetch((url) => {
+		if (url === "/admin/users") {
+			calls.users += 1;
+			return json(200, { users: list(), dexUsers: false });
+		}
+		if (url.startsWith("/admin/audit?")) {
+			return json(200, {
+				events: [auditEvent(9, "workspace.home_replaced")],
+				nextBefore: null,
+			});
+		}
+		throw new Error(`unexpected request: ${url}`);
+	});
+	return calls;
+}
+
+function renderPageWatcher() {
+	render(
+		<QueryClientProvider client={createQueryClient()}>
+			<ToastProvider>
+				<OperationEndToasts />
+			</ToastProvider>
+		</QueryClientProvider>,
+	);
+}
+
+test("on any admin tab, the list is polled while an operation is pending, and the end announced", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	let pending: PendingOperation | null = "replace-home";
+	const calls = stubList(() => rows(pending));
+	renderPageWatcher();
+	await waitFor(() => expect(calls.users).toBe(1));
+
+	pending = null;
+	await vi.advanceTimersByTimeAsync(5000);
+	expect(
+		await screen.findByText("Home folder replace for Alice Example finished"),
+	).toBeTruthy();
+	expect(calls.users).toBe(2);
+	// Nothing is pending now, so the list is not asked again.
+	await vi.advanceTimersByTimeAsync(20_000);
+	expect(calls.users).toBe(2);
+});
+
+test("with nothing pending, the page's watcher does not poll", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	const calls = stubList(() => rows(null));
+	renderPageWatcher();
+	await waitFor(() => expect(calls.users).toBe(1));
+	await vi.advanceTimersByTimeAsync(20_000);
+	expect(calls.users).toBe(1);
+});

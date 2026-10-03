@@ -8,6 +8,7 @@ import { useToast } from "@portikus/ui";
 import { useEffect, useRef } from "react";
 import { request } from "../../api/request.js";
 import { auditQueryString } from "../audit/queries.js";
+import { useAdminUsersWhilePending } from "../queries.js";
 
 type Operation = Exclude<PendingOperation, "rebuild-reset-docker">;
 
@@ -79,16 +80,123 @@ export function outcomeToast(outcome: OperationOutcome, ownerName: string) {
 	};
 }
 
+const OPERATION_NAME: Record<Operation, string> = {
+	rebuild: "Rebuild",
+	"reset-docker": "Docker reset",
+	"replace-home": "Home folder replace",
+};
+
+/** Failed owners named in a summary before it says "and N more". */
+const NAMED_FAILURES = 5;
+
+/** One workspace's operation that has ended, and how. */
+export type EndedOperation = { ownerName: string; outcome: OperationOutcome };
+
+/**
+ * The toasts for the operations that ended in one poll: each as its own
+ * toast when it is the only one of its kind, else one summary per kind, so a
+ * bulk rebuild of 40 workspaces is one toast, not 40.
+ */
+export function endToasts(ended: EndedOperation[]) {
+	const byOperation = new Map<Operation, EndedOperation[]>();
+	for (const item of ended) {
+		const group = byOperation.get(item.outcome.operation) ?? [];
+		group.push(item);
+		byOperation.set(item.outcome.operation, group);
+	}
+	return [...byOperation].map(([operation, group]) => {
+		const [only] = group;
+		if (only && group.length === 1) return outcomeToast(only.outcome, only.ownerName);
+		const what = OPERATION_NAME[operation];
+		const failed = group
+			.filter((item) => !item.outcome.ok)
+			.map((item) => item.ownerName);
+		const ok = group.length - failed.length;
+		if (failed.length === 0) {
+			return {
+				tone: "success" as const,
+				title: `${what} finished for ${ok} workspaces`,
+			};
+		}
+		const shown = failed.slice(0, NAMED_FAILURES).join(", ");
+		const more =
+			failed.length > NAMED_FAILURES
+				? ` and ${failed.length - NAMED_FAILURES} more`
+				: "";
+		return {
+			tone: "danger" as const,
+			title:
+				ok === 0
+					? `${what} failed for ${failed.length} workspaces`
+					: `${what} finished for ${ok} ${ok === 1 ? "workspace" : "workspaces"}; ${failed.length} failed`,
+			children: `Failed: ${shown}${more}. Look for the errors in the Logs tab.`,
+		};
+	});
+}
+
 /** The worker clears an operation and then audits it, so a result can lag a poll. */
 export const OUTCOME_RETRY_MS = 5000;
 const OUTCOME_TRIES = 6;
+/** Pages of audit rows read per operation kind before trying again later. */
+const OUTCOME_PAGES = 4;
 
-async function readOutcome(workspaceId: string): Promise<OperationOutcome | null> {
-	const page = await request(
-		AuditPage,
-		`/admin/audit${auditQueryString({ workspace: workspaceId, user: "", action: "workspace." }, null)}`,
-	);
-	return operationOutcome(page.events);
+/** An audit action prefix that matches one operation's request and result rows. */
+const ACTION_PREFIX: Record<Operation, string> = {
+	rebuild: "workspace.rebuil",
+	"reset-docker": "workspace.docker_reset",
+	"replace-home": "workspace.home_replace",
+};
+
+/** A workspace seen with an operation pending. */
+type Watched = { workspaceId: string; ownerName: string; operation: Operation };
+
+function kindOf(pending: PendingOperation): Operation {
+	return pending === "rebuild-reset-docker" ? "rebuild" : pending;
+}
+
+/**
+ * The outcomes of these operations that are audited yet, by workspace. One
+ * read per operation kind covers every workspace, newest rows first, paging
+ * only until each workspace has its newest row.
+ */
+export async function readOutcomes(
+	watched: Watched[],
+): Promise<Map<string, OperationOutcome>> {
+	const outcomes = new Map<string, OperationOutcome>();
+	const kinds = new Set(watched.map((item) => item.operation));
+	for (const kind of kinds) {
+		const ids = new Set(
+			watched.filter((item) => item.operation === kind).map((item) => item.workspaceId),
+		);
+		const rows = new Map<string, AuditEvent[]>();
+		let before: number | null = null;
+		for (let page = 0; page < OUTCOME_PAGES; page++) {
+			const result: AuditPage = await request(
+				AuditPage,
+				`/admin/audit${auditQueryString({ workspace: "", user: "", action: ACTION_PREFIX[kind] }, before)}`,
+			);
+			for (const event of result.events) {
+				if (!event.target || !ids.has(event.target)) continue;
+				rows.set(event.target, [...(rows.get(event.target) ?? []), event]);
+			}
+			before = result.nextBefore;
+			if (before === null || rows.size === ids.size) break;
+		}
+		for (const [workspaceId, events] of rows) {
+			const outcome = operationOutcome(events);
+			if (outcome) outcomes.set(workspaceId, outcome);
+		}
+	}
+	return outcomes;
+}
+
+/**
+ * Mounted once by the admin page, so the end is announced on every tab,
+ * such as Backups after a Replace home. Renders nothing.
+ */
+export function OperationEndToasts() {
+	useOperationEndToasts(useAdminUsersWhilePending().data?.users);
+	return null;
 }
 
 /**
@@ -97,8 +205,7 @@ async function readOutcome(workspaceId: string): Promise<OperationOutcome | null
  */
 export function useOperationEndToasts(users: AdminUser[] | undefined) {
 	const toast = useToast();
-	// Workspaces seen with an operation pending, and their owners' names.
-	const pending = useRef(new Map<string, string>());
+	const pending = useRef(new Map<string, Watched>());
 	const alive = useRef(true);
 	useEffect(() => {
 		alive.current = true;
@@ -114,29 +221,46 @@ export function useOperationEndToasts(users: AdminUser[] | undefined) {
 			if (user.workspace) listed.set(user.workspace.id, user);
 		}
 
-		async function announce(workspaceId: string, ownerName: string) {
-			for (let attempt = 0; attempt < OUTCOME_TRIES && alive.current; attempt++) {
+		async function announce(ended: Watched[]) {
+			let waiting = ended;
+			for (let attempt = 0; attempt < OUTCOME_TRIES; attempt++) {
 				if (attempt > 0) {
 					await new Promise((resolve) => setTimeout(resolve, OUTCOME_RETRY_MS));
+					// Pending again means a later operation, whose result is not this one's.
+					waiting = waiting.filter((item) => !pending.current.has(item.workspaceId));
 				}
-				const outcome = await readOutcome(workspaceId).catch(() => null);
-				if (outcome && alive.current) {
-					toast.show(outcomeToast(outcome, ownerName));
-					return;
+				if (waiting.length === 0 || !alive.current) return;
+				const outcomes = await readOutcomes(waiting).catch(
+					() => new Map<string, OperationOutcome>(),
+				);
+				if (!alive.current) return;
+				const done: EndedOperation[] = [];
+				for (const item of waiting) {
+					const outcome = outcomes.get(item.workspaceId);
+					if (outcome) done.push({ ownerName: item.ownerName, outcome });
 				}
+				for (const shown of endToasts(done)) toast.show(shown);
+				waiting = waiting.filter((item) => !outcomes.has(item.workspaceId));
 			}
 		}
 
-		for (const [workspaceId, ownerName] of pending.current) {
+		const ended: Watched[] = [];
+		for (const [workspaceId, watched] of pending.current) {
 			const user = listed.get(workspaceId);
 			if (user?.workspace?.pendingOperation) continue;
 			pending.current.delete(workspaceId);
 			// A workspace that left the list was deleted; there is nothing to say.
-			if (user) void announce(workspaceId, ownerName);
+			if (user) ended.push(watched);
 		}
+		if (ended.length > 0) void announce(ended);
 		for (const [workspaceId, user] of listed) {
-			if (user.workspace?.pendingOperation) {
-				pending.current.set(workspaceId, user.displayName);
+			const operation = user.workspace?.pendingOperation;
+			if (operation) {
+				pending.current.set(workspaceId, {
+					workspaceId,
+					ownerName: user.displayName,
+					operation: kindOf(operation),
+				});
 			}
 		}
 	}, [users, toast]);
