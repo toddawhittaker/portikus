@@ -4075,3 +4075,67 @@ Gaps:
 - The preview, process-stop and terminal error maps stay local because
   they answer differently from the shared map.
 - Review items S3 and S4 are deferred to #1041.
+
+## Epic 31 — Workspace reliability, admin polish, CI and lint
+
+Built on `epic/31-reliability` (task PRs #1065 to #1076, the web fixes
+and this fold). Migration 0036. SPEC.md sections 6.3, 6.5, 9.7, 18.3,
+20.1 and 25.3, STACK.md section 14, and ADR 0034.
+
+Delivered:
+
+- Database: migration 0036 adds `workspaces.start_retries` and
+  `settings.controller_checked_at`, with worker grants for them and for
+  deleting terminal rows.
+- Worker: a failing start is retried at most five times, waiting 10
+  seconds, 30 seconds, 1 minute, 2 minutes and 5 minutes. The count is
+  stored on the row, so a worker restart keeps it, and the student's
+  Start, Stop or Restart resets it. After the last retry the row stays
+  in error and the worker logs one warning.
+- Worker: Stop on an errored workspace stops a still-running instance.
+  A failed stop records `STOP_FAILED` and is tried once per Stop, not
+  every sweep, and the sweep's stop respects a Start pressed in between.
+- Worker and controller: the worker's time budget reaches the
+  controller in a header, clamped to the route's own budget. A create or
+  process read stops its Incus and host work when the worker gives up,
+  concurrent creates share one run, and an aborted create never makes an
+  empty Docker volume. The create budget is 480 seconds. Incus requests
+  keep their 30-second default timeout when a signal is passed.
+- Workspace state: the worker records each successful controller check,
+  and the status bar marks the state "unconfirmed", with an alert icon,
+  after two minutes without one. A screen reader announces the change,
+  the workspace dialog shows the unconfirmed note, and the status bar is
+  checked at 320 px.
+- Terminals: creates hold the 20-terminal cap under parallel requests
+  and get distinct names and positions, and the worker deletes ended
+  terminal rows after 30 days.
+- API: admin and workspace JSON replies are sent with
+  `Cache-Control: no-store`, so Back never shows cached JSON.
+- Admin: each tab has its own path, `/admin/<tab>`, and old `?tab=` links
+  redirect. Caddy and the dev proxy serve the page on a reload. "Packages
+  students add" moved to the Workspace image tab. A tab change is
+  announced politely without moving focus, and the image tab's axe scans
+  cover a filled packages table.
+- CI: no run downloads Playwright's system packages or runs
+  `apt-get update` normally; a guard fails the e2e job if the runner
+  image lacks a Chromium library.
+- Lint: `pnpm lint` fails on import cycles, imports between apps,
+  server packages in `apps/web` and testing helpers in product code, and
+  warns about non-test source files over 800 lines.
+
+Gaps:
+
+- A terminal create refused at the cap may still have made an
+  agent-session recovery point, bounded by the per-project point cap.
+- A `controller_checked_at` in the future (a clock stepped back) counts as
+  verified, and `STATUS_REFRESH_SECONDS` has no upper bound; above 120
+  seconds the state would flap to unconfirmed.
+- An abort during the Docker seed copy or the instance create does not
+  cancel the Incus operation; a retry adopts what exists (ADR 0034).
+  Routes other than create and the process read ignore the budget.
+- The CI helper's fallback package refresh is untested on CI.
+- The Caddy tab-path matcher is checked with `caddy validate` and live
+  requests, not yet through `caddy-preview-test.sh` on a VM.
+- No Playwright test for start retries, since nothing new is shown.
+- The 14 files over 800 lines are warned about, not split.
+- The #1041 part S3 refactors are still open.

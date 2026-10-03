@@ -45,35 +45,7 @@ in CI. About a day.
 
 **Source.** `docs/SPEC.md` around line 2227, Epic 3 known gaps, ADR 0003.
 
-## Mark workspace state unverified when the controller is unreachable
 
-**What.** When the worker cannot reach the controller, the API says the
-state is unverified instead of reporting the last known state as fact.
-
-**Why.** Today a student sees a confident but possibly stale state while the
-controller is down.
-
-**What it would take.** Record the last successful reconcile time, add an
-`unverified` flag to the workspace response once it is too old, and show it
-in the status bar. Half a day.
-
-**Source.** `docs/SPEC.md` around line 2229, Epic 3 known gaps.
-
-## Terminal row pruning and a race-free terminal cap
-
-**What.** Two small fixes in one: the worker deletes ended terminal rows
-older than a set number of days, and the eight-terminal cap is enforced
-without a check-then-act race.
-
-**Why.** Ended rows are never pruned, so the table only grows (a listing
-just hides all but the 20 most recent). The cap check is benign today but
-two fast requests can both pass it.
-
-**What it would take.** A delete in the worker's sweep, and either a
-database constraint or a per-workspace advisory lock around the create.
-Half a day with tests.
-
-**Source.** `docs/STATUS.md`, Epic 5 known gaps.
 
 ## Atomic project rename
 
@@ -1164,18 +1136,6 @@ interface against SPEC.md section 25.8, with fixes filed as issues.
 
 **Source.** Left out of Epic 20.
 
-## One deadline for a workspace create
-
-**What.** A workspace create has no single shared deadline. Each step has
-its own bound (60 s per volume create, 240 s for the instance create's
-wait), so on paper the steps can add up to about 420 s, past the worker's
-300 s create budget. The rehearsal measured 17 to 30 s under load, and a
-retry adopts whatever the first try already made, so nothing is lost.
-
-**What it would take.** Pass one deadline from the worker's call down
-through the controller's create steps, with a unit test. About half a day.
-
-**Source.** Left out of Epic 17 (ADR 0034).
 
 ## Clone and template on a full disk
 
@@ -1497,17 +1457,6 @@ those. About a day with tests (ADR 0037).
 
 **Source.** Epic 21 security confirmation review.
 
-## Stop the host-side process read when the worker gives up
-
-**What.** The controller's cgroup walk runs to its caps even after the
-worker's 10-second request has timed out. A student can make it slow up
-to those caps with thousands of empty cgroups.
-
-**What it would take.** Pass the request's abort signal into the walk,
-and decide how a read shared by two callers treats one caller's abort.
-Half a day.
-
-**Source.** Epic 21 security confirmation review.
 
 ## Course page at narrow widths
 
@@ -1984,13 +1933,6 @@ when the job fails.
 
 **Source.** Epic 28 pilot verification.
 
-## The worker's create budget can be short
-
-**What.** The worker gives a workspace create 300 seconds: 240 for the instance wait plus 60. Each volume create may take up to 60 seconds more, so a slow create can run out of budget.
-
-**What it would take.** Add the volume creates' time to the budget in the worker's controller client, with a unit test.
-
-**Source.** Epic 29 review.
 
 ## Move the 'student@<label>' rule into a numbered section
 
@@ -2015,3 +1957,19 @@ when the job fails.
 **What it would take.** Remove the field from the contract, the agent's broker and the API's frame handling, with the contract tests updated. Optional; nothing reads it today.
 
 **Source.** Epic 30 review.
+
+## Bound the unconfirmed-state check
+
+**What.** A `settings.controller_checked_at` in the future, which happens when the clock is stepped back, counts as a fresh check, so the state is never marked unconfirmed until the clock catches up. `STATUS_REFRESH_SECONDS` also has no upper bound; above 120 seconds the state would flap to unconfirmed between refreshes (SPEC.md section 18.3).
+
+**What it would take.** Treat a check time in the future as stale, and cap `STATUS_REFRESH_SECONDS` below the two-minute window in the worker's config schema, each with a unit test.
+
+**Source.** Epic 31.
+
+## A refused terminal create's recovery point
+
+**What.** A terminal create refused at the 20-terminal cap may already have taken an agent-session recovery point. The point is left behind, bounded by the per-project point cap (SPEC.md section 9.7).
+
+**What it would take.** Take the recovery point only after the capped insert succeeds, or delete it when the create is refused, with an API test.
+
+**Source.** Epic 31.
