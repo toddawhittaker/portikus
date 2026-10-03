@@ -24,6 +24,7 @@ const workspace: Workspace = {
 	lastActivityAt: null,
 	keepRunningUntil: null,
 	keepRunningMaxHours: 12,
+	stateVerified: true,
 	createdAt: "2026-09-21T00:00:00.000Z",
 	updatedAt: "2026-09-21T00:00:00.000Z",
 };

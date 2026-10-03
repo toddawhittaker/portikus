@@ -103,6 +103,7 @@ const SAMPLE_WORKSPACE = {
 	lastActivityAt: null,
 	keepRunningUntil: null,
 	keepRunningMaxHours: 12,
+	stateVerified: true,
 	createdAt: "2026-09-21T00:00:00.000Z",
 	updatedAt: "2026-09-21T00:00:00.000Z",
 };
@@ -208,4 +209,12 @@ test("the Workspace contract carries a pending operation and a recovery quota", 
 	).toBe(false);
 	const { pendingOperation: _op, ...withoutOperation } = SAMPLE_WORKSPACE;
 	expect(Workspace.safeParse(withoutOperation).success).toBe(false);
+});
+
+test("the Workspace contract requires stateVerified (SPEC.md §18.3)", () => {
+	expect(
+		Workspace.safeParse({ ...SAMPLE_WORKSPACE, stateVerified: false }).success,
+	).toBe(true);
+	const { stateVerified: _verified, ...without } = SAMPLE_WORKSPACE;
+	expect(Workspace.safeParse(without).success).toBe(false);
 });
