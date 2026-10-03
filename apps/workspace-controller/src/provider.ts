@@ -57,7 +57,6 @@ import {
 import { type IncusClient, IncusError } from "./incus.js";
 import { parseIdmap, readInstanceProcesses, readUnitStartTime } from "./processes.js";
 import {
-	AGENT_HEALTH_TIMEOUT_MS,
 	prepareRecoveryMount,
 	RECOVERY_PATH,
 	STUDENT_UID,
@@ -91,21 +90,35 @@ export interface WorkspaceProvider extends SeedBuildHost {
 			cpuAllowance?: string;
 			docker?: WorkspaceDockerConfig;
 		},
+		signal?: AbortSignal,
 	): Promise<StartInstanceResponse>;
-	stop(name: string, opts: { timeoutSeconds: number }): Promise<StopInstanceResponse>;
+	stop(
+		name: string,
+		opts: { timeoutSeconds: number },
+		signal?: AbortSignal,
+	): Promise<StopInstanceResponse>;
 	list(): Promise<InstanceStatus[]>;
 	healthy(): Promise<boolean>;
 	/** Replace the Docker volume with a clean one; the instance must be stopped. */
-	resetDocker(name: string, opts: { dockerGiB: number }): Promise<void>;
+	resetDocker(
+		name: string,
+		opts: { dockerGiB: number },
+		signal?: AbortSignal,
+	): Promise<void>;
 	/** Replace the root filesystem from the current image; the instance must be stopped. */
 	rebuild(
 		name: string,
 		opts: { resetDocker: boolean; dockerGiB: number },
+		signal?: AbortSignal,
 	): Promise<RebuildInstanceResponse>;
 	/** One read-only look at the host for the admin Health tab (SPEC.md §25.6). */
 	hostSnapshot(): Promise<HostSnapshot>;
 	/** Grow the home and Docker volumes; a smaller size is refused (SPEC.md §20.1). */
-	growVolumes(name: string, sizes: GrowVolumesRequest): Promise<GrowVolumesResponse>;
+	growVolumes(
+		name: string,
+		sizes: GrowVolumesRequest,
+		signal?: AbortSignal,
+	): Promise<GrowVolumesResponse>;
 	/** CPU time and memory of every running instance, from Incus (ADR 0032). */
 	usage(): Promise<InstanceUsage[]>;
 	/** Set or, with null, remove `limits.cpu.allowance` (ADR 0032). */
@@ -210,17 +223,19 @@ function assertStopped(name: string, status: string | undefined): void {
 }
 
 // The controller's own timeouts live in @portikus/contracts so the worker's budgets derive from them.
-export {
-	AGENT_HEALTH_TIMEOUT_MS,
-	INSTANCE_CREATE_WAIT_SECONDS,
-	VOLUME_CREATE_TIMEOUT_MS,
-};
+export { INSTANCE_CREATE_WAIT_SECONDS, VOLUME_CREATE_TIMEOUT_MS };
 
 function validateName(name: string): void {
 	const result = InstanceName.safeParse(name);
 	if (!result.success) {
 		throw new IncusError("INVALID_NAME", `invalid instance name: ${name}`);
 	}
+}
+
+/** A step's own limit with the caller's deadline on top, never tighter than the limit (ADR 0034). */
+function withCaller(caller: AbortSignal | undefined, ms: number): AbortSignal {
+	const own = AbortSignal.timeout(ms);
+	return caller ? AbortSignal.any([caller, own]) : own;
 }
 
 function enc(name: string): string {
@@ -419,6 +434,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			cpuAllowance?: string;
 			docker?: WorkspaceDockerConfig;
 		},
+		caller?: AbortSignal,
 	): Promise<StartInstanceResponse> {
 		validateName(name);
 		if (!HOSTNAME_PATTERN.test(opts.hostname) || opts.hostname.length > 40) {
@@ -439,7 +455,8 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			throw new IncusError("INVALID_NAME", `invalid timezone: ${opts.timezone}`);
 		}
 
-		const signal = AbortSignal.timeout(opts.timeoutSeconds * 1000);
+		// The start keeps its own limit; the caller's deadline is added on top (ADR 0034).
+		const signal = withCaller(caller, opts.timeoutSeconds * 1000);
 
 		// A retry after a start that failed late finds the container running.
 		// Every write below deletes then pushes, which is only safe while no
@@ -460,42 +477,40 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		}
 
 		// Written before the start, so dockerd reads it; never fatal.
-		let ghcr: boolean | null = null;
-		if (opts.docker !== undefined) {
-			try {
-				ghcr = await writeDockerConfig(
-					this.client,
-					name,
-					opts.docker,
-					{ caPath: this.ghcrCaPath, cacheOffPath: this.cacheOffPath, log: this.log },
-					signal,
-				);
-			} catch (err) {
-				this.log.warn(
-					{ instance: name, err: errorMessage(err) },
-					"could not write the Docker registry settings; starting without them",
-				);
-			}
-		}
+		const docker = opts.docker;
+		const ghcr =
+			docker === undefined
+				? null
+				: ((await this.optionalStep(
+						name,
+						signal,
+						"could not write the Docker registry settings; starting without them",
+						() =>
+							writeDockerConfig(
+								this.client,
+								name,
+								docker,
+								{
+									caPath: this.ghcrCaPath,
+									cacheOffPath: this.cacheOffPath,
+									log: this.log,
+								},
+								signal,
+							),
+					)) ?? null);
 
 		// Rewritten at every start, so an edit or deletion lasts one session.
-		try {
-			const written = await writeAgentInstructions(
-				this.client,
-				name,
-				this.agentInstructionsPath,
-				signal,
-			);
-			if (!written) {
-				this.log.warn(
-					{ instance: name, path: this.agentInstructionsPath },
-					"the coding-agent instructions template is missing; starting without them",
-				);
-			}
-		} catch (err) {
+		const written = await this.optionalStep(
+			name,
+			signal,
+			"could not write the coding-agent instructions; starting without them",
+			() =>
+				writeAgentInstructions(this.client, name, this.agentInstructionsPath, signal),
+		);
+		if (written === false) {
 			this.log.warn(
-				{ instance: name, err: errorMessage(err) },
-				"could not write the coding-agent instructions; starting without them",
+				{ instance: name, path: this.agentInstructionsPath },
+				"the coding-agent instructions template is missing; starting without them",
 			);
 		}
 
@@ -566,14 +581,12 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		// After the start: a first start after create or copy runs the image's
 		// /etc/hosts template, which would drop the line.
 		if (ghcr !== null) {
-			try {
-				await writeGhcrHosts(this.client, name, ghcr, signal);
-			} catch (err) {
-				this.log.warn(
-					{ instance: name, err: errorMessage(err) },
-					"could not write the ghcr.io hosts line",
-				);
-			}
+			await this.optionalStep(
+				name,
+				signal,
+				"could not write the ghcr.io hosts line",
+				() => writeGhcrHosts(this.client, name, ghcr, signal),
+			);
 		}
 
 		if (recoveryAttached) {
@@ -586,9 +599,29 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			);
 		}
 
-		await waitForAgent(this.log, ipv4, this.agentPort, opts.agentToken);
+		// The agent wait has its own 15 s, not the start's timeout, so only the caller's signal.
+		await waitForAgent(this.log, ipv4, this.agentPort, opts.agentToken, caller);
 
 		return { ipv4 };
+	}
+
+	/**
+	 * Run a start step whose failure only costs a feature: warn and go on.
+	 * An abort is not such a failure, so it ends the start (ADR 0034).
+	 */
+	private async optionalStep<T>(
+		name: string,
+		signal: AbortSignal,
+		message: string,
+		step: () => Promise<T>,
+	): Promise<T | undefined> {
+		try {
+			return await step();
+		} catch (err) {
+			if (signal.aborted) throw err;
+			this.log.warn({ instance: name, err: errorMessage(err) }, message);
+			return undefined;
+		}
 	}
 
 	/**
@@ -610,7 +643,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 		if (inst.devices?.docker) {
 			return;
 		}
-		await this.ensureDockerVolume(name, sizeGiB);
+		await this.ensureDockerVolume(name, sizeGiB, signal);
 		// PATCH merges devices, so it adds this one and cannot drop another.
 		await this.client.request(
 			"PATCH",
@@ -641,7 +674,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			if (inst.devices?.recovery) {
 				return true;
 			}
-			await this.ensureVolume(`${name}-recovery`, sizeGiB);
+			await this.ensureVolume(`${name}-recovery`, sizeGiB, {}, signal);
 			// PATCH merges devices, so it adds this one and cannot drop another.
 			await this.client.request(
 				"PATCH",
@@ -652,6 +685,7 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			this.log.info({ instance: name }, "recovery volume attached");
 			return true;
 		} catch (err) {
+			if (signal.aborted) throw err;
 			this.log.warn(
 				{ instance: name, err: errorMessage(err) },
 				"could not attach the recovery volume; starting without it",
@@ -663,14 +697,16 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	async stop(
 		name: string,
 		opts: { timeoutSeconds: number },
+		caller?: AbortSignal,
 	): Promise<StopInstanceResponse> {
 		validateName(name);
 
 		// Stopping an already-stopped instance is a no-op, not a failure.
 		// Mid-shutdown this read can fail with "Invalid PID -1";
 		// the stop below then settles on the real state.
-		const current = await this.instanceStatus(name).catch((err: unknown) => {
+		const current = await this.instanceStatus(name, caller).catch((err: unknown) => {
 			if (err instanceof IncusError && err.code === "NOT_FOUND") throw err;
+			if (caller?.aborted) throw err;
 			return undefined;
 		});
 		if (current === "Stopped") {
@@ -686,11 +722,13 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 					timeout: opts.timeoutSeconds,
 					force: false,
 				},
-				AbortSignal.timeout((opts.timeoutSeconds + 5) * 1000),
+				withCaller(caller, (opts.timeoutSeconds + 5) * 1000),
 				opts.timeoutSeconds,
 			);
 			return { forced: false };
-		} catch {
+		} catch (err) {
+			// The caller has gone, so no forced stop goes out (ADR 0034).
+			if (caller?.aborted) throw err;
 			try {
 				await this.client.request(
 					"PUT",
@@ -700,13 +738,14 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 						timeout: opts.timeoutSeconds,
 						force: true,
 					},
-					AbortSignal.timeout((opts.timeoutSeconds + 5) * 1000),
+					withCaller(caller, (opts.timeoutSeconds + 5) * 1000),
 					opts.timeoutSeconds,
 				);
 			} catch (err) {
+				if (caller?.aborted) throw err;
 				// The instance may already be stopping (Incus then fails with
 				// "Invalid PID -1"), so trust the state, not the error.
-				if (!(await this.settlesStopped(name, opts.timeoutSeconds))) {
+				if (!(await this.settlesStopped(name, opts.timeoutSeconds, caller))) {
 					throw err;
 				}
 			}
@@ -715,16 +754,21 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	}
 
 	/** Polls the state for up to `timeoutSeconds` (at most 10) and reports whether it reached Stopped. */
-	private async settlesStopped(name: string, timeoutSeconds: number): Promise<boolean> {
+	private async settlesStopped(
+		name: string,
+		timeoutSeconds: number,
+		signal?: AbortSignal,
+	): Promise<boolean> {
 		const deadline = Date.now() + Math.min(timeoutSeconds, 10) * 1000;
 		for (;;) {
-			if ((await this.instanceStatus(name).catch(() => null)) === "Stopped") {
+			signal?.throwIfAborted();
+			if ((await this.instanceStatus(name, signal).catch(() => null)) === "Stopped") {
 				return true;
 			}
 			if (Date.now() >= deadline) {
 				return false;
 			}
-			await new Promise((r) => setTimeout(r, 250));
+			await sleep(250, undefined, { signal });
 		}
 	}
 
@@ -797,11 +841,15 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	 * the device off, delete the volume, make a new one, put the device back.
 	 * The only volume this ever deletes is exactly `<name>-docker`.
 	 */
-	async resetDocker(name: string, opts: { dockerGiB: number }): Promise<void> {
+	async resetDocker(
+		name: string,
+		opts: { dockerGiB: number },
+		signal?: AbortSignal,
+	): Promise<void> {
 		validateName(name);
 		const path = `/1.0/instances/${enc(name)}`;
 		const dockerVolume = `${name}-docker`;
-		const { metadata, etag } = await this.client.getWithEtag(path);
+		const { metadata, etag } = await this.client.getWithEtag(path, signal);
 		const inst = metadata as InstanceConfig;
 		assertStopped(name, inst.status);
 
@@ -825,13 +873,20 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			// PATCH cannot remove a device (Incus merges the map), so write the
 			// rest back exactly as read, guarded by the ETag.
 			const { docker: _removed, ...devices } = inst.devices;
-			await this.client.putIfMatch(path, { ...writableFields(inst), devices }, etag);
+			await this.client.putIfMatch(
+				path,
+				{ ...writableFields(inst), devices },
+				etag,
+				signal,
+			);
 		}
 
 		try {
 			await this.client.request(
 				"DELETE",
 				`/1.0/storage-pools/${enc(this.pool)}/volumes/custom/${enc(dockerVolume)}`,
+				undefined,
+				signal,
 			);
 		} catch (err) {
 			if (!(err instanceof IncusError && err.code === "NOT_FOUND")) {
@@ -839,11 +894,14 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 			}
 		}
 
-		await this.ensureDockerVolume(name, opts.dockerGiB);
+		await this.ensureDockerVolume(name, opts.dockerGiB, signal);
 
-		await this.client.request("PATCH", path, {
-			devices: { docker: this.dockerDevice(name) },
-		});
+		await this.client.request(
+			"PATCH",
+			path,
+			{ devices: { docker: this.dockerDevice(name) } },
+			signal,
+		);
 		this.log.info({ instance: name }, "docker volume replaced");
 	}
 
@@ -855,25 +913,28 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	async rebuild(
 		name: string,
 		opts: { resetDocker: boolean; dockerGiB: number },
+		signal?: AbortSignal,
 	): Promise<RebuildInstanceResponse> {
 		validateName(name);
 		const inst = (await this.client.request(
 			"GET",
 			`/1.0/instances/${enc(name)}`,
+			undefined,
+			signal,
 		)) as InstanceConfig;
 		assertStopped(name, inst.status);
 
-		const imageFingerprint = await this.imageFingerprint();
+		const imageFingerprint = await this.imageFingerprint(signal);
 
 		if (opts.resetDocker) {
-			await this.resetDocker(name, { dockerGiB: opts.dockerGiB });
+			await this.resetDocker(name, { dockerGiB: opts.dockerGiB }, signal);
 		}
 
 		await this.client.request(
 			"POST",
 			`/1.0/instances/${enc(name)}/rebuild`,
 			{ source: { type: "image", alias: this.imageAlias } },
-			undefined,
+			signal,
 			REBUILD_TIMEOUT_SECONDS,
 		);
 		this.log.info({ instance: name, imageFingerprint }, "instance rebuilt");
@@ -1357,9 +1418,10 @@ export class IncusWorkspaceProvider implements WorkspaceProvider {
 	async growVolumes(
 		name: string,
 		sizes: GrowVolumesRequest,
+		signal?: AbortSignal,
 	): Promise<GrowVolumesResponse> {
 		validateName(name);
-		return growVolumes(this.client, this.pool, name, sizes);
+		return growVolumes(this.client, this.pool, name, sizes, signal);
 	}
 
 	/**

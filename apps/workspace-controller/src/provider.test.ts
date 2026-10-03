@@ -18,7 +18,6 @@ import {
 import { type WebSocket, WebSocketServer } from "ws";
 import { IncusClient } from "./incus.js";
 import {
-	AGENT_HEALTH_TIMEOUT_MS,
 	INSTANCE_CREATE_WAIT_SECONDS,
 	IncusWorkspaceProvider,
 	InstanceNotStoppedError,
@@ -29,6 +28,7 @@ import {
 	VOLUME_CREATE_TIMEOUT_MS,
 	VolumeInUseError,
 } from "./provider.js";
+import { AGENT_HEALTH_TIMEOUT_MS } from "./start-setup.js";
 
 let socketPath: string;
 let server: http.Server;
@@ -3241,5 +3241,89 @@ describe("the seed builder", () => {
 	test("the image version is the default image's serial", async () => {
 		serveBuilder();
 		expect(await provider.seedImageVersion()).toBe("2026.09.15");
+	});
+});
+
+// Once the caller has gone, nothing more is sent to Incus (SPEC.md 25.3, ADR 0034).
+describe("the caller's deadline on lifecycle calls", () => {
+	/** Abort `ac` just before the first request `match` picks, then send it as normal. */
+	function abortAt(
+		ac: AbortController,
+		match: (method: string, path: string) => boolean,
+	) {
+		const real = IncusClient.prototype.request;
+		return vi.spyOn(IncusClient.prototype, "request").mockImplementation(function (
+			this: IncusClient,
+			...args
+		) {
+			if (match(args[0], args[1])) ac.abort(new Error("caller left"));
+			return real.apply(this, args);
+		});
+	}
+
+	test("a stop whose caller left during the graceful stop sends no forced stop", async () => {
+		const puts: Array<{ force?: boolean }> = [];
+		const inner = stopsFail("Running", puts);
+		const ac = new AbortController();
+		handler = async (req, res) => {
+			if (req.method === "PUT") ac.abort(new Error("caller left"));
+			await inner(req, res);
+		};
+		await expect(
+			provider.stop("ws-test", { timeoutSeconds: 5 }, ac.signal),
+		).rejects.toBeDefined();
+		await new Promise((r) => setTimeout(r, 50));
+		expect(puts.map((p) => p.force)).toEqual([false]);
+	});
+
+	test("an aborted Docker reset makes no new volume", async () => {
+		const state = fakeIncus();
+		serveIncus(state);
+		const ac = new AbortController();
+		const spy = abortAt(ac, (method) => method === "DELETE");
+		await expect(
+			provider.resetDocker("ws-test", { dockerGiB: 20 }, ac.signal),
+		).rejects.toBeDefined();
+		spy.mockRestore();
+		expect(state.createdVolumes).toEqual([]);
+		expect(state.patches).toEqual([]);
+	});
+
+	test("an aborted rebuild sends no rebuild request", async () => {
+		const state = fakeIncus();
+		serveIncus(state);
+		const ac = new AbortController();
+		const spy = abortAt(ac, (method) => method === "DELETE");
+		await expect(
+			provider.rebuild("ws-test", { resetDocker: true, dockerGiB: 20 }, ac.signal),
+		).rejects.toBeDefined();
+		spy.mockRestore();
+		expect(state.rebuilds).toEqual([]);
+		expect(state.createdVolumes).toEqual([]);
+	});
+
+	test("every Incus request in a rebuild carries the caller's signal", async () => {
+		serveIncus(fakeIncus());
+		const spy = vi.spyOn(IncusClient.prototype, "request");
+		const ac = new AbortController();
+		await provider.rebuild("ws-test", { resetDocker: true, dockerGiB: 20 }, ac.signal);
+		expect(spy.mock.calls.length).toBeGreaterThan(3);
+		for (const call of spy.mock.calls) {
+			expect(call[3], `${call[0]} ${call[1]}`).toBe(ac.signal);
+		}
+		spy.mockRestore();
+	});
+
+	test("an aborted start writes no file and never starts the instance", async () => {
+		const state = fakeIncus();
+		serveIncus(state);
+		const ac = new AbortController();
+		const spy = abortAt(ac, (m, p) => m === "GET" && p === "/1.0/instances/ws-test");
+		await expect(
+			provider.start("ws-test", { ...START, dockerGiB: 20 }, ac.signal),
+		).rejects.toBeDefined();
+		spy.mockRestore();
+		expect(state.fileOps).toEqual([]);
+		expect(state.status).toBe("Stopped");
 	});
 });

@@ -215,6 +215,7 @@ export async function growVolumes(
 	pool: string,
 	name: string,
 	sizes: GrowVolumesRequest,
+	signal?: AbortSignal,
 ): Promise<GrowVolumesResponse> {
 	const wanted = [
 		{ volume: `${name}-home`, gib: sizes.homeGiB },
@@ -226,7 +227,7 @@ export async function growVolumes(
 	const current: Array<number | null> = [];
 	for (const want of wanted) {
 		const { volume } = want;
-		const info = (await client.request("GET", path(volume))) as {
+		const info = (await client.request("GET", path(volume), undefined, signal)) as {
 			config?: Record<string, unknown>;
 		};
 		const share = Number(info.config?.[SEED_SHARE_KEY] ?? 0);
@@ -250,7 +251,12 @@ export async function growVolumes(
 	for (const [i, { volume, gib }] of wanted.entries()) {
 		if (current[i] === gib * 2 ** 30) continue;
 		// PATCH merges into the volume's config, so its volatile keys survive.
-		await client.request("PATCH", path(volume), { config: { size: `${gib}GiB` } });
+		await client.request(
+			"PATCH",
+			path(volume),
+			{ config: { size: `${gib}GiB` } },
+			signal,
+		);
 	}
 
 	return { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
