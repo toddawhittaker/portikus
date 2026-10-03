@@ -5,7 +5,7 @@
  * toast. The worker does not run here, so each test writes the rows it would.
  */
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, query, toast, workspacePath } from "./helpers";
+import { createProject, createStudent, query, toast, workspacePath } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
 const GIB = 1024 ** 3;
@@ -151,9 +151,10 @@ test("the status bar memory meter warns at 85% and opens Monitor sorted by memor
 	// Until its first sample the status bar asks every 2 s, not every 30 s.
 	const warning = page.getByTestId("memory-meter");
 	await expect(warning).toHaveAttribute("data-level", "warning", { timeout: 5000 });
-	await expect(warning).toHaveText("Memory90.0 GB of 100 GB");
+	// The ui Meter adds "nearly full" to the figure, and the name holds the visible words.
+	await expect(warning).toHaveText("Memory90.0 GB of 100 GB, nearly full");
 	await expect(warning).toHaveAccessibleName(
-		"Memory 90.0 GB of 100 GB, high. See what's using memory",
+		"Memory 90.0 GB of 100 GB, nearly full. See what's using memory",
 	);
 	await expect(page.getByTestId("memory-warning-announce")).toHaveText(
 		"Your workspace is using most of its memory.",
@@ -221,4 +222,35 @@ test("stopping a throttled workspace shows no back-to-full-speed toast", async (
 	await expect(page.getByTestId("throttle-notice")).toHaveCount(0);
 	await expect(page.getByTestId("workspace-state")).toHaveText("Stopping");
 	await expect(toast(page, "Your workspace is back to full speed")).toHaveCount(0);
+});
+
+test("with Find in files open, the memory meter and See what's using CPU close the search and focus Monitor", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await seedMemory(student.workspaceId, 90 * GIB, 100 * GIB);
+	await throttle(student.workspaceId);
+	const project = await createProject(student.workspaceId, { name: "Search over" });
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	const meter = page.getByTestId("memory-meter");
+	await expect(meter).toHaveAttribute("data-level", "warning", { timeout: 15_000 });
+
+	await page.getByTestId("search-open").click();
+	await expect(page.getByTestId("search-panel")).toBeVisible();
+	await meter.click();
+	await expect(page.getByTestId("search-panel")).toHaveCount(0);
+	await expectMonitorSortedBy(page, "Memory");
+	await expect(page.getByTestId("right-pane-tab-monitor")).toBeFocused();
+
+	await page.getByRole("tab", { name: "Files" }).click();
+	await page.getByTestId("search-open").click();
+	await expect(page.getByTestId("search-panel")).toBeVisible();
+	await page
+		.getByTestId("throttle-notice")
+		.getByRole("button", { name: "See what's using CPU" })
+		.click();
+	await expect(page.getByTestId("search-panel")).toHaveCount(0);
+	await expectMonitorSortedBy(page, "CPU");
+	await expect(page.getByTestId("right-pane-tab-monitor")).toBeFocused();
 });

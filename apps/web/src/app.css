@@ -595,54 +595,6 @@ button.pk-statusbar-item:focus-visible {
 	margin: 0;
 }
 
-/* StatusBar */
-.pk-statusbar {
-	flex: none;
-	box-sizing: border-box;
-	display: flex;
-	align-items: center;
-	gap: var(--space-4);
-	height: 28px;
-	padding: 0 var(--space-3);
-	background: var(--surface-sunken);
-	border-top: 1px solid var(--line);
-	font-size: 12px;
-	line-height: 16px;
-	color: var(--ink-muted);
-}
-.pk-statusbar-item {
-	flex: none;
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-1\.5);
-	white-space: nowrap;
-}
-/* No colour here, so the tone classes win; see .pk-statusbar-plain. */
-button.pk-statusbar-item {
-	box-sizing: border-box;
-	height: 20px;
-	margin: 0;
-	padding: 0 var(--space-2);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-sm);
-	background: transparent;
-	font: inherit;
-	line-height: inherit;
-	cursor: pointer;
-}
-.pk-statusbar-plain {
-	color: var(--ink-muted);
-}
-button.pk-statusbar-item:hover {
-	background: var(--surface-hover);
-}
-.pk-statusbar-mono {
-	font-family: var(--font-mono);
-	font-variant-ligatures: none;
-}
-.pk-statusbar-spacer {
-	flex: 1;
-}
 .pk-dot {
 	flex: none;
 	width: 8px;
@@ -809,25 +761,7 @@ button.pk-statusbar-item:hover {
 	color: var(--ink-muted);
 	font-variant-numeric: tabular-nums;
 }
-.pk-meter-track {
-	height: 6px;
-	border-radius: var(--radius-xs);
-	background: var(--surface-hover);
-	overflow: hidden;
-}
-.pk-meter-fill {
-	height: 100%;
-	background: var(--accent);
-}
-.pk-meter--warning .pk-meter-value {
-	color: var(--status-warning);
-	font-weight: 600;
-}
-.pk-meter--full .pk-meter-value {
-	color: var(--status-error);
-	font-weight: 600;
-}
-/* The storage meters' ui Meter: warning text as above, and the error colour at the critical level. */
+/* The ui Meter in the storage and status bar meters: bold warning text, and the error colour at the critical level. */
 .pk-meter--warning .pk-meter-figure,
 .pk-meter--full .pk-meter-figure {
 	font-weight: 600;
@@ -869,51 +803,6 @@ button.pk-statusbar-item:hover {
 	font-size: 13px;
 	line-height: 18px;
 	color: var(--ink-muted);
-}
-
-/* The status bar's always-visible memory and disk meters (SPEC.md §19.2). No transition, so reduced motion needs nothing. */
-.pk-statusbar-meter {
-	display: inline-flex;
-	gap: var(--space-1\.5);
-	font-size: inherit;
-	line-height: inherit;
-}
-.pk-statusbar-meter .pk-meter-label {
-	font-weight: 500;
-}
-.pk-statusbar-meter .pk-meter-track {
-	display: block;
-	flex: none;
-	width: 40px;
-	height: 4px;
-}
-.pk-statusbar-meter .pk-meter-fill {
-	display: block;
-}
-.pk-statusbar-meter.pk-meter--warning .pk-meter-fill {
-	background: var(--status-warning);
-}
-.pk-statusbar-meter.pk-meter--full .pk-meter-fill {
-	background: var(--status-error);
-}
-/* When space is tight the project path gives way first, then the Git line, each with an ellipsis; the buttons never shrink. */
-.pk-statusbar-path,
-.pk-statusbar-git {
-	display: block;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.pk-statusbar-path {
-	flex: 0 1000 auto;
-}
-.pk-statusbar-git {
-	flex: 0 1 auto;
-}
-
-/* The Git line of the status bar is muted when there is no repository. */
-.pk-statusbar-muted {
-	color: var(--ink-faint);
 }
 
 /* Headings focused by script for screen readers are not controls, so they need no focus ring. */

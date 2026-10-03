@@ -25,6 +25,23 @@ export type MeterProps = MeterName & {
 };
 
 /**
+ * The words a Meter shows and reads: `valueText`, plus "nearly full" past
+ * `high` or "over the limit" past `max`. A control that wraps a Meter builds
+ * its name from this, so the name holds the visible text.
+ */
+export function meterText({
+	value,
+	max,
+	high,
+	valueText,
+}: Pick<MeterProps, "value" | "max" | "high" | "valueText">): string {
+	// Strictly past, as the native meter colours it.
+	if (max > 0 && value > max) return `${valueText}, over the limit`;
+	if (high !== undefined && value > high) return `${valueText}, nearly full`;
+	return valueText;
+}
+
+/**
  * A native meter with its value as text beside it, so the figure can be read
  * and copied (SPEC.md section 25.8). The text wraps under the bar when narrow.
  * Past `high` the text gains the alert icon and "nearly full", or "over the
@@ -41,15 +58,8 @@ export function Meter({
 	mark,
 	className,
 }: MeterProps): React.ReactElement {
-	// Strictly past, as the native meter colours it.
-	const over = max > 0 && value > max;
-	const nearlyFull = high !== undefined && value > high;
-	const warn = over || nearlyFull;
-	const text = over
-		? `${valueText}, over the limit`
-		: nearlyFull
-			? `${valueText}, nearly full`
-			: valueText;
+	const text = meterText({ value, max, high, valueText });
+	const warn = text !== valueText;
 	const markAt =
 		mark !== undefined && max > 0 ? Math.min(Math.max(mark / max, 0), 1) * 100 : null;
 	return (

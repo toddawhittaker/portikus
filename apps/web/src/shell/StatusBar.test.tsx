@@ -552,8 +552,10 @@ test("the dialog puts the state and its actions first and folds the technical de
 test("a meter warns at 85% of the limit and not at 84.9%", () => {
 	expect(usageMeter({ usedBytes: 849, totalBytes: 1000 })?.level).toBe("ok");
 	expect(usageMeter({ usedBytes: 85 * GB, totalBytes: 100 * GB })).toEqual({
-		value: "85.0 GB of 100 GB",
-		percent: 85,
+		usedBytes: 85 * GB,
+		totalBytes: 100 * GB,
+		high: 85 * GB - 1,
+		valueText: "85.0 GB of 100 GB",
 		level: "warning",
 	});
 	expect(usageMeter({ usedBytes: 1, totalBytes: 0 })).toBeNull();
@@ -569,12 +571,27 @@ test("a warning meter stays so until use falls below 80%", () => {
 	expect(usageMeter(at(79.9), true)?.level).toBe("ok");
 });
 
-test("only the disk meter turns full at 95%, and the bar never passes 100%", () => {
+test("the Meter's warning mark follows the threshold in force, so its words match the level", () => {
+	const at = (value: number) => ({ usedBytes: value * GB, totalBytes: 100 * GB });
+	for (const [figure, warned] of [
+		[at(84.9), false],
+		[at(85), false],
+		[at(82), true],
+		[at(79.9), true],
+		[at(97), false],
+	] as const) {
+		const meter = usageMeter(figure, warned, true);
+		if (!meter) throw new Error("no meter");
+		const warns = meter.usedBytes > meter.high;
+		expect(warns).toBe(meter.level !== "ok");
+	}
+});
+
+test("only the disk meter turns full at 95%", () => {
 	const at = (value: number) => ({ usedBytes: value * GB, totalBytes: 100 * GB });
 	expect(usageMeter(at(95))?.level).toBe("warning");
 	expect(usageMeter(at(95), false, true)?.level).toBe("full");
 	expect(usageMeter(at(94.9), false, true)?.level).toBe("warning");
-	expect(usageMeter(at(120))?.percent).toBe(100);
 });
 
 function rightPane() {
@@ -616,7 +633,10 @@ test("below 85% both meters show in the plain tone and nothing is announced", as
 	expect(disk.getAttribute("aria-label")).toBe(
 		"Disk 30.0 GB of 100 GB. Open workspace storage",
 	);
-	expect(disk.querySelector(".pk-meter-fill")?.getAttribute("style")).toContain("30%");
+	// The bar is the ui Meter, a native meter with the figures (SPEC.md §25.8).
+	const bar = disk.querySelector("meter");
+	expect(bar?.value).toBe(30 * GB);
+	expect(bar?.max).toBe(100 * GB);
 	expect(screen.getByTestId("memory-warning-announce").textContent).toBe("");
 	expect(screen.getByTestId("storage-warning-announce").textContent).toBe("");
 	expect(screen.queryByTestId("storage-warning")).toBeNull();
@@ -634,10 +654,12 @@ test("at 85% memory the meter warns, announces it, and opens Monitor by memory",
 	const meter = await screen.findByTestId("memory-meter");
 	await waitFor(() => expect(meter.dataset.level).toBe("warning"));
 	expect(meter.className).toContain("pk-meter--warning");
-	// The alert icon and "high", not colour alone, mark it as a warning.
+	// The alert icon and "nearly full", not colour alone, mark it as a warning,
+	// and the name holds the visible words.
 	expect(meter.querySelector("svg")).not.toBeNull();
+	expect(meter.textContent).toBe("Memory90.0 GB of 100 GB, nearly full");
 	expect(meter.getAttribute("aria-label")).toBe(
-		"Memory 90.0 GB of 100 GB, high. See what's using memory",
+		"Memory 90.0 GB of 100 GB, nearly full. See what's using memory",
 	);
 	// Memory has its own live region, so a storage change does not repeat it.
 	expect(screen.getByTestId("memory-warning-announce").textContent).toBe(
@@ -661,7 +683,7 @@ test("the disk meter shows the home volume, warns at 85%, and opens the workspac
 	await waitFor(() => expect(disk.dataset.level).toBe("warning"));
 	expect(disk.getAttribute("aria-haspopup")).toBe("dialog");
 	expect(disk.getAttribute("aria-label")).toBe(
-		"Disk 88.0 GB of 100 GB, high. Open workspace storage",
+		"Disk 88.0 GB of 100 GB, nearly full. Open workspace storage",
 	);
 	// The storage warning keeps its own wording beside it.
 	expect(screen.getByTestId("storage-warning").textContent).toBe(

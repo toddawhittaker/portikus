@@ -277,7 +277,7 @@ function RealPane({
 	);
 }
 
-test("opened from a notice, Monitor's visible tab takes focus, but not while search covers the tabs", async () => {
+test("opened from a notice while find in files is open, the search closes and Monitor's tab takes focus", async () => {
 	stubEmpty();
 	let api = {} as ReturnType<typeof useRightPaneStore>;
 	renderWithQuery(
@@ -288,13 +288,16 @@ test("opened from a notice, Monitor's visible tab takes focus, but not while sea
 		/>,
 	);
 	fireEvent.click(await screen.findByTestId("search-open"));
-	await act(async () => showMonitor(api, "memory"));
-	expect(screen.queryByRole("tab", { name: "Monitor" })).toBeNull();
-	expect(api.monitorFocus).toBe(true);
+	expect(await screen.findByTestId("search-panel")).toBeTruthy();
 
-	fireEvent.click(await screen.findByTestId("search-close"));
+	await act(async () => showMonitor(api, "memory"));
+
+	expect(screen.queryByTestId("search-panel")).toBeNull();
 	await waitFor(() =>
 		expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Monitor" })),
 	);
+	expect(
+		screen.getByRole("tab", { name: "Monitor" }).getAttribute("aria-selected"),
+	).toBe("true");
 	expect(api.monitorFocus).toBe(false);
 });

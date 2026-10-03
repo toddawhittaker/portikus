@@ -53,6 +53,68 @@ test.describe("file resilience", () => {
 		).toBeVisible();
 	});
 
+	test("the full-disk save error stays put through later autosaves and goes once a save succeeds", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		const path = "retry.txt";
+		await openFileTab(page, student, "Full retry", path, "hello\n");
+		const lines = page.getByTestId(`editor-${path}`).locator(".view-lines");
+		await expect(lines).toContainText("hello", { timeout: 60_000 });
+		await setDiskFull(student.workspaceId, true);
+		let writes = 0;
+		page.on("request", (request) => {
+			if (request.method() === "PUT" && request.url().includes("/file?path="))
+				writes += 1;
+		});
+
+		await lines.click();
+		await page.keyboard.press("End");
+		await page.keyboard.type(" more");
+		const banner = page.getByTestId("file-banner");
+		await expect(banner).toHaveText(
+			"Your home folder is full. Delete files, then save again.",
+			{ timeout: 15_000 },
+		);
+		// Count every change to the status region from here on; a re-announcement
+		// would remove and re-add the banner or rewrite its text.
+		await banner.evaluate((node) => {
+			const record = { changes: 0 };
+			(window as unknown as { bannerChanges: typeof record }).bannerChanges = record;
+			const parent = node.parentElement as HTMLElement;
+			new MutationObserver((mutations) => {
+				for (const mutation of mutations) {
+					const touched = [...mutation.addedNodes, ...mutation.removedNodes].some(
+						(changed) => changed === node || changed.contains(node),
+					);
+					if (touched || node.contains(mutation.target)) record.changes += 1;
+				}
+			}).observe(parent, { childList: true, subtree: true, characterData: true });
+		});
+		const before = writes;
+
+		await page.keyboard.type(" again");
+		await expect.poll(() => writes, { timeout: 15_000 }).toBeGreaterThan(before);
+		await expect(page.getByTestId(`file-status-${path}`)).toHaveText("Save failed", {
+			timeout: 15_000,
+		});
+		expect(
+			await page.evaluate(
+				() =>
+					(window as unknown as { bannerChanges: { changes: number } }).bannerChanges
+						.changes,
+			),
+		).toBe(0);
+
+		await setDiskFull(student.workspaceId, false);
+		await page.keyboard.type("!");
+		await expect(page.getByTestId(`file-status-${path}`)).toHaveText("Saved", {
+			timeout: 15_000,
+		});
+		await expect(banner).toHaveCount(0);
+	});
+
 	test("a new folder on a full disk says to delete files and try again", async ({
 		page,
 		context,

@@ -15,18 +15,19 @@ import {
 } from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
-/** Each meter's fill against its track is 3:1, and its value text 4.5:1 on the bar. */
+/**
+ * Each meter is the ui Meter: its track's edge is 3:1 on the status bar, so
+ * the empty part shows (WCAG 1.4.11), and its value text 4.5:1.
+ */
 async function expectMeterContrast(page: Page) {
 	for (const id of ["memory-meter", "disk-meter"]) {
 		const colours = await page.getByTestId(id).evaluate((node) => ({
-			fill: getComputedStyle(node.querySelector(".pk-meter-fill") as Element)
-				.backgroundColor,
-			track: getComputedStyle(node.querySelector(".pk-meter-track") as Element)
-				.backgroundColor,
-			text: getComputedStyle(node.querySelector(".pk-meter-value") as Element).color,
+			edge: getComputedStyle(node.querySelector("meter.pk-meter-bar") as Element)
+				.borderTopColor,
+			text: getComputedStyle(node.querySelector(".pk-meter-figure") as Element).color,
 			back: getComputedStyle(node.closest("footer") as Element).backgroundColor,
 		}));
-		expect(contrast(colours.fill, colours.track)).toBeGreaterThanOrEqual(3);
+		expect(contrast(colours.edge, colours.back)).toBeGreaterThanOrEqual(3);
 		expect(contrast(colours.text, colours.back)).toBeGreaterThanOrEqual(4.5);
 	}
 }

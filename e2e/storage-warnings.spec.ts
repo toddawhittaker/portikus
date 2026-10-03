@@ -210,7 +210,7 @@ test("the disk meter always shows the home volume and opens the workspace dialog
 	await expect(disk).toBeFocused();
 });
 
-test("at the smallest supported width the path and Git line give way, and Running stays whole", async ({
+test("at the smallest supported width the buttons wrap under the Git line, and Running stays whole", async ({
 	page,
 	context,
 }) => {
@@ -278,11 +278,15 @@ test("at the smallest supported width the path and Git line give way, and Runnin
 					button.getBoundingClientRect().right <= edge &&
 					button.scrollWidth <= button.clientWidth,
 			),
-			gitTruncated: gitLine.scrollWidth > gitLine.clientWidth,
+			gitInside: gitLine.getBoundingClientRect().right <= edge,
+			// The buttons take a second line rather than pushing anything off the bar.
+			buttonsBelow:
+				(
+					bar.querySelector('[data-testid="workspace-status"]') as HTMLElement
+				).getBoundingClientRect().top > gitLine.getBoundingClientRect().bottom,
 		};
 	});
-	expect(layout.buttonsWhole).toBe(true);
-	expect(layout.gitTruncated).toBe(true);
+	expect(layout).toEqual({ buttonsWhole: true, gitInside: true, buttonsBelow: true });
 	const running = page.getByTestId("workspace-status");
 	await expect(running).toBeInViewport({ ratio: 1 });
 	await running.focus();

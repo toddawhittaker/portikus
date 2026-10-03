@@ -51,7 +51,10 @@ export function FilesPane({
 		(searchButton.current ?? currentTab.current)?.focus();
 	}, [searching]);
 
-	// A notice or the status bar opened Monitor: focus its visible tab (SPEC.md §25.8).
+	// A notice or the status bar opened Monitor: the search would hide its tab, so it closes.
+	if (monitorFocus && searching) setSearching(false);
+
+	// Then focus Monitor's visible tab (SPEC.md §25.8).
 	useEffect(() => {
 		if (!monitorFocus || searching || pane !== "monitor") return;
 		setMonitorFocus(false);
