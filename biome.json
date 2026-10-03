@@ -27,8 +27,13 @@
 			"complexity": {
 				"noExcessiveCognitiveComplexity": {
 					"level": "error",
-					"options": { "maxAllowedComplexity": 30 }
+					"options": {
+						"maxAllowedComplexity": 30
+					}
 				}
+			},
+			"suspicious": {
+				"noImportCycles": "error"
 			}
 		}
 	},
@@ -44,7 +49,196 @@
 			],
 			"linter": {
 				"rules": {
-					"complexity": { "noExcessiveCognitiveComplexity": "off" }
+					"complexity": {
+						"noExcessiveCognitiveComplexity": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["apps/**", "packages/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"@portikus/api",
+											"@portikus/api/**",
+											"@portikus/web",
+											"@portikus/web/**",
+											"@portikus/worker",
+											"@portikus/worker/**",
+											"@portikus/workspace-agent",
+											"@portikus/workspace-agent/**",
+											"@portikus/workspace-controller",
+											"@portikus/workspace-controller/**"
+										],
+										"message": "Apps and packages never import an app's source; apps talk through packages/contracts and the network."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["apps/web/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"@portikus/api",
+											"@portikus/api/**",
+											"@portikus/web",
+											"@portikus/web/**",
+											"@portikus/worker",
+											"@portikus/worker/**",
+											"@portikus/workspace-agent",
+											"@portikus/workspace-agent/**",
+											"@portikus/workspace-controller",
+											"@portikus/workspace-controller/**"
+										],
+										"message": "Apps and packages never import an app's source; apps talk through packages/contracts and the network."
+									},
+									{
+										"group": [
+											"@portikus/db",
+											"@portikus/db/**",
+											"@portikus/auth",
+											"@portikus/auth/**",
+											"@portikus/observability",
+											"@portikus/observability/**",
+											"@portikus/config",
+											"@portikus/config/**"
+										],
+										"message": "The browser bundle must not pull in database, server auth, server config or Node logging code."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"apps/**",
+				"packages/**",
+				"!**/*.test.ts",
+				"!**/*.test.tsx",
+				"!**/testing/**",
+				"!**/testing.ts",
+				"!**/fake-*.ts",
+				"!**/test-setup.ts",
+				"!**/test-utils.tsx"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"@portikus/api",
+											"@portikus/api/**",
+											"@portikus/web",
+											"@portikus/web/**",
+											"@portikus/worker",
+											"@portikus/worker/**",
+											"@portikus/workspace-agent",
+											"@portikus/workspace-agent/**",
+											"@portikus/workspace-controller",
+											"@portikus/workspace-controller/**"
+										],
+										"message": "Apps and packages never import an app's source; apps talk through packages/contracts and the network."
+									},
+									{
+										"group": [
+											"@portikus/*/testing",
+											"**/testing",
+											"**/testing/**",
+											"**/testing.js"
+										],
+										"message": "Test helpers are imported only from tests."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"apps/web/**",
+				"!**/*.test.ts",
+				"!**/*.test.tsx",
+				"!**/testing/**",
+				"!**/testing.ts",
+				"!**/fake-*.ts",
+				"!**/test-setup.ts",
+				"!**/test-utils.tsx"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"@portikus/api",
+											"@portikus/api/**",
+											"@portikus/web",
+											"@portikus/web/**",
+											"@portikus/worker",
+											"@portikus/worker/**",
+											"@portikus/workspace-agent",
+											"@portikus/workspace-agent/**",
+											"@portikus/workspace-controller",
+											"@portikus/workspace-controller/**"
+										],
+										"message": "Apps and packages never import an app's source; apps talk through packages/contracts and the network."
+									},
+									{
+										"group": [
+											"@portikus/db",
+											"@portikus/db/**",
+											"@portikus/auth",
+											"@portikus/auth/**",
+											"@portikus/observability",
+											"@portikus/observability/**",
+											"@portikus/config",
+											"@portikus/config/**"
+										],
+										"message": "The browser bundle must not pull in database, server auth, server config or Node logging code."
+									},
+									{
+										"group": [
+											"@portikus/*/testing",
+											"**/testing",
+											"**/testing/**",
+											"**/testing.js"
+										],
+										"message": "Test helpers are imported only from tests."
+									}
+								]
+							}
+						}
+					}
 				}
 			}
 		}

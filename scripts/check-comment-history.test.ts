@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 // @ts-expect-error The checker is a plain .mjs script with no type declarations.
-import { scanText } from "./check-comment-history.mjs";
+import { MAX_LINES, scanText, sizeWarning } from "./check-comment-history.mjs";
 
 type Hit = { path: string; line: number; name: string; match: string };
 const scan = (path: string, src: string): Hit[] => scanText(path, src);
@@ -88,5 +88,46 @@ describe("legitimate text is left alone", () => {
 		["a YAML value holding #", "color: '#123'", "a.yml"],
 	])("%s", (_name, src, path) => {
 		expect(scan(path, src)).toEqual([]);
+	});
+});
+
+describe("overlong source files are flagged", () => {
+	const lines = (n: number) => "x\n".repeat(n);
+
+	test("a file at the limit passes and one line more warns", () => {
+		expect(sizeWarning("apps/api/src/a.ts", lines(MAX_LINES))).toBeNull();
+		expect(sizeWarning("apps/api/src/a.ts", lines(MAX_LINES + 1))).toEqual({
+			path: "apps/api/src/a.ts",
+			lines: MAX_LINES + 1,
+		});
+	});
+
+	test("a last line without a newline still counts", () => {
+		expect(sizeWarning("a.tsx", `${lines(MAX_LINES)}x`)).toMatchObject({
+			lines: MAX_LINES + 1,
+		});
+	});
+
+	test.each(["app.css", "packaging/build.sh", "scripts/tool.mjs", "infra/x.py"])(
+		"source file %s is checked",
+		(path) => {
+			expect(sizeWarning(path, lines(MAX_LINES + 1))).not.toBeNull();
+		},
+	);
+
+	test.each([
+		"apps/api/src/a.test.ts",
+		"apps/web/src/a.test.tsx",
+		"e2e/layout.spec.ts",
+		"e2e/helpers.ts",
+		"infra/tests/install-test.sh",
+		"packaging/tests/debconf-scenario.sh",
+		"packaging/image/tests/test_image_job.py",
+		"apps/web/src/editor/monaco-contributions.d.ts",
+		"design/system/app.css",
+		"docs/SPEC.md",
+		"infra/ansible/site.yml",
+	])("%s is exempt", (path) => {
+		expect(sizeWarning(path, lines(MAX_LINES + 1))).toBeNull();
 	});
 });
