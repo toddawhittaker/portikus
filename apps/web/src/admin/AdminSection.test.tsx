@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { AdminSection } from "./AdminSection.js";
+import { AdminGroup, AdminSection } from "./AdminSection.js";
 
 test("renders a region named by its h2, with the count, actions and content", () => {
 	render(
@@ -61,4 +61,29 @@ test("puts the intro under the heading, linked to its Help section", () => {
 		intro.compareDocumentPosition(screen.getByText("Body")) &
 			Node.DOCUMENT_POSITION_FOLLOWING,
 	).toBeTruthy();
+});
+
+test("AdminGroup shows a description under its heading only when given", () => {
+	const { rerender } = render(
+		<AdminGroup id="g" title="Schedule" description="When the nightly backup runs.">
+			<p>Body</p>
+		</AdminGroup>,
+	);
+
+	const region = screen.getByRole("region", { name: "Schedule" });
+	const description = within(region).getByText("When the nightly backup runs.");
+	expect(description.tagName).toBe("P");
+	const heading = within(region).getByRole("heading", { level: 3, name: "Schedule" });
+	expect(
+		heading.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+
+	rerender(
+		<AdminGroup id="g" title="Schedule">
+			<p>Body</p>
+		</AdminGroup>,
+	);
+	expect(
+		screen.getByRole("region", { name: "Schedule" }).querySelectorAll("p"),
+	).toHaveLength(1);
 });

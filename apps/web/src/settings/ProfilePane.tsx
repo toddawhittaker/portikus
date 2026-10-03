@@ -1,5 +1,5 @@
 import { GithubLink, githubHref, WebsiteLink } from "@portikus/contracts";
-import { Button, LABEL_CLASS, TextField, Toggletip } from "@portikus/ui";
+import { Button, LABEL_CLASS, Skeleton, TextField, Toggletip } from "@portikus/ui";
 import { useRef } from "react";
 import { useMe } from "../useMe.js";
 import { ControlFrame, useShowSetting } from "./controls.js";
@@ -50,6 +50,26 @@ function SavedLink({ href, testId }: { href: string; testId: string }) {
 		>
 			{href}
 		</a>
+	);
+}
+
+/** Bars in the shape of the sign-in list, so the pane does not jump when it loads. */
+function ProfileSkeleton() {
+	const values = ["40%", "55%", "30%", "45%"];
+	return (
+		<div className="grid gap-4" aria-busy="true" data-testid="profile-loading">
+			<p className="sr-only">Loading your profile…</p>
+			<Skeleton width="30%" />
+			<Skeleton width="70%" />
+			<div className="grid gap-4">
+				{values.map((width) => (
+					<div className="grid gap-1" key={width}>
+						<Skeleton width="20%" />
+						<Skeleton width={width} />
+					</div>
+				))}
+			</div>
+		</div>
 	);
 }
 
@@ -222,9 +242,7 @@ export function ProfilePane({
 			<h2 id="settings-section-profile" className="pk-text-heading text-ink">
 				Profile
 			</h2>
-			{me.status === "loading" || profile.isPending ? (
-				<p className="pk-text-body text-ink-muted">Loading your profile…</p>
-			) : null}
+			{me.status === "loading" || profile.isPending ? <ProfileSkeleton /> : null}
 			{me.status !== "loading" && !profile.isPending && !ready ? (
 				<p className="pk-text-body text-status-error" data-testid="account-error">
 					Your account details could not be loaded.

@@ -63,13 +63,14 @@ export function AdminPage() {
 		<div className="pk-root">
 			<AppHeader user={me.user} workspace={null} project={undefined} />
 			<main
-				className="flex-1 scroll-pt-16 overflow-auto p-8"
+				className="flex-1 scroll-pt-16 overflow-auto p-8 [scrollbar-gutter:stable]"
 				data-testid="page-admin"
 				data-density="compact"
 				aria-labelledby="admin-title"
 			>
 				{/* <main> keeps the scroll, so the scrollbar stays at the window edge (SPEC.md section 20.1).
-				    scroll-pt-16 keeps a focused row clear of the sticky table header. */}
+				    scroll-pt-16 keeps a focused row clear of the sticky table header.
+				    The stable gutter keeps tall and short tabs the same width. */}
 				<div className="mx-auto w-full max-w-[1440px]" data-testid="admin-content">
 					<p aria-live="polite" className="sr-only" data-testid="admin-tab-announce">
 						{tabAnnouncement}
