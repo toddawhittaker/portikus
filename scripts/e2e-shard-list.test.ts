@@ -43,8 +43,12 @@ describe("parseTimings", () => {
 			"job\tstep\t2026Z   \u001b[32m✓\u001b[39m    1 [setup] › e2e/environment.setup.ts:12:1 › env (233ms)",
 			"job\tstep\t2026Z   ✓    2 [chromium] › e2e/files.spec.ts:435:2 › tree › one (3.0s)",
 			"job\tstep\t2026Z   ✓    3 [chromium] › e2e/files.spec.ts:451:2 › tree › two (500ms)",
+			"job\tstep\t2026Z   ✓    4 [docker] › e2e/admin-docker.spec.ts:29:1 › cache (2.0s)",
 			"job\tstep\t2026Z   Running 3 tests",
 		].join("\n");
-		expect(parseTimings(log)).toEqual({ "files.spec.ts": 3.5 });
+		expect(parseTimings(log)).toEqual({
+			"files.spec.ts": 3.5,
+			"admin-docker.spec.ts": 2,
+		});
 	});
 });

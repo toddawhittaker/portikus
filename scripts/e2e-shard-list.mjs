@@ -41,7 +41,8 @@ export function packShards(files, timings, total) {
 export function parseTimings(log) {
 	const timings = {};
 	const plain = stripVTControlCharacters(log);
-	const line = /\[chromium\] › e2e\/(\S+?):\d+:\d+ › .*\((\d+(?:\.\d+)?)(m?s)\)\s*$/;
+	const line =
+		/\[(?:chromium|docker)\] › e2e\/(\S+?):\d+:\d+ › .*\((\d+(?:\.\d+)?)(m?s)\)\s*$/;
 	for (const text of plain.split("\n")) {
 		const match = line.exec(text);
 		if (!match) continue;
@@ -51,7 +52,7 @@ export function parseTimings(log) {
 	return timings;
 }
 
-/** Spec files the chromium project would run, relative to the test directory. */
+/** Spec files the browser projects would run, relative to the test directory. */
 function listSpecFiles() {
 	const json = execFileSync(
 		"pnpm",
@@ -64,8 +65,7 @@ function listSpecFiles() {
 	const files = new Set();
 	const walk = (suite) => {
 		for (const spec of suite.specs ?? []) {
-			if (spec.tests.some((test) => test.projectName === "chromium"))
-				files.add(spec.file);
+			if (spec.tests.some((test) => test.projectName !== "setup")) files.add(spec.file);
 		}
 		for (const child of suite.suites ?? []) walk(child);
 	};

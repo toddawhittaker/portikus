@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { readFile, rm, writeFile } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
 import { FAKE_AGENT_TOKEN, loginAs, MOCK_ISSUER, query } from "./helpers";
-import { REGISTRY_JOBS_DIR, resetRegistryJobs } from "./registry-jobs";
+import { resetRegistryJobs } from "./registry-jobs";
 
 /**
  * Shared by the Docker tab's spec files. The tests play the root cache
@@ -10,49 +9,13 @@ import { REGISTRY_JOBS_DIR, resetRegistryJobs } from "./registry-jobs";
  * rows and the usage tables) by hand against the real API.
  */
 
-const LOCK = `${REGISTRY_JOBS_DIR}.lock`;
-
-function alive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
 /**
- * Hold the Docker state for one spec file. The files share one settings row,
- * the seed tables and the helper directory, and Playwright runs files in
- * parallel, so they take turns. A lock left by a dead worker is taken over.
+ * Every Docker spec file calls this once: each test starts from a clean slate.
+ * The files share one settings row, the seed tables and the helper directory;
+ * the "docker" project in playwright.config.ts runs them on one worker.
  */
-async function takeLock(): Promise<void> {
-	const me = String(process.pid);
-	for (;;) {
-		try {
-			await writeFile(LOCK, me, { flag: "wx" });
-			return;
-		} catch {
-			// Empty while its holder is still writing its pid: wait, never take it.
-			const holder = Number(await readFile(LOCK, "utf8").catch(() => ""));
-			if (String(holder) === me) return;
-			if (holder > 0 && !alive(holder)) await rm(LOCK, { force: true });
-			else await new Promise((resolve) => setTimeout(resolve, 250));
-		}
-	}
-}
-
-/** Every Docker spec file calls this once: one file at a time, each test from a clean slate. */
 export function useDockerState(): void {
 	test.describe.configure({ mode: "serial" });
-	test.beforeAll(async () => {
-		// Waiting for the other Docker file can take a few minutes.
-		test.setTimeout(600_000);
-		await takeLock();
-	});
-	test.afterAll(async () => {
-		await rm(LOCK, { force: true });
-	});
 	test.beforeEach(async () => {
 		await resetRegistryJobs();
 		await query(
