@@ -23,6 +23,12 @@ export const DesiredState = z.enum(["running", "stopped", "restarting"]);
 export type DesiredState = z.infer<typeof DesiredState>;
 
 /**
+ * The worker's error code for a failed stop. The sweep does not retry such
+ * a stop on its own; a new Stop from the student clears it (SPEC.md §6.5).
+ */
+export const STOP_FAILED_ERROR_CODE = "STOP_FAILED";
+
+/**
  * A maintenance operation the API asked for and the worker drives
  * (SPEC.md §16.4, §17.2; ADR 0021).
  */
