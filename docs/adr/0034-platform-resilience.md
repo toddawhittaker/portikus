@@ -164,4 +164,7 @@ rebuild. SPEC.md section 6.5 states the rule.
 - A create shares one deadline with the worker: once the worker gives
   up, the controller stops making volumes and never makes the instance.
   An Incus operation already under way finishes on its own, and a retry
-  adopts what it made.
+  adopts what it made. Neither the Docker seed copy nor the 240 s
+  instance create is cancelled by an abort, so a retry that finds
+  "already exists" can adopt a volume or instance Incus has not
+  finished, the same as after the 60 s copy timeout.

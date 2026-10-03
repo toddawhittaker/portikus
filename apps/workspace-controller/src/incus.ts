@@ -359,16 +359,14 @@ export class IncusClient {
 		body?: unknown,
 		signal?: AbortSignal,
 		raw?: { headers: Record<string, string>; body: string },
-		timeoutMs: number | undefined = signal ? undefined : DEFAULT_REQUEST_TIMEOUT_MS,
+		// A caller signal may be long-lived, so the default bound applies with one too.
+		timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
 	): Promise<IncusEnvelope> {
 		return new Promise<IncusEnvelope>((resolve, reject) => {
-			const timer =
-				timeoutMs === undefined
-					? undefined
-					: setTimeout(() => {
-							reject(new IncusError("TIMEOUT", "request timed out"));
-							req.destroy();
-						}, timeoutMs);
+			const timer = setTimeout(() => {
+				reject(new IncusError("TIMEOUT", "request timed out"));
+				req.destroy();
+			}, timeoutMs);
 			const settle = (): void => clearTimeout(timer);
 			const payload = raw
 				? raw.body

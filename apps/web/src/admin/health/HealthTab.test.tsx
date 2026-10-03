@@ -333,8 +333,6 @@ test("states follow the Workspaces tab's order with zero counts, then newer ones
 test("the tab puts four cards at a glance, then the trends in four groups", async () => {
 	stubFetch((url) => {
 		if (url === "/admin/health") return json(200, report());
-		if (url === "/admin/packages")
-			return json(200, { day: null, surveyed: 0, packages: [] });
 		if (url.startsWith("/admin/health/series")) return json(200, SERIES);
 		if (url.startsWith("/admin/logs/counts"))
 			return json(503, { code: "LOGS_UNAVAILABLE", message: "No journal." });
@@ -367,8 +365,6 @@ test("the tab puts four cards at a glance, then the trends in four groups", asyn
 test("the tab has an intro and help beside the figures that need it", async () => {
 	stubFetch((url) => {
 		if (url === "/admin/health") return json(200, report());
-		if (url === "/admin/packages")
-			return json(200, { day: null, surveyed: 0, packages: [] });
 		if (url.startsWith("/admin/health/series")) return json(200, SERIES);
 		if (url.startsWith("/admin/logs/counts"))
 			return json(503, { code: "LOGS_UNAVAILABLE", message: "No journal." });

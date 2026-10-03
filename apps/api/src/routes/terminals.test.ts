@@ -361,11 +361,13 @@ test.skipIf(skip)("concurrent creates never pass the limit", async () => {
 	expect(codes.filter((c) => c === 409)).toHaveLength(5);
 	const open = await testDb.db
 		.selectFrom("terminals")
-		.select("id")
+		.select(["id", "name", "position"])
 		.where("workspace_id", "=", workspaceId)
 		.where("ended_at", "is", null)
 		.execute();
 	expect(open).toHaveLength(MAX_TERMINALS_PER_WORKSPACE);
+	expect(new Set(open.map((t) => t.name)).size).toBe(MAX_TERMINALS_PER_WORKSPACE);
+	expect(new Set(open.map((t) => t.position)).size).toBe(MAX_TERMINALS_PER_WORKSPACE);
 });
 
 test.skipIf(skip)("a closed terminal frees a slot", async () => {

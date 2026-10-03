@@ -64,6 +64,23 @@ test.skipIf(skip)("a student is refused with 403", async () => {
 	expect(res.json().code).toBe("FORBIDDEN");
 });
 
+test.skipIf(skip)("admin replies are never cached, success or refusal", async () => {
+	// The admin tab pages share these URLs (SPEC.md §6.4).
+	const carol = new CookieJar();
+	await loginAs(app, "carol", carol);
+	for (const url of ["/admin/settings", "/admin/users", "/admin/backups"]) {
+		const res = await app.inject({
+			method: "GET",
+			url,
+			headers: { cookie: carol.cookieHeader() },
+		});
+		expect(res.statusCode, url).toBeLessThan(500);
+		expect(res.headers["cache-control"], url).toBe("no-store");
+	}
+	const anonymous = await app.inject({ method: "GET", url: "/admin/users" });
+	expect(anonymous.headers["cache-control"]).toBe("no-store");
+});
+
 test.skipIf(skip)("an administrator lists every workspace", async () => {
 	const alice = new CookieJar();
 	await loginAs(app, "alice", alice);
