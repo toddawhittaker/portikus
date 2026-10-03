@@ -28,6 +28,7 @@ import { createPackageSurvey } from "./package-survey.js";
 import { serveProcessSnapshots } from "./process-snapshots.js";
 import { createQuotaSync } from "./quota.js";
 import { reconcile } from "./reconcile.js";
+import { pruneEndedTerminals } from "./terminal-prune.js";
 
 const GRANTS_FILE = join(
 	import.meta.dirname,
@@ -258,6 +259,7 @@ describe.skipIf(skip)("the worker's role", () => {
 		await seedSettings(worker, 600);
 		await notifyAdministrators(worker, { tone: "warning", title: "t", body: "b" });
 		await pruneNotifications(worker, new Date());
+		await pruneEndedTerminals(worker, new Date());
 		await reconcile(
 			worker,
 			controller,
