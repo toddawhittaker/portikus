@@ -1,6 +1,6 @@
 import type { AdminEgressView, EgressPresetId } from "@portikus/contracts";
 import { Checkbox, useToast } from "@portikus/ui";
-import { Part } from "./Part.js";
+import { Part } from "../AdminSection.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 
 /** One-click presets; each covers its hosts and their subdomains (SPEC.md section 20.1). */

@@ -1,11 +1,12 @@
 import { GithubLink, githubHref, WebsiteLink } from "@portikus/contracts";
-import { Button, LABEL_CLASS, Skeleton, TextField, Toggletip } from "@portikus/ui";
-import { useRef } from "react";
+import { Button, FileInput, Skeleton, TextField, Toggletip } from "@portikus/ui";
 import { useMe } from "../useMe.js";
 import { ControlFrame, useShowSetting } from "./controls.js";
 import { LinkedAccounts } from "./LinkedAccounts.js";
 import { useProfile, useRemovePicture, useUploadPicture } from "./profileQueries.js";
 import { SETTINGS_SECTIONS } from "./sections.js";
+
+const PICTURE_INPUT_ID = "profile-picture-file";
 
 const PROFILE = SETTINGS_SECTIONS.find((section) => section.id === "profile");
 
@@ -93,8 +94,6 @@ export function ProfilePane({
 	const profile = useProfile();
 	const upload = useUploadPicture();
 	const remove = useRemovePicture();
-	const pictureInput = useRef<HTMLInputElement>(null);
-	const chooseButton = useRef<HTMLButtonElement>(null);
 	const ready = me.status === "authenticated" && profile.isSuccess;
 	useShowSetting(highlightId, ready);
 	const user = me.status === "authenticated" ? me.user : null;
@@ -120,54 +119,61 @@ export function ProfilePane({
 		switch (controlId) {
 			case "profile-picture":
 				return (
-					<div className="grid gap-2">
-						<span className={LABEL_CLASS}>Profile picture</span>
-						<div className="flex flex-wrap items-center gap-3">
-							{saved?.picture ? (
-								<img
-									src={saved.picture}
-									alt="Your profile"
-									data-testid="profile-picture"
-									className="size-12 shrink-0 rounded-full border border-line object-cover"
-								/>
-							) : (
-								<span
-									className="grid size-12 shrink-0 place-items-center rounded-full border border-line bg-surface-sunken text-[15px] font-semibold text-ink"
-									data-testid="account-initials"
-									aria-hidden="true"
-								>
-									{initials(user?.displayName ?? "")}
-								</span>
-							)}
-							{/* The native input is hidden; the button opens its file picker. */}
-							<input
-								ref={pictureInput}
-								type="file"
+					<div className="flex items-start gap-3">
+						{saved?.picture ? (
+							<img
+								src={saved.picture}
+								alt="Your profile"
+								data-testid="profile-picture"
+								className="size-12 shrink-0 rounded-full border border-line object-cover"
+							/>
+						) : (
+							<span
+								className="grid size-12 shrink-0 place-items-center rounded-full border border-line bg-surface-sunken text-[15px] font-semibold text-ink"
+								data-testid="account-initials"
+								aria-hidden="true"
+							>
+								{initials(user?.displayName ?? "")}
+							</span>
+						)}
+						<div className="grid min-w-0 flex-1 justify-items-start gap-3">
+							<FileInput
+								id={PICTURE_INPUT_ID}
+								className="w-full"
+								label="Profile picture"
 								accept="image/png,image/jpeg"
-								hidden
 								data-testid="profile-picture-input"
+								aria-busy={upload.isPending ? true : undefined}
+								hint={
+									upload.isPending
+										? "Saving your picture…"
+										: "A PNG or JPEG of up to 1 MiB. It is saved as soon as you choose it and shows in the account menu."
+								}
+								error={
+									pictureError ? (
+										// Mounted afresh on each failure, so it is read out at once (SPEC.md section 25.8).
+										<span role="alert" data-testid="profile-picture-error">
+											{pictureError instanceof Error
+												? pictureError.message
+												: "The picture was not saved."}
+										</span>
+									) : null
+								}
 								onChange={(event) => {
 									const file = event.target.files?.[0];
 									if (file) upload.mutate(file);
+									// Cleared, so choosing the same file again still uploads it.
 									event.target.value = "";
 								}}
 							/>
-							<Button
-								ref={chooseButton}
-								variant="secondary"
-								data-testid="profile-picture-choose"
-								loading={upload.isPending}
-								onClick={() => pictureInput.current?.click()}
-							>
-								Choose picture…
-							</Button>
 							{saved?.picture ? (
 								<Button
 									variant="secondary"
 									onClick={() =>
 										remove.mutate(undefined, {
 											// The button goes away with the picture; keep focus beside it.
-											onSuccess: () => chooseButton.current?.focus(),
+											onSuccess: () =>
+												document.getElementById(PICTURE_INPUT_ID)?.focus(),
 										})
 									}
 									loading={remove.isPending}
@@ -176,20 +182,6 @@ export function ProfilePane({
 								</Button>
 							) : null}
 						</div>
-						<p className="pk-hint m-0 text-[12px] leading-4 text-ink-muted">
-							A PNG or JPEG of up to 1 MiB. It is saved as soon as you choose it and
-							shows in the account menu.
-						</p>
-						{pictureError ? (
-							<p
-								className="pk-text-body m-0 text-status-error"
-								data-testid="profile-picture-error"
-							>
-								{pictureError instanceof Error
-									? pictureError.message
-									: "The picture was not saved."}
-							</p>
-						) : null}
 					</div>
 				);
 			case "github":

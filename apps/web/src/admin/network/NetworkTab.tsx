@@ -1,6 +1,6 @@
 import { Button, Skeleton } from "@portikus/ui";
 import { useRef, useState } from "react";
-import { AdminSection } from "../AdminSection.js";
+import { AdminGroup, AdminSection } from "../AdminSection.js";
 import { AllowListGroup } from "./AllowListGroup.js";
 import { BlockedCard } from "./BlockedCard.js";
 import { BlockedSitesCard } from "./BlockedSitesCard.js";
@@ -26,12 +26,18 @@ export function NetworkTab() {
 	if (egress.isError && !egress.data) {
 		return (
 			<AdminSection title="Network">
-				<div className="pk-card grid justify-items-start gap-3 p-6">
-					<p className="m-0 text-status-error" role="alert">
-						{egressErrorText(egress.error)}
-					</p>
-					<Button onClick={() => void egress.refetch()}>Try again</Button>
-				</div>
+				<AdminGroup
+					id="egress-error-title"
+					title="Network policy did not load"
+					testId="egress-error"
+				>
+					<div className="grid justify-items-start gap-3">
+						<p className="m-0 text-status-error" role="alert">
+							{egressErrorText(egress.error)}
+						</p>
+						<Button onClick={() => void egress.refetch()}>Try again</Button>
+					</div>
+				</AdminGroup>
 			</AdminSection>
 		);
 	}
@@ -70,9 +76,14 @@ export function NetworkTab() {
 						<AllowListGroup view={view} onEdit={edit} />
 						{view.mode === "allow-list" ? <BlockedSitesCard view={view} /> : null}
 					</div>
-					{/* Kept in view beside the long lists, so a test is always one field away. */}
+					{/*
+					 * Kept in view beside the long lists, so a test is always one field away.
+					 * Capped to what <main> shows (the window less the app bar and main's
+					 * p-8 above and below) and scrolled on its own, so a long Refused names
+					 * list cannot push its bottom out of reach.
+					 */}
 					<div
-						className="grid gap-6 self-start @5xl:sticky @5xl:top-0"
+						className="grid content-start gap-6 self-start @5xl:sticky @5xl:top-0 @5xl:max-h-[calc(100dvh-var(--pk-appbar-height)-4rem)] @5xl:overflow-y-auto @5xl:overscroll-contain"
 						data-testid="egress-side"
 					>
 						<TestHostCard view={view} onAllow={allowFrom("egress-test-title")} />

@@ -180,6 +180,11 @@ test("a file that is not a key is refused in the dialog", async ({ page }) => {
 	});
 	await upload.getByTestId("dialog-confirm").click();
 	await expect(upload.getByRole("alert")).toContainText("not a backup key");
+	// The shared file field ties the error to the input.
+	await expect(upload.getByLabel("Backup key file")).toHaveAttribute(
+		"aria-invalid",
+		"true",
+	);
 	await expect(page.getByTestId("backup-key-replace-dialog")).toHaveCount(0);
 	await upload.getByRole("button", { name: "Cancel" }).click();
 	await expect(page.getByTestId("backup-key-recipient")).toHaveText(

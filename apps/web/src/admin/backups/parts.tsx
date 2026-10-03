@@ -1,5 +1,5 @@
 import { type FocusEvent, type ReactNode, useEffect, useRef } from "react";
-import { AdminGroup } from "../AdminSection.js";
+import { AdminGroup, Part as SharedPart } from "../AdminSection.js";
 
 /**
  * Catches focus when a finished delete removes the focused row, such as its
@@ -19,54 +19,33 @@ export function useFocusCatch(target: () => HTMLElement | null) {
 	};
 }
 
-/** An `AdminGroup` whose heading takes focus when a removed row had it. */
-export function Group(props: Parameters<typeof AdminGroup>[0]) {
-	const onFocus = useFocusCatch(() => document.getElementById(props.id));
+/** Puts focus on the heading `id` names when a removed row inside had it. */
+function HeadingCatch({ id, children }: { id: string; children: ReactNode }) {
+	const onFocus = useFocusCatch(() => document.getElementById(id));
 	return (
-		// `contents` keeps the card a direct child of the tab's gap layout.
+		// `contents` keeps the card or part a direct child of its parent's gap layout.
 		// biome-ignore lint/a11y/noStaticElementInteractions: only notes which child had focus
 		<div className="contents" onFocus={onFocus}>
-			<AdminGroup {...props} />
+			{children}
 		</div>
 	);
 }
 
-/** A titled part inside a group, with an h4. */
-export function Part({
-	id,
-	title,
-	help,
-	children,
-	testId,
-}: {
-	id: string;
-	title: string;
-	help?: ReactNode;
-	children: ReactNode;
-	testId?: string;
-}) {
-	const heading = useRef<HTMLHeadingElement>(null);
-	const onFocus = useFocusCatch(() => heading.current);
+/** An `AdminGroup` whose heading takes focus when a removed row had it. */
+export function Group(props: Parameters<typeof AdminGroup>[0]) {
 	return (
-		<section
-			className="grid gap-3"
-			aria-labelledby={id}
-			data-testid={testId}
-			onFocus={onFocus}
-		>
-			<div className="flex items-center gap-1">
-				<h4
-					className="pk-text-compact m-0 font-semibold text-ink-muted"
-					id={id}
-					ref={heading}
-					tabIndex={-1}
-				>
-					{title}
-				</h4>
-				{help}
-			</div>
-			{children}
-		</section>
+		<HeadingCatch id={props.id}>
+			<AdminGroup {...props} />
+		</HeadingCatch>
+	);
+}
+
+/** A shared admin `Part` whose heading takes focus when a removed row had it. */
+export function Part(props: Parameters<typeof SharedPart>[0]) {
+	return (
+		<HeadingCatch id={props.id}>
+			<SharedPart {...props} />
+		</HeadingCatch>
 	);
 }
 

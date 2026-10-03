@@ -305,7 +305,13 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(help).toBeFocused();
 
 		await dialog.getByRole("button", { name: "Profile", exact: true }).click();
-		await expect(dialog.getByRole("button", { name: "Choose picture…" })).toBeVisible();
+		// The picture field with its error showing: a file over the cap is refused before it is sent.
+		await dialog.getByLabel("Profile picture").setInputFiles({
+			name: "big.png",
+			mimeType: "image/png",
+			buffer: Buffer.alloc(1024 * 1024 + 1),
+		});
+		await expect(dialog.getByTestId("profile-picture-error")).toBeVisible();
 		await dialog.getByLabel("Personal site").fill("javascript:alert(1)");
 		await expect(dialog.getByText("Give an https:// link")).toBeVisible();
 		await dialog.getByRole("button", { name: "About Workspace label" }).click();

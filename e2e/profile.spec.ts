@@ -124,12 +124,13 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 	await expect(page.getByTestId("account-picture")).toHaveCount(0);
 
 	const dialog = await openProfile(page);
-	const choose = dialog.getByRole("button", { name: "Choose picture…" });
-	// The native file input is hidden; the labelled button opens its picker.
-	await expect(dialog.getByTestId("profile-picture-input")).toBeHidden();
+	// The shared file field, named by its label; Enter on it opens the picker.
+	const choose = dialog.getByLabel("Profile picture");
+	await expect(choose).toHaveAttribute("type", "file");
+	await choose.focus();
 	const [chooser] = await Promise.all([
 		page.waitForEvent("filechooser"),
-		choose.click(),
+		page.keyboard.press("Enter"),
 	]);
 	await chooser.setFiles({
 		name: "big.png",
@@ -151,11 +152,7 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 	expect(refused.status()).toBe(413);
 	expect((await refused.json()).code).toBe("FILE_TOO_LARGE");
 
-	const [second] = await Promise.all([
-		page.waitForEvent("filechooser"),
-		choose.click(),
-	]);
-	await second.setFiles({ name: "me.png", mimeType: "image/png", buffer: PNG });
+	await choose.setInputFiles({ name: "me.png", mimeType: "image/png", buffer: PNG });
 	await expect(dialog.getByTestId("profile-picture")).toBeVisible();
 	await expect(page.getByTestId("account-picture")).toHaveAttribute(
 		"src",

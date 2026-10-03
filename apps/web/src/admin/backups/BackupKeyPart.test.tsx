@@ -343,6 +343,13 @@ test("a file larger than any key is refused before it is sent", async () => {
 	expect((await within(dialog).findByRole("alert")).textContent).toContain(
 		"not a backup key",
 	);
+	// The error belongs to the labelled file field.
+	const input = within(dialog).getByLabelText("Backup key file");
+	expect(input.getAttribute("type")).toBe("file");
+	expect(input.getAttribute("aria-invalid")).toBe("true");
+	expect(
+		document.getElementById(input.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toContain("not a backup key");
 	fireEvent.click(within(dialog).getByTestId("dialog-confirm"));
 	expect(calls).toEqual([]);
 });

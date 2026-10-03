@@ -154,7 +154,7 @@ test("a preset row shows its state with the checkbox alone", async () => {
 	expect(row.querySelector("summary")?.textContent).toBe("GitHub: 3 sites");
 });
 
-test("a read failure is shown with a way to try again", async () => {
+test("a read failure is a headed group with a way to try again", async () => {
 	let fail = true;
 	stubFetch(() =>
 		fail
@@ -162,9 +162,13 @@ test("a read failure is shown with a way to try again", async () => {
 			: json(200, egressView()),
 	);
 	renderWithQuery(<NetworkTab />);
-	expect((await screen.findByRole("alert")).textContent).toBe(
-		"The policy is unavailable.",
-	);
+	const alert = await screen.findByRole("alert");
+	expect(alert.textContent).toBe("The policy is unavailable.");
+	// A card like every other, under its own h3.
+	const group = screen.getByRole("region", { name: "Network policy did not load" });
+	expect(group.classList.contains("pk-card")).toBe(true);
+	expect(within(group).getByRole("heading", { level: 3 })).toBeTruthy();
+	expect(group.contains(alert)).toBe(true);
 	fail = false;
 	fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 	await shown();

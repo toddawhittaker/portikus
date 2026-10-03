@@ -827,17 +827,18 @@ test("the long explanations are toggletips beside their controls", async () => {
 	expect(screen.getByRole("button", { name: "About Linked accounts" })).toBeTruthy();
 });
 
-/** A labelled button opens the file picker; the native input is hidden. */
-test("Choose picture opens the hidden file input", async () => {
+/** The picture is the shared file field, labelled and described by its hint. */
+test("the profile picture is a labelled file field", async () => {
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await openProfile();
 
-	const input = screen.getByTestId("profile-picture-input") as HTMLInputElement;
-	expect(input.hidden).toBe(true);
-	const opened = vi.spyOn(input, "click");
-	fireEvent.click(screen.getByRole("button", { name: "Choose picture…" }));
-	expect(opened).toHaveBeenCalled();
+	const input = screen.getByLabelText("Profile picture") as HTMLInputElement;
+	expect(input).toBe(screen.getByTestId("profile-picture-input"));
+	expect(input.type).toBe("file");
+	expect(input.hidden).toBe(false);
+	expect(input.accept).toBe("image/png,image/jpeg");
+	expect(input.getAttribute("aria-describedby")).toBe("profile-picture-file-hint");
 	// No picture yet, so there is nothing to remove.
 	expect(screen.queryByRole("button", { name: "Remove picture" })).toBeNull();
 });
@@ -852,9 +853,13 @@ test("a refused picture upload shows the server's reason", async () => {
 		target: { files: [file] },
 	});
 
-	expect((await screen.findByTestId("profile-picture-error")).textContent).toBe(
-		"The picture is too big",
-	);
+	const error = await screen.findByTestId("profile-picture-error");
+	expect(error.textContent).toBe("The picture is too big");
+	// Read out when it appears, and tied to the field.
+	expect(error.getAttribute("role")).toBe("alert");
+	const input = screen.getByLabelText("Profile picture");
+	expect(input.getAttribute("aria-invalid")).toBe("true");
+	expect(input.getAttribute("aria-describedby")).toContain("profile-picture-file-err");
 });
 
 test("a picture over the cap is refused before it is sent", async () => {

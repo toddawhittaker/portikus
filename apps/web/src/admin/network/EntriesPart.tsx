@@ -11,8 +11,8 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useRef, useState } from "react";
+import { Part } from "../AdminSection.js";
 import type { EntryDraft } from "./EntryDialog.js";
-import { Part } from "./Part.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 
 /** The administrator's own host names and address ranges, with labels. */
