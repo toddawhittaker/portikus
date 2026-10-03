@@ -10,7 +10,7 @@ import {
 } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { z } from "zod";
 import { AgentCallError, type AgentClient, agentClientFor } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
@@ -349,12 +349,7 @@ export function registerTerminalRoutes(
 		const rows = await listTerminalRows(db, params.id).execute();
 		const open = rows.filter((row) => row.ended_at === null);
 		if (open.length >= MAX_TERMINALS_PER_WORKSPACE) {
-			return sendError(
-				reply,
-				409,
-				"TERMINAL_LIMIT",
-				`A workspace may have at most ${MAX_TERMINALS_PER_WORKSPACE} terminals open.`,
-			);
+			return terminalLimit(reply);
 		}
 
 		// A terminal may belong to one project of this workspace (SPEC.md §7.5).
@@ -367,10 +362,7 @@ export function registerTerminalRoutes(
 			project = row;
 		}
 
-		const position = rows.reduce((max, row) => Math.max(max, row.position + 1), 0);
 		const id = crypto.randomUUID();
-		const name =
-			body.data.name ?? chooseTerminalName(rows, project ? project.id : null);
 		const cwd = body.data.cwd ?? project?.path ?? DEFAULT_CWD;
 		// A new terminal starts in the scheme the user chose in their settings
 		// unless the caller asked for one outright, and in
@@ -383,20 +375,40 @@ export function registerTerminalRoutes(
 				? await agentSessionPoint(request, agent, params.id, project, user.id)
 				: null;
 
-		await db
-			.insertInto("terminals")
-			.values({
-				id,
-				workspace_id: params.id,
-				name,
-				cwd,
-				position,
-				project_id: project ? project.id : null,
-				theme,
-				agent: body.data.agent ?? null,
-				recovery_point_id: recoveryPointId,
-			})
-			.execute();
+		// The early check can race a parallel create; the lock makes the
+		// recount, the name, the position and the insert one step so the cap
+		// holds and parallel creates never share a name (SPEC.md 9.7).
+		const inserted = await db.transaction().execute(async (trx) => {
+			await sql`select pg_advisory_xact_lock(hashtext('portikus.terminal-create'), hashtext(${params.id}))`.execute(
+				trx,
+			);
+			const locked = await listTerminalRows(trx, params.id).execute();
+			if (
+				locked.filter((row) => row.ended_at === null).length >=
+				MAX_TERMINALS_PER_WORKSPACE
+			) {
+				return false;
+			}
+			const position = locked.reduce((max, row) => Math.max(max, row.position + 1), 0);
+			const name =
+				body.data.name ?? chooseTerminalName(locked, project ? project.id : null);
+			await trx
+				.insertInto("terminals")
+				.values({
+					id,
+					workspace_id: params.id,
+					name,
+					cwd,
+					position,
+					project_id: project ? project.id : null,
+					theme,
+					agent: body.data.agent ?? null,
+					recovery_point_id: recoveryPointId,
+				})
+				.execute();
+			return true;
+		});
+		if (!inserted) return terminalLimit(reply);
 
 		let baselineObjectId: string | null = null;
 		let baselineHead: string | null = null;
@@ -590,4 +602,13 @@ export function registerTerminalRoutes(
 	);
 
 	app.addHook("onClose", drain);
+}
+
+function terminalLimit(reply: FastifyReply): FastifyReply {
+	return sendError(
+		reply,
+		409,
+		"TERMINAL_LIMIT",
+		`A workspace may have at most ${MAX_TERMINALS_PER_WORKSPACE} terminals open.`,
+	);
 }

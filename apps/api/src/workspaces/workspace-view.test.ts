@@ -172,3 +172,24 @@ test.skipIf(skip)(
 		]);
 	},
 );
+
+test.skipIf(skip)(
+	"state is verified only while the controller answered within two minutes (SPEC.md §18.3)",
+	async () => {
+		const row = await workspaceRow({});
+		const now = new Date("2026-10-02T12:00:00.000Z");
+		const verifiedAt = async (checked: Date | null) => {
+			await tdb.db
+				.updateTable("settings")
+				.set({ controller_checked_at: checked?.toISOString() ?? null })
+				.where("id", "=", 1)
+				.execute();
+			return toWorkspace(row, 0, config, await loadWorkspaceSettings(tdb.db), now)
+				.stateVerified;
+		};
+		expect(await verifiedAt(new Date(now.getTime() - 119_000))).toBe(true);
+		expect(await verifiedAt(new Date(now.getTime() - 121_000))).toBe(false);
+		expect(await verifiedAt(null)).toBe(false);
+		expect(toWorkspace(row, 0, config, undefined, now).stateVerified).toBe(false);
+	},
+);

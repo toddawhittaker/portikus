@@ -27,6 +27,10 @@ export const PENDING_LABEL: Record<PendingOperation, string> = {
 	"replace-home": "Replacing home folder…",
 };
 
+/** Why the state carries an "unconfirmed" marker (SPEC.md §18.3). */
+export const UNVERIFIED_EXPLANATION =
+	"Portikus can't reach the workspace host right now, so this may be out of date.";
+
 /** The workspace state, or the pending operation when there is one. */
 export function resolveStatus(workspace: Workspace | null): {
 	tone: string;
@@ -112,6 +116,15 @@ export function WorkspaceDialog({
 							confirming={confirming === "reset-docker" ? null : confirming}
 							setConfirming={setConfirming}
 						/>
+						{workspace && !workspace.stateVerified ? (
+							<p
+								className="pk-text-body pk-tone-warning m-0 flex items-center gap-2"
+								data-testid="workspace-status-unverified"
+							>
+								<Icon name="alert" size="sm" />
+								{UNVERIFIED_EXPLANATION}
+							</p>
+						) : null}
 						{workspace?.errorMessage ? (
 							<p className="pk-text-body m-0 text-status-error">
 								{workspace.errorMessage}

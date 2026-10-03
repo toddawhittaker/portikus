@@ -4,6 +4,7 @@ import {
 	DEFAULT_TIMEZONE,
 	isSystemTimezone,
 	type PendingOperation,
+	STOP_FAILED_ERROR_CODE,
 	type WorkspaceState,
 } from "@portikus/contracts";
 import { type Database, recordAudit } from "@portikus/db";
@@ -13,7 +14,7 @@ import type { ControllerClient } from "./controller-client.js";
 import { ControllerClientError } from "./controller-client.js";
 import { dockerStartConfig } from "./docker-start.js";
 import type { ReconcileConfig } from "./reconcile.js";
-import { clearRetries } from "./start-backoff.js";
+import { MAX_START_RETRIES } from "./start-backoff.js";
 
 /**
  * Leaves desired_state alone unless it is still 'restarting', so a
@@ -172,7 +173,7 @@ async function heldAllowance(
 
 /** A workspace that has just started counts as active, so it never starts idle (ADR 0032). */
 export function startedNow(now: Date): Record<string, unknown> {
-	return { last_activity_at: now.toISOString(), idle_stop_at: null };
+	return { last_activity_at: now.toISOString(), idle_stop_at: null, start_retries: 0 };
 }
 
 /**
@@ -344,6 +345,9 @@ export async function moveToStarting(
 		fromState,
 		{
 			state: "starting",
+			// A start out of error is an automatic retry; a start from stopped
+			// is a first attempt (SPEC.md §6.3).
+			start_retries: fromState === "error" ? sql`start_retries + 1` : 0,
 			error_code: null,
 			error_message: null,
 			desired_state: settleRestarting,
@@ -367,6 +371,9 @@ export async function startInstance(
 		label: string;
 		quota_config: { dockerGiB?: number; recoveryGiB?: number } | null;
 	},
+	log: Logger,
+	/** True when this is the last automatic retry (SPEC.md §6.3). */
+	lastRetry: boolean,
 ): Promise<void> {
 	// Rotate before the start call so the row always holds the token the
 	// agent is about to be given.
@@ -392,7 +399,6 @@ export async function startInstance(
 			new Date(),
 		);
 		if (updated) {
-			clearRetries(ws.id);
 			await recordAudit(db, {
 				actor: "worker",
 				target: ws.id,
@@ -403,7 +409,7 @@ export async function startInstance(
 		}
 	} catch (e) {
 		const err = toControllerError(e);
-		await casUpdate(
+		const failed = await casUpdate(
 			db,
 			ws.id,
 			"starting",
@@ -414,6 +420,12 @@ export async function startInstance(
 			},
 			new Date(),
 		);
+		if (failed && lastRetry) {
+			log.warn(
+				{ workspaceId: ws.id, retries: MAX_START_RETRIES, errorCode: err.code },
+				"no more automatic start retries",
+			);
+		}
 		await recordAudit(db, {
 			actor: "worker",
 			target: ws.id,
@@ -564,7 +576,8 @@ export async function doStop(
 			"stopping",
 			{
 				state: "error",
-				error_code: err.code,
+				// The sweep does not retry a failed stop by itself (SPEC.md §6.5).
+				error_code: STOP_FAILED_ERROR_CODE,
 				error_message: userMessage(err.code),
 			},
 			// The stop may have taken minutes; stamp when it ended.

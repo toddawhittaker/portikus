@@ -21,13 +21,15 @@ import type {
 } from "@portikus/contracts";
 import {
 	AddedPackagesResponse as AddedPackagesResponseSchema,
+	CONTROLLER_BUDGET_HEADER,
+	CONTROLLER_SHORT_BUDGET_MS,
 	ControllerError,
 	CreateInstanceResponse as CreateInstanceResponseSchema,
 	EGRESS_HELPER_TIMEOUT_MS,
 	EgressApplyStatus,
 	GrowVolumesResponse,
 	HostSnapshot,
-	INSTANCE_CREATE_WAIT_SECONDS,
+	INSTANCE_CREATE_BUDGET_MS,
 	InstanceProcessesResponse,
 	InstanceUsageResponse,
 	KeptVolumesResponse,
@@ -41,9 +43,8 @@ import {
 } from "@portikus/contracts";
 
 /** Time budgets for each call (ADR 0034), so a hung controller never hangs the worker. */
-const SHORT_BUDGET_MS = 30_000;
-/** The controller's instance create wait plus a 60 s margin. */
-export const CREATE_BUDGET_MS = INSTANCE_CREATE_WAIT_SECONDS * 1000 + 60_000;
+/** Resizing a workspace's volumes: a few slow LVM resizes on a busy pool fit in five minutes. */
+const GROW_BUDGET_MS = 300_000;
 const MAINTENANCE_BUDGET_MS = 15 * 60_000;
 /** The controller's egress helper wait plus 15 s margin. */
 export const EGRESS_BUDGET_MS = EGRESS_HELPER_TIMEOUT_MS + 15_000;
@@ -126,7 +127,12 @@ export class HttpControllerClient implements ControllerClient {
 	}
 
 	async create(req: CreateInstanceRequest): Promise<CreateInstanceResponse> {
-		const res = await this.request("POST", "/instances", req, CREATE_BUDGET_MS);
+		const res = await this.request(
+			"POST",
+			"/instances",
+			req,
+			INSTANCE_CREATE_BUDGET_MS,
+		);
 		return CreateInstanceResponseSchema.parse(res);
 	}
 
@@ -151,12 +157,17 @@ export class HttpControllerClient implements ControllerClient {
 	}
 
 	async list(): Promise<ListInstancesResponse> {
-		const res = await this.request("GET", "/instances", undefined, SHORT_BUDGET_MS);
+		const res = await this.request(
+			"GET",
+			"/instances",
+			undefined,
+			CONTROLLER_SHORT_BUDGET_MS,
+		);
 		return ListInstancesResponseSchema.parse(res);
 	}
 
 	async setLogLevel(level: LogLevel | null): Promise<void> {
-		await this.request("PUT", "/log-level", { level }, SHORT_BUDGET_MS);
+		await this.request("PUT", "/log-level", { level }, CONTROLLER_SHORT_BUDGET_MS);
 	}
 
 	async resetDocker(name: string, req: ResetDockerRequest): Promise<void> {
@@ -198,6 +209,7 @@ export class HttpControllerClient implements ControllerClient {
 					method,
 					headers: {
 						Authorization: `Bearer ${this.token}`,
+						[CONTROLLER_BUDGET_HEADER]: String(budgetMs),
 						...(body !== undefined ? { "Content-Type": "application/json" } : {}),
 					},
 					body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -241,7 +253,7 @@ export class HttpControllerClient implements ControllerClient {
 
 	async hostSnapshot(signal?: AbortSignal): Promise<HostSnapshot> {
 		return HostSnapshot.parse(
-			await this.request("GET", "/host", undefined, SHORT_BUDGET_MS, signal),
+			await this.request("GET", "/host", undefined, CONTROLLER_SHORT_BUDGET_MS, signal),
 		);
 	}
 
@@ -253,7 +265,7 @@ export class HttpControllerClient implements ControllerClient {
 			"POST",
 			`/instances/${encodeURIComponent(name)}/volumes`,
 			req,
-			CREATE_BUDGET_MS,
+			GROW_BUDGET_MS,
 		);
 		return GrowVolumesResponse.parse(res);
 	}
@@ -263,7 +275,7 @@ export class HttpControllerClient implements ControllerClient {
 			"GET",
 			"/instances/usage",
 			undefined,
-			SHORT_BUDGET_MS,
+			CONTROLLER_SHORT_BUDGET_MS,
 			signal,
 		);
 		return InstanceUsageResponse.parse(res).instances;
@@ -274,7 +286,7 @@ export class HttpControllerClient implements ControllerClient {
 			"PUT",
 			`/instances/${encodeURIComponent(name)}/cpu-allowance`,
 			{ allowance },
-			SHORT_BUDGET_MS,
+			CONTROLLER_SHORT_BUDGET_MS,
 		);
 	}
 
@@ -283,7 +295,7 @@ export class HttpControllerClient implements ControllerClient {
 			"GET",
 			`/instances/${encodeURIComponent(name)}/processes`,
 			undefined,
-			SHORT_BUDGET_MS,
+			CONTROLLER_SHORT_BUDGET_MS,
 			signal,
 		);
 		return InstanceProcessesResponse.parse(res).processes;
@@ -294,7 +306,7 @@ export class HttpControllerClient implements ControllerClient {
 			"PUT",
 			`/instances/${encodeURIComponent(name)}/limits`,
 			req,
-			SHORT_BUDGET_MS,
+			CONTROLLER_SHORT_BUDGET_MS,
 		);
 	}
 
@@ -303,13 +315,18 @@ export class HttpControllerClient implements ControllerClient {
 			"GET",
 			`/instances/${encodeURIComponent(name)}/added-packages`,
 			undefined,
-			SHORT_BUDGET_MS,
+			CONTROLLER_SHORT_BUDGET_MS,
 		);
 		return AddedPackagesResponseSchema.parse(res);
 	}
 
 	async keptVolumes(): Promise<KeptVolumesResponse> {
-		const res = await this.request("GET", "/volumes/kept", undefined, SHORT_BUDGET_MS);
+		const res = await this.request(
+			"GET",
+			"/volumes/kept",
+			undefined,
+			CONTROLLER_SHORT_BUDGET_MS,
+		);
 		return KeptVolumesResponse.parse(res);
 	}
 
@@ -347,7 +364,12 @@ export class HttpControllerClient implements ControllerClient {
 	}
 
 	async startSeedBuild(req: SeedBuildRequest): Promise<SeedBuildStatus> {
-		const res = await this.request("POST", "/docker-seed/builds", req, SHORT_BUDGET_MS);
+		const res = await this.request(
+			"POST",
+			"/docker-seed/builds",
+			req,
+			CONTROLLER_SHORT_BUDGET_MS,
+		);
 		return SeedBuildStatus.parse(res);
 	}
 
@@ -356,14 +378,19 @@ export class HttpControllerClient implements ControllerClient {
 			"GET",
 			`/docker-seed/builds/${encodeURIComponent(id)}`,
 			undefined,
-			SHORT_BUDGET_MS,
+			CONTROLLER_SHORT_BUDGET_MS,
 		);
 		return SeedBuildStatus.parse(res);
 	}
 
 	async seed(): Promise<SeedInfo | null> {
 		try {
-			const res = await this.request("GET", "/docker-seed", undefined, SHORT_BUDGET_MS);
+			const res = await this.request(
+				"GET",
+				"/docker-seed",
+				undefined,
+				CONTROLLER_SHORT_BUDGET_MS,
+			);
 			return SeedInfo.parse(res);
 		} catch (e) {
 			if (e instanceof ControllerClientError && e.code === "NOT_FOUND") return null;

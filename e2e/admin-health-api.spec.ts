@@ -29,7 +29,7 @@ test.describe("admin health API charts", () => {
 		);
 
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=health");
+		await page.goto("/admin/health");
 		await expect(page.getByTestId("health-trends")).toBeVisible({ timeout: 15_000 });
 		await page.getByRole("button", { name: "1 hour" }).click();
 

@@ -14,7 +14,7 @@ function text(value: unknown): string {
 	return typeof value === "string" ? value : "";
 }
 
-/** The filters a link such as `/admin?tab=audit&workspace=<id>` asks for. */
+/** The filters a link such as `/admin/audit?workspace=<id>` asks for. */
 export function filtersFromSearch(search: Record<string, unknown>): AuditFilters {
 	return {
 		workspace: text(search.workspace),
@@ -62,9 +62,9 @@ export function AuditTab() {
 	// Filters live in the URL so a filtered view can be linked.
 	function show(next: AuditFilters) {
 		void navigate({
-			to: "/admin",
+			to: "/admin/$tab",
+			params: { tab: "audit" },
 			search: {
-				tab: "audit",
 				workspace: next.workspace || undefined,
 				user: next.user || undefined,
 				action: next.action || undefined,
@@ -311,8 +311,9 @@ function AuditRow({ event }: { event: AuditEvent }) {
 				{UUID.test(event.target) ? (
 					<span className="pk-cell-stack">
 						<Link
-							to="/admin"
-							search={{ tab: "audit", workspace: event.target }}
+							to="/admin/$tab"
+							params={{ tab: "audit" }}
+							search={{ workspace: event.target }}
 							className={
 								event.targetName
 									? "pk-focus-ring block max-w-[24ch] truncate text-[var(--accent-text)] underline"

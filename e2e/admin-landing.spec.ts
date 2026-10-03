@@ -29,7 +29,7 @@ test("the front page makes no workspace for an administrator", async ({
 	const adminId = await createAdmin(context);
 
 	await page.goto("/");
-	await expect(page).toHaveURL(`${WEB_ORIGIN}/admin`, { timeout: 15_000 });
+	await expect(page).toHaveURL(`${WEB_ORIGIN}/admin/users`, { timeout: 15_000 });
 	await expect(page.getByTestId("page-admin")).toBeVisible();
 	// The mark goes to "/" off a workspace; that must not make one either.
 	// Wait for the real trip through "/" and back, or this checks nothing.
@@ -39,7 +39,7 @@ test("the front page makes no workspace for an administrator", async ({
 		.first()
 		.click();
 	await throughFront;
-	await page.waitForURL(`${WEB_ORIGIN}/admin`);
+	await page.waitForURL(`${WEB_ORIGIN}/admin/users`);
 	await expect(page.getByTestId("page-admin")).toBeVisible();
 
 	expect(await workspacesOf(adminId)).toEqual([]);

@@ -7,6 +7,8 @@ import {
 	expect,
 	type Locator,
 	type Page,
+	type Request,
+	type Route,
 } from "@playwright/test";
 import pg from "pg";
 import { API_ORIGIN, FAKE_AGENT_URL, MOCK_ISSUER, WEB_ORIGIN } from "./ports";
@@ -635,6 +637,21 @@ export function contrast(first: string, second: string): number {
 	};
 	const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a);
 	return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
+}
+
+/**
+ * Answers the API's data for `pattern` while leaving page loads alone: an
+ * admin tab's path, such as /admin/image, is also the URL of its data
+ * (SPEC.md section 20.1), and only the request type tells them apart.
+ */
+export async function routeApi(
+	page: Page,
+	pattern: string,
+	handler: (route: Route, request: Request) => Promise<unknown> | unknown,
+): Promise<void> {
+	await page.route(pattern, (route, request) =>
+		request.resourceType() === "document" ? route.fallback() : handler(route, request),
+	);
 }
 
 /** Carol, the mock provider's administrator, on the admin page. */

@@ -11,7 +11,7 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots, 0025_egress, 0026_backups, 0028_throttle_hold, 0029_package_survey, 0030_egress_blocked_sites, 0031_docker_cache and 0032_docker_pull_days
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots, 0025_egress, 0026_backups, 0028_throttle_hold, 0029_package_survey, 0030_egress_blocked_sites, 0031_docker_cache, 0032_docker_pull_days, 0034_keep_running and 0036_start_retries_and_controller_check
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
@@ -201,6 +201,8 @@ interface WorkspacesTable {
 	idle_stop_at: ColumnType<Date | null, string | null | undefined, string | null>;
 	/** The student's hold over grace and idle stop ends then. */
 	keep_running_until: ColumnType<Date | null, string | null | undefined, string | null>;
+	/** Start retries spent since the last good start (SPEC.md section 6). */
+	start_retries: Generated<number>;
 	/** The UTC day the package survey last read this workspace (ADR 0042). */
 	package_surveyed_on: ColumnType<
 		Date | null,
@@ -273,6 +275,12 @@ interface SettingsTable {
 	cpu_throttle_hold_hours: Generated<number>;
 	/** How far ahead a student may hold a workspace up; 0 turns holds off. */
 	keep_running_max_hours: Generated<number>;
+	/** When the worker last found the workspace controller answering. */
+	controller_checked_at: ColumnType<
+		Date | null,
+		string | null | undefined,
+		string | null
+	>;
 	/** Null means the built-in default statement. */
 	acceptable_use_text: string | null;
 	acceptable_use_version: Generated<number>;

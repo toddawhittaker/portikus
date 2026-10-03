@@ -218,6 +218,14 @@ export const ADMIN_HELP: HelpPart = {
 						<strong>Image size (compressed)</strong> and the{" "}
 						<strong>Main disk space</strong> meter show what each image costs.
 					</p>
+					<p>
+						<strong>Packages students add</strong> counts how many workspaces added each
+						package with <code className="pk-mono-body">sudo apt install</code> on the
+						latest day that surveyed at least 3 of them. A package added by at least 2
+						workspaces and a third of those surveyed is marked a{" "}
+						<strong>base-image candidate</strong>; putting it in the image saves each
+						student the install. The counts are site-wide and never name a student.
+					</p>
 				</>
 			),
 		},

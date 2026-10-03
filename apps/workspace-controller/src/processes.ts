@@ -139,11 +139,15 @@ export function parseStatus(text: string): StatusFields | null {
  * relative to the instance's root cgroup. Cgroups that vanish mid-walk are
  * skipped.
  */
-async function readCgroupMembers(root: string): Promise<Map<number, string>> {
+async function readCgroupMembers(
+	root: string,
+	signal?: AbortSignal,
+): Promise<Map<number, string>> {
 	const members = new Map<number, string>();
 	const pending = [""];
 	let seen = 0;
 	while (pending.length > 0) {
+		signal?.throwIfAborted();
 		const rel = pending.pop() as string;
 		if (++seen > MAX_CGROUPS) throw new Error("instance has too many cgroups");
 		const dir = rel === "" ? root : `${root}/${rel}`;
@@ -220,15 +224,18 @@ export interface HostProcessSource {
 	cpuLimit: number;
 	/** Waits between the two samples; one second in production. */
 	wait: () => Promise<void>;
+	/** Aborts the read when the caller stops waiting for it (ADR 0034). */
+	signal?: AbortSignal;
 }
 
 async function takeSample(src: HostProcessSource, level: number): Promise<Sample> {
 	const uptimeText = await readFile(`${src.procRoot}/uptime`, "utf8");
 	const uptime = Number.parseFloat(uptimeText);
 	if (!Number.isFinite(uptime)) throw new Error("host uptime is unreadable");
-	const members = await readCgroupMembers(src.cgroupDir);
+	const members = await readCgroupMembers(src.cgroupDir, src.signal);
 	const processes: HostProcess[] = [];
 	for (const [hostPid, cgroup] of members) {
+		src.signal?.throwIfAborted();
 		const p = await readHostProcess(src.procRoot, hostPid, cgroup, level, src.idmap);
 		if (p) processes.push(p);
 	}

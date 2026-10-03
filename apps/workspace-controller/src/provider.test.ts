@@ -2721,6 +2721,63 @@ describe("the Docker seed", () => {
 		expect(state.volumes.get("ws-test-docker")).toBe("20GiB");
 	});
 
+	// The caller's deadline reaches every Incus call in a create (ADR 0034).
+	test("every Incus request in a create carries the caller's signal", async () => {
+		serveIncus(withSeed(freshCreate()));
+		const spy = vi.spyOn(IncusClient.prototype, "request");
+		const ac = new AbortController();
+		await provider.create("ws-test", SIZES, ac.signal);
+		expect(spy.mock.calls.length).toBeGreaterThan(5);
+		for (const call of spy.mock.calls) {
+			expect(call[3], `${call[0]} ${call[1]}`).toBe(ac.signal);
+		}
+		spy.mockRestore();
+	});
+
+	/** Abort the create just before the request whose body names `volume`. */
+	function abortAt(ac: AbortController, match: (body: unknown) => boolean) {
+		const real = IncusClient.prototype.request;
+		return vi.spyOn(IncusClient.prototype, "request").mockImplementation(function (
+			this: IncusClient,
+			...args
+		) {
+			if (match(args[2])) ac.abort(new Error("caller left"));
+			return real.apply(this, args);
+		});
+	}
+
+	test("no instance is made once the create is aborted", async () => {
+		const state = freshCreate();
+		serveIncus(state);
+		const ac = new AbortController();
+		const spy = abortAt(
+			ac,
+			(b) => (b as { name?: string } | undefined)?.name === "ws-test-recovery",
+		);
+		await expect(provider.create("ws-test", SIZES, ac.signal)).rejects.toBeDefined();
+		spy.mockRestore();
+		expect(state.instanceCreates).toEqual([]);
+	});
+
+	test("an abort during the seed copy makes no empty Docker volume", async () => {
+		const state = withSeed(freshCreate());
+		serveIncus(state);
+		const ac = new AbortController();
+		const spy = abortAt(
+			ac,
+			(b) => (b as { source?: unknown } | undefined)?.source !== undefined,
+		);
+		await expect(provider.create("ws-test", SIZES, ac.signal)).rejects.toBeDefined();
+		const bodies = spy.mock.calls.map(
+			(c) => c[2] as { name?: string; source?: unknown },
+		);
+		spy.mockRestore();
+		// Not even tried: the fallback would race the copy Incus is still making.
+		expect(bodies.filter((b) => b?.name === "ws-test-docker" && !b.source)).toEqual([]);
+		expect(bodies.filter((b) => b?.name === "ws-test-recovery")).toEqual([]);
+		expect(state.instanceCreates).toEqual([]);
+	});
+
 	test("an existing Docker volume is kept, never replaced by a copy", async () => {
 		const state = withSeed(freshCreate());
 		state.volumes.set("ws-test-docker", "20GiB");

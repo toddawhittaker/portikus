@@ -24,6 +24,7 @@ const workspace: Workspace = {
 	lastActivityAt: null,
 	keepRunningUntil: null,
 	keepRunningMaxHours: 12,
+	stateVerified: true,
 	createdAt: "2026-09-21T00:00:00.000Z",
 	updatedAt: "2026-09-21T00:00:00.000Z",
 };
@@ -37,6 +38,7 @@ describe("the live workspace push signature", () => {
 		["quotaConfig", { quotaConfig: { homeGiB: 30, dockerGiB: 20 } }],
 		["errorMessage", { errorMessage: "disk full" }],
 		["state", { state: "stopping" }],
+		["stateVerified", { stateVerified: false }],
 	] as const)("changes when %s changes", (_field, change) => {
 		expect(signatureOf({ ...workspace, ...change } as Workspace)).not.toBe(before);
 	});

@@ -260,12 +260,16 @@ findings become an epic.
   constant, not two values and a comment.
 
 `pnpm lint` runs `scripts/check-comment-history.mjs`, which fails on
-history references in code comments and test titles; Knip, which fails
+history references in code comments and test titles and warns (without
+failing) about any non-test source file over 800 lines; Knip, which fails
 on unused files, exports and dependencies; jscpd, which fails on any
 copied block of 70 tokens and 8 lines (a deliberate copy carries a
 `jscpd:ignore-start` comment saying why); and Biome's cognitive
 complexity rule, which fails on a function scoring over 30 (tests,
-e2e and the test fakes are exempt).
+e2e and the test fakes are exempt). Biome also fails on an import
+cycle, on an app or package importing an app, on `apps/web` importing
+a server-side package, and on product code importing a `testing`
+helper.
 
 ## Pull requests
 
@@ -326,7 +330,9 @@ task pull requests without asking each time.
   CI run on main through `gh`) and commit the file. They start alongside
   Application checks rather than after it. A
   last job with the required name "Browser end-to-end tests" passes only
-  when every shard passed. The Playwright browser download is cached.
+  when every shard passed. The Playwright browser download is cached, and
+  no run downloads Playwright's system packages; a guard fails the job
+  if the runner image lacks a Chromium library.
   Skipped until the script exists.
 - **Infrastructure checks**: `tofu fmt` and `tofu validate`, ansible-lint,
   shellcheck. Each skipped until the matching directory or files exist.

@@ -17,7 +17,7 @@ async function box(locator: Locator) {
 
 async function open(page: Page) {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=settings");
+	await page.goto("/admin/settings");
 	await expect(page.getByTestId("guard-settings-save")).toBeEnabled({
 		timeout: 15_000,
 	});

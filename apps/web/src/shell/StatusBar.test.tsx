@@ -1,7 +1,14 @@
 import type { Workspace } from "@portikus/contracts";
 import { ToastProvider } from "@portikus/ui";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { createQueryClient } from "../api/queryClient.js";
@@ -13,8 +20,13 @@ import {
 	WORKSPACE,
 } from "../test-utils.js";
 import { RightPaneContext } from "./rightPane.js";
-import { MEMORY_ANNOUNCEMENT, StatusBar, usageMeter } from "./StatusBar.js";
-import type { WorkspaceDialogMode } from "./WorkspaceDialog.js";
+import {
+	MEMORY_ANNOUNCEMENT,
+	StatusBar,
+	UNVERIFIED_ANNOUNCEMENT,
+	usageMeter,
+} from "./StatusBar.js";
+import { UNVERIFIED_EXPLANATION, type WorkspaceDialogMode } from "./WorkspaceDialog.js";
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -65,6 +77,60 @@ test("a stopped workspace is labelled Stopped", () => {
 	renderBar({ ...WORKSPACE, state: "stopped", desiredState: "stopped" });
 
 	expect(screen.getByTestId("workspace-state").textContent).toBe("Stopped");
+});
+
+test("a verified state carries no unconfirmed marker", () => {
+	renderBar();
+
+	expect(screen.queryByTestId("workspace-state-unverified")).toBeNull();
+});
+
+test("an unverified state is marked unconfirmed, with the reason in its accessible name (SPEC.md §18.3)", () => {
+	for (const state of ["running", "stopped", "error"] as const) {
+		renderBar({ ...WORKSPACE, state, stateVerified: false });
+		const marker = screen.getByTestId("workspace-state-unverified");
+		expect(marker.className).toContain("pk-tone-warning");
+		expect(marker.textContent).toContain("unconfirmed");
+		const button = screen.getByRole("button", { name: /unconfirmed/ });
+		expect(button.textContent).toContain(UNVERIFIED_EXPLANATION);
+		cleanup();
+	}
+});
+
+test("the state turning unconfirmed is announced in its own status region", () => {
+	const client = createQueryClient(() => {});
+	const wrap = (workspace: Workspace) => (
+		<QueryClientProvider client={client}>
+			<ToastProvider>
+				<Bar workspace={workspace} />
+			</ToastProvider>
+		</QueryClientProvider>
+	);
+	const { rerender } = render(wrap(WORKSPACE));
+	const region = screen.getByTestId("state-unverified-announce");
+	expect(region.getAttribute("role")).toBe("status");
+	expect(region.textContent).toBe("");
+
+	rerender(wrap({ ...WORKSPACE, stateVerified: false }));
+	expect(screen.getByTestId("state-unverified-announce").textContent).toBe(
+		UNVERIFIED_ANNOUNCEMENT,
+	);
+	expect(screen.getByTestId("workspace-state").textContent).not.toContain(
+		"unconfirmed",
+	);
+});
+
+test("the workspace dialog shows the unconfirmed warning beside the state", () => {
+	renderBar();
+	openStatus();
+	expect(screen.queryByTestId("workspace-status-unverified")).toBeNull();
+	cleanup();
+
+	renderBar({ ...WORKSPACE, stateVerified: false });
+	openStatus();
+	const line = screen.getByTestId("workspace-status-unverified");
+	expect(line.className).toContain("pk-tone-warning");
+	expect(line.textContent).toBe(UNVERIFIED_EXPLANATION);
 });
 
 test("no workspace yet reads as Connecting", () => {

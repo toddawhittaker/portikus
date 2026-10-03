@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { expectNoViolations, loginAs, openToggletip } from "./helpers";
+import { expectNoViolations, loginAs, openToggletip, routeApi } from "./helpers";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Backups tab
@@ -112,12 +112,12 @@ async function openTab(
 	colorScheme: "light" | "dark",
 	json: unknown = BACKUPS,
 ) {
-	await page.route("**/admin/backups", (route) =>
+	await routeApi(page, "**/admin/backups", (route) =>
 		route.request().method() === "GET" ? route.fulfill({ json }) : route.continue(),
 	);
 	await page.emulateMedia({ colorScheme });
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=backups");
+	await page.goto("/admin/backups");
 	await expect(page.getByTestId("backups-status")).toBeVisible();
 }
 

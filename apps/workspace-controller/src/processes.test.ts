@@ -330,6 +330,44 @@ describe("readInstanceProcesses", () => {
 		).rejects.toThrow(/PID 1/);
 	});
 
+	// A read nobody waits for stops instead of walking the rest (ADR 0034).
+	test("an abort stops the walk before the next cgroup or process", async () => {
+		writeTree([INIT, proc({ hostPid: 6030, nsPid: 30 })], 1000);
+		const ac = new AbortController();
+		const reason = new Error("caller left");
+		let waits = 0;
+		await expect(
+			readInstanceProcesses({
+				procRoot,
+				cgroupDir,
+				initPid: INIT.hostPid,
+				idmap: IDMAP,
+				cpuLimit: 1,
+				wait: async () => {
+					waits++;
+					ac.abort(reason);
+				},
+				signal: ac.signal,
+			}),
+		).rejects.toBe(reason);
+		expect(waits).toBe(1);
+
+		await expect(
+			readInstanceProcesses({
+				procRoot,
+				cgroupDir,
+				initPid: INIT.hostPid,
+				idmap: IDMAP,
+				cpuLimit: 1,
+				wait: async () => {
+					waits++;
+				},
+				signal: ac.signal,
+			}),
+		).rejects.toBe(reason);
+		expect(waits).toBe(1);
+	});
+
 	test("keeps the union of the top ten by CPU and by memory", async () => {
 		const many = Array.from({ length: 30 }, (_, i) =>
 			proc({

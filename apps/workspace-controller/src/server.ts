@@ -1,7 +1,10 @@
 import {
+	CONTROLLER_BUDGET_HEADER,
+	CONTROLLER_SHORT_BUDGET_MS,
 	type ControllerErrorCode,
 	CreateInstanceRequest,
 	GrowVolumesRequest,
+	INSTANCE_CREATE_BUDGET_MS,
 	InstanceName,
 	KeptHomeVolumeName,
 	PreChangeSnapshotName,
@@ -27,6 +30,7 @@ import Fastify, {
 	type FastifyBaseLogger,
 	type FastifyInstance,
 	type FastifyReply,
+	type FastifyRequest,
 } from "fastify";
 import { tokenAuth } from "./auth.js";
 import { SeedBuildBusyError, SeedBuilds } from "./docker-seed.js";
@@ -83,6 +87,47 @@ function validName(name: string, reply: FastifyReply): boolean {
 	return false;
 }
 
+/**
+ * One signal for a request: aborted when the caller's budget header runs out
+ * (or `fallbackMs` without one; a larger header is clamped to it, since a
+ * timer past 2^31-1 ms fires at once), or when the caller hangs up before the reply
+ * is sent (ADR 0034). Incus requests keep their own default timeout too.
+ */
+export function callerSignal(
+	request: FastifyRequest,
+	reply: FastifyReply,
+	fallbackMs: number,
+): AbortSignal {
+	const header = Number(request.headers[CONTROLLER_BUDGET_HEADER]);
+	const budgetMs =
+		Number.isSafeInteger(header) && header > 0
+			? Math.min(header, fallbackMs)
+			: fallbackMs;
+	const controller = new AbortController();
+	const timer = setTimeout(
+		() =>
+			controller.abort(new IncusError("TIMEOUT", "the caller's time budget ran out")),
+		budgetMs,
+	);
+	timer.unref();
+	reply.raw.once("close", () => {
+		clearTimeout(timer);
+		if (!reply.raw.writableEnded) {
+			controller.abort(new IncusError("TIMEOUT", "the caller hung up"));
+		}
+	});
+	return controller.signal;
+}
+
+interface Flight {
+	controller: AbortController;
+	promise: Promise<unknown>;
+	/** Callers still waiting; the work is aborted when this falls to zero. */
+	waiters: number;
+	/** Settles, never rejects, once the work has finished and the entry is gone. */
+	settled: Promise<void>;
+}
+
 interface ServerOptions {
 	provider: WorkspaceProvider;
 	token: string;
@@ -113,28 +158,78 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 
 	app.addHook("preHandler", tokenAuth(token));
 
-	const inflight = new Map<string, Promise<unknown>>();
+	const inflight = new Map<string, Flight>();
 
-	function singleFlight<T>(key: string, fn: () => Promise<T>): Promise<T> {
+	/**
+	 * Run `fn` once per key; callers that arrive meanwhile share its result.
+	 * The shared work gets its own signal, aborted only when every caller
+	 * with a signal has left and none without one waits (ADR 0034). A caller
+	 * whose signal aborts is rejected at once. A caller that arrives while an
+	 * aborted run winds down waits for it, then starts a fresh run.
+	 */
+	function singleFlight<T>(
+		key: string,
+		caller: AbortSignal | undefined,
+		fn: (signal: AbortSignal) => Promise<T>,
+	): Promise<T> {
 		const existing = inflight.get(key);
-		if (existing) {
-			return existing as Promise<T>;
+		if (existing?.controller.signal.aborted) {
+			return existing.settled.then(() => singleFlight(key, caller, fn));
 		}
-		// Drop the entry as the promise settles, so a request arriving in
-		// the settlement window performs the operation instead of joining
-		// an already-finished one.
-		const promise = fn().then(
-			(value) => {
-				inflight.delete(key);
-				return value;
-			},
-			(err) => {
-				inflight.delete(key);
-				throw err;
-			},
-		);
-		inflight.set(key, promise);
-		return promise;
+		let flight = existing;
+		if (!flight) {
+			const controller = new AbortController();
+			const promise = fn(controller.signal);
+			const created: Flight = {
+				controller,
+				promise,
+				waiters: 0,
+				// Drop the entry as the work settles, so a request arriving in the
+				// settlement window performs the operation instead of joining an
+				// already-finished one.
+				settled: promise.then(
+					() => forget(key, created),
+					() => forget(key, created),
+				),
+			};
+			inflight.set(key, created);
+			flight = created;
+		}
+		return join(flight, caller) as Promise<T>;
+	}
+
+	function forget(key: string, flight: Flight): void {
+		if (inflight.get(key) === flight) inflight.delete(key);
+	}
+
+	function join(flight: Flight, caller: AbortSignal | undefined): Promise<unknown> {
+		flight.waiters++;
+		if (!caller) return flight.promise;
+		const leave = (): void => {
+			flight.waiters--;
+			if (flight.waiters === 0) flight.controller.abort(caller.reason);
+		};
+		if (caller.aborted) {
+			leave();
+			return Promise.reject(caller.reason);
+		}
+		return new Promise((resolve, reject) => {
+			const onAbort = (): void => {
+				leave();
+				reject(caller.reason);
+			};
+			caller.addEventListener("abort", onAbort, { once: true });
+			flight.promise.then(
+				(value) => {
+					caller.removeEventListener("abort", onAbort);
+					resolve(value);
+				},
+				(err) => {
+					caller.removeEventListener("abort", onAbort);
+					reject(err);
+				},
+			);
+		});
 	}
 
 	app.get("/health", async () => {
@@ -167,12 +262,19 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		const body = parseOr400(CreateInstanceRequest, request.body, reply);
 		if (body === null) return reply;
 		const started = Date.now();
+		const signal = callerSignal(request, reply, INSTANCE_CREATE_BUDGET_MS);
 		try {
-			const result = await provider.create(body.name, {
-				homeGiB: body.homeGiB,
-				dockerGiB: body.dockerGiB,
-				recoveryGiB: body.recoveryGiB,
-			});
+			const result = await singleFlight(`create:${body.name}`, signal, (shared) =>
+				provider.create(
+					body.name,
+					{
+						homeGiB: body.homeGiB,
+						dockerGiB: body.dockerGiB,
+						recoveryGiB: body.recoveryGiB,
+					},
+					shared,
+				),
+			);
 			request.log.info(
 				{
 					instance: body.name,
@@ -184,7 +286,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 			const status = result.created ? 201 : 200;
 			return reply.code(status).send(result);
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, signal.aborted ? signal.reason : err);
 		}
 	});
 
@@ -195,7 +297,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		if (body === null) return reply;
 		const started = Date.now();
 		try {
-			const result = await singleFlight(`start:${params.name}`, () =>
+			const result = await singleFlight(`start:${params.name}`, undefined, () =>
 				provider.start(params.name, {
 					timeoutSeconds: body.timeoutSeconds,
 					agentToken: body.agentToken,
@@ -225,7 +327,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		if (body === null) return reply;
 		const started = Date.now();
 		try {
-			const result = await singleFlight(`stop:${params.name}`, () =>
+			const result = await singleFlight(`stop:${params.name}`, undefined, () =>
 				provider.stop(params.name, {
 					timeoutSeconds: body.timeoutSeconds,
 				}),
@@ -253,7 +355,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		if (body === null) return reply;
 		const started = Date.now();
 		try {
-			await singleFlight(`reset-docker:${params.name}`, () =>
+			await singleFlight(`reset-docker:${params.name}`, undefined, () =>
 				provider.resetDocker(params.name, { dockerGiB: body.dockerGiB }),
 			);
 			request.log.info(
@@ -273,7 +375,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		if (body === null) return reply;
 		const started = Date.now();
 		try {
-			const result = await singleFlight(`rebuild:${params.name}`, () =>
+			const result = await singleFlight(`rebuild:${params.name}`, undefined, () =>
 				provider.rebuild(params.name, body),
 			);
 			request.log.info(
@@ -321,13 +423,16 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 	app.get("/instances/:name/processes", async (request, reply) => {
 		const params = request.params as { name: string };
 		if (!validName(params.name, reply)) return reply;
+		const signal = callerSignal(request, reply, CONTROLLER_SHORT_BUDGET_MS);
 		try {
-			const processes = await singleFlight(`processes:${params.name}`, () =>
-				provider.processes(params.name),
+			const processes = await singleFlight(
+				`processes:${params.name}`,
+				signal,
+				(shared) => provider.processes(params.name, shared),
 			);
 			return reply.code(200).send({ processes });
 		} catch (err) {
-			return sendError(reply, err);
+			return sendError(reply, signal.aborted ? signal.reason : err);
 		}
 	});
 
@@ -375,7 +480,7 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 		if (!validName(params.name, reply)) return reply;
 		const started = Date.now();
 		try {
-			const result = await singleFlight(`replace-home:${params.name}`, () =>
+			const result = await singleFlight(`replace-home:${params.name}`, undefined, () =>
 				provider.replaceHome(params.name),
 			);
 			request.log.info(

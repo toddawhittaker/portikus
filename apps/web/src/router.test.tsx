@@ -221,12 +221,11 @@ test("the Logs tab's filters come from the URL, and unknown values are dropped (
 	const user = "11111111-2222-4333-8444-555555555555";
 
 	const { router } = renderApp(
-		`/admin?tab=logs&level=info,bogus,debug&service=worker&since=yesterday&until=2026-09-26T10:00:00.000Z&q=boom&user=${user}&workspace=not-a-uuid`,
+		`/admin/logs?level=info,bogus,debug&service=worker&since=yesterday&until=2026-09-26T10:00:00.000Z&q=boom&user=${user}&workspace=not-a-uuid`,
 	);
 
 	await waitFor(() => expect(requested.length).toBeGreaterThan(0));
 	expect(router.state.location.search).toMatchObject({
-		tab: "logs",
 		level: "info,debug",
 		service: "worker",
 		until: "2026-09-26T10:00:00.000Z",

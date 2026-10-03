@@ -36,7 +36,6 @@ test("filters survive a trip to the URL and back", () => {
 	};
 	const search = searchFromFilters(filters);
 	expect(search).toEqual({
-		tab: "logs",
 		level: "info,debug",
 		service: "worker",
 		since: "2026-09-26T09:00:00.000Z",
@@ -60,7 +59,6 @@ test("defaults are left out of the URL, and every service is the same as none", 
 			workspace: "",
 		}),
 	).toEqual({
-		tab: "logs",
 		level: undefined,
 		service: undefined,
 		since: undefined,

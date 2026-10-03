@@ -5,6 +5,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import { STOP_FAILED_ERROR_CODE } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -105,6 +106,8 @@ test.skipIf(skip)("GET /workspaces/:id returns the owner's workspace", async () 
 	const res = await get(`/workspaces/${id}`, alice);
 	expect(res.statusCode).toBe(200);
 	expect(res.json().id).toBe(id);
+	// The workspace page shares this URL, so the JSON must never be cached.
+	expect(res.headers["cache-control"]).toBe("no-store");
 });
 
 test.skipIf(skip)("another student gets 404 for someone else's workspace", async () => {
@@ -142,6 +145,48 @@ test.skipIf(skip)("GET /workspaces/:id is 400 for an invalid uuid", async () => 
 	expect(res.statusCode).toBe(400);
 	expect(res.json().code).toBe("VALIDATION_FAILED");
 });
+
+test.skipIf(skip)(
+	"start, stop, and restart each give the workspace a fresh set of start retries",
+	async () => {
+		const id = (await post("/workspaces", alice)).json().id;
+		const retries = async () =>
+			(
+				await testDb.db
+					.selectFrom("workspaces")
+					.select("start_retries")
+					.where("id", "=", id)
+					.executeTakeFirstOrThrow()
+			).start_retries;
+		for (const action of ["start", "stop", "restart"]) {
+			await testDb.db
+				.updateTable("workspaces")
+				.set({ state: "error", start_retries: 5 })
+				.where("id", "=", id)
+				.execute();
+			expect((await post(`/workspaces/${id}/${action}`, alice)).statusCode).toBe(202);
+			expect(await retries()).toBe(0);
+		}
+	},
+);
+
+test.skipIf(skip)(
+	"a new Stop clears a failed stop so the worker tries the stop again",
+	async () => {
+		const id = (await post("/workspaces", alice)).json().id;
+		await testDb.db
+			.updateTable("workspaces")
+			.set({
+				state: "error",
+				desired_state: "stopped",
+				error_code: STOP_FAILED_ERROR_CODE,
+			})
+			.where("id", "=", id)
+			.execute();
+		expect((await post(`/workspaces/${id}/stop`, alice)).statusCode).toBe(202);
+		expect((await get(`/workspaces/${id}`, alice)).json().errorCode).toBeNull();
+	},
+);
 
 test.skipIf(skip)(
 	"start, stop, and restart set desired_state and write audit",

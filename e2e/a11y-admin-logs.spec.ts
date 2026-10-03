@@ -32,7 +32,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await loginAs(page, "carol");
 		await expect(async () => {
 			await page.goto(
-				`/admin?tab=logs&level=info&q=AGENT_UNAVAILABLE&user=${student.userId}`,
+				`/admin/logs?level=info&q=AGENT_UNAVAILABLE&user=${student.userId}`,
 			);
 			await expect(page.getByTestId("log-row").first()).toBeVisible({ timeout: 2_000 });
 		}).toPass({ timeout: 20_000 });
@@ -51,7 +51,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
 		// A text no line has, so the result is empty.
-		await page.goto("/admin?tab=logs&q=no-line-says-this-e2e");
+		await page.goto("/admin/logs?q=no-line-says-this-e2e");
 		await expect(page.getByTestId("logs-empty")).toBeVisible({ timeout: 15_000 });
 		await page.getByRole("combobox", { name: "Person" }).fill("Nobody By This Name");
 		await page.getByRole("button", { name: "Apply filters" }).click();
@@ -68,7 +68,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 	}) => {
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=logs&q=no-line-says-this-e2e");
+		await page.goto("/admin/logs?q=no-line-says-this-e2e");
 		await expect(page.getByTestId("logs-empty")).toBeVisible({ timeout: 15_000 });
 		await expect(page.getByTestId("intro-admin-logs")).toContainText(
 			"They never include students' files, commands or terminal output.",

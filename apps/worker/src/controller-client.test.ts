@@ -1,12 +1,13 @@
 import * as http from "node:http";
 import {
+	CONTROLLER_BUDGET_HEADER,
 	EGRESS_HELPER_TIMEOUT_MS,
+	INSTANCE_CREATE_BUDGET_MS,
 	INSTANCE_CREATE_WAIT_SECONDS,
 } from "@portikus/contracts";
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 import {
 	ControllerClientError,
-	CREATE_BUDGET_MS,
 	EGRESS_BUDGET_MS,
 	HttpControllerClient,
 } from "./controller-client.js";
@@ -121,9 +122,10 @@ test("processes refuses a row carrying a command line or a long name", async () 
 });
 
 /** A fetch that never answers, and fails only when its signal aborts. */
-function hangingFetch(): typeof fetch {
+function hangingFetch(headers: unknown[] = []): typeof fetch {
 	return ((_url: string, init?: RequestInit) =>
 		new Promise((_resolve, reject) => {
+			headers.push(init?.headers);
 			init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
 		})) as typeof fetch;
 }
@@ -149,9 +151,10 @@ test("a stop over its budget is aborted with TIMEOUT", async () => {
 	expect((err as ControllerClientError).code).toBe("TIMEOUT");
 });
 
-test("each call has its budget", async () => {
+test("each call has its budget and sends it to the controller", async () => {
 	vi.useFakeTimers();
-	vi.stubGlobal("fetch", hangingFetch());
+	const headers: unknown[] = [];
+	vi.stubGlobal("fetch", hangingFetch(headers));
 	const client = new HttpControllerClient("http://controller", "tok");
 	const req = {
 		timeoutSeconds: 60,
@@ -169,7 +172,7 @@ test("each call has its budget", async () => {
 		[
 			"create",
 			() => client.create({ name: "ws-a", homeGiB: 1, dockerGiB: 1, recoveryGiB: 1 }),
-			300_000,
+			480_000,
 		],
 		[
 			"rebuild",
@@ -188,7 +191,11 @@ test("each call has its budget", async () => {
 		],
 	];
 	for (const [name, call, budgetMs] of cases) {
+		headers.length = 0;
 		const caught = call().catch((e: unknown) => e);
+		expect(headers, name).toEqual([
+			expect.objectContaining({ [CONTROLLER_BUDGET_HEADER]: String(budgetMs) }),
+		]);
 		await vi.advanceTimersByTimeAsync(budgetMs - 1);
 		expect(await Promise.race([caught, Promise.resolve("pending")]), name).toBe(
 			"pending",
@@ -258,9 +265,11 @@ test("addedPackages refuses a reply with a line that is not a package name", asy
 });
 
 test("each worker budget outlasts the controller timeout it wraps", () => {
-	expect(CREATE_BUDGET_MS).toBeGreaterThan(INSTANCE_CREATE_WAIT_SECONDS * 1000);
+	expect(INSTANCE_CREATE_BUDGET_MS).toBeGreaterThan(
+		INSTANCE_CREATE_WAIT_SECONDS * 1000,
+	);
 	expect(EGRESS_BUDGET_MS).toBeGreaterThan(EGRESS_HELPER_TIMEOUT_MS);
-	// Values unchanged from before they were derived.
-	expect(CREATE_BUDGET_MS).toBe(300_000);
+	// Instance wait 240 s, three volume creates of 60 s, 60 s margin.
+	expect(INSTANCE_CREATE_BUDGET_MS).toBe(480_000);
 	expect(EGRESS_BUDGET_MS).toBe(45_000);
 });

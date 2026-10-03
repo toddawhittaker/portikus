@@ -570,7 +570,7 @@ test("a throttled or memory-flagged workspace carries its tags beside the name",
 
 test("an address naming a user opens that account's panel", async () => {
 	stubUsers();
-	renderApp(`/admin?tab=workspaces&user=${uuid(2)}`);
+	renderApp(`/admin/users?user=${uuid(2)}`);
 	expect(await screen.findByRole("region", { name: "Bob Student" })).toBeDefined();
 });
 

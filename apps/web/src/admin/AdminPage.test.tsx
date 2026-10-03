@@ -145,11 +145,11 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 
 	const nav = await screen.findByRole("navigation", { name: "Administration" });
 	const current = within(nav).getByRole("link", { current: "page" });
-	// Relabelled Users; the address stays ?tab=workspaces (ADR 0026).
+	// Relabelled Users (ADR 0026); its path is /admin/users.
 	expect(current.textContent).toBe("Users");
-	expect(current.getAttribute("href")).toBe("/admin?tab=workspaces");
+	expect(current.getAttribute("href")).toBe("/admin/users");
 	expect(within(nav).getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
-		"/admin?tab=settings",
+		"/admin/settings",
 	);
 	// People, then what to look at, then what to change.
 	expect(
@@ -176,7 +176,7 @@ test("the page opens on the Users tab and each tab is a link", async () => {
 test("the tab comes from the address", async () => {
 	stubAdmin(600);
 
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	expect(await screen.findByTestId("grace-input")).toBeDefined();
 	const nav = screen.getByRole("navigation", { name: "Administration" });
@@ -186,10 +186,35 @@ test("the tab comes from the address", async () => {
 	expect(screen.queryByTestId("admin-accounts")).toBeNull();
 });
 
+test("an old ?tab= link moves to the tab's path and keeps the other keys", async () => {
+	stubAdmin(600);
+	const workspace = "11111111-2222-4333-8444-555555555555";
+
+	const { router } = renderApp(
+		`/admin?tab=audit&workspace=${workspace}&action=workspace.`,
+	);
+
+	await waitFor(() => expect(router.state.location.pathname).toBe("/admin/audit"));
+	expect(router.state.location.search).toMatchObject({
+		workspace,
+		action: "workspace.",
+	});
+	expect(router.state.location.search).not.toHaveProperty("tab");
+});
+
+test("the Users tab's old ?tab=workspaces address opens /admin/users", async () => {
+	stubAdmin(600);
+
+	const { router } = renderApp("/admin?tab=workspaces");
+
+	await waitFor(() => expect(router.state.location.pathname).toBe("/admin/users"));
+	expect(await screen.findByTestId("admin-accounts")).toBeDefined();
+});
+
 test("an unknown tab falls back to Users", async () => {
 	stubAdmin(600);
 
-	renderApp("/admin?tab=nonsense");
+	renderApp("/admin/nonsense");
 
 	expect(await screen.findByTestId("admin-accounts")).toBeDefined();
 });
@@ -197,7 +222,7 @@ test("an unknown tab falls back to Users", async () => {
 test("the Settings tab shows the global grace period in minutes", async () => {
 	stubAdmin(5400);
 
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
 	await waitFor(() => expect(input.value).toBe("90"));
@@ -207,7 +232,7 @@ test("the Settings tab shows the global grace period in minutes", async () => {
 test("zero reads as keeping workspaces running", async () => {
 	stubAdmin(0);
 
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	await waitFor(() =>
 		expect(
@@ -220,7 +245,7 @@ test("saving the global value sends the seconds as a number", async () => {
 	const writes: { url: string; body: unknown }[] = [];
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
 
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
 	await waitFor(() => expect(input.value).toBe("10"));
@@ -244,7 +269,7 @@ test("the Settings tab shows a settings read failure", async () => {
 		throw new Error(`unexpected request: ${url}`);
 	});
 
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	expect(await screen.findByText("Settings are unavailable.")).toBeDefined();
 });
@@ -253,7 +278,7 @@ test("a value beyond the integer limit is refused before any request", async () 
 	const writes: { url: string; body: unknown }[] = [];
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
 
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
 	await waitFor(() => expect(input.value).toBe("10"));
@@ -281,7 +306,7 @@ test("the grace form takes minutes and still sends only the seconds", async () =
 	const writes: { url: string; body: unknown }[] = [];
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
 
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
 	await waitFor(() => expect(input.value).toBe("10"));
@@ -309,7 +334,7 @@ test("a link that switches tabs puts focus on the new tab's heading", async () =
 	renderApp("/admin");
 	await openDetail(USER.displayName);
 	const link = screen.getByRole("link", { name: "View this user's logs" });
-	expect(link.getAttribute("href")).toBe(`/admin?tab=logs&user=${USER.id}`);
+	expect(link.getAttribute("href")).toBe(`/admin/logs?user=${USER.id}`);
 	link.focus();
 	fireEvent.click(link);
 	const heading = await screen.findByRole("heading", { level: 2, name: "Logs" });
@@ -327,10 +352,25 @@ test("choosing a tab in the tab bar leaves focus on that tab link", async () => 
 	expect(document.activeElement).toBe(tab);
 });
 
+test("a tab change is announced in a polite status region, without moving focus", async () => {
+	stubAdmin(600);
+	renderApp("/admin");
+	await screen.findByTestId("admin-accounts");
+	const region = screen.getByTestId("admin-tab-announce");
+	expect(region.getAttribute("aria-live")).toBe("polite");
+	expect(region.textContent).toBe("");
+	const tab = screen.getByTestId("admin-tab-settings");
+	tab.focus();
+	fireEvent.click(tab);
+	await waitFor(() => expect(region.textContent).toBe("Settings tab"));
+	expect(screen.getByTestId("admin-tab-announce")).toBe(region);
+	expect(document.activeElement).toBe(tab);
+});
+
 test("the Settings tab has its own title and an h2 naming it", async () => {
 	stubAdmin(600);
 
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	expect(
 		await screen.findByRole("heading", { level: 2, name: "Settings" }),
@@ -350,7 +390,7 @@ test("the admin page is compact (SPEC.md section 20.1)", async () => {
 test("grace-period errors are announced as alerts", async () => {
 	stubAdmin(600);
 
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const input = (await screen.findByTestId("grace-input")) as HTMLInputElement;
 	await waitFor(() => expect(input.value).toBe("10"));
@@ -366,12 +406,11 @@ test("the Audit tab's filters survive in the address, and bad values are dropped
 	const workspace = "22222222-2222-4222-8222-222222222222";
 
 	const { router } = renderApp(
-		`/admin?tab=audit&workspace=${workspace}&user=not-a-uuid&action=workspace.`,
+		`/admin/audit?workspace=${workspace}&user=not-a-uuid&action=workspace.`,
 	);
 
 	await screen.findByTestId("page-admin");
 	expect(router.state.location.search).toEqual({
-		tab: "audit",
 		workspace,
 		user: undefined,
 		action: "workspace.",
@@ -463,13 +502,13 @@ test("Open my workspace shows it is working, then an error as a toast", async ()
 	expect(await screen.findByText("Your workspace did not open")).toBeDefined();
 	expect(status.textContent).toBe("");
 	expect(status.className).toContain("sr-only");
-	expect(router.state.location.pathname).toBe("/admin");
+	expect(router.state.location.pathname).toBe("/admin/users");
 });
 
 test("idle stop saves the minutes and refuses a value between 1 and 9", async () => {
 	const writes: { url: string; body: unknown }[] = [];
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const input = (await screen.findByTestId("idle-input")) as HTMLInputElement;
 	await waitFor(() => expect(input.value).toBe("60"));
@@ -489,7 +528,7 @@ test("idle stop saves the minutes and refuses a value between 1 and 9", async ()
 test("the resource guard saves its values and names each bad one", async () => {
 	const writes: { url: string; body: unknown }[] = [];
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const cpu = (await screen.findByLabelText("CPU threshold (%)")) as HTMLInputElement;
 	await waitFor(() => expect(cpu.value).toBe("80"));
@@ -532,7 +571,7 @@ test("the resource guard saves its values and names each bad one", async () => {
 test("the automatic lift fields save, allow 0 to turn it off, and name a bad value", async () => {
 	const writes: { url: string; body: unknown }[] = [];
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const minutes = (await screen.findByLabelText(
 		"Quiet time to lift (minutes)",
@@ -566,7 +605,7 @@ test("the automatic lift fields save, allow 0 to turn it off, and name a bad val
 test("the throttle-hold fields save, allow 0 to turn it off, and name a bad value (SPEC.md §19.4)", async () => {
 	const writes: { url: string; body: unknown }[] = [];
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const after = (await screen.findByLabelText(
 		"Hold after throttles",
@@ -594,7 +633,7 @@ test("the throttle-hold fields save, allow 0 to turn it off, and name a bad valu
 test("the acceptable-use section starts on the default, says everyone accepts again, and saves", async () => {
 	const writes: { url: string; body: unknown }[] = [];
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const text = (await screen.findByLabelText("Statement")) as HTMLTextAreaElement;
 	await waitFor(() =>
@@ -633,7 +672,7 @@ test("the acceptable-use section starts on the default, says everyone accepts ag
 test("a statement over the limit is refused before any request", async () => {
 	const writes: unknown[] = [];
 	stubAdmin(600, (url, body) => writes.push({ url, body }));
-	renderApp("/admin?tab=settings");
+	renderApp("/admin/settings");
 
 	const text = (await screen.findByLabelText("Statement")) as HTMLTextAreaElement;
 	fireEvent.change(text, { target: { value: "x".repeat(10_001) } });

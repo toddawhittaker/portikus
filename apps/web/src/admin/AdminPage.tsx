@@ -1,5 +1,5 @@
-import { Link, Navigate, useSearch } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { Link, Navigate, useParams } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { gatePath, useMe } from "../useMe.js";
@@ -13,12 +13,11 @@ import { ImageTab } from "./image/ImageTab.js";
 import { LogsTab } from "./logs/LogsTab.js";
 import { NetworkTab } from "./network/NetworkTab.js";
 import { SettingsTab } from "./SettingsTab.js";
-import { ADMIN_TABS, type AdminTab } from "./tabs.js";
+import { ADMIN_TABS, type AdminTab, DEFAULT_ADMIN_TAB, isAdminTab } from "./tabs.js";
 import { WorkspacesTab } from "./WorkspacesTab.js";
 
 const TAB_LABEL: Record<AdminTab, string> = {
-	// The address stays ?tab=workspaces so old links keep working (ADR 0026).
-	workspaces: "Users",
+	users: "Users",
 	health: "Health",
 	logs: "Logs",
 	audit: "Audit",
@@ -36,15 +35,18 @@ const GROUP_START = new Set<AdminTab>(["health", "network"]);
 /** The administration screen. Students never get here (SPEC.md §5.2, §6.4). */
 export function AdminPage() {
 	const me = useMe();
-	const search = useSearch({ from: "/admin" });
-	const tab = search.tab ?? "workspaces";
+	const params = useParams({ from: "/admin/$tab" });
+	const tab = isAdminTab(params.tab) ? params.tab : DEFAULT_ADMIN_TAB;
 	usePageTitle(`${TAB_LABEL[tab]}, Administration`);
 	const shownTab = useRef(tab);
+	const [tabAnnouncement, setTabAnnouncement] = useState("");
 	// A link inside one tab that opens another (a chart bar, "View logs") is
 	// gone once the tab switches; put focus on the new tab's heading.
 	useEffect(() => {
 		if (shownTab.current === tab) return;
 		shownTab.current = tab;
+		// The back button changes the tab without moving focus; say which tab is now open (SPEC.md section 25.8).
+		setTabAnnouncement(`${TAB_LABEL[tab]} tab`);
 		const lost = !document.activeElement || document.activeElement === document.body;
 		if (lost) focusAdminHeading();
 	}, [tab]);
@@ -69,6 +71,9 @@ export function AdminPage() {
 				{/* <main> keeps the scroll, so the scrollbar stays at the window edge (SPEC.md section 20.1).
 				    scroll-pt-16 keeps a focused row clear of the sticky table header. */}
 				<div className="mx-auto w-full max-w-[1440px]" data-testid="admin-content">
+					<p aria-live="polite" className="sr-only" data-testid="admin-tab-announce">
+						{tabAnnouncement}
+					</p>
 					<h1 className="pk-text-title" id="admin-title">
 						Administration
 					</h1>
@@ -80,8 +85,8 @@ export function AdminPage() {
 						{ADMIN_TABS.map((item) => (
 							<Link
 								key={item}
-								to="/admin"
-								search={{ tab: item }}
+								to="/admin/$tab"
+								params={{ tab: item }}
 								data-testid={`admin-tab-${item}`}
 								aria-current={item === tab ? "page" : undefined}
 								className={`pk-focus-ring -mb-px rounded-t-sm border-b-2 px-3 py-2 font-semibold text-[13px] no-underline ${
@@ -96,7 +101,7 @@ export function AdminPage() {
 							</Link>
 						))}
 					</nav>
-					{tab === "workspaces" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
+					{tab === "users" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
 					{tab === "health" ? <HealthTab /> : null}
 					{tab === "logs" ? <LogsTab /> : null}
 					{tab === "audit" ? <AuditTab /> : null}

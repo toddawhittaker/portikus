@@ -138,7 +138,7 @@ for (const scheme of ["light", "dark"] as const) {
 			[student.workspaceId],
 		);
 		await loginAs(page, "carol");
-		await page.goto(`/admin?tab=workspaces&user=${student.userId}`);
+		await page.goto(`/admin/users?user=${student.userId}`);
 		const limits = page.getByTestId("detail-guard-limits");
 		await expect(limits).toContainText("Kept running by its owner until", {
 			timeout: 15_000,
@@ -161,7 +161,7 @@ test("an administrator's cap bounds the choice, and 0 turns it off", async ({
 }) => {
 	await page.emulateMedia({ colorScheme: "dark" });
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=settings");
+	await page.goto("/admin/settings");
 	const stop = page.getByRole("region", { name: "When workspaces stop" });
 	const cap = stop.getByLabel("Longest keep running (hours)", { exact: true });
 	await expect(cap).toHaveValue("12", { timeout: 15_000 });

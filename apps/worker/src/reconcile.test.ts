@@ -1,4 +1,4 @@
-import type { PendingOperation } from "@portikus/contracts";
+import { type PendingOperation, STOP_FAILED_ERROR_CODE } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import {
 	createTestDb,
@@ -654,6 +654,136 @@ test.skipIf(skip)(
 	},
 );
 
+test.skipIf(skip)(
+	"Stop on an errored workspace whose instance still runs stops the instance",
+	async () => {
+		const id = await insertWorkspace({
+			state: "error",
+			desired_state: "stopped",
+			incus_instance_name: "ws-error-running",
+			error_code: "OPERATION_FAILED",
+			error_message: "The workspace could not start.",
+		});
+		fake.listResult = [{ name: "ws-error-running", status: "Running", ipv4: null }];
+		await sweep(tdb.db, fake, cfg, new Date());
+
+		expect(fake.calls.filter((c) => c.method === "stop")).toHaveLength(1);
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("stopped");
+		expect(ws.error_code).toBeNull();
+		expect(ws.error_message).toBeNull();
+	},
+);
+
+test.skipIf(skip)(
+	"a failed stop of an errored running workspace is tried once per Stop",
+	async () => {
+		const id = await insertWorkspace({
+			state: "error",
+			desired_state: "stopped",
+			incus_instance_name: "ws-error-running",
+			error_code: "OPERATION_FAILED",
+			error_message: "The workspace could not start.",
+		});
+		fake.listResult = [{ name: "ws-error-running", status: "Running", ipv4: null }];
+		fake.stopResult = new ControllerClientError("TIMEOUT", "stop timed out");
+		const t0 = Date.now();
+		await sweep(tdb.db, fake, cfg, new Date(t0));
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("error");
+		expect(ws.error_code).toBe(STOP_FAILED_ERROR_CODE);
+
+		await sweep(tdb.db, fake, cfg, new Date(t0 + 20_000));
+		expect(fake.calls.filter((c) => c.method === "stop")).toHaveLength(1);
+	},
+);
+
+test.skipIf(skip)(
+	"a Start pressed during the sweep keeps an errored running workspace from being stopped",
+	async () => {
+		const id = await insertWorkspace({
+			state: "error",
+			desired_state: "stopped",
+			incus_instance_name: "ws-error-running",
+			error_code: "OPERATION_FAILED",
+			error_message: "The workspace could not start.",
+		});
+		fake.listResult = [{ name: "ws-error-running", status: "Running", ipv4: null }];
+		// The student presses Start right after the sweep read the row.
+		let pressed = false;
+		const pressStart: KyselyPlugin = {
+			transformQuery: (args) => args.node,
+			transformResult: async (args) => {
+				const read = args.result.rows.some(
+					(r) => r.id === id && r.desired_state === "stopped",
+				);
+				if (read && !pressed) {
+					pressed = true;
+					await tdb.db
+						.updateTable("workspaces")
+						.set({ desired_state: "running" })
+						.where("id", "=", id)
+						.execute();
+				}
+				return args.result;
+			},
+		};
+		await sweep(tdb.db.withPlugin(pressStart), fake, cfg, new Date());
+		expect(pressed).toBe(true);
+		expect(fake.calls.filter((c) => c.method === "stop")).toHaveLength(0);
+	},
+);
+
+test.skipIf(skip)(
+	"Stop on an errored workspace whose instance is stopped or gone does nothing",
+	async () => {
+		const stopped = await insertWorkspace({
+			state: "error",
+			desired_state: "stopped",
+			incus_instance_name: "ws-error-stopped",
+			error_message: "The workspace could not start.",
+		});
+		const gone = await insertWorkspace({
+			state: "error",
+			desired_state: "stopped",
+			incus_instance_name: "ws-error-gone",
+			error_message: "The workspace could not start.",
+		});
+		fake.listResult = [{ name: "ws-error-stopped", status: "Stopped", ipv4: null }];
+		await sweep(tdb.db, fake, cfg, new Date());
+
+		expect(fake.calls.filter((c) => c.method === "stop")).toHaveLength(0);
+		for (const id of [stopped, gone]) {
+			expect((await getWorkspace(id)).state).toBe("error");
+		}
+	},
+);
+
+test.skipIf(skip)(
+	"a successful list records when the controller was checked",
+	async () => {
+		const now = new Date();
+		await sweep(tdb.db, fake, cfg, now);
+		const row = await tdb.db
+			.selectFrom("settings")
+			.select("controller_checked_at")
+			.where("id", "=", 1)
+			.executeTakeFirstOrThrow();
+		expect(row.controller_checked_at?.getTime()).toBe(now.getTime());
+	},
+);
+
+test.skipIf(skip)("a failed list does not record a controller check", async () => {
+	fake.listResult = new ControllerClientError("INCUS_UNAVAILABLE", "socket down");
+	await sweep(tdb.db, fake, cfg, new Date());
+	const row = await tdb.db
+		.selectFrom("settings")
+		.select("controller_checked_at")
+		.where("id", "=", 1)
+		.executeTakeFirstOrThrow();
+	expect(row.controller_checked_at).toBeNull();
+});
+
 /** The controller's seed builder is not a workspace; the sweep leaves it alone. */
 test.skipIf(skip)("the Docker seed builder in the list is ignored", async () => {
 	const id = await insertWorkspace({
@@ -997,9 +1127,11 @@ test.skipIf(skip)("a successful start records the agent address", async () => {
 async function errorRowWith(
 	instance: { status: "Running" | "Stopped"; ipv4: string | null } | null,
 ) {
+	// Wants to run but has no retry left, so the sweep neither starts nor stops it.
 	const id = await insertWorkspace({
 		state: "error",
-		desired_state: "stopped",
+		desired_state: "running",
+		start_retries: 5,
 		error_code: "START_FAILED",
 		agent_address: "10.200.0.44",
 	});
@@ -1308,17 +1440,18 @@ test.skipIf(skip)(
 );
 
 test.skipIf(skip)(
-	"a start that keeps failing is retried after a growing wait, with one line per retry",
+	"a start that keeps failing is retried five times, then left in error",
 	async () => {
 		const { logger: log, lines } = collectingLogger("info");
 		fake.startResult = new ControllerClientError("OPERATION_FAILED", "ln exited 1");
-		const t0 = new Date();
 		const id = await insertWorkspace({
 			state: "error",
 			desired_state: "running",
-			updated_at: new Date(t0.getTime() - 60_000).toISOString(),
+			updated_at: new Date(Date.now() - 60_000).toISOString(),
 		});
 		const starts = () => fake.calls.filter((c) => c.method === "start").length;
+		// A failed start stamps the row with the real clock, so each wait
+		// below counts from about the start of the test.
 		const sweepAt = async (offsetMs: number) => {
 			const now = new Date(Date.now() + offsetMs);
 			await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now, log });
@@ -1326,21 +1459,89 @@ test.skipIf(skip)(
 
 		await sweepAt(0);
 		expect(starts()).toBe(1);
-		expect((await getWorkspace(id)).state).toBe("error");
-		// The first retry failed; the next waits 20 seconds, not 10.
-		await sweepAt(15_000);
+		expect((await getWorkspace(id)).start_retries).toBe(1);
+		await sweepAt(25_000);
 		expect(starts()).toBe(1);
-		await sweepAt(21_000);
+		await sweepAt(31_000);
 		expect(starts()).toBe(2);
-		await sweepAt(35_000);
+		await sweepAt(55_000);
 		expect(starts()).toBe(2);
-		await sweepAt(41_000);
+		await sweepAt(61_000);
 		expect(starts()).toBe(3);
+		await sweepAt(115_000);
+		expect(starts()).toBe(3);
+		await sweepAt(121_000);
+		expect(starts()).toBe(4);
+		await sweepAt(295_000);
+		expect(starts()).toBe(4);
+		await sweepAt(301_000);
+		expect(starts()).toBe(5);
+		// Hours later the sweep still leaves it alone.
+		await sweepAt(4 * 3600_000);
+		expect(starts()).toBe(5);
+
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("error");
+		expect(ws.start_retries).toBe(5);
+		expect(ws.error_message).toBeTruthy();
 		const retries = lines.filter((l) => l.msg === "retrying a failed start");
-		expect(retries.map((l) => l.attempt)).toEqual([1, 2, 3]);
-		expect(retries.every((l) => l.workspaceId === id)).toBe(true);
+		expect(retries.map((l) => l.attempt)).toEqual([1, 2, 3, 4, 5]);
+		const gaveUp = lines.filter((l) => l.msg === "no more automatic start retries");
+		expect(gaveUp).toHaveLength(1);
+		expect(gaveUp[0]).toMatchObject({ workspaceId: id, retries: 5 });
 	},
 );
+
+test.skipIf(skip)(
+	"the retry count survives a worker restart because it is stored on the row",
+	async () => {
+		const id = await insertWorkspace({
+			state: "error",
+			desired_state: "running",
+			start_retries: 5,
+			error_code: "OPERATION_FAILED",
+			error_message: "The workspace could not start.",
+			updated_at: new Date(Date.now() - 3 * 3600_000).toISOString(),
+		});
+		const now = new Date();
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+		expect(fake.calls.filter((c) => c.method === "start")).toHaveLength(0);
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("error");
+		expect(ws.error_message).toBe("The workspace could not start.");
+	},
+);
+
+test.skipIf(skip)(
+	"a start from stopped is a first attempt, so it does not count as a retry",
+	async () => {
+		fake.startResult = new ControllerClientError("OPERATION_FAILED", "boom");
+		const id = await insertWorkspace({
+			state: "stopped",
+			desired_state: "running",
+			start_retries: 3,
+		});
+		const now = new Date();
+		await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+		const ws = await getWorkspace(id);
+		expect(ws.state).toBe("error");
+		expect(ws.start_retries).toBe(0);
+	},
+);
+
+test.skipIf(skip)("a successful start sets the retry count back to zero", async () => {
+	const id = await insertWorkspace({
+		state: "error",
+		desired_state: "running",
+		start_retries: 3,
+		updated_at: new Date(Date.now() - 3600_000).toISOString(),
+	});
+	const now = new Date();
+	await sweep(tdb.db, fake, cfg, now, { lastRefreshAt: now });
+	const ws = await getWorkspace(id);
+	expect(ws.state).toBe("running");
+	expect(ws.start_retries).toBe(0);
+});
 
 test.skipIf(skip)("the agent token never appears in audit metadata", async () => {
 	const id = await insertWorkspace({ state: "stopped", desired_state: "running" });

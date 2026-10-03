@@ -1,5 +1,12 @@
 import { expect, type Page, test } from "@playwright/test";
-import { loginAs, openToggletip, query, settledAxe, WCAG_TAGS } from "./helpers";
+import {
+	loginAs,
+	openToggletip,
+	query,
+	routeApi,
+	settledAxe,
+	WCAG_TAGS,
+} from "./helpers";
 
 /**
  * The Health tab (SPEC.md §25.6). No worker runs in e2e, so each test writes
@@ -78,7 +85,7 @@ async function seedPlatformSample(
 
 async function openHealth(page: Page): Promise<void> {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=health");
+	await page.goto("/admin/health");
 	await expect(page.getByTestId("health")).toBeVisible({ timeout: 15_000 });
 	await expect(page.getByTestId("health-trends")).toBeVisible();
 }
@@ -176,8 +183,6 @@ test.describe("admin health", () => {
 			const tallest = Math.max(...cards.map((card) => card.y + card.height));
 			const trends = await box("trends");
 			expect(trends.y).toBeGreaterThan(tallest - 1);
-			const packages = await box("packages");
-			expect(packages.y).toBeGreaterThan(trends.y + trends.height - 1);
 			// At least two charts per row inside the Trends card.
 			const pool = await poolChart(page).boundingBox();
 			const memory = await page.getByTestId("health-chart-memory").boundingBox();
@@ -350,7 +355,7 @@ test.describe("admin health", () => {
 			await page.emulateMedia({ colorScheme });
 			await seedSample(50, 0);
 			// The report is real apart from the notice, which the daily check would set.
-			await page.route("**/admin/health", async (route) => {
+			await routeApi(page, "**/admin/health", async (route) => {
 				const response = await route.fetch();
 				const report = await response.json();
 				await route.fulfill({

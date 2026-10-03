@@ -22,7 +22,7 @@ async function openUsers(page: Page): Promise<void> {
 	await loginAs(page, "carol");
 	await page.goto("/admin");
 	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
-	await expect(page.getByTestId("admin-tab-workspaces")).toHaveText("Users");
+	await expect(page.getByTestId("admin-tab-users")).toHaveText("Users");
 }
 
 async function insertUser(fields: {
