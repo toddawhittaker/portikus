@@ -151,6 +151,8 @@ export function SearchPanel({ workspaceId, projectId, onClose }: SearchPanelProp
 										type="button"
 										className="pk-search-row"
 										data-testid={`search-result-${match.path}-${match.line}`}
+										// The visible text runs the line number into the code.
+										aria-label={`${match.path}, line ${match.line}: ${match.text.trim()}`}
 										onClick={() => open(match.path, match.line)}
 									>
 										<span className="pk-search-line">{match.line}</span>

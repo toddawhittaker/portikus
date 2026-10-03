@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import {
 	createProject,
 	createStudent,
+	expectNoViolations,
 	readSeededFile,
 	seedFile,
 	type TestProject,
@@ -113,4 +114,86 @@ test.describe("file tree accessibility", () => {
 			await readSeededFile(student.workspaceId, project.slug, "src/README.md"),
 		).toBe("# hello\n");
 	});
+
+	/** The APG tree view keys: Home, End and type-ahead (SPEC.md §25.8). */
+	test("jumps with Home, End and typed letters", async ({ page, context }) => {
+		const student = await createStudent(context);
+		await openProject(page, student.workspaceId, "Keys Jump");
+		await expect(page.getByRole("tree")).toHaveAttribute(
+			"aria-multiselectable",
+			"true",
+		);
+		const rows = page.getByRole("treeitem");
+		await expect(rows).toHaveCount(3);
+
+		await rows.first().focus();
+		await page.keyboard.press("End");
+		await expect(rows.last()).toBeFocused();
+		await expect(rows.last()).toHaveAttribute("aria-selected", "true");
+		await page.keyboard.press("Home");
+		await expect(rows.first()).toBeFocused();
+		await expect(rows.last()).toHaveAttribute("aria-selected", "false");
+
+		await page.keyboard.type("re");
+		await expect(row(page, "README.md")).toBeFocused();
+		// After a pause the typed text starts again (TYPE_AHEAD_RESET_MS).
+		await page.waitForTimeout(700);
+		await page.keyboard.type(".");
+		await expect(row(page, ".env")).toBeFocused();
+	});
+
+	/** Shift+Arrow and Ctrl+Space build the selection a row menu acts on. */
+	test("builds a selection from the keyboard and acts on all of it", async ({
+		page,
+		context,
+	}) => {
+		const student = await createStudent(context);
+		await openProject(page, student.workspaceId, "Keys Select");
+		const rows = page.getByRole("treeitem");
+		await expect(rows).toHaveCount(3);
+
+		await rows.nth(0).focus();
+		await page.keyboard.press("Shift+ArrowDown");
+		await expect(rows.nth(1)).toBeFocused();
+		await expect(rows.nth(0)).toHaveAttribute("aria-selected", "true");
+		await expect(rows.nth(1)).toHaveAttribute("aria-selected", "true");
+
+		// Ctrl+Arrow moves alone; Ctrl+Space then adds the row it reached.
+		await page.keyboard.press("Control+ArrowDown");
+		await expect(rows.nth(2)).toBeFocused();
+		await expect(rows.nth(2)).toHaveAttribute("aria-selected", "false");
+		await page.keyboard.press("Control+Space");
+		await expect(rows.nth(2)).toHaveAttribute("aria-selected", "true");
+
+		await page.keyboard.press("Shift+F10");
+		await expect(page.getByTestId("row-delete")).toHaveText("Delete 3 items…");
+		await page.keyboard.press("Escape");
+
+		// Ctrl+Space again takes it back out.
+		await expect(rows.nth(2)).toBeFocused();
+		await page.keyboard.press("Control+Space");
+		await expect(rows.nth(2)).toHaveAttribute("aria-selected", "false");
+		await expect(rows.nth(1)).toHaveAttribute("aria-selected", "true");
+	});
+
+	for (const theme of ["light", "dark"] as const) {
+		test(`the tree with a keyboard selection passes axe in the ${theme} theme`, async ({
+			page,
+			context,
+		}) => {
+			await context.addInitScript((value) => {
+				localStorage.setItem("pk-theme", value);
+			}, theme);
+			const student = await createStudent(context);
+			await openProject(page, student.workspaceId, `Keys Axe ${theme}`);
+			await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+
+			const rows = page.getByRole("treeitem");
+			await rows.first().focus();
+			await page.keyboard.press("Shift+ArrowDown");
+			await expect(rows.nth(1)).toHaveAttribute("aria-selected", "true");
+
+			await expectNoViolations(page, '[data-testid="file-tree"]');
+		});
+	}
 });

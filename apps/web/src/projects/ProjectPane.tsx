@@ -47,6 +47,7 @@ export function ProjectPane({
 	const navigate = useNavigate();
 	const active = useProjects(workspaceId, "active");
 	const archived = useProjects(workspaceId, "archived");
+	const archivedCount = (archived.data ?? []).length;
 	const templates = useProjectTemplates(workspaceId);
 	const gitInit = useGitInitProject(workspaceId);
 	const unarchive = useUnarchiveProject(workspaceId);
@@ -213,11 +214,13 @@ export function ProjectPane({
 					className="pk-list-row"
 					data-testid="archived-projects"
 					aria-expanded={showArchived}
+					// The visible count would otherwise run into the label: "Archived projects2".
+					aria-label={`Archived projects, ${archivedCount} ${archivedCount === 1 ? "project" : "projects"}`}
 					onClick={() => setShowArchived((value) => !value)}
 				>
 					<Icon name="folder" size="md" />
 					<span className="pk-list-label">Archived projects</span>
-					<span className="pk-list-meta">{(archived.data ?? []).length}</span>
+					<span className="pk-list-meta">{archivedCount}</span>
 					<Icon name={showArchived ? "chevron-down" : "chevron-right"} size="sm" />
 				</button>
 				{showArchived && (

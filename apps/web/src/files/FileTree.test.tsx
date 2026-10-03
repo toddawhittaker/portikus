@@ -189,6 +189,75 @@ describe("the file tree", () => {
 		await waitFor(() => expect(screen.queryByTestId("file-row-src/app.ts")).toBeNull());
 	});
 
+	/** SPEC.md §25.8 and the APG tree view: Home, End and type-ahead. */
+	it("jumps with Home, End and typed letters, selecting where it lands", async () => {
+		renderPane();
+		const tree = await screen.findByTestId("file-tree");
+		const first = await screen.findByTestId("file-row-src");
+		expect(tree.getAttribute("aria-multiselectable")).toBe("true");
+
+		first.focus();
+		fireEvent.keyDown(first, { key: "End" });
+		const last = screen.getByTestId("file-row-node_modules");
+		expect(document.activeElement).toBe(last);
+		expect(last.getAttribute("aria-selected")).toBe("true");
+		expect(first.getAttribute("aria-selected")).toBe("false");
+
+		fireEvent.keyDown(last, { key: "Home" });
+		expect(document.activeElement).toBe(first);
+
+		fireEvent.keyDown(first, { key: "r" });
+		expect(document.activeElement).toBe(screen.getByTestId("file-row-README.md"));
+	});
+
+	/** The row the keyboard lands on is painted, but not announced as selected. */
+	it("marks the focused row as current until something is selected", async () => {
+		renderPane();
+		// Painted only while the tree has focus (files.css), checked in e2e.
+		const first = await screen.findByTestId("file-row-src");
+		first.focus();
+		await waitFor(() => expect(first.getAttribute("data-current")).toBe("true"));
+		expect(first.getAttribute("aria-selected")).toBe("false");
+
+		fireEvent.keyDown(first, { key: "ArrowDown" });
+		const readme = screen.getByTestId("file-row-README.md");
+		expect(readme.getAttribute("aria-selected")).toBe("true");
+		expect(readme.getAttribute("data-current")).toBeNull();
+	});
+
+	/** Shift+Arrow and Ctrl+Space build a selection, like Shift- and Ctrl-click. */
+	it("builds a selection from the keyboard", async () => {
+		renderPane();
+		const first = await screen.findByTestId("file-row-src");
+		first.focus();
+		fireEvent.keyDown(first, { key: "ArrowDown" });
+		const readme = screen.getByTestId("file-row-README.md");
+		fireEvent.keyDown(readme, { key: "ArrowDown", shiftKey: true });
+		const env = screen.getByTestId("file-row-.env");
+		expect(document.activeElement).toBe(env);
+		expect(readme.getAttribute("aria-selected")).toBe("true");
+		expect(env.getAttribute("aria-selected")).toBe("true");
+
+		// Ctrl+Arrow moves without changing the selection, Ctrl+Space adds the row.
+		fireEvent.keyDown(env, { key: "ArrowDown", ctrlKey: true });
+		const modules = screen.getByTestId("file-row-node_modules");
+		expect(modules.getAttribute("aria-selected")).toBe("false");
+		fireEvent.keyDown(modules, { key: " ", ctrlKey: true });
+		expect(modules.getAttribute("aria-selected")).toBe("true");
+		expect(readme.getAttribute("aria-selected")).toBe("true");
+		// Toggling it again takes it out, and opens nothing.
+		fireEvent.keyDown(modules, { key: " ", ctrlKey: true });
+		expect(modules.getAttribute("aria-selected")).toBe("false");
+		expect(screen.queryByTestId("file-row-node_modules/x")).toBeNull();
+	});
+
+	/** A dialog's aria-hidden must not silence the watch notice (SPEC.md §25.8). */
+	it("keeps the watch notice region live while a dialog is open", async () => {
+		renderPane();
+		const region = await screen.findByTestId("files-watch-limited-region");
+		expect(region.getAttribute("aria-live")).toBe("polite");
+	});
+
 	it("says when a listing was cut short", async () => {
 		stubFetch(() => json(200, { entries: [entry("a.txt")], truncated: true }));
 		renderPane();

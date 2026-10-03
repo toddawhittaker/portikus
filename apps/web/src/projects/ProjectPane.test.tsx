@@ -210,6 +210,16 @@ test("the archived list opens in place with an unarchive action", async () => {
 	expect(await screen.findByTestId(`project-unarchive-${OLD.id}`)).toBeDefined();
 });
 
+/** SPEC.md §25.8: the count is part of the name, not glued to it. */
+test.each([
+	[[OLD], "Archived projects, 1 project"],
+	[[], "Archived projects, 0 projects"],
+])("the archived button reads its count as words", async (archived, name) => {
+	await mount([TODO], archived);
+	const button = screen.getByTestId("archived-projects");
+	await waitFor(() => expect(button.getAttribute("aria-label")).toBe(name));
+});
+
 test("with no projects at all the centre invites you to make one", async () => {
 	await mount([], [], `/workspaces/${WORKSPACE.id}`);
 
