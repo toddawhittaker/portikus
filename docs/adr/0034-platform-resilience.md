@@ -94,8 +94,19 @@ alternative are listed briefly at the end.
 
 7. Every worker-to-controller call has a time budget: stop
    `2 x STOP_TIMEOUT_SECONDS + 15` s, start `START_TIMEOUT_SECONDS + 30` s,
-   create 300 s, list and log level 30 s, rebuild and reset-Docker 15
-   minutes. Over budget is `ControllerClientError("TIMEOUT")`.
+   create 480 s (the 240 s instance wait, three 60 s volume creates and a
+   60 s margin), list and log level 30 s, rebuild and reset-Docker 15
+   minutes. Over budget is `ControllerClientError("TIMEOUT")`. The worker
+   sends its budget on every call in the `x-portikus-budget-ms` header.
+   For a create and a process read the controller turns that budget, or
+   the caller hanging up, into one abort signal that reaches every Incus
+   request and the host-side process walk; without the header it uses
+   the same create budget, or 30 s for a process read. Concurrent creates
+   of one instance share one run, which is aborted only when every caller
+   has left. An aborted create makes nothing more, and never falls back
+   to an empty Docker volume. Start, stop, rebuild, reset-Docker and
+   volume growth do not use the header yet, and an Incus operation
+   already started is not cancelled on the Incus side.
 8. The controller gives every Incus request a 30-second default timeout
    when the caller passes no signal.
 12. Each preview session may make 2,000 authorized requests per 10
@@ -131,7 +142,7 @@ on every operation looking successful were made tolerant of the truth:
   is stopped, and a graceful stop that ends just as its wait gives up is
   not an error;
 - the instance create waits up to 240 s instead of 60 s, inside the
-  worker's 300 s create budget, and each volume create gets 60 s.
+  worker's create budget (decision 7), and each volume create gets 60 s.
 
 ## Amended by Epic 30
 
@@ -150,6 +161,7 @@ rebuild. SPEC.md section 6.5 states the rule.
 - Preview access can lag a change of authorization by 2 seconds.
 - A full pool fails writes in the workspace that hit it instead of
   freezing every workspace, and new workspaces wait until there is room.
-- A create has no single shared deadline: on paper its steps can add up
-  to more than the worker's 300 s budget. A retry adopts what already
-  exists (BACKLOG, "One deadline for a workspace create").
+- A create shares one deadline with the worker: once the worker gives
+  up, the controller stops making volumes and never makes the instance.
+  An Incus operation already under way finishes on its own, and a retry
+  adopts what it made.

@@ -133,10 +133,13 @@ export async function readPoolUse(
 	pool: string,
 	now: Date,
 	statusPath?: string,
+	signal?: AbortSignal,
 ): Promise<Omit<HostSnapshot["pool"], "name">> {
 	const resources = (await client.request(
 		"GET",
 		`/1.0/storage-pools/${enc(pool)}/resources`,
+		undefined,
+		signal,
 	)) as { space?: { used?: number; total?: number } };
 	return {
 		usedBytes: num(resources.space?.used),
