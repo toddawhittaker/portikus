@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Fails when a code comment or test title carries project history (issue
 // numbers, epic or task names, rulings, review codes, plan pointers) instead
-// of citing SPEC.md sections or ADRs. Rules: .claude/agents/builder.md, "Code quality".
+// of citing SPEC.md sections or ADRs, and warns about overlong source files.
+// Rules: .claude/agents/builder.md, "Code quality".
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -166,11 +167,34 @@ export function scanText(path, src) {
 	return hits;
 }
 
+// A source file past this many lines likely does two jobs and should be
+// split (.claude/agents/builder.md, "Code quality"). Warn only, never fail.
+export const MAX_LINES = 800;
+
+// Tests and generated declarations may run long without doing two jobs.
+const SIZE_EXEMPT = [
+	/\.(test|spec)\.[cm]?[jt]sx?$/,
+	/(^|\/)tests?\//,
+	/^e2e\//,
+	/(^|\/)test_[^/]+\.py$/,
+	/-test\.sh$/,
+	/\.d\.ts$/,
+];
+
+export function sizeWarning(path, src) {
+	if (!/\.([cm]?[jt]sx?|css|sh|bash|py)$/.test(path)) return null;
+	if (SKIPPED.some((re) => re.test(path))) return null;
+	if (SIZE_EXEMPT.some((re) => re.test(path))) return null;
+	const lines = src.split("\n").length - (src.endsWith("\n") ? 1 : 0);
+	return lines > MAX_LINES ? { path, lines } : null;
+}
+
 function main() {
 	const files = execFileSync("git", ["ls-files"], { encoding: "utf8" })
 		.split("\n")
 		.filter((f) => f && kindOf(f));
 	const hits = [];
+	const long = [];
 	for (const f of files) {
 		let src;
 		try {
@@ -179,6 +203,13 @@ function main() {
 			continue; // listed but deleted in the working tree
 		}
 		hits.push(...scanText(f, src));
+		const warning = sizeWarning(f, src);
+		if (warning) long.push(warning);
+	}
+	for (const w of long) {
+		console.warn(
+			`warning: ${w.path} has ${w.lines} lines (over ${MAX_LINES}); split it where it does a second job.`,
+		);
 	}
 	for (const h of hits) console.log(`${h.path}:${h.line}: ${h.name}: ${h.match}`);
 	if (hits.length > 0) {

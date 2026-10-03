@@ -19,6 +19,7 @@ import { createLogger } from "@portikus/observability";
 import { collectingLogger } from "@portikus/observability/testing";
 // @ts-expect-error apps/api does not depend on the agent package; the vitest
 // alias in vitest.config.ts resolves it from source for this test only.
+// biome-ignore lint/style/noRestrictedImports: this test runs the real agent end to end.
 import { buildServer as buildAgentServer } from "@portikus/workspace-agent";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
