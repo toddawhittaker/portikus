@@ -34,11 +34,13 @@ GRANT INSERT ON audit_events TO "portikus-worker";
 -- Seeds the first row; changes only the egress apply outcome after that.
 GRANT SELECT ON settings TO "portikus-worker";
 GRANT INSERT (id, shutdown_grace_seconds) ON settings TO "portikus-worker";
-GRANT UPDATE (egress_applied_version, egress_applied_at, egress_apply_error)
+GRANT UPDATE (egress_applied_version, egress_applied_at, egress_apply_error,
+	controller_checked_at)
 	ON settings TO "portikus-worker";
 
 GRANT SELECT, UPDATE ON workspaces, terminals, projects, backup_status
 	TO "portikus-worker";
+GRANT DELETE ON terminals TO "portikus-worker";
 GRANT SELECT, UPDATE, DELETE ON workspace_process_snapshots TO "portikus-worker";
 GRANT SELECT, INSERT, UPDATE ON backup_requests, package_survey_counts
 	TO "portikus-worker";
