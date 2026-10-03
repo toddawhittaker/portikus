@@ -14,6 +14,7 @@ import { LogsTab } from "./logs/LogsTab.js";
 import { NetworkTab } from "./network/NetworkTab.js";
 import { SettingsTab } from "./SettingsTab.js";
 import { ADMIN_TABS, type AdminTab, DEFAULT_ADMIN_TAB, isAdminTab } from "./tabs.js";
+import { OperationEndToasts } from "./users/operationEnd.js";
 import { WorkspacesTab } from "./WorkspacesTab.js";
 
 const TAB_LABEL: Record<AdminTab, string> = {
@@ -103,6 +104,8 @@ export function AdminPage() {
 					<p aria-live="polite" className="sr-only" data-testid="admin-tab-announce">
 						{tabAnnouncement}
 					</p>
+					{/* Here, above the tabs, so an operation's end is announced on any tab (SPEC.md section 20.1). */}
+					<OperationEndToasts />
 					{/* The header shows "Administration" and the tabs; the h1 keeps the outline. */}
 					<h1 className="sr-only" id="admin-title">
 						Administration

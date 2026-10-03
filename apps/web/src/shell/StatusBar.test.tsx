@@ -463,6 +463,12 @@ test("a pending rebuild reads Rebuilding", () => {
 	});
 
 	expect(screen.getByTestId("workspace-state").textContent).toBe("Rebuilding…");
+	// The dialog's badge spins too, rather than showing the stopped ring.
+	openStatus();
+	const badge = screen.getByTestId("workspace-status-state");
+	expect(badge.textContent).toBe("Rebuilding…");
+	expect(badge.querySelector(".pk-spin")).not.toBeNull();
+	expect(badge.querySelector(".pk-badge-ring")).toBeNull();
 });
 
 test("a refused Reset Docker is shown as an alert in the workspace dialog", async () => {

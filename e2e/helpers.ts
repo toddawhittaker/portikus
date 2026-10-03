@@ -711,6 +711,57 @@ export async function studentIn(
 	return { ...student, name };
 }
 
+/** The reason `finishOperation` audits for a failed Replace home, in the worker's words. */
+const REPLACE_HOME_ERROR = "the host could not import the home: no space left";
+
+/** Play the worker's end of an operation: clear it, then audit the result (ADR 0021). */
+export async function finishOperation(
+	workspaceId: string,
+	action: string,
+	ok: boolean,
+): Promise<void> {
+	await query(
+		`update workspaces set pending_operation = null, pending_operation_at = null,
+		 pending_operation_by = null, state = $2, error_code = $3 where id = $1`,
+		[workspaceId, ok ? "stopped" : "error", ok ? null : "CONTROLLER_TIMEOUT"],
+	);
+	// Replace home audits its reason in words; the others an error code (apps/worker).
+	const failure =
+		action === "workspace.home_replace_failed"
+			? { error: REPLACE_HOME_ERROR }
+			: { errorCode: "CONTROLLER_TIMEOUT" };
+	await query(
+		`insert into audit_events (actor, target, action, result, metadata)
+		 values ('worker', $1, $2, $3, $4)`,
+		[workspaceId, action, ok ? "ok" : "failed", JSON.stringify(ok ? {} : failure)],
+	);
+}
+
+/**
+ * Start recording the text of every toast the page shows, and return a
+ * reader for the list. A success toast closes itself, so counting what is
+ * on screen later would miss it.
+ */
+export async function recordToasts(page: Page): Promise<() => Promise<string[]>> {
+	await page.evaluate(() => {
+		const shown: string[] = [];
+		(window as unknown as { shownToasts: string[] }).shownToasts = shown;
+		new MutationObserver((changes) => {
+			for (const change of changes) {
+				for (const node of change.addedNodes) {
+					if (!(node instanceof HTMLElement)) continue;
+					const toasts = node.matches(".pk-toast")
+						? [node]
+						: [...node.querySelectorAll(".pk-toast")];
+					for (const added of toasts) shown.push(added.textContent ?? "");
+				}
+			}
+		}).observe(document.body, { childList: true, subtree: true });
+	});
+	return () =>
+		page.evaluate(() => (window as unknown as { shownToasts: string[] }).shownToasts);
+}
+
 /** Filter the admin table to a user and open their detail panel once a region shows. */
 export async function openDetail(page: Page, name: string, readyRegion: string) {
 	await page.getByTestId("admin-filter-text").fill(name);

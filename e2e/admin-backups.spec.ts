@@ -9,9 +9,13 @@ import {
 } from "./backup-channel";
 import {
 	createStudent,
+	finishOperation,
 	loginAs,
+	openAdmin,
 	query,
+	recordToasts,
 	settledAxe,
+	studentIn,
 	toast,
 	WCAG_TAGS,
 	WEB_ORIGIN,
@@ -297,6 +301,9 @@ test("restore into a side copy, then replace home with a typed confirmation", as
 	page,
 }) => {
 	const ws = await student(page);
+	// Its own name, so the end toast is told apart from other tests' toasts.
+	const name = `Replace ${ws.userId.slice(0, 8)}`;
+	await query("update users set display_name = $2 where id = $1", [ws.userId, name]);
 	const stopped = await student(page);
 	await query("update workspaces set state = 'stopped' where id = $1", [
 		stopped.workspaceId,
@@ -326,7 +333,7 @@ test("restore into a side copy, then replace home with a typed confirmation", as
 	);
 
 	await dialog.getByLabel("Workspace").click();
-	await page.getByRole("option", { name: `E2E Student (${ws.label})` }).click();
+	await page.getByRole("option", { name: `${name} (${ws.label})` }).click();
 	await dialog.getByTestId("backup-restore-confirm").click();
 	await expect(toast(page, "Restore requested")).toBeVisible();
 	await expect(dialog).toHaveCount(0);
@@ -370,6 +377,16 @@ test("restore into a side copy, then replace home with a typed confirmation", as
 		[ws.workspaceId],
 	);
 	expect(row?.pending_operation).toBe("replace-home");
+
+	// Staying on the Backups tab, the admin hears how it ended, once.
+	const shownToasts = await recordToasts(page);
+	await finishOperation(ws.workspaceId, "workspace.home_replaced", true);
+	const title = `Home folder replace for ${name} finished`;
+	await expect(toast(page, title)).toBeVisible(SOON);
+	await expect(page.getByRole("heading", { name: "Backups", level: 2 })).toBeVisible();
+	// A later poll brings no second toast.
+	await page.waitForTimeout(6000);
+	expect((await shownToasts()).filter((text) => text.includes(title))).toHaveLength(1);
 });
 
 test("pre-change snapshots and kept homes are deleted through the platform", async ({
@@ -453,5 +470,49 @@ for (const colorScheme of ["light", "dark"] as const) {
 		);
 		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+	});
+}
+
+// The worker does not run here, so the test plays its end of the replace.
+for (const { colorScheme, ok } of [
+	{ colorScheme: "light", ok: true },
+	{ colorScheme: "dark", ok: false },
+] as const) {
+	test(`a Replace home shows a moving badge on the Users row, then announces how it ended (${colorScheme})`, async ({
+		page,
+		browser,
+	}) => {
+		const ws = await studentIn(browser, "Replace");
+		await query(
+			"update workspaces set pending_operation = 'replace-home' where id = $1",
+			[ws.workspaceId],
+		);
+		await page.emulateMedia({ colorScheme });
+		await openAdmin(page);
+		await page.getByTestId("admin-filter-text").fill(ws.name);
+		const row = page.getByTestId(`account-row-${ws.userId}`);
+		await expect(row.getByText("Replacing home folder…")).toBeVisible();
+		await expect(row.locator(".pk-spin")).toHaveCount(1);
+		const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+		expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+
+		await finishOperation(
+			ws.workspaceId,
+			ok ? "workspace.home_replaced" : "workspace.home_replace_failed",
+			ok,
+		);
+		const end = toast(
+			page,
+			`Home folder replace for ${ws.name} ${ok ? "finished" : "failed"}`,
+		);
+		await expect(end).toBeVisible(SOON);
+		await expect(end.getByRole(ok ? "status" : "alert")).toHaveCount(1);
+		if (!ok) {
+			// The worker's reason, as it wrote it, then what to do next.
+			await expect(end).toContainText(
+				"The host could not import the home: no space left. Look for the error in the Logs tab, then try again from the Backups tab.",
+			);
+		}
+		await expect(row.getByText("Replacing home folder…")).toHaveCount(0, SOON);
 	});
 }
