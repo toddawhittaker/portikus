@@ -160,8 +160,11 @@ export function AppHeader({
 					to="/"
 					className="pk-wsbutton pk-wsbutton-text"
 					data-testid="back-to-workspace"
+					// The full name stays when a narrow bar shows only "Workspace".
+					aria-label="Back to your workspace"
 				>
-					Back to your workspace
+					<span className="@max-[24rem]:hidden">Back to your workspace</span>
+					<span className="hidden @max-[24rem]:inline">Workspace</span>
 				</Link>
 			)}
 

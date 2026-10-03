@@ -39,6 +39,19 @@ test("with no courses, the list says how a course appears", async () => {
 	expect(document.title).toBe("Courses, Portikus");
 });
 
+test("the header's back link keeps its full name when a narrow bar shortens it", async () => {
+	serve({ "/courses": () => json(200, []) });
+	renderApp("/course");
+
+	const back = await screen.findByRole("link", { name: "Back to your workspace" });
+	expect(back.getAttribute("href")).toBe("/");
+	const [full, short] = Array.from(back.children);
+	expect(full?.textContent).toBe("Back to your workspace");
+	expect(full?.className).toContain("@max-[24rem]:hidden");
+	expect(short?.textContent).toBe("Workspace");
+	expect(short?.className).toBe("hidden @max-[24rem]:inline");
+});
+
 test("one status region says loading, then the answer, without being replaced", async () => {
 	let answer: (response: Response) => void = () => {};
 	serve({ "/courses": () => json(200, []) });
@@ -125,10 +138,13 @@ test("the members table shows name, role, last launch and workspace state", asyn
 	expect(headers).toEqual(["Name", "Role", "Last launch", "Workspace", "Actions"]);
 	const rows = within(table).getAllByRole("row").slice(1);
 	expect(rows).toHaveLength(2);
-	const ivy = within(rows[0] as HTMLElement).getByRole("rowheader");
+	// The row header is named by the name alone, not the folded role and launch.
+	const ivy = within(rows[0] as HTMLElement).getByRole("rowheader", {
+		name: "Ivy Instructor",
+	});
 	expect(ivy.firstChild?.textContent).toBe("Ivy Instructor");
 	// A narrow table folds Role and Last launch under the name, and hides their columns.
-	const folded = ivy.querySelector("span") as HTMLElement;
+	const folded = ivy.querySelector(".pk-cell-muted") as HTMLElement;
 	expect(folded.className).toContain("@max-2xl:block");
 	expect(folded.textContent).toMatch(/^Instructor · , Last launch .*2026/);
 	expect(folded.querySelector("time")?.getAttribute("dateTime")).toBeTruthy();
