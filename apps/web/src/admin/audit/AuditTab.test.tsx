@@ -420,7 +420,9 @@ test("the tab explains itself, and the action filter and Result column have help
 	const table = await screen.findByTestId("audit-table");
 	const intro = screen.getByTestId("intro-admin-audit");
 	expect(intro.textContent).toContain("who made it");
-	expect(intro.querySelector("a")?.getAttribute("href")).toBe("/help#admin-audit");
+	expect(intro.querySelector("a")?.getAttribute("href")).toBe(
+		"/admin/help#admin-audit",
+	);
 	expect(
 		screen.getByRole("button", { name: "About Action starts with" }),
 	).toBeDefined();

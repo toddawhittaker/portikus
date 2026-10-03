@@ -101,7 +101,7 @@ test("the tab opens with its intro and explains each part in a toggletip", async
 		"Which internet sites workspaces can reach. Open mode allows every public site except the ones you block.",
 	);
 	expect(within(intro).getByRole("link").getAttribute("href")).toBe(
-		"/help#admin-network",
+		"/admin/help#admin-network",
 	);
 	for (const name of [
 		"About open and allow-list modes",

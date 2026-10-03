@@ -10,7 +10,7 @@ import {
 	WORKSPACE,
 } from "../test-utils.js";
 import type { MeUser } from "../useMe.js";
-import { AppHeader } from "./AppHeader.js";
+import { AppHeader, helpHref } from "./AppHeader.js";
 
 afterEach(() => {
 	document.documentElement.removeAttribute("data-theme");
@@ -321,6 +321,16 @@ test("closing the dialog the badge opened returns focus to the badge", async () 
 	await waitFor(() =>
 		expect(document.activeElement).toBe(screen.getByTestId("notifications-badge")),
 	);
+});
+
+test("Help opens the administrator help from an admin page and the workspace help elsewhere", () => {
+	expect(helpHref("/admin")).toBe("/admin/help");
+	expect(helpHref("/admin/users")).toBe("/admin/help");
+	expect(helpHref("/admin/help")).toBe("/admin/help");
+	expect(helpHref("/workspaces/1/projects/2")).toBe("/help");
+	expect(helpHref("/course")).toBe("/help");
+	expect(helpHref("/help")).toBe("/help");
+	expect(helpHref("/administrators")).toBe("/help");
 });
 
 test("every role gets Help after Settings, opening in a new tab", () => {

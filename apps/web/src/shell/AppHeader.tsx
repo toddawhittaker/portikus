@@ -29,6 +29,13 @@ export function badgeText(unread: number): string | null {
 	return unread > 9 ? "9+" : String(unread);
 }
 
+/** Help opens the administrator help from an admin page and the workspace help elsewhere (SPEC.md section 8.6). */
+export function helpHref(pathname: string): string {
+	return pathname === "/admin" || pathname.startsWith("/admin/")
+		? "/admin/help"
+		: "/help";
+}
+
 /** What the bar is showing: the project in view, or the workspace or page. */
 function AppbarContext({
 	project,
@@ -279,7 +286,7 @@ export function AppHeader({
 						{/* A new tab from everywhere, so the workspace keeps its sockets. */}
 						<MenuItem
 							icon="help"
-							href="/help"
+							href={helpHref(window.location.pathname)}
 							target="_blank"
 							rel="noopener"
 							testId="help-link"

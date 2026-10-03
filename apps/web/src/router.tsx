@@ -13,7 +13,12 @@ import {
 import { type ComponentType, lazy, type ReactNode, Suspense, useEffect } from "react";
 import { AcceptableUsePage } from "./acceptable-use/AcceptableUsePage.js";
 import { sanitizeLogSearch } from "./admin/logs/filters.js";
-import { adminTabFromLegacy, DEFAULT_ADMIN_TAB, isAdminTab } from "./admin/tabs.js";
+import {
+	ADMIN_HELP_TAB,
+	adminTabFromLegacy,
+	DEFAULT_ADMIN_TAB,
+	isAdminTab,
+} from "./admin/tabs.js";
 import { LinkPage } from "./link/LinkPage.js";
 import { LinkStartPage } from "./link/LinkStartPage.js";
 import { useLinkedReload } from "./link/useLinkedReload.js";
@@ -190,14 +195,17 @@ const adminIndexRoute = createRoute({
 	},
 });
 
-/** Each admin tab has its own path, so the back button moves between tabs. */
+/**
+ * Each admin tab has its own path, so the back button moves between tabs.
+ * `/admin/help` is the administrator help, shown under the same tabs.
+ */
 const adminRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/admin/$tab",
 	validateSearch: (search: Record<string, unknown> & SearchSchemaInput) =>
 		adminSearch(search),
 	beforeLoad: ({ params, search }) => {
-		if (isAdminTab(params.tab)) return;
+		if (isAdminTab(params.tab) || params.tab === ADMIN_HELP_TAB) return;
 		throw redirect({
 			to: "/admin/$tab",
 			params: { tab: DEFAULT_ADMIN_TAB },
@@ -233,7 +241,7 @@ const courseMembersRoute = createRoute({
 	),
 });
 
-/** Help for every role; admin and instructor parts show by role. */
+/** The workspace help; the instructor part shows by role or teaching. */
 const helpRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/help",

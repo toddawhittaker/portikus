@@ -385,7 +385,7 @@ test("the tab has an intro and help beside the figures that need it", async () =
 		within(intro)
 			.getByRole("link", { name: /More in Help/ })
 			.getAttribute("href"),
-	).toBe("/help#admin-health");
+	).toBe("/admin/help#admin-health");
 	for (const label of [
 		"Agents answering",
 		"Load average",

@@ -130,6 +130,6 @@ test("every setting has a help button beside its label, and the page an intro", 
 	expect(screen.getByRole("textbox", { name: "Window (minutes)" })).toBeDefined();
 	expect(screen.getByText("About Settings")).toBeDefined();
 	expect(screen.getByRole("link", { name: /More in Help/ }).getAttribute("href")).toBe(
-		"/help#admin-settings",
+		"/admin/help#admin-settings",
 	);
 });

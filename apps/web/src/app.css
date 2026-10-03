@@ -677,6 +677,10 @@ body {
 .pk-help {
 	container-type: inline-size;
 }
+.pk-help-elsewhere {
+	margin: var(--space-2) 0 0;
+	color: var(--ink-muted);
+}
 .pk-help-layout {
 	display: grid;
 	gap: var(--space-8);

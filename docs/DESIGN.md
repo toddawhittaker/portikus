@@ -255,10 +255,14 @@ Popover; a native popover was rejected because Firefox lacks anchor
 positioning, and a Tooltip because it opens on hover only. The panel never
 takes focus, so Tab moves on and closes it; a polite live region beside the
 button reads the text to screen readers. The account menu
-has a Help item that opens `/help` in a new tab. The page shows the part
-for students to everyone, the administrator part to administrators, and the
-instructor part to instructors, administrators and anyone who teaches a
-course. That split is presentation only; the text holds nothing secret.
+has a Help item that opens, in a new tab, `/admin/help` from an admin
+page and `/help` everywhere else. `/help`, "Using your workspace", shows the
+part for students to everyone and the instructor part to instructors,
+administrators and anyone who teaches a course. `/admin/help`, "For
+administrators", holds only the administrator part and sits under the admin
+tabs, with no tab marked current; only administrators reach it. Each page
+links to the other. The split is presentation only; the text holds nothing
+secret.
 
 **Native select in dense filter bars (Epic 25).** The Users filters and the
 Logs time filter keep the native `select`; everywhere else uses `Select`.

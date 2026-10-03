@@ -266,7 +266,7 @@ test("the tab opens with its intro and each help button names what it explains",
 	const intro = screen.getByTestId("intro-admin-backups");
 	expect(intro.textContent).toContain("Docker data is not copied.");
 	expect(within(intro).getByRole("link").getAttribute("href")).toBe(
-		"/help#admin-backups",
+		"/admin/help#admin-backups",
 	);
 	for (const name of [
 		"About the restore key",
