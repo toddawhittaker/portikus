@@ -291,12 +291,14 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       # The runner image already has the libraries headless Chromium needs, so
       # skip --with-deps: it runs apt-get update, which stalls when Ubuntu's
-      # mirrors are slow. The dry run fails the job if the image ever drops one.
+      # mirrors are slow. The image lacks only extra fonts for non-Latin
+      # scripts, which no test needs; the check fails if a library goes missing.
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
         timeout-minutes: 5
         run: |
           pnpm exec playwright install --only-shell chromium
-          pnpm exec playwright install-deps --dry-run chromium | tee /dev/stderr | grep -q 'All system dependencies are installed'
+          missing=$(pnpm exec playwright install-deps --dry-run chromium | grep '^  ' | grep -Ev '^  x?fonts-' || true)
+          if [ -n "$missing" ]; then echo "The runner image lacks libraries Chromium needs:"; echo "$missing"; exit 1; fi
       # The Playwright servers run the compiled output, and Vite serves the
       # ui package's theme and fonts from its dist, so build both first.
       - if: steps.detect.outputs.present == 'true' && needs.changes.outputs.app == 'true'
