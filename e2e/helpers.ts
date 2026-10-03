@@ -639,7 +639,6 @@ export function contrast(first: string, second: string): number {
 	return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
 }
 
-/** Carol, the mock provider's administrator, on the admin page. */
 /**
  * Answers the API's data for `pattern` while leaving page loads alone: an
  * admin tab's path, such as /admin/image, is also the URL of its data
@@ -655,6 +654,7 @@ export async function routeApi(
 	);
 }
 
+/** Carol, the mock provider's administrator, on the admin page. */
 export async function openAdmin(page: Page): Promise<void> {
 	await loginAs(page, "carol");
 	await page.goto("/admin");
