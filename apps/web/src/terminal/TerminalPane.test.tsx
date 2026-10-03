@@ -10,8 +10,8 @@ import { ToastProvider } from "@portikus/ui";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { createQueryClient } from "./api/queryClient.js";
-import { editorSettingsKey } from "./editor/settingsQueries.js";
+import { createQueryClient } from "../api/queryClient.js";
+import { editorSettingsKey } from "../editor/settingsQueries.js";
 import {
 	decodeOsc52,
 	MAX_CLIPBOARD_BYTES,
@@ -135,7 +135,6 @@ function renderPane(
 					visible={visible}
 					focusOnMount={focusOnMount}
 					onExited={onExited}
-					onSessionEnded={vi.fn()}
 					onCwd={onCwd}
 					onFocus={vi.fn()}
 					onLeave={vi.fn()}
@@ -262,7 +261,6 @@ test("a drag of the pane edge sends one settled size, not every step", async () 
 						visible
 						focusOnMount={false}
 						onExited={vi.fn()}
-						onSessionEnded={vi.fn()}
 						onCwd={vi.fn()}
 						onFocus={vi.fn()}
 						onLeave={vi.fn()}
@@ -595,7 +593,7 @@ test("every dark ANSI colour except black is readable on the dark background", (
 /** The dark palette is the design's --ansi-* tokens, not a copy that drifts. */
 test("the dark ANSI palette matches the dark --ansi-* tokens in theme.css", () => {
 	const css = readFileSync(
-		resolve(import.meta.dirname, "../../../packages/ui/src/theme.css"),
+		resolve(import.meta.dirname, "../../../../packages/ui/src/theme.css"),
 		"utf8",
 	);
 	const block = css.slice(css.indexOf('[data-terminal-theme="dark"] {'));
@@ -610,7 +608,7 @@ test("the dark ANSI palette matches the dark --ansi-* tokens in theme.css", () =
 /** The light palette is the design's light --ansi-* tokens, so the two cannot drift. */
 test("the light ANSI palette matches the light --ansi-* tokens in theme.css", () => {
 	const css = readFileSync(
-		resolve(import.meta.dirname, "../../../packages/ui/src/theme.css"),
+		resolve(import.meta.dirname, "../../../../packages/ui/src/theme.css"),
 		"utf8",
 	);
 	const start = css.indexOf('[data-terminal-theme="light"] {');

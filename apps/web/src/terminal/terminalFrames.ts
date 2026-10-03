@@ -4,7 +4,7 @@
  * Kept out of the React component so it can be tested without a DOM.
  */
 import { TerminalServerMessage } from "@portikus/events";
-import { unparsedFrame } from "./frameFallback.js";
+import { unparsedFrame } from "../frameFallback.js";
 
 /** Why a terminal's session is gone, when the control plane knows (SPEC.md §9.7). */
 export type TerminalGoneReason = "out_of_memory" | "restarted";

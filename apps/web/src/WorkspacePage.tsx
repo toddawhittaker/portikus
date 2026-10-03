@@ -1,6 +1,6 @@
 import type { Workspace } from "@portikus/contracts";
 import { PaneHandle, Skeleton, useToast } from "@portikus/ui";
-import { Navigate, Outlet, useNavigate, useParams } from "@tanstack/react-router";
+import { Navigate, Outlet, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import {
@@ -29,7 +29,7 @@ import { ScreenReaderToggle } from "./shell/ScreenReaderToggle.js";
 import { StatusBar } from "./shell/StatusBar.js";
 import { ThrottleNotice, throttleAnnouncement } from "./shell/ThrottleNotice.js";
 import { resolveStatus, type WorkspaceDialogMode } from "./shell/WorkspaceDialog.js";
-import { forgetAgentBuild } from "./terminalFrames.js";
+import { forgetAgentBuild } from "./terminal/terminalFrames.js";
 import { type MeUser, useMe } from "./useMe.js";
 import { useWorkspaceSocket } from "./useWorkspaceSocket.js";
 import { startingPhase, WorkspaceStarting } from "./WorkspaceStarting.js";
@@ -64,13 +64,8 @@ function WorkspaceShellWhenSettled(props: { workspaceId: string; user: MeUser })
 }
 
 function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUser }) {
-	const navigate = useNavigate();
-	const { workspace, listening, reconnect, sendActivity } = useWorkspaceSocket(
-		workspaceId,
-		() => {
-			void navigate({ to: "/session-ended" });
-		},
-	);
+	const { workspace, listening, reconnect, sendActivity } =
+		useWorkspaceSocket(workspaceId);
 	// A throttle is dismissed for the page's life; a new one shows again (ADR 0032).
 	const [dismissedThrottleAt, setDismissedThrottleAt] = useState<string | null>(null);
 	const [dismissedMemoryAt, setDismissedMemoryAt] = useState<string | null>(null);

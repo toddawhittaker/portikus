@@ -17,8 +17,8 @@ import {
 } from "@portikus/ui";
 import { useEffect, useRef, useState } from "react";
 import type { DropEdge, SplitDirection } from "../layout/tree.js";
-import { TerminalPane } from "../TerminalPane.js";
-import { usePointerDismiss } from "./pointerDismiss.js";
+import { usePointerDismiss } from "../work/pointerDismiss.js";
+import { TerminalPane } from "./TerminalPane.js";
 
 /** The dnd-kit ids for one pane's drag handle and its drop area. */
 function paneDragId(terminalId: string): string {
@@ -43,7 +43,6 @@ export interface TerminalLeafProps {
 	onClose: (terminalId: string) => void;
 	onExited: (terminalId: string) => void;
 	onReplace: (terminalId: string) => void;
-	onSessionEnded: () => void;
 	onLeave: () => void;
 	/** Give this pane a tab of its own, the keyboard way to drag it. */
 	onMoveToNewTab: (terminalId: string) => void;
@@ -104,7 +103,6 @@ export function TerminalLeaf({
 	onClose,
 	onExited,
 	onReplace,
-	onSessionEnded,
 	onLeave,
 	onMoveToNewTab,
 	alone,
@@ -275,7 +273,6 @@ export function TerminalLeaf({
 					visible={visible}
 					focusOnMount={focused}
 					onExited={onExited}
-					onSessionEnded={onSessionEnded}
 					onCwd={setLiveCwd}
 					onFocus={onFocus}
 					onLeave={onLeave}

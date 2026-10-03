@@ -8,7 +8,7 @@ const PROJECT = "33333333-3333-4333-8333-333333333333";
 const URL = `/workspaces/${WORKSPACE}/projects/${PROJECT}/layout`;
 
 function Harness({ store }: { store: LayoutStore }) {
-	const loaded = useLayoutPersistence(WORKSPACE, PROJECT, store, () => {});
+	const loaded = useLayoutPersistence(WORKSPACE, PROJECT, store);
 	return <span data-testid="loaded">{loaded ? "yes" : "no"}</span>;
 }
 

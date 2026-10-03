@@ -9,6 +9,7 @@ import { render } from "@testing-library/react";
 import type * as React from "react";
 import { vi } from "vitest";
 import { createQueryClient } from "./api/queryClient.js";
+import { sessionEnded, setSessionEndedHandler } from "./api/sessionEnded.js";
 import { routeTree } from "./router.js";
 
 export const USER = {
@@ -108,9 +109,10 @@ export function renderApp(path: string) {
 		routeTree,
 		history: createMemoryHistory({ initialEntries: [path] }),
 	});
-	const queryClient = createQueryClient(() => {
+	setSessionEndedHandler(() => {
 		void router.navigate({ to: "/session-ended" });
 	});
+	const queryClient = createQueryClient(sessionEnded);
 	const { unmount } = render(
 		<QueryClientProvider client={queryClient}>
 			<ToastProvider>

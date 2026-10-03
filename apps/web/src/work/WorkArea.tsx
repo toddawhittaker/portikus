@@ -34,10 +34,10 @@ import { useLayout, useLayoutStore } from "../layout/store.js";
 import { type DropEdge, type SplitDirection, terminalIds } from "../layout/tree.js";
 import { PreviewPicker } from "../preview/PreviewPicker.js";
 import { useShowRightPane } from "../shell/rightPane.js";
-import { useTerminals } from "../useTerminals.js";
+import { TerminalGroup } from "../terminal/TerminalGroup.js";
+import { useTerminals } from "../terminal/useTerminals.js";
 import { dropZone, insertionIndex } from "./dropZone.js";
 import { usePointerDismiss } from "./pointerDismiss.js";
-import { TerminalGroup } from "./TerminalGroup.js";
 import "./work.css";
 
 /** The one droppable that covers the tab strip (SPEC.md §8.3). */
@@ -99,7 +99,6 @@ export interface WorkAreaProps {
 	openLine?: number;
 	/** A port the URL asked to preview (SPEC.md §14.6, §14.9). */
 	openPreviewPort?: number;
-	onSessionEnded: () => void;
 }
 
 export function WorkArea({
@@ -109,7 +108,6 @@ export function WorkArea({
 	openPath,
 	openLine,
 	openPreviewPort,
-	onSessionEnded,
 }: WorkAreaProps) {
 	const store = useLayoutStore(projectId);
 	const layout = useLayout(store, (state) => state.layout);
@@ -118,8 +116,8 @@ export function WorkArea({
 	const pendingView = useLayout(store, (state) => state.pendingView);
 	const diffBaseline = useLayout(store, (state) => state.diffBaseline);
 	const unsavedTabs = useLayout(store, (state) => state.unsavedTabs);
-	const loaded = useLayoutPersistence(workspaceId, projectId, store, onSessionEnded);
-	const terminals = useTerminals(workspaceId, projectId, true, onSessionEnded);
+	const loaded = useLayoutPersistence(workspaceId, projectId, store);
+	const terminals = useTerminals(workspaceId, projectId, true);
 	const [closingTabId, setClosingTabId] = useState<string | null>(null);
 	// Open when set; `replacing` is a refused preview tab the choice replaces.
 	const [pickingPreview, setPickingPreview] = useState<{
@@ -563,7 +561,6 @@ export function WorkArea({
 							onExited={terminalExited}
 							onReplace={(id) => void replace(id)}
 							onResize={(path, sizes) => store.getState().resize(tab.id, path, sizes)}
-							onSessionEnded={onSessionEnded}
 							onShowRunning={() => showRightPane("running")}
 							onChoosePreviewPort={() => setPickingPreview({ replacing: tab.id })}
 							onLeave={leaveTerminal}

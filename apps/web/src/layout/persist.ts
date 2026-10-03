@@ -6,9 +6,10 @@
  * to the server (local.ts).
  */
 import { ProjectLayout } from "@portikus/contracts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 import { request, sendJson } from "../api/request.js";
+import { sessionEnded } from "../api/sessionEnded.js";
 import { readLocalLayout, writeLocalLayout } from "./local.js";
 import type { LayoutStore } from "./store.js";
 
@@ -27,12 +28,9 @@ export function useLayoutPersistence(
 	workspaceId: string,
 	projectId: string,
 	store: LayoutStore,
-	onSessionEnded: () => void,
 ): boolean {
 	// The URL whose layout is in, so a switch never reports the old one as loaded.
 	const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
-	const sessionEnded = useRef(onSessionEnded);
-	sessionEnded.current = onSessionEnded;
 
 	useEffect(() => {
 		let cancelled = false;
@@ -52,7 +50,7 @@ export function useLayoutPersistence(
 				if (saved) store.getState().load(saved);
 			} catch (error) {
 				if (error instanceof Error && error.name === "SessionEndedError") {
-					sessionEnded.current();
+					sessionEnded();
 					return;
 				}
 				// A layout we could not read is not worth an error screen: the

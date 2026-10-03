@@ -6,7 +6,7 @@ import { shortenPath, TerminalLeaf } from "./TerminalLeaf";
 
 // The pane itself is covered by TerminalPane.test.tsx; here it would only drag
 // xterm.js and a WebSocket into the test.
-vi.mock("../TerminalPane", () => ({
+vi.mock("./TerminalPane", () => ({
 	TerminalPane: ({
 		terminal,
 		onCwd,
@@ -49,7 +49,6 @@ function renderLeaf(
 		onClose: vi.fn(),
 		onExited: vi.fn(),
 		onReplace: vi.fn(),
-		onSessionEnded: vi.fn(),
 		onLeave: vi.fn(),
 		onMoveToNewTab: vi.fn(),
 		...handlers,
@@ -68,7 +67,6 @@ function renderLeaf(
 			onClose={props.onClose}
 			onExited={props.onExited}
 			onReplace={props.onReplace}
-			onSessionEnded={props.onSessionEnded}
 			onLeave={props.onLeave}
 			onMoveToNewTab={props.onMoveToNewTab}
 			alone={alone}
@@ -266,7 +264,7 @@ test("Leave terminal names Alt+Shift+Q and leaves the terminal", async () => {
  * on a light terminal in a dark page and on a dark terminal in a light page.
  */
 test("each terminal scheme sets its own focus colour", async () => {
-	const css = readFileSync(`${import.meta.dirname}/work.css`, "utf8").replace(
+	const css = readFileSync(`${import.meta.dirname}/../work/work.css`, "utf8").replace(
 		/\s+/g,
 		" ",
 	);

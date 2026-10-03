@@ -10,7 +10,7 @@ import { Group, Panel } from "react-resizable-panels";
 import type { PendingView } from "../layout/store.js";
 import type { DropEdge } from "../layout/tree.js";
 import { PreviewLeaf } from "../preview/PreviewLeaf.js";
-import { FileLeaf } from "./FileLeaf.js";
+import { FileLeaf } from "../work/FileLeaf.js";
 import { TerminalLeaf, type TerminalLeafProps } from "./TerminalLeaf.js";
 
 /** The pane callbacks a group hands down to each terminal unchanged. */
@@ -23,7 +23,6 @@ type PaneCallbacks = Pick<
 	| "onClose"
 	| "onExited"
 	| "onReplace"
-	| "onSessionEnded"
 	| "onLeave"
 	| "onMoveToNewTab"
 >;
@@ -81,7 +80,6 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					onClose={props.onClose}
 					onExited={props.onExited}
 					onReplace={props.onReplace}
-					onSessionEnded={props.onSessionEnded}
 					onLeave={props.onLeave}
 					onMoveToNewTab={props.onMoveToNewTab}
 					alone={root.type === "leaf"}

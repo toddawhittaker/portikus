@@ -1,6 +1,6 @@
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import "../terminal.css";
+import "../terminal/terminal.css";
 import "./checks.css";
 import { SCROLLBACK_LINES } from "@portikus/contracts";
 import { FitAddon } from "@xterm/addon-fit";
