@@ -10,13 +10,15 @@ import { type FocusEvent, useEffect, useRef, useState } from "react";
 import { FullCommandButton, FullCommandText } from "./FullCommand.js";
 import "./monitor.css";
 import { useRightPaneState } from "../shell/rightPane.js";
+import { SortAnnouncement, sortAnnouncement } from "../table/announce.js";
+import { SortHeader } from "../table/SortHeader.js";
 import { formatBytes, formatCpu, formatRate } from "./format.js";
 import {
 	compareProcesses,
 	keepOrder,
+	PROCESS_COLUMN_LABELS,
 	type ProcessColumn,
 	type ProcessSort,
-	toggleProcessSort,
 } from "./sort.js";
 import { stopErrorText, stopProcess } from "./stop.js";
 import { useWorkspaceUsage } from "./usage.js";
@@ -64,7 +66,9 @@ function Figures({
 	workspaceId: string;
 	usage: WorkspaceUsage;
 }) {
-	const { monitorSort: sort, setMonitorSort: setSort } = useRightPaneState();
+	const { monitorSort: sort, setMonitorSort } = useRightPaneState();
+	// The sort lives in the right pane, so a notice can open Monitor sorted; only a press is spoken.
+	const [sortSpoken, setSortSpoken] = useState("");
 	const [stopping, setStopping] = useState<Stopping | null>(null);
 	const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 	// Hidden at once, so the row does not linger until the next sample.
@@ -121,6 +125,11 @@ function Figures({
 		setFocusHeading(false);
 		headingRef.current?.focus();
 	}, [focusHeading]);
+
+	function setSort(next: ProcessSort) {
+		setMonitorSort(next);
+		setSortSpoken(sortAnnouncement(PROCESS_COLUMN_LABELS[next.column], next.direction));
+	}
 
 	function close() {
 		const current = stopping?.process;
@@ -210,26 +219,25 @@ function Figures({
 			<span role="status" className="sr-only" data-testid="monitor-stop-announce">
 				{announcement}
 			</span>
+			<SortAnnouncement text={sortSpoken} testId="monitor-sort-announce" />
 			<table className="pk-monitor-procs" data-testid="monitor-processes">
 				<thead>
 					<tr>
-						<SortHeader
+						<ProcessHeader
 							column="pid"
-							label="PID"
 							sort={sort}
 							onSort={setSort}
 							className="pk-monitor-pid"
 						/>
-						<SortHeader column="cpu" label="CPU" sort={sort} onSort={setSort} />
-						<SortHeader
+						<ProcessHeader column="cpu" sort={sort} onSort={setSort} />
+						<ProcessHeader
 							column="memory"
-							label="Memory"
 							sort={sort}
 							onSort={setSort}
 							className="pk-monitor-mem"
 						/>
-						<SortHeader column="command" label="Command" sort={sort} onSort={setSort} />
-						<th>
+						<ProcessHeader column="command" sort={sort} onSort={setSort} />
+						<th scope="col">
 							<span className="sr-only">Actions</span>
 						</th>
 					</tr>
@@ -366,30 +374,26 @@ function ProcessRow({
 	);
 }
 
-function SortHeader({
+/** CPU and memory sort busiest first on the first press, as the table opens. */
+function ProcessHeader({
 	column,
-	label,
 	sort,
 	onSort,
 	className,
 }: {
 	column: ProcessColumn;
-	label: string;
 	sort: ProcessSort;
 	onSort: (next: ProcessSort) => void;
 	className?: string;
 }) {
-	const active = sort.column === column;
 	return (
-		<th
+		<SortHeader
+			column={column}
+			label={PROCESS_COLUMN_LABELS[column]}
+			sort={sort}
+			onSort={onSort}
+			first={column === "cpu" || column === "memory" ? "descending" : "ascending"}
 			className={className}
-			aria-sort={
-				active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"
-			}
-		>
-			<button type="button" onClick={() => onSort(toggleProcessSort(sort, column))}>
-				{label}
-			</button>
-		</th>
+		/>
 	);
 }

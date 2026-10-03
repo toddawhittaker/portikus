@@ -62,26 +62,9 @@
 	font-size: 12px;
 }
 
-.pk-monitor-procs th button {
-	padding: 0;
-	border: 0;
-	background: transparent;
-	color: inherit;
-	font: inherit;
-	cursor: pointer;
-}
-
-.pk-monitor-procs th[aria-sort="ascending"] button::after,
-.pk-monitor-procs th[aria-sort="descending"] button::after {
-	margin-left: 4px;
-}
-
-.pk-monitor-procs th[aria-sort="ascending"] button::after {
-	content: "↑";
-}
-
-.pk-monitor-procs th[aria-sort="descending"] button::after {
-	content: "↓";
+/* The sorted column reads in full ink, as in the admin tables (tables.css). */
+.pk-monitor-procs th[aria-sort] .pk-table-sort {
+	color: var(--ink);
 }
 
 .pk-monitor-procs th,

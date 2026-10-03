@@ -1,7 +1,7 @@
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the administrator's
- * process list (SPEC.md §20.1): the table, then the stop dialog at
- * its Force stop step, in the light and dark themes.
+ * process list (SPEC.md §20.1): the table sorted from the keyboard, then the
+ * stop dialog at its Force stop step, in the light and dark themes.
  */
 import { expect, test } from "@playwright/test";
 import { createStudent, expectNoViolations, loginAs, query } from "./helpers";
@@ -32,6 +32,8 @@ for (const scheme of ["light", "dark"] as const) {
 		browser,
 	}) => {
 		await page.emulateMedia({ colorScheme: scheme });
+		// The smallest admin window (SPEC.md §20.1).
+		await page.setViewportSize({ width: 1024, height: 768 });
 		const studentContext = await browser.newContext();
 		const student = await createStudent(studentContext);
 		await studentContext.close();
@@ -83,7 +85,34 @@ for (const scheme of ["light", "dark"] as const) {
 			"update workspace_process_snapshots set taken_at = now(), processes = $2 where workspace_id = $1",
 			[student.workspaceId, JSON.stringify([STUBBORN, AGENT])],
 		);
-		await expect(section.getByTestId("processes-table")).toBeVisible();
+		const table = section.getByTestId("processes-table");
+		await expect(table).toBeVisible();
+
+		// A keyboard sort is announced politely, and a second press flips it.
+		const spoken = section.getByTestId("processes-sort-announce");
+		await expect(spoken).toHaveAttribute("role", "status");
+		await expect(spoken).toHaveText("");
+		await section.getByRole("button", { name: "CPU" }).focus();
+		await page.keyboard.press("Tab");
+		await expect(section.getByRole("button", { name: "Memory" })).toBeFocused();
+		await page.keyboard.press("Enter");
+		await expect(spoken).toHaveText("Sorted by Memory, descending");
+		const memory = table.getByRole("columnheader", { name: "Memory" });
+		await expect(memory).toHaveAttribute("aria-sort", "descending");
+		await expect(table.getByRole("columnheader", { name: "CPU" })).not.toHaveAttribute(
+			"aria-sort",
+		);
+		await expect(table.locator("tbody tr").first()).toContainText("stubborn");
+		await page.keyboard.press("Enter");
+		await expect(spoken).toHaveText("Sorted by Memory, ascending");
+		await expect(memory).toHaveAttribute("aria-sort", "ascending");
+		await expect(table.locator("tbody tr").first()).toContainText("portikus-agent");
+		// The table fits the panel at 1024 px, the Stop column included.
+		const fits = await table.evaluate(
+			(element) => element.scrollWidth <= (element.parentElement?.clientWidth ?? 0),
+		);
+		expect(fits).toBe(true);
+		await page.screenshot({ path: `screenshots/admin-processes-sorted-${scheme}.png` });
 		await expectNoViolations(page);
 
 		await section.getByRole("button", { name: "Stop stubborn (PID 43)" }).click();

@@ -6,8 +6,8 @@ import {
 } from "@portikus/contracts";
 import { resolveWorkspaceState } from "@portikus/ui";
 import { PENDING_LABEL } from "../../shell/StatusBar.js";
+import { type SortState, sortRows } from "../../table/sort.js";
 import { roleText } from "../markers.js";
-import { type SortState, sortRows } from "../table/sort.js";
 
 export type AccountColumn = "account" | "role" | "workspace" | "activity";
 

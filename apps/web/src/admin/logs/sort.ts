@@ -1,5 +1,5 @@
 import type { LogLine } from "@portikus/contracts";
-import { type SortDirection, type SortState, sortRows } from "../table/sort.js";
+import { type SortDirection, type SortState, sortRows } from "../../table/sort.js";
 import { field, SERVICE_LABELS } from "./line.js";
 
 export type LogColumn = "time" | "level" | "service" | "code" | "status";

@@ -5,7 +5,13 @@
  * both themes, like Running and Checks.
  */
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { createStudent, query, settledAxe, workspacePath } from "./helpers";
+import {
+	createStudent,
+	expectNoViolations,
+	query,
+	settledAxe,
+	workspacePath,
+} from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
 async function seedProcesses(workspaceId: string, processes: unknown[]): Promise<void> {
@@ -154,5 +160,56 @@ for (const theme of ["light", "dark"] as const) {
 			.include("[data-testid='monitor']")
 			.analyze();
 		expect(results.violations).toEqual([]);
+	});
+}
+
+for (const theme of ["light", "dark"] as const) {
+	test(`the keyboard sorts the processes and each sort is announced (${theme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.setViewportSize({ width: 1024, height: 768 });
+		const student = await createStudent(context);
+		await seedProcesses(student.workspaceId, [BOTH, CHEVRON_ONLY, STOP_ONLY, NEITHER]);
+		await chooseTheme(page, student.userId, student.workspaceId, theme);
+		const table = page.getByTestId("monitor-processes");
+		const firstPid = () =>
+			table.locator("tbody tr").first().getAttribute("data-testid");
+		const spoken = page.getByTestId("monitor-sort-announce");
+		await expect(spoken).toHaveAttribute("role", "status");
+		await expect(spoken).toHaveText("");
+		// Busiest first until a header is pressed.
+		await expect(table.getByRole("columnheader", { name: "CPU" })).toHaveAttribute(
+			"aria-sort",
+			"descending",
+		);
+		expect(await firstPid()).toBe("monitor-process-42");
+
+		const pid = table.getByRole("button", { name: "PID", exact: true });
+		await pid.focus();
+		await page.keyboard.press("Enter");
+		await expect(spoken).toHaveText("Sorted by PID, ascending");
+		await expect.poll(firstPid).toBe("monitor-process-12");
+		await page.keyboard.press("Enter");
+		await expect(spoken).toHaveText("Sorted by PID, descending");
+		await expect.poll(firstPid).toBe("monitor-process-44");
+
+		// Tab moves to CPU, whose first press is highest first again.
+		await page.keyboard.press("Tab");
+		await expect(table.getByRole("button", { name: "CPU", exact: true })).toBeFocused();
+		await page.keyboard.press("Enter");
+		await expect(spoken).toHaveText("Sorted by CPU, descending");
+		await expect(table.getByRole("columnheader", { name: "PID" })).not.toHaveAttribute(
+			"aria-sort",
+		);
+		await expect.poll(firstPid).toBe("monitor-process-42");
+
+		// The headers fit the pane: nothing scrolls sideways.
+		const fits = await page
+			.getByTestId("monitor")
+			.evaluate((element) => element.scrollWidth <= element.clientWidth);
+		expect(fits).toBe(true);
+		await page.screenshot({ path: `screenshots/monitor-sorted-${theme}.png` });
+		await expectNoViolations(page, "[data-testid='monitor']");
 	});
 }
