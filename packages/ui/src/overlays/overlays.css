@@ -43,6 +43,10 @@
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);
 }
+/* A submenu's item stays marked while its submenu is open. */
+.pk-menu-subtrigger[data-state="open"] {
+	background: var(--surface-hover);
+}
 .pk-menu-item[data-disabled] {
 	color: var(--ink-faint);
 }

@@ -140,6 +140,23 @@ test("the keyboard topic lists each key beside what it does", async () => {
 			name: "What the terminal and editor cannot do",
 		}),
 	).toBeDefined();
+	// The click ways to move tabs and panes are written down (WCAG 2.5.7).
+	const descriptions = Array.from(section.querySelectorAll("dl dd")).map(
+		(dd) => dd.textContent,
+	);
+	expect(descriptions[3]).toContain("A tab's menu also has Move left and Move right.");
+	expect(descriptions[4]).toMatch(/^Open the menu of the focused tab/);
+});
+
+test("the terminals topic names the click alternatives to dragging", async () => {
+	stub("student");
+	renderApp("/help");
+	const heading = await screen.findByRole("heading", { level: 3, name: "Terminals" });
+	const section = heading.closest("section") as HTMLElement;
+	for (const words of ["Move into", "Reset pane sizes", "Move left", "Move right"]) {
+		expect(within(section).getByText(words, { selector: "strong" })).toBeDefined();
+	}
+	expect(within(section).getByText("Shift+F10", { selector: "kbd" })).toBeDefined();
 });
 
 test("signed out, Help sends you to sign in", async () => {

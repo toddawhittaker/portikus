@@ -174,6 +174,13 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 	await expect(topic.locator("dl dd").first()).toHaveText(
 		"Leave a terminal. While a terminal has the keyboard, Tab goes to the shell. Each terminal's three-dots menu also has Leave terminal.",
 	);
+	// The click ways to move a tab are written down beside the keys.
+	await expect(topic.locator("dl dd").nth(3)).toContainText(
+		"A tab's menu also has Move left and Move right.",
+	);
+	await expect(topic.locator("dl dd").nth(4)).toContainText(
+		"Open the menu of the focused tab",
+	);
 	const contents = page.getByRole("navigation", { name: "Help contents" });
 	await expect(contents.getByRole("link")).toHaveText([
 		"Using your workspace",
