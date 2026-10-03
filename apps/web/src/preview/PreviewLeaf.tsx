@@ -12,9 +12,10 @@ import {
 	EmptyState,
 	IconButton,
 	Menu,
-	MenuCheckboxItem,
 	MenuItem,
 	MenuLabel,
+	MenuRadioGroup,
+	MenuRadioItem,
 	MenuRoot,
 	MenuSeparator,
 	MenuTrigger,
@@ -476,16 +477,21 @@ export function PreviewLeaf({
 						</MenuItem>
 						<MenuSeparator />
 						<MenuLabel>Width</MenuLabel>
-						{WIDTHS.map((option) => (
-							<MenuCheckboxItem
-								key={option}
-								testId={`preview-width-${option}`}
-								checked={width === option}
-								onCheckedChange={() => setWidth(option)}
-							>
-								{option === "fit" ? "Fit width" : `${option} px wide`}
-							</MenuCheckboxItem>
-						))}
+						<MenuRadioGroup
+							label="Width"
+							value={width}
+							onValueChange={(value) => setWidth(value as Width)}
+						>
+							{WIDTHS.map((option) => (
+								<MenuRadioItem
+									key={option}
+									value={option}
+									testId={`preview-width-${option}`}
+								>
+									{option === "fit" ? "Fit width" : `${option} px wide`}
+								</MenuRadioItem>
+							))}
+						</MenuRadioGroup>
 						<MenuSeparator />
 						<MenuItem testId="preview-reset" onSelect={() => setConfirmingReset(true)}>
 							Reset preview data…

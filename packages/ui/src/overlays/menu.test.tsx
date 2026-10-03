@@ -8,6 +8,8 @@ import {
 	MenuCheckboxItem,
 	MenuItem,
 	MenuLabel,
+	MenuRadioGroup,
+	MenuRadioItem,
 	MenuRoot,
 	MenuSeparator,
 	MenuTrigger,
@@ -131,6 +133,57 @@ describe("Menu", () => {
 
 		const item = screen.getByRole("menuitemcheckbox", { name: "Word wrap" });
 		expect(item.getAttribute("aria-checked")).toBe("true");
+	});
+
+	it("radio items state one choice of several and report the new value", () => {
+		const onValueChange = vi.fn();
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="Width">
+					<MenuItem>Copy URL</MenuItem>
+					<MenuRadioGroup label="Width" value="fit" onValueChange={onValueChange}>
+						<MenuRadioItem value="fit" testId="width-fit">
+							Fit width
+						</MenuRadioItem>
+						<MenuRadioItem value="768">768 px wide</MenuRadioItem>
+					</MenuRadioGroup>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
+
+		expect(screen.getByRole("group", { name: "Width" })).toBeTruthy();
+		const fit = screen.getByRole("menuitemradio", { name: "Fit width" });
+		const narrow = screen.getByRole("menuitemradio", { name: "768 px wide" });
+		expect(fit.getAttribute("aria-checked")).toBe("true");
+		expect(fit.getAttribute("data-testid")).toBe("width-fit");
+		expect(narrow.getAttribute("aria-checked")).toBe("false");
+		// Only the chosen item shows the tick; both keep its gutter.
+		expect(fit.querySelector(".pk-menu-check svg")).not.toBeNull();
+		expect(narrow.querySelector(".pk-menu-check svg")).toBeNull();
+		fireEvent.keyDown(narrow, { key: "Enter" });
+		expect(onValueChange).toHaveBeenCalledWith("768");
+	});
+
+	it("radio items work in the context menu family", () => {
+		render(
+			<ContextMenu>
+				<ContextMenuTrigger>Area</ContextMenuTrigger>
+				<Menu label="Width">
+					<MenuRadioGroup label="Width" value="768" onValueChange={vi.fn()}>
+						<MenuRadioItem value="fit">Fit width</MenuRadioItem>
+						<MenuRadioItem value="768">768 px wide</MenuRadioItem>
+					</MenuRadioGroup>
+				</Menu>
+			</ContextMenu>,
+		);
+		fireEvent.contextMenu(screen.getByText("Area"));
+		expect(
+			screen
+				.getByRole("menuitemradio", { name: "768 px wide" })
+				.getAttribute("aria-checked"),
+		).toBe("true");
 	});
 
 	// The trigger takes focus back, but its tooltip stays shut.
