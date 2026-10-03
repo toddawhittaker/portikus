@@ -63,10 +63,16 @@ test("Users columns sort by mouse and by keyboard", async ({ page }) => {
 	const account = table.getByRole("columnheader", { name: /^Account/ });
 	await expect(account).toHaveAttribute("aria-sort", "ascending");
 
+	// The polite region is there before any press, and says nothing yet.
+	const announce = page.getByTestId("admin-sort-announce");
+	await expect(announce).toHaveAttribute("role", "status");
+	await expect(announce).toHaveText("");
+
 	// Mouse: a second press on the sorted column flips it.
 	await table.getByRole("button", { name: "Account", exact: true }).click();
 	await expect(account).toHaveAttribute("aria-sort", "descending");
 	expect(short(await names(page).allTextContents())).toEqual(["Cal", "Bea", "Ann"]);
+	await expect(announce).toHaveText("Sorted by Account, descending");
 
 	// Keyboard: Tab past the column's help button to the next header, and press it.
 	await table.getByRole("button", { name: "Account", exact: true }).focus();
@@ -77,19 +83,55 @@ test("Users columns sort by mouse and by keyboard", async ({ page }) => {
 	await page.keyboard.press("Tab");
 	const workspace = table.getByRole("button", { name: "Workspace", exact: true });
 	await expect(workspace).toBeFocused();
+	// An unsorted header says it sorts, and shows its faint chevron while focused.
+	await expect(workspace).toHaveAccessibleDescription("Sort by this column");
+	const hint = table
+		.getByRole("columnheader", { name: /^Workspace/ })
+		.locator(".pk-table-sort-hint");
+	await expect(hint).toHaveCSS("opacity", "1");
+	await expect(
+		table.getByRole("columnheader", { name: /^Role/ }).locator(".pk-table-sort-hint"),
+	).toHaveCSS("opacity", "0");
 	await page.keyboard.press("Enter");
+	await expect(announce).toHaveText("Sorted by Workspace, ascending");
+	await expect(workspace).toHaveAccessibleDescription("");
 	const workspaceHeader = table.getByRole("columnheader", { name: /^Workspace/ });
 	await expect(workspaceHeader).toHaveAttribute("aria-sort", "ascending");
 	await expect(account).not.toHaveAttribute("aria-sort", /./);
 	// Running, then Stopped; no workspace stays last either way.
 	expect(short(await names(page).allTextContents())).toEqual(["Ann", "Cal", "Bea"]);
+	// A repeat press on the same header is announced too.
 	await page.keyboard.press("Space");
+	await expect(announce).toHaveText("Sorted by Workspace, descending");
 	await expect(workspaceHeader).toHaveAttribute("aria-sort", "descending");
 	expect(short(await names(page).allTextContents())).toEqual(["Cal", "Ann", "Bea"]);
 	await expect(workspace).toBeFocused();
 	await expect(table.locator("caption")).toContainText(
 		"sorted by Workspace, descending",
 	);
+});
+
+test("the Users toolbar row says what it is for until accounts are ticked", async ({
+	page,
+}) => {
+	const tag = crypto.randomUUID().slice(0, 8);
+	await insertStudent(`Hint ${tag} Ann`, null);
+	await openUsers(page, `Hint ${tag}`);
+	await expect(names(page)).toHaveCount(1);
+	const toolbar = page.getByTestId("admin-table-toolbar");
+	const hint = toolbar.getByTestId("bulk-hint");
+	await expect(hint).toHaveText("Select accounts to act on several at once.");
+	// Filtered, the count comes first and the hint follows on the same line.
+	const count = page.getByTestId("admin-row-count");
+	await expect(count).toHaveText(/^Showing 1 of \d+$/);
+	const [countBox, hintBox] = [await count.boundingBox(), await hint.boundingBox()];
+	if (!countBox || !hintBox) throw new Error("the toolbar text has no box");
+	expect(hintBox.x).toBeGreaterThan(countBox.x + countBox.width);
+	expect(Math.abs(hintBox.y - countBox.y)).toBeLessThan(2);
+
+	await page.getByRole("checkbox", { name: `Select Hint ${tag} Ann` }).check();
+	await expect(toolbar.getByTestId("bulk-actions")).toContainText("1 selected");
+	await expect(hint).toHaveCount(0);
 });
 
 test("a Users row menu opens, acts on that account, and gives focus back", async ({
@@ -174,12 +216,15 @@ test("the Audit table's Time column flips the page's order by mouse and keyboard
 	// Only Time sorts: one page of a long history.
 	await expect(table.locator("thead button.pk-table-sort")).toHaveCount(1);
 
+	const announce = page.getByTestId("audit-sort-announce");
 	await table.getByRole("button", { name: "Time" }).click();
 	await expect(header).toHaveAttribute("aria-sort", "ascending");
 	expect(await firstId()).toBeLessThan(newest);
 	await expect(table).toHaveAccessibleName(/oldest first/);
+	await expect(announce).toHaveText("Sorted by Time, ascending");
 
 	await page.keyboard.press("Enter");
 	await expect(header).toHaveAttribute("aria-sort", "descending");
 	expect(await firstId()).toBe(newest);
+	await expect(announce).toHaveText("Sorted by Time, descending");
 });

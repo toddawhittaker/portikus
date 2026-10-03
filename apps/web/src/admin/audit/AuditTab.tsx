@@ -4,12 +4,13 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { UUID } from "../../links.js";
-import { shortTime } from "../../text.js";
+import { shortId, shortTime } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
 import { personLabel, personOptions, resolvePerson } from "../people.js";
 import { useAdminUsers } from "../queries.js";
+import { SortAnnouncement, useAnnouncedSort } from "../table/announce.js";
 import { SortHeader } from "../table/SortHeader.js";
-import { type SortState, sortRows } from "../table/sort.js";
+import type { SortState } from "../table/sort.js";
 import { type AuditFilters, useAuditPage } from "./queries.js";
 
 function text(value: unknown): string {
@@ -52,7 +53,7 @@ export function AuditTab() {
 	const [draftKey, setDraftKey] = useState(key);
 	const [personError, setPersonError] = useState<string | null>(null);
 	// Kept here, so paging and new filters keep the order.
-	const [sort, setSort] = useState<SortState<"time">>(NEWEST_FIRST);
+	const { sort, setSort, announcement } = useAnnouncedSort(NEWEST_FIRST, TIME_LABEL);
 	// A new link (for example "All events" from a workspace) refills the form.
 	if (draftKey !== key) {
 		setDraftKey(key);
@@ -179,12 +180,15 @@ export function AuditTab() {
 			</form>
 			{/* Only the results re-key on new filters, so the focused form button stays. */}
 			<AuditResults key={key} filters={filters} sort={sort} setSort={setSort} />
+			<SortAnnouncement text={announcement} testId="audit-sort-announce" />
 		</AdminSection>
 	);
 }
 
 /** The order the API pages in. */
 const NEWEST_FIRST: SortState<"time"> = { column: "time", direction: "descending" };
+
+const TIME_LABEL = { time: "Time" } as const;
 
 /**
  * The table holds one page of 50 from a much longer history, so only Time
@@ -206,11 +210,10 @@ function AuditResults({
 	const page = useAuditPage(filters, before);
 
 	const nextBefore = page.data?.nextBefore ?? null;
-	const events = sortRows(
-		page.data?.events ?? [],
-		(event) => Date.parse(event.at),
-		sort.direction,
-	);
+	// The API pages newest first, so oldest first is that order reversed; a sort by
+	// timestamp would leave events in the same second newest first.
+	const loaded = page.data?.events ?? [];
+	const events = sort.direction === "descending" ? loaded : [...loaded].reverse();
 	const atNewest = cursors.length < 2;
 	const atOldest = nextBefore === null;
 
@@ -239,7 +242,7 @@ function AuditResults({
 						<tr>
 							<SortHeader
 								column="time"
-								label="Time"
+								label={TIME_LABEL.time}
 								sort={sort}
 								onSort={setSort}
 								first="descending"
@@ -301,14 +304,6 @@ function AuditResults({
 
 function pageText(pageNumber: number, count: number): string {
 	return `Page ${pageNumber}, ${count} ${count === 1 ? "event" : "events"}`;
-}
-
-/** The first 8 characters of a UUID, keeping a `user:` style prefix. */
-export function shortId(value: string): string {
-	const colon = value.indexOf(":");
-	const prefix = colon === -1 ? "" : value.slice(0, colon + 1);
-	const rest = value.slice(prefix.length);
-	return UUID.test(rest) ? `${prefix}${rest.slice(0, 8)}` : value;
 }
 
 /** "ok" and "success" are neutral; every other result is shown as an error. */

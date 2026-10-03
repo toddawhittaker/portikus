@@ -580,11 +580,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 									onCommitLinks={commitLinks}
 								/>
 							) : (
-								<div className="grid gap-6">
-									<h2
-										id="settings-section-preferences"
-										className="pk-text-heading text-ink"
-									>
+								<div className="relative grid gap-6">
+									{/* The section list already shows which section is open. */}
+									<h2 id="settings-section-preferences" className="sr-only">
 										Preferences
 									</h2>
 									{PREFERENCES?.groups.map((group) => (
@@ -634,8 +632,12 @@ function PasswordPane({ highlightId }: { highlightId: string | null }) {
 	const [changed, setChanged] = useState(false);
 	useShowSetting(highlightId, true);
 	return (
-		<section className="grid gap-4" aria-labelledby="settings-section-password">
-			<h2 id="settings-section-password" className="pk-text-heading text-ink">
+		<section
+			className="relative grid gap-4"
+			aria-labelledby="settings-section-password"
+		>
+			{/* The section list already shows which section is open. */}
+			<h2 id="settings-section-password" className="sr-only">
 				Password
 			</h2>
 			<p className="pk-text-body m-0 text-ink-muted">

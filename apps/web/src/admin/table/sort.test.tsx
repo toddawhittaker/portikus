@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
+import { SortAnnouncement, sortAnnouncement, useAnnouncedSort } from "./announce.js";
 import { SortHeader } from "./SortHeader.js";
 import { nextSort, type SortState, sortRows, sortText } from "./sort.js";
 
@@ -94,4 +95,63 @@ test("the sorted column's chevron shows the direction; other headers draw none",
 			?.getAttribute("data-icon");
 	expect(icon("Time")).toBe("chevron-down");
 	expect(icon("Name")).toBeUndefined();
+});
+
+test("an unsorted header is described as sortable; the sorted one is not", () => {
+	header({ column: "name", direction: "ascending" });
+	const name = screen.getByRole("button", { name: "Name" });
+	const time = screen.getByRole("button", { name: "Time" });
+	expect(name.hasAttribute("aria-description")).toBe(false);
+	expect(time.getAttribute("aria-description")).toBe("Sort by this column");
+	// No text is added to the cell, so the header reads only its label.
+	expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
+		"Name",
+		"Time",
+	]);
+	// The unsorted column draws its faint hint the way its first press sorts, outside the button.
+	const hint = screen
+		.getAllByRole("columnheader")[1]
+		?.querySelector(".pk-table-sort-hint");
+	expect(hint?.getAttribute("data-icon")).toBe("chevron-down");
+	expect(time.contains(hint ?? null)).toBe(false);
+});
+
+function AnnouncedTable() {
+	const { sort, setSort, announcement } = useAnnouncedSort<"name" | "time">(
+		{ column: "name", direction: "ascending" },
+		{ name: "Name", time: "Time" },
+	);
+	return (
+		<>
+			<table>
+				<thead>
+					<tr>
+						<SortHeader column="name" label="Name" sort={sort} onSort={setSort} />
+						<SortHeader column="time" label="Time" sort={sort} onSort={setSort} />
+					</tr>
+				</thead>
+			</table>
+			<SortAnnouncement text={announcement} testId="announce" />
+		</>
+	);
+}
+
+test("each press is announced in a polite region, a repeat press too", () => {
+	render(<AnnouncedTable />);
+	const region = screen.getByTestId("announce");
+	expect(region.getAttribute("role")).toBe("status");
+	// Nothing is said before the first press.
+	expect(region.textContent).toBe("");
+	fireEvent.click(screen.getByRole("button", { name: "Time" }));
+	expect(region.textContent).toBe("Sorted by Time, ascending");
+	fireEvent.click(screen.getByRole("button", { name: "Time" }));
+	expect(region.textContent).toBe("Sorted by Time, descending");
+	fireEvent.click(screen.getByRole("button", { name: "Name" }));
+	expect(region.textContent).toBe("Sorted by Name, ascending");
+});
+
+test("the announcement starts with a capital", () => {
+	expect(sortAnnouncement("Workspace", "descending")).toBe(
+		"Sorted by Workspace, descending",
+	);
 });

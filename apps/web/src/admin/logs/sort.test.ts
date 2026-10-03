@@ -35,6 +35,19 @@ test("the default is the journal's newest first; ascending puts the oldest first
 	).toEqual(["d", "c", "b", "a"]);
 });
 
+test("lines in the same millisecond keep the journal's order, reversed for oldest first", () => {
+	const at = "2026-10-03T10:00:00.000Z";
+	const same = [
+		line("x", at, "api", {}),
+		line("y", at, "api", {}),
+		line("z", at, "api", {}),
+	];
+	expect(cursors(sortLogLines(same, DEFAULT_LOG_SORT))).toEqual(["x", "y", "z"]);
+	expect(
+		cursors(sortLogLines(same, { column: "time", direction: "ascending" })),
+	).toEqual(["z", "y", "x"]);
+});
+
 test("Level sorts by severity, not by the word", () => {
 	expect(
 		cursors(sortLogLines(LINES, { column: "level", direction: "descending" })),

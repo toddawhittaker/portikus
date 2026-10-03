@@ -2,9 +2,10 @@
  * The app header on a narrow window: the Course page opens in a tab of its
  * own, which may be small, and the header must stay one line with every
  * control on screen, down to 320 px (SPEC.md 25.8, WCAG 1.4.10 Reflow).
+ * Where the bar shows only the picture, the account menu names the account.
  */
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { expectNoViolations, WEB_ORIGIN } from "./helpers";
+import { expectNoViolations, loginAs, WEB_ORIGIN } from "./helpers";
 import { launchAs, openCourseTab } from "./lti-helpers";
 
 /** How many lines the element's visible text takes; a wrapped name takes two. */
@@ -116,3 +117,47 @@ test("on the Course page at 768 px the header still shows the name", async ({
 		await context.close();
 	}
 });
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`where the bar shows only the picture, the account menu names the account (${colorScheme})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme });
+		await page.setViewportSize({ width: 1024, height: 768 });
+		await loginAs(page, "carol");
+		await page.goto("/admin");
+		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
+		const me = page.getByTestId("me");
+		await expect(me.locator(".pk-account-name")).toBeHidden();
+
+		await me.focus();
+		await page.keyboard.press("Enter");
+		const menu = page.getByRole("menu", { name: "Carol Admin" });
+		await expect(menu).toBeVisible();
+		const name = menu.getByTestId("account-menu-name");
+		await expect(name).toHaveText("Carol Admin");
+		const address = menu.getByTitle("carol@example.edu");
+		await expect(address).toHaveText("carol@example.edu");
+		// The name over the address, the name in body text and the address muted.
+		const [nameBox, addressBox] = [
+			await name.boundingBox(),
+			await address.boundingBox(),
+		];
+		if (!nameBox || !addressBox) throw new Error("the menu label has no box");
+		expect(addressBox.y).toBeGreaterThanOrEqual(nameBox.y + nameBox.height - 1);
+		const look = (el: Element) => ({
+			size: getComputedStyle(el).fontSize,
+			color: getComputedStyle(el).color,
+		});
+		const [nameLook, addressLook] = [
+			await name.evaluate(look),
+			await address.evaluate(look),
+		];
+		expect(nameLook.size).toBe("14px");
+		expect(addressLook.size).toBe("12px");
+		expect(nameLook.color).not.toBe(addressLook.color);
+		await expectNoViolations(page, '[role="menu"]');
+		await page.keyboard.press("Escape");
+		await expect(me).toBeFocused();
+	});
+}

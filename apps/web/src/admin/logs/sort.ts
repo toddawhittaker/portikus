@@ -35,10 +35,11 @@ const SEVERITY: Record<string, number> = {
 	fatal: 4,
 };
 
-function key(line: LogLine, column: LogColumn): string | number | null {
+function key(
+	line: LogLine,
+	column: Exclude<LogColumn, "time">,
+): string | number | null {
 	switch (column) {
-		case "time":
-			return Date.parse(line.at);
 		case "level":
 			return SEVERITY[field(line.line, "level")] ?? null;
 		case "service":
@@ -54,11 +55,17 @@ function key(line: LogLine, column: LogColumn): string | number | null {
 
 /**
  * The loaded lines in the table's order. Only what is loaded is sorted, so
- * the caption says so; ties keep the journal's newest-first order.
+ * the caption says so; ties keep the journal's newest-first order. Time
+ * follows the journal itself, so lines in the same millisecond keep their
+ * order and simply reverse for oldest first.
  */
 export function sortLogLines(
 	lines: readonly LogLine[],
 	sort: SortState<LogColumn>,
 ): LogLine[] {
-	return sortRows(lines, (line) => key(line, sort.column), sort.direction);
+	if (sort.column === "time") {
+		return sort.direction === "descending" ? [...lines] : [...lines].reverse();
+	}
+	const column = sort.column;
+	return sortRows(lines, (line) => key(line, column), sort.direction);
 }

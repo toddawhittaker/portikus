@@ -14,8 +14,9 @@ import { AdminSection } from "./AdminSection.js";
 import { AddDexUser } from "./DexUserDialogs.js";
 import { ROLE_FILTERS, sortAccounts } from "./markers.js";
 import { useAdminUsers } from "./queries.js";
+import { SortAnnouncement, useAnnouncedSort } from "./table/announce.js";
 import { SortHeader } from "./table/SortHeader.js";
-import { type SortState, sortText } from "./table/sort.js";
+import { sortText } from "./table/sort.js";
 import { accountMenuTestId } from "./users/AccountMenu.js";
 import { AccountRow, rowButtonId } from "./users/AccountRow.js";
 import {
@@ -32,7 +33,6 @@ import {
 } from "./users/filters.js";
 import {
 	ACCOUNT_COLUMN_LABEL,
-	type AccountColumn,
 	DEFAULT_ACCOUNT_SORT,
 	sortAccountRows,
 } from "./users/sort.js";
@@ -50,7 +50,10 @@ const ROLE_OPTION: Record<(typeof ROLE_FILTERS)[number], string> = {
 export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 	const users = useAdminUsers();
 	const [filters, setFilters] = useState<AccountFilters>(NO_FILTERS);
-	const [sort, setSort] = useState<SortState<AccountColumn>>(DEFAULT_ACCOUNT_SORT);
+	const { sort, setSort, announcement } = useAnnouncedSort(
+		DEFAULT_ACCOUNT_SORT,
+		ACCOUNT_COLUMN_LABEL,
+	);
 	// The Health tab's resource guard list links here with ?user= (ADR 0032).
 	const search = useSearch({ strict: false }) as { user?: string };
 	const [selectedId, setSelectedId] = useState<string | null>(search.user ?? null);
@@ -347,6 +350,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					/>
 				) : null}
 			</div>
+			<SortAnnouncement text={announcement} testId="admin-sort-announce" />
 		</AdminSection>
 	);
 }

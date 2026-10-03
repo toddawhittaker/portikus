@@ -176,13 +176,19 @@ button.pk-statusbar-item:focus-visible {
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset);
 }
-/* The account menu's address: cut with an ellipsis rather than widening the menu. */
-.pk-account-email {
+/* The account menu's name and address: cut with an ellipsis rather than widening the menu. */
+.pk-account-line {
 	display: block;
 	max-inline-size: 18rem;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+/* The name reads at the menu items' body size; the address stays the label's muted small text. */
+.pk-account-line--name {
+	color: var(--ink);
+	font-size: 14px;
+	line-height: 20px;
 }
 .pk-notification-list {
 	margin: 0;

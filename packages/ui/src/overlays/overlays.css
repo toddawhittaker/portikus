@@ -47,7 +47,8 @@
 .pk-menu-subtrigger[data-state="open"] {
 	background: var(--surface-hover);
 }
-.pk-menu-item[data-disabled] {
+.pk-menu-item[data-disabled],
+.pk-menu-item[aria-disabled="true"] {
 	color: var(--ink-faint);
 }
 .pk-menu-item--danger {

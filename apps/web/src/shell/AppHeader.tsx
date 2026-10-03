@@ -210,10 +210,20 @@ export function AppHeader({
 					</MenuTrigger>
 					<Menu label="Account">
 						<MenuLabel>
-							{/* A long address is cut, not allowed to widen the menu. */}
-							<span className="pk-account-email" title={user.email ?? user.displayName}>
-								{user.email ?? user.displayName}
+							{/* The name first: a narrow bar shows only the picture. A long name
+							    or address is cut, not allowed to widen the menu. */}
+							<span
+								className="pk-account-line pk-account-line--name"
+								title={user.displayName}
+								data-testid="account-menu-name"
+							>
+								{user.displayName}
 							</span>
+							{user.email ? (
+								<span className="pk-account-line" title={user.email}>
+									{user.email}
+								</span>
+							) : null}
 						</MenuLabel>
 						<MenuSeparator />
 						{user.role === "administrator" && workspaceId ? (

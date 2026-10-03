@@ -216,21 +216,31 @@ export function BulkActions({
 		void client.invalidateQueries({ queryKey: ["admin"] });
 	}
 
+	const countText = rows.length > 0 ? "" : rowCount;
+
 	return (
 		<>
 			{/* One block, so an empty result adds no gap above the table. */}
 			<div className="flex flex-col">
 				<div
-					className="flex min-h-[var(--pk-control)] items-center"
+					className="relative flex min-h-[var(--pk-control)] flex-wrap items-center gap-x-3"
 					data-testid="admin-table-toolbar"
 				>
+					{/* Always mounted, so each new count is announced; out of the flow while
+					    empty, so it adds no gap before the hint. */}
 					<span
-						className="pk-text-compact pk-muted"
+						className={countText ? "pk-text-compact pk-muted" : "sr-only"}
 						role="status"
 						data-testid="admin-row-count"
 					>
-						{rows.length > 0 ? "" : rowCount}
+						{countText}
 					</span>
+					{rows.length === 0 ? (
+						// The row the bulk buttons take once something is ticked says so meanwhile.
+						<span className="pk-text-compact pk-muted" data-testid="bulk-hint">
+							Select accounts to act on several at once.
+						</span>
+					) : null}
 					{rows.length > 0 ? (
 						<fieldset
 							className="m-0 flex min-w-0 flex-wrap items-center gap-2 border-0 p-0"

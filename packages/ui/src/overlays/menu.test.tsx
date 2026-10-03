@@ -74,6 +74,29 @@ describe("Menu", () => {
 		expect(onSelect).not.toHaveBeenCalled();
 	});
 
+	it("keeps an unavailable item reachable but does not select it", () => {
+		const onSelect = vi.fn();
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="Workspace actions">
+					<MenuItem unavailable onSelect={onSelect}>
+						Stop
+					</MenuItem>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.pointerDown(screen.getByText("Actions"), { button: 0 });
+
+		const item = screen.getByRole("menuitem", { name: "Stop" });
+		expect(item.getAttribute("aria-disabled")).toBe("true");
+		// Not Radix's disabled, which the arrow keys skip.
+		expect(item.hasAttribute("data-disabled")).toBe(false);
+		fireEvent.click(item);
+		expect(onSelect).not.toHaveBeenCalled();
+		expect(screen.getByRole("menu")).toBeTruthy();
+	});
+
 	it("renders a download item as a link that saves under a name", () => {
 		render(<Fixture onSelect={vi.fn()} />);
 		fireEvent.pointerDown(screen.getByText("Actions"), { button: 0 });
