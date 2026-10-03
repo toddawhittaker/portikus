@@ -41,6 +41,20 @@ async function shown() {
 	return screen.findByTestId("egress-tab");
 }
 
+/** The mode card's one-line summary under its heading. */
+function modeSummary(): string {
+	const card = screen.getByRole("region", { name: "Internet access from workspaces" });
+	return within(card).getByText(/Workspaces can reach/).textContent ?? "";
+}
+
+/** The allow-list group's description, which says whether the group is in use. */
+function allowListNote(): string {
+	const group = screen.getByRole("region", { name: "Allow-list" });
+	return (
+		group.querySelector("h3")?.parentElement?.nextElementSibling?.textContent ?? ""
+	);
+}
+
 test("shows a skeleton, then the policy and its applied status", async () => {
 	stubEgress(egressView());
 	renderWithQuery(<NetworkTab />);
@@ -50,25 +64,23 @@ test("shows a skeleton, then the policy and its applied status", async () => {
 	expect(
 		screen.getByTestId("egress-mode-allow-list").getAttribute("aria-pressed"),
 	).toBe("true");
-	expect(screen.queryByTestId("egress-open-note")).toBeNull();
+	expect(allowListNote()).toBe(
+		"Workspaces reach only what these allow, on the ports below.",
+	);
 });
 
 test("the mode summary is stated as fact only once the policy is applied", async () => {
 	stubEgress(egressView());
 	renderWithQuery(<NetworkTab />);
 	await shown();
-	expect(screen.getByTestId("egress-mode-summary").textContent).toMatch(
-		/^Workspaces can reach only/,
-	);
+	expect(modeSummary()).toMatch(/^Workspaces can reach only/);
 	cleanup();
 	stubEgress(
 		egressView({ apply: { appliedVersion: 2, appliedAt: null, error: null } }),
 	);
 	renderWithQuery(<NetworkTab />);
 	await shown();
-	expect(screen.getByTestId("egress-mode-summary").textContent).toMatch(
-		/^Saved setting: Workspaces can reach only/,
-	);
+	expect(modeSummary()).toMatch(/^Saved setting: Workspaces can reach only/);
 	cleanup();
 	stubEgress(
 		egressView({
@@ -77,9 +89,7 @@ test("the mode summary is stated as fact only once the policy is applied", async
 	);
 	renderWithQuery(<NetworkTab />);
 	await shown();
-	expect(screen.getByTestId("egress-mode-summary").textContent).toMatch(
-		/^Saved setting: /,
-	);
+	expect(modeSummary()).toMatch(/^Saved setting: /);
 });
 
 test("the tab opens with its intro and explains each part in a toggletip", async () => {
@@ -98,11 +108,50 @@ test("the tab opens with its intro and explains each part in a toggletip", async
 		"About apply status",
 		"About ranges",
 		"About refused names",
+		"About blocked sites",
 	]) {
 		expect(screen.getByRole("button", { name })).toBeDefined();
 	}
 	fireEvent.click(screen.getByRole("button", { name: "About ranges" }));
 	expect(openToggletip().textContent).toContain("It cannot overlap a private network");
+});
+
+test("every group is a section named by its h3, and the allow-list parts are h4s inside one group", async () => {
+	stubEgress(egressView({ mode: "open" }));
+	renderWithQuery(<NetworkTab />);
+	await shown();
+	const groups = screen.getAllByRole("heading", { level: 3 });
+	expect(groups.map((h) => h.textContent)).toEqual([
+		"Internet access from workspaces",
+		"Blocked sites",
+		"Allow-list",
+		"Test a host",
+		"Refused names",
+	]);
+	for (const heading of groups) {
+		const section = heading.closest("section");
+		expect(section?.getAttribute("aria-labelledby")).toBe(heading.id);
+		expect(section?.className).toContain("pk-card");
+	}
+	const allowList = screen.getByRole("region", { name: "Allow-list" });
+	expect(
+		within(allowList)
+			.getAllByRole("heading", { level: 4 })
+			.map((h) => h.textContent),
+	).toEqual(["Presets", "Your hosts and ranges", "Ports"]);
+	for (const name of ["Presets", "Your hosts and ranges", "Ports"]) {
+		expect(within(allowList).getByRole("region", { name })).toBeDefined();
+	}
+});
+
+test("a preset row shows its state with the checkbox alone", async () => {
+	stubEgress(egressView({ presets: ["github"] }));
+	renderWithQuery(<NetworkTab />);
+	await shown();
+	const row = screen.getByTestId("egress-preset-github");
+	expect(within(row).getByRole("checkbox")).toHaveProperty("checked", true);
+	expect(row.className).not.toMatch(/accent|border /);
+	expect(row.querySelector("summary")?.textContent).toBe("GitHub: 3 sites");
 });
 
 test("a read failure is shown with a way to try again", async () => {
@@ -125,7 +174,9 @@ test("switching mode asks first; cancel writes nothing and confirm saves", async
 	const calls = stubEgress(egressView({ mode: "open" }));
 	renderWithQuery(<NetworkTab />);
 	await shown();
-	expect(screen.getByTestId("egress-open-note")).toBeDefined();
+	expect(allowListNote()).toBe(
+		"Open mode is on, so these are not used. You can prepare them before you switch.",
+	);
 
 	fireEvent.click(screen.getByTestId("egress-mode-allow-list"));
 	const dialog = await screen.findByTestId("egress-mode-dialog");
@@ -413,25 +464,26 @@ describe("blocked sites (ADR 0043)", () => {
 		]);
 		expect(rows[0]?.textContent).not.toContain("default");
 		expect(screen.getByText(/2 of 500 used/)).toBeDefined();
-		expect(screen.getByTestId("egress-block-note").textContent).toContain(
-			"QUIC is dropped",
-		);
+		// How blocking works sits behind the heading's toggletip, not above the table.
+		expect(screen.queryByTestId("egress-block-note")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "About blocked sites" }));
+		expect(openToggletip().textContent).toContain("QUIC is dropped");
 	});
 
-	test("comes first in open mode and after Ports in allow-list mode", async () => {
+	test("comes before the allow-list group in open mode and after it in allow-list mode", async () => {
 		const headings = () =>
 			screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
 		stubEgress(egressView({ mode: "open" }));
 		renderWithQuery(<NetworkTab />);
 		await shown();
 		const open = headings();
-		expect(open.indexOf("Blocked sites")).toBeLessThan(open.indexOf("Presets"));
+		expect(open.indexOf("Blocked sites")).toBe(open.indexOf("Allow-list") - 1);
 		cleanup();
 		stubEgress(egressView());
 		renderWithQuery(<NetworkTab />);
 		await shown();
 		const allow = headings();
-		expect(allow.indexOf("Blocked sites")).toBe(allow.indexOf("Ports") + 1);
+		expect(allow.indexOf("Blocked sites")).toBe(allow.indexOf("Allow-list") + 1);
 	});
 
 	test("allow-list mode says the list is not used", async () => {

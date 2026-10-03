@@ -1,13 +1,14 @@
 import { type AdminEgressView, EGRESS_DEFAULT_PORTS } from "@portikus/contracts";
-import { Button, TextField, useToast } from "@portikus/ui";
+import { Button, FIELD_CLASS, LABEL_CLASS, TextField, useToast } from "@portikus/ui";
 import { useState } from "react";
 import { announced } from "../../common/announced.js";
 import { joinWords } from "../../text.js";
+import { Part } from "./Part.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 import { parsePorts } from "./text.js";
 
 /** The TCP ports a listed host may be reached on in allow-list mode. */
-export function PortsCard({ view }: { view: AdminEgressView }) {
+export function PortsPart({ view }: { view: AdminEgressView }) {
 	const write = useEgressWrite();
 	const toast = useToast();
 	const [draft, setDraft] = useState<string | null>(null);
@@ -34,26 +35,23 @@ export function PortsCard({ view }: { view: AdminEgressView }) {
 	}
 
 	return (
-		<section className="pk-card p-6" aria-labelledby="egress-ports-title">
-			<h3 className="pk-text-heading m-0" id="egress-ports-title">
-				Ports
-			</h3>
-			<p className="pk-text-body pk-muted mt-1 mb-0">
-				In allow-list mode, listed sites are reached only on these ports. The default,{" "}
-				{joinWords(EGRESS_DEFAULT_PORTS.map(String))}, covers SSH, web and secure web.
-			</p>
+		<Part
+			id="egress-ports-title"
+			title="Ports"
+			description={`In allow-list mode, listed sites are reached only on these ports. The default, ${joinWords(EGRESS_DEFAULT_PORTS.map(String))}, covers SSH, web and secure web. Separate ports with commas.`}
+		>
 			<form
-				className="mt-4 flex flex-wrap items-start gap-3"
+				className="flex flex-wrap items-start gap-3"
 				onSubmit={(event) => {
 					event.preventDefault();
 					save();
 				}}
 			>
+				{/* A short field whose error may run on under Save rather than wrap in 16ch. */}
 				<TextField
 					id="egress-ports"
-					className="w-64"
+					className="w-[16ch] grid-cols-[minmax(0,1fr)] [&_.pk-error]:w-max [&_.pk-error]:max-w-[min(60ch,100cqi)]"
 					label="Allowed ports"
-					hint="Separate them with commas."
 					mono
 					autoComplete="off"
 					data-testid="egress-ports"
@@ -61,16 +59,20 @@ export function PortsCard({ view }: { view: AdminEgressView }) {
 					error={announced(error)}
 					onChange={(event) => setDraft(event.target.value)}
 				/>
-				<Button
-					type="submit"
-					variant="primary"
-					className="mt-[23px]"
-					data-testid="egress-ports-save"
-					loading={write.isPending}
-				>
-					Save
-				</Button>
+				{/* An empty label row, so Save lines up with the input whatever shows under it. */}
+				<div className={FIELD_CLASS}>
+					<span className={LABEL_CLASS} aria-hidden={true}>
+						&nbsp;
+					</span>
+					<Button
+						type="submit"
+						data-testid="egress-ports-save"
+						loading={write.isPending}
+					>
+						Save ports
+					</Button>
+				</div>
 			</form>
-		</section>
+		</Part>
 	);
 }

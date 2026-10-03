@@ -5,6 +5,7 @@ import {
 } from "@portikus/contracts";
 import { Button, Icon, TextField } from "@portikus/ui";
 import { useState } from "react";
+import { AdminGroup } from "../AdminSection.js";
 import { hostFromInput, verdictText } from "./text.js";
 
 /**
@@ -26,15 +27,13 @@ export function TestHostCard({
 		host === null ? null : explainHost(view, host);
 
 	return (
-		<section className="pk-card p-6" aria-labelledby="egress-test-title">
-			<h3 className="pk-text-heading m-0" id="egress-test-title" tabIndex={-1}>
-				Test a host
-			</h3>
-			<p className="pk-text-body pk-muted mt-1 mb-0">
-				Check whether workspaces could reach a site, and why.
-			</p>
+		<AdminGroup
+			id="egress-test-title"
+			title="Test a host"
+			description="Check whether workspaces could reach a site, and why."
+		>
 			<form
-				className="mt-4 flex items-start gap-2"
+				className="flex items-end gap-2"
 				onSubmit={(event) => {
 					event.preventDefault();
 					setTested(input);
@@ -52,14 +51,19 @@ export function TestHostCard({
 					value={input}
 					onChange={(event) => setInput(event.target.value)}
 				/>
-				<Button type="submit" className="mt-[23px]" data-testid="egress-test-run">
+				<Button type="submit" data-testid="egress-test-run">
 					Test
 				</Button>
 			</form>
-			<div role="status" data-testid="egress-test-result-region">
+			{/* While empty, the always-present live region takes back the grid gap it adds. */}
+			<div
+				role="status"
+				data-testid="egress-test-result-region"
+				className="empty:-mt-5"
+			>
 				{host !== null && answer ? (
 					<div
-						className={`mt-3 flex items-start gap-2 rounded-sm px-3 py-2 text-[13px] ${
+						className={`flex items-start gap-2 rounded-sm px-3 py-2 text-[13px] ${
 							answer.allowed ? "bg-status-running-soft" : "bg-surface-sunken"
 						}`}
 						data-testid="egress-test-result"
@@ -88,6 +92,6 @@ export function TestHostCard({
 					</div>
 				) : null}
 			</div>
-		</section>
+		</AdminGroup>
 	);
 }

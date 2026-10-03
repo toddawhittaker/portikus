@@ -400,7 +400,11 @@ test("blocked sites are added, edited and removed, and Test a host explains them
 	).toBeFocused();
 	await expect(games).toContainText("Games site");
 
-	await expect(card.getByTestId("egress-block-note")).toContainText("QUIC is dropped");
+	// How blocking works is behind the heading's toggletip, not above the table.
+	await expect(card.getByTestId("egress-block-note")).toHaveCount(0);
+	await card.getByRole("button", { name: "About blocked sites" }).click();
+	await expect(openToggletip(page)).toContainText("QUIC is dropped");
+	await page.keyboard.press("Escape");
 
 	// Removing asks first; focus lands on the card heading.
 	await card.getByRole("button", { name: `Remove games.${SUFFIX}` }).click();
@@ -456,9 +460,11 @@ test("an unused empty block list collapses, and an unapplied mode is called the 
 		});
 	});
 	await open(page);
-	await expect(page.getByTestId("egress-mode-summary")).toHaveText(
-		/^Saved setting: Workspaces can reach only/,
-	);
+	await expect(
+		page
+			.getByRole("region", { name: "Internet access from workspaces" })
+			.getByText(/^Saved setting: Workspaces can reach only/),
+	).toBeVisible();
 	const card = page.getByRole("region", { name: "Blocked sites" });
 	await expect(card.getByRole("table")).toHaveCount(0);
 	await expect(card.getByText(/of \d+ used/)).toHaveCount(0);
@@ -473,4 +479,33 @@ test("an unused empty block list collapses, and an unapplied mode is called the 
 	await page.keyboard.press("Escape");
 	// Short: the heading row and one line, not an empty state.
 	expect((await card.boundingBox())?.height ?? 999).toBeLessThan(160);
+});
+
+test("the groups follow the tab's width, and the host test stays in view beside the lists", async ({
+	page,
+}) => {
+	await reset("allow-list");
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await open(page);
+	const allowList = page.getByRole("region", { name: "Allow-list" });
+	const side = page.getByTestId("egress-side");
+	// Wide: the lists on the left, Test a host and Refused names on the right.
+	const left = await allowList.boundingBox();
+	const right = await side.boundingBox();
+	expect(right?.x ?? 0).toBeGreaterThan((left?.x ?? 0) + (left?.width ?? 0));
+	// Scrolled to the end, the side column is still on screen.
+	await page.locator("main").evaluate((main) => {
+		main.scrollTop = main.scrollHeight;
+	});
+	await expect(page.getByRole("heading", { name: "Test a host" })).toBeInViewport();
+
+	// Narrower: one column, Test a host under the lists.
+	await page.setViewportSize({ width: 1024, height: 900 });
+	await expect
+		.poll(async () => (await side.boundingBox())?.x)
+		.toBe((await allowList.boundingBox())?.x);
+	const allowBox = await allowList.boundingBox();
+	expect((await side.boundingBox())?.y ?? 0).toBeGreaterThan(
+		(allowBox?.y ?? 0) + (allowBox?.height ?? 0),
+	);
 });

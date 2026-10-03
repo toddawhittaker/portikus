@@ -135,12 +135,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
 		await page.goto("/admin/network");
-		await expect(page.getByTestId("egress-mode-summary")).toHaveText(
-			/^Saved setting:/,
-			{
-				timeout: 15_000,
-			},
-		);
+		await expect(
+			page
+				.getByRole("region", { name: "Internet access from workspaces" })
+				.getByText(/^Saved setting:/),
+		).toBeVisible({ timeout: 15_000 });
 		await expectNoViolations(page);
 		// The tab keeps polling; a poll still in the handler when the page closes
 		// would fail the test with "Response has been disposed".

@@ -1,9 +1,10 @@
 import type { AdminEgressView, EgressPresetId } from "@portikus/contracts";
 import { Checkbox, useToast } from "@portikus/ui";
+import { Part } from "./Part.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 
 /** One-click presets; each covers its hosts and their subdomains (SPEC.md section 20.1). */
-export function PresetsCard({ view }: { view: AdminEgressView }) {
+export function PresetsPart({ view }: { view: AdminEgressView }) {
 	const write = useEgressWrite();
 	const toast = useToast();
 
@@ -27,41 +28,37 @@ export function PresetsCard({ view }: { view: AdminEgressView }) {
 	}
 
 	return (
-		<section className="pk-card p-6" aria-labelledby="egress-presets-title">
-			<h3 className="pk-text-heading m-0" id="egress-presets-title">
-				Presets
-			</h3>
-			<p className="pk-text-body pk-muted mt-1 mb-0">
-				Turn on the services your courses use. Each covers the listed sites and every
-				name under them.
-			</p>
+		<Part
+			id="egress-presets-title"
+			title="Presets"
+			description="Turn on the services your courses use. Each covers the listed sites and every name under them."
+		>
 			{write.isError ? (
-				<p className="m-0 mt-3 text-[13px] text-status-error" role="alert">
+				<p className="m-0 text-[13px] text-status-error" role="alert">
 					{egressErrorText(write.error)}
 				</p>
 			) : null}
-			<ul className="m-0 mt-4 grid list-none grid-cols-[repeat(auto-fill,minmax(240px,1fr))] items-start gap-3 p-0">
+			<ul className="m-0 list-none divide-y divide-line border-y border-line p-0">
 				{view.presetCatalog.map((preset) => {
 					const on = view.presets.includes(preset.id);
 					return (
 						<li
 							key={preset.id}
-							className={`rounded-md border p-3 ${
-								on ? "border-accent bg-accent-soft" : "border-line bg-surface"
-							}`}
+							className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 py-2"
 							data-testid={`egress-preset-${preset.id}`}
 							data-on={on}
 						>
 							<Checkbox
-								label={<span className="font-semibold">{preset.label}</span>}
+								className="min-w-0"
+								label={preset.label}
 								checked={on}
 								ariaDisabled={write.isPending}
 								onChange={(event) =>
 									toggle(preset.id, preset.label, event.target.checked)
 								}
 							/>
-							<details className="mt-2 ml-6 text-[12px]">
-								<summary className="pk-focus-ring w-fit cursor-pointer rounded-xs text-ink-muted">
+							<details className="text-right text-[12px]">
+								<summary className="pk-focus-ring ml-auto w-fit cursor-pointer rounded-xs text-ink-muted">
 									<span className="sr-only">{preset.label}: </span>
 									{preset.hosts.length === 1
 										? "1 site"
@@ -69,7 +66,9 @@ export function PresetsCard({ view }: { view: AdminEgressView }) {
 								</summary>
 								<ul className="m-0 mt-1 list-none p-0 font-mono text-ink">
 									{preset.hosts.map((host) => (
-										<li key={host}>{host}</li>
+										<li key={host} className="[overflow-wrap:anywhere]">
+											{host}
+										</li>
 									))}
 								</ul>
 							</details>
@@ -77,6 +76,6 @@ export function PresetsCard({ view }: { view: AdminEgressView }) {
 					);
 				})}
 			</ul>
-		</section>
+		</Part>
 	);
 }
