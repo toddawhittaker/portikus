@@ -3081,6 +3081,50 @@ describe("the caller's deadline on lifecycle calls", () => {
 		expect(state.status).toBe("Stopped");
 	});
 
+	test("a start whose caller left after the start request still finishes its setup", async () => {
+		const state = fakeIncus();
+		const ca = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ca-")), "ca.crt");
+		fs.writeFileSync(ca, "CERT\n");
+		const { logger, lines } = collectingLogger();
+		const own = new IncusWorkspaceProvider({
+			client: new IncusClient({ socketPath, project: "testproj" }),
+			pool: "mypool",
+			profile: "workspace",
+			imageAlias: "portikus",
+			agentPort,
+			thinPoolStatusPath: statusPath,
+			ghcrCaPath: ca,
+			logger,
+		});
+		serveIncus(state);
+		const ac = new AbortController();
+		const spy = abortAt(
+			ac,
+			(m, p) => m === "PUT" && p === "/1.0/instances/ws-test/state",
+		);
+		const before = agentRequests;
+		const result = await own.start(
+			"ws-test",
+			{ ...START, recoveryGiB: 3, docker: { hubMirror: true, ghcr: true } },
+			ac.signal,
+		);
+		spy.mockRestore();
+		expect(ac.signal.aborted).toBe(true);
+		expect(result.ipv4).toBe("127.0.0.1");
+		expect(state.execs.some((c) => c.includes("/etc/localtime"))).toBe(true);
+		expect(state.files.get("/etc/hosts")?.content).toMatch(/ ghcr\.io /);
+		expect(state.execs).toContainEqual([
+			"chown",
+			"1000:1000",
+			"/var/lib/portikus/recovery",
+		]);
+		expect(state.execs).toContainEqual(["chmod", "0700", "/var/lib/portikus/recovery"]);
+		expect(agentRequests).toBeGreaterThan(before);
+		expect(lines.some((l) => String(l.msg).includes("after the caller left"))).toBe(
+			true,
+		);
+	});
+
 	test("a start aborted during the Docker settings writes nothing more and never starts", async () => {
 		const state = fakeIncus();
 		const { logger, lines } = collectingLogger();

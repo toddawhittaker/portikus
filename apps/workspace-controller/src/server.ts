@@ -105,17 +105,18 @@ export function callerSignal(
 			? Math.min(header, fallbackMs)
 			: fallbackMs;
 	const controller = new AbortController();
-	const timer = setTimeout(
-		() =>
-			controller.abort(new IncusError("TIMEOUT", "the caller's time budget ran out")),
-		budgetMs,
-	);
+	// Fastify logs only on reply, so an operator would otherwise not see why work stopped.
+	const abort = (why: string) => {
+		if (controller.signal.aborted) return;
+		const instance = (request.params as { name?: string } | undefined)?.name;
+		request.log.info({ route: request.routeOptions?.url, instance }, why);
+		controller.abort(new IncusError("TIMEOUT", why));
+	};
+	const timer = setTimeout(() => abort("caller budget ran out"), budgetMs);
 	timer.unref();
 	reply.raw.once("close", () => {
 		clearTimeout(timer);
-		if (!reply.raw.writableEnded) {
-			controller.abort(new IncusError("TIMEOUT", "the caller hung up"));
-		}
+		if (!reply.raw.writableEnded) abort("caller hung up");
 	});
 	return controller.signal;
 }

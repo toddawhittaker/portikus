@@ -213,12 +213,50 @@ test("the processes read gets the caller's signal", async () => {
 
 function fakeExchange(headers: Record<string, string>) {
 	const raw = Object.assign(new EventEmitter(), { writableEnded: false });
+	const info = vi.fn();
 	return {
-		request: { headers } as unknown as FastifyRequest,
+		request: {
+			headers,
+			params: { name: "ws-abc" },
+			routeOptions: { url: "/instances/:name/start" },
+			log: { info },
+		} as unknown as FastifyRequest,
 		reply: { raw } as unknown as FastifyReply,
 		raw,
+		info,
 	};
 }
+
+test("a caller hanging up logs one info line naming the route and instance", () => {
+	const { request, reply, raw, info } = fakeExchange({});
+	const signal = callerSignal(request, reply, 30_000);
+	raw.emit("close");
+	expect(signal.aborted).toBe(true);
+	expect(info).toHaveBeenCalledTimes(1);
+	expect(info).toHaveBeenCalledWith(
+		{ route: "/instances/:name/start", instance: "ws-abc" },
+		"caller hung up",
+	);
+});
+
+test("a caller budget running out logs one info line", () => {
+	vi.useFakeTimers();
+	try {
+		const { request, reply, raw, info } = fakeExchange({
+			[CONTROLLER_BUDGET_HEADER]: "1000",
+		});
+		callerSignal(request, reply, 30_000);
+		vi.advanceTimersByTime(1000);
+		raw.emit("close");
+		expect(info).toHaveBeenCalledTimes(1);
+		expect(info).toHaveBeenCalledWith(
+			{ route: "/instances/:name/start", instance: "ws-abc" },
+			"caller budget ran out",
+		);
+	} finally {
+		vi.useRealTimers();
+	}
+});
 
 test("without a budget header the signal falls back to the given budget", () => {
 	vi.useFakeTimers();
