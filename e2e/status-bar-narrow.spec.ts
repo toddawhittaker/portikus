@@ -172,6 +172,9 @@ for (const scheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme: scheme });
 		await page.setViewportSize({ width: 560, height: 720 });
 		await openAdmin(page);
+		// One row, so the scan's cost does not grow with the accounts the run has made.
+		await page.getByTestId("admin-filter-text").fill("carol@example.edu");
+		await expect(page.getByTestId("admin-accounts").locator("tbody tr")).toHaveCount(1);
 		await page.screenshot({ path: `screenshots/admin-560-${scheme}.png` });
 		await expectNoViolations(page);
 	});
