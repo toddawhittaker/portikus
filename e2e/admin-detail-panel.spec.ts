@@ -4,6 +4,7 @@ import { backupSet, hostStatus } from "./backup-channel";
 import {
 	createStudent,
 	expectNoViolations,
+	finishOperation,
 	loginAs,
 	MOCK_ISSUER,
 	openToggletip,
@@ -497,5 +498,82 @@ for (const scheme of ["light", "dark"] as const) {
 		await panel.getByRole("button", { name: "About Rebuild workspace" }).click();
 		await expect(openToggletip(page)).toBeVisible();
 		await expectNoViolations(page);
+	});
+}
+
+// The Users view watches operations, so the end is announced with the panel gone.
+for (const { how, endAction, ok, message } of [
+	{
+		how: "closed",
+		endAction: "workspace.rebuilt",
+		ok: true,
+		message: "Rebuild of {name}'s workspace finished",
+	},
+	{
+		how: "switched to another account",
+		endAction: "workspace.docker_reset_failed",
+		ok: false,
+		message: "Docker reset of {name}'s workspace failed",
+	},
+]) {
+	test(`an operation that ends after its panel is ${how} is still announced, once`, async ({
+		page,
+		browser,
+	}) => {
+		const tag = crypto.randomUUID().slice(0, 8);
+		const student = await namedStudent(browser, `Ends ${tag}`);
+		const other = await namedStudent(browser, `Ends ${tag}`);
+		await query("update workspaces set pending_operation = $2 where id = $1", [
+			student.workspaceId,
+			ok ? "rebuild" : "reset-docker",
+		]);
+		const panel = await openPanel(page, student.name);
+		await expect(panel.getByTestId("pending-operation")).toBeVisible();
+		const row = page.getByTestId(`account-row-${student.userId}`);
+		const badge = row.getByText(ok ? "Rebuilding…" : "Resetting Docker…");
+		await expect(badge).toBeVisible();
+		await expect(row.locator(".pk-spin")).toHaveCount(1);
+
+		if (how === "closed") {
+			await panel
+				.getByRole("button", { name: `Close details for ${student.name}` })
+				.click();
+		} else {
+			await page.getByTestId("admin-filter-text").fill(`Ends ${tag}`);
+			await page
+				.getByRole("button", { name: `Show details for ${other.name}` })
+				.click();
+			await expect(page.getByRole("region", { name: other.name })).toBeVisible();
+		}
+		await expect(panel).toHaveCount(0);
+		// Count every toast shown, since a success toast closes itself before a later poll.
+		await page.evaluate(() => {
+			const shown: string[] = [];
+			(window as unknown as { shownToasts: string[] }).shownToasts = shown;
+			new MutationObserver((changes) => {
+				for (const change of changes) {
+					for (const node of change.addedNodes) {
+						if (!(node instanceof HTMLElement)) continue;
+						const toasts = node.matches(".pk-toast")
+							? [node]
+							: [...node.querySelectorAll(".pk-toast")];
+						for (const added of toasts) shown.push(added.textContent ?? "");
+					}
+				}
+			}).observe(document.body, { childList: true, subtree: true });
+		});
+
+		await finishOperation(student.workspaceId, endAction, ok);
+		const title = message.replace("{name}", student.name);
+		const end = toast(page, title);
+		await expect(end).toBeVisible({ timeout: 15_000 });
+		await expect(end.getByRole(ok ? "status" : "alert")).toHaveCount(1);
+		await expect(badge).toHaveCount(0, { timeout: 15_000 });
+		// A later poll brings no second toast.
+		await page.waitForTimeout(6000);
+		const shown = await page.evaluate(
+			() => (window as unknown as { shownToasts: string[] }).shownToasts,
+		);
+		expect(shown.filter((text) => text.includes(title))).toHaveLength(1);
 	});
 }

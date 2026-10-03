@@ -33,11 +33,7 @@ import {
 	quotaPending,
 } from "./workspace-detail/ResourcesSection.js";
 import { NOT_AVAILABLE_TEXT, PANEL_HELP } from "./workspace-detail/shared.js";
-import {
-	capabilityNote,
-	operationOutcome,
-	outcomeToast,
-} from "./workspace-detail/WorkspaceSection.js";
+import { capabilityNote } from "./workspace-detail/WorkspaceSection.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -665,43 +661,6 @@ function auditEvent(
 	};
 }
 
-test("operationOutcome reads the newest rebuild or reset result after the watch began", () => {
-	const events = [
-		auditEvent(9, "workspace.rebuild_failed", { errorCode: "CONTROLLER_TIMEOUT" }),
-		auditEvent(8, "workspace.rebuild_requested"),
-		auditEvent(5, "workspace.docker_reset"),
-	];
-	expect(operationOutcome(events, 8)).toEqual({
-		rebuild: true,
-		ok: false,
-		errorCode: "CONTROLLER_TIMEOUT",
-	});
-	// Nothing after the watch began: the result is a poll away.
-	expect(operationOutcome(events, 9)).toBeNull();
-	// An older result is not this operation's.
-	expect(operationOutcome(events.slice(1), 5)).toBeNull();
-	expect(operationOutcome([auditEvent(6, "workspace.docker_reset")], 5)).toEqual({
-		rebuild: false,
-		ok: true,
-		errorCode: null,
-	});
-});
-
-test("outcomeToast says what finished or failed, and what to do next", () => {
-	expect(outcomeToast({ rebuild: true, ok: true, errorCode: null }, "Alice")).toEqual({
-		tone: "success",
-		title: "Rebuild of Alice's workspace finished",
-	});
-	expect(
-		outcomeToast({ rebuild: false, ok: false, errorCode: "INCUS_ERROR" }, "Alice"),
-	).toEqual({
-		tone: "danger",
-		title: "Docker reset of Alice's workspace failed",
-		children:
-			"The workspace is in error (INCUS_ERROR). Try again, or look for the error in the Logs tab.",
-	});
-});
-
 test.each([
 	["workspace.rebuilt", "Rebuild of Alice Example's workspace finished", "status"],
 	["workspace.rebuild_failed", "Rebuild of Alice Example's workspace failed", "alert"],
@@ -732,6 +691,8 @@ test.each([
 				return json(202, { ok: true });
 			}
 			if (url === `/admin/workspaces/${WORKSPACE.id}`) return json(200, body);
+			if (url.startsWith("/admin/audit?"))
+				return json(200, { events: body.recentAudit, nextBefore: null });
 			throw new Error(`unexpected request: ${url}`);
 		});
 		const panel = await openAlice();
@@ -770,6 +731,8 @@ test.each([
 
 		const toast = await screen.findByText(title, {}, { timeout: 8000 });
 		expect(toast.closest(`[role="${role}"]`)).not.toBeNull();
+		// The Users view announces it; the open panel does not add a second toast.
+		expect(screen.getAllByText(title)).toHaveLength(1);
 		expect(state.textContent).not.toBe("Rebuilding…");
 		await waitFor(() => expect(within(usersRow).queryByText("Rebuilding…")).toBeNull());
 	},

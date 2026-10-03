@@ -79,6 +79,11 @@ export interface StateBadgeProps {
 	/** False leaves out `role="status"`, so a long table is not many live regions. */
 	statusRole?: boolean;
 	label?: string;
+	/**
+	 * Shows the spinner whatever the state, for a pending operation such as a
+	 * rebuild, whose label says what is moving.
+	 */
+	moving?: boolean;
 	className?: string;
 }
 
@@ -89,27 +94,34 @@ export function StateBadge({
 	live,
 	statusRole = true,
 	label,
+	moving,
 	className,
 }: StateBadgeProps): React.ReactElement {
 	const resolved = resolveWorkspaceState(state, desiredState);
-	const glyph = resolved.moving ? (
-		<span className="pk-spin" aria-hidden={true} />
-	) : resolved.tone === "error" ? (
-		<Icon name="alert" size="sm" />
-	) : resolved.tone === "stopped" ? (
-		<span
-			className="pk-badge-ring box-border size-2 rounded-full border-[1.5px] border-current"
-			aria-hidden={true}
-		/>
-	) : (
-		<span className="pk-badge-dot size-2 rounded-full bg-current" aria-hidden={true} />
-	);
+	// A forced spinner takes a transition's tone, never error's or stopped's.
+	const tone = moving && !resolved.moving ? "starting" : resolved.tone;
+	const glyph =
+		moving || resolved.moving ? (
+			<span className="pk-spin" aria-hidden={true} />
+		) : tone === "error" ? (
+			<Icon name="alert" size="sm" />
+		) : tone === "stopped" ? (
+			<span
+				className="pk-badge-ring box-border size-2 rounded-full border-[1.5px] border-current"
+				aria-hidden={true}
+			/>
+		) : (
+			<span
+				className="pk-badge-dot size-2 rounded-full bg-current"
+				aria-hidden={true}
+			/>
+		);
 	return (
 		<span
 			className={cx(
 				"pk-badge inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-sm text-[12px] font-medium leading-4",
-				TONE_TEXT[resolved.tone],
-				plain ? "px-0" : cx(TONE_FILL[resolved.tone], "px-2"),
+				TONE_TEXT[tone],
+				plain ? "px-0" : cx(TONE_FILL[tone], "px-2"),
 				className,
 			)}
 			role={statusRole ? "status" : undefined}

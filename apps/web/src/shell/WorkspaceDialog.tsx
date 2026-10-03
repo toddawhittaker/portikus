@@ -268,6 +268,7 @@ function WorkspaceControls({
 						state={workspace.state}
 						desiredState={workspace.desiredState}
 						label={workspace.pendingOperation ? resolved?.label : undefined}
+						moving={workspace.pendingOperation !== null}
 						statusRole={false}
 					/>
 				</span>

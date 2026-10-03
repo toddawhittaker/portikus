@@ -711,6 +711,29 @@ export async function studentIn(
 	return { ...student, name };
 }
 
+/** Play the worker's end of an operation: clear it, then audit the result (ADR 0021). */
+export async function finishOperation(
+	workspaceId: string,
+	action: string,
+	ok: boolean,
+): Promise<void> {
+	await query(
+		`update workspaces set pending_operation = null, pending_operation_at = null,
+		 pending_operation_by = null, state = $2, error_code = $3 where id = $1`,
+		[workspaceId, ok ? "stopped" : "error", ok ? null : "CONTROLLER_TIMEOUT"],
+	);
+	await query(
+		`insert into audit_events (actor, target, action, result, metadata)
+		 values ('worker', $1, $2, $3, $4)`,
+		[
+			workspaceId,
+			action,
+			ok ? "ok" : "failed",
+			JSON.stringify(ok ? {} : { errorCode: "CONTROLLER_TIMEOUT" }),
+		],
+	);
+}
+
 /** Filter the admin table to a user and open their detail panel once a region shows. */
 export async function openDetail(page: Page, name: string, readyRegion: string) {
 	await page.getByTestId("admin-filter-text").fill(name);
