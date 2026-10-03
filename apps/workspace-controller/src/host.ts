@@ -202,6 +202,8 @@ export function parseIncusSize(size: unknown): number | null {
 
 /** On a seeded Docker volume: the GiB added for the seed, kept on top of the quota. */
 export const SEED_SHARE_KEY = "user.portikus.seed-gib";
+/** The seed volume's config key holding its `SeedInfo` as JSON. */
+export const SEED_INFO_KEY = "user.portikus.seed";
 
 /**
  * Grow a workspace's home and Docker volumes (SPEC.md §20.1). Both sizes are
@@ -222,12 +224,16 @@ export async function growVolumes(
 		{ volume: `${name}-home`, gib: sizes.homeGiB },
 		{ volume: `${name}-docker`, gib: sizes.dockerGiB },
 	];
-	const path = (volume: string) => volumePath(pool, volume);
 
 	const current: Array<number | null> = [];
 	for (const want of wanted) {
 		const { volume } = want;
-		const info = (await client.request("GET", path(volume), undefined, signal)) as {
+		const info = (await client.request(
+			"GET",
+			volumePath(pool, volume),
+			undefined,
+			signal,
+		)) as {
 			config?: Record<string, unknown>;
 		};
 		const share = Number(info.config?.[SEED_SHARE_KEY] ?? 0);
@@ -253,7 +259,7 @@ export async function growVolumes(
 		// PATCH merges into the volume's config, so its volatile keys survive.
 		await client.request(
 			"PATCH",
-			path(volume),
+			volumePath(pool, volume),
 			{ config: { size: `${gib}GiB` } },
 			signal,
 		);

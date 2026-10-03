@@ -8,7 +8,7 @@ import { errorMessage, type Logger, silentLogger } from "@portikus/observability
 import { IncusError } from "./incus.js";
 
 /**
- * The seed build. The provider does the Incus work;
+ * The seed build. IncusSeedBuilder (seed-builder.ts) does the Incus work;
  * this file holds the order of the steps and the one-build-at-a-time rule.
  */
 export interface SeedBuildHost {

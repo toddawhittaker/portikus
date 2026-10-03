@@ -3,7 +3,7 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { VolumeInUseError } from "./host.js";
+import { SEED_INFO_KEY, VolumeInUseError } from "./host.js";
 import { IncusClient } from "./incus.js";
 import {
 	incusError,
@@ -17,7 +17,6 @@ import {
 	IncusSeedBuilder,
 	SEED_BUILD_VOLUME,
 	SEED_BUILDER,
-	SEED_INFO_KEY,
 	SEED_OLD_VOLUME,
 } from "./seed-builder.js";
 

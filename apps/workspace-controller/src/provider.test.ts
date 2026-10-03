@@ -16,7 +16,7 @@ import {
 	vi,
 } from "vitest";
 import { type WebSocket, WebSocketServer } from "ws";
-import { VolumeInUseError } from "./host.js";
+import { SEED_INFO_KEY, VolumeInUseError } from "./host.js";
 import { IncusClient, IncusError } from "./incus.js";
 import {
 	incusError,
@@ -31,7 +31,6 @@ import {
 	InstanceNotStoppedError,
 	VOLUME_CREATE_TIMEOUT_MS,
 } from "./provider.js";
-import { SEED_INFO_KEY } from "./seed-builder.js";
 import { AGENT_HEALTH_TIMEOUT_MS } from "./start-setup.js";
 
 let socketPath: string;
