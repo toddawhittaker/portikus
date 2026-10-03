@@ -13,7 +13,6 @@ import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { shortTime } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
 import { WorkspaceStateBadge } from "../WorkspaceStateBadge.js";
-import { PackagesSection } from "./PackagesSection.js";
 import { useHealth } from "./queries.js";
 import { TrendsCard } from "./TrendsCard.js";
 
@@ -89,7 +88,6 @@ export function HealthTab() {
 					<Skeleton variant="block" height={280} />
 				</div>
 			)}
-			<PackagesSection />
 		</AdminSection>
 	);
 }
@@ -386,8 +384,9 @@ function GuardList({ guard }: { guard: HealthReport["guard"] }) {
 								<tr key={row.key}>
 									<td className="whitespace-normal py-1.5 align-top">
 										<Link
-											to="/admin"
-											search={{ tab: "workspaces", user: row.owner.id }}
+											to="/admin/$tab"
+											params={{ tab: "users" }}
+											search={{ user: row.owner.id }}
 											className="pk-link break-words"
 										>
 											{row.owner.displayName}

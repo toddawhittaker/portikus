@@ -21,12 +21,14 @@ import type {
 } from "@portikus/contracts";
 import {
 	AddedPackagesResponse as AddedPackagesResponseSchema,
+	CONTROLLER_BUDGET_HEADER,
 	ControllerError,
 	CreateInstanceResponse as CreateInstanceResponseSchema,
 	EGRESS_HELPER_TIMEOUT_MS,
 	EgressApplyStatus,
 	GrowVolumesResponse,
 	HostSnapshot,
+	INSTANCE_CREATE_BUDGET_MS,
 	INSTANCE_CREATE_WAIT_SECONDS,
 	InstanceProcessesResponse,
 	InstanceUsageResponse,
@@ -42,8 +44,8 @@ import {
 
 /** Time budgets for each call (ADR 0034), so a hung controller never hangs the worker. */
 const SHORT_BUDGET_MS = 30_000;
-/** The controller's instance create wait plus a 60 s margin. */
-export const CREATE_BUDGET_MS = INSTANCE_CREATE_WAIT_SECONDS * 1000 + 60_000;
+/** Resizing a workspace's volumes; the instance create wait plus a 60 s margin. */
+const GROW_BUDGET_MS = INSTANCE_CREATE_WAIT_SECONDS * 1000 + 60_000;
 const MAINTENANCE_BUDGET_MS = 15 * 60_000;
 /** The controller's egress helper wait plus 15 s margin. */
 export const EGRESS_BUDGET_MS = EGRESS_HELPER_TIMEOUT_MS + 15_000;
@@ -126,7 +128,12 @@ export class HttpControllerClient implements ControllerClient {
 	}
 
 	async create(req: CreateInstanceRequest): Promise<CreateInstanceResponse> {
-		const res = await this.request("POST", "/instances", req, CREATE_BUDGET_MS);
+		const res = await this.request(
+			"POST",
+			"/instances",
+			req,
+			INSTANCE_CREATE_BUDGET_MS,
+		);
 		return CreateInstanceResponseSchema.parse(res);
 	}
 
@@ -198,6 +205,7 @@ export class HttpControllerClient implements ControllerClient {
 					method,
 					headers: {
 						Authorization: `Bearer ${this.token}`,
+						[CONTROLLER_BUDGET_HEADER]: String(budgetMs),
 						...(body !== undefined ? { "Content-Type": "application/json" } : {}),
 					},
 					body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -253,7 +261,7 @@ export class HttpControllerClient implements ControllerClient {
 			"POST",
 			`/instances/${encodeURIComponent(name)}/volumes`,
 			req,
-			CREATE_BUDGET_MS,
+			GROW_BUDGET_MS,
 		);
 		return GrowVolumesResponse.parse(res);
 	}

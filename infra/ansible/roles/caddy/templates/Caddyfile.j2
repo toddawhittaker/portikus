@@ -192,10 +192,12 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	# the bundle; fetch, XHR, and WebSocket traffic keeps going to the API.
 	# A project download is the exception: the browser navigates to it as a
 	# document but the zip comes from the API.
-	# The administration screen lives at /admin and its data at /admin/*,
-	# so it needs the same split.  Caddy keeps handles with named matchers in
-	# the order written, so this one stays ahead of /workspaces* and @api.
-	@app_page expression `(path('/workspaces/*') || path('/admin') || path('/admin/')) && !path('*/download') && (header({'Sec-Fetch-Dest': 'document'}) || header({'Accept': 'text/html*'}))`
+	# The administration screen lives at /admin and /admin/<tab>, and its
+	# data at /admin/*, so it needs the same split.  Only one path segment
+	# after /admin is a screen; a download such as /admin/certificate/root.crt
+	# goes to the API.  Caddy keeps handles with named matchers in the order
+	# written, so this one stays ahead of /workspaces* and @api.
+	@app_page expression `(path('/workspaces/*') || path_regexp('^/admin(/[a-z]+)?/?$')) && !path('*/download') && (header({'Sec-Fetch-Dest': 'document'}) || header({'Accept': 'text/html*'}))`
 	handle @app_page {
 		root * /usr/lib/portikus/web
 		rewrite * /index.html

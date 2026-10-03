@@ -80,7 +80,7 @@ test("an administrator sets the idle time to 10 minutes in Settings", async ({
 	page,
 }) => {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=settings");
+	await page.goto("/admin/settings");
 	const input = page.getByTestId("idle-input");
 	await expect(input).toHaveValue(String(saved), { timeout: 15_000 });
 	await input.fill("10");

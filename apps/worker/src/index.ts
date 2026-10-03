@@ -21,6 +21,7 @@ import { startQuotaSync } from "./quota.js";
 import { reconcile, type SweepResult } from "./reconcile.js";
 import { recoverySweep } from "./recovery.js";
 import { startRegistryEvents } from "./registry-events.js";
+import { startTerminalPrune } from "./terminal-prune.js";
 
 export const serviceName = "worker";
 
@@ -91,6 +92,7 @@ async function main(): Promise<void> {
 	startLimitsSync({ db, controller, logger });
 	startGuard({ db, controller, logger });
 	startNotificationPrune({ db, logger });
+	startTerminalPrune({ db, logger });
 	startProcessSnapshots({ db, controller, logger });
 	startBackupVmLoop({ db, controller, logger });
 	startEgressSync({ db, controller, logger });

@@ -13,7 +13,7 @@ import {
 import { type ComponentType, lazy, type ReactNode, Suspense, useEffect } from "react";
 import { AcceptableUsePage } from "./acceptable-use/AcceptableUsePage.js";
 import { sanitizeLogSearch } from "./admin/logs/filters.js";
-import { ADMIN_TABS } from "./admin/tabs.js";
+import { adminTabFromLegacy, DEFAULT_ADMIN_TAB, isAdminTab } from "./admin/tabs.js";
 import { LinkPage } from "./link/LinkPage.js";
 import { LinkStartPage } from "./link/LinkStartPage.js";
 import { useLinkedReload } from "./link/useLinkedReload.js";
@@ -153,16 +153,12 @@ function safeUuid(value: unknown): string | undefined {
 }
 
 /**
- * `tab` names the admin tab so it can be linked; `workspace`, `user` and
- * `action` are the Audit tab's filters (SPEC.md §24.11). The Logs tab
- * shares `workspace` and `user` and adds `level`, `service`, `since`,
- * `until` and `q` (SPEC.md section 24.11).
+ * The admin page's search: `workspace`, `user` and `action` are the Audit
+ * tab's filters; the Logs tab shares `workspace` and `user` and adds
+ * `level`, `service`, `since`, `until` and `q` (SPEC.md section 24.11).
  */
-const adminRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/admin",
-	validateSearch: (search: Record<string, unknown> & SearchSchemaInput) => ({
-		tab: ADMIN_TABS.find((tab) => tab === search.tab),
+function adminSearch(search: Record<string, unknown>) {
+	return {
 		workspace: safeUuid(search.workspace),
 		user: safeUuid(search.user),
 		action:
@@ -172,7 +168,43 @@ const adminRoute = createRoute({
 				? search.action
 				: undefined,
 		...sanitizeLogSearch(search),
-	}),
+	};
+}
+
+/**
+ * `/admin` opens the first tab. An older `/admin?tab=<x>` link moves to
+ * `/admin/<x>` with its other search keys kept (SPEC.md section 20.1).
+ */
+const adminIndexRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/admin",
+	validateSearch: (search: Record<string, unknown> & SearchSchemaInput) => search,
+	beforeLoad: ({ search }) => {
+		const { tab, ...rest } = search;
+		throw redirect({
+			to: "/admin/$tab",
+			params: { tab: adminTabFromLegacy(tab) },
+			search: adminSearch(rest),
+			replace: true,
+		});
+	},
+});
+
+/** Each admin tab has its own path, so the back button moves between tabs. */
+const adminRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/admin/$tab",
+	validateSearch: (search: Record<string, unknown> & SearchSchemaInput) =>
+		adminSearch(search),
+	beforeLoad: ({ params, search }) => {
+		if (isAdminTab(params.tab)) return;
+		throw redirect({
+			to: "/admin/$tab",
+			params: { tab: DEFAULT_ADMIN_TAB },
+			search,
+			replace: true,
+		});
+	},
 	component: () => (
 		<Lazy>
 			<AdminPage />
@@ -331,6 +363,7 @@ export const routeTree = rootRoute.addChildren([
 	unlinkedRoute,
 	linkRoute,
 	linkStartRoute,
+	adminIndexRoute,
 	adminRoute,
 	courseRoute,
 	courseMembersRoute,

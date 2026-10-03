@@ -232,7 +232,7 @@ test("running now names the nightly run or the request", () => {
 
 test("a site whose host never reported says backups are not connected", async () => {
 	stubBackups(backups({ host: null, hostReportedAt: null, hostStale: true }));
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	expect(
 		await screen.findByText("Backups are not connected on this site"),
 	).toBeTruthy();
@@ -245,7 +245,7 @@ test("an error loading the tab is shown", async () => {
 			? json(200, { ...USER, role: "administrator" })
 			: json(500, { code: "INTERNAL", message: "Backups could not be loaded." }),
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	expect((await screen.findByRole("alert")).textContent).toBe(
 		"Backups could not be loaded.",
 	);
@@ -253,7 +253,7 @@ test("an error loading the tab is shown", async () => {
 
 test("the status card shows the last run, failure, next run and key", async () => {
 	stubBackups(backups());
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const status = await screen.findByTestId("backups-status");
 	expect(within(status).getByTestId("backups-host").textContent).toMatch(/^Reporting/);
 	expect(within(status).getByTestId("backups-last-run").textContent).toMatch(/^Failed/);
@@ -269,7 +269,7 @@ test("the status card shows the last run, failure, next run and key", async () =
 
 test("Back up now records a request", async () => {
 	const writes = stubBackups(backups());
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	fireEvent.click(await screen.findByTestId("backup-run"));
 	await waitFor(() =>
 		expect(writes).toEqual([{ method: "POST", url: "/admin/backups/run", body: null }]),
@@ -280,7 +280,7 @@ test("a stale host turns Back up now off and says why", async () => {
 	const writes = stubBackups(
 		backups({ hostStale: true, hostReportedAt: "2026-09-26T09:00:00.000Z" }),
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const run = await screen.findByTestId("backup-run");
 	expect(run.getAttribute("aria-disabled")).toBe("true");
 	expect(screen.getByTestId("backup-run-note").textContent).toBe(
@@ -296,7 +296,7 @@ test("a stale host turns Back up now off and says why", async () => {
 test("a running backup turns Back up now off", async () => {
 	const data = backups();
 	stubBackups({ ...data, host: data.host && { ...data.host, running: "nightly" } });
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	expect((await screen.findByTestId("backup-run")).getAttribute("aria-disabled")).toBe(
 		"true",
 	);
@@ -305,7 +305,7 @@ test("a running backup turns Back up now off", async () => {
 
 test("the newest complete set cannot be deleted; an older one can", async () => {
 	const writes = stubBackups(backups());
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const newest = await screen.findByTestId(`backup-set-${NEW}`);
 	const refused = within(newest).getByTestId("backup-set-delete");
 	expect(refused.getAttribute("aria-disabled")).toBe("true");
@@ -336,7 +336,7 @@ test("a set with a delete waiting shows Deleting", async () => {
 		...data,
 		requests: [view({ kind: "delete_set", args: { stamp: OLD }, state: "pending" })],
 	});
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const row = await screen.findByTestId(`backup-set-${OLD}`);
 	// The button stays mounted, so focus on it is not lost (SPEC.md §25.8).
 	const button = within(row).getByTestId("backup-set-delete");
@@ -357,7 +357,7 @@ test("a set that lists no workspaces says why Restore is unavailable", async () 
 			),
 		},
 	});
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const row = await screen.findByTestId(`backup-set-${OLD}`);
 	const restore = within(row).getByTestId("backup-set-restore");
 	expect(restore.getAttribute("aria-disabled")).toBe("true");
@@ -378,7 +378,7 @@ test("a set that is not verified is marked and cannot be restored", async () => 
 			),
 		},
 	});
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const row = await screen.findByTestId(`backup-set-${OLD}`);
 	expect(row.textContent).toContain(
 		"Not verified. This server's key did not make this set, so it cannot be restored.",
@@ -401,7 +401,7 @@ test("a set that is not verified is marked and cannot be restored", async () => 
 
 test("restore picks a running workspace and names the folder", async () => {
 	const writes = stubBackups(backups());
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const row = await screen.findByTestId(`backup-set-${NEW}`);
 	fireEvent.click(within(row).getByTestId("backup-set-restore"));
 	const dialog = await screen.findByTestId("backup-restore-dialog");
@@ -446,7 +446,7 @@ test("a refused restore keeps the dialog open with the reason", async () => {
 	stubBackups(backups(), () =>
 		json(409, { code: "WORKSPACE_NOT_RUNNING", message: "Start the workspace first" }),
 	);
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const row = await screen.findByTestId(`backup-set-${NEW}`);
 	fireEvent.click(within(row).getByTestId("backup-set-restore"));
 	const dialog = await screen.findByTestId("backup-restore-dialog");
@@ -461,7 +461,7 @@ test("a refused restore keeps the dialog open with the reason", async () => {
 test("without the restore key, Restore is off and says why", async () => {
 	const data = backups();
 	stubBackups({ ...data, host: data.host && { ...data.host, keyInstalled: false } });
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const row = await screen.findByTestId(`backup-set-${NEW}`);
 	const restore = within(row).getByTestId("backup-set-restore");
 	expect(restore.getAttribute("aria-disabled")).toBe("true");
@@ -472,7 +472,7 @@ test("without the restore key, Restore is off and says why", async () => {
 
 test("replace home needs the workspace label typed", async () => {
 	const writes = stubBackups(backups());
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const copy = await screen.findByTestId("backup-copy");
 	expect(copy.textContent).toContain("Copied");
 	fireEvent.click(within(copy).getByTestId("backup-copy-replace"));
@@ -510,7 +510,7 @@ test("a failed copy shows the host's reason and no Replace", async () => {
 			}),
 		],
 	});
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const copy = await screen.findByTestId("backup-copy");
 	expect(copy.textContent).toContain("already exists");
 	expect(within(copy).queryByTestId("backup-copy-replace")).toBeNull();
@@ -518,7 +518,7 @@ test("a failed copy shows the host's reason and no Replace", async () => {
 
 test("snapshots, dumps and kept homes each delete through their own route", async () => {
 	const writes = stubBackups(backups());
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	for (const testId of [
 		"backup-snapshot-delete",
 		"backup-dump-delete",
@@ -546,7 +546,7 @@ test("empty lists say so, and an unlisted VM says not listed yet", async () => {
 		vm: null,
 		requests: [],
 	});
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	expect(await screen.findByText("No backup sets yet.")).toBeTruthy();
 	expect(screen.getByText("No pre-change dumps.")).toBeTruthy();
 	expect(screen.getAllByText("Not listed yet.")).toHaveLength(2);
@@ -563,7 +563,7 @@ test("empty lists say so, and an unlisted VM says not listed yet", async () => {
 
 test("the page reads as Backups, Restores, Clean up, then Recent requests", async () => {
 	stubBackups(backups());
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	await screen.findByTestId("backups-status");
 	const outline = screen
 		.getAllByRole("heading")
@@ -590,7 +590,7 @@ test("the page reads as Backups, Restores, Clean up, then Recent requests", asyn
 
 test("the tab opens with its intro and each help button names what it explains", async () => {
 	stubBackups(backups());
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	await screen.findByTestId("backups-status");
 	const intro = screen.getByTestId("intro-admin-backups");
 	expect(intro.textContent).toContain("Docker data is not copied.");
@@ -616,7 +616,7 @@ test("the tab opens with its intro and each help button names what it explains",
 
 test("Clean up is open with counts when anything is there to delete", async () => {
 	stubBackups(backups());
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const summary = await screen.findByTestId("backups-cleanup-summary");
 	expect(summary.textContent).toBe("Clean up: 1 snapshot, 1 kept home, 1 dump");
 	expect(summary.closest("details")?.open).toBe(true);
@@ -629,7 +629,7 @@ test("Clean up is closed when snapshots, kept homes and dumps are all empty", as
 		host: data.host && { ...data.host, dumps: [] },
 		vm: { snapshots: [], keptHomes: [] },
 	});
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const summary = await screen.findByTestId("backups-cleanup-summary");
 	expect(summary.textContent).toBe("Clean up: 0 snapshots, 0 kept homes, 0 dumps");
 	expect(summary.closest("details")?.open).toBe(false);
@@ -789,7 +789,7 @@ describe("restore from a workspace's panel (preset workspace)", () => {
 
 test("a failed request shows its error in the recent list", async () => {
 	stubBackups(backups());
-	renderApp("/admin?tab=backups");
+	renderApp("/admin/backups");
 	const list = await screen.findByTestId("backup-requests");
 	expect(list.textContent).toContain("refused by the host: no such set");
 });

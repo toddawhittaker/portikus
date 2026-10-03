@@ -285,8 +285,9 @@ export function AccountSection({ user, isSelf }: { user: AdminUser; isSelf: bool
 				</dd>
 			</dl>
 			<Link
-				to="/admin"
-				search={{ tab: "logs", user: user.id }}
+				to="/admin/$tab"
+				params={{ tab: "logs" }}
+				search={{ user: user.id }}
 				className="pk-link pk-text-compact justify-self-start"
 				data-testid="detail-user-logs"
 			>

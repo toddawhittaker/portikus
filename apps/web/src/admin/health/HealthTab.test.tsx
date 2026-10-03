@@ -302,12 +302,12 @@ test("each guard row links to the owner's detail panel", async () => {
 		if (url.startsWith("/admin/health/series")) return json(200, SERIES);
 		throw new Error(`unexpected request: ${url}`);
 	});
-	renderApp("/admin?tab=health");
+	renderApp("/admin/health");
 
 	const table = await screen.findByTestId("health-guard");
 	const links = within(table).getAllByRole("link", { name: "Alice Example" });
 	expect(links).toHaveLength(2);
-	expect(links[0]?.getAttribute("href")).toBe(`/admin?tab=workspaces&user=${OWNER.id}`);
+	expect(links[0]?.getAttribute("href")).toBe(`/admin/users?user=${OWNER.id}`);
 });
 
 test("a failed load is announced", async () => {
@@ -330,7 +330,7 @@ test("states follow the Workspaces tab's order with zero counts, then newer ones
 	]);
 });
 
-test("the tab puts four cards at a glance, then the trends in four groups, then packages", async () => {
+test("the tab puts four cards at a glance, then the trends in four groups", async () => {
 	stubFetch((url) => {
 		if (url === "/admin/health") return json(200, report());
 		if (url === "/admin/packages")
@@ -359,7 +359,6 @@ test("the tab puts four cards at a glance, then the trends in four groups, then 
 		"H4 Workspaces",
 		"H4 API",
 		"H4 Events",
-		"H3 Packages students add",
 	]);
 	const glance = screen.getByTestId("health-glance");
 	expect(glance.querySelectorAll(":scope > section.pk-card")).toHaveLength(4);

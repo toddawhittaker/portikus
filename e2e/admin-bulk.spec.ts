@@ -5,6 +5,7 @@ import {
 	loginAs,
 	MOCK_ISSUER,
 	query,
+	routeApi,
 	settledAxe,
 	WCAG_TAGS,
 } from "./helpers";
@@ -172,7 +173,7 @@ test("Rebuild all on older images offers exactly the older rows", async ({ page 
 	await insertWorkspace(await insertStudent(newName), "stopped");
 	// Image currency comes from the worker's host sample, which e2e has none of
 	// (the API test covers it), so mark the rows in the list answer.
-	await page.route("**/admin/users", async (route) => {
+	await routeApi(page, "**/admin/users", async (route) => {
 		const response = await route.fetch();
 		const body = await response.json();
 		for (const user of body.users) {

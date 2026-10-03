@@ -162,7 +162,7 @@ test("automatic refresh pauses once older lines are loaded", () => {
 
 test("Auto refresh is a visible toggle with a note saying what it does (WCAG 2.2.2)", async () => {
 	stubLogs(() => json(200, page([logLine(1, { msg: "one" })])));
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 	await screen.findByText("one");
 	const toggle = screen.getByRole("button", { name: "Auto refresh" });
 	expect(toggle.getAttribute("aria-pressed")).toBe("true");
@@ -178,7 +178,7 @@ test("Auto refresh is a visible toggle with a note saying what it does (WCAG 2.2
 
 test("Auto refresh stays off when a new filter is applied", async () => {
 	stubLogs(() => json(200, page([logLine(1, { msg: "one" })])));
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 	await screen.findByText("one");
 	fireEvent.click(screen.getByRole("button", { name: "Auto refresh" }));
 	fireEvent.click(screen.getByRole("checkbox", { name: "Info" }));
@@ -203,7 +203,7 @@ test("Refresh announces the count again even when it has not changed", async () 
 					page([logLine(5, { msg: "newest" }), logLine(4, { msg: "next" })], cursor(4)),
 				),
 	);
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 	await screen.findByText("newest");
 	fireEvent.click(screen.getByRole("button", { name: "Load older lines" }));
 	await screen.findByText("older");
@@ -223,7 +223,7 @@ test("older pages keep the first page's start time, so a preset window does not 
 			? json(200, page([logLine(1, { msg: "older" })]))
 			: json(200, page([logLine(5, { msg: "newest" })], cursor(5))),
 	);
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 	await screen.findByText("newest");
 	await new Promise((resolve) => setTimeout(resolve, 20));
 	fireEvent.click(screen.getByRole("button", { name: "Load older lines" }));
@@ -237,7 +237,7 @@ test("Load older stays focusable while busy, then hands focus to the first new r
 			? json(200, page([logLine(1, { msg: "older" })]))
 			: json(200, page([logLine(5, { msg: "newest" })], cursor(5))),
 	);
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 	await screen.findByText("newest");
 	const older = screen.getByRole("button", { name: "Load older lines" });
 	older.focus();
@@ -255,7 +255,7 @@ test("Refresh puts focus on the Logs heading before it goes away", async () => {
 			? json(200, page([logLine(1, { msg: "older" })], cursor(1)))
 			: json(200, page([logLine(5, { msg: "newest" })], cursor(5))),
 	);
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 	await screen.findByText("newest");
 	fireEvent.click(screen.getByRole("button", { name: "Load older lines" }));
 	await screen.findByText("older");
@@ -270,7 +270,7 @@ test("Refresh puts focus on the Logs heading before it goes away", async () => {
 
 test("the row toggle is at least 24 pixels square", async () => {
 	stubLogs(() => json(200, page([logLine(1, { msg: "one" })])));
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 	const toggle = await screen.findByTestId("log-row-toggle");
 	expect(toggle.className).toContain("min-h-6");
 	expect(toggle.className).toContain("min-w-6");
@@ -299,7 +299,7 @@ test("rows show named fields as text, and a row expands to the whole line", asyn
 		),
 	);
 
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 
 	const rows = await screen.findAllByTestId("log-row");
 	expect(rows).toHaveLength(2);
@@ -339,7 +339,7 @@ test("loading older lines pauses refresh and offers Refresh, which starts over",
 			: json(200, page([logLine(5, { msg: "newest" })], cursor(5))),
 	);
 
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 
 	expect(await screen.findByText("newest")).toBeDefined();
 	expect(screen.queryByTestId("logs-refresh")).toBeNull();
@@ -362,7 +362,7 @@ test("a busy journal and an unavailable one say so", async () => {
 			message: "Log search is busy. Try again in a moment.",
 		}),
 	);
-	const first = renderApp("/admin?tab=logs");
+	const first = renderApp("/admin/logs");
 	// Two quiet retries a second apart, then the message.
 	expect((await screen.findByRole("alert", {}, { timeout: 5_000 })).textContent).toBe(
 		"Log search is busy. Try again in a moment.",
@@ -377,7 +377,7 @@ test("a busy journal and an unavailable one say so", async () => {
 				"The platform's logs cannot be read right now. On the VM, journalctl still shows them.",
 		}),
 	);
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 	expect((await screen.findByRole("alert")).textContent).toContain(
 		"The platform's logs cannot be read right now.",
 	);
@@ -392,7 +392,7 @@ test("skipped entries and a stopped scan are explained", async () => {
 			skippedLines: 3,
 		}),
 	);
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 	expect((await screen.findByTestId("logs-skipped")).textContent).toContain(
 		"3 journal entries were not a Portikus log line",
 	);
@@ -405,7 +405,7 @@ test("a stopped scan with nothing to resume asks for a narrower range", async ()
 	stubLogs(() =>
 		json(200, { lines: [], nextCursor: null, scanComplete: false, skippedLines: 0 }),
 	);
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 	expect((await screen.findByTestId("logs-partial")).textContent).toBe(
 		"The search stopped at its time limit before it found a line. Narrow the time range and try again.",
 	);
@@ -414,7 +414,7 @@ test("a stopped scan with nothing to resume asks for a narrower range", async ()
 
 test("applying filters puts them in the URL and the request, the person as an ID", async () => {
 	const requested = stubLogs(() => json(200, page([])));
-	const { router } = renderApp("/admin?tab=logs");
+	const { router } = renderApp("/admin/logs");
 	await screen.findByTestId("logs-empty");
 	// The level note is a toggletip beside Levels now, not a line of its own.
 	expect(screen.queryByTestId("logs-level-note")).toBeNull();
@@ -438,7 +438,6 @@ test("applying filters puts them in the URL and the request, the person as an ID
 
 	await waitFor(() =>
 		expect(router.state.location.search).toMatchObject({
-			tab: "logs",
 			level: "error,warn,info",
 			service: "api,controller",
 			since: "1h",
@@ -456,7 +455,7 @@ test("applying filters puts them in the URL and the request, the person as an ID
 	).toBe("Alice Example");
 
 	fireEvent.click(screen.getByRole("button", { name: "Clear" }));
-	await waitFor(() => expect(router.state.location.search).toEqual({ tab: "logs" }));
+	await waitFor(() => expect(router.state.location.search).toEqual({}));
 	expect(
 		(screen.getByRole("combobox", { name: "Person" }) as HTMLInputElement).value,
 	).toBe("");
@@ -464,7 +463,7 @@ test("applying filters puts them in the URL and the request, the person as an ID
 
 test("a link with a user ID shows the person's name", async () => {
 	stubLogs(() => json(200, page([])));
-	renderApp(`/admin?tab=logs&user=${ALICE}`);
+	renderApp(`/admin/logs?user=${ALICE}`);
 	const person = (await screen.findByRole("combobox", {
 		name: "Person",
 	})) as HTMLInputElement;
@@ -473,7 +472,7 @@ test("a link with a user ID shows the person's name", async () => {
 
 test("a workspace link is a checkbox naming its owner, and unticking it drops the filter", async () => {
 	const requested = stubLogs(() => json(200, page([])));
-	const { router } = renderApp(`/admin?tab=logs&workspace=${WS}&since=1h`);
+	const { router } = renderApp(`/admin/logs?workspace=${WS}&since=1h`);
 	const only = await screen.findByRole("checkbox", {
 		name: "Only Alice Example's workspace",
 	});
@@ -482,9 +481,7 @@ test("a workspace link is a checkbox naming its owner, and unticking it drops th
 
 	fireEvent.click(only);
 	fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
-	await waitFor(() =>
-		expect(router.state.location.search).toEqual({ tab: "logs", since: "1h" }),
-	);
+	await waitFor(() => expect(router.state.location.search).toEqual({ since: "1h" }));
 	expect(screen.queryByRole("checkbox", { name: /workspace$/ })).toBeNull();
 });
 
@@ -498,7 +495,7 @@ test("a name typed before the people list loads asks to wait, not to choose agai
 		if (url === "/admin/settings") return json(200, SETTINGS);
 		return json(200, {});
 	});
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 	await screen.findByTestId("logs-empty");
 	const person = screen.getByRole("combobox", { name: "Person" });
 	fireEvent.change(person, { target: { value: "Alice Example" } });
@@ -513,7 +510,7 @@ test("a name typed before the people list loads asks to wait, not to choose agai
 
 test("an unknown person or no level is refused in the form", async () => {
 	stubLogs(() => json(200, page([])));
-	const { router } = renderApp("/admin?tab=logs");
+	const { router } = renderApp("/admin/logs");
 	await screen.findByTestId("logs-empty");
 
 	const person = screen.getByRole("combobox", { name: "Person" });
@@ -525,7 +522,7 @@ test("an unknown person or no level is refused in the form", async () => {
 	expect(await screen.findByText("Choose at least one level.")).toBeDefined();
 	expect(screen.getByText("Choose a person from the list.")).toBeDefined();
 	expect(person.getAttribute("aria-invalid")).toBe("true");
-	expect(router.state.location.search).toEqual({ tab: "logs" });
+	expect(router.state.location.search).toEqual({});
 	// Focus goes to the first bad field, so its error is heard.
 	expect(document.activeElement).toBe(screen.getByRole("checkbox", { name: "Error" }));
 
@@ -543,7 +540,7 @@ test("an unknown person or no level is refused in the form", async () => {
 
 test("an empty result says once what was searched and what to widen", async () => {
 	stubLogs(() => json(200, page([])));
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 	expect((await screen.findByTestId("logs-empty")).textContent).toBe(
 		"No lines in the last day at Error or Warn. Try a longer time, or include Info.",
 	);
@@ -604,7 +601,7 @@ test("the service log level sits on the Logs tab, starts on the default and save
 			return undefined;
 		},
 	);
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 
 	const select = (await screen.findByRole("combobox", {
 		name: "Services log at",
@@ -628,7 +625,7 @@ test("a failed log-level save is an alert tied to the select", async () => {
 		() => json(200, page([])),
 		() => json(500, { code: "INTERNAL", message: "Something broke" }),
 	);
-	renderApp("/admin?tab=logs");
+	renderApp("/admin/logs");
 
 	const select = (await screen.findByTestId("log-level-select")) as HTMLSelectElement;
 	await waitFor(() => expect(select.disabled).toBe(false));

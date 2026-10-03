@@ -350,6 +350,24 @@ test.skipIf(skip)("the terminal past the limit is refused", async () => {
 	expect(extra.json().code).toBe("TERMINAL_LIMIT");
 });
 
+test.skipIf(skip)("concurrent creates never pass the limit", async () => {
+	const results = await Promise.all(
+		Array.from({ length: MAX_TERMINALS_PER_WORKSPACE + 5 }, () =>
+			create(alice, workspaceId),
+		),
+	);
+	const codes = results.map((r) => r.statusCode);
+	expect(codes.filter((c) => c === 201)).toHaveLength(MAX_TERMINALS_PER_WORKSPACE);
+	expect(codes.filter((c) => c === 409)).toHaveLength(5);
+	const open = await testDb.db
+		.selectFrom("terminals")
+		.select("id")
+		.where("workspace_id", "=", workspaceId)
+		.where("ended_at", "is", null)
+		.execute();
+	expect(open).toHaveLength(MAX_TERMINALS_PER_WORKSPACE);
+});
+
 test.skipIf(skip)("a closed terminal frees a slot", async () => {
 	const ids: string[] = [];
 	for (let i = 0; i < MAX_TERMINALS_PER_WORKSPACE; i += 1) {

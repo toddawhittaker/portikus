@@ -25,7 +25,7 @@ import {
 	userMessage,
 } from "./lifecycle.js";
 import { rebuildPointsDone } from "./recovery.js";
-import { noteRetry, retryDue, retryWaitMs } from "./start-backoff.js";
+import { MAX_START_RETRIES, retryWaitMs } from "./start-backoff.js";
 
 /** Config values the reconciler reads. */
 export interface ReconcileConfig {
@@ -312,7 +312,7 @@ async function startInBackground(
 	if (!(await moveToStarting(db, ws.id, fromState, now))) return;
 	ctx.transitions++;
 	runInBackground(ws.id, "start", log, () =>
-		startInstance(db, controller, config, { ...ws, incus_instance_name: name }),
+		startInstance(db, controller, config, { ...ws, incus_instance_name: name }, log),
 	);
 }
 
@@ -469,8 +469,7 @@ async function stopIdle(ctx: SweepContext): Promise<void> {
 async function retryErrored(ctx: SweepContext): Promise<void> {
 	const { db, now, record, log } = ctx;
 	// 3d: error with desired running (or restarting) -> retry a start, after
-	// a wait that grows with each retry so a broken start is not hammered.
-	const retryCutoff = new Date(now.getTime() - retryWaitMs(0));
+	// a wait that grows with each retry, at most MAX_START_RETRIES times.
 	const errorRetryStart = await db
 		.selectFrom("workspaces")
 		.select([
@@ -478,29 +477,28 @@ async function retryErrored(ctx: SweepContext): Promise<void> {
 			"incus_instance_name",
 			"label",
 			"quota_config",
-			"desired_state",
+			"start_retries",
 			"updated_at",
 		])
 		.where("state", "=", "error")
 		.where("desired_state", "in", ["running", "restarting"])
-		.where("updated_at", "<", retryCutoff)
+		.where("start_retries", "<", MAX_START_RETRIES)
 		.where("pending_operation", "is", null)
 		.where("archived_at", "is", null)
 		.where(notInFlight())
 		.execute();
 
 	for (const ws of errorRetryStart) {
-		if (!retryDue(ws.id, ws.desired_state, ws.updated_at, now)) continue;
-		const attempt = noteRetry(ws.id, ws.desired_state);
+		const wait = retryWaitMs(ws.start_retries);
+		if (wait === null || ws.updated_at.getTime() + wait > now.getTime()) continue;
+		const attempt = ws.start_retries + 1;
 		record(ws.id, "retry start");
-		log.info(
-			{ workspaceId: ws.id, attempt, nextWaitSeconds: retryWaitMs(attempt) / 1000 },
-			"retrying a failed start",
-		);
+		log.info({ workspaceId: ws.id, attempt }, "retrying a failed start");
 		await startInBackground(ctx, ws, "error");
 	}
 
-	// Note: error with desired=stopped is at rest (nothing to retry).
+	// Error with desired stopped is at rest here; step 4 stops an instance
+	// that still runs, since only list() knows whether it does.
 }
 
 /** Step 3e: run a pending maintenance operation. */
@@ -569,6 +567,7 @@ interface TrackedRow {
 	id: string;
 	incus_instance_name: string;
 	state: WorkspaceState;
+	desired_state: string;
 	agent_address: string | null;
 }
 
@@ -689,6 +688,26 @@ async function resolveDrift(
 				action: "workspace.observed_running",
 				result: "ok",
 			});
+		}
+	}
+	// Stop on an errored workspace whose instance still runs (SPEC.md §6.5).
+	if (
+		ws.state === "error" &&
+		ws.desired_state === "stopped" &&
+		inst.status === "Running"
+	) {
+		const updated = await casUpdate(
+			db,
+			ws.id,
+			"error",
+			{ state: "stopping", error_code: null, error_message: null },
+			now,
+		);
+		if (updated) {
+			ctx.transitions++;
+			record(ws.id, "stop errored instance");
+			await endOpenTerminals(db, ws.id, now);
+			stopInBackground(db, ctx.controller, ctx.config, ws, ctx.log);
 		}
 	}
 }
@@ -874,11 +893,18 @@ async function refreshFromList(
 		};
 	}
 
+	// The admin health view reads this to tell a stalled worker apart.
+	await db
+		.updateTable("settings")
+		.set({ controller_checked_at: now.toISOString() })
+		.where("id", "=", 1)
+		.execute();
+
 	const instanceMap = new Map(listed.instances.map((i) => [i.name, i]));
 	// Find rows that might be drifted.
 	const tracked = await db
 		.selectFrom("workspaces")
-		.select(["id", "incus_instance_name", "state", "agent_address"])
+		.select(["id", "incus_instance_name", "state", "desired_state", "agent_address"])
 		.where("incus_instance_name", "is not", null)
 		.where("state", "in", ["running", "stopped", "starting", "stopping", "error"])
 		.execute();

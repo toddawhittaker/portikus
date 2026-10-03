@@ -122,7 +122,7 @@ test("a good change lands on the administration page and Settings offers Passwor
 		}),
 	).toBeVisible();
 	// An administrator's front page, with the administrator's header.
-	await expect(page).toHaveURL(/\/admin$/, { timeout: 15_000 });
+	await expect(page).toHaveURL(/\/admin\/users$/, { timeout: 15_000 });
 	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 	const [row] = await query<{ must_change_password: boolean; role: string }>(
 		"select must_change_password, role from users where oidc_issuer = $1 and email = $2",

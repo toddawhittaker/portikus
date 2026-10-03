@@ -144,6 +144,30 @@ test.skipIf(skip)("GET /workspaces/:id is 400 for an invalid uuid", async () => 
 });
 
 test.skipIf(skip)(
+	"start, stop, and restart each give the workspace a fresh set of start retries",
+	async () => {
+		const id = (await post("/workspaces", alice)).json().id;
+		const retries = async () =>
+			(
+				await testDb.db
+					.selectFrom("workspaces")
+					.select("start_retries")
+					.where("id", "=", id)
+					.executeTakeFirstOrThrow()
+			).start_retries;
+		for (const action of ["start", "stop", "restart"]) {
+			await testDb.db
+				.updateTable("workspaces")
+				.set({ state: "error", start_retries: 5 })
+				.where("id", "=", id)
+				.execute();
+			expect((await post(`/workspaces/${id}/${action}`, alice)).statusCode).toBe(202);
+			expect(await retries()).toBe(0);
+		}
+	},
+);
+
+test.skipIf(skip)(
 	"start, stop, and restart set desired_state and write audit",
 	async () => {
 		const me = (await get("/auth/me", alice)).json();

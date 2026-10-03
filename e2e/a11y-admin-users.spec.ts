@@ -12,6 +12,7 @@ import {
 	MOCK_ISSUER,
 	openToggletip,
 	query,
+	routeApi,
 } from "./helpers";
 
 async function insertUser(name: string, disabled: boolean): Promise<string> {
@@ -52,7 +53,7 @@ for (const scheme of ["light", "dark"] as const) {
 			],
 		);
 		// Every tag the table can draw, on one row.
-		await page.route("**/admin/users", async (route) => {
+		await routeApi(page, "**/admin/users", async (route) => {
 			const response = await route.fetch();
 			const body = await response.json();
 			for (const user of body.users) {

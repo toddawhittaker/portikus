@@ -46,7 +46,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await seed(suffix);
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=network");
+		await page.goto("/admin/network");
 		await expect(page.getByTestId("egress-tab")).toBeVisible({ timeout: 15_000 });
 
 		// The tab with a preset's sites open and a test answer showing.
@@ -134,7 +134,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		});
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=network");
+		await page.goto("/admin/network");
 		await expect(page.getByTestId("egress-mode-summary")).toHaveText(
 			/^Saved setting:/,
 			{

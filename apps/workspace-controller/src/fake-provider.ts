@@ -93,6 +93,7 @@ export class FakeWorkspaceProvider implements WorkspaceProvider {
 	async create(
 		name: string,
 		sizes: { homeGiB: number; dockerGiB: number; recoveryGiB: number },
+		_signal?: AbortSignal,
 	): Promise<CreateInstanceResponse> {
 		this.validate(name);
 		this.checkError();

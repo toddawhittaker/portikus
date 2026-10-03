@@ -6,6 +6,7 @@ import {
 	openAdmin,
 	openToggletip,
 	query,
+	routeApi,
 	settledAxe,
 	studentIn,
 	toast,
@@ -152,7 +153,7 @@ test("an administrator stops another user's workspace, and it is audited", async
 	});
 	await panel.getByTestId("detail-all-events").click();
 	await expect(page).toHaveURL(
-		new RegExp(`/admin\\?tab=audit&workspace=${student.workspaceId}$`),
+		new RegExp(`/admin/audit\\?workspace=${student.workspaceId}$`),
 	);
 });
 
@@ -392,7 +393,7 @@ test("a workspace on an old image says Old image, not Stale, and loses it when i
 	// Image currency comes from the worker's host sample, which e2e has none of,
 	// so the list answer says the image is old until the fake rebuild finishes.
 	let rebuilt = false;
-	await page.route("**/admin/users", async (route) => {
+	await routeApi(page, "**/admin/users", async (route) => {
 		const response = await route.fetch();
 		const body = await response.json();
 		for (const user of body.users) {
@@ -672,7 +673,7 @@ test.describe("the Users table layout", () => {
 			);
 		}
 		// Every tag and the Old image tag at once, on the longest row.
-		await page.route("**/admin/users", async (route) => {
+		await routeApi(page, "**/admin/users", async (route) => {
 			const response = await route.fetch();
 			const body = await response.json();
 			for (const user of body.users) {

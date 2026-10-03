@@ -57,7 +57,7 @@ test("a held throttle shows Held on the Workspaces and Health tabs", async ({
 	await expect(row.getByText("Throttled", { exact: true })).toBeVisible();
 	await expect(row.getByText("Held", { exact: true })).toBeVisible();
 
-	await page.goto("/admin?tab=health");
+	await page.goto("/admin/health");
 	const list = page.getByTestId("health-guard");
 	await expect(list).toBeVisible({ timeout: 15_000 });
 	const healthRow = list.getByRole("row").filter({ hasText: student.name });

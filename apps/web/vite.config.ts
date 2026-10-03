@@ -49,13 +49,15 @@ export default defineConfig({
 			// the web app's own /course pages stay in the bundle.
 			"^/lti(/|\\?|$)": api,
 			"^/courses(/|\\?|$)": api,
-			// /admin is the administration screen in the bundle; /admin/*
-			// is its data. Only the document navigation stays in the browser.
+			// /admin and /admin/<tab> are the administration screen in the
+			// bundle; /admin/* is also its data. Only a document navigation to
+			// the screen stays in the browser; a download such as
+			// /admin/certificate/root.crt goes to the API.
 			"/admin": {
 				...api,
 				bypass: (req) => {
 					const path = (req.url ?? "").split("?")[0] ?? "";
-					if (path !== "/admin" && path !== "/admin/") return undefined;
+					if (!/^\/admin(\/[a-z]+)?\/?$/.test(path)) return undefined;
 					return req.headers.accept?.includes("text/html") ? "/index.html" : undefined;
 				},
 			},

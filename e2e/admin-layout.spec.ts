@@ -19,7 +19,7 @@ test.describe("admin layout", () => {
 		expect(box?.width).toBeGreaterThan(1400);
 
 		for (const [tab, name] of [
-			["workspaces", "Users"],
+			["users", "Users"],
 			["audit", "Audit"],
 			["health", "Health"],
 			["settings", "Settings"],
@@ -30,6 +30,43 @@ test.describe("admin layout", () => {
 			).toBeVisible();
 			await expect(page).toHaveTitle(`${name}, Administration, Portikus`);
 		}
+	});
+
+	test("each tab has its own path, the back button moves between tabs, and an old ?tab= link redirects", async ({
+		page,
+	}) => {
+		await loginAs(page, "carol");
+		await page.goto("/admin");
+		await expect(page).toHaveURL(/\/admin\/users$/, { timeout: 15_000 });
+
+		await page.getByTestId("admin-tab-health").click();
+		await expect(page).toHaveURL(/\/admin\/health$/);
+		await page.getByTestId("admin-tab-settings").click();
+		await expect(page).toHaveURL(/\/admin\/settings$/);
+		await page.goBack();
+		await expect(page).toHaveURL(/\/admin\/health$/);
+		await expect(page.getByTestId("admin-tab-health")).toHaveAttribute(
+			"aria-current",
+			"page",
+		);
+
+		// A reload of a deep path serves the page, not the API's JSON.
+		await page.reload();
+		await expect(page.getByTestId("admin-tab-health")).toHaveAttribute(
+			"aria-current",
+			"page",
+			{
+				timeout: 15_000,
+			},
+		);
+
+		// The Users tab's old value was workspaces; other keys are kept.
+		await page.goto("/admin?tab=audit&action=workspace.");
+		await expect(page).toHaveURL(/\/admin\/audit\?action=workspace\.$/, {
+			timeout: 15_000,
+		});
+		await page.goto("/admin?tab=workspaces");
+		await expect(page).toHaveURL(/\/admin\/users$/, { timeout: 15_000 });
 	});
 
 	test("tabs read Users, then Health, Logs, Audit, then Network, Backups, Workspace image, Certificate, Docker, Settings", async ({
@@ -71,7 +108,7 @@ test.describe("admin layout", () => {
 
 	test("a secondary button shows its border", async ({ page }) => {
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=audit");
+		await page.goto("/admin/audit");
 		const clear = page.getByTestId("audit-filter-clear");
 		await expect(clear).toBeVisible({ timeout: 15_000 });
 		const color = await clear.evaluate((el) => getComputedStyle(el).borderTopColor);
@@ -92,7 +129,7 @@ test.describe("admin layout", () => {
 			[workspaceId],
 		);
 		await loginAs(page, "carol");
-		await page.goto(`/admin?tab=audit&workspace=${workspaceId}`);
+		await page.goto(`/admin/audit?workspace=${workspaceId}`);
 
 		const table = page.getByTestId("audit-table");
 		await expect(table.locator("tbody tr")).toHaveCount(50, { timeout: 15_000 });

@@ -13,7 +13,7 @@ import type { ControllerClient } from "./controller-client.js";
 import { ControllerClientError } from "./controller-client.js";
 import { dockerStartConfig } from "./docker-start.js";
 import type { ReconcileConfig } from "./reconcile.js";
-import { clearRetries } from "./start-backoff.js";
+import { MAX_START_RETRIES } from "./start-backoff.js";
 
 /**
  * Leaves desired_state alone unless it is still 'restarting', so a
@@ -172,7 +172,7 @@ async function heldAllowance(
 
 /** A workspace that has just started counts as active, so it never starts idle (ADR 0032). */
 export function startedNow(now: Date): Record<string, unknown> {
-	return { last_activity_at: now.toISOString(), idle_stop_at: null };
+	return { last_activity_at: now.toISOString(), idle_stop_at: null, start_retries: 0 };
 }
 
 /**
@@ -344,6 +344,8 @@ export async function moveToStarting(
 		fromState,
 		{
 			state: "starting",
+			// A start out of error is an automatic retry (SPEC.md §6.3).
+			...(fromState === "error" ? { start_retries: sql`start_retries + 1` } : {}),
 			error_code: null,
 			error_message: null,
 			desired_state: settleRestarting,
@@ -367,6 +369,7 @@ export async function startInstance(
 		label: string;
 		quota_config: { dockerGiB?: number; recoveryGiB?: number } | null;
 	},
+	log: Logger,
 ): Promise<void> {
 	// Rotate before the start call so the row always holds the token the
 	// agent is about to be given.
@@ -392,7 +395,6 @@ export async function startInstance(
 			new Date(),
 		);
 		if (updated) {
-			clearRetries(ws.id);
 			await recordAudit(db, {
 				actor: "worker",
 				target: ws.id,
@@ -414,6 +416,17 @@ export async function startInstance(
 			},
 			new Date(),
 		);
+		const row = await db
+			.selectFrom("workspaces")
+			.select("start_retries")
+			.where("id", "=", ws.id)
+			.executeTakeFirst();
+		if (row && row.start_retries >= MAX_START_RETRIES) {
+			log.warn(
+				{ workspaceId: ws.id, retries: row.start_retries, errorCode: err.code },
+				"no more automatic start retries",
+			);
+		}
 		await recordAudit(db, {
 			actor: "worker",
 			target: ws.id,

@@ -473,6 +473,8 @@ If the workspace is stopped because the student stopped it by hand, the platform
 
 Loading skeletons appear only while the workspace is connecting, starting or reopening tabs; a stopped or failed workspace shows a plain message in the side panes instead. If the workspace failed to start, the work area offers "Try again", which is the same start request, and "Workspace details", which opens the workspace dialog. The raw error message and code sit under a collapsed "Technical details".
 
+If a start fails while the workspace should run, the worker retries it at most five times, waiting 10 seconds, 30 seconds, 1 minute, 2 minutes and then 5 minutes after each failure. The count is stored on the workspace row (`start_retries`), so a worker restart does not start it over. After the fifth failed retry the workspace stays in error with its message, and the worker logs one warning. The student's Start, Stop or Restart sets the count back to zero, and so does a successful start. Opening the workspace in the browser does not.
+
 Target cold-start performance is defined in the non-functional requirements.
 
 ### 6.4 Disconnect grace period
@@ -525,6 +527,8 @@ If graceful stop does not complete within the configured timeout, the platform m
 A slow stop must not hold up other workspaces. The worker runs each stop in the background, so the next reconcile sweep starts other workspaces without waiting for it, and it leaves a workspace whose stop is still running in `stopping` rather than resolving it from the instance list. Every controller call the worker makes (creates, starts, stops and maintenance operations) runs in one background runner, at most one call per workspace at a time. Creates, starts and maintenance share a cap of 6 calls at once; stops sit outside the cap, so they never wait behind a slow rebuild (ADR 0034). Every call from the worker to the workspace controller has a time budget (a stop gets twice the stop timeout plus 25 seconds), and the controller bounds each Incus request at 30 seconds unless the caller sets its own limit; a call over its budget fails with `TIMEOUT`.
 
 A stop succeeds when the instance reaches Stopped within the timeout. The controller decides from the instance's state, never from the text of an Incus error, so a stop that races another stop or a shutdown from inside still ends Stopped with no error. Its first state read tolerates any error except not-found, because for about a second of some shutdowns Incus answers the state read itself with HTTP 500 "Invalid PID -1" (Epic 22).
+
+Stop on a workspace in error stops its instance if the instance still runs. The worker sees this in the instance list, moves the workspace to `stopping`, clears the error and stops it as usual. If the instance is already stopped or gone, the workspace stays in error.
 
 A stop or restart confirmation opened while the workspace is changing state keeps its Confirm button disabled and says why, until the workspace settles. The Confirm button stays focusable (`aria-disabled`) and the reason is announced to screen readers.
 
@@ -1004,7 +1008,8 @@ layout position, creation time, and the time it ended. The control plane
 marks a terminal ended when its workspace begins stopping; closing a
 terminal deliberately deletes its row instead. An ended terminal is shown
 as ended with an action to create a new one, and a listing returns every
-open terminal plus the 20 most recently ended ones. On attach the agent
+open terminal plus the 20 most recently ended ones. The worker deletes
+an ended row 30 days after it ended. On attach the agent
 replays the pane's recent history from tmux, up to the capture limit, into
 the browser's scrollback, so a reload shows earlier output above the
 prompt; the platform still stores no terminal output anywhere. tmux does
@@ -1033,7 +1038,8 @@ Limits, enforced by the server:
 - at most 20 terminals per workspace. The cap stops a runaway client from
   creating terminals without end; it is not the resource limit, which is
   the container's CPU, memory and process limits. A refused create shows
-  the user a toast naming the limit;
+  the user a toast naming the limit. Parallel creates are serialized per
+  workspace, so they cannot pass the cap together;
 - at most 4 simultaneous attachments per terminal;
 - at most 64 KiB of data in one input frame, and at most 1 MiB in any
   frame the browser sends;
@@ -2585,7 +2591,8 @@ built to the frame rules above.
 - The Settings tab edits the two throttle-hold settings (section 19.4).
 - **Workspace image** (Epic 15) shows, updates, rebuilds, activates and
   rolls back the workspace image (section 22.4).
-- The Health tab gains "Packages students add": for the latest completed
+- The Workspace image tab ends with "Packages students add", beside the
+  actions that act on its candidates: for the latest completed
   UTC day that surveyed at least 3 workspaces, how many surveyed
   workspaces added each package with `sudo apt install`, with first and
   last seen, and a base-image candidate mark when at least 2 workspaces
@@ -2598,8 +2605,18 @@ Changed by Epic 25 (UI polish and help):
 
 - **Tab order.** Users, Health, Logs, Audit, Network, Backups, Settings,
   with a small gap before Health and before Network and no group labels.
-  The `?tab=` values did not change. Every tab has a PageIntro and
+  Every tab has a PageIntro and
   toggletips on its fields and headers (section 8.6).
+- **Tab addresses.** Each tab has its own path, `/admin/<tab>`:
+  `/admin/users`, `/admin/health`, `/admin/logs`, `/admin/audit`,
+  `/admin/network`, `/admin/backups`, `/admin/image`,
+  `/admin/certificate`, `/admin/docker` and `/admin/settings`. `/admin`
+  opens Users. An older `/admin?tab=<x>` link redirects to `/admin/<x>`
+  and keeps its other search keys; `?tab=workspaces` goes to
+  `/admin/users`. Moving between tabs adds a history entry, so the back
+  button returns to the previous tab. The edge serves the page for a
+  document request to `/admin` or `/admin/<one segment>`; deeper paths
+  under `/admin/` stay with the API.
 - **Users table.** Five columns: selection; Account (the name with its
   tags, then email or username); Role; Workspace (label, state, and an
   "Old image" tag when out of date); and Activity ("Now" with the
@@ -3545,8 +3562,8 @@ can hold one Incus read open until that process exits.
 An edit that runs without sockets (the hosts line, `hostname`, the
 timezone link) is only waited for: past its timeout it is left until it
 exits or the container stops, and a retried start force-stops the
-container. A start that keeps failing is retried after a wait that
-doubles from 10 seconds to 30 minutes, kept in the worker's memory.
+container. A start that keeps failing is retried at most five times
+(section 6.3).
 
 ### 24.2 Student code is untrusted
 
@@ -4091,7 +4108,7 @@ One crashed service or one busy workspace must not take the platform down for ev
 - Caddy, PostgreSQL, Dex and every Portikus service restart on failure after 5 seconds.
 - The platform's services outrank workspaces: `system.slice` has CPU weight 1000 (a workspace has 100) and `MemoryLow=512M`, and PostgreSQL and the API each have `MemoryLow=256M`.
 - Each workspace's network is capped at 200 Mbit/s each way (`workspace_network_limit` in `site.yml`).
-- Every worker call to the controller and every controller call to Incus has a time budget, and stops run in the background so a stuck stop never delays a start (section 6.5).
+- Every worker call to the controller and every controller call to Incus has a time budget, and stops run in the background so a stuck stop never delays a start (section 6.5). The worker sends its budget with each call; a create and a process read stop their remaining Incus and host work once that budget runs out or the worker hangs up, and an aborted create never falls back to an empty Docker volume (ADR 0034).
 - The database pool waits at most 5 s for a connection, a statement at most 30 s, and an idle transaction at most 60 s; a pool timeout or an unreachable database answers 503 `SERVICE_BUSY`.
 
 ### 25.4 Availability
@@ -4158,7 +4175,8 @@ Changed by Epic 25: the Health tab reads top to bottom as the worker-stale
 banner; "At a glance", four cards side by side when there is room
 (Platform, Resource guard, Failures in the last 24 hours, Workspaces by
 state); the Trends card in four groups, Host, Workspaces, API and Events,
-open by default and remembered per browser; then "Packages students add".
+open by default and remembered per browser. "Packages students add" is
+on the Workspace image tab, not here (section 20.1).
 Each chart names its unit in its title, its Y ticks are bare numbers, and
 axis text is 12 px at any width. A chart with no samples in the range is
 one line of text with no axis.
