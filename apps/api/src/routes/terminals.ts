@@ -362,10 +362,7 @@ export function registerTerminalRoutes(
 			project = row;
 		}
 
-		const position = rows.reduce((max, row) => Math.max(max, row.position + 1), 0);
 		const id = crypto.randomUUID();
-		const name =
-			body.data.name ?? chooseTerminalName(rows, project ? project.id : null);
 		const cwd = body.data.cwd ?? project?.path ?? DEFAULT_CWD;
 		// A new terminal starts in the scheme the user chose in their settings
 		// unless the caller asked for one outright, and in
@@ -379,18 +376,22 @@ export function registerTerminalRoutes(
 				: null;
 
 		// The early check can race a parallel create; the lock makes the
-		// recount and the insert one step so the cap holds (SPEC.md 9.7).
+		// recount, the name, the position and the insert one step so the cap
+		// holds and parallel creates never share a name (SPEC.md 9.7).
 		const inserted = await db.transaction().execute(async (trx) => {
 			await sql`select pg_advisory_xact_lock(hashtext('portikus.terminal-create'), hashtext(${params.id}))`.execute(
 				trx,
 			);
-			const counted = await trx
-				.selectFrom("terminals")
-				.select((eb) => eb.fn.countAll<string>().as("n"))
-				.where("workspace_id", "=", params.id)
-				.where("ended_at", "is", null)
-				.executeTakeFirstOrThrow();
-			if (Number(counted.n) >= MAX_TERMINALS_PER_WORKSPACE) return false;
+			const locked = await listTerminalRows(trx, params.id).execute();
+			if (
+				locked.filter((row) => row.ended_at === null).length >=
+				MAX_TERMINALS_PER_WORKSPACE
+			) {
+				return false;
+			}
+			const position = locked.reduce((max, row) => Math.max(max, row.position + 1), 0);
+			const name =
+				body.data.name ?? chooseTerminalName(locked, project ? project.id : null);
 			await trx
 				.insertInto("terminals")
 				.values({
