@@ -1,7 +1,8 @@
 import type { HealthSeries } from "@portikus/contracts";
 import { Button } from "@portikus/ui";
 import { Link } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { memo, useId, useMemo, useState } from "react";
+import { moveCursor } from "./charts/readout.js";
 import {
 	bucketPhrase,
 	bucketStart,
@@ -47,6 +48,35 @@ export function cellText(value: number | null, threshold: number): string {
 	return value >= threshold ? `${text}, at or over the ${threshold}% threshold` : text;
 }
 
+/** The keyboard cursor's cell: a row of the table and a position among its bucket columns. */
+export interface Cell {
+	row: number;
+	column: number;
+}
+
+/**
+ * The heat map's keyboard cursor: Up and Down move a row, Left, Right, Home
+ * and End move along it as the charts' cursor does. The first key lands on
+ * the newest bucket of the first row. Returns null for a key it does not handle.
+ */
+export function moveCell(
+	key: string,
+	cell: Cell | null,
+	rowCount: number,
+	columnCount: number,
+): Cell | null {
+	if (rowCount === 0 || columnCount === 0) return null;
+	const row = cell?.row ?? 0;
+	if (key === "ArrowUp" || key === "ArrowDown") {
+		const column = cell?.column ?? columnCount - 1;
+		if (cell === null) return { row, column };
+		const next = key === "ArrowUp" ? row - 1 : row + 1;
+		return { row: Math.min(rowCount - 1, Math.max(0, next)), column };
+	}
+	const column = moveCursor(key, cell?.column ?? null, columnCount);
+	return column === null ? null : { row, column };
+}
+
 /**
  * Per-workspace CPU or memory as a grid: one row per workspace, one cell per
  * bucket (SPEC.md §25.6). It is an HTML table, so a screen
@@ -67,14 +97,69 @@ export function UsageHeatMap({
 		0,
 		Math.round((Date.parse(usage.from) - frame.from) / bucketMs),
 	);
-	const columns = Array.from(
-		{ length: Math.max(0, frame.count - first) },
-		(_, i) => first + i,
+	// Kept stable, so the memoised rows skip a redraw when only the cursor moves.
+	const columns = useMemo(
+		() => Array.from({ length: Math.max(0, frame.count - first) }, (_, i) => first + i),
+		[first, frame.count],
 	);
 	const rangeMinutes = (frame.count * frame.bucketSeconds) / 60;
 	const name = measure === "cpu" ? "CPU" : "memory";
 	const per = bucketPhrase(frame.bucketSeconds);
 	const captionId = useId();
+	// Held as a workspace and a bucket time, so a refresh that reorders the rows
+	// or slides the window along keeps the cursor on the same figure.
+	const [cursor, setCursor] = useState<{ workspaceId: string; time: number } | null>(
+		null,
+	);
+	const [announcement, setAnnouncement] = useState("");
+	const rows = useMemo(
+		() =>
+			usage.workspaces.map((row) => {
+				const values = dense(frame, row.cells, (cell) =>
+					measure === "cpu" ? cell.cpuPercent : cell.memoryPercent,
+				);
+				const threshold =
+					measure === "cpu" ? row.cpuThresholdPercent : row.memoryThresholdPercent;
+				return { row, values, threshold };
+			}),
+		[usage.workspaces, frame, measure],
+	);
+
+	/** "Ann Lee, 14:05, 85%, at or over the 80% threshold", or null off the table. */
+	function readoutOf(cell: Cell): string | null {
+		const entry = rows[cell.row];
+		const index = columns[cell.column];
+		if (!entry || index === undefined) return null;
+		return `${entry.row.owner.displayName}, ${readoutTime(
+			bucketStart(frame, index),
+			frame.range,
+		)}, ${cellText(entry.values[index] ?? null, entry.threshold)}`;
+	}
+
+	/** Where the cursor sits in the table now, or null once its row or bucket has gone. */
+	function cellOf(held: typeof cursor): Cell | null {
+		if (held === null) return null;
+		const row = rows.findIndex((entry) => entry.row.workspaceId === held.workspaceId);
+		const column = columns.findIndex(
+			(index) => bucketStart(frame, index) === held.time,
+		);
+		return row < 0 || column < 0 ? null : { row, column };
+	}
+
+	function onKeyDown(event: React.KeyboardEvent<HTMLTableElement>) {
+		// Keys meant for a link inside the table stay with it.
+		if (event.target !== event.currentTarget) return;
+		const next = moveCell(event.key, cellOf(cursor), rows.length, columns.length);
+		const entry = next === null ? undefined : rows[next.row];
+		const index = next === null ? undefined : columns[next.column];
+		if (next === null || entry === undefined || index === undefined) return;
+		event.preventDefault();
+		setCursor({ workspaceId: entry.row.workspaceId, time: bucketStart(frame, index) });
+		setAnnouncement(readoutOf(next) ?? "");
+	}
+
+	const cell = cellOf(cursor);
+	const readout = cell === null ? null : readoutOf(cell);
 
 	return (
 		<figure
@@ -124,8 +209,16 @@ export function UsageHeatMap({
 				</p>
 			) : (
 				<>
-					<div className="mt-2 overflow-x-auto">
-						<table className="w-full table-fixed border-collapse text-[12px]">
+					<div className="mt-1 overflow-x-auto p-1">
+						{/* One tab stop for the whole map; a screen reader still walks it as a table. */}
+						<table
+							className="pk-focus-ring w-full table-fixed border-collapse rounded-sm text-[12px]"
+							// biome-ignore lint/a11y/noNoninteractiveTabindex: one tab stop for the keyboard cursor, as the charts have
+							tabIndex={0}
+							onKeyDown={onKeyDown}
+							onBlur={() => setCursor(null)}
+							data-testid="health-heat-map-table"
+						>
 							<caption className="sr-only">
 								Per-workspace {name}, highest {per}
 							</caption>
@@ -150,18 +243,34 @@ export function UsageHeatMap({
 								</tr>
 							</thead>
 							<tbody>
-								{usage.workspaces.map((row) => (
+								{rows.map((entry, rowIndex) => (
 									<HeatRow
-										key={row.workspaceId}
-										row={row}
-										measure={measure}
-										frame={frame}
+										key={entry.row.workspaceId}
+										row={entry.row}
+										values={entry.values}
+										threshold={entry.threshold}
 										columns={columns}
+										cursorColumn={cell?.row === rowIndex ? cell.column : null}
 									/>
 								))}
 							</tbody>
 						</table>
 					</div>
+					{/* Always one line high, so the legend does not jump as the cursor comes and goes. */}
+					<p
+						className="pk-text-body m-0 mt-1 min-h-4 text-[12px] tabular-nums"
+						aria-hidden="true"
+						data-testid="health-heat-map-readout"
+					>
+						{readout ?? (
+							<span className="pk-muted">
+								Keyboard: focus the map, then use the arrow keys to read each value.
+							</span>
+						)}
+					</p>
+					<p className="sr-only" aria-live="polite">
+						{announcement}
+					</p>
 					<HeatLegend />
 				</>
 			)}
@@ -169,22 +278,20 @@ export function UsageHeatMap({
 	);
 }
 
-function HeatRow({
+/** Memoised, so moving the cursor redraws only the rows it leaves and enters. */
+const HeatRow = memo(function HeatRow({
 	row,
-	measure,
-	frame,
+	values,
+	threshold,
 	columns,
+	cursorColumn,
 }: {
 	row: Row;
-	measure: Measure;
-	frame: ChartFrame;
+	values: readonly (number | null)[];
+	threshold: number;
 	columns: readonly number[];
+	cursorColumn: number | null;
 }) {
-	const threshold =
-		measure === "cpu" ? row.cpuThresholdPercent : row.memoryThresholdPercent;
-	const values = dense(frame, row.cells, (cell) =>
-		measure === "cpu" ? cell.cpuPercent : cell.memoryPercent,
-	);
 	const present = values.filter((value): value is number => value !== null);
 	const peak = present.length > 0 ? Math.max(...present) : null;
 	return (
@@ -199,15 +306,19 @@ function HeatRow({
 					{row.owner.displayName}
 				</Link>
 			</th>
-			{columns.map((index) => {
+			{columns.map((index, position) => {
 				const value = values[index] ?? null;
 				const text = cellText(value, threshold);
 				const over = value !== null && value >= threshold;
 				const shade = value === null || over ? "" : stepClass(value);
+				const current = position === cursorColumn;
 				return (
 					<td key={index} className="p-px" title={text}>
 						<div
-							className={`h-4 rounded-[2px] ${value === null ? "" : FILLED} ${shade}`}
+							className={`h-4 rounded-[2px] ${value === null ? "" : FILLED} ${shade} ${
+								current ? "outline-2 outline-offset-1 outline-ink outline-solid" : ""
+							}`}
+							data-cursor={current ? "true" : undefined}
 							style={over ? HATCH : value === null ? NO_DATA : undefined}
 							data-over={over ? "true" : undefined}
 							data-empty={value === null ? "true" : undefined}
@@ -222,7 +333,7 @@ function HeatRow({
 			</td>
 		</tr>
 	);
-}
+});
 
 function HeatLegend() {
 	const swatch = "inline-block h-3 w-3 rounded-[2px] border border-line";

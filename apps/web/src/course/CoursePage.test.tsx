@@ -125,9 +125,19 @@ test("the members table shows name, role, last launch and workspace state", asyn
 	expect(headers).toEqual(["Name", "Role", "Last launch", "Workspace", "Actions"]);
 	const rows = within(table).getAllByRole("row").slice(1);
 	expect(rows).toHaveLength(2);
-	expect(within(rows[0] as HTMLElement).getByRole("rowheader").textContent).toBe(
-		"Ivy Instructor",
-	);
+	const ivy = within(rows[0] as HTMLElement).getByRole("rowheader");
+	expect(ivy.firstChild?.textContent).toBe("Ivy Instructor");
+	// A narrow table folds Role and Last launch under the name, and hides their columns.
+	const folded = ivy.querySelector("span") as HTMLElement;
+	expect(folded.className).toContain("@max-2xl:block");
+	expect(folded.textContent).toMatch(/^Instructor · , Last launch .*2026/);
+	expect(folded.querySelector("time")?.getAttribute("dateTime")).toBeTruthy();
+	for (const name of ["Role", "Last launch"]) {
+		expect(within(table).getByRole("columnheader", { name }).className).toContain(
+			"@max-2xl:hidden",
+		);
+	}
+	expect(table.parentElement?.className).toContain("@container");
 	expect(rows[0]?.textContent).toContain("Instructor");
 	expect(rows[0]?.textContent).toContain("2026");
 	expect(rows[0]?.textContent?.toLowerCase()).toContain("running");
@@ -163,7 +173,9 @@ test("another instructor has no Remove button, because the learning system manag
 	renderApp(`/course/${CS101.id}`);
 
 	const table = await screen.findByTestId("course-members");
-	expect(within(table).getByRole("rowheader").textContent).toBe("Tia Teacher");
+	expect(within(table).getByRole("rowheader").firstChild?.textContent).toBe(
+		"Tia Teacher",
+	);
 	expect(
 		within(table.querySelector("tbody") as HTMLElement).queryByRole("button"),
 	).toBeNull();
