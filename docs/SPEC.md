@@ -5445,6 +5445,37 @@ Acceptance:
 - the API's project, file, Git, search and checks routes pass their relay
   tests against the real workspace agent.
 
+### Epic 31 — Workspace reliability, admin polish, CI and lint
+
+Built on `epic/31-reliability`. Migration 0036 adds
+`workspaces.start_retries` and `settings.controller_checked_at`. See
+sections 6.3, 6.5, 9.7, 18.3, 20.1 and 25.3, STACK.md section 14 and
+ADR 0034.
+
+Includes:
+
+- a failing start retried five times, from 10 seconds to 5 minutes, then
+  left in error until the student acts; the count is stored on the row;
+- Stop on an errored workspace stops a still-running instance, once per
+  Stop;
+- one deadline from the worker to the controller for a create and a
+  process read, with a 480-second create budget;
+- the workspace state marked unconfirmed after two minutes without a
+  controller check;
+- a race-free 20-terminal cap and pruning of ended terminal rows after
+  30 days;
+- a path per admin tab, and the package survey on the Workspace image
+  tab;
+- lint import rules and a warning on files over 800 lines, and no
+  Playwright system-package download in CI.
+
+Acceptance:
+
+- a workspace whose start keeps failing ends in error after five retries;
+- parallel terminal creates never exceed the cap;
+- the status bar shows "unconfirmed" when the controller cannot be
+  reached.
+
 ### Estimated total
 
 **Approximately 47–66 focused engineer-days** for a credible student pilot, depending heavily on how much UI polish, institutional identity integration, and infrastructure troubleshooting is required.
