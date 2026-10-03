@@ -286,8 +286,8 @@ function CurrentPart({ data }: { data: AdminCertificate }) {
 					>
 						<caption className="sr-only">Certificates in use</caption>
 						<colgroup>
-							<col className="w-[22%]" />
-							<col className="w-[30%]" />
+							<col className="w-[28%]" />
+							<col className="w-[24%]" />
 							<col className="w-[28%]" />
 							<col />
 						</colgroup>

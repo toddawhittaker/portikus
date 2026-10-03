@@ -106,23 +106,29 @@ export function SeedCard({ data }: { data: DockerAdminResponse }) {
 				</Toggletip>
 			}
 			actions={
-				<Button
-					variant="primary"
-					data-testid="docker-seed-rebuild"
-					aria-disabled={off ? true : undefined}
-					aria-describedby={off ? "docker-seed-rebuild-note" : undefined}
-					loading={rebuild.isPending}
-					onClick={start}
-				>
-					Rebuild seed
-				</Button>
+				// The reason the button is off sits under it, as on the Certificate tab.
+				<div className="grid justify-items-end gap-2">
+					<Button
+						variant="primary"
+						data-testid="docker-seed-rebuild"
+						aria-disabled={off ? true : undefined}
+						aria-describedby={off ? "docker-seed-rebuild-note" : undefined}
+						loading={rebuild.isPending}
+						onClick={start}
+					>
+						Rebuild seed
+					</Button>
+					{off ? (
+						<p
+							id="docker-seed-rebuild-note"
+							className="pk-muted m-0 max-w-[40ch] text-end text-[13px]"
+						>
+							{off}
+						</p>
+					) : null}
+				</div>
 			}
 		>
-			{off ? (
-				<p id="docker-seed-rebuild-note" className="pk-muted m-0 text-[13px]">
-					{off}
-				</p>
-			) : null}
 			{data.seed ? (
 				<CurrentSeed data={data} seed={data.seed} drifting={drift !== null} />
 			) : null}
@@ -316,7 +322,9 @@ function LatestRebuild({ job }: { job: SeedJob }) {
 			>
 				<dt className="pk-muted">State</dt>
 				<dd className="m-0" data-testid="docker-seed-job-state">
-					<span className={tone}>{STATE_LABEL[job.state]}</span> {job.step}
+					<span className={tone}>{STATE_LABEL[job.state]}</span>
+					{/* A finished job's last step only repeats the state. */}
+					{job.state === "running" || job.state === "failed" ? ` ${job.step}` : null}
 				</dd>
 				{job.message ? (
 					<>
