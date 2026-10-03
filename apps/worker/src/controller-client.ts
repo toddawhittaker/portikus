@@ -27,6 +27,7 @@ import {
 	CreateInstanceResponse as CreateInstanceResponseSchema,
 	EGRESS_HELPER_TIMEOUT_MS,
 	EgressApplyStatus,
+	GROW_BUDGET_MS,
 	GrowVolumesResponse,
 	HostSnapshot,
 	INSTANCE_CREATE_BUDGET_MS,
@@ -34,30 +35,19 @@ import {
 	InstanceUsageResponse,
 	KeptVolumesResponse,
 	ListInstancesResponse as ListInstancesResponseSchema,
+	MAINTENANCE_BUDGET_MS,
 	RebuildInstanceResponse as RebuildInstanceResponseSchema,
 	ReplaceHomeResponse as ReplaceHomeResponseSchema,
 	SeedBuildStatus,
 	SeedInfo,
 	StartInstanceResponse as StartInstanceResponseSchema,
 	StopInstanceResponse as StopInstanceResponseSchema,
+	startBudgetMs,
+	stopBudgetMs,
 } from "@portikus/contracts";
 
-/** Time budgets for each call (ADR 0034), so a hung controller never hangs the worker. */
-/** Resizing a workspace's volumes: a few slow LVM resizes on a busy pool fit in five minutes. */
-const GROW_BUDGET_MS = 300_000;
-const MAINTENANCE_BUDGET_MS = 15 * 60_000;
 /** The controller's egress helper wait plus 15 s margin. */
 export const EGRESS_BUDGET_MS = EGRESS_HELPER_TIMEOUT_MS + 15_000;
-
-/** A stop may take a graceful and a forced try, the controller's settle poll (up to 10 s), plus margin. */
-function stopBudgetMs(timeoutSeconds: number): number {
-	return (2 * timeoutSeconds + 25) * 1000;
-}
-
-/** A start may wait for the agent for its timeout, plus margin. */
-function startBudgetMs(timeoutSeconds: number): number {
-	return (timeoutSeconds + 30) * 1000;
-}
 
 /** Error thrown by the controller client, carrying the error code. */
 export class ControllerClientError extends Error {
