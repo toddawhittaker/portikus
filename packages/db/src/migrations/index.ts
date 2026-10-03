@@ -34,6 +34,10 @@ import { down as down0032, up as up0032 } from "./0032_docker_pull_days.js";
 import { down as down0033, up as up0033 } from "./0033_ghcr_default_on.js";
 import { down as down0034, up as up0034 } from "./0034_keep_running.js";
 import { down as down0035, up as up0035 } from "./0035_docker_seed_images_set.js";
+import {
+	down as down0036,
+	up as up0036,
+} from "./0036_start_retries_and_controller_check.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -75,4 +79,5 @@ export const migrations: Record<string, Migration> = {
 	"0033_ghcr_default_on": { up: up0033, down: down0033 },
 	"0034_keep_running": { up: up0034, down: down0034 },
 	"0035_docker_seed_images_set": { up: up0035, down: down0035 },
+	"0036_start_retries_and_controller_check": { up: up0036, down: down0036 },
 };
