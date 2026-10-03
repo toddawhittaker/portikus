@@ -19,7 +19,7 @@ test.beforeEach(() => {
 
 async function openTab(page: Page) {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=backups");
+	await page.goto("/admin/backups");
 	await expect(page.getByTestId("backups-key-group")).toBeVisible();
 }
 

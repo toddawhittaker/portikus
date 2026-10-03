@@ -4,6 +4,7 @@ import {
 	openAdmin,
 	openDetail,
 	query,
+	routeApi,
 	studentIn,
 	toast,
 } from "./helpers";
@@ -53,7 +54,7 @@ const ALL_SITE =
 
 /** The admin page with a canned health answer. */
 async function openLimitsAdmin(page: Page): Promise<void> {
-	await page.route("**/admin/health", (route) => route.fulfill({ json: HEALTH }));
+	await routeApi(page, "**/admin/health", (route) => route.fulfill({ json: HEALTH }));
 	await openAdmin(page);
 }
 

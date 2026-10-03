@@ -46,7 +46,7 @@ test.beforeEach(async () => {
 
 async function open(page: Page) {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=image");
+	await page.goto("/admin/image");
 	await expect(
 		page.getByRole("heading", { level: 2, name: "Workspace image", exact: true }),
 	).toBeVisible({ timeout: 15_000 });
@@ -435,14 +435,14 @@ test("a newer published image shows a notice and notifies the administrator once
 	await page.keyboard.press("Escape");
 
 	// The Health tab names the package and the command; the platform never upgrades itself.
-	await page.goto("/admin?tab=health");
+	await page.goto("/admin/health");
 	const pkg = page.getByTestId("health-package-update");
 	await expect(pkg).toContainText("Portikus 0.1.700 is available", { timeout: 15_000 });
 	await expect(pkg.locator("code")).toHaveText("sudo apt update && sudo apt upgrade");
 
 	// Once that version is on the server, the notice goes.
 	await putImage({ version: NEWEST, fingerprint: fingerprint(), health: "passed" });
-	await page.goto("/admin?tab=image");
+	await page.goto("/admin/image");
 	await expect(page.getByTestId("image-default")).toHaveText(CURRENT, {
 		timeout: 15_000,
 	});

@@ -30,16 +30,18 @@ export function AuditSection({ detail }: { detail: AdminWorkspaceDetail }) {
 			)}
 			<div className="pk-actions pk-text-compact gap-x-4">
 				<Link
-					to="/admin"
-					search={{ tab: "audit", workspace: workspace.id }}
+					to="/admin/$tab"
+					params={{ tab: "audit" }}
+					search={{ workspace: workspace.id }}
 					className="pk-link"
 					data-testid="detail-all-events"
 				>
 					All events for this workspace
 				</Link>
 				<Link
-					to="/admin"
-					search={{ tab: "logs", workspace: workspace.id, since: "1h" }}
+					to="/admin/$tab"
+					params={{ tab: "logs" }}
+					search={{ workspace: workspace.id, since: "1h" }}
 					className="pk-link"
 					data-testid="detail-view-logs"
 				>

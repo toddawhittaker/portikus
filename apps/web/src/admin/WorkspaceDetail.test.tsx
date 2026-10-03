@@ -316,18 +316,16 @@ test("the detail panel is a labelled region with usage, ports and recent audit",
 	expect(within(panel).getByRole("table", { name: "Listening ports" })).toBeDefined();
 	expect(within(panel).getByText("workspace.stop_requested")).toBeDefined();
 	const allEvents = within(panel).getByTestId("detail-all-events");
-	expect(allEvents.getAttribute("href")).toBe(
-		`/admin?tab=audit&workspace=${WORKSPACE.id}`,
-	);
+	expect(allEvents.getAttribute("href")).toBe(`/admin/audit?workspace=${WORKSPACE.id}`);
 	// The logs link replaces the printed journalctl command (SPEC.md section 24.11).
 	const viewLogs = within(panel).getByRole("link", { name: "Logs for this workspace" });
 	expect(viewLogs.getAttribute("href")).toBe(
-		`/admin?tab=logs&workspace=${WORKSPACE.id}&since=1h`,
+		`/admin/logs?workspace=${WORKSPACE.id}&since=1h`,
 	);
 	expect(within(panel).queryByText(/journalctl/)).toBeNull();
 	// The account's own logs live in the Account section, not a table column (SPEC.md §20.1).
 	const userLogs = within(panel).getByRole("link", { name: "View this user's logs" });
-	expect(userLogs.getAttribute("href")).toBe(`/admin?tab=logs&user=${USER.id}`);
+	expect(userLogs.getAttribute("href")).toBe(`/admin/logs?user=${USER.id}`);
 	// Styled as a link, not body text (Gate E); primitives.css styles pk-link.
 	expect(allEvents.className).toContain("pk-link");
 	// The selected row is marked as the current one.

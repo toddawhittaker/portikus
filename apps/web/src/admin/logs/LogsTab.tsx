@@ -162,7 +162,11 @@ export function LogsTab() {
 		draft.person ?? (filters.user ? personLabel(people, filters.user) : "");
 
 	function show(next: LogFilters) {
-		void navigate({ to: "/admin", search: searchFromFilters(next) });
+		void navigate({
+			to: "/admin/$tab",
+			params: { tab: "logs" },
+			search: searchFromFilters(next),
+		});
 	}
 
 	function apply(event: FormEvent) {

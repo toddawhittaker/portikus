@@ -89,7 +89,8 @@ export function LogCharts({ range }: { range: HealthRange }) {
 	function open(bucketIndex: number, seriesIndex: number) {
 		const start = bucketStart(frame, bucketIndex);
 		void navigate({
-			to: "/admin",
+			to: "/admin/$tab",
+			params: { tab: "logs" },
 			search: searchFromFilters({
 				levels: [seriesIndex === 1 ? "warn" : "error"],
 				services: [],

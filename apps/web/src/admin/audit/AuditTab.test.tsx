@@ -122,7 +122,7 @@ test("a target link asks the API for that target and names it above the table", 
 		}),
 	);
 
-	renderTab(`/admin?tab=audit&workspace=${ALICE_ID}`);
+	renderTab(`/admin/audit?workspace=${ALICE_ID}`);
 
 	const row = within(await screen.findByTestId("audit-row-7"));
 	expect(row.getByText("Carol Admin")).toBeDefined();
@@ -157,7 +157,7 @@ test("Older and Newer page by id", async () => {
 		throw new Error(`unexpected request: ${url}`);
 	});
 
-	renderTab("/admin?tab=audit");
+	renderTab("/admin/audit");
 
 	await screen.findByTestId("audit-row-60");
 	const newer = screen.getByRole("button", { name: "Newer audit events" });
@@ -208,7 +208,7 @@ test("applying filters starts again from the newest page", async () => {
 		throw new Error(`unexpected request: ${url}`);
 	});
 
-	renderTab("/admin?tab=audit");
+	renderTab("/admin/audit");
 	await screen.findByTestId("audit-row-60");
 	fireEvent.click(screen.getByRole("button", { name: "Older audit events" }));
 	await screen.findByTestId("audit-row-2");
@@ -244,7 +244,7 @@ test("applying filters starts again from the newest page", async () => {
 test("a name that matches nobody is refused at the field, before any request", async () => {
 	const fetch = stubAudit(() => json(200, { events: [], nextBefore: null }));
 
-	renderTab("/admin?tab=audit");
+	renderTab("/admin/audit");
 	await screen.findByText("No audit events match.");
 	await waitFor(() =>
 		expect(document.querySelectorAll("#audit-people option")).toHaveLength(2),
@@ -276,7 +276,7 @@ test("a name that matches nobody is refused at the field, before any request", a
 
 test("Clear empties an action typed but not yet applied", async () => {
 	stubAudit(() => json(200, { events: [], nextBefore: null }));
-	renderTab("/admin?tab=audit");
+	renderTab("/admin/audit");
 	await screen.findByText("No audit events match.");
 	const action = screen.getByRole("textbox", {
 		name: "Action starts with",
@@ -305,7 +305,7 @@ test("an API error is announced", async () => {
 		}),
 	);
 
-	renderTab("/admin?tab=audit&workspace=nope");
+	renderTab("/admin/audit?workspace=nope");
 
 	expect((await screen.findByRole("alert")).textContent).toBe(
 		"The workspace filter is not valid.",
@@ -348,7 +348,7 @@ test("a row shows short IDs with the full ID kept for titles and screen readers"
 		}),
 	);
 
-	renderTab("/admin?tab=audit");
+	renderTab("/admin/audit");
 
 	const row = within(await screen.findByTestId("audit-row-8"));
 	const link = row.getByRole("link", { name: new RegExp(WORKSPACE_ID) });
@@ -381,7 +381,7 @@ test("a row with only short details has no disclosure", async () => {
 		}),
 	);
 
-	renderTab("/admin?tab=audit");
+	renderTab("/admin/audit");
 
 	const row = within(await screen.findByTestId("audit-row-9"));
 	expect(row.getByText("short")).toBeDefined();
@@ -391,7 +391,7 @@ test("a row with only short details has no disclosure", async () => {
 test("every column header is scoped to its column", async () => {
 	stubAudit(() => json(200, { events: [event(1)], nextBefore: null }));
 
-	renderTab("/admin?tab=audit");
+	renderTab("/admin/audit");
 
 	const table = await screen.findByTestId("audit-table");
 	const headers = within(table).getAllByRole("columnheader");
@@ -407,7 +407,7 @@ test("a target with a known owner shows their name, with the short ID under it",
 		}),
 	);
 
-	renderTab("/admin?tab=audit");
+	renderTab("/admin/audit");
 
 	const row = within(await screen.findByTestId("audit-row-10"));
 	const link = row.getByRole("link", {
@@ -423,7 +423,7 @@ test("a target with a known owner shows their name, with the short ID under it",
 test("the tab explains itself, and the action filter and Result column have help", async () => {
 	stubAudit(() => json(200, { events: [event(1)], nextBefore: null }));
 
-	renderTab("/admin?tab=audit");
+	renderTab("/admin/audit");
 
 	const table = await screen.findByTestId("audit-table");
 	const intro = screen.getByTestId("intro-admin-audit");

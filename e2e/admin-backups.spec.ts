@@ -44,7 +44,7 @@ async function student(page: Page) {
 
 async function openTab(page: Page) {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=backups");
+	await page.goto("/admin/backups");
 	await expect(page.getByRole("heading", { name: "Backups", level: 2 })).toBeVisible();
 }
 
@@ -408,7 +408,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		// No host has reported (the beforeEach reset), so the API sends host: null.
 		await page.emulateMedia({ colorScheme });
 		await loginAs(page, "carol");
-		await page.goto(`/admin?tab=workspaces&user=${ws.userId}`);
+		await page.goto(`/admin/users?user=${ws.userId}`);
 		const panel = page.getByTestId("workspace-detail");
 		await panel
 			.getByRole("button", {

@@ -84,7 +84,7 @@ function text(value: unknown): string {
 	return typeof value === "string" ? value : "";
 }
 
-/** The filters a link such as `/admin?tab=logs&level=error&user=<id>` asks for. */
+/** The filters a link such as `/admin/logs?level=error&user=<id>` asks for. */
 export function filtersFromSearch(search: Record<string, unknown>): LogFilters {
 	const clean = sanitizeLogSearch(search);
 	const user = text(search.user);
@@ -101,14 +101,13 @@ export function filtersFromSearch(search: Record<string, unknown>): LogFilters {
 }
 
 /** The URL keys for these filters, leaving out the defaults. */
-export function searchFromFilters(filters: LogFilters): LogSearch & { tab: "logs" } {
+export function searchFromFilters(filters: LogFilters): LogSearch {
 	const levels = LOG_LEVELS.filter((level) => filters.levels.includes(level));
 	const isDefault =
 		levels.length === DEFAULT_LEVELS.length &&
 		DEFAULT_LEVELS.every((level) => levels.includes(level));
 	const services = LOG_SERVICES.filter((service) => filters.services.includes(service));
 	return {
-		tab: "logs",
 		level: isDefault ? undefined : levels.join(",") || undefined,
 		// Every service ticked is the same as none: all of them.
 		service:

@@ -39,7 +39,7 @@ test("an administrator saves the quiet time and percent, and they show after a r
 	page,
 }) => {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=settings");
+	await page.goto("/admin/settings");
 	const guard = page.getByRole("region", { name: "Resource guard" });
 	const minutes = guard.getByLabel("Quiet time to lift (minutes)", { exact: true });
 	const percent = guard.getByLabel("Quiet below (%)", { exact: true });
@@ -66,7 +66,7 @@ test("out-of-range values are refused with an error tied to each field", async (
 	page,
 }) => {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=settings");
+	await page.goto("/admin/settings");
 	const guard = page.getByRole("region", { name: "Resource guard" });
 	const minutes = guard.getByLabel("Quiet time to lift (minutes)", { exact: true });
 	const percent = guard.getByLabel("Quiet below (%)", { exact: true });
@@ -91,7 +91,7 @@ test("an administrator changes the hold settings, and a bad value is named", asy
 	page,
 }) => {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=settings");
+	await page.goto("/admin/settings");
 	const after = page.getByLabel("Hold after throttles", { exact: true });
 	const hours = page.getByLabel("Hold window (hours)", { exact: true });
 	await expect(after).toHaveValue("3", { timeout: 15_000 });

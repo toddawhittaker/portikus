@@ -7,6 +7,7 @@ import {
 	MOCK_ISSUER,
 	openToggletip,
 	query,
+	routeApi,
 	toast,
 	WEB_ORIGIN,
 } from "./helpers";
@@ -43,7 +44,7 @@ test.beforeEach(async () => {
 
 async function open(page: Page) {
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=docker");
+	await page.goto("/admin/docker");
 	await expect(
 		page.getByRole("heading", { level: 2, name: "Docker", exact: true }),
 	).toBeVisible({ timeout: 15_000 });
@@ -497,11 +498,11 @@ test("a failed clear shows, and a stopped Hub cache says it waits for a clear", 
 });
 
 test("the tab says it is off when the server has no cache", async ({ page }) => {
-	await page.route("**/admin/docker", (route) =>
+	await routeApi(page, "**/admin/docker", (route) =>
 		route.fulfill({ status: 404, json: { code: "NOT_FOUND", message: "Not found." } }),
 	);
 	await loginAs(page, "carol");
-	await page.goto("/admin?tab=docker");
+	await page.goto("/admin/docker");
 	await expect(page.getByTestId("docker-off")).toContainText(
 		"The Docker cache is off on this site",
 	);
@@ -765,7 +766,7 @@ const MATCH_26_314 = {
 };
 
 async function withMatch(page: Page) {
-	await page.route("**/admin/docker", async (route) => {
+	await routeApi(page, "**/admin/docker", async (route) => {
 		const response = await route.fetch();
 		const body = await response.json();
 		await route.fulfill({ response, json: { ...body, match: MATCH_26_314 } });

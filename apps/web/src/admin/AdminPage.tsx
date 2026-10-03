@@ -1,4 +1,4 @@
-import { Link, Navigate, useSearch } from "@tanstack/react-router";
+import { Link, Navigate, useParams } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
@@ -13,12 +13,11 @@ import { ImageTab } from "./image/ImageTab.js";
 import { LogsTab } from "./logs/LogsTab.js";
 import { NetworkTab } from "./network/NetworkTab.js";
 import { SettingsTab } from "./SettingsTab.js";
-import { ADMIN_TABS, type AdminTab } from "./tabs.js";
+import { ADMIN_TABS, type AdminTab, DEFAULT_ADMIN_TAB, isAdminTab } from "./tabs.js";
 import { WorkspacesTab } from "./WorkspacesTab.js";
 
 const TAB_LABEL: Record<AdminTab, string> = {
-	// The address stays ?tab=workspaces so old links keep working (ADR 0026).
-	workspaces: "Users",
+	users: "Users",
 	health: "Health",
 	logs: "Logs",
 	audit: "Audit",
@@ -36,8 +35,8 @@ const GROUP_START = new Set<AdminTab>(["health", "network"]);
 /** The administration screen. Students never get here (SPEC.md §5.2, §6.4). */
 export function AdminPage() {
 	const me = useMe();
-	const search = useSearch({ from: "/admin" });
-	const tab = search.tab ?? "workspaces";
+	const params = useParams({ from: "/admin/$tab" });
+	const tab = isAdminTab(params.tab) ? params.tab : DEFAULT_ADMIN_TAB;
 	usePageTitle(`${TAB_LABEL[tab]}, Administration`);
 	const shownTab = useRef(tab);
 	// A link inside one tab that opens another (a chart bar, "View logs") is
@@ -80,8 +79,8 @@ export function AdminPage() {
 						{ADMIN_TABS.map((item) => (
 							<Link
 								key={item}
-								to="/admin"
-								search={{ tab: item }}
+								to="/admin/$tab"
+								params={{ tab: item }}
 								data-testid={`admin-tab-${item}`}
 								aria-current={item === tab ? "page" : undefined}
 								className={`pk-focus-ring -mb-px rounded-t-sm border-b-2 px-3 py-2 font-semibold text-[13px] no-underline ${
@@ -96,7 +95,7 @@ export function AdminPage() {
 							</Link>
 						))}
 					</nav>
-					{tab === "workspaces" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
+					{tab === "users" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
 					{tab === "health" ? <HealthTab /> : null}
 					{tab === "logs" ? <LogsTab /> : null}
 					{tab === "audit" ? <AuditTab /> : null}

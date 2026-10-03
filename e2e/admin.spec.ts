@@ -17,7 +17,7 @@ test.describe("administration", () => {
 	/** The grace period lives on the Settings tab, the log level on Logs. */
 	async function openAdmin(page: Page, tab = "settings"): Promise<void> {
 		await loginAs(page, "carol");
-		await page.goto(`/admin?tab=${tab}`);
+		await page.goto(`/admin/${tab}`);
 		await expect(page.getByTestId("page-admin")).toBeVisible({ timeout: 15_000 });
 	}
 
@@ -99,7 +99,7 @@ test.describe("administration", () => {
 		await page.getByTestId("me").click();
 		await page.getByTestId("signout").click();
 		await expect(page.getByTestId("signin")).toBeVisible();
-		await openAdmin(page, "workspaces");
+		await openAdmin(page, "users");
 		await openAliceDetail(page);
 
 		// The panel edits the override in minutes; the API stores seconds.
@@ -178,7 +178,7 @@ test.describe("administration", () => {
 	test("only an administrator sees the Administration link", async ({ page }) => {
 		await loginAs(page, "carol");
 		// An administrator lands on /admin; the link lives in the workspace.
-		await expect(page).toHaveURL(`${WEB_ORIGIN}/admin`, { timeout: 15_000 });
+		await expect(page).toHaveURL(`${WEB_ORIGIN}/admin/users`, { timeout: 15_000 });
 		await expect(page.getByTestId("back-to-workspace")).toHaveCount(0);
 		await page.getByTestId("me").click();
 		await page.getByRole("menuitem", { name: "Open my workspace" }).click();

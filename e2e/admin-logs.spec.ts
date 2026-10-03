@@ -86,7 +86,7 @@ test.describe("admin logs", () => {
 	}) => {
 		const warned = await causeWarning(browser);
 		await loginAs(page, "carol");
-		await openUntil(page, "/admin?tab=logs", "RATE_LIMITED");
+		await openUntil(page, "/admin/logs", "RATE_LIMITED");
 
 		// The person is chosen by name; the URL and the request carry the ID.
 		await page.getByRole("combobox", { name: "Person" }).fill(warned.name);
@@ -122,7 +122,7 @@ test.describe("admin logs", () => {
 	test("Info and Debug switch on and off", async ({ page, browser }) => {
 		const warned = await causeWarning(browser);
 		await loginAs(page, "carol");
-		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "RATE_LIMITED");
+		await openUntil(page, `/admin/logs?user=${warned.userId}`, "RATE_LIMITED");
 		// The note on what each level needs is a toggletip beside Levels.
 		await page.getByRole("button", { name: "About Levels" }).click();
 		await expect(openToggletip(page)).toContainText(
@@ -158,7 +158,7 @@ test.describe("admin logs", () => {
 		const warned = await causeWarning(browser);
 		await loginAs(page, "carol");
 		// Wait for the line to reach the journal before following the links.
-		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "RATE_LIMITED");
+		await openUntil(page, `/admin/logs?user=${warned.userId}`, "RATE_LIMITED");
 
 		// The Users table keeps its seven columns; the user's logs link is in the panel.
 		await page.goto("/admin");
@@ -170,7 +170,7 @@ test.describe("admin logs", () => {
 		await expect(userLogs).toHaveCSS("text-decoration-line", "underline");
 		await userLogs.focus();
 		await page.keyboard.press("Enter");
-		await expect(page).toHaveURL(new RegExp(`tab=logs.*user=${warned.userId}`));
+		await expect(page).toHaveURL(new RegExp(`/admin/logs\\?.*user=${warned.userId}`));
 		await expect(page.getByRole("combobox", { name: "Person" })).toHaveValue(
 			warned.name,
 		);
@@ -189,7 +189,7 @@ test.describe("admin logs", () => {
 			.getByRole("link", { name: "Logs for this workspace" })
 			.click();
 		await expect(page).toHaveURL(
-			new RegExp(`tab=logs.*workspace=${warned.workspaceId}.*since=1h`),
+			new RegExp(`/admin/logs\\?.*workspace=${warned.workspaceId}.*since=1h`),
 		);
 		const only = page.getByRole("checkbox", {
 			name: `Only ${warned.name}'s workspace`,
@@ -215,11 +215,11 @@ test.describe("admin logs", () => {
 	}) => {
 		const warned = await causeWarning(browser);
 		await loginAs(page, "carol");
-		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "RATE_LIMITED");
+		await openUntil(page, `/admin/logs?user=${warned.userId}`, "RATE_LIMITED");
 		await page.evaluate(() => localStorage.setItem("portikus.admin.healthRange", "1h"));
 
 		await expect(async () => {
-			await page.goto("/admin?tab=health");
+			await page.goto("/admin/health");
 			await expect(
 				page.getByTestId("health-chart-logs").locator('rect[data-series="1"]').first(),
 			).toBeVisible({ timeout: 2_000 });
@@ -237,7 +237,7 @@ test.describe("admin logs", () => {
 		const bar = await warningBar.boundingBox();
 		if (!bar) throw new Error("the warning bar has no box");
 		await page.mouse.click(bar.x + bar.width / 2, bar.y + bar.height / 2);
-		await expect(page).toHaveURL(/tab=logs.*level=warn.*since=.*until=/);
+		await expect(page).toHaveURL(/\/admin\/logs\?.*level=warn.*since=.*until=/);
 		await expect(page.getByRole("checkbox", { name: "Warn" })).toBeChecked();
 		await expect(page.getByRole("checkbox", { name: "Error" })).not.toBeChecked();
 		await expect(logRows(page).first()).toBeVisible();
@@ -246,11 +246,11 @@ test.describe("admin logs", () => {
 	test("the whole flow works from the keyboard alone", async ({ page, browser }) => {
 		const warned = await causeWarning(browser);
 		await loginAs(page, "carol");
-		await openUntil(page, `/admin?tab=logs&user=${warned.userId}`, "RATE_LIMITED");
+		await openUntil(page, `/admin/logs?user=${warned.userId}`, "RATE_LIMITED");
 
 		// Health: the errors chart's bar opens Logs with Enter.
 		await page.evaluate(() => localStorage.setItem("portikus.admin.healthRange", "1h"));
-		await page.goto("/admin?tab=health");
+		await page.goto("/admin/health");
 		const plot = page.getByTestId("health-chart-logs-plot");
 		await plot.focus();
 		await page.keyboard.press("End");
@@ -260,7 +260,7 @@ test.describe("admin logs", () => {
 			"(selected)",
 		);
 		await page.keyboard.press("Enter");
-		await expect(page).toHaveURL(/tab=logs.*level=warn/);
+		await expect(page).toHaveURL(/\/admin\/logs\?.*level=warn/);
 		await expect(page.getByRole("heading", { level: 2, name: "Logs" })).toBeFocused();
 
 		// Logs: a filter typed and applied with Enter, a checkbox with Space.
@@ -294,7 +294,7 @@ test.describe("admin logs", () => {
 		page,
 	}) => {
 		await loginAs(page, "carol");
-		await page.goto("/admin?tab=logs");
+		await page.goto("/admin/logs");
 		const level = page.getByRole("combobox", { name: "Services log at" });
 		// No value check: admin.spec.ts changes this site-wide setting in a
 		// parallel worker, and this test is about layout.
@@ -339,7 +339,7 @@ test.describe("admin logs", () => {
 		}
 		await loginAs(page, "carol");
 		await expect(async () => {
-			await page.goto(`/admin?tab=logs&level=info&since=1h&user=${userId}`);
+			await page.goto(`/admin/logs?level=info&since=1h&user=${userId}`);
 			await expect(logRows(page)).toHaveCount(100, { timeout: 2_000 });
 			await expect(page.getByTestId("logs-older")).toBeVisible({ timeout: 2_000 });
 		}).toPass({ timeout: 20_000 });

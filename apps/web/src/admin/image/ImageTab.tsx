@@ -26,6 +26,7 @@ import { formatBytes, WARN_AT } from "../../monitor/format.js";
 import { AdminSection, AdminGroup as Group } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { JobLog } from "../JobLog.js";
+import { PackagesSection } from "./PackagesSection.js";
 import {
 	isActive,
 	useAdminImage,
@@ -37,7 +38,7 @@ import {
 const INTRO = {
 	id: "admin-image",
 	helpAnchor: "admin-image",
-	text: "The image every new workspace starts from. Update it to the newest published image, or rebuild it with current packages and a chosen Node and Python. A new image must pass its health check before you make it the default. Existing workspaces keep their image until you rebuild each one.",
+	text: "The image every new workspace starts from. Update it to the newest published image, or rebuild it with current packages and a chosen Node and Python. A new image must pass its health check before you make it the default. Existing workspaces keep their image until you rebuild each one. Packages students add shows what they install most, so you can decide what belongs in the image.",
 };
 
 const NODE_LABEL: Record<ImageNodeChoice, string> = {
@@ -87,6 +88,8 @@ export function ImageTab() {
 						{errorText(image.error)}
 					</p>
 				)}
+				{/* The survey has its own route, and still guides an image built by hand on the host. */}
+				<PackagesSection />
 			</AdminSection>
 		);
 	}
@@ -97,6 +100,7 @@ export function ImageTab() {
 					<Skeleton variant="block" height={160} />
 					<Skeleton variant="block" height={200} />
 				</div>
+				<PackagesSection />
 			</AdminSection>
 		);
 	}
@@ -298,6 +302,7 @@ function ImageSections({ data }: { data: AdminImage }) {
 					</Dialog>
 				) : null}
 			</DialogRoot>
+			<PackagesSection />
 		</AdminSection>
 	);
 }

@@ -2583,7 +2583,8 @@ built to the frame rules above.
 - The Settings tab edits the two throttle-hold settings (section 19.4).
 - **Workspace image** (Epic 15) shows, updates, rebuilds, activates and
   rolls back the workspace image (section 22.4).
-- The Health tab gains "Packages students add": for the latest completed
+- The Workspace image tab ends with "Packages students add", beside the
+  actions that act on its candidates: for the latest completed
   UTC day that surveyed at least 3 workspaces, how many surveyed
   workspaces added each package with `sudo apt install`, with first and
   last seen, and a base-image candidate mark when at least 2 workspaces
@@ -2596,8 +2597,18 @@ Changed by Epic 25 (UI polish and help):
 
 - **Tab order.** Users, Health, Logs, Audit, Network, Backups, Settings,
   with a small gap before Health and before Network and no group labels.
-  The `?tab=` values did not change. Every tab has a PageIntro and
+  Every tab has a PageIntro and
   toggletips on its fields and headers (section 8.6).
+- **Tab addresses.** Each tab has its own path, `/admin/<tab>`:
+  `/admin/users`, `/admin/health`, `/admin/logs`, `/admin/audit`,
+  `/admin/network`, `/admin/backups`, `/admin/image`,
+  `/admin/certificate`, `/admin/docker` and `/admin/settings`. `/admin`
+  opens Users. An older `/admin?tab=<x>` link redirects to `/admin/<x>`
+  and keeps its other search keys; `?tab=workspaces` goes to
+  `/admin/users`. Moving between tabs adds a history entry, so the back
+  button returns to the previous tab. The edge serves the page for a
+  document request to `/admin` or `/admin/<one segment>`; deeper paths
+  under `/admin/` stay with the API.
 - **Users table.** Five columns: selection; Account (the name with its
   tags, then email or username); Role; Workspace (label, state, and an
   "Old image" tag when out of date); and Activity ("Now" with the
@@ -4156,7 +4167,8 @@ Changed by Epic 25: the Health tab reads top to bottom as the worker-stale
 banner; "At a glance", four cards side by side when there is room
 (Platform, Resource guard, Failures in the last 24 hours, Workspaces by
 state); the Trends card in four groups, Host, Workspaces, API and Events,
-open by default and remembered per browser; then "Packages students add".
+open by default and remembered per browser. "Packages students add" is
+on the Workspace image tab, not here (section 20.1).
 Each chart names its unit in its title, its Y ticks are bare numbers, and
 axis text is 12 px at any width. A chart with no samples in the range is
 one line of text with no axis.
