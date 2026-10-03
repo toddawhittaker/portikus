@@ -15,6 +15,7 @@ import {
 	deleteVolumeIfPresent,
 	ensureVolume,
 	readCurrentImage,
+	SEED_INFO_KEY,
 	VolumeInUseError,
 	volumeExists,
 	volumePath,
@@ -22,8 +23,6 @@ import {
 import { type IncusClient, IncusError } from "./incus.js";
 import { waitForAddress } from "./start-setup.js";
 
-/** The seed volume's config key holding its `SeedInfo` as JSON. */
-export const SEED_INFO_KEY = "user.portikus.seed";
 /** The seed builder container and its Docker volume, while a build runs. */
 export const SEED_BUILDER = "portikus-seed-builder";
 export const SEED_BUILD_VOLUME = "portikus-docker-seed-build";
@@ -38,8 +37,6 @@ export class IncusSeedBuilder implements SeedBuildHost {
 	private readonly pool: string;
 	private readonly profile: string;
 	private readonly imageAlias: string;
-	private readonly ghcrCaPath: string;
-	private readonly cacheOffPath: string;
 	private readonly log: Logger;
 	private readonly stopInstance: (
 		name: string,
@@ -51,9 +48,6 @@ export class IncusSeedBuilder implements SeedBuildHost {
 		pool: string;
 		profile: string;
 		imageAlias: string;
-		/** The ghcr.io cache's CA on the host; tests point it elsewhere. */
-		ghcrCaPath?: string;
-		cacheOffPath?: string;
 		logger?: Logger;
 		/** The provider's clean stop, so the builder stops like any workspace. */
 		stopInstance: (name: string, timeoutSeconds: number) => Promise<unknown>;
@@ -62,8 +56,6 @@ export class IncusSeedBuilder implements SeedBuildHost {
 		this.pool = opts.pool;
 		this.profile = opts.profile;
 		this.imageAlias = opts.imageAlias;
-		this.ghcrCaPath = opts.ghcrCaPath ?? GHCR_CA_HOST_PATH;
-		this.cacheOffPath = opts.cacheOffPath ?? CACHE_OFF_HOST_PATH;
 		this.log = opts.logger ?? silentLogger();
 		this.stopInstance = opts.stopInstance;
 	}
@@ -108,7 +100,7 @@ export class IncusSeedBuilder implements SeedBuildHost {
 			this.client,
 			SEED_BUILDER,
 			{ hubMirror: true, ghcr: opts.ghcr },
-			{ caPath: this.ghcrCaPath, cacheOffPath: this.cacheOffPath, log: this.log },
+			{ caPath: GHCR_CA_HOST_PATH, cacheOffPath: CACHE_OFF_HOST_PATH, log: this.log },
 		);
 		await this.client.request(
 			"PUT",

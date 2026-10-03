@@ -51,6 +51,7 @@ import {
 	readHostSnapshot,
 	readInactiveFileBytes,
 	readPoolUse,
+	SEED_INFO_KEY,
 	SEED_SHARE_KEY,
 	VolumeInUseError,
 	volumeExists,
@@ -58,7 +59,6 @@ import {
 } from "./host.js";
 import { type IncusClient, IncusError } from "./incus.js";
 import { parseIdmap, readInstanceProcesses, readUnitStartTime } from "./processes.js";
-import { SEED_INFO_KEY } from "./seed-builder.js";
 import {
 	prepareRecoveryMount,
 	RECOVERY_PATH,
