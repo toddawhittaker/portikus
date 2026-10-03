@@ -4306,7 +4306,8 @@ right, a terminal pane's actions menu has "Move into" another tab, and
 "Reset pane sizes" evens out a tab's splits. The file tree is a
 multi-select tree (`aria-multiselectable`) with Home, End, type-ahead,
 Shift+Arrow to extend the selection and Ctrl+Space to toggle a row. The
-editor's text box is named after its file and the Ctrl+M way out of it.
+editor's text box is named after its file and the Ctrl+M way out of it
+(Ctrl+Shift+M on macOS).
 The app header and the Course page work down to 320 px.
 
 ### 25.9 Browser support

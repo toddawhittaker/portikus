@@ -35,5 +35,5 @@ not accessible at this time." and leaves out the file.
   already shipped through Radix.
 - The watcher costs work only while a modal is open, and ignores changes
   inside already-hidden areas.
-- Monaco may switch on its screen-reader behaviour when it detects one,
-  without the student's setting.
+- A browser cannot detect a screen reader, so "auto" behaves as off in
+  practice; it only keeps Monaco's own name for the text box.

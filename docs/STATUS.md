@@ -4246,8 +4246,8 @@ Gaps:
 
 ## Epic 33 — UI polish: admin layouts, Settings, accessibility
 
-Built on `epic/33-ui-polish` (task PRs #1097, #1099 to #1116, #1118,
-#1119 and this fold), issues #1087 and #1096. No
+Built on `epic/33-ui-polish` (task PRs #1097, #1099 to #1116, #1118 to
+#1120 and this fold), issues #1087 and #1096. No
 migration. SPEC.md sections 19.2, 20.1 and 25.8, and ADR 0047.
 
 Delivered:
@@ -4285,6 +4285,14 @@ Delivered:
   sort. CPU and Memory sort highest first on the first press. Monitor at
   its 280 px default hides PID, which the Stop button still names, and
   draws no faint sort hint for lack of room.
+- Confirmation review fixes (#1120): closing a tab moves focus to the
+  selected tab. Monaco's tab-focus toggle is now loaded; before, Tab
+  could never leave the editor. The editor names, Help and the Student
+  guide give Ctrl+Shift+M on macOS. The diff editor's side names are no
+  longer blank. Operation-end toasts cannot repeat, and a passed
+  deadline is not announced. The Alt+F1 claim, which had no action
+  behind it, is gone from Help and the guide, and the F8 text matches
+  what the editor does.
 - Admin operations: the end of a rebuild, Docker reset or Replace home
   folder is announced on any admin tab, whether or not the detail panel
   is open, and several ends share one toast. `StateBadge` has a `moving`
