@@ -156,14 +156,38 @@ export function StatusBar({
 					</button>
 				) : null}
 				{/* Announce a storage class or memory crossing a threshold (SPEC.md §19.2). */}
-				<span role="status" className="sr-only" data-testid="storage-warning-announce">
+				<span
+					role="status"
+					aria-live="polite"
+					className="sr-only"
+					data-testid="storage-warning-announce"
+				>
 					{warning?.announcement ?? ""}
 				</span>
-				<span role="status" className="sr-only" data-testid="memory-warning-announce">
+				<span
+					role="status"
+					aria-live="polite"
+					className="sr-only"
+					data-testid="memory-warning-announce"
+				>
 					{memory && memory.level !== "ok" ? MEMORY_ANNOUNCEMENT : ""}
 				</span>
-				<span role="status" className="sr-only" data-testid="state-unverified-announce">
+				<span
+					role="status"
+					aria-live="polite"
+					className="sr-only"
+					data-testid="state-unverified-announce"
+				>
 					{unverified ? UNVERIFIED_ANNOUNCEMENT : ""}
+				</span>
+				{/* Outside the button, so an open dialog's aria-hidden still hides the button. */}
+				<span
+					role="status"
+					aria-live="polite"
+					className="sr-only"
+					data-testid="workspace-state-announce"
+				>
+					{resolved.label}
 				</span>
 				{memory ? (
 					<MeterButton
@@ -208,9 +232,7 @@ export function StatusBar({
 						className={`pk-dot ${TONE_CLASS[resolved.tone] ?? "pk-tone-stopped"}`}
 						aria-hidden="true"
 					/>
-					<span data-testid="workspace-state" role="status">
-						{resolved.label}
-					</span>
+					<span data-testid="workspace-state">{resolved.label}</span>
 					{unverified ? (
 						<span
 							className="pk-statusbar-item pk-tone-warning"

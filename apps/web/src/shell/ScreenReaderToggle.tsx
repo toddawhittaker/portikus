@@ -46,6 +46,7 @@ export function ScreenReaderToggle() {
 			<p
 				className="pk-visually-hidden"
 				role="status"
+				aria-live="polite"
 				data-testid="screen-reader-status"
 			>
 				{announcement}

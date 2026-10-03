@@ -39,7 +39,8 @@ function dialogOpen(): boolean {
  * page answers it too. When it goes, focus returns to where it was, or to
  * `fallbackFocus` when that element is gone. If a dialog is open when it
  * appears, the dialog hides the page and holds focus, so the notice becomes
- * an alert dialog above it instead (SPEC.md §25.8).
+ * an alert dialog above it instead (SPEC.md §25.8). It is not a live region,
+ * since its minutes tick; the focused button's description is what is heard.
  */
 export function IdleNotice({
 	deadline,
@@ -122,8 +123,6 @@ export function IdleNotice({
 		<div
 			ref={notice}
 			className="pk-notice pk-notice--warning"
-			role="status"
-			aria-live="polite"
 			data-testid="idle-notice"
 		>
 			<span className="pk-notice-icon">

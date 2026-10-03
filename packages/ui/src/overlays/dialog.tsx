@@ -1,6 +1,7 @@
 import * as RadixDialog from "@radix-ui/react-dialog";
 import * as React from "react";
 import { IconButton } from "../primitives/index.js";
+import { hideLateContent } from "./hide-late-content.js";
 
 export const DialogRoot = RadixDialog.Root;
 export const DialogTrigger = RadixDialog.Trigger;
@@ -58,7 +59,7 @@ function trackFocus(event: FocusEvent): void {
  * copies the density around whatever opened it. Used as the
  * content's ref: it runs as the dialog mounts, before focus moves into it.
  */
-export function followOpenerDensity(content: HTMLElement | null): void {
+function followOpenerDensity(content: HTMLElement | null): void {
 	if (!content || content.hasAttribute("data-density")) return;
 	const active = document.activeElement;
 	const origin =
@@ -70,6 +71,15 @@ export function followOpenerDensity(content: HTMLElement | null): void {
 	const opener = origin?.menuTrigger ?? origin?.beforeMenu ?? origin?.element;
 	const density = opener?.closest("[data-density]")?.getAttribute("data-density");
 	if (density) content.setAttribute("data-density", density);
+}
+
+/**
+ * The ref of a modal's content, Dialog's or ConfirmDialog's. Stable, so React
+ * runs it once on mount and its cleanup once on unmount.
+ */
+export function modalContentRef(content: HTMLElement | null): (() => void) | undefined {
+	followOpenerDensity(content);
+	return content ? hideLateContent(content) : undefined;
 }
 
 /**
@@ -159,7 +169,7 @@ export function Dialog({
 		<RadixDialog.Portal>
 			<RadixDialog.Overlay className="pk-scrim" />
 			<RadixDialog.Content
-				ref={followOpenerDensity}
+				ref={modalContentRef}
 				id={id}
 				data-testid={testId}
 				// Spread so we never override Radix's own role with undefined.

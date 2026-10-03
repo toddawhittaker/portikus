@@ -117,7 +117,10 @@ test("over an open dialog, Still working? is an alert dialog that takes focus an
 }) => {
 	const student = await createStudent(context);
 	await openShell(page, student.workspaceId);
-	await page.getByTestId("workspace-status").click();
+	// A click event alone, with no pointerdown, so opening the dialog writes no
+	// activity: the API writes it at most once a minute, and Keep working's
+	// write below must be the one that clears the warning.
+	await page.getByTestId("workspace-status").dispatchEvent("click");
 	const workspaceDialog = page.getByRole("dialog");
 	await expect(workspaceDialog).toBeVisible();
 	await expect(workspaceDialog).toBeFocused();
@@ -129,17 +132,10 @@ test("over an open dialog, Still working? is an alert dialog that takes focus an
 	await expect(alert).toBeFocused();
 	await expect(page.getByTestId("idle-notice")).toHaveCount(0);
 
-	await page.keyboard.press("Tab");
-	await page.keyboard.press("Tab");
-	const keep = alert.getByRole("button", { name: "Keep working" });
-	await expect(keep).toBeFocused();
-	await keep.click();
-	// Opening the dialog wrote activity under a minute ago, so the API skips
-	// this write (once a minute per workspace); clear the warning as it would.
-	await query(
-		"update workspaces set idle_stop_at = null, updated_at = now() where id = $1",
-		[student.workspaceId],
-	);
+	await alert.getByRole("button", { name: "Keep working" }).click();
+	await expect
+		.poll(() => idleStopAt(student.workspaceId), { timeout: 15_000 })
+		.toBeNull();
 	await expect(alert).toHaveCount(0, { timeout: 15_000 });
 	await expect(workspaceDialog).toBeVisible();
 	await expect(workspaceDialog).toBeFocused();

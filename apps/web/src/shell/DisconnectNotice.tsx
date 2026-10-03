@@ -1,9 +1,21 @@
 import { Button, Icon } from "@portikus/ui";
-import { useCountdown } from "./useCountdown.js";
+import { stopTime, useCountdown } from "./useCountdown.js";
+
+/**
+ * What a screen reader hears once when the grace timer starts. It names the
+ * stop time rather than the minutes left, so it never changes as they tick
+ * (SPEC.md §25.8).
+ */
+export function disconnectAnnouncement(deadline: string): string {
+	const target = Date.parse(deadline);
+	if (Number.isNaN(target)) return "";
+	return `You're disconnected. Your workspace will stop at ${stopTime(target)} unless a window reconnects.`;
+}
 
 /**
  * Shown while the workspace has no connected browser and the grace timer is
  * running (SPEC.md §6.4). Reconnecting from any window cancels the stop.
+ * Not a live region: the page announces it through `disconnectAnnouncement`.
  */
 export function DisconnectNotice({
 	deadline,
@@ -16,12 +28,7 @@ export function DisconnectNotice({
 	if (!countdown) return null;
 
 	return (
-		<div
-			className="pk-notice pk-notice--warning"
-			role="status"
-			aria-live="polite"
-			data-testid="disconnect-notice"
-		>
+		<div className="pk-notice pk-notice--warning" data-testid="disconnect-notice">
 			<span className="pk-notice-icon">
 				<Icon name="alert" size="md" />
 			</span>

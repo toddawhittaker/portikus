@@ -29,6 +29,9 @@ test("asks Still working?, counts down, and Keep working has focus and answers",
 
 	const button = screen.getByRole("button", { name: "Keep working" });
 	expect(document.activeElement).toBe(button);
+	// Heard through the focused button; a live region would re-read each minute.
+	expect(notice.getAttribute("role")).toBeNull();
+	expect(notice.getAttribute("aria-live")).toBeNull();
 	fireEvent.click(button);
 	expect(onKeepWorking).toHaveBeenCalledTimes(1);
 });
@@ -69,6 +72,34 @@ test("over an open dialog it is an alert dialog of its own, announced and focusa
 	// Answered, the notice goes and focus is back in the dialog underneath.
 	view.rerender(<Page idle={false} />);
 	await waitFor(() => expect(document.activeElement).toBe(inside));
+});
+
+test("over an open dialog, Escape answers it too, and no inline notice sits under the scrim", async () => {
+	const onKeepWorking = vi.fn();
+	const deadline = new Date(Date.now() + 4 * 60_000).toISOString();
+	function Page({ idle }: { idle: boolean }) {
+		return (
+			<>
+				<DialogRoot open>
+					<Dialog title="Workspace">
+						<button type="button">Inside the dialog</button>
+					</Dialog>
+				</DialogRoot>
+				{idle ? (
+					<IdleNotice deadline={deadline} minutes={60} onKeepWorking={onKeepWorking} />
+				) : null}
+			</>
+		);
+	}
+	const view = render(<Page idle={false} />);
+	await screen.findByRole("button", { name: "Inside the dialog" });
+	view.rerender(<Page idle />);
+
+	const alert = await screen.findByRole("alertdialog", { name: "Still working?" });
+	expect(screen.queryByTestId("idle-notice")).toBeNull();
+	await waitFor(() => expect(alert.contains(document.activeElement)).toBe(true));
+	fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
+	expect(onKeepWorking).toHaveBeenCalledTimes(1);
 });
 
 test("without an activity time it still explains the stop", () => {
