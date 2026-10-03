@@ -478,6 +478,12 @@ test.describe("file editor", () => {
 		await page.keyboard.press("Escape");
 		await expect(commands).toBeHidden();
 
+		// F8 reaches the notifications from inside the editor too, as Help says.
+		await lines(page).click();
+		await expect(textbox).toBeFocused();
+		await page.keyboard.press("F8");
+		await expect(page.locator(".pk-toast-viewport")).toBeFocused();
+
 		// The key the name offers does let Tab leave, so the editor is no trap.
 		await lines(page).click();
 		await expect(textbox).toBeFocused();

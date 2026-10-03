@@ -192,7 +192,7 @@ These keys are hard to discover:
 | Ctrl+M, or Ctrl+Shift+M on a Mac | In the editor, switch whether Tab types a tab or moves focus out of the editor. |
 | Alt+Shift+Left Arrow, Alt+Shift+Right Arrow | Move the focused tab left or right. Delete closes it. |
 | Shift+F10 | Open the menu of the focused row in the file tree. The Menu key does the same. |
-| F8 | Move to notifications. Inside the editor F8 goes to the next problem instead, so leave the editor first. |
+| F8 | Move to notifications, from anywhere, the editor included. |
 
 What the terminal and editor cannot do:
 
@@ -204,9 +204,8 @@ What the terminal and editor cannot do:
 - Full-screen programs such as vim, htop, and agent command lines redraw the
   whole screen, so a screen reader may read repeated or partial lines. There
   is no way to review what they draw other than moving through the lines.
-- The editor reads the current line. Error underlines, the diff view, and
-  inline hints are drawn visually and are not read out. F1 opens the
-  editor's command list.
+- The editor reads the current line. Colours, such as the diff view's added
+  and removed lines, are not read out. F1 opens the editor's command list.
 
 ## When something goes wrong
 

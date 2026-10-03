@@ -21,7 +21,7 @@ const KEYS: readonly { keys: string; what: string }[] = [
 	},
 	{
 		keys: "F8",
-		what: "Move to notifications. Inside the editor F8 goes to the next problem instead, so leave the editor first.",
+		what: "Move to notifications, from anywhere, the editor included.",
 	},
 ];
 
@@ -355,9 +355,8 @@ export const STUDENT_HELP: HelpPart = {
 							is no way to review what they draw other than moving through the lines.
 						</li>
 						<li>
-							The editor reads the current line. Error underlines, the diff view, and
-							inline hints are drawn visually and are not read out. F1 opens the
-							editor's command list.
+							The editor reads the current line. Colours, such as the diff view's added
+							and removed lines, are not read out. F1 opens the editor's command list.
 						</li>
 					</ul>
 				</>
