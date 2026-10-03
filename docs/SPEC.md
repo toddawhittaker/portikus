@@ -2347,8 +2347,9 @@ bordered button with a small bar: Memory opens Monitor sorted by memory, Disk
 opens the workspace dialog and its storage meters. A meter turns to the
 warning tone with the alert icon at or above 85% of its limit and stays so
 until use falls below 80%, so it does not flicker near the line; Disk turns
-to the error tone at 95%. Its accessible name starts with the visible text
-and adds "high" when warning. The storage warning above keeps its own
+to the error tone at 95%. The bar shows a percentage, and the accessible name
+carries the full figure in words and adds "nearly full" when warning
+(Epic 33). The storage warning above keeps its own
 wording and tone beside them. A meter with no figure is not drawn. The
 meters use the same 30-second usage poll, which asks every 2 seconds until
 its first sample arrives. Only a crossing is announced, never a new figure:
@@ -2487,6 +2488,16 @@ keeps a fixed Stop column, so a row without Stop leaves that cell empty
 
 The admin area is desktop-only: it is built for windows 1024 px wide and up,
 scrolls sideways below that, and has no tablet layout (Epic 18).
+
+Added by Epic 33: the admin tabs live in the app header, not in a row
+under the page title. The admin `<main>` and the Settings dialog's section
+pane reserve a stable scrollbar gutter, so content does not shift between
+tall and short tabs. `AdminGroup`, at heading level 3 or 4 with an
+optional description, is the one card frame for admin groups and their
+parts. The Users, Logs and Audit tables have sortable headers that carry
+`aria-sort` and announce "Sorted by …" through a polite status region;
+Audit sorts by Time only, because it is paged on the server. The Users
+table has a per-row "more" menu for the lifecycle actions.
 
 The admin page is one frame (Epic 18): its heading, tab navigation and tab
 content sit in a container at most 1440 px wide, at compact density (28 px
@@ -4279,6 +4290,18 @@ The automated axe checks in the Playwright suite run the WCAG 2.0, 2.1 and 2.2 A
 
 Added by Epic 24: a dialog whose opener is gone after it closes (a removed row, a used "Allow…" button) passes `returnFocusTo` to `Dialog` or `ConfirmDialog` in `packages/ui`, and focus goes to that target, usually the card's heading, scrolled into view; otherwise focus returns to the opener. A control that is busy, such as a preset checkbox while its save runs or a Delete button reading "Deleting…", stays mounted and focusable with `aria-disabled`. A button that cannot act yet, such as "Restore copy", names its reason through `aria-describedby`. A message that appears later, such as the restore dialog's stopped-workspace warning or the reinstall notice, is announced through a status region that is always mounted. A ticking time ("3 minutes ago") is not announced.
 
+Added by Epic 33: status regions on the workspace page set `aria-live`
+explicitly, so an open modal does not silence them, and a modal in
+`packages/ui` also hides page content that mounts after it opened (ADR
+0047). No live region carries a ticking time. Every drag has a click
+alternative: a tab menu (right-click or Shift+F10) moves a tab left or
+right, a terminal pane's actions menu has "Move into" another tab, and
+"Reset pane sizes" evens out a tab's splits. The file tree is a
+multi-select tree (`aria-multiselectable`) with Home, End, type-ahead,
+Shift+Arrow to extend the selection and Ctrl+Space to toggle a row. The
+editor's text box is named after its file and the Ctrl+M way out of it.
+The app header and the Course page work down to 320 px.
+
 ### 25.9 Browser support
 
 P0 should support current versions of:
@@ -5501,6 +5524,31 @@ Acceptance:
   sending Incus nothing more for it;
 - a stop with a process ignoring SIGTERM ends stopped inside its budget;
 - routes, statuses and bodies of the workspace agent are unchanged.
+
+### Epic 33 — UI polish: admin layouts, Settings, accessibility
+
+Built on `epic/33-ui-polish`, issues #1087 and #1096. No migration. See
+sections 19.2, 20.1 and 25.8 and ADR 0047.
+
+Includes:
+
+- the admin tabs in the app header, a stable scrollbar gutter, one admin
+  card frame, and new layouts for the Network, Backups, Certificate,
+  Docker and Settings views;
+- sortable admin tables and a per-row "more" menu on Users;
+- a radio-item menu, a shared file input and a "moving" state badge in
+  `packages/ui`;
+- status bar meters on the shared `Meter`, and admin end toasts for
+  rebuild, Docker reset and Replace home folder;
+- an accessibility pass over the whole student interface: live regions
+  under dialogs, click alternatives to dragging, file tree keys, and a
+  header and Course page that work at 320 px.
+
+Acceptance:
+
+- admin content does not shift between tall and short tabs;
+- every drag has a click alternative;
+- a status announcement is heard while a dialog is open.
 
 ### Estimated total
 

@@ -4243,3 +4243,76 @@ Gaps:
   after a start.
 - `/etc/hostname` holds the instance name until the second start (the
   image template, already so).
+
+## Epic 33 — UI polish: admin layouts, Settings, accessibility
+
+Built on `epic/33-ui-polish` (task PRs #1097, #1099 to #1116, the sort
+and Settings review fixes, and this fold), issues #1087 and #1096. No
+migration. SPEC.md sections 19.2, 20.1 and 25.8, and ADR 0047.
+
+Delivered:
+
+- CI: the signed apt repository test backdates its throwaway key two
+  minutes, so apt's verifier no longer rejects it (#1096).
+- Admin frame: the admin `<main>` and the Settings section pane keep a
+  stable scrollbar gutter, so content does not shift between tall and
+  short tabs. The admin tabs sit in the app header, and the unread badge
+  is a larger 24 px pill. The header is a container: on a narrow bar
+  the context text and account name give way, and it stays one line.
+- Admin structure: one `AdminGroup` at level 3 or 4, with an optional
+  description, is the card frame everywhere. A shared `Notice` draws the
+  Backups, backup key and Health warnings. Packages, Trends and admin
+  Settings are cards.
+- Admin tabs: Network, Backups, Certificate and Docker have the new
+  layouts from #1087. Network has a sticky, scrollable side column and a
+  headed read error. Backups is split under 800 lines with one Activity
+  card. Certificate's form is two columns from `@3xl`. Docker's short
+  cards share a grid. Settings shows label, control, then hint, and a
+  search hit focuses the field. Form fields read their hint before their
+  error.
+- Admin tables: Users, Logs and Audit have sortable headers with
+  `aria-sort`. Users has a per-row "more" menu with start, stop,
+  restart, rebuild, archive and disable. `WorkspacesTab.tsx` and
+  `LogsTab.tsx` are split under 800 lines.
+- Admin operations: the end of a rebuild, Docker reset or Replace home
+  folder is announced on any admin tab, whether or not the detail panel
+  is open, and several ends share one toast. `StateBadge` has a `moving`
+  option.
+- Components: `MenuRadioGroup` and `MenuRadioItem` (used by the Preview
+  width menu) and a shared `FileInput` (certificate, backup key and
+  profile picture) in `packages/ui`.
+- Student shell: the status bar wraps instead of overflowing. Its
+  Memory and Disk meters use `Meter`, show a percentage, and keep the
+  full figure in their name. The admin detail meters share the storage
+  thresholds. Monitor buttons close Find in files. "Still working?" is
+  an alert dialog over an open dialog. A full-disk save error stays
+  until a save succeeds. The Health heat map has a keyboard cursor with
+  a readout.
+- Accessibility pass over the whole student interface: status regions
+  stay live under dialogs, modals hide content that mounts later, and no
+  region re-announces a ticking time. The file tree is a multi-select
+  tree with Home, End, type-ahead, Shift+Arrow and Ctrl+Space. Search
+  results are named by file and line. The editor's text box is named
+  after its file and the Ctrl+M way out. Tabs move from a right-click
+  menu, a terminal pane moves with "Move into", and "Reset pane sizes"
+  evens out splits; the Help page covers all three (#1114). The header
+  and Course page work at 320 px.
+
+Verified: (to be filled by the battery and pilot)
+
+Gaps:
+
+- The workspace and admin pages keep their 1024 px minimum, so at
+  560 px they scroll sideways instead of reflowing (SPEC.md section
+  20.1; DESIGN.md defers the narrow workspace layout).
+- `FileTree.tsx` is still over 800 lines (about 1,290), and `app.css` passed 800 (about 840).
+- Audit sorts by Time only, because it is paged on the server. Logs
+  sorts only the lines already loaded.
+- Below 1280 px an administrator sees only their initials in the
+  header; the full name is in the button's label and menu.
+- "Reset pane sizes" covers terminal splits only, because file, diff
+  and preview tabs have no splitters.
+- The apt repository test had one unexplained early local failure
+  (#1097).
+- Monitor and the admin Processes table keep their own sort headers
+  (BACKLOG.md).
