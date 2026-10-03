@@ -352,6 +352,21 @@ test("choosing a tab in the tab bar leaves focus on that tab link", async () => 
 	expect(document.activeElement).toBe(tab);
 });
 
+test("a tab change is announced in a polite status region, without moving focus", async () => {
+	stubAdmin(600);
+	renderApp("/admin");
+	await screen.findByTestId("admin-accounts");
+	const region = screen.getByTestId("admin-tab-announce");
+	expect(region.getAttribute("aria-live")).toBe("polite");
+	expect(region.textContent).toBe("");
+	const tab = screen.getByTestId("admin-tab-settings");
+	tab.focus();
+	fireEvent.click(tab);
+	await waitFor(() => expect(region.textContent).toBe("Settings tab"));
+	expect(screen.getByTestId("admin-tab-announce")).toBe(region);
+	expect(document.activeElement).toBe(tab);
+});
+
 test("the Settings tab has its own title and an h2 naming it", async () => {
 	stubAdmin(600);
 

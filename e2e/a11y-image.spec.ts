@@ -114,8 +114,33 @@ async function routeImage(page: Page, job: object) {
 	);
 }
 
+/** One base-image candidate and one ordinary row, so the scans cover the filled table and its tag. */
+const PACKAGES = {
+	day: "2026-09-27",
+	surveyed: 9,
+	packages: [
+		{
+			package: "python3-venv",
+			workspaces: 6,
+			firstSeen: "2026-09-20",
+			lastSeen: "2026-09-27",
+			candidate: true,
+		},
+		{
+			package: "cowsay",
+			workspaces: 0,
+			firstSeen: "2026-09-21",
+			lastSeen: "2026-09-22",
+			candidate: false,
+		},
+	],
+};
+
 async function openTab(page: Page, colorScheme: "light" | "dark") {
 	await routeApi(page, "**/admin/image", (route) => route.fulfill({ json: IMAGE }));
+	await routeApi(page, "**/admin/packages", (route) =>
+		route.fulfill({ json: PACKAGES }),
+	);
 	await page.route("**/admin/image/diff?**", (route) => route.fulfill({ json: DIFF }));
 	await page.route(`**/admin/image/jobs/${JOB_ID}`, (route) =>
 		route.fulfill({
@@ -127,6 +152,7 @@ async function openTab(page: Page, colorScheme: "light" | "dark") {
 	await page.goto("/admin/image");
 	await expect(page.getByTestId("image-job-result")).toBeVisible({ timeout: 15_000 });
 	await expect(page.getByTestId("image-job-result").getByText("zsh")).toBeVisible();
+	await expect(page.getByTestId("packages-row")).toHaveCount(2);
 }
 
 for (const colorScheme of ["light", "dark"] as const) {

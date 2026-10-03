@@ -1,5 +1,5 @@
 import { Link, Navigate, useParams } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { gatePath, useMe } from "../useMe.js";
@@ -39,11 +39,14 @@ export function AdminPage() {
 	const tab = isAdminTab(params.tab) ? params.tab : DEFAULT_ADMIN_TAB;
 	usePageTitle(`${TAB_LABEL[tab]}, Administration`);
 	const shownTab = useRef(tab);
+	const [tabAnnouncement, setTabAnnouncement] = useState("");
 	// A link inside one tab that opens another (a chart bar, "View logs") is
 	// gone once the tab switches; put focus on the new tab's heading.
 	useEffect(() => {
 		if (shownTab.current === tab) return;
 		shownTab.current = tab;
+		// The back button changes the tab without moving focus; say which tab is now open (SPEC.md section 25.8).
+		setTabAnnouncement(`${TAB_LABEL[tab]} tab`);
 		const lost = !document.activeElement || document.activeElement === document.body;
 		if (lost) focusAdminHeading();
 	}, [tab]);
@@ -68,6 +71,9 @@ export function AdminPage() {
 				{/* <main> keeps the scroll, so the scrollbar stays at the window edge (SPEC.md section 20.1).
 				    scroll-pt-16 keeps a focused row clear of the sticky table header. */}
 				<div className="mx-auto w-full max-w-[1440px]" data-testid="admin-content">
+					<p aria-live="polite" className="sr-only" data-testid="admin-tab-announce">
+						{tabAnnouncement}
+					</p>
 					<h1 className="pk-text-title" id="admin-title">
 						Administration
 					</h1>

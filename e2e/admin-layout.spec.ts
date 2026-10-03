@@ -45,6 +45,7 @@ test.describe("admin layout", () => {
 		await expect(page).toHaveURL(/\/admin\/settings$/);
 		await page.goBack();
 		await expect(page).toHaveURL(/\/admin\/health$/);
+		await expect(page.getByTestId("admin-tab-announce")).toHaveText("Health tab");
 		await expect(page.getByTestId("admin-tab-health")).toHaveAttribute(
 			"aria-current",
 			"page",
