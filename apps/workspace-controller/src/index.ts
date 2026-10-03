@@ -4,6 +4,7 @@ import { createLogger, errorMessage } from "@portikus/observability";
 import { AGENT_ENTRY_PATH, restartOutdatedAgents } from "./agent-restart.js";
 import { IncusClient } from "./incus.js";
 import { IncusWorkspaceProvider } from "./provider.js";
+import { IncusSeedBuilder } from "./seed-builder.js";
 import { buildServer } from "./server.js";
 
 const config = loadConfig(ControllerConfigSchema);
@@ -24,9 +25,18 @@ const provider = new IncusWorkspaceProvider({
 	agentPort: config.AGENT_PORT,
 	logger,
 });
+const seedHost = new IncusSeedBuilder({
+	client,
+	pool: config.INCUS_POOL,
+	profile: config.INCUS_PROFILE,
+	imageAlias: config.INCUS_IMAGE_ALIAS,
+	logger,
+	stopInstance: (name, timeoutSeconds) => provider.stop(name, { timeoutSeconds }),
+});
 
 const app = buildServer({
 	provider,
+	seedHost,
 	token: config.CONTROLLER_TOKEN,
 	logger,
 });
@@ -45,7 +55,7 @@ app.listen({ host: "127.0.0.1", port: config.PORT }, (err, address) => {
 /** A seed build the last controller process was running is gone with it. */
 async function discardForgottenSeedBuild(): Promise<void> {
 	try {
-		await provider.discardSeedBuild();
+		await seedHost.discardSeedBuild();
 	} catch (err) {
 		logger.warn({ err: errorMessage(err) }, "could not remove a leftover seed builder");
 	}

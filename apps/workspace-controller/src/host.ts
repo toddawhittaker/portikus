@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
-import type {
-	GrowVolumesRequest,
-	GrowVolumesResponse,
-	HostSnapshot,
+import {
+	type GrowVolumesRequest,
+	type GrowVolumesResponse,
+	type HostSnapshot,
+	VOLUME_CREATE_TIMEOUT_MS,
 } from "@portikus/contracts";
 import { createHostRateReader } from "./host-rates.js";
 import { type IncusClient, IncusError } from "./incus.js";
@@ -221,8 +222,7 @@ export async function growVolumes(
 		{ volume: `${name}-home`, gib: sizes.homeGiB },
 		{ volume: `${name}-docker`, gib: sizes.dockerGiB },
 	];
-	const path = (volume: string) =>
-		`/1.0/storage-pools/${enc(pool)}/volumes/custom/${enc(volume)}`;
+	const path = (volume: string) => volumePath(pool, volume);
 
 	const current: Array<number | null> = [];
 	for (const want of wanted) {
@@ -260,6 +260,74 @@ export async function growVolumes(
 	}
 
 	return { homeGiB: sizes.homeGiB, dockerGiB: sizes.dockerGiB };
+}
+
+/** Refused because a volume is still attached to an instance; answered 409. */
+export class VolumeInUseError extends IncusError {
+	constructor(volume: string) {
+		super("OPERATION_FAILED", `volume ${volume} is in use`);
+		this.name = "VolumeInUseError";
+	}
+}
+
+export function volumePath(pool: string, volume: string): string {
+	return `/1.0/storage-pools/${enc(pool)}/volumes/custom/${enc(volume)}`;
+}
+
+/** Make a custom volume; one that already exists is left as it is. */
+export async function ensureVolume(
+	client: IncusClient,
+	pool: string,
+	volName: string,
+	sizeGiB: number,
+	extraConfig: Record<string, string> = {},
+	signal?: AbortSignal,
+): Promise<void> {
+	try {
+		await client.request(
+			"POST",
+			`/1.0/storage-pools/${enc(pool)}/volumes/custom`,
+			{
+				name: volName,
+				config: { size: `${sizeGiB}GiB`, ...extraConfig },
+			},
+			signal,
+			undefined,
+			VOLUME_CREATE_TIMEOUT_MS,
+		);
+	} catch (err) {
+		if (err instanceof IncusError && err.code === "ALREADY_EXISTS") {
+			return;
+		}
+		throw err;
+	}
+}
+
+export async function volumeExists(
+	client: IncusClient,
+	pool: string,
+	volume: string,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	try {
+		await client.request("GET", volumePath(pool, volume), undefined, signal);
+		return true;
+	} catch (err) {
+		if (err instanceof IncusError && err.code === "NOT_FOUND") return false;
+		throw err;
+	}
+}
+
+export async function deleteVolumeIfPresent(
+	client: IncusClient,
+	pool: string,
+	volume: string,
+): Promise<void> {
+	try {
+		await client.request("DELETE", volumePath(pool, volume));
+	} catch (err) {
+		if (!(err instanceof IncusError && err.code === "NOT_FOUND")) throw err;
+	}
 }
 
 /**

@@ -68,8 +68,10 @@ beforeEach(() => {
 	requestPath = join(dir, "request", "request.json");
 	stateDir = join(dir, "state");
 	helper = null;
+	const provider = new FakeWorkspaceProvider();
 	app = buildServer({
-		provider: new FakeWorkspaceProvider(),
+		provider,
+		seedHost: provider,
 		token: TOKEN,
 		egress: { requestPath, stateDir, timeoutMs: 400, pollMs: 20 },
 	});

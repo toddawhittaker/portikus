@@ -80,7 +80,7 @@ let base: string;
 
 beforeEach(async () => {
 	provider = new GatedProvider();
-	app = buildServer({ provider, token: TOKEN });
+	app = buildServer({ provider, seedHost: provider, token: TOKEN });
 	base = await app.listen({ port: 0, host: "127.0.0.1" });
 });
 
