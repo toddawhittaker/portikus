@@ -7,7 +7,7 @@ import { startLoop } from "./loop.js";
 const TERMINAL_PRUNE_SECONDS = 60 * 60;
 
 /** Ended terminal rows older than this are deleted. */
-export const ENDED_TERMINAL_MAX_AGE_DAYS = 30;
+const ENDED_TERMINAL_MAX_AGE_DAYS = 30;
 
 /**
  * Delete terminal rows that ended more than 30 days ago (SPEC.md 9.7).

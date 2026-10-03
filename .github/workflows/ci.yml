@@ -297,7 +297,11 @@ jobs:
         timeout-minutes: 5
         run: |
           pnpm exec playwright install --only-shell chromium
-          missing=$(pnpm exec playwright install-deps --dry-run chromium | grep '^  ' | grep -Ev '^  x?fonts-' || true)
+          # Pass only on a known-good answer; an apt failure must not read as "nothing missing".
+          out=$(pnpm exec playwright install-deps --dry-run chromium 2>&1) || { echo "$out"; exit 1; }
+          if echo "$out" | grep -q 'All system dependencies are installed.'; then exit 0; fi
+          if ! echo "$out" | grep -q 'Missing system dependencies'; then echo "Unexpected output:"; echo "$out"; exit 1; fi
+          missing=$(echo "$out" | grep '^  ' | grep -Ev '^  x?fonts-' || true)
           if [ -n "$missing" ]; then echo "The runner image lacks libraries Chromium needs:"; echo "$missing"; exit 1; fi
       # The Playwright servers run the compiled output, and Vite serves the
       # ui package's theme and fonts from its dist, so build both first.

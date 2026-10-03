@@ -87,6 +87,15 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		}
 	});
 
+	// These API paths are also browser page URLs, so a cached JSON reply
+	// could stand in for the page on Back; never let one be stored.
+	app.addHook("onSend", async (request, reply) => {
+		const route = request.routeOptions.url ?? "";
+		if (route.startsWith("/admin") || route === "/workspaces/:id") {
+			reply.header("cache-control", "no-store");
+		}
+	});
+
 	// Browser forms post urlencoded: the sign-out button, whose fields no
 	// route reads, and the LTI login and launch.
 	app.addContentTypeParser(
