@@ -258,6 +258,34 @@ test("a retry stops for a workspace that is pending again, so a later result is 
 	expect(asked).toHaveLength(2);
 });
 
+test("a retry drops a workspace whose next operation started and ended between retries", async () => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	const first = auditEvent(8, "workspace.rebuild_requested");
+	let audit = [first];
+	const asked = stubAudit(() => audit);
+	const update = renderWatcher(rows("rebuild"));
+	update(rows(null));
+	await waitFor(() => expect(asked).toHaveLength(1));
+
+	// A second rebuild is seen pending and ends before the first loop retries.
+	update(rows("rebuild"));
+	audit = [
+		auditEvent(10, "workspace.rebuilt"),
+		auditEvent(9, "workspace.rebuild_requested"),
+		first,
+	];
+	update(rows(null));
+	expect(
+		await screen.findByText("Rebuild of Alice Example's workspace finished"),
+	).toBeTruthy();
+	await vi.advanceTimersByTimeAsync(OUTCOME_RETRY_MS * 7);
+	// Only the second loop read the result; the first did not claim it too.
+	expect(
+		screen.getAllByText("Rebuild of Alice Example's workspace finished"),
+	).toHaveLength(1);
+	expect(asked).toHaveLength(2);
+});
+
 /** Three accounts, each with a workspace and the same pending operation. */
 function many(pending: PendingOperation | null): AdminUser[] {
 	return [1, 2, 3].map((n) =>

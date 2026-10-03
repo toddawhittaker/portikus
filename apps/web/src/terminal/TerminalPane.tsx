@@ -25,8 +25,9 @@ import {
 	type TerminalLink,
 	wrappedUrlsOnRow,
 } from "../links.js";
+import { currentPlatform } from "../platform.js";
 import { useProjects } from "../projects/queries.js";
-import { currentPlatform, decide } from "./terminalClipboard.js";
+import { decide } from "./terminalClipboard.js";
 import {
 	AGENT_UPGRADED_MESSAGE,
 	firstNoticeOf,

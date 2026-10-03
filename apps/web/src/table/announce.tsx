@@ -29,7 +29,7 @@ export function useAnnouncedSort<C extends string>(
 /** The polite region a table's sort is announced in; mounted with the tab so it never misses one. */
 export function SortAnnouncement({ text, testId }: { text: string; testId: string }) {
 	return (
-		<span className="sr-only" role="status" data-testid={testId}>
+		<span className="sr-only" role="status" aria-live="polite" data-testid={testId}>
 			{text}
 		</span>
 	);

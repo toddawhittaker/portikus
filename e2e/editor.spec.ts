@@ -468,6 +468,41 @@ test.describe("file editor", () => {
 			"Screen-reader mode is on.",
 		);
 		await expect(textbox).toHaveAccessibleName(name);
+
+		// The key the name offers does let Tab leave, so the editor is no trap.
+		await lines(page).click();
+		await expect(textbox).toBeFocused();
+		await page.keyboard.press("Control+m");
+		await page.keyboard.press("Tab");
+		await expect(textbox).not.toBeFocused();
+	});
+
+	test.describe("on a Mac", () => {
+		// Monaco and Portikus both read macOS from the user agent.
+		test.use({
+			userAgent:
+				"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+		});
+
+		/** Monaco binds its tab-focus toggle to Ctrl+Shift+M on macOS. */
+		test("the editor's name gives the Mac key, and that key lets Tab leave", async ({
+			page,
+			context,
+		}) => {
+			const student = await createStudent(context);
+			await openFileTab(page, student, "Mac named", PATH, CONTENT);
+			await expect(lines(page)).toContainText("const answer", { timeout: 60_000 });
+			const textbox = page.getByTestId(`editor-${PATH}`).getByRole("textbox");
+			await expect(textbox).toHaveAccessibleName(
+				`Editor, ${PATH}. Ctrl+Shift+M makes Tab leave the editor.`,
+			);
+
+			await lines(page).click();
+			await expect(textbox).toBeFocused();
+			await page.keyboard.press("Control+Shift+M");
+			await page.keyboard.press("Tab");
+			await expect(textbox).not.toBeFocused();
+		});
 	});
 
 	/** A student who has changed nothing gets wrapping. */

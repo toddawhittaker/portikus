@@ -36,3 +36,7 @@ test("the announcement names the stop time, not the minutes left", () => {
 test("an unreadable deadline announces nothing", () => {
 	expect(disconnectAnnouncement("not a date")).toBe("");
 });
+
+test("a deadline already past announces nothing, since the stop is not ahead", () => {
+	expect(disconnectAnnouncement(new Date(Date.now() - 1000).toISOString())).toBe("");
+});

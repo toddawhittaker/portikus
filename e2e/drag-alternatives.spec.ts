@@ -113,6 +113,42 @@ test("a tab moves left and right from its right-click menu", async ({
 	);
 });
 
+test("closing a tab from its menu or with Delete keeps focus on the selected tab", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	const project = await createProject(student.workspaceId, { name: "Tab close focus" });
+	const paths = ["one.txt", "two.txt", "three.txt"];
+	for (const path of paths) {
+		await seedFile(student.workspaceId, project.slug, path, `${path}\n`);
+	}
+	await query("update projects set layout = $2 where id = $1", [
+		project.id,
+		JSON.stringify({
+			tabs: paths.map((path) => ({ id: `file:${path}`, root: { type: "file", path } })),
+		}),
+	]);
+	await page.goto(workspacePath(student.workspaceId, project.id));
+	await expect(tabs(page)).toHaveCount(3, { timeout: 15_000 });
+	const selected = workTabs(page).getByRole("tab", { selected: true });
+
+	await page.getByTestId("tab-file:two.txt").click({ button: "right" });
+	await page
+		.getByRole("menu", { name: "Actions for two.txt" })
+		.getByRole("menuitem", { name: "Close tab" })
+		.click();
+	await expect(tabs(page)).toHaveCount(2);
+	await expect(selected).toBeFocused();
+
+	// Delete on the focused, selected tab closes it and selects a neighbour.
+	const before = (await selected.getAttribute("data-testid")) ?? "";
+	await page.keyboard.press("Delete");
+	await expect(tabs(page)).toHaveCount(1);
+	await expect(selected).not.toHaveAttribute("data-testid", before);
+	await expect(selected).toBeFocused();
+});
+
 test("a pane moves into another tab from its actions menu", async ({
 	page,
 	context,

@@ -18,6 +18,8 @@ export function hideLateContent(content: HTMLElement): () => void {
 
 	function exposed(node: Node): boolean {
 		if (!(node instanceof Element) || content.contains(node)) return false;
+		// Inside a live region the page keeps exposed, it is meant to be heard.
+		if (node.parentElement?.closest("[aria-live]")) return false;
 		const top = topLevel(node);
 		return (
 			top !== null && page.has(top) && node.closest('[aria-hidden="true"]') === null

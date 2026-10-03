@@ -1,6 +1,7 @@
 import type { BackupRequestView, BackupWorkspace } from "@portikus/contracts";
 import { Button, Toggletip } from "@portikus/ui";
 import type { ReactNode } from "react";
+import { AdminGroup } from "../AdminSection.js";
 import {
 	isWaiting,
 	longTime,
@@ -37,12 +38,13 @@ export function ActivityGroups({ requests, workspaces, onReplace }: Props) {
 		// The first request swaps one card for two, which drops whatever had focus inside.
 		<FocusCatch id="backups-restores-title">
 			{requests.length === 0 ? (
-				<FocusCatchGroup
+				// The catcher above covers this branch; empty tables have no rows to lose.
+				<AdminGroup
 					id="backups-activity-title"
 					title="Activity"
 					testId="backups-activity"
 				>
-					<FocusCatchGroup
+					<AdminGroup
 						level={4}
 						id="backups-restores-title"
 						title="Restores"
@@ -53,11 +55,11 @@ export function ActivityGroups({ requests, workspaces, onReplace }: Props) {
 							workspaces={workspaces}
 							onReplace={onReplace}
 						/>
-					</FocusCatchGroup>
-					<FocusCatchGroup level={4} id="backups-recent-title" title="Recent requests">
+					</AdminGroup>
+					<AdminGroup level={4} id="backups-recent-title" title="Recent requests">
 						<RecentTable requests={requests} workspaces={workspaces} />
-					</FocusCatchGroup>
-				</FocusCatchGroup>
+					</AdminGroup>
+				</AdminGroup>
 			) : (
 				<>
 					<FocusCatchGroup

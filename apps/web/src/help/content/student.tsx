@@ -1,3 +1,4 @@
+import { tabFocusKey } from "../../platform.js";
 import type { HelpPart } from "./part.js";
 
 /** The keys that are hard to discover (moved here from Settings). */
@@ -7,7 +8,7 @@ const KEYS: readonly { keys: string; what: string }[] = [
 		what: "Leave a terminal. While a terminal has the keyboard, Tab goes to the shell. Each terminal's three-dots menu also has Leave terminal.",
 	},
 	{
-		keys: "Ctrl+M",
+		keys: tabFocusKey(),
 		what: "In the editor, switch whether Tab types a tab or moves focus out of the editor.",
 	},
 	{ keys: "Alt+F1", what: "In the editor, open the editor's own accessibility help." },
