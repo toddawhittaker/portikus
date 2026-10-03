@@ -67,6 +67,7 @@ export function AdminGroup({
 	id,
 	title,
 	help,
+	description,
 	actions,
 	children,
 	testId,
@@ -74,6 +75,8 @@ export function AdminGroup({
 	id: string;
 	title: string;
 	help?: ReactNode;
+	/** One short line under the heading saying what the group is for. */
+	description?: string;
 	actions?: ReactNode;
 	children: ReactNode;
 	testId?: string;
@@ -85,11 +88,16 @@ export function AdminGroup({
 			data-testid={testId}
 		>
 			<div className="flex flex-wrap items-start gap-x-4 gap-y-2">
-				<div className="flex min-w-0 flex-1 items-center gap-1">
-					<h3 className="pk-text-heading m-0" id={id} tabIndex={-1}>
-						{title}
-					</h3>
-					{help}
+				<div className="grid min-w-0 flex-1 gap-1">
+					<div className="flex items-center gap-1">
+						<h3 className="pk-text-heading m-0" id={id} tabIndex={-1}>
+							{title}
+						</h3>
+						{help}
+					</div>
+					{description ? (
+						<p className="pk-muted m-0 text-[13px]">{description}</p>
+					) : null}
 				</div>
 				{actions}
 			</div>

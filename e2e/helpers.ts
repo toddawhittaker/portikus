@@ -11,6 +11,7 @@ import {
 	type Route,
 } from "@playwright/test";
 import pg from "pg";
+import { dexLocalSubject } from "../packages/auth/dist/dex-subject.js";
 import { API_ORIGIN, FAKE_AGENT_URL, MOCK_ISSUER, WEB_ORIGIN } from "./ports";
 
 /**
@@ -117,17 +118,50 @@ export async function createSignedInUser(
 		[MOCK_ISSUER, subject, `${subject}@example.edu`, name, role],
 	);
 	if (!user) throw new Error("could not create the test user");
+	const sessionToken = await addSession(context, user.id);
+	return { userId: user.id, sessionToken };
+}
 
+/** Give `userId` a session and put its cookie in the browser context. */
+async function addSession(context: BrowserContext, userId: string): Promise<string> {
 	const sessionToken = crypto.randomBytes(32).toString("base64url");
 	await query(
 		`insert into sessions (id, user_id, expires_at)
 		 values ($1, $2, now() + interval '1 hour')`,
-		[crypto.createHash("sha256").update(sessionToken).digest("hex"), user.id],
+		[crypto.createHash("sha256").update(sessionToken).digest("hex"), userId],
 	);
 	await context.addCookies([
 		{ name: "portikus_session", value: sessionToken, url: WEB_ORIGIN },
 	]);
-	return { userId: user.id, sessionToken };
+	return sessionToken;
+}
+
+/**
+ * A Dex local-password administrator of its own, signed in, like the local
+ * administrator (SPEC.md sections 5.1 and 5.3). It never touches the shared
+ * "admin" account change-password.spec.ts uses.
+ */
+export async function createLocalPasswordAdmin(
+	context: BrowserContext,
+	options: { prefix: string; displayName: string; mustChange: boolean },
+): Promise<string> {
+	const id = `${options.prefix}-${crypto.randomUUID()}`;
+	const [user] = await query<{ id: string }>(
+		`insert into users (oidc_issuer, oidc_subject, email, display_name, role,
+		   granted_role, must_change_password)
+		 values ($1, $2, $3, $4, 'administrator', 'administrator', $5)
+		 returning id`,
+		[
+			MOCK_ISSUER,
+			dexLocalSubject(id),
+			`${id}@example.edu`,
+			options.displayName,
+			options.mustChange,
+		],
+	);
+	if (!user) throw new Error("could not create the test user");
+	await addSession(context, user.id);
+	return user.id;
 }
 
 /**

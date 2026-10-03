@@ -1,7 +1,5 @@
-import * as crypto from "node:crypto";
 import { type BrowserContext, expect, test } from "@playwright/test";
-import { dexLocalSubject } from "../packages/auth/dist/dex-subject.js";
-import { createStudent, MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
+import { createLocalPasswordAdmin, createStudent, query } from "./helpers";
 
 /**
  * The acceptable-use gate (SPEC.md section 5.1). The run's
@@ -103,26 +101,13 @@ test("Sign out signs out", async ({ page, context }) => {
 
 /** A Dex local-password administrator, like the local administrator (SPEC.md section 5.1). */
 async function localAdmin(context: BrowserContext): Promise<string> {
-	const id = `aup-${crypto.randomUUID()}`;
-	const [user] = await query<{ id: string }>(
-		`insert into users (oidc_issuer, oidc_subject, email, display_name, role,
-		   granted_role, must_change_password)
-		 values ($1, $2, $3, 'Local administrator', 'administrator', 'administrator', true)
-		 returning id`,
-		[MOCK_ISSUER, dexLocalSubject(id), `${id}@example.edu`],
-	);
-	if (!user) throw new Error("could not create the test user");
-	await clearAcceptance(user.id);
-	const token = crypto.randomBytes(32).toString("base64url");
-	await query(
-		`insert into sessions (id, user_id, expires_at)
-		 values ($1, $2, now() + interval '1 hour')`,
-		[crypto.createHash("sha256").update(token).digest("hex"), user.id],
-	);
-	await context.addCookies([
-		{ name: "portikus_session", value: token, url: WEB_ORIGIN },
-	]);
-	return user.id;
+	const userId = await createLocalPasswordAdmin(context, {
+		prefix: "aup",
+		displayName: "Local administrator",
+		mustChange: true,
+	});
+	await clearAcceptance(userId);
+	return userId;
 }
 
 test("a new local administrator changes the password first, then accepts", async ({
