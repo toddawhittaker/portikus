@@ -3,8 +3,15 @@ import {
 	EGRESS_LIMITS,
 	type EgressBlockedSite,
 } from "@portikus/contracts";
-import { Button, ConfirmDialog, ConfirmDialogRoot, useToast } from "@portikus/ui";
+import {
+	Button,
+	ConfirmDialog,
+	ConfirmDialogRoot,
+	Toggletip,
+	useToast,
+} from "@portikus/ui";
 import { useRef, useState } from "react";
+import { AdminGroup } from "../AdminSection.js";
 import { BlockedSiteDialog, type BlockedSiteDraft } from "./BlockedSiteDialog.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 
@@ -37,24 +44,26 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 	}
 
 	return (
-		<section className="pk-card p-6" aria-labelledby="egress-blocked-sites-title">
-			<div className="flex items-start gap-4">
-				<div className="min-w-0 flex-1">
-					<h3
-						className="pk-text-heading m-0"
-						id="egress-blocked-sites-title"
-						tabIndex={-1}
-					>
-						Blocked sites
-					</h3>
-					{/* An unused, empty list needs no more than its one-line note. */}
-					{idle ? null : (
-						<p className="pk-text-body pk-muted mt-1 mb-0">
-							Sites workspaces cannot reach in open mode. A name also blocks every name
-							under it. {sites.length} of {EGRESS_LIMITS.blockedSites} used.
-						</p>
-					)}
-				</div>
+		<AdminGroup
+			id="egress-blocked-sites-title"
+			title="Blocked sites"
+			help={
+				<Toggletip label="blocked sites">
+					A name also blocks every name under it. While any site is blocked, workspace
+					DNS goes through the platform's resolver, ports 80 and 443 carry only HTTP and
+					TLS through the platform's proxy (which checks only each connection's site
+					name), and QUIC is dropped. Blocking is best effort against casual use: other
+					DNS services, direct addresses and tunnels on other ports get round it. Only
+					allow-list mode stops a determined student.
+				</Toggletip>
+			}
+			// An unused, empty list needs no more than its one-line note.
+			description={
+				idle
+					? undefined
+					: `Sites workspaces cannot reach in open mode. ${sites.length} of ${EGRESS_LIMITS.blockedSites} used.`
+			}
+			actions={
 				<Button
 					iconStart="plus"
 					data-testid="egress-block-add"
@@ -62,19 +71,17 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 				>
 					Block…
 				</Button>
-			</div>
-			<p
-				className="m-0 mt-3 text-[13px] text-ink-muted"
-				data-testid="egress-block-note"
-			>
-				{view.mode === "allow-list"
-					? "Allow-list mode is on, so this list is not used until you switch to open mode."
-					: sites.length > 0
-						? "While any site is blocked, workspace DNS goes through the platform's resolver, ports 80 and 443 carry only HTTP and TLS through the platform's proxy (which checks only each connection's site name), and QUIC is dropped. Blocking is best effort against casual use: other DNS services, direct addresses and tunnels on other ports get round it. Only allow-list mode stops a determined student."
+			}
+		>
+			{view.mode === "allow-list" || sites.length === 0 ? (
+				<p className="m-0 text-[13px] text-ink-muted" data-testid="egress-block-note">
+					{view.mode === "allow-list"
+						? "Allow-list mode is on, so this list is not used until you switch to open mode."
 						: "Nothing is blocked, so workspaces reach every public site. Blocking a site, such as games.example.com, puts workspace DNS and web traffic through the platform's resolver and proxy."}
-			</p>
+				</p>
+			) : null}
 			{sites.length === 0 ? null : (
-				<div className="pk-table-wrap mt-4">
+				<div className="pk-table-wrap">
 					<table className="pk-table" data-testid="egress-block-list">
 						<caption className="sr-only">Blocked sites</caption>
 						<thead>
@@ -167,6 +174,6 @@ export function BlockedSitesCard({ view }: { view: AdminEgressView }) {
 					</ConfirmDialog>
 				) : null}
 			</ConfirmDialogRoot>
-		</section>
+		</AdminGroup>
 	);
 }

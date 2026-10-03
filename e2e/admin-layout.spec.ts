@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { loginAs, MOCK_ISSUER, query } from "./helpers";
+import {
+	createSignedInUser,
+	expectNoViolations,
+	loginAs,
+	MOCK_ISSUER,
+	query,
+	WEB_ORIGIN,
+} from "./helpers";
 
 /** The admin frame every tab shares (SPEC.md section 20.1). */
 test.describe("admin layout", () => {
@@ -106,6 +113,129 @@ test.describe("admin layout", () => {
 			inGroup + 8,
 		);
 	});
+
+	for (const width of [1440, 1024]) {
+		test(`the tabs sit in the app header and every one fits at ${width} px`, async ({
+			page,
+			context,
+		}) => {
+			await page.setViewportSize({ width, height: 800 });
+			// A long name and an unread badge: the worst case for the bar's width.
+			const { userId } = await createSignedInUser(context, "administrator");
+			await query("update users set display_name = $2 where id = $1", [
+				userId,
+				"Maximiliana Konstantinopoulou-Vanderberg",
+			]);
+			const recorded = await page.request.post("/me/notifications", {
+				data: { tone: "warning", title: "Disk nearly full", body: "" },
+				headers: { origin: WEB_ORIGIN },
+			});
+			expect(recorded.status()).toBe(201);
+			await page.goto("/admin/health");
+			await expect(page.getByTestId("notifications-badge")).toHaveText("1", {
+				timeout: 15_000,
+			});
+			const header = page.getByTestId("app-header");
+			const nav = header.getByRole("navigation", { name: "Administration" });
+			await expect(nav.getByRole("link", { name: "Health" })).toHaveAttribute(
+				"aria-current",
+				"page",
+				{ timeout: 15_000 },
+			);
+			const headerBox = await header.boundingBox();
+			const account = await page.getByTestId("me").boundingBox();
+			if (!headerBox || !account) throw new Error("the header has no box");
+			// The bar keeps its height, and nothing spills past the window.
+			expect(headerBox.height).toBe(48);
+			expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+				width,
+			);
+			for (const link of await nav.getByRole("link").all()) {
+				const box = await link.boundingBox();
+				if (!box) throw new Error("a tab has no box");
+				expect(box.y).toBeGreaterThanOrEqual(headerBox.y);
+				expect(box.y + box.height).toBeLessThanOrEqual(headerBox.y + headerBox.height);
+				expect(box.x + box.width).toBeLessThanOrEqual(account.x);
+			}
+			// The name may give way to the picture, but the button still says it.
+			await expect(page.getByTestId("me")).toHaveAccessibleName(
+				/^Maximiliana Konstantinopoulou-Vanderberg, 1 unread notification$/,
+			);
+			// The badge sits beside the account button, inside the window.
+			const badge = await page.getByTestId("notifications-badge").boundingBox();
+			expect(badge?.x ?? 0).toBeGreaterThanOrEqual(account.x + account.width);
+			expect((badge?.x ?? 0) + (badge?.width ?? 0)).toBeLessThanOrEqual(width);
+			// The tab's h2 sits right under the bar: no title or tab row above it.
+			const h2 = await page
+				.getByTestId("page-admin")
+				.getByRole("heading", { level: 2, name: "Health", exact: true })
+				.boundingBox();
+			expect((h2?.y ?? 0) - (headerBox.y + headerBox.height)).toBeLessThanOrEqual(40);
+
+			// The current tab's underline is the accent, on the bar's bottom edge.
+			const underline = await nav
+				.getByRole("link", { name: "Health" })
+				.evaluate((el) => {
+					const after = getComputedStyle(el, "::after");
+					const probe = document.createElement("span");
+					probe.style.color = getComputedStyle(
+						document.documentElement,
+					).getPropertyValue("--accent");
+					document.body.append(probe);
+					const accent = getComputedStyle(probe).color;
+					probe.remove();
+					return { colour: after.backgroundColor, accent, height: after.height };
+				});
+			expect(underline.colour).toBe(underline.accent);
+			expect(underline.height).toBe("2px");
+		});
+	}
+
+	test("the keyboard reaches the tabs from the mark, in order, with a visible ring", async ({
+		page,
+	}) => {
+		await loginAs(page, "carol");
+		await page.goto("/admin/users");
+		const nav = page.getByRole("navigation", { name: "Administration" });
+		await expect(nav.getByRole("link", { name: "Users" })).toBeVisible({
+			timeout: 15_000,
+		});
+		await page
+			.getByTestId("app-header")
+			.getByRole("link", { name: /Portikus/ })
+			.focus();
+		for (const name of ["Users", "Health", "Logs", "Audit", "Network"]) {
+			await page.keyboard.press("Tab");
+			const link = nav.getByRole("link", { name, exact: true });
+			await expect(link).toBeFocused();
+			const outline = await link.evaluate((el) => getComputedStyle(el).outlineStyle);
+			expect(outline).toBe("solid");
+		}
+		await page.keyboard.press("Enter");
+		await expect(page).toHaveURL(/\/admin\/network$/);
+		await expect(nav.getByRole("link", { name: "Network" })).toHaveAttribute(
+			"aria-current",
+			"page",
+		);
+	});
+
+	for (const scheme of ["light", "dark"] as const) {
+		test(`the admin header and its tabs have no automatic violations (${scheme})`, async ({
+			page,
+		}) => {
+			await page.emulateMedia({ colorScheme: scheme });
+			await page.setViewportSize({ width: 1024, height: 768 });
+			await loginAs(page, "carol");
+			await page.goto("/admin/audit");
+			await expect(
+				page.getByRole("navigation", { name: "Administration" }).getByRole("link", {
+					name: "Audit",
+				}),
+			).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
+			await page.getByRole("link", { name: "Logs", exact: true }).focus();
+			await expectNoViolations(page, "[data-testid=app-header]");
+		});
+	}
 
 	test("a secondary button shows its border", async ({ page }) => {
 		await loginAs(page, "carol");

@@ -115,39 +115,48 @@ function CertificateSections({ data }: { data: AdminCertificate }) {
 				title="Certificate in use"
 				testId="cert-current"
 				actions={
-					<div className="flex flex-wrap gap-2">
-						{renewable ? (
+					// The reason a button is off sits under it, not at the top of the card.
+					<div className="grid justify-items-end gap-2">
+						<div className="flex flex-wrap gap-2">
+							{renewable ? (
+								<Button
+									data-testid="cert-renew"
+									loading={ask.isPending && ask.variables?.kind === "renew"}
+									aria-disabled={busy ? true : undefined}
+									aria-describedby={busyNote}
+									onClick={() => (busy ? undefined : renew())}
+								>
+									Renew now
+								</Button>
+							) : null}
 							<Button
-								data-testid="cert-renew"
-								loading={ask.isPending && ask.variables?.kind === "renew"}
-								aria-disabled={busy ? true : undefined}
-								aria-describedby={busyNote}
-								onClick={() => (busy ? undefined : renew())}
+								data-testid="cert-rollback"
+								aria-disabled={busy || noPrevious ? true : undefined}
+								aria-describedby={noPrevious ? "cert-rollback-note" : busyNote}
+								onClick={() => (busy || noPrevious ? undefined : setRollingBack(true))}
 							>
-								Renew now
+								Roll back
 							</Button>
+						</div>
+						{busy ? (
+							<p
+								id="cert-busy-note"
+								className="pk-muted m-0 max-w-[40ch] text-end text-[13px]"
+							>
+								{BUSY_REASON}
+							</p>
 						) : null}
-						<Button
-							data-testid="cert-rollback"
-							aria-disabled={busy || noPrevious ? true : undefined}
-							aria-describedby={noPrevious ? "cert-rollback-note" : busyNote}
-							onClick={() => (busy || noPrevious ? undefined : setRollingBack(true))}
-						>
-							Roll back
-						</Button>
+						{noPrevious ? (
+							<p
+								id="cert-rollback-note"
+								className="pk-muted m-0 max-w-[40ch] text-end text-[13px]"
+							>
+								There are no earlier settings to roll back to.
+							</p>
+						) : null}
 					</div>
 				}
 			>
-				{busy ? (
-					<p id="cert-busy-note" className="pk-muted m-0 text-[13px]">
-						{BUSY_REASON}
-					</p>
-				) : null}
-				{noPrevious ? (
-					<p id="cert-rollback-note" className="pk-muted m-0 text-[13px]">
-						There are no earlier settings to roll back to.
-					</p>
-				) : null}
 				<CurrentPart data={data} />
 			</Group>
 
@@ -270,8 +279,18 @@ function CurrentPart({ data }: { data: AdminCertificate }) {
 			</dl>
 			{status ? (
 				<div className="pk-table-wrap">
-					<table className="pk-table" data-testid="cert-table">
+					<table
+						// Long issuers and name lists wrap in their own column, top-aligned so each row reads across.
+						className="pk-table [&_tbody_:is(th,td)]:py-2 [&_tbody_:is(th,td)]:align-top [&_tbody_:is(th,td)]:whitespace-normal"
+						data-testid="cert-table"
+					>
 						<caption className="sr-only">Certificates in use</caption>
+						<colgroup>
+							<col className="w-[22%]" />
+							<col className="w-[30%]" />
+							<col className="w-[28%]" />
+							<col />
+						</colgroup>
 						<thead>
 							<tr>
 								<th scope="col">Certificate</th>
@@ -447,11 +466,13 @@ const LINK_BUTTON =
 
 function RootGroup() {
 	return (
-		<Group
-			id="cert-root-title"
-			title="Internal root certificate"
-			testId="cert-root"
-			actions={
+		<Group id="cert-root-title" title="Internal root certificate" testId="cert-root">
+			<div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+				<p className="m-0 min-w-0 max-w-[72ch] flex-1 basis-80 text-[13px]">
+					A browser trusts a certificate from the internal authority only once this root
+					certificate is installed on its computer. Install it on each computer that
+					opens this site, then restart the browser.
+				</p>
 				<a
 					className={LINK_BUTTON}
 					href={ROOT_CERTIFICATE_URL}
@@ -461,32 +482,39 @@ function RootGroup() {
 					<Icon name="download" />
 					Download root certificate
 				</a>
-			}
-		>
-			<p className="m-0 max-w-[72ch] text-[13px]">
-				A browser trusts a certificate from the internal authority only once this root
-				certificate is installed on its computer. Install it on each computer that opens
-				this site, then restart the browser.
-			</p>
-			<ul className="m-0 grid max-w-[72ch] gap-1 pl-5 text-[13px]">
-				<li>
-					<strong>Windows:</strong> open the file, choose Install Certificate, then
-					Local Machine, and place it in Trusted Root Certification Authorities.
-				</li>
-				<li>
-					<strong>macOS:</strong> open the file to add it to the System keychain, then
-					open it in Keychain Access and set Trust to Always Trust.
-				</li>
-				<li>
-					<strong>Linux:</strong> copy it to{" "}
-					<code className="pk-mono-body">/usr/local/share/ca-certificates/</code> and
-					run <code className="pk-mono-body">sudo update-ca-certificates</code>.
-				</li>
-				<li>
-					<strong>Firefox</strong> keeps its own list: Settings, Privacy and Security,
-					View Certificates, Authorities, Import.
-				</li>
-			</ul>
+			</div>
+			<dl
+				className="m-0 grid max-w-[96ch] grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]"
+				data-testid="cert-root-steps"
+			>
+				<dt className="pk-muted">Windows</dt>
+				<dd className="m-0">
+					Open the file, choose Install Certificate, then Local Machine, and place it in
+					Trusted Root Certification Authorities.
+				</dd>
+				<dt className="pk-muted">macOS</dt>
+				<dd className="m-0">
+					Open the file to add it to the System keychain, then open it in Keychain
+					Access and set Trust to Always Trust.
+				</dd>
+				<dt className="pk-muted">Linux</dt>
+				<dd className="m-0">
+					Copy it to{" "}
+					<code className="pk-mono-body whitespace-nowrap">
+						/usr/local/share/ca-certificates/
+					</code>{" "}
+					and run{" "}
+					<code className="pk-mono-body whitespace-nowrap">
+						sudo update-ca-certificates
+					</code>
+					.
+				</dd>
+				<dt className="pk-muted">Firefox</dt>
+				<dd className="m-0">
+					Keeps its own list: Settings, Privacy and Security, View Certificates,
+					Authorities, Import.
+				</dd>
+			</dl>
 		</Group>
 	);
 }

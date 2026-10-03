@@ -690,7 +690,25 @@ test("a small gap starts each group of admin tabs", async () => {
 	const nav = await screen.findByRole("navigation", { name: "Administration" });
 	const gapped = within(nav)
 		.getAllByRole("link")
-		.filter((link) => link.classList.contains("ml-4"))
+		.filter((link) => link.classList.contains("ms-4"))
 		.map((link) => link.textContent);
 	expect(gapped).toEqual(["Health", "Network"]);
+});
+
+test("the tabs sit in the app header before the account button, and the h1 stays", async () => {
+	stubAdmin(600);
+	renderApp("/admin/health");
+	const header = await screen.findByTestId("app-header");
+	const nav = within(header).getByRole("navigation", { name: "Administration" });
+	expect(within(nav).getByRole("link", { current: "page" }).textContent).toBe("Health");
+	// Tab order follows reading order: the tabs, then the account button.
+	const account = within(header).getByTestId("me");
+	expect(
+		nav.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+	const main = screen.getByTestId("page-admin");
+	expect(within(main).queryByRole("navigation")).toBeNull();
+	// The outline still starts with an h1 that names <main>.
+	const h1 = screen.getByRole("heading", { level: 1, name: "Administration" });
+	expect(main.getAttribute("aria-labelledby")).toBe(h1.id);
 });

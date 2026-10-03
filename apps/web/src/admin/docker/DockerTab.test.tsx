@@ -5,7 +5,7 @@ import type {
 } from "@portikus/contracts";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { json, renderWithQuery, stubFetch } from "../../test-utils.js";
+import { json, openToggletip, renderWithQuery, stubFetch } from "../../test-utils.js";
 import { DockerTab } from "./DockerTab.js";
 import { dockerKey } from "./queries.js";
 
@@ -271,16 +271,30 @@ test("the ghcr.io switch states what breaks and saves only itself", async () => 
 	renderWithQuery(<DockerTab />);
 	const toggle = await screen.findByRole("switch", { name: "Cache ghcr.io images" });
 	expect((toggle as HTMLInputElement).checked).toBe(false);
-	const warning = document.getElementById("docker-ghcr-warning")?.textContent ?? "";
-	expect(warning).toContain("docker push to ghcr.io");
-	expect(warning).toContain("private ghcr.io images");
-	expect(warning).toContain("tools other than Docker");
-	expect(warning).toContain(
+	// The one thing every admin must see stays visible and describes the switch.
+	expect(document.getElementById("docker-ghcr-warning")?.textContent).toBe(
+		"While on, workspaces cannot push to ghcr.io.",
+	);
+	expect(toggle.getAttribute("aria-describedby")).toBe("docker-ghcr-warning");
+	// The status line follows the switch directly, before the warning.
+	const state = screen.getByTestId("docker-ghcr-state");
+	expect(
+		toggle.compareDocumentPosition(state) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+	expect(
+		state.compareDocumentPosition(
+			document.getElementById("docker-ghcr-warning") as Node,
+		) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+	fireEvent.click(screen.getByRole("button", { name: "About the ghcr.io cache" }));
+	const tip = openToggletip().textContent;
+	expect(tip).toContain("private ghcr.io images");
+	expect(tip).toContain("tools other than Docker");
+	expect(tip).toContain(
 		"Turning it off reaches a running workspace only when it next starts",
 	);
-	expect(warning).toContain(
-		"Build and push images from GitHub Actions; pull them here.",
-	);
+	expect(tip).toContain("Build and push images from GitHub Actions; pull them here.");
+	fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
 	fireEvent.click(toggle);
 	await waitFor(() =>
 		expect(bodyOf(fetch, "PUT", "/admin/docker/settings")).toEqual({
@@ -437,6 +451,57 @@ test("the latest rebuild region is there before the first rebuild", async () => 
 	expect(none.textContent).toBe("The seed has not been rebuilt yet.");
 });
 
+test("with no seed and no rebuild the seed card says so in one line, inside the status region", async () => {
+	serve(data({ seed: null }));
+	renderWithQuery(<DockerTab />);
+	const none = await screen.findByTestId("docker-seed-none");
+	expect(none.textContent).toBe("No seed yet, so new Docker storage starts empty.");
+	expect(none.closest('[role="status"]')).not.toBeNull();
+	const card = within(screen.getByTestId("docker-seed"));
+	expect(card.queryByRole("heading", { level: 4, name: "Current seed" })).toBeNull();
+	expect(card.queryByRole("heading", { level: 4, name: "Latest rebuild" })).toBeNull();
+	expect(screen.queryByTestId("docker-seed-job-none")).toBeNull();
+});
+
+test("with no seed but a rebuild, the card shows the rebuild and not the empty line", async () => {
+	serve(data({ seed: null }), [job()]);
+	renderWithQuery(<DockerTab />);
+	await screen.findByTestId("docker-seed-job-state");
+	const card = within(screen.getByTestId("docker-seed"));
+	expect(card.getByRole("heading", { level: 4, name: "Latest rebuild" })).toBeTruthy();
+	expect(card.queryByRole("heading", { level: 4, name: "Current seed" })).toBeNull();
+	expect(screen.queryByTestId("docker-seed-none")).toBeNull();
+});
+
+test("the size limit sits in its own row under the image list, as wide as the image field", async () => {
+	serve(data());
+	renderWithQuery(<DockerTab />);
+	const limit = await screen.findByLabelText("Largest seed (GiB)");
+	const add = screen.getByLabelText("Image", { exact: true });
+	expect(
+		add.compareDocumentPosition(limit) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+	expect(limit.closest(".pk-field")?.classList.contains("w-72")).toBe(true);
+	expect(add.closest(".pk-field")?.classList.contains("w-72")).toBe(true);
+});
+
+test("the Docker Hub warning sits inside the account form", async () => {
+	serve(data());
+	renderWithQuery(<DockerTab />);
+	const form = await screen.findByRole("form", { name: "Docker Hub account" });
+	expect(within(form).getByTestId("docker-hub-warning")).toBeTruthy();
+});
+
+test("the pull cache, ghcr.io and Docker Hub cards share one grid; seed and use stay outside it", async () => {
+	serve(data());
+	renderWithQuery(<DockerTab />);
+	const grid = await screen.findByTestId("docker-settings");
+	const cards = [...grid.children].map((el) => el.getAttribute("data-testid"));
+	expect(cards).toEqual(["docker-cache", "docker-ghcr", "docker-hub"]);
+	expect(grid.contains(screen.getByTestId("docker-seed"))).toBe(false);
+	expect(grid.contains(screen.getByTestId("docker-usage"))).toBe(false);
+});
+
 test("Rebuild seed is off with an empty list", async () => {
 	serve(data({ seedImages: [] }));
 	renderWithQuery(<DockerTab />);
@@ -515,6 +580,26 @@ test("the use report adds a pulled image to the seed and removes an unused one",
 	await waitFor(() =>
 		expect(document.activeElement?.id).toBe("docker-usage-unused-title"),
 	);
+});
+
+test("with no seed and nothing used, image use says so in one sentence", async () => {
+	serve(data({ seed: null }), [], (url) =>
+		url === "/admin/docker/usage"
+			? json(200, {
+					windowDays: 120,
+					notInSeed: [],
+					unusedSeed: [],
+					notInSeedTotal: 0,
+					unusedSeedTotal: 0,
+				})
+			: undefined,
+	);
+	renderWithQuery(<DockerTab />);
+	const none = await screen.findByTestId("docker-usage-none");
+	expect(none.textContent).toBe("No images used in the last 120 days.");
+	const card = within(screen.getByTestId("docker-usage"));
+	expect(card.queryAllByRole("heading", { level: 4 })).toEqual([]);
+	expect(screen.queryByTestId("docker-usage-window")).toBeNull();
 });
 
 test("an image name from the report is text, never markup", async () => {

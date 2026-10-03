@@ -4,6 +4,7 @@ import {
 	isEgressHostName,
 } from "@portikus/contracts";
 import { Button, Toggletip } from "@portikus/ui";
+import { AdminGroup } from "../AdminSection.js";
 
 /**
  * The names workspaces were refused most in the last 7 days, counted for the
@@ -17,23 +18,20 @@ export function BlockedCard({
 	onAllow: (host: string) => void;
 }) {
 	return (
-		<section className="pk-card p-6" aria-labelledby="egress-blocked-title">
-			<div className="flex items-center gap-1">
-				<h3 className="pk-text-heading m-0" id="egress-blocked-title" tabIndex={-1}>
-					Refused names
-				</h3>
+		<AdminGroup
+			id="egress-blocked-title"
+			title="Refused names"
+			help={
 				<Toggletip label="refused names">
 					In allow-list mode, a name here often means a course tool needs allowing. In
 					open mode, only your blocked sites are refused.
 				</Toggletip>
-			</div>
-			<p className="pk-text-body pk-muted mt-1 mb-0">
-				The sites workspaces were refused most in the last 7 days, for the whole site.
-				They are never tied to a student.
-			</p>
+			}
+			description="The sites workspaces were refused most in the last 7 days, for the whole site. They are never tied to a student."
+		>
 			{view.blocked.length === 0 ? (
 				<p
-					className="m-0 mt-3 text-[13px] text-ink-muted"
+					className="m-0 text-[13px] text-ink-muted"
 					data-testid="egress-blocked-empty"
 				>
 					{view.mode === "open" && view.blockedSites.length === 0
@@ -41,7 +39,7 @@ export function BlockedCard({
 						: "No workspace was refused a site in the last 7 days."}
 				</p>
 			) : (
-				<div className="pk-table-wrap mt-4">
+				<div className="pk-table-wrap">
 					<table className="pk-table" data-testid="egress-blocked">
 						<caption className="sr-only">Refused names, last 7 days</caption>
 						<thead>
@@ -94,6 +92,6 @@ export function BlockedCard({
 					</table>
 				</div>
 			)}
-		</section>
+		</AdminGroup>
 	);
 }
