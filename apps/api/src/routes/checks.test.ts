@@ -12,13 +12,18 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
-import { CHECKS_FILE_PATH } from "@portikus/contracts";
+import {
+	CHECKS_FILE_PATH,
+	CloseCode,
+	MAX_CHECK_SOCKETS_PER_USER,
+} from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import WebSocketClient from "ws";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
+import { checkSockets } from "./checks.js";
 
 const skip = !hasTestDb();
 const AGENT_TOKEN = "fake-agent-token";
@@ -276,3 +281,64 @@ test.skipIf(skip)(
 		socket.close();
 	},
 );
+
+/** Open the output socket and resolve with its close code and reason. */
+function watchOutput(checkId: string): Promise<{ code: number; reason: string }> {
+	const port = (app.server.address() as AddressInfo).port;
+	const socket = new WebSocketClient(
+		`ws://127.0.0.1:${port}${url(workspaceId, projectId, `/${checkId}/runs/current`)}`,
+		{ headers: { origin: new URL(PUBLIC_URL).origin, cookie: alice.cookieHeader() } },
+	);
+	return new Promise((resolve) => {
+		socket.on("close", (code, reason) => resolve({ code, reason: reason.toString() }));
+	});
+}
+
+async function ownerId(): Promise<string> {
+	const row = await testDb.db
+		.selectFrom("workspaces")
+		.select("owner_user_id")
+		.where("id", "=", workspaceId)
+		.executeTakeFirstOrThrow();
+	return row.owner_user_id;
+}
+
+test.skipIf(skip)(
+	"a user at the output socket cap is refused with 4429 (SPEC.md §24.13)",
+	async () => {
+		const userId = await ownerId();
+		for (let i = 0; i < MAX_CHECK_SOCKETS_PER_USER; i += 1) checkSockets.take(userId);
+		try {
+			await post(alice, workspaceId, projectId, "/tests/runs");
+			expect(await watchOutput("tests")).toEqual({
+				code: CloseCode.TOO_MANY_SOCKETS,
+				reason: "too many check connections",
+			});
+			expect(checkSockets.open(userId)).toBe(MAX_CHECK_SOCKETS_PER_USER);
+		} finally {
+			for (let i = 0; i < MAX_CHECK_SOCKETS_PER_USER; i += 1) {
+				checkSockets.release(userId);
+			}
+		}
+	},
+);
+
+test.skipIf(skip)("a finished run gives its socket slot back", async () => {
+	const userId = await ownerId();
+	await post(alice, workspaceId, projectId, "/tests/runs");
+	await watchOutput("tests");
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	expect(checkSockets.open(userId)).toBe(0);
+});
+
+test.skipIf(skip)("a socket the agent refuses gives its slot back", async () => {
+	const userId = await ownerId();
+	await testDb.db
+		.updateTable("workspaces")
+		.set({ agent_address: "127.0.0.127", updated_at: new Date().toISOString() })
+		.where("id", "=", workspaceId)
+		.execute();
+	await watchOutput("tests");
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	expect(checkSockets.open(userId)).toBe(0);
+});

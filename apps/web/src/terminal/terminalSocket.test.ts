@@ -56,6 +56,7 @@ function events(): TerminalSocketEvents {
 		onClose: vi.fn(),
 		onReconnecting: vi.fn(),
 		onLost: vi.fn(),
+		onTooMany: vi.fn(),
 		onOutput: vi.fn(),
 		onFirstOutput: vi.fn(),
 		onExit: vi.fn(),
@@ -142,6 +143,17 @@ test.each([
 	last().open();
 	last().drop(code);
 	expect(handlers.onLost).toHaveBeenCalledTimes(1);
+	expect(handlers.onReconnecting).not.toHaveBeenCalled();
+	vi.runAllTimers();
+	expect(FakeSocket.all.length).toBe(1);
+});
+
+test("a too-many-sockets close says so and does not retry (SPEC.md §24.13)", () => {
+	const handlers = events();
+	openTerminalSocket("w1", "t1", handlers);
+	last().drop(CloseCode.TOO_MANY_SOCKETS);
+	expect(handlers.onTooMany).toHaveBeenCalledTimes(1);
+	expect(handlers.onLost).not.toHaveBeenCalled();
 	expect(handlers.onReconnecting).not.toHaveBeenCalled();
 	vi.runAllTimers();
 	expect(FakeSocket.all.length).toBe(1);
