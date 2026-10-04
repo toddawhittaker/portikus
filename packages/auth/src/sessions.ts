@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
+import { dexLocalUserId } from "./dex-subject.js";
 import { sha256Hex } from "./hash.js";
+import { secondFactorApplies } from "./second-factor.js";
 import type { AuthUser, Role } from "./types.js";
 
 export interface OidcIdentity {
@@ -39,8 +41,8 @@ export async function upsertUser(
 	identity: OidcIdentity,
 	role: Role,
 ): Promise<
-	// Acceptance is the session's business; loadSession decides it.
-	Omit<AuthUser, "mustAcceptUse"> & {
+	// Acceptance and the second factor are the session's business; loadSession decides them.
+	Omit<AuthUser, "mustAcceptUse" | "secondFactor"> & {
 		disabledAt: string | null;
 		previousRole: Role | null;
 	}
@@ -135,6 +137,33 @@ export async function createSession(
 }
 
 /**
+ * How long a session may rely on an administrator or instructor role that
+ * the identity provider gave, so a role removed there takes effect within
+ * this bound (SPEC.md section 24.13).
+ */
+export const ELEVATED_SESSION_MAX_SECONDS = 3600;
+
+/**
+ * True when the session's elevated role came from the identity provider's
+ * groups, not from a Portikus grant (a lower grant does not count). Launch sessions take their role from
+ * the launch, and Dex local-password accounts get theirs from Portikus.
+ */
+export function roleFromProvider(row: {
+	role: string;
+	granted_role: string | null;
+	method: string;
+	oidc_subject: string;
+}): boolean {
+	return (
+		row.role !== "student" &&
+		// The effective role is the higher of grant and provider role.
+		row.granted_role !== row.role &&
+		row.method !== "lti" &&
+		dexLocalUserId(row.oidc_subject) === null
+	);
+}
+
+/**
  * Resolve a session token to its user. Returns null when the session is
  * unknown or expired, when the account has been disabled, or when it is a
  * course account retired by a link (ADR 0026), so that
@@ -167,11 +196,27 @@ export async function loadSessionById(
 			"users.email",
 			"users.display_name",
 			"users.role",
+			"users.granted_role",
+			"sessions.created_at",
 			"users.disabled_at",
 			"users.must_change_password",
 			"users.acceptable_use_version as accepted_use_version",
 			"settings.acceptable_use_version as current_use_version",
+			"users.oidc_issuer",
+			"users.oidc_subject",
+			"sessions.method",
+			"sessions.second_factor_at",
 		])
+		.select((eb) =>
+			eb
+				.exists(
+					eb
+						.selectFrom("user_second_factors")
+						.select("user_second_factors.id")
+						.whereRef("user_second_factors.user_id", "=", "users.id"),
+				)
+				.as("has_second_factor"),
+		)
 		.where("sessions.id", "=", id)
 		.where((eb) =>
 			eb.or([
@@ -208,7 +253,12 @@ export async function loadSessionById(
 		return null;
 	}
 
-	if (new Date(row.expires_at).getTime() <= Date.now()) {
+	const ended =
+		new Date(row.expires_at).getTime() <= Date.now() ||
+		(roleFromProvider(row) &&
+			Date.now() - new Date(row.created_at).getTime() >=
+				ELEVATED_SESSION_MAX_SECONDS * 1000);
+	if (ended) {
 		await db.deleteFrom("sessions").where("id", "=", id).execute();
 		return null;
 	}
@@ -225,6 +275,12 @@ export async function loadSessionById(
 		mustChangePassword: row.must_change_password,
 		// No settings row yet means version 1, the column default.
 		mustAcceptUse: row.accepted_use_version !== (row.current_use_version ?? 1),
+		secondFactor:
+			row.second_factor_at !== null || !secondFactorApplies(row)
+				? null
+				: row.has_second_factor
+					? "verify"
+					: "enrol",
 	};
 }
 

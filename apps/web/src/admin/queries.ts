@@ -4,7 +4,10 @@ import {
 	AdminWorkspaceDetail,
 	type CreateDexUserRequest,
 	CreateDexUserResponse,
+	type CreateInvitationRequest,
 	DexPasswordResponse,
+	Invitation,
+	InvitationList,
 	PlatformSettings,
 	type QuotaConfig,
 	type UpdateAdminUserSettingsRequest,
@@ -224,9 +227,37 @@ export function useAddDexUser() {
 	);
 }
 
+/** Invitations nobody has claimed yet (SPEC.md section 24.13). */
+export function useInvitations() {
+	return useQuery({
+		queryKey: ["admin", "invitations"],
+		queryFn: () => request(InvitationList, "/admin/invitations"),
+	});
+}
+
+export function useCreateInvitation() {
+	return useDexWrite((body: CreateInvitationRequest) =>
+		request(Invitation, "/admin/invitations", json("POST", body)),
+	);
+}
+
+export function useRevokeInvitation() {
+	return useDexWrite(({ id }: { id: string }) =>
+		request(Invitation, `/admin/invitations/${id}/revoke`, { method: "POST" }),
+	);
+}
+
 export function useResetDexPassword() {
 	return useDexWrite(({ userId }: { userId: string }) =>
 		request(DexPasswordResponse, `/admin/dex-users/${userId}/reset-password`, {
+			method: "POST",
+		}),
+	);
+}
+
+export function useResetSecondFactor() {
+	return useDexWrite(({ userId }: { userId: string }) =>
+		request(AdminUser, `/admin/dex-users/${userId}/reset-second-factor`, {
 			method: "POST",
 		}),
 	);

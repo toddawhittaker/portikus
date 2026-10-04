@@ -226,9 +226,17 @@ describe.skipIf(!hasTestDb())("reset-admin", () => {
 		expect((await account()).disabled_at).not.toBeNull();
 	});
 
-	test("a reset restores the grant, re-enables, sets the flag and ends every session", async () => {
+	test("a reset restores the grant, re-enables, sets the flag, clears the second factor and ends every session", async () => {
 		const first = await run();
 		const { id } = await account();
+		await t.db
+			.insertInto("user_second_factors")
+			.values({ user_id: id, kind: "totp", secret: "v1:sealed", label: "Phone" })
+			.execute();
+		await t.db
+			.insertInto("user_recovery_codes")
+			.values({ user_id: id, code_hash: "hash" })
+			.execute();
 		await t.db
 			.updateTable("users")
 			.set({
@@ -271,8 +279,21 @@ describe.skipIf(!hasTestDb())("reset-admin", () => {
 			.where("revoked_at", "is", null)
 			.execute();
 		expect(previews).toEqual([]);
+		const factors = await t.db
+			.selectFrom("user_second_factors")
+			.select("id")
+			.where("user_id", "=", id)
+			.execute();
+		expect(factors).toEqual([]);
+		const codes = await t.db
+			.selectFrom("user_recovery_codes")
+			.select("code_hash")
+			.where("user_id", "=", id)
+			.execute();
+		expect(codes).toEqual([]);
 		expect((await auditRows()).map((r) => [r.action, r.actor])).toEqual([
 			["local_admin.created", "host:root"],
+			["auth.second_factor_reset", "host:root"],
 			["local_admin.reset", "host:root"],
 		]);
 	});

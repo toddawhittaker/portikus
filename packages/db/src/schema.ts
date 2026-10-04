@@ -11,12 +11,15 @@ import type { ColumnType, Generated } from "kysely";
  * Tables match migrations 0001_workspaces, 0002_users_sessions,
  * 0003_terminals, 0004_projects, 0005_settings, 0006_log_level,
  * 0007_editor_settings, 0008_preview, 0009_project_directory_id, and
- * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots, 0025_egress, 0026_backups, 0028_throttle_hold, 0029_package_survey, 0030_egress_blocked_sites, 0031_docker_cache, 0032_docker_pull_days, 0034_keep_running and 0036_start_retries_and_controller_check
+ * 0010_terminal_theme, 0011_terminal_agent, 0012_profile, 0013_recovery, 0014_admin, 0015_lti, 0016_account_links, 0017_session_method, 0018_setup_codes, 0019_local_admin, 0020_resource_guard, 0021_notifications, 0022_api_request_samples, 0023_guard_idle_lift, 0024_process_snapshots, 0025_egress, 0026_backups, 0028_throttle_hold, 0029_package_survey, 0030_egress_blocked_sites, 0031_docker_cache, 0032_docker_pull_days, 0034_keep_running, 0036_start_retries_and_controller_check and 0038_second_factor
  * (SPEC section 26, STACK section 6).
  */
 export interface Database {
 	users: UsersTable;
 	sessions: SessionsTable;
+	user_second_factors: UserSecondFactorsTable;
+	user_recovery_codes: UserRecoveryCodesTable;
+	account_invitations: AccountInvitationsTable;
 	workspaces: WorkspacesTable;
 	workspace_connections: WorkspaceConnectionsTable;
 	terminals: TerminalsTable;
@@ -102,6 +105,45 @@ interface SessionsTable {
 	method: ColumnType<string, string | undefined, never>;
 	/** The linked course identity that launched this session; only for 'lti'. */
 	course_user_id: ColumnType<string | null, string | null | undefined, never>;
+	/** When this session passed the second-factor check (SPEC.md section 24.13). */
+	second_factor_at: ColumnType<Date | null, string | null | undefined, string | null>;
+}
+
+/** A second factor of a Dex local-password account (SPEC.md section 24.13). */
+interface UserSecondFactorsTable {
+	id: Generated<string>;
+	user_id: string;
+	kind: "totp" | "webauthn";
+	/** A TOTP secret encrypted at rest, or a passkey's credential data. */
+	secret: string;
+	label: string;
+	/** The last accepted TOTP time step, so a code works once. bigint arrives as a string. */
+	last_step: ColumnType<string | null, number | null | undefined, number | null>;
+	created_at: ColumnType<Date, string | undefined, never>;
+	last_used_at: ColumnType<Date | null, string | null | undefined, string | null>;
+}
+
+/** An administrator's invitation; claiming it creates the account (SPEC.md section 24.13). */
+interface AccountInvitationsTable {
+	id: Generated<string>;
+	/** Lower-case. */
+	email: string;
+	/** An Entra user principal name or LDAP username; matched instead of email when set. */
+	username: string | null;
+	display_name: string;
+	role: string;
+	created_by: string | null;
+	created_at: ColumnType<Date, string | undefined, never>;
+	claimed_by: string | null;
+	claimed_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	revoked_at: ColumnType<Date | null, string | null | undefined, string | null>;
+}
+
+/** A single-use recovery code, stored as a SHA-256 hash. */
+interface UserRecoveryCodesTable {
+	user_id: string;
+	code_hash: string;
+	used_at: ColumnType<Date | null, string | null | undefined, string | null>;
 }
 
 interface WorkspacesTable {

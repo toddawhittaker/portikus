@@ -33,6 +33,11 @@ export type AuthUser = z.infer<typeof AuthUser>;
 export const MeResponse = AuthUser.extend({
 	/** The account is a Dex local password, so Settings offers Password. */
 	localPassword: z.boolean(),
+	/**
+	 * What this session still owes the second-factor check (SPEC.md
+	 * section 24.13): enrol a factor, verify one, or nothing.
+	 */
+	secondFactor: z.enum(["enrol", "verify"]).nullable(),
 });
 export type MeResponse = z.infer<typeof MeResponse>;
 
@@ -70,3 +75,96 @@ export const AcceptUseRequest = z
 	.object({ version: z.number().int().positive() })
 	.strict();
 export type AcceptUseRequest = z.infer<typeof AcceptUseRequest>;
+
+/** One of the account's second factors (SPEC.md section 24.13). */
+export const SecondFactor = z.object({
+	id: z.string().uuid(),
+	kind: z.enum(["totp", "webauthn"]),
+	label: z.string(),
+	createdAt: z.string(),
+	lastUsedAt: z.string().nullable(),
+});
+export type SecondFactor = z.infer<typeof SecondFactor>;
+
+/** `GET /me/second-factor`. */
+export const SecondFactorStatus = z.object({
+	factors: z.array(SecondFactor),
+	recoveryCodesLeft: z.number().int().nonnegative(),
+});
+export type SecondFactorStatus = z.infer<typeof SecondFactorStatus>;
+
+/**
+ * `POST /me/second-factor/totp/start`: a new secret for the authenticator
+ * app, as a QR code and as text, and the token that confirms it.
+ */
+export const TotpEnrolStart = z.object({
+	token: z.string(),
+	secret: z.string(),
+	uri: z.string(),
+	/** The QR code as an SVG data URL. */
+	qrCode: z.string(),
+});
+export type TotpEnrolStart = z.infer<typeof TotpEnrolStart>;
+
+/** A code from the authenticator app: six digits, spaces allowed. */
+const TotpCode = z
+	.string()
+	.transform((code) => code.replace(/\s/g, ""))
+	.refine((code) => /^\d{6}$/.test(code), "Enter the 6-digit code");
+
+/** `POST /me/second-factor/totp`: confirm a started enrolment with its first code. */
+export const TotpEnrolConfirm = z
+	.object({
+		token: z.string().min(1).max(512),
+		code: TotpCode,
+		label: z.string().trim().min(1).max(60).default("Authenticator app"),
+	})
+	.strict();
+export type TotpEnrolConfirm = z.infer<typeof TotpEnrolConfirm>;
+
+/** Response to a confirmed enrolment: the recovery codes, shown this once. */
+export const TotpEnrolDone = z.object({
+	recoveryCodes: z.array(z.string()),
+});
+export type TotpEnrolDone = z.infer<typeof TotpEnrolDone>;
+
+/** `POST /me/second-factor/verify`: an authenticator code or a recovery code. */
+export const SecondFactorVerify = z
+	.object({ code: z.string().trim().min(1).max(64) })
+	.strict();
+export type SecondFactorVerify = z.infer<typeof SecondFactorVerify>;
+
+/** `PATCH /me/second-factor/:id`: a factor's new name. */
+export const SecondFactorRename = z
+	.object({ label: z.string().trim().min(1).max(60) })
+	.strict();
+export type SecondFactorRename = z.infer<typeof SecondFactorRename>;
+
+/**
+ * WebAuthn options for the browser, made by the server library and passed
+ * to the browser library unchanged (SPEC.md section 24.13).
+ */
+export const PasskeyOptions = z.looseObject({ challenge: z.string() });
+export type PasskeyOptions = z.infer<typeof PasskeyOptions>;
+
+/** A browser's WebAuthn answer as the browser library sends it; the server library checks the rest. */
+const PasskeyCredential = z.looseObject({
+	id: z.string().min(1).max(1400),
+	rawId: z.string().min(1).max(1400),
+	type: z.literal("public-key"),
+	response: z.looseObject({ clientDataJSON: z.string().max(8192) }),
+	clientExtensionResults: z.record(z.string(), z.unknown()).default({}),
+});
+
+/** `POST /me/second-factor/webauthn`: a new passkey and its name. */
+export const PasskeyEnrolConfirm = z
+	.object({
+		credential: PasskeyCredential,
+		label: z.string().trim().min(1).max(60).default("Passkey"),
+	})
+	.strict();
+export type PasskeyEnrolConfirm = z.infer<typeof PasskeyEnrolConfirm>;
+
+/** `POST /me/second-factor/webauthn/verify`: a passkey's sign-in answer. */
+export const PasskeyVerify = z.object({ credential: PasskeyCredential }).strict();
+export type PasskeyVerify = z.infer<typeof PasskeyVerify>;

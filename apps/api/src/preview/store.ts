@@ -1,8 +1,11 @@
 import * as crypto from "node:crypto";
 import { hashSessionToken, loadSessionById } from "@portikus/auth";
-import type { AuthUser, PreviewPresentation } from "@portikus/contracts";
+import type { PreviewPresentation } from "@portikus/contracts";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
+
+/** The session user with its gate state, as `loadSessionById` gives it. */
+type SessionUser = NonNullable<Awaited<ReturnType<typeof loadSessionById>>>;
 
 /**
  * Bootstrap tickets and preview sessions (BROWSER-HANDLING.md §9.1, §9.2,
@@ -233,7 +236,7 @@ export async function revokedForStoppedWorkspace(
 export async function loadMainSessionUser(
 	db: Kysely<Database>,
 	sessionId: string,
-): Promise<AuthUser | null> {
+): Promise<SessionUser | null> {
 	return loadSessionById(db, sessionId);
 }
 
@@ -287,7 +290,7 @@ interface PreviewWorkspaceRow {
 /** The three rows `/preview/authorize` needs; any may be missing. */
 export interface PreviewLookup {
 	session: PreviewSessionRow | null;
-	user: AuthUser | null;
+	user: SessionUser | null;
 	workspace: PreviewWorkspaceRow | null;
 }
 

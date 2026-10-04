@@ -275,6 +275,8 @@ export const ApiErrorCode = z.enum([
 	// Dex user management (ADR 0028).
 	"DEX_USER_EXISTS",
 	"DEX_UNAVAILABLE",
+	// One active invitation per email (SPEC.md section 24.13).
+	"INVITATION_EXISTS",
 	// Lift throttle or clear memory flag with nothing set (ADR 0032).
 	"NOT_THROTTLED",
 	"NOT_FLAGGED",
@@ -287,6 +289,13 @@ export const ApiErrorCode = z.enum([
 	"ACCEPTABLE_USE_CHANGED",
 	"NOT_LOCAL_PASSWORD",
 	"WRONG_PASSWORD",
+	// The second factor of Dex local passwords (SPEC.md section 24.13).
+	"SECOND_FACTOR_REQUIRED",
+	"WRONG_CODE",
+	"LAST_SECOND_FACTOR",
+	"WRONG_PASSKEY",
+	"PASSKEY_EXPIRED",
+	"NO_PASSKEY",
 	// journalctl missing, failing or refused (docs/adr/0036).
 	"LOGS_UNAVAILABLE",
 	// Backups from the admin page (SPEC.md section 24.9, ADR 0024).

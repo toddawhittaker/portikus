@@ -468,7 +468,7 @@ test("applying filters puts them in the URL and the request, the person as an ID
 	await waitFor(() =>
 		expect(router.state.location.search).toMatchObject({
 			level: "error,warn,info",
-			service: "api,controller",
+			service: "api,controller,network",
 			since: "1h",
 			q: "terminal",
 			user: ALICE,
@@ -476,7 +476,7 @@ test("applying filters puts them in the URL and the request, the person as an ID
 	);
 	await waitFor(() => expect(requested.at(-1)?.get("q")).toBe("terminal"));
 	expect(requested.at(-1)?.get("level")).toBe("error,warn,info");
-	expect(requested.at(-1)?.get("service")).toBe("api,controller");
+	expect(requested.at(-1)?.get("service")).toBe("api,controller,network");
 	expect(requested.at(-1)?.get("user")).toBe(ALICE);
 	// The field keeps showing the name, not the ID.
 	expect(

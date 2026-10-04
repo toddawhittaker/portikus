@@ -312,7 +312,13 @@ function LogRow({ line, journalIndex }: { line: LogLine; journalIndex: number })
 				</td>
 				<td className="pk-num">{status}</td>
 				<td>{line.userName ?? (userId ? <IdText id={userId} /> : "")}</td>
-				<td>{workspaceId ? <IdText id={workspaceId} /> : ""}</td>
+				<td>
+					{workspaceId ? (
+						<IdText id={workspaceId} />
+					) : (
+						<span className="pk-mono-small">{field(body, "workspaceAddress")}</span>
+					)}
+				</td>
 			</tr>
 			{open ? (
 				<tr id={detailId} data-testid="log-row-detail">

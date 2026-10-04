@@ -63,7 +63,10 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/users/:id/remove-instructor": 400,
 	"POST /admin/dex-users": 404,
 	"POST /admin/dex-users/:id/reset-password": 404,
+	"POST /admin/dex-users/:id/reset-second-factor": 404,
 	"POST /admin/dex-users/:id/remove": 404,
+	// The matrix world has no waiting invitation.
+	"POST /admin/invitations/:id/revoke": 404,
 	// The matrix workspace is neither throttled nor flagged.
 	"POST /admin/workspaces/:id/lift-throttle": 409,
 	"POST /admin/workspaces/:id/clear-memory-flag": 409,
@@ -77,6 +80,17 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"PUT /admin/egress/blocked-sites/:id": 404,
 	"DELETE /admin/egress/blocked-sites/:id": 404,
 	"POST /me/password": 404,
+	// The matrix accounts are not Dex local passwords and hold no factor.
+	"GET /me/second-factor": 400,
+	"HEAD /me/second-factor": 400,
+	"POST /me/second-factor/totp/start": 400,
+	"POST /me/second-factor/totp": 400,
+	"POST /me/second-factor/webauthn/start": 400,
+	"POST /me/second-factor/webauthn": 400,
+	"POST /me/second-factor/webauthn/verify/start": 400,
+	"POST /me/second-factor/recovery-codes": 400,
+	"PATCH /me/second-factor/:id": 400,
+	"DELETE /me/second-factor/:id": 404,
 	// Tests have no journal (test-support.ts points JOURNALCTL_PATH nowhere).
 	"GET /admin/logs": 503,
 	"HEAD /admin/logs": 503,
@@ -288,6 +302,11 @@ const PAYLOADS: Record<string, object> = {
 		name: "New Person",
 		email: "new@example.edu",
 		username: "new",
+		role: "student",
+	},
+	"POST /admin/invitations": {
+		name: "Invited Person",
+		email: "invited@example.edu",
 		role: "student",
 	},
 	"POST /workspaces/:id/terminals": { name: "another" },

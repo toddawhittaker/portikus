@@ -1,5 +1,7 @@
 /** Test and development helpers: the in-repo mock identity provider and API test glue (ADR 0008). */
 
+// Tests compute an authenticator's codes from the secret enrolment shows.
+export { base32Decode, totpCode, totpStep } from "../totp.js";
 export {
 	type DexGrpcCerts,
 	type FakeDexGrpc,
@@ -22,3 +24,4 @@ export {
 	type MockUser,
 	startMockOidcProvider,
 } from "./mock-oidc.js";
+export { SoftPasskey } from "./soft-passkey.js";

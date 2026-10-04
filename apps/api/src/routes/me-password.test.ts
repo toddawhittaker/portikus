@@ -124,6 +124,12 @@ async function localAccount(
 		userId: dexUserId,
 		hash: await hashDexPassword(password),
 	});
+	// The second factor has its own tests (me-second-factor.test.ts).
+	await testDb.db
+		.updateTable("sessions")
+		.set({ second_factor_at: new Date().toISOString() })
+		.where("user_id", "=", row.id)
+		.execute();
 	return row.id;
 }
 

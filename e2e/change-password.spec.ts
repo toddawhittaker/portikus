@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { writeDexGrpcCerts } from "../packages/auth/dist/testing/fake-dex-grpc.js";
-import { loginAs, MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
+import { enrolSecondFactor, loginAs, MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
 import { FAKE_DEX_GRPC_PORT } from "./ports";
 
 /**
@@ -131,6 +131,8 @@ test("a good change lands on the administration page and Settings offers Passwor
 			exact: true,
 		}),
 	).toBeVisible();
+	// reset-admin cleared the second factor, so it is set up next (SPEC.md section 24.13).
+	await enrolSecondFactor(page);
 	// An administrator's front page, with the administrator's header.
 	await expect(page).toHaveURL(/\/admin\/users$/, { timeout: 15_000 });
 	await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });

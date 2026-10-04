@@ -19,6 +19,7 @@ import {
 import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
 import type { Kysely, Updateable } from "kysely";
+import { refuseInstallAdminChange } from "../admin/install-admin.js";
 import {
 	disableUser,
 	listAdminUsers,
@@ -284,6 +285,14 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 		const actor = requireUser(request);
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return;
+		const refused = await refuseInstallAdminChange(db, config.OIDC_ISSUER_URL, {
+			request,
+			reply,
+			actorId: actor.id,
+			targetId: params.id,
+			action: "user.disabled",
+		});
+		if (refused) return reply;
 		const result = await disableUser(db, {
 			actorId: actor.id,
 			targetId: params.id,
@@ -312,6 +321,14 @@ export function registerAdminRoutes(app: FastifyInstance, deps: ServerDeps): voi
 			const params = parseOr400(UuidParam, request.params, reply);
 			if (!params) return;
 			const id = params.id;
+			const refused = await refuseInstallAdminChange(db, config.OIDC_ISSUER_URL, {
+				request,
+				reply,
+				actorId: actor.id,
+				targetId: id,
+				action: "user.role_changed",
+			});
+			if (refused) return reply;
 			const result = await db.transaction().execute(async (trx) => {
 				const changed = await change(trx, actor.id, id);
 				if (changed.ok && changed.from !== changed.to) {

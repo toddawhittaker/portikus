@@ -3,7 +3,11 @@ import { ApiError, SessionEndedError } from "./request.js";
 import { sessionEnded } from "./sessionEnded.js";
 
 /** Codes the server answers while a session gate holds the account (SPEC.md section 5.3). */
-const GATE_CODES = new Set(["PASSWORD_CHANGE_REQUIRED", "ACCEPTABLE_USE_REQUIRED"]);
+const GATE_CODES = new Set([
+	"SECOND_FACTOR_REQUIRED",
+	"PASSWORD_CHANGE_REQUIRED",
+	"ACCEPTABLE_USE_REQUIRED",
+]);
 
 /**
  * One QueryClient for the app. Every query and mutation goes through

@@ -11,6 +11,7 @@ export const SERVICE_LABELS: Record<LogService, string> = {
 	api: "API",
 	worker: "Worker",
 	controller: "Controller",
+	network: "Network",
 };
 
 /** The level as a word, so the tag never relies on colour. */

@@ -46,3 +46,34 @@ export function dexLocalUserId(subject: string): string | null {
 		return null;
 	return id.toString("utf8");
 }
+
+/** A protobuf varint at `at`, or null when it runs off the end. */
+function readVarint(bytes: Buffer, at: number): { value: number; next: number } | null {
+	let value = 0;
+	for (let i = 0; i < 4; i++) {
+		const byte = bytes[at + i];
+		if (byte === undefined) return null;
+		value |= (byte & 0x7f) << (7 * i);
+		if ((byte & 0x80) === 0) return { value, next: at + i + 1 };
+	}
+	return null;
+}
+
+/**
+ * The Dex connector ID inside any Dex subject ("local", "entra", "google",
+ * "ldap", "oidc"), or null when the subject is not Dex's encoding. Upstream
+ * user IDs, such as an LDAP DN, can pass 127 bytes, so lengths are varints.
+ */
+export function dexConnectorId(subject: string): string | null {
+	const bytes = Buffer.from(subject, "base64url");
+	if (bytes.length === 0 || bytes.toString("base64url") !== subject) return null;
+	if (bytes[0] !== 0x0a) return null;
+	const idLength = readVarint(bytes, 1);
+	if (!idLength || idLength.value === 0) return null;
+	const connAt = idLength.next + idLength.value;
+	if (bytes[connAt] !== 0x12) return null;
+	const connLength = readVarint(bytes, connAt + 1);
+	if (!connLength || connLength.value === 0) return null;
+	if (connLength.next + connLength.value !== bytes.length) return null;
+	return bytes.subarray(connLength.next).toString("utf8");
+}

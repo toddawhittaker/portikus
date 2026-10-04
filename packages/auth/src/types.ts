@@ -10,6 +10,11 @@ export interface AuthUser {
 	mustChangePassword: boolean;
 	/** The account has not accepted the current acceptable-use statement (SPEC.md section 5.1). */
 	mustAcceptUse: boolean;
+	/**
+	 * What the session still owes the second-factor check (SPEC.md section
+	 * 24.13): enrol a factor, verify one, or nothing.
+	 */
+	secondFactor: "enrol" | "verify" | null;
 }
 
 /** Everything the auth helpers need, validated by the service's config loader. */
@@ -34,6 +39,8 @@ export interface AuthOptions {
 
 export const SESSION_COOKIE = "portikus_session";
 export const LOGIN_COOKIE = "portikus_login";
+/** Remembers the Dex connector last used, so signing in again skips Dex's chooser. */
+export const CONNECTOR_COOKIE = "portikus_connector";
 
 /**
  * Map the identity provider's group claim to a platform role; the highest
