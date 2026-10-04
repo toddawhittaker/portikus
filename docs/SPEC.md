@@ -2760,6 +2760,10 @@ P0 must not require silent administrator impersonation of a student session.
 
 P2 workspace-sharing/support access must be explicit and auditable.
 
+An administrator never holds a usable credential for another account.
+The account holder is told when their password is reset, and the install
+administrator is protected from other administrators (#1135).
+
 ### 20.3 Break-glass access
 
 Operators may have host/Incus-level diagnostic access.
@@ -3574,6 +3578,11 @@ At minimum, treat the following as separate trust zones:
 7. Pop!_OS host;
 8. external Internet.
 
+Zones 6 and 7 describe the pilot, where the platform runs in a VM on a
+separate host. On an apt install the host and the platform are one zone
+that faces the internet. Only SSH, HTTP and HTTPS may answer from
+outside, and a check run from outside the server proves it (#1137).
+
 As built (Epic 29): the API and the worker reach the workspace agent
 through one shared client, `packages/agent-client`. It keeps the size cap
 on responses, refuses redirects, and skips an empty body. A stream that
@@ -3624,6 +3633,10 @@ The system must assume it may:
 - produce extremely large files;
 - intentionally or accidentally attack platform services.
 
+Workspaces cannot send outbound mail by default. Their new-connection and
+packet rates are limited, and outbound rates are counted so
+administrators can see outliers (#1134; alerts #918).
+
 ### 24.3 Browser-origin isolation
 
 Student preview content must not share a trusted origin with the control-plane UI.
@@ -3631,6 +3644,9 @@ Student preview content must not share a trusted origin with the control-plane U
 Authentication cookies for the control plane must not be available to preview JavaScript.
 
 Preview embedding must use appropriate iframe sandboxing and content-security policy where compatible with development workflows.
+
+The control-plane UI sends a content security policy that limits scripts
+to its own (#1143).
 
 ### 24.4 Container isolation
 
@@ -3643,6 +3659,10 @@ Do not mount sensitive host paths.
 Do not mount Incus or host-Docker sockets.
 
 Do not grant arbitrary host devices.
+
+The host applies kernel hardening settings where workspace workloads
+allow, and the administrator is told when a security update needs a
+reboot (#1137).
 
 ### 24.5 Nested Docker
 
@@ -3927,12 +3947,17 @@ itself up.
 - **Copies off the server are manual** and documented as the real backup
   (docs/INSTALL.md); the copy's target never needs the key. Sets come back
   onto a server with rsync or scp, never by upload in the browser.
+  Backups also get an automated copy off the server (#1142).
+- **A restore keeps file owners and modes** (#1138).
 
 ### 24.10 Transport security
 
 Production/pilot network access must use TLS for browser-facing interfaces.
 
 Internal traffic carrying credentials or privileged control messages must be protected appropriately for the deployment network.
+
+An internet-facing site holds a publicly trusted certificate before any
+credential is typed into it (#1139).
 
 ### 24.11 Audit logging
 
@@ -4093,6 +4118,9 @@ workspace's network address, or a name a workspace looked up.
   and the worker's `workspace.cpu_throttle_held`. The two throttle-hold
   settings join `settings.resource_guard_updated`.
 
+A test checks that every event this section lists writes an audit row
+(#1138).
+
 ### 24.12 Dependency/security maintenance
 
 The project must define a process for:
@@ -4103,6 +4131,29 @@ The project must define a process for:
 - rebuilding workspace images;
 - revoking compromised credentials;
 - updating coding-agent CLIs.
+
+### 24.13 Sign-in abuse
+
+These rules hold before a site faces the internet.
+
+- Rate limits never refuse one client because of other clients'
+  failures. They count per account as well as per address, and treat
+  each IPv6 /64 as one address (#1133).
+- Every failed password sign-in, Dex's included, reaches the audit trail
+  (#1133).
+- New passwords are checked against known-breached passwords (#1133).
+- Every account that signs in with a Dex local password has a second
+  factor. Passkeys and time-based codes are both acceptable (#914).
+- The site admits only accounts an administrator created (Add user, bulk
+  upload, LTI enrolment), whatever the sign-in provider. Nobody signs
+  themselves up (#1136, #1132).
+- A role removed in the identity provider takes effect within a bounded
+  time much shorter than a session (#1141).
+- An administrator never holds a usable credential for another account,
+  the account holder is told when their password is reset, and the
+  install administrator is protected from other administrators (#1135).
+- The front door limits connections and slow clients, and each user has
+  a cap on open terminal and check-output sockets (#1140).
 
 ## 25. Non-functional requirements
 
