@@ -84,6 +84,11 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"HEAD /me/second-factor": 400,
 	"POST /me/second-factor/totp/start": 400,
 	"POST /me/second-factor/totp": 400,
+	"POST /me/second-factor/webauthn/start": 400,
+	"POST /me/second-factor/webauthn": 400,
+	"POST /me/second-factor/webauthn/verify/start": 400,
+	"POST /me/second-factor/recovery-codes": 400,
+	"PATCH /me/second-factor/:id": 400,
 	"DELETE /me/second-factor/:id": 404,
 	// Tests have no journal (test-support.ts points JOURNALCTL_PATH nowhere).
 	"GET /admin/logs": 503,

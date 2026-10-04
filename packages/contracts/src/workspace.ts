@@ -293,6 +293,9 @@ export const ApiErrorCode = z.enum([
 	"SECOND_FACTOR_REQUIRED",
 	"WRONG_CODE",
 	"LAST_SECOND_FACTOR",
+	"WRONG_PASSKEY",
+	"PASSKEY_EXPIRED",
+	"NO_PASSKEY",
 	// journalctl missing, failing or refused (docs/adr/0036).
 	"LOGS_UNAVAILABLE",
 	// Backups from the admin page (SPEC.md section 24.9, ADR 0024).

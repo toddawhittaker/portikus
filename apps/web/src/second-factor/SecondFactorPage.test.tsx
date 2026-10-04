@@ -4,7 +4,110 @@ import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
 import { gatePath } from "../useMe.js";
 
+vi.mock("@simplewebauthn/browser", () => ({
+	browserSupportsWebAuthn: () => true,
+	startRegistration: vi.fn(async () => ({
+		id: "new",
+		rawId: "new",
+		type: "public-key",
+	})),
+	startAuthentication: vi.fn(async () => ({
+		id: "old",
+		rawId: "old",
+		type: "public-key",
+	})),
+}));
+
 afterEach(() => vi.unstubAllGlobals());
+
+test("the setup page offers a passkey, which shows the recovery codes", async () => {
+	let enrolled = false;
+	stubFetch((url) => {
+		if (url === "/auth/me")
+			return json(200, { ...LOCAL, secondFactor: enrolled ? null : "enrol" });
+		if (url === "/me/second-factor/totp/start") return json(200, START);
+		if (url === "/me/second-factor/webauthn/start")
+			return json(200, { challenge: "c" });
+		if (url === "/me/second-factor/webauthn") {
+			enrolled = true;
+			return json(200, { recoveryCodes: ["AAAA-BBBB-CCCC-DDDD"] });
+		}
+		return json(403, GATED);
+	});
+	renderApp("/second-factor");
+	fireEvent.click(await screen.findByRole("button", { name: "Use a passkey" }));
+	expect(
+		await screen.findByRole("heading", { name: "Save your recovery codes" }),
+	).toBeTruthy();
+});
+
+test("the code page offers a passkey only when the account has one", async () => {
+	let verified = false;
+	const fetch = stubFetch((url) => {
+		if (url === "/auth/me")
+			return json(200, { ...LOCAL, secondFactor: verified ? null : "verify" });
+		if (url === "/me/second-factor")
+			return json(200, {
+				factors: [
+					{
+						id: "22222222-2222-4222-8222-222222222222",
+						kind: "webauthn",
+						label: "Laptop",
+						createdAt: "2026-09-02T10:00:00.000Z",
+						lastUsedAt: null,
+					},
+				],
+				recoveryCodesLeft: 10,
+			});
+		if (url === "/me/second-factor/webauthn/verify/start")
+			return json(200, { challenge: "c" });
+		if (url === "/me/second-factor/webauthn/verify") {
+			verified = true;
+			return new Response(null, { status: 204 });
+		}
+		return json(404, { code: "NOT_FOUND", message: "no" });
+	});
+	const { router } = renderApp("/second-factor");
+	fireEvent.click(await screen.findByRole("button", { name: "Use a passkey" }));
+	await waitFor(() =>
+		expect(router.state.location.pathname).not.toBe("/second-factor"),
+	);
+	expect(
+		fetch.mock.calls.find(([url]) => url === "/me/second-factor/webauthn/verify")?.[1]
+			?.body,
+	).toBe(
+		JSON.stringify({ credential: { id: "old", rawId: "old", type: "public-key" } }),
+	);
+});
+
+test("a cancelled passkey prompt is announced in the user's terms", async () => {
+	const { startAuthentication } = await import("@simplewebauthn/browser");
+	vi.mocked(startAuthentication).mockRejectedValueOnce(new Error("NotAllowedError"));
+	stubFetch((url) => {
+		if (url === "/auth/me") return json(200, { ...LOCAL, secondFactor: "verify" });
+		if (url === "/me/second-factor")
+			return json(200, {
+				factors: [
+					{
+						id: "22222222-2222-4222-8222-222222222222",
+						kind: "webauthn",
+						label: "Laptop",
+						createdAt: "2026-09-02T10:00:00.000Z",
+						lastUsedAt: null,
+					},
+				],
+				recoveryCodesLeft: 10,
+			});
+		if (url === "/me/second-factor/webauthn/verify/start")
+			return json(200, { challenge: "c" });
+		return json(403, GATED);
+	});
+	renderApp("/second-factor");
+	fireEvent.click(await screen.findByRole("button", { name: "Use a passkey" }));
+	expect((await screen.findByRole("alert")).textContent).toBe(
+		"The passkey was not used. Try again, or choose another way.",
+	);
+});
 
 const LOCAL = { ...USER, localPassword: true };
 const START = {

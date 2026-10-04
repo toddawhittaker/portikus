@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { StandalonePage } from "../pages/StandalonePage.js";
 import { useMe } from "../useMe.js";
 import { EnrolTotp } from "./EnrolTotp.js";
+import { PasskeyButton } from "./PasskeyButton.js";
+import { passkeysSupported, registerPasskey } from "./passkey.js";
 import { RecoveryCodes } from "./RecoveryCodes.js";
 import { VerifyCode } from "./VerifyCode.js";
 
@@ -63,7 +65,25 @@ export function SecondFactorPage() {
 			) : mode === "verify" ? (
 				<VerifyCode onVerified={done} />
 			) : (
-				<EnrolTotp onEnrolled={setCodes} />
+				<>
+					<EnrolTotp onEnrolled={setCodes} />
+					{passkeysSupported() ? (
+						<section className="grid gap-2" aria-labelledby="enrol-passkey-title">
+							<h2 id="enrol-passkey-title" className="pk-text-heading">
+								Or use a passkey
+							</h2>
+							<p className="pk-text-body m-0">
+								A passkey uses this device's screen lock, or a security key, instead of
+								a code.
+							</p>
+							<PasskeyButton
+								label="Use a passkey"
+								testId="enrol-passkey"
+								action={async () => setCodes(await registerPasskey())}
+							/>
+						</section>
+					) : null}
+				</>
 			)}
 			{codes === null ? (
 				<>

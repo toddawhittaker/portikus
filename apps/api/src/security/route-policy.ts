@@ -104,6 +104,12 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /me/second-factor/totp/start": { access: "self" },
 	"POST /me/second-factor/totp": { access: "self" },
 	"POST /me/second-factor/verify": { access: "self" },
+	"POST /me/second-factor/webauthn/start": { access: "self" },
+	"POST /me/second-factor/webauthn": { access: "self" },
+	"POST /me/second-factor/webauthn/verify/start": { access: "self" },
+	"POST /me/second-factor/webauthn/verify": { access: "self" },
+	"POST /me/second-factor/recovery-codes": { access: "self" },
+	"PATCH /me/second-factor/:id": { access: "self" },
 	"DELETE /me/second-factor/:id": { access: "self" },
 
 	"GET /workspaces/:id": { access: "owner-or-admin" },
