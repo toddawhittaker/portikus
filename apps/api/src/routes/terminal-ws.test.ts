@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { ELEVATED_SESSION_MAX_SECONDS } from "@portikus/auth";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -329,6 +330,43 @@ test.skipIf(skip)("a revoked session closes the attachment with 4401", async () 
 		vi.useRealTimers();
 	}
 });
+
+test.skipIf(skip)(
+	"a provider-given elevated session past its limit closes the attachment (SPEC.md section 24.13)",
+	async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setInterval"] });
+		try {
+			const fresh = buildTestServer(testDb.db, mock.issuer, { AGENT_PORT: agent.port });
+			await fresh.listen({ port: 0, host: "127.0.0.1" });
+			const previous = app;
+			app = fresh;
+
+			const socket = await openTerminal(workspaceId, terminalId, alice);
+			await socket.next();
+
+			// As if her last sign-in had brought the instructor group.
+			await testDb.db
+				.updateTable("users")
+				.set({ role: "instructor", provider_role: "instructor", granted_role: null })
+				.execute();
+			await testDb.db
+				.updateTable("sessions")
+				.set({
+					created_at: new Date(
+						Date.now() - ELEVATED_SESSION_MAX_SECONDS * 1000,
+					).toISOString(),
+				} as never)
+				.execute();
+			vi.advanceTimersByTime(1500);
+
+			expect(await socket.closed).toBe(4401);
+			await fresh.close();
+			app = previous;
+		} finally {
+			vi.useRealTimers();
+		}
+	},
+);
 
 test.skipIf(skip)("a revoked session is caught on the next input frame", async () => {
 	// The interval is faked and never advanced, so only the per-frame check

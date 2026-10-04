@@ -1,4 +1,4 @@
-import { createOidcClient } from "@portikus/auth";
+import { createOidcClient, ELEVATED_SESSION_MAX_SECONDS } from "@portikus/auth";
 import {
 	CookieJar,
 	csrfHeaders,
@@ -499,3 +499,62 @@ test.skipIf(skip)(
 		expect(sessions).toHaveLength(0);
 	},
 );
+
+test.skipIf(skip)(
+	"a provider administrator's session ends after an hour (SPEC.md section 24.13)",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "carol", jar);
+		const me = () =>
+			app.inject({
+				method: "GET",
+				url: "/auth/me",
+				headers: { cookie: jar.cookieHeader() },
+			});
+		expect((await me()).json().role).toBe("administrator");
+
+		await testDb.db
+			.updateTable("sessions")
+			.set({
+				created_at: new Date(
+					Date.now() - ELEVATED_SESSION_MAX_SECONDS * 1000,
+				).toISOString(),
+			} as never)
+			.execute();
+		expect((await me()).statusCode).toBe(401);
+	},
+);
+
+async function loginRedirectAfter(cookie: string): Promise<URL> {
+	const res = await app.inject({
+		method: "GET",
+		url: "/auth/login",
+		headers: { cookie },
+	});
+	return new URL(String(res.headers.location));
+}
+
+test.skipIf(skip)(
+	"signing in again skips Dex's chooser with the connector last used",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "lena", jar);
+		const url = await loginRedirectAfter(jar.cookieHeader());
+		expect(url.searchParams.get("connector_id")).toBe("local");
+	},
+);
+
+test.skipIf(skip)(
+	"an account outside Dex's subject encoding names no connector",
+	async () => {
+		const jar = new CookieJar();
+		await loginAs(app, "alice", jar);
+		const url = await loginRedirectAfter(jar.cookieHeader());
+		expect(url.searchParams.has("connector_id")).toBe(false);
+	},
+);
+
+test.skipIf(skip)("an unsigned connector cookie is ignored", async () => {
+	const url = await loginRedirectAfter("portikus_connector=evil");
+	expect(url.searchParams.has("connector_id")).toBe(false);
+});

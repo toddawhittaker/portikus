@@ -39,6 +39,8 @@ export interface AuthOptions {
 
 export const SESSION_COOKIE = "portikus_session";
 export const LOGIN_COOKIE = "portikus_login";
+/** Remembers the Dex connector last used, so signing in again skips Dex's chooser. */
+export const CONNECTOR_COOKIE = "portikus_connector";
 
 /**
  * Map the identity provider's group claim to a platform role; the highest

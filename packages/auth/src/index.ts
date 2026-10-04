@@ -83,6 +83,8 @@ export {
 } from "./passkey.js";
 export {
 	authPlugin,
+	connectorCookieName,
+	connectorCookieOptions,
 	loginCookieName,
 	loginCookieOptions,
 	requireRole,
@@ -113,9 +115,11 @@ export {
 export {
 	createSession,
 	deleteSession,
+	ELEVATED_SESSION_MAX_SECONDS,
 	hashSessionToken,
 	loadSession,
 	loadSessionById,
+	roleFromProvider,
 	type SessionMethod,
 	type SessionOrigin,
 	sessionOrigin,
