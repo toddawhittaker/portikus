@@ -106,6 +106,16 @@ const SharedWorkspaceFields = {
 	AGENT_PORT: positiveInt.default(7400),
 };
 
+/**
+ * Where administrator alerts are pushed (STACK.md section 15). Empty turns a
+ * channel off. The API reads them for the test button, the worker to send.
+ */
+const AlertFields = {
+	ALERT_PUSHOVER_USER_KEY: z.string().default(""),
+	ALERT_PUSHOVER_APP_TOKEN: z.string().default(""),
+	ALERT_WEBHOOK_URL: z.union([z.literal(""), z.string().url()]).default(""),
+};
+
 function previewSuffixIsDnsName(config: { PREVIEW_SUFFIX: string }): boolean {
 	return DNS_NAME.test(config.PREVIEW_SUFFIX);
 }
@@ -120,6 +130,7 @@ const PREVIEW_SUFFIX_DNS_MESSAGE =
 export const ApiConfigSchema = BaseConfig.extend({
 	DATABASE_URL: z.string().min(1),
 	...SharedWorkspaceFields,
+	...AlertFields,
 	PUBLIC_URL: z.string().url().default("http://127.0.0.1:5173"),
 	OIDC_ISSUER_URL: z.string().url().default("http://127.0.0.1:3002"),
 	OIDC_CLIENT_ID: z.string().min(1).default("portikus-dev"),
@@ -314,6 +325,7 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	CONTROLLER_URL: z.string().url().default("http://127.0.0.1:3001"),
 	CONTROLLER_TOKEN: z.string().default(DEV_TOKEN),
 	...SharedWorkspaceFields,
+	...AlertFields,
 	/**
 	 * Seeds the `settings` row on the worker's first start. After that the
 	 * admin page owns the value and this variable is ignored (SPEC.md §6.4).

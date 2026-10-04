@@ -8,6 +8,7 @@ import {
 	type MockOidcProvider,
 	startMockOidcProvider,
 } from "@portikus/auth/testing";
+import { CloseCode, MAX_TERMINAL_SOCKETS_PER_USER } from "@portikus/contracts";
 import { createTestDb, hasTestDb, type TestDb } from "@portikus/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
@@ -15,6 +16,7 @@ import WebSocketClient from "ws";
 import { type FakeAgent, startFakeAgent } from "../testing/fake-agent/index.js";
 import { buildTestServer, PUBLIC_URL } from "../testing/test-support.js";
 import { terminalGoneReason } from "../workspaces/terminal-pipe.js";
+import { terminalSockets } from "./terminals.js";
 
 /**
  * The terminal transport (SPEC.md §9.7, ADR 0009): the API forwards frames
@@ -627,5 +629,97 @@ test.skipIf(skip)(
 		expect(JSON.parse(await socket.next())).toEqual({ type: "exit" });
 		expect(agent.lastExitHits - before).toBeGreaterThan(1);
 		await socket.close();
+	},
+);
+
+async function ownerOf(id: string): Promise<string> {
+	const row = await testDb.db
+		.selectFrom("workspaces")
+		.select("owner_user_id")
+		.where("id", "=", id)
+		.executeTakeFirstOrThrow();
+	return row.owner_user_id;
+}
+
+/** Hold every one of a user's terminal socket slots while `body` runs. */
+async function withSlotsFull(userId: string, body: () => Promise<void>): Promise<void> {
+	for (let i = 0; i < MAX_TERMINAL_SOCKETS_PER_USER; i += 1)
+		terminalSockets.take(userId);
+	try {
+		await body();
+	} finally {
+		for (let i = 0; i < MAX_TERMINAL_SOCKETS_PER_USER; i += 1) {
+			terminalSockets.release(userId);
+		}
+	}
+}
+
+test.skipIf(skip)(
+	"a user at the terminal socket cap is refused with 4429, another user is not (SPEC.md §24.13)",
+	async () => {
+		const bob = new CookieJar();
+		await loginAs(app, "bob", bob);
+		const bobWorkspace = await makeRunningWorkspace(bob);
+		const bobTerminal = (
+			await app.inject({
+				method: "POST",
+				url: `/workspaces/${bobWorkspace}/terminals`,
+				headers: csrfHeaders(bob, PUBLIC_URL),
+				payload: {},
+			})
+		).json().id;
+
+		await withSlotsFull(await ownerOf(workspaceId), async () => {
+			const refused = await openTerminal(workspaceId, terminalId, alice);
+			expect(await refused.closed).toBe(CloseCode.TOO_MANY_SOCKETS);
+			expect(await countConnections()).toBe(0);
+
+			const other = await openTerminal(bobWorkspace, bobTerminal, bob);
+			await other.next();
+			await other.close();
+		});
+	},
+);
+
+test.skipIf(skip)("a normal close gives the terminal socket slot back", async () => {
+	const userId = await ownerOf(workspaceId);
+	const socket = await openTerminal(workspaceId, terminalId, alice);
+	await socket.next();
+	expect(terminalSockets.open(userId)).toBe(1);
+	await socket.close();
+	await expect.poll(() => terminalSockets.open(userId)).toBe(0);
+});
+
+test.skipIf(skip)(
+	"a browser that drops without a close frame gives its slot back",
+	async () => {
+		const userId = await ownerOf(workspaceId);
+		const address = app.server.address() as AddressInfo;
+		const client = new WebSocketClient(
+			`ws://127.0.0.1:${address.port}/workspaces/${workspaceId}/terminals/${terminalId}/ws`,
+			{ headers: { origin: new URL(PUBLIC_URL).origin, cookie: alice.cookieHeader() } },
+		);
+		await new Promise<void>((resolve, reject) => {
+			client.on("message", () => resolve());
+			client.on("error", reject);
+		});
+		expect(terminalSockets.open(userId)).toBe(1);
+		client.terminate();
+		await expect.poll(() => terminalSockets.open(userId)).toBe(0);
+	},
+);
+
+test.skipIf(skip)(
+	"an agent that is down gives the terminal socket slot back",
+	async () => {
+		const userId = await ownerOf(workspaceId);
+		await testDb.db
+			.updateTable("workspaces")
+			.set({ agent_address: "127.0.0.127", updated_at: new Date().toISOString() })
+			.where("id", "=", workspaceId)
+			.execute();
+		const socket = await openTerminal(workspaceId, terminalId, alice);
+		expect(await socket.closed).toBe(1011);
+		await expect.poll(() => terminalSockets.open(userId)).toBe(0);
 	},
 );

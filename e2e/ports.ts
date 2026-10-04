@@ -15,6 +15,8 @@ export const FAKE_AGENT_PORT = port("FAKE_AGENT_PORT", 7400);
 export const MOCK_LMS_PORT = port("PORTIKUS_MOCK_LMS_PORT", 8765);
 export const FAKE_DEX_GRPC_PORT = port("FAKE_DEX_GRPC_PORT", 5557);
 export const FAKE_DEX_HTTP_PORT = port("FAKE_DEX_HTTP_PORT", 5556);
+/** The API sends alerts here; admin-alerts.spec.ts listens on it. */
+export const FAKE_ALERT_WEBHOOK_PORT = port("FAKE_ALERT_WEBHOOK_PORT", 8799);
 
 export const WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
 export const API_ORIGIN = `http://127.0.0.1:${API_PORT}`;

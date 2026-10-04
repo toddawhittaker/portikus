@@ -231,6 +231,7 @@ export function TerminalPane({
 	const fit = useRef<FitAddon | null>(null);
 	const [reconnecting, setReconnecting] = useState(false);
 	const [lost, setLost] = useState(false);
+	const [tooMany, setTooMany] = useState(false);
 	const leaveHintId = useId();
 	// Exposed on the pane element so tests can wait for the socket to be open.
 	const [connected, setConnected] = useState(false);
@@ -652,6 +653,10 @@ export function TerminalPane({
 					setReconnecting(false);
 					setLost(true);
 				},
+				onTooMany: () => {
+					setReconnecting(false);
+					setTooMany(true);
+				},
 				onOutput: (bytes) => term.write(bytes),
 				// The size in the connect URL is measured before the pane's box
 				// has settled, and a correction sent in the meantime is lost:
@@ -746,6 +751,12 @@ export function TerminalPane({
 				{lost && (
 					<div className="pk-term-flag">
 						This terminal lost its connection. Reload the page to try again.
+					</div>
+				)}
+				{tooMany && (
+					<div className="pk-term-flag">
+						You have too many terminals open across your browser tabs. Close some
+						terminals or tabs, then reload the page.
 					</div>
 				)}
 			</div>

@@ -8,6 +8,13 @@ export const MAX_TERMINALS_PER_WORKSPACE = 20;
 export const MAX_ATTACHMENTS_PER_TERMINAL = 4;
 
 /**
+ * Terminal sockets one user may have open through the control plane at once
+ * (SPEC.md §24.13). Every terminal shown in three browser tabs fits, which is
+ * more than real use, and it stays below terminals times attachments (80).
+ */
+export const MAX_TERMINAL_SOCKETS_PER_USER = 3 * MAX_TERMINALS_PER_WORKSPACE;
+
+/**
  * Lines of history a terminal keeps above the visible screen (SPEC.md §9.1,
  * §9.7). tmux's history-limit and the browser's scrollback both use it, so a
  * replay never sends more than the browser can hold.

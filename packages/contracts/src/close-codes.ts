@@ -11,4 +11,6 @@ export const CloseCode = {
 	SESSION_ENDED: 4401,
 	/** The project or terminal does not exist. */
 	NOT_FOUND: 4404,
+	/** The user already has as many sockets of this kind open as allowed (SPEC.md §24.13). */
+	TOO_MANY_SOCKETS: 4429,
 } as const;

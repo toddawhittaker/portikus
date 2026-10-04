@@ -4,32 +4,11 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ServerDeps } from "../deps.js";
 import { createPendingWork, workspaceUpgradeGuard } from "../workspaces/presence.js";
 import { type ProjectScope, scopedProject } from "../workspaces/project-scope.js";
+import { createSocketSlots } from "../workspaces/socket-slots.js";
 import { pipeOneWay } from "../workspaces/terminal-pipe.js";
 
-/**
- * Event sockets open per workspace, counted here rather than trusted to the
- * agent: the agent port is inside the workspace, where student code runs
- * (SPEC.md §24.1). This is per API process; the pilot runs one (ADR 0010).
- */
-const openEventSockets = new Map<string, number>();
-
-/**
- * Take one of the workspace's event socket slots, or false when they are all
- * in use.
- */
-function takeEventSocket(workspaceId: string): boolean {
-	const open = openEventSockets.get(workspaceId) ?? 0;
-	if (open >= MAX_EVENT_SOCKETS_PER_WORKSPACE) return false;
-	openEventSockets.set(workspaceId, open + 1);
-	return true;
-}
-
-/** Give a slot back. */
-function releaseEventSocket(workspaceId: string): void {
-	const open = (openEventSockets.get(workspaceId) ?? 1) - 1;
-	if (open <= 0) openEventSockets.delete(workspaceId);
-	else openEventSockets.set(workspaceId, open);
-}
+/** Event sockets open per workspace (SPEC.md §11.4, §24.1). */
+const eventSockets = createSocketSlots(MAX_EVENT_SOCKETS_PER_WORKSPACE);
 
 /**
  * The reason the browser is given for an agent close. The agent's own bytes
@@ -91,7 +70,7 @@ export function registerProjectEventsSocket(
 				socket.resume();
 				return;
 			}
-			if (!takeEventSocket(scope.workspaceId)) {
+			if (!eventSockets.take(scope.workspaceId)) {
 				socket.close(CloseCode.POLICY, "too many watchers");
 				socket.resume();
 				return;
@@ -107,7 +86,7 @@ export function registerProjectEventsSocket(
 					sessionToken: request.sessionToken,
 					closeReason: browserCloseReason,
 					failureMessage: "project events agent socket failed",
-				}).finally(() => releaseEventSocket(scope.workspaceId)),
+				}).finally(() => eventSockets.release(scope.workspaceId)),
 			);
 			socket.resume();
 		},

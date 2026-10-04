@@ -1,6 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { createLogger, defineConfig } from "vite";
+import { contentSecurityPolicyPlugin } from "./src/csp.js";
 
 // The end-to-end runs pick their own ports (e2e/with-run-database.mjs).
 const apiPort = process.env.PORTIKUS_API_PORT ?? "3000";
@@ -26,7 +27,7 @@ logger.error = (msg, options) => {
 
 export default defineConfig({
 	customLogger: logger,
-	plugins: [react(), tailwindcss()],
+	plugins: [react(), tailwindcss(), contentSecurityPolicyPlugin()],
 	// Monaco is thousands of small modules. Without pre-bundling, the first
 	// file tab opened against the dev server takes over a minute to load.
 	optimizeDeps: {
