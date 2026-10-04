@@ -268,7 +268,7 @@ def signin(host, password_file):
     c = ["curl", "-s", "--cacert", CA, "-c", jar, "-b", jar]
     page = sh(*c, "-L", "-o", "/dev/null", "-w", "%{url_effective}", f"{base}/auth/login")
     page = sh(*c, "-L", "-o", "/dev/null", "-w", "%{url_effective}", page.replace("/dex/auth?", "/dex/auth/local?"))
-    sh(*c, "-L", "-o", "/dev/null", "--data-urlencode", f"login=admin@{host}",
+    sh(*c, "-L", "-o", "/dev/null", "-H", f"Origin: {base}", "--data-urlencode", f"login=admin@{host}",
        "--data-urlencode", f"password@{password_file}", page)
     return jar
 

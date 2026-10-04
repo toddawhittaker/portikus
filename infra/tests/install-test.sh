@@ -413,7 +413,7 @@ A='https://${PUBLIC_HOST}'
 C="curl -s --cacert /etc/portikus/caddy-root.crt -c \$t/jar -b \$t/jar"
 page=\$(\$C -L -o /dev/null -w '%{url_effective}' "\$A/auth/login")
 page=\$(\$C -L -o /dev/null -w '%{url_effective}' "\$(printf '%s' "\$page" | sed 's|/dex/auth?|/dex/auth/local?|')")
-\$C -L -o /dev/null --data-urlencode 'login=${ADMIN_EMAIL}' --data-urlencode "password@\$t/current" "\$page"
+\$C -L -o /dev/null -H "Origin: \$A" --data-urlencode 'login=${ADMIN_EMAIL}' --data-urlencode "password@\$t/current" "\$page"
 me=\$(\$C "\$A/auth/me")
 echo "after the one-time password: \$(printf '%s' "\$me" | python3 -c 'import json,sys; m=json.load(sys.stdin); print(m["role"], "mustChangePassword", m["mustChangePassword"])')"
 printf '%s' "\$me" | python3 -c 'import json,sys; m=json.load(sys.stdin); sys.exit(0 if m["role"] == "administrator" and m["mustChangePassword"] else 1)'
@@ -578,7 +578,7 @@ after_upgrade() {
     A='https://${PUBLIC_HOST}'
     C=\"curl -s --cacert /etc/portikus/caddy-root.crt -c \$t/jar -b \$t/jar\"
     page=\$(\$C -L -o /dev/null -w '%{url_effective}' \"\$A/auth/login\")
-    \$C -L -o /dev/null --data-urlencode 'login=${ADMIN_EMAIL}' --data-urlencode \"password@\$t/pw\" \"\$page\"
+    \$C -L -o /dev/null -H \"Origin: \$A\" --data-urlencode 'login=${ADMIN_EMAIL}' --data-urlencode \"password@\$t/pw\" \"\$page\"
     test \"\$(\$C -o /dev/null -w '%{http_code}' \"\$A/admin/users\")\" = 200"
 }
 
