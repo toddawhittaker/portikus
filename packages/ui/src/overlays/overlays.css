@@ -239,6 +239,14 @@
 	height: 2px;
 	background: var(--accent);
 }
+/* Forced colours drop author backgrounds, and the selected tab's bar with them. */
+@media (forced-colors: active) {
+	.pk-tab[data-state="active"]::before,
+	.pk-tab[aria-current="page"]::before {
+		forced-color-adjust: none;
+		background: Highlight;
+	}
+}
 .pk-tab--terminal[data-state="active"] {
 	background: var(--terminal-bg);
 	color: var(--terminal-fg);
