@@ -19,17 +19,28 @@ afterEach(() => {
 });
 
 describe("journalArgs", () => {
-	test("always names the three Portikus units and JSON output", () => {
+	test("always names the three Portikus units, or the kernel, and JSON output", () => {
 		const args = journalArgs({ reverse: true });
 		expect(args).toEqual([
 			"--output=json",
-			"--output-fields=MESSAGE,_SYSTEMD_UNIT,__REALTIME_TIMESTAMP",
+			"--output-fields=MESSAGE,_SYSTEMD_UNIT,_TRANSPORT,__REALTIME_TIMESTAMP",
 			"--no-pager",
-			"--unit=portikus-api.service",
-			"--unit=portikus-worker.service",
-			"--unit=portikus-controller.service",
+			"_SYSTEMD_UNIT=portikus-api.service",
+			"_SYSTEMD_UNIT=portikus-worker.service",
+			"_SYSTEMD_UNIT=portikus-controller.service",
+			"+",
+			"_TRANSPORT=kernel",
 			"--reverse",
 		]);
+	});
+
+	test("the warn level also lets the outbound-limit kernel lines through", () => {
+		const grep = (levels: ("error" | "warn")[]) =>
+			journalArgs({ reverse: true, levels }).find((a) => a.startsWith("--grep="));
+		expect(grep(["error"])).toBe('--grep="level":"(error|fatal)"');
+		expect(grep(["warn"])).toBe(
+			'--grep="level":"(warn)"|^(portikus-ws-mail-blocked: |portikus-ws-conn-limit: |portikus-ws-packet-limit: )',
+		);
 	});
 
 	test("dates become epoch seconds and levels a fixed pattern", () => {
@@ -44,7 +55,9 @@ describe("journalArgs", () => {
 		expect(args.some((arg) => arg.startsWith("--since"))).toBe(false);
 		expect(args).toContain("--until=@1790427600");
 		expect(args).toContain(`--after-cursor=${cursorAt(10)}`);
-		expect(args).toContain('--grep="level":"(error|fatal|warn)"');
+		expect(args.find((a) => a.startsWith("--grep="))).toMatch(
+			/^--grep="level":"\(error\|fatal\|warn\)"\|/,
+		);
 		expect(args).not.toContain("--reverse");
 	});
 
@@ -95,6 +108,27 @@ describe("parseJournalLine", () => {
 	test("decodes a MESSAGE sent as bytes", () => {
 		const bytes = [...Buffer.from('{"level":"warn"}')];
 		expect(parseJournalLine(journalLine(1, bytes))?.message).toBe('{"level":"warn"}');
+	});
+
+	test("reads an outbound-limit kernel line as a network warning, and no other kernel line", () => {
+		const kernel = (message: string) =>
+			JSON.stringify({
+				__CURSOR: cursorAt(4),
+				__REALTIME_TIMESTAMP: String(Date.UTC(2026, 8, 26, 12, 0, 4) * 1000),
+				_TRANSPORT: "kernel",
+				MESSAGE: message,
+			});
+		const entry = parseJournalLine(
+			kernel("portikus-ws-packet-limit: IN=incusbr0 SRC=10.20.0.5 DST=1.2.3.4 DPT=80"),
+		);
+		expect(entry?.service).toBe("network");
+		expect(JSON.parse(entry?.message ?? "{}")).toMatchObject({
+			level: "warn",
+			code: "WORKSPACE_PACKET_LIMIT",
+			workspaceAddress: "10.20.0.5",
+			destinationPort: 80,
+		});
+		expect(parseJournalLine(kernel("Out of memory: Killed process 42"))).toBeNull();
 	});
 
 	test("refuses other units, bad cursors and truncated lines", () => {

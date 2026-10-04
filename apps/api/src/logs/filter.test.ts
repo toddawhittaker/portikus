@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { cursorAt, fakeSpawn, journalLine } from "../testing/fake-journal.js";
 import { levelOf, matchesLine, parsePortikusLine, readLogPage } from "./filter.js";
 import { JournalReader } from "./journal.js";
+import { KERNEL_LINE_PATTERN } from "./kernel.js";
 
 const USER = "00000000-0000-4000-8000-00000000000a";
 const WS = "00000000-0000-4000-8000-00000000000b";
@@ -149,6 +150,6 @@ describe("readLogPage", () => {
 			expect(arg).not.toContain("ws-instance");
 			expect(arg).not.toContain("sshd");
 		}
-		expect(args).toContain('--grep="level":"(warn)"');
+		expect(args).toContain(`--grep="level":"(warn)"|${KERNEL_LINE_PATTERN}`);
 	});
 });

@@ -244,6 +244,8 @@ export function LogsTab() {
 									API answers the browser's requests. Worker runs the background jobs:
 									starting, stopping and rebuilding workspaces, the resource guard and
 									health samples. Controller talks to the host that runs the workspaces.
+									Network is the host firewall: a workspace that sent mail or hit its
+									outbound connection or packet limit.
 								</Toggletip>
 							</span>
 						</legend>

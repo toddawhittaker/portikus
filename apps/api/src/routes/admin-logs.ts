@@ -57,20 +57,46 @@ export function registerAdminLogRoutes(
 			const query = parsed.data;
 
 			let instanceName: string | null = null;
+			let workspaceAddress: string | null = null;
 			if (query.workspace) {
 				const row = await db
 					.selectFrom("workspaces")
-					.select("incus_instance_name")
+					.select(["incus_instance_name", "agent_address"])
 					.where("id", "=", query.workspace)
 					.executeTakeFirst();
 				instanceName = row?.incus_instance_name ?? null;
+				workspaceAddress = row?.agent_address ?? null;
 			}
 
 			let found: Awaited<ReturnType<typeof readLogPage>>;
 			try {
-				found = await readLogPage(reader, query, instanceName);
+				found = await readLogPage(reader, query, instanceName, workspaceAddress);
 			} catch (error) {
 				return sendReadFailure(request, reply, error);
+			}
+
+			// The kernel's outbound-limit lines name a workspace by address only. The
+			// address is the one recorded now, so an old line may name a later holder.
+			const addresses = [
+				...new Set(
+					found.lines
+						.map(({ line }) => line.workspaceAddress)
+						.filter((a): a is string => typeof a === "string"),
+				),
+			];
+			if (addresses.length > 0) {
+				const rows = await db
+					.selectFrom("workspaces")
+					.select(["id", "owner_user_id", "agent_address"])
+					.where("agent_address", "in", addresses)
+					.execute();
+				const byAddress = new Map(rows.map((row) => [row.agent_address, row]));
+				for (const { line } of found.lines) {
+					const row = byAddress.get(line.workspaceAddress as string);
+					if (!row) continue;
+					line.workspaceId = row.id;
+					line.userId = row.owner_user_id;
+				}
 			}
 
 			// One query per page for the display names of the users on it.
