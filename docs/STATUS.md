@@ -4348,7 +4348,7 @@ Delivered:
 
 Verified: at 13e38e81, `make check` green (6486 unit tests; coverage lines 94.02%, branches 86.21%, statements 92.13%, functions 91.71%); `pnpm test:e2e --workers=4` 815 passed, 4 failed, 1 skipped. The 4 failures were page-load timeouts in a11y-image.spec.ts (light and dark, lines 159 and 178) on a host loaded by an unrelated job, and that spec passed 19 of 19 alone three times. Pilot on 0.1.913+gb74d9da0 2026-10-03 (same product code; later commits are tests only): setup failed=0, smoke 233 passed 0 failed (Dex sign-in and lifecycle blocks skipped), dump /var/lib/postgresql/portikus-pre-epic33-2026-10-03.dump on the VM.
 
-Pilot reinstall with #1123-#1125: (to be filled)
+Pilot reinstall with #1123-#1128: 0.1.920+g1b1e4536 on 2026-10-03, setup failed=0, smoke 233 passed 0 failed (Dex password sign-in skipped, no sign-in file), dump /var/lib/postgresql/portikus-pre-epic33c-2026-10-03.dump on the VM.
 
 Gaps:
 
