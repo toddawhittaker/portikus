@@ -119,7 +119,7 @@ test("on the Course page at 768 px the header still shows the name", async ({
 });
 
 for (const colorScheme of ["light", "dark"] as const) {
-	test(`where the bar shows only the picture, the account menu names the account (${colorScheme})`, async ({
+	test(`on the admin page the account menu names the account above its address (${colorScheme})`, async ({
 		page,
 	}) => {
 		await page.emulateMedia({ colorScheme });
@@ -128,7 +128,6 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await page.goto("/admin");
 		await expect(page.getByTestId("admin-accounts")).toBeVisible({ timeout: 15_000 });
 		const me = page.getByTestId("me");
-		await expect(me.locator(".pk-account-name")).toBeHidden();
 
 		await me.focus();
 		await page.keyboard.press("Enter");

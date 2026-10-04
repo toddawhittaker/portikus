@@ -190,27 +190,6 @@ test("on the admin page, Open my workspace sits in the account menu where Admini
 	expect(screen.queryByTestId("admin-link")).toBeNull();
 });
 
-test("page navigation sits after the context and before the account button", () => {
-	renderWithQuery(
-		<AppHeader
-			user={{ ...USER, role: "administrator" }}
-			workspace={null}
-			project={undefined}
-			nav={<nav aria-label="Pages">Tabs</nav>}
-		/>,
-	);
-	const header = screen.getByTestId("app-header");
-	const nav = within(header).getByRole("navigation", { name: "Pages" });
-	const context = within(header).getByText("Administration");
-	const account = screen.getByTestId("me");
-	expect(
-		context.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING,
-	).toBeTruthy();
-	expect(
-		nav.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING,
-	).toBeTruthy();
-});
-
 test("in a workspace, an administrator has no Open my workspace item", () => {
 	renderHeader(WORKSPACE, { ...USER, role: "administrator" });
 	openAccountMenu();

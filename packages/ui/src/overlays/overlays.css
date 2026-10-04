@@ -190,8 +190,6 @@
  * (the Chrome model).
  */
 .pk-tab {
-	/* How far the label fades out at its right edge; the admin tabs reserve the same room. */
-	--pk-tab-fade: var(--space-3);
 	position: relative;
 	display: flex;
 	align-items: center;
@@ -267,7 +265,7 @@
 	text-align: left;
 	mask-image: linear-gradient(
 		to right,
-		#000 calc(100% - var(--pk-tab-fade)),
+		#000 calc(100% - var(--space-3)),
 		transparent 100%
 	);
 }

@@ -15,12 +15,9 @@ const TAB_ICON: Record<AdminTab, IconName> = {
 	settings: "settings",
 };
 
-/** The first tab of each group after the first gets a small gap before it. */
-const GROUP_START = new Set<AdminTab>(["health", "network"]);
-
 /**
- * The tabs, in the app header to give the tables their height back. They
- * look like the workspace's tabs but are links, so each tab has an address.
+ * The tabs, in a strip at the top of the admin frame, drawn like the
+ * workspace's tab strip. They are links, so each tab has an address.
  */
 export function AdminNav({ tab }: { tab: AdminTab | null }) {
 	return (
@@ -32,12 +29,10 @@ export function AdminNav({ tab }: { tab: AdminTab | null }) {
 					params={{ tab: item }}
 					data-testid={`admin-tab-${item}`}
 					aria-current={item === tab ? "page" : undefined}
-					// A narrow bar cuts the label short, so the hover text keeps the full name.
-					title={ADMIN_TAB_LABEL[item]}
-					className={GROUP_START.has(item) ? "pk-tab pk-adminnav-group" : "pk-tab"}
+					className="pk-tab"
 				>
 					<Icon name={TAB_ICON[item]} size="sm" />
-					<span className="pk-tab-label">{ADMIN_TAB_LABEL[item]}</span>
+					<span>{ADMIN_TAB_LABEL[item]}</span>
 				</Link>
 			))}
 		</nav>
