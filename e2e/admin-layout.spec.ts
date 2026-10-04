@@ -482,6 +482,69 @@ test.describe("admin layout", () => {
 		expect(bar.background).not.toBe("rgba(0, 0, 0, 0)");
 	});
 
+	test("in forced colours the current tab is bolder, and choosing a tab moves no tab", async ({
+		page,
+	}) => {
+		await page.emulateMedia({ forcedColors: "active" });
+		await loginAs(page, "carol");
+		await page.goto("/admin/health");
+		const nav = page.getByRole("navigation", { name: "Administration" });
+		await expect(
+			nav.getByRole("link", { name: "Health", exact: true }),
+		).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
+		const weights = () =>
+			nav
+				.getByRole("link")
+				.evaluateAll((links) =>
+					links.map((link) => Number(getComputedStyle(link).fontWeight)),
+				);
+		const before = await weights();
+		const health = ADMIN_TAB_NAMES.indexOf("Health");
+		expect(before[health]).toBeGreaterThanOrEqual(600);
+		for (const [index, weight] of before.entries()) {
+			if (index !== health) expect(weight).toBeLessThan(before[health]);
+		}
+		const boxes = await tabBoxes(page);
+		await nav.getByRole("link", { name: "Workspace image", exact: true }).click();
+		await expect(
+			nav.getByRole("link", { name: "Workspace image", exact: true }),
+		).toHaveAttribute("aria-current", "page");
+		expect(await tabBoxes(page)).toEqual(boxes);
+	});
+
+	for (const scheme of ["light", "dark"] as const) {
+		test(`the frame's side lines use the strong line colour (${scheme})`, async ({
+			page,
+		}) => {
+			await page.emulateMedia({ colorScheme: scheme });
+			await loginAs(page, "carol");
+			await page.goto("/admin/users");
+			const frame = page.getByTestId("admin-frame");
+			await expect(frame).toBeVisible({ timeout: 15_000 });
+			const lines = await frame.evaluate((el) => {
+				const probe = document.createElement("span");
+				probe.style.color = "var(--line-strong)";
+				el.append(probe);
+				const strong = getComputedStyle(probe).color;
+				probe.remove();
+				const style = getComputedStyle(el);
+				return {
+					start: style.borderInlineStartColor,
+					end: style.borderInlineEndColor,
+					width: style.borderInlineStartWidth,
+					strong,
+				};
+			});
+			expect(lines.width).toBe("1px");
+			expect(lines.start).toBe(lines.strong);
+			expect(lines.end).toBe(lines.strong);
+			expect(lines.strong).toBe(
+				scheme === "light" ? "rgb(138, 131, 117)" : "rgb(127, 120, 108)",
+			);
+			await expectNoViolations(page, "[data-testid=admin-frame] > nav");
+		});
+	}
+
 	for (const scheme of ["light", "dark"] as const) {
 		test(`the admin header and the tab strip have no automatic violations (${scheme})`, async ({
 			page,

@@ -244,6 +244,22 @@
 		forced-color-adjust: none;
 		background: Highlight;
 	}
+	/* A cue besides colour, as the bar alone is a thin line. */
+	.pk-tab[data-state="active"],
+	.pk-tab[aria-current="page"] {
+		font-weight: 600;
+	}
+	/* A label that sizes its tab carries a hidden bold copy, so choosing the tab moves nothing. */
+	.pk-tab [data-label] {
+		display: inline-grid;
+	}
+	.pk-tab [data-label]::after {
+		content: attr(data-label);
+		height: 0;
+		overflow: hidden;
+		visibility: hidden;
+		font-weight: 600;
+	}
 }
 .pk-tab--terminal[data-state="active"] {
 	background: var(--terminal-bg);
