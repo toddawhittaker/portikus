@@ -64,6 +64,19 @@ export {
 	OidcError,
 } from "./oidc.js";
 export {
+	type AuthenticationResponseJSON,
+	type ChallengeStore,
+	checkPasskey,
+	createChallengeStore,
+	listPasskeys,
+	passkeyAuthenticationOptions,
+	passkeyRegistrationOptions,
+	type RegistrationResponseJSON,
+	type RelyingParty,
+	relyingParty,
+	verifyPasskeyRegistration,
+} from "./passkey.js";
+export {
 	authPlugin,
 	loginCookieName,
 	loginCookieOptions,
@@ -85,10 +98,12 @@ export {
 	enrolTotp,
 	markSecondFactorPassed,
 	openPendingTotp,
+	replaceRecoveryCodes,
 	resetSecondFactor,
 	sealPendingTotp,
 	secondFactorApplies,
 	secondFactorKey,
+	storeFactor,
 } from "./second-factor.js";
 export {
 	createSession,

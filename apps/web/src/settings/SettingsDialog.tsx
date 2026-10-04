@@ -47,6 +47,7 @@ import "./settings.css";
 
 import { ControlFrame, useShowSetting } from "./controls.js";
 import { checkLink, type LinkDraft, ProfilePane } from "./ProfilePane.js";
+import { TwoFactorPane } from "./TwoFactorPane.js";
 
 /** The delay a student may ask for, in seconds (contracts/settings.ts). */
 const MIN_DELAY = 1;
@@ -104,6 +105,7 @@ function ChoiceField({
 const PREFERENCES = SETTINGS_SECTIONS.find((section) => section.id === "preferences");
 const PROFILE = SETTINGS_SECTIONS.find((section) => section.id === "profile");
 const PASSWORD = SETTINGS_SECTIONS.find((section) => section.id === "password");
+const TWO_FACTOR = SETTINGS_SECTIONS.find((section) => section.id === "two-factor");
 
 function NavButton({
 	current,
@@ -173,7 +175,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 	const me = useMe();
 	const localPassword = me.status === "authenticated" && me.user.localPassword;
 	const sections = SETTINGS_SECTIONS.filter(
-		(section) => section.id !== PASSWORD?.id || localPassword,
+		(section) =>
+			(section.id !== PASSWORD?.id && section.id !== TWO_FACTOR?.id) || localPassword,
 	);
 	const filtering = query.trim() !== "";
 	const hits = settingsHits(sections, query);
@@ -570,7 +573,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 							ref={pane}
 							className="min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]"
 						>
-							{sectionId === PASSWORD?.id && localPassword ? (
+							{sectionId === TWO_FACTOR?.id && localPassword ? (
+								<TwoFactorPane highlightId={highlightId} />
+							) : sectionId === PASSWORD?.id && localPassword ? (
 								<PasswordPane highlightId={highlightId} />
 							) : sectionId === PROFILE?.id ? (
 								<ProfilePane
