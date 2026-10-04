@@ -239,116 +239,122 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 				setConfirming={setConfirming}
 				onDone={() => setChecked(new Set())}
 			/>
-			<div className="flex items-start gap-4">
-				{/* Not a scroll container, so the header sticks against <main> (SPEC.md section 20.1). */}
-				<div className="pk-table-wrap min-w-0 flex-1 overflow-clip">
-					<table className="pk-table" data-testid="admin-accounts">
-						<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
-							Accounts and their workspaces,{" "}
-							{sortText(ACCOUNT_COLUMN_LABEL[sort.column], sort.direction)}. Choose a
-							name to see details.
-						</caption>
-						<thead>
-							<tr>
-								<th scope="col">
-									<Checkbox
-										label={<span className="sr-only">Select all shown accounts</span>}
-										checked={allChecked}
-										indeterminate={checkedRows.length > 0 && !allChecked}
-										onChange={(event) =>
-											setChecked(
-												event.target.checked
-													? new Set(rows.map((user) => user.id))
-													: new Set(),
-											)
-										}
+			{/* The detail panel sits beside the table where there is room for both, and under it where there is not. */}
+			<div className="@container">
+				<div className="flex flex-col gap-4 @4xl:flex-row @4xl:items-start">
+					{/* Not a scroll container, so the header sticks against <main> (SPEC.md section 20.1). */}
+					<div className="pk-table-wrap min-w-0 flex-1 overflow-clip">
+						<table className="pk-table" data-testid="admin-accounts">
+							<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
+								Accounts and their workspaces,{" "}
+								{sortText(ACCOUNT_COLUMN_LABEL[sort.column], sort.direction)}. Choose a
+								name to see details.
+							</caption>
+							<thead>
+								<tr>
+									<th scope="col">
+										<Checkbox
+											label={<span className="sr-only">Select all shown accounts</span>}
+											checked={allChecked}
+											indeterminate={checkedRows.length > 0 && !allChecked}
+											onChange={(event) =>
+												setChecked(
+													event.target.checked
+														? new Set(rows.map((user) => user.id))
+														: new Set(),
+												)
+											}
+										/>
+									</th>
+									<SortHeader
+										column="account"
+										label="Account"
+										sort={sort}
+										onSort={setSort}
+									>
+										<Toggletip label="Account tags">
+											Stale is about the account, never the workspace: no sign-in for 30
+											days, or another account with the same email signed in since.
+											Linked is a course account joined to an SSO account. Throttled,
+											Held and High memory come from the resource guard. Not signed in
+											yet is an account made less than 30 days ago that has never signed
+											in.
+										</Toggletip>
+									</SortHeader>
+									<SortHeader column="role" label="Role" sort={sort} onSort={setSort}>
+										<Toggletip label="Role">
+											From SSO means the role comes from your sign-in provider's groups.
+											Granted means an administrator gave it here, and only a granted
+											role can be taken away here. Only SSO accounts can be granted a
+											role.
+										</Toggletip>
+									</SortHeader>
+									<SortHeader
+										column="workspace"
+										label="Workspace"
+										sort={sort}
+										onSort={setSort}
+									>
+										<Toggletip label="Old image">
+											Old image means the workspace runs an image other than the
+											default. Rebuild it to move it to the default image. Projects and
+											home stay.
+										</Toggletip>
+									</SortHeader>
+									<SortHeader
+										column="activity"
+										label="Activity"
+										sort={sort}
+										onSort={setSort}
+										first="descending"
+									>
+										<Toggletip label="Activity">
+											Now means the workspace is open, with the number of pages and
+											terminals attached to it. Otherwise, how long ago someone last
+											opened it.
+										</Toggletip>
+									</SortHeader>
+									<th scope="col" className="pk-cell-actions">
+										<span className="sr-only">Actions</span>
+									</th>
+								</tr>
+							</thead>
+							<tbody>
+								{rows.map((user) => (
+									<AccountRow
+										key={user.id}
+										user={user}
+										now={now}
+										currentUserId={currentUserId}
+										selected={user.id === selectedId}
+										checked={checked.has(user.id)}
+										onCheck={(on) => toggle(user.id, on)}
+										onSelect={() => setSelectedId(user.id)}
+										onConfirm={(action) => confirmForRow(user.id, action)}
 									/>
-								</th>
-								<SortHeader
-									column="account"
-									label="Account"
-									sort={sort}
-									onSort={setSort}
-								>
-									<Toggletip label="Account tags">
-										Stale is about the account, never the workspace: no sign-in for 30
-										days, or another account with the same email signed in since. Linked
-										is a course account joined to an SSO account. Throttled, Held and
-										High memory come from the resource guard. Not signed in yet is an
-										account made less than 30 days ago that has never signed in.
-									</Toggletip>
-								</SortHeader>
-								<SortHeader column="role" label="Role" sort={sort} onSort={setSort}>
-									<Toggletip label="Role">
-										From SSO means the role comes from your sign-in provider's groups.
-										Granted means an administrator gave it here, and only a granted role
-										can be taken away here. Only SSO accounts can be granted a role.
-									</Toggletip>
-								</SortHeader>
-								<SortHeader
-									column="workspace"
-									label="Workspace"
-									sort={sort}
-									onSort={setSort}
-								>
-									<Toggletip label="Old image">
-										Old image means the workspace runs an image other than the default.
-										Rebuild it to move it to the default image. Projects and home stay.
-									</Toggletip>
-								</SortHeader>
-								<SortHeader
-									column="activity"
-									label="Activity"
-									sort={sort}
-									onSort={setSort}
-									first="descending"
-								>
-									<Toggletip label="Activity">
-										Now means the workspace is open, with the number of pages and
-										terminals attached to it. Otherwise, how long ago someone last
-										opened it.
-									</Toggletip>
-								</SortHeader>
-								<th scope="col" className="pk-cell-actions">
-									<span className="sr-only">Actions</span>
-								</th>
-							</tr>
-						</thead>
-						<tbody>
-							{rows.map((user) => (
-								<AccountRow
-									key={user.id}
-									user={user}
-									now={now}
-									currentUserId={currentUserId}
-									selected={user.id === selectedId}
-									checked={checked.has(user.id)}
-									onCheck={(on) => toggle(user.id, on)}
-									onSelect={() => setSelectedId(user.id)}
-									onConfirm={(action) => confirmForRow(user.id, action)}
-								/>
-							))}
-						</tbody>
-					</table>
-					{users.isSuccess && rows.length === 0 ? (
-						<p className="pk-text-body pk-muted p-4">No accounts match.</p>
+								))}
+							</tbody>
+						</table>
+						{users.isSuccess && rows.length === 0 ? (
+							<p className="pk-text-body pk-muted p-4">No accounts match.</p>
+						) : null}
+					</div>
+					{selected ? (
+						<WorkspaceDetail
+							key={selected.id}
+							user={selected}
+							isSelf={selected.id === currentUserId}
+							onClose={() => {
+								setSelectedId(null);
+								// An archived row may be filtered out; fall back to the caption.
+								(
+									document.getElementById(rowButtonId(selected.id)) ??
+									document.getElementById("admin-accounts-caption")
+								)?.focus();
+							}}
+						/>
 					) : null}
 				</div>
-				{selected ? (
-					<WorkspaceDetail
-						key={selected.id}
-						user={selected}
-						isSelf={selected.id === currentUserId}
-						onClose={() => {
-							setSelectedId(null);
-							// An archived row may be filtered out; fall back to the caption.
-							(
-								document.getElementById(rowButtonId(selected.id)) ??
-								document.getElementById("admin-accounts-caption")
-							)?.focus();
-						}}
-					/>
-				) : null}
 			</div>
 			<SortAnnouncement text={announcement} testId="admin-sort-announce" />
 		</AdminSection>

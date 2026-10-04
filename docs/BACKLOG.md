@@ -1046,12 +1046,14 @@ removes one of the two proofs of control ordinary linking requires.
 
 ## A tablet admin layout
 
-**What.** An admin area usable below 1024 px.
+**What.** An admin area usable below 768 px.
 
-**What it would take.** A narrow layout for the tables and detail panel.
-The admin area is desktop-only today (SPEC.md section 20.1).
+**What it would take.** A narrow layout for the tables, so each row reads
+without scrolling sideways. Since Epic 33 the admin area works down to
+768 px, with wrapping tabs and the Users detail panel under the table
+(SPEC.md section 20.1).
 
-**Source.** Left out of Epic 18.
+**Source.** Left out of Epic 18; narrowed by Epic 33.
 
 ## Clone and template on a full disk
 
@@ -1675,7 +1677,7 @@ when the job fails.
 
 ## Page reflow at narrow widths
 
-**What.** The workspace and admin pages keep a 1024 px minimum width, so at 560 pixels they scroll sideways instead of reflowing. DESIGN.md defers the narrow workspace layout, and SPEC.md section 20.1 keeps the admin area desktop-only.
+**What.** The workspace keeps a 1024 px minimum width and the admin area a 768 px one, so at 560 pixels both scroll sideways instead of reflowing. DESIGN.md defers the narrow workspace layout, and SPEC.md section 20.1 sets the admin minimum.
 
 **What it would take.** A narrow layout for each page, checked at 560 pixels with a Playwright screenshot and an axe run.
 

@@ -1,7 +1,9 @@
 /*
  * The admin frame: a column under the app header, ruled at each side like a
  * workspace pane, with the tab strip on top and the content scrolling under
- * it. Values are design tokens only.
+ * it. It fills the window less the page gutter; text and forms keep their
+ * own measure, and tables use the width (SPEC.md section 20.1). Values are
+ * design tokens only.
  */
 .pk-adminframe-row {
 	flex: 1;
@@ -12,9 +14,7 @@
 .pk-adminframe {
 	display: flex;
 	flex-direction: column;
-	max-width: 1440px;
 	height: 100%;
-	margin-inline: auto;
 	/* The strong line, so the sides mark out the tabbed space; they run past the strip too. */
 	border-inline: 1px solid var(--line-strong);
 }

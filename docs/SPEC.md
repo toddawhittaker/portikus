@@ -2493,13 +2493,17 @@ student nothing but is still audited. Like Monitor, the Processes table
 keeps a fixed Stop column, so a row without Stop leaves that cell empty
 (Epic 22).
 
-The admin area is desktop-only: it is built for windows 1024 px wide and up,
-scrolls sideways below that, and has no tablet layout (Epic 18).
+The admin area works in windows 768 px wide and up. Below about 990 px
+the tab strip wraps to a second row, wide tables scroll sideways inside
+the frame, and the page itself never scrolls sideways. Below that it
+scrolls sideways; there is no phone layout. The workspace keeps its
+1024 px minimum (Epic 33).
 
 Added by Epic 33: the admin page keeps the app header to the wordmark,
-"Administration" and the account menu. Under it, a frame at most 1440 px
-wide, centred with at least a 16 px gutter on each side, holds the admin
-tab strip at its top and the tab's content below. A 1 px line in
+"Administration" and the account menu. Under it, a frame as wide as the
+window less a 16 px gutter on each side holds the admin tab strip at its
+top and the tab's content below. Text and forms keep their own measure,
+about 72 characters; tables use the full width. A 1 px line in
 `--line-strong` runs down each side of the frame to the bottom of the
 window. The strip uses the workspace tab-strip look, with 36 px rows.
 Tabs are links, one per admin path, with `aria-current` on the current
@@ -2513,7 +2517,9 @@ compact in density, with a stable scrollbar gutter just inside the right
 line. The header, the strip and the frame lines never move. Table
 headers stick at the top of the scrolling content, right under the
 strip. Panels kept in view beside long lists cap their height to the
-scrolling area's height less the content padding. The Settings dialog's
+scrolling area's height less the content padding. Where the content is
+narrower than 56rem, the Users detail panel stacks under the table
+instead of beside it. The Settings dialog's
 section pane also reserves a stable scrollbar gutter, so content does
 not shift between
 tall and short tabs. `AdminGroup`, at heading level 3 or 4 with an
@@ -2526,7 +2532,7 @@ Audit sorts by Time only, because it is paged on the server. The Users
 table has a per-row "more" menu for the lifecycle actions.
 
 The admin page is one frame (Epic 18): its heading, tab navigation and tab
-content sit in a container at most 1440 px wide, at compact density (28 px
+content fill the frame, with text and forms at their own measure, at compact density (28 px
 controls, above the 24 px minimum target of section 25.8), and `<main>` keeps
 the scroll. Each tab is an h2 section with an optional count and actions in
 its heading row, headings inside a tab are h3, and the browser title names
@@ -5246,7 +5252,7 @@ Includes:
 
 Acceptance:
 
-- the admin content is at most 1440 px wide and the Users table does not scroll sideways at 1280 px with the detail panel open;
+- the admin frame fills the window less a 16 px gutter on each side, text and forms keep their own measure, and the Users table does not scroll sideways at 1280 px with the detail panel open;
 - each bulk-rebuilt workspace gets its own audit row, and a pending operation counts as skipped, not failed.
 
 ### Epic 20 — Student interface polish
