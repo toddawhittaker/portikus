@@ -30,6 +30,8 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM "portikus-worker";
 GRANT SELECT ON users TO "portikus-worker";
 GRANT SELECT ON egress_entries, egress_blocked_entries TO "portikus-worker";
 GRANT INSERT ON audit_events TO "portikus-worker";
+-- Enough to count failed sign-ins for an alert; never who, what or details.
+GRANT SELECT (action, result, at) ON audit_events TO "portikus-worker";
 
 -- Seeds the first row; changes only the egress apply outcome after that.
 GRANT SELECT ON settings TO "portikus-worker";

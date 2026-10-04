@@ -240,6 +240,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /admin/logs": { access: "admin" },
 	"GET /admin/logs/counts": { access: "admin" },
 	"HEAD /admin/logs/counts": { access: "admin" },
+	"POST /admin/alerts/test": { access: "admin" },
 	"GET /admin/health": { access: "admin" },
 	"HEAD /admin/health": { access: "admin" },
 	"GET /admin/health/series": { access: "admin" },

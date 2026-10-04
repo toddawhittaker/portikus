@@ -724,3 +724,14 @@ test("IMAGE_JOBS_DIR is off when unset and must be an absolute path", () => {
 		loadConfig(ApiConfigSchema, { ...base, IMAGE_JOBS_DIR: "image-jobs" }),
 	).toThrow(ConfigError);
 });
+
+test("alert channels default to off and a webhook must be a URL", () => {
+	const base = { DATABASE_URL: "postgres://localhost/portikus" };
+	const config = loadConfig(WorkerConfigSchema, base);
+	expect(config.ALERT_PUSHOVER_USER_KEY).toBe("");
+	expect(config.ALERT_PUSHOVER_APP_TOKEN).toBe("");
+	expect(config.ALERT_WEBHOOK_URL).toBe("");
+	expect(() =>
+		loadConfig(ApiConfigSchema, { ...base, ALERT_WEBHOOK_URL: "not a url" }),
+	).toThrow(/ALERT_WEBHOOK_URL/);
+});

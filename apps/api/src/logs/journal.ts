@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import type { Readable } from "node:stream";
 import { JOURNAL_CURSOR, type LogLevel, type LogService } from "@portikus/contracts";
+import { KERNEL_LINE_PATTERN, kernelLineMessage } from "./kernel.js";
 
 /** The only units the Logs tab reads, and the service each one is (docs/adr/0036). */
 const PORTIKUS_UNITS: Readonly<Record<string, LogService>> = {
@@ -107,9 +108,12 @@ export function journalArgs(request: ReadRequest): string[] {
 	}
 	const args = [
 		"--output=json",
-		"--output-fields=MESSAGE,_SYSTEMD_UNIT,__REALTIME_TIMESTAMP",
+		"--output-fields=MESSAGE,_SYSTEMD_UNIT,_TRANSPORT,__REALTIME_TIMESTAMP",
 		"--no-pager",
-		...Object.keys(PORTIKUS_UNITS).map((unit) => `--unit=${unit}`),
+		// journalctl ORs values of one field, and "+" ORs the groups: the units, or the kernel.
+		...Object.keys(PORTIKUS_UNITS).map((unit) => `_SYSTEMD_UNIT=${unit}`),
+		"+",
+		"_TRANSPORT=kernel",
 	];
 	if (request.reverse) args.push("--reverse");
 	// journalctl refuses --since together with a cursor; the caller stops at `since` itself.
@@ -123,7 +127,11 @@ export function journalArgs(request: ReadRequest): string[] {
 	);
 	if (levels.length > 0 && !all) {
 		const parts = levels.map((level) => LEVEL_PATTERN[level]);
-		args.push(`--grep="level":"(${parts.join("|")})"`);
+		const json = `"level":"(${parts.join("|")})"`;
+		// The outbound-limit kernel lines are shown as warnings (kernel.ts).
+		args.push(
+			`--grep=${levels.includes("warn") ? `${json}|${KERNEL_LINE_PATTERN}` : json}`,
+		);
 	}
 	return args;
 }
@@ -148,8 +156,10 @@ export function parseJournalLine(text: string): JournalEntry | null {
 	const unit = record._SYSTEMD_UNIT;
 	const micros = record.__REALTIME_TIMESTAMP;
 	if (typeof cursor !== "string" || !JOURNAL_CURSOR.test(cursor)) return null;
-	if (typeof unit !== "string") return null;
-	const service = PORTIKUS_UNITS[unit];
+	const kernel = record._TRANSPORT === "kernel";
+	let service: LogService | undefined;
+	if (kernel) service = "network";
+	else if (typeof unit === "string") service = PORTIKUS_UNITS[unit];
 	if (!service) return null;
 	if (typeof micros !== "string" || !/^[0-9]+$/.test(micros)) return null;
 	const at = new Date(Number(BigInt(micros) / 1000n));
@@ -160,6 +170,11 @@ export function parseJournalLine(text: string): JournalEntry | null {
 	if (typeof field === "string") message = field;
 	else if (Array.isArray(field) && field.every((b) => typeof b === "number")) {
 		message = Buffer.from(field as number[]).toString("utf8");
+	}
+	if (kernel) {
+		// Every other kernel line is dropped unread (docs/adr/0036).
+		const line = kernelLineMessage(message, at);
+		return line === null ? null : { cursor, at, service, message: line };
 	}
 	return { cursor, at, service, message };
 }

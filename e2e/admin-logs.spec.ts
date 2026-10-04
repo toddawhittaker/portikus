@@ -1,5 +1,7 @@
+import { appendFileSync } from "node:fs";
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import { createStudent, loginAs, openToggletip, query, WEB_ORIGIN } from "./helpers";
+import { E2E_JOURNAL_FILE } from "./journal-file";
 
 /**
  * The Logs tab (SPEC.md section 24.11). The e2e API's
@@ -348,5 +350,57 @@ test.describe("admin logs", () => {
 		await expect(page.getByTestId("logs-error")).toHaveCount(0);
 		await expect.poll(() => logRows(page).count()).toBeGreaterThan(100);
 		await expect(page.getByTestId("logs-error")).toHaveCount(0);
+	});
+
+	test("a workspace's outbound-limit kernel line shows as a Network warning", async ({
+		page,
+		browser,
+	}) => {
+		const context = await browser.newContext({ baseURL: WEB_ORIGIN });
+		let student: Awaited<ReturnType<typeof createStudent>>;
+		try {
+			student = await createStudent(context);
+		} finally {
+			await context.close();
+		}
+		const name = `Net ${student.userId.slice(0, 8)}`;
+		const n = Number.parseInt(student.userId.slice(0, 4), 16);
+		const address = `10.250.${n >> 8}.${n & 255}`;
+		await query("update users set display_name = $2 where id = $1", [
+			student.userId,
+			name,
+		]);
+		await query("update workspaces set agent_address = $2 where id = $1", [
+			student.workspaceId,
+			address,
+		]);
+		appendFileSync(
+			E2E_JOURNAL_FILE,
+			`kernel:portikus-ws-mail-blocked: IN=incusbr0 OUT=eth0 MAC=00:16:3e:aa:bb:cc SRC=${address} DST=203.0.113.9 PROTO=TCP SPT=41000 DPT=25\n` +
+				`kernel:usb 1-1: new high-speed USB device SRC=${address}\n`,
+		);
+
+		await loginAs(page, "carol");
+		await openUntil(
+			page,
+			`/admin/logs?workspace=${student.workspaceId}`,
+			"Workspace outbound mail blocked",
+		);
+		await expect(logRows(page)).toHaveCount(1);
+		const row = logRows(page).first();
+		await expect(row.getByTestId("log-level")).toHaveText("Warn");
+		await expect(row).toContainText("Network");
+		await expect(row).toContainText("WORKSPACE_MAIL_BLOCKED");
+		await expect(row).toContainText(name);
+		await row.getByRole("button", { name: /^Full line/ }).click();
+		const detail = page.getByTestId("log-row-detail");
+		await expect(detail).toContainText(`"destinationPort": 25`);
+		await expect(detail).not.toContainText("00:16:3e");
+		await expect(page.getByTestId("logs-table")).not.toContainText("USB");
+
+		// Network is a source of its own in the filter.
+		await page.getByRole("checkbox", { name: "Network" }).uncheck();
+		await page.getByRole("button", { name: "Apply filters" }).click();
+		await expect(page.getByTestId("logs-table")).toHaveCount(0);
 	});
 });

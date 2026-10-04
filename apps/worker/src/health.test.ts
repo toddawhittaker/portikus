@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from "vi
 import { ControllerClientError } from "./controller-client.js";
 import { FakeControllerClient } from "./fake-controller.js";
 import {
+	CONTROLLER_DOWN_SAMPLES,
 	createHealthSampler,
 	HEALTH_SAMPLE_SECONDS,
 	nextPoolLevel,
@@ -319,5 +320,37 @@ test.skipIf(skip)(
 			["danger", "Storage pool is 91% full; new workspaces are refused"],
 			["warning", "Storage pool is 70% full"],
 		]);
+	},
+);
+
+test.skipIf(skip)(
+	"administrators hear once per outage that the controller is down",
+	async () => {
+		const admin = await insertTestUser(tdb.db, { role: "administrator" });
+		const controller = new FakeControllerClient();
+		const up = controller.hostResult;
+		const down = new ControllerClientError("INCUS_UNAVAILABLE", "down");
+		const { logger } = collectingLogger();
+		const tick = createHealthSampler({ db: tdb.db, controller, logger });
+		const titles = async () =>
+			(
+				await tdb.db
+					.selectFrom("notifications")
+					.select("title")
+					.where("user_id", "=", admin)
+					.execute()
+			).map((n) => n.title);
+
+		controller.hostResult = down;
+		for (let i = 1; i < CONTROLLER_DOWN_SAMPLES; i++) await tick();
+		expect(await titles()).toEqual([]);
+		await tick();
+		await tick();
+		expect(await titles()).toEqual(["The workspace controller is not responding"]);
+		controller.hostResult = up;
+		await tick();
+		controller.hostResult = down;
+		for (let i = 0; i < CONTROLLER_DOWN_SAMPLES; i++) await tick();
+		expect(await titles()).toHaveLength(2);
 	},
 );

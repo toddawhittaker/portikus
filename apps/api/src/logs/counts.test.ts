@@ -2,6 +2,7 @@ import { expect, test, vi } from "vitest";
 import { type FakeChild, fakeSpawn, journalLine } from "../testing/fake-journal.js";
 import { LogCounter } from "./counts.js";
 import { JournalReader } from "./journal.js";
+import { KERNEL_LINE_PATTERN } from "./kernel.js";
 
 const NOW = new Date("2026-09-26T12:30:30.000Z");
 const at = (iso: string) => `@${Math.floor(Date.parse(iso) / 1000)}`;
@@ -76,7 +77,9 @@ test("the last hour is counted first, then older days newest first", async () =>
 	const grepCalls = calls.filter((c) => !isOldestLookup(c.args));
 	expect(grepCalls[0]?.args).toContain(`--since=${at("2026-09-26T11:30:00Z")}`);
 	expect(grepCalls[0]?.args).toContain(`--until=${at("2026-09-26T12:30:30Z")}`);
-	expect(grepCalls[0]?.args).toContain('--grep="level":"(error|fatal|warn)"');
+	expect(grepCalls[0]?.args).toContain(
+		`--grep="level":"(error|fatal|warn)"|${KERNEL_LINE_PATTERN}`,
+	);
 	expect(grepCalls[0]?.args).not.toContain("--reverse");
 	expect(grepCalls[1]?.args).toContain("--reverse");
 	expect(grepCalls[1]?.args).toContain(`--since=${at("2026-09-25T11:30:00Z")}`);

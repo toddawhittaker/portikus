@@ -7,10 +7,12 @@ import { BACKUP_KEY_SOCKET, BACKUP_KEY_STATE } from "./e2e/backup-key";
 import { CERTIFICATE_JOBS_DIR, CERTIFICATE_STATUS_DIR } from "./e2e/certificate-jobs";
 import { FAKE_AGENT_TOKEN } from "./e2e/helpers";
 import { IMAGE_JOBS_DIR, IMAGES_DIR } from "./e2e/image-jobs";
+import { E2E_JOURNAL_FILE } from "./e2e/journal-file";
 import {
 	API_ORIGIN,
 	API_PORT,
 	FAKE_AGENT_PORT,
+	FAKE_ALERT_WEBHOOK_PORT,
 	FAKE_DEX_GRPC_PORT,
 	MOCK_LMS_ORIGIN,
 	MOCK_LMS_PORT,
@@ -77,8 +79,8 @@ mkdirSync(CERTIFICATE_STATUS_DIR, { recursive: true });
 mkdirSync(REGISTRY_JOBS_DIR, { recursive: true });
 
 // The API's standard output, copied here, is the journal the fake journalctl
-// reads for the Logs tab (docs/adr/0036). `tee` empties it when the API starts.
-const journalFile = join(tmpdir(), `portikus-e2e-journal-${API_PORT}.log`);
+// reads for the Logs tab (docs/adr/0036). It is emptied when the API starts.
+const journalFile = E2E_JOURNAL_FILE;
 // The API starts journalctl with only PATH and LANG, so a wrapper names the
 // journal file and the node binary itself.
 const fakeJournalctl = join(tmpdir(), `portikus-e2e-journalctl-${API_PORT}.sh`);
@@ -161,7 +163,7 @@ export default defineConfig({
 		},
 		{
 			// The fake backup key helper runs beside the API, in its process group.
-			command: `node e2e/fake-backup-key-server.mjs & node packages/db/dist/migrate.js && node apps/api/dist/index.js | tee ${journalFile}`,
+			command: `node e2e/fake-backup-key-server.mjs & : > ${journalFile} && node packages/db/dist/migrate.js && node apps/api/dist/index.js | tee -a ${journalFile}`,
 			url: `${API_ORIGIN}/health`,
 			env: {
 				NODE_ENV: "test",
@@ -194,6 +196,7 @@ export default defineConfig({
 				// from 127.0.0.1; unit tests keep the real limit.
 				SIGNIN_START_LIMIT_PER_MINUTE: "100000",
 				JOURNALCTL_PATH: fakeJournalctl,
+				ALERT_WEBHOOK_URL: `http://127.0.0.1:${FAKE_ALERT_WEBHOOK_PORT}/hook`,
 				// A fake image job directory the admin-image tests play the root job in.
 				IMAGE_JOBS_DIR,
 				// A fake certificate job directory the admin-certificate tests play the root job in;

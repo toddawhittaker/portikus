@@ -51,7 +51,7 @@ test("defaults are left out of the URL, and every service is the same as none", 
 	expect(
 		searchFromFilters({
 			levels: ["warn", "error"],
-			services: ["api", "worker", "controller"],
+			services: ["api", "worker", "controller", "network"],
 			since: "1d",
 			until: "",
 			q: "",

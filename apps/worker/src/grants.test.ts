@@ -14,6 +14,8 @@ import {
 import { collectingLogger } from "@portikus/observability/testing";
 import { type Kysely, sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { createAlertSources } from "./alert-sources.js";
+import { createAlertForwarder } from "./alerts.js";
 import { backupVmTick, pullRequest } from "./backups.js";
 import { createEgressSync } from "./egress.js";
 import { FakeControllerClient } from "./fake-controller.js";
@@ -289,6 +291,14 @@ describe.skipIf(skip)("the worker's role", () => {
 		await serveProcessSnapshots(worker, controller, logger);
 		await backupVmTick({ db: worker, controller, logger });
 		await pullRequest(worker, new Date());
+		await createAlertSources({ db: worker, logger })();
+		await createAlertForwarder({
+			db: worker,
+			logger,
+			channels: { pushoverUserKey: "", pushoverAppToken: "", webhookUrl: "http://x" },
+			now: () => new Date(0),
+			send: async () => [],
+		})();
 
 		expect(JSON.stringify(lines)).not.toMatch(/permission denied/i);
 		const stopped = await tdb.db

@@ -2,7 +2,7 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import "../terminal/terminal.css";
 import "./checks.css";
-import { SCROLLBACK_LINES } from "@portikus/contracts";
+import { CloseCode, SCROLLBACK_LINES } from "@portikus/contracts";
 import { FitAddon } from "@xterm/addon-fit";
 import { useEffect, useRef } from "react";
 import { wsUrl } from "../api/ws.js";
@@ -102,6 +102,14 @@ export function CheckOutput({
 			if (frame.kind === "error") {
 				xterm.writeln("\r\n[portikus] this check could not be started.");
 				finished.current();
+			}
+		};
+
+		socket.onclose = (event: CloseEvent) => {
+			if (event.code === CloseCode.TOO_MANY_SOCKETS) {
+				xterm.writeln(
+					"\r\n[portikus] too many check panels are open across your tabs. Close some, then try again.",
+				);
 			}
 		};
 

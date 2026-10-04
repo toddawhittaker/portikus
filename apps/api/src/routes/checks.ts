@@ -1,5 +1,11 @@
 import type { WebSocket } from "@fastify/websocket";
-import { CheckId, CheckRun, ChecksResponse } from "@portikus/contracts";
+import {
+	CheckId,
+	CheckRun,
+	ChecksResponse,
+	CloseCode,
+	MAX_CHECK_SOCKETS_PER_USER,
+} from "@portikus/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { AGENT_TIMEOUT_MS, readAgentError, readJson } from "../agent-client.js";
 import type { ServerDeps } from "../deps.js";
@@ -11,10 +17,14 @@ import {
 	scopedProject,
 	sendAgentError,
 } from "../workspaces/project-scope.js";
+import { createSocketSlots } from "../workspaces/socket-slots.js";
 import { pipeOneWay } from "../workspaces/terminal-pipe.js";
 
 /** A run may take a while to start, but starting it is not itself slow. */
 const CHECK_BUDGET_MS = AGENT_TIMEOUT_MS;
+
+/** Check output sockets open per user (SPEC.md §24.13). Exported for tests. */
+export const checkSockets = createSocketSlots(MAX_CHECK_SOCKETS_PER_USER);
 
 declare module "fastify" {
 	interface FastifyRequest {
@@ -158,6 +168,13 @@ export function registerCheckRoutes(app: FastifyInstance, deps: ServerDeps): voi
 				socket.resume();
 				return;
 			}
+			// The guard is owner-only, so the owner is the user on this socket.
+			const userId = request.workspaceRow?.owner_user_id ?? "";
+			if (!checkSockets.take(userId)) {
+				socket.close(CloseCode.TOO_MANY_SOCKETS, "too many check connections");
+				socket.resume();
+				return;
+			}
 			track(
 				pipeOneWay({
 					db,
@@ -169,7 +186,7 @@ export function registerCheckRoutes(app: FastifyInstance, deps: ServerDeps): voi
 					sessionToken: request.sessionToken,
 					closeReason: () => "run finished",
 					failureMessage: "check output agent socket failed",
-				}),
+				}).finally(() => checkSockets.release(userId)),
 			);
 			socket.resume();
 		},
