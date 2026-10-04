@@ -302,6 +302,66 @@ test.describe("admin layout", () => {
 		);
 	});
 
+	test("a focused tab shows its whole name at 1024 px and the page does not scroll sideways", async ({
+		page,
+		context,
+	}) => {
+		await page.setViewportSize({ width: 1024, height: 800 });
+		// A long account name is the worst case for the bar's width.
+		const { userId } = await createSignedInUser(context, "administrator");
+		await query("update users set display_name = $2 where id = $1", [
+			userId,
+			"Maximiliana Konstantinopoulou-Vanderberg",
+		]);
+		await page.goto("/admin/health");
+		const nav = page.getByRole("navigation", { name: "Administration" });
+		const image = nav.getByRole("link", { name: "Workspace image", exact: true });
+		await expect(image).toBeVisible({ timeout: 15_000 });
+		const cut = () =>
+			image.evaluate((link) => {
+				const label = link.querySelector(".pk-tab-label") as HTMLElement;
+				const range = document.createRange();
+				range.selectNodeContents(label);
+				const fade = Number.parseFloat(getComputedStyle(label).paddingInlineEnd);
+				return (
+					range.getBoundingClientRect().width >
+					label.getBoundingClientRect().width - fade + 0.5
+				);
+			});
+		expect(await cut()).toBe(true);
+
+		await nav.getByRole("link", { name: "Backups", exact: true }).focus();
+		await page.keyboard.press("Tab");
+		await expect(image).toBeFocused();
+		expect(await cut()).toBe(false);
+		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1024);
+		const box = await image.boundingBox();
+		const account = await page.getByTestId("me").boundingBox();
+		expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(account?.x ?? 0);
+	});
+
+	test("in forced colours the current tab keeps its top bar", async ({ page }) => {
+		await page.emulateMedia({ forcedColors: "active" });
+		await loginAs(page, "carol");
+		await page.goto("/admin/health");
+		const current = page
+			.getByRole("navigation", { name: "Administration" })
+			.getByRole("link", { name: "Health", exact: true });
+		await expect(current).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
+		const bar = await current.evaluate((el) => {
+			const probe = document.createElement("span");
+			probe.style.color = "Highlight";
+			document.body.append(probe);
+			const highlight = getComputedStyle(probe).color;
+			probe.remove();
+			const edge = getComputedStyle(el, "::before");
+			return { background: edge.backgroundColor, height: edge.height, highlight };
+		});
+		expect(bar.height).toBe("2px");
+		expect(bar.background).toBe(bar.highlight);
+		expect(bar.background).not.toBe("rgba(0, 0, 0, 0)");
+	});
+
 	for (const scheme of ["light", "dark"] as const) {
 		test(`the admin header and its tabs have no automatic violations (${scheme})`, async ({
 			page,

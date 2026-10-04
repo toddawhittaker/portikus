@@ -82,6 +82,10 @@
 	);
 	padding: 0 0 0 var(--space-2);
 }
+/* The hover text never reaches the keyboard, so a focused tab takes its whole name and its neighbours give way. */
+.pk-adminnav > .pk-tab:focus-visible {
+	flex: 0 0 auto;
+}
 .pk-adminnav > .pk-tab:first-child,
 .pk-adminnav > .pk-adminnav-group {
 	border-inline-start: 1px solid var(--line);
