@@ -2496,13 +2496,26 @@ keeps a fixed Stop column, so a row without Stop leaves that cell empty
 The admin area is desktop-only: it is built for windows 1024 px wide and up,
 scrolls sideways below that, and has no tablet layout (Epic 18).
 
-Added by Epic 33: the admin tabs live in the app header, not in a row
-under the page title. They use the workspace tab look, without a close
-button, and each has an icon. They stay navigation links with
-`aria-current`, shrink with a right-side fade, show full names at 1366 px
-and wider, show a focused tab's full name, and mark the selected tab in
-forced-colours mode. The admin `<main>` and the Settings dialog's section
-pane reserve a stable scrollbar gutter, so content does not shift between
+Added by Epic 33: the admin page keeps the app header to the wordmark,
+"Administration" and the account menu. Under it, a frame at most 1440 px
+wide, centred with at least a 16 px gutter on each side, holds the admin
+tab strip at its top and the tab's content below. A 1 px line in
+`--line-strong` runs down each side of the frame to the bottom of the
+window. The strip uses the workspace tab-strip look, with 36 px rows.
+Tabs are links, one per admin path, with `aria-current` on the current
+one. Each shows its icon and its whole name, with no fade, no hover text
+and no gaps between tabs. When the tabs do not fit on one row, they wrap
+to further rows in a fixed order, and keyboard order is left to right,
+top row first. In forced-colours mode the current tab, admin or
+workspace, carries a bar and is semibold, without shifting any tab.
+Only the content inside the frame scrolls, 16 px in from the lines and
+compact in density, with a stable scrollbar gutter just inside the right
+line. The header, the strip and the frame lines never move. Table
+headers stick at the top of the scrolling content, right under the
+strip. Panels kept in view beside long lists cap their height to the
+scrolling area's height less the content padding. The Settings dialog's
+section pane also reserves a stable scrollbar gutter, so content does
+not shift between
 tall and short tabs. `AdminGroup`, at heading level 3 or 4 with an
 optional description, is the one card frame for admin groups and their
 parts. Every sortable table, the Users, Logs, Audit and Processes

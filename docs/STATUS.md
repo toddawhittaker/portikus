@@ -4247,17 +4247,16 @@ Gaps:
 ## Epic 33 — UI polish: admin layouts, Settings, accessibility
 
 Built on `epic/33-ui-polish` (task PRs #1097, #1099 to #1116, #1118 to
-#1121, this fold, and #1123 to #1125 after it), issues #1087 and #1096. No
+#1121, this fold, and #1123 to #1128 after it), issues #1087 and #1096. No
 migration. SPEC.md sections 19.2, 20.1 and 25.8, and ADR 0047.
 
 Delivered:
 
 - CI: the signed apt repository test backdates its throwaway key two
   minutes, so apt's verifier no longer rejects it (#1096).
-- Admin frame: the admin `<main>` and the Settings section pane keep a
+- Admin frame: the admin content scroller and the Settings section pane keep a
   stable scrollbar gutter, so content does not shift between tall and
-  short tabs. The admin tabs sit in the app header, and the unread badge
-  is a larger 24 px pill. The header is a container: on a narrow bar
+  short tabs. The unread badge is a larger 24 px pill. The header is a container: on a narrow bar
   the context text and account name give way, and it stays one line.
 - Admin structure: one `AdminGroup` at level 3 or 4, with an optional
   description, is the card frame everywhere. A shared `Notice` draws the
@@ -4328,13 +4327,23 @@ Delivered:
   named apart from the page titles ("Your workspace", "For
   instructors", "Running the site"), with anchors `#student` and
   `#admin` unchanged.
-- Admin tabs (#1124): the admin header tabs use the workspace tab look
-  with an icon each. They shrink with the workspace tabs' fade from
-  1366 px down to 1024 px, with full names at 1366 px and wider. Help
-  and the nine admin tab icons are in the design system preview.
+- Admin tab icons (#1124): each admin tab has an icon and the workspace
+  tab look. Help and the nine admin tab icons are in the design system
+  preview. Its header placement and fade were replaced by #1127.
 - Tab focus and forced colours (#1125): keyboard focus shows a cut
   admin tab's full name, admin and workspace tabs draw a selected-tab
   bar in forced-colours mode, and the PageIntro example is corrected.
+- Admin tab strip (#1127): the admin tabs moved out of the app header
+  into a strip under it, drawn like the workspace tab strip, at the top
+  of a frame with a line down each side. Only the framed content
+  scrolls, and its scrollbar sits inside the frame. Tabs show their
+  whole names and wrap to a second row in a fixed order. The group
+  gaps, the fade and the hover text are gone.
+- Frame lines and bold current tab (#1128): the admin frame's side
+  lines use `--line-strong` (3.42:1 light, 4.14:1 dark against the
+  surface), so they mark out the tabbed space. In forced colours the
+  current tab, admin or workspace, is semibold as well as barred, with
+  no layout shift.
 
 Verified: at 13e38e81, `make check` green (6486 unit tests; coverage lines 94.02%, branches 86.21%, statements 92.13%, functions 91.71%); `pnpm test:e2e --workers=4` 815 passed, 4 failed, 1 skipped. The 4 failures were page-load timeouts in a11y-image.spec.ts (light and dark, lines 159 and 178) on a host loaded by an unrelated job, and that spec passed 19 of 19 alone three times. Pilot on 0.1.913+gb74d9da0 2026-10-03 (same product code; later commits are tests only): setup failed=0, smoke 233 passed 0 failed (Dex sign-in and lifecycle blocks skipped), dump /var/lib/postgresql/portikus-pre-epic33-2026-10-03.dump on the VM.
 
@@ -4354,3 +4363,5 @@ Gaps:
   and preview tabs have no splitters.
 - The apt repository test had one unexplained early local failure
   (#1097).
+- On a wrapped admin tab strip, the rule between the rows runs only
+  under tabs, not across the empty end of the second row (#1127).
