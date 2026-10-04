@@ -32,7 +32,7 @@ export function AdminNav({ tab }: { tab: AdminTab | null }) {
 					className="pk-tab"
 				>
 					<Icon name={TAB_ICON[item]} size="sm" />
-					<span>{ADMIN_TAB_LABEL[item]}</span>
+					<span data-label={ADMIN_TAB_LABEL[item]}>{ADMIN_TAB_LABEL[item]}</span>
 				</Link>
 			))}
 		</nav>

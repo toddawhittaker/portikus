@@ -15,7 +15,8 @@
 	max-width: 1440px;
 	height: 100%;
 	margin-inline: auto;
-	border-inline: 1px solid var(--line);
+	/* The strong line, so the sides mark out the tabbed space; they run past the strip too. */
+	border-inline: 1px solid var(--line-strong);
 }
 /*
  * The stable gutter keeps tall and short tabs the same width. A size
