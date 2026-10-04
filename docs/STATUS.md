@@ -4330,9 +4330,10 @@ Delivered:
 - Admin tab icons (#1124): each admin tab has an icon and the workspace
   tab look. Help and the nine admin tab icons are in the design system
   preview. Its header placement and fade were replaced by #1127.
-- Tab focus and forced colours (#1125): keyboard focus shows a cut
-  admin tab's full name, admin and workspace tabs draw a selected-tab
+- Forced colours (#1125): admin and workspace tabs draw a selected-tab
   bar in forced-colours mode, and the PageIntro example is corrected.
+  Its full-name-on-focus change is moot, because #1127 made tab names
+  always whole.
 - Admin tab strip (#1127): the admin tabs moved out of the app header
   into a strip under it, drawn like the workspace tab strip, at the top
   of a frame with a line down each side. Only the framed content
