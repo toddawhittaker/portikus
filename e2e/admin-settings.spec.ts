@@ -35,21 +35,22 @@ for (const width of [1920, 1024]) {
 			await open(page);
 			const column = page.getByTestId("settings-sections");
 			const sections = column.locator(":scope > section");
-			await expect(sections).toHaveCount(3);
+			await expect(sections).toHaveCount(4);
 			await expect(column.getByRole("heading", { level: 3 })).toHaveText([
 				"When workspaces stop",
 				"Resource guard",
 				"Acceptable use",
+				"Alerts",
 			]);
 			// Stacked, each below the last, in a column no wider than 72ch.
 			const tops = [];
-			for (let index = 0; index < 3; index++) {
+			for (let index = 0; index < 4; index++) {
 				tops.push((await box(sections.nth(index))).y);
 			}
 			expect(tops).toEqual([...tops].sort((a, b) => a - b));
 			expect((await box(column)).width).toBeLessThan(700);
 			// Each is the admin card the other tabs use: raised, with a full border.
-			for (let index = 0; index < 3; index++) {
+			for (let index = 0; index < 4; index++) {
 				await expectTokenFill(sections.nth(index), "--surface-raised");
 				await expect(sections.nth(index)).toHaveCSS("border-bottom-width", "1px");
 				await expect(sections.nth(index)).toHaveCSS("border-left-width", "1px");

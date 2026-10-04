@@ -11,6 +11,7 @@ import {
 import {
 	type Database,
 	type Notice,
+	notifyAdministrators,
 	recordAudit,
 	recordNotification,
 } from "@portikus/db";
@@ -277,6 +278,12 @@ export async function acceptReport(
 	}
 	const report = parsed.data;
 	return db.transaction().execute(async (trx) => {
+		const previous = await trx
+			.selectFrom("backup_status")
+			.select("host")
+			.where("id", "=", 1)
+			.executeTakeFirst();
+		await alertNewBackupFailure(trx, previous?.host, report.status);
 		await trx
 			.updateTable("backup_status")
 			.set({
@@ -309,6 +316,27 @@ export async function acceptReport(
 			now,
 		);
 		return { ok: true, warning: null };
+	});
+}
+
+/**
+ * Tell administrators once per failed run, which the alert loop also pushes
+ * out; the host repeats the same last run in every report until the next.
+ */
+async function alertNewBackupFailure(
+	db: Db,
+	previous: unknown,
+	next: HostBackupStatus,
+): Promise<void> {
+	const run = next.lastRun;
+	if (run?.result !== "failed") return;
+	const before = HostBackupStatus.safeParse(previous);
+	const beforeRun = before.success ? before.data.lastRun : null;
+	if (beforeRun?.result === "failed" && beforeRun.startedAt === run.startedAt) return;
+	await notifyAdministrators(db, {
+		tone: "danger",
+		title: "A backup failed",
+		body: "The Backups tab on the admin page shows what went wrong.",
 	});
 }
 

@@ -1,8 +1,14 @@
 import { loadConfig, WorkerConfigSchema } from "@portikus/config";
 import { createDb, type Database } from "@portikus/db";
-import { createLogger, errorMessage } from "@portikus/observability";
+import {
+	alertChannelsFromConfig,
+	createLogger,
+	errorMessage,
+} from "@portikus/observability";
 import type { Kysely } from "kysely";
 import { httpAgentFactory } from "./agent-client.js";
+import { startAlertSources } from "./alert-sources.js";
+import { startAlertForwarding } from "./alerts.js";
 import { startBackupVmLoop } from "./backups.js";
 import { HttpControllerClient } from "./controller-client.js";
 import { startSeedJobs } from "./docker-seed-jobs.js";
@@ -92,6 +98,8 @@ async function main(): Promise<void> {
 	startLimitsSync({ db, controller, logger });
 	startGuard({ db, controller, logger });
 	startNotificationPrune({ db, logger });
+	startAlertSources({ db, logger });
+	startAlertForwarding({ db, logger, channels: alertChannelsFromConfig(config) });
 	startTerminalPrune({ db, logger });
 	startProcessSnapshots({ db, controller, logger });
 	startBackupVmLoop({ db, controller, logger });

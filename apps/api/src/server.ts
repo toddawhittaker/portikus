@@ -16,6 +16,7 @@ import { fileWriteLimit } from "./rate-limit.js";
 import { registerRequestMetrics } from "./request-metrics.js";
 import { registerAcceptableUseRoutes } from "./routes/acceptable-use.js";
 import { registerAdminRoutes } from "./routes/admin.js";
+import { registerAdminAlertRoutes } from "./routes/admin-alerts.js";
 import { registerAdminAuditRoutes } from "./routes/admin-audit.js";
 import { registerAdminBackupKeyRoutes } from "./routes/admin-backup-key.js";
 import { registerAdminBackupRoutes } from "./routes/admin-backups.js";
@@ -244,6 +245,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerAdminEgressRoutes(instance, deps);
 		registerAdminAuditRoutes(instance, routeDeps);
 		registerAdminLogRoutes(instance, deps);
+		registerAdminAlertRoutes(instance, deps);
 		registerAdminHealthRoutes(instance, routeDeps);
 		registerAdminBackupRoutes(instance, deps);
 		registerAdminBackupKeyRoutes(instance, deps);
