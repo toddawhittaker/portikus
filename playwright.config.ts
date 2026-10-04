@@ -5,13 +5,14 @@ import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 import { BACKUP_KEY_SOCKET, BACKUP_KEY_STATE } from "./e2e/backup-key";
 import { CERTIFICATE_JOBS_DIR, CERTIFICATE_STATUS_DIR } from "./e2e/certificate-jobs";
-import { FAKE_AGENT_TOKEN } from "./e2e/helpers";
+import { FAKE_AGENT_TOKEN, FAKE_DEX_RIGHT_PASSWORD } from "./e2e/helpers";
 import { IMAGE_JOBS_DIR, IMAGES_DIR } from "./e2e/image-jobs";
 import {
 	API_ORIGIN,
 	API_PORT,
 	FAKE_AGENT_PORT,
 	FAKE_DEX_GRPC_PORT,
+	FAKE_DEX_HTTP_PORT,
 	MOCK_LMS_ORIGIN,
 	MOCK_LMS_PORT,
 	MOCK_ISSUER as MOCK_OIDC_ISSUER,
@@ -160,6 +161,16 @@ export default defineConfig({
 			timeout: 120_000,
 		},
 		{
+			// Stands in for Dex's password form post, which the API relays.
+			command: "node e2e/fake-dex-login.mjs",
+			port: FAKE_DEX_HTTP_PORT,
+			env: {
+				FAKE_DEX_HTTP_PORT: String(FAKE_DEX_HTTP_PORT),
+				FAKE_DEX_RIGHT_PASSWORD,
+			},
+			timeout: 120_000,
+		},
+		{
 			// The fake backup key helper runs beside the API, in its process group.
 			command: `node e2e/fake-backup-key-server.mjs & node packages/db/dist/migrate.js && node apps/api/dist/index.js | tee ${journalFile}`,
 			url: `${API_ORIGIN}/health`,
@@ -182,6 +193,7 @@ export default defineConfig({
 				DEX_GRPC_CA: dexCerts.ca,
 				DEX_GRPC_CERT: dexCerts.clientCert,
 				DEX_GRPC_KEY: dexCerts.clientKey,
+				DEX_HTTP_URL: `http://127.0.0.1:${FAKE_DEX_HTTP_PORT}`,
 				SESSION_COOKIE_SECRET: "e2e-session-secret-not-for-production-0000",
 				SESSION_TTL_SECONDS: "3600",
 				PRESENCE_TTL_SECONDS: "60",
