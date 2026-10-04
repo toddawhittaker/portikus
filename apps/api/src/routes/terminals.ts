@@ -1,7 +1,9 @@
 import type { WebSocket } from "@fastify/websocket";
 import { requireUser } from "@portikus/auth";
 import {
+	CloseCode,
 	CreateTerminalRequest,
+	MAX_TERMINAL_SOCKETS_PER_USER,
 	MAX_TERMINALS_PER_WORKSPACE,
 	type Terminal,
 	type TerminalList,
@@ -27,6 +29,7 @@ import {
 	MAX_POINTS_PER_PROJECT,
 	makeRecoveryPoint,
 } from "../workspaces/recovery-points.js";
+import { createSocketSlots } from "../workspaces/socket-slots.js";
 import { pipeTerminal } from "../workspaces/terminal-pipe.js";
 import { findWorkspaceOwnedBy } from "../workspaces/workspace-view.js";
 
@@ -47,6 +50,9 @@ const DEFAULT_CWD = "/home/student/projects";
 
 /** How many ended terminals the listing keeps, newest first (SPEC.md §9.6). */
 const MAX_ENDED_LISTED = 20;
+
+/** Terminal sockets open per user (SPEC.md §24.13). Exported for tests. */
+export const terminalSockets = createSocketSlots(MAX_TERMINAL_SOCKETS_PER_USER);
 
 /** Longest a new agent session waits for its recovery point (ADR 0020). */
 const AGENT_SESSION_POINT_TIMEOUT_MS = 30_000;
@@ -566,11 +572,25 @@ export function registerTerminalRoutes(
 			}
 
 			const size = TerminalSize.parse(request.query ?? {});
+			// The guard is owner-only, so the owner is the user on this socket.
+			const userId = workspace?.owner_user_id ?? "";
+			if (!terminalSockets.take(userId)) {
+				socket.close(CloseCode.TOO_MANY_SOCKETS, "too many terminal connections");
+				socket.resume();
+				return;
+			}
+
 			const connectionId = crypto.randomUUID();
-			await openPresence(db, workspaceId, connectionId);
+			try {
+				await openPresence(db, workspaceId, connectionId);
+			} catch (error) {
+				terminalSockets.release(userId);
+				throw error;
+			}
 
 			if (socket.readyState !== socket.OPEN) {
 				// The browser gave up while we were writing presence.
+				terminalSockets.release(userId);
 				track(
 					dropPresence(db, connectionId).catch((error) => {
 						request.log.error(
@@ -595,7 +615,7 @@ export function registerTerminalRoutes(
 					sessionToken: request.sessionToken,
 					cols: size.cols,
 					rows: size.rows,
-				}),
+				}).finally(() => terminalSockets.release(userId)),
 			);
 			socket.resume();
 		},

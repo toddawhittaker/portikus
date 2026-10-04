@@ -1,5 +1,5 @@
 /** The check output follows the student's screen-reader setting. */
-import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
+import { CloseCode, EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -9,6 +9,7 @@ import { CheckOutput } from "./CheckOutput.js";
 
 const opened = vi.hoisted(() => ({
 	terminals: [] as import("@xterm/xterm").Terminal[],
+	sockets: [] as { onclose?: (event: { code: number }) => void }[],
 }));
 
 vi.mock("@xterm/xterm", async () => {
@@ -25,6 +26,7 @@ vi.mock("@xterm/xterm", async () => {
 afterEach(() => {
 	cleanup();
 	opened.terminals.length = 0;
+	opened.sockets.length = 0;
 	vi.unstubAllGlobals();
 });
 
@@ -49,6 +51,10 @@ function renderOutput(screenReaderMode: boolean) {
 	vi.stubGlobal(
 		"WebSocket",
 		class {
+			onclose?: (event: { code: number }) => void;
+			constructor() {
+				opened.sockets.push(this);
+			}
 			close() {}
 		},
 	);
@@ -99,4 +105,16 @@ test("the output is named after its check", async () => {
 	renderOutput(false);
 	await waitFor(() => expect(opened.terminals).toHaveLength(1));
 	expect(screen.getByRole("log").getAttribute("aria-label")).toBe("Output of Tests");
+});
+
+test("a too-many-sockets close is explained in the output (SPEC.md §24.13)", async () => {
+	renderOutput(false);
+	await waitFor(() => expect(opened.terminals).toHaveLength(1));
+	const terminal = opened.terminals[0];
+	if (!terminal) throw new Error("no terminal");
+	const writeln = vi.spyOn(terminal, "writeln");
+	opened.sockets[0]?.onclose?.({ code: CloseCode.TOO_MANY_SOCKETS });
+	expect(writeln).toHaveBeenCalledWith(
+		expect.stringContaining("too many check panels"),
+	);
 });
