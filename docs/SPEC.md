@@ -882,12 +882,15 @@ the list. Opening the dialog marks nothing read by itself.
 
 ### 8.6 Help in the product
 
-Added by Epic 25. The account menu has a Help item that opens `/help` in a
-new tab. The Help page is one page of plain sentences with a table of
-contents, in parts: the student part for everyone, the administrator part
-for administrators, and the instructor part for instructors,
-administrators and anyone who teaches a course. That split is presentation
-only; the text holds nothing secret, and no route is gated by it. The text
+Added by Epic 25. The account menu has a Help item that opens, in a new
+tab, `/admin/help` from an admin page and `/help` everywhere else. Help is
+two pages of plain sentences, each with a table of contents. "Using your
+workspace" at `/help` holds the student part for everyone and the
+instructor part for instructors, administrators and anyone who teaches a
+course. "For administrators" at `/admin/help` holds the administrator
+part, shown inside the admin page under its tabs and guarded like every
+admin route. Each page links to the other. The text holds nothing secret.
+Admin tab intros link to `/admin/help#admin-…`. The text
 lives in `apps/web/src/help/content` (one file per part), and every topic
 has a stable anchor such as `/help#student-keyboard`. Opening `/help#topic`
 scrolls to that heading and moves focus to it; a malformed anchor is
@@ -2494,7 +2497,11 @@ The admin area is desktop-only: it is built for windows 1024 px wide and up,
 scrolls sideways below that, and has no tablet layout (Epic 18).
 
 Added by Epic 33: the admin tabs live in the app header, not in a row
-under the page title. The admin `<main>` and the Settings dialog's section
+under the page title. They use the workspace tab look, without a close
+button, and each has an icon. They stay navigation links with
+`aria-current`, shrink with a right-side fade, show full names at 1366 px
+and wider, show a focused tab's full name, and mark the selected tab in
+forced-colours mode. The admin `<main>` and the Settings dialog's section
 pane reserve a stable scrollbar gutter, so content does not shift between
 tall and short tabs. `AdminGroup`, at heading level 3 or 4 with an
 optional description, is the one card frame for admin groups and their

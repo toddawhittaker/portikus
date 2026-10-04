@@ -4247,7 +4247,7 @@ Gaps:
 ## Epic 33 — UI polish: admin layouts, Settings, accessibility
 
 Built on `epic/33-ui-polish` (task PRs #1097, #1099 to #1116, #1118 to
-#1121 and this fold), issues #1087 and #1096. No
+#1121, this fold, and #1123 to #1125 after it), issues #1087 and #1096. No
 migration. SPEC.md sections 19.2, 20.1 and 25.8, and ADR 0047.
 
 Delivered:
@@ -4320,8 +4320,25 @@ Delivered:
   blocked sites, so it no longer races the accessibility test; admin
   page axe scans no longer grow with the run's account count; and the
   e2e shard timings include the epic's new tests.
+- Help split (#1123): Help is two pages. "Using your workspace" at
+  `/help` holds the student and instructor parts; "For administrators"
+  at `/admin/help` sits inside the admin page and only administrators
+  can open it. The account menu's Help opens the one that matches the
+  page you are on, and every existing anchor still lands. The parts are
+  named apart from the page titles ("Your workspace", "For
+  instructors", "Running the site"), with anchors `#student` and
+  `#admin` unchanged.
+- Admin tabs (#1124): the admin header tabs use the workspace tab look
+  with an icon each. They shrink with the workspace tabs' fade from
+  1366 px down to 1024 px, with full names at 1366 px and wider. Help
+  and the nine admin tab icons are in the design system preview.
+- Tab focus and forced colours (#1125): keyboard focus shows a cut
+  admin tab's full name, admin and workspace tabs draw a selected-tab
+  bar in forced-colours mode, and the PageIntro example is corrected.
 
 Verified: at 13e38e81, `make check` green (6486 unit tests; coverage lines 94.02%, branches 86.21%, statements 92.13%, functions 91.71%); `pnpm test:e2e --workers=4` 815 passed, 4 failed, 1 skipped. The 4 failures were page-load timeouts in a11y-image.spec.ts (light and dark, lines 159 and 178) on a host loaded by an unrelated job, and that spec passed 19 of 19 alone three times. Pilot on 0.1.913+gb74d9da0 2026-10-03 (same product code; later commits are tests only): setup failed=0, smoke 233 passed 0 failed (Dex sign-in and lifecycle blocks skipped), dump /var/lib/postgresql/portikus-pre-epic33-2026-10-03.dump on the VM.
+
+Pilot reinstall with #1123-#1125: (to be filled)
 
 Gaps:
 
