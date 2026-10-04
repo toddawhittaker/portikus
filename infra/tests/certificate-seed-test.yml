@@ -193,6 +193,72 @@
           - seed_test_token not in lookup('file', seed_test_dir.path ~ '/both.yaml')
           - seed_test_token not in lookup('file', seed_test_dir.path ~ '/alone.yaml')
 
+    # ── The administrator waits for a public certificate (SPEC.md 24.10) ──
+    - name: Make an empty state directory
+      ansible.builtin.file:
+        path: "{{ seed_test_dir.path }}/state"
+        state: directory
+        mode: "0700"
+
+    - name: Look at an empty state directory
+      ansible.builtin.include_tasks: "{{ seed_test_tasks }}/state.yml"
+      vars:
+        caddy_certificate_dir: "{{ seed_test_dir.path }}/state"
+        portikus_admin_pending: "{{ seed_test_dir.path }}/state/admin-pending"
+
+    - name: Keep what an empty directory says
+      ansible.builtin.set_fact:
+        seed_test_owned_empty: "{{ caddy_certificate_state_exists }}"
+
+    - name: Write certificate state
+      ansible.builtin.copy:
+        dest: "{{ seed_test_dir.path }}/state/settings.json"
+        content: '{"source": "acme"}'
+        mode: "0600"
+
+    - name: Look at seeded state
+      ansible.builtin.include_tasks: "{{ seed_test_tasks }}/state.yml"
+      vars:
+        caddy_certificate_dir: "{{ seed_test_dir.path }}/state"
+        portikus_admin_pending: "{{ seed_test_dir.path }}/state/admin-pending"
+
+    - name: Keep what seeded state says
+      ansible.builtin.set_fact:
+        seed_test_owned_seeded: "{{ caddy_certificate_state_exists }}"
+
+    - name: Hold the administrator back
+      ansible.builtin.copy:
+        dest: "{{ seed_test_dir.path }}/state/admin-pending"
+        content: "admin@example.edu\n"
+        mode: "0600"
+
+    - name: Look at seeded state while the administrator waits
+      ansible.builtin.include_tasks: "{{ seed_test_tasks }}/state.yml"
+      vars:
+        caddy_certificate_dir: "{{ seed_test_dir.path }}/state"
+        portikus_admin_pending: "{{ seed_test_dir.path }}/state/admin-pending"
+
+    - name: Require the page to own the state only once the administrator exists
+      ansible.builtin.assert:
+        that:
+          - not seed_test_owned_empty | bool
+          - seed_test_owned_seeded | bool
+          - not caddy_certificate_state_exists | bool
+
+    - name: Find the hold and the administrator's tasks
+      ansible.builtin.set_fact:
+        seed_test_hold: "{{ seed_test_seed_block.block | selectattr('name', 'equalto', 'Hold the local administrator back until the public certificate is served') | first }}"
+        seed_test_admin_tasks: "{{ lookup('file', playbook_dir ~ '/../ansible/roles/portikus/tasks/admin.yml') | from_yaml }}"
+
+    - name: Require a public certificate before the administrator's password
+      ansible.builtin.assert:
+        that:
+          - seed_test_hold.when == "caddy_first_install_settings.source != 'internal'"
+          - "'portikus_admin_pending' in seed_test_hold['ansible.builtin.copy'].dest"
+          - seed_test_token_cleanup.when == 'not caddy_admin_waits.stat.exists'
+          - "'public_trust' in (seed_test_admin_tasks | selectattr('name', 'equalto', 'Make the local administrator') | first).when"
+          - (seed_test_admin_tasks | selectattr('name', 'equalto', 'Check whether the site serves a publicly trusted certificate') | first)['ansible.builtin.command'].argv[-1] == 'public-trust'
+
     - name: Remove the scratch directory
       ansible.builtin.file:
         path: "{{ seed_test_dir.path }}"

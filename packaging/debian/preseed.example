@@ -19,9 +19,12 @@ portikus portikus/public_host string portikus.example.edu
 # portikus_admin_email
 portikus portikus/admin_email string admin@example.edu
 
-# The first HTTPS certificate: internal (default), letsencrypt or files.
-# Setup uses it only on first install; after that the Certificate page of
-# the administration screen owns the certificate.
+# The first HTTPS certificate: internal (default, for a private network
+# only), letsencrypt or files. A server reached from the internet needs
+# letsencrypt or files: setup then writes the administrator's one-time
+# password only once the site serves that certificate. Once the
+# administrator exists, the Certificate page of the administration screen
+# owns the certificate.
 # portikus_tls
 portikus portikus/tls select internal
 

@@ -60,11 +60,38 @@
           {{ caddy_first_install.stderr | default('') }}
       when: caddy_first_install.rc != 0
 
+    # An administrator made now would type its password into a site no
+    # browser can verify yet (docs/SPEC.md section 24.10).  The portikus
+    # role's admin tasks and the root job make it once the site serves a
+    # publicly trusted certificate.
+    - name: Hold the local administrator back until the public certificate is served
+      ansible.builtin.copy:
+        dest: "{{ portikus_admin_pending }}"
+        content: "{{ portikus_admin_email }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+      when: caddy_first_install_settings.source != 'internal'
+
+    - name: Make an internal certificate's administrator at once
+      ansible.builtin.file:
+        path: "{{ portikus_admin_pending }}"
+        state: absent
+      when: caddy_first_install_settings.source == 'internal'
+
+- name: Look again for an administrator waiting for the public certificate
+  ansible.builtin.stat:
+    path: "{{ portikus_admin_pending }}"
+  register: caddy_admin_waits
+
 # The job keeps the Cloudflare token in the state directory now, so no copy
 # stays in the install answers (docs/SPEC.md section 24.8).  Before the
-# ACME wait, so a failed wait does not leave it there.
+# ACME wait, so a failed wait does not leave it there.  While the
+# administrator waits the install answers still own the certificate, so
+# each setup run seeds it again from them, token included.
 - name: Remove the Cloudflare token from the install answers
   ansible.builtin.import_tasks: install_token.yml
+  when: not caddy_admin_waits.stat.exists
 
 # A first install cut short after the secrets but before tls.caddy leaves
 # state that stops seeding, and a Caddyfile importing a missing file.
@@ -133,9 +160,16 @@
       ansible.builtin.fail:
         msg: >-
           Caddy has not got its ACME certificates for {{ portikus_public_host }}
-          after five minutes.  Its log says why: journalctl -u caddy.  Run
-          `sudo portikus reset-certificate` to put the site back on the
-          internal authority, then fix the settings on the Certificate page.
+          after five minutes.  Its log says why: journalctl -u caddy.
+          {% if caddy_admin_waits.stat.exists %}Caddy keeps trying.  The local
+          administrator is made once the site serves its public certificate,
+          checked every hour; then read its one-time password with: sudo cat
+          /etc/portikus/admin-password.  To correct the certificate answers,
+          such as the DNS token, run: sudo dpkg-reconfigure portikus.  Until
+          the administrator is made, those answers still decide the
+          certificate.{% else %}Run `sudo portikus reset-certificate` to put
+          the site back on the internal authority, then fix the settings on
+          the Certificate page.{% endif %}
 
 # ── What releases before the certificate page left behind ────────
 # Caddy read the token from its environment then.  The Caddyfile above no

@@ -88,9 +88,11 @@ def write(path, data, mode, header):
 tls = answer("tls") or "internal"
 # After the first setup the admin page owns the certificate, and setup no
 # longer reads the TLS answers, so none of them is missing.  Any file the
-# root job writes counts, as setup and the job itself check.
+# root job writes counts, as setup and the job itself check, except while
+# the local administrator waits for the public certificate (SPEC.md 24.10).
 certificate_seeded = any(os.path.lexists("/etc/portikus/certificate/" + name)
-                         for name in ("settings.json", "tls.caddy", "secrets"))
+                         for name in ("settings.json", "tls.caddy", "secrets")) \
+    and not os.path.lexists("/etc/portikus/certificate/admin-pending")
 provider = answer("provider") or "dex"
 storage = answer("storage")
 
@@ -210,6 +212,8 @@ db_get portikus/public_host
 public_host=$RET
 db_get portikus/admin_email
 admin_email=$RET
+db_get portikus/tls
+tls=$RET
 # A port set by hand in portikus.yaml belongs in the address too.
 public_port=$(python3 -c 'import yaml; d = yaml.safe_load(open("/etc/portikus/portikus.yaml")); print(d.get("portikus_public_port", 443) if isinstance(d, dict) else 443)' 2>/dev/null || echo 443)
 site_url="https://$public_host"
@@ -352,6 +356,21 @@ Portikus setup is running in the background. It takes about ten minutes.
      as $admin_email and choose a new password.
 
 EOF
+		if [ "$tls" = letsencrypt ] || [ "$tls" = files ]; then
+			cat >&2 <<EOF
+The password is written only once the site serves its public certificate,
+so no password is typed into a site the browser cannot check.
+
+EOF
+		else
+			cat >&2 <<EOF
+Warning: the site uses Portikus's own certificate authority, which is
+meant for a private network; browsers cannot check it. If people reach
+this server from the internet, sign in only from a network you trust and
+choose a public certificate on the Certificate page first.
+
+EOF
+		fi
 	else
 		# An upgrade or a reconfigure: the administrator already exists.
 		cat >&2 <<EOF

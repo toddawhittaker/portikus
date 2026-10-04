@@ -287,6 +287,10 @@
     # tests use with curl: the system's authorities, Caddy's internal root
     # and any uploaded chain, so switching the certificate never breaks it.
     portikus_caddy_root_cert: /etc/portikus/caddy-root.crt
+    # Holds the local administrator's email while it waits for the site to
+    # serve a publicly trusted certificate (docs/SPEC.md section 24.10).  The
+    # root certificate job reads it as ADMIN_PENDING.
+    portikus_admin_pending: /etc/portikus/certificate/admin-pending
 
     # ── TLS (docs/SPEC.md section 21.12) ────────────────────────────
     # The first install's certificate.  Setup seeds the admin page's state
