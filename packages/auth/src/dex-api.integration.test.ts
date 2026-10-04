@@ -12,6 +12,7 @@ import {
 import { dexLocalSubject } from "./dex-subject.js";
 import { createOidcClient } from "./oidc.js";
 import { submitDexPasswordForm } from "./testing/dex-signin.js";
+import { base32Decode, totpCode, totpStep } from "./totp.js";
 import type { AuthOptions } from "./types.js";
 
 /**
@@ -212,6 +213,9 @@ describe.skipIf(!ISSUER || !GRPC.DEX_GRPC_ADDR || !API || !API_DATABASE_URL)(
 			return lines[0] ?? "";
 		}
 
+		// A recovery code from the administrator's enrolment, for the next sign-in's check.
+		let recoveryCode = "";
+
 		test("the local administrator signs in with the printed password, changes it, and the old one stops working", async () => {
 			const first = resetAdmin();
 			const cookie = await apiSignIn(adminEmail, first);
@@ -247,6 +251,25 @@ describe.skipIf(!ISSUER || !GRPC.DEX_GRPC_ADDR || !API || !API_DATABASE_URL)(
 			expect(await apiSignIn(adminEmail, first)).toBeNull();
 			const again = await apiSignIn(adminEmail, second);
 			expect(again).not.toBeNull();
+			// With no factor yet, the next gate is setting one up (SPEC.md section 24.13).
+			const enrolGate = await fetch(`${API}/admin/users`, {
+				headers: { cookie: again ?? "" },
+			});
+			expect(enrolGate.status).toBe(403);
+			expect(await enrolGate.json()).toMatchObject({ code: "SECOND_FACTOR_REQUIRED" });
+			const started = await post(again, "/me/second-factor/totp/start", {});
+			expect(started.status, await started.clone().text()).toBe(200);
+			const { token, secret } = (await started.json()) as {
+				token: string;
+				secret: string;
+			};
+			const enrolled = await post(again, "/me/second-factor/totp", {
+				token,
+				code: totpCode(base32Decode(secret), totpStep(Date.now())),
+			});
+			expect(enrolled.status, await enrolled.clone().text()).toBe(200);
+			const { recoveryCodes } = (await enrolled.json()) as { recoveryCodes: string[] };
+			recoveryCode = recoveryCodes[0] ?? "";
 			// Then the acceptable-use gate, as for everyone (SPEC.md section 5.1).
 			expect(await me(again)).toMatchObject({
 				role: "administrator",
@@ -270,6 +293,12 @@ describe.skipIf(!ISSUER || !GRPC.DEX_GRPC_ADDR || !API || !API_DATABASE_URL)(
 		test("a password made by Add user must be changed at first sign-in", async () => {
 			const cookie = await apiSignIn(adminEmail, "a-brand-new-password-for-ci");
 			expect(cookie).not.toBeNull();
+			// An enrolled factor is checked at every sign-in; a recovery code
+			// avoids reusing the enrolment's time step.
+			const verified = await post(cookie, "/me/second-factor/verify", {
+				code: recoveryCode,
+			});
+			expect(verified.status, await verified.clone().text()).toBe(204);
 			const email = `added-${crypto.randomUUID().slice(0, 8)}@example.edu`;
 			const added = await post(cookie, "/admin/dex-users", {
 				email,
