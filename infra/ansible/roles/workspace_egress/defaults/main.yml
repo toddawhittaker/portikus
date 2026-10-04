@@ -19,3 +19,24 @@ workspace_egress_tls_counter_port: 5398
 workspace_egress_proxy_forward_port: 3199
 
 workspace_egress_proxy_dir: /etc/portikus-workspace-proxy
+
+# ── Outbound abuse limits (SPEC.md 24.2) ──────────────────────────
+
+# Outbound mail (TCP 25, 465 and 587) is dropped unless an administrator
+# allows it: spam from one workspace can get the whole server suspended.
+# Named like the site's other operator switches, not after this role.
+portikus_workspace_mail_allowed: false  # noqa: var-naming[no-role-prefix]
+
+# New outbound connections per workspace.  A cold npm, pnpm or pip install
+# opens a few dozen, since clients keep connections alive per host; a git
+# clone or a pull through the Docker caches opens one or none.  So 20 a
+# second with a burst of 200 never touches normal work, while a port scan or
+# a connection flood is cut to a trickle.
+workspace_egress_connection_rate: 20
+workspace_egress_connection_burst: 200
+
+# Packets per workspace that are not part of an established TCP stream: UDP,
+# ICMP and TCP set-up.  5,000 a second carries a busy QUIC download or a
+# video call; a UDP or ICMP flood worth reporting needs far more.
+workspace_egress_packet_rate: 5000
+workspace_egress_packet_burst: 10000

@@ -72,7 +72,7 @@ function dnsmasqRoute(conf: string, host: string): string {
 
 function nftsetCovers(conf: string, host: string): boolean {
 	return conf.split("\n").some((l) => {
-		const m = /^nftset=\/([^/]+)\/4#inet#portikus_egress#names_v4$/.exec(l);
+		const m = /^nftset=\/([^/]+)\/4#inet#portikus_egress#learned_v4$/.exec(l);
 		return m?.[1] !== undefined && (host === m[1] || host.endsWith(`.${m[1]}`));
 	});
 }
@@ -217,7 +217,7 @@ describe("renderDnsmasq", () => {
 				"no-hosts",
 				"strict-order",
 				"stop-dns-rebind",
-				"max-cache-ttl=300",
+				"cache-size=0",
 				"max-ttl=300",
 				"user=nobody",
 				"group=nogroup",
@@ -225,7 +225,7 @@ describe("renderDnsmasq", () => {
 				"server=/incus/10.9.0.1",
 				"rebind-domain-ok=/incus/",
 				"server=/github.com/10.9.0.53",
-				"nftset=/github.com/4#inet#portikus_egress#names_v4",
+				"nftset=/github.com/4#inet#portikus_egress#learned_v4",
 				"",
 			].join("\n"),
 		);
@@ -261,20 +261,27 @@ describe("renderTable", () => {
 			"add rule inet portikus_egress output meta skuid 999 ip daddr 10.200.0.1 meta l4proto { tcp, udp } th dport 53 dnat ip to 10.200.0.1:5300",
 			CAP,
 			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @ranges_v4 return',
-			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @names_v4 tcp dport 443 redirect to :3130',
-			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @names_v4 tcp dport 80 redirect to :3129',
+			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @learned_v4 update @recent_v4 { ip daddr }',
+			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @recent_v4 tcp dport 443 redirect to :3130',
+			'add rule inet portikus_egress prerouting iifname "portikus-ws" ip daddr @recent_v4 tcp dport 80 redirect to :3129',
+			'add rule inet portikus_egress forward iifname "portikus-ws" ct mark and 0x00200000 != 0 accept',
 			'add rule inet portikus_egress forward iifname "portikus-ws" meta l4proto { tcp, udp } th dport { 53, 853 } drop',
 			'add rule inet portikus_egress forward iifname "portikus-ws" ip daddr @ranges_v4 tcp dport @ports accept',
-			'add rule inet portikus_egress forward iifname "portikus-ws" ip daddr @names_v4 tcp dport @ports accept',
+			'add rule inet portikus_egress forward iifname "portikus-ws" ip daddr @recent_v4 tcp dport @ports ct mark set ct mark or 0x00200000 accept',
 			'add rule inet portikus_egress forward iifname "portikus-ws" drop',
 		]);
 		expect(t).toContain(
 			"add element inet portikus_egress ranges_v4 { 203.0.113.0/24 }",
 		);
 		expect(t).toContain("add element inet portikus_egress ports { 22, 80, 443 }");
-		// The names set has no timeout and a size bound (ADR 0038).
-		expect(t).toMatch(/set names_v4 \{\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t\}/);
-		expect(t).not.toMatch(/timeout/);
+		// Learned addresses time out with the DNS TTL cap; both sets are bounded (ADR 0038).
+		expect(t).toMatch(
+			/set learned_v4 \{\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t\tflags timeout\n\t\ttimeout 300s\n\t\}/,
+		);
+		expect(t).toMatch(
+			/set recent_v4 \{\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t\tflags dynamic,timeout\n\t\ttimeout 300s\n\t\}/,
+		);
+		expect(t).toMatch(/^destroy set inet portikus_egress names_v4$/m);
 	});
 
 	test("open mode with blocked sites: both DNS rules, every public web port to Squid, outside DNS dropped", () => {
@@ -360,12 +367,13 @@ describe("renderTable", () => {
 		expect(t).not.toMatch(/dport 80 redirect/);
 	});
 
-	test("flushes the names set only when asked; always resets the rest", () => {
+	test("flushes the learned addresses only when asked; always resets the rest", () => {
 		expect(renderTable(applied(policy), env, false, false)).not.toMatch(
-			/flush set .* names_v4/,
+			/flush set .* (learned|recent)_v4/,
 		);
 		const t = renderTable(applied(policy), env, true, false);
-		expect(t).toMatch(/^flush set inet portikus_egress names_v4$/m);
+		expect(t).toMatch(/^flush set inet portikus_egress learned_v4$/m);
+		expect(t).toMatch(/^flush set inet portikus_egress recent_v4$/m);
 		expect(t).toMatch(/^flush chain inet portikus_egress forward$/m);
 	});
 
@@ -464,6 +472,59 @@ describe.skipIf(!nftAvailable())("the real nft accepts every rendering", () => {
 		);
 		expect(out).toContain("table inet portikus_egress");
 	});
+
+	// A running site keeps its table across a package upgrade.
+	test("replaces an older table whose names set never expired", () => {
+		const dir = mkdtempSync(join(tmpdir(), "egress-nft-"));
+		const old = join(dir, "old.nft");
+		const next = join(dir, "new.nft");
+		writeFileSync(
+			old,
+			[
+				"table inet portikus_egress {",
+				"\tset names_v4 {\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t}",
+				"\tchain forward {\n\t\ttype filter hook forward priority filter - 1\n\t}",
+				"}",
+				"add element inet portikus_egress names_v4 { 192.0.2.1 }",
+				'add rule inet portikus_egress forward iifname "portikus-ws" ip daddr @names_v4 accept',
+				"",
+			].join("\n"),
+		);
+		writeFileSync(next, renderTable(applied(policy), env, false, false));
+		const out = execFileSync(
+			"unshare",
+			[
+				"-rn",
+				"sh",
+				"-c",
+				`nft -f "$1" && nft -f "$2" && nft list table inet portikus_egress`,
+				"sh",
+				old,
+				next,
+			],
+			{ encoding: "utf8" },
+		);
+		expect(out).not.toContain("names_v4");
+		expect(out).toContain("set learned_v4");
+	});
+});
+
+// The two tables mark connections for different reasons; one bit each.
+test("the accepted-connection mark differs from the workspace limits table's", () => {
+	const limits = readFileSync(
+		new URL(
+			"../../../../infra/ansible/roles/workspace_egress/templates/workspace-limits.nft.j2",
+			import.meta.url,
+		),
+		"utf8",
+	);
+	const limitsMark = /set flow_mark = '(0x[0-9a-f]+)'/.exec(limits)?.[1];
+	const egressMark = /ct mark set ct mark or (0x[0-9a-f]+)/.exec(
+		renderTable(applied(policy), env, false, false),
+	)?.[1];
+	expect(limitsMark).toBeDefined();
+	expect(egressMark).toBeDefined();
+	expect(Number(limitsMark) & Number(egressMark)).toBe(0);
 });
 
 function dnsmasqAvailable(): boolean {
