@@ -31,6 +31,7 @@ import {
 	isFiltered,
 	NO_FILTERS,
 } from "./users/filters.js";
+import { InvitedRows, InviteUser } from "./users/Invitations.js";
 import {
 	ACCOUNT_COLUMN_LABEL,
 	DEFAULT_ACCOUNT_SORT,
@@ -108,7 +109,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 			intro={{
 				id: "admin-users",
 				helpAnchor: "admin-users",
-				text: "Everyone who has signed in, with their workspace. Choose a name to start, stop or rebuild a workspace, change its storage or limits, or change the account's role.",
+				text: "Everyone who has signed in, with their workspace. Choose a name to start, stop or rebuild a workspace, change its storage or limits, or change the account's role. Nobody can sign up on their own: invite someone before their first sign-in.",
 			}}
 			count={
 				<span data-testid="admin-account-count">
@@ -135,6 +136,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					) : null}
 					{/* Only when the site runs Dex's own passwords (ADR 0028). */}
 					{users.data?.dexUsers ? <AddDexUser /> : null}
+					<InviteUser />
 				</>
 			}
 		>
@@ -333,6 +335,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 										onConfirm={(action) => confirmForRow(user.id, action)}
 									/>
 								))}
+								<InvitedRows filters={filters} />
 							</tbody>
 						</table>
 						{users.isSuccess && rows.length === 0 ? (

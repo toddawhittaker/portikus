@@ -183,8 +183,11 @@ export async function createTestDb(): Promise<TestDb> {
 		await db.deleteFrom("workspaces").execute();
 		await db.deleteFrom("settings").execute();
 		await db.deleteFrom("sessions").execute();
+		await db.deleteFrom("account_invitations").execute();
 		await db.deleteFrom("users").execute();
+		await inviteMockUsers(db);
 	};
+	await inviteMockUsers(db);
 
 	const close = async () => {
 		await db.destroy();
@@ -242,6 +245,37 @@ async function runOnServer(url: string, statements: string[]): Promise<void> {
 	} finally {
 		await client.end();
 	}
+}
+
+/**
+ * The mock sign-in provider's people (packages/auth testing) that tests
+ * sign in. Only an invitation creates an account (SPEC.md section 24.13),
+ * so each test database starts with one waiting for each of them; the
+ * invitation tests delete them to meet the refusal.
+ */
+export const MOCK_INVITED_EMAILS = [
+	"alice@example.edu",
+	"bob@example.edu",
+	"carol@example.edu",
+	"dave@example.edu",
+	"erin@example.edu",
+	"frank@example.edu",
+	"gail@example.edu",
+	"ivy@example.edu",
+] as const;
+
+/** Insert a waiting student invitation for each of MOCK_INVITED_EMAILS. */
+export async function inviteMockUsers(db: Kysely<Database>): Promise<void> {
+	await db
+		.insertInto("account_invitations")
+		.values(
+			MOCK_INVITED_EMAILS.map((email) => ({
+				email,
+				display_name: email.split("@")[0] ?? email,
+				role: "student",
+			})),
+		)
+		.execute();
 }
 
 export interface TestUserOverrides {

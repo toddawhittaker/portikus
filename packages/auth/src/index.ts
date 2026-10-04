@@ -9,7 +9,12 @@ export {
 	hashDexPassword,
 	loadDexApi,
 } from "./dex-api.js";
-export { dexLocalSubject, dexLocalUserId, localDexUserId } from "./dex-subject.js";
+export {
+	dexConnectorId,
+	dexLocalSubject,
+	dexLocalUserId,
+	localDexUserId,
+} from "./dex-subject.js";
 export {
 	bindLinkIntent,
 	consumeLinkIntent,

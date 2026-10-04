@@ -275,6 +275,8 @@ export const ApiErrorCode = z.enum([
 	// Dex user management (ADR 0028).
 	"DEX_USER_EXISTS",
 	"DEX_UNAVAILABLE",
+	// One active invitation per email (SPEC.md section 24.13).
+	"INVITATION_EXISTS",
 	// Lift throttle or clear memory flag with nothing set (ADR 0032).
 	"NOT_THROTTLED",
 	"NOT_FLAGGED",
