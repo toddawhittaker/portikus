@@ -51,7 +51,9 @@ test("puts the intro under the heading, linked to its Help section", () => {
 	const intro = screen.getByTestId("intro-admin-users");
 	expect(intro.querySelector("summary")?.textContent).toBe("About Users");
 	expect(intro.textContent).toContain("Everyone who has signed in");
-	expect(intro.querySelector("a")?.getAttribute("href")).toBe("/help#admin-users");
+	expect(intro.querySelector("a")?.getAttribute("href")).toBe(
+		"/admin/help#admin-users",
+	);
 	// The intro sits between the heading row and the tab's content.
 	const heading = screen.getByRole("heading", { level: 2, name: "Users" });
 	expect(

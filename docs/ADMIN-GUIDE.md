@@ -7,8 +7,13 @@ itself is in [OPERATIONS.md](OPERATIONS.md).
 
 Portikus has the same help built in. Each administration tab starts with a
 short **About** note. You can fold it away, and this browser remembers
-that. The note's **More in Help** link opens the matching part of the
-**Help** page in a new tab. Help is also in the menu under your name. A
+that. The note's **More in Help** link opens the matching topic of
+**For administrators**, the administrator help, in a new tab. It sits under
+the administration tabs at `/admin/help`, and only administrators can open
+it. **Help** in the menu under your name opens it too while you are on an
+administration tab; anywhere else it opens **Using your workspace**, the
+help students and instructors see. Each of the two pages links to the
+other. A
 small **?** button beside a label explains that one item in a sentence or
 two; press Escape to close it.
 

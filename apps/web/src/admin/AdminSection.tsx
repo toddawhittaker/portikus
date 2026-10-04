@@ -22,7 +22,7 @@ export function AdminSection({
 	actions?: ReactNode;
 	/**
 	 * What the tab is for, under the heading. `id` names its remembered state
-	 * ("admin-users"); `helpAnchor` is the Help page section ("admin-users").
+	 * ("admin-users"); `helpAnchor` is the administrator help section ("admin-users").
 	 */
 	intro?: { id: string; text: string; helpAnchor: string };
 	children: ReactNode;
@@ -52,7 +52,7 @@ export function AdminSection({
 				<PageIntro
 					id={intro.id}
 					summary={`About ${title}`}
-					helpHref={`/help#${intro.helpAnchor}`}
+					helpHref={`/admin/help#${intro.helpAnchor}`}
 				>
 					{intro.text}
 				</PageIntro>

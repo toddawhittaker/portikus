@@ -20,6 +20,12 @@ export type AdminTab = (typeof ADMIN_TABS)[number];
 
 export const DEFAULT_ADMIN_TAB: AdminTab = "users";
 
+/**
+ * `/admin/help`, the administrator help. It shares the admin page so the tabs
+ * stay in view, but it is not one of the tabs (SPEC.md section 8.6).
+ */
+export const ADMIN_HELP_TAB = "help";
+
 export function isAdminTab(value: unknown): value is AdminTab {
 	return ADMIN_TABS.some((tab) => tab === value);
 }

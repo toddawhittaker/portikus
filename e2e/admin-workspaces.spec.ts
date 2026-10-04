@@ -745,7 +745,7 @@ test.describe("the Users table layout", () => {
 		);
 		await expect(intro.getByRole("link", { name: /More in Help/ })).toHaveAttribute(
 			"href",
-			"/help#admin-users",
+			"/admin/help#admin-users",
 		);
 
 		for (const [label, text] of [

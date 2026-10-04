@@ -6,7 +6,8 @@ previewing a web app, running checks, and what to do when something goes
 wrong.
 
 Portikus has the same help built in. Choose your name at the top right and
-then **Help**; it opens in a new tab. Many screens also have a small **?**
+then **Help**; it opens **Using your workspace** in a new tab. If you
+teach a course, the same page has a part for instructors. Many screens also have a small **?**
 button beside a label. Choose it to read one or two sentences about that
 item, and press Escape to close it.
 

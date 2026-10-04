@@ -1,7 +1,9 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { json, renderApp, stubFetch, USER } from "../test-utils.js";
-import { anchorId, helpParts } from "./HelpPage.js";
+import { ADMIN_HELP } from "./content/admin.js";
+import { anchorId } from "./HelpDocument.js";
+import { helpParts } from "./HelpPage.js";
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -25,22 +27,48 @@ function stub(
 	});
 }
 
-async function partHeadings(): Promise<string[]> {
-	await screen.findByRole("heading", { level: 1, name: "Help" });
+async function partHeadings(title = "Using your workspace"): Promise<string[]> {
+	await screen.findByRole("heading", { level: 1, name: title });
 	return screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent ?? "");
 }
 
-test("a student sees only the workspace part", async () => {
+test("helpParts: a student gets only the workspace part", () => {
+	expect(helpParts("student", false).map((part) => part.id)).toEqual(["student"]);
+});
+
+test("helpParts: an instructor by role gets the instructor part", () => {
+	expect(helpParts("instructor", false).map((part) => part.id)).toEqual([
+		"student",
+		"instructor",
+	]);
+});
+
+test("helpParts: a student account that teaches a course gets the instructor part", () => {
+	expect(helpParts("student", true).map((part) => part.id)).toEqual([
+		"student",
+		"instructor",
+	]);
+});
+
+test("helpParts: an administrator gets the instructor part but not the admin part", () => {
+	expect(helpParts("administrator", false).map((part) => part.id)).toEqual([
+		"student",
+		"instructor",
+	]);
+});
+
+test("a student sees only the workspace part, under the page's own title", async () => {
 	stub("student");
 	renderApp("/help");
-	expect(await partHeadings()).toEqual(["Using your workspace"]);
-	expect(document.title).toBe("Help, Portikus");
+	expect(await partHeadings()).toEqual(["Your workspace"]);
+	expect(document.title).toBe("Using your workspace, Help, Portikus");
+	expect(screen.queryByRole("link", { name: "For administrators" })).toBeNull();
 });
 
 test("an instructor sees the workspace and instructor parts", async () => {
 	stub("instructor");
 	renderApp("/help");
-	expect(await partHeadings()).toEqual(["Using your workspace", "For instructors"]);
+	expect(await partHeadings()).toEqual(["Your workspace", "For instructors"]);
 });
 
 test("a course account that teaches sees the instructor part", async () => {
@@ -51,30 +79,44 @@ test("a course account that teaches sees the instructor part", async () => {
 	).toBeDefined();
 });
 
-test("an administrator sees every part, with the contents linking to each topic", async () => {
+test("an administrator's workspace help links to the administrator help instead of holding it", async () => {
 	stub("administrator");
 	renderApp("/help");
-	expect(await partHeadings()).toEqual([
-		"Using your workspace",
-		"For administrators",
-		"For instructors",
-	]);
+	expect(await partHeadings()).toEqual(["Your workspace", "For instructors"]);
+	expect(document.getElementById("admin-users")).toBeNull();
+	const link = screen.getByRole("link", { name: "For administrators" });
+	expect(link.getAttribute("href")).toBe("/admin/help");
+});
+
+test("/admin/help shows only the admin part, under the admin tabs, with every contents link landing", async () => {
+	stub("administrator");
+	renderApp("/admin/help");
+	expect(await partHeadings("For administrators")).toEqual(["Running the site"]);
+	expect(document.title).toBe("For administrators, Administration, Portikus");
+	const tabs = screen.getByRole("navigation", { name: "Administration" });
+	expect(within(tabs).queryByRole("link", { current: "page" })).toBeNull();
+	expect(
+		screen.getByRole("link", { name: "Using your workspace" }).getAttribute("href"),
+	).toBe("/help");
 	const nav = screen.getByRole("navigation", { name: "Help contents" });
 	const link = within(nav).getByRole("link", {
 		name: "Find a person and their workspace",
 	});
 	expect(link.getAttribute("href")).toBe("#admin-users");
-	// Every contents link lands on a heading on the page.
 	for (const each of within(nav).getAllByRole("link")) {
 		const id = each.getAttribute("href")?.slice(1) ?? "";
 		expect(document.getElementById(id)?.tagName).toMatch(/^H[23]$/);
 	}
 });
 
-test("every admin tab's intro has a Help anchor to land on", () => {
-	const ids = helpParts("administrator", false).flatMap((part) =>
-		part.topics.map((topic) => topic.id),
-	);
+test("a student sent to /admin/help lands on the not-authorized page", async () => {
+	stub("student");
+	const { router } = renderApp("/admin/help");
+	await waitFor(() => expect(router.state.location.pathname).toBe("/not-authorized"));
+});
+
+test("every admin tab's intro has an anchor on the admin help to land on", () => {
+	const ids = ADMIN_HELP.topics.map((topic) => topic.id);
 	for (const anchor of [
 		"admin-users",
 		"admin-health",
@@ -86,11 +128,18 @@ test("every admin tab's intro has a Help anchor to land on", () => {
 		"admin-certificate",
 		"admin-docker",
 		"admin-settings",
-		"instructor-course",
 	]) {
 		expect(ids).toContain(anchor);
 	}
 	// Ids are unique, so each anchor names one place.
+	expect(new Set(ids).size).toBe(ids.length);
+});
+
+test("the Course page's anchor is on the workspace help", () => {
+	const ids = helpParts("instructor", false).flatMap((part) =>
+		part.topics.map((topic) => topic.id),
+	);
+	expect(ids).toContain("instructor-course");
 	expect(new Set(ids).size).toBe(ids.length);
 });
 
@@ -180,11 +229,11 @@ test("opened at an anchor, focus lands on that topic's heading", async () => {
 
 test("opened at a part's anchor, focus lands on the part heading", async () => {
 	stub("administrator");
-	window.history.replaceState(null, "", "/help#admin");
-	renderApp("/help");
+	window.history.replaceState(null, "", "/admin/help#admin");
+	renderApp("/admin/help");
 	const heading = await screen.findByRole("heading", {
 		level: 2,
-		name: "For administrators",
+		name: "Running the site",
 	});
 	await waitFor(() => expect(document.activeElement).toBe(heading));
 });

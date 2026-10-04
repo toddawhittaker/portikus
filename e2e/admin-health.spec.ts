@@ -401,7 +401,7 @@ test.describe("admin health", () => {
 		);
 		await expect(intro.getByRole("link", { name: /More in Help/ })).toHaveAttribute(
 			"href",
-			"/help#admin-health",
+			"/admin/help#admin-health",
 		);
 
 		const tips: [string, RegExp][] = [
