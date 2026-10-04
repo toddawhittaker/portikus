@@ -168,7 +168,7 @@ describe("a request (ADR 0038)", () => {
 		expect(seenAtCall[0]?.names).toBeNull();
 		expect(seenAtCall[1]?.names).toBe(".github.com\n.npmjs.org\n");
 
-		expect(loads()[0]).toMatch(/flush set inet portikus_egress names_v4/);
+		expect(loads()[0]).toMatch(/flush set inet portikus_egress learned_v4/);
 		expect(JSON.parse(read("applied.json") ?? "")).toEqual({
 			policy: policy(),
 			appliedAt: "2026-09-27T12:00:00.000Z",
@@ -196,7 +196,7 @@ describe("a request (ADR 0038)", () => {
 			"stop portikus-egress-dns.service",
 			"reload portikus-workspace-proxy.service",
 		]);
-		expect(loads()[0]).toMatch(/flush set inet portikus_egress names_v4/);
+		expect(loads()[0]).toMatch(/flush set inet portikus_egress learned_v4/);
 		expect(loads()[0]).not.toMatch(/add rule/);
 		expect(read("names.txt")).toBe("");
 	});
@@ -267,7 +267,7 @@ describe("a request (ADR 0038)", () => {
 		// Squid's reload already saw the allow-list's files; dnsmasq waits for the table's flush.
 		expect(seenAtCall[0]?.names).toBe(".github.com\n.npmjs.org\n");
 		expect(read("open.txt")).toBe("");
-		expect(loads()[0]).toMatch(/flush set inet portikus_egress names_v4/);
+		expect(loads()[0]).toMatch(/flush set inet portikus_egress learned_v4/);
 	});
 
 	test("from blocked sites to allow-list, a Squid that fails to reload leaves the old table", async () => {
@@ -343,11 +343,11 @@ describe("a request (ADR 0038)", () => {
 			"r2",
 		);
 		await runHelper(deps);
-		expect(loads()[0]).not.toMatch(/flush set inet portikus_egress names_v4/);
+		expect(loads()[0]).not.toMatch(/flush set inet portikus_egress learned_v4/);
 		calls = [];
 		writeRequest(policy({ version: 5, names: ["github.com"] }), "r3");
 		await runHelper(deps);
-		expect(loads()[0]).toMatch(/flush set inet portikus_egress names_v4/);
+		expect(loads()[0]).toMatch(/flush set inet portikus_egress learned_v4/);
 	});
 
 	test("after a failed request the next one flushes, whatever it changes", async () => {
@@ -363,7 +363,7 @@ describe("a request (ADR 0038)", () => {
 		calls = [];
 		writeRequest(policy({ version: 5 }), "r3");
 		await runHelper(deps);
-		expect(loads()[0]).toMatch(/flush set inet portikus_egress names_v4/);
+		expect(loads()[0]).toMatch(/flush set inet portikus_egress learned_v4/);
 	});
 
 	test("an nft failure stops before dnsmasq and Squid and keeps the last applied policy", async () => {
@@ -445,7 +445,7 @@ describe("a request (ADR 0038)", () => {
 		expect(loads()).toHaveLength(1);
 		expect(loads()[0]).toMatch(/forward iifname "portikus-ws" drop/);
 		expect(loads()[0]).not.toMatch(/redirect to :5001/);
-		expect(loads()[0]).not.toMatch(/flush set inet portikus_egress names_v4/);
+		expect(loads()[0]).not.toMatch(/flush set inet portikus_egress learned_v4/);
 		expect(read("applied.json")).toMatch(/"version":3/);
 	});
 });

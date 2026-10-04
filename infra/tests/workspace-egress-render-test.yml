@@ -314,3 +314,41 @@
             | select('match', '^add rule') | list == [
               'add rule inet portikus_egress input iifname "portikus-ws" tcp dport { 5000, 5001 } drop',
               'add rule inet portikus_egress forward iifname "portikus-ws" drop']
+
+    # ── The outbound abuse limits (SPEC.md 24.2) ──────────────────
+
+    - name: Render the workspace outbound limits, with mail blocked and with it allowed
+      ansible.builtin.set_fact:
+        limits_rules: >-
+          {{ lookup('ansible.builtin.template', '../ansible/roles/workspace_egress/templates/workspace-limits.nft.j2').splitlines()
+             | map('trim') | reject('match', '^(#|$)') | list }}
+        limits_mail_rules: >-
+          {{ lookup('ansible.builtin.template', '../ansible/roles/workspace_egress/templates/workspace-limits.nft.j2',
+                    template_vars={'portikus_workspace_mail_allowed': true}).splitlines()
+             | map('trim') | reject('match', '^(#|$)') | list }}
+
+    - name: Check mail is dropped by default, rates are limited per workspace, and the logs are rate-limited
+      vars:
+        mail_rule: 'tcp dport { 25, 465, 587 } goto mail'
+        log_rules: "{{ limits_rules | select('search', ' log prefix ') | list }}"
+      ansible.builtin.assert:
+        that:
+          - not portikus_workspace_mail_allowed
+          - mail_rule in limits_rules
+          - mail_rule not in limits_mail_rules
+          # The whole table is replaced, never merged with an old one.
+          - limits_rules[0:2] == ['table inet portikus_workspace_limits', 'destroy table inet portikus_workspace_limits']
+          - "'type filter hook prerouting priority mangle; policy accept;' in limits_rules"
+          - "'iifname != \"portikus-ws\" return' in limits_rules"
+          - "'fib daddr type { local, broadcast, multicast } return' in limits_rules"
+          - >-
+            'update @conn_rate { ip saddr limit rate over 20/second burst 200 packets } goto conn_over' in limits_rules
+          - >-
+            'update @packet_rate { ip saddr limit rate over 5000/second burst 10000 packets } goto packet_over' in limits_rules
+          - log_rules | length == 3
+          - >-
+            log_rules | reject('search', 'limit rate 1/minute burst 1 packets } limit rate 20/minute log prefix "portikus-ws-') | list == []
+          - >-
+            log_rules | select('search', 'prefix "portikus-ws-(mail-blocked|conn-limit|packet-limit): "') | list | length == 3
+          # Nothing in the table accepts, so it can only narrow what the firewall allows.
+          - limits_rules | select('search', 'accept') | reject('search', 'policy accept;') | list == []

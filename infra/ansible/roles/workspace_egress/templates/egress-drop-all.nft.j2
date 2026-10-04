@@ -4,9 +4,17 @@
 # helper's renderDropAll(); render.test.ts compares them.  It also closes
 # the Docker caches, so a failed helper cannot open them.
 table inet portikus_egress {
-	set names_v4 {
+	set learned_v4 {
 		type ipv4_addr
 		size 65535
+		flags timeout
+		timeout 300s
+	}
+	set recent_v4 {
+		type ipv4_addr
+		size 65535
+		flags dynamic,timeout
+		timeout 300s
 	}
 	set ranges_v4 {
 		type ipv4_addr
@@ -33,12 +41,14 @@ table inet portikus_egress {
 		type filter hook input priority filter - 1
 	}
 }
-flush set inet portikus_egress names_v4
+flush set inet portikus_egress learned_v4
+flush set inet portikus_egress recent_v4
 flush set inet portikus_egress ranges_v4
 flush set inet portikus_egress ports
 flush chain inet portikus_egress prerouting
 flush chain inet portikus_egress output
 flush chain inet portikus_egress forward
 flush chain inet portikus_egress input
+destroy set inet portikus_egress names_v4
 add rule inet portikus_egress input iifname "{{ workspace_egress_bridge }}" tcp dport { 5000, 5001 } drop
 add rule inet portikus_egress forward iifname "{{ workspace_egress_bridge }}" drop
