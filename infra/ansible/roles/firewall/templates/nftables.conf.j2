@@ -21,6 +21,33 @@ table inet filter {
     flags dynamic
   }
 
+  # New SSH connections per source (SPEC.md 24.1).  An IPv6 source is its
+  # /64, since one host can hold the whole prefix.
+  set ssh_rate4 {
+    type ipv4_addr
+    size 65535
+    flags dynamic,timeout
+    timeout 5m
+  }
+  set ssh_rate6 {
+    type ipv6_addr
+    size 65535
+    flags dynamic,timeout
+    timeout 5m
+  }
+
+  # Open HTTP and HTTPS connections per source, counted the same way.
+  set web_conns4 {
+    type ipv4_addr
+    size 65535
+    flags dynamic
+  }
+  set web_conns6 {
+    type ipv6_addr
+    size 65535
+    flags dynamic
+  }
+
   chain input {
     type filter hook input priority 0; policy drop;
 
@@ -33,12 +60,25 @@ table inet filter {
     # SSH (management), on the ports `sshd -T` reports — reject from
     # workspace bridge (defense in depth if ACL absent)
 {% if firewall_ssh_ports | length > 0 %}
+    # A source opening more than 30 new connections a minute, after a burst
+    # of 60, is dropped until it slows down.  Keys alone already defeat
+    # password guessing; this keeps floods off sshd.  Ansible and the test
+    # helpers reuse one connection, so they stay far below it.
+    iifname != "{{ incus_network_name }}" tcp dport { {{ firewall_ssh_ports | join(', ') }} } ct state new update @ssh_rate4 { ip saddr limit rate over 30/minute burst 60 packets } drop
+    iifname != "{{ incus_network_name }}" tcp dport { {{ firewall_ssh_ports | join(', ') }} } ct state new update @ssh_rate6 { ip6 saddr & ffff:ffff:ffff:ffff:: limit rate over 30/minute burst 60 packets } drop
     iifname != "{{ incus_network_name }}" tcp dport { {{ firewall_ssh_ports | join(', ') }} } accept
 {% endif %}
 
     # HTTP/HTTPS — Caddy listens here.  Workspaces must not reach the
     # control-plane site from inside the bridge, so drop those first.
     iifname "{{ incus_network_name }}" tcp dport { 80, {{ portikus_public_port }} } drop
+    # At most 8192 open connections per source, so one address cannot use
+    # up Caddy's sockets or the connection table.  A whole campus may share
+    # one NAT address: 60 students with ten terminals, the editor and a few
+    # preview tabs each hold about 1800 together, and the cap leaves room
+    # for several such classes at once.
+    tcp dport { 80, {{ portikus_public_port }} } ct state new add @web_conns4 { ip saddr ct count over 8192 } reject with tcp reset
+    tcp dport { 80, {{ portikus_public_port }} } ct state new add @web_conns6 { ip6 saddr & ffff:ffff:ffff:ffff:: ct count over 8192 } reject with tcp reset
     tcp dport { 80, {{ portikus_public_port }} } accept
 
     # ICMP / ICMPv6 for diagnostics

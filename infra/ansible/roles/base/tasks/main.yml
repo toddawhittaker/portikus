@@ -69,6 +69,12 @@
     enabled: true
     state: started
 
+- name: Harden SSH
+  ansible.builtin.import_tasks: ssh.yml
+
+- name: Harden the kernel
+  ansible.builtin.import_tasks: kernel.yml
+
 # ── Unattended security upgrades ─────────────────────────────────
 - name: Install unattended-upgrades
   ansible.builtin.apt:

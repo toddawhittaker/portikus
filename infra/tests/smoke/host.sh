@@ -41,6 +41,20 @@ check "nftables is active"                    ssh_cmd systemctl is-active nftabl
 # shellcheck disable=SC2016  # expansion is intentionally remote-side
 check "IPv4 forwarding"                       ssh_cmd 'test "$(/usr/sbin/sysctl -n net.ipv4.ip_forward)" = 1'
 
+# 10a. Host hardening (docs/SPEC.md sections 24.1 and 24.4): sshd takes keys
+#      only, the kernel settings are live, and the firewall limits per source.
+for setting in "passwordauthentication no" "kbdinteractiveauthentication no" \
+  "permitrootlogin without-password" "maxauthtries 3" "logingracetime 30"; do
+  check "sshd runs with ${setting}" ssh_cmd "sudo /usr/sbin/sshd -T | grep -qx '${setting}'"
+done
+# shellcheck disable=SC2016  # expansion is intentionally remote-side
+check "every kernel hardening setting is live" ssh_cmd \
+  'grep -E "^[a-z]" /etc/sysctl.d/90-portikus-hardening.conf | while IFS=" =" read -r k v; do test "$(sudo /usr/sbin/sysctl -n "$k")" = "$v" || exit 1; done'
+check "the firewall rate limits new SSH connections per source" \
+  ssh_cmd "sudo nft list chain inet filter input | grep -q 'update @ssh_rate4'"
+check "the firewall caps web connections per source" \
+  ssh_cmd "sudo nft list chain inet filter input | grep -q 'add @web_conns4'"
+
 # 11. The storage volume group sits on a disk or a loop-backed file
 check "the storage volume group has a physical volume" test -n "${STORAGE_PVS}"
 
