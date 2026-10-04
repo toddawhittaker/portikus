@@ -6,11 +6,8 @@ Description: Welcome to Portikus
  this server.
  .
  The next screens ask for this server's web address, the administrator's
- email, how people sign in, and where to keep student files. Each one
- suggests an answer.
- .
- The site starts with a certificate from Portikus's own authority. Choose
- a public one later on the Certificate page of the administration screen.
+ email, its HTTPS certificate, how people sign in, and where to keep
+ student files. Each one suggests an answer.
  .
  Nothing on this server changes until you confirm on the last screen.
  Setup then runs in the background and takes about ten minutes.
@@ -26,7 +23,8 @@ Description: Web address of this server:
  The host name people type in their browser to reach Portikus, such as
  portikus.example.edu. It should already point at this server in DNS.
  .
- Student previews use names under preview.<this name>.
+ Student previews use names under preview.<this name>, so a wildcard
+ record for *.preview.<this name> should point here too.
 
 Template: portikus/admin_email
 Type: string
@@ -38,21 +36,24 @@ Description: Email of the Portikus administrator:
 Template: portikus/tls
 Type: select
 Choices-C: internal, letsencrypt, files
-Choices: Portikus's own certificate authority, Let's Encrypt through Cloudflare DNS, Certificate files I already have
+Choices: Portikus's own authority (private networks only), Let's Encrypt through Cloudflare DNS, Certificate files I already have
 Default: internal
 Description: HTTPS certificate:
- Portikus is served only over HTTPS. Choose where its first certificate
- comes from. After setup, change it on the Certificate page of the
- administration screen; setup never changes it again.
+ If people reach this server from the internet, choose Let's Encrypt or
+ your own files: a certificate every browser trusts. Setup makes the
+ administrator's one-time password only once the site serves it, so no
+ password is typed into a site the browser cannot check.
  .
- Own authority: works without public DNS, but every browser must be told
- to trust its root certificate, which the Certificate page offers.
+ Own authority: for a private network only. Browsers warn until each one
+ is told to trust its root certificate.
  .
- Let's Encrypt: needs your domain's DNS at Cloudflare and a Cloudflare API
- token. A free certificate every browser trusts.
+ Let's Encrypt: free. Needs your domain's DNS at Cloudflare and a
+ Cloudflare API token.
  .
- Certificate files: a certificate and key you already have. They must
- cover this name and *.preview.<this name>.
+ Certificate files: from an authority browsers trust, covering this name
+ and *.preview.<this name>.
+ .
+ Later, change it on the Certificate page of the administration screen.
 
 Template: portikus/acme_email
 Type: string
@@ -70,9 +71,9 @@ Description: Cloudflare API token:
  only after a DNS check. Portikus makes that check through Cloudflare, so
  your domain's DNS must be hosted there.
  .
- The token is stored in /etc/portikus/secrets.yaml, which only root can
- read, and under /etc/portikus/certificate, which only root and Caddy can
- read. ${keep}
+ Setup keeps the token under /etc/portikus/certificate, which only root
+ and Caddy can read. Until the administrator is made, a copy also stays in
+ /etc/portikus/secrets.yaml, which only root can read. ${keep}
 
 Template: portikus/tls_cert
 Type: string
@@ -265,9 +266,9 @@ Template: portikus/registry_cache_gib
 Type: string
 Default: 20
 Description: Size of the Docker image cache, in GiB:
- Students' Docker Hub and ghcr.io pulls go through a cache on this server, so an image
- one student pulled is not downloaded again for the next. It is a file of
- this size on the main disk, which the main disk must have room for.
+ Students' Docker Hub and ghcr.io pulls go through a cache on this
+ server, so an image one student pulled is not downloaded again for the
+ next. It is a file of this size on the main disk.
  .
  The main disk has ${free} GiB free. Give a whole number of GiB, such as
  20. A different size later empties the cache. If the disk has too little

@@ -78,6 +78,8 @@ class FakeRun:
             return self.rc.get("validate", 0), ""
         if argv[0] == "journalctl":
             return 0, self.journal
+        if argv[0] == cj.PORTIKUS_COMMAND:
+            return self.rc.get("portikus", 0), ""
         raise AssertionError(f"unexpected command {argv}")
 
     def serve(self, site_cert, preview_cert=None):
@@ -1009,6 +1011,89 @@ class Check(JobTest):
         finally:
             os.close(fd)
         self.assertFalse(Path(self.runner.status_dir, "status.json").exists())
+
+
+class AdminWaitsForPublicCertificate(JobTest):
+    """SPEC.md 24.10: no administrator password before the site serves a publicly trusted certificate."""
+
+    EMAIL = "admin@example.test"
+
+    def hold(self):
+        Path(self.tree.state("admin-pending")).write_text(self.EMAIL + "\n")
+
+    def made(self):
+        return self.fake.ran(cj.PORTIKUS_COMMAND)
+
+    def test_public_trust_needs_a_trusted_chain_that_names_the_site(self):
+        for served, trusted in (("acme", True), ("internal", False), ("selfsigned", False), ("other", False)):
+            with self.subTest(served=served):
+                self.fake.served = {SITE: CERTS.pem(served)}
+                self.assertIs(self.runner.site_publicly_trusted(), trusted)
+        self.fake.served = {SITE: CERTS.chain("site")}
+        self.assertTrue(self.runner.site_publicly_trusted())
+        self.fake.served = {}
+        self.assertFalse(self.runner.site_publicly_trusted())
+
+    def test_nothing_waits_without_the_marker(self):
+        self.fake.serve("acme")
+        self.runner.run_check()
+        self.assertEqual(self.made(), [])
+
+    def test_the_check_holds_the_administrator_while_the_internal_certificate_is_served(self):
+        self.hold()
+        self.runner.run_check()
+        self.assertEqual(self.made(), [])
+        self.assertTrue(os.path.exists(self.tree.state("admin-pending")))
+
+    def test_the_check_makes_the_administrator_once_the_public_certificate_is_served(self):
+        self.hold()
+        self.fake.serve("acme")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.runner.run_check()
+        self.assertEqual(self.made(), [[cj.PORTIKUS_COMMAND, "reset-admin", "--if-missing", "--email", self.EMAIL]])
+        self.assertFalse(os.path.exists(self.tree.state("admin-pending")))
+
+    def test_a_failed_reset_admin_keeps_waiting(self):
+        self.hold()
+        self.fake.serve("acme")
+        self.fake.rc["portikus"] = 2
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.runner.run_check()
+        self.assertTrue(os.path.exists(self.tree.state("admin-pending")))
+
+    def test_an_existing_administrator_ends_the_wait(self):
+        self.hold()
+        self.fake.serve("acme")
+        self.fake.rc["portikus"] = 11
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.runner.run_check()
+        self.assertFalse(os.path.exists(self.tree.state("admin-pending")))
+
+    def test_a_successful_job_makes_the_administrator(self):
+        self.hold()
+        self.fake.serve("acme")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self.submit({"kind": "check"})["state"], "succeeded")
+        self.assertEqual(len(self.made()), 1)
+
+    def test_a_marker_without_an_email_is_ignored(self):
+        Path(self.tree.state("admin-pending")).write_text("not an email\n")
+        self.fake.serve("acme")
+        self.runner.run_check()
+        self.assertEqual(self.made(), [])
+
+    def test_while_the_administrator_waits_the_install_answers_still_own_the_certificate(self):
+        self.hold()
+        self.assertEqual(self.first_install(acme()), (0, "changed"))
+        self.assertEqual(self.settings()["source"], "acme")
+        self.fake.calls.clear()
+        # The same answers again change nothing and leave Caddy alone.
+        self.assertEqual(self.first_install(acme()), (0, "unchanged"))
+        self.assertEqual(self.fake.ran("systemctl"), [])
+        self.assertEqual(self.first_install(acme(fields={"api_token": TOKEN2})), (0, "changed"))
+        self.assertEqual(Path(self.tree.state("secrets/cloudflare_api_token")).read_text(), TOKEN2)
+        self.assertEqual(self.first_install({"source": "internal"}), (0, "changed"))
+        self.assertEqual(self.settings(), {"source": "internal"})
 
 
 class Scrubbing(unittest.TestCase):

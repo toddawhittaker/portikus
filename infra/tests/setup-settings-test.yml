@@ -54,6 +54,14 @@
         role: caddy
         accept: true
         vars: { portikus_tls: acme, caddy_certificate_dir: "{{ setup_test_partial.path }}" }
+      # While the administrator waits for a public certificate the install answers still own it (SPEC.md 24.10).
+      - name: an unknown TLS choice on a seeded host whose administrator waits
+        role: caddy
+        accept: false
+        vars:
+          portikus_tls: acme
+          caddy_certificate_dir: "{{ setup_test_seeded.path }}"
+          portikus_admin_pending: "{{ setup_test_seeded.path }}/admin-pending.waiting"
       - { name: no storage on a host without a volume group, role: lvm, accept: false, vars: { portikus_storage: "" } }
       - { name: a volume group that does not exist, role: lvm, accept: false, vars: { portikus_storage: no-such-group } }
       - { name: a device that is not a block device, role: lvm, accept: false, vars: { portikus_storage: /dev/null } }
@@ -74,6 +82,13 @@
         content: '{"source": "internal"}'
         dest: "{{ setup_test_seeded.path }}/settings.json"
         mode: "0644"
+
+    # A separate name, so the cases that expect no waiting administrator do not see it.
+    - name: Write a waiting administrator beside it
+      ansible.builtin.copy:
+        content: "admin@example.edu\n"
+        dest: "{{ setup_test_seeded.path }}/admin-pending.waiting"
+        mode: "0600"
 
     - name: Make a certificate state with only the secrets directory
       ansible.builtin.tempfile:

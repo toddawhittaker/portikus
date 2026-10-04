@@ -461,9 +461,11 @@ caddy_rerun() {
 }
 
 # An ACME install answer whose certificates never come: setup fails at the
-# wait, a rerun fails the same way, and `portikus reset-certificate` then a
-# rerun brings the site back (docs/SPEC.md section 21.12).  The directory
-# never resolves, so nothing leaves the rehearsal network.
+# wait and a rerun fails the same way.  The administrator waits for the
+# public certificate, so the install answers still own it, token included,
+# and going back to the internal answer brings the site back (docs/SPEC.md
+# sections 21.12 and 24.10).  The directory never resolves, so nothing
+# leaves the rehearsal network.
 acme_wait_rerun() {
   vm "sudo cp -p /etc/portikus/portikus.yaml /root/portikus.yaml.before"
   # Both files are YAML mappings, possibly the flow form {}, so they are rewritten whole.
@@ -488,13 +490,15 @@ EOF
     fi
     grep -q 'Caddy has not got its ACME certificates' "${LOGS}/setup-acme-${run}.txt" \
       || { tail -20 "${LOGS}/setup-acme-${run}.txt"; return 1; }
-    grep -q 'sudo portikus reset-certificate' "${LOGS}/setup-acme-${run}.txt"
+    grep -q 'sudo dpkg-reconfigure portikus' "${LOGS}/setup-acme-${run}.txt"
   done
-  ! vm "sudo grep -q portikus_cloudflare_api_token /etc/portikus/secrets.yaml" || { echo "the token is still in secrets.yaml"; return 1; }
-  vm "sudo portikus reset-certificate"
+  vm "sudo test -f /etc/portikus/certificate/admin-pending" || { echo "the administrator is not held back"; return 1; }
+  vm "sudo grep -q portikus_cloudflare_api_token /etc/portikus/secrets.yaml" || { echo "the waiting answers lost the token"; return 1; }
   vm "sudo cp -p /root/portikus.yaml.before /etc/portikus/portikus.yaml && sudo rm -f /root/portikus.yaml.before"
   vm "sudo portikus setup" >"${LOGS}/setup-acme-reset.txt" 2>&1 || { tail -20 "${LOGS}/setup-acme-reset.txt"; return 1; }
   vm "sudo python3 -c 'import json; assert json.load(open(\"/etc/portikus/certificate/settings.json\"))[\"source\"] == \"internal\"'"
+  ! vm "sudo test -e /etc/portikus/certificate/admin-pending" || { echo "the administrator still waits"; return 1; }
+  ! vm "sudo grep -q portikus_cloudflare_api_token /etc/portikus/secrets.yaml" || { echo "the token is still in secrets.yaml"; return 1; }
   vm "curl -fsS --cacert /etc/portikus/caddy-root.crt -o /dev/null https://${PUBLIC_HOST}/health"
 }
 

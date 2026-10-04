@@ -94,7 +94,7 @@ check_not_started() {
 
 # The ui-* scenarios: apt install in a 100 by 30 tmux session with the
 # whiptail frontend, answered with key presses. ui_start medium also shows
-# the questions a normal install skips, such as the certificate.
+# the questions a normal install skips.
 ui_start() {
 	tmux new-session -d -s ui -x 100 -y 30 \
 		"DEBIAN_FRONTEND=dialog DEBIAN_PRIORITY=${1:-high} apt-get install -y -qq -o Dpkg::Use-Pty=0 /t/portikus.deb 2>/tmp/install.log; touch /tmp/ui-done; sleep 600"
@@ -152,6 +152,13 @@ ui_first_screens() {
 	typed "$1"
 	keys Enter
 	wait_for "Email of the Portikus administrator"
+	keys Enter
+}
+
+# The certificate screen, answered with its suggestion: Portikus's own authority.
+ui_own_authority() {
+	wait_for "HTTPS certificate"
+	screen | grep -qF "private networks only" || fail "the own authority is not marked for private networks"
 	keys Enter
 }
 
@@ -460,6 +467,34 @@ EOF
 	expect "$CONFIG" portikus_tls '"internal"'
 	expect "$CONFIG" portikus_acme_email null
 	check_started
+	grep -qF "meant for a private network" /tmp/install.log || fail "no warning about the own authority"
+	;;
+pending-certificate)
+	# While the local administrator waits for the public certificate, the
+	# install answers still own it (SPEC.md 24.10): a reconfigure keeps the
+	# stored token and starts setup, which seeds the certificate again.
+	install_with <<'EOF'
+portikus portikus/public_host string portikus.example.edu
+portikus portikus/tls select letsencrypt
+portikus portikus/acme_email string certs@example.edu
+portikus portikus/cloudflare_api_token password CF-TOKEN-pending-0123456789abcdef
+portikus portikus/provider select dex
+portikus portikus/storage select file
+portikus portikus/storage_size string 1
+EOF
+	check_started
+	mkdir -p /etc/portikus/certificate
+	echo '{"source": "acme"}' >/etc/portikus/certificate/settings.json
+	echo admin@portikus.example.edu >/etc/portikus/certificate/admin-pending
+	: >/tmp/systemctl.log
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure portikus >/tmp/install.log 2>&1 || {
+		cat /tmp/install.log >&2
+		fail "dpkg-reconfigure failed"
+	}
+	expect "$SECRETS" portikus_cloudflare_api_token '"CF-TOKEN-pending-0123456789abcdef"'
+	expect "$CONFIG" portikus_tls '"letsencrypt"'
+	check_no_leak CF-TOKEN-pending-0123456789abcdef
+	check_started again
 	;;
 seeded-certificate)
 	# Once setup has seeded the certificate, the admin page owns it: a
@@ -518,15 +553,19 @@ EOF
 	;;
 ui-storage-default)
 	# With exactly one empty disk the suggestion is still the file, and the
-	# erase question still defaults to No. A normal install skips the
-	# certificate question and gets Portikus's own authority.
+	# erase question still defaults to No. A normal install asks for the
+	# certificate (SPEC.md 24.10), suggesting Portikus's own authority.
 	fake_one_disk
 	ui_start
 	ui_first_screens portikus.example.edu
+	ui_own_authority
 	wait_for "How people sign in"
+	keys Escape
+	wait_for "HTTPS certificate"
 	keys Escape
 	wait_for "Email of the Portikus administrator"
 	keys Enter
+	ui_own_authority
 	wait_for "How people sign in"
 	keys Enter
 	wait_for "Where to keep student files"
@@ -561,6 +600,7 @@ STUB
 	chmod 0755 /usr/local/bin/df
 	ui_start
 	ui_first_screens portikus.example.edu
+	ui_own_authority
 	wait_for "How people sign in"
 	keys Enter
 	wait_for "Where to keep student files"
@@ -595,6 +635,7 @@ STUB
 	chmod 0755 /usr/local/bin/df
 	ui_start
 	ui_first_screens portikus.example.edu
+	ui_own_authority
 	wait_for "How people sign in"
 	keys Enter
 	wait_for "Where to keep student files"
@@ -687,6 +728,8 @@ ui-summary-no)
 	screen | grep -qF "https://lab.example.edu" || fail "the summary does not show the new web address"
 	keys Enter
 	ui_done
+	grep -qF "only once the site serves its public certificate" /tmp/install.log ||
+		fail "the wait for the public certificate was not explained"
 	expect "$CONFIG" portikus_public_host '"lab.example.edu"'
 	expect "$CONFIG" portikus_admin_email '"admin@portikus.example.edu"'
 	expect "$CONFIG" portikus_storage_size 1
@@ -768,8 +811,13 @@ capture)
 	wait_for "Email of the Portikus administrator"
 	shot 03-admin-email
 	keys Enter
-	# The certificate question is skipped: the site starts on Portikus's own
-	# authority. In 80 by 25 whiptail shows a long description on its own screen first.
+	# In 80 by 25 whiptail shows a long description on its own screen first.
+	wait_for "If people reach this server from the internet"
+	shot 04-certificate
+	keys Enter
+	wait_for "HTTPS certificate"
+	shot 05-certificate-choice
+	keys Enter
 	wait_for "Portikus always has local accounts"
 	keys Enter
 	wait_for "How people sign in"

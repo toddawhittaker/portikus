@@ -25,6 +25,9 @@ Usage:
                              JSON (secrets included) on standard input and
                              write the state directory, unless it holds any
                              state already; prints changed or unchanged
+  certificate-job public-trust
+                             exit 0 when the live site serves a certificate
+                             the system authorities trust, else 1
   certificate-job trust-bundle
                              rebuild the API's trust bundle; prints changed
                              or unchanged and leaves restarting the API to
@@ -59,6 +62,12 @@ CADDY_ROOT = CADDY_DATA + "/pki/authorities/local/root.crt"
 # The bundle the API trusts (NODE_EXTRA_CA_CERTS), so it can call itself through Caddy.
 TRUST_BUNDLE = "/etc/portikus/caddy-root.crt"
 SYSTEM_CAS = "/etc/ssl/certs/ca-certificates.crt"
+# Setup writes the local administrator's email here when it seeds a public
+# certificate; until that certificate is served the administrator is not
+# made, and the install answers still own the certificate (SPEC.md 24.10).
+ADMIN_PENDING = STATE_DIR + "/admin-pending"
+PORTIKUS_COMMAND = "/usr/bin/portikus"
+ADMIN_PASSWORD = "/etc/portikus/admin-password"
 
 LE_PRODUCTION = "https://acme-v02.api.letsencrypt.org/directory"
 LE_STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory"
@@ -883,6 +892,7 @@ class Runner:
         self.caddy_root = root + CADDY_ROOT
         self.trust_bundle = root + TRUST_BUNDLE
         self.system_cas = root + SYSTEM_CAS
+        self.admin_pending = root + ADMIN_PENDING
         self.lock_path = os.path.join(self.status_dir, ".lock")
         self.run = run_
         self.sleep = sleep
@@ -1099,6 +1109,20 @@ class Runner:
         finally:
             os.close(fd)
 
+    def same_generation(self, path):
+        """True when the generation in path holds the same files and bytes as the one in force."""
+        def contents(base):
+            found = {}
+            for name in GENERATION:
+                top = os.path.join(base, name)
+                if os.path.isdir(top):
+                    for entry in sorted(os.listdir(top)):
+                        found[f"{name}/{entry}"] = read_bytes(os.path.join(top, entry))
+                elif os.path.lexists(top):
+                    found[name] = read_bytes(top)
+            return found
+        return contents(path) == contents(self.state_dir)
+
     def snapshot(self, dest):
         """Copy the generation in force to dest."""
         remove(dest)
@@ -1145,11 +1169,15 @@ class Runner:
         if code != 0:
             raise JobFailed("Caddy did not take the new configuration; the log says why.")
 
-    def served(self, port, name):
-        """The certificate Caddy serves for name, from a handshake on this host's loopback, or None."""
+    def served_chain(self, port, name):
+        """The certificates Caddy sends for name, leaf first, from a handshake on this host's loopback."""
         _, out = self.run(["openssl", "s_client", "-connect", f"127.0.0.1:{port}", "-servername", name,
                            "-showcerts"], capture=True, timeout=20, input="")
-        blocks = split_certificates(out or "")
+        return split_certificates(out or "")
+
+    def served(self, port, name):
+        """The certificate Caddy serves for name, or None."""
+        blocks = self.served_chain(port, name)
         return certificate_info(self.run, blocks[0]) if blocks else None
 
     def serves(self, info, view, part, name, not_fingerprint=None):
@@ -1341,26 +1369,68 @@ class Runner:
             raise JobFailed(f"No certificate was obtained, and the live site is unchanged. Caddy said: {said}")
         return certificates
 
+    def system_trusts(self, blocks, name=None):
+        """True when blocks, leaf first, chain to the system authorities (and the leaf names name)."""
+        if not blocks:
+            return False
+        work = tempfile.mkdtemp(prefix=".verify-", dir=self.state_dir)
+        try:
+            leaf, chain = os.path.join(work, "leaf.pem"), os.path.join(work, "chain.pem")
+            with open(leaf, "w", encoding="utf-8") as f:
+                f.write(blocks[0])
+            with open(chain, "w", encoding="utf-8") as f:
+                f.write("".join(blocks[1:]))
+            argv = ["openssl", "verify", "-CAfile", self.system_cas, "-no-CApath", "-purpose", "sslserver",
+                    "-attime", str(int(self.clock()))]
+            if name:
+                argv += ["-verify_hostname", name]
+            if len(blocks) > 1:
+                argv += ["-untrusted", chain]
+            return self.run([*argv, leaf], capture=True, timeout=30)[0] == 0
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
     def verify_chain(self, certificates, kind):
         """Refuse certificates the system authorities do not trust: the API calls itself (and Dex)
         through Caddy, so an untrusted chain such as Let's Encrypt staging would break it."""
-        work = tempfile.mkdtemp(prefix=".verify-", dir=self.state_dir)
+        for (_, folder), files in certificates.items():
+            blocks = split_certificates(files.get(f"{folder}.crt", b"").decode("utf-8", "replace"))
+            if not self.system_trusts(blocks):
+                raise Refused("this authority's certificates are not trusted by this server; "
+                              "use Test only for staging", kind)
+
+    # -- the local administrator waits for a public certificate (SPEC.md 24.10) --
+
+    def site_publicly_trusted(self):
+        """True when the live site serves a certificate for its name that the system authorities trust."""
+        site, port, _ = read_api_env(self.api_env)
+        return self.system_trusts(self.served_chain(port, site), site)
+
+    def pending_admin_email(self):
+        """The email setup left in admin-pending, or None when no administrator waits."""
+        data = read_nofollow(self.admin_pending)
+        email = (data or b"").decode("utf-8", "replace").strip()
+        return email if EMAIL_RE.fullmatch(email) else None
+
+    def release_admin(self):
+        """Make the waiting local administrator once the public certificate is served."""
+        email = self.pending_admin_email()
+        if email is None:
+            return
         try:
-            for (_, folder), files in certificates.items():
-                blocks = split_certificates(files.get(f"{folder}.crt", b"").decode("utf-8", "replace"))
-                leaf, chain = os.path.join(work, "leaf.pem"), os.path.join(work, "chain.pem")
-                with open(leaf, "w", encoding="utf-8") as f:
-                    f.write(blocks[0] if blocks else "")
-                with open(chain, "w", encoding="utf-8") as f:
-                    f.write("".join(blocks[1:]))
-                argv = ["openssl", "verify", "-CAfile", self.system_cas, "-no-CApath", "-purpose", "sslserver"]
-                if len(blocks) > 1:
-                    argv += ["-untrusted", chain]
-                if not blocks or self.run([*argv, leaf], capture=True, timeout=30)[0] != 0:
-                    raise Refused("this authority's certificates are not trusted by this server; "
-                                  "use Test only for staging", kind)
-        finally:
-            shutil.rmtree(work, ignore_errors=True)
+            if not self.site_publicly_trusted():
+                return
+        except JobFailed as err:
+            journal(f"the local administrator still waits: {err}")
+            return
+        # 10 and 11: the administrator exists already.
+        code, _ = self.run([PORTIKUS_COMMAND, "reset-admin", "--if-missing", "--email", email], timeout=300)
+        if code not in (0, 10, 11):
+            journal(f"the local administrator still waits: portikus reset-admin exited {code}")
+            return
+        remove(self.admin_pending)
+        journal("the site serves its public certificate, so the local administrator is made; "
+                f"read its one-time password with: sudo cat {ADMIN_PASSWORD}")
 
     def write_live_certificates(self, certificates):
         """Put certificates into the live storage as Caddy keeps its own, never through a link:
@@ -1730,6 +1800,11 @@ class Runner:
                 self.write_status()
             except Exception as err:  # noqa: BLE001  a status refresh never changes the job's result
                 journal(f"could not refresh status.json: {type(err).__name__}")
+        if state == "succeeded":
+            try:
+                self.release_admin()
+            except Exception as err:  # noqa: BLE001  the hourly check tries again
+                journal(f"could not make the waiting local administrator: {type(err).__name__}")
         return state
 
     # jscpd:ignore-start -- each job is a standalone root script, so this stays a copy.
@@ -1863,6 +1938,7 @@ class Runner:
         try:
             self.sync_trust()
             self.write_status()
+            self.release_admin()
         finally:
             os.close(lock_fd)
         return 0
@@ -1926,13 +2002,17 @@ class Runner:
     def run_first_install(self, stdin=None, out=None):
         """Setup's first install: CertificateSettings JSON, secrets included, on standard input.
 
-        Does nothing when the state directory holds any state already. Else
-        writes secrets/ and files/ first, tls.caddy next and settings.json
-        last, reloads a running Caddy, and refreshes the trust bundle (without
-        restarting the API) and status.json. Prints "changed" or "unchanged".
+        Does nothing when the state directory holds any state already, unless
+        the local administrator still waits for a public certificate: until
+        then nobody can have used the Certificate tab, so the install answers
+        still own the certificate. Else writes secrets/ and files/ first,
+        tls.caddy next and settings.json last, reloads a running Caddy, and
+        refreshes the trust bundle (without restarting the API) and
+        status.json. Prints "changed" or "unchanged".
         """
         out, stdin = out or sys.stdout, stdin or sys.stdin
-        if any(os.path.lexists(self.state(name)) for name in ("settings.json", "tls.caddy", "secrets")):
+        seeded = any(os.path.lexists(self.state(name)) for name in ("settings.json", "tls.caddy", "secrets"))
+        if seeded and self.pending_admin_email() is None:
             print("unchanged", file=out)
             return 0
         try:
@@ -1953,6 +2033,10 @@ class Runner:
             new = self.state(".new")
             remove(new)
             self.build_generation(new, settings, secrets, uploads, self.view(settings, secrets, uploads))
+            if seeded and self.same_generation(new):
+                remove(new)
+                print("unchanged", file=out)
+                return 0
             self.install(new)
             remove(new)
             # The unit's reload is `caddy reload --force`; a Caddy not running yet is left alone.
@@ -1982,6 +2066,12 @@ def main(argv):
         return Runner().run_trust_bundle()
     if argv[1:] == ["first-install"]:
         return Runner().run_first_install()
+    if argv[1:] == ["public-trust"]:
+        try:
+            return 0 if Runner().site_publicly_trusted() else 1
+        except JobFailed as err:
+            print(f"certificate-job: {err}", file=sys.stderr)
+            return 1
     if argv[1:] in ([], ["run"]):
         return Runner().run_pending()
     print(__doc__, file=sys.stderr)

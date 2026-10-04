@@ -560,6 +560,22 @@ nothing (to change it, remove the account in the Users view and run
 `sudo portikus reset-admin --email <new address>`). Creation fails, and
 says so, if another Dex password already has that email.
 
+**Not before a public certificate.** When setup seeds a Let's Encrypt or
+certificate-files certificate, it writes the administrator's email to
+`/etc/portikus/certificate/admin-pending` and makes the account only once
+the site serves a certificate the system's authorities trust for its name
+(`certificate-job public-trust`), so no password is typed into a site the
+browser cannot check (SPEC.md section 24.10). If setup ends first, the
+hourly `portikus-certificate-check` and every successful certificate job
+make it as soon as the certificate is served, and the journal says where
+the password is. `sudo portikus status` says when it still waits. While
+that file exists the install answers, not the Certificate tab, own the
+certificate: `dpkg-reconfigure portikus` asks the certificate questions
+again, every setup run seeds from them, and the Cloudflare token stays in
+`secrets.yaml` until the administrator is made. With Portikus's own
+authority the account is made at once, and setup warns that the site is
+meant for a private network.
+
 **First sign-in.** Read the file, open the site, choose "Log in with
 Email" on Dex's page, and sign in with that email and the password.
 Portikus shows only **Set a new password** until a new one is chosen;
