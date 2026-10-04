@@ -71,6 +71,7 @@ export const ADMIN_ME = {
 	mustChangePassword: false,
 	mustAcceptUse: false,
 	localPassword: false,
+	secondFactor: null,
 };
 
 export function listed(

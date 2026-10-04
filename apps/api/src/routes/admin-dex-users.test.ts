@@ -196,6 +196,15 @@ async function carolId(): Promise<string> {
 	return row.id;
 }
 
+/** Mark the account's sessions as past the second-factor gate (SPEC.md section 24.13). */
+async function passSecondFactor(userId: string): Promise<void> {
+	await testDb.db
+		.updateTable("sessions")
+		.set({ second_factor_at: new Date().toISOString() })
+		.where("user_id", "=", userId)
+		.execute();
+}
+
 /** Make the next commit of a users row with this email fail, as a lost database would. */
 async function failCommitFor(email: string): Promise<() => Promise<void>> {
 	await sql`create function doom() returns trigger language plpgsql as $$
@@ -535,6 +544,7 @@ describe.skipIf(skip)("Reset password", () => {
 			.set({ oidc_subject: dexLocalSubject(dexUserId) })
 			.where("id", "=", id)
 			.execute();
+		await passSecondFactor(id);
 		stub.passwords.set("carol@example.edu", {
 			email: "carol@example.edu",
 			username: "carol",
@@ -655,6 +665,7 @@ describe.skipIf(skip)("Remove", () => {
 			.set({ oidc_subject: dexLocalSubject(dexUserId) })
 			.where("id", "=", id)
 			.execute();
+		await passSecondFactor(id);
 		stub.passwords.set("carol@example.edu", {
 			email: "carol@example.edu",
 			username: "carol",

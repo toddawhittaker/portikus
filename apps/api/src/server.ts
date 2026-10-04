@@ -39,6 +39,7 @@ import { registerLtiRoutes } from "./routes/lti.js";
 import { registerMaintenanceRoutes } from "./routes/maintenance.js";
 import { registerMeRoutes } from "./routes/me.js";
 import { registerMePasswordRoutes } from "./routes/me-password.js";
+import { registerMeSecondFactorRoutes } from "./routes/me-second-factor.js";
 import { registerNotificationRoutes } from "./routes/notifications.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
 import { registerProcessRoutes } from "./routes/processes.js";
@@ -233,6 +234,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerProjectEventsSocket(instance, deps);
 		registerMeRoutes(instance, deps);
 		registerMePasswordRoutes(instance, deps);
+		registerMeSecondFactorRoutes(instance, deps);
 		registerAcceptableUseRoutes(instance, deps);
 		registerNotificationRoutes(instance, deps);
 		registerLinkRoutes(instance, deps);

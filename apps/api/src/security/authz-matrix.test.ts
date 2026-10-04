@@ -77,6 +77,12 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"PUT /admin/egress/blocked-sites/:id": 404,
 	"DELETE /admin/egress/blocked-sites/:id": 404,
 	"POST /me/password": 404,
+	// The matrix accounts are not Dex local passwords and hold no factor.
+	"GET /me/second-factor": 400,
+	"HEAD /me/second-factor": 400,
+	"POST /me/second-factor/totp/start": 400,
+	"POST /me/second-factor/totp": 400,
+	"DELETE /me/second-factor/:id": 404,
 	// Tests have no journal (test-support.ts points JOURNALCTL_PATH nowhere).
 	"GET /admin/logs": 503,
 	"HEAD /admin/logs": 503,

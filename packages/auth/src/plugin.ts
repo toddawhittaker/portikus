@@ -113,26 +113,57 @@ function isExempt(request: FastifyRequest): boolean {
 	return request.method === "GET" && url === "/preview/authorize";
 }
 
-type GateCode = "PASSWORD_CHANGE_REQUIRED" | "ACCEPTABLE_USE_REQUIRED";
+type GateCode =
+	| "SECOND_FACTOR_REQUIRED"
+	| "PASSWORD_CHANGE_REQUIRED"
+	| "ACCEPTABLE_USE_REQUIRED";
+
+type GatedUser = Pick<
+	AuthUser,
+	"mustChangePassword" | "mustAcceptUse" | "secondFactor"
+>;
 
 interface Gate {
 	code: GateCode;
 	message: string;
-	holds: (user: Pick<AuthUser, "mustChangePassword" | "mustAcceptUse">) => boolean;
+	holds: (user: GatedUser) => boolean;
 	/** Routes this gate allows beyond the exempt ones, as "METHOD url". */
 	allows: string[];
 }
 
+/** The second-factor routes, open while either second-factor gate holds. */
+const SECOND_FACTOR_ROUTES = [
+	"GET /me/second-factor",
+	"POST /me/second-factor/totp/start",
+	"POST /me/second-factor/totp",
+	"POST /me/second-factor/verify",
+];
+
 /**
  * The ordered gates a signed-in account passes before anything else
- * (SPEC.md sections 5.1 and 5.3). The first unmet one wins.
+ * (SPEC.md sections 5.1, 5.3 and 24.13). The first unmet one wins. An
+ * enrolled account proves its second factor before anything else, even a
+ * password change, so a stolen password alone changes nothing; an account
+ * with no factor yet enrols after choosing its own password.
  */
 const GATES: Gate[] = [
+	{
+		code: "SECOND_FACTOR_REQUIRED",
+		message: "Enter a code from your authenticator app to continue.",
+		holds: (user) => user.secondFactor === "verify",
+		allows: SECOND_FACTOR_ROUTES,
+	},
 	{
 		code: "PASSWORD_CHANGE_REQUIRED",
 		message: "Choose a new password to continue.",
 		holds: (user) => user.mustChangePassword === true,
 		allows: ["POST /me/password"],
+	},
+	{
+		code: "SECOND_FACTOR_REQUIRED",
+		message: "Set up two-step sign-in to continue.",
+		holds: (user) => user.secondFactor === "enrol",
+		allows: SECOND_FACTOR_ROUTES,
 	},
 	{
 		code: "ACCEPTABLE_USE_REQUIRED",
@@ -142,9 +173,7 @@ const GATES: Gate[] = [
 	},
 ];
 
-function firstGate(
-	user: Pick<AuthUser, "mustChangePassword" | "mustAcceptUse">,
-): Gate | undefined {
+function firstGate(user: GatedUser): Gate | undefined {
 	return GATES.find((gate) => gate.holds(user));
 }
 
@@ -159,7 +188,7 @@ function passesGate(request: FastifyRequest, gate: Gate): boolean {
  * The one place the gates are decided; the preview gateway asks it too.
  */
 export function sessionGate(
-	user: Pick<AuthUser, "mustChangePassword" | "mustAcceptUse">,
+	user: GatedUser,
 ): { code: GateCode; message: string } | null {
 	const gate = firstGate(user);
 	return gate ? { code: gate.code, message: gate.message } : null;

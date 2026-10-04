@@ -10,7 +10,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ServerDeps } from "../deps.js";
 import { sendError } from "../http.js";
 import { requestMetadata } from "../sessions/start-session.js";
-import { createPasswordChangeThrottle } from "../signin-throttle.js";
+import { createAccountThrottle } from "../signin-throttle.js";
 
 /** Thrown inside the transaction when Dex no longer holds the password. */
 class PasswordGone extends Error {}
@@ -22,7 +22,7 @@ class PasswordGone extends Error {}
  */
 export function registerMePasswordRoutes(app: FastifyInstance, deps: ServerDeps): void {
 	const { db, config } = deps;
-	const throttle = createPasswordChangeThrottle();
+	const throttle = createAccountThrottle();
 
 	function notLocal(reply: FastifyReply) {
 		sendError(reply, 400, "NOT_LOCAL_PASSWORD", "This account has no Dex password.");

@@ -12,6 +12,7 @@ import {
 } from "@playwright/test";
 import pg from "pg";
 import { dexLocalSubject } from "../packages/auth/dist/dex-subject.js";
+import { base32Decode, totpCode, totpStep } from "../packages/auth/dist/totp.js";
 import { API_ORIGIN, FAKE_AGENT_URL, MOCK_ISSUER, WEB_ORIGIN } from "./ports";
 
 /**
@@ -32,6 +33,7 @@ export type MockUser =
 	| "erin"
 	| "frank"
 	| "gail"
+	| "lena"
 	| "admin";
 
 /**
@@ -161,7 +163,63 @@ export async function createLocalPasswordAdmin(
 	);
 	if (!user) throw new Error("could not create the test user");
 	await addSession(context, user.id);
+	// Past two-step sign-in; e2e/second-factor.spec.ts covers it.
+	await query("update sessions set second_factor_at = now() where user_id = $1", [
+		user.id,
+	]);
 	return user.id;
+}
+
+/**
+ * An authenticator app for two-step sign-in (SPEC.md section 24.13): codes
+ * computed from the key the setup page shows. Each code works once, so it
+ * hands out a later time step each time, waiting for the clock when the
+ * one-step drift window is used up.
+ */
+export class TestAuthenticator {
+	private lastStep = 0;
+	constructor(private readonly secret: Buffer) {}
+
+	static fromKey(key: string): TestAuthenticator {
+		return new TestAuthenticator(base32Decode(key));
+	}
+
+	async nextCode(): Promise<string> {
+		let now = totpStep(Date.now());
+		while (this.lastStep >= now + 1) {
+			await new Promise((resolve) => setTimeout(resolve, 1_000));
+			now = totpStep(Date.now());
+		}
+		this.lastStep = Math.max(this.lastStep + 1, now);
+		return totpCode(this.secret, this.lastStep);
+	}
+}
+
+/**
+ * Finish the setup page with a test authenticator and continue past the
+ * recovery codes. Returns the authenticator and the codes it showed.
+ */
+export async function enrolSecondFactor(
+	page: Page,
+): Promise<{ app: TestAuthenticator; codes: string[] }> {
+	await expect(page).toHaveURL(/\/second-factor$/, { timeout: 15_000 });
+	await expect(
+		page.getByRole("heading", { name: "Set up two-step sign-in" }),
+	).toBeVisible();
+	const key = (await page.getByTestId("totp-secret").textContent()) ?? "";
+	const app = TestAuthenticator.fromKey(key);
+	await page.getByLabel("Code from your app").fill(await app.nextCode());
+	await page.getByRole("button", { name: "Turn on two-step sign-in" }).click();
+	await expect(
+		page.getByRole("heading", { name: "Save your recovery codes" }),
+	).toBeVisible();
+	const codes = await page
+		.getByTestId("recovery-codes")
+		.getByRole("listitem")
+		.allTextContents();
+	await page.getByRole("button", { name: "I have saved them, continue" }).click();
+	await expect(page).not.toHaveURL(/\/second-factor$/, { timeout: 15_000 });
+	return { app, codes };
 }
 
 /**

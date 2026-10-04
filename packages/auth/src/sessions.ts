@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
 import { sha256Hex } from "./hash.js";
+import { secondFactorApplies } from "./second-factor.js";
 import type { AuthUser, Role } from "./types.js";
 
 export interface OidcIdentity {
@@ -39,8 +40,8 @@ export async function upsertUser(
 	identity: OidcIdentity,
 	role: Role,
 ): Promise<
-	// Acceptance is the session's business; loadSession decides it.
-	Omit<AuthUser, "mustAcceptUse"> & {
+	// Acceptance and the second factor are the session's business; loadSession decides them.
+	Omit<AuthUser, "mustAcceptUse" | "secondFactor"> & {
 		disabledAt: string | null;
 		previousRole: Role | null;
 	}
@@ -171,7 +172,21 @@ export async function loadSessionById(
 			"users.must_change_password",
 			"users.acceptable_use_version as accepted_use_version",
 			"settings.acceptable_use_version as current_use_version",
+			"users.oidc_issuer",
+			"users.oidc_subject",
+			"sessions.method",
+			"sessions.second_factor_at",
 		])
+		.select((eb) =>
+			eb
+				.exists(
+					eb
+						.selectFrom("user_second_factors")
+						.select("user_second_factors.id")
+						.whereRef("user_second_factors.user_id", "=", "users.id"),
+				)
+				.as("has_second_factor"),
+		)
 		.where("sessions.id", "=", id)
 		.where((eb) =>
 			eb.or([
@@ -225,6 +240,12 @@ export async function loadSessionById(
 		mustChangePassword: row.must_change_password,
 		// No settings row yet means version 1, the column default.
 		mustAcceptUse: row.accepted_use_version !== (row.current_use_version ?? 1),
+		secondFactor:
+			row.second_factor_at !== null || !secondFactorApplies(row)
+				? null
+				: row.has_second_factor
+					? "verify"
+					: "enrol",
 	};
 }
 
