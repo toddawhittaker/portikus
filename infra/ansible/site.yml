@@ -424,6 +424,15 @@
           image.
       tags: always
 
+    # The base role turns SSH password sign-in off (SPEC.md section 24.1).
+    - name: Refuse to lock the operator out of SSH
+      ansible.builtin.include_role:
+        name: base
+        tasks_from: ssh_keys_guard
+        apply:
+          tags: always
+      tags: always
+
   # Each role carries its own name as a tag, so a single part of the VM
   # can be converged on its own with --tags <role>.
   roles:

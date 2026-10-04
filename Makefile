@@ -6,7 +6,7 @@
        publish-vm unpublish-vm rehearsal-up rehearsal-destroy rehearsal-preflight tofu-destroy install-test \
        build-deb install-screens deploy-app build-workspace-image workspace-create workspace-destroy \
        backup-setup backup backup-install-timer backup-install-channel backup-install-key restore \
-       mock-lms lti-mock-register lti-mock-unregister
+       mock-lms lti-mock-register lti-mock-unregister external-port-check
 
 help: ## Show the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -153,6 +153,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/clipboard-shim-test.sh
 	bash infra/tests/claude-login-test.sh
 	bash infra/tests/agent-clear-test.sh
+	bash infra/tests/host-hardening-test.sh
 	bash infra/tests/caddy-preview-test.sh
 	bash infra/tests/lti-platforms-test.sh
 	ansible-playbook infra/tests/dex-render-test.yml
@@ -314,6 +315,11 @@ security-test: ## Run the VM security suite (SWEEP=1 removes leftovers of an ear
 	PORTIKUS_PUBLIC_HOST=$(PORTIKUS_PUBLIC_HOST) PORTIKUS_PUBLIC_PORT=$(PORTIKUS_PUBLIC_PORT) \
 		PORTIKUS_SSH_USER=$(SSH_USER) PORTIKUS_SECURITY_HEAVY=$(PORTIKUS_SECURITY_HEAVY) \
 		bash infra/tests/security-test.sh $(VM_IP) $(if $(SWEEP),--sweep,)
+
+# Run from a machine outside the server's network (docs/SPEC.md section 24.1).
+external-port-check: ## From another machine, fail if anything but SSH, HTTP and HTTPS answers on HOST=<name or address> (ALLOWED_PORTS="22 80 443" by default; nmap run as root adds UDP)
+	@test -n "$(HOST)" || { echo "external-port-check: pass HOST=<name or address>"; exit 2; }
+	ALLOWED_PORTS="$(or $(ALLOWED_PORTS),22 80 443)" bash scripts/external-port-check.sh $(HOST)
 
 destroy-pilot: ## Destroy the pilot VM (irreversible), and forget its SSH host key in ~/.ssh/known_hosts
 	@test "$(TOFU_ENV)" = dev-libvirt || { echo "destroy-pilot: acts on the pilot only; use make rehearsal-destroy for the rehearsal VM"; exit 1; }

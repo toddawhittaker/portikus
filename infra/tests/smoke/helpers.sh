@@ -8,13 +8,13 @@
 # it, ssh forwards our terminal as a pipe that never ends, and a remote incus
 # command waits forever for a YAML config on it.
 ssh_cmd() {
-  ssh -n -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${SSH_USER}@${VM}" "$@"
+  ssh -n "${ssh_mux_opts[@]}" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${SSH_USER}@${VM}" "$@"
 }
 
 # Same connection, but for the two places that deliberately feed the remote
 # command on standard input.
 ssh_cmd_stdin() {
-  ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${SSH_USER}@${VM}" "$@"
+  ssh "${ssh_mux_opts[@]}" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${SSH_USER}@${VM}" "$@"
 }
 
 # check_gt LABEL THRESHOLD CMD [ARGS...]

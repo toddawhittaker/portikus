@@ -93,11 +93,11 @@ sec_summary() {
 
 # -n keeps the remote command off this script's standard input.
 sec_ssh() {
-  ssh -n -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${PORTIKUS_SSH_USER:-deploy}@${SEC_VM}" "$@"
+  ssh -n "${ssh_mux_opts[@]}" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${PORTIKUS_SSH_USER:-deploy}@${SEC_VM}" "$@"
 }
 
 sec_ssh_stdin() {
-  ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${PORTIKUS_SSH_USER:-deploy}@${SEC_VM}" "$@"
+  ssh "${ssh_mux_opts[@]}" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${PORTIKUS_SSH_USER:-deploy}@${SEC_VM}" "$@"
 }
 
 # SQL goes on standard input, so tokens never show in a process list.

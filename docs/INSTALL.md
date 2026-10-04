@@ -38,7 +38,10 @@ detail could not be checked that way, this guide says so.
   port 80, or certificate files you already have. Have the provider's API
   token or the files ready.
 - **Outgoing internet access from the server** during setup (see "Setup").
-- **SSH access** to the server as root or as a user with `sudo`.
+- **SSH access with a key** to the server as root or as a user with
+  `sudo`. Setup turns SSH password sign-in off, so it stops before
+  changing anything when neither root nor any member of the `sudo` group
+  has a key in `~/.ssh/authorized_keys`.
 
 ## Before you install Debian
 
@@ -319,6 +322,17 @@ The firewall setup installs allows SSH, HTTP (port 80) and HTTPS (port
 itself reports through `sshd -T`, so a server that runs SSH on a port
 other than 22 keeps its connection. Port 80 redirects browsers to HTTPS, and it also answers the HTTP-01
 check if you later choose that way of getting a certificate.
+
+Setup also hardens the server. SSH accepts keys only, allows root to sign
+in only with a key, and gives each connection three tries and 30 seconds.
+The firewall drops a source address that opens more than 30 new SSH
+connections a minute, and refuses more than 8192 open web connections
+from one address. Kernel settings in `/etc/sysctl.d/90-portikus-hardening.conf`
+hide kernel addresses and the kernel log and close off features students'
+code has no need for. To prove from outside that only SSH, HTTP and HTTPS
+answer, run `make external-port-check HOST=<your server>` from a checkout of
+the Portikus repository on another machine; with nmap installed and run
+as root it checks UDP too.
 
 ## First sign-in
 

@@ -1,0 +1,11 @@
+---
+# Kernel hardening where workspace workloads allow it (docs/SPEC.md 24.4).
+# The file says why each setting is safe for nested Docker and Incus.
+- name: Write the kernel hardening settings
+  ansible.builtin.copy:
+    src: 90-portikus-hardening.conf
+    dest: /etc/sysctl.d/90-portikus-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply the kernel hardening settings
