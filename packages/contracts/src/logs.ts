@@ -2,8 +2,11 @@ import { z } from "zod";
 import { HealthSeriesQuery } from "./health-series.js";
 import { LogLevel } from "./settings.js";
 
-/** The platform services whose journal the Logs tab reads (docs/adr/0036). */
-export const LOG_SERVICES = ["api", "worker", "controller"] as const;
+/**
+ * The sources the Logs tab reads (docs/adr/0036): the three platform services,
+ * and "network" for the host firewall's workspace outbound-limit lines.
+ */
+export const LOG_SERVICES = ["api", "worker", "controller", "network"] as const;
 export const LogService = z.enum(LOG_SERVICES);
 export type LogService = z.infer<typeof LogService>;
 

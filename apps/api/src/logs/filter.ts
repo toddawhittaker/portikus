@@ -69,6 +69,8 @@ export interface LineFilter {
 	workspaceId?: string;
 	/** The workspace's Incus instance, which the controller logs as `instance`. */
 	instanceName?: string | null;
+	/** The workspace's IPv4 address, which the kernel's outbound-limit lines name. */
+	workspaceAddress?: string | null;
 }
 
 /** Whether a (redacted) line passes the filters the API applies after parsing. */
@@ -87,7 +89,11 @@ export function matchesLine(
 			service === "controller" &&
 			typeof filter.instanceName === "string" &&
 			line.instance === filter.instanceName;
-		if (!byId && !byInstance) return false;
+		const byAddress =
+			service === "network" &&
+			typeof filter.workspaceAddress === "string" &&
+			line.workspaceAddress === filter.workspaceAddress;
+		if (!byId && !byInstance && !byAddress) return false;
 	}
 	if (filter.text !== undefined) {
 		const needle = filter.text.toLowerCase();
@@ -116,6 +122,7 @@ export async function readLogPage(
 	reader: JournalReader,
 	query: LogQuery,
 	instanceName: string | null,
+	workspaceAddress: string | null = null,
 ): Promise<FoundPage> {
 	const filter: LineFilter = {
 		levels: query.level,
@@ -123,7 +130,7 @@ export async function readLogPage(
 		...(query.q !== undefined ? { text: query.q } : {}),
 		...(query.user !== undefined ? { userId: query.user } : {}),
 		...(query.workspace !== undefined
-			? { workspaceId: query.workspace, instanceName }
+			? { workspaceId: query.workspace, instanceName, workspaceAddress }
 			: {}),
 	};
 	const lines: FoundLine[] = [];
