@@ -114,7 +114,7 @@ test.describe("admin layout", () => {
 		);
 	});
 
-	for (const width of [1440, 1024]) {
+	for (const width of [1920, 1366, 1024]) {
 		test(`the tabs sit in the app header and every one fits at ${width} px`, async ({
 			page,
 			context,
@@ -172,24 +172,107 @@ test.describe("admin layout", () => {
 				.boundingBox();
 			expect((h2?.y ?? 0) - (headerBox.y + headerBox.height)).toBeLessThanOrEqual(40);
 
-			// The current tab's underline is the accent, on the bar's bottom edge.
-			const underline = await nav
-				.getByRole("link", { name: "Health" })
-				.evaluate((el) => {
-					const after = getComputedStyle(el, "::after");
+			// Every tab keeps its icon whole; the name is the tab's name and hover text.
+			const labels = await nav.getByRole("link").evaluateAll((links) =>
+				links.map((link) => {
+					const label = link.querySelector(".pk-tab-label") as HTMLElement;
+					const icon = link.querySelector("svg") as SVGElement;
+					const linkBox = link.getBoundingClientRect();
+					const iconBox = icon.getBoundingClientRect();
+					const style = getComputedStyle(label);
+					const range = document.createRange();
+					range.selectNodeContents(label);
+					const fade = Number.parseFloat(style.paddingInlineEnd);
+					return {
+						text: label.textContent,
+						title: link.getAttribute("title"),
+						// Cut when the name runs into the fade at the label's right edge.
+						cut:
+							range.getBoundingClientRect().width >
+							label.getBoundingClientRect().width - fade + 0.5,
+						fade,
+						mask: style.maskImage,
+						overflow: style.textOverflow,
+						iconHidden: icon.getAttribute("aria-hidden"),
+						iconWhole:
+							iconBox.width >= 14 &&
+							iconBox.left >= linkBox.left &&
+							iconBox.right <= linkBox.right,
+					};
+				}),
+			);
+			for (const label of labels) {
+				expect(label.title).toBe(label.text);
+				// The workspace tabs' fade, not an ellipsis, with the fade's own room kept clear.
+				expect(label.overflow).toBe("clip");
+				expect(label.mask).toMatch(
+					/^linear-gradient\(to right, rgb\(0, 0, 0\) calc\(100% - 12px\), rgba\(0, 0, 0, 0\) 100%\)$/,
+				);
+				expect(label.fade).toBe(12);
+				expect(label.iconHidden).toBe("true");
+				expect(label.iconWhole).toBe(true);
+			}
+			await expect(
+				nav.getByRole("link", { name: "Workspace image" }),
+			).toHaveAccessibleName("Workspace image");
+			if (width >= 1366) {
+				// Full names at the common 16:9 widths.
+				expect(labels.filter((label) => label.cut)).toEqual([]);
+			} else {
+				// Narrower, the longer names fade out at the right, not the short ones.
+				expect(labels.find((label) => label.text === "Workspace image")?.cut).toBe(
+					true,
+				);
+				expect(labels.find((label) => label.text === "Logs")?.cut).toBe(false);
+			}
+
+			// The current tab has the workspace's selected-tab look: raised, with an accent top edge.
+			const look = await nav.getByRole("link", { name: "Health" }).evaluate((el) => {
+				const token = (name: string) => {
 					const probe = document.createElement("span");
 					probe.style.color = getComputedStyle(
 						document.documentElement,
-					).getPropertyValue("--accent");
+					).getPropertyValue(name);
 					document.body.append(probe);
-					const accent = getComputedStyle(probe).color;
+					const colour = getComputedStyle(probe).color;
 					probe.remove();
-					return { colour: after.backgroundColor, accent, height: after.height };
-				});
-			expect(underline.colour).toBe(underline.accent);
-			expect(underline.height).toBe("2px");
+					return colour;
+				};
+				const edge = getComputedStyle(el, "::before");
+				const other = el.parentElement?.querySelector("a:not([aria-current])");
+				return {
+					background: getComputedStyle(el).backgroundColor,
+					raised: token("--surface-raised"),
+					otherBackground: other ? getComputedStyle(other).backgroundColor : "",
+					edge: edge.backgroundColor,
+					accent: token("--accent"),
+					edgeHeight: edge.height,
+					edgeTop: edge.top,
+				};
+			});
+			expect(look.background).toBe(look.raised);
+			expect(look.otherBackground).toBe("rgba(0, 0, 0, 0)");
+			expect(look.edge).toBe(look.accent);
+			expect(look.edgeHeight).toBe("2px");
+			expect(look.edgeTop).toBe("0px");
 		});
 	}
+
+	test("on the administrator help no tab is current or looks selected", async ({
+		page,
+	}) => {
+		await loginAs(page, "carol");
+		await page.goto("/admin/help");
+		const nav = page.getByRole("navigation", { name: "Administration" });
+		await expect(nav.getByRole("link")).toHaveCount(10, { timeout: 15_000 });
+		await expect(nav.locator("[aria-current]")).toHaveCount(0);
+		const backgrounds = await nav
+			.getByRole("link")
+			.evaluateAll((links) =>
+				links.map((link) => getComputedStyle(link).backgroundColor),
+			);
+		expect(new Set(backgrounds)).toEqual(new Set(["rgba(0, 0, 0, 0)"]));
+	});
 
 	test("the keyboard reaches the tabs from the mark, in order, with a visible ring", async ({
 		page,

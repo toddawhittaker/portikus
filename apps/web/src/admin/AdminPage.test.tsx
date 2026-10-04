@@ -690,7 +690,7 @@ test("a small gap starts each group of admin tabs", async () => {
 	const nav = await screen.findByRole("navigation", { name: "Administration" });
 	const gapped = within(nav)
 		.getAllByRole("link")
-		.filter((link) => link.classList.contains("ms-4"))
+		.filter((link) => link.classList.contains("pk-adminnav-group"))
 		.map((link) => link.textContent);
 	expect(gapped).toEqual(["Health", "Network"]);
 });

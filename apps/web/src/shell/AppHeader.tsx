@@ -136,9 +136,11 @@ export function AppHeader({
 	return (
 		<header className="pk-appbar @container" data-testid="app-header">
 			<NameMark size={18} href={workspaceId ? `/workspaces/${workspaceId}` : "/"} />
-			{/* On a narrow bar the context gives way first: below 80rem beside page tabs, whose label names the page, else below 40rem. */}
+			{/* On a narrow bar the context gives way first: below 90rem beside page tabs, whose label names the page, else below 40rem. */}
 			<span
-				className={nav ? "contents @max-7xl:hidden" : "contents @max-[40rem]:hidden"}
+				className={
+					nav ? "contents @max-[90rem]:hidden" : "contents @max-[40rem]:hidden"
+				}
 			>
 				<span className="pk-appbar-divider" aria-hidden="true" />
 				<AppbarContext project={project} workspaceId={workspaceId} context={context} />
@@ -206,7 +208,7 @@ export function AppHeader({
 							<span
 								className={
 									nav
-										? "pk-account-name @max-7xl:hidden"
+										? "pk-account-name @max-[90rem]:hidden"
 										: "pk-account-name @max-[40rem]:hidden"
 								}
 							>

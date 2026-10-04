@@ -190,6 +190,8 @@
  * (the Chrome model).
  */
 .pk-tab {
+	/* How far the label fades out at its right edge; the admin tabs reserve the same room. */
+	--pk-tab-fade: var(--space-3);
 	position: relative;
 	display: flex;
 	align-items: center;
@@ -205,6 +207,7 @@
 	color: var(--ink-muted);
 	font: inherit;
 	font-size: 13px;
+	text-decoration: none;
 	cursor: pointer;
 	outline: none;
 }
@@ -220,11 +223,14 @@
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);
 }
-.pk-tab[data-state="active"] {
+/* A link styled as a tab is selected by aria-current, a Radix tab by data-state. */
+.pk-tab[data-state="active"],
+.pk-tab[aria-current="page"] {
 	background: var(--surface-raised);
 	color: var(--ink);
 }
-.pk-tab[data-state="active"]::before {
+.pk-tab[data-state="active"]::before,
+.pk-tab[aria-current="page"]::before {
 	content: "";
 	position: absolute;
 	left: 0;
@@ -251,7 +257,11 @@
 	overflow: hidden;
 	white-space: nowrap;
 	text-align: left;
-	mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent 100%);
+	mask-image: linear-gradient(
+		to right,
+		#000 calc(100% - var(--pk-tab-fade)),
+		transparent 100%
+	);
 }
 .pk-tab--ended .pk-tab-label {
 	font-style: italic;
