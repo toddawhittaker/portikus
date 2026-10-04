@@ -4247,7 +4247,7 @@ Gaps:
 ## Epic 33 — UI polish: admin layouts, Settings, accessibility
 
 Built on `epic/33-ui-polish` (task PRs #1097, #1099 to #1116, #1118 to
-#1121, this fold, and #1123 to #1129 and #PRNUM after it), issues #1087 and #1096. No
+#1121, this fold, and #1123 to #1130 after it), issues #1087 and #1096. No
 migration. SPEC.md sections 19.2, 20.1 and 25.8, and ADR 0047.
 
 Delivered:
@@ -4349,7 +4349,7 @@ Delivered:
   `Cache-Control: no-store`, so a stored page can no longer answer the
   same URL's API fetch and empty the Users list after a full page load.
   The e2e suite cannot catch this because it runs without Caddy.
-- Full-width admin frame (#PRNUM): the admin frame fills the window less
+- Full-width admin frame (#1130): the admin frame fills the window less
   a 16 px gutter on each side, instead of stopping at 1440 px. Text and
   forms keep their own measure of about 72 characters, and tables use
   the full width. The admin area now works down to 768 px, where the
@@ -4361,7 +4361,7 @@ Verified: at 13e38e81, `make check` green (6486 unit tests; coverage lines 94.02
 
 Pilot reinstall with #1123-#1128: 0.1.920+g1b1e4536 on 2026-10-03, setup failed=0, smoke 233 passed 0 failed (Dex password sign-in skipped, no sign-in file), dump /var/lib/postgresql/portikus-pre-epic33c-2026-10-03.dump on the VM.
 
-Pilot reinstall with #1129 and #PRNUM: (to be filled)
+Pilot reinstall with #1129 and #1130: (to be filled)
 
 Gaps:
 
