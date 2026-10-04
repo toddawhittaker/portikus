@@ -63,6 +63,7 @@ const REFUSED_BY_STATE: Record<string, number> = {
 	"POST /admin/users/:id/remove-instructor": 400,
 	"POST /admin/dex-users": 404,
 	"POST /admin/dex-users/:id/reset-password": 404,
+	"POST /admin/dex-users/:id/reset-second-factor": 404,
 	"POST /admin/dex-users/:id/remove": 404,
 	// The matrix world has no waiting invitation.
 	"POST /admin/invitations/:id/revoke": 404,

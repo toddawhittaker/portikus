@@ -255,6 +255,14 @@ export function useResetDexPassword() {
 	);
 }
 
+export function useResetSecondFactor() {
+	return useDexWrite(({ userId }: { userId: string }) =>
+		request(AdminUser, `/admin/dex-users/${userId}/reset-second-factor`, {
+			method: "POST",
+		}),
+	);
+}
+
 export function useRemoveDexUser() {
 	return useDexWrite(({ userId }: { userId: string }) =>
 		request(AdminUser, `/admin/dex-users/${userId}/remove`, { method: "POST" }),

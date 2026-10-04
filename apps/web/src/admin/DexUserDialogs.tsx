@@ -14,7 +14,12 @@ import {
 import { useState } from "react";
 import { flushSync } from "react-dom";
 import { errorText } from "../api/request.js";
-import { useAddDexUser, useRemoveDexUser, useResetDexPassword } from "./queries.js";
+import {
+	useAddDexUser,
+	useRemoveDexUser,
+	useResetDexPassword,
+	useResetSecondFactor,
+} from "./queries.js";
 
 /** Standalone Dex users in the Users view (ADR 0028). */
 
@@ -237,21 +242,41 @@ export function AddDexUser() {
 	);
 }
 
-/** Reset password and Remove for one Dex local account, in the detail panel. */
+/** Reset password, reset two-factor sign-in, and Remove for one Dex local account. */
 export function DexUserActions({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
 	const toast = useToast();
 	const reset = useResetDexPassword();
 	const remove = useRemoveDexUser();
-	const [dialog, setDialog] = useState<"reset" | "remove" | null>(null);
+	const factor = useResetSecondFactor();
+	const [dialog, setDialog] = useState<"reset" | "factor" | "remove" | null>(null);
 	const name = user.displayName;
 	const selfNoteId = `dex-self-note-${user.id}`;
 	const selfResetNoteId = `dex-self-reset-note-${user.id}`;
+	const selfFactorNoteId = `dex-self-factor-note-${user.id}`;
 	const newPassword = reset.data?.password ?? null;
 
 	function openReset(next: boolean) {
 		if (reset.isPending) return;
 		reset.reset();
 		setDialog(next ? "reset" : null);
+	}
+
+	function openFactor(next: boolean) {
+		if (factor.isPending) return;
+		factor.reset();
+		setDialog(next ? "factor" : null);
+	}
+
+	async function runFactor() {
+		if (factor.isPending) return;
+		try {
+			await factor.mutateAsync({ userId: user.id });
+		} catch {
+			// The dialog shows factor.error.
+			return;
+		}
+		toast.show({ tone: "success", title: `Two-factor sign-in reset for ${name}` });
+		setDialog(null);
 	}
 
 	function openRemove(next: boolean) {
@@ -289,6 +314,16 @@ export function DexUserActions({ user, isSelf }: { user: AdminUser; isSelf: bool
 			</Button>
 			<Button
 				size="sm"
+				data-testid="detail-dex-reset-factor"
+				aria-label={`Reset two-factor sign-in for ${name}`}
+				aria-describedby={isSelf ? selfFactorNoteId : undefined}
+				aria-disabled={isSelf ? true : undefined}
+				onClick={() => (isSelf ? undefined : openFactor(true))}
+			>
+				Reset two-factor sign-in…
+			</Button>
+			<Button
+				size="sm"
 				data-testid="detail-dex-remove"
 				aria-label={`Remove user ${name}`}
 				aria-describedby={isSelf ? selfNoteId : undefined}
@@ -301,6 +336,9 @@ export function DexUserActions({ user, isSelf }: { user: AdminUser; isSelf: bool
 				<>
 					<p id={selfResetNoteId} className="pk-muted m-0 w-full text-[13px]">
 						You cannot reset your own password here.
+					</p>
+					<p id={selfFactorNoteId} className="pk-muted m-0 w-full text-[13px]">
+						Change your own two-factor sign-in in Settings.
 					</p>
 					<p id={selfNoteId} className="pk-muted m-0 w-full text-[13px]">
 						You cannot remove your own account.
@@ -347,6 +385,35 @@ export function DexUserActions({ user, isSelf }: { user: AdminUser; isSelf: bool
 					</Dialog>
 				)}
 			</DialogRoot>
+
+			<ConfirmDialogRoot open={dialog === "factor"} onOpenChange={openFactor}>
+				<ConfirmDialog
+					id="dex-factor-dialog"
+					testId="dex-factor-dialog"
+					title={`Reset two-factor sign-in for ${name}?`}
+					description={
+						<>
+							<span className="block">
+								Their authenticator apps, passkeys, and recovery codes stop working, and
+								they are signed out everywhere. They must set up a new second factor the
+								next time they sign in. They will be told an administrator did this.
+							</span>
+							{factor.error ? (
+								<span
+									className="mt-2 block text-status-error"
+									role="alert"
+									data-testid="dex-dialog-error"
+								>
+									{errorText(factor.error)}
+								</span>
+							) : null}
+						</>
+					}
+					confirmLabel="Reset two-factor sign-in"
+					pending={factor.isPending}
+					onConfirm={() => void runFactor()}
+				/>
+			</ConfirmDialogRoot>
 
 			<ConfirmDialogRoot open={dialog === "remove"} onOpenChange={openRemove}>
 				<ConfirmDialog

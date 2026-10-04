@@ -87,6 +87,7 @@ function stub({ dexUsers = true, refusal }: Options = {}) {
 				return json(200, { user: created, password: SHOWN_ONCE });
 			}
 			if (url.endsWith("/reset-password")) return json(200, { password: SHOWN_ONCE });
+			if (url.endsWith("/reset-second-factor")) return json(200, DANA);
 			if (url.endsWith("/remove")) {
 				const removed = {
 					...DANA,
@@ -367,5 +368,61 @@ test("an administrator's own Reset password is off and says why", async () => {
 	);
 	fireEvent.click(reset);
 	expect(screen.queryByRole("dialog")).toBeNull();
+	expect(writes).toEqual([]);
+});
+
+test("Reset two-factor sign-in explains the new setup and asks first", async () => {
+	const writes = stub();
+	const panel = await openRow("dana");
+	fireEvent.click(
+		within(panel).getByRole("button", { name: "Reset two-factor sign-in for dana" }),
+	);
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Reset two-factor sign-in for dana?",
+	});
+	expect(
+		within(dialog).getByText(
+			/must set up a new second factor the next time they sign in/,
+		),
+	).toBeDefined();
+	expect(writes).toEqual([]);
+	fireEvent.click(
+		within(dialog).getByRole("button", { name: "Reset two-factor sign-in" }),
+	);
+	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+	expect(writes.map((w) => w.url)).toEqual([
+		`/admin/dex-users/${DANA.id}/reset-second-factor`,
+	]);
+});
+
+test("a refused two-factor reset shows the refusal in its dialog", async () => {
+	const message =
+		"Only the install administrator can change the install administrator account. Recover it on the host with portikus reset-admin.";
+	stub({ refusal: { status: 403, code: "FORBIDDEN", message } });
+	const panel = await openRow("dana");
+	fireEvent.click(
+		within(panel).getByRole("button", { name: "Reset two-factor sign-in for dana" }),
+	);
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Reset two-factor sign-in for dana?",
+	});
+	fireEvent.click(
+		within(dialog).getByRole("button", { name: "Reset two-factor sign-in" }),
+	);
+	expect((await within(dialog).findByRole("alert")).textContent).toBe(message);
+});
+
+test("an administrator's own two-factor reset is off and points to Settings", async () => {
+	const writes = stub();
+	const panel = await openRow("Carol Admin");
+	const button = within(panel).getByRole("button", {
+		name: "Reset two-factor sign-in for Carol Admin",
+	});
+	expect(button.getAttribute("aria-disabled")).toBe("true");
+	expect(button.getAttribute("aria-describedby")).toBe(
+		within(panel).getByText("Change your own two-factor sign-in in Settings.").id,
+	);
+	fireEvent.click(button);
+	expect(screen.queryByRole("alertdialog")).toBeNull();
 	expect(writes).toEqual([]);
 });

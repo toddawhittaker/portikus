@@ -1,8 +1,6 @@
 import {
 	createOidcClient,
 	createSession,
-	type DexApi,
-	type DexPassword,
 	dexLocalSubject,
 	hashSessionToken,
 } from "@portikus/auth";
@@ -22,6 +20,7 @@ import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { toAuthOptions } from "../auth-options.js";
 import { buildServer } from "../server.js";
+import { stubDex } from "../testing/stub-dex.js";
 import { buildTestServer, PUBLIC_URL, testConfig } from "../testing/test-support.js";
 
 /**
@@ -31,47 +30,6 @@ import { buildTestServer, PUBLIC_URL, testConfig } from "../testing/test-support
  */
 
 const skip = !hasTestDb();
-
-/** Dex's passwords, by email, with a switch that makes every call fail. */
-function stubDex() {
-	const passwords = new Map<string, DexPassword & { hash: string }>();
-	const state = { failing: false };
-	const guard = () => {
-		if (state.failing) throw Object.assign(new Error("unavailable"), { code: 14 });
-	};
-	const dex: DexApi = {
-		async createPassword(input) {
-			guard();
-			if (passwords.has(input.email)) return "already_exists";
-			passwords.set(input.email, { ...input });
-			return "created";
-		},
-		async updatePassword(email, hash) {
-			guard();
-			const stored = passwords.get(email);
-			if (!stored) return "not_found";
-			stored.hash = hash;
-			return "updated";
-		},
-		async deletePassword(email) {
-			guard();
-			return passwords.delete(email) ? "deleted" : "not_found";
-		},
-		async listPasswords() {
-			guard();
-			return [...passwords.values()].map(({ email, username, userId }) => ({
-				email,
-				username,
-				userId,
-			}));
-		},
-		async verifyPassword() {
-			return "not_found";
-		},
-		close() {},
-	};
-	return { dex, passwords, state };
-}
 
 let testDb: TestDb;
 let mock: MockOidcProvider;
