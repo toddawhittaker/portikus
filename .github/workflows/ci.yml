@@ -789,6 +789,10 @@ jobs:
       - name: Backups on the server itself
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/backup-local-test.sh
+      # A throwaway sshd on 127.0.0.1, run as the runner's own account.
+      - name: Off-server backup copy
+        if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
+        run: scripts/ci-apt-install.sh openssh-server rsync && bash infra/tests/backup-offsite-test.sh
 
   apt-repo:
     name: Signed apt repository

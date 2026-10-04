@@ -65,3 +65,6 @@
     - portikus-backup.timer
     - portikus-backup-channel.timer
     - portikus-backup-key.socket
+
+- name: Copy backups off the server
+  ansible.builtin.include_tasks: offsite.yml

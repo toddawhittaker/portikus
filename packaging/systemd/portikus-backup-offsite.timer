@@ -1,0 +1,11 @@
+# Hourly, so a set made by the nightly backup or by Back up now reaches the
+# target within the hour.  A run with nothing new only lists the target.
+[Unit]
+Description=Copy new Portikus backup sets off the server
+
+[Timer]
+OnCalendar=*-*-* *:15:00
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
