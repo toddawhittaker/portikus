@@ -201,6 +201,9 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 	handle @app_page {
 		root * /usr/lib/portikus/web
 		rewrite * /index.html
+		# The page shares its URL with API data. A stored copy would answer
+		# the page's own fetch of that URL with HTML instead of JSON.
+		header Cache-Control no-store
 		file_server
 	}
 	# The workspace WebSocket lives at /workspaces/<id>/ws.
