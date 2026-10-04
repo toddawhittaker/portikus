@@ -78,13 +78,13 @@ export function NetworkTab() {
 					</div>
 					{/*
 					 * Kept in view beside the long lists, so a test is always one field away.
-					 * Capped to what <main> shows (the window less the app bar and main's
-					 * p-8 above and below) and scrolled on its own, so a long Refused names
+					 * Capped to what <main> shows (its height less the content's padding
+					 * above and below) and scrolled on its own, so a long Refused names
 					 * list cannot push its bottom out of reach. A tab stop of its own lets
 					 * the keyboard scroll it (WCAG 2.1.1).
 					 */}
 					<section
-						className="pk-focus-ring grid content-start gap-4 self-start rounded-md @5xl:sticky @5xl:top-0 @5xl:max-h-[calc(100dvh-var(--pk-appbar-height)-4rem)] @5xl:overflow-y-auto @5xl:overscroll-contain"
+						className="pk-focus-ring grid content-start gap-4 self-start rounded-md @5xl:sticky @5xl:top-0 @5xl:max-h-[calc(100cqh-3rem)] @5xl:overflow-y-auto @5xl:overscroll-contain"
 						aria-label="Test a host and refused names"
 						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolled region the keyboard must reach
 						tabIndex={0}

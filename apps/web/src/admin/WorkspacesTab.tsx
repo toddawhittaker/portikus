@@ -242,7 +242,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 			<div className="flex items-start gap-4">
 				{/* Not a scroll container, so the header sticks against <main> (SPEC.md section 20.1). */}
 				<div className="pk-table-wrap min-w-0 flex-1 overflow-clip">
-					<table className="pk-table pk-table--page" data-testid="admin-accounts">
+					<table className="pk-table" data-testid="admin-accounts">
 						<caption id="admin-accounts-caption" tabIndex={-1} className="sr-only">
 							Accounts and their workspaces,{" "}
 							{sortText(ACCOUNT_COLUMN_LABEL[sort.column], sort.direction)}. Choose a

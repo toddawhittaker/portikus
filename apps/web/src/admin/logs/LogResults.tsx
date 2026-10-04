@@ -159,7 +159,7 @@ export function LogResults({
 				<div className="pk-table-wrap overflow-clip">
 					<table
 						ref={tableRef}
-						className="pk-table pk-table--page"
+						className="pk-table"
 						data-testid="logs-table"
 						aria-busy={pages.isLoading}
 					>

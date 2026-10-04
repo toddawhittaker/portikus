@@ -184,10 +184,22 @@ test.describe("admin health activity", () => {
 			await page.keyboard.press("ArrowRight");
 			await expect(map.locator('[data-cursor="true"]')).toHaveCount(1);
 
-			// Other specs' workspaces share the map, so walk down to ours.
-			for (let step = 0; step < 50; step += 1) {
+			// Other specs' workspaces share the map, however many there are, and a refresh
+			// can add rows above ours; so count the rows between the cursor and ours, then step.
+			for (let attempt = 0; attempt < 5; attempt += 1) {
 				if ((await readout.textContent())?.startsWith(`${name},`)) break;
-				await page.keyboard.press("ArrowDown");
+				const { ours, at } = await map.evaluate((el, owner) => {
+					const rows = [...el.querySelectorAll('[data-testid="health-heat-map-row"]')];
+					return {
+						ours: rows.findIndex((row) => row.textContent?.includes(owner)),
+						at: rows.findIndex((row) => row.querySelector('[data-cursor="true"]')),
+					};
+				}, name);
+				expect(ours).toBeGreaterThanOrEqual(0);
+				const key = ours > at ? "ArrowDown" : "ArrowUp";
+				for (let step = 0; step < Math.abs(ours - at); step += 1) {
+					await page.keyboard.press(key);
+				}
 			}
 			await expect(readout).toHaveText(new RegExp(`^${name}, `));
 			for (let step = 0; step < 5; step += 1) {

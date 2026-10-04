@@ -229,7 +229,7 @@ function AuditResults({
 			{/* overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main> (SPEC.md section 20.1). */}
 			<div className="pk-table-wrap overflow-clip">
 				<table
-					className="pk-table pk-table--page"
+					className="pk-table"
 					data-testid="audit-table"
 					aria-busy={page.isFetching}
 				>
