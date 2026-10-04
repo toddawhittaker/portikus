@@ -20,13 +20,15 @@ import type { z } from "zod";
 import { errorText } from "../api/request.js";
 import { announced } from "../common/announced.js";
 import { AdminGroup, AdminSection } from "./AdminSection.js";
+import { AlertsSection } from "./AlertsSection.js";
 import { graceMinutes, graceText, parseGraceMinutes } from "./graceText.js";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./guardFields.js";
 import { usePlatformSettings, useUpdatePlatformSettings } from "./queries.js";
 
 /**
  * The platform-wide settings: when workspaces stop, the resource guard and
- * the acceptable-use statement (SPEC.md §6.4, §19.4, ADR 0032). One column
+ * the acceptable-use statement (SPEC.md §6.4, §19.4, ADR 0032), and a check
+ * that administrator alerts arrive. One column
  * of cards, as on the other tabs; the log level lives on the Logs tab.
  */
 export function SettingsTab() {
@@ -36,13 +38,14 @@ export function SettingsTab() {
 			intro={{
 				id: "admin-settings",
 				helpAnchor: "admin-settings",
-				text: "Site-wide rules for when workspaces stop, how heavy use is slowed, and the statement everyone accepts. Most can be changed for one workspace from its panel on the Users tab.",
+				text: "Site-wide rules for when workspaces stop, how heavy use is slowed, the statement everyone accepts, and where alerts go. Most can be changed for one workspace from its panel on the Users tab.",
 			}}
 		>
 			<div className="flex max-w-[72ch] flex-col gap-4" data-testid="settings-sections">
 				<StopSection />
 				<ResourceGuardSection />
 				<AcceptableUseSection />
+				<AlertsSection />
 			</div>
 		</AdminSection>
 	);

@@ -11,6 +11,7 @@ import {
 	API_ORIGIN,
 	API_PORT,
 	FAKE_AGENT_PORT,
+	FAKE_ALERT_WEBHOOK_PORT,
 	FAKE_DEX_GRPC_PORT,
 	MOCK_LMS_ORIGIN,
 	MOCK_LMS_PORT,
@@ -194,6 +195,7 @@ export default defineConfig({
 				// from 127.0.0.1; unit tests keep the real limit.
 				SIGNIN_START_LIMIT_PER_MINUTE: "100000",
 				JOURNALCTL_PATH: fakeJournalctl,
+				ALERT_WEBHOOK_URL: `http://127.0.0.1:${FAKE_ALERT_WEBHOOK_PORT}/hook`,
 				// A fake image job directory the admin-image tests play the root job in.
 				IMAGE_JOBS_DIR,
 				// A fake certificate job directory the admin-certificate tests play the root job in;

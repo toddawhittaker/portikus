@@ -59,6 +59,9 @@ export function testConfig(
 		JOURNALCTL_PATH: "/nonexistent/journalctl",
 		WORKSPACE_LIFECYCLE_LIMIT_PER_MINUTE: 20,
 		FILE_WRITE_LIMIT_PER_MINUTE: 600,
+		ALERT_PUSHOVER_USER_KEY: "",
+		ALERT_PUSHOVER_APP_TOKEN: "",
+		ALERT_WEBHOOK_URL: "",
 		previewDeniedPorts: [22, 2375, 2376, 5432, 7400],
 		...overrides,
 	};

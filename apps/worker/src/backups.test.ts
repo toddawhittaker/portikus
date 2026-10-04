@@ -289,6 +289,34 @@ test.skipIf(skip)("report stores the status whole with no request", async () => 
 });
 
 test.skipIf(skip)(
+	"a newly failed backup run notifies administrators once",
+	async () => {
+		const admin = await insertTestUser(tdb.db, { role: "administrator" });
+		const failed = status({
+			lastRun: { startedAt: "2026-09-24T02:30:00Z", endedAt: null, result: "failed" },
+		});
+		const titles = async () =>
+			(
+				await tdb.db
+					.selectFrom("notifications")
+					.select(["title", "tone"])
+					.where("user_id", "=", admin)
+					.execute()
+			).map((n) => `${n.tone}:${n.title}`);
+		await acceptReport(tdb.db, doc({ request: null, status: status() }), NOW);
+		expect(await titles()).toEqual([]);
+		await acceptReport(tdb.db, doc({ request: null, status: failed }), NOW);
+		await acceptReport(tdb.db, doc({ request: null, status: failed }), NOW);
+		expect(await titles()).toEqual(["danger:A backup failed"]);
+		const later = status({
+			lastRun: { startedAt: "2026-09-25T02:30:00Z", endedAt: null, result: "failed" },
+		});
+		await acceptReport(tdb.db, doc({ request: null, status: later }), NOW);
+		expect(await titles()).toHaveLength(2);
+	},
+);
+
+test.skipIf(skip)(
 	"report refuses an oversized, malformed or unknown document",
 	async () => {
 		const big = Buffer.alloc(BACKUP_REPORT_MAX_BYTES + 1, 0x20);
