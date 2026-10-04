@@ -684,29 +684,21 @@ test("a statement over the limit is refused before any request", async () => {
 	expect(writes).toEqual([]);
 });
 
-test("a small gap starts each group of admin tabs", async () => {
-	stubAdmin(600);
-	renderApp("/admin");
-	const nav = await screen.findByRole("navigation", { name: "Administration" });
-	const gapped = within(nav)
-		.getAllByRole("link")
-		.filter((link) => link.classList.contains("pk-adminnav-group"))
-		.map((link) => link.textContent);
-	expect(gapped).toEqual(["Health", "Network"]);
-});
-
-test("the tabs sit in the app header before the account button, and the h1 stays", async () => {
+test("the tabs sit under the app header and before main, and the h1 stays", async () => {
 	stubAdmin(600);
 	renderApp("/admin/health");
 	const header = await screen.findByTestId("app-header");
-	const nav = within(header).getByRole("navigation", { name: "Administration" });
+	const nav = screen.getByRole("navigation", { name: "Administration" });
+	expect(header.contains(nav)).toBe(false);
 	expect(within(nav).getByRole("link", { current: "page" }).textContent).toBe("Health");
-	// Tab order follows reading order: the tabs, then the account button.
-	const account = within(header).getByTestId("me");
-	expect(
-		nav.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING,
-	).toBeTruthy();
+	// Tab order follows reading order: the account button, the tabs, then the content.
 	const main = screen.getByTestId("page-admin");
+	expect(
+		header.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+	expect(
+		nav.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
 	expect(within(main).queryByRole("navigation")).toBeNull();
 	// The outline still starts with an h1 that names <main>.
 	const h1 = screen.getByRole("heading", { level: 1, name: "Administration" });

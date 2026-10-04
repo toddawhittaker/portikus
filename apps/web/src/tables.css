@@ -1,6 +1,6 @@
 /* Page tables and their sortable headers; the base .pk-table rules live in packages/ui. */
 
-/* Admin tables that scroll with the page (SPEC.md section 20.1). */
+/* Tables that scroll with the Course page's padded <main>; the admin frame's scroller has no top padding (SPEC.md section 20.1). */
 .pk-table--page thead th {
 	/* The table scrolls with <main>, whose p-8 would otherwise show rows above the header. */
 	top: -2rem;

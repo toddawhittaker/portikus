@@ -39,8 +39,8 @@ export function WorkspaceDetail({
 	return (
 		<section
 			id="workspace-detail"
-			// Sticks against the scrolling <main>: the window less the 48 px .pk-appbar and main's 32 px bottom padding.
-			className="pk-card sticky top-0 flex max-h-[calc(100vh-80px)] w-[400px] flex-none flex-col self-start overflow-auto"
+			// Sticks against the framed, scrolling <main>, capped to what it shows less the content's padding above and below.
+			className="pk-card sticky top-0 flex max-h-[calc(100cqh-3rem)] w-[400px] flex-none flex-col self-start overflow-auto"
 			aria-labelledby="detail-title"
 			data-testid="workspace-detail"
 		>

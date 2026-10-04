@@ -9,7 +9,8 @@ import {
 
 /**
  * Switching between a tall and a short admin tab or Settings section must not
- * move the content sideways (SPEC.md sections 20.1 and 25.8). Headless
+ * move the content sideways (SPEC.md sections 20.1 and 25.8). On the admin
+ * page the gutter is on the framed content's own scroller. Headless
  * Chromium hides scrollbars, which hides the bug; these tests show them.
  */
 test.use({ launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"] } });
@@ -176,3 +177,34 @@ for (const colorScheme of ["light", "dark"] as const) {
 		expect(await pane.evaluate((el) => el.clientWidth)).toBe(before);
 	});
 }
+
+test("the admin content's scrollbar sits inside the frame's right line, under the tab strip", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 1280, height: 600 });
+	await loginAs(page, "carol");
+	await page.goto("/admin/audit");
+	const main = page.getByTestId("page-admin");
+	await expect(main.getByRole("heading", { level: 2, name: "Audit" })).toBeVisible({
+		timeout: 15_000,
+	});
+	const [strip, frame, scroller] = await Promise.all([
+		page.getByRole("navigation", { name: "Administration" }).boundingBox(),
+		page.getByTestId("admin-frame").boundingBox(),
+		main.boundingBox(),
+	]);
+	if (!strip || !frame || !scroller) throw new Error("the admin frame has no box");
+	const bar = await main.evaluate((el) => ({
+		width: el.offsetWidth - el.clientWidth,
+		gutter: getComputedStyle(el).scrollbarGutter,
+	}));
+	expect(bar.width).toBeGreaterThan(0);
+	expect(bar.gutter).toBe("stable");
+	// The scroller, scrollbar and all, ends at the inside of the frame's right line.
+	expect(scroller.x + scroller.width).toBeCloseTo(frame.x + frame.width - 1, 0);
+	expect(scroller.y).toBeCloseTo(strip.y + strip.height, 0);
+	// The window has no scrollbar of its own.
+	expect(
+		await page.evaluate(() => window.innerWidth - document.documentElement.clientWidth),
+	).toBe(0);
+});

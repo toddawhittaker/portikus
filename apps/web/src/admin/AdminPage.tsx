@@ -6,6 +6,7 @@ import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { gatePath, useMe } from "../useMe.js";
 import { AdminNav } from "./AdminNav.js";
+import "./admin-frame.css";
 import { focusAdminHeading } from "./AdminSection.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { BackupsTab } from "./backups/BackupsTab.js";
@@ -57,46 +58,50 @@ export function AdminPage() {
 
 	return (
 		<div className="pk-root">
-			<AppHeader
-				user={me.user}
-				workspace={null}
-				project={undefined}
-				nav={<AdminNav tab={view} />}
-			/>
-			<main
-				className="flex-1 scroll-pt-16 overflow-auto p-8 [scrollbar-gutter:stable]"
-				data-testid="page-admin"
-				data-density="compact"
-				aria-labelledby="admin-title"
-			>
-				{/* <main> keeps the scroll, so the scrollbar stays at the window edge (SPEC.md section 20.1).
-				    scroll-pt-16 keeps a focused row clear of the sticky table header.
-				    The stable gutter keeps tall and short tabs the same width. */}
-				<div className="mx-auto w-full max-w-[1440px]" data-testid="admin-content">
-					<p aria-live="polite" className="sr-only" data-testid="admin-tab-announce">
-						{tabAnnouncement}
-					</p>
-					{/* Here, above the tabs, so an operation's end is announced on any tab (SPEC.md section 20.1). */}
-					<OperationEndToasts />
-					{help ? <AdminHelp titleId="admin-title" /> : null}
-					{/* The header shows "Administration" and the tabs; the h1 keeps the outline. */}
-					{view ? (
-						<h1 className="sr-only" id="admin-title">
-							Administration
-						</h1>
-					) : null}
-					{view === "users" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
-					{view === "health" ? <HealthTab /> : null}
-					{view === "logs" ? <LogsTab /> : null}
-					{view === "audit" ? <AuditTab /> : null}
-					{view === "network" ? <NetworkTab /> : null}
-					{view === "backups" ? <BackupsTab /> : null}
-					{view === "image" ? <ImageTab /> : null}
-					{view === "certificate" ? <CertificateTab /> : null}
-					{view === "docker" ? <DockerTab /> : null}
-					{view === "settings" ? <SettingsTab /> : null}
+			<AppHeader user={me.user} workspace={null} project={undefined} />
+			{/* The frame stays still under the header: the tab strip on top, and only
+			    the content under it scrolls, as a workspace pane does (SPEC.md section 20.1). */}
+			<div className="pk-adminframe-row">
+				<div className="pk-adminframe" data-testid="admin-frame">
+					<AdminNav tab={view} />
+					<main
+						className="pk-adminframe-scroll scroll-pt-16"
+						data-testid="page-admin"
+						data-density="compact"
+						aria-labelledby="admin-title"
+					>
+						{/* scroll-pt-16 keeps a focused row clear of the sticky table header. */}
+						<div className="px-4 py-6" data-testid="admin-content">
+							<p
+								aria-live="polite"
+								className="sr-only"
+								data-testid="admin-tab-announce"
+							>
+								{tabAnnouncement}
+							</p>
+							{/* Here, above the tabs, so an operation's end is announced on any tab (SPEC.md section 20.1). */}
+							<OperationEndToasts />
+							{help ? <AdminHelp titleId="admin-title" /> : null}
+							{/* The header shows "Administration"; the h1 keeps the outline. */}
+							{view ? (
+								<h1 className="sr-only" id="admin-title">
+									Administration
+								</h1>
+							) : null}
+							{view === "users" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
+							{view === "health" ? <HealthTab /> : null}
+							{view === "logs" ? <LogsTab /> : null}
+							{view === "audit" ? <AuditTab /> : null}
+							{view === "network" ? <NetworkTab /> : null}
+							{view === "backups" ? <BackupsTab /> : null}
+							{view === "image" ? <ImageTab /> : null}
+							{view === "certificate" ? <CertificateTab /> : null}
+							{view === "docker" ? <DockerTab /> : null}
+							{view === "settings" ? <SettingsTab /> : null}
+						</div>
+					</main>
 				</div>
-			</main>
+			</div>
 		</div>
 	);
 }
