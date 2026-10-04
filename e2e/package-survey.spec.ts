@@ -71,6 +71,12 @@ test.describe("package survey", () => {
 
 		await openImage(page);
 
+		// The shared admin card, spaced by the tab's gap rather than a margin of its own.
+		const card = page.getByRole("region", { name: "Packages students add" });
+		await expect(card).toHaveClass(/\bpk-card\b/);
+		await expect(card).toHaveCSS("margin-top", "0px");
+		await expect(card).toHaveCSS("padding-top", "24px");
+
 		const table = page.getByTestId("packages-table");
 		await expect(table.locator("caption")).toContainText(
 			"9 workspaces surveyed on 26 September 2026",

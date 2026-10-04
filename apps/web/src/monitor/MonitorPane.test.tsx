@@ -130,10 +130,26 @@ test("clicking a column sorts it, and clicking again reverses it", async () => {
 	// Default is CPU descending, so the busier process is first.
 	expect(pids()).toEqual(["monitor-process-10", "monitor-process-2"]);
 
+	const spoken = screen.getByTestId("monitor-sort-announce");
+	expect(spoken.textContent).toBe("");
+
 	fireEvent.click(screen.getByRole("button", { name: "PID" }));
 	expect(pids()).toEqual(["monitor-process-2", "monitor-process-10"]);
+	expect(spoken.textContent).toBe("Sorted by PID, ascending");
 	fireEvent.click(screen.getByRole("button", { name: "PID" }));
 	expect(pids()).toEqual(["monitor-process-10", "monitor-process-2"]);
+	expect(spoken.textContent).toBe("Sorted by PID, descending");
+
+	// Memory, like CPU, starts with the biggest.
+	fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+	expect(pids()).toEqual(["monitor-process-2", "monitor-process-10"]);
+	expect(spoken.textContent).toBe("Sorted by Memory, descending");
+	expect(
+		screen.getByRole("columnheader", { name: "Memory" }).getAttribute("aria-sort"),
+	).toBe("descending");
+	expect(
+		screen.getByRole("columnheader", { name: "PID" }).hasAttribute("aria-sort"),
+	).toBe(false);
 });
 
 test("refreshes once a second while shown and stops when it goes away", async () => {
@@ -364,7 +380,7 @@ test("the sort comes from the right pane, so a notice can open Monitor sorted", 
 				value={{
 					pane: "monitor",
 					show: () => {},
-					monitorSort: { column: "memory", direction: "desc" },
+					monitorSort: { column: "memory", direction: "descending" },
 					setMonitorSort: () => {},
 					monitorFocus: false,
 					setMonitorFocus: () => {},

@@ -32,16 +32,17 @@ export function WorkspaceStateBadge({
 	/** In a table cell or inside a status wrapper, so it is not its own live region. */
 	statusRole?: boolean;
 }) {
+	const known = WorkspaceState.safeParse(state);
 	if (pendingOperation) {
 		return (
 			<StateBadge
-				state="starting"
+				state={known.data ?? "starting"}
+				moving={true}
 				label={PENDING_LABEL[pendingOperation]}
 				statusRole={statusRole}
 			/>
 		);
 	}
-	const known = WorkspaceState.safeParse(state);
 	if (!known.success) return <span className="pk-tag">{state}</span>;
 	return (
 		<StateBadge

@@ -4243,3 +4243,139 @@ Gaps:
   after a start.
 - `/etc/hostname` holds the instance name until the second start (the
   image template, already so).
+
+## Epic 33 — UI polish: admin layouts, Settings, accessibility
+
+Built on `epic/33-ui-polish` (task PRs #1097, #1099 to #1116, #1118 to
+#1121, this fold, and #1123 to #1130 after it), issues #1087 and #1096. No
+migration. SPEC.md sections 19.2, 20.1 and 25.8, and ADR 0047.
+
+Delivered:
+
+- CI: the signed apt repository test backdates its throwaway key two
+  minutes, so apt's verifier no longer rejects it (#1096).
+- Admin frame: the admin content scroller and the Settings section pane keep a
+  stable scrollbar gutter, so content does not shift between tall and
+  short tabs. The unread badge is a larger 24 px pill. The header is a container: on a narrow bar
+  the context text and account name give way, and it stays one line.
+- Admin structure: one `AdminGroup` at level 3 or 4, with an optional
+  description, is the card frame everywhere. A shared `Notice` draws the
+  Backups, backup key and Health warnings. Packages, Trends and admin
+  Settings are cards.
+- Admin tabs: Network, Backups, Certificate and Docker have the new
+  layouts from #1087. Network has a sticky, scrollable side column and a
+  headed read error. Backups is split under 800 lines with one Activity
+  card. Certificate's form is two columns from `@3xl`. Docker's short
+  cards share a grid. Settings shows label, control, then hint, and a
+  search hit focuses the field. Form fields read their hint before their
+  error.
+- Admin tables: Users, Logs and Audit have sortable headers with
+  `aria-sort`. Users has a per-row "more" menu with start, stop,
+  restart, rebuild, archive and disable. `WorkspacesTab.tsx` and
+  `LogsTab.tsx` are split under 800 lines.
+- Review fixes (#1118): sort changes on Users, Logs and Audit are
+  announced, unsorted headers say they sort, and same-time rows keep
+  their order. Users row-menu lifecycle items stay focusable while busy.
+  Settings headings are screen-reader only, the profile picture is a
+  Choose picture button, the account menu names the account, and the
+  Packages list loads with a Skeleton.
+- Sort headers (#1119): Monitor and the admin Processes table use the
+  shared sort header, now in `apps/web/src/table/`, and announce each
+  sort. CPU and Memory sort highest first on the first press. Monitor at
+  its 280 px default hides PID, which the Stop button still names, and
+  draws no faint sort hint for lack of room.
+- Confirmation review fixes (#1120): closing a tab moves focus to the
+  selected tab. Monaco's tab-focus toggle is now loaded; before, Tab
+  could never leave the editor. The editor names, Help and the Student
+  guide give Ctrl+Shift+M on macOS. The diff editor's side names are no
+  longer blank. Operation-end toasts cannot repeat, and a passed
+  deadline is not announced. The Alt+F1 claim, which had no action
+  behind it, is gone from Help and the guide, and the F8 text matches
+  what the editor does.
+- Admin operations: the end of a rebuild, Docker reset or Replace home
+  folder is announced on any admin tab, whether or not the detail panel
+  is open, and several ends share one toast. `StateBadge` has a `moving`
+  option.
+- Components: `MenuRadioGroup` and `MenuRadioItem` (used by the Preview
+  width menu) and a shared `FileInput` (certificate, backup key and
+  profile picture) in `packages/ui`.
+- Student shell: the status bar wraps instead of overflowing. Its
+  Memory and Disk meters use `Meter`, show a percentage, and keep the
+  full figure in their name. The admin detail meters share the storage
+  thresholds. Monitor buttons close Find in files. "Still working?" is
+  an alert dialog over an open dialog. A full-disk save error stays
+  until a save succeeds. The Health heat map has a keyboard cursor with
+  a readout.
+- Accessibility pass over the whole student interface: status regions
+  stay live under dialogs, modals hide content that mounts later, and no
+  region re-announces a ticking time. The file tree is a multi-select
+  tree with Home, End, type-ahead, Shift+Arrow and Ctrl+Space. Search
+  results are named by file and line. The editor's text box is named
+  after its file and the Ctrl+M way out. Tabs move from a right-click
+  menu, a terminal pane moves with "Move into", and "Reset pane sizes"
+  evens out splits; the Help page covers all three (#1114). The header
+  and Course page work at 320 px.
+- Test hardening (#1121): the admin egress test checks only its own
+  blocked sites, so it no longer races the accessibility test; admin
+  page axe scans no longer grow with the run's account count; and the
+  e2e shard timings include the epic's new tests.
+- Help split (#1123): Help is two pages. "Using your workspace" at
+  `/help` holds the student and instructor parts; "For administrators"
+  at `/admin/help` sits inside the admin page and only administrators
+  can open it. The account menu's Help opens the one that matches the
+  page you are on, and every existing anchor still lands. The parts are
+  named apart from the page titles ("Your workspace", "For
+  instructors", "Running the site"), with anchors `#student` and
+  `#admin` unchanged.
+- Admin tab icons (#1124): each admin tab has an icon and the workspace
+  tab look. Help and the nine admin tab icons are in the design system
+  preview. Its header placement and fade were replaced by #1127.
+- Forced colours (#1125): admin and workspace tabs draw a selected-tab
+  bar in forced-colours mode, and the PageIntro example is corrected.
+  Its full-name-on-focus change is moot, because #1127 made tab names
+  always whole.
+- Admin tab strip (#1127): the admin tabs moved out of the app header
+  into a strip under it, drawn like the workspace tab strip, at the top
+  of a frame with a line down each side. Only the framed content
+  scrolls, and its scrollbar sits inside the frame. Tabs show their
+  whole names and wrap to a second row in a fixed order. The group
+  gaps, the fade and the hover text are gone.
+- Frame lines and bold current tab (#1128): the admin frame's side
+  lines use `--line-strong` (3.42:1 light, 4.14:1 dark against the
+  surface), so they mark out the tabbed space. In forced colours the
+  current tab, admin or workspace, is semibold as well as barred, with
+  no layout shift.
+- Page caching (#1129): admin and workspace pages are sent with
+  `Cache-Control: no-store`, so a stored page can no longer answer the
+  same URL's API fetch and empty the Users list after a full page load.
+  The e2e suite cannot catch this because it runs without Caddy.
+- Full-width admin frame (#1130): the admin frame fills the window less
+  a 16 px gutter on each side, instead of stopping at 1440 px. Text and
+  forms keep their own measure of about 72 characters, and tables use
+  the full width. The admin area now works down to 768 px, where the
+  workspace keeps 1024: the tab strip wraps to a second row, and the
+  Users detail panel stacks under the table when the content is
+  narrower than 56rem.
+
+Verified: at 13e38e81, `make check` green (6486 unit tests; coverage lines 94.02%, branches 86.21%, statements 92.13%, functions 91.71%); `pnpm test:e2e --workers=4` 815 passed, 4 failed, 1 skipped. The 4 failures were page-load timeouts in a11y-image.spec.ts (light and dark, lines 159 and 178) on a host loaded by an unrelated job, and that spec passed 19 of 19 alone three times. Pilot on 0.1.913+gb74d9da0 2026-10-03 (same product code; later commits are tests only): setup failed=0, smoke 233 passed 0 failed (Dex sign-in and lifecycle blocks skipped), dump /var/lib/postgresql/portikus-pre-epic33-2026-10-03.dump on the VM.
+
+Pilot reinstall with #1123-#1128: 0.1.920+g1b1e4536 on 2026-10-03, setup failed=0, smoke 233 passed 0 failed (Dex password sign-in skipped, no sign-in file), dump /var/lib/postgresql/portikus-pre-epic33c-2026-10-03.dump on the VM.
+
+Pilot reinstall with #1129 and #1130: 0.1.924+gab6ac0ea on 2026-10-03 (the same code as the #1130 merge), setup failed=0, smoke 233 passed 0 failed (Dex password sign-in skipped, no sign-in file), `/admin/users` page served with `cache-control: no-store`, dump /var/lib/postgresql/portikus-pre-epic33e-2026-10-03.dump on the VM.
+
+Gaps:
+
+- The workspace keeps its 1024 px minimum and the admin area its
+  768 px one, so at 560 px both scroll sideways instead of reflowing
+  (SPEC.md section 20.1; DESIGN.md defers the narrow workspace layout).
+- `FileTree.tsx` is still over 800 lines (about 1,290), and `app.css` passed 800 (about 840).
+- Audit sorts by Time only, because it is paged on the server. Logs
+  sorts only the lines already loaded.
+- Below 1280 px an administrator sees only their initials in the
+  header; the full name is in the button's label and menu.
+- "Reset pane sizes" covers terminal splits only, because file, diff
+  and preview tabs have no splitters.
+- The apt repository test had one unexplained early local failure
+  (#1097).
+- On a wrapped admin tab strip, the rule between the rows runs only
+  under tabs, not across the empty end of the second row (#1127).

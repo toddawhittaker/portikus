@@ -57,6 +57,25 @@ for (const scheme of ["light", "dark"] as const) {
 		await expectNoViolations(page);
 	});
 
+	test(`Still working? over an open dialog has no automatic violations (${scheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		const student = await createStudent(context);
+		await page.goto(workspacePath(student.workspaceId));
+		await page.getByTestId("workspace-status").click({ timeout: 15_000 });
+		await expect(page.getByRole("dialog")).toBeVisible();
+		await throttleAndWarn(student.workspaceId);
+		await expect(page.getByRole("alertdialog", { name: "Still working?" })).toBeVisible(
+			{
+				timeout: 15_000,
+			},
+		);
+		await page.screenshot({ path: `screenshots/idle-over-dialog-${scheme}.png` });
+		await expectNoViolations(page);
+	});
+
 	test(`the admin guard screens have no automatic violations (${scheme})`, async ({
 		page,
 		browser,

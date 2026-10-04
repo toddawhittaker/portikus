@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { loginAs, openToggletip, query, settledAxe, toast, WCAG_TAGS } from "./helpers";
+import { expectTokenFill } from "./token-colour";
 
 /**
  * The Settings tab layout (SPEC.md section 20.1): one column of sections
@@ -28,7 +29,7 @@ for (const width of [1920, 1024]) {
 	test.describe(`at ${width} px`, () => {
 		test.use({ viewport: { width, height: 1080 } });
 
-		test("sections stack in one column, with no cards and no log level", async ({
+		test("sections stack in one column of cards, with no log level", async ({
 			page,
 		}) => {
 			await open(page);
@@ -47,9 +48,12 @@ for (const width of [1920, 1024]) {
 			}
 			expect(tops).toEqual([...tops].sort((a, b) => a - b));
 			expect((await box(column)).width).toBeLessThan(700);
-			// A hairline, not a card, between sections.
-			await expect(sections.nth(1)).toHaveCSS("border-top-width", "1px");
-			await expect(sections.nth(1)).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+			// Each is the admin card the other tabs use: raised, with a full border.
+			for (let index = 0; index < 3; index++) {
+				await expectTokenFill(sections.nth(index), "--surface-raised");
+				await expect(sections.nth(index)).toHaveCSS("border-bottom-width", "1px");
+				await expect(sections.nth(index)).toHaveCSS("border-left-width", "1px");
+			}
 			await expect(page.getByTestId("log-level-select")).toHaveCount(0);
 		});
 

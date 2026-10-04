@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { type TabItem, Tabs, tabDomId, tabPanelDomId } from "./tabs";
 
@@ -19,6 +20,29 @@ function renderTabs(overrides: Partial<React.ComponentProps<typeof Tabs>> = {}) 
 	};
 	render(<Tabs {...props} actions={<button type="button">Launcher</button>} />);
 	return props;
+}
+
+/** Closes for real, selecting the next tab, as the work area does. */
+function ClosingTabs({ initial = TABS }: { initial?: TabItem[] }) {
+	const [tabs, setTabs] = useState(initial);
+	const [activeId, setActiveId] = useState(initial[0]?.id ?? "");
+	return (
+		<>
+			<button type="button">Outside</button>
+			<Tabs
+				tabs={tabs}
+				activeId={activeId}
+				onSelect={setActiveId}
+				onClose={(id) => {
+					const index = tabs.findIndex((tab) => tab.id === id);
+					const rest = tabs.filter((tab) => tab.id !== id);
+					if (id === activeId)
+						setActiveId(rest[Math.min(index, rest.length - 1)]?.id ?? "");
+					setTabs(rest);
+				}}
+			/>
+		</>
+	);
 }
 
 describe("Tabs", () => {
@@ -88,6 +112,42 @@ describe("Tabs", () => {
 
 		fireEvent.click(screen.getByTestId("tab-t1-close"));
 		expect(props.onClose).toHaveBeenLastCalledWith("t1");
+	});
+
+	it("moves focus to the selected tab after Delete closes the focused one", () => {
+		render(<ClosingTabs />);
+		const first = screen.getByRole("tab", { name: /zsh — todo-api/ });
+		first.focus();
+		fireEvent.keyDown(first, { key: "Delete" });
+		expect(screen.getAllByRole("tab")).toHaveLength(2);
+		const selected = screen.getByRole("tab", { selected: true });
+		expect(selected.textContent).toContain("app.ts");
+		expect(document.activeElement).toBe(selected);
+	});
+
+	it("moves focus to the selected tab after Close tab in the menu", () => {
+		render(<ClosingTabs />);
+		fireEvent.contextMenu(screen.getByRole("tab", { name: /app.ts/ }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Close tab" }));
+		expect(screen.getAllByRole("tab")).toHaveLength(2);
+		const selected = screen.getByRole("tab", { selected: true });
+		expect(selected.textContent).toContain("zsh — todo-api");
+		expect(document.activeElement).toBe(selected);
+	});
+
+	it("leaves focus alone when a close is cancelled and focus is elsewhere", () => {
+		const onClose = vi.fn();
+		render(
+			<>
+				<button type="button">Outside</button>
+				<Tabs tabs={TABS} activeId="t1" onClose={onClose} />
+			</>,
+		);
+		fireEvent.keyDown(screen.getByRole("tab", { name: /app.ts/ }), { key: "Delete" });
+		const outside = screen.getByRole("button", { name: "Outside" });
+		outside.focus();
+		expect(onClose).toHaveBeenCalledWith("t2");
+		expect(document.activeElement).toBe(outside);
 	});
 
 	it("keeps the close control out of the accessibility tree and the tab order", () => {
@@ -186,6 +246,69 @@ describe("Tabs", () => {
 			const description = document.getElementById(describedBy)?.textContent ?? "";
 			expect(description).toContain("Delete");
 			expect(description).toContain("Alt+Shift");
+			expect(description).toContain("Shift+F10");
 		}
+	});
+
+	/** The pointer way to reorder without dragging (WCAG 2.5.7). */
+	it("moves a tab right from its menu and announces it", () => {
+		const props = renderTabs();
+
+		fireEvent.contextMenu(screen.getByRole("tab", { name: /app.ts/ }));
+		const menu = screen.getByRole("menu", { name: "Actions for app.ts" });
+		expect(menu).toBeTruthy();
+		fireEvent.click(screen.getByRole("menuitem", { name: "Move right" }));
+
+		expect(props.onReorder).toHaveBeenCalledWith(1, 2);
+		const live = document.querySelector("[aria-live='polite']");
+		expect(live?.textContent).toBe("app.ts moved to position 3 of 3");
+	});
+
+	it("moves a tab left from its menu", () => {
+		const props = renderTabs();
+
+		fireEvent.contextMenu(screen.getByRole("tab", { name: /app.ts/ }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Move left" }));
+
+		expect(props.onReorder).toHaveBeenCalledWith(1, 0);
+	});
+
+	it("disables Move left on the first tab and Move right on the last", () => {
+		renderTabs();
+
+		fireEvent.contextMenu(screen.getByRole("tab", { name: /zsh — todo-api/ }));
+		expect(
+			screen.getByRole("menuitem", { name: "Move left" }).getAttribute("aria-disabled"),
+		).toBe("true");
+		expect(
+			screen
+				.getByRole("menuitem", { name: "Move right" })
+				.getAttribute("aria-disabled"),
+		).toBeNull();
+		fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+		fireEvent.contextMenu(screen.getByRole("tab", { name: /zsh — old/ }));
+		expect(
+			screen
+				.getByRole("menuitem", { name: "Move right" })
+				.getAttribute("aria-disabled"),
+		).toBe("true");
+	});
+
+	it("closes a tab from its menu", () => {
+		const props = renderTabs();
+
+		fireEvent.contextMenu(screen.getByRole("tab", { name: /app.ts/ }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Close tab" }));
+
+		expect(props.onClose).toHaveBeenCalledWith("t2");
+	});
+
+	it("opens no menu off the tabs", () => {
+		renderTabs();
+
+		fireEvent.contextMenu(screen.getByRole("tablist"));
+
+		expect(screen.queryByRole("menu")).toBeNull();
 	});
 });

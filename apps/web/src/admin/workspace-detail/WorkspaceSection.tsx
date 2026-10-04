@@ -1,8 +1,4 @@
-import type {
-	AdminCapabilities,
-	AdminWorkspaceDetail,
-	AuditEvent,
-} from "@portikus/contracts";
+import type { AdminCapabilities, AdminWorkspaceDetail } from "@portikus/contracts";
 import {
 	Button,
 	Checkbox,
@@ -10,7 +6,7 @@ import {
 	ConfirmDialogRoot,
 	useToast,
 } from "@portikus/ui";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { errorText } from "../../api/request.js";
 import { PENDING_LABEL } from "../../shell/StatusBar.js";
 import { RestoreFromBackupDialog } from "../backups/BackupDialogs.js";
@@ -33,78 +29,6 @@ export function capabilityNote(capabilities: AdminCapabilities): string | null {
 	if (!capabilities.resetDocker)
 		return "Reset Docker is not available in this release.";
 	return null;
-}
-
-/** The worker's audit actions that end a rebuild or reset (SPEC.md sections 16.4, 17.2). */
-const OUTCOME_ACTIONS: Record<string, { rebuild: boolean; ok: boolean }> = {
-	"workspace.rebuilt": { rebuild: true, ok: true },
-	"workspace.rebuild_failed": { rebuild: true, ok: false },
-	"workspace.docker_reset": { rebuild: false, ok: true },
-	"workspace.docker_reset_failed": { rebuild: false, ok: false },
-};
-
-export type OperationOutcome = {
-	rebuild: boolean;
-	ok: boolean;
-	errorCode: string | null;
-};
-
-/** The newest rebuild or reset result audited after `afterId`, or null while none is. */
-export function operationOutcome(
-	events: AuditEvent[],
-	afterId: number,
-): OperationOutcome | null {
-	const event = events
-		.filter((e) => e.id > afterId && OUTCOME_ACTIONS[e.action])
-		.sort((a, b) => b.id - a.id)[0];
-	if (!event) return null;
-	const code = event.metadata?.errorCode;
-	return {
-		...(OUTCOME_ACTIONS[event.action] as { rebuild: boolean; ok: boolean }),
-		errorCode: typeof code === "string" ? code : null,
-	};
-}
-
-/** The toast for an outcome; the danger tone makes it an alert for screen readers. */
-export function outcomeToast(outcome: OperationOutcome, ownerName: string) {
-	const what = outcome.rebuild ? "Rebuild" : "Docker reset";
-	if (outcome.ok) {
-		return {
-			tone: "success" as const,
-			title: `${what} of ${ownerName}'s workspace finished`,
-		};
-	}
-	const code = outcome.errorCode ? ` (${outcome.errorCode})` : "";
-	return {
-		tone: "danger" as const,
-		title: `${what} of ${ownerName}'s workspace failed`,
-		children: `The workspace is in error${code}. Try again, or look for the error in the Logs tab.`,
-	};
-}
-
-/**
- * Tell the administrator how a rebuild or reset ended. The worker clears the
- * operation and then audits the result, so the result can arrive a poll later.
- */
-function useOperationOutcome(detail: AdminWorkspaceDetail, ownerName: string) {
-	const toast = useToast();
-	const pending = detail.workspace.pendingOperation;
-	const events = detail.recentAudit;
-	// The newest audit id seen while the operation was pending; null when not watching.
-	const watching = useRef<number | null>(null);
-	useEffect(() => {
-		if (pending && pending !== "replace-home") {
-			if (watching.current === null) {
-				watching.current = events.reduce((max, e) => Math.max(max, e.id), 0);
-			}
-			return;
-		}
-		if (watching.current === null) return;
-		const outcome = operationOutcome(events, watching.current);
-		if (!outcome) return;
-		watching.current = null;
-		toast.show(outcomeToast(outcome, ownerName));
-	}, [pending, events, toast, ownerName]);
 }
 
 /** Image, Rebuild, Reset Docker and Archive (SPEC.md section 20.1). */
@@ -148,7 +72,6 @@ function WorkspaceActions({
 	// A second request would only answer 409 OPERATION_PENDING (ADR 0021).
 	const operationPending = workspace.pendingOperation !== null;
 	useRefreshUsersWhenDone(workspace.pendingOperation);
-	useOperationOutcome(detail, ownerName);
 	const note = capabilityNote(capabilities);
 	const noteId = `capability-note-${workspace.id}`;
 

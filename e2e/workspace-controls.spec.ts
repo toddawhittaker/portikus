@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, query, workspacePath } from "./helpers";
+import { createStudent, expectNoViolations, query, workspacePath } from "./helpers";
 
 /**
  * Stopping, starting and restarting from the workspace dialog (SPEC.md §6.2).
@@ -163,3 +163,25 @@ test("secondary buttons in the workspace dialog show their border", async ({
 	const border = await restart.evaluate((el) => getComputedStyle(el).borderTopColor);
 	expect(border).not.toBe("rgba(0, 0, 0, 0)");
 });
+
+for (const scheme of ["light", "dark"] as const) {
+	test(`a pending rebuild spins in the dialog's badge, whatever the state (${scheme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ colorScheme: scheme });
+		const student = await createStudent(context);
+		await page.goto(workspacePath(student.workspaceId));
+		await page.getByTestId("workspace-status").click();
+		await presenceReported(page);
+
+		await query("update workspaces set pending_operation = 'rebuild' where id = $1", [
+			student.workspaceId,
+		]);
+		const badge = page.getByTestId("workspace-status-state");
+		await expect(badge).toHaveText("Rebuilding…", { timeout: 15_000 });
+		await expect(badge.locator(".pk-spin")).toHaveCount(1);
+		await expect(badge.locator(".pk-badge-dot")).toHaveCount(0);
+		await expectNoViolations(page);
+	});
+}

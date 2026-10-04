@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { createStudent, loginAs, query, settledAxe } from "./helpers";
+import {
+	createStudent,
+	expectNoViolations,
+	loginAs,
+	query,
+	settledAxe,
+} from "./helpers";
 
 /**
  * The Health tab's per-workspace heat map and the guard and activity charts
@@ -140,6 +146,90 @@ test.describe("admin health activity", () => {
 		await query("delete from workspace_usage_samples where workspace_id = $1", [
 			student.workspaceId,
 		]);
+	});
+
+	test("a keyboard user reads a heat map cell's exact value from one tab stop", async ({
+		page,
+		browser,
+	}) => {
+		const context = await browser.newContext();
+		const student = await createStudent(context);
+		await context.close();
+		const name = `Keys ${student.userId.slice(0, 8)}`;
+		await query("update users set display_name = $2 where id = $1", [
+			student.userId,
+			name,
+		]);
+		await seedUsage(student.workspaceId, 3, 0, 1);
+		await seedUsage(student.workspaceId, 2, 6, 1);
+		await seedUsage(student.workspaceId, 1, 114, 3);
+		try {
+			await openHealth(page, "1 hour");
+			const map = page.getByTestId("health-heat-map");
+			await expect(
+				map.getByTestId("health-heat-map-row").filter({ hasText: name }),
+			).toBeVisible();
+			const table = map.getByTestId("health-heat-map-table");
+			const readout = map.getByTestId("health-heat-map-readout");
+			await expect(readout).toHaveText(/arrow keys/);
+			// The visible hint is hidden from readers, so the table carries it as its description.
+			await expect(table).toHaveAccessibleDescription(
+				"Keyboard: focus the map, then use the arrow keys to read each value.",
+			);
+
+			// Tab from the measure switch lands on the table itself, not on a cell.
+			await map.getByRole("button", { name: "Memory" }).focus();
+			await page.keyboard.press("Tab");
+			await expect(table).toBeFocused();
+			await page.keyboard.press("ArrowRight");
+			await expect(map.locator('[data-cursor="true"]')).toHaveCount(1);
+
+			// Other specs' workspaces share the map, however many there are, and a refresh
+			// can add rows above ours; so count the rows between the cursor and ours, then step.
+			for (let attempt = 0; attempt < 5; attempt += 1) {
+				if ((await readout.textContent())?.startsWith(`${name},`)) break;
+				const { ours, at } = await map.evaluate((el, owner) => {
+					const rows = [...el.querySelectorAll('[data-testid="health-heat-map-row"]')];
+					return {
+						ours: rows.findIndex((row) => row.textContent?.includes(owner)),
+						at: rows.findIndex((row) => row.querySelector('[data-cursor="true"]')),
+					};
+				}, name);
+				expect(ours).toBeGreaterThanOrEqual(0);
+				const key = ours > at ? "ArrowDown" : "ArrowUp";
+				for (let step = 0; step < Math.abs(ours - at); step += 1) {
+					await page.keyboard.press(key);
+				}
+			}
+			await expect(readout).toHaveText(new RegExp(`^${name}, `));
+			for (let step = 0; step < 5; step += 1) {
+				if ((await readout.textContent())?.endsWith("at or over the 80% threshold"))
+					break;
+				await page.keyboard.press("ArrowLeft");
+			}
+			await expect(readout).toHaveText(
+				new RegExp(`^${name}, .+, 90%, at or over the 80% threshold$`),
+			);
+			const cursor = map.locator('[data-cursor="true"]');
+			await expect(cursor).toHaveText("90%, at or over the 80% threshold");
+			// The cursor is drawn, not only announced.
+			await expect(cursor).toHaveCSS("outline-style", "solid");
+			await expect(cursor).toHaveCSS("outline-width", "2px");
+			// Still one focus stop: the table keeps focus as the cursor moves.
+			await expect(table).toBeFocused();
+
+			await expectNoViolations(page, '[data-testid="health-heat-map"]');
+			await page.emulateMedia({ colorScheme: "dark" });
+			await expectNoViolations(page, '[data-testid="health-heat-map"]');
+
+			await page.keyboard.press("Tab");
+			await expect(map.locator('[data-cursor="true"]')).toHaveCount(0);
+			await expect(readout).toHaveText(/arrow keys/);
+		} finally {
+			await query("delete from workspace_usage_samples where workspace_id = $1", [
+				student.workspaceId,
+			]);
+		}
 	});
 
 	test("at one day the heat map says how long figures are kept, and the event charts total their counts", async ({

@@ -73,3 +73,5 @@ has four sections:
 | [0043](0043-blocked-sites-in-open-mode.md) | Blocked sites in open mode (accepted, Epic 24) |
 | [0044](0044-backups-on-the-server.md) | An apt-installed server backs itself up, keeps its key, and hands the key over through a root socket (accepted, Epic 15) |
 | [0045](0045-shared-docker-pull-storage.md) | Shared Docker pull storage: a pull-through cache and LVM-thin seed snapshots (accepted, Epic 26) |
+| [0046](0046-certificates-from-the-admin-page.md) | Certificates from the admin page: Caddy as the only ACME client, a root job, and staging before live (accepted, Epic 27) |
+| [0047](0047-modals-hide-late-content-and-monaco-auto.md) | Modals re-hide late page content with aria-hidden, and Monaco's accessibility support is "auto" (accepted, Epic 33) |

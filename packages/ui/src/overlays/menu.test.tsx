@@ -8,8 +8,11 @@ import {
 	MenuCheckboxItem,
 	MenuItem,
 	MenuLabel,
+	MenuRadioGroup,
+	MenuRadioItem,
 	MenuRoot,
 	MenuSeparator,
+	MenuSub,
 	MenuTrigger,
 } from "./menu";
 
@@ -69,6 +72,29 @@ describe("Menu", () => {
 		expect(disabled.getAttribute("data-disabled")).not.toBeNull();
 		fireEvent.click(disabled);
 		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("keeps an unavailable item reachable but does not select it", () => {
+		const onSelect = vi.fn();
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="Workspace actions">
+					<MenuItem unavailable onSelect={onSelect}>
+						Stop
+					</MenuItem>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.pointerDown(screen.getByText("Actions"), { button: 0 });
+
+		const item = screen.getByRole("menuitem", { name: "Stop" });
+		expect(item.getAttribute("aria-disabled")).toBe("true");
+		// Not Radix's disabled, which the arrow keys skip.
+		expect(item.hasAttribute("data-disabled")).toBe(false);
+		fireEvent.click(item);
+		expect(onSelect).not.toHaveBeenCalled();
+		expect(screen.getByRole("menu")).toBeTruthy();
 	});
 
 	it("renders a download item as a link that saves under a name", () => {
@@ -133,6 +159,57 @@ describe("Menu", () => {
 		expect(item.getAttribute("aria-checked")).toBe("true");
 	});
 
+	it("radio items state one choice of several and report the new value", () => {
+		const onValueChange = vi.fn();
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="Width">
+					<MenuItem>Copy URL</MenuItem>
+					<MenuRadioGroup label="Width" value="fit" onValueChange={onValueChange}>
+						<MenuRadioItem value="fit" testId="width-fit">
+							Fit width
+						</MenuRadioItem>
+						<MenuRadioItem value="768">768 px wide</MenuRadioItem>
+					</MenuRadioGroup>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
+
+		expect(screen.getByRole("group", { name: "Width" })).toBeTruthy();
+		const fit = screen.getByRole("menuitemradio", { name: "Fit width" });
+		const narrow = screen.getByRole("menuitemradio", { name: "768 px wide" });
+		expect(fit.getAttribute("aria-checked")).toBe("true");
+		expect(fit.getAttribute("data-testid")).toBe("width-fit");
+		expect(narrow.getAttribute("aria-checked")).toBe("false");
+		// Only the chosen item shows the tick; both keep its gutter.
+		expect(fit.querySelector(".pk-menu-check svg")).not.toBeNull();
+		expect(narrow.querySelector(".pk-menu-check svg")).toBeNull();
+		fireEvent.keyDown(narrow, { key: "Enter" });
+		expect(onValueChange).toHaveBeenCalledWith("768");
+	});
+
+	it("radio items work in the context menu family", () => {
+		render(
+			<ContextMenu>
+				<ContextMenuTrigger>Area</ContextMenuTrigger>
+				<Menu label="Width">
+					<MenuRadioGroup label="Width" value="768" onValueChange={vi.fn()}>
+						<MenuRadioItem value="fit">Fit width</MenuRadioItem>
+						<MenuRadioItem value="768">768 px wide</MenuRadioItem>
+					</MenuRadioGroup>
+				</Menu>
+			</ContextMenu>,
+		);
+		fireEvent.contextMenu(screen.getByText("Area"));
+		expect(
+			screen
+				.getByRole("menuitemradio", { name: "768 px wide" })
+				.getAttribute("aria-checked"),
+		).toBe("true");
+	});
+
 	// The trigger takes focus back, but its tooltip stays shut.
 	it("returns focus to an icon trigger without opening its tooltip", async () => {
 		render(
@@ -168,5 +245,46 @@ describe("Menu", () => {
 		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
 		const check = screen.getByRole("menuitemcheckbox", { name: "Light terminal" });
 		expect(check.firstElementChild?.classList.contains("pk-menu-check")).toBe(true);
+	});
+
+	it("opens a submenu named by its item, from the keyboard", () => {
+		const onSelect = vi.fn();
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="Pane">
+					<MenuSub label="Move into">
+						<MenuItem onSelect={onSelect}>bash</MenuItem>
+					</MenuSub>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
+		const item = screen.getByRole("menuitem", { name: "Move into" });
+		expect(item.getAttribute("aria-haspopup")).toBe("menu");
+
+		fireEvent.keyDown(item, { key: "ArrowRight" });
+		expect(screen.getByRole("menu", { name: "Move into" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("menuitem", { name: "bash" }));
+		expect(onSelect).toHaveBeenCalledTimes(1);
+	});
+
+	it("a disabled submenu item does not open", () => {
+		render(
+			<MenuRoot>
+				<MenuTrigger>Actions</MenuTrigger>
+				<Menu label="Pane">
+					<MenuSub label="Move into" disabled>
+						<MenuItem>bash</MenuItem>
+					</MenuSub>
+				</Menu>
+			</MenuRoot>,
+		);
+		fireEvent.keyDown(screen.getByText("Actions"), { key: "Enter" });
+		const item = screen.getByRole("menuitem", { name: "Move into" });
+		expect(item.getAttribute("aria-disabled")).toBe("true");
+
+		fireEvent.keyDown(item, { key: "ArrowRight" });
+		expect(screen.queryByRole("menu", { name: "Move into" })).toBeNull();
 	});
 });

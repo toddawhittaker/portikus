@@ -81,6 +81,11 @@ export interface MenuItemProps {
 	shortcut?: Key[];
 	danger?: boolean;
 	disabled?: boolean;
+	/**
+	 * Shown and reachable but does nothing for now, such as while a request
+	 * runs: aria-disabled, so the keyboard does not skip it (SPEC.md section 25.8).
+	 */
+	unavailable?: boolean;
 	onSelect?: () => void;
 	/** When set, the item is a link rather than a button. */
 	href?: string;
@@ -97,6 +102,7 @@ export function MenuItem({
 	shortcut,
 	danger,
 	disabled,
+	unavailable,
 	onSelect,
 	href,
 	target,
@@ -122,8 +128,15 @@ export function MenuItem({
 			asChild={href !== undefined}
 			className={href === undefined ? itemClass(danger) : undefined}
 			disabled={disabled}
+			// Passed last by Radix, so it must carry `disabled` too.
+			aria-disabled={unavailable || disabled || undefined}
 			aria-keyshortcuts={shortcut ? keyShortcuts(shortcut) : undefined}
-			onSelect={onSelect}
+			onSelect={
+				unavailable
+					? // Kept open, so the press visibly does nothing.
+						(event) => event.preventDefault()
+					: onSelect
+			}
 			data-testid={href === undefined ? testId : undefined}
 		>
 			{href === undefined ? (
@@ -173,6 +186,97 @@ export function MenuCheckboxItem({
 			</span>
 			<span className="pk-menu-item-label flex-1">{children}</span>
 		</P.CheckboxItem>
+	);
+}
+
+export interface MenuRadioGroupProps {
+	/** The group's accessible name, usually the text of the `MenuLabel` above it. */
+	label: string;
+	value: string;
+	onValueChange: (value: string) => void;
+	children?: React.ReactNode;
+}
+
+/** A set of items of which exactly one is chosen, such as a width. */
+export function MenuRadioGroup({
+	label,
+	value,
+	onValueChange,
+	children,
+}: MenuRadioGroupProps): React.ReactElement {
+	const P = parts(React.useContext(MenuKindContext));
+	return (
+		<P.RadioGroup aria-label={label} value={value} onValueChange={onValueChange}>
+			{children}
+		</P.RadioGroup>
+	);
+}
+
+export interface MenuRadioItemProps {
+	value: string;
+	testId?: string;
+	children?: React.ReactNode;
+}
+
+/** One choice in a `MenuRadioGroup`, marked with the checkbox item's tick. */
+export function MenuRadioItem({
+	value,
+	testId,
+	children,
+}: MenuRadioItemProps): React.ReactElement {
+	const P = parts(React.useContext(MenuKindContext));
+	return (
+		<P.RadioItem className={itemClass(false)} value={value} data-testid={testId}>
+			<span className="pk-menu-check grid size-[var(--size-icon-sm)] place-items-center">
+				<P.ItemIndicator>
+					<Icon name="check" size="sm" />
+				</P.ItemIndicator>
+			</span>
+			<span className="pk-menu-item-label flex-1">{children}</span>
+		</P.RadioItem>
+	);
+}
+
+export interface MenuSubProps {
+	/** The text of the item that opens the submenu; it also names the submenu. */
+	label: string;
+	disabled?: boolean;
+	testId?: string;
+	children?: React.ReactNode;
+}
+
+/** An item that opens a nested menu, such as a list of places to move to. */
+export function MenuSub({
+	label,
+	disabled,
+	testId,
+	children,
+}: MenuSubProps): React.ReactElement {
+	const P = parts(React.useContext(MenuKindContext));
+	return (
+		<P.Sub>
+			<P.SubTrigger
+				className={`${itemClass(false)} pk-menu-subtrigger`}
+				disabled={disabled}
+				data-testid={testId}
+			>
+				<span className="pk-menu-item-label flex-1">{label}</span>
+				{/* Wrapped, so the menu's icon gutter still applies to this item. */}
+				<span aria-hidden="true" className="grid place-items-center">
+					<Icon name="chevron-right" size="sm" />
+				</span>
+			</P.SubTrigger>
+			<P.Portal>
+				<P.SubContent
+					aria-label={label}
+					className="pk-menu min-w-50 rounded-md border border-line bg-surface-raised p-1 shadow-md"
+					sideOffset={4}
+					collisionPadding={8}
+				>
+					{children}
+				</P.SubContent>
+			</P.Portal>
+		</P.Sub>
 	);
 }
 

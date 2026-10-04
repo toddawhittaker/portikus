@@ -1,73 +1,32 @@
-import type { AdminUser, AdminWorkspaceSummary } from "@portikus/contracts";
+import type { AdminUser } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ApiError } from "../api/request.js";
 import { json, renderApp, stubFetch } from "../test-utils.js";
 import {
-	activityText,
 	bulkApplies,
 	bulkOutcome,
-	filterAccounts,
-	isFiltered,
-	NO_FILTERS,
 	olderImageTargets,
 	rebuildTitle,
 	rebuildWarning,
-} from "./WorkspacesTab.js";
-
-const NONE = {
-	disabled: false,
-	archived: false,
-	duplicateEmail: false,
-	stale: false,
-	notSignedInYet: false,
-	linked: false,
-};
-
-function summary(
-	overrides: Partial<AdminWorkspaceSummary> = {},
-): AdminWorkspaceSummary {
-	return {
-		id: "22222222-2222-4222-8222-222222222222",
-		label: "alice",
-		state: "running",
-		desiredState: "running",
-		activeConnections: 0,
-		lastActiveConnectionAt: null,
-		quotaConfig: { homeGiB: 25, dockerGiB: 20 },
-		quotaApplied: { homeGiB: 25, dockerGiB: 20 },
-		image: { label: "2026.09.9", fingerprint: "abc", current: true },
-		archivedAt: null,
-		pendingOperation: null,
-		cpuThrottle: null,
-		memoryFlag: null,
-		...overrides,
-	};
-}
-
-function account(
-	displayName: string,
-	workspace: AdminWorkspaceSummary | null,
-	extra: Partial<AdminUser> = {},
-): AdminUser {
-	return {
-		id: `${displayName}-id`,
-		displayName,
-		email: `${displayName.toLowerCase()}@example.edu`,
-		role: "student",
-		providerRole: "student",
-		grantedRole: null,
-		disabledAt: null,
-		shutdownGraceSeconds: null,
-		dexLocal: false,
-		preferredUsername: displayName.toLowerCase(),
-		issuer: null,
-		lastLoginAt: null,
-		markers: NONE,
-		workspace,
-		...extra,
-	};
-}
+} from "./users/BulkActions.js";
+import {
+	activityText,
+	filterAccounts,
+	isFiltered,
+	NO_FILTERS,
+} from "./users/filters.js";
+import {
+	ADMIN_ME,
+	account,
+	listed,
+	NONE,
+	openTable,
+	ROWS,
+	stubUsers,
+	summary,
+	uuid,
+} from "./users/testRows.js";
 
 const alice = account("Alice", summary());
 const bob = account(
@@ -191,82 +150,7 @@ test("a bulk action applies only where it changes something", () => {
 	expect(bulkApplies("unarchive", alice, "me")).toBe(false);
 });
 
-// Rendered tests: rows need real ids to pass the contract.
-function uuid(n: number): string {
-	return `0000000${n}-0000-4000-8000-000000000000`;
-}
-
-const ADMIN_ME = {
-	id: uuid(9),
-	email: "carol@example.invalid",
-	displayName: "Carol Admin",
-	role: "administrator" as const,
-	mustChangePassword: false,
-	mustAcceptUse: false,
-	localPassword: false,
-};
-
-function listed(
-	n: number,
-	displayName: string,
-	extra: Partial<AdminUser> = {},
-): AdminUser {
-	return account(displayName, null, { id: uuid(n), ...extra });
-}
-
-const ROWS = [
-	listed(1, "Alice Example", {
-		workspace: summary({ id: uuid(5), label: "alice", activeConnections: 2 }),
-		issuer: "https://login.example.edu",
-	}),
-	listed(2, "Bob Student", {
-		workspace: summary({
-			id: uuid(6),
-			label: "bob",
-			image: { label: "2026.09.8", fingerprint: "old", current: false },
-		}),
-		issuer: "https://login.example.edu",
-	}),
-	listed(3, "Sam Course", {
-		issuer: "lti:https://canvas.example.edu",
-		email: null,
-		preferredUsername: "sam7",
-	}),
-	listed(9, "Carol Admin", { role: "administrator", providerRole: "administrator" }),
-	listed(4, "Gina Granted", {
-		role: "administrator",
-		grantedRole: "administrator",
-		disabledAt: "2026-09-01T00:00:00.000Z",
-		markers: { ...NONE, disabled: true },
-	}),
-];
-
-/** Answers the list; POSTs land in `writes`, and a URL in `refuse` answers 400. */
-function stubUsers(refuse: Record<string, string> = {}) {
-	const writes: string[] = [];
-	stubFetch((url, init) => {
-		if (url === "/auth/me") return json(200, ADMIN_ME);
-		if (url === "/admin/users") return json(200, { users: ROWS, dexUsers: false });
-		if (url === "/admin/settings") {
-			return json(200, { shutdownGraceSeconds: 600, logLevel: null, updatedAt: null });
-		}
-		if (init?.method === "POST") {
-			writes.push(url);
-			const message = refuse[url];
-			if (message) return json(400, { code: "VALIDATION_FAILED", message });
-			return json(204, null);
-		}
-		throw new Error(`unexpected request: ${url}`);
-	});
-	return writes;
-}
-
 afterEach(() => vi.unstubAllGlobals());
-
-async function openTable() {
-	renderApp("/admin");
-	await screen.findByTestId(`account-row-${uuid(1)}`);
-}
 
 test("any filter away from its default counts as filtering", () => {
 	expect(isFiltered(NO_FILTERS)).toBe(false);
@@ -278,7 +162,7 @@ test("any filter away from its default counts as filtering", () => {
 	expect(isFiltered({ ...NO_FILTERS, showArchived: true })).toBe(true);
 });
 
-test("the table has five columns: selection, Account, Role, Workspace and Activity", async () => {
+test("the table has six columns: selection, Account, Role, Workspace, Activity and actions", async () => {
 	stubUsers();
 	await openTable();
 	const table = screen.getByTestId("admin-accounts");
@@ -286,7 +170,14 @@ test("the table has five columns: selection, Account, Role, Workspace and Activi
 		within(table)
 			.getAllByRole("columnheader")
 			.map((th) => th.textContent),
-	).toEqual(["Select all shown accounts", "Account", "Role", "Workspace", "Activity"]);
+	).toEqual([
+		"Select all shown accounts",
+		"Account",
+		"Role",
+		"Workspace",
+		"Activity",
+		"Actions",
+	]);
 	expect(screen.getByTestId(`account-activity-${uuid(1)}`).textContent).toBe(
 		"Now, 2 connections",
 	);
@@ -341,11 +232,12 @@ test("the table shows each account's role label", async () => {
 		"Administrator (granted)",
 	);
 	// Badges in cells are not live regions; only the header's open-workspace
-	// status, the count and the bulk result are.
+	// status, the count, the bulk result and the sort announcement are.
 	expect(screen.getAllByRole("status").map((node) => node.dataset.testid)).toEqual([
 		"open-my-workspace-status",
 		"admin-row-count",
 		"bulk-result",
+		"admin-sort-announce",
 	]);
 });
 
@@ -390,6 +282,10 @@ test("the toolbar row holds the count or the bulk actions, and is always there",
 	stubUsers();
 	await openTable();
 	const toolbar = screen.getByTestId("admin-table-toolbar");
+	// Before anything is ticked, the row says what it is for.
+	expect(within(toolbar).getByTestId("bulk-hint").textContent).toBe(
+		"Select accounts to act on several at once.",
+	);
 	fireEvent.change(screen.getByLabelText("Role"), { target: { value: "student" } });
 	expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 3 of 5");
 	fireEvent.click(screen.getByRole("checkbox", { name: "Select Alice Example" }));
@@ -397,6 +293,7 @@ test("the toolbar row holds the count or the bulk actions, and is always there",
 	expect(screen.getByTestId("admin-table-toolbar")).toBe(toolbar);
 	expect(within(toolbar).getByTestId("bulk-actions")).toBeDefined();
 	expect(screen.getByTestId("admin-row-count").textContent).toBe("");
+	expect(within(toolbar).queryByTestId("bulk-hint")).toBeNull();
 	fireEvent.click(screen.getByRole("checkbox", { name: "Select Alice Example" }));
 	expect(screen.getByTestId("admin-row-count").textContent).toBe("Showing 3 of 5");
 });

@@ -49,6 +49,10 @@ export interface CertificateForm {
 	preview: UploadDraft;
 }
 
+/** The hint under a write-only secret, with and without a stored value. */
+export const SECRET_KEPT = "Set. Leave blank to keep it.";
+export const SECRET_NONE = "Not set.";
+
 export const SOURCE_LABEL: Record<CertificateSource, string> = {
 	internal: "Internal authority",
 	acme: "ACME (Let's Encrypt and others)",

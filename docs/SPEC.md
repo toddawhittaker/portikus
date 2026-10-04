@@ -882,12 +882,15 @@ the list. Opening the dialog marks nothing read by itself.
 
 ### 8.6 Help in the product
 
-Added by Epic 25. The account menu has a Help item that opens `/help` in a
-new tab. The Help page is one page of plain sentences with a table of
-contents, in parts: the student part for everyone, the administrator part
-for administrators, and the instructor part for instructors,
-administrators and anyone who teaches a course. That split is presentation
-only; the text holds nothing secret, and no route is gated by it. The text
+Added by Epic 25. The account menu has a Help item that opens, in a new
+tab, `/admin/help` from an admin page and `/help` everywhere else. Help is
+two pages of plain sentences, each with a table of contents. "Using your
+workspace" at `/help` holds the student part for everyone and the
+instructor part for instructors, administrators and anyone who teaches a
+course. "For administrators" at `/admin/help` holds the administrator
+part, shown inside the admin page under its tabs and guarded like every
+admin route. Each page links to the other. The text holds nothing secret.
+Admin tab intros link to `/admin/help#admin-…`. The text
 lives in `apps/web/src/help/content` (one file per part), and every topic
 has a stable anchor such as `/help#student-keyboard`. Opening `/help#topic`
 scrolls to that heading and moves focus to it; a malformed anchor is
@@ -1587,8 +1590,12 @@ output renders about half as fast. The default is the one constant
 `EDITOR_SETTINGS_DEFAULTS.screenReaderMode` in the contracts package. When
 on, every terminal and the check output run in xterm.js screen-reader
 mode, and every Monaco editor, the diff editor included, runs with
-`accessibilitySupport` "on"; when off, Monaco's support is "off", never
-"auto", because a browser cannot detect a screen reader. A change applies
+`accessibilitySupport` "on"; when off, Monaco's support is "auto", not
+"off". A browser cannot detect a screen reader, so in practice "auto"
+behaves as off, but it keeps the editor's own name, which "off" replaces
+with "The editor is not accessible at this time.". That name gives the
+file and the way out, such as "Editor, src/app.ts. Ctrl+M makes Tab leave
+the editor." (Ctrl+Shift+M on macOS, Monaco's key there), and each side of a diff is named the same way. A change applies
 to open terminals and editors without a reload. It is set in Settings or
 by the workspace page's first Tab stop, a skip-link-style button that is
 hidden until focused, reads "Turn on screen-reader mode" or "Turn off
@@ -2347,8 +2354,9 @@ bordered button with a small bar: Memory opens Monitor sorted by memory, Disk
 opens the workspace dialog and its storage meters. A meter turns to the
 warning tone with the alert icon at or above 85% of its limit and stays so
 until use falls below 80%, so it does not flicker near the line; Disk turns
-to the error tone at 95%. Its accessible name starts with the visible text
-and adds "high" when warning. The storage warning above keeps its own
+to the error tone at 95%. The bar shows a percentage, and the accessible name
+carries the full figure in words and adds "nearly full" when warning
+(Epic 33). The storage warning above keeps its own
 wording and tone beside them. A meter with no figure is not drawn. The
 meters use the same 30-second usage poll, which asks every 2 seconds until
 its first sample arrives. Only a crossing is announced, never a new figure:
@@ -2485,11 +2493,46 @@ student nothing but is still audited. Like Monitor, the Processes table
 keeps a fixed Stop column, so a row without Stop leaves that cell empty
 (Epic 22).
 
-The admin area is desktop-only: it is built for windows 1024 px wide and up,
-scrolls sideways below that, and has no tablet layout (Epic 18).
+The admin area works in windows 768 px wide and up. Below about 990 px
+the tab strip wraps to a second row, wide tables scroll sideways inside
+the frame, and the page itself never scrolls sideways. Below that it
+scrolls sideways; there is no phone layout. The workspace keeps its
+1024 px minimum (Epic 33).
+
+Added by Epic 33: the admin page keeps the app header to the wordmark,
+"Administration" and the account menu. Under it, a frame as wide as the
+window less a 16 px gutter on each side holds the admin tab strip at its
+top and the tab's content below. Text and forms keep their own measure,
+about 72 characters; tables use the full width. A 1 px line in
+`--line-strong` runs down each side of the frame to the bottom of the
+window. The strip uses the workspace tab-strip look, with 36 px rows.
+Tabs are links, one per admin path, with `aria-current` on the current
+one. Each shows its icon and its whole name, with no fade, no hover text
+and no gaps between tabs. When the tabs do not fit on one row, they wrap
+to further rows in a fixed order, and keyboard order is left to right,
+top row first. In forced-colours mode the current tab, admin or
+workspace, carries a bar and is semibold, without shifting any tab.
+Only the content inside the frame scrolls, 16 px in from the lines and
+compact in density, with a stable scrollbar gutter just inside the right
+line. The header, the strip and the frame lines never move. Table
+headers stick at the top of the scrolling content, right under the
+strip. Panels kept in view beside long lists cap their height to the
+scrolling area's height less the content padding. Where the content is
+narrower than 56rem, the Users detail panel stacks under the table
+instead of beside it. The Settings dialog's
+section pane also reserves a stable scrollbar gutter, so content does
+not shift between
+tall and short tabs. `AdminGroup`, at heading level 3 or 4 with an
+optional description, is the one card frame for admin groups and their
+parts. Every sortable table, the Users, Logs, Audit and Processes
+tables and Monitor included, uses the shared sort header in
+`apps/web/src/table/`, which carries `aria-sort` and announces
+"Sorted by …" through a polite status region;
+Audit sorts by Time only, because it is paged on the server. The Users
+table has a per-row "more" menu for the lifecycle actions.
 
 The admin page is one frame (Epic 18): its heading, tab navigation and tab
-content sit in a container at most 1440 px wide, at compact density (28 px
+content fill the frame, with text and forms at their own measure, at compact density (28 px
 controls, above the 24 px minimum target of section 25.8), and `<main>` keeps
 the scroll. Each tab is an h2 section with an optional count and actions in
 its heading row, headings inside a tab are h3, and the browser title names
@@ -4279,6 +4322,20 @@ The automated axe checks in the Playwright suite run the WCAG 2.0, 2.1 and 2.2 A
 
 Added by Epic 24: a dialog whose opener is gone after it closes (a removed row, a used "Allow…" button) passes `returnFocusTo` to `Dialog` or `ConfirmDialog` in `packages/ui`, and focus goes to that target, usually the card's heading, scrolled into view; otherwise focus returns to the opener. A control that is busy, such as a preset checkbox while its save runs or a Delete button reading "Deleting…", stays mounted and focusable with `aria-disabled`. A button that cannot act yet, such as "Restore copy", names its reason through `aria-describedby`. A message that appears later, such as the restore dialog's stopped-workspace warning or the reinstall notice, is announced through a status region that is always mounted. A ticking time ("3 minutes ago") is not announced.
 
+Added by Epic 33: status regions on the workspace page set `aria-live`
+explicitly, so an open modal does not silence them, and a modal in
+`packages/ui` also hides page content that mounts after it opened (ADR
+0047). No live region carries a ticking time. Every sortable table, Monitor
+included, announces each sort change politely. Every drag has a click
+alternative: a tab menu (right-click or Shift+F10) moves a tab left or
+right, a terminal pane's actions menu has "Move into" another tab, and
+"Reset pane sizes" evens out a tab's splits. The file tree is a
+multi-select tree (`aria-multiselectable`) with Home, End, type-ahead,
+Shift+Arrow to extend the selection and Ctrl+Space to toggle a row. The
+editor's text box is named after its file and the Ctrl+M way out of it
+(Ctrl+Shift+M on macOS).
+The app header and the Course page work down to 320 px.
+
 ### 25.9 Browser support
 
 P0 should support current versions of:
@@ -5195,7 +5252,7 @@ Includes:
 
 Acceptance:
 
-- the admin content is at most 1440 px wide and the Users table does not scroll sideways at 1280 px with the detail panel open;
+- the admin frame fills the window less a 16 px gutter on each side, text and forms keep their own measure, and the Users table does not scroll sideways at 1280 px with the detail panel open;
 - each bulk-rebuilt workspace gets its own audit row, and a pending operation counts as skipped, not failed.
 
 ### Epic 20 — Student interface polish
@@ -5501,6 +5558,31 @@ Acceptance:
   sending Incus nothing more for it;
 - a stop with a process ignoring SIGTERM ends stopped inside its budget;
 - routes, statuses and bodies of the workspace agent are unchanged.
+
+### Epic 33 — UI polish: admin layouts, Settings, accessibility
+
+Built on `epic/33-ui-polish`, issues #1087 and #1096. No migration. See
+sections 19.2, 20.1 and 25.8 and ADR 0047.
+
+Includes:
+
+- the admin tabs in the app header, a stable scrollbar gutter, one admin
+  card frame, and new layouts for the Network, Backups, Certificate,
+  Docker and Settings views;
+- sortable admin tables and a per-row "more" menu on Users;
+- a radio-item menu, a shared file input and a "moving" state badge in
+  `packages/ui`;
+- status bar meters on the shared `Meter`, and admin end toasts for
+  rebuild, Docker reset and Replace home folder;
+- an accessibility pass over the whole student interface: live regions
+  under dialogs, click alternatives to dragging, file tree keys, and a
+  header and Course page that work at 320 px.
+
+Acceptance:
+
+- admin content does not shift between tall and short tabs;
+- every drag has a click alternative;
+- a status announcement is heard while a dialog is open.
 
 ### Estimated total
 

@@ -50,6 +50,16 @@ test("search finds the SSO account link in Profile (ADR 0026)", () => {
 	]);
 });
 
+test("the auto-save delay keeps a short label and is still found by its unit", () => {
+	expect(settingsHits(SETTINGS_SECTIONS, "seconds")).toEqual([
+		{
+			sectionId: "preferences",
+			controlId: "auto-save-delay",
+			label: "Auto-save delay",
+		},
+	]);
+});
+
 test("Appearance comes first under Preferences, where students look for it", () => {
 	const preferences = SETTINGS_SECTIONS.find((section) => section.id === "preferences");
 	expect(preferences?.groups[0]?.title).toBe("Appearance");

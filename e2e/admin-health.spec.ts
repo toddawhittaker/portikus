@@ -7,6 +7,7 @@ import {
 	settledAxe,
 	WCAG_TAGS,
 } from "./helpers";
+import { expectTokenFill } from "./token-colour";
 
 /**
  * The Health tab (SPEC.md §25.6). No worker runs in e2e, so each test writes
@@ -400,7 +401,7 @@ test.describe("admin health", () => {
 		);
 		await expect(intro.getByRole("link", { name: /More in Help/ })).toHaveAttribute(
 			"href",
-			"/help#admin-health",
+			"/admin/help#admin-health",
 		);
 
 		const tips: [string, RegExp][] = [
@@ -430,6 +431,13 @@ test.describe("admin health", () => {
 		await expect(banner).toContainText("Worker not reporting.");
 		await expect(banner).toContainText("3 minutes ago");
 		await expect(page.getByTestId("health-pool-warning")).toHaveCount(0);
+		// A warning fill in both themes, not a plain card.
+		for (const colorScheme of ["light", "dark"] as const) {
+			await page.emulateMedia({ colorScheme });
+			await expectTokenFill(banner, "--status-warning-soft");
+			const results = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
+			expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+		}
 	});
 
 	test("the platform charts show availability, running count, CPU, network and disk", async ({

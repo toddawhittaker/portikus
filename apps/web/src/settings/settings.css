@@ -52,6 +52,11 @@
 	padding-top: var(--space-6);
 }
 
+/* Field labels at regular weight, so they never read like the group headings. */
+.pk-settings-group .pk-label {
+	font-weight: 400;
+}
+
 /* Read-only values such as a long email wrap instead of running out of the dialog. */
 .pk-settings-value {
 	overflow-wrap: anywhere;

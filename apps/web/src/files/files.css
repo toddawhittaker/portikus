@@ -23,11 +23,12 @@
 	background: var(--surface-hover);
 }
 /* Selection is the neutral row tone shared by every right-pane list, and the
-   whole row carries it, actions included. The focused row
-   counts as selected for a screen reader, but is painted only while the
-   tree has focus, so an untouched tree shows no row picked out. */
+   whole row carries it, actions included. Before anything is selected the
+   focused row wears the tone too, but only while the tree has focus, so an
+   untouched tree shows no row picked out and a keyboard user sees where
+   they landed. That row is not selected for a screen reader. */
 .pk-tree-item[data-selected="true"] > .pk-tree-row,
-:where(.pk-tree:focus-within) .pk-tree-item[aria-selected="true"] > .pk-tree-row {
+:where(.pk-tree:focus-within) .pk-tree-item[data-current="true"] > .pk-tree-row {
 	background: var(--surface-row-selected);
 	/* The tone alone is too faint to see, so an ink bar marks the row too,
 	   never green. */

@@ -684,13 +684,23 @@ test("a statement over the limit is refused before any request", async () => {
 	expect(writes).toEqual([]);
 });
 
-test("a small gap starts each group of admin tabs", async () => {
+test("the tabs sit under the app header and before main, and the h1 stays", async () => {
 	stubAdmin(600);
-	renderApp("/admin");
-	const nav = await screen.findByRole("navigation", { name: "Administration" });
-	const gapped = within(nav)
-		.getAllByRole("link")
-		.filter((link) => link.classList.contains("ml-4"))
-		.map((link) => link.textContent);
-	expect(gapped).toEqual(["Health", "Network"]);
+	renderApp("/admin/health");
+	const header = await screen.findByTestId("app-header");
+	const nav = screen.getByRole("navigation", { name: "Administration" });
+	expect(header.contains(nav)).toBe(false);
+	expect(within(nav).getByRole("link", { current: "page" }).textContent).toBe("Health");
+	// Tab order follows reading order: the account button, the tabs, then the content.
+	const main = screen.getByTestId("page-admin");
+	expect(
+		header.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+	expect(
+		nav.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+	expect(within(main).queryByRole("navigation")).toBeNull();
+	// The outline still starts with an h1 that names <main>.
+	const h1 = screen.getByRole("heading", { level: 1, name: "Administration" });
+	expect(main.getAttribute("aria-labelledby")).toBe(h1.id);
 });

@@ -11,11 +11,12 @@ import {
 	useToast,
 } from "@portikus/ui";
 import { useRef, useState } from "react";
+import { AdminGroup } from "../AdminSection.js";
 import type { EntryDraft } from "./EntryDialog.js";
 import { egressErrorText, useEgressWrite } from "./queries.js";
 
 /** The administrator's own host names and address ranges, with labels. */
-export function EntriesCard({
+export function EntriesPart({
 	view,
 	onEdit,
 }: {
@@ -45,24 +46,18 @@ export function EntriesCard({
 	}
 
 	return (
-		<section className="pk-card p-6" aria-labelledby="egress-entries-title">
-			<div className="flex items-start gap-4">
-				<div className="min-w-0 flex-1">
-					<div className="flex items-center gap-1">
-						<h3 className="pk-text-heading m-0" id="egress-entries-title" tabIndex={-1}>
-							Your hosts and ranges
-						</h3>
-						<Toggletip label="ranges">
-							A range, such as 203.0.113.0/24, allows every address in it. It cannot
-							overlap a private network, because those stay blocked.
-						</Toggletip>
-					</div>
-					<p className="pk-text-body pk-muted mt-1 mb-0">
-						Anything a preset does not cover, such as your college's own sites. {hosts}{" "}
-						of {EGRESS_LIMITS.hosts} host names and {ranges} of {EGRESS_LIMITS.ranges}{" "}
-						ranges used.
-					</p>
-				</div>
+		<AdminGroup
+			level={4}
+			id="egress-entries-title"
+			title="Your hosts and ranges"
+			help={
+				<Toggletip label="ranges">
+					A range, such as 203.0.113.0/24, allows every address in it. It cannot overlap
+					a private network, because those stay blocked.
+				</Toggletip>
+			}
+			description={`Anything a preset does not cover, such as your college's own sites. ${hosts} of ${EGRESS_LIMITS.hosts} host names and ${ranges} of ${EGRESS_LIMITS.ranges} ranges used.`}
+			actions={
 				<Button
 					iconStart="plus"
 					data-testid="egress-add"
@@ -70,17 +65,18 @@ export function EntriesCard({
 				>
 					Add…
 				</Button>
-			</div>
+			}
+		>
 			{view.entries.length === 0 ? (
 				<p
-					className="m-0 mt-3 text-[13px] text-ink-muted"
+					className="m-0 text-[13px] text-ink-muted"
 					data-testid="egress-entries-empty"
 				>
 					No hosts or ranges yet. Add a host name such as api.example.edu, or allow one
 					from the refused names or the host test.
 				</p>
 			) : (
-				<div className="pk-table-wrap mt-4">
+				<div className="pk-table-wrap">
 					<table className="pk-table" data-testid="egress-entries">
 						<caption className="sr-only">Your hosts and ranges</caption>
 						<thead>
@@ -172,6 +168,6 @@ export function EntriesCard({
 					</ConfirmDialog>
 				) : null}
 			</ConfirmDialogRoot>
-		</section>
+		</AdminGroup>
 	);
 }

@@ -109,7 +109,9 @@ vi.mock("monaco-editor/editor/editor.api.js", () => {
 				},
 				// The Markdown split scrolls the working-copy side by line;
 				// nothing scrolls in jsdom, so it only answers.
+				getOriginalEditor: () => ({ updateOptions: () => {} }),
 				getModifiedEditor: () => ({
+					updateOptions: () => {},
 					onDidScrollChange: () => {},
 					getVisibleRanges: () => [],
 					getTopForLineNumber: () => 0,

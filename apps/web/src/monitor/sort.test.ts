@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { compareProcesses, keepOrder, toggleProcessSort } from "./sort.js";
+import { compareProcesses, keepOrder } from "./sort.js";
 
 const processes = [
 	{
@@ -33,7 +33,7 @@ const processes = [
 
 function order(
 	column: "pid" | "cpu" | "memory" | "command",
-	direction: "asc" | "desc",
+	direction: "ascending" | "descending",
 ) {
 	return [...processes]
 		.sort((left, right) => compareProcesses(left, right, { column, direction }))
@@ -41,21 +41,15 @@ function order(
 }
 
 test("pid and memory sort as numbers, not as text", () => {
-	expect(order("pid", "asc")).toEqual([2, 9, 10]);
-	expect(order("pid", "desc")).toEqual([10, 9, 2]);
-	expect(order("memory", "asc")).toEqual([10, 9, 2]);
-	expect(order("memory", "desc")).toEqual([2, 9, 10]);
+	expect(order("pid", "ascending")).toEqual([2, 9, 10]);
+	expect(order("pid", "descending")).toEqual([10, 9, 2]);
+	expect(order("memory", "ascending")).toEqual([10, 9, 2]);
+	expect(order("memory", "descending")).toEqual([2, 9, 10]);
 });
 
 test("cpu sorts numerically and a missing sample is less than zero", () => {
-	expect(order("cpu", "asc")).toEqual([2, 10, 9]);
-	expect(order("cpu", "desc")).toEqual([9, 10, 2]);
-});
-
-test("clicking the same column flips direction, and a new column starts ascending", () => {
-	const cpu = { column: "cpu" as const, direction: "desc" as const };
-	expect(toggleProcessSort(cpu, "cpu")).toEqual({ column: "cpu", direction: "asc" });
-	expect(toggleProcessSort(cpu, "pid")).toEqual({ column: "pid", direction: "asc" });
+	expect(order("cpu", "ascending")).toEqual([2, 10, 9]);
+	expect(order("cpu", "descending")).toEqual([9, 10, 2]);
 });
 
 test("keepOrder holds known rows in place and puts new ones after", () => {

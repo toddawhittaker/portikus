@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import {
 	createStudent,
+	finishOperation,
 	MOCK_ISSUER,
 	openAdmin,
 	openToggletip,
@@ -437,29 +438,6 @@ test("a workspace on an old image says Old image, not Stale, and loses it when i
 	});
 });
 
-/** Play the worker's end of an operation: clear it, then audit the result (ADR 0021). */
-async function finishOperation(
-	workspaceId: string,
-	action: string,
-	ok: boolean,
-): Promise<void> {
-	await query(
-		`update workspaces set pending_operation = null, pending_operation_at = null,
-		 pending_operation_by = null, state = $2, error_code = $3 where id = $1`,
-		[workspaceId, ok ? "stopped" : "error", ok ? null : "CONTROLLER_TIMEOUT"],
-	);
-	await query(
-		`insert into audit_events (actor, target, action, result, metadata)
-		 values ('worker', $1, $2, $3, $4)`,
-		[
-			workspaceId,
-			action,
-			ok ? "ok" : "failed",
-			JSON.stringify(ok ? {} : { errorCode: "CONTROLLER_TIMEOUT" }),
-		],
-	);
-}
-
 // The panel and the row say what is running, then how it ended.
 for (const { name, button, dialogId, running, endAction, ok, message, role } of [
 	{
@@ -567,6 +545,7 @@ test.describe("the Users table layout", () => {
 			"Role",
 			"Workspace",
 			"Activity",
+			"Actions",
 		]);
 
 		// The checkbox sits on the middle of the select controls.
@@ -766,7 +745,7 @@ test.describe("the Users table layout", () => {
 		);
 		await expect(intro.getByRole("link", { name: /More in Help/ })).toHaveAttribute(
 			"href",
-			"/help#admin-users",
+			"/admin/help#admin-users",
 		);
 
 		for (const [label, text] of [

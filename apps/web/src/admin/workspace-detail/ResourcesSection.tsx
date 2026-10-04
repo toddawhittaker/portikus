@@ -90,8 +90,12 @@ export function adminStep(storageClass: StorageClass, ownerName: string): string
 	return `Close to the limit. Raise it with Edit quotas, or ask ${ownerName} to ${ask}.`;
 }
 
-/** One meter per storage class against its limit (SPEC.md §18.3, §20.1). */
-function StorageMeters({
+/**
+ * One meter per storage class against its limit (SPEC.md §18.3, §20.1), on
+ * the student's StorageMeterRow, so both sides warn at storageLevel's
+ * thresholds.
+ */
+export function AdminStorageMeters({
 	storage,
 	ownerName,
 }: {
@@ -164,7 +168,7 @@ export function ResourcesSection({
 				Resources
 			</h4>
 			{detail?.storage ? (
-				<StorageMeters storage={detail.storage} ownerName={ownerName} />
+				<AdminStorageMeters storage={detail.storage} ownerName={ownerName} />
 			) : null}
 			<dl className="pk-dl">
 				{workspace && detail ? (

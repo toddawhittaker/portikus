@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from "react";
 import { ApiError } from "../../api/request.js";
+import { AdminGroup } from "../AdminSection.js";
 import { ApiCharts } from "./ApiCharts.js";
 import { frameOf } from "./charts/scales.js";
 import { EventCharts } from "./EventCharts.js";
@@ -79,22 +80,20 @@ export function TrendsCard({ warnPercent }: { warnPercent: number }) {
 	const data = series.data;
 	const frame = data ? frameOf(data) : null;
 	return (
-		<section className="pk-card p-6" aria-labelledby="health-trends-title">
-			<div className="flex flex-wrap items-center justify-between gap-3">
-				<h3 className="pk-text-heading m-0" id="health-trends-title">
-					Trends
-				</h3>
-				<RangeControl range={range} onChange={setRange} />
-			</div>
+		<AdminGroup
+			id="health-trends-title"
+			title="Trends"
+			actions={<RangeControl range={range} onChange={setRange} />}
+		>
 			{series.isError ? (
-				<p className="pk-error m-0 mt-4 text-status-error" role="alert">
+				<p className="pk-error m-0 text-status-error" role="alert">
 					{series.error instanceof ApiError
 						? series.error.message
 						: "The trends could not be loaded."}
 				</p>
 			) : data && frame ? (
 				<div
-					className="mt-4 flex flex-col gap-4"
+					className="flex flex-col gap-4"
 					data-testid="health-trends"
 					aria-busy={series.isPlaceholderData}
 				>
@@ -116,12 +115,8 @@ export function TrendsCard({ warnPercent }: { warnPercent: number }) {
 					</TrendGroup>
 				</div>
 			) : (
-				<div
-					aria-busy="true"
-					className="mt-4 h-40"
-					data-testid="health-trends-loading"
-				/>
+				<div aria-busy="true" className="h-40" data-testid="health-trends-loading" />
 			)}
-		</section>
+		</AdminGroup>
 	);
 }

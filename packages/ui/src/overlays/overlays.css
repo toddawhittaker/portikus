@@ -43,7 +43,12 @@
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);
 }
-.pk-menu-item[data-disabled] {
+/* A submenu's item stays marked while its submenu is open. */
+.pk-menu-subtrigger[data-state="open"] {
+	background: var(--surface-hover);
+}
+.pk-menu-item[data-disabled],
+.pk-menu-item[aria-disabled="true"] {
 	color: var(--ink-faint);
 }
 .pk-menu-item--danger {
@@ -200,6 +205,7 @@
 	color: var(--ink-muted);
 	font: inherit;
 	font-size: 13px;
+	text-decoration: none;
 	cursor: pointer;
 	outline: none;
 }
@@ -215,11 +221,14 @@
 	outline: var(--ring-width) solid var(--focus);
 	outline-offset: var(--ring-offset-inset);
 }
-.pk-tab[data-state="active"] {
+/* A link styled as a tab is selected by aria-current, a Radix tab by data-state. */
+.pk-tab[data-state="active"],
+.pk-tab[aria-current="page"] {
 	background: var(--surface-raised);
 	color: var(--ink);
 }
-.pk-tab[data-state="active"]::before {
+.pk-tab[data-state="active"]::before,
+.pk-tab[aria-current="page"]::before {
 	content: "";
 	position: absolute;
 	left: 0;
@@ -227,6 +236,30 @@
 	top: 0;
 	height: 2px;
 	background: var(--accent);
+}
+/* Forced colours drop author backgrounds, and the selected tab's bar with them. */
+@media (forced-colors: active) {
+	.pk-tab[data-state="active"]::before,
+	.pk-tab[aria-current="page"]::before {
+		forced-color-adjust: none;
+		background: Highlight;
+	}
+	/* A cue besides colour, as the bar alone is a thin line. */
+	.pk-tab[data-state="active"],
+	.pk-tab[aria-current="page"] {
+		font-weight: 600;
+	}
+	/* A label that sizes its tab carries a hidden bold copy, so choosing the tab moves nothing. */
+	.pk-tab [data-label] {
+		display: inline-grid;
+	}
+	.pk-tab [data-label]::after {
+		content: attr(data-label);
+		height: 0;
+		overflow: hidden;
+		visibility: hidden;
+		font-weight: 600;
+	}
 }
 .pk-tab--terminal[data-state="active"] {
 	background: var(--terminal-bg);
@@ -246,7 +279,11 @@
 	overflow: hidden;
 	white-space: nowrap;
 	text-align: left;
-	mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent 100%);
+	mask-image: linear-gradient(
+		to right,
+		#000 calc(100% - var(--space-3)),
+		transparent 100%
+	);
 }
 .pk-tab--ended .pk-tab-label {
 	font-style: italic;

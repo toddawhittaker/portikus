@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { EGRESS_PRESETS } from "../packages/contracts/dist/egress.js";
-import { loginAs, openToggletip, query } from "./helpers";
+import { expectNoViolations, loginAs, openToggletip, query } from "./helpers";
 
 /**
  * The admin Network tab: the workspace egress allow-list (SPEC.md
@@ -350,14 +350,27 @@ test("blocked sites are added, edited and removed, and Test a host explains them
 	page,
 }) => {
 	await reset("open");
+	// The first view is served with an empty list, since the a11y spec may
+	// block a site of its own meanwhile; later reads are the real table.
+	await page.route(
+		"**/admin/egress",
+		async (route) => {
+			if (route.request().method() !== "GET") return route.fallback();
+			const response = await route.fetch();
+			await route.fulfill({
+				response,
+				json: { ...(await response.json()), blockedSites: [] },
+			});
+		},
+		{ times: 1 },
+	);
 	await open(page);
 	const card = page.getByRole("region", { name: "Blocked sites" });
 	const rows = card.getByTestId("egress-block-row");
-	// Nothing is seeded: open mode stays as it was until a site is blocked.
-	await expect(rows).toHaveCount(0);
 	await expect(card.getByTestId("egress-block-note")).toContainText(
 		"Nothing is blocked",
 	);
+	await expect(rows.filter({ hasText: SUFFIX })).toHaveCount(0);
 
 	const dialog = page.getByTestId("egress-block-dialog");
 	const value = dialog.getByTestId("egress-block-value");
@@ -400,7 +413,11 @@ test("blocked sites are added, edited and removed, and Test a host explains them
 	).toBeFocused();
 	await expect(games).toContainText("Games site");
 
-	await expect(card.getByTestId("egress-block-note")).toContainText("QUIC is dropped");
+	// How blocking works is behind the heading's toggletip, not above the table.
+	await expect(card.getByTestId("egress-block-note")).toHaveCount(0);
+	await card.getByRole("button", { name: "About blocked sites" }).click();
+	await expect(openToggletip(page)).toContainText("QUIC is dropped");
+	await page.keyboard.press("Escape");
 
 	// Removing asks first; focus lands on the card heading.
 	await card.getByRole("button", { name: `Remove games.${SUFFIX}` }).click();
@@ -456,9 +473,11 @@ test("an unused empty block list collapses, and an unapplied mode is called the 
 		});
 	});
 	await open(page);
-	await expect(page.getByTestId("egress-mode-summary")).toHaveText(
-		/^Saved setting: Workspaces can reach only/,
-	);
+	await expect(
+		page
+			.getByRole("region", { name: "Internet access from workspaces" })
+			.getByText(/^Saved setting: Workspaces can reach only/),
+	).toBeVisible();
 	const card = page.getByRole("region", { name: "Blocked sites" });
 	await expect(card.getByRole("table")).toHaveCount(0);
 	await expect(card.getByText(/of \d+ used/)).toHaveCount(0);
@@ -474,3 +493,93 @@ test("an unused empty block list collapses, and an unapplied mode is called the 
 	// Short: the heading row and one line, not an empty state.
 	expect((await card.boundingBox())?.height ?? 999).toBeLessThan(160);
 });
+
+test("the groups follow the tab's width, and the host test stays in view beside the lists", async ({
+	page,
+}) => {
+	await reset("allow-list");
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await open(page);
+	const allowList = page.getByRole("region", { name: "Allow-list" });
+	const side = page.getByTestId("egress-side");
+	// Wide: the lists on the left, Test a host and Refused names on the right.
+	const left = await allowList.boundingBox();
+	const right = await side.boundingBox();
+	expect(right?.x ?? 0).toBeGreaterThan((left?.x ?? 0) + (left?.width ?? 0));
+	// Scrolled to the end, the side column is still on screen.
+	await page.locator("main").evaluate((main) => {
+		main.scrollTop = main.scrollHeight;
+	});
+	await expect(page.getByRole("heading", { name: "Test a host" })).toBeInViewport();
+
+	// Narrower: one column, Test a host under the lists.
+	await page.setViewportSize({ width: 1024, height: 900 });
+	await expect
+		.poll(async () => (await side.boundingBox())?.x)
+		.toBe((await allowList.boundingBox())?.x);
+	const allowBox = await allowList.boundingBox();
+	expect((await side.boundingBox())?.y ?? 0).toBeGreaterThan(
+		(allowBox?.y ?? 0) + (allowBox?.height ?? 0),
+	);
+});
+
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`a long Refused names list keeps the side column inside a short window (${colorScheme})`, async ({
+		page,
+	}) => {
+		await reset("allow-list");
+		// Counts above anything another spec seeds, so these are the 20 shown.
+		const names = Array.from({ length: 20 }, (_, i) => `n${i}.side.${SUFFIX}`);
+		for (const [i, name] of names.entries()) {
+			await query(
+				`insert into egress_blocked_names (day, name, source, count)
+				 values (current_date, $1, 'dns', $2)`,
+				[name, 100_000 - i],
+			);
+		}
+		await page.emulateMedia({ colorScheme });
+		await page.setViewportSize({ width: 1440, height: 600 });
+		await open(page);
+		const side = page.getByTestId("egress-side");
+		await expect(page.getByTestId("egress-blocked-row")).toHaveCount(20);
+
+		// Capped to what <main> shows, and scrolled on its own: with the page at
+		// its end, the whole column is on screen.
+		const main = page.locator("main");
+		await main.evaluate((node) => {
+			node.scrollTop = node.scrollHeight;
+		});
+		const mainBox = await main.boundingBox();
+		const sideBox = await side.boundingBox();
+		expect(sideBox?.y ?? 0).toBeGreaterThanOrEqual(mainBox?.y ?? 0);
+		expect((sideBox?.y ?? 0) + (sideBox?.height ?? 0)).toBeLessThanOrEqual(
+			(mainBox?.y ?? 0) + (mainBox?.height ?? 0),
+		);
+		expect(await side.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(
+			true,
+		);
+		// The scrolled column is a named region the keyboard can reach and scroll.
+		await expect(side).toHaveRole("region");
+		await expect(side).toHaveAccessibleName("Test a host and refused names");
+		await side.focus();
+		await expect(side).toBeFocused();
+		await page.keyboard.press("End");
+		await expect.poll(() => side.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+		await side.evaluate((node) => {
+			node.scrollTop = 0;
+		});
+
+		// Every row is reached by Tab and scrolled into view.
+		const allow = (name: string) =>
+			page.getByRole("button", { name: `Allow ${name}…`, exact: true });
+		await allow(names[0] ?? "").focus();
+		for (const name of names.slice(1)) {
+			await page.keyboard.press("Tab");
+			await expect(allow(name)).toBeFocused();
+		}
+		await expect(allow(names.at(-1) ?? "")).toBeInViewport();
+
+		await expectNoViolations(page);
+		await reset();
+	});
+}

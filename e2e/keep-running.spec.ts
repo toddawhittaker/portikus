@@ -143,14 +143,15 @@ for (const scheme of ["light", "dark"] as const) {
 		await expect(limits).toContainText("Kept running by its owner until", {
 			timeout: 15_000,
 		});
-		await expectNoViolations(page);
+		// Only the panel: the accounts table beside it grows with every test in the run.
+		await expectNoViolations(page, '[data-testid="workspace-detail"]');
 
 		await setCap(0);
 		await page.reload();
 		await page.getByTestId("detail-guard-edit").click();
 		const dialog = page.getByTestId("guard-dialog");
 		await expect(dialog.getByText("Site setting: 0 (off)")).toBeVisible();
-		await expectNoViolations(page);
+		await expectNoViolations(page, '[data-testid="guard-dialog"]');
 		await setCap(12);
 	});
 }

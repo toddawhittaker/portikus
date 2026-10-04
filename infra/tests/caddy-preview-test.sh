@@ -327,6 +327,12 @@ has "the course list and members reach the API" '^[[:space:]]+@api path .* /cour
 # The setup code is gone (ADR 0031); /setup is only a page.
 lacks "no /setup route reaches the API" 'handle /setup' "${app}"
 lacks "the /course pages are not sent to the API" 'handle /course[^s]' "${app}"
+# /admin/<tab> is both a page and the API's data, so a stored page could
+# answer the next fetch of the same URL with HTML (SPEC.md section 20.1).
+app_page="${work}/app_page"
+awk '/^[[:space:]]+handle @app_page \{$/ { on = 1 } on { print } on && /^[[:space:]]+}$/ { exit }' "${app}" > "${app_page}"
+has "a page that shares its URL with API data is never stored" \
+  '^[[:space:]]+header Cache-Control no-store$' "${app_page}"
 has "the control plane is still compressed" '^[[:space:]]+encode gzip$' "${app}"
 lacks "the control plane has no preview routes" '__portikus' "${app}"
 lacks "the control plane does not import the preview steps" 'import portikus_preview' "${app}"

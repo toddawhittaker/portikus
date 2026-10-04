@@ -1,5 +1,13 @@
 import { GithubLink, githubHref, WebsiteLink } from "@portikus/contracts";
-import { Button, LABEL_CLASS, TextField, Toggletip } from "@portikus/ui";
+import {
+	Button,
+	FieldMessages,
+	fieldDescribedBy,
+	LABEL_CLASS,
+	Skeleton,
+	TextField,
+	Toggletip,
+} from "@portikus/ui";
 import { useRef } from "react";
 import { useMe } from "../useMe.js";
 import { ControlFrame, useShowSetting } from "./controls.js";
@@ -7,7 +15,12 @@ import { LinkedAccounts } from "./LinkedAccounts.js";
 import { useProfile, useRemovePicture, useUploadPicture } from "./profileQueries.js";
 import { SETTINGS_SECTIONS } from "./sections.js";
 
+const PICTURE_ID = "profile-picture";
+
 const PROFILE = SETTINGS_SECTIONS.find((section) => section.id === "profile");
+
+/** Label and value side by side, as the admin tabs show read-only pairs. */
+const PAIRS_CLASS = "m-0 grid gap-x-6 gap-y-2";
 
 /** The profile links the student has typed but not saved yet. */
 export interface LinkDraft {
@@ -53,6 +66,28 @@ function SavedLink({ href, testId }: { href: string; testId: string }) {
 	);
 }
 
+/** Bars in the shape of the sign-in list, so the pane does not jump when it loads. */
+function ProfileSkeleton() {
+	const values = ["40%", "55%", "30%", "45%"];
+	return (
+		<div className="grid gap-4" aria-busy="true" data-testid="profile-loading">
+			<p className="sr-only">Loading your profile…</p>
+			<div className="grid gap-1">
+				<Skeleton width="30%" />
+				<Skeleton width="70%" />
+			</div>
+			<div className={`${PAIRS_CLASS} grid-cols-[8rem_minmax(0,1fr)]`}>
+				{values.map((width) => (
+					<div className="col-span-2 grid grid-cols-subgrid" key={width}>
+						<Skeleton width="80%" />
+						<Skeleton width={width} />
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
 export function ProfilePane({
 	highlightId,
 	links,
@@ -68,13 +103,21 @@ export function ProfilePane({
 	const profile = useProfile();
 	const upload = useUploadPicture();
 	const remove = useRemovePicture();
-	const pictureInput = useRef<HTMLInputElement>(null);
-	const chooseButton = useRef<HTMLButtonElement>(null);
 	const ready = me.status === "authenticated" && profile.isSuccess;
 	useShowSetting(highlightId, ready);
 	const user = me.status === "authenticated" ? me.user : null;
 	const saved = profile.data;
 	const pictureError = upload.error ?? remove.error;
+	const pictureErrorText = pictureError
+		? pictureError instanceof Error
+			? pictureError.message
+			: "The picture was not saved."
+		: null;
+	const pictureHint = upload.isPending
+		? "Saving your picture…"
+		: "A PNG or JPEG of up to 1 MiB. It is saved as soon as you choose it and shows in the account menu.";
+	const pictureInput = useRef<HTMLInputElement>(null);
+	const chooseButton = useRef<HTMLButtonElement>(null);
 	const github = checkLink(GithubLink, links.github);
 	const website = checkLink(WebsiteLink, links.website);
 	const commitOnEnter = (event: { key: string }) => {
@@ -114,7 +157,8 @@ export function ProfilePane({
 									{initials(user?.displayName ?? "")}
 								</span>
 							)}
-							{/* The native input is hidden; the button opens its file picker. */}
+							{/* A button, not the browser's file field: the field's "No file chosen"
+							    reads as if the saved picture were missing. */}
 							<input
 								ref={pictureInput}
 								type="file"
@@ -124,6 +168,7 @@ export function ProfilePane({
 								onChange={(event) => {
 									const file = event.target.files?.[0];
 									if (file) upload.mutate(file);
+									// Cleared, so choosing the same file again still uploads it.
 									event.target.value = "";
 								}}
 							/>
@@ -131,6 +176,11 @@ export function ProfilePane({
 								ref={chooseButton}
 								variant="secondary"
 								data-testid="profile-picture-choose"
+								aria-describedby={fieldDescribedBy({
+									id: PICTURE_ID,
+									hint: pictureHint,
+									error: pictureErrorText,
+								})}
 								loading={upload.isPending}
 								onClick={() => pictureInput.current?.click()}
 							>
@@ -151,20 +201,18 @@ export function ProfilePane({
 								</Button>
 							) : null}
 						</div>
-						<p className="pk-hint m-0 text-[12px] leading-4 text-ink-muted">
-							A PNG or JPEG of up to 1 MiB. It is saved as soon as you choose it and
-							shows in the account menu.
-						</p>
-						{pictureError ? (
-							<p
-								className="pk-text-body m-0 text-status-error"
-								data-testid="profile-picture-error"
-							>
-								{pictureError instanceof Error
-									? pictureError.message
-									: "The picture was not saved."}
-							</p>
-						) : null}
+						<FieldMessages
+							id={PICTURE_ID}
+							hint={pictureHint}
+							error={
+								pictureErrorText ? (
+									// Mounted afresh on each failure, so it is read out at once (SPEC.md section 25.8).
+									<span role="alert" data-testid="profile-picture-error">
+										{pictureErrorText}
+									</span>
+								) : null
+							}
+						/>
 					</div>
 				);
 			case "github":
@@ -218,13 +266,12 @@ export function ProfilePane({
 	const [picture, ...linkControls] = about?.controls ?? [];
 
 	return (
-		<section className="grid gap-6" aria-labelledby="settings-section-profile">
-			<h2 id="settings-section-profile" className="pk-text-heading text-ink">
+		<section className="relative grid gap-6" aria-labelledby="settings-section-profile">
+			{/* The section list already shows which section is open (SPEC.md section 25.8). */}
+			<h2 id="settings-section-profile" className="sr-only">
 				Profile
 			</h2>
-			{me.status === "loading" || profile.isPending ? (
-				<p className="pk-text-body text-ink-muted">Loading your profile…</p>
-			) : null}
+			{me.status === "loading" || profile.isPending ? <ProfileSkeleton /> : null}
 			{me.status !== "loading" && !profile.isPending && !ready ? (
 				<p className="pk-text-body text-status-error" data-testid="account-error">
 					Your account details could not be loaded.
@@ -236,23 +283,26 @@ export function ProfilePane({
 						className="pk-settings-group grid gap-4"
 						aria-labelledby="settings-profile-signin"
 					>
-						<h3
-							id="settings-profile-signin"
-							className="pk-text-body font-semibold text-ink"
+						<div className="grid gap-1">
+							<h3 id="settings-profile-signin" className="pk-text-heading text-ink">
+								{signIn?.title}
+							</h3>
+							<p className="pk-text-compact m-0 text-ink-muted">
+								These come from the institution sign-in and cannot be changed here.
+							</p>
+						</div>
+						<dl
+							className={`${PAIRS_CLASS} grid-cols-[max-content_minmax(0,1fr)]`}
+							data-testid="profile-signin"
 						>
-							{signIn?.title}
-						</h3>
-						<p className="pk-text-compact m-0 text-ink-muted">
-							These come from the institution sign-in and cannot be changed here.
-						</p>
-						<dl className="m-0 grid gap-4" data-testid="profile-signin">
 							{signIn?.controls.map((control) => (
 								<ControlFrame
 									key={control.id}
 									control={control}
 									highlighted={highlightId === control.id}
+									className="col-span-2 grid grid-cols-subgrid items-baseline"
 								>
-									<dt className="pk-text-label flex min-w-0 items-center gap-1 text-ink-muted">
+									<dt className="pk-text-compact flex min-w-0 items-center gap-1 text-ink-muted">
 										{control.label}
 										{control.id === "workspace-label" ? (
 											<Toggletip label={control.label}>
@@ -261,7 +311,14 @@ export function ProfilePane({
 											</Toggletip>
 										) : null}
 									</dt>
-									<dd className="pk-text-body pk-settings-value m-0 text-ink">
+									<dd
+										className={
+											// A sign-in name is an ID; a Dex local one is a long encoded subject.
+											control.id === "sign-in-name" && user?.signInName
+												? "pk-mono-small pk-settings-value m-0 text-ink"
+												: "pk-text-body pk-settings-value m-0 text-ink"
+										}
+									>
 										{signInValue(control.id)}
 									</dd>
 								</ControlFrame>
@@ -272,13 +329,9 @@ export function ProfilePane({
 						className="pk-settings-group grid gap-4"
 						aria-labelledby="settings-profile-about"
 					>
-						<h3
-							id="settings-profile-about"
-							className="pk-text-body font-semibold text-ink"
-						>
+						<h3 id="settings-profile-about" className="pk-text-heading text-ink">
 							{about?.title}
 						</h3>
-						<p className="pk-text-compact m-0 text-ink-muted">All optional.</p>
 						{picture ? (
 							<ControlFrame control={picture} highlighted={highlightId === picture.id}>
 								{editable(picture.id)}
@@ -301,7 +354,7 @@ export function ProfilePane({
 						<div className="flex min-w-0 items-center gap-1">
 							<h3
 								id="settings-profile-linked"
-								className="pk-text-body font-semibold text-ink"
+								className="pk-text-heading text-ink"
 								tabIndex={-1}
 							>
 								{linked?.title}

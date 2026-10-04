@@ -1,8 +1,12 @@
-import { Link, Navigate, useParams } from "@tanstack/react-router";
+import { Navigate, useParams } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { AdminHelp } from "../help/AdminHelp.js";
+import { ADMIN_HELP_TITLE } from "../help/titles.js";
 import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { gatePath, useMe } from "../useMe.js";
+import { AdminNav } from "./AdminNav.js";
+import "./admin-frame.css";
 import { focusAdminHeading } from "./AdminSection.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { BackupsTab } from "./backups/BackupsTab.js";
@@ -13,43 +17,36 @@ import { ImageTab } from "./image/ImageTab.js";
 import { LogsTab } from "./logs/LogsTab.js";
 import { NetworkTab } from "./network/NetworkTab.js";
 import { SettingsTab } from "./SettingsTab.js";
-import { ADMIN_TABS, type AdminTab, DEFAULT_ADMIN_TAB, isAdminTab } from "./tabs.js";
+import {
+	ADMIN_HELP_TAB,
+	DEFAULT_ADMIN_TAB,
+	isAdminTab,
+	ADMIN_TAB_LABEL as TAB_LABEL,
+} from "./tabs.js";
+import { OperationEndToasts } from "./users/operationEnd.js";
 import { WorkspacesTab } from "./WorkspacesTab.js";
-
-const TAB_LABEL: Record<AdminTab, string> = {
-	users: "Users",
-	health: "Health",
-	logs: "Logs",
-	audit: "Audit",
-	network: "Network",
-	backups: "Backups",
-	image: "Workspace image",
-	certificate: "Certificate",
-	docker: "Docker",
-	settings: "Settings",
-};
-
-/** The first tab of each group after the first gets a thin gap before it. */
-const GROUP_START = new Set<AdminTab>(["health", "network"]);
 
 /** The administration screen. Students never get here (SPEC.md §5.2, §6.4). */
 export function AdminPage() {
 	const me = useMe();
 	const params = useParams({ from: "/admin/$tab" });
-	const tab = isAdminTab(params.tab) ? params.tab : DEFAULT_ADMIN_TAB;
-	usePageTitle(`${TAB_LABEL[tab]}, Administration`);
-	const shownTab = useRef(tab);
+	// The administrator help is not a tab, so no tab is current while it shows.
+	const help = params.tab === ADMIN_HELP_TAB;
+	const view = help ? null : isAdminTab(params.tab) ? params.tab : DEFAULT_ADMIN_TAB;
+	const label = view ? TAB_LABEL[view] : ADMIN_HELP_TITLE;
+	usePageTitle(`${label}, Administration`);
+	const shownTab = useRef(view);
 	const [tabAnnouncement, setTabAnnouncement] = useState("");
 	// A link inside one tab that opens another (a chart bar, "View logs") is
 	// gone once the tab switches; put focus on the new tab's heading.
 	useEffect(() => {
-		if (shownTab.current === tab) return;
-		shownTab.current = tab;
+		if (shownTab.current === view) return;
+		shownTab.current = view;
 		// The back button changes the tab without moving focus; say which tab is now open (SPEC.md section 25.8).
-		setTabAnnouncement(`${TAB_LABEL[tab]} tab`);
+		setTabAnnouncement(view ? `${label} tab` : label);
 		const lost = !document.activeElement || document.activeElement === document.body;
 		if (lost) focusAdminHeading();
-	}, [tab]);
+	}, [view, label]);
 
 	// A gated account is on its way to the gate's page; a second redirect would fight it.
 	if (me.status === "loading" || gatePath(me) !== null) {
@@ -60,59 +57,52 @@ export function AdminPage() {
 	if (me.user.role !== "administrator") return <Navigate to="/not-authorized" />;
 
 	return (
-		<div className="pk-root">
+		// The admin area works down to 768 px, where the tabs wrap; the workspace keeps 1024 (SPEC.md section 20.1).
+		<div className="pk-root min-w-[768px]!">
 			<AppHeader user={me.user} workspace={null} project={undefined} />
-			<main
-				className="flex-1 scroll-pt-16 overflow-auto p-8"
-				data-testid="page-admin"
-				data-density="compact"
-				aria-labelledby="admin-title"
-			>
-				{/* <main> keeps the scroll, so the scrollbar stays at the window edge (SPEC.md section 20.1).
-				    scroll-pt-16 keeps a focused row clear of the sticky table header. */}
-				<div className="mx-auto w-full max-w-[1440px]" data-testid="admin-content">
-					<p aria-live="polite" className="sr-only" data-testid="admin-tab-announce">
-						{tabAnnouncement}
-					</p>
-					<h1 className="pk-text-title" id="admin-title">
-						Administration
-					</h1>
-					{/* Links, not a tab widget, so each tab has an address. */}
-					<nav
-						aria-label="Administration"
-						className="mt-4 flex gap-1 border-line border-b"
+			{/* The frame stays still under the header: the tab strip on top, and only
+			    the content under it scrolls, as a workspace pane does (SPEC.md section 20.1). */}
+			<div className="pk-adminframe-row">
+				<div className="pk-adminframe" data-testid="admin-frame">
+					<AdminNav tab={view} />
+					<main
+						className="pk-adminframe-scroll scroll-pt-16"
+						data-testid="page-admin"
+						data-density="compact"
+						aria-labelledby="admin-title"
 					>
-						{ADMIN_TABS.map((item) => (
-							<Link
-								key={item}
-								to="/admin/$tab"
-								params={{ tab: item }}
-								data-testid={`admin-tab-${item}`}
-								aria-current={item === tab ? "page" : undefined}
-								className={`pk-focus-ring -mb-px rounded-t-sm border-b-2 px-3 py-2 font-semibold text-[13px] no-underline ${
-									GROUP_START.has(item) ? "ml-4" : ""
-								} ${
-									item === tab
-										? "border-accent text-ink"
-										: "border-transparent text-ink-muted hover:text-ink"
-								}`}
+						{/* scroll-pt-16 keeps a focused row clear of the sticky table header. */}
+						<div className="px-4 py-6" data-testid="admin-content">
+							<p
+								aria-live="polite"
+								className="sr-only"
+								data-testid="admin-tab-announce"
 							>
-								{TAB_LABEL[item]}
-							</Link>
-						))}
-					</nav>
-					{tab === "users" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
-					{tab === "health" ? <HealthTab /> : null}
-					{tab === "logs" ? <LogsTab /> : null}
-					{tab === "audit" ? <AuditTab /> : null}
-					{tab === "network" ? <NetworkTab /> : null}
-					{tab === "backups" ? <BackupsTab /> : null}
-					{tab === "image" ? <ImageTab /> : null}
-					{tab === "certificate" ? <CertificateTab /> : null}
-					{tab === "docker" ? <DockerTab /> : null}
-					{tab === "settings" ? <SettingsTab /> : null}
+								{tabAnnouncement}
+							</p>
+							{/* Here, above the tabs, so an operation's end is announced on any tab (SPEC.md section 20.1). */}
+							<OperationEndToasts />
+							{help ? <AdminHelp titleId="admin-title" /> : null}
+							{/* The header shows "Administration"; the h1 keeps the outline. */}
+							{view ? (
+								<h1 className="sr-only" id="admin-title">
+									Administration
+								</h1>
+							) : null}
+							{view === "users" ? <WorkspacesTab currentUserId={me.user.id} /> : null}
+							{view === "health" ? <HealthTab /> : null}
+							{view === "logs" ? <LogsTab /> : null}
+							{view === "audit" ? <AuditTab /> : null}
+							{view === "network" ? <NetworkTab /> : null}
+							{view === "backups" ? <BackupsTab /> : null}
+							{view === "image" ? <ImageTab /> : null}
+							{view === "certificate" ? <CertificateTab /> : null}
+							{view === "docker" ? <DockerTab /> : null}
+							{view === "settings" ? <SettingsTab /> : null}
+						</div>
+					</main>
 				</div>
-			</main>
+			</div>
 		</div>
 	);
 }

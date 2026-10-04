@@ -1,6 +1,6 @@
 /**
- * The editor settings dialog (SPEC.md §13.5): it shows what the
- * server holds and sends the changes back.
+ * The settings dialog (SPEC.md §13.5): it shows what the server holds and
+ * sends the changes back. Profile and Linked accounts have files of their own.
  */
 import { EDITOR_SETTINGS_DEFAULTS } from "@portikus/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -9,124 +9,24 @@ import { afterEach, expect, test, vi } from "vitest";
 import { json, renderWithQuery, stubFetch, USER } from "../test-utils.js";
 import { SettingsDialog } from "./SettingsDialog.js";
 import { SETTINGS_SECTIONS } from "./sections.js";
+import {
+	ACCOUNT_USER,
+	buttonNamed,
+	checkbox,
+	openProfile,
+	PROFILE,
+	resetStubs,
+	SERVER_ZONES,
+	stub,
+	stubSettings,
+} from "./test-data.js";
 
 afterEach(() => {
 	document.documentElement.removeAttribute("data-theme");
 	localStorage.clear();
 	vi.unstubAllGlobals();
+	resetStubs();
 });
-
-interface Sent {
-	body: unknown;
-}
-
-/**
- * The zone names the server says it accepts. The dialog offers these and
- * nothing else, so the browser's own zone list never comes into it.
- */
-const SERVER_ZONES = [
-	"UTC",
-	"America/New_York",
-	"Europe/Berlin",
-	"Europe/Madrid",
-	"Asia/Tokyo",
-];
-
-/** Answers GET /me/settings with `stored` and records what is written. */
-function stubSettings(
-	stored = EDITOR_SETTINGS_DEFAULTS,
-	user: Record<string, unknown> | null = null,
-) {
-	const writes: Sent[] = [];
-	let current = { ...stored, timezones: SERVER_ZONES };
-	let profile = { ...PROFILE };
-	profileWrites = [];
-	stubFetch((url, init) => {
-		if (url === "/auth/me") {
-			if (!user) throw new Error("unexpected request to /auth/me");
-			return json(200, user);
-		}
-		if (url === "/me/profile") {
-			if ((init?.method ?? "GET") !== "GET") {
-				const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-				profileWrites.push({ body });
-				profile = { ...profile, ...body };
-			}
-			return json(200, profile);
-		}
-		if (url === "/me/links") return json(200, myLinks);
-		if (url === "/me/links/start") {
-			linkWrites.push(url);
-			return startAnswer;
-		}
-		if (url.startsWith("/me/links/") && url.endsWith("/unlink")) {
-			linkWrites.push(url);
-			myLinks = {
-				...myLinks,
-				links: myLinks.links.filter((link) => !url.includes(link.courseUserId)),
-			};
-			return json(200, { signedOut: unlinkSignsOut });
-		}
-		if (url === "/me/password") return new Response(null, { status: 204 });
-		if (url === "/me/picture") {
-			return json(413, { code: "FILE_TOO_LARGE", message: "The picture is too big" });
-		}
-		if (url !== "/me/settings") throw new Error(`unexpected request to ${url}`);
-		if ((init?.method ?? "GET") !== "GET") {
-			const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-			writes.push({ body });
-			current = { ...current, ...body } as typeof current;
-		}
-		return json(200, current);
-	});
-	return writes;
-}
-
-/** What GET /me/profile answers with before anything is changed. */
-const PROFILE = {
-	displayName: "Alice Example",
-	email: "alice@example.edu",
-	workspaceLabel: "alice",
-	github: null,
-	website: null,
-	picture: null,
-};
-
-/** Profile writes seen by the last stubSettings. */
-let profileWrites: Sent[] = [];
-
-/** What GET /me/links answers; an SSO account with no links unless a test says otherwise. */
-let myLinks: {
-	source: string;
-	linkUntil: string | null;
-	links: { courseUserId: string; [key: string]: unknown }[];
-	launch: null;
-} = { source: "sso", linkUntil: null, links: [], launch: null };
-let startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
-let linkWrites: string[] = [];
-let unlinkSignsOut = false;
-
-afterEach(() => {
-	myLinks = { source: "sso", linkUntil: null, links: [], launch: null };
-	startAnswer = json(200, { redirectUrl: "https://sso.example.edu/authorize?x=1" });
-	linkWrites = [];
-	unlinkSignsOut = false;
-});
-
-function checkbox(name: RegExp) {
-	return screen.getByRole("checkbox", { name });
-}
-
-/** The accessible name is the whole string, not a substring of a longer one. */
-function buttonNamed(label: string): HTMLElement {
-	const found = screen
-		.getAllByRole("button")
-		.filter((button) => button.textContent === label);
-	expect(found).toHaveLength(1);
-	const button = found[0];
-	if (!button) throw new Error(`missing button ${label}`);
-	return button;
-}
 
 /** The settings dialog, appearance included. */
 test("each section holds its own fields", async () => {
@@ -283,7 +183,7 @@ test("a save that fails after the dialog has closed shows a danger toast", async
 	vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input);
 		if (url === "/me/profile") return json(200, PROFILE);
-		if (url === "/me/links") return json(200, myLinks);
+		if (url === "/me/links") return json(200, stub.myLinks);
 		if (url === "/me/settings" && (init?.method ?? "GET") !== "GET") {
 			await held;
 			return json(500, { code: "INTERNAL", message: "The server could not save it." });
@@ -559,8 +459,6 @@ test("a failed settings request explains why the zone cannot be changed", async 
 	);
 });
 
-const ACCOUNT_USER = { ...USER, signInName: "university-alice" };
-
 test("settings opens on Preferences, with Profile first in the list", async () => {
 	stubSettings();
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
@@ -636,180 +534,13 @@ test("a search with no match says so", async () => {
 	expect(screen.queryByRole("button", { name: "Preferences" })).toBeNull();
 });
 
-async function openProfile() {
-	fireEvent.click(await screen.findByRole("button", { name: "Profile" }));
-	await screen.findByLabelText("GitHub");
-}
-
-test("Profile shows the institution sign-in, read-only", async () => {
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	await openProfile();
-
-	expect(screen.getByText(/come from the institution sign-in/)).toBeTruthy();
-	expect(screen.getByTestId("account-initials").textContent).toBe("AE");
-	// Label and value pairs, not form fields.
-	const list = screen.getByTestId("profile-signin");
-	expect(list.tagName).toBe("DL");
-	const pairs = within(list)
-		.getAllByRole("term")
-		.map((term) => [term.textContent, term.nextElementSibling?.textContent]);
-	expect(pairs).toEqual([
-		["Display name", "Alice Example"],
-		["Email", PROFILE.email],
-		["Sign-in name", "university-alice"],
-		["Workspace label", "alice"],
-	]);
-	expect(within(list).queryByRole("textbox")).toBeNull();
-});
-
-/** The value beside a sign-in label, read from the description list. */
-function signInValue(label: string): string | null | undefined {
-	const term = within(screen.getByTestId("profile-signin"))
-		.getAllByRole("term")
-		.find((item) => item.textContent === label);
-	return term?.nextElementSibling?.textContent;
-}
-
-test("a missing email is shown as not provided", async () => {
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	stubFetch((url) => {
-		if (url === "/auth/me") return json(200, ACCOUNT_USER);
-		if (url === "/me/profile") return json(200, { ...PROFILE, email: null });
-		return json(200, { ...EDITOR_SETTINGS_DEFAULTS, timezones: SERVER_ZONES });
-	});
-	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	await openProfile();
-
-	expect(signInValue("Email")).toBe("Not provided");
-});
-
-test("choosing the sign-in name hit opens Profile on that field", async () => {
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	await waitFor(() => expect(screen.getByLabelText("Search")).toBeTruthy());
-
-	fireEvent.change(screen.getByLabelText("Search"), { target: { value: "sign-in" } });
-	fireEvent.click(buttonNamed("Sign-in name"));
-
-	await screen.findByTestId("profile-signin");
-	expect(signInValue("Sign-in name")).toBe("university-alice");
-	expect(
-		document
-			.getElementById("settings-control-sign-in-name")
-			?.getAttribute("data-highlighted"),
-	).toBe("true");
-});
-
-test("a failed account request explains that the details are missing", async () => {
-	stubFetch((url) => {
-		if (url === "/auth/me") return json(500, { code: "INTERNAL", message: "no" });
-		if (url === "/me/profile") return json(200, PROFILE);
-		if (url === "/me/settings") {
-			return json(200, { ...EDITOR_SETTINGS_DEFAULTS, timezones: SERVER_ZONES });
-		}
-		throw new Error(`unexpected request to ${url}`);
-	});
-	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	fireEvent.click(await screen.findByRole("button", { name: "Profile" }));
-
-	expect((await screen.findByTestId("account-error")).textContent).toContain(
-		"could not be loaded",
-	);
-});
-
-/** Links save like the delay, on leaving the field, Enter or close. */
-test("a link is saved when the field is left and shown as a plain anchor", async () => {
-	const writes = stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	const onClose = vi.fn();
-	renderWithQuery(<SettingsDialog onClose={onClose} />);
-	await openProfile();
-	expect(screen.queryByRole("button", { name: "Save links" })).toBeNull();
-
-	const githubField = screen.getByLabelText("GitHub");
-	fireEvent.change(githubField, { target: { value: " alice-ex " } });
-	expect(profileWrites).toHaveLength(0);
-	fireEvent.blur(githubField);
-	await waitFor(() =>
-		expect(profileWrites.map((write) => write.body)).toEqual([{ github: "alice-ex" }]),
-	);
-	await waitFor(() =>
-		expect(screen.getByTestId("settings-saved").textContent).toBe("Saved"),
-	);
-	// Leaving it again sends nothing more.
-	fireEvent.blur(githubField);
-
-	const siteField = screen.getByLabelText("Personal site");
-	fireEvent.change(siteField, { target: { value: "https://alice.example.edu/" } });
-	fireEvent.keyDown(siteField, { key: "Enter" });
-	await waitFor(() => expect(profileWrites).toHaveLength(2));
-	expect(profileWrites[1]?.body).toEqual({ website: "https://alice.example.edu/" });
-	expect(writes).toHaveLength(0);
-	expect(onClose).not.toHaveBeenCalled();
-
-	const github = await screen.findByTestId("profile-github-link");
-	expect(github.tagName).toBe("A");
-	expect(github.getAttribute("href")).toBe("https://github.com/alice-ex");
-	expect(github.getAttribute("rel")).toBe("noopener");
-	const site = await screen.findByTestId("profile-website-link");
-	expect(site.getAttribute("href")).toBe("https://alice.example.edu/");
-	expect(site.getAttribute("rel")).toBe("noopener");
-});
-
-test("closing the dialog saves a link still being typed, once", async () => {
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	const onClose = vi.fn();
-	renderWithQuery(<SettingsDialog onClose={onClose} />);
-	await openProfile();
-
-	const field = screen.getByLabelText("GitHub");
-	fireEvent.change(field, { target: { value: "alice-ex" } });
-	// Pressing Close first takes focus from the field, then closes.
-	fireEvent.blur(field);
-	fireEvent.click(screen.getByTestId("settings-close"));
-
-	expect(onClose).toHaveBeenCalled();
-	await waitFor(() =>
-		expect(profileWrites.map((write) => write.body)).toEqual([{ github: "alice-ex" }]),
-	);
-	await new Promise((resolve) => setTimeout(resolve, 20));
-	expect(profileWrites).toHaveLength(1);
-});
-
-test("an invalid link keeps its error and is not sent, but a valid one beside it is", async () => {
-	const writes = stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	const onClose = vi.fn();
-	renderWithQuery(<SettingsDialog onClose={onClose} />);
-	await openProfile();
-
-	fireEvent.change(screen.getByLabelText("Personal site"), {
-		target: { value: "javascript:alert(1)" },
-	});
-	expect(screen.getByText("Give an https:// link")).toBeTruthy();
-	fireEvent.blur(screen.getByLabelText("Personal site"));
-	fireEvent.change(screen.getByLabelText("GitHub"), {
-		target: { value: "http://github.com/alice" },
-	});
-	expect(screen.getByText("Give a GitHub username or an https:// link")).toBeTruthy();
-	fireEvent.keyDown(screen.getByLabelText("GitHub"), { key: "Enter" });
-	await new Promise((resolve) => setTimeout(resolve, 20));
-	expect(profileWrites).toHaveLength(0);
-
-	fireEvent.change(screen.getByLabelText("GitHub"), { target: { value: "alice" } });
-	fireEvent.click(screen.getByTestId("settings-close"));
-	await waitFor(() =>
-		expect(profileWrites.map((write) => write.body)).toEqual([{ github: "alice" }]),
-	);
-	expect(writes).toHaveLength(0);
-});
-
 /** The long explanations sit behind a help button beside each control. */
 test("the long explanations are toggletips beside their controls", async () => {
 	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
 	renderWithQuery(<SettingsDialog onClose={() => {}} />);
 	await screen.findByRole("region", { name: "Accessibility" });
 	for (const name of [
-		"About Auto-save delay in seconds",
+		"About Auto-save delay",
 		"About Terminal colors",
 		"About Screen reader mode",
 		"About Workspace timezone",
@@ -825,55 +556,6 @@ test("the long explanations are toggletips beside their controls", async () => {
 	expect(screen.getByRole("button", { name: "About Workspace label" })).toBeTruthy();
 	await screen.findByTestId("link-sso");
 	expect(screen.getByRole("button", { name: "About Linked accounts" })).toBeTruthy();
-});
-
-/** A labelled button opens the file picker; the native input is hidden. */
-test("Choose picture opens the hidden file input", async () => {
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	await openProfile();
-
-	const input = screen.getByTestId("profile-picture-input") as HTMLInputElement;
-	expect(input.hidden).toBe(true);
-	const opened = vi.spyOn(input, "click");
-	fireEvent.click(screen.getByRole("button", { name: "Choose picture…" }));
-	expect(opened).toHaveBeenCalled();
-	// No picture yet, so there is nothing to remove.
-	expect(screen.queryByRole("button", { name: "Remove picture" })).toBeNull();
-});
-
-test("a refused picture upload shows the server's reason", async () => {
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	await openProfile();
-
-	const file = new File([new Uint8Array(8)], "me.png", { type: "image/png" });
-	fireEvent.change(screen.getByTestId("profile-picture-input"), {
-		target: { files: [file] },
-	});
-
-	expect((await screen.findByTestId("profile-picture-error")).textContent).toBe(
-		"The picture is too big",
-	);
-});
-
-test("a picture over the cap is refused before it is sent", async () => {
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	await openProfile();
-	const sent = vi.mocked(fetch).mock.calls.length;
-
-	const file = new File([new Uint8Array(1024 * 1024 + 1)], "big.png", {
-		type: "image/png",
-	});
-	fireEvent.change(screen.getByTestId("profile-picture-input"), {
-		target: { files: [file] },
-	});
-
-	expect((await screen.findByTestId("profile-picture-error")).textContent).toBe(
-		"The picture must be at most 1 MiB",
-	);
-	expect(vi.mocked(fetch).mock.calls.length).toBe(sent);
 });
 
 /** Screen-reader mode is a per-user setting. */
@@ -936,296 +618,6 @@ test("searching for keyboard finds the pointer to Help", async () => {
 	expect(frame?.querySelector("a")?.getAttribute("href")).toBe(
 		"/help#student-keyboard",
 	);
-});
-
-/** ADR 0026. */
-async function openLinked() {
-	renderWithQuery(<SettingsDialog onClose={() => {}} />);
-	await openProfile();
-	return await screen.findByRole("region", { name: "Linked accounts" });
-}
-
-function minutesFromNow(minutes: number): string {
-	return new Date(Date.now() + minutes * 60_000).toISOString();
-}
-
-function courseLinks() {
-	myLinks = {
-		source: "course",
-		linkUntil: minutesFromNow(10),
-		links: [],
-		launch: null,
-	};
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-}
-
-function tell(message: { type: string }) {
-	const channel = new BroadcastChannel("portikus-link");
-	channel.postMessage(message);
-	channel.close();
-}
-
-function fakeTab() {
-	return { opener: {} as unknown, location: { href: "" }, close: vi.fn() };
-}
-
-test("Link to my SSO account starts the link here and sends a new tab to the SSO sign-in", async () => {
-	const tab = fakeTab();
-	const open = vi.fn(() => tab);
-	vi.stubGlobal("open", open);
-	courseLinks();
-	const region = await openLinked();
-
-	fireEvent.click(
-		await within(region).findByRole("button", { name: "Link to my SSO account" }),
-	);
-
-	expect(open).toHaveBeenCalledWith("", "_blank");
-	expect(tab.opener).toBeNull();
-	await waitFor(() =>
-		expect(tab.location.href).toBe("https://sso.example.edu/authorize?x=1"),
-	);
-	expect(linkWrites).toEqual(["/me/links/start"]);
-	expect(within(region).getByRole("status").textContent).toBe(
-		"Finish signing in in the new tab.",
-	);
-	const reopen = within(region).getByRole("button", {
-		name: "Open the sign-in tab again",
-	});
-	expect(document.activeElement).toBe(reopen);
-	fireEvent.click(reopen);
-	expect(open).toHaveBeenCalledTimes(2);
-});
-
-test("a refused start closes the new tab and is announced in Settings", async () => {
-	const tab = fakeTab();
-	vi.stubGlobal(
-		"open",
-		vi.fn(() => tab),
-	);
-	startAnswer = json(403, {
-		code: "FORBIDDEN",
-		message: "Open Portikus again from your course to link it.",
-	});
-	courseLinks();
-	const region = await openLinked();
-
-	fireEvent.click(
-		await within(region).findByRole("button", { name: "Link to my SSO account" }),
-	);
-
-	expect((await within(region).findByRole("alert")).textContent).toBe(
-		"Open Portikus again from your course to link it.",
-	);
-	expect(tab.close).toHaveBeenCalled();
-	expect(tab.location.href).toBe("");
-	await waitFor(() =>
-		expect(document.activeElement).toBe(
-			within(region).getByRole("button", { name: "Link to my SSO account" }),
-		),
-	);
-});
-
-test("a blocked pop-up falls back to the start page in this tab", async () => {
-	vi.stubGlobal(
-		"open",
-		vi.fn(() => null),
-	);
-	const assign = vi.fn();
-	vi.stubGlobal("location", { ...window.location, assign });
-	courseLinks();
-	const region = await openLinked();
-
-	fireEvent.click(
-		await within(region).findByRole("button", { name: "Link to my SSO account" }),
-	);
-
-	expect(assign).toHaveBeenCalledWith("/link/start");
-});
-
-test("the waiting tab stops waiting when the new tab cancels", async () => {
-	vi.stubGlobal(
-		"open",
-		vi.fn(() => fakeTab()),
-	);
-	courseLinks();
-	const region = await openLinked();
-	fireEvent.click(
-		await within(region).findByRole("button", { name: "Link to my SSO account" }),
-	);
-
-	tell({ type: "cancelled" });
-	const start = await within(region).findByRole("button", {
-		name: "Link to my SSO account",
-	});
-	await waitFor(() => expect(document.activeElement).toBe(start));
-	expect(within(region).getByRole("status").textContent).toBe("");
-});
-
-test("a course session past the 15-minute window is told to open Portikus again", async () => {
-	myLinks = {
-		source: "course",
-		linkUntil: minutesFromNow(-1),
-		links: [],
-		launch: null,
-	};
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	const region = await openLinked();
-
-	expect((await within(region).findByTestId("link-too-late")).textContent).toBe(
-		"Open Portikus again from your course to link it.",
-	);
-	expect(
-		within(region).queryByRole("button", { name: "Link to my SSO account" }),
-	).toBeNull();
-});
-
-test("an SSO account with no links says how to link one and offers no button", async () => {
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	const region = await openLinked();
-
-	expect(await within(region).findByText(/No course sign-ins are linked/)).toBeTruthy();
-	// Only the help button beside the heading; nothing to link or unlink.
-	expect(
-		within(region)
-			.getAllByRole("button")
-			.map((button) => button.getAttribute("aria-label")),
-	).toEqual(["About Linked accounts"]);
-});
-
-test("an SSO account lists its links and unlinks one", async () => {
-	const courseUserId = "33333333-3333-4333-8333-333333333333";
-	myLinks = {
-		source: "sso",
-		linkUntil: null,
-		links: [
-			{
-				courseUserId,
-				platformName: "mock-lms",
-				displayName: "Sam Student",
-				linkedAt: "2026-09-24T12:00:00.000Z",
-			},
-		],
-		launch: null,
-	};
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	const region = await openLinked();
-
-	fireEvent.click(
-		await within(region).findByRole("button", {
-			name: "Unlink Sam Student from mock-lms",
-		}),
-	);
-
-	await waitFor(() =>
-		expect(within(region).getByRole("status").textContent).toMatch(/^Unlinked\./),
-	);
-	expect(linkWrites).toEqual([`/me/links/${courseUserId}/unlink`]);
-	expect(await within(region).findByText(/No course sign-ins are linked/)).toBeTruthy();
-	// The last row is gone, so focus lands on the section heading.
-	await waitFor(() =>
-		expect(document.activeElement?.id).toBe("settings-profile-linked"),
-	);
-});
-
-test("an unlink that ends this session goes to the unlinked page", async () => {
-	const assign = vi.fn();
-	vi.stubGlobal("location", { ...window.location, assign });
-	unlinkSignsOut = true;
-	myLinks = {
-		source: "sso",
-		linkUntil: null,
-		links: [
-			{
-				courseUserId: "33333333-3333-4333-8333-333333333333",
-				platformName: "mock-lms",
-				displayName: "Sam Student",
-				linkedAt: "2026-09-24T12:00:00.000Z",
-			},
-		],
-		launch: null,
-	};
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	const region = await openLinked();
-
-	fireEvent.click(
-		await within(region).findByRole("button", {
-			name: "Unlink Sam Student from mock-lms",
-		}),
-	);
-
-	await waitFor(() => expect(assign).toHaveBeenCalledWith("/unlinked"));
-});
-
-test("after an unlink, focus moves to the next Unlink button", async () => {
-	const first = "33333333-3333-4333-8333-333333333333";
-	const second = "44444444-4444-4444-8444-444444444444";
-	const row = (courseUserId: string, displayName: string) => ({
-		courseUserId,
-		platformName: "mock-lms",
-		displayName,
-		linkedAt: "2026-09-24T12:00:00.000Z",
-	});
-	myLinks = {
-		source: "sso",
-		linkUntil: null,
-		links: [row(first, "Sam Student"), row(second, "Sam Other")],
-		launch: null,
-	};
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	const region = await openLinked();
-
-	fireEvent.click(
-		await within(region).findByRole("button", {
-			name: "Unlink Sam Student from mock-lms",
-		}),
-	);
-	await waitFor(() =>
-		expect(document.activeElement?.getAttribute("aria-label")).toBe(
-			"Unlink Sam Other from mock-lms",
-		),
-	);
-});
-
-test("focus moves only after the refetch has removed the unlinked row", async () => {
-	const courseUserId = "33333333-3333-4333-8333-333333333333";
-	myLinks = {
-		source: "sso",
-		linkUntil: null,
-		links: [
-			{
-				courseUserId,
-				platformName: "mock-lms",
-				displayName: "Sam Student",
-				linkedAt: "2026-09-24T12:00:00.000Z",
-			},
-		],
-		launch: null,
-	};
-	stubSettings(EDITOR_SETTINGS_DEFAULTS, ACCOUNT_USER);
-	// A slow refetch, so focus code that does not wait for it sees the old row.
-	const inner = globalThis.fetch;
-	vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
-		if (String(input) === "/me/links" && linkWrites.length > 0) {
-			await new Promise((resolve) => setTimeout(resolve, 100));
-		}
-		return inner(input, init);
-	});
-	const region = await openLinked();
-	const button = await within(region).findByRole("button", {
-		name: "Unlink Sam Student from mock-lms",
-	});
-	const rowPresentAtFocus: boolean[] = [];
-	const heading = document.getElementById("settings-profile-linked") as HTMLElement;
-	const focus = heading.focus.bind(heading);
-	heading.focus = (options?: FocusOptions) => {
-		rowPresentAtFocus.push(screen.queryByTestId(`link-row-${courseUserId}`) !== null);
-		focus(options);
-	};
-
-	fireEvent.click(button);
-
-	await waitFor(() => expect(rowPresentAtFocus).toEqual([false]));
 });
 
 /** A failed save is announced, not only shown, and the control goes back. */

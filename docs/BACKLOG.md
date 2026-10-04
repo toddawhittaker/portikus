@@ -1044,98 +1044,16 @@ removes one of the two proofs of control ordinary linking requires.
 
 **Source.** Left out of Epic 13.1.
 
-## "Still working?" under an open dialog
-
-**What.** Make the idle notice reachable when it appears while a dialog is
-open. Today the dialog marks the rest of the page hidden from screen
-readers, and its focus trap pulls focus back from Keep working.
-
-**What it would take.** Raise the notice as its own alert dialog, or
-render it inside the open dialog's layer, so it is announced and can take
-focus. About a day with tests.
-
-**Source.** Accessibility review of Epic 14.3 (issue #554).
-
-## A larger unread badge
-
-**What.** The unread badge on the account button uses 10px text and an
-18px target that overlaps the account button (SPEC.md section 25.8).
-
-**What it would take.** A 24px target that sits beside the account button
-rather than over it, with at least 12px text, and a design check against
-design/. Half a day with the header tests.
-
-**Source.** Accessibility review of Epic 14.3 (issue #475).
-
-## Sortable admin tables and a table component
-
-**What.** Sortable column headers and a React `<Table>` component.
-
-**What it would take.** Port the design's sortable-header rules and add
-sort state per table. Worth a component only once column definitions
-repeat.
-
-**Source.** Left out of Epic 18; the CSS classes are enough today.
-
-## Admin tabs in the app header
-
-**What.** Move the admin tab navigation into the app header, as the
-mockup's `.pk-adminnav` does, to save about 110 px of height.
-
-**What it would take.** A header change that knows about admin routes,
-with the header tests and e2e updated.
-
-**Source.** Left out of Epic 18.
-
-## Per-row "more" menus in admin tables
-
-**What.** A menu on each Users row with its actions, from the mockup.
-
-**What it would take.** A menu per row reusing the detail panel's
-actions. Bulk selection and the detail panel already carry them.
-
-**Source.** Left out of Epic 18.
-
 ## A tablet admin layout
 
-**What.** An admin area usable below 1024 px.
+**What.** An admin area usable below 768 px.
 
-**What it would take.** A narrow layout for the tables and detail panel.
-The admin area is desktop-only today (SPEC.md section 20.1).
+**What it would take.** A narrow layout for the tables, so each row reads
+without scrolling sideways. Since Epic 33 the admin area works down to
+768 px, with wrapping tabs and the Users detail panel under the table
+(SPEC.md section 20.1).
 
-**Source.** Left out of Epic 18.
-
-## Shared storage thresholds for the admin detail panel
-
-**What.** The admin detail panel could reuse the student side's
-StorageMeters and storageLevel thresholds, so both sides colour usage
-the same way.
-
-**What it would take.** Import the shared helper in the panel's meters,
-with a unit test. Under half a day.
-
-**Source.** Epic 18 confirmation review.
-
-## A radio-item menu component
-
-**What.** The Preview frame width uses checkable menu items; a radio-item
-component would state "one of these" more precisely to assistive
-technology.
-
-**What it would take.** A new `packages/ui` export wrapping the Radix
-radio group item, used by the width menu. Half a day.
-
-**Source.** Left out of Epic 20 (issue #609).
-
-## A full accessibility audit of the student interface
-
-**What.** Epic 20's accessibility review covered only that epic's changes.
-
-**What it would take.** An a11y-reviewer pass over the whole student
-interface against SPEC.md section 25.8, with fixes filed as issues.
-
-**Source.** Left out of Epic 20.
-
+**Source.** Left out of Epic 18; narrowed by Epic 33.
 
 ## Clone and template on a full disk
 
@@ -1202,16 +1120,6 @@ limit.
 `apps/api/src/rate-limit.ts` if a need appears.
 
 **Source.** Left out of Epic 17.
-
-## Keep the old save error while the disk stays full
-
-**What.** While the home folder is full, the editor's save error is
-announced to screen readers again after every autosave attempt.
-
-**What it would take.** Keep the existing error in `FileLeaf.tsx` until a
-save succeeds instead of replacing it with an identical one. Under a day.
-
-**Source.** Accessibility review of Epic 16.
 
 ## A per-user cap on terminal WebSocket connections
 
@@ -1370,28 +1278,6 @@ new image, which fixes it.
 
 **Source.** Left out of Epic 19.
 
-## Heat map values for sighted keyboard users
-
-**What.** The heat map's cells are not focusable, so a sighted keyboard user cannot read a cell's exact value; the Peak column is the summary. Screen readers get every value.
-
-**What it would take.** A keyboard cursor over the table like the charts' readout, one tab stop with arrow keys, without making thousands of tab stops.
-
-**Source.** Left out of Epic 19.
-
-## Monitor buttons while Find in files is open
-
-**What.** "See what's using CPU", "See what's using memory" and the
-status bar's Memory meter do nothing visible while Find in files covers
-the right pane's tabs. Monitor is chosen and focus moves to its tab only
-once the search closes.
-
-**What it would take.** Close the search, or show Monitor over it, when
-one of these buttons is pressed, with a unit and a Playwright test. Half
-a day.
-
-**Source.** Epic 21 accessibility confirmation review; the behaviour
-predates Epic 21.
-
 ## Stop a process tree, and renice
 
 **What.** Stop a program and its children together from Monitor, or
@@ -1457,20 +1343,6 @@ those. About a day with tests (ADR 0037).
 
 **Source.** Epic 21 security confirmation review.
 
-
-## Course page at narrow widths
-
-**What.** A Course page that fits a narrow window without scrolling
-sideways.
-
-**Why.** Instructors may open it on a laptop beside the learning system;
-today the members table scrolls sideways below about 1024 px.
-
-**What it would take.** Let the table drop or stack less important
-columns in a container query, as the right pane does. Half a day with
-Playwright checks.
-
-**Source.** Epic 25 design review.
 
 ## Check summary headings with VoiceOver
 
@@ -1640,36 +1512,6 @@ right owner first, or copy to a folder the build user owns.
 
 **Source.** Epic 15.3.
 
-## Announce an admin rebuild result after the panel closes
-
-**What.** A rebuild or Docker reset that ends after its detail panel is
-closed or switched gets no toast. The Audit tab still shows it.
-
-**What it would take.** Watch pending operations at the Users view level
-rather than the panel, and toast when any of them ends.
-
-**Source.** Epic 15.3 (#881).
-
-## End toast for Replace home folder
-
-**What.** Replace home folder shows a pending badge but no toast when it
-ends.
-
-**What it would take.** Read its result audit row the same way rebuild
-and Reset Docker now do, and show the same toast.
-
-**Source.** Epic 15.3 (#881).
-
-## A "moving" option for StateBadge
-
-**What.** A pending label follows the workspace state's badge, so the
-student's "Rebuilding" badge can show a stopped ring.
-
-**What it would take.** A StateBadge option that shows a spinner whatever
-the workspace state, used by every pending label.
-
-**Source.** Epic 15.3 (#881).
-
 ## Keycap emoji in clone names
 
 **What.** A keycap emoji such as 1️⃣ keeps its digit in the suggested
@@ -1779,18 +1621,6 @@ exists. This is blocked on #918.
 
 **Source.** Epic 27 (#804), ruling R12.
 
-## Shared file input in packages/ui
-
-**What.** The Certificate tab builds its own file picker for the PEM
-uploads. There is no shared file input that looks and behaves like the
-Select in `packages/ui`.
-
-**What it would take.** A file input component in `packages/ui`, styled
-like Select, with its hint linked by `aria-describedby`, used by the
-Certificate tab, with unit and axe tests.
-
-**Source.** Epic 27 (#804) review of the Certificate tab.
-
 ## Caddy reloads and long WebSockets
 
 **What.** A Caddy reload closes every proxied WebSocket, such as a
@@ -1845,21 +1675,13 @@ when the job fails.
 
 **Source.** Epic 28 (#933), the pilot Codex test.
 
-## Status bar overflow and page reflow at narrow widths
+## Page reflow at narrow widths
 
-**What.** At narrow widths the status bar's text, including the Keep running line, overflows, and the workspace and admin pages do not reflow at 560 pixels.
+**What.** The workspace keeps a 1024 px minimum width and the admin area a 768 px one, so at 560 pixels both scroll sideways instead of reflowing. DESIGN.md defers the narrow workspace layout, and SPEC.md section 20.1 sets the admin minimum.
 
-**What it would take.** Shorten or wrap the status bar items under a container query, and check both pages at 560 pixels with a Playwright screenshot and an axe run.
+**What it would take.** A narrow layout for each page, checked at 560 pixels with a Playwright screenshot and an axe run.
 
-**Source.** Epic 28 UI review (#955).
-
-## Move the shell's storage meters onto the Meter component
-
-**What.** The status bar and workspace dialog storage meters are CSS-only bars. Epic 28 added the `Meter` component in `packages/ui` (SPEC.md section 25.8), whose empty track meets 3:1 contrast; the shell's empty track is about 1.2:1.
-
-**What it would take.** Replace the shell meters with `Meter`, keeping their text and warning tones, and update their unit and Playwright tests.
-
-**Source.** Epic 28 a11y notes (#931).
+**Source.** Epic 28 UI review (#955); Epic 33.
 
 ## Image sizes of existing images
 
@@ -1984,7 +1806,7 @@ when the job fails.
 
 ## Files over 800 lines
 
-**What.** Lint warns about non-test source files over 800 lines. Still over: the controller's `provider.ts` (about 1,470), `FileTree.tsx`, `BackupsTab.tsx` (issue #1087), `reconcile.ts`, the API's projects routes, `git.ts`, `ImageTab.tsx`, `WorkspacesTab.tsx` and `listening.ts`.
+**What.** Lint warns about non-test source files over 800 lines. Still over: the controller's `provider.ts` (about 1,470), `FileTree.tsx` (about 1,290), `app.css` (about 840), `reconcile.ts`, the API's projects routes, `git.ts`, `ImageTab.tsx` and `listening.ts`.
 
 **What it would take.** Split each along the seam where it starts doing a second job, as Epic 32 did for the agent's server and the controller's start steps, keeping existing tests' assertions.
 

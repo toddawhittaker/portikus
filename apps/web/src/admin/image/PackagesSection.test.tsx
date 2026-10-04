@@ -48,6 +48,15 @@ test("each row shows the count out of those surveyed, and marks candidates", () 
 	);
 });
 
+test("while the survey loads, a skeleton holds its place and says what is loading", () => {
+	stubFetch(() => new Promise<Response>(() => {}) as unknown as Response);
+	renderWithQuery(<PackagesSection />);
+	const loading = screen.getByTestId("packages-loading");
+	expect(loading.getAttribute("aria-busy")).toBe("true");
+	expect(loading.querySelector(".pk-skel")).not.toBeNull();
+	expect(loading.textContent).toBe("Loading the package survey…");
+});
+
 test("before the first survey it says so", () => {
 	render(<PackagesTable survey={{ day: null, surveyed: 0, packages: [] }} />);
 	expect(screen.getByTestId("packages-empty").textContent).toBe(
@@ -79,6 +88,13 @@ test("the section loads the survey from the API", async () => {
 	expect(screen.getByRole("heading", { level: 3 }).textContent).toBe(
 		"Packages students add",
 	);
+	// The shared admin card, spaced by its parent's gap rather than its own margin.
+	const card = screen.getByRole("region", { name: "Packages students add" });
+	expect(card.classList.contains("pk-card")).toBe(true);
+	expect(card.className).not.toMatch(/\bmt-/);
+	expect(
+		screen.getByTestId("packages-table").closest(".pk-table-wrap")?.className,
+	).toBe("pk-table-wrap");
 });
 
 test("a failed load is announced", async () => {

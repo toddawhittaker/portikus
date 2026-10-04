@@ -1,4 +1,4 @@
-<!-- @dsCard group="Identity" height=116 -->
+<!-- @dsCard group="Identity" height=156 -->
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Icon</title>
@@ -11,7 +11,7 @@
 <div id="root" class="pk-root"></div>
 <script>
 var P = window.Portikus, h = React.createElement, F = React.Fragment;
-var names=['terminal','agent','file','folder','folder-open','preview','plus','x','more','chevron-right','chevron-down','chevron-up-down','external','alert','check','info','search','play','stop','restart','lock','grip','storage','trash','sign-out'];
+var names=['terminal','agent','file','folder','folder-open','preview','plus','x','more','chevron-right','chevron-down','chevron-up-down','external','alert','check','info','search','play','stop','restart','lock','grip','storage','trash','sign-out','help','users','activity','list','clipboard-list','globe','archive','box','layers','settings'];
 ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'demo',style:{gap:'6px'}}, names.map(function(n){return h('div',{key:n,title:n,style:{display:'grid',justifyItems:'center',gap:'4px',width:'64px',color:'var(--ink)'}}, h(P.Icon,{name:n}), h('span',{className:'pk-mono',style:{fontSize:'10px',lineHeight:'12px',color:'var(--ink-muted)'}},n));})));
 </script>
 </body>

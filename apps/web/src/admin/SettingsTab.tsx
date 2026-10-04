@@ -19,7 +19,7 @@ import { type FormEvent, useState } from "react";
 import type { z } from "zod";
 import { errorText } from "../api/request.js";
 import { announced } from "../common/announced.js";
-import { AdminSection } from "./AdminSection.js";
+import { AdminGroup, AdminSection } from "./AdminSection.js";
 import { graceMinutes, graceText, parseGraceMinutes } from "./graceText.js";
 import { GUARD_FIELDS, type GuardKey, parseGuardValue } from "./guardFields.js";
 import { usePlatformSettings, useUpdatePlatformSettings } from "./queries.js";
@@ -27,7 +27,7 @@ import { usePlatformSettings, useUpdatePlatformSettings } from "./queries.js";
 /**
  * The platform-wide settings: when workspaces stop, the resource guard and
  * the acceptable-use statement (SPEC.md §6.4, §19.4, ADR 0032). One column
- * of sections split by hairlines; the log level lives on the Logs tab.
+ * of cards, as on the other tabs; the log level lives on the Logs tab.
  */
 export function SettingsTab() {
 	return (
@@ -39,7 +39,7 @@ export function SettingsTab() {
 				text: "Site-wide rules for when workspaces stop, how heavy use is slowed, and the statement everyone accepts. Most can be changed for one workspace from its panel on the Users tab.",
 			}}
 		>
-			<div className="flex max-w-[72ch] flex-col gap-6" data-testid="settings-sections">
+			<div className="flex max-w-[72ch] flex-col gap-4" data-testid="settings-sections">
 				<StopSection />
 				<ResourceGuardSection />
 				<AcceptableUseSection />
@@ -48,28 +48,19 @@ export function SettingsTab() {
 	);
 }
 
-/** Sections after the first get a hairline above them. */
-const SECTION_CLASS =
-	"flex flex-col gap-4 border-line border-t pt-6 first:border-t-0 first:pt-0";
-
 function StopSection() {
 	return (
-		<section className={SECTION_CLASS} aria-labelledby="stop-title">
-			<div>
-				<h3 className="pk-text-heading m-0" id="stop-title">
-					When workspaces stop
-				</h3>
-				<p className="pk-text-body pk-muted m-0 mt-1">
-					A running workspace stops when the disconnect grace or idle stop runs out,
-					whichever comes first, unless its owner chose Keep running.
-				</p>
-			</div>
+		<AdminGroup
+			id="stop-title"
+			title="When workspaces stop"
+			description="A running workspace stops when the disconnect grace or idle stop runs out, whichever comes first, unless its owner chose Keep running."
+		>
 			<div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] items-start gap-6">
 				<GraceField />
 				<IdleStopField />
 				<KeepRunningField />
 			</div>
-		</section>
+		</AdminGroup>
 	);
 }
 
@@ -385,16 +376,11 @@ function ResourceGuardSection() {
 	}
 
 	return (
-		<section className={SECTION_CLASS} aria-labelledby="guard-title">
-			<div>
-				<h3 className="pk-text-heading m-0" id="guard-title">
-					Resource guard
-				</h3>
-				<p className="pk-text-body pk-muted m-0 mt-1">
-					Slows a workspace that keeps its CPUs busy for a long time, and flags one that
-					stays near its memory limit.
-				</p>
-			</div>
+		<AdminGroup
+			id="guard-title"
+			title="Resource guard"
+			description="Slows a workspace that keeps its CPUs busy for a long time, and flags one that stays near its memory limit."
+		>
 			<form className="flex flex-col gap-5" onSubmit={save} noValidate>
 				{GUARD_GROUPS.map((group) => (
 					<fieldset
@@ -456,7 +442,7 @@ function ResourceGuardSection() {
 					</Button>
 				</div>
 			</form>
-		</section>
+		</AdminGroup>
 	);
 }
 
@@ -504,17 +490,17 @@ function AcceptableUseSection() {
 	}
 
 	return (
-		<section className={SECTION_CLASS} aria-labelledby="aup-title">
-			<div>
-				<h3 className="pk-text-heading m-0" id="aup-title">
-					Acceptable use
-				</h3>
-				<p className="pk-text-body pk-muted m-0 mt-1">
+		<AdminGroup
+			id="aup-title"
+			title="Acceptable use"
+			description={
+				<>
 					The statement everyone accepts before using Portikus. Plain text; a blank line
 					starts a new paragraph.
 					{version === undefined ? null : ` This is version ${version}.`}
-				</p>
-			</div>
+				</>
+			}
+		>
 			<div className={FIELD_CLASS}>
 				<label className={LABEL_CLASS} htmlFor="aup-text">
 					Statement
@@ -567,7 +553,7 @@ function AcceptableUseSection() {
 					their next page load.
 				</p>
 			</div>
-		</section>
+		</AdminGroup>
 	);
 }
 

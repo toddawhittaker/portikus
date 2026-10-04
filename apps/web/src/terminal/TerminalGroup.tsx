@@ -5,10 +5,10 @@
  */
 import type { SplitNode, Terminal } from "@portikus/contracts";
 import { PaneHandle, tabDomId, tabPanelDomId } from "@portikus/ui";
-import { Fragment, type ReactNode } from "react";
-import { Group, Panel } from "react-resizable-panels";
+import { Fragment, type ReactNode, useRef } from "react";
+import { Group, type GroupImperativeHandle, Panel } from "react-resizable-panels";
 import type { PendingView } from "../layout/store.js";
-import type { DropEdge } from "../layout/tree.js";
+import { type DropEdge, evenSizes } from "../layout/tree.js";
 import { PreviewLeaf } from "../preview/PreviewLeaf.js";
 import { FileLeaf } from "../work/FileLeaf.js";
 import { TerminalLeaf, type TerminalLeafProps } from "./TerminalLeaf.js";
@@ -25,6 +25,7 @@ type PaneCallbacks = Pick<
 	| "onReplace"
 	| "onLeave"
 	| "onMoveToNewTab"
+	| "onMoveInto"
 >;
 
 export interface TerminalGroupProps extends PaneCallbacks {
@@ -36,6 +37,8 @@ export interface TerminalGroupProps extends PaneCallbacks {
 	visible: boolean;
 	focusedTerminalId: string | null;
 	onResize: (path: number[], sizes: number[]) => void;
+	/** The other tabs a pane of this tab can join. */
+	moveTargetsFor: (terminalId: string) => { tabId: string; label: string }[];
 	/** Close this whole tab: a file tab offers it when the file is gone. */
 	onCloseTab: () => void;
 	/** What this file tab was last asked to show, or undefined for nothing. */
@@ -56,9 +59,32 @@ export interface TerminalGroupProps extends PaneCallbacks {
 
 export function TerminalGroup(props: TerminalGroupProps) {
 	const { tabId, root, terminals, visible } = props;
+	// Each split's handle, by its path, so a reset can resize it in place
+	// without remounting the terminals inside.
+	const groups = useRef(new Map<string, GroupImperativeHandle>());
 
 	function panelId(path: number[], index: number): string {
 		return `pk-${tabId}-${[...path, index].join("-")}`;
+	}
+
+	/** Even sizes for every split in the tab, shown now and saved. */
+	function resetSizes() {
+		function walk(node: SplitNode, path: number[]) {
+			if (node.type !== "split") return;
+			const sizes = evenSizes(node.children.length);
+			groups.current
+				.get(path.join("-"))
+				?.setLayout(
+					Object.fromEntries(
+						node.children.map((_, index) => [panelId(path, index), sizes[index] ?? 0]),
+					),
+				);
+			props.onResize(path, sizes);
+			node.children.forEach((child, index) => {
+				walk(child, [...path, index]);
+			});
+		}
+		walk(root, []);
 	}
 
 	function render(node: SplitNode, path: number[]): ReactNode {
@@ -82,6 +108,9 @@ export function TerminalGroup(props: TerminalGroupProps) {
 					onReplace={props.onReplace}
 					onLeave={props.onLeave}
 					onMoveToNewTab={props.onMoveToNewTab}
+					moveTargets={props.moveTargetsFor(terminal.id)}
+					onMoveInto={props.onMoveInto}
+					onResetSizes={resetSizes}
 					alone={root.type === "leaf"}
 					dropEdge={
 						props.dropTarget?.terminalId === terminal.id ? props.dropTarget.edge : null
@@ -132,6 +161,10 @@ export function TerminalGroup(props: TerminalGroupProps) {
 				// So a test can see which way a split runs.
 				data-direction={node.direction}
 				defaultLayout={defaultLayout}
+				groupRef={(handle) => {
+					if (handle) groups.current.set(path.join("-"), handle);
+					else groups.current.delete(path.join("-"));
+				}}
 				onLayoutChanged={(layout, meta) => {
 					if (!meta.isUserInteraction) return;
 					props.onResize(

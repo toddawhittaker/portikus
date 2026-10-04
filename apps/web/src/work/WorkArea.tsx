@@ -37,6 +37,7 @@ import { useShowRightPane } from "../shell/rightPane.js";
 import { TerminalGroup } from "../terminal/TerminalGroup.js";
 import { useTerminals } from "../terminal/useTerminals.js";
 import { dropZone, insertionIndex } from "./dropZone.js";
+import { moveIntoTargets } from "./moveInto.js";
 import { usePointerDismiss } from "./pointerDismiss.js";
 import "./work.css";
 
@@ -341,6 +342,24 @@ export function WorkArea({
 		};
 	});
 
+	/** The other tabs a pane can join, under the names the tab strip shows. */
+	function moveTargetsFor(terminalId: string) {
+		return moveIntoTargets(layout, terminalId).map((target) => ({
+			tabId: target.tabId,
+			label: items.find((item) => item.id === target.tabId)?.label ?? "Tab",
+		}));
+	}
+
+	/** Put a pane into another tab's split, as dropping it there would. */
+	function moveInto(terminalId: string, tabId: string) {
+		const target = moveIntoTargets(layout, terminalId).find(
+			(candidate) => candidate.tabId === tabId,
+		);
+		if (!target) return;
+		store.getState().moveLeaf(tabId, terminalId, target.terminalId, target.edge);
+		store.getState().setFocused(terminalId);
+	}
+
 	const closingTab = layout.tabs.find((tab) => tab.id === closingTabId);
 
 	// 4px so a click on a title bar still just focuses the pane, matching the
@@ -565,6 +584,8 @@ export function WorkArea({
 							onChoosePreviewPort={() => setPickingPreview({ replacing: tab.id })}
 							onLeave={leaveTerminal}
 							onMoveToNewTab={moveToNewTab}
+							moveTargetsFor={moveTargetsFor}
+							onMoveInto={moveInto}
 							onCloseTab={() => store.getState().closeTab(tab.id)}
 							pendingView={pendingView[tab.id]}
 							consumePendingView={() => store.getState().consumePendingView(tab.id)}

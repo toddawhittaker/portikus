@@ -1,9 +1,15 @@
 export { Button, type ButtonProps } from "./Button.js";
 export { Checkbox, type CheckboxProps } from "./Checkbox.js";
 export { EmptyState, type EmptyStateProps } from "./EmptyState.js";
+export {
+	FieldMessages,
+	type FieldMessagesProps,
+	fieldDescribedBy,
+} from "./FieldMessages.js";
+export { FileInput, type FileInputProps } from "./FileInput.js";
 export { Icon, type IconName, type IconProps } from "./Icon.js";
 export { IconButton, type IconButtonProps } from "./IconButton.js";
-export { Meter, type MeterProps } from "./Meter.js";
+export { Meter, type MeterProps, meterText } from "./Meter.js";
 export { NameMark, type NameMarkProps } from "./NameMark.js";
 export { PageIntro, type PageIntroProps } from "./PageIntro.js";
 export {

@@ -5,7 +5,13 @@
  * both themes, like Running and Checks.
  */
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { createStudent, query, settledAxe, workspacePath } from "./helpers";
+import {
+	createStudent,
+	expectNoViolations,
+	query,
+	settledAxe,
+	workspacePath,
+} from "./helpers";
 import { FAKE_AGENT_URL } from "./ports";
 
 async function seedProcesses(workspaceId: string, processes: unknown[]): Promise<void> {
@@ -83,6 +89,23 @@ async function box(locator: Locator) {
 	return found;
 }
 
+/** The space between each visible header's label and the next one's, in pixels. */
+async function headerGaps(table: Locator): Promise<number[]> {
+	return table.locator("thead th").evaluateAll((cells) => {
+		const labels = cells
+			.filter((cell) => cell.getBoundingClientRect().width > 0)
+			.map((cell) => {
+				// A sort or help button, or else the header's own text.
+				const button = cell.querySelector("button");
+				if (button) return button.getBoundingClientRect();
+				const range = document.createRange();
+				range.selectNodeContents(cell);
+				return range.getBoundingClientRect();
+			});
+		return labels.slice(1).map((next, i) => next.left - (labels[i]?.right ?? 0));
+	});
+}
+
 async function iconColor(button: Locator): Promise<string> {
 	return button.locator("svg").evaluate((element) => {
 		const style = getComputedStyle(element);
@@ -154,5 +177,86 @@ for (const theme of ["light", "dark"] as const) {
 			.include("[data-testid='monitor']")
 			.analyze();
 		expect(results.violations).toEqual([]);
+	});
+}
+
+for (const theme of ["light", "dark"] as const) {
+	test(`the keyboard sorts the processes and each sort is announced (${theme})`, async ({
+		page,
+		context,
+	}) => {
+		await page.setViewportSize({ width: 1024, height: 768 });
+		const student = await createStudent(context);
+		await seedProcesses(student.workspaceId, [BOTH, CHEVRON_ONLY, STOP_ONLY, NEITHER]);
+		await chooseTheme(page, student.userId, student.workspaceId, theme);
+		const table = page.getByTestId("monitor-processes");
+		const firstPid = () =>
+			table.locator("tbody tr").first().getAttribute("data-testid");
+		const spoken = page.getByTestId("monitor-sort-announce");
+		await expect(spoken).toHaveAttribute("role", "status");
+		await expect(spoken).toHaveText("");
+		// Busiest first until a header is pressed.
+		await expect(table.getByRole("columnheader", { name: "CPU" })).toHaveAttribute(
+			"aria-sort",
+			"descending",
+		);
+		expect(await firstPid()).toBe("monitor-process-42");
+
+		// The default pane has given up PID, so the keyboard starts at Command.
+		await expect(table.getByRole("columnheader", { name: "PID" })).toBeHidden();
+		const command = table.getByRole("button", { name: "Command", exact: true });
+		await command.focus();
+		await page.keyboard.press("Enter");
+		await expect(spoken).toHaveText("Sorted by Command, ascending");
+		await expect.poll(firstPid).toBe("monitor-process-12");
+		await page.keyboard.press("Enter");
+		await expect(spoken).toHaveText("Sorted by Command, descending");
+		await expect.poll(firstPid).toBe("monitor-process-44");
+
+		// Shift+Tab moves to Memory, whose first press is biggest first.
+		await page.keyboard.press("Shift+Tab");
+		await expect(
+			table.getByRole("button", { name: "Memory", exact: true }),
+		).toBeFocused();
+		await page.keyboard.press("Enter");
+		await expect(spoken).toHaveText("Sorted by Memory, descending");
+		await expect(table.getByRole("columnheader", { name: "Memory" })).toHaveAttribute(
+			"aria-sort",
+			"descending",
+		);
+		await expect(
+			table.getByRole("columnheader", { name: "Command" }),
+		).not.toHaveAttribute("aria-sort");
+		// Every row uses the same memory, so ties keep PID order.
+		await expect.poll(firstPid).toBe("monitor-process-12");
+
+		// The pane has no room for the faint hint chevron, so none is drawn,
+		// on focus or on hover; the sorted header reads in full ink.
+		await page.keyboard.press("Tab");
+		await expect(
+			table.getByRole("button", { name: "Command", exact: true }),
+		).toBeFocused();
+		const commandHint = table
+			.getByRole("columnheader", { name: "Command" })
+			.locator(".pk-table-sort-hint");
+		await expect(commandHint).toBeHidden();
+		await table.getByRole("button", { name: "Command", exact: true }).hover();
+		await expect(commandHint).toBeHidden();
+		await page.mouse.move(0, 0);
+		const color = (name: string) =>
+			table
+				.getByRole("button", { name, exact: true })
+				.evaluate((element) => getComputedStyle(element).color);
+		expect(await color("Memory")).not.toBe(await color("CPU"));
+
+		// The headers fit the pane: nothing scrolls sideways, and each column
+		// keeps at least 8 px from the next.
+		const fits = await page
+			.getByTestId("monitor")
+			.evaluate((element) => element.scrollWidth <= element.clientWidth);
+		expect(fits).toBe(true);
+		for (const gap of await headerGaps(table)) expect(gap).toBeGreaterThanOrEqual(8);
+		await page.screenshot({ path: `screenshots/monitor-sorted-${theme}.png` });
+		await expectNoViolations(page, "[data-testid='monitor']");
 	});
 }

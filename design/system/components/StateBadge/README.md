@@ -2,7 +2,7 @@
 
 Shows a workspace's lifecycle state in a word, a glyph and a colour, and turns any difference between `state` and `desiredState` into motion rather than an error.
 
-**Consumer provides:** `state` (`provisioning`, `starting`, `running`, `stopping`, `stopped`, `error`), `desiredState` (`running`, `stopped`, `restarting`), optional `plain` for status bars, `live` to announce changes politely, and an optional `label` override. `resolveWorkspaceState(state, desiredState)` is exported for screens that need the same logic.
+**Consumer provides:** `state` (`provisioning`, `starting`, `running`, `stopping`, `stopped`, `error`), `desiredState` (`running`, `stopped`, `restarting`), optional `plain` for status bars, `live` to announce changes politely, an optional `label` override, and `moving`, which shows the spinner whatever the state, for a pending operation such as "Rebuilding…". `resolveWorkspaceState(state, desiredState)` is exported for screens that need the same logic.
 
 | state | desiredState | shows |
 | --- | --- | --- |

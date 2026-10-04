@@ -29,6 +29,13 @@ export function badgeText(unread: number): string | null {
 	return unread > 9 ? "9+" : String(unread);
 }
 
+/** Help opens the administrator help from an admin page and the workspace help elsewhere (SPEC.md section 8.6). */
+export function helpHref(pathname: string): string {
+	return pathname === "/admin" || pathname.startsWith("/admin/")
+		? "/admin/help"
+		: "/help";
+}
+
 /** What the bar is showing: the project in view, or the workspace or page. */
 function AppbarContext({
 	project,
@@ -124,10 +131,13 @@ export function AppHeader({
 	}
 
 	return (
-		<header className="pk-appbar" data-testid="app-header">
+		<header className="pk-appbar @container" data-testid="app-header">
 			<NameMark size={18} href={workspaceId ? `/workspaces/${workspaceId}` : "/"} />
-			<span className="pk-appbar-divider" aria-hidden="true" />
-			<AppbarContext project={project} workspaceId={workspaceId} context={context} />
+			{/* On a narrow bar the context gives way first. */}
+			<span className="contents @max-[40rem]:hidden">
+				<span className="pk-appbar-divider" aria-hidden="true" />
+				<AppbarContext project={project} workspaceId={workspaceId} context={context} />
+			</span>
 			<span className="pk-appbar-spacer" />
 
 			{hasCourse && workspaceId ? (
@@ -151,8 +161,11 @@ export function AppHeader({
 					to="/"
 					className="pk-wsbutton pk-wsbutton-text"
 					data-testid="back-to-workspace"
+					// The full name stays when a narrow bar shows only "Workspace".
+					aria-label="Back to your workspace"
 				>
-					Back to your workspace
+					<span className="@max-[24rem]:hidden">Back to your workspace</span>
+					<span className="hidden @max-[24rem]:inline">Workspace</span>
 				</Link>
 			)}
 
@@ -183,16 +196,29 @@ export function AppHeader({
 						>
 							<AccountPicture picture={picture} displayName={user.displayName} />
 							{/* The gap is only visual. This space keeps the text readable when copied. */}{" "}
-							<span>{user.displayName}</span>
+							{/* On a narrow bar the picture stands for the name; the button's label still says it. */}
+							<span className="pk-account-name @max-[40rem]:hidden">
+								{user.displayName}
+							</span>
 							<Icon name="chevron-down" size="sm" />
 						</button>
 					</MenuTrigger>
 					<Menu label="Account">
 						<MenuLabel>
-							{/* A long address is cut, not allowed to widen the menu. */}
-							<span className="pk-account-email" title={user.email ?? user.displayName}>
-								{user.email ?? user.displayName}
+							{/* The name first: a narrow bar shows only the picture. A long name
+							    or address is cut, not allowed to widen the menu. */}
+							<span
+								className="pk-account-line pk-account-line--name"
+								title={user.displayName}
+								data-testid="account-menu-name"
+							>
+								{user.displayName}
 							</span>
+							{user.email ? (
+								<span className="pk-account-line" title={user.email}>
+									{user.email}
+								</span>
+							) : null}
 						</MenuLabel>
 						<MenuSeparator />
 						{user.role === "administrator" && workspaceId ? (
@@ -248,7 +274,7 @@ export function AppHeader({
 						{/* A new tab from everywhere, so the workspace keeps its sockets. */}
 						<MenuItem
 							icon="help"
-							href="/help"
+							href={helpHref(window.location.pathname)}
 							target="_blank"
 							rel="noopener"
 							testId="help-link"

@@ -8,7 +8,7 @@ export interface PageIntroProps {
 	summary: string;
 	/** One or two plain sentences on what the page is for. */
 	children: React.ReactNode;
-	/** A Help page anchor, such as "/help#admin-users", opened in a new tab. */
+	/** A Help page anchor, such as "/admin/help#admin-users", opened in a new tab. */
 	helpHref?: string;
 }
 

@@ -61,7 +61,7 @@ export function useShowRightPane(): (pane: RightPane) => void {
  * a keyboard or screen reader user lands where the pane changed.
  */
 export function showMonitor(api: RightPaneApi, column: ProcessColumn): void {
-	api.setMonitorSort({ column, direction: "desc" });
+	api.setMonitorSort({ column, direction: "descending" });
 	api.setMonitorFocus(true);
 	api.show("monitor");
 }

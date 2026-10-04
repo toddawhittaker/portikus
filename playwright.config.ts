@@ -88,6 +88,8 @@ writeFileSync(
 	{ mode: 0o755 },
 );
 
+const DOCKER_SPECS = /admin-docker(-seed)?\.spec\.ts$/;
+
 export default defineConfig({
 	testDir: "./e2e",
 	fullyParallel: true,
@@ -103,6 +105,16 @@ export default defineConfig({
 		{ name: "setup", testMatch: /environment\.setup\.ts$/ },
 		{
 			name: "chromium",
+			testIgnore: DOCKER_SPECS,
+			use: { ...devices["Desktop Chrome"] },
+			dependencies: ["setup"],
+		},
+		{
+			// The Docker specs share one settings row, the seed tables and the
+			// fake cache helper's directory, so they run one file at a time.
+			name: "docker",
+			testMatch: DOCKER_SPECS,
+			workers: 1,
 			use: { ...devices["Desktop Chrome"] },
 			dependencies: ["setup"],
 		},
