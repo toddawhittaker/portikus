@@ -125,7 +125,10 @@ export async function createSignedInUser(
 }
 
 /** Give `userId` a session and put its cookie in the browser context. */
-async function addSession(context: BrowserContext, userId: string): Promise<string> {
+export async function addSession(
+	context: BrowserContext,
+	userId: string,
+): Promise<string> {
 	const sessionToken = crypto.randomBytes(32).toString("base64url");
 	await query(
 		`insert into sessions (id, user_id, expires_at)

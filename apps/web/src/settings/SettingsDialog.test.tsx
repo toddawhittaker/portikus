@@ -662,8 +662,13 @@ test("an SSO account has no Password section, not even in search", async () => {
 		expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/auth/me")).toBe(true),
 	);
 	expect(screen.queryByRole("button", { name: "Password" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Two-factor sign-in" })).toBeNull();
 	fireEvent.change(screen.getByLabelText("Search"), {
 		target: { value: "change password" },
+	});
+	expect(screen.getByText("No matching settings.")).toBeTruthy();
+	fireEvent.change(screen.getByLabelText("Search"), {
+		target: { value: "passkey" },
 	});
 	expect(screen.getByText("No matching settings.")).toBeTruthy();
 });

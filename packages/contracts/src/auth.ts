@@ -133,3 +133,38 @@ export const SecondFactorVerify = z
 	.object({ code: z.string().trim().min(1).max(64) })
 	.strict();
 export type SecondFactorVerify = z.infer<typeof SecondFactorVerify>;
+
+/** `PATCH /me/second-factor/:id`: a factor's new name. */
+export const SecondFactorRename = z
+	.object({ label: z.string().trim().min(1).max(60) })
+	.strict();
+export type SecondFactorRename = z.infer<typeof SecondFactorRename>;
+
+/**
+ * WebAuthn options for the browser, made by the server library and passed
+ * to the browser library unchanged (SPEC.md section 24.13).
+ */
+export const PasskeyOptions = z.looseObject({ challenge: z.string() });
+export type PasskeyOptions = z.infer<typeof PasskeyOptions>;
+
+/** A browser's WebAuthn answer as the browser library sends it; the server library checks the rest. */
+const PasskeyCredential = z.looseObject({
+	id: z.string().min(1).max(1400),
+	rawId: z.string().min(1).max(1400),
+	type: z.literal("public-key"),
+	response: z.looseObject({ clientDataJSON: z.string().max(8192) }),
+	clientExtensionResults: z.record(z.string(), z.unknown()).default({}),
+});
+
+/** `POST /me/second-factor/webauthn`: a new passkey and its name. */
+export const PasskeyEnrolConfirm = z
+	.object({
+		credential: PasskeyCredential,
+		label: z.string().trim().min(1).max(60).default("Passkey"),
+	})
+	.strict();
+export type PasskeyEnrolConfirm = z.infer<typeof PasskeyEnrolConfirm>;
+
+/** `POST /me/second-factor/webauthn/verify`: a passkey's sign-in answer. */
+export const PasskeyVerify = z.object({ credential: PasskeyCredential }).strict();
+export type PasskeyVerify = z.infer<typeof PasskeyVerify>;

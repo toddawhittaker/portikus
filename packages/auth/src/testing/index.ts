@@ -24,3 +24,4 @@ export {
 	type MockUser,
 	startMockOidcProvider,
 } from "./mock-oidc.js";
+export { SoftPasskey } from "./soft-passkey.js";

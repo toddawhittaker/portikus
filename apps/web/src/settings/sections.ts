@@ -104,6 +104,29 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
 			},
 		],
 	},
+	// Only for a Dex local password, like Password (SPEC.md section 24.13).
+	{
+		id: "two-factor",
+		title: "Two-factor sign-in",
+		groups: [
+			{
+				title: "Two-factor sign-in",
+				controls: [
+					{
+						id: "second-factors",
+						label: "Your sign-in methods",
+						terms: "two-step authenticator passkey security key",
+					},
+					{
+						id: "add-second-factor",
+						label: "Add a sign-in method",
+						terms: "authenticator app passkey",
+					},
+					{ id: "recovery-codes", label: "Recovery codes" },
+				],
+			},
+		],
+	},
 ];
 
 /**

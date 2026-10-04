@@ -144,44 +144,61 @@ export interface EnrolTotpInput {
 	metadata: Record<string, unknown>;
 }
 
+/** A confirmed factor of either kind, as `storeFactor` writes it. */
+export interface NewFactor {
+	userId: string;
+	kind: "totp" | "webauthn";
+	/** The sealed TOTP secret, or a passkey's public record. */
+	secret: string;
+	label: string;
+	/** The last TOTP step, or a passkey's sign count. */
+	lastStep: number;
+	/** The session that enrolled, which has passed the check by doing so. */
+	sessionId: string;
+	actor: string;
+	metadata: Record<string, unknown>;
+}
+
+/** Replace an account's recovery codes inside a transaction; returns the new ones in plain text. */
+async function writeRecoveryCodes(
+	trx: Kysely<Database>,
+	userId: string,
+): Promise<string[]> {
+	const codes = generateRecoveryCodes();
+	await trx.deleteFrom("user_recovery_codes").where("user_id", "=", userId).execute();
+	await trx
+		.insertInto("user_recovery_codes")
+		.values(
+			codes.map((code) => ({ user_id: userId, code_hash: hashRecoveryCode(code) })),
+		)
+		.execute();
+	return codes;
+}
+
 /**
- * Store a confirmed TOTP factor and a fresh set of recovery codes, mark the
+ * Store a confirmed factor and a fresh set of recovery codes, mark the
  * session as checked, and audit it, in one transaction. Returns the codes,
  * the only time they exist in plain text.
  */
-export async function enrolTotp(
+export async function storeFactor(
 	db: Kysely<Database>,
-	key: Buffer,
-	input: EnrolTotpInput,
+	input: NewFactor,
 ): Promise<string[]> {
-	const codes = generateRecoveryCodes();
-	await db.transaction().execute(async (trx) => {
+	return db.transaction().execute(async (trx) => {
 		const now = new Date().toISOString();
 		const factor = await trx
 			.insertInto("user_second_factors")
 			.values({
 				user_id: input.userId,
-				kind: "totp",
-				secret: sealSecret(key, input.secret, storedContext(input.userId)),
+				kind: input.kind,
+				secret: input.secret,
 				label: input.label,
-				last_step: input.step,
+				last_step: input.lastStep,
 				last_used_at: now,
 			})
 			.returning("id")
 			.executeTakeFirstOrThrow();
-		await trx
-			.deleteFrom("user_recovery_codes")
-			.where("user_id", "=", input.userId)
-			.execute();
-		await trx
-			.insertInto("user_recovery_codes")
-			.values(
-				codes.map((code) => ({
-					user_id: input.userId,
-					code_hash: hashRecoveryCode(code),
-				})),
-			)
-			.execute();
+		const codes = await writeRecoveryCodes(trx, input.userId);
 		await trx
 			.updateTable("sessions")
 			.set({ second_factor_at: now })
@@ -192,14 +209,62 @@ export async function enrolTotp(
 			target: input.userId,
 			action: "auth.second_factor_enrolled",
 			result: "ok",
-			metadata: { ...input.metadata, kind: "totp", factorId: factor.id },
+			metadata: { ...input.metadata, kind: input.kind, factorId: factor.id },
 		});
+		return codes;
 	});
-	return codes;
+}
+
+/** Store a confirmed TOTP factor, sealed for this account (see `storeFactor`). */
+export async function enrolTotp(
+	db: Kysely<Database>,
+	key: Buffer,
+	input: EnrolTotpInput,
+): Promise<string[]> {
+	return storeFactor(db, {
+		userId: input.userId,
+		kind: "totp",
+		secret: sealSecret(key, input.secret, storedContext(input.userId)),
+		label: input.label,
+		lastStep: input.step,
+		sessionId: input.sessionId,
+		actor: input.actor,
+		metadata: input.metadata,
+	});
+}
+
+/**
+ * New recovery codes for an account that has a factor; the old ones stop
+ * working at once. Returns null when the account has no factor.
+ */
+export async function replaceRecoveryCodes(
+	db: Kysely<Database>,
+	userId: string,
+	actor: string,
+	metadata: Record<string, unknown>,
+): Promise<string[] | null> {
+	return db.transaction().execute(async (trx) => {
+		const factors = await trx
+			.selectFrom("user_second_factors")
+			.select("id")
+			.where("user_id", "=", userId)
+			.forUpdate()
+			.execute();
+		if (factors.length === 0) return null;
+		const codes = await writeRecoveryCodes(trx, userId);
+		await recordAudit(trx, {
+			actor,
+			target: userId,
+			action: "auth.second_factor_recovery_codes_replaced",
+			result: "ok",
+			metadata,
+		});
+		return codes;
+	});
 }
 
 export type SecondFactorCheck =
-	| { ok: true; method: "totp" | "recovery_code" }
+	| { ok: true; method: "totp" | "recovery_code" | "webauthn" }
 	| { ok: false };
 
 /**

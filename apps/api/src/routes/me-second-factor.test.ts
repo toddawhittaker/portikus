@@ -4,6 +4,7 @@ import {
 	csrfHeaders,
 	loginAs,
 	type MockOidcProvider,
+	SoftPasskey,
 	startMockOidcProvider,
 	totpCode,
 	totpStep,
@@ -267,5 +268,200 @@ describe.skipIf(skip)("the second-factor gate", () => {
 		expect((await remove(only.id)).statusCode).toBe(204);
 		expect((await get(jar, "/me/second-factor")).json().factors).toHaveLength(1);
 		expect((await remove(only.id)).statusCode).toBe(404);
+	});
+});
+
+/** Register a software passkey, returning the recovery codes. */
+async function enrolPasskey(jar: CookieJar, key: SoftPasskey): Promise<string[]> {
+	const start = await post(jar, "/me/second-factor/webauthn/start");
+	expect(start.statusCode).toBe(200);
+	const done = await post(jar, "/me/second-factor/webauthn", {
+		credential: key.register(start.json()),
+		label: "Laptop",
+	});
+	expect(done.statusCode).toBe(200);
+	return done.json().recoveryCodes;
+}
+
+async function passkeySignIn(jar: CookieJar, key: SoftPasskey) {
+	const start = await post(jar, "/me/second-factor/webauthn/verify/start");
+	expect(start.statusCode).toBe(200);
+	return post(jar, "/me/second-factor/webauthn/verify", {
+		credential: key.authenticate(start.json()),
+	});
+}
+
+async function auditRows(action: string) {
+	return testDb.db
+		.selectFrom("audit_events")
+		.select("metadata")
+		.where("action", "=", action)
+		.orderBy("id")
+		.execute();
+}
+
+describe.skipIf(skip)("passkeys", () => {
+	test("a passkey enrols at the gate and signs the next session in", async () => {
+		const key = new SoftPasskey(PUBLIC_URL);
+		const jar = await signIn("admin");
+		const start = (await post(jar, "/me/second-factor/webauthn/start")).json();
+		expect(start.rp.id).toBe(new URL(PUBLIC_URL).hostname);
+		expect(start.authenticatorSelection.userVerification).toBe("preferred");
+		const done = await post(jar, "/me/second-factor/webauthn", {
+			credential: key.register(start),
+		});
+		expect(done.json().recoveryCodes).toHaveLength(10);
+		expect((await get(jar, "/me/settings")).statusCode).toBe(200);
+		expect((await get(jar, "/me/second-factor")).json().factors).toMatchObject([
+			{ kind: "webauthn", label: "Passkey" },
+		]);
+
+		const next = await signIn("admin");
+		expect((await get(next, "/auth/me")).json().secondFactor).toBe("verify");
+		expect((await passkeySignIn(next, key)).statusCode).toBe(204);
+		expect((await get(next, "/auth/me")).json().secondFactor).toBeNull();
+
+		expect((await auditRows("auth.second_factor_enrolled"))[0]?.metadata).toMatchObject(
+			{
+				kind: "webauthn",
+			},
+		);
+		expect((await auditRows("auth.second_factor_verified"))[0]?.metadata).toMatchObject(
+			{
+				kind: "webauthn",
+				method: "webauthn",
+			},
+		);
+	});
+
+	test("a challenge answers once, and only its own ceremony", async () => {
+		const key = new SoftPasskey(PUBLIC_URL);
+		const jar = await signIn("admin");
+		const start = (await post(jar, "/me/second-factor/webauthn/start")).json();
+		const credential = key.register(start);
+		expect(
+			(await post(jar, "/me/second-factor/webauthn", { credential })).statusCode,
+		).toBe(200);
+		const again = await post(jar, "/me/second-factor/webauthn", { credential });
+		expect(again.statusCode).toBe(400);
+		expect(again.json().code).toBe("PASSKEY_EXPIRED");
+
+		const next = await signIn("admin");
+		const options = (
+			await post(next, "/me/second-factor/webauthn/verify/start")
+		).json();
+		const answer = key.authenticate(options);
+		const ok = await post(next, "/me/second-factor/webauthn/verify", {
+			credential: answer,
+		});
+		expect(ok.statusCode).toBe(204);
+		const other = await signIn("admin");
+		const replayed = await post(other, "/me/second-factor/webauthn/verify", {
+			credential: answer,
+		});
+		expect(replayed.json().code).toBe("PASSKEY_EXPIRED");
+	});
+
+	test("a copied key whose sign count went back is refused and audited", async () => {
+		const key = new SoftPasskey(PUBLIC_URL);
+		await enrolPasskey(await signIn("admin"), key);
+		expect((await passkeySignIn(await signIn("admin"), key)).statusCode).toBe(204);
+		key.counter = 0;
+		const jar = await signIn("admin");
+		const refused = await passkeySignIn(jar, key);
+		expect(refused.statusCode).toBe(403);
+		expect(refused.json().code).toBe("WRONG_PASSKEY");
+		expect((await get(jar, "/auth/me")).json().secondFactor).toBe("verify");
+		expect((await auditRows("auth.second_factor_failed"))[0]?.metadata).toMatchObject({
+			kind: "webauthn",
+			reason: "cloned",
+		});
+	});
+
+	test("a passkey from another site is refused", async () => {
+		const key = new SoftPasskey("https://evil.example");
+		const jar = await signIn("admin");
+		const start = (await post(jar, "/me/second-factor/webauthn/start")).json();
+		const res = await post(jar, "/me/second-factor/webauthn", {
+			credential: key.register(start),
+		});
+		expect(res.statusCode).toBe(403);
+		expect((await get(jar, "/me/second-factor")).json().factors).toEqual([]);
+	});
+
+	test("an unverified session cannot add a passkey", async () => {
+		await enrol(await signIn("admin"));
+		const jar = await signIn("admin");
+		expect((await post(jar, "/me/second-factor/webauthn/start")).statusCode).toBe(403);
+		// It has no passkey to sign in with either.
+		const start = await post(jar, "/me/second-factor/webauthn/verify/start");
+		expect(start.json().code).toBe("NO_PASSKEY");
+	});
+});
+
+describe.skipIf(skip)("managing factors", () => {
+	test("a factor can be renamed by its owner only", async () => {
+		const jar = await signIn("admin");
+		await enrol(jar);
+		const [factor] = (await get(jar, "/me/second-factor")).json().factors;
+		const rename = (who: CookieJar, label: string) =>
+			app.inject({
+				method: "PATCH",
+				url: `/me/second-factor/${factor.id}`,
+				headers: csrfHeaders(who, PUBLIC_URL),
+				payload: { label },
+			});
+		expect((await rename(jar, "  Work phone ")).statusCode).toBe(204);
+		expect((await get(jar, "/me/second-factor")).json().factors[0].label).toBe(
+			"Work phone",
+		);
+		expect((await rename(jar, "")).statusCode).toBe(400);
+		expect((await rename(await signIn("alice"), "Mine")).statusCode).toBe(404);
+	});
+
+	test("new recovery codes replace the old ones", async () => {
+		const jar = await signIn("admin");
+		const { codes: old } = await enrol(jar);
+		const res = await post(jar, "/me/second-factor/recovery-codes");
+		expect(res.statusCode).toBe(200);
+		expect(res.headers["cache-control"]).toBe("no-store");
+		const fresh: string[] = res.json().recoveryCodes;
+		expect(fresh).toHaveLength(10);
+		expect(fresh).not.toContain(old[0]);
+		expect(await auditRows("auth.second_factor_recovery_codes_replaced")).toHaveLength(
+			1,
+		);
+
+		const next = await signIn("admin");
+		const stale = await post(next, "/me/second-factor/verify", { code: old[0] });
+		expect(stale.statusCode).toBe(403);
+		const ok = await post(next, "/me/second-factor/verify", { code: fresh[0] });
+		expect(ok.statusCode).toBe(204);
+		expect(JSON.stringify(lines)).not.toContain(fresh[1]);
+	});
+
+	test("an unverified session cannot make new recovery codes", async () => {
+		await enrol(await signIn("admin"));
+		const jar = await signIn("admin");
+		const res = await post(jar, "/me/second-factor/recovery-codes");
+		expect(res.json().code).toBe("SECOND_FACTOR_REQUIRED");
+	});
+
+	test("removal records the kind", async () => {
+		const jar = await signIn("admin");
+		await enrol(jar);
+		await enrolPasskey(jar, new SoftPasskey(PUBLIC_URL));
+		const passkey = (await get(jar, "/me/second-factor"))
+			.json()
+			.factors.find((f: { kind: string }) => f.kind === "webauthn");
+		const res = await app.inject({
+			method: "DELETE",
+			url: `/me/second-factor/${passkey.id}`,
+			headers: csrfHeaders(jar, PUBLIC_URL),
+		});
+		expect(res.statusCode).toBe(204);
+		expect((await auditRows("auth.second_factor_removed"))[0]?.metadata).toMatchObject({
+			kind: "webauthn",
+		});
 	});
 });

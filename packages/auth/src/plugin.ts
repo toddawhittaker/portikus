@@ -137,6 +137,10 @@ const SECOND_FACTOR_ROUTES = [
 	"POST /me/second-factor/totp/start",
 	"POST /me/second-factor/totp",
 	"POST /me/second-factor/verify",
+	"POST /me/second-factor/webauthn/start",
+	"POST /me/second-factor/webauthn",
+	"POST /me/second-factor/webauthn/verify/start",
+	"POST /me/second-factor/webauthn/verify",
 ];
 
 /**
