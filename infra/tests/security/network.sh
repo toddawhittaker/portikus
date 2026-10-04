@@ -12,6 +12,10 @@
 echo ""
 echo "--- Network isolation ---"
 
+# The probes below may already use a's one limit log line a minute, so the
+# outbound limit checks count lines from here.
+net_limits_since=$(sec_ssh "date -u '+%Y-%m-%d %H:%M:%S'")
+
 net_a_ip=$(sec_ws_ip a)
 net_b_ip=$(sec_ws_ip b)
 net_bridge=$(sec_ssh "incus network get portikus-ws ipv4.address" | cut -d/ -f1)
@@ -263,13 +267,12 @@ check "a, inner Docker, reaches GitHub" \
 # ── Outbound abuse limits (SPEC.md 24.2) ─────────────────────────
 
 # The limits table counts what it drops, so each check reads its counter or
-# meter on the VM: a refusal the table never saw proves nothing.  The floods
-# go to a private address the firewall drops after this table has counted
-# them, so nothing leaves the VM.
+# meter on the VM: a refusal the table never saw proves nothing.  The
+# connection flood goes to a private address the firewall drops after this
+# table has counted it, so nothing leaves the VM.
 echo ""
 echo "Outbound abuse limits..."
 net_flood_dst=10.255.255.1
-net_limits_since=$(sec_ssh "date -u '+%Y-%m-%d %H:%M:%S'")
 net_limits() { sec_ssh "sudo nft list table inet portikus_workspace_limits" 2>/dev/null; }
 net_mail_count() {
   sec_ssh "sudo nft list counter inet portikus_workspace_limits mail_blocked" 2>/dev/null \
@@ -320,15 +323,26 @@ else
 
   # Packets first: a flow whose first packet is over the connection limit is
   # never set up, so after the connection flood every packet would count there.
+  # The flow must be one the firewall forwards, or it is never set up either:
+  # 198.18.0.0/15 (RFC 2544) goes into a dummy link for the flood, so the
+  # packets are forwarded yet never leave the VM.
   # One UDP flow, 50,000 packets as fast as Python sends them.
   net_packet_before=$(net_meter packet_over)
-  sec_exec a student "python3 -c '
+  net_packet_after=$net_packet_before
+  if sec_ssh "sudo ip link del ${SEC_SINK_LINK} 2>/dev/null; sudo ip link add ${SEC_SINK_LINK} type dummy \
+      && sudo ip link set ${SEC_SINK_LINK} up && sudo ip route add 198.18.0.0/15 dev ${SEC_SINK_LINK} \
+      && ip -4 route get 198.18.0.9 | grep -q 'dev ${SEC_SINK_LINK}'"; then
+    sec_exec a student "python3 -c '
 import socket
 u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 for _ in range(50000):
-    u.sendto(b\"x\", (\"${net_flood_dst}\", 9))
+    u.sendto(b\"x\", (\"198.18.0.9\", 9))
 '" >/dev/null 2>&1
-  net_packet_after=$(net_meter packet_over)
+    net_packet_after=$(net_meter packet_over)
+  else
+    echo "The flood's dummy link could not be set up, so the flood is not sent."
+  fi
+  sec_ssh "sudo ip link del ${SEC_SINK_LINK} 2>/dev/null; true"
   if [ $((net_packet_after - net_packet_before)) -ge 10000 ]; then
     ok "a flood of 50,000 UDP packets from a is cut at the per-workspace limit (meter ${net_packet_before} to ${net_packet_after})"
   else

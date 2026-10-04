@@ -33,6 +33,8 @@
 SEC_ISSUER="urn:portikus:sectest"
 SEC_PROJECT="portikus"
 SEC_WORKSPACE_SCRIPT="/var/lib/portikus/incus/workspace.sh"
+# The dummy link network.sh routes its packet flood into, so nothing leaves the VM.
+SEC_SINK_LINK="pk-sectest-sink"
 SEC_SESSION_COOKIE="__Host-portikus_session"
 SEC_CA="/etc/portikus/caddy-root.crt"
 SEC_DOCKER_IMAGE="alpine:3"
@@ -513,6 +515,8 @@ sec_cleanup() {
     sec_presence_pids=()
   fi
 
+  sec_ssh "sudo ip link del ${SEC_SINK_LINK} 2>/dev/null; true" >/dev/null 2>&1 || true
+
   owned="SELECT id FROM users WHERE oidc_issuer = '${SEC_ISSUER}'"
   if [ "${#sec_created_workspace_ids[@]}" -gt 0 ]; then
     ws_list=$(sec_sql_list "${sec_created_workspace_ids[@]}")
@@ -523,6 +527,14 @@ sec_cleanup() {
     sec_psql "DELETE FROM workspaces WHERE id IN (${ws_list}) AND owner_user_id IN (${owned})" >/dev/null 2>&1 || true
   fi
 
+  # A host set up from the package has no copy of the Incus script, so the
+  # cleanup brings this checkout's for the length of the loop.
+  local workspace_script="${SEC_WORKSPACE_SCRIPT}" brought_script=""
+  if [ "${#sec_created_instances[@]}" -gt 0 ] && ! sec_ssh "test -f ${SEC_WORKSPACE_SCRIPT}" 2>/dev/null; then
+    brought_script="/tmp/portikus-sectest-workspace.sh"
+    sec_ssh_stdin "cat >${brought_script}" <"$(dirname "${BASH_SOURCE[0]}")/../../incus/workspace.sh"
+    workspace_script="${brought_script}"
+  fi
   for instance in "${sec_created_instances[@]}"; do
     if [[ ! "$instance" =~ ^ws-[0-9a-f]{24}$ ]]; then
       echo "Not destroying ${instance}: not a workspace instance name."
@@ -533,8 +545,9 @@ sec_cleanup() {
       continue
     fi
     echo "Destroying Incus instance ${instance}"
-    sec_ssh "bash ${SEC_WORKSPACE_SCRIPT} destroy ${instance}" >/dev/null 2>&1 || true
+    sec_ssh "sudo bash ${workspace_script} destroy ${instance}" >/dev/null 2>&1 || true
   done
+  [ -z "${brought_script}" ] || sec_ssh "rm -f ${brought_script}" >/dev/null 2>&1 || true
 
   if [ "${#sec_created_subjects[@]}" -gt 0 ]; then
     subj_list=$(sec_sql_list "${sec_created_subjects[@]}")
