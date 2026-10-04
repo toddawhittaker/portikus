@@ -31,6 +31,7 @@ import {
 	isFiltered,
 	NO_FILTERS,
 } from "./users/filters.js";
+import { ImportAccounts } from "./users/ImportAccounts.js";
 import { InvitedRows, InviteUser } from "./users/Invitations.js";
 import {
 	ACCOUNT_COLUMN_LABEL,
@@ -137,6 +138,7 @@ export function WorkspacesTab({ currentUserId }: { currentUserId: string }) {
 					{/* Only when the site runs Dex's own passwords (ADR 0028). */}
 					{users.data?.dexUsers ? <AddDexUser /> : null}
 					<InviteUser />
+					<ImportAccounts />
 				</>
 			}
 		>

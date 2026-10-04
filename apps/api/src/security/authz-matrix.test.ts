@@ -304,6 +304,12 @@ const PAYLOADS: Record<string, object> = {
 		username: "new",
 		role: "student",
 	},
+	"POST /admin/accounts/import/preview": {
+		csv: "name,email,username,role,kind\nA,matrix-a@example.edu,,student,invite\n",
+	},
+	"POST /admin/accounts/import": {
+		csv: "name,email,username,role,kind\nB,matrix-b@example.edu,,student,invite\n",
+	},
 	"POST /admin/invitations": {
 		name: "Invited Person",
 		email: "invited@example.edu",

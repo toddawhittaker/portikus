@@ -216,6 +216,8 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"HEAD /admin/invitations": { access: "admin" },
 	"POST /admin/invitations": { access: "admin" },
 	"POST /admin/invitations/:id/revoke": { access: "admin" },
+	"POST /admin/accounts/import/preview": { access: "admin" },
+	"POST /admin/accounts/import": { access: "admin" },
 	"GET /admin/workspaces/:id": { access: "admin" },
 	"HEAD /admin/workspaces/:id": { access: "admin" },
 	"POST /admin/workspaces/:id/archive": { access: "admin" },
