@@ -4,7 +4,10 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { ApiError } from "../../api/request.js";
 import { UUID } from "../../links.js";
-import { shortTime } from "../../text.js";
+import { SortAnnouncement, useAnnouncedSort } from "../../table/announce.js";
+import { SortHeader } from "../../table/SortHeader.js";
+import type { SortState } from "../../table/sort.js";
+import { shortId, shortTime } from "../../text.js";
 import { AdminSection } from "../AdminSection.js";
 import { personLabel, personOptions, resolvePerson } from "../people.js";
 import { useAdminUsers } from "../queries.js";
@@ -49,6 +52,8 @@ export function AuditTab() {
 	const [actionDraft, setActionDraft] = useState(filters.action);
 	const [draftKey, setDraftKey] = useState(key);
 	const [personError, setPersonError] = useState<string | null>(null);
+	// Kept here, so paging and new filters keep the order.
+	const { sort, setSort, announcement } = useAnnouncedSort(NEWEST_FIRST, TIME_LABEL);
 	// A new link (for example "All events" from a workspace) refills the form.
 	if (draftKey !== key) {
 		setDraftKey(key);
@@ -174,19 +179,41 @@ export function AuditTab() {
 				) : null}
 			</form>
 			{/* Only the results re-key on new filters, so the focused form button stays. */}
-			<AuditResults key={key} filters={filters} />
+			<AuditResults key={key} filters={filters} sort={sort} setSort={setSort} />
+			<SortAnnouncement text={announcement} testId="audit-sort-announce" />
 		</AdminSection>
 	);
 }
 
-function AuditResults({ filters }: { filters: AuditFilters }) {
+/** The order the API pages in. */
+const NEWEST_FIRST: SortState<"time"> = { column: "time", direction: "descending" };
+
+const TIME_LABEL = { time: "Time" } as const;
+
+/**
+ * The table holds one page of 50 from a much longer history, so only Time
+ * sorts: flipping a page's own order is honest, while sorting a page by
+ * actor or action would read as the whole history's order. Filters do that job.
+ */
+function AuditResults({
+	filters,
+	sort,
+	setSort,
+}: {
+	filters: AuditFilters;
+	sort: SortState<"time">;
+	setSort: (sort: SortState<"time">) => void;
+}) {
 	// The `before` cursor of every page shown so far; the last one is current.
 	const [cursors, setCursors] = useState<(number | null)[]>([null]);
 	const before = cursors[cursors.length - 1] ?? null;
 	const page = useAuditPage(filters, before);
 
 	const nextBefore = page.data?.nextBefore ?? null;
-	const events = page.data?.events ?? [];
+	// The API pages newest first, so oldest first is that order reversed; a sort by
+	// timestamp would leave events in the same second newest first.
+	const loaded = page.data?.events ?? [];
+	const events = sort.direction === "descending" ? loaded : [...loaded].reverse();
 	const atNewest = cursors.length < 2;
 	const atOldest = nextBefore === null;
 
@@ -202,16 +229,24 @@ function AuditResults({ filters }: { filters: AuditFilters }) {
 			{/* overflow-clip, not the wrap's overflow auto, so the header sticks to the scrolling <main> (SPEC.md section 20.1). */}
 			<div className="pk-table-wrap overflow-clip">
 				<table
-					className="pk-table pk-table--page"
+					className="pk-table"
 					data-testid="audit-table"
 					aria-busy={page.isFetching}
 				>
 					<caption className="sr-only">
-						Audit events, newest first, {events.length} shown
+						Audit events,{" "}
+						{sort.direction === "descending" ? "newest first" : "oldest first"},{" "}
+						{events.length} shown
 					</caption>
 					<thead>
 						<tr>
-							<th scope="col">Time</th>
+							<SortHeader
+								column="time"
+								label={TIME_LABEL.time}
+								sort={sort}
+								onSort={setSort}
+								first="descending"
+							/>
 							<th scope="col">Actor</th>
 							<th scope="col">Action</th>
 							<th scope="col">Target</th>
@@ -269,14 +304,6 @@ function AuditResults({ filters }: { filters: AuditFilters }) {
 
 function pageText(pageNumber: number, count: number): string {
 	return `Page ${pageNumber}, ${count} ${count === 1 ? "event" : "events"}`;
-}
-
-/** The first 8 characters of a UUID, keeping a `user:` style prefix. */
-export function shortId(value: string): string {
-	const colon = value.indexOf(":");
-	const prefix = colon === -1 ? "" : value.slice(0, colon + 1);
-	const rest = value.slice(prefix.length);
-	return UUID.test(rest) ? `${prefix}${rest.slice(0, 8)}` : value;
 }
 
 /** "ok" and "success" are neutral; every other result is shown as an error. */

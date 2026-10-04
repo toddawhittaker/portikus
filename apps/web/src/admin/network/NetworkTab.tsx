@@ -1,13 +1,11 @@
 import { Button, Skeleton } from "@portikus/ui";
 import { useRef, useState } from "react";
-import { AdminSection } from "../AdminSection.js";
+import { AdminGroup, AdminSection } from "../AdminSection.js";
+import { AllowListGroup } from "./AllowListGroup.js";
 import { BlockedCard } from "./BlockedCard.js";
 import { BlockedSitesCard } from "./BlockedSitesCard.js";
-import { EntriesCard } from "./EntriesCard.js";
 import { EntryDialog, type EntryDraft } from "./EntryDialog.js";
 import { ModeCard } from "./ModeCard.js";
-import { PortsCard } from "./PortsCard.js";
-import { PresetsCard } from "./PresetsCard.js";
 import { egressErrorText, useEgress } from "./queries.js";
 import { TestHostCard } from "./TestHostCard.js";
 
@@ -28,12 +26,18 @@ export function NetworkTab() {
 	if (egress.isError && !egress.data) {
 		return (
 			<AdminSection title="Network">
-				<div className="pk-card grid justify-items-start gap-3 p-6">
-					<p className="m-0 text-status-error" role="alert">
-						{egressErrorText(egress.error)}
-					</p>
-					<Button onClick={() => void egress.refetch()}>Try again</Button>
-				</div>
+				<AdminGroup
+					id="egress-error-title"
+					title="Network policy did not load"
+					testId="egress-error"
+				>
+					<div className="grid justify-items-start gap-3">
+						<p className="m-0 text-status-error" role="alert">
+							{egressErrorText(egress.error)}
+						</p>
+						<Button onClick={() => void egress.refetch()}>Try again</Button>
+					</div>
+				</AdminGroup>
 			</AdminSection>
 		);
 	}
@@ -63,27 +67,32 @@ export function NetworkTab() {
 
 	return (
 		<AdminSection title="Network" intro={INTRO}>
-			<div className="grid gap-6" data-testid="egress-tab">
+			<div className="@container grid gap-4" data-testid="egress-tab">
 				<ModeCard view={view} />
-				{view.mode === "open" ? (
-					<p className="m-0 text-[13px] text-ink-muted" data-testid="egress-open-note">
-						Open mode is on, so only the blocked sites are used. The presets, hosts and
-						ports are for allow-list mode; you can prepare them before you switch.
-					</p>
-				) : null}
-				<div className="grid items-start gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-					<div className="grid gap-6">
+				<div className="grid gap-4 @5xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+					<div className="grid content-start gap-4">
 						{/* The list that matters in the current mode comes first. */}
 						{view.mode === "open" ? <BlockedSitesCard view={view} /> : null}
-						<PresetsCard view={view} />
-						<EntriesCard view={view} onEdit={edit} />
-						<PortsCard view={view} />
+						<AllowListGroup view={view} onEdit={edit} />
 						{view.mode === "allow-list" ? <BlockedSitesCard view={view} /> : null}
 					</div>
-					<div className="grid gap-6">
+					{/*
+					 * Kept in view beside the long lists, so a test is always one field away.
+					 * Capped to what <main> shows (its height less the content's padding
+					 * above and below) and scrolled on its own, so a long Refused names
+					 * list cannot push its bottom out of reach. A tab stop of its own lets
+					 * the keyboard scroll it (WCAG 2.1.1).
+					 */}
+					<section
+						className="pk-focus-ring grid content-start gap-4 self-start rounded-md @5xl:sticky @5xl:top-0 @5xl:max-h-[calc(100cqh-3rem)] @5xl:overflow-y-auto @5xl:overscroll-contain"
+						aria-label="Test a host and refused names"
+						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolled region the keyboard must reach
+						tabIndex={0}
+						data-testid="egress-side"
+					>
 						<TestHostCard view={view} onAllow={allowFrom("egress-test-title")} />
 						<BlockedCard view={view} onAllow={allowFrom("egress-blocked-title")} />
-					</div>
+					</section>
 				</div>
 			</div>
 			{draft ? (

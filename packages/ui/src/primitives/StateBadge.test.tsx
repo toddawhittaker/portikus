@@ -47,3 +47,34 @@ describe("StateBadge", () => {
 		expect(screen.getByText("Running")).toBeTruthy();
 	});
 });
+
+describe("StateBadge moving", () => {
+	it.each<WorkspaceState>(["stopped", "running", "error"])(
+		"shows a spinner on a %s workspace, in a transition's tone",
+		(state) => {
+			const { container, unmount } = render(
+				<StateBadge state={state} moving={true} label="Rebuilding…" />,
+			);
+			const badge = screen.getByRole("status");
+			expect(badge.textContent).toBe("Rebuilding…");
+			expect(container.querySelector(".pk-spin")).not.toBeNull();
+			expect(container.querySelector(".pk-badge-ring")).toBeNull();
+			expect(container.querySelector(".pk-badge-dot")).toBeNull();
+			expect(badge.className).toContain("text-status-starting");
+			// The real state stays on the element.
+			expect(badge.getAttribute("data-state")).toBe(state);
+			unmount();
+		},
+	);
+
+	it("keeps a transition's own tone", () => {
+		render(<StateBadge state="stopping" moving={true} label="Rebuilding…" />);
+		expect(screen.getByRole("status").className).toContain("text-status-stopping");
+	});
+
+	it("without it, a stopped workspace keeps its ring", () => {
+		const { container } = render(<StateBadge state="stopped" label="Rebuilding…" />);
+		expect(container.querySelector(".pk-badge-ring")).not.toBeNull();
+		expect(container.querySelector(".pk-spin")).toBeNull();
+	});
+});

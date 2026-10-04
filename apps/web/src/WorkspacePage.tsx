@@ -15,7 +15,7 @@ import { ProjectPane } from "./projects/ProjectPane.js";
 import { useProjects } from "./projects/queries.js";
 import { ListeningContext, useListeningQuery } from "./running/services.js";
 import { AppHeader } from "./shell/AppHeader.js";
-import { DisconnectNotice } from "./shell/DisconnectNotice.js";
+import { DisconnectNotice, disconnectAnnouncement } from "./shell/DisconnectNotice.js";
 import { FilesPane } from "./shell/FilesPane.js";
 import { IdleNotice, idleMinutes, useIdleStopReason } from "./shell/IdleNotice.js";
 import { MemoryNotice, memoryAnnouncement } from "./shell/MemoryNotice.js";
@@ -146,7 +146,12 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 						tabIndex={-1}
 					>
 						{/* Always mounted, so a new throttle is announced (SPEC.md §25.8). */}
-						<span role="status" className="sr-only" data-testid="throttle-announce">
+						<span
+							role="status"
+							aria-live="polite"
+							className="sr-only"
+							data-testid="throttle-announce"
+						>
 							{workspace?.cpuThrottle &&
 							workspace.cpuThrottle.at !== dismissedThrottleAt
 								? throttleAnnouncement(workspace.cpuThrottle)
@@ -171,7 +176,12 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 								/>
 							)}
 						{/* Always mounted, so a new memory flag is announced (SPEC.md §25.8). */}
-						<span role="status" className="sr-only" data-testid="memory-announce">
+						<span
+							role="status"
+							aria-live="polite"
+							className="sr-only"
+							data-testid="memory-announce"
+						>
 							{showMemoryNotice ? memoryAnnouncement(memoryFlag) : ""}
 						</span>
 						{showMemoryNotice && (
@@ -186,7 +196,12 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 							/>
 						)}
 						{/* Always mounted, so the reinstall list is announced (SPEC.md §25.8). */}
-						<span role="status" className="sr-only" data-testid="reinstall-announce">
+						<span
+							role="status"
+							aria-live="polite"
+							className="sr-only"
+							data-testid="reinstall-announce"
+						>
 							{running ? reinstallAnnouncement(reinstallPackages) : ""}
 						</span>
 						<ReinstallNotice
@@ -202,6 +217,17 @@ function WorkspaceShell({ workspaceId, user }: { workspaceId: string; user: MeUs
 								fallbackFocus={workRef}
 							/>
 						)}
+						{/* Always mounted, with a fixed stop time, so it is heard once (SPEC.md §25.8). */}
+						<span
+							role="status"
+							aria-live="polite"
+							className="sr-only"
+							data-testid="disconnect-announce"
+						>
+							{workspace?.shutdownDeadline
+								? disconnectAnnouncement(workspace.shutdownDeadline)
+								: ""}
+						</span>
 						{workspace?.shutdownDeadline && (
 							<DisconnectNotice
 								deadline={workspace.shutdownDeadline}

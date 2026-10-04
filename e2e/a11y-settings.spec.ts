@@ -37,6 +37,9 @@ async function openTerminal(page: Page, workspaceId: string, projectId: string) 
 	return page.getByTestId(`terminal-pane-${id}`);
 }
 
+/** The name every test here gives notes.txt's editor. */
+const EDITOR_NAME = "Editor, notes.txt. Ctrl+M makes Tab leave the editor.";
+
 /** Store the student's choice before the page loads, as an earlier visit would. */
 async function storeScreenReaderMode(page: Page, on: boolean) {
 	const res = await page.request.put("/me/settings", {
@@ -55,11 +58,15 @@ test("screen-reader mode is off by default in terminals and the editor", async (
 	await expect(
 		page.getByRole("button", { name: "Turn on screen-reader mode" }),
 	).toBeAttached();
-	// Monaco labels its input "not accessible" while its support is off.
+	// Off is Monaco's "auto", which keeps the editor's own name: the file
+	// and the way out, never "not accessible" (SPEC.md §13.5).
 	const input = page
 		.locator('[data-testid="file-pane-notes.txt"] [aria-roledescription="editor"]')
 		.first();
-	await expect(input).toHaveAttribute("aria-label", /not accessible/);
+	await expect(input).toHaveAttribute("aria-label", EDITOR_NAME);
+	// Without screen-reader support Monaco puts no text in its input.
+	await input.focus();
+	await expect(input).toHaveText("");
 });
 
 test("turning on screen-reader mode in Settings gives an open terminal its accessibility tree", async ({
@@ -143,7 +150,7 @@ test("screen-reader mode turns on the editor's own screen-reader support", async
 	const input = page
 		.locator('[data-testid="file-pane-notes.txt"] [aria-roledescription="editor"]')
 		.first();
-	await expect(input).toHaveAttribute("aria-label", /not accessible/);
+	await expect(input).toHaveAttribute("aria-label", EDITOR_NAME);
 
 	await page.getByTestId("screen-reader-toggle").focus();
 	await page.keyboard.press("Enter");
@@ -151,8 +158,11 @@ test("screen-reader mode turns on the editor's own screen-reader support", async
 		"Screen-reader mode is on.",
 	);
 
-	// With support off Monaco labels its input "not accessible"; on, it does not.
-	await expect(input).not.toHaveAttribute("aria-label", /not accessible/);
+	// Support is forced on: the name stays, and Monaco now writes the text
+	// around the cursor into its input for the screen reader to read.
+	await expect(input).toHaveAttribute("aria-label", EDITOR_NAME);
+	await input.focus();
+	await expect(input).toContainText("first line");
 });
 
 test("the terminal colours switch is named Light terminal", async ({
@@ -240,6 +250,38 @@ test("preferences save at once, Saved is announced, and Escape keeps a typed del
 	await expect(dialog.getByTestId("editor-settings-delay")).toHaveValue("17");
 });
 
+test("each field reads label, control, then hint, and the hint describes the control", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+	const dialog = await openSettings(page);
+
+	const delay = dialog.getByRole("textbox", { name: "Auto-save delay", exact: true });
+	await expect(delay).toHaveAccessibleDescription("Seconds, 1 to 60");
+	await expect(
+		dialog.getByRole("group", { name: "Color scheme" }),
+	).toHaveAccessibleDescription("Light, dark, or follow this computer.");
+	await expect(
+		dialog.getByRole("switch", { name: "Light terminal" }),
+	).toHaveAccessibleDescription("What a new terminal starts with.");
+
+	// The hint sits below the control, as in every other field.
+	const below = async (control: string, hint: string) => {
+		const a = await dialog.getByRole("radio", { name: control }).boundingBox();
+		const b = await dialog.getByText(hint, { exact: true }).boundingBox();
+		return a !== null && b !== null && b.y >= a.y + a.height;
+	};
+	expect(await below("System", "Light, dark, or follow this computer.")).toBe(true);
+
+	// The short label drops the unit, so search still finds the field by it.
+	await dialog.getByLabel("Search").fill("seconds");
+	await dialog.getByRole("button", { name: "Auto-save delay", exact: true }).click();
+	await expect(delay).toBeFocused();
+});
+
 for (const colorScheme of ["light", "dark"] as const) {
 	test(`Settings Preferences and Profile have no axe violations in ${colorScheme}`, async ({
 		page,
@@ -273,7 +315,13 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(help).toBeFocused();
 
 		await dialog.getByRole("button", { name: "Profile", exact: true }).click();
-		await expect(dialog.getByRole("button", { name: "Choose picture…" })).toBeVisible();
+		// The picture button with its error showing: a file over the cap is refused before it is sent.
+		await dialog.getByTestId("profile-picture-input").setInputFiles({
+			name: "big.png",
+			mimeType: "image/png",
+			buffer: Buffer.alloc(1024 * 1024 + 1),
+		});
+		await expect(dialog.getByTestId("profile-picture-error")).toBeVisible();
 		await dialog.getByLabel("Personal site").fill("javascript:alert(1)");
 		await expect(dialog.getByText("Give an https:// link")).toBeVisible();
 		await dialog.getByRole("button", { name: "About Workspace label" }).click();

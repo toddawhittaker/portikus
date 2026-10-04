@@ -96,13 +96,23 @@ test("a snapshot counts only when taken after this browser's request, as the wor
 	).toBe(true);
 });
 
-test("rows sort highest first by CPU or memory, and owners are student or system", () => {
-	expect(sortProcesses([HOG, MINER, AGENT], "cpu").map((row) => row.pid)).toEqual([
-		200, 300, 50,
-	]);
-	expect(sortProcesses([HOG, MINER, AGENT], "memory").map((row) => row.pid)).toEqual([
-		300, 200, 50,
-	]);
+test("rows sort by CPU or memory either way, ties in PID order; owners are student or system", () => {
+	const order = (column: "cpu" | "memory", direction: "ascending" | "descending") =>
+		sortProcesses([HOG, MINER, AGENT], { column, direction }).map((row) => row.pid);
+	expect(order("cpu", "descending")).toEqual([200, 300, 50]);
+	expect(order("memory", "descending")).toEqual([300, 200, 50]);
+	expect(order("memory", "ascending")).toEqual([50, 200, 300]);
+	const twin = proc({ pid: 40, cpuPercent: 90 });
+	expect(
+		sortProcesses([MINER, twin], { column: "cpu", direction: "ascending" }).map(
+			(row) => row.pid,
+		),
+	).toEqual([40, 200]);
+	expect(
+		sortProcesses([MINER, twin], { column: "cpu", direction: "descending" }).map(
+			(row) => row.pid,
+		),
+	).toEqual([40, 200]);
 	expect(ownerText(1000)).toBe("student");
 	expect(ownerText(0)).toBe("system");
 });
@@ -154,20 +164,28 @@ test("Refresh polls past an old snapshot, then shows the table sorted by CPU wit
 		screen.getByTestId("processes-stop-200").classList.contains("pk-iconbtn-danger"),
 	).toBe(true);
 	expect(table.querySelector("caption")?.textContent).toBe(
-		"Processes, highest CPU first",
+		"Processes, sorted by CPU, descending",
 	);
-	// The sorted column shows its arrow; the button's name stays the column's.
-	const cpu = screen.getByRole("button", { name: "CPU" });
-	expect(cpu.textContent).toBe("CPU ↓");
-	expect(cpu.className).toContain("pk-focus-ring");
+	// The shared sort header: aria-sort on the sorted cell, nothing said until a press.
+	const header = (name: string) =>
+		screen.getByRole("button", { name }).closest("th")?.getAttribute("aria-sort");
+	expect(header("CPU")).toBe("descending");
+	expect(header("Memory")).toBeNull();
+	const spoken = screen.getByTestId("processes-sort-announce");
+	expect(spoken.textContent).toBe("");
+	// Memory starts highest first, like CPU, and a second press flips it.
 	fireEvent.click(screen.getByRole("button", { name: "Memory" }));
-	expect(screen.getByRole("button", { name: "Memory" }).textContent).toBe("Memory ↓");
-	expect(screen.getByRole("button", { name: "CPU" }).textContent).toBe("CPU");
-	expect(
+	expect(header("Memory")).toBe("descending");
+	expect(header("CPU")).toBeNull();
+	expect(spoken.textContent).toBe("Sorted by Memory, descending");
+	const firstRow = () =>
 		within(screen.getByTestId("processes-table"))
 			.getAllByRole("row")[1]
-			?.getAttribute("data-testid"),
-	).toBe("process-row-300");
+			?.getAttribute("data-testid");
+	expect(firstRow()).toBe("process-row-300");
+	fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+	expect(spoken.textContent).toBe("Sorted by Memory, ascending");
+	expect(firstRow()).toBe("process-row-50");
 	// Polling has ended: no more reads.
 	const calls = fetchMock.mock.calls.length;
 	await tick(5000);

@@ -11,6 +11,7 @@ import {
 	type Route,
 } from "@playwright/test";
 import pg from "pg";
+import { dexLocalSubject } from "../packages/auth/dist/dex-subject.js";
 import { API_ORIGIN, FAKE_AGENT_URL, MOCK_ISSUER, WEB_ORIGIN } from "./ports";
 
 /**
@@ -117,17 +118,50 @@ export async function createSignedInUser(
 		[MOCK_ISSUER, subject, `${subject}@example.edu`, name, role],
 	);
 	if (!user) throw new Error("could not create the test user");
+	const sessionToken = await addSession(context, user.id);
+	return { userId: user.id, sessionToken };
+}
 
+/** Give `userId` a session and put its cookie in the browser context. */
+async function addSession(context: BrowserContext, userId: string): Promise<string> {
 	const sessionToken = crypto.randomBytes(32).toString("base64url");
 	await query(
 		`insert into sessions (id, user_id, expires_at)
 		 values ($1, $2, now() + interval '1 hour')`,
-		[crypto.createHash("sha256").update(sessionToken).digest("hex"), user.id],
+		[crypto.createHash("sha256").update(sessionToken).digest("hex"), userId],
 	);
 	await context.addCookies([
 		{ name: "portikus_session", value: sessionToken, url: WEB_ORIGIN },
 	]);
-	return { userId: user.id, sessionToken };
+	return sessionToken;
+}
+
+/**
+ * A Dex local-password administrator of its own, signed in, like the local
+ * administrator (SPEC.md sections 5.1 and 5.3). It never touches the shared
+ * "admin" account change-password.spec.ts uses.
+ */
+export async function createLocalPasswordAdmin(
+	context: BrowserContext,
+	options: { prefix: string; displayName: string; mustChange: boolean },
+): Promise<string> {
+	const id = `${options.prefix}-${crypto.randomUUID()}`;
+	const [user] = await query<{ id: string }>(
+		`insert into users (oidc_issuer, oidc_subject, email, display_name, role,
+		   granted_role, must_change_password)
+		 values ($1, $2, $3, $4, 'administrator', 'administrator', $5)
+		 returning id`,
+		[
+			MOCK_ISSUER,
+			dexLocalSubject(id),
+			`${id}@example.edu`,
+			options.displayName,
+			options.mustChange,
+		],
+	);
+	if (!user) throw new Error("could not create the test user");
+	await addSession(context, user.id);
+	return user.id;
 }
 
 /**
@@ -675,6 +709,57 @@ export async function studentIn(
 		name,
 	]);
 	return { ...student, name };
+}
+
+/** The reason `finishOperation` audits for a failed Replace home, in the worker's words. */
+const REPLACE_HOME_ERROR = "the host could not import the home: no space left";
+
+/** Play the worker's end of an operation: clear it, then audit the result (ADR 0021). */
+export async function finishOperation(
+	workspaceId: string,
+	action: string,
+	ok: boolean,
+): Promise<void> {
+	await query(
+		`update workspaces set pending_operation = null, pending_operation_at = null,
+		 pending_operation_by = null, state = $2, error_code = $3 where id = $1`,
+		[workspaceId, ok ? "stopped" : "error", ok ? null : "CONTROLLER_TIMEOUT"],
+	);
+	// Replace home audits its reason in words; the others an error code (apps/worker).
+	const failure =
+		action === "workspace.home_replace_failed"
+			? { error: REPLACE_HOME_ERROR }
+			: { errorCode: "CONTROLLER_TIMEOUT" };
+	await query(
+		`insert into audit_events (actor, target, action, result, metadata)
+		 values ('worker', $1, $2, $3, $4)`,
+		[workspaceId, action, ok ? "ok" : "failed", JSON.stringify(ok ? {} : failure)],
+	);
+}
+
+/**
+ * Start recording the text of every toast the page shows, and return a
+ * reader for the list. A success toast closes itself, so counting what is
+ * on screen later would miss it.
+ */
+export async function recordToasts(page: Page): Promise<() => Promise<string[]>> {
+	await page.evaluate(() => {
+		const shown: string[] = [];
+		(window as unknown as { shownToasts: string[] }).shownToasts = shown;
+		new MutationObserver((changes) => {
+			for (const change of changes) {
+				for (const node of change.addedNodes) {
+					if (!(node instanceof HTMLElement)) continue;
+					const toasts = node.matches(".pk-toast")
+						? [node]
+						: [...node.querySelectorAll(".pk-toast")];
+					for (const added of toasts) shown.push(added.textContent ?? "");
+				}
+			}
+		}).observe(document.body, { childList: true, subtree: true });
+	});
+	return () =>
+		page.evaluate(() => (window as unknown as { shownToasts: string[] }).shownToasts);
 }
 
 /** Filter the admin table to a user and open their detail panel once a region shows. */

@@ -14,8 +14,8 @@ import { WARN_AT } from "../../monitor/format.js";
 import { AdminGroup } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
 import { useAdminImage } from "../image/queries.js";
+import { Notice } from "../Notice.js";
 import { DownloadSize } from "./DownloadSize.js";
-import { Notice } from "./Notice.js";
 import {
 	dockerKey,
 	isActive,
@@ -106,25 +106,46 @@ export function SeedCard({ data }: { data: DockerAdminResponse }) {
 				</Toggletip>
 			}
 			actions={
-				<Button
-					variant="primary"
-					data-testid="docker-seed-rebuild"
-					aria-disabled={off ? true : undefined}
-					aria-describedby={off ? "docker-seed-rebuild-note" : undefined}
-					loading={rebuild.isPending}
-					onClick={start}
-				>
-					Rebuild seed
-				</Button>
+				// The reason the button is off sits under it, as on the Certificate tab.
+				<div className="grid justify-items-end gap-2">
+					<Button
+						variant="primary"
+						data-testid="docker-seed-rebuild"
+						aria-disabled={off ? true : undefined}
+						aria-describedby={off ? "docker-seed-rebuild-note" : undefined}
+						loading={rebuild.isPending}
+						onClick={start}
+					>
+						Rebuild seed
+					</Button>
+					{off ? (
+						<p
+							id="docker-seed-rebuild-note"
+							className="pk-muted m-0 max-w-[40ch] text-end text-[13px]"
+						>
+							{off}
+						</p>
+					) : null}
+				</div>
 			}
 		>
-			{off ? (
-				<p id="docker-seed-rebuild-note" className="pk-muted m-0 text-[13px]">
-					{off}
-				</p>
+			{data.seed ? (
+				<CurrentSeed data={data} seed={data.seed} drifting={drift !== null} />
 			) : null}
-			<CurrentSeed data={data} drifting={drift !== null} />
-			<LatestRebuild job={latest} loaded={jobs.data !== undefined} />
+			{/* Mounted before the first job, so its arrival and each step are announced. */}
+			<div role="status">
+				{latest ? (
+					<LatestRebuild job={latest} />
+				) : jobs.data === undefined ? null : data.seed ? (
+					<p className="pk-muted m-0 text-[13px]" data-testid="docker-seed-job-none">
+						The seed has not been rebuilt yet.
+					</p>
+				) : (
+					<p className="pk-muted m-0 text-[13px]" data-testid="docker-seed-none">
+						No seed yet, so new Docker storage starts empty.
+					</p>
+				)}
+			</div>
 			<ImageList
 				data={data}
 				error={listError}
@@ -137,13 +158,14 @@ export function SeedCard({ data }: { data: DockerAdminResponse }) {
 
 function CurrentSeed({
 	data,
+	seed,
 	drifting,
 }: {
 	data: DockerAdminResponse;
+	seed: NonNullable<DockerAdminResponse["seed"]>;
 	/** The drift notice's button rebuilds too, so this notice would repeat it. */
 	drifting: boolean;
 }) {
-	const seed = data.seed;
 	// Only to say when the seed's Docker no longer matches new workspaces.
 	const image = useAdminImage();
 	const defaultVersion = image.data?.default ?? null;
@@ -152,45 +174,36 @@ function CurrentSeed({
 			<h4 className={SUB_HEADING} id="docker-seed-current-title">
 				Current seed
 			</h4>
-			{seed ? (
-				<>
-					<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
-						<dt className="pk-muted">Seed size</dt>
-						<dd className="m-0" data-testid="docker-seed-size">
-							<Meter
-								label="Seed size"
-								value={seed.sizeBytes}
-								max={data.seedMaxGiB * 1024 ** 3}
-								high={data.seedMaxGiB * 1024 ** 3 * WARN_AT}
-								valueText={seedUseText(seed.sizeBytes, data.seedMaxGiB)}
-							/>
-						</dd>
-						<dt className="pk-muted">Built</dt>
-						<dd className="m-0">{longTime(seed.builtAt)}</dd>
-						<dt className="pk-muted">Workspace image</dt>
-						<dd className="m-0" data-testid="docker-seed-image-version">
-							{seed.imageVersion}
-						</dd>
-					</dl>
-					<ImageTable
-						caption="Images in the current seed"
-						testId="docker-seed-images"
-						names={seed.images}
-						sizes={data.imageSizes}
+			<dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]">
+				<dt className="pk-muted">Seed size</dt>
+				<dd className="m-0" data-testid="docker-seed-size">
+					<Meter
+						label="Seed size"
+						value={seed.sizeBytes}
+						max={data.seedMaxGiB * 1024 ** 3}
+						high={data.seedMaxGiB * 1024 ** 3 * WARN_AT}
+						valueText={seedUseText(seed.sizeBytes, data.seedMaxGiB)}
 					/>
-					{!drifting && defaultVersion && defaultVersion !== seed.imageVersion ? (
-						<Notice tone="warning" testId="docker-seed-stale">
-							The default workspace image is now {defaultVersion}. Rebuild the seed so
-							its images match the Docker in new workspaces.
-						</Notice>
-					) : null}
-				</>
-			) : (
-				<p className="pk-muted m-0 text-[13px]" data-testid="docker-seed-none">
-					There is no seed yet, so new Docker storage starts empty. Add images below and
-					rebuild the seed.
-				</p>
-			)}
+				</dd>
+				<dt className="pk-muted">Built</dt>
+				<dd className="m-0">{longTime(seed.builtAt)}</dd>
+				<dt className="pk-muted">Workspace image</dt>
+				<dd className="m-0" data-testid="docker-seed-image-version">
+					{seed.imageVersion}
+				</dd>
+			</dl>
+			<ImageTable
+				caption="Images in the current seed"
+				testId="docker-seed-images"
+				names={seed.images}
+				sizes={data.imageSizes}
+			/>
+			{!drifting && defaultVersion && defaultVersion !== seed.imageVersion ? (
+				<Notice tone="warning" testId="docker-seed-stale">
+					The default workspace image is now {defaultVersion}. Rebuild the seed so its
+					images match the Docker in new workspaces.
+				</Notice>
+			) : null}
 		</section>
 	);
 }
@@ -291,11 +304,11 @@ function MatchNotice({
 	);
 }
 
-function LatestRebuild({ job, loaded }: { job: SeedJob | null; loaded: boolean }) {
+function LatestRebuild({ job }: { job: SeedJob }) {
 	const tone =
-		job?.state === "failed"
+		job.state === "failed"
 			? "pk-tag pk-tag--error"
-			: job?.state === "succeeded"
+			: job.state === "succeeded"
 				? "pk-tag"
 				: "pk-tag border-transparent bg-status-starting-soft text-status-starting";
 	return (
@@ -303,43 +316,36 @@ function LatestRebuild({ job, loaded }: { job: SeedJob | null; loaded: boolean }
 			<h4 className={SUB_HEADING} id="docker-seed-job-title">
 				Latest rebuild
 			</h4>
-			{/* Mounted before the first job, so its arrival and each step are announced. */}
-			<div role="status">
-				{job ? (
-					<dl
-						className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]"
-						data-testid="docker-seed-job"
-					>
-						<dt className="pk-muted">State</dt>
-						<dd className="m-0" data-testid="docker-seed-job-state">
-							<span className={tone}>{STATE_LABEL[job.state]}</span> {job.step}
+			<dl
+				className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-[13px]"
+				data-testid="docker-seed-job"
+			>
+				<dt className="pk-muted">State</dt>
+				<dd className="m-0" data-testid="docker-seed-job-state">
+					<span className={tone}>{STATE_LABEL[job.state]}</span>
+					{/* A finished job's last step only repeats the state. */}
+					{job.state === "running" || job.state === "failed" ? ` ${job.step}` : null}
+				</dd>
+				{job.message ? (
+					<>
+						<dt className="pk-muted">Reason</dt>
+						<dd
+							className="m-0 [overflow-wrap:anywhere]"
+							data-testid="docker-seed-job-message"
+						>
+							{job.message}
 						</dd>
-						{job.message ? (
-							<>
-								<dt className="pk-muted">Reason</dt>
-								<dd
-									className="m-0 [overflow-wrap:anywhere]"
-									data-testid="docker-seed-job-message"
-								>
-									{job.message}
-								</dd>
-							</>
-						) : null}
-						<dt className="pk-muted">Requested</dt>
-						<dd className="m-0">{longTime(job.requestedAt)}</dd>
-						{job.finishedAt ? (
-							<>
-								<dt className="pk-muted">Finished</dt>
-								<dd className="m-0">{longTime(job.finishedAt)}</dd>
-							</>
-						) : null}
-					</dl>
-				) : loaded ? (
-					<p className="pk-muted m-0 text-[13px]" data-testid="docker-seed-job-none">
-						The seed has not been rebuilt yet.
-					</p>
+					</>
 				) : null}
-			</div>
+				<dt className="pk-muted">Requested</dt>
+				<dd className="m-0">{longTime(job.requestedAt)}</dd>
+				{job.finishedAt ? (
+					<>
+						<dt className="pk-muted">Finished</dt>
+						<dd className="m-0">{longTime(job.finishedAt)}</dd>
+					</>
+				) : null}
+			</dl>
 		</section>
 	);
 }
@@ -464,7 +470,7 @@ function ImageList({
 					error={announced(addError)}
 					onChange={(event) => setDraft(event.target.value)}
 				/>
-				{/* Lines the button up with the input, below the label row. */}
+				{/* The hint sits under the input, so items-end would line up with the hint; skip the 18px label line and the 6px field gap instead. */}
 				<Button
 					type="submit"
 					className="mt-6"
@@ -558,9 +564,13 @@ function SizeLimit({ data }: { data: DockerAdminResponse }) {
 	}
 
 	return (
-		<form className="flex flex-wrap items-start gap-3" onSubmit={submit} noValidate>
+		<form
+			className="flex flex-wrap items-start gap-3 border-line border-t pt-5"
+			onSubmit={submit}
+			noValidate
+		>
 			<TextField
-				className="w-56"
+				className="w-72 max-w-full"
 				id="docker-seed-max"
 				label="Largest seed (GiB)"
 				inputMode="numeric"
@@ -569,6 +579,7 @@ function SizeLimit({ data }: { data: DockerAdminResponse }) {
 				error={announced(error)}
 				onChange={(event) => setDraft(event.target.value)}
 			/>
+			{/* Lines up with the input, as Add image does. */}
 			<Button
 				type="submit"
 				className="mt-6"

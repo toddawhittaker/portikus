@@ -10,7 +10,7 @@ import {
 	WORKSPACE,
 } from "../test-utils.js";
 import type { MeUser } from "../useMe.js";
-import { AppHeader } from "./AppHeader.js";
+import { AppHeader, helpHref } from "./AppHeader.js";
 
 afterEach(() => {
 	document.documentElement.removeAttribute("data-theme");
@@ -211,6 +211,12 @@ test("the account button names the unread count and the badge shows it", async (
 	renderHeader();
 	const badge = await screen.findByTestId("notifications-badge");
 	expect(badge.textContent).toBe("3");
+	// Its own button after the account button, never inside it (SPEC.md section 25.8).
+	const account = screen.getByTestId("me");
+	expect(account.contains(badge)).toBe(false);
+	expect(
+		account.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
 	expect(badge.getAttribute("aria-label")).toBe(
 		"Notifications, 3 unread notifications",
 	);
@@ -262,7 +268,24 @@ test("the menu item shows the unread count after its name, and the address is cu
 	expect(within(item).getByText("4 unread").getAttribute("aria-hidden")).toBe("true");
 	const address = screen.getByTitle(email);
 	expect(address.textContent).toBe(email);
-	expect(address.className).toContain("pk-account-email");
+	expect(address.className).toContain("pk-account-line");
+});
+
+// A narrow bar shows only the picture, so the menu names the account first.
+test("the account menu shows the display name with the address under it", () => {
+	renderHeader(WORKSPACE, { ...USER, email: "alice@example.edu" });
+	openAccountMenu();
+	const name = screen.getByTestId("account-menu-name");
+	expect(name.textContent).toBe(USER.displayName);
+	expect(name.nextElementSibling?.textContent).toBe("alice@example.edu");
+});
+
+test("an account with no address shows only the name in the menu", () => {
+	renderHeader(WORKSPACE, { ...USER, email: null });
+	openAccountMenu();
+	const name = screen.getByTestId("account-menu-name");
+	expect(name.textContent).toBe(USER.displayName);
+	expect(name.nextElementSibling).toBeNull();
 });
 
 // Closed without reading, the badge still exists and takes focus back; the
@@ -277,6 +300,16 @@ test("closing the dialog the badge opened returns focus to the badge", async () 
 	await waitFor(() =>
 		expect(document.activeElement).toBe(screen.getByTestId("notifications-badge")),
 	);
+});
+
+test("Help opens the administrator help from an admin page and the workspace help elsewhere", () => {
+	expect(helpHref("/admin")).toBe("/admin/help");
+	expect(helpHref("/admin/users")).toBe("/admin/help");
+	expect(helpHref("/admin/help")).toBe("/admin/help");
+	expect(helpHref("/workspaces/1/projects/2")).toBe("/help");
+	expect(helpHref("/course")).toBe("/help");
+	expect(helpHref("/help")).toBe("/help");
+	expect(helpHref("/administrators")).toBe("/help");
 });
 
 test("every role gets Help after Settings, opening in a new tab", () => {

@@ -607,15 +607,13 @@ test("a PEM error after a server refusal replaces the paragraph, so it is announ
 	await waitFor(() =>
 		expect(document.getElementById("cert-site-key-err")).not.toBeNull(),
 	);
-	const before = document.getElementById("cert-site-key-err");
-	expect(before?.getAttribute("role")).toBeNull();
+	const site = screen.getByTestId("cert-upload-site");
+	// The server's reason is already in the form's alert, so it is not a second one.
+	expect(within(site).queryByRole("alert")).toBeNull();
 	choose("Private key", "binary DER bytes", "site.der");
-	await waitFor(() =>
-		expect(document.getElementById("cert-site-key-err")?.getAttribute("role")).toBe(
-			"alert",
-		),
-	);
-	expect(document.getElementById("cert-site-key-err")).not.toBe(before);
+	const alert = await within(site).findByRole("alert");
+	expect(alert.textContent).toMatch(/not in PEM format/);
+	expect(document.getElementById("cert-site-key-err")?.contains(alert)).toBe(true);
 });
 
 test("a file that is not PEM is refused where it was chosen", async () => {
@@ -628,6 +626,42 @@ test("a file that is not PEM is refused where it was chosen", async () => {
 	expect(input.getAttribute("aria-invalid")).toBe("true");
 });
 
+test("the multi-line service account key reads its hint, then its error, like every field", async () => {
+	serve(
+		data({
+			settings: {
+				...SETTINGS,
+				challenge: {
+					mode: "dns01",
+					provider: "googleclouddns",
+					fields: { gcp_project: "portikus-dns" },
+					secretsSet: {},
+				},
+			},
+		}),
+	);
+	renderWithQuery(<CertificateTab />);
+	fireEvent.click(await screen.findByTestId("cert-apply"));
+	const key = await screen.findByLabelText(/service account/i);
+	await waitFor(() => expect(key.getAttribute("aria-invalid")).toBe("true"));
+	expect(key.tagName).toBe("TEXTAREA");
+	expect(key.getAttribute("aria-describedby")).toBe(
+		"cert-dns-service_account_json-hint cert-dns-service_account_json-err",
+	);
+});
+
+test("a second bad file with the same problem mounts a fresh alert, so it is read out again", async () => {
+	serve(data({ settings: { source: "internal" } }));
+	renderWithQuery(<CertificateTab />);
+	fireEvent.click(await screen.findByTestId("cert-source-files"));
+	choose("Certificate", "binary DER bytes", "one.der");
+	const first = await screen.findByRole("alert");
+	choose("Certificate", "other DER bytes", "two.der");
+	await waitFor(() => expect(screen.getByRole("alert")).not.toBe(first));
+	expect(first.isConnected).toBe(false);
+	expect(screen.getByRole("alert").textContent).toBe(first.textContent);
+});
+
 test("the root certificate is offered for download with install steps", async () => {
 	serve(data({ settings: { source: "internal" }, rootCertificateAvailable: true }));
 	renderWithQuery(<CertificateTab />);
@@ -637,4 +671,39 @@ test("the root certificate is offered for download with install steps", async ()
 	expect(screen.getByTestId("cert-root").textContent).toContain(
 		"update-ca-certificates",
 	);
+});
+
+test("the install steps are term and step pairs, one per system", async () => {
+	serve(data({ settings: { source: "internal" }, rootCertificateAvailable: true }));
+	renderWithQuery(<CertificateTab />);
+	const steps = await screen.findByTestId("cert-root-steps");
+	expect(steps.tagName).toBe("DL");
+	const pairs = [...steps.children].map((child) => child.tagName);
+	expect(pairs).toEqual(["DT", "DD", "DT", "DD", "DT", "DD", "DT", "DD"]);
+	expect([...steps.querySelectorAll("dt")].map((dt) => dt.textContent)).toEqual([
+		"Windows",
+		"macOS",
+		"Linux",
+		"Firefox",
+	]);
+	// A command never breaks mid-word.
+	for (const code of steps.querySelectorAll("code")) {
+		expect(code.className).toContain("whitespace-nowrap");
+	}
+});
+
+test("Roll back's reason sits with the buttons, not above the certificate", async () => {
+	serve(data({ settings: { source: "internal" }, previousAvailable: false }));
+	renderWithQuery(<CertificateTab />);
+	const rollback = await screen.findByTestId("cert-rollback");
+	const note = document.getElementById("cert-rollback-note");
+	expect(rollback.getAttribute("aria-describedby")).toBe("cert-rollback-note");
+	// The note follows the buttons, and comes before the Source pair.
+	expect(rollback.compareDocumentPosition(note as Node)).toBe(
+		Node.DOCUMENT_POSITION_FOLLOWING,
+	);
+	expect(note?.compareDocumentPosition(screen.getByTestId("cert-source")) ?? 0).toBe(
+		Node.DOCUMENT_POSITION_FOLLOWING,
+	);
+	expect(rollback.parentElement?.parentElement?.contains(note)).toBe(true);
 });

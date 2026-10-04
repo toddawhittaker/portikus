@@ -21,8 +21,31 @@ export type MeterProps = MeterName & {
 	high?: number;
 	/** A value to mark with a tick, such as an automatic clear point; nearby text says what it is. */
 	mark?: number;
+	/**
+	 * Shown beside the bar instead of the full words where room is short, such
+	 * as "85%". The meter still reads the full words, and past `high` the alert
+	 * icon still shows. A control around the Meter keeps these words in its name.
+	 */
+	shortText?: string;
 	className?: string;
 };
+
+/**
+ * The words a Meter shows and reads: `valueText`, plus "nearly full" past
+ * `high` or "over the limit" past `max`. A control that wraps a Meter builds
+ * its name from this, so the name holds the visible text.
+ */
+export function meterText({
+	value,
+	max,
+	high,
+	valueText,
+}: Pick<MeterProps, "value" | "max" | "high" | "valueText">): string {
+	// Strictly past, as the native meter colours it.
+	if (max > 0 && value > max) return `${valueText}, over the limit`;
+	if (high !== undefined && value > high) return `${valueText}, nearly full`;
+	return valueText;
+}
 
 /**
  * A native meter with its value as text beside it, so the figure can be read
@@ -39,17 +62,11 @@ export function Meter({
 	valueText,
 	high,
 	mark,
+	shortText,
 	className,
 }: MeterProps): React.ReactElement {
-	// Strictly past, as the native meter colours it.
-	const over = max > 0 && value > max;
-	const nearlyFull = high !== undefined && value > high;
-	const warn = over || nearlyFull;
-	const text = over
-		? `${valueText}, over the limit`
-		: nearlyFull
-			? `${valueText}, nearly full`
-			: valueText;
+	const text = meterText({ value, max, high, valueText });
+	const warn = text !== valueText;
 	const markAt =
 		mark !== undefined && max > 0 ? Math.min(Math.max(mark / max, 0), 1) * 100 : null;
 	return (
@@ -77,7 +94,7 @@ export function Meter({
 			{/* The meter's aria-valuetext already reads these words. */}
 			<span className="pk-meter-text" aria-hidden={true}>
 				{warn ? <Icon name="alert" size="sm" className="pk-meter-alert" /> : null}
-				<span className="pk-meter-figure">{text}</span>
+				<span className="pk-meter-figure">{shortText ?? text}</span>
 			</span>
 		</span>
 	);

@@ -1,7 +1,5 @@
-import * as crypto from "node:crypto";
 import { type BrowserContext, expect, test } from "@playwright/test";
-import { dexLocalSubject } from "../packages/auth/dist/dex-subject.js";
-import { expectNoViolations, MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
+import { createLocalPasswordAdmin, expectNoViolations } from "./helpers";
 
 /**
  * axe on the change-password page and Settings, Password, in light and dark
@@ -13,24 +11,11 @@ import { expectNoViolations, MOCK_ISSUER, query, WEB_ORIGIN } from "./helpers";
 
 /** A Dex local-password administrator with a session cookie in `context`. */
 async function signInLocalAccount(context: BrowserContext, mustChange: boolean) {
-	const id = `a11y-${crypto.randomUUID()}`;
-	const [user] = await query<{ id: string }>(
-		`insert into users (oidc_issuer, oidc_subject, email, display_name, role,
-		   granted_role, must_change_password)
-		 values ($1, $2, $3, 'A11y Local', 'administrator', 'administrator', $4)
-		 returning id`,
-		[MOCK_ISSUER, dexLocalSubject(id), `${id}@example.edu`, mustChange],
-	);
-	if (!user) throw new Error("could not create the test user");
-	const token = crypto.randomBytes(32).toString("base64url");
-	await query(
-		`insert into sessions (id, user_id, expires_at)
-		 values ($1, $2, now() + interval '1 hour')`,
-		[crypto.createHash("sha256").update(token).digest("hex"), user.id],
-	);
-	await context.addCookies([
-		{ name: "portikus_session", value: token, url: WEB_ORIGIN },
-	]);
+	await createLocalPasswordAdmin(context, {
+		prefix: "a11y",
+		displayName: "A11y Local",
+		mustChange,
+	});
 }
 
 for (const colorScheme of ["light", "dark"] as const) {

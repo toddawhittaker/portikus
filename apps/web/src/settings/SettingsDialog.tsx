@@ -21,6 +21,7 @@ import {
 	Checkbox,
 	Dialog,
 	DialogRoot,
+	HINT_CLASS,
 	LABEL_CLASS,
 	Select,
 	TextField,
@@ -74,22 +75,27 @@ function ChoiceField({
 	onChange: (value: string) => void;
 }) {
 	return (
-		<fieldset className="m-0 grid gap-2 border-0 p-0">
-			<legend className={LABEL_CLASS}>{label}</legend>
-			<p className="pk-hint m-0 text-[12px] leading-4 text-ink-muted">{hint}</p>
-			<div className="pk-choice">
-				{options.map((option) => (
-					<label key={option.value}>
-						<input
-							type="radio"
-							name={name}
-							value={option.value}
-							checked={value === option.value}
-							onChange={() => onChange(option.value)}
-						/>
-						<span>{option.label}</span>
-					</label>
-				))}
+		<fieldset className="m-0 min-w-0 border-0 p-0" aria-describedby={`${name}-hint`}>
+			{/* A legend is not a grid item, so the rest sits in its own grid below it. */}
+			<legend className={`${LABEL_CLASS} mb-1.5 p-0`}>{label}</legend>
+			<div className="grid gap-1.5">
+				<div className="pk-choice">
+					{options.map((option) => (
+						<label key={option.value}>
+							<input
+								type="radio"
+								name={name}
+								value={option.value}
+								checked={value === option.value}
+								onChange={() => onChange(option.value)}
+							/>
+							<span>{option.label}</span>
+						</label>
+					))}
+				</div>
+				<p className={HINT_CLASS} id={`${name}-hint`}>
+					{hint}
+				</p>
 			</div>
 		</fieldset>
 	);
@@ -331,6 +337,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 						id="editor-autosave-delay"
 						data-testid="editor-settings-delay"
 						label={control.label}
+						hint={`Seconds, ${MIN_DELAY} to ${MAX_DELAY}`}
 						help={
 							<Toggletip label={control.label}>
 								How long Portikus waits after you stop typing before it saves. Ctrl+S
@@ -361,21 +368,19 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 				);
 			case "terminal-colours":
 				return (
-					<div className="grid gap-2">
-						<div className="flex min-w-0 items-center gap-1">
+					<div className="grid gap-1.5">
+						<div className="flex h-[18px] min-w-0 items-center gap-1">
 							<span className={LABEL_CLASS}>{control.label}</span>
 							<Toggletip label={control.label}>
 								You can switch one terminal from its three-dots menu. A program that is
 								already running keeps the colors it started with until you restart it.
 							</Toggletip>
 						</div>
-						<p className="pk-hint m-0 text-[12px] leading-4 text-ink-muted">
-							What a new terminal starts with.
-						</p>
 						<label className="pk-switch">
 							<input
 								type="checkbox"
 								role="switch"
+								aria-describedby="terminal-colours-hint"
 								aria-checked={terminalTheme === "light"}
 								checked={terminalTheme === "light"}
 								onChange={(event) =>
@@ -385,6 +390,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 							{/* A fixed name, so on and off mean light and dark. */}
 							<span>Light terminal</span>
 						</label>
+						<p className={HINT_CLASS} id="terminal-colours-hint">
+							What a new terminal starts with.
+						</p>
 					</div>
 				);
 			case "screen-reader-mode":
@@ -558,7 +566,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 						</nav>
 					</div>
 					<div className="flex min-h-0 min-w-0 flex-col">
-						<div ref={pane} className="min-h-0 flex-1 overflow-y-auto p-4">
+						<div
+							ref={pane}
+							className="min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]"
+						>
 							{sectionId === PASSWORD?.id && localPassword ? (
 								<PasswordPane highlightId={highlightId} />
 							) : sectionId === PROFILE?.id ? (
@@ -569,11 +580,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 									onCommitLinks={commitLinks}
 								/>
 							) : (
-								<div className="grid gap-6">
-									<h2
-										id="settings-section-preferences"
-										className="pk-text-heading text-ink"
-									>
+								<div className="relative grid gap-6">
+									{/* The section list already shows which section is open. */}
+									<h2 id="settings-section-preferences" className="sr-only">
 										Preferences
 									</h2>
 									{PREFERENCES?.groups.map((group) => (
@@ -584,7 +593,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 										>
 											<h3
 												id={`settings-${group.title}`}
-												className="pk-text-body font-semibold text-ink"
+												className="pk-text-heading text-ink"
 											>
 												{group.title}
 											</h3>
@@ -623,8 +632,12 @@ function PasswordPane({ highlightId }: { highlightId: string | null }) {
 	const [changed, setChanged] = useState(false);
 	useShowSetting(highlightId, true);
 	return (
-		<section className="grid gap-4" aria-labelledby="settings-section-password">
-			<h2 id="settings-section-password" className="pk-text-heading text-ink">
+		<section
+			className="relative grid gap-4"
+			aria-labelledby="settings-section-password"
+		>
+			{/* The section list already shows which section is open. */}
+			<h2 id="settings-section-password" className="sr-only">
 				Password
 			</h2>
 			<p className="pk-text-body m-0 text-ink-muted">

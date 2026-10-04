@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "@portikus/ui/theme.css";
 @import "./running/running.css";
+@import "./shell/header.css";
+@import "./tables.css";
 
 /*
  * Screen-level patterns from design/mockups/portikus-screens.css: the shell
@@ -134,7 +136,7 @@ body {
 	border: 0;
 	margin: 0;
 }
-/* Layered so Tailwind utilities such as items-end can override it. */
+/* Layered so Tailwind utilities such as items-end or a status fill can override them. */
 @layer components {
 	.pk-actions {
 		display: flex;
@@ -142,12 +144,12 @@ body {
 		align-items: center;
 		gap: var(--space-2);
 	}
-}
-.pk-card {
-	box-sizing: border-box;
-	background: var(--surface-raised);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-md);
+	.pk-card {
+		box-sizing: border-box;
+		background: var(--surface-raised);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+	}
 }
 
 /* StandalonePage: sign-in, session ended, not authorized. */
@@ -195,187 +197,6 @@ body {
 	padding: var(--space-3);
 	border-radius: var(--radius-md);
 	background: var(--surface-sunken);
-}
-
-/* AppHeader */
-.pk-appbar {
-	flex: none;
-	box-sizing: border-box;
-	display: flex;
-	align-items: center;
-	gap: var(--space-2);
-	height: 48px;
-	padding: 0 var(--space-3) 0 var(--space-4);
-	background: var(--surface);
-	border-bottom: 1px solid var(--line);
-}
-.pk-appbar-divider {
-	width: 1px;
-	height: 20px;
-	margin: 0 var(--space-2);
-	background: var(--line);
-}
-.pk-appbar-context {
-	display: flex;
-	align-items: center;
-	gap: var(--space-1\.5);
-	min-width: 0;
-	font-size: 13px;
-	line-height: 18px;
-	color: var(--ink-muted);
-}
-.pk-appbar-context strong {
-	color: var(--ink);
-	font-weight: 600;
-}
-.pk-appbar-spacer {
-	flex: 1;
-}
-.pk-account {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-2);
-	height: var(--pk-control);
-	padding: 0 var(--space-2);
-	border: 0;
-	border-radius: var(--radius-sm);
-	background: transparent;
-	color: var(--ink);
-	font: inherit;
-	font-size: 13px;
-	cursor: pointer;
-}
-.pk-account:hover {
-	background: var(--surface-hover);
-}
-.pk-summary:focus-visible,
-.pk-account:focus-visible,
-.pk-wsbutton:focus-visible,
-button.pk-statusbar-item:focus-visible {
-	outline: var(--ring-width) solid var(--focus);
-	outline-offset: var(--ring-offset);
-}
-.pk-initials {
-	display: grid;
-	place-items: center;
-	width: 24px;
-	height: 24px;
-	border-radius: var(--radius-sm);
-	background: var(--surface-sunken);
-	border: 1px solid var(--line);
-	color: var(--ink-muted);
-	font-size: 12px;
-	font-weight: 600;
-}
-/* Notifications (SPEC.md section 8.5) */
-.pk-account-wrap {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-1);
-	min-width: 0;
-}
-/* The unread count sits after the name in the accent, never over the picture. */
-.pk-account-badge {
-	/* A 24px hit area around the small pill (WCAG 2.5.8). */
-	display: grid;
-	place-items: center;
-	min-width: 24px;
-	height: 24px;
-	padding: 0;
-	border: 0;
-	border-radius: var(--radius-sm);
-	background: transparent;
-	font: inherit;
-	cursor: pointer;
-}
-.pk-account-badge-pill {
-	min-width: 20px;
-	height: 18px;
-	padding: 0 var(--space-1\.5);
-	border-radius: var(--radius-sm);
-	background: var(--accent);
-	color: var(--on-accent);
-	font-size: 12px;
-	font-weight: 600;
-	line-height: 18px;
-	text-align: center;
-}
-.pk-account-badge:hover .pk-account-badge-pill {
-	background: var(--accent-hover);
-}
-.pk-account-badge:focus-visible {
-	outline: var(--ring-width) solid var(--focus);
-	outline-offset: var(--ring-offset);
-}
-/* The account menu's address: cut with an ellipsis rather than widening the menu. */
-.pk-account-email {
-	display: block;
-	max-inline-size: 18rem;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-.pk-notification-list {
-	margin: 0;
-	padding: 0;
-	list-style: none;
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-2);
-}
-.pk-notification {
-	display: flex;
-	align-items: flex-start;
-	gap: var(--space-3);
-	padding: var(--space-3);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-md);
-}
-.pk-notification--unread {
-	background: var(--surface-sunken);
-	border-color: var(--line-strong);
-}
-.pk-notification-icon {
-	margin-top: 2px;
-	color: var(--ink-muted);
-}
-.pk-notification--success .pk-notification-icon {
-	color: var(--status-running);
-}
-.pk-notification--warning .pk-notification-icon {
-	color: var(--status-warning);
-}
-.pk-notification--danger .pk-notification-icon {
-	color: var(--status-danger);
-}
-.pk-notification-dot {
-	flex: none;
-	width: 8px;
-	height: 8px;
-	margin-top: 8px;
-	border-radius: 50%;
-	background: var(--accent);
-}
-.pk-wsbutton {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-2);
-	height: var(--pk-control);
-	padding: 0 var(--space-1) 0 var(--space-3);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-sm);
-	background: var(--surface-raised);
-	color: var(--ink);
-	font: inherit;
-	font-size: 13px;
-	cursor: pointer;
-}
-/* Text only, no trailing icon, so the padding is even. */
-.pk-wsbutton-text {
-	padding: 0 var(--space-3);
-}
-.pk-wsbutton:hover {
-	background: var(--surface-hover);
 }
 
 /* AppShell and Pane */
@@ -559,12 +380,6 @@ button.pk-statusbar-item:focus-visible {
 	color: var(--status-error);
 }
 
-/* Admin tables that scroll with the page (SPEC.md section 20.1). */
-.pk-table--page thead th {
-	/* The table scrolls with <main>, whose p-8 would otherwise show rows above the header. */
-	top: -2rem;
-}
-
 /* Admin workspace detail panel, from design/mockups/portikus-screens.css (SPEC.md section 20.1). */
 .pk-detail-head {
 	display: flex;
@@ -595,54 +410,6 @@ button.pk-statusbar-item:focus-visible {
 	margin: 0;
 }
 
-/* StatusBar */
-.pk-statusbar {
-	flex: none;
-	box-sizing: border-box;
-	display: flex;
-	align-items: center;
-	gap: var(--space-4);
-	height: 28px;
-	padding: 0 var(--space-3);
-	background: var(--surface-sunken);
-	border-top: 1px solid var(--line);
-	font-size: 12px;
-	line-height: 16px;
-	color: var(--ink-muted);
-}
-.pk-statusbar-item {
-	flex: none;
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-1\.5);
-	white-space: nowrap;
-}
-/* No colour here, so the tone classes win; see .pk-statusbar-plain. */
-button.pk-statusbar-item {
-	box-sizing: border-box;
-	height: 20px;
-	margin: 0;
-	padding: 0 var(--space-2);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-sm);
-	background: transparent;
-	font: inherit;
-	line-height: inherit;
-	cursor: pointer;
-}
-.pk-statusbar-plain {
-	color: var(--ink-muted);
-}
-button.pk-statusbar-item:hover {
-	background: var(--surface-hover);
-}
-.pk-statusbar-mono {
-	font-family: var(--font-mono);
-	font-variant-ligatures: none;
-}
-.pk-statusbar-spacer {
-	flex: 1;
-}
 .pk-dot {
 	flex: none;
 	width: 8px;
@@ -809,25 +576,7 @@ button.pk-statusbar-item:hover {
 	color: var(--ink-muted);
 	font-variant-numeric: tabular-nums;
 }
-.pk-meter-track {
-	height: 6px;
-	border-radius: var(--radius-xs);
-	background: var(--surface-hover);
-	overflow: hidden;
-}
-.pk-meter-fill {
-	height: 100%;
-	background: var(--accent);
-}
-.pk-meter--warning .pk-meter-value {
-	color: var(--status-warning);
-	font-weight: 600;
-}
-.pk-meter--full .pk-meter-value {
-	color: var(--status-error);
-	font-weight: 600;
-}
-/* The storage meters' ui Meter: warning text as above, and the error colour at the critical level. */
+/* The ui Meter in the storage and status bar meters: bold warning text, and the error colour at the critical level. */
 .pk-meter--warning .pk-meter-figure,
 .pk-meter--full .pk-meter-figure {
 	font-weight: 600;
@@ -871,53 +620,8 @@ button.pk-statusbar-item:hover {
 	color: var(--ink-muted);
 }
 
-/* The status bar's always-visible memory and disk meters (SPEC.md §19.2). No transition, so reduced motion needs nothing. */
-.pk-statusbar-meter {
-	display: inline-flex;
-	gap: var(--space-1\.5);
-	font-size: inherit;
-	line-height: inherit;
-}
-.pk-statusbar-meter .pk-meter-label {
-	font-weight: 500;
-}
-.pk-statusbar-meter .pk-meter-track {
-	display: block;
-	flex: none;
-	width: 40px;
-	height: 4px;
-}
-.pk-statusbar-meter .pk-meter-fill {
-	display: block;
-}
-.pk-statusbar-meter.pk-meter--warning .pk-meter-fill {
-	background: var(--status-warning);
-}
-.pk-statusbar-meter.pk-meter--full .pk-meter-fill {
-	background: var(--status-error);
-}
-/* When space is tight the project path gives way first, then the Git line, each with an ellipsis; the buttons never shrink. */
-.pk-statusbar-path,
-.pk-statusbar-git {
-	display: block;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.pk-statusbar-path {
-	flex: 0 1000 auto;
-}
-.pk-statusbar-git {
-	flex: 0 1 auto;
-}
-
-/* The Git line of the status bar is muted when there is no repository. */
-.pk-statusbar-muted {
-	color: var(--ink-faint);
-}
-
 /* Headings focused by script for screen readers are not controls, so they need no focus ring. */
-:is(h1, h2, h3)[tabindex="-1"]:focus {
+:is(h1, h2, h3, h4)[tabindex="-1"]:focus {
 	outline: none;
 }
 
@@ -972,6 +676,10 @@ button.pk-statusbar-item:hover {
 /* Help page: contents beside the text when there is room, above it when not. */
 .pk-help {
 	container-type: inline-size;
+}
+.pk-help-elsewhere {
+	margin: var(--space-2) 0 0;
+	color: var(--ink-muted);
 }
 .pk-help-layout {
 	display: grid;

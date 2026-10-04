@@ -111,6 +111,36 @@ test("Still working? appears, and Keep working clears it", async ({
 	await expect(notice).toHaveCount(0, { timeout: 15_000 });
 });
 
+test("over an open dialog, Still working? is an alert dialog that takes focus and hands it back", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await openShell(page, student.workspaceId);
+	// A click event alone, with no pointerdown, so opening the dialog writes no
+	// activity: the API writes it at most once a minute, and Keep working's
+	// write below must be the one that clears the warning.
+	await page.getByTestId("workspace-status").dispatchEvent("click");
+	const workspaceDialog = page.getByRole("dialog");
+	await expect(workspaceDialog).toBeVisible();
+	await expect(workspaceDialog).toBeFocused();
+
+	await warn(student.workspaceId);
+	const alert = page.getByRole("alertdialog", { name: "Still working?" });
+	await expect(alert).toBeVisible({ timeout: 15_000 });
+	await expect(alert).toContainText("nothing has happened in it for 10 minutes");
+	await expect(alert).toBeFocused();
+	await expect(page.getByTestId("idle-notice")).toHaveCount(0);
+
+	await alert.getByRole("button", { name: "Keep working" }).click();
+	await expect
+		.poll(() => idleStopAt(student.workspaceId), { timeout: 15_000 })
+		.toBeNull();
+	await expect(alert).toHaveCount(0, { timeout: 15_000 });
+	await expect(workspaceDialog).toBeVisible();
+	await expect(workspaceDialog).toBeFocused();
+});
+
 test("unanswered, the workspace stops and the page says why", async ({
 	page,
 	context,

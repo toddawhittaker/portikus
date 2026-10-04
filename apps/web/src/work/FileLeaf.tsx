@@ -234,7 +234,9 @@ export function FileLeaf({
 		if (readError) {
 			return `Could not check the file on disk. ${readError.message}`;
 		}
-		if (status === "failed" && saveError !== null) return saveError;
+		// Shown through later edits and retries until a save succeeds, so the
+		// status region is not re-announced on every autosave (SPEC.md §25.8).
+		if (saveError !== null) return saveError;
 		return null;
 	}
 

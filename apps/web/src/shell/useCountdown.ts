@@ -29,9 +29,14 @@ export function useCountdown(deadline: string | null): Countdown | null {
 	return {
 		minutes: Math.max(1, Math.ceil(seconds / 60)),
 		clock: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`,
-		at: new Date(target).toLocaleTimeString([], {
-			hour: "numeric",
-			minute: "2-digit",
-		}),
+		at: stopTime(target),
 	};
+}
+
+/** The local time a deadline falls at, such as "2:05 PM". */
+export function stopTime(deadline: number): string {
+	return new Date(deadline).toLocaleTimeString([], {
+		hour: "numeric",
+		minute: "2-digit",
+	});
 }

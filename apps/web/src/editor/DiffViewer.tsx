@@ -9,6 +9,7 @@ import {
 	accessibilitySupport,
 	baseEditorOptions,
 	currentThemeName,
+	editorAriaLabel,
 	getMonaco,
 	languageForPath,
 	watchTheme,
@@ -100,6 +101,7 @@ export function DiffViewer({
 				renderOverviewRuler: false,
 				accessibilitySupport: accessibilitySupport(screenReaderRef.current),
 			});
+			nameSides(editor, path);
 			editor.setModel(models);
 			if (editableRef.current) {
 				models.modified.onDidChangeContent(() => {
@@ -140,10 +142,13 @@ export function DiffViewer({
 
 	// Screen-reader support follows the student's setting, live.
 	useEffect(() => {
-		editorRef.current?.updateOptions({
+		const editor = editorRef.current;
+		if (!editor) return;
+		editor.updateOptions({
 			accessibilitySupport: accessibilitySupport(screenReaderMode),
 		});
-	}, [screenReaderMode]);
+		nameSides(editor, path);
+	}, [screenReaderMode, path]);
 
 	// The theme follows the page's choice; one watcher serves every editor.
 	useEffect(() => {
@@ -157,4 +162,19 @@ export function DiffViewer({
 			ref={host}
 		/>
 	);
+}
+
+/**
+ * Names each side: which version, which file, and how Tab leaves it (SPEC.md
+ * §25.8). Set on the two inner editors, because Monaco 0.57 blanks them on
+ * every diff option update, its own first one included, that does not carry
+ * `originalAriaLabel` and `modifiedAriaLabel`.
+ */
+function nameSides(editor: Monaco.editor.IStandaloneDiffEditor, path: string): void {
+	editor
+		.getOriginalEditor()
+		.updateOptions({ ariaLabel: editorAriaLabel("Diff, earlier version", path) });
+	editor
+		.getModifiedEditor()
+		.updateOptions({ ariaLabel: editorAriaLabel("Diff, your changes", path) });
 }

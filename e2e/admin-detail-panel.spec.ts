@@ -4,10 +4,12 @@ import { backupSet, hostStatus } from "./backup-channel";
 import {
 	createStudent,
 	expectNoViolations,
+	finishOperation,
 	loginAs,
 	MOCK_ISSUER,
 	openToggletip,
 	query,
+	recordToasts,
 	routeApi,
 	toast,
 } from "./helpers";
@@ -497,5 +499,66 @@ for (const scheme of ["light", "dark"] as const) {
 		await panel.getByRole("button", { name: "About Rebuild workspace" }).click();
 		await expect(openToggletip(page)).toBeVisible();
 		await expectNoViolations(page);
+	});
+}
+
+// The Users view watches operations, so the end is announced with the panel gone.
+for (const { how, endAction, ok, message } of [
+	{
+		how: "closed",
+		endAction: "workspace.rebuilt",
+		ok: true,
+		message: "Rebuild of {name}'s workspace finished",
+	},
+	{
+		how: "switched to another account",
+		endAction: "workspace.docker_reset_failed",
+		ok: false,
+		message: "Docker reset of {name}'s workspace failed",
+	},
+]) {
+	test(`an operation that ends after its panel is ${how} is still announced, once`, async ({
+		page,
+		browser,
+	}) => {
+		const tag = crypto.randomUUID().slice(0, 8);
+		const student = await namedStudent(browser, `Ends ${tag}`);
+		const other = await namedStudent(browser, `Ends ${tag}`);
+		await query("update workspaces set pending_operation = $2 where id = $1", [
+			student.workspaceId,
+			ok ? "rebuild" : "reset-docker",
+		]);
+		const panel = await openPanel(page, student.name);
+		await expect(panel.getByTestId("pending-operation")).toBeVisible();
+		const row = page.getByTestId(`account-row-${student.userId}`);
+		const badge = row.getByText(ok ? "Rebuilding…" : "Resetting Docker…");
+		await expect(badge).toBeVisible();
+		await expect(row.locator(".pk-spin")).toHaveCount(1);
+
+		if (how === "closed") {
+			await panel
+				.getByRole("button", { name: `Close details for ${student.name}` })
+				.click();
+		} else {
+			await page.getByTestId("admin-filter-text").fill(`Ends ${tag}`);
+			await page
+				.getByRole("button", { name: `Show details for ${other.name}` })
+				.click();
+			await expect(page.getByRole("region", { name: other.name })).toBeVisible();
+		}
+		await expect(panel).toHaveCount(0);
+		const shownToasts = await recordToasts(page);
+
+		await finishOperation(student.workspaceId, endAction, ok);
+		const title = message.replace("{name}", student.name);
+		const end = toast(page, title);
+		await expect(end).toBeVisible({ timeout: 15_000 });
+		await expect(end.getByRole(ok ? "status" : "alert")).toHaveCount(1);
+		await expect(badge).toHaveCount(0, { timeout: 15_000 });
+		// A later poll brings no second toast.
+		await page.waitForTimeout(6000);
+		expect((await shownToasts()).filter((text) => text.includes(title))).toHaveLength(
+			1,
+		);
 	});
 }

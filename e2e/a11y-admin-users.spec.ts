@@ -118,6 +118,21 @@ for (const scheme of ["light", "dark"] as const) {
 		await expect(page.getByRole("region", { name: `Axe ${tag} Active` })).toBeVisible();
 		await expectNoViolations(page);
 
+		// A sorted column and an open row menu.
+		const table = page.getByTestId("admin-accounts");
+		await table.getByRole("button", { name: "Activity", exact: true }).click();
+		await expect(
+			table.getByRole("columnheader", { name: /^Activity/ }),
+		).toHaveAttribute("aria-sort", "descending");
+		await expectNoViolations(page);
+		await page.getByRole("button", { name: `Actions for Axe ${tag} Active` }).click();
+		await expect(
+			page.getByRole("menu", { name: `Actions for Axe ${tag} Active` }),
+		).toBeVisible();
+		// The open menu hides the page behind it from assistive technology, so scan the menu alone.
+		await expectNoViolations(page, '[role="menu"]');
+		await page.keyboard.press("Escape");
+
 		await page.getByTestId("bulk-enable").click();
 		const dialog = page.getByRole("alertdialog", { name: "Enable 1 account?" });
 		await expect(dialog).toBeVisible();

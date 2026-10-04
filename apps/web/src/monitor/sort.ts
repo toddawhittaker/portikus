@@ -1,28 +1,23 @@
 import type { UsageProcess } from "@portikus/contracts";
+import type { SortState } from "../table/sort.js";
 
 export type ProcessColumn = "pid" | "cpu" | "memory" | "command";
-type SortDirection = "asc" | "desc";
 
-export interface ProcessSort {
-	column: ProcessColumn;
-	direction: SortDirection;
-}
+export type ProcessSort = SortState<ProcessColumn>;
+
+/** The header words, also spoken when the sort changes. */
+export const PROCESS_COLUMN_LABELS: Record<ProcessColumn, string> = {
+	pid: "PID",
+	cpu: "CPU",
+	memory: "Memory",
+	command: "Command",
+};
 
 /** Busiest first, until a column header is clicked. */
 export const DEFAULT_PROCESS_SORT: ProcessSort = {
 	column: "cpu",
-	direction: "desc",
+	direction: "descending",
 };
-
-export function toggleProcessSort(
-	current: ProcessSort,
-	column: ProcessColumn,
-): ProcessSort {
-	if (current.column === column) {
-		return { column, direction: current.direction === "asc" ? "desc" : "asc" };
-	}
-	return { column, direction: "asc" };
-}
 
 /**
  * Compare one column. Numbers compare as numbers, including a missing CPU
@@ -34,7 +29,7 @@ export function compareProcesses(
 	right: UsageProcess,
 	sort: ProcessSort,
 ): number {
-	const sign = sort.direction === "asc" ? 1 : -1;
+	const sign = sort.direction === "ascending" ? 1 : -1;
 	const byColumn = compareColumn(left, right, sort.column);
 	if (byColumn !== 0) return byColumn * sign;
 	return left.pid - right.pid;

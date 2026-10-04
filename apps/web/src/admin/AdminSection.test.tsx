@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { AdminSection } from "./AdminSection.js";
+import { AdminGroup, AdminSection } from "./AdminSection.js";
 
 test("renders a region named by its h2, with the count, actions and content", () => {
 	render(
@@ -51,7 +51,9 @@ test("puts the intro under the heading, linked to its Help section", () => {
 	const intro = screen.getByTestId("intro-admin-users");
 	expect(intro.querySelector("summary")?.textContent).toBe("About Users");
 	expect(intro.textContent).toContain("Everyone who has signed in");
-	expect(intro.querySelector("a")?.getAttribute("href")).toBe("/help#admin-users");
+	expect(intro.querySelector("a")?.getAttribute("href")).toBe(
+		"/admin/help#admin-users",
+	);
 	// The intro sits between the heading row and the tab's content.
 	const heading = screen.getByRole("heading", { level: 2, name: "Users" });
 	expect(
@@ -61,4 +63,62 @@ test("puts the intro under the heading, linked to its Help section", () => {
 		intro.compareDocumentPosition(screen.getByText("Body")) &
 			Node.DOCUMENT_POSITION_FOLLOWING,
 	).toBeTruthy();
+});
+
+test("AdminGroup shows a description under its heading only when given", () => {
+	const { rerender } = render(
+		<AdminGroup id="g" title="Schedule" description="When the nightly backup runs.">
+			<p>Body</p>
+		</AdminGroup>,
+	);
+
+	const region = screen.getByRole("region", { name: "Schedule" });
+	const description = within(region).getByText("When the nightly backup runs.");
+	expect(description.tagName).toBe("P");
+	const heading = within(region).getByRole("heading", { level: 3, name: "Schedule" });
+	expect(
+		heading.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+
+	rerender(
+		<AdminGroup id="g" title="Schedule">
+			<p>Body</p>
+		</AdminGroup>,
+	);
+	expect(
+		screen.getByRole("region", { name: "Schedule" }).querySelectorAll("p"),
+	).toHaveLength(1);
+});
+
+test("a level 4 group is an h4 region, not a card, with its description and actions", () => {
+	render(
+		<AdminGroup
+			id="p"
+			level={4}
+			title="Ports"
+			description="Which ports workspaces can reach."
+			actions={<button type="button">Reset</button>}
+			testId="ports"
+		>
+			<p>Body</p>
+		</AdminGroup>,
+	);
+	const region = screen.getByRole("region", { name: "Ports" });
+	expect(region.dataset.testid).toBe("ports");
+	expect(region.classList.contains("pk-card")).toBe(false);
+	const heading = within(region).getByRole("heading", { level: 4, name: "Ports" });
+	expect(heading.tabIndex).toBe(-1);
+	expect(within(region).getByText("Which ports workspaces can reach.")).toBeTruthy();
+	expect(within(region).getByRole("button", { name: "Reset" })).toBeTruthy();
+});
+
+test("a level 3 group is a card whose h3 script can focus", () => {
+	render(
+		<AdminGroup id="g" title="Schedule">
+			<p>Body</p>
+		</AdminGroup>,
+	);
+	const region = screen.getByRole("region", { name: "Schedule" });
+	expect(region.classList.contains("pk-card")).toBe(true);
+	expect(within(region).getByRole("heading", { level: 3 }).tabIndex).toBe(-1);
 });

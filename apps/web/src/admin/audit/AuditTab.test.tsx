@@ -13,7 +13,6 @@ import {
 	AuditTab,
 	filtersFromSearch,
 	resultTagClass,
-	shortId,
 	targetLabel,
 } from "./AuditTab.js";
 import { auditQueryString } from "./queries.js";
@@ -312,13 +311,6 @@ test("an API error is announced", async () => {
 	);
 });
 
-test("IDs shorten to their first 8 characters, keeping a prefix", () => {
-	expect(shortId(WORKSPACE_ID)).toBe("22222222");
-	expect(shortId(`user:${USER_ID}`)).toBe("user:11111111");
-	expect(shortId("worker")).toBe("worker");
-	expect(shortId("subject:not-a-uuid")).toBe("subject:not-a-uuid");
-});
-
 test("the short time names month, day, hour and minute but not the year", () => {
 	const text = shortTime("2026-09-22T10:00:00.000Z");
 	expect(text).toMatch(/Sep/);
@@ -428,9 +420,47 @@ test("the tab explains itself, and the action filter and Result column have help
 	const table = await screen.findByTestId("audit-table");
 	const intro = screen.getByTestId("intro-admin-audit");
 	expect(intro.textContent).toContain("who made it");
-	expect(intro.querySelector("a")?.getAttribute("href")).toBe("/help#admin-audit");
+	expect(intro.querySelector("a")?.getAttribute("href")).toBe(
+		"/admin/help#admin-audit",
+	);
 	expect(
 		screen.getByRole("button", { name: "About Action starts with" }),
 	).toBeDefined();
 	expect(within(table).getByRole("button", { name: "About Result" })).toBeDefined();
+});
+
+test("only Time sorts, and it flips the page's own order", async () => {
+	stubAudit(() =>
+		json(200, {
+			events: [
+				event(9, { at: "2026-09-22T10:02:00.000Z" }),
+				// 8 and 7 share a second, so only the API's order tells them apart.
+				event(8, { at: "2026-09-22T10:01:00.000Z" }),
+				event(7, { at: "2026-09-22T10:01:00.000Z" }),
+			],
+			nextBefore: null,
+		}),
+	);
+	renderTab("/admin/audit");
+	const table = await screen.findByRole("table", { name: /newest first/ });
+	await screen.findByTestId("audit-row-9");
+	const ids = () =>
+		within(table)
+			.getAllByRole("row")
+			.slice(1)
+			.map((row) => row.getAttribute("data-testid"));
+	expect(ids()).toEqual(["audit-row-9", "audit-row-8", "audit-row-7"]);
+	expect(
+		within(table).getAllByRole("button", { name: /^(Time|Actor|Action)$/ }),
+	).toHaveLength(1);
+
+	fireEvent.click(within(table).getByRole("button", { name: "Time" }));
+	expect(ids()).toEqual(["audit-row-7", "audit-row-8", "audit-row-9"]);
+	expect(screen.getByTestId("audit-sort-announce").textContent).toBe(
+		"Sorted by Time, ascending",
+	);
+	expect(
+		within(table).getByRole("columnheader", { name: "Time" }).getAttribute("aria-sort"),
+	).toBe("ascending");
+	expect(screen.getByRole("table", { name: /oldest first/ })).toBe(table);
 });

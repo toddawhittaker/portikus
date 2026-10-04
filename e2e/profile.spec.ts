@@ -44,7 +44,10 @@ test("the sign-in name is the username, not the identity provider's subject", as
 	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
 
 	const dialog = await openProfile(page);
-	await expect(signInValue(dialog, "Sign-in name")).toHaveText("e2e-name");
+	const name = signInValue(dialog, "Sign-in name");
+	await expect(name).toHaveText("e2e-name");
+	// An ID, so it reads in the monospace face, as IDs do on the admin pages.
+	expect(await name.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/mono/i);
 });
 
 test("a profile link is saved and shown as a plain anchor; a bad one is refused", async ({
@@ -124,9 +127,11 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 	await expect(page.getByTestId("account-picture")).toHaveCount(0);
 
 	const dialog = await openProfile(page);
+	// A button described by the hint opens the hidden file field's picker.
 	const choose = dialog.getByRole("button", { name: "Choose picture…" });
-	// The native file input is hidden; the labelled button opens its picker.
-	await expect(dialog.getByTestId("profile-picture-input")).toBeHidden();
+	await expect(choose).toHaveAccessibleDescription(/A PNG or JPEG of up to 1 MiB/);
+	const input = dialog.getByTestId("profile-picture-input");
+	await expect(input).toBeHidden();
 	const [chooser] = await Promise.all([
 		page.waitForEvent("filechooser"),
 		choose.click(),
@@ -138,6 +143,9 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 	});
 	await expect(dialog.getByTestId("profile-picture-error")).toHaveText(
 		"The picture must be at most 1 MiB",
+	);
+	await expect(choose).toHaveAccessibleDescription(
+		/A PNG or JPEG of up to 1 MiB.*The picture must be at most 1 MiB/,
 	);
 	await expect(page.getByTestId("account-picture")).toHaveCount(0);
 
@@ -151,11 +159,7 @@ test("a picture over the cap is refused, and a saved one shows in the account bu
 	expect(refused.status()).toBe(413);
 	expect((await refused.json()).code).toBe("FILE_TOO_LARGE");
 
-	const [second] = await Promise.all([
-		page.waitForEvent("filechooser"),
-		choose.click(),
-	]);
-	await second.setFiles({ name: "me.png", mimeType: "image/png", buffer: PNG });
+	await input.setInputFiles({ name: "me.png", mimeType: "image/png", buffer: PNG });
 	await expect(dialog.getByTestId("profile-picture")).toBeVisible();
 	await expect(page.getByTestId("account-picture")).toHaveAttribute(
 		"src",
@@ -197,26 +201,97 @@ test("group titles stand apart and a long email wraps inside the dialog", async 
 	});
 	expect(fits).toEqual({ wraps: true, inside: true, noScroll: true });
 
-	// Group titles are body-size semibold, set apart by a rule and a full step
+	// Group titles use the heading style and field labels regular weight, so
+	// the two never look alike. Groups are set apart by a rule and a full step
 	// of space; the first group has no rule.
-	const first = dialog.getByRole("heading", { level: 3 }).first();
+	const first = dialog.getByRole("region", {
+		name: "From your institution sign-in",
+	});
 	const second = dialog.getByRole("heading", { name: "About you" });
 	const label = dialog.locator("[data-testid=profile-signin] dt").first();
-	const title = await second.evaluate((el) => ({
+	const style = (el: Element) => ({
 		weight: getComputedStyle(el).fontWeight,
 		size: getComputedStyle(el).fontSize,
-	}));
-	expect(title).toEqual({ weight: "600", size: "14px" });
-	expect(await label.evaluate((el) => getComputedStyle(el).fontSize)).toBe("13px");
+	});
+	expect(await second.evaluate(style)).toEqual({ weight: "600", size: "15px" });
+	expect(await label.evaluate(style)).toEqual({ weight: "400", size: "13px" });
+	expect(await dialog.getByText("GitHub", { exact: true }).evaluate(style)).toEqual({
+		weight: "400",
+		size: "13px",
+	});
 	expect(
 		await second.evaluate((el) => {
 			const group = getComputedStyle(el.parentElement as Element);
 			return [group.borderTopWidth, group.paddingTop];
 		}),
 	).toEqual(["1px", "24px"]);
-	expect(
-		await first.evaluate(
-			(el) => getComputedStyle(el.parentElement as Element).borderTopWidth,
-		),
-	).toBe("0px");
+	expect(await first.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe("0px");
+	await expect(dialog.getByText("All optional.")).toHaveCount(0);
+});
+
+test("the section heading is for screen readers, so the first group starts the pane", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+	const dialog = await openProfile(page);
+
+	const heading = dialog.getByRole("heading", {
+		level: 2,
+		name: "Profile",
+		exact: true,
+	});
+	await expect(heading).toHaveCount(1);
+	const size = await heading.evaluate((el) => {
+		const box = el.getBoundingClientRect();
+		return [box.width, box.height];
+	});
+	expect(size).toEqual([1, 1]);
+	// The first group's heading sits at the top of the pane's padding.
+	const gap = await dialog
+		.getByRole("heading", { level: 3, name: "From your institution sign-in" })
+		.evaluate((el) => {
+			const section = el.closest("section[aria-labelledby=settings-section-profile]");
+			const pane = section?.parentElement as Element;
+			return (
+				el.getBoundingClientRect().top -
+				pane.getBoundingClientRect().top -
+				Number.parseFloat(getComputedStyle(pane).paddingTop)
+			);
+		});
+	expect(gap).toBeLessThan(1);
+});
+
+test("read-only sign-in details sit as label and value pairs on one line", async ({
+	page,
+	context,
+}) => {
+	const student = await createStudent(context);
+	await page.goto(workspacePath(student.workspaceId));
+	await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 15_000 });
+	const dialog = await openProfile(page);
+
+	const rows = await dialog
+		.locator("[data-testid=profile-signin] dt")
+		.evaluateAll((terms) =>
+			terms.map((term) => {
+				const value = term.nextElementSibling as Element;
+				const a = term.getBoundingClientRect();
+				const b = value.getBoundingClientRect();
+				return {
+					left: Math.round(a.left),
+					valueLeft: Math.round(b.left),
+					sameRow: b.left >= a.right && b.top < a.bottom && b.bottom > a.top,
+				};
+			}),
+		);
+	expect(rows).toHaveLength(4);
+	for (const row of rows) {
+		expect(row.sameRow).toBe(true);
+		// Every value starts in the same column.
+		expect(row.valueLeft).toBe(rows[0]?.valueLeft);
+		expect(row.left).toBe(rows[0]?.left);
+	}
 });

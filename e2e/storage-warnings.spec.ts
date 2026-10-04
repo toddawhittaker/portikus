@@ -195,10 +195,10 @@ test("the disk meter always shows the home volume and opens the workspace dialog
 	await page.goto(workspacePath(student.workspaceId));
 
 	const disk = page.getByTestId("disk-meter");
-	await expect(disk).toHaveText("Disk40.0 GB of 100 GB", { timeout: 15_000 });
+	await expect(disk).toHaveText("Disk40%", { timeout: 15_000 });
 	await expect(disk).toHaveAttribute("data-level", "ok");
 	await expect(disk).toHaveAccessibleName(
-		"Disk 40.0 GB of 100 GB. Open workspace storage",
+		"Disk 40%, 40.0 GB of 100 GB. Open workspace storage",
 	);
 	await expect(page.getByTestId("storage-warning")).toHaveCount(0);
 	await disk.click();

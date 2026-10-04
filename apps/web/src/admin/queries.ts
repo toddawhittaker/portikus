@@ -17,7 +17,8 @@ import { useEffect, useRef } from "react";
 import { z } from "zod";
 import { request } from "../api/request.js";
 
-const adminKeys = {
+/** The admin caches' query keys, also used by writes elsewhere that change them. */
+export const adminKeys = {
 	settings: ["admin", "settings"] as const,
 	users: ["admin", "users"] as const,
 	workspace: (id: string) => ["admin", "workspace", id] as const,
@@ -42,13 +43,31 @@ export function usePlatformSettings() {
 	});
 }
 
+const usersQuery = {
+	queryKey: adminKeys.users,
+	queryFn: () => request(AdminUserList, "/admin/users"),
+};
+
 /** Every account, and whether the site manages Dex users (ADR 0028). */
 export function useAdminUsers({ poll = true }: { poll?: boolean } = {}) {
 	return useQuery({
-		queryKey: adminKeys.users,
-		queryFn: () => request(AdminUserList, "/admin/users"),
+		...usersQuery,
 		// A Person list needs no 5-second refresh; the Users table does.
 		refetchInterval: poll ? ADMIN_REFRESH_MS : false,
+	});
+}
+
+/**
+ * The same list, refreshed only while some workspace has an operation
+ * pending, so every admin tab can hear it end without polling all the time.
+ */
+export function useAdminUsersWhilePending() {
+	return useQuery({
+		...usersQuery,
+		refetchInterval: (query) =>
+			query.state.data?.users.some((user) => user.workspace?.pendingOperation)
+				? ADMIN_REFRESH_MS
+				: false,
 	});
 }
 

@@ -7,8 +7,14 @@ import {
 	BackupRequestView,
 	type BackupRestoreRequest,
 } from "@portikus/contracts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	type QueryKey,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { request, sendJson, toApiError } from "../../api/request.js";
+import { adminKeys } from "../queries.js";
 
 const backupsKey = ["admin", "backups"] as const;
 
@@ -24,8 +30,14 @@ export function useAdminBackups() {
 	});
 }
 
-/** Every write answers 202 with the request it recorded. */
-function useBackupWrite<T>(toRequest: (input: T) => [string, RequestInit]) {
+/**
+ * Every write answers 202 with the request it recorded. `alsoRefresh` names
+ * another list the write changes.
+ */
+function useBackupWrite<T>(
+	toRequest: (input: T) => [string, RequestInit],
+	alsoRefresh?: QueryKey,
+) {
 	const client = useQueryClient();
 	return useMutation({
 		mutationFn: (input: T) => {
@@ -34,6 +46,7 @@ function useBackupWrite<T>(toRequest: (input: T) => [string, RequestInit]) {
 		},
 		onSuccess: () => {
 			void client.invalidateQueries({ queryKey: backupsKey });
+			if (alsoRefresh) void client.invalidateQueries({ queryKey: alsoRefresh });
 		},
 	});
 }
@@ -69,11 +82,15 @@ export function useRestoreCopy() {
 	]);
 }
 
+/** Also refreshes the Users list, so the admin page sees the replace pending and watches it end. */
 export function useReplaceHome() {
-	return useBackupWrite<string>((restoreId) => [
-		`/admin/backups/restores/${encodeURIComponent(restoreId)}/replace-home`,
-		{ method: "POST" },
-	]);
+	return useBackupWrite<string>(
+		(restoreId) => [
+			`/admin/backups/restores/${encodeURIComponent(restoreId)}/replace-home`,
+			{ method: "POST" },
+		],
+		adminKeys.users,
+	);
 }
 
 export function useDeleteSnapshot() {

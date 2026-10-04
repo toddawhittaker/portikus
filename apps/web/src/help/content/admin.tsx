@@ -1,14 +1,14 @@
 import type { HelpPart } from "./part.js";
 
 /**
- * For administrators. Each admin tab's intro links to one of these anchors
+ * Running the site, the administrator help. Each admin tab's intro links to one of these anchors
  * ("More in Help"), so keep the ids stable: admin-users, admin-health,
  * admin-logs, admin-audit, admin-network, admin-backups, admin-image,
  * admin-certificate, admin-docker, admin-settings.
  */
 export const ADMIN_HELP: HelpPart = {
 	id: "admin",
-	title: "For administrators",
+	title: "Running the site",
 	topics: [
 		{
 			id: "admin-users",

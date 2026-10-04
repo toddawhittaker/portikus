@@ -1,0 +1,42 @@
+/* Page tables and their sortable headers; the base .pk-table rules live in packages/ui. */
+
+/* Tables that scroll with the Course page's padded <main>; the admin frame's scroller has no top padding (SPEC.md section 20.1). */
+.pk-table--page thead th {
+	/* The table scrolls with <main>, whose p-8 would otherwise show rows above the header. */
+	top: -2rem;
+}
+
+/* Sortable column headers, from design/system/components/bundle.css. The 24 px
+   height keeps the button a full pointer target (WCAG 2.5.8). */
+.pk-table-sort {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-height: 24px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+}
+
+.pk-table-sort:hover,
+.pk-table th[aria-sort] .pk-table-sort {
+	color: var(--ink);
+}
+
+/* The faint chevron an unsorted header shows on hover or focus. It sits in the
+   cell padding before the label, so it takes no width and never spills past the cell. */
+.pk-table-sort-hint {
+	position: absolute;
+	inset-inline-end: calc(100% + 3px);
+	color: var(--ink-faint);
+	opacity: 0;
+	pointer-events: none;
+}
+
+.pk-table-sort:is(:hover, :focus-visible) ~ .pk-table-sort-hint {
+	opacity: 1;
+}

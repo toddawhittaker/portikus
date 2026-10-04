@@ -15,7 +15,7 @@ import { ApiError, errorText } from "../../api/request.js";
 import { announced } from "../../common/announced.js";
 import { AdminGroup, AdminSection } from "../AdminSection.js";
 import { longTime } from "../backups/model.js";
-import { Notice } from "./Notice.js";
+import { Notice } from "../Notice.js";
 import {
 	useClearCache,
 	useDockerAdmin,
@@ -74,9 +74,17 @@ export function DockerTab() {
 	const data = docker.data;
 	return (
 		<AdminSection title="Docker" intro={INTRO}>
-			<CacheCard data={data} />
-			<HubAccountCard data={data} />
-			<GhcrCard data={data} />
+			{/* When the tab is wide, the two short cards stack beside the Hub account so no grid cell is left empty. The seed and use tables need the full width. */}
+			<div
+				className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,36rem),1fr))] items-start gap-4"
+				data-testid="docker-settings"
+			>
+				<div className="grid content-start gap-4">
+					<CacheCard data={data} />
+					<GhcrCard data={data} />
+				</div>
+				<HubAccountCard data={data} />
+			</div>
 			<SeedCard data={data} />
 			<UsageCard data={data} />
 		</AdminSection>
@@ -307,17 +315,17 @@ function HubAccountCard({ data }: { data: DockerAdminResponse }) {
 					</Notice>
 				) : null}
 			</div>
-			<Notice tone="warning" id="docker-hub-warning" testId="docker-hub-warning">
-				Every student can pull any image this account can read, so use an account with
-				no private repositories. Saving, replacing or removing the account empties the
-				cache.
-			</Notice>
 			<form
 				className="grid max-w-[28rem] gap-3"
 				onSubmit={save}
 				noValidate
 				aria-label="Docker Hub account"
 			>
+				<Notice tone="warning" id="docker-hub-warning" testId="docker-hub-warning">
+					Every student can pull any image this account can read, so use an account with
+					no private repositories. Saving, replacing or removing the account empties the
+					cache.
+				</Notice>
 				<TextField
 					id="docker-hub-username"
 					label="Docker Hub username"
@@ -427,59 +435,68 @@ function GhcrCard({ data }: { data: DockerAdminResponse }) {
 	}
 
 	return (
-		<AdminGroup id="docker-ghcr-title" title="ghcr.io cache" testId="docker-ghcr">
-			<label className="pk-switch text-[13px]">
-				<input
-					type="checkbox"
-					role="switch"
-					data-testid="docker-ghcr-switch"
-					aria-checked={on}
-					checked={on}
-					aria-disabled={save.isPending || undefined}
-					aria-describedby="docker-ghcr-warning"
-					onChange={(event) => toggle(event.target.checked)}
-				/>
-				<span>Cache ghcr.io images</span>
-			</label>
-			<p
-				id="docker-ghcr-warning"
-				className="m-0 max-w-[72ch] text-[13px] text-ink-muted"
-			>
-				On by default. While it is on, workspaces cannot docker push to ghcr.io, cannot
-				pull private ghcr.io images, and tools other than Docker that talk to ghcr.io,
-				such as curl, gh and ORAS, do not work. Build and push images from GitHub
-				Actions; pull them here. Turning it off reaches a running workspace only when it
-				next starts; until then, ghcr.io in that workspace still goes through the cache.
-			</p>
+		<AdminGroup
+			id="docker-ghcr-title"
+			title="ghcr.io cache"
+			testId="docker-ghcr"
+			help={
+				<Toggletip label="the ghcr.io cache">
+					On by default. While it is on, workspaces cannot docker push to ghcr.io,
+					cannot pull private ghcr.io images, and tools other than Docker that talk to
+					ghcr.io, such as curl, gh and ORAS, do not work. Build and push images from
+					GitHub Actions; pull them here. Turning it off reaches a running workspace
+					only when it next starts; until then, ghcr.io in that workspace still goes
+					through the cache.
+				</Toggletip>
+			}
+		>
+			<div className="grid gap-2">
+				<label className="pk-switch text-[13px]">
+					<input
+						type="checkbox"
+						role="switch"
+						data-testid="docker-ghcr-switch"
+						aria-checked={on}
+						checked={on}
+						aria-disabled={save.isPending || undefined}
+						aria-describedby="docker-ghcr-warning"
+						onChange={(event) => toggle(event.target.checked)}
+					/>
+					<span>Cache ghcr.io images</span>
+				</label>
+				{/* Always holds a line, so a change is announced and leaves no empty gap. */}
+				<div role="status">
+					{waiting ? (
+						<Notice tone="pending" testId="docker-ghcr-waiting">
+							Waiting for the cache to apply the change.
+						</Notice>
+					) : cache?.cacheOff ? (
+						<p className="pk-muted m-0 text-[13px]" data-testid="docker-ghcr-state">
+							The pull cache is off, so workspaces reach ghcr.io directly.
+						</p>
+					) : data.ghcrEnabled && cache && !cache.ghcrUp ? (
+						<Notice tone="error" testId="docker-ghcr-down">
+							The ghcr.io cache is not answering, so ghcr.io pulls in workspaces fail.
+						</Notice>
+					) : (
+						<p className="pk-muted m-0 text-[13px]" data-testid="docker-ghcr-state">
+							{!cache
+								? "The cache has not reported yet."
+								: data.ghcrEnabled
+									? "The ghcr.io cache is on and answering."
+									: "The ghcr.io cache is off. Workspaces reach ghcr.io directly."}
+						</p>
+					)}
+				</div>
+			</div>
 			{save.isError ? (
 				<p className="m-0 text-[13px] text-status-error" role="alert">
 					{errorText(save.error)}
 				</p>
 			) : null}
-			{/* Always holds a line, so a change is announced and leaves no empty gap. */}
-			<div role="status">
-				{waiting ? (
-					<Notice tone="pending" testId="docker-ghcr-waiting">
-						Waiting for the cache to apply the change.
-					</Notice>
-				) : cache?.cacheOff ? (
-					<p className="pk-muted m-0 text-[13px]" data-testid="docker-ghcr-state">
-						The pull cache is off, so workspaces reach ghcr.io directly.
-					</p>
-				) : data.ghcrEnabled && cache && !cache.ghcrUp ? (
-					<Notice tone="error" testId="docker-ghcr-down">
-						The ghcr.io cache is not answering, so ghcr.io pulls in workspaces fail.
-					</Notice>
-				) : (
-					<p className="pk-muted m-0 text-[13px]" data-testid="docker-ghcr-state">
-						{!cache
-							? "The cache has not reported yet."
-							: data.ghcrEnabled
-								? "The ghcr.io cache is on and answering."
-								: "The ghcr.io cache is off. Workspaces reach ghcr.io directly."}
-					</p>
-				)}
-			</div>
+			<p id="docker-ghcr-warning" className="m-0 text-[13px]">
+				While on, workspaces cannot push to ghcr.io.
+			</p>
 		</AdminGroup>
 	);
 }

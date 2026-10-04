@@ -32,13 +32,13 @@ describe("PageIntro", () => {
 	});
 
 	it("links to Help in a new tab and says so", () => {
-		renderIntro("/help#admin-users");
+		renderIntro("/admin/help#admin-users");
 		// jsdom styles every details body as hidden, open or not.
 		const link = screen.getByRole("link", {
 			name: /More in Help ?\(opens in a new tab\)/,
 			hidden: true,
 		});
-		expect(link.getAttribute("href")).toBe("/help#admin-users");
+		expect(link.getAttribute("href")).toBe("/admin/help#admin-users");
 		expect(link.getAttribute("target")).toBe("_blank");
 		expect(link.getAttribute("rel")).toBe("noopener");
 	});

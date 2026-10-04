@@ -343,6 +343,41 @@ test("a file larger than any key is refused before it is sent", async () => {
 	expect((await within(dialog).findByRole("alert")).textContent).toContain(
 		"not a backup key",
 	);
+	// The error belongs to the labelled file field.
+	const input = within(dialog).getByLabelText("Backup key file");
+	expect(input.getAttribute("type")).toBe("file");
+	expect(input.getAttribute("aria-invalid")).toBe("true");
+	expect(
+		document.getElementById(input.getAttribute("aria-describedby") ?? "")?.textContent,
+	).toContain("not a backup key");
 	fireEvent.click(within(dialog).getByTestId("dialog-confirm"));
 	expect(calls).toEqual([]);
+});
+
+test("a second too-large file mounts a fresh alert, so the same message is read again", async () => {
+	stubSite(
+		() => json(200, status({ installed: false, recipient: null })),
+		() => json(500, {}),
+	);
+	renderApp("/admin/backups");
+	const group = await screen.findByTestId("backups-key-group");
+	fireEvent.click(within(group).getByTestId("backup-key-upload"));
+	const dialog = await screen.findByTestId("backup-key-upload-dialog");
+	chooseFile(dialog, "x", 5000);
+	const first = await within(dialog).findByRole("alert");
+	chooseFile(dialog, "y", 6000);
+	await waitFor(() => expect(within(dialog).getByRole("alert")).not.toBe(first));
+	expect(first.isConnected).toBe(false);
+	expect(within(dialog).getByRole("alert").textContent).toBe(first.textContent);
+});
+
+test("the not-downloaded reminder is a warning notice, not a plain card", async () => {
+	stubSite(
+		() => json(200, status()),
+		() => json(500, {}),
+	);
+	renderApp("/admin/backups");
+	const reminder = await screen.findByTestId("backup-key-reminder");
+	expect(reminder.classList.contains("bg-status-warning-soft")).toBe(true);
+	expect(reminder.classList.contains("pk-card")).toBe(false);
 });

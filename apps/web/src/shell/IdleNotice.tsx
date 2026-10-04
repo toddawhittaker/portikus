@@ -1,6 +1,6 @@
 import type { Workspace } from "@portikus/contracts";
-import { Button, Icon } from "@portikus/ui";
-import { type RefObject, useEffect, useRef, useState } from "react";
+import { Button, Dialog, DialogRoot, Icon } from "@portikus/ui";
+import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useCountdown } from "./useCountdown.js";
 
 /** The fixed wait between "Still working?" and the stop (ADR 0032). */
@@ -25,10 +25,22 @@ function minutesText(minutes: number): string {
 }
 
 /**
+ * True while a packages/ui Dialog or ConfirmDialog is open. It traps focus
+ * and usually hides the page from screen readers, so a notice on the page
+ * could be neither reached nor heard.
+ */
+function dialogOpen(): boolean {
+	return document.querySelector('.pk-dialog[data-state="open"]') !== null;
+}
+
+/**
  * "Still working?" while idle stop is counting down (ADR 0032). Keep working
  * takes focus when the notice appears; any other key press or click in the
  * page answers it too. When it goes, focus returns to where it was, or to
- * `fallbackFocus` when that element is gone.
+ * `fallbackFocus` when that element is gone. If a dialog is open when it
+ * appears, the dialog hides the page and holds focus, so the notice becomes
+ * an alert dialog above it instead (SPEC.md §25.8). It is not a live region,
+ * since its minutes tick; the focused button's description is what is heard.
  */
 export function IdleNotice({
 	deadline,
@@ -45,9 +57,16 @@ export function IdleNotice({
 	const button = useRef<HTMLButtonElement>(null);
 	const notice = useRef<HTMLDivElement>(null);
 	const shown = countdown !== null;
+	const [overDialog, setOverDialog] = useState(false);
+
+	// Before paint, so the notice never flashes under the dialog's scrim.
+	useLayoutEffect(() => {
+		if (shown && dialogOpen()) setOverDialog(true);
+	}, [shown]);
 
 	useEffect(() => {
-		if (!shown) return;
+		// Over a dialog, the alert dialog takes focus and returns it itself.
+		if (!shown || overDialog || dialogOpen()) return;
 		const before = document.activeElement;
 		const container = notice.current;
 		button.current?.focus();
@@ -62,16 +81,48 @@ export function IdleNotice({
 					: fallbackFocus?.current;
 			target?.focus({ preventScroll: true });
 		};
-	}, [shown, fallbackFocus]);
+	}, [shown, overDialog, fallbackFocus]);
 
 	if (!countdown) return null;
+
+	const body = (
+		<>
+			Your workspace will stop in <strong>{minutesText(countdown.minutes)}</strong>, at{" "}
+			{countdown.at}
+			{minutes === null
+				? ", because nothing has happened in it for a while"
+				: `, because nothing has happened in it for ${minutesText(minutes)}`}
+			. Your files are saved; running terminals, agents and previews will end.
+		</>
+	);
+
+	if (overDialog) {
+		return (
+			// Closing it with Escape or Close answers it too.
+			<DialogRoot open onOpenChange={(open) => (open ? undefined : onKeepWorking())}>
+				<Dialog
+					role="alertdialog"
+					title="Still working?"
+					description={body}
+					testId="idle-dialog"
+					footer={
+						<Button
+							variant="primary"
+							data-testid="idle-keep-working"
+							onClick={onKeepWorking}
+						>
+							Keep working
+						</Button>
+					}
+				/>
+			</DialogRoot>
+		);
+	}
 
 	return (
 		<div
 			ref={notice}
 			className="pk-notice pk-notice--warning"
-			role="status"
-			aria-live="polite"
 			data-testid="idle-notice"
 		>
 			<span className="pk-notice-icon">
@@ -82,12 +133,7 @@ export function IdleNotice({
 					Still working?
 				</p>
 				<p className="pk-notice-body" id="idle-notice-body">
-					Your workspace will stop in <strong>{minutesText(countdown.minutes)}</strong>,
-					at {countdown.at}
-					{minutes === null
-						? ", because nothing has happened in it for a while"
-						: `, because nothing has happened in it for ${minutesText(minutes)}`}
-					. Your files are saved; running terminals, agents and previews will end.
+					{body}
 				</p>
 			</div>
 			<div className="pk-notice-actions">

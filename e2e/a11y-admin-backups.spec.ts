@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { expectNoViolations, loginAs, openToggletip, routeApi } from "./helpers";
+import { expectTokenFill } from "./token-colour";
 
 /**
  * Automated accessibility checks (SPEC.md section 25.8) on the Backups tab
@@ -127,6 +128,11 @@ for (const colorScheme of ["light", "dark"] as const) {
 	}) => {
 		await openTab(page, colorScheme);
 		await expect(page.getByTestId("backups-host-stale")).toBeVisible();
+		// A warning fill, not a plain card.
+		await expectTokenFill(
+			page.getByTestId("backups-host-stale"),
+			"--status-warning-soft",
+		);
 		await expectNoViolations(page);
 		// The intro and an open toggletip, which Escape closes back onto its button.
 		await expect(page.getByTestId("intro-admin-backups")).toBeVisible();
@@ -193,3 +199,25 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("backup-copy-replace")).toBeFocused();
 	});
 }
+
+test("focus inside Activity lands on the Restores heading when the first request arrives", async ({
+	page,
+}) => {
+	let json: unknown = { ...BACKUPS, hostStale: false, requests: [] };
+	await routeApi(page, "**/admin/backups", (route) =>
+		route.request().method() === "GET" ? route.fulfill({ json }) : route.continue(),
+	);
+	await loginAs(page, "carol");
+	await page.goto("/admin/backups");
+	const help = page
+		.getByTestId("backups-activity")
+		.getByRole("button", { name: "About Replace home" });
+	await help.focus();
+	await expect(help).toBeFocused();
+
+	// The next poll brings the first request, which splits Activity into two cards.
+	json = { ...BACKUPS, hostStale: false };
+	await expect(page.getByTestId("backups-restores")).toBeVisible({ timeout: 15_000 });
+	await expect(page.getByTestId("backups-activity")).toHaveCount(0);
+	await expect(page.getByRole("heading", { level: 3, name: "Restores" })).toBeFocused();
+});

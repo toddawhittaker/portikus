@@ -189,6 +189,11 @@ test("a stale worker shows a banner with the sample's age", () => {
 	);
 	// Only fixed text is live, so a refresh does not re-announce the age.
 	expect(screen.getByRole("alert").textContent).toBe("Worker not reporting.");
+	expect(
+		screen
+			.getByTestId("health-worker-stale")
+			.classList.contains("bg-status-warning-soft"),
+	).toBe(true);
 });
 
 test("with no sample at all the banner says so", () => {
@@ -380,7 +385,7 @@ test("the tab has an intro and help beside the figures that need it", async () =
 		within(intro)
 			.getByRole("link", { name: /More in Help/ })
 			.getAttribute("href"),
-	).toBe("/help#admin-health");
+	).toBe("/admin/help#admin-health");
 	for (const label of [
 		"Agents answering",
 		"Load average",

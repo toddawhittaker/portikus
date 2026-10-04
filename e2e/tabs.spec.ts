@@ -105,6 +105,29 @@ test.describe("tab strip", () => {
 		expect(overflow).toBeGreaterThan(0);
 	});
 
+	test("in forced colours the selected tab keeps its top bar", async ({
+		page,
+		context,
+	}) => {
+		await page.emulateMedia({ forcedColors: "active" });
+		const student = await createStudent(context);
+		await openWithTabs(page, student.workspaceId, "Contrast", 2);
+		const selected = strip(page).locator('[role="tab"][data-state="active"]');
+		await expect(selected).toHaveCount(1);
+		const bar = await selected.evaluate((el) => {
+			const probe = document.createElement("span");
+			probe.style.color = "Highlight";
+			document.body.append(probe);
+			const highlight = getComputedStyle(probe).color;
+			probe.remove();
+			const edge = getComputedStyle(el, "::before");
+			return { background: edge.backgroundColor, height: edge.height, highlight };
+		});
+		expect(bar.height).toBe("2px");
+		expect(bar.background).toBe(bar.highlight);
+		expect(bar.background).not.toBe("rgba(0, 0, 0, 0)");
+	});
+
 	test("selecting a tab scrolls it into view", async ({ page, context }) => {
 		const student = await createStudent(context);
 		await openWithTabs(page, student.workspaceId, "Scrolling", 40);

@@ -167,14 +167,33 @@ describe("bufferReducer", () => {
 		expect(saved).toMatchObject({ conflict: null, status: "saved" });
 	});
 
-	it("shows a failed save with its message, and clears it on the next save", () => {
+	it("keeps a failed save's message through the next attempts, and clears it once a save succeeds", () => {
 		const failed = run(
 			loaded,
 			{ type: "saveStart" },
 			{ type: "saveFailed", message: "full" },
 		);
 		expect(failed).toMatchObject({ status: "failed", saveError: "full" });
-		expect(bufferReducer(failed, { type: "saveStart" }).saveError).toBeNull();
+		// Another autosave on a full disk: the same message stays, so it is not announced again.
+		const retrying = bufferReducer(failed, { type: "saveStart" });
+		expect(retrying).toMatchObject({ status: "saving", saveError: "full" });
+		const again = bufferReducer(retrying, { type: "saveFailed", message: "full" });
+		expect(again.saveError).toBe("full");
+		const saved = bufferReducer(again, { type: "saveDone", etag: "v2", sent: "a" });
+		expect(saved).toMatchObject({ status: "saved", saveError: null });
+	});
+
+	it("taking the version on disk drops a failed save's message", () => {
+		const failed = run(
+			loaded,
+			{ type: "saveStart" },
+			{ type: "saveFailed", message: "full" },
+		);
+		const taken = bufferReducer(failed, {
+			type: "takeDisk",
+			version: { etag: "v2", text: "theirs" },
+		});
+		expect(taken.saveError).toBeNull();
 	});
 
 	it("a file deleted on disk is marked, and a save recreates it", () => {
