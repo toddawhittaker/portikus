@@ -722,6 +722,9 @@ jobs:
       - name: Host hardening
         if: steps.detect.outputs.shell == 'true' && needs.changes.outputs.infra == 'true'
         run: bash infra/tests/host-hardening-test.sh
+      - name: Two-step sign-in codes for the rehearsal scripts
+        if: needs.changes.outputs.infra == 'true'
+        run: python3 -B infra/tests/totp_test.py
       # Under a second; incus, curl, gpgv and distrobuilder are stubbed.
       - name: Workspace image job
         if: needs.changes.outputs.infra == 'true'

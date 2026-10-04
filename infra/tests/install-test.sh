@@ -423,6 +423,16 @@ code=\$(\$C -o /dev/null -w '%{http_code}' -X POST -H "Origin: \$A" -H 'Content-
 rm -f "\$t/body" "\$t/current" "\$t/new"
 echo "POST /me/password: \$code"
 test "\$code" = 204 || test "\$code" = 200
+# A Dex password account enrols a second factor next (SPEC.md 24.13); the
+# secret stays root-only on the VM for the later sign-ins.
+\$C -X POST -H "Origin: \$A" -H 'Content-Type: application/json' -d '{}' "\$A/me/second-factor/totp/start" >"\$t/enrol"
+python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["secret"])' "\$t/enrol" >"\$t/totp"
+python3 -c 'import json,sys; print(json.dumps({"token": json.load(open(sys.argv[1]))["token"], "code": sys.argv[2]}))' \
+  "\$t/enrol" "\$(python3 /tmp/totp.py <"\$t/totp")" >"\$t/body"
+code=\$(\$C -o /dev/null -w '%{http_code}' -X POST -H "Origin: \$A" -H 'Content-Type: application/json' --data-binary @"\$t/body" "\$A/me/second-factor/totp")
+rm -f "\$t/body" "\$t/enrol"
+echo "POST /me/second-factor/totp: \$code"
+test "\$code" = 200
 version=\$(\$C "\$A/me/acceptable-use" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
 code=\$(\$C -o /dev/null -w '%{http_code}' -X POST -H "Origin: \$A" -H 'Content-Type: application/json' -d "{\"version\":\$version}" "\$A/me/acceptable-use")
 echo "POST /me/acceptable-use: \$code"
@@ -430,8 +440,14 @@ echo "POST /me/acceptable-use: \$code"
 test "\$(\$C -o /dev/null -w '%{http_code}' "\$A/admin/users")" = 200
 EOF
   scp -q -o BatchMode=yes "$script" "deploy@${IP}:/tmp/first-signin.sh"
-  sed -n 2p "$signin" | tr -d '\n' | vm_stdin "sudo bash /tmp/first-signin.sh; rc=\$?; rm -f /tmp/first-signin.sh; exit \$rc"
+  send_totp_helper
+  sed -n 2p "$signin" | tr -d '\n' | vm_stdin "sudo bash /tmp/first-signin.sh; rc=\$?; rm -f /tmp/first-signin.sh; exit \$rc" || return
+  # The third line: the second factor's secret, for the later sign-ins.
+  vm "sudo cat /root/portikus-install-test/totp" >>"$signin"
 }
+
+# totp.py on the VM, where the sign-ins work out their codes.
+send_totp_helper() { scp -q -o BatchMode=yes "${ROOT}/infra/tests/totp.py" "deploy@${IP}:/tmp/totp.py"; }
 
 smoke() {
   "${M[@]}" smoke-test PORTIKUS_PUBLIC_HOST="$PUBLIC_HOST" PORTIKUS_PUBLIC_PORT=443 \
@@ -572,13 +588,16 @@ after_upgrade() {
   [ "$(vm "systemctl is-enabled docker-registry.service")" = masked ] \
     || { echo "Debian's docker-registry.service is not masked"; return 1; }
   vm "curl -fsS --cacert /etc/portikus/caddy-root.crt -o /dev/null https://${PUBLIC_HOST}/health"
-  # The chosen password still signs in after the upgrade.
+  # The chosen password and the enrolled second factor still sign in after the upgrade.
+  send_totp_helper
   sed -n 2p "${LOGS}/admin-signin" | tr -d '\n' | vm_stdin "
     set -e; umask 077; t=\$(mktemp -d); trap 'rm -rf \"\$t\"' EXIT; cat >\"\$t/pw\"
     A='https://${PUBLIC_HOST}'
     C=\"curl -s --cacert /etc/portikus/caddy-root.crt -c \$t/jar -b \$t/jar\"
     page=\$(\$C -L -o /dev/null -w '%{url_effective}' \"\$A/auth/login\")
     \$C -L -o /dev/null -H \"Origin: \$A\" --data-urlencode 'login=${ADMIN_EMAIL}' --data-urlencode \"password@\$t/pw\" \"\$page\"
+    totp=\$(sudo sh -c 'python3 /tmp/totp.py </root/portikus-install-test/totp')
+    test \"\$(\$C -o /dev/null -w '%{http_code}' -X POST -H \"Origin: \$A\" -H 'Content-Type: application/json' -d \"{\\\"code\\\":\\\"\$totp\\\"}\" \"\$A/me/second-factor/verify\")\" = 204
     test \"\$(\$C -o /dev/null -w '%{http_code}' \"\$A/admin/users\")\" = 200"
 }
 
@@ -792,7 +811,11 @@ check_restored() {
   scp -q -o BatchMode=yes "${LOGS}/seed.json" "deploy@${IP}:/tmp/seed.json"
   sed -n 2p "${LOGS}/admin-signin-old" | tr -d '\n' \
     | vm_stdin "sudo sh -c 'umask 077; cat >/root/portikus-install-test/old-password'"
-  vm "sudo python3 /tmp/backup-rehearsal.py check-restored --public-host ${PUBLIC_HOST} --expect /tmp/seed.json --password-file /root/portikus-install-test/old-password"
+  sed -n 3p "${LOGS}/admin-signin-old" \
+    | vm_stdin "sudo sh -c 'umask 077; cat >/root/portikus-install-test/old-totp'"
+  send_totp_helper
+  vm "sudo python3 /tmp/backup-rehearsal.py check-restored --public-host ${PUBLIC_HOST} --expect /tmp/seed.json \
+    --password-file /root/portikus-install-test/old-password --totp-file /root/portikus-install-test/old-totp"
 }
 
 trap finish EXIT

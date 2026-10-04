@@ -154,6 +154,7 @@ infra-check: ## Run the infrastructure checks CI runs: tofu fmt/validate, ansibl
 	bash infra/tests/claude-login-test.sh
 	bash infra/tests/agent-clear-test.sh
 	bash infra/tests/host-hardening-test.sh
+	python3 -B infra/tests/totp_test.py
 	bash infra/tests/caddy-preview-test.sh
 	bash infra/tests/lti-platforms-test.sh
 	ansible-playbook infra/tests/dex-render-test.yml

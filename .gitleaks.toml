@@ -14,4 +14,7 @@ paths = [
 # infra/tests/caddy-preview-test.sh.
 regexes = [
   '''dGhlIHNhbXBsZSBub25jZQ''',
+  # RFC 6238's published test secret "12345678901234567890" in base32, used
+  # by infra/tests/totp_test.py.
+  '''GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ''',
 ]
