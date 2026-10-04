@@ -60,7 +60,7 @@ test("helpParts: an administrator gets the instructor part but not the admin par
 test("a student sees only the workspace part, under the page's own title", async () => {
 	stub("student");
 	renderApp("/help");
-	expect(await partHeadings()).toEqual(["Using your workspace"]);
+	expect(await partHeadings()).toEqual(["Your workspace"]);
 	expect(document.title).toBe("Using your workspace, Help, Portikus");
 	expect(screen.queryByRole("link", { name: "For administrators" })).toBeNull();
 });
@@ -68,7 +68,7 @@ test("a student sees only the workspace part, under the page's own title", async
 test("an instructor sees the workspace and instructor parts", async () => {
 	stub("instructor");
 	renderApp("/help");
-	expect(await partHeadings()).toEqual(["Using your workspace", "For instructors"]);
+	expect(await partHeadings()).toEqual(["Your workspace", "For instructors"]);
 });
 
 test("a course account that teaches sees the instructor part", async () => {
@@ -82,7 +82,7 @@ test("a course account that teaches sees the instructor part", async () => {
 test("an administrator's workspace help links to the administrator help instead of holding it", async () => {
 	stub("administrator");
 	renderApp("/help");
-	expect(await partHeadings()).toEqual(["Using your workspace", "For instructors"]);
+	expect(await partHeadings()).toEqual(["Your workspace", "For instructors"]);
 	expect(document.getElementById("admin-users")).toBeNull();
 	const link = screen.getByRole("link", { name: "For administrators" });
 	expect(link.getAttribute("href")).toBe("/admin/help");
@@ -91,7 +91,7 @@ test("an administrator's workspace help links to the administrator help instead 
 test("/admin/help shows only the admin part, under the admin tabs, with every contents link landing", async () => {
 	stub("administrator");
 	renderApp("/admin/help");
-	expect(await partHeadings("For administrators")).toEqual(["For administrators"]);
+	expect(await partHeadings("For administrators")).toEqual(["Running the site"]);
 	expect(document.title).toBe("For administrators, Administration, Portikus");
 	const tabs = screen.getByRole("navigation", { name: "Administration" });
 	expect(within(tabs).queryByRole("link", { current: "page" })).toBeNull();
@@ -233,7 +233,7 @@ test("opened at a part's anchor, focus lands on the part heading", async () => {
 	renderApp("/admin/help");
 	const heading = await screen.findByRole("heading", {
 		level: 2,
-		name: "For administrators",
+		name: "Running the site",
 	});
 	await waitFor(() => expect(document.activeElement).toBe(heading));
 });

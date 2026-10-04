@@ -52,7 +52,7 @@ jobs:
  */
 export const STUDENT_HELP: HelpPart = {
 	id: "student",
-	title: "Using your workspace",
+	title: "Your workspace",
 	topics: [
 		{
 			id: "student-getting-started",

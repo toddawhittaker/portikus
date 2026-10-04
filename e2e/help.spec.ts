@@ -21,9 +21,9 @@ import {
  */
 
 const WORKSPACE_PARTS = {
-	student: ["Using your workspace"],
-	instructor: ["Using your workspace", "For instructors"],
-	administrator: ["Using your workspace", "For instructors"],
+	student: ["Your workspace"],
+	instructor: ["Your workspace", "For instructors"],
+	administrator: ["Your workspace", "For instructors"],
 };
 
 async function partHeadings(page: Page): Promise<string[]> {
@@ -65,7 +65,7 @@ test("Help from an admin tab opens the administrator help, with the tabs still t
 	const [help] = await Promise.all([context.waitForEvent("page"), item.click()]);
 	await help.waitForLoadState();
 	expect(new URL(help.url()).pathname).toBe("/admin/help");
-	expect(await adminHelpHeadings(help)).toEqual(["For administrators"]);
+	expect(await adminHelpHeadings(help)).toEqual(["Running the site"]);
 	await expect(help).toHaveTitle("For administrators, Administration, Portikus");
 	const tabs = help.getByRole("navigation", { name: "Administration" });
 	await expect(tabs.getByRole("link", { name: "Users" })).toBeVisible();
@@ -77,7 +77,7 @@ test("Help from an admin tab opens the administrator help, with the tabs still t
 	expect(await partHeadings(help)).toEqual(WORKSPACE_PARTS.administrator);
 	await help.getByRole("link", { name: "For administrators" }).click();
 	await expect(help).toHaveURL(/\/admin\/help$/);
-	expect(await adminHelpHeadings(help)).toEqual(["For administrators"]);
+	expect(await adminHelpHeadings(help)).toEqual(["Running the site"]);
 });
 
 test("Help from a workspace opens the workspace help", async ({ browser }) => {
@@ -173,7 +173,7 @@ test("a part's anchor focuses the part heading, and a broken anchor still shows 
 	await loginAs(page, "carol");
 	await page.goto("/admin/help#admin");
 	await expect(
-		page.getByRole("heading", { level: 2, name: "For administrators" }),
+		page.getByRole("heading", { level: 2, name: "Running the site" }),
 	).toBeFocused({ timeout: 15_000 });
 
 	await page.goto("/help#%E0%A4%A");
@@ -228,7 +228,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		expect(workspace.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 
 		await page.goto("/admin/help");
-		expect(await adminHelpHeadings(page)).toEqual(["For administrators"]);
+		expect(await adminHelpHeadings(page)).toEqual(["Running the site"]);
 		const admin = await (await settledAxe(page)).withTags(WCAG_TAGS).analyze();
 		expect(admin.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 	});
@@ -263,7 +263,7 @@ test("a student lands on the keyboard topic from its anchor", async ({ browser }
 	);
 	const contents = page.getByRole("navigation", { name: "Help contents" });
 	await expect(contents.getByRole("link")).toHaveText([
-		"Using your workspace",
+		"Your workspace",
 		"Getting started",
 		"The workspace layout",
 		"Keep your workspace running while you are away",
