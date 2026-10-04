@@ -4361,7 +4361,7 @@ Verified: at 13e38e81, `make check` green (6486 unit tests; coverage lines 94.02
 
 Pilot reinstall with #1123-#1128: 0.1.920+g1b1e4536 on 2026-10-03, setup failed=0, smoke 233 passed 0 failed (Dex password sign-in skipped, no sign-in file), dump /var/lib/postgresql/portikus-pre-epic33c-2026-10-03.dump on the VM.
 
-Pilot reinstall with #1129 and #1130: (to be filled)
+Pilot reinstall with #1129 and #1130: 0.1.924+gab6ac0ea on 2026-10-03 (the same code as the #1130 merge), setup failed=0, smoke 233 passed 0 failed (Dex password sign-in skipped, no sign-in file), `/admin/users` page served with `cache-control: no-store`, dump /var/lib/postgresql/portikus-pre-epic33e-2026-10-03.dump on the VM.
 
 Gaps:
 
