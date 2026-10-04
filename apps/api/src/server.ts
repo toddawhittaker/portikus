@@ -26,6 +26,7 @@ import { registerAdminDockerRoutes } from "./routes/admin-docker.js";
 import { registerAdminEgressRoutes } from "./routes/admin-egress.js";
 import { registerAdminHealthRoutes } from "./routes/admin-health.js";
 import { registerAdminImageRoutes } from "./routes/admin-image.js";
+import { registerAdminImportRoutes } from "./routes/admin-import.js";
 import { registerAdminInvitationRoutes } from "./routes/admin-invitations.js";
 import { registerAdminLogRoutes } from "./routes/admin-logs.js";
 import { registerAdminPackageRoutes } from "./routes/admin-packages.js";
@@ -243,6 +244,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		registerAdminRoutes(instance, deps);
 		registerAdminDexUserRoutes(instance, deps);
 		registerAdminInvitationRoutes(instance, deps);
+		registerAdminImportRoutes(instance, deps);
 		registerMaintenanceRoutes(instance, deps);
 		registerAdminWorkspaceRoutes(instance, routeDeps);
 		registerAdminProcessRoutes(instance, deps);

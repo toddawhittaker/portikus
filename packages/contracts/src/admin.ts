@@ -397,3 +397,66 @@ export type Invitation = z.infer<typeof Invitation>;
 
 export const InvitationList = z.object({ invitations: z.array(Invitation) });
 export type InvitationList = z.infer<typeof InvitationList>;
+
+/** The columns of an account import file, in the order the sample uses (SPEC.md section 5.1). */
+export const ACCOUNT_IMPORT_COLUMNS = [
+	"name",
+	"email",
+	"username",
+	"role",
+	"kind",
+] as const;
+
+/** At most this many people per import file. */
+export const ACCOUNT_IMPORT_MAX_ROWS = 500;
+
+/** At most this many bytes per import file. */
+export const ACCOUNT_IMPORT_MAX_BYTES = 256 * 1024;
+
+/**
+ * The body of both import steps: the file's text. Confirm takes the same
+ * text again and validates it again, never trusting the preview.
+ */
+export const AccountImportRequest = z
+	.object({ csv: z.string().max(ACCOUNT_IMPORT_MAX_BYTES) })
+	.strict();
+export type AccountImportRequest = z.infer<typeof AccountImportRequest>;
+
+/** One data row of an import file as written, with what the preview found. */
+export const AccountImportPreviewRow = z.object({
+	/** The record number in the file, counting the header as 1. */
+	line: z.number().int().positive(),
+	name: z.string(),
+	email: z.string(),
+	username: z.string(),
+	role: z.string(),
+	kind: z.string(),
+	status: z.enum(["valid", "invalid", "duplicate"]),
+	/** Why the row is invalid or a duplicate; null when valid. */
+	reason: z.string().nullable(),
+});
+export type AccountImportPreviewRow = z.infer<typeof AccountImportPreviewRow>;
+
+export const AccountImportPreview = z.object({
+	rows: z.array(AccountImportPreviewRow),
+});
+export type AccountImportPreview = z.infer<typeof AccountImportPreview>;
+
+/**
+ * What confirm did with one row. A created row carries its one-time
+ * password, which leaves the server only in this response.
+ */
+export const AccountImportResultRow = z.object({
+	line: z.number().int().positive(),
+	name: z.string(),
+	email: z.string(),
+	username: z.string(),
+	kind: z.string(),
+	outcome: z.enum(["created", "invited", "skipped", "invalid", "failed"]),
+	reason: z.string().nullable(),
+	password: z.string().optional(),
+});
+export type AccountImportResultRow = z.infer<typeof AccountImportResultRow>;
+
+export const AccountImportResult = z.object({ rows: z.array(AccountImportResultRow) });
+export type AccountImportResult = z.infer<typeof AccountImportResult>;
