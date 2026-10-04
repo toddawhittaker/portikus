@@ -62,6 +62,20 @@ async function tabBoxes(page: Page): Promise<Box[]> {
 		);
 }
 
+/** The page gutter on each side of the frame (`--space-4`). */
+const GUTTER = 16;
+
+/** Text and forms keep their own cap, about 72 characters, however wide the frame is. */
+async function expectMeasure(locator: Locator): Promise<void> {
+	const measure = await locator.evaluate((el) => ({
+		cap: getComputedStyle(el).maxWidth,
+		width: el.getBoundingClientRect().width,
+	}));
+	expect(measure.cap).toMatch(/px$/);
+	expect(measure.width).toBeLessThanOrEqual(Number.parseFloat(measure.cap));
+	expect(measure.width).toBeLessThan(800);
+}
+
 /** A panel kept in view beside a long list is capped to what the framed content shows, less its padding. */
 async function expectFitsScroller(panel: Locator): Promise<void> {
 	const fit = await panel.evaluate((el) => {
@@ -80,7 +94,7 @@ async function expectFitsScroller(panel: Locator): Promise<void> {
 test.describe("admin layout", () => {
 	test.use({ viewport: { width: 1920, height: 1080 } });
 
-	test("content is capped at 1440 px, compact, and each tab has its own h2 and title", async ({
+	test("the frame fills the window less the gutters, text and forms keep their measure, and each tab has its own h2 and title", async ({
 		page,
 	}) => {
 		await loginAs(page, "carol");
@@ -88,9 +102,17 @@ test.describe("admin layout", () => {
 
 		const main = page.getByTestId("page-admin");
 		await expect(main).toHaveAttribute("data-density", "compact", { timeout: 15_000 });
-		const box = await page.getByTestId("admin-content").boundingBox();
-		expect(box?.width).toBeLessThanOrEqual(1440);
-		expect(box?.width).toBeGreaterThan(1400);
+		const frame = await boxOf(page.getByTestId("admin-frame"));
+		expect(frame.x).toBe(GUTTER);
+		expect(frame.width).toBe(1920 - 2 * GUTTER);
+		// The table takes the width; the intro keeps its reading measure.
+		const content = await boxOf(page.getByTestId("admin-content"));
+		const table = await boxOf(page.getByTestId("admin-accounts"));
+		// The content's padding and the table's own border are all that sit beside it.
+		expect(table.width).toBeGreaterThanOrEqual(content.width - 2 * 16 - 2);
+		await expectMeasure(page.getByTestId("intro-admin-users"));
+		await page.getByTestId("admin-tab-settings").click();
+		await expectMeasure(page.getByTestId("settings-sections"));
 
 		for (const [tab, name] of [
 			["users", "Users"],
@@ -213,11 +235,10 @@ test.describe("admin layout", () => {
 				frameBox.x + frameBox.width - 1,
 				0,
 			);
-			// The frame is centred, at most 1440 px, with at least the page gutter outside it,
+			// The frame fills the window less the page gutter on each side,
 			// and runs from the header to the foot of the window.
-			expect(frameBox.width).toBeLessThanOrEqual(1440);
-			expect(frameBox.x).toBeGreaterThanOrEqual(16);
-			expect(frameBox.x).toBeCloseTo((width - frameBox.width) / 2, 0);
+			expect(frameBox.x).toBe(GUTTER);
+			expect(frameBox.width).toBe(width - 2 * GUTTER);
 			expect(frameBox.y + frameBox.height).toBeCloseTo(800, 0);
 			const lines = await page.getByTestId("admin-frame").evaluate((el) => {
 				const style = getComputedStyle(el);
@@ -286,6 +307,132 @@ test.describe("admin layout", () => {
 			expect(look.otherBackground).toBe("rgba(0, 0, 0, 0)");
 			expect(look.edge).toBe(look.accent);
 			expect(look.edgeHeight).toBe("2px");
+		});
+	}
+
+	for (const width of [900, 768]) {
+		test(`at ${width} px the tabs wrap to two rows whole and in order, nothing scrolls sideways, and the account menu opens`, async ({
+			page,
+			context,
+		}) => {
+			await page.setViewportSize({ width, height: 800 });
+			// A long name: the worst case for the header's width.
+			const { userId } = await createSignedInUser(context, "administrator");
+			await query("update users set display_name = $2 where id = $1", [
+				userId,
+				"Maximiliana Konstantinopoulou-Vanderberg",
+			]);
+			await page.goto("/admin/health");
+			const nav = page.getByRole("navigation", { name: "Administration" });
+			await expect(nav.getByRole("link", { name: "Health" })).toHaveAttribute(
+				"aria-current",
+				"page",
+				{ timeout: 15_000 },
+			);
+
+			const { headerBox, stripBox, frameBox, mainBox } = await frameLayout(page);
+			expect(headerBox.height).toBe(48);
+			expect(frameBox.x).toBe(GUTTER);
+			expect(frameBox.width).toBe(width - 2 * GUTTER);
+			expect(stripBox.height).toBe(stripHeight(2));
+			expect(mainBox.y).toBeCloseTo(stripBox.y + stripBox.height, 0);
+
+			// Two rows, read top row first then left to right, which is the document order.
+			const boxes = await tabBoxes(page);
+			expect(new Set(boxes.map((box) => box.y)).size).toBe(2);
+			expect([...boxes].sort((a, b) => a.y - b.y || a.x - b.x)).toEqual(boxes);
+			const whole = await nav.getByRole("link").evaluateAll((links) =>
+				links.map((link) => {
+					const label = link.querySelector("span") as HTMLElement;
+					const linkBox = link.getBoundingClientRect();
+					const range = document.createRange();
+					range.selectNodeContents(label);
+					const text = range.getBoundingClientRect();
+					return {
+						name: label.textContent,
+						whole:
+							text.left >= linkBox.left &&
+							text.right <= linkBox.right &&
+							linkBox.right <= window.innerWidth,
+					};
+				}),
+			);
+			expect(whole).toEqual(ADMIN_TAB_NAMES.map((name) => ({ name, whole: true })));
+
+			// The keyboard walks the tabs in the same order, across the row break.
+			await nav.getByRole("link", { name: "Users", exact: true }).focus();
+			for (const name of ADMIN_TAB_NAMES.slice(1)) {
+				await page.keyboard.press("Tab");
+				await expect(nav.getByRole("link", { name, exact: true })).toBeFocused();
+			}
+
+			// Neither the page nor the header scrolls sideways, on any tab.
+			for (const name of ADMIN_TAB_NAMES) {
+				const tab = nav.getByRole("link", { name, exact: true });
+				await tab.click();
+				await expect(tab).toHaveAttribute("aria-current", "page");
+				expect(
+					await page.evaluate(() => {
+						const header = document.querySelector(
+							"[data-testid=app-header]",
+						) as HTMLElement;
+						return {
+							page: document.documentElement.scrollWidth,
+							header: header.scrollWidth <= header.clientWidth,
+						};
+					}),
+				).toEqual({ page: width, header: true });
+			}
+
+			// The account stays on screen and its menu opens.
+			const me = page.getByTestId("me");
+			const meBox = await boxOf(me);
+			expect(meBox.x + meBox.width).toBeLessThanOrEqual(width);
+			await me.click();
+			await expect(page.getByRole("menuitem", { name: "Settings" })).toBeVisible();
+		});
+	}
+
+	test("at 768 px the Users detail panel stacks under the table, at the table's width", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 768, height: 800 });
+		await loginAs(page, "carol");
+		await page.goto("/admin/users");
+		await page
+			.getByTestId("page-admin")
+			.getByRole("button", { name: /^Show details for Carol Admin/ })
+			.click({ timeout: 15_000 });
+		const panel = page.getByTestId("workspace-detail");
+		await expect(panel).toBeVisible();
+		// The table's frame, which holds its border.
+		const table = await boxOf(page.getByTestId("admin-accounts").locator(".."));
+		const box = await boxOf(panel);
+		expect(box.y).toBeGreaterThan(table.y + table.height);
+		expect(box.x).toBeCloseTo(table.x, 0);
+		expect(box.width).toBeCloseTo(table.width, 0);
+		expect(await panel.evaluate((el) => getComputedStyle(el).position)).toBe("static");
+	});
+
+	for (const scheme of ["light", "dark"] as const) {
+		test(`at 768 px the admin page has no automatic violations (${scheme})`, async ({
+			page,
+		}) => {
+			await page.emulateMedia({ colorScheme: scheme });
+			await page.setViewportSize({ width: 768, height: 800 });
+			await loginAs(page, "carol");
+			await page.goto("/admin/users");
+			// Only Carol's row, so the scan does not grow with the run's accounts.
+			await page.getByTestId("admin-filter-text").fill("carol@example.edu");
+			await expect(page.locator("[data-testid^=account-row-]")).toHaveCount(1, {
+				timeout: 15_000,
+			});
+			await page
+				.getByTestId("page-admin")
+				.getByRole("button", { name: /^Show details for Carol Admin/ })
+				.click();
+			await expect(page.getByTestId("workspace-detail")).toBeVisible();
+			await expectNoViolations(page);
 		});
 	}
 
