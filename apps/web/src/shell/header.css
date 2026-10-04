@@ -51,40 +51,48 @@
 .pk-appbar-spacer {
 	flex: 1;
 }
-/* Page tabs inside the bar; the current one is underlined on the bar's bottom line. */
+/*
+ * Page tabs inside the bar, with the workspace tab look (`pk-tab`). Unlike
+ * workspace tabs they start at their content's width; as the bar narrows
+ * each shrinks, its name fading out at the right as theirs do, down to its icon alone.
+ */
 .pk-adminnav {
 	display: flex;
 	align-items: stretch;
 	align-self: stretch;
-	gap: var(--space-1);
+	min-width: 0;
 	margin-inline-start: var(--space-2);
 }
-.pk-adminnav a {
-	position: relative;
-	display: flex;
-	align-items: center;
-	padding: 0 var(--space-2);
-	color: var(--ink-muted);
-	font-size: 13px;
-	font-weight: 500;
-	text-decoration: none;
-	white-space: nowrap;
+/* Where the account name shows (90rem and wider), a long name gives way before any tab does. */
+@container (min-width: 90rem) {
+	.pk-adminnav {
+		flex-shrink: 0;
+	}
 }
-.pk-adminnav a:hover,
-.pk-adminnav a[aria-current="page"] {
-	color: var(--ink);
+/* Equal shares as workspace tabs have, but never wider than the name, so a short name is cut last. */
+.pk-adminnav > .pk-tab {
+	flex: 1 1 0;
+	max-width: max-content;
+	min-width: calc(
+		var(--size-icon-sm) +
+		var(--space-2) +
+		var(--space-1\.5) +
+		var(--pk-tab-fade) +
+		1px
+	);
+	padding: 0 0 0 var(--space-2);
 }
-.pk-adminnav a[aria-current="page"]::after {
-	content: "";
-	position: absolute;
-	inset-inline: var(--space-2);
-	bottom: -1px;
-	height: 2px;
-	background: var(--accent);
+.pk-adminnav > .pk-tab:first-child,
+.pk-adminnav > .pk-adminnav-group {
+	border-inline-start: 1px solid var(--line);
 }
-.pk-adminnav a:focus-visible {
-	outline: var(--ring-width) solid var(--focus);
-	outline-offset: var(--ring-offset-inset);
+.pk-adminnav > .pk-adminnav-group {
+	margin-inline-start: var(--space-3);
+}
+/* The label sized to its name would fade its last letters, so the fade gets room of its own; it is the tab's end padding too. */
+.pk-adminnav .pk-tab-label {
+	flex: 0 1 auto;
+	padding-inline-end: var(--pk-tab-fade);
 }
 .pk-account {
 	display: inline-flex;

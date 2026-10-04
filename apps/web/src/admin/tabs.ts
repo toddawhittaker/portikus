@@ -18,6 +18,20 @@ export const ADMIN_TABS = [
 ] as const;
 export type AdminTab = (typeof ADMIN_TABS)[number];
 
+/** Each tab's name: its link text in the header and the start of its page title. */
+export const ADMIN_TAB_LABEL: Record<AdminTab, string> = {
+	users: "Users",
+	health: "Health",
+	logs: "Logs",
+	audit: "Audit",
+	network: "Network",
+	backups: "Backups",
+	image: "Workspace image",
+	certificate: "Certificate",
+	docker: "Docker",
+	settings: "Settings",
+};
+
 export const DEFAULT_ADMIN_TAB: AdminTab = "users";
 
 /**

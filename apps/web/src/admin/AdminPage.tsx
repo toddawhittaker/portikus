@@ -1,10 +1,11 @@
-import { Link, Navigate, useParams } from "@tanstack/react-router";
+import { Navigate, useParams } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { AdminHelp } from "../help/AdminHelp.js";
 import { ADMIN_HELP_TITLE } from "../help/titles.js";
 import { usePageTitle } from "../pageTitle.js";
 import { AppHeader } from "../shell/AppHeader.js";
 import { gatePath, useMe } from "../useMe.js";
+import { AdminNav } from "./AdminNav.js";
 import { focusAdminHeading } from "./AdminSection.js";
 import { AuditTab } from "./audit/AuditTab.js";
 import { BackupsTab } from "./backups/BackupsTab.js";
@@ -17,52 +18,12 @@ import { NetworkTab } from "./network/NetworkTab.js";
 import { SettingsTab } from "./SettingsTab.js";
 import {
 	ADMIN_HELP_TAB,
-	ADMIN_TABS,
-	type AdminTab,
 	DEFAULT_ADMIN_TAB,
 	isAdminTab,
+	ADMIN_TAB_LABEL as TAB_LABEL,
 } from "./tabs.js";
 import { OperationEndToasts } from "./users/operationEnd.js";
 import { WorkspacesTab } from "./WorkspacesTab.js";
-
-const TAB_LABEL: Record<AdminTab, string> = {
-	users: "Users",
-	health: "Health",
-	logs: "Logs",
-	audit: "Audit",
-	network: "Network",
-	backups: "Backups",
-	image: "Workspace image",
-	certificate: "Certificate",
-	docker: "Docker",
-	settings: "Settings",
-};
-
-/** The first tab of each group after the first gets a thin gap before it. */
-const GROUP_START = new Set<AdminTab>(["health", "network"]);
-
-/**
- * The tabs, in the app header to give the tables its height back.
- * Links, not a tab widget, so each tab has an address.
- */
-function AdminNav({ tab }: { tab: AdminTab | null }) {
-	return (
-		<nav aria-label="Administration" className="pk-adminnav">
-			{ADMIN_TABS.map((item) => (
-				<Link
-					key={item}
-					to="/admin/$tab"
-					params={{ tab: item }}
-					data-testid={`admin-tab-${item}`}
-					aria-current={item === tab ? "page" : undefined}
-					className={GROUP_START.has(item) ? "ms-4" : undefined}
-				>
-					{TAB_LABEL[item]}
-				</Link>
-			))}
-		</nav>
-	);
-}
 
 /** The administration screen. Students never get here (SPEC.md §5.2, §6.4). */
 export function AdminPage() {
