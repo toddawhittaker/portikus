@@ -6,14 +6,19 @@ import {
 	precreateDexAccount,
 	requireRole,
 	requireUser,
+	resetSecondFactor,
 } from "@portikus/auth";
 import {
 	CreateDexUserRequest,
 	type CreateDexUserResponse,
 	type DexPasswordResponse,
 } from "@portikus/contracts";
+import type { Database } from "@portikus/db";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { Kysely } from "kysely";
+import { refuseInstallAdminChange } from "../admin/install-admin.js";
+import { notifyCredentialReset } from "../admin/reset-notice.js";
 import { disableUser, loadAdminUser, sendDisableRefusal } from "../admin/users.js";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
@@ -27,6 +32,17 @@ class DexCallFailed extends Error {
 	constructor(readonly grpcCode: number | null) {
 		super("dex call failed");
 	}
+}
+
+/** End every platform and preview session of an account. */
+async function endSessions(trx: Kysely<Database>, id: string): Promise<void> {
+	await trx.deleteFrom("sessions").where("user_id", "=", id).execute();
+	await trx
+		.updateTable("preview_sessions")
+		.set({ revoked_at: new Date().toISOString() })
+		.where("user_id", "=", id)
+		.where("revoked_at", "is", null)
+		.execute();
 }
 
 /** Run one Dex call, turning its failure into DexCallFailed. */
@@ -100,6 +116,36 @@ export function registerAdminDexUserRoutes(
 		});
 	}
 
+	/**
+	 * The account a credential reset is for, or null after answering: not
+	 * the caller's own, and not the install administrator (SPEC.md 24.13).
+	 */
+	async function resetTarget(
+		request: FastifyRequest,
+		reply: FastifyReply,
+		refusal: { self: string; action: string },
+	) {
+		const actor = requireUser(request);
+		const dex = dexOr404(reply);
+		if (!dex) return null;
+		const params = parseOr400(UuidParam, request.params, reply);
+		if (!params) return null;
+		const id = params.id;
+		if (id === actor.id) {
+			sendError(reply, 400, "VALIDATION_FAILED", refusal.self);
+			return null;
+		}
+		const refused = await refuseInstallAdminChange(db, config.OIDC_ISSUER_URL, {
+			request,
+			reply,
+			actorId: actor.id,
+			targetId: id,
+			action: refusal.action,
+		});
+		if (refused) return null;
+		return { actor, dex, id };
+	}
+
 	const notLocal = (reply: FastifyReply) =>
 		sendError(reply, 400, "VALIDATION_FAILED", "This account has no Dex password.");
 
@@ -170,21 +216,13 @@ export function registerAdminDexUserRoutes(
 
 	// A new password; the user's sessions end.
 	app.post("/admin/dex-users/:id/reset-password", adminOnly, async (request, reply) => {
-		const actor = requireUser(request);
-		const dex = dexOr404(reply);
-		if (!dex) return reply;
-		const params = parseOr400(UuidParam, request.params, reply);
-		if (!params) return;
-		const id = params.id;
 		// Resetting it would end the caller's own session before they saw the password.
-		if (id === actor.id) {
-			return sendError(
-				reply,
-				400,
-				"VALIDATION_FAILED",
-				"You cannot reset your own password here.",
-			);
-		}
+		const target = await resetTarget(request, reply, {
+			self: "You cannot reset your own password here.",
+			action: "dex_user.password_reset",
+		});
+		if (!target) return reply;
+		const { actor, dex, id } = target;
 		const password = generateDexPassword();
 		try {
 			const found = await findDexPassword(dex, id);
@@ -194,18 +232,11 @@ export function registerAdminDexUserRoutes(
 			if (found.found === "not_local") return notLocal(reply);
 			const hash = await hashDexPassword(password);
 			const updated = await db.transaction().execute(async (trx) => {
-				const now = new Date().toISOString();
-				await trx.deleteFrom("sessions").where("user_id", "=", id).execute();
+				await endSessions(trx, id);
 				await trx
 					.updateTable("users")
 					.set({ must_change_password: true })
 					.where("id", "=", id)
-					.execute();
-				await trx
-					.updateTable("preview_sessions")
-					.set({ revoked_at: now })
-					.where("user_id", "=", id)
-					.where("revoked_at", "is", null)
 					.execute();
 				await recordAudit(trx, {
 					actor: `user:${actor.id}`,
@@ -216,6 +247,7 @@ export function registerAdminDexUserRoutes(
 						...requestMetadata(request),
 					},
 				});
+				await notifyCredentialReset(trx, id, "password");
 				return viaDex(dex.updatePassword(found.email, hash));
 			});
 			if (updated === "not_found") return notLocal(reply);
@@ -226,6 +258,35 @@ export function registerAdminDexUserRoutes(
 		return out;
 	});
 
+	// Clear every second factor; the person enrols again at next sign-in.
+	app.post(
+		"/admin/dex-users/:id/reset-second-factor",
+		adminOnly,
+		async (request, reply) => {
+			const target = await resetTarget(request, reply, {
+				self: "You cannot reset your own two-factor sign-in here.",
+				action: "auth.second_factor_reset",
+			});
+			if (!target) return reply;
+			const { actor, dex, id } = target;
+			try {
+				const found = await findDexPassword(dex, id);
+				if (found.found === "no_account") {
+					return sendError(reply, 404, "NOT_FOUND", "User not found");
+				}
+				if (found.found === "not_local") return notLocal(reply);
+			} catch (err) {
+				return dexUnavailable(request, reply, err);
+			}
+			await db.transaction().execute(async (trx) => {
+				await resetSecondFactor(trx, id, `user:${actor.id}`);
+				await endSessions(trx, id);
+				await notifyCredentialReset(trx, id, "second_factor");
+			});
+			return loadAdminUser(deps, id);
+		},
+	);
+
 	// Delete the Dex password and disable the account.
 	app.post("/admin/dex-users/:id/remove", adminOnly, async (request, reply) => {
 		const actor = requireUser(request);
@@ -234,6 +295,14 @@ export function registerAdminDexUserRoutes(
 		const params = parseOr400(UuidParam, request.params, reply);
 		if (!params) return;
 		const id = params.id;
+		const refused = await refuseInstallAdminChange(db, config.OIDC_ISSUER_URL, {
+			request,
+			reply,
+			actorId: actor.id,
+			targetId: id,
+			action: "dex_user.removed",
+		});
+		if (refused) return reply;
 		try {
 			const found = await findDexPassword(dex, id);
 			if (found.found === "no_account") {

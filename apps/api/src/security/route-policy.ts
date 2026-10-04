@@ -210,6 +210,7 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"POST /admin/users/:id/remove-instructor": { access: "admin" },
 	"POST /admin/dex-users": { access: "admin" },
 	"POST /admin/dex-users/:id/reset-password": { access: "admin" },
+	"POST /admin/dex-users/:id/reset-second-factor": { access: "admin" },
 	"POST /admin/dex-users/:id/remove": { access: "admin" },
 	"GET /admin/invitations": { access: "admin" },
 	"HEAD /admin/invitations": { access: "admin" },
