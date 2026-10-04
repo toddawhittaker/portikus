@@ -464,6 +464,10 @@ test.skipIf(skip)("groups offered only in userinfo still decide the role", async
 		groups: [],
 		userinfoClaims: { groups: ["portikus-administrators"] },
 	};
+	await testDb.db
+		.insertInto("account_invitations")
+		.values({ email: "uma@example.edu", display_name: "Uma", role: "student" })
+		.execute();
 	try {
 		const result = await signInUnder({ OIDC_DEFAULT_ROLE: "none" }, "uma");
 		expect(result.status).toBe(302);

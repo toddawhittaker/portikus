@@ -80,6 +80,13 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		name: "Gail Student",
 		groups: [MOCK_GROUPS.student],
 	},
+	// Invitation tests only: nobody invites her until e2e/admin-invitations.spec.ts does.
+	nina: {
+		sub: "nina",
+		email: "nina@example.edu",
+		name: "Nina Newcomer",
+		groups: [MOCK_GROUPS.student],
+	},
 	// A student with a Dex local password, for e2e/second-factor.spec.ts:
 	// two-step sign-in covers students too (SPEC.md section 24.13).
 	lena: {

@@ -1,4 +1,4 @@
-import { LinkError, ProjectPath } from "@portikus/contracts";
+import { LinkError, NOT_INVITED_PATH, ProjectPath } from "@portikus/contracts";
 import {
 	createRootRoute,
 	createRoute,
@@ -25,6 +25,7 @@ import { useLinkedReload } from "./link/useLinkedReload.js";
 import { MIN_PREVIEW_PORT, UUID } from "./links.js";
 import { NotAuthorized } from "./pages/NotAuthorized.js";
 import { NotFound } from "./pages/NotFound.js";
+import { NotInvited } from "./pages/NotInvited.js";
 import { SessionEnded } from "./pages/SessionEnded.js";
 import { SignIn } from "./pages/SignIn.js";
 import { Unlinked } from "./pages/Unlinked.js";
@@ -139,6 +140,12 @@ const notAuthorizedRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/not-authorized",
 	component: NotAuthorized,
+});
+
+const notInvitedRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: NOT_INVITED_PATH,
+	component: NotInvited,
 });
 
 /** The SSO sign-in lands here to confirm a link (ADR 0026). */
@@ -372,6 +379,7 @@ export const routeTree = rootRoute.addChildren([
 	indexRoute,
 	sessionEndedRoute,
 	notAuthorizedRoute,
+	notInvitedRoute,
 	changePasswordRoute,
 	secondFactorRoute,
 	acceptableUseRoute,

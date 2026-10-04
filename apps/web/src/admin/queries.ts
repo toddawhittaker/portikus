@@ -4,7 +4,10 @@ import {
 	AdminWorkspaceDetail,
 	type CreateDexUserRequest,
 	CreateDexUserResponse,
+	type CreateInvitationRequest,
 	DexPasswordResponse,
+	Invitation,
+	InvitationList,
 	PlatformSettings,
 	type QuotaConfig,
 	type UpdateAdminUserSettingsRequest,
@@ -221,6 +224,26 @@ function useDexWrite<T, R>(run: (input: T) => Promise<R>) {
 export function useAddDexUser() {
 	return useDexWrite((body: CreateDexUserRequest) =>
 		request(CreateDexUserResponse, "/admin/dex-users", json("POST", body)),
+	);
+}
+
+/** Invitations nobody has claimed yet (SPEC.md section 24.13). */
+export function useInvitations() {
+	return useQuery({
+		queryKey: ["admin", "invitations"],
+		queryFn: () => request(InvitationList, "/admin/invitations"),
+	});
+}
+
+export function useCreateInvitation() {
+	return useDexWrite((body: CreateInvitationRequest) =>
+		request(Invitation, "/admin/invitations", json("POST", body)),
+	);
+}
+
+export function useRevokeInvitation() {
+	return useDexWrite(({ id }: { id: string }) =>
+		request(Invitation, `/admin/invitations/${id}/revoke`, { method: "POST" }),
 	);
 }
 

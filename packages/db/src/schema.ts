@@ -19,6 +19,7 @@ export interface Database {
 	sessions: SessionsTable;
 	user_second_factors: UserSecondFactorsTable;
 	user_recovery_codes: UserRecoveryCodesTable;
+	account_invitations: AccountInvitationsTable;
 	workspaces: WorkspacesTable;
 	workspace_connections: WorkspaceConnectionsTable;
 	terminals: TerminalsTable;
@@ -120,6 +121,22 @@ interface UserSecondFactorsTable {
 	last_step: ColumnType<string | null, number | null | undefined, number | null>;
 	created_at: ColumnType<Date, string | undefined, never>;
 	last_used_at: ColumnType<Date | null, string | null | undefined, string | null>;
+}
+
+/** An administrator's invitation; claiming it creates the account (SPEC.md section 24.13). */
+interface AccountInvitationsTable {
+	id: Generated<string>;
+	/** Lower-case. */
+	email: string;
+	/** An Entra user principal name or LDAP username; matched instead of email when set. */
+	username: string | null;
+	display_name: string;
+	role: string;
+	created_by: string | null;
+	created_at: ColumnType<Date, string | undefined, never>;
+	claimed_by: string | null;
+	claimed_at: ColumnType<Date | null, string | null | undefined, string | null>;
+	revoked_at: ColumnType<Date | null, string | null | undefined, string | null>;
 }
 
 /** A single-use recovery code, stored as a SHA-256 hash. */

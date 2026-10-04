@@ -14,7 +14,12 @@ import {
 	sessionCookieName,
 	sessionCookieOptions,
 } from "@portikus/auth";
-import type { ApiError, LinkError, MeResponse } from "@portikus/contracts";
+import {
+	type ApiError,
+	type LinkError,
+	type MeResponse,
+	NOT_INVITED_PATH,
+} from "@portikus/contracts";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { toAuthOptions } from "../auth-options.js";
@@ -141,7 +146,12 @@ export function registerAuthRoutes(
 			method: "oidc",
 			loginMetadata: requestMetadata(request),
 			roleChangeMetadata: { source: "oidc" },
+			emailVerified: claims.email_verified === true,
 		});
+		// The web app's page tells them to ask for an invitation (SPEC.md §24.13).
+		if (!signedIn.ok && signedIn.reason === "not_invited") {
+			return reply.redirect(NOT_INVITED_PATH, 302);
+		}
 		if (!signedIn.ok) return fail(reply, 403, "FORBIDDEN", DENIED_MESSAGE);
 		return reply.redirect("/", 302);
 	});

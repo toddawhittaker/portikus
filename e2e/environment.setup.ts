@@ -9,6 +9,26 @@ import { API_ORIGIN, apiLoginAs, query } from "./helpers";
  * wrong in a different way each run. Catch that here, once, with a clear
  * message instead of letting it look like flaky tests.
  */
+// The next check signs Carol in, so her invitation must exist first.
+test.describe.configure({ mode: "serial" });
+
+/**
+ * Only an invitation creates an SSO account (SPEC.md section 24.13), so the
+ * mock people the specs sign in are invited before any spec runs. Frank
+ * and Nina are left out: Frank never gets an account, and
+ * admin-invitations.spec.ts invites Nina itself.
+ */
+test("the mock people are invited", async () => {
+	for (const name of ["alice", "bob", "carol", "dave", "erin", "gail"]) {
+		await query(
+			`insert into account_invitations (email, display_name, role)
+			 select $1, $2, 'student'
+			 where not exists (select 1 from account_invitations where email = $1)`,
+			[`${name}@example.edu`, name],
+		);
+	}
+});
+
 test("the API under test reads the same database as the test helpers", async ({
 	request,
 }) => {
