@@ -45,9 +45,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	// Every /auth/ route is exempt; signing out with no session is a harmless
 	// redirect, and the CSRF check still applies.
 	"POST /auth/logout": { access: "public" },
-	// Loopback only; Caddy asks it before Dex's password form.
+	// Loopback only; Caddy asks it before each Dex sign-in page.
 	"GET /edge/signin-throttle": { access: "public" },
 	"HEAD /edge/signin-throttle": { access: "public" },
+	// Loopback only; Caddy hands it Dex's password posts (SPEC.md 24.13).
+	"POST /dex/auth/*": { access: "public" },
 	// Loopback only; Caddy's on-demand TLS asks it (SPEC.md 20.1).
 	"GET /edge/certificate-ask": { access: "public" },
 	"HEAD /edge/certificate-ask": { access: "public" },

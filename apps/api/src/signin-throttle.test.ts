@@ -63,15 +63,44 @@ describe("createSigninThrottle", () => {
 		expect(throttle.checkPassword("198.51.100.1").allowed).toBe(true);
 	});
 
-	test("refuses every address once 300 password attempts arrive in ten minutes", () => {
+	test("other clients' failures never refuse a fresh client (SPEC.md 24.13)", () => {
 		const { throttle } = fixture();
-		for (let i = 0; i < 300; i += 1) {
-			expect(throttle.checkPassword(`198.51.100.${i % 20}`).allowed).toBe(true);
+		// A thousand addresses each use up their allowance.
+		for (let a = 0; a < 1000; a += 1) {
+			for (let i = 0; i < 31; i += 1)
+				throttle.checkPassword(`10.${a >> 8}.${a & 255}.1`);
 		}
-		expect(throttle.checkPassword("203.0.113.99")).toEqual({
+		expect(throttle.checkPassword("203.0.113.99").allowed).toBe(true);
+		expect(throttle.checkAccount("fresh@example.edu").allowed).toBe(true);
+	});
+
+	test("an IPv6 /64 counts as one address; the next /64 is apart", () => {
+		const { throttle } = fixture();
+		for (let i = 0; i < 30; i += 1) {
+			expect(
+				throttle.checkPassword(`2001:db8:1:2::${(i + 1).toString(16)}`).allowed,
+			).toBe(true);
+		}
+		expect(throttle.checkPassword("2001:db8:1:2:ffff:ffff:ffff:ffff").allowed).toBe(
+			false,
+		);
+		expect(throttle.checkPassword("2001:db8:1:3::1").allowed).toBe(true);
+	});
+
+	test("counts wrong passwords per account, without case, and refuses the eleventh try", () => {
+		const { throttle, advance } = fixture();
+		for (let i = 0; i < 10; i += 1) {
+			expect(throttle.checkAccount("Alice@Example.edu").allowed).toBe(true);
+			throttle.accountFailed(i % 2 ? "alice@example.edu" : "ALICE@example.edu");
+		}
+		expect(throttle.checkAccount("alice@example.edu")).toEqual({
 			allowed: false,
 			audit: true,
 		});
+		expect(throttle.checkAccount("alice@example.edu").audit).toBe(false);
+		expect(throttle.checkAccount("bob@example.edu").allowed).toBe(true);
+		advance(10 * 60_000);
+		expect(throttle.checkAccount("alice@example.edu").allowed).toBe(true);
 	});
 
 	test("one address making 400 password attempts does not stop another address", () => {

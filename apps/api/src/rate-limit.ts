@@ -1,3 +1,4 @@
+import { isIPv4, isIPv6 } from "node:net";
 import type { ApiConfig } from "@portikus/config";
 import type { ApiError } from "@portikus/contracts";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -64,6 +65,25 @@ export function createCounter(
 		limit,
 		size: () => windows.size,
 	};
+}
+
+/**
+ * The key a per-address limit counts under. One IPv6 /64 is one subscriber,
+ * who can use any of its addresses, so it counts as one (SPEC.md section 24.13).
+ */
+export function addressKey(ip: string): string {
+	const mapped = ip.toLowerCase().match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+	if (mapped?.[1] && isIPv4(mapped[1])) return mapped[1];
+	if (!isIPv6(ip)) return ip;
+	const [head = "", tail = ""] = ip.toLowerCase().split("%")[0]?.split("::") ?? [];
+	const headParts = head ? head.split(":") : [];
+	const tailParts = tail ? tail.split(":") : [];
+	const missing = 8 - headParts.length - tailParts.length;
+	const groups = ip.includes("::")
+		? [...headParts, ...Array<string>(missing).fill("0"), ...tailParts]
+		: headParts;
+	const prefix = groups.slice(0, 4).map((g) => Number.parseInt(g, 16).toString(16));
+	return `${prefix.join(":")}::/64`;
 }
 
 export interface LimitDecision {

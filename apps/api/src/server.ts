@@ -11,6 +11,7 @@ import {
 } from "./certificate/edge.js";
 import { NonceStore } from "./certificate/preflight.js";
 import type { ServerDeps } from "./deps.js";
+import { registerDexPasswordRelay } from "./dex-password-relay.js";
 import { createListeningRegistry } from "./preview/registry.js";
 import { fileWriteLimit } from "./rate-limit.js";
 import { registerRequestMetrics } from "./request-metrics.js";
@@ -106,7 +107,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 	);
 
 	// Before the auth plugin, so its hook runs first.
-	registerSigninThrottle(app, deps);
+	const signinThrottle = registerSigninThrottle(app, deps);
 	// One websocket per running workspace tells the control plane what is
 	// listening inside it (BROWSER-HANDLING.md §11.1).
 	const registry = createListeningRegistry({
@@ -216,6 +217,11 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 		});
 		registerAuthRoutes(instance, deps);
 		registerSigninThrottleRoute(instance);
+		registerDexPasswordRelay(instance, {
+			db: deps.db,
+			config: deps.config,
+			throttle: signinThrottle,
+		});
 		registerCertificateEdgeRoutes(instance);
 		registerLtiRoutes(instance, deps);
 		registerCourseRoutes(instance, deps);

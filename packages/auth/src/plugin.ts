@@ -17,6 +17,9 @@ declare module "fastify" {
 
 const STATE_CHANGING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/** The route the API relays Dex's password form posts on (SPEC.md section 24.13). */
+export const DEX_PASSWORD_ROUTE = "/dex/auth/*";
+
 function headerValue(headers: IncomingHttpHeaders, name: string): string | null {
 	const value = headers[name];
 	if (typeof value === "string") {
@@ -106,6 +109,8 @@ function isExempt(request: FastifyRequest): boolean {
 	if (url.startsWith("/auth/")) return true;
 	// An LTI launch is how an LMS user gets a session in the first place.
 	if (url === "/lti/login" || url === "/lti/launch" || url === "/lti/jwks") return true;
+	// Dex's password form, relayed by the API, is how a session starts.
+	if (request.method === "POST" && url === DEX_PASSWORD_ROUTE) return true;
 	// The preview host never carries the main session cookie, and the edge
 	// authorization subrequest carries none at all: both authenticate with the
 	// preview session instead (BROWSER-HANDLING.md §9.2, §10).

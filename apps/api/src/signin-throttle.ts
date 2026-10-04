@@ -4,7 +4,7 @@ import { type Database, recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
 import { fromLoopback } from "./loopback.js";
-import { createCounter, type Window } from "./rate-limit.js";
+import { addressKey, createCounter, type Window } from "./rate-limit.js";
 
 /**
  * The sign-in rate limit (SPEC.md section 5.3). Counts live in this process, which the pilot runs one of.
@@ -12,8 +12,11 @@ import { createCounter, type Window } from "./rate-limit.js";
 
 const MINUTE_MS = 60_000;
 const TEN_MINUTES_MS = 10 * MINUTE_MS;
-/** The overall password limit is this many times the per-address one. */
-const PASSWORD_TOTAL_FACTOR = 10;
+/**
+ * Wrong passwords one account may take in ten minutes from browsers it has
+ * not signed in on before; the same as the password change form's limit.
+ */
+export const ACCOUNT_FAILURE_LIMIT = 10;
 /** The path Caddy asks about for Dex's sign-in pages and password form. */
 const EDGE_THROTTLE_PATH = "/edge/signin-throttle";
 // An LTI launch is a sign-in start too.
@@ -37,6 +40,13 @@ function decide(window: Window, refused: boolean): ThrottleDecision {
 	return { allowed: false, audit };
 }
 
+/** Dex compares logins without case, so the count does too. */
+export function accountKey(login: string): string {
+	return login.trim().toLowerCase();
+}
+
+export type SigninThrottle = ReturnType<typeof createSigninThrottle>;
+
 export function createSigninThrottle(options: {
 	startLimitPerMinute: number;
 	passwordLimitPer10Minutes: number;
@@ -49,24 +59,28 @@ export function createSigninThrottle(options: {
 		TEN_MINUTES_MS,
 		now,
 	);
-	const allPasswords = createCounter(
-		options.passwordLimitPer10Minutes * PASSWORD_TOTAL_FACTOR,
-		TEN_MINUTES_MS,
-		now,
-	);
+	const accountFailures = createCounter(ACCOUNT_FAILURE_LIMIT, TEN_MINUTES_MS, now);
 
+	// No site-wide count: other clients' failures never refuse a client
+	// (SPEC.md section 24.13).
 	return {
 		checkStart(ip: string): ThrottleDecision {
-			const window = starts.hit(ip);
+			const window = starts.hit(addressKey(ip));
 			return decide(window, window.count > starts.limit);
 		},
+		/** Counts every password post from this address, right or wrong. */
 		checkPassword(ip: string): ThrottleDecision {
-			const window = passwords.hit(ip);
-			if (window.count > passwords.limit) return decide(window, true);
-			// Only attempts the address limit let through count class-wide, so
-			// one address cannot use up everyone's allowance.
-			const total = allPasswords.hit("all");
-			return decide(window, total.count > allPasswords.limit);
+			const window = passwords.hit(addressKey(ip));
+			return decide(window, window.count > passwords.limit);
+		},
+		/** Whether this account may try a password now; counts nothing. */
+		checkAccount(login: string): ThrottleDecision {
+			const window = accountFailures.peek(accountKey(login));
+			return decide(window, window.count >= accountFailures.limit);
+		},
+		/** Count one wrong password against this account. */
+		accountFailed(login: string): void {
+			accountFailures.hit(accountKey(login));
 		},
 	};
 }
@@ -78,7 +92,7 @@ export function createSigninThrottle(options: {
 export function registerSigninThrottle(
 	app: FastifyInstance,
 	deps: { db: Kysely<Database>; config: ApiConfig },
-): void {
+): SigninThrottle {
 	const throttle = createSigninThrottle({
 		startLimitPerMinute: deps.config.SIGNIN_START_LIMIT_PER_MINUTE,
 		passwordLimitPer10Minutes: deps.config.PASSWORD_ATTEMPT_LIMIT_PER_10_MINUTES,
@@ -127,8 +141,9 @@ export function registerSigninThrottle(
 		}
 		// Caddy has already matched the decoded path, so every ask counts;
 		// matching the raw URI again here let encoded paths by. Caddy sets
-		// scope=start for Dex's sign-in pages, which each store a request, and
-		// scope=password for the password post; anything else counts as a password.
+		// scope=start for Dex's sign-in pages, which each store a request. The
+		// password post goes through the relay instead; any other ask still
+		// counts as a password, so no scope escapes counting.
 		// request.ip is the client Caddy named in X-Forwarded-For.
 		const { scope } = request.query as { scope?: string };
 		const decision =
@@ -146,6 +161,7 @@ export function registerSigninThrottle(
 		}
 		await reply.status(204).send();
 	});
+	return throttle;
 }
 
 /** The edge route itself; the hook above always answers it first. */

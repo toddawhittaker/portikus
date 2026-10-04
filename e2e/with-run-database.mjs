@@ -31,8 +31,8 @@ async function freePorts(count) {
 	return ports;
 }
 
-const [webPort, apiPort, oidcPort, agentPort, mockLmsPort, dexGrpcPort] =
-	await freePorts(6);
+const [webPort, apiPort, oidcPort, agentPort, mockLmsPort, dexGrpcPort, dexHttpPort] =
+	await freePorts(7);
 const created = await createRunDatabase(sharedUrl);
 // Run Playwright's CLI directly so a signal sent to this wrapper reaches it
 // without passing through pnpm, and Playwright stops the servers it started.
@@ -54,6 +54,7 @@ const child = spawn(
 			FAKE_AGENT_PORT: String(agentPort),
 			PORTIKUS_MOCK_LMS_PORT: String(mockLmsPort),
 			FAKE_DEX_GRPC_PORT: String(dexGrpcPort),
+			FAKE_DEX_HTTP_PORT: String(dexHttpPort),
 		},
 	},
 );

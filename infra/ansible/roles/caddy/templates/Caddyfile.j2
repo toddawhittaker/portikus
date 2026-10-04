@@ -231,10 +231,11 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 
 	# Dex, the sign-in provider (ADR 0023). It mounts its routes under the
 	# issuer's path, so the prefix is passed through unchanged. Dex has no
-	# lockout, so every password form post first asks the API's sign-in
-	# throttle (SPEC 5.3), and every other /dex/auth request counts as a sign-in
-	# start, because Dex keeps each one in memory for ten minutes. A 429 goes
-	# back to the browser unchanged.
+	# lockout, so every password form post goes to the API, which counts it
+	# per address and per account, audits a wrong password, and passes it on
+	# to Dex (SPEC 24.13). Every other /dex/auth request asks the API's
+	# sign-in throttle as a sign-in start, because Dex keeps each one in
+	# memory for ten minutes. A 429 goes back to the browser unchanged.
 	handle /dex/* {
 		# Only the paths the sign-in flow and the API use reach Dex; the rest,
 		# such as the unthrottled /dex/device/code, would store data for nothing.
@@ -271,11 +272,11 @@ https://{{ portikus_public_host }}:{{ portikus_public_port }} {
 			request_body {
 				max_size 16KB
 			}
-			# Each ask names its scope, so Caddy replaces the client's query
-			# instead of passing on a ?scope=start the client added.
-			forward_auth @dex_password_post 127.0.0.1:{{ portikus_api_port }} {
-				uri /edge/signin-throttle?scope=password
-			}
+			# The path and query go to the API as the client sent them, and
+			# the API sends them on to Dex.
+			reverse_proxy @dex_password_post 127.0.0.1:{{ portikus_api_port }}
+			# The ask names its scope, so Caddy replaces the client's query
+			# instead of passing on one the client added.
 			forward_auth @dex_signin_start 127.0.0.1:{{ portikus_api_port }} {
 				uri /edge/signin-throttle?scope=start
 			}
