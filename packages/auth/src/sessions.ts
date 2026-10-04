@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { Database } from "@portikus/db";
 import { type Kysely, sql } from "kysely";
+import { dexLocalUserId } from "./dex-subject.js";
 import { sha256Hex } from "./hash.js";
 import { secondFactorApplies } from "./second-factor.js";
 import type { AuthUser, Role } from "./types.js";
@@ -136,6 +137,33 @@ export async function createSession(
 }
 
 /**
+ * How long a session may rely on an administrator or instructor role that
+ * the identity provider gave, so a role removed there takes effect within
+ * this bound (SPEC.md section 24.13).
+ */
+export const ELEVATED_SESSION_MAX_SECONDS = 3600;
+
+/**
+ * True when the session's elevated role came from the identity provider's
+ * groups, not from a Portikus grant (a lower grant does not count). Launch sessions take their role from
+ * the launch, and Dex local-password accounts get theirs from Portikus.
+ */
+export function roleFromProvider(row: {
+	role: string;
+	granted_role: string | null;
+	method: string;
+	oidc_subject: string;
+}): boolean {
+	return (
+		row.role !== "student" &&
+		// The effective role is the higher of grant and provider role.
+		row.granted_role !== row.role &&
+		row.method !== "lti" &&
+		dexLocalUserId(row.oidc_subject) === null
+	);
+}
+
+/**
  * Resolve a session token to its user. Returns null when the session is
  * unknown or expired, when the account has been disabled, or when it is a
  * course account retired by a link (ADR 0026), so that
@@ -168,6 +196,8 @@ export async function loadSessionById(
 			"users.email",
 			"users.display_name",
 			"users.role",
+			"users.granted_role",
+			"sessions.created_at",
 			"users.disabled_at",
 			"users.must_change_password",
 			"users.acceptable_use_version as accepted_use_version",
@@ -223,7 +253,12 @@ export async function loadSessionById(
 		return null;
 	}
 
-	if (new Date(row.expires_at).getTime() <= Date.now()) {
+	const ended =
+		new Date(row.expires_at).getTime() <= Date.now() ||
+		(roleFromProvider(row) &&
+			Date.now() - new Date(row.created_at).getTime() >=
+				ELEVATED_SESSION_MAX_SECONDS * 1000);
+	if (ended) {
 		await db.deleteFrom("sessions").where("id", "=", id).execute();
 		return null;
 	}

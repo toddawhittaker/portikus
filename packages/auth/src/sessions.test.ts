@@ -5,9 +5,11 @@ import { precreateDexAccount } from "./links.js";
 import {
 	createSession,
 	deleteSession,
+	ELEVATED_SESSION_MAX_SECONDS,
 	hashSessionToken,
 	loadSession,
 	type OidcIdentity,
+	roleFromProvider,
 	sessionOrigin,
 	upsertUser,
 } from "./sessions.js";
@@ -456,5 +458,84 @@ describe("users and sessions", () => {
 
 		expect(await loadSession(t.db, stale)).toBeNull();
 		expect(await t.db.selectFrom("sessions").select("id").execute()).toHaveLength(1);
+	});
+
+	describe("an elevated role from the provider (SPEC.md section 24.13)", () => {
+		const oidc = { method: "oidc" as const, courseUserId: null };
+
+		/** A session created `ageSeconds` ago, with the normal twelve-hour expiry ahead. */
+		async function sessionAged(userId: string, ageSeconds: number, method = oidc) {
+			const { token } = await createSession(t.db, userId, 43200, method);
+			await t.db
+				.updateTable("sessions")
+				.set({
+					created_at: new Date(Date.now() - ageSeconds * 1000).toISOString(),
+				} as never)
+				.where("id", "=", hashSessionToken(token))
+				.execute();
+			return token;
+		}
+
+		test.skipIf(!hasTestDb())(
+			"a provider administrator's session ends at the limit and is removed",
+			async () => {
+				const user = await upsertUser(t.db, identity, "administrator");
+				const young = await sessionAged(user.id, ELEVATED_SESSION_MAX_SECONDS - 60);
+				const old = await sessionAged(user.id, ELEVATED_SESSION_MAX_SECONDS);
+				expect((await loadSession(t.db, young))?.role).toBe("administrator");
+				expect(await loadSession(t.db, old)).toBeNull();
+				const ids = await t.db.selectFrom("sessions").select("id").execute();
+				expect(ids.map((r) => r.id)).toEqual([hashSessionToken(young)]);
+			},
+		);
+
+		test.skipIf(!hasTestDb())("a provider instructor's session ends too", async () => {
+			const user = await upsertUser(t.db, identity, "instructor");
+			const old = await sessionAged(user.id, ELEVATED_SESSION_MAX_SECONDS + 1);
+			expect(await loadSession(t.db, old)).toBeNull();
+		});
+
+		test.skipIf(!hasTestDb())(
+			"granted administrators and students keep the full session",
+			async () => {
+				const admin = await upsertUser(t.db, identity, "student");
+				await grant(admin.id, "administrator");
+				const student = await upsertUser(
+					t.db,
+					{ ...identity, subject: "bob", email: "bob@example.edu" },
+					"student",
+				);
+				const age = ELEVATED_SESSION_MAX_SECONDS * 5;
+				expect((await loadSession(t.db, await sessionAged(admin.id, age)))?.role).toBe(
+					"administrator",
+				);
+				expect(
+					(await loadSession(t.db, await sessionAged(student.id, age)))?.role,
+				).toBe("student");
+			},
+		);
+
+		test("roleFromProvider covers only provider-given elevated roles", () => {
+			const base = {
+				role: "administrator",
+				granted_role: null,
+				method: "oidc",
+				oidc_subject: "alice",
+			};
+			expect(roleFromProvider(base)).toBe(true);
+			expect(roleFromProvider({ ...base, method: "link" })).toBe(true);
+			expect(roleFromProvider({ ...base, role: "student" })).toBe(false);
+			expect(roleFromProvider({ ...base, granted_role: "administrator" })).toBe(false);
+			expect(roleFromProvider({ ...base, granted_role: "instructor" })).toBe(true);
+			expect(
+				roleFromProvider({ ...base, role: "instructor", granted_role: "instructor" }),
+			).toBe(false);
+			expect(roleFromProvider({ ...base, method: "lti", role: "instructor" })).toBe(
+				false,
+			);
+			expect(
+				roleFromProvider({ ...base, oidc_subject: dexLocalSubject("local-admin") }),
+			).toBe(false);
+		});
 	});
 });

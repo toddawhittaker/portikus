@@ -6,7 +6,7 @@ import fp from "fastify-plugin";
 import type { Kysely } from "kysely";
 import { loadSession } from "./sessions.js";
 import type { AuthOptions, AuthUser, Role } from "./types.js";
-import { LOGIN_COOKIE, SESSION_COOKIE } from "./types.js";
+import { CONNECTOR_COOKIE, LOGIN_COOKIE, SESSION_COOKIE } from "./types.js";
 
 declare module "fastify" {
 	interface FastifyRequest {
@@ -62,6 +62,22 @@ export function sessionCookieName(auth: AuthOptions): string {
 
 export function loginCookieName(auth: AuthOptions): string {
 	return isSecure(auth) ? `__Host-${LOGIN_COOKIE}` : LOGIN_COOKIE;
+}
+
+export function connectorCookieName(auth: AuthOptions): string {
+	return isSecure(auth) ? `__Host-${CONNECTOR_COOKIE}` : CONNECTOR_COOKIE;
+}
+
+/** It names a connector, nothing secret, and outlives sign-out on purpose. */
+export function connectorCookieOptions(auth: AuthOptions): CookieSerializeOptions {
+	return {
+		httpOnly: true,
+		sameSite: "lax",
+		path: "/",
+		secure: isSecure(auth),
+		signed: true,
+		maxAge: 90 * 24 * 3600,
+	};
 }
 
 export function sessionCookieOptions(auth: AuthOptions): CookieSerializeOptions {

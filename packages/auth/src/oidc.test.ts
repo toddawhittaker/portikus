@@ -92,6 +92,16 @@ describe("createOidcClient against the mock provider", () => {
 		expect(again.searchParams.get("code_challenge_method")).toBe("S256");
 	});
 
+	test("Dex's connector_id is sent only when a connector is named", async () => {
+		const oidc = createOidcClient(authOptions(mock.issuer));
+		const plain = new URL((await oidc.buildLoginRedirect()).url);
+		expect(plain.searchParams.has("connector_id")).toBe(false);
+		const named = new URL(
+			(await oidc.buildLoginRedirect({ connectorId: "entra" })).url,
+		);
+		expect(named.searchParams.get("connector_id")).toBe("entra");
+	});
+
 	test("an authorization code can only be used once", async () => {
 		const oidc = createOidcClient(authOptions(mock.issuer));
 		const { url, state } = await oidc.buildLoginRedirect();

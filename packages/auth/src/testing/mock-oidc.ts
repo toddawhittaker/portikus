@@ -87,6 +87,14 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		name: "Nina Newcomer",
 		groups: [MOCK_GROUPS.student],
 	},
+	// Elevated-session tests only: Portikus last saw her as a provider
+	// administrator, and the provider has since removed the role.
+	rita: {
+		sub: "rita",
+		email: "rita@example.edu",
+		name: "Rita Demoted",
+		groups: [MOCK_GROUPS.student],
+	},
 	// A student with a Dex local password, for e2e/second-factor.spec.ts:
 	// two-step sign-in covers students too (SPEC.md section 24.13).
 	lena: {
