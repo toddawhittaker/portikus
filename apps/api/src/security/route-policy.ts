@@ -98,6 +98,13 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 	"GET /me/acceptable-use": { access: "self" },
 	"HEAD /me/acceptable-use": { access: "self" },
 	"POST /me/acceptable-use": { access: "self" },
+	// Two-step sign-in for Dex local passwords (SPEC.md section 24.13).
+	"GET /me/second-factor": { access: "self" },
+	"HEAD /me/second-factor": { access: "self" },
+	"POST /me/second-factor/totp/start": { access: "self" },
+	"POST /me/second-factor/totp": { access: "self" },
+	"POST /me/second-factor/verify": { access: "self" },
+	"DELETE /me/second-factor/:id": { access: "self" },
 
 	"GET /workspaces/:id": { access: "owner-or-admin" },
 	"HEAD /workspaces/:id": { access: "owner-or-admin" },

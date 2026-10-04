@@ -31,6 +31,7 @@ import { Unlinked } from "./pages/Unlinked.js";
 import { ChangePasswordPage } from "./password/ChangePasswordPage.js";
 import { ProjectIndex } from "./projects/ProjectIndex.js";
 import { useProjects } from "./projects/queries.js";
+import { SecondFactorPage } from "./second-factor/SecondFactorPage.js";
 import { gatePath, useMe } from "./useMe.js";
 import { WorkspacePage } from "./WorkspacePage.js";
 import { WorkArea } from "./work/WorkArea.js";
@@ -114,6 +115,12 @@ const changePasswordRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/change-password",
 	component: ChangePasswordPage,
+});
+
+const secondFactorRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/second-factor",
+	component: SecondFactorPage,
 });
 
 const acceptableUseRoute = createRoute({
@@ -366,6 +373,7 @@ export const routeTree = rootRoute.addChildren([
 	sessionEndedRoute,
 	notAuthorizedRoute,
 	changePasswordRoute,
+	secondFactorRoute,
 	acceptableUseRoute,
 	unlinkedRoute,
 	linkRoute,

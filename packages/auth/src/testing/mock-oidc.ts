@@ -80,6 +80,14 @@ export const MOCK_USERS: Record<string, MockUser> = {
 		name: "Gail Student",
 		groups: [MOCK_GROUPS.student],
 	},
+	// A student with a Dex local password, for e2e/second-factor.spec.ts:
+	// two-step sign-in covers students too (SPEC.md section 24.13).
+	lena: {
+		sub: dexLocalSubject("e2e-two-step"),
+		email: "lena@example.edu",
+		name: "Lena Student",
+		groups: [MOCK_GROUPS.student],
+	},
 	// The local administrator's Dex subject (SPEC.md section 5.1), for
 	// e2e/change-password.spec.ts. The mock admits only grouped people; the
 	// account's grant makes it an administrator.

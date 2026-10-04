@@ -244,6 +244,9 @@ importers:
       kysely:
         specifier: 0.29.6
         version: 0.29.6
+      qrcode-generator:
+        specifier: 2.0.4
+        version: 2.0.4
       ws:
         specifier: 8.22.0
         version: 8.22.0
@@ -3118,6 +3121,9 @@ packages:
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
+
+  qrcode-generator@2.0.4:
+    resolution: {integrity: sha512-mZSiP6RnbHl4xL2Ap5HfkjLnmxfKcPWpWe/c+5XxCuetEenqmNFf1FH/ftXPCtFG5/TDobjsjz6sSNL0Sr8Z9g==}
 
   quick-format-unescaped@4.0.4:
     resolution: {integrity: sha512-tYC1Q1hgyRuHgloV/YXs2w15unPVh8qfu/qCTfhTYamaw7fyhumKa2yGpdSo87vY32rIclj+4fWYQXUMs9EHvg==}
@@ -6022,6 +6028,8 @@ snapshots:
       once: 1.4.0
 
   punycode@2.3.1: {}
+
+  qrcode-generator@2.0.4: {}
 
   quick-format-unescaped@4.0.4: {}
 

@@ -38,6 +38,7 @@ import {
 	down as down0036,
 	up as up0036,
 } from "./0036_start_retries_and_controller_check.js";
+import { down as down0038, up as up0038 } from "./0038_second_factor.js";
 
 /**
  * Static migration map. Avoids a filesystem provider so the migrator works
@@ -80,4 +81,5 @@ export const migrations: Record<string, Migration> = {
 	"0034_keep_running": { up: up0034, down: down0034 },
 	"0035_docker_seed_images_set": { up: up0035, down: down0035 },
 	"0036_start_retries_and_controller_check": { up: up0036, down: down0036 },
+	"0038_second_factor": { up: up0038, down: down0038 },
 };

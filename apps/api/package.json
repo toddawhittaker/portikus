@@ -11,8 +11,8 @@
 	},
 	"dependencies": {
 		"@fastify/websocket": "11.3.1",
-		"@portikus/auth": "workspace:*",
 		"@portikus/agent-client": "workspace:*",
+		"@portikus/auth": "workspace:*",
 		"@portikus/config": "workspace:*",
 		"@portikus/contracts": "workspace:*",
 		"@portikus/db": "workspace:*",
@@ -20,6 +20,7 @@
 		"@portikus/observability": "workspace:*",
 		"fastify": "5.12.5",
 		"kysely": "0.29.6",
+		"qrcode-generator": "2.0.4",
 		"ws": "8.22.0",
 		"zod": "4.6.5"
 	},

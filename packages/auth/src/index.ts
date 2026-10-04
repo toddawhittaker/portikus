@@ -81,6 +81,16 @@ export {
 	revokeInstructor,
 } from "./roles.js";
 export {
+	checkSecondFactor,
+	enrolTotp,
+	markSecondFactorPassed,
+	openPendingTotp,
+	resetSecondFactor,
+	sealPendingTotp,
+	secondFactorApplies,
+	secondFactorKey,
+} from "./second-factor.js";
+export {
 	createSession,
 	deleteSession,
 	hashSessionToken,
@@ -91,4 +101,5 @@ export {
 	sessionOrigin,
 	upsertUser,
 } from "./sessions.js";
+export { base32Encode, generateTotpSecret, matchTotp, otpauthUri } from "./totp.js";
 export { type AuthOptions, mapRole, type Role } from "./types.js";

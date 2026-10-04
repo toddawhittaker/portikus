@@ -287,6 +287,10 @@ export const ApiErrorCode = z.enum([
 	"ACCEPTABLE_USE_CHANGED",
 	"NOT_LOCAL_PASSWORD",
 	"WRONG_PASSWORD",
+	// The second factor of Dex local passwords (SPEC.md section 24.13).
+	"SECOND_FACTOR_REQUIRED",
+	"WRONG_CODE",
+	"LAST_SECOND_FACTOR",
 	// journalctl missing, failing or refused (docs/adr/0036).
 	"LOGS_UNAVAILABLE",
 	// Backups from the admin page (SPEC.md section 24.9, ADR 0024).

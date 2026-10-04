@@ -20,6 +20,7 @@ export const USER = {
 	mustChangePassword: false,
 	mustAcceptUse: false,
 	localPassword: false,
+	secondFactor: null,
 };
 
 export const WORKSPACE = {
