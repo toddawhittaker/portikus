@@ -3,7 +3,6 @@ import {
 	dexLocalUserId,
 	generateDexPassword,
 	hashDexPassword,
-	precreateDexAccount,
 	requireRole,
 	requireUser,
 	resetSecondFactor,
@@ -17,22 +16,13 @@ import type { Database } from "@portikus/db";
 import { recordAudit } from "@portikus/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Kysely } from "kysely";
+import { createDexAccount, DexCallFailed, viaDex } from "../admin/dex-accounts.js";
 import { refuseInstallAdminChange } from "../admin/install-admin.js";
 import { notifyCredentialReset } from "../admin/reset-notice.js";
 import { disableUser, loadAdminUser, sendDisableRefusal } from "../admin/users.js";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import { requestMetadata } from "../sessions/start-session.js";
-
-/** Thrown inside a transaction to roll it back when Dex refuses the email. */
-class DexEmailTaken extends Error {}
-
-/** A failed Dex call, told apart from a database error. */
-class DexCallFailed extends Error {
-	constructor(readonly grpcCode: number | null) {
-		super("dex call failed");
-	}
-}
 
 /** End every platform and preview session of an account. */
 async function endSessions(trx: Kysely<Database>, id: string): Promise<void> {
@@ -43,16 +33,6 @@ async function endSessions(trx: Kysely<Database>, id: string): Promise<void> {
 		.where("user_id", "=", id)
 		.where("revoked_at", "is", null)
 		.execute();
-}
-
-/** Run one Dex call, turning its failure into DexCallFailed. */
-async function viaDex<T>(call: Promise<T>): Promise<T> {
-	try {
-		return await call;
-	} catch (err) {
-		const code = (err as { code?: unknown }).code;
-		throw new DexCallFailed(typeof code === "number" ? code : null);
-	}
 }
 
 /**
@@ -105,17 +85,6 @@ export function registerAdminDexUserRoutes(
 		return { found: "yes", email: password.email } as const;
 	}
 
-	/** Best effort: delete a Dex password whose account did not commit. */
-	async function removeOrphan(request: FastifyRequest, dex: DexApi, email: string) {
-		await dex.deletePassword(email).catch((err: unknown) => {
-			const code = (err as { code?: unknown }).code;
-			request.log.error(
-				{ grpcCode: typeof code === "number" ? code : null },
-				"dex password left without an account",
-			);
-		});
-	}
-
 	/**
 	 * The account a credential reset is for, or null after answering: not
 	 * the caller's own, and not the install administrator (SPEC.md 24.13).
@@ -160,54 +129,24 @@ export function registerAdminDexUserRoutes(
 		if (!body.success) {
 			return sendError(reply, 400, "VALIDATION_FAILED", body.error.message);
 		}
-		const { email, username, name, role } = body.data;
-		const dexUserId = crypto.randomUUID();
-		const password = generateDexPassword();
-		const hash = await hashDexPassword(password);
-		let id: string;
-		let dexCreated = false;
+		let created: Awaited<ReturnType<typeof createDexAccount>>;
 		try {
-			// The account and the Dex password are made together, or neither is.
-			id = await db.transaction().execute(async (trx) => {
-				const newId = await precreateDexAccount(trx, config.OIDC_ISSUER_URL, {
-					userId: dexUserId,
-					email,
-					username,
-					// Dex sends the username as the name claim, so the admin supplies it (SPEC.md section 5.1).
-					displayName: name,
-					role,
-					// The person chooses their own at first sign-in (SPEC.md section 5.2).
-					mustChangePassword: true,
-				});
-				await recordAudit(trx, {
-					actor: `user:${actor.id}`,
-					target: newId,
-					action: "dex_user.created",
-					result: "ok",
-					metadata: {
-						role,
-						...requestMetadata(request),
-					},
-				});
-				const created = await viaDex(
-					dex.createPassword({ email, username, userId: dexUserId, hash }),
-				);
-				if (created === "already_exists") throw new DexEmailTaken();
-				dexCreated = true;
-				return newId;
-			});
+			created = await createDexAccount(
+				{ db, dex, issuer: config.OIDC_ISSUER_URL, log: request.log },
+				{ ...body.data, actorId: actor.id, metadata: requestMetadata(request) },
+			);
 		} catch (err) {
-			if (dexCreated) await removeOrphan(request, dex, email);
-			if (err instanceof DexEmailTaken) {
-				return sendError(
-					reply,
-					409,
-					"DEX_USER_EXISTS",
-					"A Dex user with this email already exists.",
-				);
-			}
 			return dexUnavailable(request, reply, err);
 		}
+		if (created === "exists") {
+			return sendError(
+				reply,
+				409,
+				"DEX_USER_EXISTS",
+				"A Dex user with this email already exists.",
+			);
+		}
+		const { id, password } = created;
 		const user = await loadAdminUser(deps, id);
 		if (!user) throw new Error("the new account vanished");
 		const out: CreateDexUserResponse = { user, password };

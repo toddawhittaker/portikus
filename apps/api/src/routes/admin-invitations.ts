@@ -1,44 +1,15 @@
 import { requireRole, requireUser } from "@portikus/auth";
-import {
-	CreateInvitationRequest,
-	type Invitation,
-	type InvitationList,
-	type Role,
-} from "@portikus/contracts";
+import { CreateInvitationRequest, type InvitationList } from "@portikus/contracts";
 import { isUniqueViolation, recordAudit } from "@portikus/db";
 import type { FastifyInstance } from "fastify";
+import {
+	createInvitation,
+	INVITATION_COLUMNS,
+	toInvitation,
+} from "../admin/invitations.js";
 import type { ServerDeps } from "../deps.js";
 import { parseOr400, sendError, UuidParam } from "../http.js";
 import { requestMetadata } from "../sessions/start-session.js";
-
-interface InvitationRow {
-	id: string;
-	email: string;
-	username: string | null;
-	display_name: string;
-	role: string;
-	created_at: Date;
-}
-
-const COLUMNS = [
-	"id",
-	"email",
-	"username",
-	"display_name",
-	"role",
-	"created_at",
-] as const;
-
-function toInvitation(row: InvitationRow): Invitation {
-	return {
-		id: row.id,
-		email: row.email,
-		username: row.username,
-		displayName: row.display_name,
-		role: row.role as Role,
-		createdAt: row.created_at.toISOString(),
-	};
-}
 
 /**
  * Invite, list and revoke invitations; a first sign-in from an upstream
@@ -53,7 +24,7 @@ export function registerAdminInvitationRoutes(
 	app.get("/admin/invitations", adminOnly, async () => {
 		const rows = await db
 			.selectFrom("account_invitations")
-			.select(COLUMNS)
+			.select(INVITATION_COLUMNS)
 			.where("claimed_at", "is", null)
 			.where("revoked_at", "is", null)
 			.orderBy("created_at", "desc")
@@ -67,28 +38,13 @@ export function registerAdminInvitationRoutes(
 		const body = parseOr400(CreateInvitationRequest, request.body ?? {}, reply);
 		if (!body) return;
 		try {
-			const row = await db.transaction().execute(async (trx) => {
-				const created = await trx
-					.insertInto("account_invitations")
-					.values({
-						email: body.email,
-						username: body.username ?? null,
-						display_name: body.name,
-						role: body.role,
-						created_by: actor.id,
-					})
-					.returning(COLUMNS)
-					.executeTakeFirstOrThrow();
-				await recordAudit(trx, {
-					actor: `user:${actor.id}`,
-					target: `invitation:${created.id}`,
-					action: "admin.invitation_created",
-					result: "ok",
-					metadata: { role: body.role, ...requestMetadata(request) },
-				});
-				return created;
-			});
-			return reply.status(201).send(toInvitation(row));
+			const created = await createInvitation(
+				db,
+				actor.id,
+				body,
+				requestMetadata(request),
+			);
+			return reply.status(201).send(created);
 		} catch (err) {
 			if (!isUniqueViolation(err)) throw err;
 			return sendError(
@@ -111,7 +67,7 @@ export function registerAdminInvitationRoutes(
 				.where("id", "=", params.id)
 				.where("claimed_at", "is", null)
 				.where("revoked_at", "is", null)
-				.returning(COLUMNS)
+				.returning(INVITATION_COLUMNS)
 				.executeTakeFirst();
 			if (!revoked) return null;
 			await recordAudit(trx, {

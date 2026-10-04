@@ -1,4 +1,7 @@
 import {
+	AccountImportPreview,
+	type AccountImportRequest,
+	AccountImportResult,
 	AdminUser,
 	AdminUserList,
 	AdminWorkspaceDetail,
@@ -244,6 +247,25 @@ export function useCreateInvitation() {
 export function useRevokeInvitation() {
 	return useDexWrite(({ id }: { id: string }) =>
 		request(Invitation, `/admin/invitations/${id}/revoke`, { method: "POST" }),
+	);
+}
+
+/** Check an import file; nothing is created (SPEC.md section 5.1). */
+export function usePreviewImport() {
+	return useMutation({
+		mutationFn: (body: AccountImportRequest) =>
+			request(
+				AccountImportPreview,
+				"/admin/accounts/import/preview",
+				json("POST", body),
+			),
+	});
+}
+
+/** Create the valid rows of the same file, checked again by the server. */
+export function useConfirmImport() {
+	return useDexWrite((body: AccountImportRequest) =>
+		request(AccountImportResult, "/admin/accounts/import", json("POST", body)),
 	);
 }
 
