@@ -121,6 +121,10 @@ contents:
       owner: root
       group: root
       mode: 0755
+  # Started by OnFailure= on the units whose death it reports; never enabled.
+  - src: ./packaging/systemd/portikus-alert@.service
+    dst: /usr/lib/systemd/system/portikus-alert@.service
+    file_info: *unit_info
   # Started by postinst without waiting; never enabled.
   - src: ./packaging/systemd/portikus-setup.service
     dst: /usr/lib/systemd/system/portikus-setup.service

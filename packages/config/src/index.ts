@@ -117,6 +117,15 @@ const AlertFields = {
 	ALERT_WEBHOOK_URL: z.union([z.literal(""), z.string().url()]).default(""),
 };
 
+/**
+ * The egress proxy every request leaving the site goes through (ADR 0027):
+ * the API's sign-in and LMS keyset requests, and both processes' alerts.
+ * Unset sends directly, for development.
+ */
+const OutboundFields = {
+	OUTBOUND_PROXY_URL: z.string().url().optional(),
+};
+
 function previewSuffixIsDnsName(config: { PREVIEW_SUFFIX: string }): boolean {
 	return DNS_NAME.test(config.PREVIEW_SUFFIX);
 }
@@ -132,6 +141,7 @@ export const ApiConfigSchema = BaseConfig.extend({
 	DATABASE_URL: z.string().min(1),
 	...SharedWorkspaceFields,
 	...AlertFields,
+	...OutboundFields,
 	PUBLIC_URL: z.string().url().default("http://127.0.0.1:5173"),
 	OIDC_ISSUER_URL: z.string().url().default("http://127.0.0.1:3002"),
 	OIDC_CLIENT_ID: z.string().min(1).default("portikus-dev"),
@@ -145,8 +155,6 @@ export const ApiConfigSchema = BaseConfig.extend({
 	OIDC_INSTRUCTOR_GROUP: z.string().min(1).default("portikus-instructors"),
 	/** What a signed-in person gets when no group matches (SPEC.md section 5.1). */
 	OIDC_DEFAULT_ROLE: z.enum(["none", "student"]).default("none"),
-	/** Forward proxy for discovery, token, keyset and LMS keyset requests. */
-	OUTBOUND_PROXY_URL: z.string().url().optional(),
 	/** Dex gRPC API address and mutual TLS files; unset turns the Dex user routes off. */
 	DEX_GRPC_ADDR: z.string().min(1).optional(),
 	DEX_GRPC_CA: z.string().min(1).optional(),
@@ -348,6 +356,7 @@ export const WorkerConfigSchema = BaseConfig.extend({
 	CONTROLLER_TOKEN: z.string().default(DEV_TOKEN),
 	...SharedWorkspaceFields,
 	...AlertFields,
+	...OutboundFields,
 	/**
 	 * Seeds the `settings` row on the worker's first start. After that the
 	 * admin page owns the value and this variable is ignored (SPEC.md §6.4).

@@ -13,7 +13,7 @@ const CHANNEL_NAME = { pushover: "Pushover", webhook: "Webhook" } as const;
 function describe(response: TestAlertResponse): string[] {
 	if (response.results.length === 0)
 		return [
-			"No alert channel is set up, so nothing was sent. Set the Pushover keys or a webhook URL in /etc/portikus/alerts.env.",
+			"No alert channel is set up, so nothing was sent. Set the Pushover keys or a webhook URL in /etc/portikus/secrets.yaml on the server, then run sudo portikus setup.",
 		];
 	return response.results.map((r) =>
 		r.ok

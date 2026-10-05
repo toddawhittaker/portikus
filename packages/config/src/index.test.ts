@@ -763,3 +763,18 @@ test("alert channels default to off and a webhook must be a URL", () => {
 		loadConfig(ApiConfigSchema, { ...base, ALERT_WEBHOOK_URL: "not a url" }),
 	).toThrow(/ALERT_WEBHOOK_URL/);
 });
+
+// The worker unit reaches nothing outside but the egress proxy (ADR 0027).
+test("the worker reads the egress proxy for its alerts, and unset means none", () => {
+	const base = { DATABASE_URL: "postgres://localhost/portikus" };
+	expect(loadConfig(WorkerConfigSchema, base).OUTBOUND_PROXY_URL).toBeUndefined();
+	expect(
+		loadConfig(WorkerConfigSchema, {
+			...base,
+			OUTBOUND_PROXY_URL: "http://127.0.0.1:3128",
+		}).OUTBOUND_PROXY_URL,
+	).toBe("http://127.0.0.1:3128");
+	expect(() =>
+		loadConfig(WorkerConfigSchema, { ...base, OUTBOUND_PROXY_URL: "not a url" }),
+	).toThrow(/OUTBOUND_PROXY_URL/);
+});
