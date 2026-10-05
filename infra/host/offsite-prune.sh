@@ -20,6 +20,8 @@
 #     sets in place.
 # KEEP defaults to 7.  Nothing but set folders and their markers is touched.
 set -eu
+# find fails when the caller's directory is unreadable to this account.
+cd /
 
 die() { printf 'portikus-offsite-prune: %s\n' "$*" >&2; exit 1; }
 
