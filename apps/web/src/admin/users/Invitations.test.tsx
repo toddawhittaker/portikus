@@ -126,6 +126,26 @@ test("Revoke asks first, then removes the waiting row", async () => {
 		expect(screen.queryByTestId("invitation-nina@example.edu")).toBeNull(),
 	);
 	expect(writes.map((w) => w.url)).toEqual([`/admin/invitations/${NINA.id}/revoke`]);
+	// The row and its button are gone, so focus lands on the table, not the page.
+	await waitFor(() =>
+		expect(document.activeElement?.id).toBe("admin-accounts-caption"),
+	);
+});
+
+test("Cancel on Revoke puts focus back on the Revoke button", async () => {
+	stub([NINA]);
+	renderApp("/admin");
+	const button = await screen.findByRole("button", {
+		name: "Revoke the invitation for Nina Newcomer",
+	});
+	button.focus();
+	fireEvent.click(button);
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Revoke the invitation for Nina Newcomer?",
+	});
+	fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+	await waitFor(() => expect(document.activeElement).toBe(button));
+	expect(screen.getByTestId("invitation-nina@example.edu")).toBeTruthy();
 });
 
 test("a first sign-in without an invitation lands on a page that says what to do", async () => {

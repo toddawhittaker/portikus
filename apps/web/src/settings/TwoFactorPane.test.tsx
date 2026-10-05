@@ -151,7 +151,7 @@ test("a passkey is added and the list refreshes", async () => {
 	);
 });
 
-test("adding an authenticator app opens the setup steps, and Cancel closes them", async () => {
+test("adding an authenticator app opens the setup steps, and Cancel closes them, keeping focus", async () => {
 	stubFetch((url) => {
 		if (url === "/me/second-factor")
 			return json(200, { factors, recoveryCodesLeft: 7 });
@@ -165,10 +165,17 @@ test("adding an authenticator app opens the setup steps, and Cancel closes them"
 		throw new Error(`unexpected request to ${url}`);
 	});
 	renderWithQuery(<TwoFactorPane highlightId={null} />);
-	fireEvent.click(
-		await screen.findByRole("button", { name: "Add an authenticator app" }),
+	const add = await screen.findByRole("button", { name: "Add an authenticator app" });
+	add.focus();
+	fireEvent.click(add);
+	// The button goes away; the section heading holds focus instead of the page.
+	expect(document.activeElement).toBe(
+		screen.getByRole("heading", { name: "Add a sign-in method" }),
 	);
 	expect(await screen.findByAltText("QR code for your authenticator app")).toBeTruthy();
 	fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 	expect(screen.queryByAltText("QR code for your authenticator app")).toBeNull();
+	expect(document.activeElement).toBe(
+		screen.getByRole("button", { name: "Add an authenticator app" }),
+	);
 });
