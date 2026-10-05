@@ -4,6 +4,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import {
 	type Alert,
 	type AlertChannels,
+	alertChannelsFromConfig,
 	anyAlertChannel,
 	sendAlert,
 	sendPushover,
@@ -75,7 +76,11 @@ describe("webhook body", () => {
 describe("senders", () => {
 	test("the webhook posts the JSON body", async () => {
 		const fake = await fakeServer();
-		const result = await sendWebhook(`${fake.url}/hook/secret`, alert, "site-a");
+		const result = await sendWebhook(
+			{ ...off, webhookUrl: `${fake.url}/hook/secret` },
+			alert,
+			"site-a",
+		);
 		expect(result).toEqual({ channel: "webhook", ok: true });
 		expect(fake.got).toHaveLength(1);
 		expect(fake.got[0]?.path).toBe("/hook/secret");
@@ -104,9 +109,17 @@ describe("senders", () => {
 
 	test("a refused or unreachable send reports an error without the URL", async () => {
 		const fake = await fakeServer(500);
-		const refused = await sendWebhook(`${fake.url}/hook/secret`, alert, "s");
+		const refused = await sendWebhook(
+			{ ...off, webhookUrl: `${fake.url}/hook/secret` },
+			alert,
+			"s",
+		);
 		expect(refused).toEqual({ channel: "webhook", ok: false, error: "HTTP 500" });
-		const gone = await sendWebhook("http://127.0.0.1:1/hook/secret", alert, "s");
+		const gone = await sendWebhook(
+			{ ...off, webhookUrl: "http://127.0.0.1:1/hook/secret" },
+			alert,
+			"s",
+		);
 		expect(gone).toEqual({ channel: "webhook", ok: false, error: "unreachable" });
 	});
 
@@ -124,5 +137,43 @@ describe("senders", () => {
 		const results = await sendAlert(both, alert, "s", `${fake.url}/push`);
 		expect(results.map((r) => r.channel)).toEqual(["pushover", "webhook"]);
 		expect(fake.got.map((g) => g.path)).toEqual(["/push", "/hook"]);
+	});
+
+	// The API and worker units reach nothing outside but the egress proxy (ADR 0027).
+	test("with a proxy URL both channels go through the proxy", async () => {
+		const proxy = await fakeServer();
+		const channels: AlertChannels = {
+			pushoverUserKey: "u",
+			pushoverAppToken: "t",
+			webhookUrl: "http://hooks.example.invalid/services/T0",
+			proxyUrl: proxy.url,
+		};
+		const results = await sendAlert(
+			channels,
+			alert,
+			"s",
+			"http://api.pushover.example.invalid/1/messages.json",
+		);
+		expect(results).toEqual([
+			{ channel: "pushover", ok: true },
+			{ channel: "webhook", ok: true },
+		]);
+		expect(proxy.got.map((g) => g.path)).toEqual([
+			"http://api.pushover.example.invalid/1/messages.json",
+			"http://hooks.example.invalid/services/T0",
+		]);
+		expect(proxy.got[0]?.type).toBe("application/x-www-form-urlencoded");
+		expect(new URLSearchParams(proxy.got[0]?.body).get("token")).toBe("t");
+		expect(JSON.parse(proxy.got[1]?.body ?? "")).toEqual(webhookBody(alert, "s"));
+	});
+
+	test("the proxy URL comes from OUTBOUND_PROXY_URL", () => {
+		const channels = alertChannelsFromConfig({
+			ALERT_PUSHOVER_USER_KEY: "",
+			ALERT_PUSHOVER_APP_TOKEN: "",
+			ALERT_WEBHOOK_URL: "",
+			OUTBOUND_PROXY_URL: "http://127.0.0.1:3128",
+		});
+		expect(channels.proxyUrl).toBe("http://127.0.0.1:3128");
 	});
 });

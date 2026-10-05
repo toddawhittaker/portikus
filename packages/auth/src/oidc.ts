@@ -1,5 +1,5 @@
+import { createOutboundFetch } from "@portikus/observability";
 import * as client from "openid-client";
-import { createOutboundFetch } from "./outbound-fetch.js";
 import type { OidcIdentity } from "./sessions.js";
 import type { AuthOptions } from "./types.js";
 

@@ -103,6 +103,19 @@
     - Reload systemd for Caddy
     - Restart caddy
 
+# With Caddy down nobody reaches the admin page, so systemd reports it
+# (STACK.md section 15).  A unit-section change needs no restart.
+- name: Alert the administrator when Caddy fails
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/caddy.service.d/20-portikus-alert.conf
+    content: |
+      [Unit]
+      OnFailure=portikus-alert@%n.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd for Caddy
+
 - name: Enable and start Caddy
   ansible.builtin.systemd:
     name: caddy

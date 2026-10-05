@@ -6,10 +6,10 @@ import type { AddressInfo } from "node:net";
 import * as net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createOutboundFetch } from "@portikus/observability";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { createKeySetSource } from "./lti/validate.js";
 import { createOidcClient } from "./oidc.js";
-import { createOutboundFetch } from "./outbound-fetch.js";
 import {
 	MOCK_CLIENT_ID,
 	MOCK_CLIENT_SECRET,

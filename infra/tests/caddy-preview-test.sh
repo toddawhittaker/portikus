@@ -493,6 +493,32 @@ has "the preview proxies' shared rules have the delay" \
   '^[[:space:]]+stream_close_delay 1h$' "${preview}"
 
 echo ""
+echo "--- Slow clients (SPEC 24.13) ---"
+
+awk '/^\tservers \{$/ { on = 1 } on { print } on && /^\t\}$/ { exit }' "${work}/global-block" >"${work}/servers-block"
+has "a client has 10 seconds to send its headers" '^[[:space:]]+read_header 10s$' "${work}/servers-block"
+# The largest upload is MAX_UPLOAD_BYTES (50 MiB); 15 minutes fits it at 0.5 Mbit/s.
+has "a request body may take 15 minutes, so a large upload is never cut off" \
+  '^[[:space:]]+read_body 15m$' "${work}/servers-block"
+has "an idle keep-alive connection closes after 2 minutes" '^[[:space:]]+idle 2m$' "${work}/servers-block"
+has "request headers are capped at 64 KB" '^[[:space:]]+max_header_size 64KB$' "${work}/servers-block"
+# A write timeout would cut long downloads; upgraded WebSockets ignore the rest.
+lacks "no write timeout, which would cut a long download" '^[[:space:]]+write ' "${work}/servers-block"
+count_is "the limits are set once, for every site" 1 '^[[:space:]]+servers \{$' "${rendered}"
+
+echo ""
+echo "--- Framing and content sniffing (SPEC 24.3) ---"
+
+has "older browsers are told the same: no framing outside /lti/*" \
+  '^[[:space:]]+header @not_lti X-Frame-Options DENY$' "${app}"
+count_is "X-Frame-Options is only ever sent through the /lti/* exception" 1 'X-Frame-Options' "${app}"
+lacks "the header policy holds only frame-ancestors; the page's meta policy has the rest" \
+  'Content-Security-Policy "[^"]*(script-src|default-src)' "${app}"
+has "preview responses are never content-sniffed" '^[[:space:]]+X-Content-Type-Options nosniff$' "${preview}"
+lacks "previews carry no frame-ancestors, so the Preview tab can embed them" 'frame-ancestors' "${preview}"
+lacks "previews carry no X-Frame-Options of Portikus's own" 'X-Frame-Options' "${preview}"
+
+echo ""
 echo "--- Plain HTTP on port 80 ---"
 
 has "the site and the preview names have a plain HTTP block" \
@@ -696,6 +722,13 @@ PY
   expect "a client-sent upstream header does not move the target" \
     "upstream=tls" "$(get tls / -H "X-Portikus-Upstream: 127.0.0.1:${live_plain}")"
 
+  preview_headers="$(get plain / -D - -o /dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  expect "a preview response is marked nosniff" "x-content-type-options: nosniff" "${preview_headers}"
+  case "${preview_headers}" in
+    *frame-ancestors* | *x-frame-options*) bad "a preview response carries no framing policy of Portikus's own" ;;
+    *) ok "a preview response carries no framing policy of Portikus's own" ;;
+  esac
+
   expect "a WebSocket works over the TLS hop" \
     "tls:ping" "$(python3 "${work}/ws.py" "tls-5173.${PREVIEW_SUFFIX}" "${live_public}" 2>&1)"
   expect "a WebSocket still works over the plain hop" \
@@ -709,6 +742,15 @@ PY
     curl -sk --max-time 5 --resolve "${PUBLIC_HOST}:${live_public}:127.0.0.1" "$@" \
       "https://${PUBLIC_HOST}:${live_public}${p}" -o /dev/null
   }
+  site_headers="$(site /health -D - | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  expect "the control plane refuses framing by CSP" "content-security-policy: frame-ancestors 'none'" "${site_headers}"
+  expect "the control plane refuses framing for older browsers" "x-frame-options: deny" "${site_headers}"
+  lti_headers="$(site /lti/launch -D - | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  case "${lti_headers}" in
+    *frame-ancestors* | *x-frame-options*) bad "an LTI launch is left to the API's own framing policy" ;;
+    *) ok "an LTI launch is left to the API's own framing policy" ;;
+  esac
+
   get plain /edge/certificate-ask?domain=evil.example -o /dev/null
   get plain /workspaces/../edge/certificate-ask?domain=evil.example --path-as-is -o /dev/null
   site /edge/certificate-ask?domain=evil.example

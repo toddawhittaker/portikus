@@ -1,3 +1,4 @@
+import { createOutboundFetch } from "@portikus/observability";
 import {
 	compactVerify,
 	createRemoteJWKSet,
@@ -6,7 +7,6 @@ import {
 	errors,
 	type JWTVerifyGetKey,
 } from "jose";
-import { createOutboundFetch } from "../outbound-fetch.js";
 import { isOnOrigin } from "./login.js";
 import type { LtiPlatform } from "./platforms.js";
 import { type LtiRole, mapLtiRoles } from "./roles.js";

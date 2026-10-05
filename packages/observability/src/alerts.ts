@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { createOutboundFetch, type OutboundFetch } from "./outbound-fetch.js";
 
 /**
  * Administrator alerts pushed off the site (STACK.md section 15). An alert is
@@ -20,6 +21,8 @@ export interface AlertChannels {
 	pushoverUserKey: string;
 	pushoverAppToken: string;
 	webhookUrl: string;
+	/** The egress proxy every send goes through; unset sends directly, for development. */
+	proxyUrl?: string;
 }
 
 /**
@@ -50,11 +53,13 @@ export function alertChannelsFromConfig(config: {
 	ALERT_PUSHOVER_USER_KEY: string;
 	ALERT_PUSHOVER_APP_TOKEN: string;
 	ALERT_WEBHOOK_URL: string;
+	OUTBOUND_PROXY_URL?: string;
 }): AlertChannels {
 	return {
 		pushoverUserKey: config.ALERT_PUSHOVER_USER_KEY,
 		pushoverAppToken: config.ALERT_PUSHOVER_APP_TOKEN,
 		webhookUrl: config.ALERT_WEBHOOK_URL,
+		proxyUrl: config.OUTBOUND_PROXY_URL,
 	};
 }
 
@@ -82,13 +87,19 @@ export function webhookBody(alert: Alert, site: string): AlertWebhookBody {
 }
 
 /** Turn a failed fetch into a message that cannot carry the URL or a secret. */
-async function post(url: string, init: RequestInit): Promise<string | null> {
+async function post(
+	send: OutboundFetch,
+	url: string,
+	init: RequestInit,
+): Promise<string | null> {
 	try {
-		const res = await fetch(url, {
+		const res = await send(url, {
 			...init,
 			signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
 		});
-		await res.body?.cancel();
+		// Read, not cancelled: cancelling the proxied body leaves Node's stream
+		// adapter enqueueing into a closed stream, an uncaught exception.
+		await res.arrayBuffer();
 		return res.ok ? null : `HTTP ${res.status}`;
 	} catch (e) {
 		return e instanceof Error && e.name === "TimeoutError"
@@ -112,22 +123,31 @@ export async function sendPushover(
 		priority: alert.tone === "danger" ? "1" : "0",
 		timestamp: String(Math.floor(alert.at.getTime() / 1000)),
 	});
-	const error = await post(url, { method: "POST", body: form });
+	// The proxied fetch sends the body as a string, so the type is set here.
+	const error = await post(createOutboundFetch(channels.proxyUrl), url, {
+		method: "POST",
+		headers: { "content-type": "application/x-www-form-urlencoded" },
+		body: form.toString(),
+	});
 	return error
 		? { channel: "pushover", ok: false, error }
 		: { channel: "pushover", ok: true };
 }
 
 export async function sendWebhook(
-	webhookUrl: string,
+	channels: AlertChannels,
 	alert: Alert,
 	site: string,
 ): Promise<ChannelResult> {
-	const error = await post(webhookUrl, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify(webhookBody(alert, site)),
-	});
+	const error = await post(
+		createOutboundFetch(channels.proxyUrl),
+		channels.webhookUrl,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(webhookBody(alert, site)),
+		},
+	);
 	return error
 		? { channel: "webhook", ok: false, error }
 		: { channel: "webhook", ok: true };
@@ -144,6 +164,6 @@ export async function sendAlert(
 	if (pushoverConfigured(channels))
 		results.push(await sendPushover(channels, alert, site, pushoverUrl));
 	if (channels.webhookUrl !== "")
-		results.push(await sendWebhook(channels.webhookUrl, alert, site));
+		results.push(await sendWebhook(channels, alert, site));
 	return results;
 }

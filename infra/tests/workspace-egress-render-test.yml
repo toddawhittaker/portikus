@@ -22,6 +22,7 @@
     incus_network_name: "{{ site_vars.incus_network_name }}"
     incus_network_cidr: "{{ site_vars.incus_network_cidr }}"
     portikus_controller_port: "{{ site_vars.portikus_controller_port }}"
+    portikus_outbound_proxy_url: "{{ site_vars.portikus_outbound_proxy_url }}"
     caddy_challenge_port: "{{ site_vars.caddy_challenge_port }}"
     registry_cache_hub_port: "{{ site_vars.registry_cache_hub_port }}"
     registry_cache_ghcr_port: "{{ site_vars.registry_cache_ghcr_port }}"
@@ -202,12 +203,14 @@
               'iifname "portikus-ws" tcp dport { 5000, 5001 } ct state new add @registry_conns { ip saddr ct count over 256 } reject with tcp reset',
               'iifname "portikus-ws" tcp dport { 5000, 5001 } accept']
 
-    - name: Check the worker may open loopback connections only to the controller
+    # Its alerts leave through the egress proxy, which refuses loopback and
+    # private addresses, so the proxy is no way around Caddy.
+    - name: Check the worker may open loopback connections only to the controller and the egress proxy
       ansible.builtin.assert:
         that:
           - >-
             firewall_lines | select('search', 'portikus-worker') | list == [
-              'oif "lo" meta skuid "portikus-worker" ct state new tcp dport 3001 accept',
+              'oif "lo" meta skuid "portikus-worker" ct state new tcp dport { 3001, 3128 } accept',
               'oif "lo" meta skuid "portikus-worker" ct state new meta l4proto tcp reject with tcp reset',
               'oif "lo" meta skuid "portikus-worker" ct state new reject']
 

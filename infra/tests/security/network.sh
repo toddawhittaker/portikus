@@ -21,11 +21,19 @@ net_b_ip=$(sec_ws_ip b)
 net_bridge=$(sec_ssh "incus network get portikus-ws ipv4.address" | cut -d/ -f1)
 net_gateway=$(sec_ssh "ip -4 route show default" | awk '{ print $3; exit }')
 net_lan_gateway=$(ip -4 route show default | awk '{ print $3; exit }')
-echo "Workspace a ${net_a_ip}, workspace b ${net_b_ip}, bridge ${net_bridge}, VM ${SEC_VM}, libvirt host ${net_gateway}"
+if [ "$SEC_MODE" = host ]; then
+  # On a plain host there is no libvirt host: the platform and the host are
+  # one zone (SPEC.md 24.1), and its default gateway is the provider's router.
+  echo "Workspace a ${net_a_ip}, workspace b ${net_b_ip}, bridge ${net_bridge}, this host ${SEC_VM}, provider gateway ${net_gateway:-(none)}"
+  net_gateway=""
+else
+  echo "Workspace a ${net_a_ip}, workspace b ${net_b_ip}, bridge ${net_bridge}, VM ${SEC_VM}, libvirt host ${net_gateway}"
+fi
 
 # Every probe below dials these addresses; an empty one would dial nothing
 # and pass, so the module stops here instead.
-if [ -z "$net_a_ip" ] || [ -z "$net_b_ip" ] || [ -z "$net_bridge" ] || [ -z "$net_gateway" ]; then
+if [ -z "$net_a_ip" ] || [ -z "$net_b_ip" ] || [ -z "$net_bridge" ] \
+  || { [ "$SEC_MODE" = vm ] && [ -z "$net_gateway" ]; }; then
   bad "network setup: the addresses of a, b, the bridge and the libvirt host are all known"
   return 0
 fi
@@ -36,8 +44,16 @@ net_control="1.1.1.1,443"
 
 # The host's LAN address, taken from its default route as the Makefile does.
 # The site's name is no help here: this host may map it to the VM directly.
-net_lan_ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit } }')
-echo "Public site through the host's LAN address: ${net_lan_ip:-(unknown)} port ${SEC_PUBLIC_PORT}"
+net_lan_ip=$(sec_host_address)
+if [ "$SEC_MODE" = host ]; then
+  # Here the site's configured name is the real public address, unless
+  # /etc/hosts pins it to loopback, as setup does.
+  net_site_answer=$(getent ahostsv4 "$SEC_PUBLIC_HOST" | awk '{ print $1; exit }')
+  net_lan_ip=$(sec_site_address_or "$net_lan_ip" "$net_site_answer")
+  echo "Public site ${SEC_PUBLIC_HOST} resolves to ${net_site_answer:-(nothing)} here; probing ${net_lan_ip:-(nothing)} port ${SEC_PUBLIC_PORT}"
+else
+  echo "Public site through the host's LAN address: ${net_lan_ip:-(unknown)} port ${SEC_PUBLIC_PORT}"
+fi
 
 # Every IPv4 address this host holds, with 22, the published port, and each
 # port something listens on for that address.  The suite is meant to run on
@@ -45,7 +61,10 @@ echo "Public site through the host's LAN address: ${net_lan_ip:-(unknown)} port 
 net_host_targets() {
   local addrs listen addr port a
   addrs=$(ip -4 -o addr show | awk '{ split($4, x, "/"); if (x[1] !~ /^127\./) print x[1] }')
-  if ! printf '%s\n' "$addrs" | grep -qx "$net_gateway"; then
+  if [ "$SEC_MODE" = host ]; then
+    # The bridge address has its own group, which knows the ghcr.io cache's 443.
+    addrs=$(printf '%s\n' "$addrs" | grep -vxF "$net_bridge")
+  elif ! printf '%s\n' "$addrs" | grep -qx "$net_gateway"; then
     echo "WARN: not running on the libvirt host; probing only ${net_gateway}" >&2
     addrs="$net_gateway"
   fi
@@ -66,6 +85,9 @@ net_host_targets() {
 }
 
 net_vm_ports=(22 80 "${SEC_PUBLIC_PORT}" 443 2019 3000 3001 3002 5432 8443)
+# Dex's web and gRPC ports, which a misconfigured bind would expose on the
+# host's own address; the VM mode leaves them to the host-addresses group.
+[ "$SEC_MODE" = host ] && net_vm_ports+=(5556 5557)
 # With the ghcr.io cache on, 443 on the bridge address is the cache's
 # redirect; checks after the probes prove it reaches the cache and nothing else.
 net_bridge_ports=("${net_vm_ports[@]}")
@@ -112,8 +134,27 @@ declare -A net_group_names=(
   [peer]="the other workspace"
 )
 
+if [ "$SEC_MODE" = host ]; then
+  net_group_targets[libvirt-host]=""
+  net_group_names[vm-bridge]="this host on its bridge address"
+  net_group_names[vm-management]="this host on its public address (SSH, PostgreSQL, Dex, the API's ports, the Incus API)"
+  net_group_names[public-site]="the public site through ${SEC_PUBLIC_HOST} and its port"
+  net_group_names[lan-gateway]="the provider gateway on its private address"
+  sec_na "the libvirt host on the management network is unreachable" \
+    "plain-host mode: there is no libvirt host, the platform runs on this host"
+  # A private-range gateway must be blocked like any private address; a
+  # public one is part of the Internet that workspaces may reach.
+  if ! printf '%s\n' "$net_lan_gateway" | grep -qE '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)'; then
+    net_group_targets[lan-gateway]=""
+    sec_na "the host's LAN gateway is unreachable" \
+      "plain-host mode: the provider gateway ${net_lan_gateway:-(none)} is a public address, part of the Internet"
+  fi
+fi
+
 # The public-site probe counts only if the site really answers there.
-if [ -z "$net_lan_ip" ]; then
+if [ -z "$net_lan_ip" ] && [ "$SEC_MODE" = host ]; then
+  bad "the public site ${SEC_PUBLIC_HOST} has an address to probe"
+elif [ -z "$net_lan_ip" ]; then
   bad "the public site's name resolves to the host's LAN address"
 else
   check_output "this host reaches the public site at ${net_lan_ip}:${SEC_PUBLIC_PORT} (probe control)" "200" \
@@ -247,7 +288,10 @@ net_from_host() {
 }
 net_route=$(ip -4 route get "$net_a_ip" 2>/dev/null | head -1)
 echo "This host's route to workspace a: ${net_route:-(none)}"
-if [[ "$net_route" == *" via ${SEC_VM} "* ]]; then
+if [ "$SEC_MODE" = host ]; then
+  sec_na "the host reaches no workspace agent or application port" \
+    "plain-host mode: this host is the platform and reaches workspaces by design; run make external-port-check HOST=${SEC_PUBLIC_HOST} from another machine for the outside view"
+elif [[ "$net_route" == *" via ${SEC_VM} "* ]]; then
   check_output "the host reaches no workspace agent or application port" "" net_from_host
 else
   sec_na "the host reaches no workspace agent or application port" \

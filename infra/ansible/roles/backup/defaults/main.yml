@@ -4,3 +4,18 @@ backup_volume_name: portikus-backups
 # The starting size: a default home plus the recovery quota, and 2 GiB for
 # tar and gzip.  portikus-backup-export grows it for any larger volume.
 backup_volume_size_gib: "{{ portikus_workspace_home_size_gib + portikus_workspace_recovery_size_gib + 2 }}"
+
+# The off-server copy on an apt-installed server (SPEC.md section 24.9),
+# named like the other settings an operator puts in portikus.yaml:
+# user@host:path, reached with rsync over SSH and a key made for it.  Empty
+# turns it off.  The path must already exist on the target and hold nothing
+# but this server's sets.
+portikus_backup_offsite: ""  # noqa: var-naming[no-role-prefix]
+# The target's host key, the contents of its /etc/ssh/ssh_host_ed25519_key.pub.
+# Nothing connects until it is set: a key learned on first use is not trusted.
+portikus_backup_offsite_host_key: ""  # noqa: var-naming[no-role-prefix]
+portikus_backup_offsite_port: 22  # noqa: var-naming[no-role-prefix]
+# Sets kept on the target; older ones there are removed after each copy.
+portikus_backup_offsite_keep: 7  # noqa: var-naming[no-role-prefix]
+# rsync's limit in KiB per second (about 80 Mbit/s); 0 means no limit.
+portikus_backup_offsite_bwlimit_kib: 10000  # noqa: var-naming[no-role-prefix]

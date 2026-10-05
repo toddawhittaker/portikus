@@ -3,6 +3,8 @@
 Description=Portikus Worker
 After=network.target postgresql.service portikus-controller.service portikus-api.service
 Requires=postgresql.service
+# A crash alerts the administrator straight from systemd (STACK.md section 15).
+OnFailure=portikus-alert@%n.service
 ConditionPathExists=/etc/portikus/worker.env
 
 [Service]
@@ -11,6 +13,8 @@ Type=simple
 User=portikus-worker
 Group=portikus-worker
 EnvironmentFile=/etc/portikus/worker.env
+# Where alerts go; missing until setup writes it (STACK.md section 15).
+EnvironmentFile=-/etc/portikus/alerts.env
 EnvironmentFile=-/etc/portikus/worker.override.env
 ExecStart=/usr/lib/portikus/node/bin/node /usr/lib/portikus/worker/dist/index.js
 Restart=on-failure

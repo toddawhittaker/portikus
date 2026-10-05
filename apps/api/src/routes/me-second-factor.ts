@@ -84,7 +84,7 @@ export function registerMeSecondFactorRoutes(
 	deps: ServerDeps,
 ): void {
 	const { db, config } = deps;
-	const key = secondFactorKey(config.SESSION_COOKIE_SECRET);
+	const key = secondFactorKey(config.SECOND_FACTOR_KEY);
 	const throttle = createAccountThrottle();
 	const host = new URL(config.PUBLIC_URL).hostname;
 	const rp = relyingParty(config.PUBLIC_URL);

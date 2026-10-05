@@ -1,0 +1,92 @@
+---
+# The off-server copy (SPEC.md section 24.9): portikus-backup-offsite.timer
+# pushes the newest complete set with rsync over SSH.  The sets are already
+# encrypted, so the target never holds the key.
+
+- name: Create the off-site copy's settings directory
+  ansible.builtin.file:
+    path: /etc/portikus/backup-offsite
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Write the off-site copy's settings
+  ansible.builtin.copy:
+    content: |
+      target={{ portikus_backup_offsite }}
+      port={{ portikus_backup_offsite_port }}
+      keep={{ portikus_backup_offsite_keep }}
+      bwlimit={{ portikus_backup_offsite_bwlimit_kib }}
+    dest: /etc/portikus/backup-offsite/config
+    owner: root
+    group: root
+    mode: "0600"
+
+# Under a fixed alias, so the pin holds whatever the host name and port.
+- name: Pin the target's host key
+  ansible.builtin.copy:
+    content: "portikus-backup-offsite {{ (portikus_backup_offsite_host_key | trim).split()[0:2] | join(' ') }}\n"
+    dest: /etc/portikus/backup-offsite/known_hosts
+    owner: root
+    group: root
+    mode: "0600"
+  when: portikus_backup_offsite_host_key | trim | length > 0
+
+- name: Remove a host key pin that is no longer set
+  ansible.builtin.file:
+    path: /etc/portikus/backup-offsite/known_hosts
+    state: absent
+  when: portikus_backup_offsite_host_key | trim | length == 0
+
+- name: Check the off-site copy's settings
+  ansible.builtin.command:
+    cmd: /usr/lib/portikus/backup/portikus-backup-offsite check
+  register: backup_offsite_check
+  changed_when: false
+  check_mode: false
+
+- name: Turn the off-site copy on
+  when: portikus_backup_offsite | length > 0
+  block:
+    - name: Install rsync and the SSH client
+      ansible.builtin.apt:
+        name:
+          - rsync
+          - openssh-client
+        state: present
+
+    - name: Make the off-site copy's SSH key
+      ansible.builtin.command:
+        cmd: /usr/lib/portikus/backup/portikus-backup-offsite public-key
+        creates: /etc/portikus/backup-offsite/id_ed25519
+
+    - name: Read the off-site copy's public key
+      ansible.builtin.slurp:
+        src: /etc/portikus/backup-offsite/id_ed25519.pub
+      register: backup_offsite_pub
+
+    - name: Enable the off-site copy
+      ansible.builtin.systemd_service:
+        name: portikus-backup-offsite.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Say what the target needs
+      ansible.builtin.debug:
+        msg:
+          - "Off-site copy to {{ portikus_backup_offsite }}. The path must exist there. Add this line to the target account's ~/.ssh/authorized_keys:"
+          - "restrict {{ backup_offsite_pub.content | b64decode | trim }}"
+          - "{{ backup_offsite_check.stdout if portikus_backup_offsite_host_key | trim | length > 0 else backup_offsite_unpinned }}"
+      vars:
+        backup_offsite_unpinned: >-
+          Set portikus_backup_offsite_host_key to the contents of the target's
+          /etc/ssh/ssh_host_ed25519_key.pub; until then nothing is copied.
+
+- name: Turn the off-site copy off
+  ansible.builtin.systemd_service:
+    name: portikus-backup-offsite.timer
+    enabled: false
+    state: stopped
+  when: portikus_backup_offsite | length == 0
