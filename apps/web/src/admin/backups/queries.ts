@@ -14,6 +14,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { request, sendJson, toApiError } from "../../api/request.js";
+import { downloadBlob } from "../../common/download.js";
 import { adminKeys } from "../queries.js";
 
 const backupsKey = ["admin", "backups"] as const;
@@ -130,15 +131,7 @@ export function useDownloadBackupKey() {
 				cache: "no-store",
 			});
 			if (!response.ok) throw await toApiError(response);
-			const url = URL.createObjectURL(await response.blob());
-			const link = document.createElement("a");
-			link.href = url;
-			link.download = BACKUP_KEY_FILE_NAME;
-			document.body.append(link);
-			link.click();
-			link.remove();
-			// Revoked once the browser has started the download, not before.
-			setTimeout(() => URL.revokeObjectURL(url), 1000);
+			downloadBlob(BACKUP_KEY_FILE_NAME, await response.blob());
 		},
 		onSettled: () => {
 			void client.invalidateQueries({ queryKey: backupKeyKey });

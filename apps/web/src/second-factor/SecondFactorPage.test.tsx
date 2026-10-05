@@ -148,7 +148,13 @@ test("an account without a factor is sent to set one up, with the QR code and ke
 	});
 	await waitFor(() => expect(document.activeElement).toBe(heading));
 	expect(await screen.findByAltText("QR code for your authenticator app")).toBeTruthy();
-	expect(screen.getByTestId("totp-secret").textContent).toBe(START.secret);
+	// Grouped for reading; Copy key gives the unspaced value.
+	expect(screen.getByTestId("totp-secret").textContent).toBe("JBSW Y3DP EHPK 3PXP");
+	const writeText = vi.fn(async () => {});
+	vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+	fireEvent.click(screen.getByRole("button", { name: "Copy key" }));
+	expect(await screen.findByText("Key copied.")).toBeTruthy();
+	expect(writeText).toHaveBeenCalledWith(START.secret);
 	const field = screen.getByLabelText("Code from your app");
 	expect(field.getAttribute("autocomplete")).toBe("one-time-code");
 	expect(field.getAttribute("inputmode")).toBe("numeric");

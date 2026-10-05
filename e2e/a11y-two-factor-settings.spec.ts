@@ -50,10 +50,22 @@ for (const colorScheme of ["light", "dark"] as const) {
 			dialog.getByRole("heading", { name: "Your new recovery codes" }),
 		).toBeFocused();
 		await expectNoViolations(page, "[data-testid=dialog-editor-settings]");
+		// With the copy confirmation showing.
+		await dialog.getByRole("button", { name: "Copy codes" }).click();
+		await expect(dialog.getByRole("status").filter({ hasText: /cop/i })).toBeVisible();
+		await expectNoViolations(page, "[data-testid=dialog-editor-settings]");
 
 		await page.getByRole("button", { name: "I have saved them, continue" }).click();
 		await dialog.getByRole("button", { name: "Add an authenticator app" }).click();
+		// The button is gone, so its section heading takes focus.
+		await expect(
+			dialog.getByRole("heading", { name: "Add a sign-in method" }),
+		).toBeFocused();
 		await expect(dialog.getByTestId("totp-qr")).toBeVisible();
 		await expectNoViolations(page, "[data-testid=dialog-editor-settings]");
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(
+			dialog.getByRole("button", { name: "Add an authenticator app" }),
+		).toBeFocused();
 	});
 }

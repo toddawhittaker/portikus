@@ -4,9 +4,15 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { flushSync } from "react-dom";
 import { ApiError, errorText, sendJson } from "../api/request.js";
+import { CopyButton } from "./CopyButton.js";
 import { focusField } from "./focusField.js";
 
 const CODE_ID = "enrol-code";
+
+/** Easier to read and type; authenticator apps ignore the spaces. */
+export function groupsOfFour(secret: string): string {
+	return secret.match(/.{1,4}/g)?.join(" ") ?? "";
+}
 
 /**
  * Scan the QR code, or type the key, then confirm with the first code
@@ -85,9 +91,20 @@ export function EnrolTotp({ onEnrolled }: { onEnrolled: (codes: string[]) => voi
 				</li>
 				<li>
 					Can't scan it? Add an account by hand with this key:
-					<code className="pk-mono-body mt-1 block break-all" data-testid="totp-secret">
-						{start.data.secret}
-					</code>
+					<span className="mt-1 flex flex-wrap items-center gap-2">
+						<code
+							className="pk-mono-body min-w-0 break-words"
+							data-testid="totp-secret"
+						>
+							{groupsOfFour(start.data.secret)}
+						</code>
+						<CopyButton
+							label="Copy key"
+							text={start.data.secret}
+							copied="Key copied."
+							failed="Could not copy. Select the key instead."
+						/>
+					</span>
 				</li>
 				<li>Enter the 6-digit code the app shows.</li>
 			</ol>
